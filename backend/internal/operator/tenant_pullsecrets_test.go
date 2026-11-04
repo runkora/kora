@@ -11,7 +11,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 func systemPullSecret(name string) *corev1.Secret {
@@ -29,9 +29,9 @@ func replicatedPullSecret(name, ns, tenant string) *corev1.Secret {
 			Name:      name,
 			Namespace: ns,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "orbit-operator",
-				"orbit.io/component":           pullSecretComponent,
-				"orbit.io/tenant":              tenant,
+				"app.kubernetes.io/managed-by": "kora-operator",
+				"runkora.io/component":         pullSecretComponent,
+				"runkora.io/tenant":            tenant,
 			},
 		},
 		Type: corev1.SecretTypeDockerConfigJson,
@@ -44,8 +44,8 @@ func replicatedPullSecret(name, ns, tenant string) *corev1.Secret {
 // so the replica of a removed name stayed in every tenant namespace that had
 // received it and the revoked credential remained usable there.
 func TestEnsureImagePullSecrets_PrunesRemoved(t *testing.T) {
-	const ns = "orbit-tenant-example"
-	tenant := &OrbitTenant{ObjectMeta: metav1.ObjectMeta{Name: "example"}}
+	const ns = "kora-tenant-example"
+	tenant := &KoraTenant{ObjectMeta: metav1.ObjectMeta{Name: "example"}}
 
 	c := fake.NewClientBuilder().WithScheme(NewScheme()).WithObjects(
 		systemPullSecret("keep-registry"),
@@ -54,9 +54,9 @@ func TestEnsureImagePullSecrets_PrunesRemoved(t *testing.T) {
 		// Same managed-by label, different component: the tenant CA must
 		// survive the prune.
 		&corev1.Secret{ObjectMeta: metav1.ObjectMeta{
-			Name:      "orbit-tenant-ca",
+			Name:      "kora-tenant-ca",
 			Namespace: ns,
-			Labels:    map[string]string{"app.kubernetes.io/managed-by": "orbit-operator"},
+			Labels:    map[string]string{"app.kubernetes.io/managed-by": "kora-operator"},
 		}},
 	).Build()
 
@@ -72,18 +72,18 @@ func TestEnsureImagePullSecrets_PrunesRemoved(t *testing.T) {
 
 	assertSecretExists(t, c, ns, "keep-registry", true)
 	assertSecretExists(t, c, ns, "rotated-out", false)
-	assertSecretExists(t, c, ns, "orbit-tenant-ca", true)
+	assertSecretExists(t, c, ns, "kora-tenant-ca", true)
 }
 
 // TestEnsureImagePullSecrets_LabelsExistingReplica covers a replica created
 // before the component label existed. Without the label the prune cannot see
 // it, so reconciliation has to add it.
 func TestEnsureImagePullSecrets_LabelsExistingReplica(t *testing.T) {
-	const ns = "orbit-tenant-example"
-	tenant := &OrbitTenant{ObjectMeta: metav1.ObjectMeta{Name: "example"}}
+	const ns = "kora-tenant-example"
+	tenant := &KoraTenant{ObjectMeta: metav1.ObjectMeta{Name: "example"}}
 
 	unlabelled := replicatedPullSecret("keep-registry", ns, "example")
-	delete(unlabelled.Labels, "orbit.io/component")
+	delete(unlabelled.Labels, "runkora.io/component")
 
 	c := fake.NewClientBuilder().WithScheme(NewScheme()).WithObjects(
 		systemPullSecret("keep-registry"),
@@ -104,8 +104,8 @@ func TestEnsureImagePullSecrets_LabelsExistingReplica(t *testing.T) {
 	if err := c.Get(context.Background(), client.ObjectKey{Name: "keep-registry", Namespace: ns}, got); err != nil {
 		t.Fatalf("get replica: %v", err)
 	}
-	if got.Labels["orbit.io/component"] != pullSecretComponent {
-		t.Errorf("component label = %q, want %q", got.Labels["orbit.io/component"], pullSecretComponent)
+	if got.Labels["runkora.io/component"] != pullSecretComponent {
+		t.Errorf("component label = %q, want %q", got.Labels["runkora.io/component"], pullSecretComponent)
 	}
 }
 

@@ -7,7 +7,7 @@ import (
 )
 
 // An uncapped limit lets one request pull every usage row the tenant has.
-// See https://github.com/clear-route/orbit/issues/229.
+// See https://github.com/runkora/kora/issues/229.
 func TestParseAnalyticsPrincipalsFilter_Limit(t *testing.T) {
 	tests := []struct {
 		name      string

@@ -23,7 +23,7 @@ At both moments there is no session, no cookie, and no previously verified user 
 ### Background
 
 The initial implementation in PR #17 worked around this problem by:
-- Baking `ORBIT_OIDC_ISSUER_URL` and `ORBIT_OIDC_CLIENT_ID` into `next.config.ts` as build-time env vars — making the frontend single-tenant by construction
+- Baking `KORA_OIDC_ISSUER_URL` and `KORA_OIDC_CLIENT_ID` into `next.config.ts` as build-time env vars — making the frontend single-tenant by construction
 - Hardcoding `tenant_id: 'default'` in the BFF session route
 
 Both workarounds are fundamentally incompatible with the multi-tenant architecture. The same frontend build must be able to route any user to the correct tenant, and the same running instance must serve users from different tenants.
@@ -149,7 +149,7 @@ The `tenant_id` in PKCE `state` eliminates any server-side state requirement for
 
 - Users log in with only their email address — no organisational knowledge required
 - The `oidc-client-ts` singleton is replaced by a factory, making the OIDC client properly multi-tenant
-- Build-time baked env vars (`ORBIT_OIDC_ISSUER_URL`, `ORBIT_OIDC_CLIENT_ID`) are removed from `next.config.ts` — the frontend is no longer single-tenant by construction
+- Build-time baked env vars (`KORA_OIDC_ISSUER_URL`, `KORA_OIDC_CLIENT_ID`) are removed from `next.config.ts` — the frontend is no longer single-tenant by construction
 - The hardcoded `tenant_id: 'default'` in the BFF session route is replaced by a dynamically threaded value
 - The discovery endpoint is a natural fit for future subdomain routing: middleware can call it with the subdomain as a tenant hint rather than an email, bypassing the email input step entirely
 
@@ -164,7 +164,7 @@ The `tenant_id` in PKCE `state` eliminates any server-side state requirement for
 - `TenantOIDCConfig` gains an `EmailDomains []string` field in the tenant registry schema
 - `frontend/src/lib/oidc-client.ts` is rewritten from a lazy singleton to a `buildUserManager(issuerUrl, clientId, scopes)` factory
 - `frontend/src/app/(auth)/login/page.tsx` becomes a two-step component: email input, then SSO redirect
-- `frontend/next.config.ts` removes the `ORBIT_OIDC_ISSUER_URL` and `ORBIT_OIDC_CLIENT_ID` env declarations
+- `frontend/next.config.ts` removes the `KORA_OIDC_ISSUER_URL` and `KORA_OIDC_CLIENT_ID` env declarations
 
 ---
 
@@ -322,7 +322,7 @@ await fetch('/api/auth/session', {
 
 #### 8. Remove build-time OIDC env vars from `next.config.ts`
 
-The `ORBIT_OIDC_ISSUER_URL` and `ORBIT_OIDC_CLIENT_ID` entries are removed from `next.config.ts`. These env vars no longer exist in the multi-tenant backend configuration and must not be baked into the build.
+The `KORA_OIDC_ISSUER_URL` and `KORA_OIDC_CLIENT_ID` entries are removed from `next.config.ts`. These env vars no longer exist in the multi-tenant backend configuration and must not be baked into the build.
 
 ### Full Login Flow Sequence
 
@@ -359,7 +359,7 @@ Browser                  BFF (Next.js)              Backend
 
 ### Migration Path
 
-The existing single-tenant OIDC env vars (`ORBIT_OIDC_ISSUER_URL`, `ORBIT_OIDC_CLIENT_ID`) used by the PR #17 implementation are removed. Operators who referenced these vars must migrate to declaring their OIDC configuration in `config/tenants.yaml` (or the Kubernetes ConfigMap equivalent per [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md)) and setting `emailDomains` on their tenant record.
+The existing single-tenant OIDC env vars (`KORA_OIDC_ISSUER_URL`, `KORA_OIDC_CLIENT_ID`) used by the PR #17 implementation are removed. Operators who referenced these vars must migrate to declaring their OIDC configuration in `config/tenants.yaml` (or the Kubernetes ConfigMap equivalent per [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md)) and setting `emailDomains` on their tenant record.
 
 Local development requires adding `emailDomains: ["orbit.local.clearroute.io"]` to the `default` tenant entry in `config/tenants.yaml`. The local Dex user (`dev@orbit.local.clearroute.io`) will then resolve correctly through the discovery flow.
 
@@ -373,7 +373,7 @@ Local development requires adding `emailDomains: ["orbit.local.clearroute.io"]` 
 - A user entering an email with an unknown domain receives a clear "organisation not found" error and is not redirected
 - The browser's DevTools network panel shows no `client_secret` or internal tenant config in the `/api/auth/discover` response
 - The `tenant_id` received by `POST /identity/sessions` matches the tenant registered for the user's email domain
-- `next.config.ts` contains no references to `ORBIT_OIDC_ISSUER_URL` or `ORBIT_OIDC_CLIENT_ID`
+- `next.config.ts` contains no references to `KORA_OIDC_ISSUER_URL` or `KORA_OIDC_CLIENT_ID`
 
 ### Monitoring
 

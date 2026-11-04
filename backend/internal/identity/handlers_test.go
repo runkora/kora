@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // ── test helpers ──────────────────────────────────────────────────────────────
@@ -417,7 +417,7 @@ func TestHandleExchange_InvalidXFCC_Returns401(t *testing.T) {
 
 func TestHandleExchange_Success(t *testing.T) {
 	c, _, _, _, _, _ := newTestController(t)
-	xfcc := "URI=spiffe://orbit.test/tenant/platform-team/agent/agent-1"
+	xfcc := "URI=spiffe://runkora.test/tenant/platform-team/agent/agent-1"
 	w := postJSONWithXFCC(t, c.handleExchange, map[string]string{}, xfcc)
 	if w.Code != http.StatusOK {
 		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusOK, w.Body)

@@ -7,16 +7,16 @@ import (
 	"strings"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
-	"github.com/google/uuid"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
 // ── Environments ────────────────────────────────────────────────────────────
@@ -77,17 +77,25 @@ type Environment struct {
 	Size         EnvironmentSize `json:"size"`
 	EgressHosts  []string        `json:"egress_hosts"`
 	Connectors   []Connector     `json:"connectors"`
-	CreatedAt    time.Time       `json:"created_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
+	// Source is declarative.SourceAPI or SourceCRD. A crd row is read-only through the API.
+	Source string `json:"source"`
+	// ResourceUID is the UID of the Environment resource a crd row projects.
+	ResourceUID string `json:"-"`
+	// ResourceGeneration is the resource generation the crd row last applied.
+	ResourceGeneration int64 `json:"-"`
+	// Repository is the repository that drives a crd row, if its resource names one.
+	Repository string    `json:"repository,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // DefaultEnvironment is the environment of an agent with none attached. It runs
 // the base image at the default size with no egress or connectors.
-func DefaultEnvironment(size EnvironmentSize) Environment {
+func DefaultEnvironment(size EnvironmentSize, product string) Environment {
 	return Environment{
 		Slug:         DefaultEnvironmentName,
 		Name:         defaultEnvironmentDisplayName,
-		Description:  si.BaseDescription,
+		Description:  si.BaseDescription(product),
 		SandboxImage: si.BaseName,
 		Size:         size,
 		EgressHosts:  []string{},
@@ -220,6 +228,11 @@ type grantReconciler interface {
 	EnsureAgentGrant(ctx context.Context, at AgentType, namespace string) error
 }
 
+// agentWriteChecker authorizes an environment edit as a write to an attached agent.
+type agentWriteChecker interface {
+	checkEnvironmentEdit(ctx context.Context, at AgentType, env Environment) error
+}
+
 // EnvironmentService manages environment CRUD and recompiles the grants of
 // every agent an edited environment is attached to.
 type EnvironmentService struct {
@@ -227,8 +240,11 @@ type EnvironmentService struct {
 	agents agentsByEnvironment
 	images sandboxImageReader
 	grants grantReconciler
+	writes agentWriteChecker
 	cfg    EnvironmentServiceConfig
 	logger logging.Logger
+	// authoring can lock a tenant to its declarative resources.
+	authoring authoringSwitch
 }
 
 // NewEnvironmentService constructs an EnvironmentService.
@@ -237,10 +253,12 @@ func NewEnvironmentService(
 	agents agentsByEnvironment,
 	images sandboxImageReader,
 	grants grantReconciler,
+	writes agentWriteChecker,
+	authoring authoringSwitch,
 	cfg EnvironmentServiceConfig,
 	logger logging.Logger,
 ) *EnvironmentService {
-	return &EnvironmentService{repo: repo, agents: agents, images: images, grants: grants, cfg: cfg, logger: logger}
+	return &EnvironmentService{repo: repo, agents: agents, images: images, grants: grants, writes: writes, authoring: authoring, cfg: cfg, logger: logger}
 }
 
 // CreateEnvironment registers a new environment for the caller's tenant.
@@ -249,6 +267,10 @@ func (s *EnvironmentService) CreateEnvironment(ctx context.Context, req Environm
 	defer span.End()
 
 	env := s.fromRequest(tenantFromContext(ctx), uuid.NewString(), req)
+	if err := refuseAPIWrite(ctx, s.authoring, env.TenantID, declarative.SourceAPI); err != nil {
+		return nil, err
+	}
+	env.Source, env.ResourceUID, env.ResourceGeneration, env.Repository = sourceFor(ctx)
 	if env.Slug == "" {
 		env.Slug = deriveSlug(env.Name)
 	}
@@ -263,8 +285,7 @@ func (s *EnvironmentService) CreateEnvironment(ctx context.Context, req Environm
 		if errors.Is(err, ErrEnvironmentSlugTaken) {
 			return nil, ErrEnvironmentSlugTaken
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "create environment")
+		observability.RecordFailure(span, err, errSpanCreateEnvironment)
 		return nil, fmt.Errorf("create environment: %w", err)
 	}
 	return &env, nil
@@ -289,7 +310,7 @@ func (s *EnvironmentService) Sizes() EnvironmentSizes {
 // of the agents it is attached to.
 func (s *EnvironmentService) UpdateEnvironment(ctx context.Context, req EnvironmentRequest) (*Environment, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.UpdateEnvironment",
-		trace.WithAttributes(attribute.String("environment_id", req.ID)))
+		trace.WithAttributes(observability.EnvironmentIDKey.String(req.ID)))
 	defer span.End()
 
 	tenantID := tenantFromContext(ctx)
@@ -297,7 +318,15 @@ func (s *EnvironmentService) UpdateEnvironment(ctx context.Context, req Environm
 	if err != nil {
 		return nil, err
 	}
+	if err = refuseAPIWrite(ctx, s.authoring, tenantID, existing.Source); err != nil {
+		return nil, err
+	}
 	env := s.fromRequest(tenantID, existing.ID, req)
+	env.Source, env.ResourceUID, env.ResourceGeneration, env.Repository = existing.Source, existing.ResourceUID, existing.ResourceGeneration, existing.Repository
+	// A recreated resource takes over the row of the one it replaces.
+	if d, ok := declaredFromContext(ctx); ok {
+		env.ResourceUID, env.ResourceGeneration, env.Repository = d.resourceUID, d.generation, d.repository
+	}
 	if env.Slug == "" {
 		env.Slug = existing.Slug
 	}
@@ -308,39 +337,46 @@ func (s *EnvironmentService) UpdateEnvironment(ctx context.Context, req Environm
 	if err = s.validate(ctx, env); err != nil {
 		return nil, err
 	}
-	if err = s.repo.UpdateEnvironment(ctx, env); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "update environment")
-		return nil, fmt.Errorf("update environment: %w", err)
-	}
-
+	// The edit rewrites every attached agent's grant. It needs the authority to write each of those agents.
 	affected, err := s.agents.ListAgentTypesByEnvironment(ctx, tenantID, env.ID)
 	if err != nil {
-		s.logger.Warn(ctx, "list agents for environment re-reconcile failed",
-			logging.Field{Key: "environment_id", Value: env.ID},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-	} else {
-		s.reReconcileAgents(ctx, tenantID, affected)
+		return nil, fmt.Errorf("list agents for environment: %w", err)
 	}
+	for _, at := range affected {
+		if err = s.writes.checkEnvironmentEdit(ctx, at, env); err != nil {
+			return nil, fmt.Errorf("attached agent %q: %w", at.Slug, err)
+		}
+	}
+	if err = s.repo.UpdateEnvironment(ctx, env); err != nil {
+		observability.RecordFailure(span, err, errSpanUpdateEnvironment)
+		return nil, fmt.Errorf("update environment: %w", err)
+	}
+	s.reReconcileAgents(ctx, tenantID, affected)
 	return &env, nil
 }
 
 // DeleteEnvironment removes an environment no agent has attached.
 func (s *EnvironmentService) DeleteEnvironment(ctx context.Context, id string) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.DeleteEnvironment",
-		trace.WithAttributes(attribute.String("environment_id", id)))
+		trace.WithAttributes(observability.EnvironmentIDKey.String(id)))
 	defer span.End()
 
-	err := s.repo.DeleteEnvironment(ctx, tenantFromContext(ctx), id)
+	tenantID := tenantFromContext(ctx)
+	existing, err := s.repo.GetEnvironment(ctx, tenantID, id)
+	if err != nil {
+		return err
+	}
+	if err = refuseAPIWrite(ctx, s.authoring, tenantID, existing.Source); err != nil {
+		return err
+	}
+	err = s.repo.DeleteEnvironment(ctx, tenantID, id)
 	switch {
 	case err == nil:
 		return nil
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrEnvironmentInUse):
 		return err
 	default:
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "delete environment")
+		observability.RecordFailure(span, err, errSpanDeleteEnvironment)
 		return fmt.Errorf("delete environment: %w", err)
 	}
 }

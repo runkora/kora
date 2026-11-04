@@ -1,0 +1,5 @@
+# A product name set to null, which the frontend also refuses.
+theme:
+  document: |
+    koraVersion: "1.0.0"
+    productName: null

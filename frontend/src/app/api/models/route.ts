@@ -1,6 +1,6 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
+import { withAuth } from '@runkora/server/route-helpers';
 import { fetchRawModelsFromGateway } from '../../(dashboard)/model-gateway/_services/models-server';
 import { fetchEffectiveScopes } from '../../(dashboard)/policy/_services/policy-server';
 import { filterModelsByScopes } from './model-scope-filter';

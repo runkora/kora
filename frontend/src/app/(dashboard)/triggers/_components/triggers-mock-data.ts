@@ -1,4 +1,13 @@
-import type { SchedulePreviewResponse, TriggerEventTypes, TriggerField } from '@orbit/shared/api';
+import type {
+  ModelObject,
+  SchedulePreviewResponse,
+  TriggerDelivery,
+  TriggerEventTypes,
+  TriggerField,
+  TriggerRoutingCandidate,
+  TriggerRoutingDecision,
+} from '@runkora/shared/api';
+import { toDeliveryRow, toTriggerRow } from '../_types';
 import type { AgentOption, DeliveryRow, DeliveryRunRow, SourceRow, TriggerRow } from '../_types';
 
 /** Mock data for the Triggers page stories. Timestamps are relative to load time so "5m ago" reads right. */
@@ -15,21 +24,41 @@ function ago(ms: number): string {
 // ── Agents and sources ───────────────────────────────────────────────────────
 
 export const AGENTS: AgentOption[] = [
-  { id: 'at_8f3a1c92', slug: 'code-reviewer', name: 'Code Reviewer', identityMode: 'autonomous' },
-  { id: 'at_21b7d4e0', slug: 'coder', name: 'Coder', identityMode: 'autonomous' },
+  {
+    id: 'at_8f3a1c92',
+    slug: 'code-reviewer',
+    name: 'Code Reviewer',
+    identityMode: 'autonomous',
+    canRun: true,
+  },
+  { id: 'at_21b7d4e0', slug: 'coder', name: 'Coder', identityMode: 'autonomous', canRun: true },
   {
     id: 'at_5c90aa17',
     slug: 'security-reviewer',
     name: 'Security Reviewer',
     identityMode: 'autonomous',
+    canRun: true,
   },
-  { id: 'at_77e2f0b3', slug: 'docs-writer', name: 'Docs Writer', identityMode: 'autonomous' },
-  { id: 'at_09d6c5a8', slug: 'triage-bot', name: 'Triage Bot', identityMode: 'autonomous' },
+  {
+    id: 'at_77e2f0b3',
+    slug: 'docs-writer',
+    name: 'Docs Writer',
+    identityMode: 'autonomous',
+    canRun: true,
+  },
+  {
+    id: 'at_09d6c5a8',
+    slug: 'triage-bot',
+    name: 'Triage Bot',
+    identityMode: 'autonomous',
+    canRun: true,
+  },
   {
     id: 'at_c41e8b6d',
     slug: 'personal-assistant',
     name: 'Personal Assistant',
     identityMode: 'delegated',
+    canRun: true,
   },
 ];
 
@@ -44,31 +73,53 @@ export const SOURCES: SourceRow[] = [
     id: 'src_4d1f9a7c',
     name: 'acme-github',
     provider: 'github',
+    category: 'webhook',
     enabled: true,
+    signingSecretSet: true,
     createdAt: ago(41 * DAY),
     rejectionCount: 0,
     lastRejectionAt: null,
     lastRejectionReason: null,
+    declared: false,
   },
   {
     id: 'src_b82e3016',
     name: 'sentry-prod',
     provider: 'sentry',
+    category: 'webhook',
     enabled: true,
+    signingSecretSet: true,
     createdAt: ago(27 * DAY),
     rejectionCount: 3,
     lastRejectionAt: ago(2 * HOUR),
     lastRejectionReason: 'signature mismatch',
+    declared: false,
   },
   {
     id: 'src_0a6c57de',
     name: 'linear-workspace',
     provider: 'linear',
+    category: 'webhook',
     enabled: true,
+    signingSecretSet: true,
     createdAt: ago(19 * DAY),
     rejectionCount: 0,
     lastRejectionAt: null,
     lastRejectionReason: null,
+    declared: false,
+  },
+  {
+    id: 'src_7c3e51b9',
+    name: 'acme-slack',
+    provider: 'slack',
+    category: 'chat',
+    enabled: true,
+    signingSecretSet: true,
+    createdAt: ago(6 * DAY),
+    rejectionCount: 0,
+    lastRejectionAt: null,
+    lastRejectionReason: null,
+    declared: false,
   },
 ];
 
@@ -81,11 +132,16 @@ function trigger(
   const owner = agent(overrides.agentSlug);
   return {
     sourceId: '',
+    sourceMissing: false,
+    declared: false,
+    targetKind: 'agent',
     agentTypeId: owner.id,
+    routing: null,
     eventType: '',
     matchCondition: {},
     matchContains: {},
-    senderRestriction: { logins: [], associations: [] },
+    senderRestriction: { ids: [], roles: [] },
+    coalesce: null,
     promptTemplate: '',
     enabled: true,
     createdAt: ago(20 * DAY),
@@ -98,6 +154,7 @@ function trigger(
     consecutiveFailures: 0,
     autoPausedAt: null,
     pendingCount: 0,
+    canFire: true,
     ...overrides,
   };
 }
@@ -118,7 +175,11 @@ export const PR_REVIEW_TRIGGER = trigger({
   matchContains: {
     'payload.pull_request.head.repo.full_name': ['acme/'],
   },
-  senderRestriction: { logins: ['dependabot[bot]', 'jwilkin'], associations: ['MEMBER', 'OWNER'] },
+  senderRestriction: { ids: ['dependabot[bot]', 'jwilkin'], roles: ['MEMBER', 'OWNER'] },
+  coalesce: {
+    key: '{{payload.repository.full_name}}#{{payload.pull_request.number}}',
+    windowSeconds: 30,
+  },
   promptTemplate:
     'Review pull request #{{payload.pull_request.number}} in {{payload.repository.full_name}}.\n\nTitle: {{payload.pull_request.title}}\nAuthor: {{payload.sender.login}}\n\nLook for correctness bugs, missing tests and risky migrations. Leave inline comments and finish with a short summary.',
   maxParallel: 6,
@@ -129,8 +190,40 @@ export const PR_REVIEW_TRIGGER = trigger({
   pendingCount: 2,
 });
 
+/**
+ * A chat command trigger: stored as a webhook trigger on the Slack source,
+ * limited to two channels and two people.
+ */
+export const SLACK_MENTION_TRIGGER = trigger({
+  id: 'trg_4b9e1d27',
+  name: 'answer-platform-questions',
+  kind: 'webhook',
+  agentSlug: 'triage-bot',
+  sourceId: 'src_7c3e51b9',
+  eventType: 'mention',
+  matchCondition: { 'conversation.id': ['C04PLATFORM', 'C07ONCALL'] },
+  senderRestriction: { ids: ['U012AB3CD', 'U045EF6GH'], roles: [] },
+  coalesce: { key: '{{ conversation.id }}:{{ thread.id }}', windowSeconds: 10 },
+  promptTemplate:
+    'Answer {{ text }} from {{ user.id }}. Reply in thread {{ thread.id }} of conversation {{ conversation.id }}.',
+  maxParallel: 4,
+  createdAt: ago(5 * DAY),
+});
+
 export const TRIGGERS: TriggerRow[] = [
   PR_REVIEW_TRIGGER,
+  SLACK_MENTION_TRIGGER,
+  trigger({
+    id: 'trg_d2a6f08e',
+    name: 'personal-dm-helper',
+    kind: 'webhook',
+    agentSlug: 'docs-writer',
+    sourceId: 'src_7c3e51b9',
+    eventType: 'direct_message',
+    promptTemplate:
+      'Help {{ user.id }} with {{ text }}. Reply in conversation {{ conversation.id }}.',
+    createdAt: ago(4 * DAY),
+  }),
   trigger({
     id: 'trg_7a29d5f1',
     name: 'ci-failed-fixer',
@@ -304,6 +397,7 @@ function delivery(
     payloadPurged: false,
     receivedAt,
     runs: [outcome],
+    coalesceKeys: [],
     ...extra,
   };
 }
@@ -321,6 +415,8 @@ const CI_EXCERPT =
 const SENTRY_EXCERPT =
   '{"action":"created","data":{"issue":{"title":"TypeError: Cannot read properties of undefined (reading \'id\')","level":"error"}}}';
 
+const SLACK_EXCERPT =
+  '{"type":"event_callback","team_id":"T01ACME","event_id":"Ev08QX4","event":{"type":"app_mention","user":"U012AB3CD","channel":"C04PLATFORM","ts":"1792800000.000100","text":"<@U0BOT> why is the ledger deploy stuck?"}}';
 const START_RUN_ERROR =
   'start run: unexpected status from kora-agents: status 500: {"code":"internal","message":"failed to start run: sandbox pool exhausted"}';
 
@@ -333,6 +429,7 @@ const securitySweep = byName('weekly-security-sweep');
 const depAudit = byName('nightly-dependency-audit');
 const queueHealth = byName('queue-health-check');
 const releaseNotes = byName('draft-release-notes');
+const slackMention = byName('answer-platform-questions');
 const flaky = byName('rerun-flaky-tests');
 
 /** A pull request that fans out to two triggers, to show a multi-run delivery. */
@@ -349,8 +446,37 @@ const fanOut: DeliveryRow = (() => {
   return { ...base, payloadBytes: 18_240, runs: [...base.runs, second] };
 })();
 
+/** The newest fire in a coalesced burst: it ran, and replaced the one below. */
+const COALESCED_WINNER = delivery(prReview, 2 * MIN, 'dispatched', {
+  payloadExcerpt: PR_EXCERPT,
+  payloadBytes: 17_902,
+  coalesceKeys: [{ triggerId: prReview.id, key: 'acme/platform#1427', keyTooLong: false }],
+});
+
+/**
+ * An earlier fire with the same key, replaced while it waited in the window. The
+ * run is superseded and carries the reason; the delivery derives to skipped.
+ */
+const COALESCED_REPLACED = ((): DeliveryRow => {
+  const base = delivery(prReview, 3 * MIN, 'superseded', {
+    payloadExcerpt: PR_EXCERPT,
+    payloadBytes: 17_880,
+    coalesceKeys: [{ triggerId: prReview.id, key: 'acme/platform#1427', keyTooLong: false }],
+  });
+  return {
+    ...base,
+    status: 'skipped',
+    runs: base.runs.map((r) => ({
+      ...r,
+      error: 'replaced by a newer fire with the same coalescing key',
+      supersededBy: COALESCED_WINNER.id,
+    })),
+  };
+})();
+
 export const DELIVERIES: DeliveryRow[] = [
-  delivery(prReview, 2 * MIN, 'dispatched', { payloadExcerpt: PR_EXCERPT, payloadBytes: 17_902 }),
+  COALESCED_WINNER,
+  COALESCED_REPLACED,
   delivery(depAudit, 7 * MIN, 'dispatched', {
     scheduledAt: ago(7 * MIN),
     payloadBytes: 0,
@@ -368,6 +494,10 @@ export const DELIVERIES: DeliveryRow[] = [
     payloadBytes: 17_410,
   }),
   delivery(releaseNotes, 31 * MIN, 'dispatched', { firedBy: 'usr_42b7e9', payloadBytes: 64 }),
+  delivery(slackMention, 34 * MIN, 'dispatched', {
+    payloadExcerpt: SLACK_EXCERPT,
+    payloadBytes: 1_284,
+  }),
   delivery(incident, 38 * MIN, 'denied', {
     error: 'policy: agent docs-writer is not permitted to read alerts:read',
     payloadBytes: 4_982,
@@ -408,7 +538,8 @@ export const PURGED_DELIVERY: DeliveryRow = delivery(prReview, 40 * DAY, 'dispat
 });
 
 /** The delivery the detail story opens: a failed webhook with a payload and a wrapped error chain. */
-export const FAILED_DELIVERY: DeliveryRow = DELIVERIES[3] ?? PURGED_DELIVERY;
+export const FAILED_DELIVERY: DeliveryRow =
+  DELIVERIES.find((d) => d.status === 'failed') ?? PURGED_DELIVERY;
 
 /** The base fleet plus two dozen repository triggers, to check the list at scale. */
 export const MANY_TRIGGERS: TriggerRow[] = [
@@ -471,8 +602,84 @@ export const GITHUB_EVENT_TYPES: TriggerEventTypes = {
     'secret_scanning_alert',
   ],
   observed: ['pull_request', 'push', 'check_run', 'issue_comment'],
-  associations: ['OWNER', 'MEMBER', 'COLLABORATOR', 'CONTRIBUTOR', 'NONE'],
+  category: 'webhook',
+  senders: {
+    roles: [
+      { value: 'OWNER', label: 'Owner', description: 'Owns the repository' },
+      { value: 'MEMBER', label: 'Member', description: 'Member of the organization' },
+      { value: 'COLLABORATOR', label: 'Collaborator', description: 'Invited to the repository' },
+    ],
+  },
 };
+
+/** Alertmanager reports no sender, so its triggers have no sender restriction. */
+export const ALERTMANAGER_EVENT_TYPES: TriggerEventTypes = {
+  declared: ['alert.firing', 'alert.resolved'],
+  category: 'webhook',
+};
+
+/** Every chat source reads the chat schema. Slack identifies senders by id and reports no roles. */
+export const SLACK_EVENT_TYPES: TriggerEventTypes = {
+  declared: ['mention', 'direct_message'],
+  observed: ['mention'],
+  category: 'chat',
+  senders: { roles: [] },
+};
+
+/** The event types per provider, for the provider and source catalog routes. */
+export const EVENT_TYPES_BY_PROVIDER: Record<string, TriggerEventTypes> = {
+  github: GITHUB_EVENT_TYPES,
+  alertmanager: ALERTMANAGER_EVENT_TYPES,
+  // A generic source has no schema.
+  generic: { declared: [], category: 'webhook' },
+  slack: SLACK_EVENT_TYPES,
+};
+
+/** The fields of a chat event, from the chat schema, plus the meta fields. */
+export const CHAT_FIELDS: TriggerField[] = [
+  {
+    path: 'text',
+    group: 'event',
+    description:
+      'The message text as the platform sends it; empty for a message that carries only a file',
+  },
+  { path: 'platform', group: 'event', description: 'The chat platform, such as slack' },
+  { path: 'user.id', group: 'user', description: "The platform's id for the sender" },
+  {
+    path: 'conversation.id',
+    group: 'conversation',
+    description: "The platform's id for the conversation",
+  },
+  {
+    path: 'conversation.type',
+    group: 'conversation',
+    description: 'The kind of conversation: channel, private, dm or group',
+  },
+  {
+    path: 'thread.id',
+    group: 'thread',
+    description: "The thread's id; a message outside a thread is its own thread",
+  },
+  {
+    path: 'thread.started_by.id',
+    group: 'thread',
+    description: "The platform's id for the user who posted the thread's first message",
+  },
+  {
+    path: 'message.id',
+    group: 'message',
+    description:
+      "The platform's id for the message; it equals thread.id outside a thread and differs for a reply",
+  },
+  { path: 'workspace.id', group: 'workspace', description: "The platform's id for the workspace" },
+  { path: 'meta.event_type', group: 'meta', description: 'The event type of the delivery' },
+  { path: 'meta.delivery_id', group: 'meta', description: "The provider's ID for the delivery" },
+  {
+    path: 'meta.source',
+    group: 'meta',
+    description: 'The name of the source the delivery arrived on',
+  },
+];
 
 export const PULL_REQUEST_FIELDS: TriggerField[] = [
   { path: 'payload.action', group: 'Event', enum: ['opened', 'reopened', 'closed', 'synchronize'] },
@@ -496,3 +703,305 @@ export const SCHEDULE_PREVIEW: SchedulePreviewResponse = {
     { at: new Date(Date.now() + 78 * HOUR).toISOString(), label: 'In 4 days at 02:00 UTC' },
   ],
 };
+
+// ── Routing ──────────────────────────────────────────────────────────────────
+//
+// What "Let kora choose" reads: the candidates and model catalog the wizard
+// fetches, and routed triggers and deliveries mapped from their API shapes by
+// the page's own functions.
+
+const DESCRIPTIONS: Record<string, string> = {
+  'code-reviewer':
+    'Reviews pull requests for correctness, tests and readability, and leaves inline comments.',
+  coder: 'Implements a change from an issue or a failing check and opens a pull request for it.',
+  'security-reviewer':
+    'Reviews changes that touch auth, secrets or dependencies, and flags security risks.',
+  'docs-writer': 'Writes docs.',
+  'triage-bot': 'Labels new issues, finds duplicates and assigns an owner from CODEOWNERS.',
+};
+
+const EXTRA_AGENTS: [string, string, string][] = [
+  [
+    'release-manager',
+    'Release Manager',
+    'Drafts release notes from merged pull requests and tags a release candidate.',
+  ],
+  [
+    'dependency-bot',
+    'Dependency Bot',
+    'Upgrades dependencies, reads changelogs and opens one pull request per upgrade.',
+  ],
+  [
+    'flaky-test-hunter',
+    'Flaky Test Hunter',
+    'Reruns failed checks, spots flaky tests and quarantines them with an issue.',
+  ],
+  [
+    'incident-scribe',
+    'Incident Scribe',
+    'Summarises an incident channel into a timeline and a follow-up list.',
+  ],
+  [
+    'perf-analyst',
+    'Perf Analyst',
+    'Profiles slow endpoints from a benchmark run and proposes a fix.',
+  ],
+  [
+    'migration-checker',
+    'Migration Checker',
+    'Checks schema migrations for locks, backfills and rollback safety.',
+  ],
+];
+
+/**
+ * What GET /api/triggers/routing/candidates answers. `count` caps the runnable
+ * agents; one agent without a run grant and the delegated agent always follow,
+ * since both must show disabled.
+ */
+export function routingCandidates(
+  count: number,
+  descriptions: Record<string, string> = {},
+): TriggerRoutingCandidate[] {
+  const runnable: TriggerRoutingCandidate[] = [
+    ...AGENTS.filter((a) => a.identityMode !== 'delegated').map((a) => ({
+      id: a.id,
+      slug: a.slug,
+      name: a.name,
+      description: descriptions[a.slug] ?? DESCRIPTIONS[a.slug] ?? '',
+      identity_mode: 'autonomous' as const,
+      runnable: true,
+    })),
+    ...EXTRA_AGENTS.map(([slug, name, description], i) => ({
+      id: `at_r${String(i).padStart(2, '0')}`,
+      slug,
+      name,
+      description: descriptions[slug] ?? description,
+      identity_mode: 'autonomous' as const,
+      runnable: true,
+    })),
+  ];
+  const blocked: TriggerRoutingCandidate = {
+    id: 'at_noperm01',
+    slug: 'billing-agent',
+    name: 'Billing Agent',
+    description: 'Reconciles invoices against usage and raises disputes with the vendor.',
+    identity_mode: 'autonomous',
+    runnable: false,
+    reason: 'you do not hold agent:billing-agent:run',
+  };
+  const delegated: TriggerRoutingCandidate[] = AGENTS.filter(
+    (a) => a.identityMode === 'delegated',
+  ).map((a) => ({
+    id: a.id,
+    slug: a.slug,
+    name: a.name,
+    description: 'Works through your inbox and calendar as you.',
+    identity_mode: 'delegated',
+    runnable: false,
+    reason: 'delegated agents act for the person who runs them, so a trigger cannot start them',
+  }));
+  return [...runnable.slice(0, count), blocked, ...delegated];
+}
+
+function catalogModel(id: string, name: string, capability: 'decision' | 'chat'): ModelObject {
+  return {
+    id,
+    object: 'model',
+    created: 1_758_000_000,
+    owned_by: id.split('/')[0] ?? id,
+    family: id.split('/')[0] ?? id,
+    display_name: name,
+    status: 'available',
+    aliases: [],
+    input_modalities: ['text'],
+    output_modalities: ['text'],
+    dialects: capability === 'chat' ? ['openai', 'anthropic'] : [],
+    capabilities: [capability],
+  };
+}
+
+const CHAT_MODELS: ModelObject[] = [
+  catalogModel('anthropic/claude-sonnet-4-6', 'Claude Sonnet 4.6', 'chat'),
+  catalogModel('anthropic/claude-opus-4-1', 'Claude Opus 4.1', 'chat'),
+  catalogModel('openai/gpt-5', 'GPT-5', 'chat'),
+];
+
+const DECISION_MODELS: ModelObject[] = [
+  catalogModel('typesafe/jev-1-14', 'Jev 1.14', 'decision'),
+  catalogModel('cloudflare/clef', 'Clef', 'decision'),
+  catalogModel('cloudflare/clef-flash', 'Clef Flash', 'decision'),
+  catalogModel('cloudflare/clef-omni', 'Clef Omni', 'decision'),
+  catalogModel('liquid/d1', 'Liquid d1', 'decision'),
+  catalogModel('liquid/d1-ultra', 'Liquid d1 Ultra', 'decision'),
+  catalogModel('upstage/solar-decide', 'Solar Decide', 'decision'),
+  catalogModel('upstage/solar-decide-flash', 'Solar Decide Flash', 'decision'),
+  catalogModel('perplexity/pplx-decider-v1-2', 'Perplexity Decider V1.2', 'decision'),
+  catalogModel('perplexity/pplx-decider-flash-v1-2', 'Perplexity Decider Flash V1.2', 'decision'),
+];
+
+/** What GET /api/models answers: chat models the picker must drop, mixed with the decision models. */
+export function modelCatalog(withDecisionModels: boolean): ModelObject[] {
+  return withDecisionModels
+    ? [
+        ...CHAT_MODELS.slice(0, 1),
+        ...DECISION_MODELS.slice(0, 5),
+        ...CHAT_MODELS.slice(1, 2),
+        ...DECISION_MODELS.slice(5),
+        ...CHAT_MODELS.slice(2),
+      ]
+    : CHAT_MODELS;
+}
+
+const ROUTED_NAME = 'route-github-work';
+
+/** A webhook trigger that lets kora choose between four agents, the triage bot as fallback. */
+export const ROUTED_TRIGGER: TriggerRow = toTriggerRow({
+  id: 'trg_9e41d7a0',
+  tenant_id: 'tnt_acme',
+  kind: 'webhook',
+  source_id: 'src_4d1f9a7c',
+  name: ROUTED_NAME,
+  target_kind: 'routed',
+  agent_type_id: '',
+  agent_slug: '',
+  event_type: 'issue_comment',
+  prompt_template: 'Handle this comment on {{ issue.html_url }}: {{ comment.body }}',
+  routing: {
+    candidates: [
+      agent('code-reviewer').id,
+      agent('coder').id,
+      agent('security-reviewer').id,
+      agent('triage-bot').id,
+    ],
+    model: 'liquid/d1',
+    confidence: 'balanced',
+    fallback_agent_type_id: agent('triage-bot').id,
+    join_runs: true,
+    join_key: '{{ repository.full_name }}#{{ issue.number }}',
+  },
+  enabled: true,
+  created_at: ago(6 * DAY),
+  updated_at: ago(6 * DAY),
+});
+
+export type RoutingCase = 'confident' | 'joined-by-key' | 'fallback' | 'no-run' | 'model-failed';
+
+const scores = (pairs: [string, number][]) => ({
+  agents: Object.fromEntries(pairs.map(([slug, p]) => [agent(slug).id, p])),
+});
+
+const CONFIDENT: TriggerRoutingDecision = {
+  outcome: 'new_run',
+  key_matched: false,
+  join_key: 'acme/platform#1427',
+  model: 'liquid/d1',
+  agent_type_id: agent('code-reviewer').id,
+  probability: 0.91,
+  threshold: 0.7,
+  scores: scores([
+    ['code-reviewer', 0.91],
+    ['security-reviewer', 0.06],
+    ['coder', 0.03],
+  ]),
+  fallback_reason: null,
+  error: null,
+};
+
+const UNSURE = scores([
+  ['coder', 0.48],
+  ['code-reviewer', 0.37],
+  ['security-reviewer', 0.15],
+]);
+
+const ROUTING_CASES: Record<
+  RoutingCase,
+  { status: string; runId?: string; error?: string; routing: TriggerRoutingDecision }
+> = {
+  confident: { status: 'dispatched', runId: 'run_7c21e4b2', routing: CONFIDENT },
+  'joined-by-key': {
+    status: 'joined',
+    runId: 'run_3f9c1ab04d',
+    routing: {
+      ...CONFIDENT,
+      outcome: 'joined_run',
+      key_matched: true,
+      model: null,
+      probability: null,
+      threshold: null,
+      scores: {},
+    },
+  },
+  fallback: {
+    status: 'dispatched',
+    runId: 'run_a90d33b2',
+    routing: {
+      ...CONFIDENT,
+      outcome: 'fallback_run',
+      agent_type_id: agent('triage-bot').id,
+      probability: 0.48,
+      scores: UNSURE,
+      fallback_reason: 'below_threshold',
+    },
+  },
+  'no-run': {
+    status: 'unrouted',
+    error: 'kora was not sure which agent fits, and the trigger has no fallback agent',
+    routing: {
+      ...CONFIDENT,
+      outcome: 'no_run',
+      agent_type_id: null,
+      probability: 0.48,
+      scores: UNSURE,
+      fallback_reason: 'below_threshold',
+    },
+  },
+  'model-failed': {
+    status: 'dispatched',
+    runId: 'run_51be07b2',
+    routing: {
+      ...CONFIDENT,
+      outcome: 'fallback_run',
+      agent_type_id: agent('triage-bot').id,
+      probability: null,
+      threshold: 0.7,
+      scores: {},
+      fallback_reason: 'decision_failed',
+      error: 'decision model: liquid/d1: context deadline exceeded after 10s',
+    },
+  },
+};
+
+/** One delivery of the routed trigger and the decision recorded for it, as the API returns it. */
+export function routedDelivery(c: RoutingCase): DeliveryRow {
+  const { status, runId, error, routing } = ROUTING_CASES[c];
+  const receivedAt = ago(4 * MIN);
+  const wire: TriggerDelivery = {
+    id: `dlv_routed_${c.replace(/-/g, '_')}`,
+    tenant_id: 'tnt_acme',
+    kind: 'webhook',
+    source_id: ROUTED_TRIGGER.sourceId,
+    trigger_id: ROUTED_TRIGGER.id,
+    trigger_name: ROUTED_NAME,
+    event_type: 'issue_comment',
+    status: status === 'unrouted' ? 'skipped' : 'dispatched',
+    ...(runId !== undefined && { run_id: runId }),
+    payload_excerpt:
+      '{"action":"created","issue":{"number":1427},"comment":{"body":"Can someone check the auth change?"}}',
+    payload_bytes: 14_220,
+    received_at: receivedAt,
+    runs: [
+      {
+        id: `dr_${c}`,
+        delivery_id: `dlv_routed_${c}`,
+        trigger_id: ROUTED_TRIGGER.id,
+        trigger_name: ROUTED_NAME,
+        status,
+        ...(runId !== undefined && { run_id: runId }),
+        ...(error !== undefined && { error }),
+        routing,
+        created_at: new Date(Date.parse(receivedAt) + 640).toISOString(),
+      },
+    ],
+  };
+  return toDeliveryRow(wire);
+}

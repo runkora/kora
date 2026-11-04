@@ -7,7 +7,7 @@ import {
   SidebarLayoutSidebar,
   Skeleton,
   Stack,
-} from '@orbit/hades';
+} from '@runkora/hades';
 
 /**
  * The Skill page loads the Marketplaces and the Skill in one server pass, so

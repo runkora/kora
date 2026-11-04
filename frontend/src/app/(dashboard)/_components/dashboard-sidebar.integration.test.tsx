@@ -20,8 +20,8 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
-import { renderWithProviders } from '@orbit/test-utils';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { renderWithProviders } from '@runkora/test-utils';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import { DashboardSidebar } from './dashboard-sidebar';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
@@ -30,7 +30,8 @@ vi.mock('next/navigation', () => ({
   usePathname: vi.fn().mockReturnValue('/'),
 }));
 
-vi.mock('./permissions-provider', () => ({
+vi.mock('./permissions-provider', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./permissions-provider')>()),
   useSession: vi.fn().mockReturnValue({ scopes: [], user: null, loaded: false }),
 }));
 
@@ -112,6 +113,70 @@ describe('DashboardSidebar', () => {
       );
     });
 
+    it('hides Agents without agents:types:read', () => {
+      renderSidebar();
+      expect(screen.queryByRole('link', { name: /agents/i })).not.toBeInTheDocument();
+    });
+
+    it('shows Agents to a user holding only per-agent read scopes', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['agents:types:pr-summariser:read'],
+        user: null,
+        loaded: true,
+      });
+      renderSidebar();
+      expect(screen.getByRole('link', { name: /agents/i })).toBeInTheDocument();
+    });
+
+    it('hides Connections without platform:connections:read', () => {
+      renderSidebar();
+      expect(screen.queryByRole('link', { name: /connections/i })).not.toBeInTheDocument();
+    });
+
+    it('shows Connections with platform:connections:read', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['platform:connections:read'],
+        user: null,
+        loaded: true,
+      });
+      renderSidebar();
+      expect(screen.getByRole('link', { name: /connections/i })).toBeInTheDocument();
+    });
+
+    it('hides Agents from a user holding only per-agent write scopes', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['agents:types:pr-summariser:write'],
+        user: null,
+        loaded: true,
+      });
+      renderSidebar();
+      expect(screen.queryByRole('link', { name: /agents/i })).not.toBeInTheDocument();
+    });
+
+    it('a broader scope covers a nav scope', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['agents:read'],
+        user: null,
+        loaded: true,
+      });
+      renderSidebar();
+      expect(screen.getByRole('link', { name: /agents/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /environments/i })).toBeInTheDocument();
+    });
+
+    it('shows Roles to a roles-only admin', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['platform:roles:read'],
+        user: null,
+        loaded: true,
+      });
+      renderSidebar();
+      expect(screen.getByRole('link', { name: /roles/i })).toHaveAttribute(
+        'href',
+        APP_ROUTES.policy.roles,
+      );
+    });
+
     it('shows Models when the user holds inference:list', () => {
       vi.mocked(useSession).mockReturnValueOnce({
         scopes: ['inference:list'],
@@ -146,6 +211,11 @@ describe('DashboardSidebar', () => {
     });
 
     it('Agents link points to APP_ROUTES.agents.list', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['agents:types:read'],
+        user: null,
+        loaded: true,
+      });
       renderSidebar();
       expect(screen.getByRole('link', { name: /agents/i })).toHaveAttribute(
         'href',
@@ -177,6 +247,12 @@ describe('DashboardSidebar', () => {
   describe('active state', () => {
     it('keeps Marketplace active on a selected overview path', () => {
       vi.mocked(usePathname).mockReturnValue('/marketplace/team__repo');
+      // Agents is scope-gated: grant it so the test can check it is not active.
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['agents:read'],
+        user: null,
+        loaded: true,
+      });
       renderSidebar();
       expect(screen.getByRole('link', { name: 'Marketplace' })).toHaveAttribute(
         'aria-current',

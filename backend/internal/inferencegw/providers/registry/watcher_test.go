@@ -13,8 +13,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
 )
 
 // stubInformer records the handler Run registers. Only AddEventHandler is called.

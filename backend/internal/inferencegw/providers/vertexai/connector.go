@@ -15,9 +15,9 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Config holds one Vertex AI project and location.
@@ -85,7 +85,7 @@ func New(cfg *Config, name inferencegw.ProviderName, logger logging.Logger) (*Co
 		openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
 			&oauth2.Transport{
 				Source: tokenSource,
-				Base:   httpclient.NewTracingTransport("orbit.vertexai-openai", nil),
+				Base:   httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/vertexai", "", nil),
 			},
 		)),
 	)
@@ -103,7 +103,7 @@ func New(cfg *Config, name inferencegw.ProviderName, logger logging.Logger) (*Co
 		anthropicopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
 			&oauth2.Transport{
 				Source: tokenSource,
-				Base:   httpclient.NewTracingTransport("orbit.vertexai-anthropic", nil),
+				Base:   httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/vertexai", "", nil),
 			},
 		)),
 	)
@@ -113,7 +113,7 @@ func New(cfg *Config, name inferencegw.ProviderName, logger logging.Logger) (*Co
 	listHTTPClient := httpclient.NewHTTPClient(10*time.Second,
 		&oauth2.Transport{
 			Source: tokenSource,
-			Base:   httpclient.NewTracingTransport("orbit.vertexai-list", nil),
+			Base:   httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/vertexai", "", nil),
 		},
 	)
 

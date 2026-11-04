@@ -13,8 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // ClaudeRunnerConfig holds settings for the Claude Code subprocess.
@@ -22,7 +22,7 @@ type ClaudeRunnerConfig struct {
 	// BinaryPath is the path to the claude binary. Defaults to "claude".
 	BinaryPath string
 
-	// WrapperPath is the path to orbit-session-runner. When set, the subprocess
+	// WrapperPath is the path to kora-session-runner. When set, the subprocess
 	// is invoked as: WrapperPath <workDir> <BinaryPath> [args...]
 	// which applies Landlock filesystem restrictions before exec'ing claude.
 	// When empty, BinaryPath is invoked directly (no filesystem restriction).
@@ -44,7 +44,7 @@ type ClaudeRunnerConfig struct {
 	Bare bool
 
 	// SessionManagerURL is the base URL of this session-manager, passed to
-	// orbit-runtime-mcp so it can call back for provision_sandbox requests.
+	// kora-runtime-mcp so it can call back for provision_sandbox requests.
 	// Always http://localhost:{port} since they run in the same pod.
 	SessionManagerURL string
 
@@ -58,7 +58,7 @@ type ClaudeRunnerConfig struct {
 	// governed endpoint (/v1/mcp/<server>) is written per entry.
 	MCPServers []string
 
-	// RunID is the run identifier for this session, passed to orbit-runtime-mcp.
+	// RunID is the run identifier for this session, passed to kora-runtime-mcp.
 	RunID string
 
 	// ResumeSessionID, when non-empty, passes --resume <id> to Claude Code so
@@ -75,7 +75,8 @@ type ClaudeRunnerConfig struct {
 //
 //	claude --print --output-format stream-json --input-format stream-json
 //	       --verbose --include-partial-messages --dangerously-skip-permissions
-//	       --settings <claudeAttributionSettings>
+//	       --settings <claudeAttributionSettings> --strict-mcp-config
+//	       --setting-sources project,local
 //	       [--resume ID] [--bare] [--model M]
 //	       --disallowedTools <claudeExcludedTools> [--append-system-prompt P]
 //
@@ -114,7 +115,7 @@ func NewClaudeRunner(cfg ClaudeRunnerConfig) *ClaudeRunner {
 }
 
 // claudeAttributionSettings disables Claude Code's own commit trailer and
-// pull-request footer. Orbit is the control plane of record for who ran an
+// pull-request footer. kora is the control plane of record for who ran an
 // agent and under what authority; a second, unverifiable identity string
 // baked into the subprocess's default settings would contradict that.
 const claudeAttributionSettings = `{"attribution":{"commit":"","pr":""}}`
@@ -130,6 +131,13 @@ func (r *ClaudeRunner) buildFlags() []string {
 		"--include-partial-messages",
 		"--dangerously-skip-permissions",
 		"--settings", claudeAttributionSettings,
+		// Only the platform's --mcp-config. A workspace .mcp.json or a plugin
+		// would start its servers in the agent pod.
+		"--strict-mcp-config",
+		// User settings live in the run's HOME, which the agent writes. Unlike
+		// project settings, their env can load a plugin directory, and a
+		// plugin's LSP servers start in the agent pod.
+		"--setting-sources", "project,local",
 	}
 	if r.cfg.ResumeSessionID != "" {
 		args = append(args, "--resume", r.cfg.ResumeSessionID)
@@ -150,7 +158,7 @@ func (r *ClaudeRunner) buildFlags() []string {
 // buildExecCommand returns the command and arguments to use when starting the
 // subprocess. When WrapperPath is set the wrapper is invoked as:
 //
-//	orbit-session-runner <workDir> <claude> [claude-args...]
+//	kora-session-runner <workDir> <claude> [claude-args...]
 //
 // so it can apply Landlock before exec'ing claude. Without a wrapper, claude
 // is invoked directly (used in tests and local macOS dev).
@@ -291,11 +299,11 @@ func (r *ClaudeRunner) writeMCPConfig(workDir string) (string, error) {
 	mcpServers := map[string]any{
 		"runtime": map[string]any{
 			"type":    "stdio",
-			"command": "orbit-runtime-mcp",
+			"command": "kora-runtime-mcp",
 			"args":    []string{},
 			"env": map[string]string{
-				"ORBIT_SESSION_MANAGER_URL": r.cfg.SessionManagerURL,
-				"ORBIT_RUN_ID":              r.cfg.RunID,
+				"KORA_SESSION_MANAGER_URL": r.cfg.SessionManagerURL,
+				"KORA_RUN_ID":              r.cfg.RunID,
 			},
 		},
 	}
@@ -836,6 +844,8 @@ var claudeOfflineEnv = []string{
 	"DISABLE_FEEDBACK_COMMAND=1",
 	"CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1",
 	"CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1",
+	// Tool search returns tool_reference blocks that the gateway on Bedrock rejects with a 400 on the next call.
+	"ENABLE_TOOL_SEARCH=false",
 }
 
 // ── Claude Code JSON wire types ──────────────────────────────────────────────

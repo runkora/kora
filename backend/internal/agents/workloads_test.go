@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"reflect"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -10,26 +11,23 @@ import (
 func splitPoolConfig() K8sProvisionerConfig {
 	size := resource.MustParse("20Gi")
 	return K8sProvisionerConfig{
-		SessionManagerImage: "orbit-session-manager:test",
+		SessionManagerImage: "kora-session-manager:test",
 		SandboxImage:        "kora-sandbox-base:test",
 		SandboxGRPCPort:     50051,
-		SystemNamespace:     "orbit-system",
+		SystemNamespace:     "kora-system",
 		Workloads: WorkloadsConfig{
 			Common: CommonCustomization{
 				PodLabels:      map[string]string{"cost-centre": "platform"},
 				PodAnnotations: map[string]string{"backup.example.com/exclude": "true"},
 			},
 			SessionManager: WorkloadCustomization{
-				NodeSelector:      map[string]string{"workload-tier": "orbit"},
-				PriorityClassName: "orbit-agents",
-				ServiceAccount: ServiceAccountCustomization{
-					Annotations: map[string]string{"eks.amazonaws.com/role-arn": "arn:aws:iam::1:role/agent"},
-				},
+				NodeSelector:      map[string]string{"workload-tier": "kora"},
+				PriorityClassName: "kora-agents",
 			},
 			Sandbox: WorkloadCustomization{
-				NodeSelector: map[string]string{"workload-tier": "orbit-sandbox"},
+				NodeSelector: map[string]string{"workload-tier": "kora-sandbox"},
 				Tolerations: []corev1.Toleration{{
-					Key: "workload-tier", Operator: corev1.TolerationOpEqual, Value: "orbit-sandbox", Effect: corev1.TaintEffectNoSchedule,
+					Key: "workload-tier", Operator: corev1.TolerationOpEqual, Value: "kora-sandbox", Effect: corev1.TaintEffectNoSchedule,
 				}},
 				PodLabels: map[string]string{"cost-centre": "sandboxes"},
 			},
@@ -51,10 +49,10 @@ func TestBuildStatefulSet_AppliesWorkloadCustomization(t *testing.T) {
 	ss := p.buildSessionManagerStatefulSet(at, "tenant-example", agentTypeLabels(at))
 
 	spec := ss.Spec.Template.Spec
-	if spec.NodeSelector["workload-tier"] != "orbit" {
+	if spec.NodeSelector["workload-tier"] != "kora" {
 		t.Errorf("nodeSelector: got %v", spec.NodeSelector)
 	}
-	if spec.PriorityClassName != "orbit-agents" {
+	if spec.PriorityClassName != "kora-agents" {
 		t.Errorf("priorityClassName: got %q", spec.PriorityClassName)
 	}
 	meta := ss.Spec.Template.ObjectMeta
@@ -83,7 +81,7 @@ func TestBuildStatefulSet_KeepsIdentityLabelsAndMeshAnnotations(t *testing.T) {
 	cfg := splitPoolConfig()
 	// Validation rejects these at startup; this proves the builder does not
 	// depend on that to keep the platform's own keys.
-	cfg.Workloads.SessionManager.PodLabels = map[string]string{"orbit.io/tenant": "someone-else", "app": "hijacked"}
+	cfg.Workloads.SessionManager.PodLabels = map[string]string{"runkora.io/tenant": "someone-else", "app": "hijacked"}
 	cfg.Workloads.SessionManager.PodAnnotations = map[string]string{"proxy.istio.io/config": "{}"}
 	p := &K8sProvisioner{cfg: cfg}
 	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "example"}
@@ -91,8 +89,8 @@ func TestBuildStatefulSet_KeepsIdentityLabelsAndMeshAnnotations(t *testing.T) {
 	ss := p.buildSessionManagerStatefulSet(at, "tenant-example", agentTypeLabels(at))
 
 	meta := ss.Spec.Template.ObjectMeta
-	if meta.Labels["orbit.io/tenant"] != "example" {
-		t.Errorf("orbit.io/tenant: got %q, want the tenant the platform set", meta.Labels["orbit.io/tenant"])
+	if meta.Labels["runkora.io/tenant"] != "example" {
+		t.Errorf("runkora.io/tenant: got %q, want the tenant the platform set", meta.Labels["runkora.io/tenant"])
 	}
 	if meta.Labels["app"] != "coder" {
 		t.Errorf("app: got %q, want the agent slug", meta.Labels["app"])
@@ -107,30 +105,18 @@ func TestBuildSandboxPod_AppliesSandboxCustomization(t *testing.T) {
 
 	pod := buildTestSandboxPod(p, Run{ID: "run-1"}, "coder", "tenant-example", testSandboxSpec(), "test-exec-token")
 
-	if pod.Spec.NodeSelector["workload-tier"] != "orbit-sandbox" {
+	if pod.Spec.NodeSelector["workload-tier"] != "kora-sandbox" {
 		t.Errorf("nodeSelector: got %v", pod.Spec.NodeSelector)
 	}
-	if len(pod.Spec.Tolerations) != 1 || pod.Spec.Tolerations[0].Value != "orbit-sandbox" {
+	if len(pod.Spec.Tolerations) != 1 || pod.Spec.Tolerations[0].Value != "kora-sandbox" {
 		t.Errorf("tolerations: got %v", pod.Spec.Tolerations)
 	}
-	if pod.Labels["orbit.io/role"] != "sandbox" {
+	if pod.Labels["runkora.io/role"] != "sandbox" {
 		t.Errorf("sandbox identity label lost: got %v", pod.Labels)
 	}
 	// The sandbox's own podLabels win over the common value.
 	if pod.Labels["cost-centre"] != "sandboxes" {
 		t.Errorf("cost-centre: got %q, want the per-workload value", pod.Labels["cost-centre"])
-	}
-}
-
-// Cloud identity annotations land on the agent's ServiceAccount, which only the
-// session-manager uses.
-func TestBuildServiceAccount_AppliesAnnotations(t *testing.T) {
-	p := &K8sProvisioner{cfg: splitPoolConfig()}
-
-	sa := p.buildServiceAccount("coder", "tenant-example", map[string]string{"app": "coder"})
-
-	if sa.Annotations["eks.amazonaws.com/role-arn"] != "arn:aws:iam::1:role/agent" {
-		t.Errorf("serviceAccount annotations: got %v", sa.Annotations)
 	}
 }
 
@@ -223,7 +209,7 @@ func TestBuildSandboxPod_CoLocationKeepsConfiguredAffinity(t *testing.T) {
 			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
 				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
 					MatchExpressions: []corev1.NodeSelectorRequirement{{
-						Key: "workload-tier", Operator: corev1.NodeSelectorOpIn, Values: []string{"orbit"},
+						Key: "workload-tier", Operator: corev1.NodeSelectorOpIn, Values: []string{"kora"},
 					}},
 				}},
 			},
@@ -241,27 +227,12 @@ func TestBuildSandboxPod_CoLocationKeepsConfiguredAffinity(t *testing.T) {
 	}
 }
 
-// Cloud identity attaches when a pod is created, so a changed ServiceAccount
-// annotation has to roll the StatefulSet or running agents never receive it.
-func TestBuildStatefulSet_ServiceAccountAnnotationsRollThePods(t *testing.T) {
-	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "example"}
-	hashOf := func(annotations map[string]string) string {
-		cfg := splitPoolConfig()
-		cfg.Workloads.SessionManager.ServiceAccount.Annotations = annotations
-		p := &K8sProvisioner{cfg: cfg}
-		return p.buildSessionManagerStatefulSet(at, "tenant-example", agentTypeLabels(at)).
-			Spec.Template.Annotations[serviceAccountHashAnnotation]
-	}
-
-	first := hashOf(map[string]string{"eks.amazonaws.com/role-arn": "arn:aws:iam::1:role/agent"})
-	if first == "" {
-		t.Fatal("expected a service account hash on the pod template")
-	}
-	if second := hashOf(map[string]string{"eks.amazonaws.com/role-arn": "arn:aws:iam::1:role/other"}); second == first {
-		t.Error("changing the annotation must change the hash, or the pods never roll")
-	}
-	if none := hashOf(nil); none != "" {
-		t.Errorf("no annotations should leave the pod template alone, got %q", none)
+// The agent pod has no route to a cloud API, so a ServiceAccount cloud identity
+// would be an unusable standing credential. See
+// docs/adr/2026-09-16-first-class-workload-placement.md, Amendment 1.
+func TestWorkloadCustomization_HasNoServiceAccountSetting(t *testing.T) {
+	if _, ok := reflect.TypeFor[WorkloadCustomization]().FieldByName("ServiceAccount"); ok {
+		t.Error("WorkloadCustomization must not carry ServiceAccount settings")
 	}
 }
 
@@ -284,22 +255,22 @@ func TestSplitAcrossNodes_MixedForms(t *testing.T) {
 		want           bool
 	}{
 		"selector against affinity": {
-			agent:   corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "orbit"}},
-			sandbox: corev1.PodSpec{Affinity: affinity("orbit-sandbox")},
+			agent:   corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "kora"}},
+			sandbox: corev1.PodSpec{Affinity: affinity("kora-sandbox")},
 			want:    true,
 		},
 		"affinity against selector": {
-			agent:   corev1.PodSpec{Affinity: affinity("orbit")},
-			sandbox: corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "orbit-sandbox"}},
+			agent:   corev1.PodSpec{Affinity: affinity("kora")},
+			sandbox: corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "kora-sandbox"}},
 			want:    true,
 		},
 		"identical pinning is one pool": {
-			agent:   corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "orbit"}},
-			sandbox: corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "orbit"}},
+			agent:   corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "kora"}},
+			sandbox: corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "kora"}},
 			want:    false,
 		},
 		"one side unconstrained is inconclusive": {
-			agent:   corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "orbit"}},
+			agent:   corev1.PodSpec{NodeSelector: map[string]string{"workload-tier": "kora"}},
 			sandbox: corev1.PodSpec{},
 			want:    false,
 		},
@@ -317,7 +288,7 @@ func TestSplitAcrossNodes_MixedForms(t *testing.T) {
 func TestWorkloadsConfig_ValidateRejectsPlatformKeys(t *testing.T) {
 	cases := map[string]WorkloadsConfig{
 		"identity label on the sandbox": {
-			Sandbox: WorkloadCustomization{PodLabels: map[string]string{"orbit.io/role": "not-a-sandbox"}},
+			Sandbox: WorkloadCustomization{PodLabels: map[string]string{"runkora.io/role": "not-a-sandbox"}},
 		},
 		"selector label on the session-manager": {
 			SessionManager: WorkloadCustomization{PodLabels: map[string]string{"app": "hijacked"}},

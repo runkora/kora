@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/platform/usagewindow"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/usagewindow"
 )
 
 const (
@@ -79,13 +78,12 @@ func histogramRange(finished, p99Ms, longestMs int64) (rangeMs int64, capped boo
 func (s *RunService) AgentRunStats(ctx context.Context, slug string, period usagewindow.Period, now time.Time) (RunStats, error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.AgentRunStats",
-		trace.WithAttributes(attribute.String("tenant_id", tenantID), attribute.String("agent_slug", slug)),
+		trace.WithAttributes(observability.AgentSlugKey.String(slug)),
 	)
 	defer span.End()
 	out, err := s.agentRunStats(ctx, tenantID, slug, period, now)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "agent run stats")
+		observability.RecordFailure(span, err, errSpanAgentRunStats)
 	}
 	return out, err
 }
@@ -115,14 +113,11 @@ func (s *RunService) agentRunStats(ctx context.Context, tenantID, slug string, p
 // runs the caller may read, for the period's window ending at now.
 func (s *RunService) TenantRunStats(ctx context.Context, period usagewindow.Period, now time.Time) (RunStats, error) {
 	tenantID := tenantFromContext(ctx)
-	ctx, span := agentsTracer.Start(ctx, "agents.TenantRunStats",
-		trace.WithAttributes(attribute.String("tenant_id", tenantID)),
-	)
+	ctx, span := agentsTracer.Start(ctx, "agents.TenantRunStats")
 	defer span.End()
 	out, err := s.tenantRunStats(ctx, tenantID, period, now)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "tenant run stats")
+		observability.RecordFailure(span, err, errSpanTenantRunStats)
 	}
 	return out, err
 }

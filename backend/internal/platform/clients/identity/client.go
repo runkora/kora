@@ -24,14 +24,13 @@ import (
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 const (
-	tracerName    = "orbit.identity-client"
+	tracerName    = "github.com/runkora/kora/backend/internal/platform/clients/identity"
 	clientTimeout = 10 * time.Second
 )
 
@@ -91,17 +90,17 @@ type exchangeResponse struct {
 type Client struct {
 	*httpclient.Base
 	// baseURL is the scheme+host base URL of the identity service,
-	// e.g. "http://orbit-identity.orbit-system.svc.cluster.local".
+	// e.g. "http://kora-identity.kora-system.svc.cluster.local".
 	// Do NOT include a path suffix or trailing slash.
 	// Note: plain HTTP — Istio handles the mTLS upgrade transparently.
-	// Supplied via ORBIT_IDENTITY_SERVICE_URL environment variable.
+	// Supplied via KORA_IDENTITY_SERVICE_URL environment variable.
 	baseURL string
 }
 
 // NewClient constructs a Client for the kora identity service.
 //
 // baseURL must be the in-cluster scheme+host only, e.g.
-// "http://orbit-identity.orbit-system.svc.cluster.local" (no path, no trailing
+// "http://kora-identity.kora-system.svc.cluster.local" (no path, no trailing
 // slash). The full exchange path (/api/v1/identity/exchange) is appended by
 // Exchange().
 func NewClient(baseURL string, logger logging.Logger) *Client {
@@ -119,17 +118,13 @@ func NewClient(baseURL string, logger logging.Logger) *Client {
 //
 // Full URL example:
 //
-//	http://orbit-identity.orbit-system.svc.cluster.local/api/v1/identity/exchange
+//	http://kora-identity.kora-system.svc.cluster.local/api/v1/identity/exchange
 //
 // Returns the platform token string and its absolute expiry time.
 func (c *Client) Exchange(ctx context.Context) (token string, expiry time.Time, err error) {
-	endpoint := c.baseURL + "/api/v1/identity/exchange"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, http.NoBody)
-	if err != nil {
-		return "", time.Time{}, fmt.Errorf("build exchange request: %w", err)
-	}
-
-	ctx, span, resp, err := c.Do(ctx, "identity.Client.Exchange", req)
+	ctx, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/api/v1/identity/exchange",
+	})
 	defer span.End()
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("exchange call: %w", err)
@@ -160,8 +155,8 @@ func (c *Client) Exchange(ctx context.Context) (token string, expiry time.Time, 
 	tokenExpiry := issuedAt.Add(time.Duration(parsed.ExpiresIn) * time.Second)
 
 	span.SetAttributes(
-		attribute.Int("token.expires_in", parsed.ExpiresIn),
-		attribute.String("token.expiry", tokenExpiry.UTC().Format(time.RFC3339)),
+		observability.TokenExpiresInKey.Int(parsed.ExpiresIn),
+		observability.TokenExpiryKey.String(tokenExpiry.UTC().Format(time.RFC3339)),
 	)
 
 	c.Logger().Info(ctx, "platform token exchanged",
@@ -256,15 +251,13 @@ func (c *Client) CreateDelegation(ctx context.Context, bearer string, req Create
 	if err != nil {
 		return nil, fmt.Errorf("build delegation request: %w", err)
 	}
-	endpoint := c.baseURL + "/api/v1/identity/delegation"
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, body)
-	if err != nil {
-		return nil, fmt.Errorf("build delegation request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+bearer)
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	header.Set("Authorization", "Bearer "+bearer)
 
-	ctx, span, resp, err := c.Do(ctx, "identity.Client.CreateDelegation", httpReq)
+	ctx, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/api/v1/identity/delegation", Header: header, Body: body,
+	})
 	defer span.End()
 	if err != nil {
 		return nil, fmt.Errorf("create delegation call: %w", err)
@@ -293,20 +286,18 @@ func (c *Client) CreateDelegation(ctx context.Context, bearer string, req Create
 }
 
 // RevokeDelegation calls DELETE {baseURL}/api/v1/identity/delegation/{jti}
-// with the given bearer token. orbit-agents calls this with its own exchanged
+// with the given bearer token. kora-agents calls this with its own exchanged
 // SERVICE platform token on terminal run state — the endpoint permits the
 // delegator or SERVICE/SYSTEM principals. Revoking an already-revoked or
 // missing issuance is treated as success (the tombstone is the desired end
 // state), so terminal-state cleanup is idempotent.
 func (c *Client) RevokeDelegation(ctx context.Context, bearer, jti string) error {
-	endpoint := c.baseURL + "/api/v1/identity/delegation/" + jti
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, http.NoBody)
-	if err != nil {
-		return fmt.Errorf("build delegation revoke request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+bearer)
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+bearer)
 
-	ctx, span, resp, err := c.Do(ctx, "identity.Client.RevokeDelegation", req)
+	ctx, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodDelete, BaseURL: c.baseURL, Path: "/api/v1/identity/delegation/{jti}", Params: []string{jti}, Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return fmt.Errorf("revoke delegation call: %w", err)
@@ -337,13 +328,9 @@ func (c *Client) RevokeDelegation(ctx context.Context, bearer, jti string) error
 // Returns ErrDelegationNotFound when the run has no active delegation — the
 // identity-proxy caches this as "autonomous, none".
 func (c *Client) GetDelegationForRun(ctx context.Context, runID string) (*DelegationToken, error) {
-	endpoint := c.baseURL + "/api/v1/identity/delegation/run/" + runID
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
-	if err != nil {
-		return nil, fmt.Errorf("build delegation retrieval request: %w", err)
-	}
-
-	_, span, resp, err := c.Do(ctx, "identity.Client.GetDelegationForRun", req)
+	_, span, resp, err := c.Do(observability.WithRun(ctx, runID), httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/api/v1/identity/delegation/run/{runID}", Params: []string{runID},
+	})
 	defer span.End()
 	if err != nil {
 		return nil, fmt.Errorf("get delegation for run call: %w", err)
@@ -359,7 +346,7 @@ func (c *Client) GetDelegationForRun(ctx context.Context, runID string) (*Delega
 		// service's explicit delegation_not_found is a negative result.
 		var eb errorBody
 		if decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 512)).Decode(&eb); decodeErr == nil && eb.Code == "delegation_not_found" {
-			span.SetAttributes(attribute.String("delegation.result", "none"))
+			span.SetAttributes(observability.DelegationResultKey.String("none"))
 			return nil, ErrDelegationNotFound
 		}
 		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
@@ -409,10 +396,8 @@ type mintServiceTokenResponse struct {
 // here can be leaked or replayed.
 //
 // This satisfies the triggers package's TokenMinter interface, which
-// orbit-triggers uses in place of the in-process identity service.
+// kora-triggers uses in place of the in-process identity service.
 func (c *Client) MintServiceToken(ctx context.Context, tenantID, principalID, displayName string, ttl time.Duration) (string, error) {
-	endpoint := c.baseURL + "/api/v1/identity/internal/service-token"
-
 	body, err := json.Marshal(mintServiceTokenRequest{
 		TenantID:    tenantID,
 		PrincipalID: principalID,
@@ -423,13 +408,12 @@ func (c *Client) MintServiceToken(ctx context.Context, tenantID, principalID, di
 		return "", fmt.Errorf("marshal mint request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return "", fmt.Errorf("build mint request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
 
-	_, span, resp, err := c.Do(ctx, "identity.Client.MintServiceToken", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/api/v1/identity/internal/service-token", Header: header, Body: bytes.NewReader(body),
+	})
 	defer span.End()
 	if err != nil {
 		return "", fmt.Errorf("mint call: %w", err)
@@ -452,7 +436,7 @@ func (c *Client) MintServiceToken(ctx context.Context, tenantID, principalID, di
 		return "", c.RecordError(span, ErrMissingToken)
 	}
 
-	span.SetAttributes(attribute.Int("token.expires_in", parsed.ExpiresIn))
+	span.SetAttributes(observability.TokenExpiresInKey.Int(parsed.ExpiresIn))
 
 	return parsed.AccessToken, nil
 }

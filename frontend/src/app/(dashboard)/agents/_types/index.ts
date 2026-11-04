@@ -3,6 +3,7 @@
 // AgentTypeRow and RunRow are the shapes consumed by all UI components.
 // Raw API shapes (AgentType, Run) only appear at the service layer boundary.
 
+import { isDeclared } from '@runkora/lib/declarative';
 import type {
   AgentEnvironment,
   AgentType,
@@ -14,7 +15,7 @@ import type {
   RunState,
   Connectivity,
   Connector,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 
 export type {
   AgentEnvironment,
@@ -62,6 +63,16 @@ export interface AgentTypeRow {
   budget: AgentBudget | null;
   /** Attached environments. One is the default. Empty means the kora base image. */
   environments: AgentEnvironment[];
+  /** Whether the caller may start a run of this agent. */
+  canRun: boolean;
+  /** Whether the caller may change this agent. */
+  canEdit: boolean;
+  /** Whether the caller may delete this agent. */
+  canDelete: boolean;
+  /** Declared in the configuration repository: read-only here. */
+  declared: boolean;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 export interface RunRow {
@@ -88,6 +99,8 @@ export interface RunRow {
   durationMs: number | null;
   /** Number of tool calls made during this run, or null if not available. */
   toolCalls: number | null;
+  /** Estimated inference cost in USD, or null when the API did not return usage. */
+  costUsd?: number | null;
   /** LLM-generated one-sentence summary of the run's task intent, or null if not available. */
   summary: string | null;
 }
@@ -122,6 +135,11 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     modelId: a.model_id ?? '',
     budget: a.budget ?? null,
     environments: a.environments ?? [],
+    canRun: a.can_run ?? false,
+    canEdit: a.can_edit ?? false,
+    canDelete: a.can_delete ?? false,
+    declared: isDeclared(a),
+    repository: a.repository,
   };
 }
 
@@ -139,8 +157,8 @@ export function toRunRow(r: RunWithAttribution, agentTypeById: Map<string, Agent
   return {
     id: r.id,
     agentTypeId: r.agent_type_id,
-    agentTypeName: agent?.name ?? 'Unknown',
-    agentTypeSlug: agent?.slug ?? r.agent_type_id,
+    agentTypeName: agent?.name ?? r.agent_name ?? 'Unknown',
+    agentTypeSlug: agent?.slug ?? r.agent_slug ?? r.agent_type_id,
     state: r.state,
     createdBy: r.created_by,
     createdByName: r.created_by_name ?? null,
@@ -151,12 +169,13 @@ export function toRunRow(r: RunWithAttribution, agentTypeById: Map<string, Agent
           deliveryId: r.started_by.delivery_id ?? null,
         }
       : null,
-    delegated: agent?.identityMode === 'delegated',
+    delegated: (agent?.identityMode ?? r.identity_mode) === 'delegated',
     startedAt: r.started_at,
     completedAt: r.completed_at,
     createdAt: r.created_at,
     durationMs,
     toolCalls: r.tool_calls ?? null,
+    costUsd: r.usage?.cost_usd ?? null,
     summary: r.summary ?? null,
   };
 }

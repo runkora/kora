@@ -22,12 +22,12 @@ import (
 	openaiopt "github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/bridge"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/bridge"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/convert"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Config is one endpoint. BaseURL is the prefix of /chat/completions and
@@ -63,7 +63,8 @@ type Connector struct {
 
 	// baseURL, apiKey, http and decide serve the calls made without an SDK:
 	// the model list (http) and systemone (decide), which have different
-	// timeouts. They are set when the endpoint declares systemone.
+	// timeouts. http is set when the endpoint declares systemone or embeddings,
+	// decide when it declares systemone.
 	baseURL string
 	apiKey  string
 	http    *httpclient.Base
@@ -76,18 +77,20 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 	if cfg.BaseURL == "" || len(cfg.APIs) == 0 {
 		return nil, fmt.Errorf("compatible: a base URL and at least one API are required")
 	}
-	transport := httpclient.NewTracingTransport("orbit.compatible", nil)
+	transport := httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/compatible", "", nil)
 	c := &Connector{name: name, serves: map[ip.API]bool{}, logger: logger}
 	for _, api := range cfg.APIs {
 		c.serves[api] = true
 	}
+	if c.serves[ip.APISystemOne] || c.serves[ip.APIEmbeddings] {
+		c.baseURL = strings.TrimSuffix(cfg.BaseURL, "/")
+		c.apiKey = cfg.APIKey
+		c.http = httpclient.New("github.com/runkora/kora/backend/internal/inferencegw/providers/compatible", logger, discoveryTimeout)
+	}
 	if c.serves[ip.APISystemOne] {
 		c.decisionOnly = len(c.serves) == 1
 		c.decisionModels = slices.Clone(cfg.DecisionModels)
-		c.baseURL = strings.TrimSuffix(cfg.BaseURL, "/")
-		c.apiKey = cfg.APIKey
-		c.http = httpclient.New("orbit.compatible-list", logger, discoveryTimeout)
-		c.decide = httpclient.New("orbit.compatible-systemone", logger, decisionTimeout)
+		c.decide = httpclient.New("github.com/runkora/kora/backend/internal/inferencegw/providers/compatible", logger, decisionTimeout)
 	}
 
 	openaiOpts := []openaiopt.RequestOption{
@@ -141,8 +144,14 @@ func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel
 		return c.withDecisionModels(models), nil
 	}
 	models, err := c.listChatModels(ctx)
-	if err != nil || !c.serves[ip.APISystemOne] {
+	if err != nil {
 		return models, err
+	}
+	if c.serves[ip.APIEmbeddings] {
+		models = c.mergeNonTextModels(ctx, models)
+	}
+	if !c.serves[ip.APISystemOne] {
+		return models, nil
 	}
 	return c.withDecisionModels(c.mergeDecisionModels(ctx, models)), nil
 }
@@ -180,9 +189,7 @@ func (c *Connector) Describe(id string) inferencegw.ProviderModel {
 	}
 	m := c.describeChat(id)
 	if c.serves[ip.APIEmbeddings] && strings.Contains(strings.ToLower(id), "embed") {
-		m.OutputModalities = []inferencegw.Modality{inferencegw.ModalityEmbedding}
-		m.Capabilities = []inferencegw.ModelCapability{inferencegw.CapabilityEmbedding}
-		return m
+		return c.describeEmbedding(id)
 	}
 	if c.serves[ip.APIChatCompletions] || c.serves[ip.APIMessages] {
 		m.Dialects = append(m.Dialects, inferencegw.DialectOpenAI, inferencegw.DialectResponses)
@@ -209,6 +216,23 @@ func (c *Connector) describeChat(id string) inferencegw.ProviderModel {
 		OutputModalities: text,
 		Capabilities:     []inferencegw.ModelCapability{inferencegw.CapabilityChat},
 	}
+}
+
+// describeEmbedding is the entry for a model served on POST /embeddings: the
+// embedding capability only, with no chat dialects.
+func (c *Connector) describeEmbedding(id string) inferencegw.ProviderModel {
+	m := c.describeChat(id)
+	m.OutputModalities = []inferencegw.Modality{inferencegw.ModalityEmbedding}
+	m.Capabilities = []inferencegw.ModelCapability{inferencegw.CapabilityEmbedding}
+	return m
+}
+
+// describeRerank is the entry for a rerank model. Nothing serves it yet: the
+// rerank route is not implemented.
+func (c *Connector) describeRerank(id string) inferencegw.ProviderModel {
+	m := c.describeChat(id)
+	m.Capabilities = []inferencegw.ModelCapability{inferencegw.CapabilityRerank}
+	return m
 }
 
 // describeDecision is the entry for a model served on POST /systemone: the
@@ -336,7 +360,7 @@ func (c *Connector) AnthropicMessagesStream(ctx context.Context, params anthropi
 // message streams and accumulates one messages call. The SDK refuses a
 // non-streaming call whose max_tokens could run past ten minutes.
 func (c *Connector) message(ctx context.Context, params anthropic.MessageNewParams) (*anthropic.Message, error) {
-	msg, _, err := convert.AccumulateAnthropicStream(c.anthropic.Messages.NewStreaming(ctx, params), c.name)
+	msg, _, err := convert.AccumulateAnthropicStream(ctx, c.anthropic.Messages.NewStreaming(ctx, params), c.name)
 	return msg, err
 }
 

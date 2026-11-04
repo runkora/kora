@@ -10,11 +10,11 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"sigs.k8s.io/yaml"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // loadClientSecrets reads the aggregated client secrets YAML file written by
-// the orbit-operator to orbit-tenant-oidc-secrets. The file format is a flat
+// the kora-operator to kora-tenant-oidc-secrets. The file format is a flat
 // YAML map:
 //
 //	acme-corp: s3cr3t

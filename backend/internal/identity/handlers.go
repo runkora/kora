@@ -5,12 +5,12 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // Controller wires the identity service to HTTP routes.
@@ -61,6 +61,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //
 //	GET    /identity/users                     List users in the caller's tenant (requires auth).
 //	GET    /identity/users/{id}                Get a single user profile (requires auth).
+//	GET    /identity/users/names?ids=a,b       Display names for specific user ids (requires auth).
 //
 //	GET    /identity/preferences               Get the caller's preferences document (requires auth).
 //	PUT    /identity/preferences               Replace the caller's preferences document (requires auth).
@@ -76,7 +77,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /session", c.handleSession)
 	mux.Handle("POST /exchange", c.handleExchange)
 	// Internal: mints a SERVICE token for a platform component that starts work
-	// on behalf of a tenant principal (orbit-triggers). Authenticated by the
+	// on behalf of a tenant principal (kora-triggers). Authenticated by the
 	// caller's mesh-attested SPIFFE identity, like /exchange — never a bearer
 	// token. Not exposed at the edge: the api VirtualService explicitly 404s
 	// the /api/v1/identity/internal/ prefix ahead of its /api/v1/identity/
@@ -104,14 +105,10 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// gateway and must not be used to manage identity resources.
 	// ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md) then checks the route's required
 	// scope against the principal's grants.
-	auth := mw.MiddlewareChain(
-		c.svc.AuthMiddleware(c.logger),
-		rejectPATMiddleware(c.logger),
-		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
-	)
+	auth := c.authChain()
 	// OAuth authorization code creation: called by the BFF /authorize with the
-	// human's session token. Any authenticated (non-PAT) human may start their own
-	// MCP OAuth flow, so it authenticates but requires no specific scope.
+	// human's session token. Any authenticated human may start their own MCP OAuth
+	// flow, so it requires no specific scope. The handler refuses non-human callers.
 	authNoScope := mw.MiddlewareChain(
 		c.svc.AuthMiddleware(c.logger),
 		rejectPATMiddleware(c.logger),
@@ -130,6 +127,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// User profile resolution: requires a human session token.
 	mux.HandleWithMiddleware("GET /users", auth, c.handleListUsers)
 	mux.HandleWithMiddleware("GET /users/{id}", auth, c.handleGetUser)
+	mux.HandleWithMiddleware("GET /users/names", auth, c.handleResolveUserNames)
 
 	// User preferences: requires a human session token.
 	mux.HandleWithMiddleware("GET /preferences", auth, c.handleGetPreferences)
@@ -157,6 +155,20 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /delegation/run/{run_id}", c.handleGetDelegationForRun)
 }
 
+// authChain authenticates the bearer, verifies a delegated run's delegation
+// against identity's own key and the revoked-JTI blocklist, refuses PAT bearers,
+// then checks the route scope. With a delegation the scope check evaluates agent
+// grant intersected with the person's access. The delegation records the person
+// even when a PAT started the run (delegated-agent-identity ADR, Decision 3).
+func (c *Controller) authChain() mw.MiddlewareHandler {
+	return mw.MiddlewareChain(
+		c.svc.AuthMiddleware(c.logger),
+		mw.DelegationMiddlewareWithBlocklist(c.logger, c.svc.delegationVerifier(), c.svc.blocklist),
+		rejectPATMiddleware(c.logger),
+		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
+	)
+}
+
 // rejectPATMiddleware rejects requests that carry a PAT token with 403
 // Forbidden. PATs are scoped exclusively to the inference gateway — they must
 // not authenticate against identity endpoints (including PAT management routes,
@@ -168,7 +180,7 @@ func rejectPATMiddleware(logger logging.Logger) mw.Middleware {
 	return mw.NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if claims, ok := token.ClaimsFromContext(r.Context()); ok && claims != nil {
-				if claims.Orbit.PrincipalType == token.PrincipalTypePAT {
+				if claims.Kora.PrincipalType == token.PrincipalTypePAT {
 					api.ErrorResponse(r.Context(), w, logger,
 						api.ForbiddenError(api.ErrCodeForbidden,
 							"personal access tokens are not permitted on this endpoint", nil), nil)
@@ -415,7 +427,7 @@ func (c *Controller) handleRevoke(w http.ResponseWriter, r *http.Request) {
 func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 	api.JSON(r.Context(), w, c.logger, http.StatusOK, map[string]string{
 		"status":  "healthy",
-		"service": "orbit-identity",
+		"service": "kora-identity",
 	})
 }
 
@@ -506,6 +518,14 @@ func (c *Controller) handleSessionError(w http.ResponseWriter, r *http.Request, 
 	case errors.Is(err, ErrIDTokenInvalid):
 		apiErr := api.UnauthorizedError(api.ErrCodeUnauthorized, "id_token verification failed — token may be expired, tampered with, or issued by an unexpected provider", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+
+	case errors.Is(err, ErrClaimBindingMismatch):
+		apiErr := api.ForbiddenError(api.ErrCodeForbidden, "the account is not a member of this tenant", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+
+	case errors.Is(err, ErrMultipleTenantsMatch):
+		apiErr := api.ConflictError("multiple_tenants_match", err.Error(), nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 
 	// Refresh token errors.
 	case errors.Is(err, ErrRefreshTokenNotFound), errors.Is(err, ErrRefreshTokenRevoked):

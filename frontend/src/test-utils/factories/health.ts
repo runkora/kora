@@ -1,4 +1,4 @@
-import type { HealthResponse } from '@orbit/shared/api';
+import type { HealthResponse } from '@runkora/shared/api';
 
 /**
  * Creates a `HealthResponse` with sensible defaults.
@@ -7,7 +7,7 @@ import type { HealthResponse } from '@orbit/shared/api';
 export function createHealthResponse(overrides: Partial<HealthResponse> = {}): HealthResponse {
   return {
     status: 'healthy',
-    service: 'orbit-identity',
+    service: 'kora-identity',
     timestamp: new Date().toISOString(),
     ...overrides,
   };

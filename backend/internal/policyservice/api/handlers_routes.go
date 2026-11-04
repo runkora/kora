@@ -1,11 +1,12 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/token"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
 )
 
 // registerRoutesRequest is the body for POST /policy/routes/register.
@@ -41,7 +42,7 @@ func (c *Controller) handleListRoutes(w http.ResponseWriter, r *http.Request) {
 // The caller's principal type determines registration scope:
 //   - SYSTEM → global registration (compiled into every tenant bundle)
 //   - SERVICE → tenant-scoped registration (compiled into that tenant's bundle only;
-//     all required_scopes must exist in the tenant's vocabulary)
+//     it may not declare scopes, and all required_scopes must already exist)
 //
 // Either way the caller may only register its own service's routes.
 // AGENT and HUMAN principals are rejected — route registration is a service-only operation.
@@ -54,11 +55,11 @@ func (c *Controller) handleRegisterRoutes(w http.ResponseWriter, r *http.Request
 	}
 
 	var tenantID string
-	switch claims.Orbit.PrincipalType {
+	switch claims.Kora.PrincipalType {
 	case token.PrincipalTypeSystem:
 		tenantID = ""
 	case token.PrincipalTypeService:
-		tenantID = claims.Orbit.TenantID
+		tenantID = claims.Kora.TenantID
 	default:
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
@@ -71,10 +72,12 @@ func (c *Controller) handleRegisterRoutes(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if req.Service == "" || len(req.Routes) == 0 {
+	// A registration publishes routes, scopes, or both. Scopes alone suit a
+	// service whose routes stay unpublished.
+	if req.Service == "" || (len(req.Routes) == 0 && len(req.Scopes) == 0) {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ValidationError(platformapi.ErrCodeMissingField,
-				"service and routes are required", nil), nil)
+				"service and routes or scopes are required", nil), nil)
 		return
 	}
 
@@ -97,13 +100,19 @@ func (c *Controller) handleRegisterRoutes(w http.ResponseWriter, r *http.Request
 
 // ownService is the service name the caller may register routes under.
 func ownService(claims *token.PlatformClaims) string {
-	if claims.Orbit.PrincipalType == token.PrincipalTypeSystem {
-		return claims.Orbit.DisplayName
+	if claims.Kora.PrincipalType == token.PrincipalTypeSystem {
+		return claims.Kora.DisplayName
 	}
 	return claims.Subject
 }
 
 func routesErrorResponse(err error) *platformapi.APIError {
+	if errors.Is(err, ErrTenantScopeDeclaration) {
+		return platformapi.ForbiddenError(platformapi.ErrCodeForbidden, ErrTenantScopeDeclaration.Error(), nil)
+	}
+	if errors.Is(err, ErrInvalidRegistration) {
+		return platformapi.ValidationError(platformapi.ErrCodeInvalidField, err.Error(), nil)
+	}
 	var scopeErr *ScopeVocabularyError
 	if isScopeVocabularyError(err, &scopeErr) {
 		return platformapi.ValidationError(platformapi.ErrCodeInvalidField,

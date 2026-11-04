@@ -1,6 +1,6 @@
 'use server';
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { upsertTenantBudget, deleteTenantBudget } from '../_services/policy-server';
 import type { TenantBudget } from '../_types/api';
 

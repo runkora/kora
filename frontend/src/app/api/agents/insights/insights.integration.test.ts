@@ -1,23 +1,23 @@
 /**
- * Integration tests for GET /api/agents/insights. `@orbit/server/config` and
- * `@orbit/server/session` are mocked, and MSW answers the upstream calls.
+ * Integration tests for GET /api/agents/insights. `@runkora/server/config` and
+ * `@runkora/server/session` are mocked, and MSW answers the upstream calls.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { NextRequest } from 'next/server';
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 
-vi.mock('@orbit/server/config', () => ({
-  config: { inferenceGatewayUrl: 'http://test-gw', orbitAgentsUrl: 'http://test-agents' },
+vi.mock('@runkora/server/config', () => ({
+  config: { inferenceGatewayUrl: 'http://test-gw', koraAgentsUrl: 'http://test-agents' },
 }));
 
-vi.mock('@orbit/server/session', () => ({
+vi.mock('@runkora/server/session', () => ({
   getSession: vi.fn(),
   isSessionValid: vi.fn().mockReturnValue(true),
 }));
 
 import { GET } from './route';
-import { getSession } from '@orbit/server/session';
+import { getSession } from '@runkora/server/session';
 
 const INSIGHTS = { period: '30d', usage: [], total_cost_usd: 0, trend: [] };
 
@@ -33,7 +33,7 @@ describe('GET /api/agents/insights', () => {
     expect((await GET(request('?period=constructor'))).status).toBe(400);
   });
 
-  it('asks the gateway and orbit-agents for the same period with the session token', async () => {
+  it('asks the gateway and kora-agents for the same period with the session token', async () => {
     const seen: Record<string, string | null> = {};
     server.use(
       http.get('http://test-gw/usage/agent-insights', ({ request: r }) => {

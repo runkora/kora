@@ -16,14 +16,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/policyservice/bundle"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/roles"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
 	jwt "github.com/golang-jwt/jwt/v5"
 	opabundle "github.com/open-policy-agent/opa/v1/bundle"
 	"github.com/open-policy-agent/opa/v1/rego"
+	"github.com/runkora/kora/backend/internal/policyservice/bundle"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/roles"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
 // ---------------------------------------------------------------------------
@@ -90,20 +90,20 @@ func startJWKSServer(t *testing.T) *httptest.Server {
 }
 
 // signTestJWT signs a JWT with the test RSA key for gateway evaluation tests.
-// principalType is "AGENT", "HUMAN", or "PAT". orbitExtra is merged into the
-// orbit claim (e.g. {"claims": {"roles": "platform-admin"}} for HUMAN principals).
-func signTestJWT(t *testing.T, principalType, tenantID, principalID string, orbitExtra map[string]any) string {
+// principalType is "AGENT", "HUMAN", or "PAT". koraExtra is merged into the
+// kora claim (e.g. {"claims": {"roles": "platform-admin"}} for HUMAN principals).
+func signTestJWT(t *testing.T, principalType, tenantID, principalID string, koraExtra map[string]any) string {
 	t.Helper()
-	orbitClaims := map[string]any{
+	koraClaims := map[string]any{
 		"tenant_id":      tenantID,
 		"principal_type": principalType,
 	}
-	maps.Copy(orbitClaims, orbitExtra)
+	maps.Copy(koraClaims, koraExtra)
 	claims := jwt.MapClaims{
-		"sub":   principalID,
-		"iss":   "orbit",
-		"aud":   jwt.ClaimStrings{"orbit-platform"},
-		"orbit": orbitClaims,
+		"sub":  principalID,
+		"iss":  "kora",
+		"aud":  jwt.ClaimStrings{"kora-platform"},
+		"kora": koraClaims,
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	signed, err := tok.SignedString(getTestRSAKey())
@@ -161,10 +161,10 @@ func signDelegationClaims(t *testing.T, claims jwt.MapClaims) string {
 func signDelegationClaimsWithKey(t *testing.T, claims jwt.MapClaims, key *rsa.PrivateKey) string {
 	t.Helper()
 	if _, ok := claims["iss"]; !ok {
-		claims["iss"] = "orbit"
+		claims["iss"] = "kora"
 	}
 	if _, ok := claims["aud"]; !ok {
-		claims["aud"] = jwt.ClaimStrings{"orbit-platform"}
+		claims["aud"] = jwt.ClaimStrings{"kora-platform"}
 	}
 	if _, ok := claims["exp"]; !ok {
 		claims["exp"] = time.Now().Add(time.Hour).Unix()
@@ -198,7 +198,7 @@ func compileAndPrepareGateway(t *testing.T, opts gatewayBundleOpts) rego.Prepare
 	t.Helper()
 
 	if opts.frontendHost == "" {
-		opts.frontendHost = "orbit.example.com"
+		opts.frontendHost = "example.com"
 	}
 	jwksURL := "http://127.0.0.1:1/jwks"
 	if opts.jwksURL != "" {
@@ -207,8 +207,8 @@ func compileAndPrepareGateway(t *testing.T, opts gatewayBundleOpts) rego.Prepare
 
 	cfg := bundle.Config{
 		JWKSURL:      jwksURL,
-		Issuer:       "orbit",
-		Audience:     "orbit-platform",
+		Issuer:       "kora",
+		Audience:     "kora-platform",
 		FrontendHost: opts.frontendHost,
 	}
 
@@ -255,7 +255,7 @@ func compileAndPrepareGateway(t *testing.T, opts gatewayBundleOpts) rego.Prepare
 	}
 
 	pq, err := rego.New(
-		rego.Query(`x := {"allow": data.orbit.authz_gateway.allow, "reason": data.orbit.authz_gateway.reason}`),
+		rego.Query(`x := {"allow": data.kora.authz_gateway.allow, "reason": data.kora.authz_gateway.reason}`),
 		rego.ParsedBundle("gateway", &b),
 	).PrepareForEval(context.Background())
 	if err != nil {
@@ -293,12 +293,12 @@ func evalGateway(t *testing.T, pq rego.PreparedEvalQuery, method, path string, h
 // self-enforce (i.e. bypass edge scope enforcement for) an unrelated sibling like
 // "/v1/mcpx".
 func TestGateway_SelfEnforcedMCP_PathBoundary(t *testing.T) {
-	pq := compileAndPrepareGateway(t, gatewayBundleOpts{frontendHost: "orbit.example.com"})
-	hdr := map[string]string{":authority": "api.orbit.example.com"}
+	pq := compileAndPrepareGateway(t, gatewayBundleOpts{frontendHost: "example.com"})
+	hdr := map[string]string{":authority": "api.example.com"}
 
 	// The MCP gateway is self-enforcing → its paths are allowed unauthenticated so
 	// it can issue its own 401 challenge.
-	for _, p := range []string{"/v1/mcp", "/v1/mcp/orbit"} {
+	for _, p := range []string{"/v1/mcp", "/v1/mcp/kora"} {
 		if allow, _ := evalGateway(t, pq, "POST", p, hdr); !allow {
 			t.Errorf("%s should be self-enforced (allowed unauthenticated)", p)
 		}
@@ -312,11 +312,11 @@ func TestGateway_SelfEnforcedMCP_PathBoundary(t *testing.T) {
 
 func TestGateway_FrontendBypass_ExactHost(t *testing.T) {
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
-		frontendHost: "orbit.example.com",
+		frontendHost: "example.com",
 	})
 
 	allow, _ := evalGateway(t, pq, "GET", "/", map[string]string{
-		":authority": "orbit.example.com",
+		":authority": "example.com",
 	})
 	if !allow {
 		t.Error("expected frontend host to be bypassed")
@@ -325,12 +325,12 @@ func TestGateway_FrontendBypass_ExactHost(t *testing.T) {
 
 func TestGateway_FrontendBypass_HostWithPort(t *testing.T) {
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
-		frontendHost: "orbit.example.com",
+		frontendHost: "example.com",
 	})
 
 	// Local dev sends :authority with a non-standard port.
 	allow, _ := evalGateway(t, pq, "GET", "/login", map[string]string{
-		":authority": "orbit.example.com:8443",
+		":authority": "example.com:8443",
 	})
 	if !allow {
 		t.Error("expected frontend host with port to be bypassed")
@@ -339,12 +339,12 @@ func TestGateway_FrontendBypass_HostWithPort(t *testing.T) {
 
 func TestGateway_FrontendBypass_WrongHost_Denied(t *testing.T) {
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
-		frontendHost: "orbit.example.com",
+		frontendHost: "example.com",
 	})
 
-	// api.orbit.example.com is NOT the frontend host.
+	// api.example.com is NOT the frontend host.
 	allow, reason := evalGateway(t, pq, "GET", "/v1/models", map[string]string{
-		":authority": "api.orbit.example.com",
+		":authority": "api.example.com",
 	})
 	if allow {
 		t.Error("expected non-frontend host to NOT be bypassed")
@@ -520,7 +520,7 @@ func TestGateway_TenantRoute_Matched(t *testing.T) {
 func TestGateway_CrossTenant_GrantsIsolated(t *testing.T) {
 	tenantA := "tenant-a"
 	tenantB := "tenant-b"
-	agentID := "spiffe://orbit.test/tenant/tenant-a/agent/agent-1"
+	agentID := "spiffe://runkora.test/tenant/tenant-a/agent/agent-1"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
 		tenantIDs: []string{tenantA, tenantB},
@@ -613,14 +613,14 @@ func TestGateway_MultiTenantBundle_GlobalRoutesPresent(t *testing.T) {
 
 func TestGateway_FrontendBypass_PathVariants(t *testing.T) {
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
-		frontendHost: "orbit.example.com",
+		frontendHost: "example.com",
 	})
 
 	// Various browser-originated paths all bypass via the host check.
 	paths := []string{"/", "/login", "/dashboard", "/_next/static/abc.js", "/api/auth/session"}
 	for _, path := range paths {
 		allow, _ := evalGateway(t, pq, "GET", path, map[string]string{
-			":authority": "orbit.example.com",
+			":authority": "example.com",
 		})
 		if !allow {
 			t.Errorf("expected frontend bypass for path %s", path)
@@ -637,7 +637,7 @@ func TestGateway_Reason_FrontendBypass(t *testing.T) {
 
 	// Frontend bypass sets allow=true; reason should not be a deny.
 	allow, reason := evalGateway(t, pq, "GET", "/dashboard", map[string]string{
-		":authority": "orbit.example.com",
+		":authority": "example.com",
 	})
 	if !allow {
 		t.Errorf("expected allow for frontend, got deny (reason: %s)", reason)
@@ -652,7 +652,7 @@ func TestGateway_Reason_InvalidToken_NotFrontend(t *testing.T) {
 	})
 
 	_, reason := evalGateway(t, pq, "POST", "/v1/chat/completions", map[string]string{
-		":authority": "api.orbit.example.com",
+		":authority": "api.example.com",
 	})
 	if !strings.Contains(reason, "invalid_token") {
 		t.Errorf("expected deny:invalid_token for non-frontend request without token, got %q", reason)
@@ -673,13 +673,13 @@ func TestGateway_Bypass_IdentityExchange(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// PAT orb_ prefix stripping (M4)
+// PAT kora_ prefix stripping (M4)
 // ---------------------------------------------------------------------------
 
-// TestGateway_PAT_OrbPrefix_Stripped verifies that an orb_-prefixed PAT is
+// TestGateway_PAT_KoraPrefix_Stripped verifies that an kora_-prefixed PAT is
 // stripped before JWT validation. The stripped value here is invalid, so the
 // result must be deny:invalid_token — not a Rego evaluation error or crash.
-func TestGateway_PAT_OrbPrefix_Stripped(t *testing.T) {
+func TestGateway_PAT_KoraPrefix_Stripped(t *testing.T) {
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
 		globalRoutes: []routes.RouteScope{
 			{PathPrefix: "/v1/chat/completions", Method: "POST", RequiredScope: "inference:invoke"},
@@ -687,13 +687,13 @@ func TestGateway_PAT_OrbPrefix_Stripped(t *testing.T) {
 	})
 
 	allow, reason := evalGateway(t, pq, "POST", "/v1/chat/completions", map[string]string{
-		"authorization": "Bearer orb_not.a.valid.jwt",
+		"authorization": "Bearer kora_not.a.valid.jwt",
 	})
 	if allow {
 		t.Error("expected deny for PAT with invalid JWT payload")
 	}
 	if reason != "deny:invalid_token" {
-		t.Errorf("expected deny:invalid_token after orb_ strip, got %q", reason)
+		t.Errorf("expected deny:invalid_token after kora_ strip, got %q", reason)
 	}
 }
 
@@ -712,8 +712,8 @@ func TestGateway_Delegation_NoMainJWT(t *testing.T) {
 	})
 
 	allow, reason := evalGateway(t, pq, "POST", "/v1/chat/completions", map[string]string{
-		"authorization":            "Bearer not.a.valid.jwt",
-		"x-orbit-delegation-token": "some.delegation.token",
+		"authorization":           "Bearer not.a.valid.jwt",
+		"x-kora-delegation-token": "some.delegation.token",
 	})
 	if allow {
 		t.Error("expected deny for delegated request with invalid main JWT")
@@ -728,7 +728,7 @@ func TestGateway_Delegation_NoMainJWT(t *testing.T) {
 // does not carry the required scope.
 func TestGateway_Delegation_NoDelegationScope(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/del-agent"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/del-agent"
 	delegatorID := "user-delegator-001"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
@@ -750,8 +750,8 @@ func TestGateway_Delegation_NoDelegationScope(t *testing.T) {
 	delegationToken := signDelegationJWT(t, delegatorID, []string{"inference:list"})
 
 	allow, reason := evalGateway(t, pq, "POST", "/v1/chat/completions", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": delegationToken,
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": delegationToken,
 	})
 	if allow {
 		t.Error("expected deny when delegation token lacks required scope")
@@ -765,7 +765,7 @@ func TestGateway_Delegation_NoDelegationScope(t *testing.T) {
 // the delegation token covers the required scope but the delegator has no grant.
 func TestGateway_Delegation_NoDelegatorGrant(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/del-agent-2"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/del-agent-2"
 	delegatorID := "user-no-grant-001"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
@@ -786,8 +786,8 @@ func TestGateway_Delegation_NoDelegatorGrant(t *testing.T) {
 	delegationToken := signDelegationJWT(t, delegatorID, []string{"inference:invoke"})
 
 	allow, reason := evalGateway(t, pq, "POST", "/v1/chat/completions", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": delegationToken,
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": delegationToken,
 	})
 	if allow {
 		t.Error("expected deny when delegator has no grant")
@@ -805,12 +805,12 @@ func TestGateway_Delegation_NoDelegatorGrant(t *testing.T) {
 // x-api-key token extraction
 // ---------------------------------------------------------------------------
 
-// TestGateway_XAPIKey_WithOrbPrefix verifies that an Anthropic SDK-style
-// x-api-key credential prefixed with orb_ is accepted and authorised identically
+// TestGateway_XAPIKey_WithKoraPrefix verifies that an Anthropic SDK-style
+// x-api-key credential prefixed with kora_ is accepted and authorised identically
 // to the Authorization: Bearer path.
-func TestGateway_XAPIKey_WithOrbPrefix_Allowed(t *testing.T) {
+func TestGateway_XAPIKey_WithKoraPrefix_Allowed(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/xapikey-agent-1"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/xapikey-agent-1"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
 		jwksURL:   jwksSrv.URL + "/jwks",
@@ -828,18 +828,18 @@ func TestGateway_XAPIKey_WithOrbPrefix_Allowed(t *testing.T) {
 	signed := signTestJWT(t, "AGENT", testTenantID, agentID, nil)
 
 	allow, reason := evalGateway(t, pq, "POST", "/v1/messages", map[string]string{
-		"x-api-key": "orb_" + signed,
+		"x-api-key": "kora_" + signed,
 	})
 	if !allow {
-		t.Errorf("expected x-api-key with orb_ prefix to be allowed, got deny (reason: %s)", reason)
+		t.Errorf("expected x-api-key with kora_ prefix to be allowed, got deny (reason: %s)", reason)
 	}
 }
 
-// TestGateway_XAPIKey_WithoutOrbPrefix verifies that an x-api-key without the
-// orb_ prefix is also accepted (trim_prefix is a no-op when the prefix is absent).
-func TestGateway_XAPIKey_WithoutOrbPrefix_Allowed(t *testing.T) {
+// TestGateway_XAPIKey_WithoutKoraPrefix verifies that an x-api-key without the
+// kora_ prefix is also accepted (trim_prefix is a no-op when the prefix is absent).
+func TestGateway_XAPIKey_WithoutKoraPrefix_Allowed(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/xapikey-agent-2"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/xapikey-agent-2"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
 		jwksURL:   jwksSrv.URL + "/jwks",
@@ -860,7 +860,7 @@ func TestGateway_XAPIKey_WithoutOrbPrefix_Allowed(t *testing.T) {
 		"x-api-key": signed,
 	})
 	if !allow {
-		t.Errorf("expected x-api-key without orb_ prefix to be allowed, got deny (reason: %s)", reason)
+		t.Errorf("expected x-api-key without kora_ prefix to be allowed, got deny (reason: %s)", reason)
 	}
 }
 
@@ -874,7 +874,7 @@ func TestGateway_XAPIKey_InvalidToken_Denied(t *testing.T) {
 	})
 
 	allow, reason := evalGateway(t, pq, "POST", "/v1/messages", map[string]string{
-		"x-api-key": "orb_not.a.valid.jwt",
+		"x-api-key": "kora_not.a.valid.jwt",
 	})
 	if allow {
 		t.Error("expected deny for invalid JWT in x-api-key header")

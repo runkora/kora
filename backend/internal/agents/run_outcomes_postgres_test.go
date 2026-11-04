@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// Run outcome count tests; gated on ORBIT_TEST_DB_URL (see testRunRepo).
+// Run outcome count tests; gated on KORA_TEST_DB_URL (see testRunRepo).
 
 // seedFinishedRun writes a run started `started` ago and finished `finished` ago.
 func seedFinishedRun(t *testing.T, r *PostgresRepository, tenant, agentTypeID, createdBy string, state RunState, started, finished time.Duration) {

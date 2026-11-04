@@ -5,13 +5,13 @@
 # Build context: frontend/  (self-contained pnpm workspace)
 #
 # Usage (from repo root):
-#   docker build -t orbit-frontend:latest \
-#     --build-arg NEXT_PUBLIC_APP_URL=https://orbit.local.clearroute.io:8443 \
+#   docker build -t kora-frontend:latest \
+#     --build-arg NEXT_PUBLIC_APP_URL=https://local.runkora.io:8443 \
 #     frontend/
 #
 # NEXT_PUBLIC_APP_URL must be provided as a build arg because Next.js inlines
 # NEXT_PUBLIC_* variables into the client-side JavaScript bundle at build time.
-# It is also injected at runtime via the orbit-frontend-config ConfigMap for
+# It is also injected at runtime via the kora-frontend-config ConfigMap for
 # server-side code that reads process.env.NEXT_PUBLIC_APP_URL directly.
 # =============================================================================
 
@@ -22,7 +22,7 @@
 # deps and builder run on the build platform, and only the runner stage builds
 # per target. The standalone output traces sharp for /_next/image, so pnpm
 # installs its linux musl binaries for both image architectures.
-FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS deps
+FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS deps
 
 WORKDIR /app
 
@@ -31,7 +31,7 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
 # Copy workspace package manifests before installing so pnpm can resolve the
-# @orbit/hades workspace dependency without copying all source files.
+# @runkora/hades workspace dependency without copying all source files.
 COPY src/packages/hades/package.json ./src/packages/hades/
 
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store/v3 \
@@ -47,38 +47,38 @@ WORKDIR /app
 COPY . .
 
 # NEXT_PUBLIC_APP_URL is inlined into the client bundle at build time.
-ARG NEXT_PUBLIC_APP_URL=https://orbit.local.clearroute.io:8443
+ARG NEXT_PUBLIC_APP_URL=https://local.runkora.io:8443
 ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 
 # The release tag the image is built for, shown in the sidebar.
-ARG ORBIT_VERSION=dev
-ENV NEXT_PUBLIC_ORBIT_VERSION=${ORBIT_VERSION}
+ARG KORA_VERSION=dev
+ENV NEXT_PUBLIC_KORA_VERSION=${KORA_VERSION}
 
-# ORBIT_API_URL and BFF_SESSION_SECRET are server-side only, but Next.js
+# KORA_API_URL and BFF_SESSION_SECRET are server-side only, but Next.js
 # evaluates server modules during `next build` to collect page data, so they
 # must be present at build time to pass validation. These placeholder values
 # are never used at runtime — the real values are injected via the
-# orbit-frontend-config ConfigMap and orbit-frontend-secrets Secret.
-ARG ORBIT_API_URL=http://orbit-identity.orbit-system/api/v1
-ARG INFERENCE_GATEWAY_URL=http://orbit-inference-gateway.orbit-system/v1
-ARG POLICY_GATEWAY_URL=http://orbit-policy-gateway.orbit-system/v1
-ARG POLICY_SERVICE_URL=http://orbit-policy-service.orbit-system/api/v1
-ARG ORBIT_AGENTS_URL=http://orbit-agents.orbit-system
-ARG ORBIT_TRIGGERS_URL=http://orbit-triggers.orbit-system/api/v1
-ARG TOOL_GATEWAY_URL=http://orbit-tool-gateway.orbit-system
-ARG SKILLS_SERVICE_URL=http://orbit-skills-service.orbit-system:8089/v1
+# kora-frontend-config ConfigMap and kora-frontend-secrets Secret.
+ARG KORA_API_URL=http://kora-identity.kora-system/api/v1
+ARG INFERENCE_GATEWAY_URL=http://kora-inference-gateway.kora-system/v1
+ARG POLICY_GATEWAY_URL=http://kora-policy-gateway.kora-system/v1
+ARG POLICY_SERVICE_URL=http://kora-policy-service.kora-system/api/v1
+ARG KORA_AGENTS_URL=http://kora-agents.kora-system
+ARG KORA_TRIGGERS_URL=http://kora-triggers.kora-system/api/v1
+ARG TOOL_GATEWAY_URL=http://kora-tool-gateway.kora-system
+ARG SKILLS_SERVICE_URL=http://kora-skills-service.kora-system:8098/v1
 # hadolint ignore=DL3025
 # BFF_SESSION_SECRET is a placeholder value only — Next.js evaluates server
 # modules at build time to collect page data, so the variable must be present
 # to pass validation. The real secret is injected at runtime via the
-# orbit-frontend-secrets Kubernetes Secret and never baked into the image.
+# kora-frontend-secrets Kubernetes Secret and never baked into the image.
 ARG BFF_SESSION_SECRET=build-time-placeholder-not-used-at-runtime
-ENV ORBIT_API_URL=${ORBIT_API_URL} \
+ENV KORA_API_URL=${KORA_API_URL} \
     INFERENCE_GATEWAY_URL=${INFERENCE_GATEWAY_URL} \
     POLICY_GATEWAY_URL=${POLICY_GATEWAY_URL} \
     POLICY_SERVICE_URL=${POLICY_SERVICE_URL} \
-    ORBIT_AGENTS_URL=${ORBIT_AGENTS_URL} \
-    ORBIT_TRIGGERS_URL=${ORBIT_TRIGGERS_URL} \
+    KORA_AGENTS_URL=${KORA_AGENTS_URL} \
+    KORA_TRIGGERS_URL=${KORA_TRIGGERS_URL} \
     TOOL_GATEWAY_URL=${TOOL_GATEWAY_URL} \
     SKILLS_SERVICE_URL=${SKILLS_SERVICE_URL} \
     BFF_SESSION_SECRET=${BFF_SESSION_SECRET}
@@ -89,26 +89,29 @@ ENV NEXT_OUTPUT=standalone
 
 RUN pnpm build
 
+# Bundle the theme validator the chart's init container runs as /app/validate-theme.mjs.
+RUN node scripts/bundle-validate-theme.mjs
+
 # ── Stage 3: runner ───────────────────────────────────────────────────────────
 # Minimal production image — only the standalone output, static assets, and public dir.
-FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runner
+FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS runner
 
 WORKDIR /app
 
 # Non-root user matching uid/gid 65532 used by all other kora service containers.
-RUN addgroup --system --gid 65532 orbit && \
-    adduser  --system --uid 65532 --ingroup orbit orbit
+RUN addgroup --system --gid 65532 kora && \
+    adduser  --system --uid 65532 --ingroup kora kora
 
-# Standalone output — includes server.js entry point and traced node_modules.
-COPY --from=builder --chown=orbit:orbit /app/.next/standalone ./
+# Standalone output: server.js, traced node_modules and validate-theme.mjs.
+COPY --from=builder --chown=kora:kora /app/.next/standalone ./
 
 # Static assets must be copied separately — standalone output does not include them.
-COPY --from=builder --chown=orbit:orbit /app/.next/static ./.next/static
+COPY --from=builder --chown=kora:kora /app/.next/static ./.next/static
 
 # Public directory (favicon, robots.txt, etc.).
-COPY --from=builder --chown=orbit:orbit /app/public ./public
+COPY --from=builder --chown=kora:kora /app/public ./public
 
-USER orbit
+USER kora
 
 EXPOSE 3000
 

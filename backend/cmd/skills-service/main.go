@@ -10,19 +10,19 @@ import (
 	"strconv"
 	"syscall"
 
-	sc "github.com/clear-route/orbit/cmd/skills-service/config"
-	"github.com/clear-route/orbit/internal/platform/api"
-	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
-	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/config"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/observability"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/storage"
-	"github.com/clear-route/orbit/internal/platform/token"
-	"github.com/clear-route/orbit/internal/skills"
+	sc "github.com/runkora/kora/backend/cmd/skills-service/config"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
+	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/storage"
+	"github.com/runkora/kora/backend/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/skills"
 )
 
 func main() {
@@ -219,14 +219,12 @@ func initScopeRegistration(logger logging.Logger) func(context.Context) error {
 	)
 
 	return func(registerCtx context.Context) error {
-		scopedRoutes := routescopes.FilterScopedRoutes(
-			skills.MarketplaceRoutes(sc.Current.Server.BasePath),
-		)
-
+		// Empty-scope routes are published too: the policy service registers
+		// them as authenticated-only.
 		if err := client.Register(
 			registerCtx,
 			"skills-service",
-			scopedRoutes,
+			skills.MarketplaceRoutes(sc.Current.Server.BasePath),
 			skills.MarketplaceScopes(),
 		); err != nil {
 			return fmt.Errorf("register routes: %w", err)
@@ -260,7 +258,7 @@ func initServer(
 		sc.Current.Server.Port,
 		sc.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(sc.Current.Observability.ServiceName),
+			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
 		),
 		controllers...,

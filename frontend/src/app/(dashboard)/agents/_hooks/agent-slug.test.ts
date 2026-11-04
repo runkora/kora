@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveSlug } from '@orbit/lib/slug';
+import { deriveSlug } from '@runkora/lib/slug';
 import { AGENT_SLUG_MAX_LENGTH, SLUG_RE, agentSlugInput } from './use-agent-builder';
 
 describe('SLUG_RE', () => {

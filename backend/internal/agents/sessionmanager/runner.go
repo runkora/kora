@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 )
 
 // ErrNotSupported is returned by SendToolResult for runners that handle tool
@@ -64,7 +64,7 @@ type Runner interface {
 }
 
 // wrapExec returns the command and arguments to spawn an agent, through
-// orbit-session-runner when wrapperPath is set. The wrapper takes the work
+// kora-session-runner when wrapperPath is set. The wrapper takes the work
 // directory first, then the binary and its arguments, and applies Landlock before
 // exec'ing it. Empty runs the binary directly, which is local development on a
 // host without Landlock.
@@ -79,7 +79,7 @@ func wrapExec(wrapperPath, workDir, binary string, args ...string) (string, []st
 // and TMPDIR as environment entries.
 //
 // Landlock must make all of them writable. An agent left on the
-// image's /home/orbit fails on its first write. Per-run also keeps sibling runs
+// image's /home/kora fails on its first write. Per-run also keeps sibling runs
 // out of each other's caches.
 func runHomeDirs(workDir string) ([]string, error) {
 	runHome := runfs.HomeDir(workDir)

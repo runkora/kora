@@ -76,7 +76,7 @@ Every inference request produces one row in `inference_usage` with 22 columns co
 - [ ] Routing section shows: routing strategy, retry count.
 - [ ] Performance section shows: latency, prompt tokens, completion tokens, cache read tokens, cache creation tokens, cache hit rate (computed), estimated cost.
 - [ ] Failure section (shown only when status is not `success`) shows: status badge, error code.
-- [ ] The modal uses the existing `Modal` component from `@orbit/hades` with `size="lg"` and a constrained scrollable body.
+- [ ] The modal uses the existing `Modal` component from `@runkora/hades` with `size="lg"` and a constrained scrollable body.
 - [ ] The modal is triggered by row click on `DataTable`, following the same pattern as `ModelDetailModal` in the Models tab.
 - [ ] The modal can be dismissed via the close button, Escape key, or clicking the backdrop.
 - [ ] No new API call is made when opening the modal — all data comes from the row already loaded in the table.
@@ -292,7 +292,7 @@ Same argument as above — 1:1 relationship, write-once, JSONB handles schema ev
 
 The following corrections apply to [PRD: Inference Logs](inference-logs.md). That document is immutable; amendments are recorded here.
 
-**OQ-1 (token_id attribution):** The decision states `claims.Orbit.SessionID` is used as the PAT record UUID. The actual implementation uses `claims.Orbit.PatID`, a distinct field. `SessionID` is a per-issuance revocation key; `PatID` is the stable PAT record UUID. The risk table entry referencing `SessionID` semantics is similarly affected — the correct field is `PatID`.
+**OQ-1 (token_id attribution):** The decision states `claims.Kora.SessionID` is used as the PAT record UUID. The actual implementation uses `claims.Kora.PatID`, a distinct field. `SessionID` is a per-issuance revocation key; `PatID` is the stable PAT record UUID. The risk table entry referencing `SessionID` semantics is similarly affected — the correct field is `PatID`.
 
 **OQ-3 (pagination):** The decision states offset-based pagination was chosen. The actual `InferenceUsageRepository.List` implementation uses cursor-based pagination (`CursorTime` + `CursorID` keyset cursors, no `Offset` field). The recommendation to not hardcode offset values in the URL scheme is correct but the rationale is wrong.
 

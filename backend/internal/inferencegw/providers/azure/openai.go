@@ -6,9 +6,9 @@ import (
 
 	openai "github.com/openai/openai-go/v3"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/convert"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // openaiChatCompletion sends a non-streaming request to Azure OpenAI.

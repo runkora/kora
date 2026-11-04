@@ -4,7 +4,7 @@ import { cn } from '../../utils';
 import { sectionLabelVariants } from '../section-label';
 import { Donut, donutSegmentColor } from '../donut';
 
-/** @tier 1 — Zero Orbit domain knowledge. One headline figure in a row of them. */
+/** @tier 1 — Zero kora domain knowledge. One headline figure in a row of them. */
 
 /**
  * The one tone scale, shared by the value, the icon and the detail line, so a

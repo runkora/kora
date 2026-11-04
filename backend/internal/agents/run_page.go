@@ -15,6 +15,9 @@ const (
 	maxRunsLimit     = 200
 )
 
+// startedByTrigger is the started_by filter value that keeps runs a trigger started.
+const startedByTrigger = "trigger"
+
 var (
 	// ErrInvalidRunCursor is returned for a cursor this service did not issue.
 	ErrInvalidRunCursor = errors.New("invalid run cursor")
@@ -63,6 +66,10 @@ func decodeRunCursor(raw string) (*runCursor, error) {
 type RunScope struct {
 	AgentTypeIDs []string
 	Vis          RunVisibility
+	// Own adds the runs Vis.Subject started, of any agent type (D3: callers see their own runs).
+	Own bool
+	// OnlyAgentTypeIDs narrows the scope, own runs included, to these agent types when set.
+	OnlyAgentTypeIDs []string
 }
 
 // appendScope adds the scope to a run query (runs as r, agent_types as at).
@@ -72,7 +79,16 @@ func appendScope(query string, args []any, scope RunScope) (string, []any) {
 		ids = []string{}
 	}
 	args = append(args, ids)
-	query += fmt.Sprintf(" AND r.agent_type_id = ANY($%d)", len(args))
+	if scope.Own {
+		args = append(args, scope.Vis.Subject)
+		query += fmt.Sprintf(" AND (r.agent_type_id = ANY($%d) OR ($%[2]d <> '' AND r.created_by = $%[2]d))", len(args)-1, len(args))
+	} else {
+		query += fmt.Sprintf(" AND r.agent_type_id = ANY($%d)", len(args))
+	}
+	if len(scope.OnlyAgentTypeIDs) > 0 {
+		args = append(args, scope.OnlyAgentTypeIDs)
+		query += fmt.Sprintf(" AND r.agent_type_id = ANY($%d)", len(args))
+	}
 	return appendVisibility(query, args, scope.Vis)
 }
 
@@ -86,6 +102,8 @@ type RunListQuery struct {
 	// Zero means unbounded.
 	CreatedAfter  time.Time
 	CreatedBefore time.Time
+	// StartedByTrigger narrows to runs a trigger started.
+	StartedByTrigger bool
 	// After is the previous page's cursor; nil is the first page.
 	After *runCursor
 	Limit int

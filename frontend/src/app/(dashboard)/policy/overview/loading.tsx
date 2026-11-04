@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle, Grid, Skeleton, Stack } from '@orbit/hades';
+import { Card, CardContent, CardHeader, CardTitle, Grid, Skeleton, Stack } from '@runkora/hades';
 
 function KPISkeleton() {
   return (

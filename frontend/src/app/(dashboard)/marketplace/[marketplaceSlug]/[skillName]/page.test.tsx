@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { loadSkillPage } from '../../_services/marketplace-server';
 import SkillDetailPage from './page';
 
-vi.mock('@orbit/server/session', () => ({ getSession: vi.fn(), isSessionValid: vi.fn() }));
+vi.mock('@runkora/server/session', () => ({ getSession: vi.fn(), isSessionValid: vi.fn() }));
 vi.mock('../../_services/marketplace-server', () => ({ loadSkillPage: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 

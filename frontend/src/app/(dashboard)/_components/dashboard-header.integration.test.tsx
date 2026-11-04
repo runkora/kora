@@ -9,7 +9,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@runkora/test-utils';
 import { SidebarStateProvider } from './sidebar-state';
 import { DashboardHeader } from './dashboard-header';
 
@@ -37,13 +37,13 @@ describe('DashboardHeader version badge', () => {
   });
 
   it('shows the version the image was built for, beside the theme toggle', () => {
-    vi.stubEnv('NEXT_PUBLIC_ORBIT_VERSION', 'v0.5.0-rc.1');
+    vi.stubEnv('NEXT_PUBLIC_KORA_VERSION', 'v0.5.0-rc.1');
     renderHeader();
     expect(screen.getByText('v0.5.0-rc.1')).toBeInTheDocument();
   });
 
   it('shows dev when no version was built in', () => {
-    vi.stubEnv('NEXT_PUBLIC_ORBIT_VERSION', undefined);
+    vi.stubEnv('NEXT_PUBLIC_KORA_VERSION', undefined);
     renderHeader();
     expect(screen.getByText('dev')).toBeInTheDocument();
   });

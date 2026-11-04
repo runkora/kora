@@ -9,19 +9,22 @@ import (
 	"os/signal"
 	"syscall"
 
-	igc "github.com/clear-route/orbit/cmd/inference-gateway/config"
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/registry"
-	"github.com/clear-route/orbit/internal/platform/api"
-	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/config"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/observability"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/storage"
-	"github.com/clear-route/orbit/internal/platform/token"
+	igc "github.com/runkora/kora/backend/cmd/inference-gateway/config"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/registry"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/storage"
+	"github.com/runkora/kora/backend/internal/platform/token"
 	kubeconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
@@ -37,23 +40,42 @@ func main() {
 	logger := initLogger()
 	logger.Info(ctx, "Inference gateway starting", logging.Field{Key: "version", Value: igc.Current.App.Version})
 
-	db, redis, err := initStorage(ctx, logger)
-	if err != nil {
-		logger.Error(ctx, "Failed to initialize storage", logging.Field{Key: "error", Value: err})
-		shutdownObservability()
-		os.Exit(1) //nolint:gocritic
-	}
-	defer db.Close()
-	defer redis.Close()
-
-	server, register, err := initServer(ctx, logger, db, redis)
-	if err != nil {
-		logger.Error(ctx, "Failed to initialize server", logging.Field{Key: "error", Value: err})
+	// fatal flushes observability (the deferred shutdown above won't run
+	// after os.Exit) and exits. Used for every startup failure past this
+	// point so each one isn't a repeated three-line block.
+	fatal := func(msg string, err error) {
+		logger.Error(ctx, msg, logging.Field{Key: "error", Value: err})
 		shutdownObservability()
 		os.Exit(1)
 	}
 
-	run(ctx, logger, server, register)
+	metrics, err := platformmetrics.Setup(ctx, igc.Current.Metrics, observability.Config{
+		ServiceName:    igc.Current.Observability.ServiceName,
+		ServiceVersion: igc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, igc.Current.Observability.ServiceName, logger)
+	if err != nil {
+		fatal("Failed to setup metrics", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), igc.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
+
+	db, redis, err := initStorage(ctx, logger)
+	if err != nil {
+		fatal("Failed to initialize storage", err)
+	}
+	defer db.Close()
+	defer redis.Close()
+
+	server, register, err := initServer(ctx, logger, db, redis, metrics)
+	if err != nil {
+		fatal("Failed to initialize server", err)
+	}
+
+	run(ctx, logger, server, metrics, register)
 }
 
 func initObservability(ctx context.Context) (func(), error) {
@@ -177,8 +199,14 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// PEP before natural expiry (docs/adr/2026-07-23-delegated-agent-identity.md).
 	jtiBlocklist := storage.NewJTIBlocklist(redis)
 	controllers := []api.Controller{
-		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist, logger),
-		inferencegw.NewCatalogController(catalog, router, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
+		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist,
+			agentsclient.NewClient(igc.Current.Agents.InternalURL, logger), logger),
+		inferencegw.NewCatalogController(catalog, router, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath,
+			igc.Current.Catalog.APIAuthoring, logger),
+		// The operator projects VirtualModel resources through these endpoints.
+		declarative.NewController(verifier, logger, map[string]declarative.Applier{
+			declarative.KindVirtualModels: inferencegw.NewVirtualModelApplier(catalog),
+		}),
 	}
 	return controllers, register, nil
 }
@@ -194,8 +222,7 @@ func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSou
 	register := func(registerCtx context.Context) error {
 		catalogScopes := router.CatalogScopes()
 		scopeDecls := inferenceScopes(catalogScopes)
-		scopedRoutes := routescopes.FilterScopedRoutes(inferenceRoutes())
-		if err := client.Register(registerCtx, "inference-gateway", scopedRoutes, scopeDecls); err != nil {
+		if err := client.Register(registerCtx, "inference-gateway", inferenceRoutes(), scopeDecls); err != nil {
 			return fmt.Errorf("register routes: %w", err)
 		}
 		return nil
@@ -217,12 +244,11 @@ func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSou
 // Used at startup for policy-service route registration (docs/adr/2026-04-14-dynamic-route-scope-registration.md) and at
 // request time by ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Entries with empty
 // RequiredScope require authentication but no specific scope; the middleware
-// passes them through after AuthMiddleware. They are filtered out of the
-// policy registration by routescopes.FilterScopedRoutes.
+// passes them through after AuthMiddleware. The policy service registers them
+// as authenticated-only routes.
 //
-// Order matters: ScopeEnforcementMiddleware iterates this slice and prefers
-// the more-specific (sub-path) entry over the broader prefix for the same
-// method, so list narrower paths before broader ones.
+// Order does not matter: the longest matching prefix wins, in
+// ScopeEnforcementMiddleware and in the rego.
 func inferenceRoutes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
 		{PathPrefix: "/v1/chat/completions", Method: "POST", RequiredScope: "inference:invoke"},
@@ -251,17 +277,17 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// GET /v1/usage/budget is personal — any authenticated caller may check
 		// their own budget. Listed before /v1/usage so the more-specific path wins.
 		{PathPrefix: "/v1/usage/budget", Method: "GET", RequiredScope: ""},
-		// GET /v1/usage/run/{id} is the run chat usage meter — any authenticated
-		// caller in the tenant; spend is tenant-scoped in the query. More-specific
-		// than /v1/usage, so listed before it.
+		// GET /v1/usage/run/{id} is the run chat usage meter. The handler serves
+		// it only when kora-agents would let the caller read the run.
 		{PathPrefix: "/v1/usage/run", Method: "GET", RequiredScope: ""},
 		// GET /v1/usage/stats is personal — per-PAT aggregates for the calling
 		// principal only.
 		{PathPrefix: "/v1/usage/stats", Method: "GET", RequiredScope: ""},
-		// Agent usage needs agents:usage:read; a per-agent scope does not cover it. A new
-		// /v1/usage route needs its own entry or it falls to the open one below.
-		{PathPrefix: "/v1/usage/agent-insights", Method: "GET", RequiredScope: "agents:usage:read"},
-		{PathPrefix: "/v1/usage/agent-type", Method: "GET", RequiredScope: "agents:usage:read"},
+		// Agent usage is authenticated-only at the route layer. The governing scope is
+		// per-agent (agents:usage:<slug>:read) and Service.ReadableAgents narrows the
+		// response to the agents the caller may read. agents:usage:read covers every agent.
+		{PathPrefix: "/v1/usage/agent-insights", Method: "GET", RequiredScope: ""},
+		{PathPrefix: "/v1/usage/agent-type", Method: "GET", RequiredScope: ""},
 		// GET /v1/usage is the caller's own inference usage log; tenant and
 		// principal come from the verified claims.
 		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},
@@ -278,7 +304,7 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 	decls := []routescopes.ScopeDeclaration{
 		{Scope: "inference:invoke", ResourceType: "inference", PathSegments: []string{}, Action: "invoke", Description: "Call the inference endpoints"},
 		{Scope: "inference:use", ResourceType: "inference", PathSegments: []string{}, Action: "use", Description: "Use any model across all providers"},
-		{Scope: "inference:list", ResourceType: "inference", PathSegments: []string{}, Action: "list", Description: "List available models"},
+		{Scope: "inference:list", ResourceType: "inference", PathSegments: []string{}, Action: "list", Description: "List the models you can use"},
 		{Scope: "platform:catalog:read", ResourceType: "platform", PathSegments: []string{"catalog"}, Action: "read", Description: "Read the virtual model catalog and provider model settings"},
 		{Scope: "platform:catalog:write", ResourceType: "platform", PathSegments: []string{"catalog"}, Action: "write", Description: "Manage the virtual model catalog and provider model settings"},
 		{Scope: "platform:analytics:read", ResourceType: "platform", PathSegments: []string{"analytics"}, Action: "read", Description: "Read tenant-wide inference analytics"},
@@ -295,7 +321,7 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 	return decls
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) (*http.Server, func(context.Context) error, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, metrics *platformmetrics.Bootstrap) (*http.Server, func(context.Context) error, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	controllers, register, err := initControllers(ctx, logger, db, redis)
@@ -303,12 +329,16 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 		return nil, nil, err
 	}
 
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
+
 	server := apiServer.Server(
 		ctx,
 		igc.Current.Server.Port,
 		igc.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(igc.Current.Observability.ServiceName),
+			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
 			// Rewrites /run/{run_id}/v1/... -> /v1/... with the run identity in
 			// context, ahead of all routing and enforcement. See
@@ -321,7 +351,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 	return server, register, nil
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server, register func(context.Context) error) {
+func run(ctx context.Context, logger logging.Logger, server *http.Server, metrics *platformmetrics.Bootstrap, register func(context.Context) error) {
 	runCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -331,6 +361,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, regist
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
+	metrics.Start(runCtx, logger)
 
 	// Register now and keep the registration alive across policy-service
 	// restarts; the shared helper owns the retry and re-registration cadence.
@@ -345,6 +376,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, regist
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "Inference gateway shutdown complete")
 }

@@ -7,7 +7,7 @@
  */
 'use client';
 
-import { CopyButton, Code, Stack, Text } from '@orbit/hades';
+import { CopyButton, Code, Stack, Text } from '@runkora/hades';
 
 export interface MessageContentProps {
   content: string;

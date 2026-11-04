@@ -21,17 +21,22 @@ import {
   Toggle,
   Icon,
   ConfirmDialog,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import type { VirtualModel, ProviderModel, Provider } from '../_types/catalog';
 import type { VirtualModel as ApiVirtualModel } from '../../_services/catalog-server';
 import { vmFullId, vmPolicyScope, vmToApiPayload, toVirtualModel } from '../_utils/catalog-api';
 import { RoutesTab } from './routes-tab';
+import { useHasScope } from '../../../_components/permissions-provider';
+import { managedInGit as isManagedInGit, writeErrorMessage } from '@runkora/lib/declarative';
+import { ManagedInGitBadge, ManagedInGitNotice, PermissionHint } from '@runkora/components';
 
 interface EditorPanelProps {
   model: VirtualModel | null;
   onClose: () => void;
   onSaved: (vm: VirtualModel) => void;
   onDeleted: (id: string) => void;
+  /** False when the platform takes virtual models from the configuration repository only. */
+  apiAuthoring?: boolean;
   providerModels: ProviderModel[];
   providers: Provider[];
 }
@@ -43,7 +48,9 @@ export function EditorPanel({
   onDeleted,
   providerModels,
   providers,
+  apiAuthoring = true,
 }: EditorPanelProps) {
+  const canWrite = useHasScope('platform:catalog:write');
   const [draft, setDraft] = useState<VirtualModel | null>(model);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +72,8 @@ export function EditorPanel({
   if (!draft) return null;
 
   const isNew = draft.id === '__new__';
+  // A declared model, or any model with the platform switch off, changes only in the configuration repository.
+  const managedInGit = isManagedInGit(draft.declared, !apiAuthoring);
   const fullId = draft.family && draft.name ? vmFullId(draft) : null;
 
   async function handleSave() {
@@ -83,8 +92,9 @@ export function EditorPanel({
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { message?: string };
-        setError(body.message ?? 'Save failed');
+        setError(
+          writeErrorMessage(res.status, await res.json().catch(() => ({})), { platform: true }),
+        );
         return;
       }
       const body = (await res.json()) as { data: ApiVirtualModel };
@@ -110,8 +120,9 @@ export function EditorPanel({
         onClose();
         return;
       }
-      const body = (await res.json().catch(() => ({}))) as { message?: string };
-      setDeleteError(body.message ?? 'Delete failed');
+      setDeleteError(
+        writeErrorMessage(res.status, await res.json().catch(() => ({})), { platform: true }),
+      );
     } catch {
       setDeleteError('Network error');
     } finally {
@@ -136,6 +147,7 @@ export function EditorPanel({
                 {draft.enabled ? 'Enabled' : 'Disabled'}
               </Badge>
             )}
+            {draft.declared && <ManagedInGitBadge repository={draft.repository} />}
           </Stack>
           {fullId && (
             <Text size="caption" color="muted" mono>
@@ -151,6 +163,9 @@ export function EditorPanel({
 
       <SidePanelBody>
         <Stack gap="comfortable">
+          {managedInGit && (
+            <ManagedInGitNotice declared={draft.declared} repository={draft.repository} platform />
+          )}
           {/* Identity fields */}
           <Stack paddingBottom="comfortable">
             <Grid cols={2} gap="snug">
@@ -158,6 +173,7 @@ export function EditorPanel({
                 <Label>Family</Label>
                 {knownFamilies.length > 0 ? (
                   <NativeSelect
+                    disabled={managedInGit}
                     value={draft.family}
                     onChange={(e) => setDraft({ ...draft, family: e.target.value })}
                     mono
@@ -172,6 +188,7 @@ export function EditorPanel({
                 ) : (
                   <Input
                     mono
+                    disabled={managedInGit}
                     value={draft.family}
                     onChange={(e) => setDraft({ ...draft, family: e.target.value })}
                     placeholder="e.g. anthropic"
@@ -183,6 +200,7 @@ export function EditorPanel({
                 <Label>Model name</Label>
                 <Input
                   mono
+                  disabled={managedInGit}
                   value={draft.name}
                   onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                   placeholder="e.g. claude-sonnet-4-6"
@@ -192,6 +210,7 @@ export function EditorPanel({
               <Field>
                 <Label>Display name</Label>
                 <Input
+                  disabled={managedInGit}
                   value={draft.displayName}
                   onChange={(e) => setDraft({ ...draft, displayName: e.target.value })}
                   placeholder="e.g. Claude Sonnet 4.6"
@@ -212,6 +231,7 @@ export function EditorPanel({
             <Field>
               <Label>Description</Label>
               <Input
+                disabled={managedInGit}
                 value={draft.description}
                 onChange={(e) => setDraft({ ...draft, description: e.target.value })}
                 placeholder="Optional description"
@@ -226,6 +246,7 @@ export function EditorPanel({
             onChange={setDraft}
             providerModels={providerModels}
             providers={providers}
+            disabled={managedInGit}
           />
         </Stack>
       </SidePanelBody>
@@ -243,18 +264,27 @@ export function EditorPanel({
 
       <SidePanelFooter justify="between">
         <Stack direction="horizontal" align="center" gap="snug">
-          {!isNew && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setDeleteOpen(true)}
-              disabled={saving || deleting}
-            >
-              <Icon name="trash" size="2xs" color="subtle" />
-              Delete
-            </Button>
+          {!isNew && !managedInGit && (
+            <PermissionHint allowed={canWrite} action="change the model catalog">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setDeleteOpen(true)}
+                disabled={!canWrite || saving || deleting}
+              >
+                <Icon name="trash" size="2xs" color="subtle" />
+                Delete
+              </Button>
+            </PermissionHint>
           )}
-          <Toggle checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} />
+          <PermissionHint allowed={canWrite} action="change the model catalog">
+            <Toggle
+              checked={draft.enabled}
+              onChange={(v) => setDraft({ ...draft, enabled: v })}
+              disabled={!canWrite || managedInGit}
+              aria-label={`Enable ${draft.displayName || draft.name || 'model'}`}
+            />
+          </PermissionHint>
           <Text size="supporting" color={draft.enabled ? 'foreground' : 'muted'}>
             {draft.enabled ? 'Enabled' : 'Disabled'}
           </Text>
@@ -263,9 +293,13 @@ export function EditorPanel({
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={() => void handleSave()} disabled={saving}>
-            {saving ? 'Saving…' : 'Save Changes'}
-          </Button>
+          {!managedInGit && (
+            <PermissionHint allowed={canWrite} action="change the model catalog">
+              <Button onClick={() => void handleSave()} disabled={!canWrite || saving}>
+                {saving ? 'Saving…' : 'Save Changes'}
+              </Button>
+            </PermissionHint>
+          )}
         </Stack>
       </SidePanelFooter>
 

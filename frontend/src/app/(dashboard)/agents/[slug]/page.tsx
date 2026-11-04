@@ -1,6 +1,6 @@
 // RSC: fetches the agent type, its first page of runs and its default-window overview by slug.
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchAgentDetailFromBFF } from './_services/agent-detail-server';
 import { loadAgentOverview } from './_services/agent-overview-server';
 import { DEFAULT_PERIOD } from '../_lib/spend';

@@ -3,7 +3,7 @@
  * environments and agents features.
  */
 
-import type { EnvironmentSize, SandboxImage } from '@orbit/shared/api';
+import type { EnvironmentSize, SandboxImage } from '@runkora/shared/api';
 
 /** The SandboxImage the operator registers for the kora base image in every tenant. */
 export const BASE_IMAGE_NAME = 'kora-base';

@@ -2,6 +2,7 @@ package token
 
 import (
 	"context"
+	"crypto"
 	"fmt"
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
@@ -35,15 +36,23 @@ func NewVerifierFromConfig(ctx context.Context, cfg Config) *Verifier {
 //
 // jwksURL   — full URL of the identity service JWKS endpoint, e.g.:
 //
-//	http://orbit-identity.orbit-system.svc.cluster.local/api/v1/identity/.well-known/jwks.json
+//	http://kora-identity.kora-system.svc.cluster.local/api/v1/identity/.well-known/jwks.json
 //
-// issuer    — must match the "iss" claim in platform tokens (default: "orbit")
-// audience  — must match the "aud" claim in platform tokens (default: "orbit-platform")
+// issuer    — must match the "iss" claim in platform tokens (default: "kora")
+// audience  — must match the "aud" claim in platform tokens (default: "kora-platform")
 func NewVerifier(ctx context.Context, jwksURL, issuer, audience string) *Verifier {
 	keySet := gooidc.NewRemoteKeySet(ctx, jwksURL)
 	inner := gooidc.NewVerifier(issuer, keySet, &gooidc.Config{
 		ClientID: audience,
 	})
+	return &Verifier{inner: inner}
+}
+
+// NewStaticVerifier constructs a Verifier over a fixed public key. The identity
+// service uses it to verify tokens it signed itself, without fetching its own JWKS.
+func NewStaticVerifier(publicKey crypto.PublicKey, issuer, audience string) *Verifier {
+	keySet := &gooidc.StaticKeySet{PublicKeys: []crypto.PublicKey{publicKey}}
+	inner := gooidc.NewVerifier(issuer, keySet, &gooidc.Config{ClientID: audience})
 	return &Verifier{inner: inner}
 }
 

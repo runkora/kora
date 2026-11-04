@@ -1,7 +1,7 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
-import { schedulePreview } from '@orbit/server/triggers-client';
+import { withAuth } from '@runkora/server/route-helpers';
+import { schedulePreview } from '@runkora/server/triggers-client';
 
 interface PreviewBody {
   cron_expression?: string;

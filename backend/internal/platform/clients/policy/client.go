@@ -5,21 +5,44 @@ package policy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // ErrGrantNotFound is returned when the grant to delete does not exist.
 var ErrGrantNotFound = errors.New("grant not found")
 
+// ErrNoCallerBearer is returned when a caller-scoped request has no caller token.
+var ErrNoCallerBearer = errors.New("no caller bearer token")
+
+// ErrScopeNotInVocabulary is returned when the policy service refuses a grant
+// because one of its scopes is not in the tenant's scope vocabulary.
+var ErrScopeNotInVocabulary = errors.New("scope is not in the scope vocabulary")
+
+// ScopeNotInVocabularyError names the scope the policy service refused. It
+// matches ErrScopeNotInVocabulary under errors.Is.
+type ScopeNotInVocabularyError struct {
+	Scope string
+}
+
+func (e *ScopeNotInVocabularyError) Error() string {
+	return ErrScopeNotInVocabulary.Error() + ": " + e.Scope
+}
+
+func (e *ScopeNotInVocabularyError) Is(target error) bool { return target == ErrScopeNotInVocabulary }
+
+// errGrantRejected is any other 400 the policy service answers a grant with.
+var errGrantRejected = errors.New("create grant rejected")
+
 const (
-	tracerName    = "orbit.policy-client"
+	tracerName    = "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	clientTimeout = 10 * time.Second
 )
 
@@ -58,7 +81,7 @@ type Client struct {
 }
 
 // NewClient creates a Client targeting the given policy service base URL,
-// e.g. "http://orbit-policy-service.orbit-system.svc".
+// e.g. "http://kora-policy-service.kora-system.svc".
 // tokenFunc is called on every outbound request to obtain a Bearer token.
 func NewClient(serviceURL string, tokenFunc TokenFunc, logger logging.Logger) *Client {
 	return &Client{
@@ -104,20 +127,27 @@ func (c *Client) CreateGrant(ctx context.Context, tenantID, principalType, princ
 		return "", fmt.Errorf("get bearer token for grant request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.serviceURL+"/api/v1/policy/grants", body)
-	if err != nil {
-		return "", fmt.Errorf("build grant request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+tok)
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	header.Set("Authorization", "Bearer "+tok)
 
-	_, span, resp, err := c.Do(ctx, "policy.Client.CreateGrant", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.serviceURL, Path: "/api/v1/policy/grants", Header: header, Body: body,
+	})
 	defer span.End()
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
+	if resp.StatusCode == http.StatusBadRequest {
+		upstream := c.ReadErrorBody(span, resp)
+		if scope, ok := vocabularyScope(upstream); ok {
+			_ = c.RecordError(span, ErrScopeNotInVocabulary)
+			return "", &ScopeNotInVocabularyError{Scope: scope}
+		}
+		return "", fmt.Errorf("%w: status %d: %s", c.RecordError(span, errGrantRejected), resp.StatusCode, upstream)
+	}
 	if resp.StatusCode != http.StatusCreated {
 		return "", c.HandleErrorResponse(span, resp, fmt.Errorf("create grant failed: status %d", resp.StatusCode))
 	}
@@ -129,6 +159,38 @@ func (c *Client) CreateGrant(ctx context.Context, tenantID, principalType, princ
 	return g.ID, nil
 }
 
+// CallerEffectiveScopes returns the effective scopes of the principal that
+// bearer authenticates. It sends the caller's own token, not the service's,
+// so the policy service resolves the principal from verified claims.
+func (c *Client) CallerEffectiveScopes(ctx context.Context, bearer string) ([]string, error) {
+	if bearer == "" {
+		return nil, ErrNoCallerBearer
+	}
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+bearer)
+
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.serviceURL, Path: "/api/v1/policy/effective-scopes", Header: header,
+	})
+	defer span.End()
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, c.HandleErrorResponse(span, resp, fmt.Errorf("effective scopes failed: status %d", resp.StatusCode))
+	}
+
+	var result struct {
+		Scopes []string `json:"scopes"`
+	}
+	if err := c.DecodeJSON(span, resp, &result); err != nil {
+		return nil, fmt.Errorf("decode effective scopes response: %w", err)
+	}
+	return result.Scopes, nil
+}
+
 // ListGrants returns all grants for a principal within a tenant.
 // Used by the provisioner to find grant IDs for deletion on deprovision.
 func (c *Client) ListGrants(ctx context.Context, tenantID, principalType, principalID string) ([]Grant, error) {
@@ -137,22 +199,13 @@ func (c *Client) ListGrants(ctx context.Context, tenantID, principalType, princi
 		return nil, fmt.Errorf("get bearer token for list grants request: %w", err)
 	}
 
-	u, err := url.Parse(c.serviceURL + "/api/v1/policy/grants")
-	if err != nil {
-		return nil, fmt.Errorf("parse list grants URL: %w", err)
-	}
-	q := u.Query()
-	q.Set("tenant_id", tenantID)
-	q.Set("principal_type", principalType)
-	q.Set("principal_id", principalID)
-	u.RawQuery = q.Encode()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("build list grants request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+tok)
+	query := url.Values{"tenant_id": {tenantID}, "principal_type": {principalType}, "principal_id": {principalID}}
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+tok)
 
-	_, span, resp, err := c.Do(ctx, "policy.Client.ListGrants", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.serviceURL, Path: "/api/v1/policy/grants", Query: query, Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return nil, err
@@ -172,6 +225,39 @@ func (c *Client) ListGrants(ctx context.Context, tenantID, principalType, princi
 	return result.Grants, nil
 }
 
+// GetGrant returns a grant by ID. Returns ErrGrantNotFound if it does not exist.
+func (c *Client) GetGrant(ctx context.Context, grantID string) (*Grant, error) {
+	tok, err := c.bearerToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get bearer token for get grant request: %w", err)
+	}
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+tok)
+
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.serviceURL, Path: "/api/v1/policy/grants/{grantID}", Params: []string{grantID}, Header: header,
+	})
+	defer span.End()
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var g Grant
+		if err := c.DecodeJSON(span, resp, &g); err != nil {
+			return nil, fmt.Errorf("decode get grant response: %w", err)
+		}
+		return &g, nil
+	case http.StatusNotFound:
+		return nil, ErrGrantNotFound
+	default:
+		return nil, c.HandleErrorResponse(span, resp, fmt.Errorf("get grant failed: status %d", resp.StatusCode))
+	}
+}
+
 // UpdateGrantBudget replaces the budget on an existing grant in place
 // (PATCH /policy/grants/{id}), preserving the grant ID and its scopes. A nil
 // budget removes the assignment. Returns ErrGrantNotFound if it does not exist.
@@ -188,14 +274,13 @@ func (c *Client) UpdateGrantBudget(ctx context.Context, grantID string, budget *
 		return fmt.Errorf("get bearer token for update grant budget request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, c.serviceURL+"/api/v1/policy/grants/"+grantID, body)
-	if err != nil {
-		return fmt.Errorf("build update grant budget request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+tok)
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	header.Set("Authorization", "Bearer "+tok)
 
-	_, span, resp, err := c.Do(ctx, "policy.Client.UpdateGrantBudget", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPatch, BaseURL: c.serviceURL, Path: "/api/v1/policy/grants/{grantID}", Params: []string{grantID}, Header: header, Body: body,
+	})
 	defer span.End()
 	if err != nil {
 		return err
@@ -219,13 +304,12 @@ func (c *Client) DeleteGrant(ctx context.Context, grantID string) error {
 		return fmt.Errorf("get bearer token for delete grant request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, c.serviceURL+"/api/v1/policy/grants/"+grantID, nil)
-	if err != nil {
-		return fmt.Errorf("build delete grant request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+tok)
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+tok)
 
-	_, span, resp, err := c.Do(ctx, "policy.Client.DeleteGrant", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodDelete, BaseURL: c.serviceURL, Path: "/api/v1/policy/grants/{grantID}", Params: []string{grantID}, Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return err
@@ -240,4 +324,19 @@ func (c *Client) DeleteGrant(ctx context.Context, grantID string) error {
 	default:
 		return c.HandleErrorResponse(span, resp, fmt.Errorf("delete grant failed: status %d", resp.StatusCode))
 	}
+}
+
+// vocabularyScope returns the scope a policy service 400 names when it refuses
+// a scope outside the vocabulary. The service sets details.scope only then.
+func vocabularyScope(body string) (string, bool) {
+	var e struct {
+		Code    string `json:"code"`
+		Details struct {
+			Scope string `json:"scope"`
+		} `json:"details"`
+	}
+	if json.Unmarshal([]byte(body), &e) != nil || e.Code != "invalid_field" || e.Details.Scope == "" {
+		return "", false
+	}
+	return e.Details.Scope, true
 }

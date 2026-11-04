@@ -15,8 +15,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	sandboxfolder "github.com/runkora/kora/backend/internal/agents/sandbox/folder"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 func sandboxPod(annoKey, annoVal string, phase corev1.PodPhase) *corev1.Pod {

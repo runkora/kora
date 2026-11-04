@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { config } from '@orbit/server/config';
+import { config } from '@runkora/server/config';
 import type { BudgetStatus } from '../_types';
 
 type BudgetResult =

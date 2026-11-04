@@ -3,12 +3,13 @@
 /** @tier 3 — triggers-scoped. Phase one of the wizard: choose what starts the
  * run. Rendered entirely from the kind registry. */
 
-import { Badge, Grid, RadioCard, RadioGroup, Stack, Text } from '@orbit/hades';
+import { Badge, Grid, RadioCard, RadioGroup, Stack, Text } from '@runkora/hades';
+import { useBrand } from '@runkora/theme/brand-provider';
 import { KIND_ORDER, PLANNED_KINDS, TRIGGER_KINDS } from './kinds';
-import type { TriggerKind } from './types';
+import { brandedCopy, type ConsoleKind } from './types';
 
 export interface KindPickerProps {
-  onSelect: (kind: TriggerKind) => void;
+  onSelect: (kind: ConsoleKind) => void;
 }
 
 /**
@@ -16,6 +17,7 @@ export interface KindPickerProps {
  * is chosen later and is a separate concern.
  */
 export function KindPicker({ onSelect }: KindPickerProps) {
+  const { productName } = useBrand();
   return (
     <Stack gap="relaxed">
       <Stack gap="snug">
@@ -32,10 +34,10 @@ export function KindPicker({ onSelect }: KindPickerProps) {
                   <RadioCard
                     value={def.id}
                     selected={false}
-                    onSelect={(v) => onSelect(v as TriggerKind)}
+                    onSelect={(v) => onSelect(v as ConsoleKind)}
                     icon={def.icon}
                     title={def.title}
-                    description={def.description}
+                    description={brandedCopy(def.description, productName)}
                   />
                   <Text size="micro" mono color="subtle" truncate>
                     {def.example}
@@ -67,7 +69,7 @@ export function KindPicker({ onSelect }: KindPickerProps) {
                 onSelect={() => undefined}
                 icon={k.icon}
                 title={k.title}
-                description={k.description}
+                description={brandedCopy(k.description, productName)}
               />
             ))}
           </Grid>

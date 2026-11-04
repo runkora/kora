@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/usagewindow"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/usagewindow"
 )
 
 func TestHistogramRange(t *testing.T) {

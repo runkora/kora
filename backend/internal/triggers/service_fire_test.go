@@ -3,6 +3,8 @@ package triggers
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -121,7 +123,7 @@ func TestFireTrigger_ManuallyDisabled_RecordsNothing(t *testing.T) {
 	svc, deps := newTestService(t)
 	trig := mustManualTrigger(t, deps.triggers)
 	enabled := false
-	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, trig.ID, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
+	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, trig.ID, nil, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 
@@ -234,7 +236,7 @@ func TestRedeliver_Manual_RevalidatesAgainstCurrentInputs(t *testing.T) {
 		{Name: "env", Type: InputTypeText, Required: true},
 		{Name: "ticket", Type: InputTypeText, Required: true},
 	}}
-	if err := deps.repo.UpdateTrigger(context.Background(), stored, false); err != nil {
+	if err := deps.repo.UpdateTrigger(context.Background(), stored, false, false); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 
@@ -311,7 +313,7 @@ func TestRedeliver_Refusals(t *testing.T) {
 			t.Fatalf("FireTrigger: %v", err)
 		}
 		enabled := false
-		if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, trig.ID, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
+		if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, trig.ID, nil, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
 			t.Fatalf("UpdateTrigger: %v", err)
 		}
 		if _, err := svc.Redeliver(context.Background(), testTenant, fired.DeliveryID, "user:2"); !errors.Is(err, ErrNotRedeliverable) {
@@ -718,5 +720,104 @@ func TestFireTrigger_AdmissionInfraError_IsNotReportedAsCapacity(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "connection refused") {
 		t.Errorf("the underlying fault should be wrapped, got %v", err)
+	}
+}
+
+// The delivery list carries the coalescing key each trigger rendered, and the
+// pointer on a superseded outcome, so history explains a fire that did not run.
+func TestListDeliveries_ReturnsCoalesceKeysAndSupersededBy(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
+	ctx := context.Background()
+
+	var ids []string
+	for _, pid := range []string{"d-1", "d-2"} {
+		d := &Delivery{
+			ID: "delivery-" + pid, TenantID: testTenant, SourceID: src.ID, Kind: KindWebhook,
+			ProviderDeliveryID: pid, Status: StatusVerified,
+		}
+		if _, err := deps.repo.InsertDelivery(ctx, d); err != nil {
+			t.Fatalf("InsertDelivery: %v", err)
+		}
+		ids = append(ids, d.ID)
+	}
+	if err := deps.repo.InsertDeliveryKey(ctx, &DeliveryKey{DeliveryID: ids[0], TenantID: testTenant, TriggerID: "t-1", Key: "org/repo#7"}); err != nil {
+		t.Fatalf("InsertDeliveryKey: %v", err)
+	}
+	if err := deps.repo.InsertDeliveryRun(ctx, &DeliveryRun{
+		ID: "r-1", TenantID: testTenant, DeliveryID: ids[0], TriggerID: "t-1",
+		Status: RunStatusSuperseded, SupersededBy: &ids[1],
+	}); err != nil {
+		t.Fatalf("InsertDeliveryRun: %v", err)
+	}
+
+	listed, err := svc.ListDeliveries(ctx, testTenant, DeliveryFilter{SourceID: src.ID})
+	if err != nil {
+		t.Fatalf("ListDeliveries: %v", err)
+	}
+	byID := map[string]Delivery{}
+	for _, d := range listed {
+		byID[d.ID] = d
+	}
+	first := byID[ids[0]]
+	if len(first.CoalesceKeys) != 1 || first.CoalesceKeys[0].Key != "org/repo#7" || first.CoalesceKeys[0].TriggerID != "t-1" {
+		t.Errorf("coalesce keys = %+v, want the rendered key for t-1", first.CoalesceKeys)
+	}
+	if len(first.Runs) != 1 || first.Runs[0].SupersededBy == nil || *first.Runs[0].SupersededBy != ids[1] {
+		t.Errorf("runs = %+v, want a superseded outcome pointing at %s", first.Runs, ids[1])
+	}
+	if got := byID[ids[1]].CoalesceKeys; len(got) != 0 {
+		t.Errorf("the replacing delivery has keys %+v, want none recorded", got)
+	}
+}
+
+// A replay starts runs under the trigger's principal, so the caller needs run authority on every agent it would start.
+func TestRedeliver_NeedsRunAccess(t *testing.T) {
+	for _, kind := range []string{KindManual, KindWebhook} {
+		for _, allow := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/allow=%v", kind, allow), func(t *testing.T) {
+				svc, deps := newTestService(t)
+				var originalID string
+				if kind == KindManual {
+					trig := mustManualTrigger(t, deps.triggers)
+					fired, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
+						FireTriggerRequest{Variables: map[string]string{"env": "prod"}})
+					if err != nil {
+						t.Fatalf("FireTrigger: %v", err)
+					}
+					originalID = fired.DeliveryID
+				} else {
+					src := mustSource(t, deps.sources)
+					body := prBody("opened", "main")
+					if _, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body); err != nil {
+						t.Fatalf("Ingest: %v", err)
+					}
+					waitFor(t, deps.repo.anyDerived)
+					originalID = deps.repo.lastDelivery().ID
+					mustWebhookTrigger(t, deps.triggers, src.ID, "added-later", true)
+				}
+				deps.agents.atNoRun = !allow
+				deps.agents.callerReadIDs()
+				before := len(deps.repo.allDeliveries())
+
+				_, err := svc.Redeliver(context.Background(), testTenant, originalID, "user:2")
+
+				if got := deps.agents.callerReadIDs(); !slices.Equal(got, []string{"at-1"}) {
+					t.Errorf("caller reads = %v, want one read of at-1", got)
+				}
+				if allow {
+					if err != nil {
+						t.Fatalf("Redeliver: %v", err)
+					}
+					return
+				}
+				if !errors.Is(err, ErrBindForbidden) {
+					t.Fatalf("got %v, want ErrBindForbidden", err)
+				}
+				if after := len(deps.repo.allDeliveries()); after != before {
+					t.Errorf("a refused replay must record nothing (deliveries %d → %d)", before, after)
+				}
+			})
+		}
 	}
 }

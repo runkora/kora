@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useBrand } from '@runkora/theme/brand-provider';
 import type {
   RunChatState,
   Turn,
@@ -13,6 +14,7 @@ import type {
   LiveActivity,
 } from '../_types';
 import { describeTool } from '../_lib/tool-activity';
+import { loadErrorMessage } from '@runkora/lib/load-error';
 
 // ── In-progress turn accumulator ─────────────────────────────────────────────
 
@@ -139,6 +141,7 @@ const SANDBOX_STARTING = new Set(['provisioning', 'pod_ready']);
 // ── useRun ────────────────────────────────────────────────────────────────────
 
 export function useRun(runId: string, slug: string): UseRunReturn {
+  const { productName } = useBrand();
   // Null until the API or the stream reports the run's state.
   const [runState, setRunState] = useState<RunState | null>(null);
   const [agentName, setAgentName] = useState('Agent');
@@ -152,6 +155,10 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   // True when the agent is delegated: the run acts on the starter's behalf and
   // is private to them + tenant admins.
   const [delegated, setDelegated] = useState(false);
+  const [traceUrl, setTraceUrl] = useState<string | null>(null);
+  const [canSteer, setCanSteer] = useState<boolean | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [stopError, setStopError] = useState<string | null>(null);
   const [committedTurns, setCommittedTurns] = useState<Turn[]>([]);
   const [inProgressTurn, setInProgressTurn] = useState<AgentTurn | null>(null);
   const [isPending, setIsPending] = useState(false);
@@ -273,9 +280,20 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   useEffect(() => {
     if (!runId) return;
     void fetch(`/api/agents/runs/${runId}`)
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (r.ok) return r.json();
+        // A run the caller may not read answers 404, so its existence does not leak.
+        setLoadError(
+          r.status === 404
+            ? 'This run does not exist, or you do not have access to it.'
+            : loadErrorMessage(r.status, 'this run'),
+        );
+        return {};
+      })
       .then(
         (body: {
+          can_steer?: boolean | null;
+          trace_url?: string | null;
           data?: {
             state: RunState;
             summary?: string | null;
@@ -289,6 +307,8 @@ export function useRun(runId: string, slug: string): UseRunReturn {
             budget?: { per_run_limit_usd?: number };
           };
         }) => {
+          setCanSteer(typeof body.can_steer === 'boolean' ? body.can_steer : null);
+          setTraceUrl(body.trace_url ?? null);
           if (body.data?.state) {
             runStateRef.current = body.data.state;
             setRunState(body.data.state);
@@ -308,7 +328,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
           }
         },
       )
-      .catch(() => undefined);
+      .catch(() => setLoadError('Could not load this run: the server could not be reached.'));
     loadUsage();
   }, [runId, loadUsage]);
 
@@ -706,7 +726,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     es.addEventListener('guardrail_warning', (e: MessageEvent) => {
       const payload = read<GuardrailWarningPayload>(e);
       if (!payload) return;
-      appendElement({ kind: 'notice', message: guardrailMessage(payload) });
+      appendElement({ kind: 'notice', message: guardrailMessage(payload, productName) });
     });
 
     es.addEventListener('message_stop', () => {
@@ -769,11 +789,24 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       });
     });
 
+    // A routed trigger sends a later delivery to a run already working on it.
+    es.addEventListener('trigger_message', (e: MessageEvent) => {
+      const payload = read<{ content: string; trigger_id?: string; trigger_name?: string }>(e);
+      if (!payload?.content) return;
+      appendHuman({
+        type: 'human',
+        id: `h-${++turnSeq.current}`,
+        content: payload.content,
+        timestamp: eventTime,
+        fromTrigger: payload.trigger_name || payload.trigger_id || 'a trigger',
+      });
+    });
+
     es.addEventListener('run_error', (e: MessageEvent) => {
       const payload = read<RunErrorPayload>(e);
       if (!payload) return;
       setRetry(null);
-      const friendly = RUN_ERROR_MESSAGES[payload.code];
+      const friendly = runErrorMessage(payload.code, productName);
       // A lost sandbox does not end the turn: the agent carries on, so the
       // error sits in the turn where it happened.
       if (TURN_CONTINUES.has(payload.code) && inProgressRef.current) {
@@ -814,7 +847,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     // tears down the current EventSource and opens a fresh one. loadUsage /
     // scheduleUsageRefresh are stable per runId, so they never re-subscribe the
     // stream on their own.
-  }, [runId, reconnectKey, loadUsage, scheduleUsageRefresh, appendHuman]);
+  }, [runId, reconnectKey, loadUsage, scheduleUsageRefresh, appendHuman, productName]);
 
   function reconnect(): void {
     // Clear accumulated turns before opening a fresh EventSource. The new
@@ -908,7 +941,18 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   }
 
   function interruptRun(): void {
-    void fetch(`/api/agents/runs/${runId}/interrupt`, { method: 'POST' }).catch(() => undefined);
+    setStopError(null);
+    void fetch(`/api/agents/runs/${runId}/interrupt`, { method: 'POST' })
+      .then(async (res) => {
+        if (res.ok) return;
+        const body = (await res.json().catch(() => ({}))) as { message?: string };
+        setStopError(
+          res.status === 403
+            ? 'You cannot stop this run.'
+            : (body.message ?? `The run was not stopped (${res.status}).`),
+        );
+      })
+      .catch(() => setStopError('The run was not stopped: the server could not be reached.'));
   }
 
   const allTurns: Turn[] = inProgressTurn ? [...committedTurns, inProgressTurn] : committedTurns;
@@ -923,6 +967,10 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     summary,
     startedBy,
     delegated,
+    canSteer,
+    loadError,
+    stopError,
+    traceUrl,
     runState,
     turns: allTurns,
     isStreaming: inProgressTurn !== null,
@@ -965,18 +1013,24 @@ function stopRunningTools(turn: AgentTurn): AgentTurn {
 
 const TURN_CONTINUES = new Set(['sandbox_lost']);
 
-const RUN_ERROR_MESSAGES: Record<string, string> = {
-  sandbox_lost:
-    'The sandbox was lost. Files in the workspace are kept; anything elsewhere in the sandbox is gone.',
-  loop_detected: 'Orbit paused this run because the agent was repeating itself. Reply to continue.',
-};
+/** The friendly text for a run error code, if it has one. */
+function runErrorMessage(code: string, productName: string): string | undefined {
+  switch (code) {
+    case 'sandbox_lost':
+      return 'The sandbox was lost. Files in the workspace are kept; anything elsewhere in the sandbox is gone.';
+    case 'loop_detected':
+      return `${productName} paused this run because the agent was repeating itself. Reply to continue.`;
+    default:
+      return undefined;
+  }
+}
 
-function guardrailMessage(p: GuardrailWarningPayload): string {
+function guardrailMessage(p: GuardrailWarningPayload, productName: string): string {
   const what =
     p.kind === 'wait_rearm'
       ? `${p.tool} re-armed ${p.count} times with no new output`
       : `${p.tool} called ${p.count} times with the same input`;
-  return `Orbit asked the agent to change approach: ${what}.`;
+  return `${productName} asked the agent to change approach: ${what}.`;
 }
 
 /**
@@ -1053,7 +1107,7 @@ export function prettyJson(text: string): string | null {
 /**
  * Unwraps an SSE event: `{"at": <RFC 3339>, "payload": <event>}`. `at` is the
  * server's time for the event; `time` is it as local HH:MM:SS. A bare payload
- * (an orbit-agents that predates the envelope) parses with no time.
+ * (a kora-agents that predates the envelope) parses with no time.
  */
 export function parseEnvelope<T>(
   data: string,

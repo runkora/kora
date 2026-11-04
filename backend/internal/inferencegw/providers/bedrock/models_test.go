@@ -3,7 +3,7 @@ package bedrock
 import (
 	"testing"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw"
 )
 
 // TestBuildProviderModel_DisplayNameNormalisation verifies systematic

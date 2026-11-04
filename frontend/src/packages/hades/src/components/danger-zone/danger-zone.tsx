@@ -6,7 +6,7 @@ import {
   settingsRowSurfaceVariants,
 } from '../setting-row/settings-row-surface';
 
-/** @tier 1 — Zero Orbit domain knowledge. The destructive action at the foot of a settings pane. */
+/** @tier 1 — Zero kora domain knowledge. The destructive action at the foot of a settings pane. */
 
 /**
  * The shared settings-row surface in its danger tone, so the destructive row

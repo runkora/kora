@@ -9,7 +9,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
+	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
 )
 
 // appJWTTTL is the lifetime of the GitHub App authentication JWT used to mint
@@ -17,7 +17,7 @@ import (
 const appJWTTTL = 10 * time.Minute
 
 // appJWTSkew backdates the App JWT's issued-at to tolerate clock skew between
-// Orbit and GitHub.
+// kora and GitHub.
 const appJWTSkew = 60 * time.Second
 
 // refreshBefore is how long before GitHub's stated expiry a cached

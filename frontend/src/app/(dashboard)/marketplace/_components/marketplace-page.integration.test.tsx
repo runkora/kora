@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { renderWithProviders, server } from '@orbit/test-utils';
+import { renderWithProviders, server } from '@runkora/test-utils';
 import { PreferencesProvider } from '../../_preferences/preferences-context';
 import { PREFERENCE_DEFAULTS } from '../../_preferences/preferences.schema';
 import { MarketplaceShell } from './marketplace-shell';

@@ -4,26 +4,26 @@
  * Strategy:
  * - `next/headers` and `iron-session` are vi.mock'd — they have no Node
  *   equivalent and would throw in Vitest's jsdom environment.
- * - `@orbit/server/config` is vi.mock'd so we control `orbitApiUrl` and
+ * - `@runkora/server/config` is vi.mock'd so we control `koraApiUrl` and
  *   avoid the `requireEnv` throw at import time.
- * - `@orbit/server/session` is vi.mock'd so GET tests control session state
+ * - `@runkora/server/session` is vi.mock'd so GET tests control session state
  *   without a real iron-session cookie.
  * - MSW intercepts the upstream fetch the POST handler makes to the Go
- *   identity service (`http://test-orbit-api/identity/session`).
- * - `getSessionOptions` from `@orbit/server/auth-config` runs for real —
+ *   identity service (`http://test-kora-api/identity/session`).
+ * - `getSessionOptions` from `@runkora/server/auth-config` runs for real —
  *   it reads `BFF_SESSION_SECRET` at call time, so we stub that env var
  *   in beforeAll.
  */
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import type { IronSession } from 'iron-session';
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 import {
   createBackendSessionResponse,
   createSessionUser,
   createSessionPayload,
-} from '@orbit/test-utils/factories/session';
-import type { SessionPayload } from '@orbit/server/auth-config';
+} from '@runkora/test-utils/factories/session';
+import type { SessionPayload } from '@runkora/server/auth-config';
 
 // ── Module mocks (hoisted before imports) ─────────────────────────────────────
 
@@ -35,11 +35,11 @@ vi.mock('iron-session', () => ({
   getIronSession: vi.fn(),
 }));
 
-vi.mock('@orbit/server/config', () => ({
-  config: { orbitApiUrl: 'http://test-orbit-api', policyGatewayUrl: 'http://test-policy-gateway' },
+vi.mock('@runkora/server/config', () => ({
+  config: { koraApiUrl: 'http://test-kora-api', policyGatewayUrl: 'http://test-policy-gateway' },
 }));
 
-vi.mock('@orbit/server/session', () => ({
+vi.mock('@runkora/server/session', () => ({
   getSession: vi.fn(),
   isSessionValid: vi.fn(),
 }));
@@ -48,7 +48,7 @@ vi.mock('@orbit/server/session', () => ({
 
 import { POST, GET } from './route';
 import { getIronSession } from 'iron-session';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 
 // ── Environment setup ─────────────────────────────────────────────────────────
 
@@ -136,7 +136,7 @@ describe('POST /api/auth/session', () => {
   describe('upstream error handling', () => {
     it('returns 502 when the upstream is unreachable', async () => {
       server.use(
-        http.post('http://test-orbit-api/identity/session', () => {
+        http.post('http://test-kora-api/identity/session', () => {
           throw new Error('Network error');
         }),
       );
@@ -150,7 +150,7 @@ describe('POST /api/auth/session', () => {
 
     it('returns 401 when the upstream returns 401', async () => {
       server.use(
-        http.post('http://test-orbit-api/identity/session', () =>
+        http.post('http://test-kora-api/identity/session', () =>
           HttpResponse.json({ error: 'unauthorized' }, { status: 401 }),
         ),
       );
@@ -164,7 +164,7 @@ describe('POST /api/auth/session', () => {
 
     it('returns 400 when the upstream returns a 4xx error', async () => {
       server.use(
-        http.post('http://test-orbit-api/identity/session', () =>
+        http.post('http://test-kora-api/identity/session', () =>
           HttpResponse.json({ error: 'invalid_grant' }, { status: 422 }),
         ),
       );
@@ -178,7 +178,7 @@ describe('POST /api/auth/session', () => {
 
     it('returns 502 when the upstream returns a 5xx error', async () => {
       server.use(
-        http.post('http://test-orbit-api/identity/session', () =>
+        http.post('http://test-kora-api/identity/session', () =>
           HttpResponse.json({ error: 'internal' }, { status: 500 }),
         ),
       );
@@ -197,7 +197,7 @@ describe('POST /api/auth/session', () => {
       // exception — the route must return a controlled 502.
       server.use(
         http.post(
-          'http://test-orbit-api/identity/session',
+          'http://test-kora-api/identity/session',
           () =>
             new HttpResponse('not-json', {
               status: 200,
@@ -219,7 +219,7 @@ describe('POST /api/auth/session', () => {
       // segments) must produce a 502 rather than an unhandled exception. This
       // is the only code path where decoding fails after a successful HTTP exchange.
       server.use(
-        http.post('http://test-orbit-api/identity/session', () =>
+        http.post('http://test-kora-api/identity/session', () =>
           HttpResponse.json(createBackendSessionResponse({ access_token: 'only.two-segments' })),
         ),
       );
@@ -236,7 +236,7 @@ describe('POST /api/auth/session', () => {
     it('returns 200 with an empty body on success', async () => {
       const backendData = createBackendSessionResponse();
       server.use(
-        http.post('http://test-orbit-api/identity/session', () => HttpResponse.json(backendData)),
+        http.post('http://test-kora-api/identity/session', () => HttpResponse.json(backendData)),
       );
       makeMockSession();
 
@@ -250,7 +250,7 @@ describe('POST /api/auth/session', () => {
     it('saves the session cookie on success', async () => {
       const backendData = createBackendSessionResponse();
       server.use(
-        http.post('http://test-orbit-api/identity/session', () => HttpResponse.json(backendData)),
+        http.post('http://test-kora-api/identity/session', () => HttpResponse.json(backendData)),
       );
       const { save } = makeMockSession();
 
@@ -266,13 +266,13 @@ describe('POST /api/auth/session', () => {
       // one place (the factory) rather than being duplicated inline.
       const user = createSessionUser({
         sub: 'user-alice-123',
-        email: 'alice@orbit.local',
+        email: 'alice@runkora.test',
         name: 'Alice',
       });
       const backendData = createBackendSessionResponse({}, user);
 
       server.use(
-        http.post('http://test-orbit-api/identity/session', () => HttpResponse.json(backendData)),
+        http.post('http://test-kora-api/identity/session', () => HttpResponse.json(backendData)),
       );
 
       const save = vi.fn().mockResolvedValue(undefined);
@@ -295,6 +295,40 @@ describe('POST /api/auth/session', () => {
       expect(capturedSession.user).toEqual({ sub: user.sub, email: user.email, name: user.name });
       expect(capturedSession.tenantId).toBe('tenant-1');
       expect(typeof capturedSession.expiresAt).toBe('number');
+    });
+
+    it('stores the tenant from the issued token, not the request', async () => {
+      const backendData = createBackendSessionResponse({}, createSessionUser(), 'kora');
+      server.use(
+        http.post('http://test-kora-api/identity/session', () => HttpResponse.json(backendData)),
+      );
+      const captured: Record<string, unknown> = { save: vi.fn().mockResolvedValue(undefined) };
+      vi.mocked(getIronSession).mockResolvedValue(
+        captured as unknown as IronSession<SessionPayload>,
+      );
+
+      await POST(makePostRequest({ id_token: 'tok', tenant_id: 'constellation' }));
+
+      expect(captured.tenantId).toBe('kora');
+    });
+
+    it.each([
+      [false, false],
+      [true, true],
+      [undefined, true],
+    ])('stores api_authoring %s as apiAuthoring %s', async (upstream, stored) => {
+      const backendData = { ...createBackendSessionResponse(), api_authoring: upstream };
+      server.use(
+        http.post('http://test-kora-api/identity/session', () => HttpResponse.json(backendData)),
+      );
+      const session: Record<string, unknown> = { save: vi.fn().mockResolvedValue(undefined) };
+      vi.mocked(getIronSession).mockResolvedValue(
+        session as unknown as IronSession<SessionPayload>,
+      );
+
+      await POST(makePostRequest({ id_token: backendData.access_token, tenant_id: 'tenant-1' }));
+
+      expect(session.apiAuthoring).toBe(stored);
     });
   });
 });
@@ -352,6 +386,19 @@ describe('GET /api/auth/session', () => {
       'agents:read',
       'connections:read',
     ]);
+  });
+
+  it.each([
+    [false, false],
+    [undefined, true],
+  ])('returns apiAuthoring %s from the session as %s', async (sealed, returned) => {
+    const payload = { ...createSessionPayload(), apiAuthoring: sealed };
+    vi.mocked(getSession).mockResolvedValue(payload as unknown as IronSession<SessionPayload>);
+    vi.mocked(isSessionValid).mockReturnValue(true);
+
+    const body = (await (await GET()).json()) as Record<string, unknown>;
+
+    expect(body.apiAuthoring).toBe(returned);
   });
 
   it('returns empty scopes when the policy gateway is unavailable', async () => {

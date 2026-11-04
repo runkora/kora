@@ -14,10 +14,10 @@ import {
   StatCard,
   Text,
   EmptyState,
-} from '@orbit/hades';
-import type { DataTableColumn } from '@orbit/hades';
-import { ClampedList, StatusBadge } from '@orbit/components';
-import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
+} from '@runkora/hades';
+import type { DataTableColumn } from '@runkora/hades';
+import { ClampedList, principalLabel, StatusBadge } from '@runkora/components';
+import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import type { BudgetCategoryStatus, BudgetPrincipalRow, BudgetPrincipalsView } from '../../_types';
 import { TenantCapCard } from './tenant-cap-card';
 import { principalDisplay } from './principal-display';
@@ -36,9 +36,11 @@ const sourceKey = (cat: BudgetCategoryStatus) => `${cat.source}:${cat.id}`;
 
 interface BudgetPrincipalsTabProps {
   principals: BudgetPrincipalsView | null;
+  /** The tenant budget is declared on the tenant's resource. */
+  capDeclared?: boolean;
 }
 
-export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
+export function BudgetPrincipalsTab({ principals, capDeclared = false }: BudgetPrincipalsTabProps) {
   const rows = useMemo(() => principals?.data ?? [], [principals]);
   const [selectedPrincipal, setSelectedPrincipal] = useState<BudgetPrincipalRow | null>(null);
 
@@ -74,7 +76,7 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
                 </Text>
                 {p.principal_type && (
                   <Badge variant="secondary" size="sm">
-                    {p.principal_type.toLowerCase()}
+                    {principalLabel(p.principal_type).toLowerCase()}
                   </Badge>
                 )}
               </Stack>
@@ -229,7 +231,7 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
         description={`Spend against budget for the current period${principals ? ` (${principals.period})` : ''}.`}
       />
 
-      <TenantCapCard cap={principals?.tenant_cap ?? null} />
+      <TenantCapCard cap={principals?.tenant_cap ?? null} declared={capDeclared} />
 
       <Grid cols={{ base: 1, sm: 2, lg: 4 }} gap="comfortable">
         <StatCard

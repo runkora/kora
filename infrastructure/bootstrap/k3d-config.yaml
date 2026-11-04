@@ -1,7 +1,7 @@
 apiVersion: k3d.io/v1alpha5
 kind: Simple
 metadata:
-  name: orbit-local
+  name: kora-local
 
 # 1 server + 2 agents gives us realistic pod scheduling without burning RAM
 servers: 1
@@ -21,16 +21,16 @@ ports:
 
 registries:
   create: 
-    name: orbit-registry
+    name: kora-registry
     host: "0.0.0.0"
     hostPort: "5001"
 
 # Attach k3d nodes to the same Docker network as docker-compose so that pods
-# running inside k3d can reach orbit-postgres by container hostname without
+# running inside k3d can reach kora-postgres by container hostname without
 # relying on host.k3d.internal (unreliable on macOS/Colima).
-# The orbit-network is created by 'docker compose up' (make dev-up), which must
+# The kora-network is created by 'docker compose up' (make dev-up), which must
 # run before 'make dev-cluster' — enforced by the Makefile dependency.
-network: orbit-network
+network: kora-network
 
 options:
   k3s:

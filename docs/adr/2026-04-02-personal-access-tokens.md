@@ -18,7 +18,7 @@ kora's platform token model today has two classes of JWT:
 | Human session | `HUMAN` | OIDC device flow or id_token exchange | 60 min | Yes (30 days) |
 | Agent session | `AGENT` | SPIFFE SVID attestation (`POST /exchange`) | 60 min | No |
 
-The identity service is the sole RSA private key holder. All tokens are RS256-signed JWTs whose `OrbitClaims` contain `SessionID`, `PrincipalType`, `TenantID`, `IdentitySource`, `DisplayName`, and a freeform `Claims map[string]string`. There is no scope or audience-restriction field in `OrbitClaims` today.
+The identity service is the sole RSA private key holder. All tokens are RS256-signed JWTs whose `KoraClaims` contain `SessionID`, `PrincipalType`, `TenantID`, `IdentitySource`, `DisplayName`, and a freeform `Claims map[string]string`. There is no scope or audience-restriction field in `KoraClaims` today.
 
 The inference gateway (`backend/internal/inferencegw/`) already handles both human and agent tokens via a uniform middleware chain:
 
@@ -60,7 +60,7 @@ The result is that developers bypass kora and use raw provider API keys locally,
 
 ## Decision Drivers
 
-* **Minimal structural footprint** — The new token type should fit the existing JWT shape without adding new fields to `OrbitClaims` that all token types must carry.
+* **Minimal structural footprint** — The new token type should fit the existing JWT shape without adding new fields to `KoraClaims` that all token types must carry.
 * **Enforcement co-location** — Scope restriction (inference-only) should be enforced at the enforcement boundary (inference gateway), not at the signing layer.
 * **Consistent verification path** — PATs must verify through the same `token.Verifier` as all other platform tokens. No special-cased verification logic.
 * **Security parity** — Raw token values never stored; SHA-256 hash only. JTI blocklist revocation. Identical signing key and algorithm.
@@ -80,18 +80,18 @@ Add `PAT` to the existing `PrincipalType` enum in `backend/internal/platform/tok
 PATs are persisted in a new `user_pat_tokens` table (name, token_hash, expires_at, revoked_at). No refresh token; revoke-and-recreate is the recovery path.
 
 **Pros:**
-- Zero new fields in `OrbitClaims` — no struct changes ripple to existing consumers.
+- Zero new fields in `KoraClaims` — no struct changes ripple to existing consumers.
 - Enforcement is type-driven and follows the existing `PrincipalType` dispatch pattern already used throughout the stack (policy evaluator, usage records, OTel spans).
 - PAT-originated inference calls attribute correctly to the issuing user with no additional plumbing.
 - `PrincipalType=PAT` is self-documenting in usage records, logs, and traces.
-- Fully composable with future scope fields — a `Scope` field can be added to `OrbitClaims` later without breaking PAT-holding clients.
+- Fully composable with future scope fields — a `Scope` field can be added to `KoraClaims` later without breaking PAT-holding clients.
 
 **Cons:**
 - `PrincipalType` carries dual semantics: "what kind of identity" and (implicitly) "what scope". This is a mild conceptual overload, acceptable now, to be resolved cleanly when scope is added.
 
-### Option 2: Add `Scope []string` to `OrbitClaims`
+### Option 2: Add `Scope []string` to `KoraClaims`
 
-Extend `OrbitClaims` with a `Scope []string` field. PATs carry `scope: ["inference:*"]`. The inference gateway validates the scope; other APIs reject tokens without the required scope for their operation.
+Extend `KoraClaims` with a `Scope []string` field. PATs carry `scope: ["inference:*"]`. The inference gateway validates the scope; other APIs reject tokens without the required scope for their operation.
 
 **Pros:**
 - Explicit, extensible scope model from day one.
@@ -141,7 +141,7 @@ Store PATs as rows in the existing `identity_sessions` table with `principal_typ
 
 Option 1 is the minimal-footprint, idiomatic choice for this codebase. `PrincipalType` is already the central discriminator for token-type dispatch in every layer of the stack: the policy evaluator, usage records, OTel attribute emission, and session repository queries all key off it. Adding `PAT` slots cleanly into this established pattern.
 
-The "dual semantics" concern from the cons list is a real but manageable trade-off. `PrincipalType` has always carried implicit scope meaning — `AGENT` tokens are expected to come from workloads, `HUMAN` tokens from interactive sessions. `PAT` is consistent with this convention. When OPA policy integration lands ([universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)), proper scope fields on `OrbitClaims` will supersede the implicit convention, and `PrincipalType=PAT` will remain a useful identity signal alongside explicit scopes.
+The "dual semantics" concern from the cons list is a real but manageable trade-off. `PrincipalType` has always carried implicit scope meaning — `AGENT` tokens are expected to come from workloads, `HUMAN` tokens from interactive sessions. `PAT` is consistent with this convention. When OPA policy integration lands ([universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)), proper scope fields on `KoraClaims` will supersede the implicit convention, and `PrincipalType=PAT` will remain a useful identity signal alongside explicit scopes.
 
 Option 2 is architecturally cleaner in the long run but is premature without the policy engine. Options 3 and 4 reuse existing constructs in ways that fight their semantics.
 
@@ -184,7 +184,7 @@ const (
 )
 ```
 
-No other changes to `OrbitClaims` or `PlatformClaims`.
+No other changes to `KoraClaims` or `PlatformClaims`.
 
 ### Database Migration
 
@@ -317,7 +317,7 @@ The only enforcement boundary added in this ADR is at the main kora API (see bel
 
 ### Main kora API — PAT Rejection
 
-The main API (`cmd/orbit` or equivalent) adds a check after `AuthMiddleware` verifies the token. If `claims.Orbit.PrincipalType == token.PrincipalTypePAT`, the request is rejected with 403 before reaching any handler. This can be implemented as a thin middleware applied to the main API's route group, or as a guard inside the auth middleware itself keyed on configuration.
+The main API (`cmd/orbit` or equivalent) adds a check after `AuthMiddleware` verifies the token. If `claims.Kora.PrincipalType == token.PrincipalTypePAT`, the request is rejected with 403 before reaching any handler. This can be implemented as a thin middleware applied to the main API's route group, or as a guard inside the auth middleware itself keyed on configuration.
 
 The preferred approach is a thin middleware (symmetric with the inference gateway pattern), so rejection logic is co-located with the service boundary it protects.
 
@@ -429,7 +429,7 @@ Existing `HUMAN` and `AGENT` tokens continue to work at all endpoints they curre
 
 **Token prefix decision:** PATs are returned as `orb_<jwt>` from the API. The `orb_` prefix enables secret scanning (tools can match the pattern to detect leaked PATs in source or logs) and gives developers a clear visual identifier in `.env` files. Prefix stripping is handled by a dedicated `orbCredentialMiddleware` — separate from `xAPIKeyMiddleware` so each middleware has a single responsibility and they can be composed independently. No stripping logic is needed in SDK or CLI consumers. The `PrincipalType=PAT` claim inside the JWT remains the canonical runtime self-identifier.
 
-**Future scope integration:** When OPA policy integration lands ([universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)), `PrincipalType=PAT` becomes a first-class input to the policy engine. Scope fields on `OrbitClaims` (if added then) will refine what a PAT is allowed to do within the inference domain. The current design does not foreclose that path.
+**Future scope integration:** When OPA policy integration lands ([universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)), `PrincipalType=PAT` becomes a first-class input to the policy engine. Scope fields on `KoraClaims` (if added then) will refine what a PAT is allowed to do within the inference domain. The current design does not foreclose that path.
 
 **PAT guard on PAT management endpoints:** PATs cannot be used to create, list, or revoke other PATs. This prevents a compromised PAT from being used to extend its own lifetime or pivot to new credentials. The guard is enforced at the handler level by checking `PrincipalType != PAT` before processing any management request.
 

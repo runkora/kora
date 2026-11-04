@@ -13,7 +13,7 @@
 
 The Inference Gateway ([inference-gateway-architecture](2026-04-01-inference-gateway-architecture.md)) records one `inference_usage` row per request via `PostgresInferenceUsageRepository.Create`. The write path is fully implemented across all inference paths (OpenAI chat streaming/non-streaming, Anthropic Messages streaming/non-streaming, and the failed-inference error path). The `inference_usage` table captures: timestamp, model, provider, routing strategy, prompt/completion/total token counts, estimated cost (USD), latency (ms), HTTP status, error code, retry count, and principal attribution (`tenant_id`, `principal_id`, `principal_type`).
 
-The PAT system ([personal-access-tokens](2026-04-02-personal-access-tokens.md)) allows any authenticated human user to create a long-lived, named `PrincipalType=PAT` credential for use with local inference tooling. PATs are RS256-signed JWTs that pass through the same `token.Verifier` as all other platform tokens. At signing time, `CreatePAT` populates `OrbitClaims.SessionID` with the PAT record UUID — making every request from that PAT traceable to a single named key.
+The PAT system ([personal-access-tokens](2026-04-02-personal-access-tokens.md)) allows any authenticated human user to create a long-lived, named `PrincipalType=PAT` credential for use with local inference tooling. PATs are RS256-signed JWTs that pass through the same `token.Verifier` as all other platform tokens. At signing time, `CreatePAT` populates `KoraClaims.SessionID` with the PAT record UUID — making every request from that PAT traceable to a single named key.
 
 The Model Gateway frontend has a Logs page at `frontend/src/app/(dashboard)/model-gateway/logs/page.tsx` with a fully implemented table UI and status filter, currently backed by mock data. The Keys page at `frontend/src/app/(dashboard)/model-gateway/keys/page.tsx` is server-side fetched and fully functional.
 
@@ -58,13 +58,13 @@ Three gaps prevent usage logs from being surfaced to users:
 
 ### Option 1: Add `token_id` column + inferencegw-local `principal.TokenID` field
 
-Add a nullable `token_id TEXT` column to `inference_usage` (all ID columns in this schema use `TEXT`, not `UUID`). Extend the inferencegw-local `principal` struct (in `internal/inferencegw/service.go`) with a `TokenID string` field, populated conditionally in `principalFromClaims`: `claims.Orbit.SessionID` is extracted only when `PrincipalType == token.PrincipalTypePAT` — for all other principal types `TokenID` is the empty string and `token_id` is written as `NULL`. Write `token_id` on every `Create` call. Add a `TokenID *string` filter field to `InferenceUsageFilter`. Expose reading via a new `GET /v1/usage` handler registered in `controller.go`.
+Add a nullable `token_id TEXT` column to `inference_usage` (all ID columns in this schema use `TEXT`, not `UUID`). Extend the inferencegw-local `principal` struct (in `internal/inferencegw/service.go`) with a `TokenID string` field, populated conditionally in `principalFromClaims`: `claims.Kora.SessionID` is extracted only when `PrincipalType == token.PrincipalTypePAT` — for all other principal types `TokenID` is the empty string and `token_id` is written as `NULL`. Write `token_id` on every `Create` call. Add a `TokenID *string` filter field to `InferenceUsageFilter`. Expose reading via a new `GET /v1/usage` handler registered in `controller.go`.
 
 `token.Principal` — the platform-wide abstraction in `internal/platform/token/claims.go` — is not modified.
 
 **Pros:**
 - Single nullable column; schema change is minimal and non-breaking
-- `claims.Orbit.SessionID` already carries the PAT record UUID at signing time (confirmed in [personal-access-tokens](2026-04-02-personal-access-tokens.md) implementation) — no JWT schema change required
+- `claims.Kora.SessionID` already carries the PAT record UUID at signing time (confirmed in [personal-access-tokens](2026-04-02-personal-access-tokens.md) implementation) — no JWT schema change required
 - Keeps `token.Principal` clean and PAT-agnostic
 - Gateway-local `principal` struct already carries service-specific fields (`PrincipalType`, `IdentitySource`) — `TokenID` is consistent with that pattern
 - Null for non-PAT principals is semantically correct and requires no special handling at write time
@@ -72,9 +72,9 @@ Add a nullable `token_id TEXT` column to `inference_usage` (all ID columns in th
 **Cons:**
 - Adds a field to a private struct that is only meaningful for PAT-authenticated callers; empty string / null for all other principal types requires a code comment to be non-confusing
 
-### Option 2: Add an explicit `pat_id` field to `OrbitClaims`
+### Option 2: Add an explicit `pat_id` field to `KoraClaims`
 
-Add `PATID string \`json:"pat_id,omitempty"\`` to `OrbitClaims` in `internal/platform/token/claims.go`. Populated only when `PrincipalType=PAT`. All other token types leave it empty. The inference gateway reads `claims.Orbit.PATID` directly.
+Add `PATID string \`json:"pat_id,omitempty"\`` to `KoraClaims` in `internal/platform/token/claims.go`. Populated only when `PrincipalType=PAT`. All other token types leave it empty. The inference gateway reads `claims.Kora.PATID` directly.
 
 **Pros:**
 - Semantically explicit — the field name makes the intent clear without a comment
@@ -83,7 +83,7 @@ Add `PATID string \`json:"pat_id,omitempty"\`` to `OrbitClaims` in `internal/pla
 **Cons:**
 - Modifies a shared platform type touched by every service binary
 - All existing JWT consumers must be updated to handle a new field (even if they only ignore it)
-- `OrbitClaims.SessionID` already carries the PAT record UUID reliably — adding `PATID` is strictly redundant
+- `KoraClaims.SessionID` already carries the PAT record UUID reliably — adding `PATID` is strictly redundant
 - Sets a precedent for adding principal-type-specific fields to the shared claims struct, which will accumulate over time
 
 ### Option 3: JTI as `token_id`
@@ -103,15 +103,15 @@ Use `claims.RegisteredClaims.ID` (the JTI) as `token_id` rather than the PAT rec
 
 ## Decision
 
-**Chosen Option: Option 1 — `token_id` column on `inference_usage` + inferencegw-local `principal.TokenID` extracted from `claims.Orbit.SessionID`.**
+**Chosen Option: Option 1 — `token_id` column on `inference_usage` + inferencegw-local `principal.TokenID` extracted from `claims.Kora.SessionID`.**
 
 ### Rationale
 
-`claims.Orbit.SessionID` holds the PAT record UUID for the entire lifetime of a PAT — it is set once at signing and never changes. For a non-refreshable credential like a PAT, this means it is a stable, reliable correlation key for every log row produced by that key. No JWT schema change is required.
+`claims.Kora.SessionID` holds the PAT record UUID for the entire lifetime of a PAT — it is set once at signing and never changes. For a non-refreshable credential like a PAT, this means it is a stable, reliable correlation key for every log row produced by that key. No JWT schema change is required.
 
 Keeping `token.Principal` clean is non-negotiable. It is a platform-wide abstraction consumed by every service binary. The inferencegw-local `principal` struct is already the correct place for service-domain details — `PrincipalType`, `IdentitySource`, and now `TokenID` all belong there, not on the shared platform type.
 
-Option 2 (explicit `pat_id` on `OrbitClaims`) would be semantically cleaner but creates platform-wide churn for a field whose value is already available under a different name. Option 3 (JTI as `token_id`) creates a split key space that complicates log-to-key correlation queries.
+Option 2 (explicit `pat_id` on `KoraClaims`) would be semantically cleaner but creates platform-wide churn for a field whose value is already available under a different name. Option 3 (JTI as `token_id`) creates a split key space that complicates log-to-key correlation queries.
 
 ---
 
@@ -209,7 +209,7 @@ type principal struct {
 
 Extend `principalFromClaims` to extract `SessionID` conditionally. Two JWT fields are relevant here and must not be confused:
 
-- **`claims.Orbit.SessionID`** (`OrbitClaims.SessionID`, JSON `orbit.session_id`) — the PAT record UUID for PAT-issued tokens; the session record UUID for OIDC-issued tokens. This is the correlation key for log attribution.
+- **`claims.Kora.SessionID`** (`KoraClaims.SessionID`, JSON `orbit.session_id`) — the PAT record UUID for PAT-issued tokens; the session record UUID for OIDC-issued tokens. This is the correlation key for log attribution.
 - **`claims.RegisteredClaims.ID`** (the JTI, JSON `jti`) — a per-issuance UUID used exclusively for revocation via the Redis blocklist. It is NOT the PAT record UUID and must not be used as `token_id`.
 
 `PrincipalType` is a direct passthrough — `'PAT'` is now a valid value in the CHECK constraint:
@@ -221,20 +221,20 @@ func principalFromClaims(ctx context.Context) (principal, error) {
         return principal{}, fmt.Errorf("no verified claims in context: AuthMiddleware may not have run")
     }
 
-    // OrbitClaims.SessionID is set for ALL token types: for OIDC human sessions
+    // KoraClaims.SessionID is set for ALL token types: for OIDC human sessions
     // it holds the session record UUID; for PATs it holds the PAT record UUID.
     // Only extract it as TokenID for PAT principals — for all other types TokenID
     // must be empty so inference_usage.token_id is written as NULL.
     var tokenID string
-    if claims.Orbit.PrincipalType == token.PrincipalTypePAT {
-        tokenID = claims.Orbit.SessionID
+    if claims.Kora.PrincipalType == token.PrincipalTypePAT {
+        tokenID = claims.Kora.SessionID
     }
 
     return principal{
-        TenantID:       claims.Orbit.TenantID,
+        TenantID:       claims.Kora.TenantID,
         PrincipalID:    claims.Subject,
-        PrincipalType:  string(claims.Orbit.PrincipalType),
-        IdentitySource: string(claims.Orbit.IdentitySource),
+        PrincipalType:  string(claims.Kora.PrincipalType),
+        IdentitySource: string(claims.Kora.IdentitySource),
         TokenID:        tokenID,
     }, nil
 }
@@ -383,7 +383,7 @@ The `token_id` column is nullable. All existing rows retain their current values
 ## Related Decisions
 
 - [inference-gateway-architecture](2026-04-01-inference-gateway-architecture.md) — Inference Gateway architecture; defines `InferenceUsageRecord`, `PostgresInferenceUsageRepository`, and the write path this ADR extends
-- [personal-access-tokens](2026-04-02-personal-access-tokens.md) — PAT system; defines `user_pat_tokens`, `OrbitClaims.SessionID`, and `PrincipalType=PAT`
+- [personal-access-tokens](2026-04-02-personal-access-tokens.md) — PAT system; defines `user_pat_tokens`, `KoraClaims.SessionID`, and `PrincipalType=PAT`
 - [unified-identity-model](2026-03-05-unified-identity-model.md) — Unified identity model; defines `token.Principal` and the constraint that it must remain actor-type-agnostic
 - [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md) — Policy enforcement topology; user-scoped isolation is enforced at the application layer (service method), not at the policy engine layer
 

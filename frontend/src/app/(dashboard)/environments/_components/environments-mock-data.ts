@@ -1,4 +1,4 @@
-import type { MockRequest } from '@orbit/storybook/mock-api';
+import type { MockRequest } from '@runkora/storybook/mock-api';
 import type {
   ConnectionCatalogEntry,
   Connector,
@@ -6,7 +6,7 @@ import type {
   EffectiveAccessPreviewRequest,
   EnvironmentSizes,
   SandboxImage,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 import { COMMON_PACKAGE_REGISTRIES } from '../_types';
 import type { EnvironmentRow } from '../_types';
 
@@ -66,6 +66,7 @@ export const MOCK_ENVIRONMENTS: EnvironmentRow[] = [
     connectors: [],
     createdAt: ago(41 * DAY),
     updatedAt: ago(3 * DAY),
+    declared: false,
   },
   {
     id: 'a94d2e18-6c07-4f3b-b5d2-81e7c4f09a66',
@@ -79,12 +80,13 @@ export const MOCK_ENVIRONMENTS: EnvironmentRow[] = [
       {
         connection: 'github-orbital',
         actions: ['repo:read', 'pull_request:read', 'pull_request:write'],
-        resources: ['orbital/orbit', 'orbital/kora-docs'],
+        resources: ['runkora/kora', 'runkora/kora-docs'],
       },
       { connection: 'slack-engineering', actions: ['chat:post'] },
     ],
     createdAt: ago(28 * DAY),
     updatedAt: ago(2 * 60 * MINUTE),
+    declared: false,
   },
   {
     id: 'e03b7a91-52d4-4c8e-9f16-b7a2d85c3e40',
@@ -98,12 +100,13 @@ export const MOCK_ENVIRONMENTS: EnvironmentRow[] = [
       {
         connection: 'prod-cluster',
         actions: ['pods:read', 'logs:read'],
-        resources: ['orbit-system'],
+        resources: ['kora-system'],
       },
       { connection: 'slack-engineering', actions: ['chat:post', 'chat:read'] },
     ],
     createdAt: ago(19 * DAY),
     updatedAt: ago(5 * DAY),
+    declared: false,
   },
   {
     id: '3f68c0d4-91ab-47e2-8d35-0c5b9e72a1f8',
@@ -116,6 +119,7 @@ export const MOCK_ENVIRONMENTS: EnvironmentRow[] = [
     connectors: [],
     createdAt: ago(60 * DAY),
     updatedAt: ago(60 * DAY),
+    declared: false,
   },
   {
     id: 'b52e9f03-7a18-4b6d-a0c4-d1387e45f2b9',
@@ -128,6 +132,7 @@ export const MOCK_ENVIRONMENTS: EnvironmentRow[] = [
     connectors: [{ connection: 'linear-product', actions: ['issue:read', 'issue:write'] }],
     createdAt: ago(9 * DAY),
     updatedAt: ago(9 * DAY),
+    declared: false,
   },
 ];
 
@@ -164,7 +169,7 @@ export const MOCK_IMAGES: SandboxImage[] = [
   {
     name: 'kora-base',
     description: 'The kora base image.',
-    image: 'ghcr.io/clear-route/kora-sandbox-base:1.0.0',
+    image: 'ghcr.io/runkora/kora-sandbox-base:1.0.0',
     digest: 'sha256:ab12',
     valid: true,
     warm: true,
@@ -186,6 +191,7 @@ export const MANY_ENVIRONMENTS: EnvironmentRow[] = [
       connectors: i % 4 === 0 ? [{ connection: 'github-orbital', actions: ['repo:read'] }] : [],
       createdAt: ago((i + 2) * DAY),
       updatedAt: ago((i + 1) * DAY),
+      declared: false,
     };
   }),
 ];

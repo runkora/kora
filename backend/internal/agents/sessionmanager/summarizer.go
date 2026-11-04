@@ -5,18 +5,23 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 	"unicode/utf8"
 
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 const (
-	summarizerTracerName = "orbit.run-summarizer"
-	summarizerTimeout    = 15 * time.Second
-	summaryMaxTokens     = 60
-	summaryMaxChars      = 120
+	tracerName        = "github.com/runkora/kora/backend/internal/agents/sessionmanager"
+	summarizerTimeout = 15 * time.Second
+	summaryMaxTokens  = 60
+	// summaryThinkingMaxTokens is the limit when the request may let the model
+	// think. The thinking block shares max_tokens with the label.
+	summaryThinkingMaxTokens = 1024
+	summaryMaxChars          = 120
 
 	// The model is given the user's first message to an *agent* — which usually
 	// reads as a direct command ("build X", "audit Y"). Left alone it will try to
@@ -45,14 +50,14 @@ var errSummarizerUnexpectedStatus = errors.New("unexpected status from inference
 // platform token, OPA authorizes it under the same grant, and the gateway
 // attributes the (tiny) cost to the run's budget via the /run/{id} path prefix.
 // This is the only place those three things hold — hence summarization lives in
-// the session-manager, not the orbit-agents control plane (which has no
+// the session-manager, not the kora-agents control plane (which has no
 // inference identity and does not know the run's effective model).
 type summarizer struct {
 	*httpclient.Base
 }
 
 func newSummarizer(logger logging.Logger) *summarizer {
-	return &summarizer{Base: httpclient.New(summarizerTracerName, logger, summarizerTimeout)}
+	return &summarizer{Base: httpclient.New(tracerName, logger, summarizerTimeout)}
 }
 
 // anthropic Messages API request/response shapes — the dialect the agent uses.
@@ -87,7 +92,8 @@ type messagesMessage struct {
 }
 
 type messagesResponse struct {
-	Content []messagesContentBlock `json:"content"`
+	StopReason string                 `json:"stop_reason"`
+	Content    []messagesContentBlock `json:"content"`
 }
 
 // messagesContentBlock is one block of a Messages API response. A reasoning
@@ -100,7 +106,7 @@ type messagesContentBlock struct {
 
 // Summarize produces a ≤120-char one-sentence label for initialMessage using the
 // given model, calling {baseURL}/v1/messages. baseURL is the per-run inference
-// base (e.g. http://orbit-inference-gateway.../run/{runID}).
+// base (e.g. http://kora-inference-gateway.../run/{runID}).
 func (s *summarizer) Summarize(ctx context.Context, baseURL, model, initialMessage string) (string, error) {
 	var result messagesResponse
 	var err error
@@ -117,6 +123,12 @@ func (s *summarizer) Summarize(ctx context.Context, baseURL, model, initialMessa
 
 	text := firstText(result.Content)
 	if text == "" {
+		s.Logger().Warn(ctx, "Inference gateway response has no text block",
+			logging.Field{Key: "stop_reason", Value: result.StopReason},
+			logging.Field{Key: "block_types", Value: blockTypes(result.Content)})
+		if label := truncateSummary(firstLine(initialMessage)); label != "" {
+			return label, nil
+		}
 		return "", fmt.Errorf("inference gateway returned empty summary")
 	}
 
@@ -126,9 +138,13 @@ func (s *summarizer) Summarize(ctx context.Context, baseURL, model, initialMessa
 // send makes one summary request. retry is true when the gateway answered 400,
 // meaning the model may reject this thinking setting.
 func (s *summarizer) send(ctx context.Context, baseURL, model, initialMessage string, thinking *messagesThinking) (result messagesResponse, retry bool, err error) {
+	maxTokens := summaryMaxTokens
+	if thinking == nil || thinking.Type != "disabled" {
+		maxTokens = summaryThinkingMaxTokens
+	}
 	payload := messagesRequest{
 		Model:     model,
-		MaxTokens: summaryMaxTokens,
+		MaxTokens: maxTokens,
 		System:    summarizerSystemPrompt,
 		Thinking:  thinking,
 		Messages: []messagesMessage{
@@ -141,13 +157,16 @@ func (s *summarizer) send(ctx context.Context, baseURL, model, initialMessage st
 		return result, false, fmt.Errorf("encode summarize request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/messages", body)
-	if err != nil {
-		return result, false, fmt.Errorf("build summarize request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
 
-	_, span, resp, err := s.Do(ctx, "summarizer.Summarize", req)
+	// A per-run base URL's run ID becomes a path param to keep the span name a template.
+	req := httpclient.Request{Method: http.MethodPost, BaseURL: baseURL, Path: "/v1/messages", Header: header, Body: body}
+	gateway, runID, perRun := strings.Cut(baseURL, "/run/")
+	if perRun {
+		req.BaseURL, req.Path, req.Params = gateway, "/run/{run_id}/v1/messages", []string{runID}
+	}
+	_, span, resp, err := s.Do(observability.WithRun(ctx, runID), req)
 	defer span.End()
 	if err != nil {
 		return result, false, err
@@ -170,6 +189,25 @@ func firstText(blocks []messagesContentBlock) string {
 		}
 	}
 	return ""
+}
+
+// firstLine returns the first non-blank line of s.
+func firstLine(s string) string {
+	for line := range strings.SplitSeq(s, "\n") {
+		if strings.TrimSpace(line) != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+// blockTypes lists the type of each content block, in order.
+func blockTypes(blocks []messagesContentBlock) []string {
+	types := make([]string, len(blocks))
+	for i, block := range blocks {
+		types[i] = block.Type
+	}
+	return types
 }
 
 // truncateSummary trims whitespace and caps the result at summaryMaxChars

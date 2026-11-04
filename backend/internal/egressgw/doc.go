@@ -36,6 +36,10 @@ var (
 	// connection's tenant. Cross-tenant egress does not exist.
 	ErrTenantMismatch = errors.New("connection tenant mismatch")
 
+	// ErrDelegationRunUnattested is returned when a delegated request carries no
+	// attested run. At egress only a per-run sandbox SVID attests the run.
+	ErrDelegationRunUnattested = errors.New("delegated egress requires a per-run sandbox identity")
+
 	// ErrMissingHost is returned when the inbound request's Host is empty. The
 	// gateway has no way to resolve the destination connection without it.
 	ErrMissingHost = errors.New("inbound request missing host")

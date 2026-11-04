@@ -2,7 +2,7 @@
 
 /** @tier 3 — marketplace-scoped. Sticky bar with the result range and page controls. */
 
-import { Button, Icon, Separator, Stack, Text } from '@orbit/hades';
+import { Button, Icon, Separator, Stack, Text } from '@runkora/hades';
 import { useMarketplaceContext } from '../_context/marketplace-context';
 
 /** The number of page buttons on each side of the current page. */

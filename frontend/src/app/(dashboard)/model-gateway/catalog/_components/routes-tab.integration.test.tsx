@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@runkora/test-utils';
 import { RoutesTab } from './routes-tab';
 import type { ProviderModel, RouteTarget, VirtualModel } from '../_types/catalog';
 
@@ -89,5 +89,18 @@ describe('RoutesTab', () => {
     );
     expect(screen.getByText(/No providers are registered/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Add Route/ })).toBeDisabled();
+  });
+
+  it('names each route toggle by its position', () => {
+    renderWithProviders(
+      <RoutesTab
+        model={virtualModel([route({ id: 'r1' }), route({ id: 'r2', priority: 2 })])}
+        onChange={vi.fn()}
+        providerModels={discovered}
+        providers={['compatible:openrouter']}
+      />,
+    );
+    expect(screen.getByRole('switch', { name: 'Enable route 1' })).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Enable route 2' })).toBeInTheDocument();
   });
 });

@@ -12,7 +12,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"google.golang.org/grpc/credentials"
 )
 
@@ -52,7 +52,7 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 		resource.WithAttributes(
 			semconv.ServiceName(cfg.ServiceName),
 			semconv.ServiceVersion(cfg.ServiceVersion),
-			semconv.DeploymentEnvironment(cfg.Environment),
+			semconv.DeploymentEnvironmentNameKey.String(cfg.Environment),
 		),
 	)
 	if err != nil {
@@ -93,6 +93,7 @@ func Setup(ctx context.Context, cfg Config) (shutdown func(context.Context) erro
 	)
 
 	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithSpanProcessor(attributionProcessor{}),
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sampler),
@@ -156,10 +157,11 @@ func createOTLPExporter(ctx context.Context, endpoint string) (sdktrace.SpanExpo
 }
 
 // createNoOpProvider creates a no-op tracer provider for production without OTLP.
-// This allows the app to work without an observability backend.
+// It never samples: a run must not store a trace ID with no exported trace.
 func createNoOpProvider(res *resource.Resource) func(context.Context) error {
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sdktrace.NeverSample()),
 	)
 	otel.SetTracerProvider(tp)
 	return func(ctx context.Context) error {

@@ -15,6 +15,10 @@ spire-server:
         - spire-system:spire-agent
 
 spire-agent:
+  # Runs on every node that runs agent pods, including nodes with a disruption
+  # taint such as karpenter.sh/disrupted. Without it a node loses its SDS stream.
+  tolerations:
+    - operator: Exists
   sds:
     enabled: true
     defaultSVIDName: default
@@ -31,6 +35,8 @@ spire-agent:
 
 spiffe-csi-driver:
   enabled: true
+  tolerations:
+    - operator: Exists
 
 spire-controller-manager:
   enabled: true

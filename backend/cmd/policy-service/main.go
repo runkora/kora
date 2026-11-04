@@ -6,27 +6,30 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
-	psc "github.com/clear-route/orbit/cmd/policy-service/config"
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/config"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/observability"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/storage"
-	"github.com/clear-route/orbit/internal/platform/token"
-	"github.com/clear-route/orbit/internal/policyservice/api"
-	"github.com/clear-route/orbit/internal/policyservice/bundle"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/principalroles"
-	"github.com/clear-route/orbit/internal/policyservice/roles"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
-	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
+	psc "github.com/runkora/kora/backend/cmd/policy-service/config"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/storage"
+	"github.com/runkora/kora/backend/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/policyservice/api"
+	"github.com/runkora/kora/backend/internal/policyservice/bundle"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/principalroles"
+	"github.com/runkora/kora/backend/internal/policyservice/roles"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
+	"github.com/runkora/kora/backend/internal/policyservice/tenantbudget"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
 func main() {
@@ -48,6 +51,20 @@ func realMain() error {
 
 	logger := initLogger()
 	logger.Info(ctx, "Policy service starting", logging.Field{Key: "version", Value: psc.Current.App.Version})
+
+	metrics, err := platformmetrics.Setup(ctx, psc.Current.Metrics, observability.Config{
+		ServiceName:    psc.Current.Observability.ServiceName,
+		ServiceVersion: psc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, psc.Current.Observability.ServiceName, logger)
+	if err != nil {
+		return fmt.Errorf("setup metrics: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), psc.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
 
 	storageCfg, err := storage.LoadStorageConfig()
 	if err != nil {
@@ -75,18 +92,27 @@ func realMain() error {
 		TelemetryCollector: observability.CollectorAuthority(),
 	}
 	compiler := bundle.NewCompiler(bundleCfg, routeStore)
-	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, principalRolesRepo, bundle.NewTenantRegistry(psc.Current.Bundle.TenantsPath), logger)
+	tenantRegistry := declarative.NewRegistry(psc.Current.Bundle.TenantsPath)
+	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, principalRolesRepo, tenantRegistry, logger)
 
 	// Pre-compile bundles for every known tenant: registered, with grants, or
 	// with routes.
-	if tenantIDs, err := bundleSrv.KnownTenantIDs(ctx); err == nil {
+	if tenantIDs, bootErr := bundleSrv.KnownTenantIDs(ctx); bootErr == nil {
 		bundleSrv.Bootstrap(ctx, tenantIDs)
 	} else {
-		logger.Error(ctx, "bundle bootstrap: failed to list tenants", logging.Field{Key: "error", Value: err.Error()})
+		logger.Error(ctx, "bundle bootstrap: failed to list tenants", logging.Field{Key: "error", Value: bootErr.Error()})
 	}
 
 	// Pre-compile the cross-tenant gateway bundle.
 	bundleSrv.BootstrapGateway(ctx)
+
+	// The shared revoked-JTI blocklist refuses a revoked delegation before its
+	// token expires (docs/adr/2026-07-23-delegated-agent-identity.md).
+	redis, err := storage.NewRedis(ctx, &storageCfg.Redis, logger)
+	if err != nil {
+		return fmt.Errorf("initialize redis: %w", err)
+	}
+	defer func() { _ = redis.Close() }()
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	svc := api.NewService(grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, bundleSrv, routeStore, logger)
@@ -116,10 +142,17 @@ func realMain() error {
 	policyEval := policy.NewEvaluator(bundleEndpoint, 30*time.Second, logger)
 	policyEval.Start(ctx)
 
-	controller := api.NewController(svc, logger, verifier, policyEval, policyServiceRoutes(), psc.Current.Server.BasePath)
-	server := initServer(ctx, logger, controller)
+	// Declared tenant budgets follow the tenant registry (docs/adr/2026-10-24-declarative-resources.md).
+	go svc.RunTenantBudgets(ctx, tenantRegistry)
 
-	run(ctx, logger, server)
+	controller := api.NewController(svc, logger, verifier, storage.NewJTIBlocklist(redis), policyEval, policyServiceRoutes(), psc.Current.Server.BasePath, tenantRegistry)
+	// The operator applies PolicyRole resources through /api/v1/internal/declared/policyroles.
+	declaredController := declarative.NewController(verifier, logger, map[string]declarative.Applier{
+		declarative.KindPolicyRoles: api.NewRoleApplier(svc),
+	})
+	server := initServer(ctx, logger, metrics, controller, declaredController)
+
+	run(ctx, logger, server, metrics)
 	return nil
 }
 
@@ -137,9 +170,9 @@ func selfRegisteredRoutes() []routes.RouteScope {
 		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "PUT", RequiredScope: "platform:budgets:write"},
 		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "DELETE", RequiredScope: "platform:budgets:write"},
 		{PathPrefix: "/api/v1/policy/vocabulary", Method: "GET", RequiredScope: "platform:grants:read"},
-		{PathPrefix: "/api/v1/policy/vocabulary", Method: "DELETE", RequiredScope: "platform:grants:write"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "GET", RequiredScope: "platform:roles:read"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "PUT", RequiredScope: "platform:roles:write"},
+		{PathPrefix: "/api/v1/policy/roles", Method: "PATCH", RequiredScope: "platform:budgets:write"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "DELETE", RequiredScope: "platform:roles:write"},
 	}
 }
@@ -150,10 +183,9 @@ func selfRegisteredRoutes() []routes.RouteScope {
 func selfRegisteredScopes() []routes.ScopeDeclaration {
 	return []routes.ScopeDeclaration{
 		{Scope: "platform:grants:read", ResourceType: "platform", PathSegments: []string{"grants"}, Action: "read", Description: "Read policy grants and vocabulary"},
-		{Scope: "platform:grants:write", ResourceType: "platform", PathSegments: []string{"grants"}, Action: "write", Description: "Create and delete policy grants and vocabulary"},
+		{Scope: "platform:grants:write", ResourceType: "platform", PathSegments: []string{"grants"}, Action: "write", Description: "Create and delete policy grants"},
 		{Scope: "platform:roles:read", ResourceType: "platform", PathSegments: []string{"roles"}, Action: "read", Description: "Read role→scope mappings"},
 		{Scope: "platform:roles:write", ResourceType: "platform", PathSegments: []string{"roles"}, Action: "write", Description: "Create and delete role→scope mappings"},
-		{Scope: "platform:tenants:manage", ResourceType: "platform", PathSegments: []string{"tenants"}, Action: "manage", Description: "Manage tenants (platform-admin only)"},
 		{Scope: "platform:budgets:read", ResourceType: "platform", PathSegments: []string{"budgets"}, Action: "read", Description: "Read tenant budget assignments"},
 		{Scope: "platform:budgets:write", ResourceType: "platform", PathSegments: []string{"budgets"}, Action: "write", Description: "Manage tenant budget assignments on roles and grants"},
 	}
@@ -180,9 +212,9 @@ func policyServiceRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "PUT", RequiredScope: "platform:budgets:write"},
 		{PathPrefix: "/api/v1/policy/tenant-budget", Method: "DELETE", RequiredScope: "platform:budgets:write"},
 		{PathPrefix: "/api/v1/policy/vocabulary", Method: "GET", RequiredScope: "platform:grants:read"},
-		{PathPrefix: "/api/v1/policy/vocabulary", Method: "DELETE", RequiredScope: "platform:grants:write"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "GET", RequiredScope: "platform:roles:read"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "PUT", RequiredScope: "platform:roles:write"},
+		{PathPrefix: "/api/v1/policy/roles", Method: "PATCH", RequiredScope: "platform:budgets:write"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "DELETE", RequiredScope: "platform:roles:write"},
 		// /effective-scopes returns the caller's own effective scopes — open to
 		// any authenticated principal so they can inspect what they hold.
@@ -223,27 +255,47 @@ func initLogger() logging.Logger {
 	return logging.NewLogger()
 }
 
-func initServer(ctx context.Context, logger logging.Logger, controller *api.Controller) *http.Server {
+func initServer(ctx context.Context, logger logging.Logger, metrics *platformmetrics.Bootstrap, controllers ...platformapi.Controller) *http.Server {
 	apiServer := platformapi.NewAPI(ctx, logger)
+
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
+
 	return apiServer.Server(
 		ctx,
 		psc.Current.Server.Port,
 		psc.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(psc.Current.Observability.ServiceName),
+			mw.TracingMiddleware(notTimerPoll(psc.Current.Server.BasePath)),
 			mw.LoggingMiddleware(logger),
 		),
-		controller,
+		controllers...,
 	)
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server) {
+// notTimerPoll leaves OPA bundle polls and route scope re-registration untraced.
+func notTimerPoll(basePath string) mw.TraceFilter {
+	base := strings.TrimSuffix(basePath, "/")
+	return func(r *http.Request) bool {
+		switch {
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, base+"/policy/bundles/"):
+			return false
+		case r.Method == http.MethodPost && r.URL.Path == base+"/policy/routes/register":
+			return false
+		}
+		return true
+	}
+}
+
+func run(ctx context.Context, logger logging.Logger, server *http.Server, metrics *platformmetrics.Bootstrap) {
 	go func() {
 		logger.Info(ctx, "Starting HTTP server", logging.Field{Key: "addr", Value: server.Addr})
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error(ctx, "Failed to start server", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
+	metrics.Start(ctx, logger)
 
 	<-ctx.Done()
 	logger.Info(ctx, "Shutting down policy service...")
@@ -254,6 +306,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server) {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "Policy service shutdown complete")
 }

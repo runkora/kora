@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 
+	"github.com/runkora/kora/backend/internal/platform/probes"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
@@ -18,18 +19,18 @@ import (
 
 const (
 	// Namespace labels set by TenantReconciler.ensureNamespace.
-	nsLabelRole = "orbit.io/role"
-	// podLabelRole carries the same key on a pod. orbit-agents sets it to
+	nsLabelRole = "runkora.io/role"
+	// podLabelRole carries the same key on a pod. kora-agents sets it to
 	// "sandbox" on the pods it provisions per run.
-	podLabelRole   = "orbit.io/role"
+	podLabelRole   = "runkora.io/role"
 	podRoleSandbox = "sandbox"
-	nsLabelTenant  = "orbit.io/tenant"
+	nsLabelTenant  = "runkora.io/tenant"
 
 	// Pod labels that activate the identity-proxy and OPA EnvoyFilters.
-	podLabelOPAPolicy     = "orbit.io/opa-policy"
-	podLabelIdentityProxy = "orbit.io/identity-proxy"
+	podLabelOPAPolicy     = "runkora.io/opa-policy"
+	podLabelIdentityProxy = "runkora.io/identity-proxy"
 
-	// podLabelSpiffeService is matched by the orbit-tenant-service
+	// podLabelSpiffeService is matched by the kora-tenant-service
 	// ClusterSPIFFEID, which issues spiffe://<td>/tenant/<ns>/service/<value>.
 	// An MCP server pod needs it: kora's sidecars take their certificates from
 	// SPIRE, so a pod with no registration has no mesh identity.
@@ -38,7 +39,7 @@ const (
 	// Pod annotations: the tenant id the OPA sidecar reads through the downward
 	// API, and the two Istio annotations that make the sidecar use SPIRE and
 	// mount the shared sockets.
-	podAnnotationTenantID        = "orbit.io/tenant-id"
+	podAnnotationTenantID        = "runkora.io/tenant-id"
 	podAnnotationProxyConfig     = "proxy.istio.io/config"
 	podAnnotationUserVolumeMount = "sidecar.istio.io/userVolumeMount"
 
@@ -50,13 +51,13 @@ const (
 
 	spiffeSocketPath  = "unix:///run/secrets/workload-spiffe-uds/socket"
 	spiffeSocketMount = "/run/secrets/workload-spiffe-uds"
-	identityProxyMnt  = "/run/orbit"
+	identityProxyMnt  = "/run/kora"
 
 	// Named to override Istio's own emptyDir of this name, where istio-proxy
 	// looks for an external SDS socket.
 	volumeSpireSocket   = "workload-socket"
 	volumeIdentityProxy = "id-proxy-sock"
-	volumeOPAConfig     = "orbit-opa-config"
+	volumeOPAConfig     = "kora-opa-config"
 
 	containerIdentityProxy = "identity-proxy"
 	containerOPA           = "opa"
@@ -84,6 +85,10 @@ type InjectionConfig struct {
 	OPAPullPolicy corev1.PullPolicy
 	OPALogLevel   string
 	OPAResources  corev1.ResourceRequirements
+
+	// StartupProbeSeconds is how long a sidecar may take to start before its
+	// startup probe restarts it. Zero uses probes.DefaultStartupSeconds.
+	StartupProbeSeconds int
 
 	// SandboxSidecars pins the sidecars on sandbox pods. An empty list keeps that sidecar's usual resources.
 	SandboxSidecars SandboxSidecars
@@ -119,7 +124,7 @@ func (m *PodMutator) Handle(ctx context.Context, req admission.Request) admissio
 	}
 	tenantName := ns.Labels[nsLabelTenant]
 	if tenantName == "" {
-		return admission.Denied("tenant namespace is missing the orbit.io/tenant label")
+		return admission.Denied("tenant namespace is missing the runkora.io/tenant label")
 	}
 
 	server, err := m.mcpServerFor(ctx, pod, req.Namespace)
@@ -230,7 +235,7 @@ func (m *PodMutator) mutate(pod *corev1.Pod, tenantName, mcpServer string) error
 		Name: volumeOPAConfig,
 		VolumeSource: corev1.VolumeSource{
 			ConfigMap: &corev1.ConfigMapVolumeSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: "orbit-opa-config"},
+				LocalObjectReference: corev1.LocalObjectReference{Name: "kora-opa-config"},
 			},
 		},
 	})
@@ -280,21 +285,30 @@ func (m *PodMutator) identityProxyContainer(otlpEndpoint string) corev1.Containe
 		Image:           m.Config.IdentityProxyImage,
 		ImagePullPolicy: m.Config.IdentityProxyPullPolicy,
 		Env: []corev1.EnvVar{
-			{Name: "ORBIT_IDENTITY_SERVICE_URL", Value: fmt.Sprintf("http://orbit-identity.%s.svc.cluster.local", m.Config.SystemNamespace)},
+			{Name: "KORA_IDENTITY_SERVICE_URL", Value: fmt.Sprintf("http://kora-identity.%s.svc.cluster.local", m.Config.SystemNamespace)},
 			{Name: "SPIFFE_ENDPOINT_SOCKET", Value: spiffeSocketPath},
-			{Name: "ORBIT_OTLP_ENDPOINT", Value: otlpEndpoint},
-			{Name: "ORBIT_SAMPLING_RATE", Value: m.Config.SamplingRate},
+			{Name: "KORA_OTLP_ENDPOINT", Value: otlpEndpoint},
+			{Name: "KORA_SAMPLING_RATE", Value: m.Config.SamplingRate},
 		},
 		Ports:           []corev1.ContainerPort{{Name: "health", ContainerPort: 9090, Protocol: corev1.ProtocolTCP}},
 		SecurityContext: restrictedContainerSecurityContext(1000, true),
+		// Checked every second until the first success, so Ready is not held
+		// back by the readiness period. The budget is the ceiling for a stuck container.
+		StartupProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{Path: "/healthz", Port: intstr.FromInt32(9090)},
+			},
+			PeriodSeconds:    probes.StartupPeriodSeconds,
+			TimeoutSeconds:   3,
+			FailureThreshold: probes.StartupFailureThreshold(m.Config.StartupProbeSeconds),
+		},
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{Path: "/healthz", Port: intstr.FromInt32(9090)},
 			},
-			InitialDelaySeconds: 5,
-			PeriodSeconds:       5,
-			TimeoutSeconds:      3,
-			FailureThreshold:    10,
+			PeriodSeconds:    5,
+			TimeoutSeconds:   3,
+			FailureThreshold: 10,
 		},
 		Resources: m.Config.IdentityProxyResources,
 		VolumeMounts: []corev1.VolumeMount{
@@ -324,7 +338,7 @@ func (m *PodMutator) opaContainer() corev1.Container {
 			"/config/authz.rego",
 		},
 		Env: []corev1.EnvVar{{
-			Name: "ORBIT_TENANT_ID",
+			Name: "KORA_TENANT_ID",
 			ValueFrom: &corev1.EnvVarSource{
 				FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.annotations['" + podAnnotationTenantID + "']"},
 			},
@@ -334,13 +348,21 @@ func (m *PodMutator) opaContainer() corev1.Container {
 			{Name: "opa-diag", ContainerPort: 8282, Protocol: corev1.ProtocolTCP},
 		},
 		SecurityContext: restrictedContainerSecurityContext(1337, true),
+		// Checked every second until bundles load. The liveness probe restarts a
+		// hung opa once this succeeds, so the budget only bounds a stuck start.
+		StartupProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{Path: "/health?bundles=true", Port: intstr.FromInt32(8282)},
+			},
+			PeriodSeconds:    probes.StartupPeriodSeconds,
+			FailureThreshold: probes.StartupFailureThreshold(m.Config.StartupProbeSeconds),
+		},
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{Path: "/health?bundles=true", Port: intstr.FromInt32(8282)},
 			},
-			InitialDelaySeconds: 3,
-			PeriodSeconds:       5,
-			FailureThreshold:    12,
+			PeriodSeconds:    5,
+			FailureThreshold: 12,
 		},
 		LivenessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
@@ -414,7 +436,7 @@ func mergeUserVolumeMounts(existing string) (string, error) {
 
 // ensureVolume sets a kora-owned volume by name, overwriting any pod-supplied
 // definition of the same name. Every caller here is one of kora's own fixed
-// volume names (workload-socket, id-proxy-sock, orbit-opa-config): a tenant pod
+// volume names (workload-socket, id-proxy-sock, kora-opa-config): a tenant pod
 // that pre-declares one of these itself must not get its definition kept, or the
 // injected sidecar mounts an attacker-controlled volume instead of the real one.
 func ensureVolume(spec *corev1.PodSpec, v corev1.Volume) {

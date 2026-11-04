@@ -11,13 +11,18 @@ export function makeTrigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
     id: 't1',
     kind: 'webhook',
     sourceId: 'src-1',
+    sourceMissing: false,
+    declared: false,
     name: 'gh-push',
+    targetKind: 'agent',
     agentTypeId: 'at-1',
     agentSlug: 'coder',
+    routing: null,
     eventType: 'push',
     matchCondition: {},
     matchContains: {},
-    senderRestriction: { logins: [], associations: [] },
+    senderRestriction: { ids: [], roles: [] },
+    coalesce: null,
     promptTemplate: 'go',
     enabled: true,
     createdAt: '2026-07-01T00:00:00Z',
@@ -30,6 +35,7 @@ export function makeTrigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
     consecutiveFailures: 0,
     autoPausedAt: null,
     pendingCount: 0,
+    canFire: true,
     ...overrides,
   };
 }
@@ -53,6 +59,7 @@ export function makeDelivery(overrides: Partial<DeliveryRow> = {}): DeliveryRow 
     payloadPurged: false,
     receivedAt: '2026-07-29T04:24:55Z',
     runs: [],
+    coalesceKeys: [],
     ...overrides,
   };
 }

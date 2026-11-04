@@ -6,12 +6,12 @@
  */
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { orbitClient, ApiError } from '@orbit/server/client';
-import type { HealthResponse } from '@orbit/shared/api';
+import { koraClient, ApiError } from '@runkora/server/client';
+import type { HealthResponse } from '@runkora/shared/api';
 
 export async function GET() {
   try {
-    const data = await orbitClient.get<HealthResponse>('/identity/health');
+    const data = await koraClient.get<HealthResponse>('/identity/health');
     return NextResponse.json({ data });
   } catch (err) {
     if (err instanceof ApiError) {

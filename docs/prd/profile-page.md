@@ -218,12 +218,12 @@ The profile page displays three cards in a single-column layout:
 
 ### Internal Dependencies
 
-- **Hades Design System** (`@orbit/hades`): Popover, Card, Badge, Stack, Text, Skeleton, Icon components (all exist)
+- **Hades Design System** (`@runkora/hades`): Popover, Card, Badge, Stack, Text, Skeleton, Icon components (all exist)
 - **Session infrastructure** (`@orbit/server/session`): `getSession()` server-side, `useSession()` client-side (exists)
 - **Policy evaluate/explain endpoint**: `GET /api/policy/evaluate/explain` (exists)
 - **Identity users endpoint**: `GET /identity/users/{id}` (exists)
 
-> **Note:** Identity service paths (`/identity/...`) are relative to `ORBIT_API_URL` (which includes the `/api/v1` base path) as resolved by `orbitClient`.
+> **Note:** Identity service paths (`/identity/...`) are relative to `KORA_API_URL` (which includes the `/api/v1` base path) as resolved by `orbitClient`.
 
 ### External Dependencies
 

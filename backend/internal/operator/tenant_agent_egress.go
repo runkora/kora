@@ -14,14 +14,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/clear-route/orbit/internal/platform/ports"
+	"github.com/runkora/kora/backend/internal/platform/ports"
 )
 
 // agentEgressName names both the NetworkPolicy and the Istio Sidecar.
 const agentEgressName = "agent-egress"
 
-// agentPodLabels select agent pods; orbit-agents sets them on every one.
-var agentPodLabels = map[string]string{"orbit.io/managed-agent": "true"}
+// agentPodLabels select agent pods; kora-agents sets them on every one.
+var agentPodLabels = map[string]string{"runkora.io/managed-agent": "true"}
 
 // sidecarGVK is Istio's, which is not in the operator's scheme.
 var sidecarGVK = schema.GroupVersionKind{Group: "networking.istio.io", Version: "v1", Kind: "Sidecar"}
@@ -34,11 +34,11 @@ type agentPlatformService struct {
 }
 
 var agentPlatformServices = []agentPlatformService{
-	{app: "orbit-identity", port: 8080},          // identity-proxy token exchange, OPA JWKS
-	{app: "orbit-agents", port: 8080},            // run events, state, summaries, sandbox provisioning
-	{app: "orbit-inference-gateway", port: 8081}, // model calls
-	{app: "orbit-tool-gateway", port: 8096},      // governed MCP servers
-	{app: "orbit-policy-service", port: 8083},    // OPA bundles
+	{app: "kora-identity", port: 8080},          // identity-proxy token exchange, OPA JWKS
+	{app: "kora-agents", port: 8080},            // run events, state, summaries, sandbox provisioning
+	{app: "kora-inference-gateway", port: 8081}, // model calls
+	{app: "kora-tool-gateway", port: 8096},      // governed MCP servers
+	{app: "kora-policy-service", port: 8083},    // OPA bundles
 }
 
 // AgentCollector is the OTLP collector agent pods export to: in the cluster
@@ -59,7 +59,7 @@ func (c AgentCollector) external() bool {
 
 // ensureAgentEgressPolicy reconciles the NetworkPolicy that limits agent pod
 // egress to the platform services, the tenant's sandboxes and the collector.
-func (r *TenantReconciler) ensureAgentEgressPolicy(ctx context.Context, tenant *OrbitTenant) error {
+func (r *TenantReconciler) ensureAgentEgressPolicy(ctx context.Context, tenant *KoraTenant) error {
 	return r.ensureNetworkPolicy(ctx, tenant, agentEgressPolicy(tenantNamespace(tenant), tenant.Name, r.Collector))
 }
 
@@ -82,7 +82,7 @@ func agentEgressPolicy(ns, tenantName string, collector AgentCollector) *network
 	}
 	// No NamespaceSelector: the peer is this namespace's sandboxes only.
 	egress = append(egress, networkingv1.NetworkPolicyEgressRule{
-		To:    []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"orbit.io/role": "sandbox"}}}},
+		To:    []networkingv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"runkora.io/role": "sandbox"}}}},
 		Ports: tcpPort(ports.SandboxExecGRPC),
 	})
 	switch {
@@ -112,13 +112,13 @@ func agentEgressPolicy(ns, tenantName string, collector AgentCollector) *network
 // ensureAgentEgressSidecar reconciles the Istio Sidecar that has the agent
 // pod's Envoy refuse any other host at once, instead of the NetworkPolicy
 // leaving the connection to time out.
-func (r *TenantReconciler) ensureAgentEgressSidecar(ctx context.Context, tenant *OrbitTenant) error {
+func (r *TenantReconciler) ensureAgentEgressSidecar(ctx context.Context, tenant *KoraTenant) error {
 	desired := agentEgressSidecar(tenantNamespace(tenant), tenant.Name, r.Collector)
 	err := r.Create(ctx, desired)
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
 	}
-	if err := r.Patch(ctx, desired, client.Merge, client.FieldOwner("orbit-operator")); err != nil {
+	if err := r.Patch(ctx, desired, client.Merge, client.FieldOwner("kora-operator")); err != nil {
 		return fmt.Errorf("patch Sidecar %q in %q: %w", desired.GetName(), desired.GetNamespace(), err)
 	}
 	return nil
@@ -149,7 +149,7 @@ func agentEgressSidecar(ns, tenantName string, collector AgentCollector) *unstru
 }
 
 func tenantPolicyLabels(tenantName string) map[string]string {
-	return map[string]string{"app.kubernetes.io/managed-by": "orbit-operator", "orbit.io/tenant": tenantName}
+	return map[string]string{"app.kubernetes.io/managed-by": "kora-operator", "runkora.io/tenant": tenantName}
 }
 
 func namespacePeer(namespace string, pods map[string]string) []networkingv1.NetworkPolicyPeer {

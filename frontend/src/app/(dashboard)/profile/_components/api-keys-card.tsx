@@ -13,10 +13,10 @@ import {
   Stack,
   Text,
   EmptyState,
-} from '@orbit/hades';
-import { StatusBadge } from '@orbit/components';
-import { fmtExpiry, isExpired } from '@orbit/utils';
-import type { ListPATsResult } from '@orbit/server/services/identity-server';
+} from '@runkora/hades';
+import { StatusBadge } from '@runkora/components';
+import { fmtExpiry, isExpired } from '@runkora/utils';
+import type { ListPATsResult } from '@runkora/server/services/identity-server';
 import { ScopeList } from './scope-list';
 
 interface ApiKeysCardProps {

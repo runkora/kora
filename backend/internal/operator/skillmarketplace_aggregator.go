@@ -1,11 +1,11 @@
 // Skill marketplace source aggregator.
 //
-// skills-service runs in orbit-system and reads every tenant's marketplaces from
+// skills-service runs in kora-system and reads every tenant's marketplaces from
 // one mounted file. Pods can only mount ConfigMaps from their own namespace, so
 // the operator renders the SkillMarketplaceSource CRs from every tenant
-// namespace into one orbit-system ConfigMap:
+// namespace into one kora-system ConfigMap:
 //
-//   - ConfigMap orbit-skill-marketplace-sources, one data key,
+//   - ConfigMap kora-skill-marketplace-sources, one data key,
 //     skills-mapping.yaml, in the shape skills-service already reads and
 //     internal/platform/marketplace defines: each tenant's repository links.
 //
@@ -36,8 +36,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/marketplace"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/marketplace"
 )
 
 // marketplaceVerdict is one source's outcome of an aggregation run, written to
@@ -53,10 +53,10 @@ func (v marketplaceVerdict) aggregated() bool {
 }
 
 // buildMarketplaceSources is the pure core of aggregation. Given every
-// SkillMarketplaceSource and every OrbitTenant, it returns the file to render
+// SkillMarketplaceSource and every KoraTenant, it returns the file to render
 // and a verdict for every source. Checks run in this order:
 //
-//  1. In orbit-system: Invalid, GlobalSourcesNotSupported.
+//  1. In kora-system: Invalid, GlobalSourcesNotSupported.
 //  2. No active tenant owns the namespace: Pending, TenantNotActive.
 //  3. An older source in the namespace holds the repository: Invalid,
 //     DuplicateRepository.
@@ -66,11 +66,11 @@ func (v marketplaceVerdict) aggregated() bool {
 // "Older" is (creationTimestamp, metadata.name). A source that passes 3 holds
 // its repository even while it waits at 4. Rendered links keep that oldest-first
 // order, which is the display order skills-service shows.
-func buildMarketplaceSources(sources []SkillMarketplaceSource, tenants []OrbitTenant) (marketplace.SourcesFile, map[client.ObjectKey]marketplaceVerdict) {
+func buildMarketplaceSources(sources []SkillMarketplaceSource, tenants []KoraTenant) (marketplace.SourcesFile, map[client.ObjectKey]marketplaceVerdict) {
 	// Two tenants can resolve to one namespace through spec.namespace. The
 	// owner must not depend on list order, and an inactive tenant must not hide
 	// an active one.
-	byNamespace := make(map[string]*OrbitTenant, len(tenants))
+	byNamespace := make(map[string]*KoraTenant, len(tenants))
 	for i := range tenants {
 		namespace := tenantNamespace(&tenants[i])
 		if held, ok := byNamespace[namespace]; !ok || outranks(&tenants[i], held) {
@@ -110,7 +110,7 @@ func buildMarketplaceSources(sources []SkillMarketplaceSource, tenants []OrbitTe
 		tenant, ok := byNamespace[src.Namespace]
 		if !ok || !tenant.Spec.Active {
 			verdicts[key] = marketplaceVerdict{SkillMarketplaceSourcePhasePending, MarketplaceReasonTenantNotActive,
-				fmt.Sprintf("namespace %q has no active OrbitTenant", src.Namespace)}
+				fmt.Sprintf("namespace %q has no active KoraTenant", src.Namespace)}
 			continue
 		}
 
@@ -127,7 +127,7 @@ func buildMarketplaceSources(sources []SkillMarketplaceSource, tenants []OrbitTe
 
 		if !tenantAllowsRepo(tenant, repo) {
 			verdicts[key] = marketplaceVerdict{SkillMarketplaceSourcePhasePending, MarketplaceReasonNotAllowlisted,
-				fmt.Sprintf("%s is not in OrbitTenant %q spec.allowedMarketplaceRepos; a platform admin must approve it", repo, tenant.Name)}
+				fmt.Sprintf("%s is not in KoraTenant %q spec.allowedMarketplaceRepos; a platform admin must approve it", repo, tenant.Name)}
 			continue
 		}
 
@@ -156,7 +156,7 @@ func renderMarketplaceFile(links map[string][]string) marketplace.SourcesFile {
 
 // outranks reports whether tenant a should own a namespace that tenant b also
 // claims: an active tenant beats an inactive one, then the lower name wins.
-func outranks(a, b *OrbitTenant) bool {
+func outranks(a, b *KoraTenant) bool {
 	if a.Spec.Active != b.Spec.Active {
 		return a.Spec.Active
 	}
@@ -166,7 +166,7 @@ func outranks(a, b *OrbitTenant) bool {
 // tenantAllowsRepo reports whether repo, a lowercase owner/repo, is on the
 // tenant's allowlist. GitHub treats owner and repository names
 // case-insensitively.
-func tenantAllowsRepo(t *OrbitTenant, repo string) bool {
+func tenantAllowsRepo(t *KoraTenant, repo string) bool {
 	for _, allowed := range t.Spec.AllowedMarketplaceRepos {
 		if strings.EqualFold(allowed, repo) {
 			return true
@@ -176,7 +176,7 @@ func tenantAllowsRepo(t *OrbitTenant, repo string) bool {
 }
 
 // SkillMarketplaceAggregator renders every allow-listed SkillMarketplaceSource
-// into the orbit-skill-marketplace-sources ConfigMap in orbit-system and keeps
+// into the kora-skill-marketplace-sources ConfigMap in kora-system and keeps
 // each source's status in step with its verdict. The SkillMarketplaceSource
 // reconciler and the tenant reconciler both run it.
 type SkillMarketplaceAggregator struct {
@@ -195,9 +195,9 @@ func NewSkillMarketplaceAggregator(c client.Client, logger logging.Logger) *Skil
 // so a status never reads Aggregated before skills-service can see the source.
 // When the chart owns the file, nothing is written and no source is Aggregated.
 func (a *SkillMarketplaceAggregator) Sync(ctx context.Context) error {
-	tenants := &OrbitTenantList{}
+	tenants := &KoraTenantList{}
 	if err := a.client.List(ctx, tenants); err != nil {
-		return fmt.Errorf("list OrbitTenants: %w", err)
+		return fmt.Errorf("list KoraTenants: %w", err)
 	}
 	sources := &SkillMarketplaceSourceList{}
 	if err := a.client.List(ctx, sources); err != nil {
@@ -222,7 +222,7 @@ func deferToChart(verdicts map[client.ObjectKey]marketplaceVerdict) {
 	for key, v := range verdicts {
 		if v.aggregated() {
 			verdicts[key] = marketplaceVerdict{SkillMarketplaceSourcePhasePending, MarketplaceReasonMappingManagedByChart,
-				fmt.Sprintf("the orbit chart sets %s from skillsService.skillsMapping; a platform admin must empty that list before sources are rendered", marketplace.SourcesFileName)}
+				fmt.Sprintf("the kora chart sets %s from skillsService.skillsMapping; a platform admin must empty that list before sources are rendered", marketplace.SourcesFileName)}
 		}
 	}
 }
@@ -320,8 +320,8 @@ func (a *SkillMarketplaceAggregator) upsertConfigMap(ctx context.Context, file m
 				Name:      marketplace.SourcesConfigMapName,
 				Namespace: systemNamespace,
 				Labels: map[string]string{
-					"app.kubernetes.io/managed-by": "orbit-operator",
-					"orbit.io/component":           "skill-marketplace-sources",
+					"app.kubernetes.io/managed-by": "kora-operator",
+					"runkora.io/component":         "skill-marketplace-sources",
 				},
 			},
 			Data: map[string]string{marketplace.SourcesFileName: data},

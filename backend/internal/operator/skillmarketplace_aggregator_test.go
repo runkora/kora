@@ -20,8 +20,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/marketplace"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/marketplace"
 )
 
 var marketplaceT0 = metav1.NewTime(time.Date(2026, 10, 13, 9, 0, 0, 0, time.UTC))
@@ -41,10 +41,10 @@ func marketSrc(namespace, name, owner, repo string, created metav1.Time) SkillMa
 	}
 }
 
-func marketTenant(name string, active bool, allowed ...string) OrbitTenant {
-	return OrbitTenant{
+func marketTenant(name string, active bool, allowed ...string) KoraTenant {
+	return KoraTenant{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
-		Spec:       OrbitTenantSpec{Active: active, AllowedMarketplaceRepos: allowed},
+		Spec:       KoraTenantSpec{Active: active, AllowedMarketplaceRepos: allowed},
 	}
 }
 
@@ -68,7 +68,7 @@ var wantPhase = map[string]string{
 }
 
 func TestBuildMarketplaceSources(t *testing.T) {
-	const acme = "orbit-tenant-acme"
+	const acme = "kora-tenant-acme"
 	link := marketplace.RepoURL
 	internal := link("acme-corp", "internal-skills")
 
@@ -87,7 +87,7 @@ func TestBuildMarketplaceSources(t *testing.T) {
 
 	cases := []struct {
 		name     string
-		tenants  []OrbitTenant
+		tenants  []KoraTenant
 		sources  []SkillMarketplaceSource
 		want     map[string]string   // namespace/name → reason
 		messages map[string][]string // namespace/name → substrings its message must contain
@@ -95,39 +95,39 @@ func TestBuildMarketplaceSources(t *testing.T) {
 	}{
 		{
 			name:     "allow-listed source is rendered for its tenant",
-			tenants:  []OrbitTenant{marketTenant("acme", true, "acme-corp/internal-skills")},
+			tenants:  []KoraTenant{marketTenant("acme", true, "acme-corp/internal-skills")},
 			sources:  []SkillMarketplaceSource{marketSrc(acme, "acme-internal", "acme-corp", "internal-skills", marketplaceT0)},
 			want:     map[string]string{acme + "/acme-internal": MarketplaceReasonAggregated},
 			rendered: map[string][]string{"acme": {internal}},
 		},
 		{
 			name:    "source not on the allowlist waits",
-			tenants: []OrbitTenant{marketTenant("acme", true)},
+			tenants: []KoraTenant{marketTenant("acme", true)},
 			sources: []SkillMarketplaceSource{marketSrc(acme, "acme-internal", "acme-corp", "internal-skills", marketplaceT0)},
 			want:    map[string]string{acme + "/acme-internal": MarketplaceReasonNotAllowlisted},
 		},
 		{
 			name:     "allowlist match ignores case and renders lowercase",
-			tenants:  []OrbitTenant{marketTenant("acme", true, "Acme-Corp/Internal-Skills")},
+			tenants:  []KoraTenant{marketTenant("acme", true, "Acme-Corp/Internal-Skills")},
 			sources:  []SkillMarketplaceSource{marketSrc(acme, "acme-internal", "ACME-corp", "internal-SKILLS", marketplaceT0)},
 			want:     map[string]string{acme + "/acme-internal": MarketplaceReasonAggregated},
 			rendered: map[string][]string{"acme": {internal}},
 		},
 		{
 			name:    "suspended tenant",
-			tenants: []OrbitTenant{marketTenant("acme", false, "acme-corp/internal-skills")},
+			tenants: []KoraTenant{marketTenant("acme", false, "acme-corp/internal-skills")},
 			sources: []SkillMarketplaceSource{marketSrc(acme, "acme-internal", "acme-corp", "internal-skills", marketplaceT0)},
 			want:    map[string]string{acme + "/acme-internal": MarketplaceReasonTenantNotActive},
 		},
 		{
 			name:     "namespace with no tenant",
-			tenants:  []OrbitTenant{marketTenant("acme", true, "acme-corp/internal-skills")},
-			sources:  []SkillMarketplaceSource{marketSrc("orbit-tenant-ghost", "s", "acme-corp", "internal-skills", marketplaceT0)},
-			want:     map[string]string{"orbit-tenant-ghost/s": MarketplaceReasonTenantNotActive},
-			messages: map[string][]string{"orbit-tenant-ghost/s": {"orbit-tenant-ghost"}},
+			tenants:  []KoraTenant{marketTenant("acme", true, "acme-corp/internal-skills")},
+			sources:  []SkillMarketplaceSource{marketSrc("kora-tenant-ghost", "s", "acme-corp", "internal-skills", marketplaceT0)},
+			want:     map[string]string{"kora-tenant-ghost/s": MarketplaceReasonTenantNotActive},
+			messages: map[string][]string{"kora-tenant-ghost/s": {"kora-tenant-ghost"}},
 		},
 		{
-			name:     "orbit-system source is invalid",
+			name:     "kora-system source is invalid",
 			sources:  []SkillMarketplaceSource{marketSrc(systemNamespace, "global", "clear-route", "skills", marketplaceT0)},
 			want:     map[string]string{systemNamespace + "/global": MarketplaceReasonGlobalSourcesNotSupported},
 			messages: map[string][]string{systemNamespace + "/global": {systemNamespace}},
@@ -136,7 +136,7 @@ func TestBuildMarketplaceSources(t *testing.T) {
 			// One kubectl apply gives sources the same second; the name breaks
 			// the tie so the winner is stable across runs.
 			name:    "same-second tie goes to the lower name",
-			tenants: []OrbitTenant{marketTenant("acme", true, "acme-corp/one")},
+			tenants: []KoraTenant{marketTenant("acme", true, "acme-corp/one")},
 			sources: []SkillMarketplaceSource{
 				marketSrc(acme, "z-src", "acme-corp", "one", marketplaceT0),
 				marketSrc(acme, "a-src", "acme-corp", "one", marketplaceT0),
@@ -150,7 +150,7 @@ func TestBuildMarketplaceSources(t *testing.T) {
 		},
 		{
 			name:    "second source for one repository is invalid",
-			tenants: []OrbitTenant{marketTenant("acme", true, "acme-corp/internal-skills")},
+			tenants: []KoraTenant{marketTenant("acme", true, "acme-corp/internal-skills")},
 			sources: []SkillMarketplaceSource{
 				marketSrc(acme, "acme-internal", "acme-corp", "internal-skills", marketplaceT0),
 				marketSrc(acme, "second", "acme-corp", "internal-skills", laterBy(marketplaceT0, 1)),
@@ -164,17 +164,17 @@ func TestBuildMarketplaceSources(t *testing.T) {
 		},
 		{
 			name: "two tenants may register the same repository",
-			tenants: []OrbitTenant{
+			tenants: []KoraTenant{
 				marketTenant("acme", true, "shared/skills"),
 				marketTenant("globex", true, "shared/skills"),
 			},
 			sources: []SkillMarketplaceSource{
 				marketSrc(acme, "skills", "shared", "skills", marketplaceT0),
-				marketSrc("orbit-tenant-globex", "skills", "shared", "skills", marketplaceT0),
+				marketSrc("kora-tenant-globex", "skills", "shared", "skills", marketplaceT0),
 			},
 			want: map[string]string{
-				acme + "/skills":             MarketplaceReasonAggregated,
-				"orbit-tenant-globex/skills": MarketplaceReasonAggregated,
+				acme + "/skills":            MarketplaceReasonAggregated,
+				"kora-tenant-globex/skills": MarketplaceReasonAggregated,
 			},
 			rendered: map[string][]string{
 				"acme":   {link("shared", "skills")},
@@ -185,7 +185,7 @@ func TestBuildMarketplaceSources(t *testing.T) {
 			// Otherwise approving the older source would take the repository from
 			// a newer one that is already being served.
 			name:    "source awaiting approval still holds its repository",
-			tenants: []OrbitTenant{marketTenant("acme", true)},
+			tenants: []KoraTenant{marketTenant("acme", true)},
 			sources: []SkillMarketplaceSource{
 				marketSrc(acme, "older", "acme-corp", "one", marketplaceT0),
 				marketSrc(acme, "newer", "acme-corp", "one", laterBy(marketplaceT0, 1)),
@@ -197,7 +197,7 @@ func TestBuildMarketplaceSources(t *testing.T) {
 		},
 		{
 			name:    "repository clash ignores case",
-			tenants: []OrbitTenant{marketTenant("acme", true, "acme/repo")},
+			tenants: []KoraTenant{marketTenant("acme", true, "acme/repo")},
 			sources: []SkillMarketplaceSource{
 				marketSrc(acme, "first", "Acme", "Repo", marketplaceT0),
 				marketSrc(acme, "second", "acme", "repo", laterBy(marketplaceT0, 1)),
@@ -211,7 +211,7 @@ func TestBuildMarketplaceSources(t *testing.T) {
 		},
 		{
 			name:    "sources render oldest first",
-			tenants: []OrbitTenant{marketTenant("acme", true, "acme-corp/one", "acme-corp/two", "acme-corp/three")},
+			tenants: []KoraTenant{marketTenant("acme", true, "acme-corp/one", "acme-corp/two", "acme-corp/three")},
 			// The names sort in the opposite order to the ages, so ordering by name
 			// instead of age would show.
 			sources: []SkillMarketplaceSource{
@@ -228,7 +228,7 @@ func TestBuildMarketplaceSources(t *testing.T) {
 		},
 		{
 			name:    "tenant namespace override decides which namespace is served",
-			tenants: []OrbitTenant{customNamespace},
+			tenants: []KoraTenant{customNamespace},
 			sources: []SkillMarketplaceSource{
 				marketSrc("acme-custom", "custom", "acme-corp", "internal-skills", marketplaceT0),
 				marketSrc(acme, "default", "acme-corp", "internal-skills", laterBy(marketplaceT0, 1)),
@@ -241,21 +241,21 @@ func TestBuildMarketplaceSources(t *testing.T) {
 		},
 		{
 			name:     "an inactive tenant does not shadow an active one that shares its namespace",
-			tenants:  []OrbitTenant{sharedInactive, sharedActive},
+			tenants:  []KoraTenant{sharedInactive, sharedActive},
 			sources:  []SkillMarketplaceSource{marketSrc("shared-ns", "shared", "acme-corp", "internal-skills", marketplaceT0)},
 			want:     map[string]string{"shared-ns/shared": MarketplaceReasonAggregated},
 			rendered: map[string][]string{"acme": {internal}},
 		},
 		{
 			name:     "of two active tenants sharing a namespace the lower name serves it",
-			tenants:  []OrbitTenant{sharedHigherName, sharedLowerName},
+			tenants:  []KoraTenant{sharedHigherName, sharedLowerName},
 			sources:  []SkillMarketplaceSource{marketSrc("shared-ns", "shared", "acme-corp", "internal-skills", marketplaceT0)},
 			want:     map[string]string{"shared-ns/shared": MarketplaceReasonNotAllowlisted},
 			messages: map[string][]string{"shared-ns/shared": {"alpha"}},
 		},
 		{
 			name:    "messages name the tenant and the repository",
-			tenants: []OrbitTenant{messageTenant},
+			tenants: []KoraTenant{messageTenant},
 			sources: []SkillMarketplaceSource{
 				marketSrc("gx-ns", "gadgets", "initech", "gadgets", marketplaceT0),
 				marketSrc("gx-ns", "widgets", "initech", "widgets", laterBy(marketplaceT0, 1)),
@@ -322,13 +322,13 @@ func TestBuildMarketplaceSources(t *testing.T) {
 // Tenants render in ID order whatever order the API lists them in, so the same
 // sources always give the same text and an unchanged list costs no write.
 func TestBuildMarketplaceSources_TenantsRenderInIDOrder(t *testing.T) {
-	tenants := []OrbitTenant{
+	tenants := []KoraTenant{
 		marketTenant("globex", true, "initech/gadgets"),
 		marketTenant("acme", true, "acme-corp/internal-skills"),
 	}
 	sources := []SkillMarketplaceSource{
-		marketSrc("orbit-tenant-globex", "gadgets", "initech", "gadgets", marketplaceT0),
-		marketSrc("orbit-tenant-acme", "internal", "acme-corp", "internal-skills", marketplaceT0),
+		marketSrc("kora-tenant-globex", "gadgets", "initech", "gadgets", marketplaceT0),
+		marketSrc("kora-tenant-acme", "internal", "acme-corp", "internal-skills", marketplaceT0),
 	}
 
 	file, _ := buildMarketplaceSources(sources, tenants)
@@ -433,7 +433,7 @@ func assertMarketplaceStatus(t *testing.T, src *SkillMarketplaceSource, phase, r
 func TestSkillMarketplaceAggregator_AllowlistEditAdmitsPendingSource(t *testing.T) {
 	ctx := context.Background()
 	tenant := marketTenant("acme", true)
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
 	c := newMarketplaceClient(t, &tenant, &src)
 	a := newTestMarketplaceAggregator(c)
 	key := client.ObjectKeyFromObject(&src)
@@ -447,7 +447,7 @@ func TestSkillMarketplaceAggregator_AllowlistEditAdmitsPendingSource(t *testing.
 		t.Errorf("before approval the file has %v, want no tenants", file.SkillsMapping.Tenants)
 	}
 
-	current := &OrbitTenant{}
+	current := &KoraTenant{}
 	if err := c.Get(ctx, client.ObjectKey{Name: "acme"}, current); err != nil {
 		t.Fatal(err)
 	}
@@ -474,7 +474,7 @@ func TestSkillMarketplaceAggregator_AllowlistEditAdmitsPendingSource(t *testing.
 func TestSkillMarketplaceAggregator_UnchangedVerdictSkipsStatusWrite(t *testing.T) {
 	ctx := context.Background()
 	tenant := marketTenant("acme", true, "acme-corp/internal-skills")
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
 	c := newMarketplaceClient(t, &tenant, &src)
 	a := newTestMarketplaceAggregator(c)
 	key := client.ObjectKeyFromObject(&src)
@@ -494,7 +494,7 @@ func TestSkillMarketplaceAggregator_UnchangedVerdictSkipsStatusWrite(t *testing.
 func TestSkillMarketplaceAggregator_DeletedSourceLeavesTheFile(t *testing.T) {
 	ctx := context.Background()
 	tenant := marketTenant("acme", true, "acme-corp/internal-skills")
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
 	c := newMarketplaceClient(t, &tenant, &src)
 	a := newTestMarketplaceAggregator(c)
 
@@ -544,7 +544,7 @@ func (c concurrentConfigMapWriter) Get(ctx context.Context, key client.ObjectKey
 func TestSkillMarketplaceAggregator_ConfigMapFailureLeavesStatusesUntouched(t *testing.T) {
 	ctx := context.Background()
 	tenant := marketTenant("acme", true, "acme-corp/internal-skills")
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
 	base := newMarketplaceClient(t, &tenant, &src)
 	a := newTestMarketplaceAggregator(failingConfigMapWrites{base})
 
@@ -562,7 +562,7 @@ func TestSkillMarketplaceAggregator_ConfigMapFailureLeavesStatusesUntouched(t *t
 func TestSkillMarketplaceAggregator_StaleConfigMapWriteConflicts(t *testing.T) {
 	ctx := context.Background()
 	tenant := marketTenant("acme", true, "acme-corp/internal-skills")
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
 	existing := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: marketplace.SourcesConfigMapName, Namespace: systemNamespace},
 		Data:       map[string]string{marketplace.SourcesFileName: "skillsMapping:\n  tenants: []\n"},
@@ -583,13 +583,13 @@ func TestSkillMarketplaceAggregator_StaleConfigMapWriteConflicts(t *testing.T) {
 func TestSkillMarketplaceAggregator_PatchKeepsTheExistingMetadata(t *testing.T) {
 	ctx := context.Background()
 	tenant := marketTenant("acme", true, "acme-corp/internal-skills")
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
 	existing := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        marketplace.SourcesConfigMapName,
 			Namespace:   systemNamespace,
 			Labels:      map[string]string{"app.kubernetes.io/managed-by": "Helm"},
-			Annotations: map[string]string{"meta.helm.sh/release-name": "orbit"},
+			Annotations: map[string]string{"meta.helm.sh/release-name": "kora"},
 		},
 		Data: map[string]string{marketplace.SourcesFileName: "skillsMapping:\n  tenants: []\n"},
 	}
@@ -603,7 +603,7 @@ func TestSkillMarketplaceAggregator_PatchKeepsTheExistingMetadata(t *testing.T) 
 	if err := c.Get(ctx, client.ObjectKeyFromObject(existing), got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Labels["app.kubernetes.io/managed-by"] != "Helm" || got.Annotations["meta.helm.sh/release-name"] != "orbit" {
+	if got.Labels["app.kubernetes.io/managed-by"] != "Helm" || got.Annotations["meta.helm.sh/release-name"] != "kora" {
 		t.Errorf("metadata = labels %v annotations %v, want the chart's kept", got.Labels, got.Annotations)
 	}
 	if !strings.Contains(got.Data[marketplace.SourcesFileName], "https://github.com/acme-corp/internal-skills") {
@@ -616,8 +616,8 @@ func TestSkillMarketplaceAggregator_PatchKeepsTheExistingMetadata(t *testing.T) 
 func TestSkillMarketplaceAggregator_LogsEveryExcludedSource(t *testing.T) {
 	ctx := context.Background()
 	tenant := marketTenant("acme", true, "acme-corp/approved")
-	approved := marketSrc("orbit-tenant-acme", "approved", "acme-corp", "approved", marketplaceT0)
-	waiting := marketSrc("orbit-tenant-acme", "waiting", "acme-corp", "waiting", marketplaceT0)
+	approved := marketSrc("kora-tenant-acme", "approved", "acme-corp", "approved", marketplaceT0)
+	waiting := marketSrc("kora-tenant-acme", "waiting", "acme-corp", "waiting", marketplaceT0)
 	c := newMarketplaceClient(t, &tenant, &approved, &waiting)
 	var logs bytes.Buffer
 	a := NewSkillMarketplaceAggregator(c, logging.NewLoggerWithOutput(&logs))
@@ -644,8 +644,8 @@ func TestSkillMarketplaceAggregator_LogsEveryExcludedSource(t *testing.T) {
 		t.Fatalf("logged %d excluded sources, want 1 (the waiting one): %s", len(excluded), logs.String())
 	}
 	got := excluded[0]
-	if got["source"] != "waiting" || got["namespace"] != "orbit-tenant-acme" || got["reason"] != MarketplaceReasonNotAllowlisted {
-		t.Errorf("excluded log = %v, want source waiting, namespace orbit-tenant-acme, reason %s", got, MarketplaceReasonNotAllowlisted)
+	if got["source"] != "waiting" || got["namespace"] != "kora-tenant-acme" || got["reason"] != MarketplaceReasonNotAllowlisted {
+		t.Errorf("excluded log = %v, want source waiting, namespace kora-tenant-acme, reason %s", got, MarketplaceReasonNotAllowlisted)
 	}
 	if detail, _ := got["detail"].(string); !strings.Contains(detail, "acme-corp/waiting") {
 		t.Errorf("excluded log detail = %v, want the verdict message naming acme-corp/waiting: %v", got["detail"], got)
@@ -656,7 +656,7 @@ func TestSkillMarketplaceAggregator_LogsEveryExcludedSource(t *testing.T) {
 // older source that holds a repository is replaced by another one.
 func TestSkillMarketplaceAggregator_ChangedMessageRewritesStatus(t *testing.T) {
 	ctx := context.Background()
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	tenant := marketTenant("acme", true, "acme-corp/one")
 	first := marketSrc(ns, "first", "acme-corp", "one", marketplaceT0)
 	clash := marketSrc(ns, "clash", "acme-corp", "one", laterBy(marketplaceT0, 5))
@@ -699,7 +699,7 @@ func TestSkillMarketplaceAggregator_NoSourcesStillWritesEmptyList(t *testing.T) 
 	}
 
 	cm := &corev1.ConfigMap{}
-	key := client.ObjectKey{Namespace: systemNamespace, Name: "orbit-skill-marketplace-sources"}
+	key := client.ObjectKey{Namespace: systemNamespace, Name: "kora-skill-marketplace-sources"}
 	if err := c.Get(context.Background(), key, cm); err != nil {
 		t.Fatalf("get %s: %v", key, err)
 	}
@@ -729,7 +729,7 @@ func chartOwnedConfigMap(data string) *corev1.ConfigMap {
 func TestSkillMarketplaceAggregator_LeavesAChartOwnedMappingAlone(t *testing.T) {
 	ctx := context.Background()
 	tenant := marketTenant("acme", true, "acme-corp/internal-skills")
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
 	const chartData = "skillsMapping:\n  tenants:\n  - id: other\n    marketplaces:\n    - https://github.com/example/core-skills\n"
 	existing := chartOwnedConfigMap(chartData)
 	c := newMarketplaceClient(t, &tenant, &src, existing)
@@ -752,7 +752,7 @@ func TestSkillMarketplaceAggregator_LeavesAChartOwnedMappingAlone(t *testing.T) 
 // its tenant can act on.
 func TestSkillMarketplaceAggregator_ChartOwnedMappingKeepsSourcesPending(t *testing.T) {
 	ctx := context.Background()
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	tenant := marketTenant("acme", true, "acme-corp/approved")
 	approved := marketSrc(ns, "approved", "acme-corp", "approved", marketplaceT0)
 	waiting := marketSrc(ns, "waiting", "acme-corp", "waiting", marketplaceT0)
@@ -773,7 +773,7 @@ func TestSkillMarketplaceAggregator_ChartOwnedMappingKeepsSourcesPending(t *test
 func TestSkillMarketplaceAggregator_RendersAgainOnceTheChartLetsGo(t *testing.T) {
 	ctx := context.Background()
 	tenant := marketTenant("acme", true, "acme-corp/internal-skills")
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
 	existing := chartOwnedConfigMap("skillsMapping:\n  tenants: []\n")
 	c := newMarketplaceClient(t, &tenant, &src, existing)
 	a := newTestMarketplaceAggregator(c)

@@ -2,9 +2,9 @@
 //
 // A tool name maps to a scope path with the reserved "." delimiter: the name is
 // split on ".", each segment normalised to [a-z0-9_-], and the server slug
-// prepended — so orbit's `agents.create` becomes the scope
-// mcp:orbit:agents:create:use with rollups mcp:orbit:agents:use and
-// mcp:orbit:use (the prefix-coverage tree the policy hierarchy already
+// prepended — so kora's `agents.create` becomes the scope
+// mcp:kora:agents:create:use with rollups mcp:kora:agents:use and
+// mcp:kora:use (the prefix-coverage tree the policy hierarchy already
 // understands). Every prefix is published as a grantable scope.
 //
 // Leaf/prefix collision: if one tool's full scope path is a strict prefix of
@@ -23,7 +23,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 )
 
 // ServiceName is the service identity the tool-gateway registers scopes under
@@ -130,7 +130,7 @@ func BuildScopes(snapshots []ServerSnapshot) ([]routescopes.ScopeDeclaration, []
 				})
 				continue
 			}
-			addPrefixScopes(&decls, seen, server, path, t)
+			addPrefixScopes(&decls, seen, server, path, t, leafRequires(snap, t))
 		}
 	}
 
@@ -138,11 +138,24 @@ func BuildScopes(snapshots []ServerSnapshot) ([]routescopes.ScopeDeclaration, []
 	return decls, collisions
 }
 
+// leafRequires is the requires set published on a tool's leaf scope. The
+// vocabulary is global, so only a global server's tools set or clear edges.
+// nil keeps the stored edges: a tenant server sharing a global slug must not
+// clear them, and a degraded global server may be stale.
+func leafRequires(snap *ServerSnapshot, t Tool) []string {
+	switch {
+	case snap.Server.TenantID != "" || snap.State != StateOK:
+		return nil
+	default:
+		return append([]string{}, t.RequiresScopes...)
+	}
+}
+
 // addPrefixScopes appends the leaf scope and every prefix rollup for a tool's
 // path (server rollup → … → leaf), skipping any already in seen. The leaf uses
-// the tool's description; rollups get a generated "all tools under this prefix"
-// description.
-func addPrefixScopes(decls *[]routescopes.ScopeDeclaration, seen map[string]struct{}, server string, path []string, t Tool) {
+// the tool's description and leafReq; rollups get a generated "all tools under
+// this prefix" description.
+func addPrefixScopes(decls *[]routescopes.ScopeDeclaration, seen map[string]struct{}, server string, path []string, t Tool, leafReq []string) {
 	for n := 1; n <= len(path); n++ {
 		prefix := path[:n]
 		scope := scopeString(prefix)
@@ -157,7 +170,7 @@ func addPrefixScopes(decls *[]routescopes.ScopeDeclaration, seen map[string]stru
 		var requires []string
 		if n == len(path) {
 			desc = toolDescription(server, t)
-			requires = t.RequiresScopes
+			requires = leafReq
 		}
 		*decls = append(*decls, routescopes.ScopeDeclaration{
 			Scope:        scope,

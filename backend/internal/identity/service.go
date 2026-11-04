@@ -27,16 +27,18 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	clientpolicy "github.com/clear-route/orbit/internal/platform/clients/policy"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	clientpolicy "github.com/runkora/kora/backend/internal/platform/clients/policy"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ─── Internal OIDC provider state ────────────────────────────────────────────
@@ -99,9 +101,13 @@ type Service struct {
 	// Access only while holding mu (read or write as appropriate).
 	oidcTenants map[string]*tenantOIDCState
 
+	// authoring reads the tenant's API authoring switch from the registry for
+	// the session response.
+	authoring *declarative.Registry
+
 	// clientSecrets holds the latest resolved OIDC client secrets, keyed by
 	// tenant ID. Populated at startup by initClientSecrets and refreshed live
-	// by watchClientSecrets whenever orbit-tenant-oidc-secrets changes.
+	// by watchClientSecrets whenever kora-tenant-oidc-secrets changes.
 	// Access only while holding mu (read or write as appropriate).
 	clientSecrets map[string]string
 
@@ -124,8 +130,8 @@ type Service struct {
 // every active tenant found in the tenant registry (cfg.Registry.TenantsPath).
 // Tenants without a configured OIDC issuer URL are skipped.
 //
-// The RSA signing key is read from the ORBIT_TOKEN_SIGNING_KEY_FILE or
-// ORBIT_TOKEN_SIGNING_KEY environment variables (via initSigningKey).
+// The RSA signing key is read from the KORA_TOKEN_SIGNING_KEY_FILE or
+// KORA_TOKEN_SIGNING_KEY environment variables (via initSigningKey).
 // In local development, if neither is set, a throwaway key is generated
 // and a prominent warning is logged. Never use auto-generated keys in production.
 func NewService(
@@ -169,14 +175,15 @@ func NewService(
 		policyEval:    policyEval,
 		extractor:     extractor,
 		logger:        logger,
-		tracer:        otel.Tracer("orbit.identity"),
+		tracer:        otel.Tracer("github.com/runkora/kora/backend/internal/identity"),
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
 		oidcTenants:   make(map[string]*tenantOIDCState),
+		authoring:     declarative.NewRegistry(cfg.Registry.TenantsPath),
 		clientSecrets: make(map[string]string),
 	}
 
 	// Load pre-registered (static) OAuth clients from the mounted
-	// orbit-tenant-oauth-clients ConfigMap (rendered by the operator from
+	// kora-tenant-oauth-clients ConfigMap (rendered by the operator from
 	// OAuthClient CRs) and layer them ahead of the dynamic DCR store. Admin-
 	// declared via GitOps; hot-reloaded on change, so applying/removing an
 	// OAuthClient CR takes effect without a pod restart.
@@ -331,18 +338,16 @@ func parseDeviceTokenError(body []byte) error {
 // endpoint for a device_code grant. It maps provider error codes to sentinel
 // errors so the caller can decide whether to retry or surface the failure.
 func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*SessionResponse, error) {
-	ctx, span := s.tracer.Start(ctx, "identity.PollDeviceAuth",
+	ctx, span := s.tracer.Start(observability.WithTenant(ctx, req.TenantID), "identity.PollDeviceAuth",
 		trace.WithAttributes(
-			attribute.String("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-			attribute.String("tenant_id", req.TenantID),
+			observability.OAuthGrantTypeKey.String("urn:ietf:params:oauth:grant-type:device_code"),
 		),
 	)
 	defer span.End()
 
 	ts, err := s.tenantOIDC(req.TenantID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "OIDC not configured for tenant")
+		observability.RecordFailure(span, err, errSpanOIDCNotConfiguredForTenant)
 		return nil, err
 	}
 
@@ -357,8 +362,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 
 	resp, err := s.postForm(ctx, ts.meta.TokenEndpoint, formVals)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "token endpoint request failed")
+		observability.RecordFailure(span, err, errSpanTokenEndpointRequestFailed)
 		return nil, fmt.Errorf("poll device auth token endpoint %s: %w", ts.meta.TokenEndpoint, err)
 	}
 	defer resp.Body.Close()
@@ -370,14 +374,13 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 
 	// OAuth2 error responses use 4xx status codes.
 	if resp.StatusCode != http.StatusOK {
-		span.SetAttributes(attribute.Int("http.status_code", resp.StatusCode))
+		span.SetAttributes(semconv.HTTPResponseStatusCodeKey.Int(resp.StatusCode))
 		if sentinelErr := parseDeviceTokenError(body); sentinelErr != nil {
 			recordDeviceAuthError(span, sentinelErr)
 			return nil, sentinelErr
 		}
 		unexpectedErr := fmt.Errorf("token endpoint returned %d: %s", resp.StatusCode, body)
-		span.RecordError(unexpectedErr)
-		span.SetStatus(codes.Error, "unexpected status code")
+		observability.RecordFailure(span, unexpectedErr, errSpanUnexpectedStatusCode)
 		return nil, unexpectedErr
 	}
 
@@ -396,8 +399,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 		ClientID: ts.cfg.ClientID,
 	}).Verify(ctx, tokenResp.IDToken)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "id_token verification failed")
+		observability.RecordFailure(span, err, errSpanIdTokenVerificationFailed)
 		return nil, fmt.Errorf("verify id token: %w", err)
 	}
 
@@ -409,17 +411,22 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 		Roles             []string `json:"roles"`
 		Groups            []string `json:"groups"`
 	}
-	if err := idToken.Claims(&claims); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "claims extraction failed")
+	if err = idToken.Claims(&claims); err != nil {
+		observability.RecordFailure(span, err, errSpanClaimsExtractionFailed)
 		return nil, fmt.Errorf("extract id token claims: %w", err)
 	}
 
 	span.SetAttributes(
-		attribute.String("principal.id", claims.Sub),
-		attribute.String("principal.type", string(PrincipalTypeHuman)),
-		attribute.String("identity.source", string(IdentitySourceFederated)),
+		observability.PrincipalIDKey.String(claims.Sub),
+		observability.PrincipalTypeKey.String(string(PrincipalTypeHuman)),
+		observability.PrincipalIdentitySourceKey.String(string(IdentitySourceFederated)),
 	)
+
+	tenantID, err := s.bindTenant(ts, req.TenantID, idToken)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanTenantClaimBindingFailed)
+		return nil, err
+	}
 
 	displayName := resolveDisplayName(claims.Name, claims.PreferredUsername, claims.Email, claims.Sub)
 
@@ -437,7 +444,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 	principal := &Principal{
 		ID:             claims.Sub,
 		Type:           PrincipalTypeHuman,
-		TenantID:       req.TenantID,
+		TenantID:       tenantID,
 		DisplayName:    displayName,
 		IdentitySource: IdentitySourceFederated,
 		Claims:         principalClaims,
@@ -470,18 +477,16 @@ func resolveDisplayName(name, preferredUsername, email, sub string) string {
 // browser-to-backend channel, no PKCE state is stored server-side, and the
 // kora JWT is sealed into an HttpOnly iron-session cookie by the BFF.
 func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*SessionResponse, error) {
-	ctx, span := s.tracer.Start(ctx, "identity.ExchangeIDToken",
+	ctx, span := s.tracer.Start(observability.WithTenant(ctx, req.TenantID), "identity.ExchangeIDToken",
 		trace.WithAttributes(
-			attribute.String("grant_type", "oidc_id_token"),
-			attribute.String("tenant_id", req.TenantID),
+			observability.OAuthGrantTypeKey.String("oidc_id_token"),
 		),
 	)
 	defer span.End()
 
 	tenant, err := s.tenantOIDC(req.TenantID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrOIDCNotConfigured.Error())
+		observability.RecordFailure(span, err, ErrOIDCNotConfigured)
 		return nil, fmt.Errorf("%w: tenant %q", ErrOIDCNotConfigured, req.TenantID)
 	}
 
@@ -490,8 +495,7 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 		ClientID: tenant.cfg.ClientID,
 	}).Verify(ctx, req.IDToken)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "id_token verification failed")
+		observability.RecordFailure(span, err, errSpanIdTokenVerificationFailed)
 		return nil, fmt.Errorf("%w: %w", ErrIDTokenInvalid, err)
 	}
 
@@ -503,17 +507,22 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 		Roles             []string `json:"roles"`
 		Groups            []string `json:"groups"`
 	}
-	if err := idToken.Claims(&claims); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "claims extraction failed")
+	if err = idToken.Claims(&claims); err != nil {
+		observability.RecordFailure(span, err, errSpanClaimsExtractionFailed)
 		return nil, fmt.Errorf("extract id_token claims: %w", err)
 	}
 
 	span.SetAttributes(
-		attribute.String("principal.id", claims.Sub),
-		attribute.String("principal.type", string(PrincipalTypeHuman)),
-		attribute.String("identity.source", string(IdentitySourceFederated)),
+		observability.PrincipalIDKey.String(claims.Sub),
+		observability.PrincipalTypeKey.String(string(PrincipalTypeHuman)),
+		observability.PrincipalIdentitySourceKey.String(string(IdentitySourceFederated)),
 	)
+
+	tenantID, err := s.bindTenant(tenant, req.TenantID, idToken)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanTenantClaimBindingFailed)
+		return nil, err
+	}
 
 	displayName := resolveDisplayName(claims.Name, claims.PreferredUsername, claims.Email, claims.Sub)
 
@@ -531,7 +540,7 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 	principal := &Principal{
 		ID:             claims.Sub,
 		Type:           PrincipalTypeHuman,
-		TenantID:       req.TenantID,
+		TenantID:       tenantID,
 		DisplayName:    displayName,
 		IdentitySource: IdentitySourceFederated,
 		Claims:         principalClaims,
@@ -546,15 +555,14 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*SessionResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.RefreshSession",
 		trace.WithAttributes(
-			attribute.String("grant_type", "refresh_token"),
+			observability.OAuthGrantTypeKey.String("refresh_token"),
 		),
 	)
 	defer span.End()
 
 	if req.RefreshToken == "" {
 		err := fmt.Errorf("refresh_token is required")
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "missing refresh_token")
+		observability.RecordFailure(span, err, errSpanMissingRefreshToken)
 		return nil, err
 	}
 
@@ -563,55 +571,47 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 	rt, err := s.refreshTokens.GetRefreshTokenByHash(ctx, hash)
 	if err != nil {
 		if errors.Is(err, ErrRefreshTokenNotFound) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "refresh_token not found")
+			observability.RecordFailure(span, err, errSpanRefreshTokenNotFound)
 			return nil, ErrRefreshTokenNotFound
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "database error")
+		observability.RecordFailure(span, err, errSpanDatabaseError)
 		return nil, fmt.Errorf("get refresh token: %w", err)
 	}
 
 	if rt.RevokedAt != nil {
-		span.RecordError(ErrRefreshTokenRevoked)
-		span.SetStatus(codes.Error, "refresh_token revoked")
+		observability.RecordFailure(span, ErrRefreshTokenRevoked, errSpanRefreshTokenRevoked)
 		return nil, ErrRefreshTokenRevoked
 	}
 	if time.Now().After(rt.ExpiresAt) {
-		span.RecordError(ErrRefreshTokenExpired)
-		span.SetStatus(codes.Error, "refresh_token expired")
+		observability.RecordFailure(span, ErrRefreshTokenExpired, errSpanRefreshTokenExpired)
 		return nil, ErrRefreshTokenExpired
 	}
 
 	session, err := s.sessions.GetSessionByID(ctx, rt.SessionID)
 	if err != nil {
 		if errors.Is(err, ErrSessionNotFound) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "session not found")
+			observability.RecordFailure(span, err, errSpanSessionNotFound)
 			return nil, ErrSessionNotFound
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "database error")
+		observability.RecordFailure(span, err, errSpanDatabaseError)
 		return nil, fmt.Errorf("get session: %w", err)
 	}
 	if session.RevokedAt != nil {
-		span.RecordError(ErrTokenRevoked)
-		span.SetStatus(codes.Error, "session revoked")
+		observability.RecordFailure(span, ErrTokenRevoked, errSpanSessionRevoked)
 		return nil, ErrTokenRevoked
 	}
 
 	span.SetAttributes(
-		attribute.String("session.id", session.ID),
-		attribute.String("principal.id", session.PrincipalID),
-		attribute.String("principal.type", string(session.PrincipalType)),
-		attribute.String("tenant_id", session.TenantID),
-		attribute.String("identity.source", string(session.IdentitySource)),
+		observability.SessionIDKey.String(session.ID),
+		observability.PrincipalIDKey.String(session.PrincipalID),
+		observability.PrincipalTypeKey.String(string(session.PrincipalType)),
+		observability.TenantIDKey.String(session.TenantID),
+		observability.PrincipalIdentitySourceKey.String(string(session.IdentitySource)),
 	)
 
 	// Revoke the used refresh token (rotation).
 	if err := s.refreshTokens.RevokeRefreshToken(ctx, rt.ID, time.Now()); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "refresh token rotation failed")
+		observability.RecordFailure(span, err, errSpanRefreshTokenRotationFailed)
 		return nil, fmt.Errorf("rotate refresh token: %w", err)
 	}
 
@@ -642,16 +642,15 @@ func (s *Service) ExchangeSVID(ctx context.Context, r *http.Request) (*SessionRe
 
 	principal, err := s.extractor.Extract(r)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "principal extraction failed")
+		observability.RecordFailure(span, err, errSpanPrincipalExtractionFailed)
 		return nil, fmt.Errorf("extract principal: %w", err)
 	}
 
 	span.SetAttributes(
-		attribute.String("principal.id", principal.ID),
-		attribute.String("principal.type", string(principal.Type)),
-		attribute.String("tenant_id", principal.TenantID),
-		attribute.String("identity.source", string(principal.IdentitySource)),
+		observability.PrincipalIDKey.String(principal.ID),
+		observability.PrincipalTypeKey.String(string(principal.Type)),
+		observability.TenantIDKey.String(principal.TenantID),
+		observability.PrincipalIdentitySourceKey.String(string(principal.IdentitySource)),
 	)
 
 	// tenant_id is extracted exclusively from the SPIFFE URI in the XFCC header —
@@ -670,7 +669,7 @@ func (s *Service) ExchangeSVID(ctx context.Context, r *http.Request) (*SessionRe
 func (s *Service) RevokeToken(ctx context.Context, req RevokeRequest) error {
 	ctx, span := s.tracer.Start(ctx, "identity.RevokeToken",
 		trace.WithAttributes(
-			attribute.String("token_type", req.TokenType),
+			observability.OAuthTokenTypeKey.String(req.TokenType),
 		),
 	)
 	defer span.End()
@@ -679,8 +678,7 @@ func (s *Service) RevokeToken(ctx context.Context, req RevokeRequest) error {
 	case "access_token":
 		err := s.revokeAccessToken(ctx, req.Token)
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "access_token revocation failed")
+			observability.RecordFailure(span, err, errSpanAccessTokenRevocationFailed)
 		} else {
 			span.SetStatus(codes.Ok, "access_token revoked")
 		}
@@ -688,16 +686,14 @@ func (s *Service) RevokeToken(ctx context.Context, req RevokeRequest) error {
 	case "refresh_token":
 		err := s.revokeRefreshToken(ctx, req.Token)
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "refresh_token revocation failed")
+			observability.RecordFailure(span, err, errSpanRefreshTokenParamRevocationFailed)
 		} else {
 			span.SetStatus(codes.Ok, "refresh_token revoked")
 		}
 		return err
 	default:
 		err := fmt.Errorf("unsupported token_type %q: %w", req.TokenType, ErrUnsupportedTokenType)
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "unsupported token_type")
+		observability.RecordFailure(span, err, errSpanUnsupportedTokenType)
 		return err
 	}
 }
@@ -708,30 +704,27 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 
 	claims, err := s.parseToken(token)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "invalid token")
+		observability.RecordFailure(span, err, errSpanInvalidToken)
 		return ErrInvalidToken
 	}
 
 	jti := claims.ID
 	if jti == "" {
-		span.RecordError(ErrInvalidToken)
-		span.SetStatus(codes.Error, "missing jti")
+		observability.RecordFailure(span, ErrInvalidToken, errSpanMissingJti)
 		return ErrInvalidToken
 	}
 
-	span.SetAttributes(attribute.String("jti", jti))
+	span.SetAttributes(observability.TokenJTIKey.String(jti))
 
 	expiry, err := claims.GetExpirationTime()
 	if err == nil && expiry != nil {
 		ttl := time.Until(expiry.Time)
 		if ttl > 0 {
 			if blockErr := s.blocklist.BlockJTI(ctx, jti, ttl); blockErr != nil {
-				span.RecordError(blockErr)
-				span.SetStatus(codes.Error, "blocklist operation failed")
+				observability.RecordFailure(span, blockErr, errSpanBlocklistOperationFailed)
 				return fmt.Errorf("block jti: %w", blockErr)
 			}
-			span.SetAttributes(attribute.Int64("jti.ttl_seconds", int64(ttl.Seconds())))
+			span.SetAttributes(observability.TokenTTLSecondsKey.Int64(int64(ttl.Seconds())))
 		}
 	}
 
@@ -743,23 +736,20 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 			span.SetStatus(codes.Ok, "jti blocked (session already revoked)")
 			return nil
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "database error")
+		observability.RecordFailure(span, err, errSpanDatabaseError)
 		return fmt.Errorf("get session by jti: %w", err)
 	}
 
-	span.SetAttributes(attribute.String("session.id", session.ID))
+	span.SetAttributes(observability.SessionIDKey.String(session.ID))
 
 	now := time.Now()
 	if rErr := s.refreshTokens.RevokeAllForSession(ctx, session.ID, now); rErr != nil {
-		span.RecordError(rErr)
-		span.SetStatus(codes.Error, "refresh token revocation failed")
+		observability.RecordFailure(span, rErr, errSpanRefreshTokenRevocationFailed)
 		return fmt.Errorf("revoke refresh tokens for session: %w", rErr)
 	}
 	if rErr := s.sessions.RevokeSession(ctx, session.ID, now); rErr != nil {
 		if !errors.Is(rErr, ErrSessionNotFound) {
-			span.RecordError(rErr)
-			span.SetStatus(codes.Error, "session revocation failed")
+			observability.RecordFailure(span, rErr, errSpanSessionRevocationFailed)
 			return fmt.Errorf("revoke session: %w", rErr)
 		}
 	}
@@ -781,12 +771,11 @@ func (s *Service) revokeRefreshToken(ctx context.Context, token string) error {
 			span.SetStatus(codes.Ok, "refresh_token not found (already revoked or never issued)")
 			return nil
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "database error")
+		observability.RecordFailure(span, err, errSpanDatabaseError)
 		return fmt.Errorf("get refresh token for revocation: %w", err)
 	}
 
-	span.SetAttributes(attribute.String("refresh_token.id", rt.ID))
+	span.SetAttributes(observability.RefreshTokenIDKey.String(rt.ID))
 
 	if err := s.refreshTokens.RevokeRefreshToken(ctx, rt.ID, time.Now()); err != nil {
 		if errors.Is(err, ErrRefreshTokenNotFound) {
@@ -794,8 +783,7 @@ func (s *Service) revokeRefreshToken(ctx context.Context, token string) error {
 			span.SetStatus(codes.Ok, "refresh_token concurrently revoked")
 			return nil
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "revocation failed")
+		observability.RecordFailure(span, err, errSpanRevocationFailed)
 		return err
 	}
 
@@ -817,12 +805,11 @@ func (s *Service) JWKSJSON() []byte {
 // createSession (human, with refresh token) and createAgentSession (no refresh
 // token). Returns the session ID, signed access token, issue time, and TTL.
 func (s *Service) buildAndPersistSession(ctx context.Context, principal *Principal) (sessionID, accessToken string, now time.Time, ttl time.Duration, err error) {
-	ctx, span := s.tracer.Start(ctx, "identity.buildAndPersistSession",
+	ctx, span := s.tracer.Start(observability.WithTenant(ctx, principal.TenantID), "identity.buildAndPersistSession",
 		trace.WithAttributes(
-			attribute.String("principal.id", principal.ID),
-			attribute.String("principal.type", string(principal.Type)),
-			attribute.String("tenant_id", principal.TenantID),
-			attribute.String("identity.source", string(principal.IdentitySource)),
+			observability.PrincipalIDKey.String(principal.ID),
+			observability.PrincipalTypeKey.String(string(principal.Type)),
+			observability.PrincipalIdentitySourceKey.String(string(principal.IdentitySource)),
 		),
 	)
 	defer span.End()
@@ -834,16 +821,15 @@ func (s *Service) buildAndPersistSession(ctx context.Context, principal *Princip
 	ttl = time.Duration(s.cfg.Token.AccessTokenTTLMinutes) * time.Minute
 
 	span.SetAttributes(
-		attribute.String("session.id", sessionID),
-		attribute.String("jti", jti),
-		attribute.Int64("ttl_minutes", int64(s.cfg.Token.AccessTokenTTLMinutes)),
+		observability.SessionIDKey.String(sessionID),
+		observability.TokenJTIKey.String(jti),
+		observability.TokenTTLMinutesKey.Int64(int64(s.cfg.Token.AccessTokenTTLMinutes)),
 	)
 
 	// Sign before persisting — if signing fails nothing is written to the DB.
 	accessToken, err = s.signToken(principal, jti, sessionID, "", now, ttl)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "token signing failed")
+		observability.RecordFailure(span, err, errSpanTokenSigningFailed)
 		err = fmt.Errorf("sign access token: %w", err)
 		return
 	}
@@ -861,8 +847,7 @@ func (s *Service) buildAndPersistSession(ctx context.Context, principal *Princip
 		ExpiresAt:      now.Add(ttl),
 	}
 	if err = s.sessions.CreateSession(ctx, session); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "session persistence failed")
+		observability.RecordFailure(span, err, errSpanSessionPersistenceFailed)
 		err = fmt.Errorf("persist session: %w", err)
 		return
 	}
@@ -877,15 +862,14 @@ func (s *Service) buildAndPersistSession(ctx context.Context, principal *Princip
 func (s *Service) createSession(ctx context.Context, principal *Principal) (*SessionResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.createSession",
 		trace.WithAttributes(
-			attribute.String("principal.type", string(principal.Type)),
+			observability.PrincipalTypeKey.String(string(principal.Type)),
 		),
 	)
 	defer span.End()
 
 	sessionID, accessToken, now, ttl, err := s.buildAndPersistSession(ctx, principal)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "session creation failed")
+		observability.RecordFailure(span, err, errSpanSessionCreationFailed)
 		return nil, err
 	}
 
@@ -905,8 +889,7 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 	// Issue refresh token (opaque random bytes; only the hash is stored).
 	rawRefresh, err := generateOpaqueToken()
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "refresh token generation failed")
+		observability.RecordFailure(span, err, errSpanRefreshTokenGenerationFailed)
 		return nil, fmt.Errorf("generate refresh token: %w", err)
 	}
 
@@ -918,14 +901,13 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 		ExpiresAt: now.Add(time.Duration(s.cfg.Token.RefreshTokenTTLDays) * 24 * time.Hour),
 	}
 	if err := s.refreshTokens.CreateRefreshToken(ctx, rt); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "refresh token persistence failed")
+		observability.RecordFailure(span, err, errSpanRefreshTokenPersistenceFailed)
 		return nil, fmt.Errorf("persist refresh token: %w", err)
 	}
 
 	span.SetAttributes(
-		attribute.String("refresh_token.id", rt.ID),
-		attribute.Int64("refresh_token.ttl_days", int64(s.cfg.Token.RefreshTokenTTLDays)),
+		observability.RefreshTokenIDKey.String(rt.ID),
+		observability.RefreshTokenTTLDaysKey.Int64(int64(s.cfg.Token.RefreshTokenTTLDays)),
 	)
 	span.SetStatus(codes.Ok, "session with refresh token created")
 
@@ -937,6 +919,7 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 		RefreshToken:          rawRefresh,
 		IssuedAt:              now.Unix(),
 		RefreshTokenExpiresIn: int(refreshTTL.Seconds()),
+		APIAuthoring:          s.authoring.APIAuthoringEnabled(principal.TenantID),
 	}, nil
 }
 
@@ -945,25 +928,25 @@ func (s *Service) createSession(ctx context.Context, principal *Principal) (*Ses
 func (s *Service) createAgentSession(ctx context.Context, principal *Principal) (*SessionResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.createAgentSession",
 		trace.WithAttributes(
-			attribute.String("principal.type", string(principal.Type)),
+			observability.PrincipalTypeKey.String(string(principal.Type)),
 		),
 	)
 	defer span.End()
 
 	_, accessToken, now, ttl, err := s.buildAndPersistSession(ctx, principal)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "agent session creation failed")
+		observability.RecordFailure(span, err, errSpanAgentSessionCreationFailed)
 		return nil, err
 	}
 
 	span.SetStatus(codes.Ok, "agent session created (no refresh token)")
 
 	return &SessionResponse{
-		AccessToken: accessToken,
-		TokenType:   "Bearer",
-		ExpiresIn:   int(ttl.Seconds()),
-		IssuedAt:    now.Unix(),
+		AccessToken:  accessToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    int(ttl.Seconds()),
+		IssuedAt:     now.Unix(),
+		APIAuthoring: s.authoring.APIAuthoringEnabled(principal.TenantID),
 	}, nil
 }
 
@@ -979,7 +962,7 @@ func (s *Service) signToken(p *Principal, jti, sessionID, patID string, now time
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
 			Issuer:    token.DefaultIssuer,
 		},
-		Orbit: OrbitClaims{
+		Kora: KoraClaims{
 			SessionID:      sessionID,
 			PrincipalType:  p.Type,
 			TenantID:       p.TenantID,
@@ -999,9 +982,12 @@ func (s *Service) signToken(p *Principal, jti, sessionID, patID string, now time
 // The SYSTEM principal type allows cross-tenant operations in the policy service.
 func (s *Service) SystemToken(ctx context.Context) (string, error) {
 	principal := &Principal{
-		ID:             "orbit-identity-service",
-		Type:           token.PrincipalTypeSystem,
-		TenantID:       "",
+		ID:       "kora-identity-service",
+		Type:     token.PrincipalTypeSystem,
+		TenantID: "",
+		// The policy service accepts a SYSTEM route registration only under the
+		// service name this carries.
+		DisplayName:    ServiceName,
 		IdentitySource: IdentitySourcePlatform,
 	}
 	return s.signToken(principal, uuid.NewString(), "", "", time.Now().UTC(), 5*time.Minute)
@@ -1213,7 +1199,7 @@ func (s *Service) tenantOIDC(tenantID string) (*tenantOIDCState, error) {
 // Returns ErrTenantNotFound if no tenant claims the domain.
 // The returned TenantDiscovery intentionally excludes the client secret.
 func (s *Service) DiscoverTenantByEmail(ctx context.Context, email string) (*TenantDiscovery, error) {
-	_, span := otel.Tracer("identity").Start(ctx, "identity.DiscoverTenantByEmail")
+	_, span := s.tracer.Start(ctx, "identity.DiscoverTenantByEmail")
 	defer span.End()
 
 	at := strings.LastIndex(email, "@")
@@ -1228,22 +1214,94 @@ func (s *Service) DiscoverTenantByEmail(ctx context.Context, email string) (*Ten
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	// Tenants that share a domain share the issuer, so any of them answers.
+	// Pick the lowest ID so the answer is stable.
+	var found string
 	for tenantID, ts := range s.oidcTenants {
+		if found != "" && tenantID >= found {
+			continue
+		}
 		for _, d := range ts.cfg.EmailDomains {
 			if strings.ToLower(d) == domain {
-				return &TenantDiscovery{
-					TenantID:  tenantID,
-					IssuerURL: ts.cfg.IssuerURL,
-					ClientID:  ts.cfg.ClientID,
-					Scopes:    ts.cfg.Scopes,
-				}, nil
+				found = tenantID
+				break
 			}
 		}
 	}
+	if found != "" {
+		ts := s.oidcTenants[found]
+		return &TenantDiscovery{
+			TenantID:  found,
+			IssuerURL: ts.cfg.IssuerURL,
+			ClientID:  ts.cfg.ClientID,
+			Scopes:    ts.cfg.Scopes,
+		}, nil
+	}
 
-	span.RecordError(ErrTenantNotFound)
-	span.SetStatus(codes.Error, ErrTenantNotFound.Error())
 	return nil, ErrTenantNotFound
+}
+
+// bindTenant returns the tenant that owns a verified ID token. A tenant without
+// a claimBinding owns its own tokens. For a bound tenant, the owner is the one
+// tenant whose binding matches the token claims, chosen among the tenants on the
+// same issuer and client that claim the email domain of the token's email claim.
+// A token without an email claim considers only the requested tenant.
+// No match is ErrClaimBindingMismatch and several are ErrMultipleTenantsMatch.
+func (s *Service) bindTenant(requested *tenantOIDCState, requestedID string, idToken *gooidc.IDToken) (string, error) {
+	if requested.cfg.ClaimBinding == nil {
+		return requestedID, nil
+	}
+	var claims map[string]any
+	if err := idToken.Claims(&claims); err != nil {
+		return "", fmt.Errorf("extract id_token claims: %w", err)
+	}
+
+	domain := tokenEmailDomain(claims)
+
+	s.mu.RLock()
+	var matched []string
+	for id, ts := range s.oidcTenants {
+		if ts.cfg.IssuerURL != requested.cfg.IssuerURL || ts.cfg.ClientID != requested.cfg.ClientID {
+			continue
+		}
+		if domain == "" {
+			if id != requestedID {
+				continue
+			}
+		} else if !claimsEmailDomain(ts.cfg.EmailDomains, domain) {
+			continue
+		}
+		if ts.cfg.ClaimBinding.Matches(claims) {
+			matched = append(matched, id)
+		}
+	}
+	s.mu.RUnlock()
+
+	switch len(matched) {
+	case 0:
+		return "", ErrClaimBindingMismatch
+	case 1:
+		return matched[0], nil
+	default:
+		slices.Sort(matched)
+		return "", fmt.Errorf("%w: %s", ErrMultipleTenantsMatch, strings.Join(matched, ", "))
+	}
+}
+
+// tokenEmailDomain returns the lowercased domain of the email claim, or "" when
+// the claim is absent, not a string or has no domain.
+func tokenEmailDomain(claims map[string]any) string {
+	email, _ := claims["email"].(string)
+	at := strings.LastIndex(email, "@")
+	if at < 0 {
+		return ""
+	}
+	return strings.ToLower(email[at+1:])
+}
+
+// claimsEmailDomain reports whether domains includes domain, ignoring case.
+func claimsEmailDomain(domains []string, domain string) bool {
+	return slices.ContainsFunc(domains, func(d string) bool { return strings.EqualFold(d, domain) })
 }
 
 // recordDeviceAuthError records span error details for device authorization flow errors.
@@ -1252,20 +1310,19 @@ func recordDeviceAuthError(span trace.Span, err error) {
 	if errors.Is(err, ErrAuthorizationPending) {
 		return
 	}
-	span.RecordError(err)
+	var oe *OAuthError
 	switch {
 	case errors.Is(err, ErrSlowDown):
-		span.SetStatus(codes.Error, "slow_down")
+		observability.RecordFailure(span, err, errSpanSlowDown)
 	case errors.Is(err, ErrAccessDenied):
-		span.SetStatus(codes.Error, "access_denied")
+		observability.RecordFailure(span, err, errSpanAccessDenied)
 	case errors.Is(err, ErrDeviceCodeExpired):
-		span.SetStatus(codes.Error, "expired_token")
+		observability.RecordFailure(span, err, errSpanExpiredToken)
+	case errors.As(err, &oe):
+		span.SetAttributes(observability.OAuthErrorKey.String(oe.Code))
+		observability.RecordFailure(span, err, errSpanOAuthError)
 	default:
-		var oe *OAuthError
-		if errors.As(err, &oe) {
-			span.SetAttributes(attribute.String("oauth.error", oe.Code))
-			span.SetStatus(codes.Error, oe.Code)
-		}
+		span.RecordError(err)
 	}
 }
 
@@ -1552,23 +1609,23 @@ func isRelevantRegistryEvent(event fsnotify.Event, base string) bool {
 
 // initSigningKey loads the RSA private key from one of three sources, in order:
 //
-//  1. ORBIT_TOKEN_SIGNING_KEY_FILE — path to a PEM file on disk (recommended
+//  1. KORA_TOKEN_SIGNING_KEY_FILE — path to a PEM file on disk (recommended
 //     for local dev: avoids multiline env-var problems entirely).
-//  2. ORBIT_TOKEN_SIGNING_KEY — PEM value inline. Real newlines and literal \n
+//  2. KORA_TOKEN_SIGNING_KEY — PEM value inline. Real newlines and literal \n
 //     escape sequences are both accepted.
 //  3. Auto-generate a throwaway 2048-bit key — permitted only when
-//     ORBIT_ALLOW_EPHEMERAL_KEY=true. Any other case fails fast with a clear
+//     KORA_ALLOW_EPHEMERAL_KEY=true. Any other case fails fast with a clear
 //     error; silently accepting a missing signing key would be a security flaw.
 func (s *Service) initSigningKey(ctx context.Context) error {
 	// 1. File path takes priority — cleanest for local dev.
-	if path := os.Getenv("ORBIT_TOKEN_SIGNING_KEY_FILE"); path != "" {
+	if path := os.Getenv("KORA_TOKEN_SIGNING_KEY_FILE"); path != "" {
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return fmt.Errorf("read ORBIT_TOKEN_SIGNING_KEY_FILE %q: %w", path, err)
+			return fmt.Errorf("read KORA_TOKEN_SIGNING_KEY_FILE %q: %w", path, err)
 		}
 		key, err := parseRSAPrivateKey(string(data))
 		if err != nil {
-			return fmt.Errorf("parse ORBIT_TOKEN_SIGNING_KEY_FILE %q: %w", path, err)
+			return fmt.Errorf("parse KORA_TOKEN_SIGNING_KEY_FILE %q: %w", path, err)
 		}
 		s.signingKey = key
 		s.logger.Info(ctx, "RSA signing key loaded from file", logging.Field{Key: "path", Value: path})
@@ -1576,23 +1633,23 @@ func (s *Service) initSigningKey(ctx context.Context) error {
 	}
 
 	// 2. Inline PEM value — used in CI / production secret injection.
-	if pemData := os.Getenv("ORBIT_TOKEN_SIGNING_KEY"); pemData != "" {
+	if pemData := os.Getenv("KORA_TOKEN_SIGNING_KEY"); pemData != "" {
 		key, err := parseRSAPrivateKey(pemData)
 		if err != nil {
-			return fmt.Errorf("parse ORBIT_TOKEN_SIGNING_KEY: %w", err)
+			return fmt.Errorf("parse KORA_TOKEN_SIGNING_KEY: %w", err)
 		}
 		s.signingKey = key
 		s.logger.Info(ctx, "RSA signing key loaded from environment")
 		return nil
 	}
 
-	// 3. Auto-generate a throwaway key — only when ORBIT_ALLOW_EPHEMERAL_KEY=true.
+	// 3. Auto-generate a throwaway key — only when KORA_ALLOW_EPHEMERAL_KEY=true.
 	// A missing signing key is always a misconfiguration in production; silently
 	// papering over it with an ephemeral key would be a security flaw. Tests and
-	// local dev without a key file set ORBIT_ALLOW_EPHEMERAL_KEY=true explicitly.
-	if os.Getenv("ORBIT_ALLOW_EPHEMERAL_KEY") != "true" {
+	// local dev without a key file set KORA_ALLOW_EPHEMERAL_KEY=true explicitly.
+	if os.Getenv("KORA_ALLOW_EPHEMERAL_KEY") != "true" {
 		return fmt.Errorf(
-			"no RSA signing key configured: set ORBIT_TOKEN_SIGNING_KEY_FILE or ORBIT_TOKEN_SIGNING_KEY before starting the server (or ORBIT_ALLOW_EPHEMERAL_KEY=true for local dev only)",
+			"no RSA signing key configured: set KORA_TOKEN_SIGNING_KEY_FILE or KORA_TOKEN_SIGNING_KEY before starting the server (or KORA_ALLOW_EPHEMERAL_KEY=true for local dev only)",
 		)
 	}
 

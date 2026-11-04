@@ -14,7 +14,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { fetchUsage } from '../_services/usage-api';
 import type { InferenceUsageRecord } from '../_types';
-import type { PAT } from '@orbit/shared/api';
+import type { PAT } from '@runkora/shared/api';
 
 // ── State shape ───────────────────────────────────────────────────────────────
 

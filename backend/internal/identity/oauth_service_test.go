@@ -5,9 +5,16 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 func TestPKCES256_RFC7636Vector(t *testing.T) {
@@ -84,26 +91,26 @@ func TestOAuth_RoundTrip_MintsHumanToken(t *testing.T) {
 	}
 	raw, _ := base64.RawURLEncoding.DecodeString(parts[1])
 	var claims struct {
-		Sub   string `json:"sub"`
-		Orbit struct {
+		Sub  string `json:"sub"`
+		Kora struct {
 			PrincipalType string            `json:"principal_type"`
 			TenantID      string            `json:"tenant_id"`
 			Claims        map[string]string `json:"claims"`
-		} `json:"orbit"`
+		} `json:"kora"`
 	}
 	if err := json.Unmarshal(raw, &claims); err != nil {
 		t.Fatalf("decode claims: %v", err)
 	}
-	if claims.Sub != "user-sub-1" || claims.Orbit.PrincipalType != "HUMAN" || claims.Orbit.TenantID != "acme" {
+	if claims.Sub != "user-sub-1" || claims.Kora.PrincipalType != "HUMAN" || claims.Kora.TenantID != "acme" {
 		t.Errorf("wrong claims: %+v", claims)
 	}
-	if claims.Orbit.Claims["mcp_client_id"] != clientID {
-		t.Errorf("wrong mcp_client_id: %+v", claims.Orbit.Claims)
+	if claims.Kora.Claims["mcp_client_id"] != clientID {
+		t.Errorf("wrong mcp_client_id: %+v", claims.Kora.Claims)
 	}
 	// The human's roles must survive into the MCP token (acts-as-you) — else
 	// role-derived grants are lost and tools/list comes back empty.
-	if claims.Orbit.Claims["roles"] != "platform-admin" {
-		t.Errorf("roles not preserved into MCP token: %+v", claims.Orbit.Claims)
+	if claims.Kora.Claims["roles"] != "platform-admin" {
+		t.Errorf("roles not preserved into MCP token: %+v", claims.Kora.Claims)
 	}
 }
 
@@ -161,20 +168,20 @@ func TestOAuth_RefreshToken_RotatesAndPreservesClaims(t *testing.T) {
 
 	// The human's roles + mcp_client_id must survive the refresh (acts-as-you).
 	var claims struct {
-		Orbit struct {
+		Kora struct {
 			Claims map[string]string `json:"claims"`
-		} `json:"orbit"`
+		} `json:"kora"`
 	}
 	parts := strings.Split(second.AccessToken, ".")
 	raw, _ := base64.RawURLEncoding.DecodeString(parts[1])
 	if err := json.Unmarshal(raw, &claims); err != nil {
 		t.Fatalf("decode refreshed claims: %v", err)
 	}
-	if claims.Orbit.Claims["roles"] != "platform-admin" {
-		t.Errorf("roles not preserved across refresh: %+v", claims.Orbit.Claims)
+	if claims.Kora.Claims["roles"] != "platform-admin" {
+		t.Errorf("roles not preserved across refresh: %+v", claims.Kora.Claims)
 	}
-	if claims.Orbit.Claims["mcp_client_id"] != clientID {
-		t.Errorf("mcp_client_id not preserved across refresh: %+v", claims.Orbit.Claims)
+	if claims.Kora.Claims["mcp_client_id"] != clientID {
+		t.Errorf("mcp_client_id not preserved across refresh: %+v", claims.Kora.Claims)
 	}
 
 	// An empty / unknown refresh token is invalid_grant, never a 500.
@@ -255,7 +262,7 @@ func TestOAuth_DCRDisabled(t *testing.T) {
 
 // ── Pre-registered (static) client redirect handling ──────────────────────────
 
-const testHostedRedirect = "https://app.example.com/api/auth/callback/orbit"
+const testHostedRedirect = "https://app.example.com/api/auth/callback/kora"
 
 // seedStaticClient stores a client with a non-loopback redirect URI directly in
 // the service's client repository, bypassing RegisterClient's DCR validation.
@@ -351,5 +358,40 @@ func TestIsValidDCRRedirectURI(t *testing.T) {
 		if isValidDCRRedirectURI(u) {
 			t.Errorf("expected DCR redirect rejected: %s", u)
 		}
+	}
+}
+
+// Only a human session may create an authorization code. Any other caller would
+// be minted a HUMAN token for its own subject.
+func TestHandleCreateOAuthCode_HumanOnly(t *testing.T) {
+	svc := newOAuthTestService(t)
+	c := NewController(svc, nil, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	clientID := registerTestClient(t, svc)
+	p := mkParams(clientID)
+	body := fmt.Sprintf(`{"client_id":%q,"redirect_uri":%q,"code_challenge":%q,"code_challenge_method":"S256"}`, p.ClientID, p.RedirectURI, p.CodeChallenge)
+
+	cases := []struct {
+		principal  token.PrincipalType
+		wantStatus int
+	}{
+		{token.PrincipalTypeHuman, http.StatusOK},
+		{token.PrincipalTypeAgent, http.StatusForbidden},
+		{token.PrincipalTypeService, http.StatusForbidden},
+		{token.PrincipalTypePAT, http.StatusForbidden},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.principal), func(t *testing.T) {
+			claims := &token.PlatformClaims{}
+			claims.Subject = "sub-1"
+			claims.Kora.TenantID = "acme"
+			claims.Kora.PrincipalType = tc.principal
+			req := httptest.NewRequest(http.MethodPost, "/oauth/code", strings.NewReader(body))
+			req = req.WithContext(token.WithClaims(req.Context(), claims))
+			w := httptest.NewRecorder()
+			c.handleCreateOAuthCode(w, req)
+			if w.Code != tc.wantStatus {
+				t.Errorf("status = %d, want %d (body: %s)", w.Code, tc.wantStatus, w.Body)
+			}
+		})
 	}
 }

@@ -12,7 +12,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PREFERENCE_DEFAULTS } from './preferences.schema';
 
-vi.mock('@orbit/server/config', () => ({ config: { orbitApiUrl: 'http://identity.test' } }));
+vi.mock('@runkora/server/config', () => ({ config: { koraApiUrl: 'http://identity.test' } }));
 
 import { getPreferences, readPreferences } from './preferences-server';
 

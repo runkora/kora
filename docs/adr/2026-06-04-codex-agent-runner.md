@@ -37,7 +37,7 @@ The protocol resembles JSON-RPC 2.0 but **omits the `"jsonrpc": "2.0"` field**. 
 
 ```json
 // Runner → server
-{"id": 1, "method": "initialize", "params": {"clientInfo": {"name": "orbit-session-manager", "version": "1.0"}, "capabilities": {}}}
+{"id": 1, "method": "initialize", "params": {"clientInfo": {"name": "kora-session-manager", "version": "1.0"}, "capabilities": {}}}
 
 // Server → runner
 {"id": 1, "result": {"userAgent": "codex/...", "platformOs": "linux"}}
@@ -131,7 +131,7 @@ model          = "<model>"
 [model_providers.orbit]
 name     = "Orbit"
 base_url = "<inferenceGatewayURL>/run/<runID>"
-env_key  = "ORBIT_INFERENCE_KEY"
+env_key  = "KORA_INFERENCE_KEY"
 wire_api = "responses"
 
 [projects."<workDir>"]
@@ -140,7 +140,7 @@ trust_level = "trusted"
 
 #### Bearer token: `env_key` not inline
 
-The `env_key` field names an environment variable from which Codex reads the bearer token at startup. The runner sets `ORBIT_INFERENCE_KEY=orbit-managed` in the subprocess environment — the identity-proxy sidecar intercepts outbound calls and injects the real platform token, so `orbit-managed` is a placeholder that is never sent to the upstream provider.
+The `env_key` field names an environment variable from which Codex reads the bearer token at startup. The runner sets `KORA_INFERENCE_KEY=kora-managed` in the subprocess environment — the identity-proxy sidecar intercepts outbound calls and injects the real platform token, so `kora-managed` is a placeholder that is never sent to the upstream provider.
 
 This is preferable to passing the token via a `-c` CLI flag because process argv is world-readable on Linux (`/proc/<pid>/cmdline`) and would expose the token to any process on the same node. Passing it as an environment variable scopes it to the subprocess and its children, which is the standard safe approach for secrets in child processes.
 
@@ -202,7 +202,7 @@ Codex ships **musl-only** Linux binaries (`codex-x86_64-unknown-linux-musl`, `co
 
 ## Framework Dispatch Wiring
 
-Three files require changes to thread the framework value from orbit-agents to runner selection in the session-manager. These changes are shared with the OpenCode runner (see [opencode-agent-runner](2026-06-04-opencode-agent-runner.md)) and are documented together here since they are implemented as a single unit.
+Three files require changes to thread the framework value from kora-agents to runner selection in the session-manager. These changes are shared with the OpenCode runner (see [opencode-agent-runner](2026-06-04-opencode-agent-runner.md)) and are documented together here since they are implemented as a single unit.
 
 ### `internal/platform/clients/sessionmanager/client.go`
 
@@ -212,7 +212,7 @@ Add `Framework` to `CreateSessionRequest`:
 Framework string `json:"framework,omitempty"`
 ```
 
-**Note:** There are two independent `CreateSessionRequest` types in separate packages — one in `internal/platform/clients/sessionmanager/client.go` (used by orbit-agents to build outbound HTTP requests) and one in `internal/agents/sessionmanager/server.go` (used by the session-manager to decode inbound HTTP requests). Both must have `Framework` added independently. Each should carry a comment explaining the duplication: the client package cannot import the server package (the dependency direction would be backwards) and a shared type in `internal/platform/` would pull session-manager domain concepts into the platform layer.
+**Note:** There are two independent `CreateSessionRequest` types in separate packages — one in `internal/platform/clients/sessionmanager/client.go` (used by kora-agents to build outbound HTTP requests) and one in `internal/agents/sessionmanager/server.go` (used by the session-manager to decode inbound HTTP requests). Both must have `Framework` added independently. Each should carry a comment explaining the duplication: the client package cannot import the server package (the dependency direction would be backwards) and a shared type in `internal/platform/` would pull session-manager domain concepts into the platform layer.
 
 ### `internal/agents/service.go`
 
@@ -257,7 +257,7 @@ codex:
   defaultModel: "anthropic/claude-sonnet-4-6"
 
 inferenceGateway:
-  url: "http://inference-gateway.orbit-system.svc.cluster.local"
+  url: "http://inference-gateway.kora-system.svc.cluster.local"
 ```
 
 Model resolution in `handleCreateSession`:
@@ -313,7 +313,7 @@ Touches *What can it access?* Codex approvals were never a kora enforcement poin
 **Decision.**
 
 - The per-run `config.toml` sets `approval_policy = "never"` at the top level and `default_tools_approval_mode = "approve"` on every `[mcp_servers.*]` table. Codex then sends no approval or elicitation request for shell commands, file changes or MCP tool calls. A command that asks for escalated permissions is rejected back to the model instead.
-- The `[mcp_servers.runtime]` table sets `env_vars = ["ORBIT_RUN_TOKEN"]`. Codex starts stdio MCP servers with a filtered environment, so without it `orbit-runtime-mcp` has no run token and the session-manager rejects `provision_sandbox` with 403.
+- The `[mcp_servers.runtime]` table sets `env_vars = ["KORA_RUN_TOKEN"]`. Codex starts stdio MCP servers with a filtered environment, so without it `orbit-runtime-mcp` has no run token and the session-manager rejects `provision_sandbox` with 403.
 - The `accept` handlers for the two approval requests are removed. Any server request the runner receives gets an immediate JSON-RPC error (`-32601`, method not supported) and a warning log, so an unexpected request after a Codex upgrade fails that call instead of hanging the run.
 
 **Consequences.** The "Approval requests" section above and the negative consequence about auto-approving in the read loop no longer describe the runner.

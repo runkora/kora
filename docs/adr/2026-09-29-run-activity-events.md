@@ -18,7 +18,7 @@ The Claude Code runner (`runner_claude.go`) turns the agent's stream-json stdout
 - `system/api_retry` (provider errors being retried) and `tool_progress` (a long tool still running) are logged and dropped. A provider outage looks like endless thinking.
 - Sandbox provisioning spends 20 to 120 seconds in the session-manager (pod scheduling, then an egress canary) with no event at all.
 - An interrupt (SIGINT, then a `--resume` restart) discards the partial text of the stopped turn and leaves no record that the user stopped it. The resumed session has no idle timer, so it waits for the 30 minute reaper. The resumed model sees Claude Code's tool-rejection text and reads the stop as "the user does not want to proceed".
-- Two components move a run from `idle` to `active` on the same user message: `orbit-agents` in `SendMessage`, then the session-manager when the next event arrives. The second call fails with a 409 on every follow-up message.
+- Two components move a run from `idle` to `active` on the same user message: `kora-agents` in `SendMessage`, then the session-manager when the next event arrives. The second call fails with a 409 on every follow-up message.
 - A non-fatal `run_error` (an error result from a turn, after which the subprocess keeps reading input) leaves the backend run `active` with no idle timer, while the UI marks the run failed.
 - The Codex and OpenCode runners record less than the Claude runner, and some of it wrong. Codex records each tool call's whole notification (fresh ids, thread and turn ids, timestamps) as its input, no MCP result, and fails the run on any error, including one Codex is about to retry. OpenCode records `tool_use` at the ACP `pending` update, whose `rawInput` is `{"cwd":...}` for a shell call and `{}` for read and task, and never records a result, because results arrive as `tool_call_update`, which the runner ignores. A stop restarts OpenCode, and the resumed session's `session/load` replay re-emits every earlier call as new events.
 - The SSE stream sends each payload without a time, so the UI stamps events with its own clock, and a reload shows every replayed event at the reload time.
@@ -47,7 +47,7 @@ This touches *How does it connect?* through auditability: every call the agent m
 * Durable events cost a Postgres row each. High-frequency heartbeats must stay streaming-only.
 * Existing consumers (the run chat, the kora MCP `runs.events` tool) read `tool_result.content` as a string. New fields must be additive.
 * Least code: no new tables, no schema migration, no new service calls.
-* One clock: event times come from orbit-agents, never from the browser.
+* One clock: event times come from kora-agents, never from the browser.
 
 ---
 
@@ -114,8 +114,8 @@ Sandbox phases:
 
 | Phase | Meaning |
 |---|---|
-| `provisioning` | The session-manager asked orbit-agents for a sandbox. |
-| `pod_ready` | orbit-agents returned a running pod and its exec token. |
+| `provisioning` | The session-manager asked kora-agents for a sandbox. |
+| `pod_ready` | kora-agents returned a running pod and its exec token. |
 | `egress_ready` | An egress check from inside the sandbox passed. |
 | `egress_skipped` | The sandbox was handed over without a passed egress check: the check does not apply to the agent's connectivity, or it did not pass in time. `message` says which. |
 | `failed` | Provisioning failed. `message` is fixed text; the error, which names in-cluster addresses, stays in the session-manager log. |
@@ -150,18 +150,18 @@ Each runner emits what its protocol carries. Where a protocol has no signal, the
 
 ### Run state
 
-- `orbit-agents` owns the `idle` to `active` transition for a user message: `SendMessage` makes it before forwarding the message. The session-manager still reports `idle` to `active` when a turn starts, because it cannot tell a message turn from one the agent started itself (for example a background task waking it). orbit-agents accepts that report for a run that is already `active`, so the transition is idempotent and no longer fails with a 409. A sent message also stops the session's idle timer at once, since a turn can spend minutes in provider retries before its first event.
+- `kora-agents` owns the `idle` to `active` transition for a user message: `SendMessage` makes it before forwarding the message. The session-manager still reports `idle` to `active` when a turn starts, because it cannot tell a message turn from one the agent started itself (for example a background task waking it). kora-agents accepts that report for a run that is already `active`, so the transition is idempotent and no longer fails with a 409. A sent message also stops the session's idle timer at once, since a turn can spend minutes in provider retries before its first event.
 - An error result from a turn (`run_error` codes `agent_error` and `empty_response`) ends the turn: the runner emits `message_stop` after the `run_error`, so the run goes `idle` and the user can send again. If the subprocess then exits, the run ends `failed` as before. `budget_exhausted` still closes the session and ends the run.
 - Status events (`api_retry`, `tool_progress`) do not change idle state.
 - The UI takes run state only from `run_state` events. A `run_error` renders as an error row and does not set the run to failed.
 
 ### A message sent mid-turn
 
-When a message arrives while a turn is streaming, the session-manager takes the text the turn has written so far from the runner and records it as a `text_block` before forwarding the message. orbit-agents records the `human_message` once the forward returns, so the log holds the text, then the message, then what the agent wrote after it. The turn's `message_complete` carries only the text after the message. Replay then splits the turn where the live view did, for every runtime. Streamed text deltas are not recorded, so without this a replay placed the whole answer below the message. The boundary is the moment the session-manager handles the message, which is at most one request after the user sent it. The take and the forward run in one call, one after the other; no lock can hold the agent's output still, so text streamed between the take and the agent reading the message (at its next step) is recorded after the message. The live view splits at the moment of sending, so the two can differ by the text written in that window, which is the same size as the request's latency.
+When a message arrives while a turn is streaming, the session-manager takes the text the turn has written so far from the runner and records it as a `text_block` before forwarding the message. kora-agents records the `human_message` once the forward returns, so the log holds the text, then the message, then what the agent wrote after it. The turn's `message_complete` carries only the text after the message. Replay then splits the turn where the live view did, for every runtime. Streamed text deltas are not recorded, so without this a replay placed the whole answer below the message. The boundary is the moment the session-manager handles the message, which is at most one request after the user sent it. The take and the forward run in one call, one after the other; no lock can hold the agent's output still, so text streamed between the take and the agent reading the message (at its next step) is recorded after the message. The live view splits at the moment of sending, so the two can differ by the text written in that window, which is the same size as the request's latency.
 
 ### Event times
 
-Every SSE event's `data` is an envelope: `{"at": <RFC 3339>, "payload": <event>}`. `at` is `run_events.created_at` for a durable event, live and replayed alike (orbit-agents takes the time once and uses it for both the row and the live push), and the time orbit-agents received it for a streaming-only event. The stored payload is unchanged. The browser never stamps an event with its own clock. The JSON event list already returns `created_at`.
+Every SSE event's `data` is an envelope: `{"at": <RFC 3339>, "payload": <event>}`. `at` is `run_events.created_at` for a durable event, live and replayed alike (kora-agents takes the time once and uses it for both the row and the live push), and the time kora-agents received it for a streaming-only event. The stored payload is unchanged. The browser never stamps an event with its own clock. The JSON event list already returns `created_at`.
 
 ### How the UI consumes them
 

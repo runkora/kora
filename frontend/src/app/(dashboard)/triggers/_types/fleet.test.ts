@@ -11,13 +11,18 @@ function trigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
     id: 't1',
     kind: 'webhook',
     sourceId: 'src-1',
+    sourceMissing: false,
+    declared: false,
     name: 'Trigger',
+    targetKind: 'agent',
     agentTypeId: 'at-1',
     agentSlug: 'coder',
+    routing: null,
     eventType: 'push',
     matchCondition: {},
     matchContains: {},
-    senderRestriction: { logins: [], associations: [] },
+    senderRestriction: { ids: [], roles: [] },
+    coalesce: null,
     promptTemplate: 'go',
     enabled: true,
     createdAt: '2026-07-01T00:00:00Z',
@@ -30,6 +35,7 @@ function trigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
     consecutiveFailures: 0,
     autoPausedAt: null,
     pendingCount: 0,
+    canFire: true,
     ...overrides,
   };
 }
@@ -61,6 +67,7 @@ function delivery(ageHours: number, runs: Array<Partial<DeliveryRunRow>>): Deliv
       createdAt: null,
       ...r,
     })),
+    coalesceKeys: [],
   };
 }
 

@@ -15,7 +15,7 @@
 #   scripts/cluster/test-egress-lockdown.sh --pod sandbox-<id> [opts]
 #
 # Options:
-#   --namespace <ns>      tenant namespace (default: orbit-tenant-example)
+#   --namespace <ns>      tenant namespace (default: kora-tenant-example)
 #   --run <id>            run id; sandbox pod is sandbox-<id>
 #   --pod <name>          sandbox pod name (overrides --run)
 #   --blocked-host <h>    host NOT in the agent's posture (default: github.com)
@@ -23,7 +23,7 @@
 #   --allowed-host <h>    host IN the agent's posture; if set, assert it succeeds
 set -euo pipefail
 
-NS=orbit-tenant-example
+NS=kora-tenant-example
 POD=""
 RUN=""
 BLOCKED_HOST=github.com
@@ -31,9 +31,9 @@ BLOCKED_IP=1.1.1.1
 ALLOWED_HOST=""
 # Gateway coordinates — the raw-TCP probe verifies denial by checking the
 # gateway's audit log (see check 3), so it needs to know where the gateway runs.
-GW_NS=orbit-system
-GW_DEPLOY=orbit-egress-gateway
-GW_CONTAINER=orbit-egress-gateway
+GW_NS=kora-system
+GW_DEPLOY=kora-egress-gateway
+GW_CONTAINER=kora-egress-gateway
 
 while [ $# -gt 0 ]; do
   case "$1" in

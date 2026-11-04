@@ -1,4 +1,4 @@
-import { hasScopeCovering } from '@orbit/lib/permissions';
+import { hasScopeCovering } from '@runkora/lib/permissions';
 
 // Derive the per-model inference scope from a model ID (e.g. "anthropic/claude-sonnet-4-6"
 // → "inference:anthropic:claude-sonnet-4-6:use"). Returns null for non-standard IDs.

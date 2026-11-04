@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { server } from '@orbit/test-utils/msw/server';
+import { server } from '@runkora/test-utils/msw/server';
 
 /**
  * Unit tests for fetchAllTenantUsers — walks pages of the identity
@@ -11,7 +11,7 @@ import { server } from '@orbit/test-utils/msw/server';
  * single limit=500 request returned everyone).
  */
 
-const API_URL = 'http://orbit-api.test';
+const API_URL = 'http://kora-api.test';
 
 function user(id: string) {
   return { id, email: `${id}@example.com`, display_name: id };
@@ -20,12 +20,12 @@ function user(id: string) {
 let fetchAllTenantUsers: typeof import('./tokens-server').fetchAllTenantUsers;
 
 beforeAll(async () => {
-  vi.stubEnv('ORBIT_API_URL', API_URL);
-  vi.stubEnv('ORBIT_TRIGGERS_URL', 'http://orbit-triggers.test');
+  vi.stubEnv('KORA_API_URL', API_URL);
+  vi.stubEnv('KORA_TRIGGERS_URL', 'http://kora-triggers.test');
   vi.stubEnv('INFERENCE_GATEWAY_URL', 'http://inference-gateway.test');
   vi.stubEnv('POLICY_GATEWAY_URL', 'http://policy-gateway.test');
   vi.stubEnv('POLICY_SERVICE_URL', 'http://policy-service.test');
-  vi.stubEnv('ORBIT_AGENTS_URL', 'http://orbit-agents.test');
+  vi.stubEnv('KORA_AGENTS_URL', 'http://kora-agents.test');
   vi.stubEnv('TOOL_GATEWAY_URL', 'http://tool-gateway.test');
   vi.stubEnv('SKILLS_SERVICE_URL', 'http://skills-service.test/v1');
 

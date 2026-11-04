@@ -7,13 +7,14 @@ import (
 	"slices"
 	"strings"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
-
-	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/util/validation"
+
+	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 )
 
 // ErrInvalidSlug is returned when an agent type slug cannot name the
@@ -34,8 +35,27 @@ func validateAgentSlug(slug string) error {
 		return fmt.Errorf("%w %q: slug must be lowercase letters, digits and hyphens, start with a letter, end with a letter or digit, and be at most %d characters",
 			ErrInvalidSlug, slug, maxAgentSlugLength)
 	}
+	if slices.Contains(reservedAgentSlugs, slug) {
+		return fmt.Errorf("%w %q: the identity mode names %q are reserved", ErrInvalidSlug, slug, reservedAgentSlugs)
+	}
 	return nil
 }
+
+// creatorSubject is the person behind the create (D37). Under delegation it is
+// the delegator, so owner access goes to the person and never to the acting agent.
+func creatorSubject(ctx context.Context) string {
+	if d, ok := declaredFromContext(ctx); ok {
+		return d.createdBy
+	}
+	if d := policy.DelegationFromContext(ctx); d != nil && d.Sub != "" {
+		return d.Sub
+	}
+	return callerSubject(ctx)
+}
+
+// reservedAgentSlugs are the identity mode names. Mode-qualified scopes such as
+// agents:runs:delegated:write sit where a per-agent scope's slug would.
+var reservedAgentSlugs = []string{string(IdentityModeDelegated), string(IdentityModeAutonomous)}
 
 // AgentTypeServiceConfig holds the runtime parameters used by AgentTypeService.
 type AgentTypeServiceConfig struct {
@@ -54,13 +74,18 @@ type AgentTypeService struct {
 	hook     func()            // called after agent type create/delete; nil if unset
 	envs     environmentLookup // validates attached environments; nil = skip validation
 	resolver *ScopeResolver    // resolves effective access for the read endpoint; nil = degraded
-	// delegation revokes run delegations when agent-type deletion force-deletes
-	// runs (the delegation ends with the run); nil = skip (issuer not wired).
+	callers  callerScopeSource // caller scopes for the ceiling; nil refuses autonomous writes
+	// delegation revokes the delegations of runs that agent deletion cancels
+	// (the delegation ends with the run); nil = skip (issuer not wired).
 	delegation *DelegationBroker
+	// pubsub tells live viewers of a cancelled run that it ended; nil = skip.
+	pubsub *PubSub
+	// authoring can lock a tenant to its declarative resources.
+	authoring authoringSwitch
 }
 
 // SetDelegationBroker installs the broker used to revoke delegation issuances
-// for runs force-deleted during agent-type deletion
+// of runs cancelled by agent-type deletion
 // (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3).
 func (s *AgentTypeService) SetDelegationBroker(b *DelegationBroker) { s.delegation = b }
 
@@ -70,16 +95,20 @@ func NewAgentTypeService(
 	runRepo RunRepository,
 	k8s k8sProvisioner,
 	authz *Authz,
+	pubsub *PubSub,
+	authoring authoringSwitch,
 	cfg AgentTypeServiceConfig,
 	logger logging.Logger,
 ) *AgentTypeService {
 	return &AgentTypeService{
-		repo:    repo,
-		runRepo: runRepo,
-		k8s:     k8s,
-		authz:   authz,
-		cfg:     cfg,
-		logger:  logger,
+		repo:      repo,
+		runRepo:   runRepo,
+		k8s:       k8s,
+		authz:     authz,
+		pubsub:    pubsub,
+		authoring: authoring,
+		cfg:       cfg,
+		logger:    logger,
 	}
 }
 
@@ -97,18 +126,38 @@ func (s *AgentTypeService) SetEnvironmentLookup(envs environmentLookup) { s.envs
 // posture (no environment or connector resolution).
 func (s *AgentTypeService) SetScopeResolver(r *ScopeResolver) { s.resolver = r }
 
+// SetCallerScopes installs the source of the caller's effective scopes, which
+// bound the scopes of an autonomous agent the caller creates or changes.
+func (s *AgentTypeService) SetCallerScopes(c callerScopeSource) { s.callers = c }
+
+// scopeResolver returns the configured resolver, or one that sees only the agent's own scopes.
+func (s *AgentTypeService) scopeResolver() *ScopeResolver {
+	if s.resolver == nil {
+		return &ScopeResolver{}
+	}
+	return s.resolver
+}
+
+// checkEnvironmentEdit authorizes an edit to env as a write to at, an agent it is
+// attached to: the mode-qualified write scope and the ceiling over at's grant with env applied.
+func (s *AgentTypeService) checkEnvironmentEdit(ctx context.Context, at AgentType, env Environment) error {
+	if err := s.authz.checkAgentTypeModeWrite(ctx, at.IdentityMode.OrDefault()); err != nil {
+		return err
+	}
+	return s.checkCeiling(ctx, at, s.scopeResolver().withEnvironment(env))
+}
+
 // GetEffectiveAccess returns an agent type's egress posture, attached environments and connector auto-egress combined.
 // Tenant-scoped and authz-read-checked like GetAgentType.
 func (s *AgentTypeService) GetEffectiveAccess(ctx context.Context, id string) (*EffectiveAccess, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.GetEffectiveAccess",
-		trace.WithAttributes(attribute.String("agent_type_id", id)))
+		trace.WithAttributes(observability.AgentIDKey.String(id)))
 	defer span.End()
 
 	at, err := s.repo.GetAgentType(ctx, id)
 	if err != nil {
 		if !errors.Is(err, ErrNotFound) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "get agent type")
+			observability.RecordFailure(span, err, errSpanGetAgentType)
 		}
 		return nil, err
 	}
@@ -121,11 +170,7 @@ func (s *AgentTypeService) GetEffectiveAccess(ctx context.Context, id string) (*
 		}
 		return nil, err
 	}
-	resolver := s.resolver
-	if resolver == nil {
-		resolver = &ScopeResolver{}
-	}
-	return resolver.EffectiveAccess(ctx, *at)
+	return s.scopeResolver().EffectiveAccess(ctx, *at)
 }
 
 // PreviewEffectiveAccess resolves the access view for a draft (unsaved) config —
@@ -139,11 +184,7 @@ func (s *AgentTypeService) PreviewEffectiveAccess(ctx context.Context, req Effec
 		Connectors:   req.Connectors,
 		Environments: req.Environments,
 	}
-	resolver := s.resolver
-	if resolver == nil {
-		resolver = &ScopeResolver{}
-	}
-	return resolver.EffectiveAccess(ctx, draft)
+	return s.scopeResolver().EffectiveAccess(ctx, draft)
 }
 
 // validateAgentTypeUpdate runs the partial-update field validations
@@ -296,8 +337,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 	req.TenantID = tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.CreateAgentType",
 		trace.WithAttributes(
-			attribute.String("tenant_id", req.TenantID),
-			attribute.String("slug", req.Slug),
+			observability.AgentSlugKey.String(req.Slug),
 		),
 	)
 	defer span.End()
@@ -319,6 +359,9 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 	// Mode-qualified authorization AFTER defaulting: an omitted mode defaults
 	// to autonomous, which must not slip past the higher-privilege check.
 	if err := s.authz.checkAgentTypeModeWrite(ctx, validated.identityMode); err != nil {
+		return nil, err
+	}
+	if err := refuseAPIWrite(ctx, s.authoring, req.TenantID, declarative.SourceAPI); err != nil {
 		return nil, err
 	}
 
@@ -361,17 +404,27 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		ModelID:                 req.ModelID,
 		Budget:                  req.Budget,
 		State:                   AgentTypeStateProvisioning,
+		CreatedBy:               creatorSubject(ctx),
+	}
+	at.Source, at.ResourceUID, at.ResourceGeneration, at.Repository = sourceFor(ctx)
+	if err := s.checkCeiling(ctx, at, s.scopeResolver()); err != nil {
+		return nil, err
 	}
 
 	if err := s.repo.CreateAgentType(ctx, at); err != nil {
 		if errors.Is(err, ErrSlugTaken) {
 			return nil, ErrSlugTaken
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "create agent type")
+		observability.RecordFailure(span, err, errSpanCreateAgentType)
 		return nil, fmt.Errorf("create agent type: %w", err)
 	}
-	span.SetAttributes(attribute.String("agent_type_id", at.ID))
+	span.SetAttributes(observability.AgentIDKey.String(at.ID))
+
+	// Publish the new slug's scopes now. A trigger bound seconds after create
+	// needs agents:runs:<slug>:* in the vocabulary before provisioning ends.
+	if s.hook != nil {
+		s.hook()
+	}
 
 	// Return immediately with state=provisioning; K8s resource creation runs in
 	// the background so the caller can redirect to the detail page and poll.
@@ -394,7 +447,7 @@ type activeAgentTypeLister interface {
 }
 
 // ApplyAll applies the rendered resources of every active agent type, which
-// rolls an agent whose template changed. orbit-agents runs it at startup, so an
+// rolls an agent whose template changed. kora-agents runs it at startup, so an
 // upgrade reaches existing agents (docs/adr/2026-10-12-run-scheduling.md).
 func (s *AgentTypeService) ApplyAll(ctx context.Context, lister activeAgentTypeLister) {
 	ats, err := lister.ListActiveAgentTypes(ctx)
@@ -404,7 +457,7 @@ func (s *AgentTypeService) ApplyAll(ctx context.Context, lister activeAgentTypeL
 	}
 	for _, at := range ats {
 		if err := s.k8s.ProvisionAgentType(ctx, at, s.cfg.TenantNamespaceFn(at.TenantID)); err != nil {
-			// Another orbit-agents replica applying the same resources at startup causes update conflicts.
+			// Another kora-agents replica applying the same resources at startup causes update conflicts.
 			s.logger.Warn(ctx, "apply agent type resources failed",
 				logging.Field{Key: "agent_type_id", Value: at.ID},
 				logging.Field{Key: "slug", Value: at.Slug},
@@ -418,11 +471,10 @@ func (s *AgentTypeService) ApplyAll(ctx context.Context, lister activeAgentTypeL
 // On success it transitions the agent type from provisioning → active.
 // On failure it deletes the record so the slug is freed for a retry.
 func (s *AgentTypeService) provisionAgentTypeAsync(detachedCtx context.Context, at AgentType) {
-	ctx, span := agentsTracer.Start(detachedCtx, "agents.provisionAgentTypeAsync",
+	ctx, span := agentsTracer.Start(observability.WithTenant(detachedCtx, at.TenantID), "agents.provisionAgentTypeAsync",
 		trace.WithAttributes(
-			attribute.String("agent_type_id", at.ID),
-			attribute.String("tenant_id", at.TenantID),
-			attribute.String("slug", at.Slug),
+			observability.AgentIDKey.String(at.ID),
+			observability.AgentSlugKey.String(at.Slug),
 		),
 	)
 	defer span.End()
@@ -456,13 +508,11 @@ func (s *AgentTypeService) provisionAgentTypeAsync(detachedCtx context.Context, 
 				logging.Field{Key: "error", Value: delErr.Error()},
 			)
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "provision k8s resources")
+		observability.RecordFailure(span, err, errSpanProvisionK8sResources)
 		return
 	}
 	if err := s.k8s.WaitForStatefulSetReady(ctx, at.Slug, namespace); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "wait for statefulset ready")
+		observability.RecordFailure(span, err, errSpanWaitForStatefulsetReady)
 		s.logger.Warn(ctx, "StatefulSet did not become ready within timeout; agent type left in provisioning state",
 			logging.Field{Key: "agent_type_id", Value: at.ID},
 			logging.Field{Key: "slug", Value: at.Slug},
@@ -471,8 +521,7 @@ func (s *AgentTypeService) provisionAgentTypeAsync(detachedCtx context.Context, 
 		return
 	}
 	if err := s.repo.SetAgentTypeState(ctx, at.ID, AgentTypeStateProvisioning, AgentTypeStateActive); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "set agent type active")
+		observability.RecordFailure(span, err, errSpanSetAgentTypeActive)
 		return
 	}
 	s.logger.Info(ctx, "Agent type provisioned and active",
@@ -489,14 +538,13 @@ func (s *AgentTypeService) provisionAgentTypeAsync(detachedCtx context.Context, 
 // mismatch or scope deny (existence is itself information).
 func (s *AgentTypeService) GetAgentType(ctx context.Context, id string) (*AgentType, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.GetAgentType",
-		trace.WithAttributes(attribute.String("agent_type_id", id)),
+		trace.WithAttributes(observability.AgentIDKey.String(id)),
 	)
 	defer span.End()
 	at, err := s.repo.GetAgentType(ctx, id)
 	if err != nil {
 		if !errors.Is(err, ErrNotFound) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "get agent type")
+			observability.RecordFailure(span, err, errSpanGetAgentType)
 		}
 		return nil, err
 	}
@@ -509,6 +557,9 @@ func (s *AgentTypeService) GetAgentType(ctx context.Context, id string) (*AgentT
 		}
 		return nil, err
 	}
+	withAccess := []AgentType{*at}
+	s.setCallerAccess(ctx, withAccess)
+	at = &withAccess[0]
 
 	// Enrich with the budget carried by the agent's grant — the grant is the
 	// source of truth for budget configuration. Best-effort: a policy-service
@@ -530,17 +581,111 @@ func (s *AgentTypeService) GetAgentType(ctx context.Context, id string) (*AgentT
 // agent types their scopes cover.
 func (s *AgentTypeService) ListAgentTypes(ctx context.Context) ([]AgentType, error) {
 	tenantID := tenantFromContext(ctx)
-	ctx, span := agentsTracer.Start(ctx, "agents.ListAgentTypes",
-		trace.WithAttributes(attribute.String("tenant_id", tenantID)),
-	)
+	ctx, span := agentsTracer.Start(ctx, "agents.ListAgentTypes")
 	defer span.End()
 	types, err := s.repo.ListAgentTypes(ctx, tenantID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "list agent types")
+		observability.RecordFailure(span, err, errSpanListAgentTypes)
 		return nil, err
 	}
-	return s.authz.filterAgentTypes(ctx, types)
+	types, err = s.authz.filterAgentTypes(ctx, types)
+	if err != nil {
+		return nil, err
+	}
+	s.setCallerAccess(ctx, types)
+	return types, nil
+}
+
+// ListAgentTypesByIDs returns the listed agent types the principal in ctx may read, in listing order.
+// An ID the principal cannot read or the tenant lacks is left out. With withAccess each returned type
+// carries its effective connectors, resolved for the returned types only.
+func (s *AgentTypeService) ListAgentTypesByIDs(ctx context.Context, ids []string, withAccess bool) ([]AgentType, error) {
+	tenantID := tenantFromContext(ctx)
+	ctx, span := agentsTracer.Start(ctx, "agents.ListAgentTypesByIDs",
+		trace.WithAttributes(observability.AgentIDCountKey.Int(len(ids))),
+	)
+	defer span.End()
+	all, err := s.repo.ListAgentTypes(ctx, tenantID)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanListAgentTypes)
+		return nil, err
+	}
+	var types []AgentType
+	for _, at := range all {
+		if slices.Contains(ids, at.ID) {
+			types = append(types, at)
+		}
+	}
+	if types, err = s.authz.filterAgentTypes(ctx, types); err != nil {
+		return nil, err
+	}
+	s.setCallerAccess(ctx, types)
+	if !withAccess {
+		return types, nil
+	}
+	connectors, err := s.scopeResolver().EffectiveConnectors(ctx, types)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanResolveEffectiveConnectors)
+		return nil, err
+	}
+	for i := range types {
+		types[i].EffectiveConnectors = connectors[types[i].ID]
+	}
+	return types, nil
+}
+
+// setCallerAccess fills CanRun and CanEdit on each agent type for the caller in
+// ctx. Run uses checkRun, the run-start check. Edit uses the mode-qualified check
+// update and delete use, once per mode, plus the scope ceiling for autonomous
+// agents. Delete is the mode check without the ceiling. The flags only drive the UI, which disables what they deny, so an
+// evaluator error leaves them false and the read succeeds.
+func (s *AgentTypeService) setCallerAccess(ctx context.Context, ats []AgentType) {
+	canEdit := map[IdentityMode]bool{}
+	var callers callerScopeSource
+	if s.callers != nil {
+		callers = &onceCallerScopes{src: s.callers}
+	}
+	for i := range ats {
+		mode := ats[i].IdentityMode.OrDefault()
+		edit, seen := canEdit[mode]
+		if !seen {
+			err := s.authz.checkAgentTypeModeWrite(ctx, mode)
+			if err != nil && !errors.Is(err, ErrIdentityModeWriteForbidden) {
+				s.logger.Warn(ctx, "agent type edit access check failed", logging.Field{Key: "error", Value: err.Error()})
+			}
+			edit = err == nil
+			canEdit[mode] = edit
+		}
+		runErr := s.authz.checkRun(ctx, ats[i], "write")
+		if runErr != nil && !errors.Is(runErr, ErrForbidden) {
+			s.logger.Warn(ctx, "agent type run access check failed",
+				logging.Field{Key: "agent_type_id", Value: ats[i].ID},
+				logging.Field{Key: "error", Value: runErr.Error()})
+		}
+		run := runErr == nil
+		// A declared agent, or any agent in a locked tenant, refuses API writes.
+		writable := edit && refuseAPIWrite(ctx, s.authoring, ats[i].TenantID, ats[i].Source) == nil
+		editThis := writable && s.withinCeiling(ctx, ats[i], callers)
+		// Delete runs the same refusal of delegated callers on autonomous agents (D36).
+		deleteThis := writable && refuseDelegatedAutonomousWrite(ctx, ats[i]) == nil
+		ats[i].CanEdit, ats[i].CanRun, ats[i].CanDelete = &editThis, &run, &deleteThis
+	}
+}
+
+// withinCeiling reports whether the caller holds everything an autonomous agent
+// holds, the ceiling every update checks. A delegated agent's grant only caps
+// its runners, so it passes. An evaluator error reads as no.
+func (s *AgentTypeService) withinCeiling(ctx context.Context, at AgentType, callers callerScopeSource) bool {
+	if at.IsDelegated() {
+		return true
+	}
+	err := s.checkCeilingWith(ctx, at, s.scopeResolver(), callers)
+	if err != nil && !errors.Is(err, ErrScopeCeiling) {
+		s.logger.Warn(ctx, "agent type ceiling check failed",
+			logging.Field{Key: "agent_type_id", Value: at.ID},
+			logging.Field{Key: "error", Value: err.Error()})
+	}
+	return err == nil
 }
 
 // UpdateAgentType applies partial updates to an existing agent type. Enforces
@@ -548,12 +693,15 @@ func (s *AgentTypeService) ListAgentTypes(ctx context.Context) ([]AgentType, err
 // mismatch returns ErrNotFound to avoid existence leak.
 func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentTypeRequest) (*AgentType, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.UpdateAgentType",
-		trace.WithAttributes(attribute.String("agent_type_id", req.ID)),
+		trace.WithAttributes(observability.AgentIDKey.String(req.ID)),
 	)
 	defer span.End()
 
 	at, err := s.loadAgentTypeForWrite(ctx, req.ID, span)
 	if err != nil {
+		return nil, err
+	}
+	if err = refuseAPIWrite(ctx, s.authoring, at.TenantID, at.Source); err != nil {
 		return nil, err
 	}
 	if vErr := s.validateAgentTypeUpdate(ctx, at, req); vErr != nil {
@@ -566,6 +714,9 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 	oldModelID := at.ModelID
 
 	applyAgentTypeUpdates(at, req)
+	if d, ok := declaredFromContext(ctx); ok {
+		at.ResourceGeneration, at.Repository = d.generation, d.repository
+	}
 
 	// Keep the inference grant aligned with the model: when the model changes and
 	// the caller didn't supply explicit inference scopes in this update, re-derive
@@ -575,19 +726,42 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 	if req.ModelID != nil && !callerSetInference {
 		at.GrantScopes = reconcileInferenceScopes(at.GrantScopes, at.ModelID)
 	}
-
-	if err := s.repo.UpdateAgentType(ctx, *at); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "update agent type")
-		return nil, fmt.Errorf("update agent type: %w", err)
+	// Any edit, a prompt included, steers an autonomous agent's standing authority.
+	// The caller must hold the whole grant.
+	if err := s.checkCeiling(ctx, *at, s.scopeResolver()); err != nil {
+		return nil, err
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 
-	s.reconcileGrantIfNeeded(ctx, at, req, namespace)
+	// A declared agent is applied again only while its stored generation differs,
+	// so a grant that failed after the row was saved would never be retried. Write
+	// the grant first and fail the update when the policy service refuses it, for
+	// example for another agent's scopes that are not in the vocabulary yet.
+	_, declared := declaredFromContext(ctx)
+	if declared && grantAffected(req) {
+		if err := s.k8s.EnsureAgentGrant(ctx, *at, namespace); err != nil {
+			observability.RecordFailure(span, err, errSpanReconcileAgentGrant)
+			return nil, fmt.Errorf("reconcile agent grant: %w", err)
+		}
+	}
+
+	if err := s.repo.UpdateAgentType(ctx, *at); err != nil {
+		observability.RecordFailure(span, err, errSpanUpdateAgentType)
+		return nil, fmt.Errorf("update agent type: %w", err)
+	}
+
+	if !declared {
+		s.reconcileGrantIfNeeded(ctx, at, req, namespace)
+	}
 	s.rolloutIfPodBakedFieldsChanged(ctx, at, req, namespace, oldFramework, oldModelID)
 
 	return at, nil
+}
+
+// grantAffected reports whether req changes a field compiled into the grant.
+func grantAffected(req UpdateAgentTypeRequest) bool {
+	return req.GrantScopes != nil || req.ModelID != nil || req.Budget != nil || req.Connectivity != nil || req.Connectors != nil || req.MCPTools != nil || req.Environments != nil
 }
 
 // reconcileGrantIfNeeded re-reconciles the policy-service grant when grant
@@ -596,7 +770,7 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 // compiled into the grant via EffectiveGrantScopes). Runs in background so
 // the update response is not delayed by a policy-service round-trip.
 func (s *AgentTypeService) reconcileGrantIfNeeded(ctx context.Context, at *AgentType, req UpdateAgentTypeRequest, namespace string) {
-	if req.GrantScopes == nil && req.ModelID == nil && req.Budget == nil && req.Connectivity == nil && req.Connectors == nil && req.MCPTools == nil && req.Environments == nil {
+	if !grantAffected(req) {
 		return
 	}
 	detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
@@ -644,8 +818,7 @@ func (s *AgentTypeService) loadAgentTypeForWrite(ctx context.Context, id string,
 		if errors.Is(err, ErrNotFound) {
 			return nil, ErrNotFound
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type")
+		observability.RecordFailure(span, err, errSpanGetAgentType)
 		return nil, fmt.Errorf("get agent type: %w", err)
 	}
 	if at.TenantID != tenantFromContext(ctx) {
@@ -707,23 +880,28 @@ func applyAgentTypeUpdates(at *AgentType, req UpdateAgentTypeRequest) {
 // agents:types:{storedMode}:write (delegated-agent-identity ADR, Decision 1).
 func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.DeleteAgentType",
-		trace.WithAttributes(attribute.String("agent_type_id", id)),
+		trace.WithAttributes(observability.AgentIDKey.String(id)),
 	)
 	defer span.End()
 
 	at, err := s.repo.GetAgentType(ctx, id)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type")
+		observability.RecordFailure(span, err, errSpanGetAgentType)
 		return fmt.Errorf("get agent type: %w", err)
 	}
 	if at.TenantID != tenantFromContext(ctx) {
 		return ErrNotFound
 	}
-	if err := s.authz.checkAgentTypeModeWrite(ctx, at.IdentityMode.OrDefault()); err != nil {
+	if err = s.authz.checkAgentTypeModeWrite(ctx, at.IdentityMode.OrDefault()); err != nil {
 		return err
 	}
-	span.SetAttributes(attribute.String("slug", at.Slug))
+	if err = refuseAPIWrite(ctx, s.authoring, at.TenantID, at.Source); err != nil {
+		return err
+	}
+	if err = refuseDelegatedAutonomousWrite(ctx, *at); err != nil {
+		return err
+	}
+	span.SetAttributes(observability.AgentSlugKey.String(at.Slug))
 
 	// Allow retrying a stuck deletion; skip state transition if already deleting.
 	// Also accept provisioning state — partially-created agent types must be deletable.
@@ -732,42 +910,31 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 		if at.State == AgentTypeStateProvisioning {
 			fromState = AgentTypeStateProvisioning
 		}
-		if err := s.repo.SetAgentTypeState(ctx, id, fromState, AgentTypeStateDeleting); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "set agent type deleting")
+		if err = s.repo.SetAgentTypeState(ctx, id, fromState, AgentTypeStateDeleting); err != nil {
+			observability.RecordFailure(span, err, errSpanSetAgentTypeDeleting)
 			return fmt.Errorf("set agent type deleting: %w", err)
 		}
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
-	if err := s.k8s.DeprovisionAgentType(ctx, *at, namespace); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "deprovision k8s resources")
+	if err = s.k8s.DeprovisionAgentType(ctx, *at, namespace); err != nil {
+		observability.RecordFailure(span, err, errSpanDeprovisionK8sResources)
 		return fmt.Errorf("deprovision agent type k8s resources: %w", err)
 	}
 
-	// Runs must be removed before the agent type row to satisfy the FK constraint.
-	deletedRuns, delRunsErr := s.runRepo.DeleteRunsByAgentType(ctx, id)
-	if delRunsErr != nil {
-		span.RecordError(delRunsErr)
-		span.SetStatus(codes.Error, "delete runs for agent type")
-		return fmt.Errorf("delete runs for agent type: %w", delRunsErr)
+	// Runs and their history stay. Unfinished runs end here.
+	cancelled, err := s.runRepo.CancelRunsByAgentType(ctx, id)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanCancelRunsForAgentType)
+		return fmt.Errorf("cancel runs for agent type: %w", err)
+	}
+	for _, run := range cancelled {
+		s.cleanupCancelledRun(ctx, run, namespace)
 	}
 
-	// DeprovisionAgentType only removes StatefulSet-scoped resources; per-run sandbox
-	// pods (sandbox-{runID}) outlive it. Delete them best-effort so they are not
-	// orphaned — the run rows are gone, so the reaper can no longer reclaim them.
-	// Force-deletion is a terminal state, so any delegation issuances are
-	// tombstoned too (best-effort — the agent's grant is being removed anyway,
-	// which the fail-closed marker turns into a full deny).
-	for _, deleted := range deletedRuns {
-		s.cleanupForceDeletedRun(ctx, deleted, namespace)
-	}
-
-	if err := s.repo.DeleteAgentType(ctx, id); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "delete agent type")
-		return err
+	if err = s.repo.SoftDeleteAgentType(ctx, id); err != nil {
+		observability.RecordFailure(span, err, errSpanSoftDeleteAgentType)
+		return fmt.Errorf("soft delete agent type: %w", err)
 	}
 	if s.hook != nil {
 		s.hook()
@@ -775,16 +942,21 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 	return nil
 }
 
-// cleanupForceDeletedRun tombstones a force-deleted run's delegation issuance
-// (the delegation ends with the run) and deletes its sandbox pod. Both are
-// best-effort — agent-type deletion must not wedge on either.
-func (s *AgentTypeService) cleanupForceDeletedRun(ctx context.Context, deleted DeletedRun, namespace string) {
-	if deleted.DelegationJTI != nil && *deleted.DelegationJTI != "" && s.delegation != nil {
-		s.delegation.RevokeBestEffort(ctx, *deleted.DelegationJTI, deleted.ID)
+// cleanupCancelledRun records and publishes the run's terminal state, revokes its delegation and deletes its
+// sandbox pod. All of it is best-effort. Agent deletion must not wedge on it.
+func (s *AgentTypeService) cleanupCancelledRun(ctx context.Context, run CancelledRun, namespace string) {
+	if err := recordRunState(ctx, s.runRepo, s.pubsub, run.ID, run.State); err != nil {
+		s.logger.Warn(ctx, "failed to record state of cancelled run",
+			logging.Field{Key: "run_id", Value: run.ID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
 	}
-	if delErr := s.k8s.DeleteSandbox(ctx, deleted.ID, namespace); delErr != nil {
-		s.logger.Warn(ctx, "failed to delete sandbox for deleted run",
-			logging.Field{Key: "run_id", Value: deleted.ID},
+	if run.DelegationJTI != nil && *run.DelegationJTI != "" && s.delegation != nil {
+		s.delegation.RevokeBestEffort(ctx, *run.DelegationJTI, run.ID)
+	}
+	if delErr := s.k8s.DeleteSandbox(ctx, run.ID, namespace); delErr != nil {
+		s.logger.Warn(ctx, "failed to delete sandbox for cancelled run",
+			logging.Field{Key: "run_id", Value: run.ID},
 			logging.Field{Key: "error", Value: delErr.Error()},
 		)
 	}

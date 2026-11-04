@@ -4,7 +4,7 @@
 # connection for the example tenant.
 #
 # Usage:
-#   bash register-k8s-connection.sh [namespace]   # default: orbit-tenant-example
+#   bash register-k8s-connection.sh [namespace]   # default: kora-tenant-example
 #
 # Creates a ServiceAccount whose RBAC is deliberately narrow, mints a bound
 # token for it, and applies a Connection CR pointing at the in-cluster API
@@ -22,15 +22,15 @@
 # =============================================================================
 set -euo pipefail
 
-NAMESPACE="${1:-orbit-tenant-example}"
-SA_NAME="orbit-egress-local"
-SECRET_NAME="orbit-local-token"
+NAMESPACE="${1:-kora-tenant-example}"
+SA_NAME="kora-egress-local"
+SECRET_NAME="kora-local-token"
 # The role and binding are cluster-scoped, so their names carry the namespace.
 # Without it, registering a second tenant would rebind the role to that tenant's
 # ServiceAccount and silently revoke the first.
-ROLE_NAME="orbit-egress-local-reader-${NAMESPACE}"
+ROLE_NAME="kora-egress-local-reader-${NAMESPACE}"
 TOKEN_TTL="24h"
-API_HOST="k3d-orbit-local-server-0:6443"
+API_HOST="k3d-kora-local-server-0:6443"
 
 echo "Registering the local Kubernetes connection in ${NAMESPACE}"
 
@@ -91,10 +91,10 @@ fi
 echo "Applying the Connection resource"
 {
   cat <<EOF
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: Connection
 metadata:
-  name: orbit-local
+  name: kora-local
   namespace: ${NAMESPACE}
 spec:
   adapter: kubernetes
@@ -106,5 +106,5 @@ EOF
   echo "${CA_CERT}" | sed 's/^/    /'
 } | kubectl apply -f -
 
-echo "✓ Kubernetes connection registered as 'orbit-local' in ${NAMESPACE}"
-echo "  Grant an agent connection:orbit-local:workloads:read to use it."
+echo "✓ Kubernetes connection registered as 'kora-local' in ${NAMESPACE}"
+echo "  Grant an agent connection:kora-local:workloads:read to use it."

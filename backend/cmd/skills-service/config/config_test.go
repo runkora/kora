@@ -6,15 +6,15 @@ import (
 	"testing"
 	"time"
 
-	sc "github.com/clear-route/orbit/cmd/skills-service/config"
-	"github.com/clear-route/orbit/internal/platform/config"
+	sc "github.com/runkora/kora/backend/cmd/skills-service/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
 // setRequiredEnv sets every env var ApplyEnvOverrides requires so tests can
 // isolate the one behaviour they care about.
 func setRequiredEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("ORBIT_MARKETPLACE_SOURCES_CONFIG", "/tmp")
+	t.Setenv("KORA_MARKETPLACE_SOURCES_CONFIG", "/tmp")
 	t.Setenv("GITHUB_APP_ID", "12345")
 	t.Setenv("GITHUB_APP_INSTALLATION_ID", "67890")
 	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "/tmp/key.pem")
@@ -31,8 +31,8 @@ func TestConfigLoadsFromBaseYAML(t *testing.T) {
 	if c.Server.BasePath != "/v1" {
 		t.Errorf("expected basePath /v1, got %s", c.Server.BasePath)
 	}
-	if c.Observability.ServiceName != "orbit-skills-service" {
-		t.Errorf("expected serviceName orbit-skills-service, got %s", c.Observability.ServiceName)
+	if c.Observability.ServiceName != "kora-skills-service" {
+		t.Errorf("expected serviceName kora-skills-service, got %s", c.Observability.ServiceName)
 	}
 	if c.CacheTTL() != 12*time.Hour {
 		t.Errorf("expected cacheTTL 12h, got %s", c.CacheTTL())
@@ -40,13 +40,13 @@ func TestConfigLoadsFromBaseYAML(t *testing.T) {
 	if c.GitHub.APIBaseURL != "https://api.github.com" {
 		t.Errorf("expected github.apiBaseURL default, got %q", c.GitHub.APIBaseURL)
 	}
-	if c.Policy.BundleEndpoint != "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles" {
+	if c.Policy.BundleEndpoint != "http://kora-policy-service.kora-system.svc/api/v1/policy/bundles" {
 		t.Errorf("expected policy.bundleEndpoint default, got %q", c.Policy.BundleEndpoint)
 	}
 	if c.Policy.BundlePollInterval() != 30*time.Second {
 		t.Errorf("expected bundle poll interval 30s, got %s", c.Policy.BundlePollInterval())
 	}
-	if c.Policy.PolicyServiceURL != "http://orbit-policy-service.orbit-system.svc" {
+	if c.Policy.PolicyServiceURL != "http://kora-policy-service.kora-system.svc" {
 		t.Errorf("expected policy.policyServiceURL default, got %q", c.Policy.PolicyServiceURL)
 	}
 }
@@ -138,7 +138,7 @@ func TestApplyEnvOverridesRequiredVars(t *testing.T) {
 		unset   string
 		wantErr string
 	}{
-		{"missing sources config path", "ORBIT_MARKETPLACE_SOURCES_CONFIG", "ORBIT_MARKETPLACE_SOURCES_CONFIG"},
+		{"missing sources config path", "KORA_MARKETPLACE_SOURCES_CONFIG", "KORA_MARKETPLACE_SOURCES_CONFIG"},
 		{"missing github app id", "GITHUB_APP_ID", "GITHUB_APP_ID"},
 		{"missing github installation id", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_INSTALLATION_ID"},
 		{"missing github private key path", "GITHUB_APP_PRIVATE_KEY_PATH", "GITHUB_APP_PRIVATE_KEY_PATH"},

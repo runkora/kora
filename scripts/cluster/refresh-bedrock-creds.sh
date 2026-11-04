@@ -11,7 +11,7 @@
 #
 # What it does:
 #   1. Logs in to AWS SSO if the session has expired.
-#   2. Writes the session into Secret orbit-bedrock-credentials.
+#   2. Writes the session into Secret kora-bedrock-credentials.
 #   3. Applies one InferenceProvider per alias, named after it.
 # The inference gateway watches both and reloads without a restart. Re-run it
 # whenever Bedrock returns auth errors.
@@ -27,8 +27,8 @@ step() { echo -e "\n${YELLOW}▶ $*${RESET}"; }
 ok()   { echo -e "${GREEN}✓ $*${RESET}"; }
 fail() { echo -e "${RED}✗ $*${RESET}"; exit 1; }
 
-NAMESPACE="${ORBIT_SYSTEM_NAMESPACE:-orbit-system}"
-SECRET=orbit-bedrock-credentials
+NAMESPACE="${KORA_SYSTEM_NAMESPACE:-kora-system}"
+SECRET=kora-bedrock-credentials
 
 [[ -n "${AWS_PROFILE:-}" ]] || fail "AWS_PROFILE is not set; add AWS_PROFILE=<your-profile> to .env"
 [[ -n "${BEDROCK_ACCOUNTS:-}" ]] || fail "BEDROCK_ACCOUNTS is not set; add BEDROCK_ACCOUNTS=<alias,...> to .env"
@@ -48,7 +48,7 @@ step "Writing Secret ${SECRET} in ${NAMESPACE}"
 SECRET_ARGS=(--from-literal=accessKeyID="${ACCESS_KEY}" --from-literal=secretAccessKey="${SECRET_KEY}")
 [[ -n "${SESSION_TOKEN}" ]] && SECRET_ARGS+=(--from-literal=sessionToken="${SESSION_TOKEN}")
 kubectl create secret generic "${SECRET}" -n "${NAMESPACE}" "${SECRET_ARGS[@]}" --dry-run=client -o yaml \
-  | kubectl label --local -f - orbit.io/inference-provider=true -o yaml \
+  | kubectl label --local -f - runkora.io/inference-provider=true -o yaml \
   | kubectl apply -f -
 
 step "Applying Bedrock InferenceProviders"
@@ -60,7 +60,7 @@ for RAW in "${ALIASES[@]}"; do
   REGION="${!REGION_VAR:-}"
   [[ -n "${REGION}" ]] || fail "${REGION_VAR} is not set in .env"
   kubectl apply -f - <<YAML
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: ${ALIAS}

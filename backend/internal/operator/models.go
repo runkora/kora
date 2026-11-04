@@ -1,39 +1,53 @@
+// +kubebuilder:object:generate=false
+// +groupName=runkora.io
+// +versionName=v1alpha1
+
 // Package operator reconciles tenant resources and enforces tenant workload prerequisites.
 package operator
 
 import (
-	"slices"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 )
 
 // GroupVersion is the API group and version for kora CRDs.
-var GroupVersion = schema.GroupVersion{Group: "orbit.io", Version: "v1alpha1"}
+var GroupVersion = schema.GroupVersion{Group: "runkora.io", Version: "v1alpha1"}
 
 // -----------------------------------------------------------------------------
-// OrbitTenant: cluster-scoped, one per tenant
+// KoraTenant: cluster-scoped, one per tenant
 // -----------------------------------------------------------------------------
 
-// OrbitTenant declares a tenant's existence, OIDC configuration, and namespace.
+// KoraTenant declares a tenant's existence, OIDC configuration, and namespace.
+// The CR name (metadata.name) is the tenant ID, so no separate tenantId field
+// exists. The operator creates the tenant namespace, auto-derived as
+// "kora-tenant-{name}" when spec.namespace is omitted, and registers the tenant
+// in the kora-tenants ConfigMap consumed by the identity service. All tenant
+// configuration lives in this single CR.
 //
 // +kubebuilder:object:root=true
-// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:resource:scope=Cluster,shortName=kt
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Namespace",type=string,JSONPath=`.status.namespace`
+// +kubebuilder:printcolumn:name="OIDC",type=string,JSONPath=`.spec.oidc.issuerURL`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
-type OrbitTenant struct {
+// +kubebuilder:validation:XValidation:rule="has(oldSelf.spec.__namespace__) ? (has(self.spec.__namespace__) && self.spec.__namespace__ == oldSelf.spec.__namespace__) : (!has(self.spec.__namespace__) || self.spec.__namespace__ == 'kora-tenant-' + self.metadata.name)",message="spec.namespace is immutable. Recreate the KoraTenant to use another namespace."
+// +kubebuilder:object:generate=true
+type KoraTenant struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   OrbitTenantSpec   `json:"spec,omitempty"`
-	Status OrbitTenantStatus `json:"status,omitempty"`
+	// +required
+	Spec   KoraTenantSpec   `json:"spec,omitempty"`
+	Status KoraTenantStatus `json:"status,omitempty"`
 }
 
-// OrbitTenantSpec defines the desired state of a tenant.
-type OrbitTenantSpec struct {
+// KoraTenantSpec defines the desired state of a tenant.
+//
+// +kubebuilder:object:generate=true
+type KoraTenantSpec struct {
 	// DisplayName is the human-readable tenant name surfaced in the identity
 	// service tenant registry.
 	// +kubebuilder:validation:MinLength=1
@@ -42,19 +56,33 @@ type OrbitTenantSpec struct {
 	// Active controls whether the tenant is active. When false, the operator
 	// sets state:suspended in the registry without deleting cluster resources.
 	// +kubebuilder:default=true
+	// +optional
 	Active bool `json:"active"`
 
 	// Namespace selects the tenant workload namespace, defaulting to
-	// orbit-tenant-<name>. The operator labels it but never deletes it.
+	// kora-tenant-<name>. The operator labels it but never deletes it.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
 
 	// OIDC configures the identity provider for this tenant.
 	OIDC TenantOIDCSpec `json:"oidc"`
 
+	// APIAuthoring is Enabled or Disabled. Disabled makes the tenant's
+	// agents, environments, triggers, trigger sources and roles read-only
+	// through the API. See docs/adr/2026-10-24-declarative-resources.md.
+	// +kubebuilder:validation:Enum=Enabled;Disabled
+	// +kubebuilder:default=Enabled
+	APIAuthoring string `json:"apiAuthoring,omitempty"`
+
+	// Budget is the tenant's spending limit. It replaces a budget set through the API.
+	// +optional
+	Budget *declarative.Budget `json:"budget,omitempty"`
+
 	// AllowedMarketplaceRepos lists the GitHub repositories, as owner/repo, that
 	// this tenant's SkillMarketplaceSources may register. Matching ignores case.
-	// Only platform admins edit it: OrbitTenant is cluster-scoped, outside any
+	// Only platform admins edit it: KoraTenant is cluster-scoped, outside any
 	// tenant admin's namespace. A source whose repository is not listed stays
 	// Pending (NotAllowlisted).
 	// See docs/adr/2026-10-13-skill-marketplace-source-registration.md.
@@ -65,23 +93,24 @@ type OrbitTenantSpec struct {
 }
 
 // SecretRef is a reference to a Kubernetes Secret.
+//
+// +kubebuilder:object:generate=true
 type SecretRef struct {
 	// Name is the Secret name.
-	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 	// Namespace defaults to the system namespace if omitted.
-	// +optional
+	// +required
 	Namespace string `json:"namespace,omitempty"`
 }
 
 // TenantOIDCSpec defines OIDC configuration for a tenant.
+//
+// +kubebuilder:object:generate=true
 type TenantOIDCSpec struct {
 	// IssuerURL is the OIDC issuer URL.
-	// +kubebuilder:validation:Pattern=`^https?://`
 	IssuerURL string `json:"issuerURL"`
 
 	// ClientID is the OIDC client ID registered with the identity provider.
-	// +kubebuilder:validation:MinLength=1
 	ClientID string `json:"clientID"`
 
 	// ClientSecretRef references the OIDC client-secret Secret. Omit it for public clients.
@@ -97,12 +126,35 @@ type TenantOIDCSpec struct {
 	// See docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md
 	// +optional
 	EmailDomains []string `json:"emailDomains,omitempty"`
+
+	// ClaimBinding restricts membership to people whose ID token claim matches.
+	// Tenants that share an email domain must share issuerURL and clientID and
+	// each set a claimBinding.
+	// See docs/adr/2026-10-26-tenant-claim-binding-and-shared-email-domains.md
+	// +optional
+	ClaimBinding *ClaimBinding `json:"claimBinding,omitempty"`
 }
 
-// OrbitTenantStatus records observed tenant state.
-type OrbitTenantStatus struct {
+// ClaimBinding names an ID token claim and the values that bind a person to the
+// tenant. A scalar claim must equal one of Values. An array claim such as
+// groups must contain one of them.
+//
+// +kubebuilder:object:generate=true
+type ClaimBinding struct {
+	// Claim is the ID token claim name, for example groups.
+	// +kubebuilder:validation:MinLength=1
+	Claim string `json:"claim"`
+
+	// Values are the claim values that bind a person to the tenant.
+	// +kubebuilder:validation:MinItems=1
+	Values []string `json:"values"`
+}
+
+// KoraTenantStatus records observed tenant state.
+//
+// +kubebuilder:object:generate=true
+type KoraTenantStatus struct {
 	// Phase summarizes tenant lifecycle state.
-	// +kubebuilder:validation:Enum=Pending;Provisioning;Ready;Degraded;Suspended
 	Phase string `json:"phase,omitempty"`
 
 	// Namespace is the provisioned tenant namespace name.
@@ -122,6 +174,7 @@ const (
 	ConditionNamespaceReady         = "NamespaceReady"
 	ConditionRegistryUpdated        = "RegistryUpdated"
 	ConditionPrerequisitesSatisfied = "PrerequisitesSatisfied"
+	ConditionEmailDomainsValid      = "EmailDomainsValid"
 )
 
 // Tenant phase values.
@@ -131,90 +184,14 @@ const (
 	TenantPhaseReady        = "Ready"
 	TenantPhaseDegraded     = "Degraded"
 	TenantPhaseSuspended    = "Suspended"
+	TenantPhaseInvalid      = "Invalid"
 )
 
-// OrbitTenantList is a list of OrbitTenant resources.
+// KoraTenantList is a list of KoraTenant resources.
 // +kubebuilder:object:root=true
-type OrbitTenantList struct {
+// +kubebuilder:object:generate=true
+type KoraTenantList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []OrbitTenant `json:"items"`
-}
-
-// DeepCopyObject implements runtime.Object.
-func (t *OrbitTenant) DeepCopyObject() runtime.Object {
-	if t == nil {
-		return nil
-	}
-	out := new(OrbitTenant)
-	t.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies all fields into out.
-func (t *OrbitTenant) DeepCopyInto(out *OrbitTenant) {
-	*out = *t
-	out.TypeMeta = t.TypeMeta
-	t.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
-	t.Spec.DeepCopyInto(&out.Spec)
-	t.Status.DeepCopyInto(&out.Status)
-}
-
-// DeepCopy returns a deep copy.
-func (t *OrbitTenant) DeepCopy() *OrbitTenant {
-	if t == nil {
-		return nil
-	}
-	out := new(OrbitTenant)
-	t.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyObject implements runtime.Object for OrbitTenantList.
-func (l *OrbitTenantList) DeepCopyObject() runtime.Object {
-	if l == nil {
-		return nil
-	}
-	out := new(OrbitTenantList)
-	l.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies all fields into out.
-func (l *OrbitTenantList) DeepCopyInto(out *OrbitTenantList) {
-	*out = *l
-	out.TypeMeta = l.TypeMeta
-	l.ListMeta.DeepCopyInto(&out.ListMeta)
-	if l.Items != nil {
-		out.Items = make([]OrbitTenant, len(l.Items))
-		for i := range l.Items {
-			l.Items[i].DeepCopyInto(&out.Items[i])
-		}
-	}
-}
-
-// DeepCopyInto for OrbitTenantSpec.
-func (s *OrbitTenantSpec) DeepCopyInto(out *OrbitTenantSpec) {
-	*out = *s
-	out.OIDC = s.OIDC
-	if s.OIDC.ClientSecretRef != nil {
-		ref := *s.OIDC.ClientSecretRef
-		out.OIDC.ClientSecretRef = &ref
-	}
-	out.OIDC.Scopes = slices.Clone(s.OIDC.Scopes)
-	out.OIDC.EmailDomains = slices.Clone(s.OIDC.EmailDomains)
-	out.AllowedMarketplaceRepos = slices.Clone(s.AllowedMarketplaceRepos)
-}
-
-// DeepCopyInto for OrbitTenantStatus.
-func (s *OrbitTenantStatus) DeepCopyInto(out *OrbitTenantStatus) {
-	*out = *s
-	if s.LastReconciledAt != nil {
-		t := *s.LastReconciledAt
-		out.LastReconciledAt = &t
-	}
-	if s.Conditions != nil {
-		out.Conditions = make([]metav1.Condition, len(s.Conditions))
-		copy(out.Conditions, s.Conditions)
-	}
+	Items           []KoraTenant `json:"items"`
 }

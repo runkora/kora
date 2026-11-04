@@ -5,13 +5,13 @@
 # can run in the same container — framework selection stays a runtime concern.
 
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308 AS builder
 
 WORKDIR /app
 
-ENV GOPRIVATE=github.com/clear-route/*
-ENV GONOSUMDB=github.com/clear-route/*
-ENV GONOPROXY=github.com/clear-route/*
+ENV GOPRIVATE=github.com/runkora/*
+ENV GONOSUMDB=github.com/runkora/*
+ENV GONOPROXY=github.com/runkora/*
 
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -24,16 +24,17 @@ COPY . .
 ARG TARGETOS TARGETARCH
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /orbit ./cmd/session-manager/main.go && \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /orbit-shell ./cmd/orbit-shell/main.go && \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /orbit-runtime-mcp ./cmd/orbit-runtime-mcp/main.go && \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /orbit-session-runner ./cmd/orbit-session-runner/
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /kora ./cmd/session-manager/main.go && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /kora-shell ./cmd/kora-shell/main.go && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /kora-runtime-mcp ./cmd/kora-runtime-mcp/main.go && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /kora-session-runner ./cmd/kora-session-runner/
 
 # Stage only the YAML config files the session-manager binary loads at
 # runtime, keeping Go source (config.go) out of the runtime image.
 RUN mkdir -p /configs && \
     find /app/cmd/session-manager/config \
          /app/internal/platform/observability/config \
+         /app/internal/platform/brand/config \
          /app/internal/platform/storage/config \
          /app/internal/platform/token/config \
          -maxdepth 2 -name '*.yaml' 2>/dev/null | while read -r f; do \
@@ -44,36 +45,46 @@ RUN mkdir -p /configs && \
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 # Node.js 24 alpine, the active LTS: required for the claude and opencode CLI subprocesses.
-FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
+FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85
 
 WORKDIR /app
 
-# bash: the REAL /bin/bash — used for shell-snapshot generation and as orbit-shell's
-#       local fallback. It is deliberately left untouched (never replaced by the proxy).
-# git:  required by Claude Code for git operations inside workspaces.
+# bash, git: kora-session-runner does not let an agent execute either. Commands
+#       run in the sandbox.
 # curl: used to download the Codex musl binary below.
+# ripgrep: OpenCode's grep, glob and list tools; it downloads rg from GitHub when none is on PATH,
+#          and the agent pod cannot reach GitHub.
 # Toolchains (Go and the rest) live only in the sandbox image, where commands run.
-RUN apk add --no-cache ca-certificates bash git curl
+RUN apk add --no-cache ca-certificates bash git curl ripgrep
 
 # How Claude Code's Bash tool is routed into the sandbox:
 #   - Claude Code IGNORES $SHELL; it resolves its shell from CLAUDE_CODE_SHELL.
 #   - It only honors a CLAUDE_CODE_SHELL whose basename is a known shell
-#     (bash/zsh/fish); anything else (e.g. "orbit-shell") silently falls back to
-#     /bin/bash. Verified empirically — see orbit-shell's package doc.
-#   - So orbit-shell (the sandbox-routing Bash proxy) is exposed under a "bash"
+#     (bash/zsh/fish); anything else (e.g. "kora-shell") silently falls back to
+#     /bin/bash. Verified empirically — see kora-shell's package doc.
+#   - So kora-shell (the sandbox-routing Bash proxy) is exposed under a "bash"
 #     basename via the symlink created below, and CLAUDE_CODE_SHELL points at it.
-# orbit-shell routes `-c` commands to the sandbox pod's gRPC exec server when
-# $WORKSPACE/.sandbox-exec/endpoint exists, and otherwise execs the real /bin/bash
-# (snapshot generation and any pre-provision commands run locally).
-ENV SHELL=/opt/orbit/shell/bash
-ENV CLAUDE_CODE_SHELL=/opt/orbit/shell/bash
+# kora-shell routes `-c` commands to the sandbox pod's gRPC exec server and refuses
+# them when the run has no sandbox.
+ENV SHELL=/opt/kora/shell/bash
+ENV CLAUDE_CODE_SHELL=/opt/kora/shell/bash
+# Managed settings outrank the project settings an agent can write in its workspace.
+# They pin the shell to kora-shell, drop hooks from those files and refuse every
+# plugin marketplace.
+COPY cmd/session-manager/agent-clis/claude-managed-settings.json /etc/claude-code/managed-settings.json
 
-# Install claude CLI.
-RUN npm install -g @anthropic-ai/claude-code@2
-
-# Install OpenCode (Node.js app; ACP stdio mode requires no additional system packages).
-# Validate opencode.acp protocol compatibility on upgrade.
-RUN npm install -g opencode-ai@1
+# Install the claude and opencode CLIs from the lockfile in cmd/session-manager/agent-clis,
+# so every build gets the same versions. Validate the opencode ACP protocol on upgrade.
+# kora-session-runner lets a run execute only its harness binary, kora-shell,
+# kora-runtime-mcp, their ELF interpreter and, for OpenCode, ripgrep.
+COPY cmd/session-manager/agent-clis/package.json cmd/session-manager/agent-clis/package-lock.json /usr/local/lib/agent-clis/
+RUN cd /usr/local/lib/agent-clis && \
+    npm ci --omit=dev && \
+    rm -rf /root/.npm && \
+    ln -s /usr/local/lib/agent-clis/node_modules/.bin/claude /usr/local/bin/claude && \
+    ln -s /usr/local/lib/agent-clis/node_modules/.bin/opencode /usr/local/bin/opencode && \
+    claude --version && \
+    opencode --version
 
 # Install Codex (musl-only statically linked binary; runs on Alpine without glibc).
 # Validate app-server JSONL notification schema on upgrade.
@@ -90,30 +101,30 @@ RUN ARCH=$(uname -m) && \
     chmod +x /usr/local/bin/codex
 
 # Non-root user: claude --dangerously-skip-permissions refuses to run as root.
-RUN addgroup -S orbit && adduser -S orbit -G orbit
+RUN addgroup -S kora && adduser -S kora -G kora
 
 COPY --from=builder /configs/ ./
-COPY --from=builder /orbit ./orbit
-COPY --from=builder /orbit-shell /usr/local/bin/orbit-shell
-# Expose orbit-shell under a "bash" basename so Claude Code's CLAUDE_CODE_SHELL accepts it
+COPY --from=builder /kora ./kora
+COPY --from=builder /kora-shell /usr/local/bin/kora-shell
+# Expose kora-shell under a "bash" basename so Claude Code's CLAUDE_CODE_SHELL accepts it
 # (it rejects non-shell basenames and falls back to /bin/bash). Dedicated dir, NOT on PATH,
 # so the real /bin/bash is unaffected for every other consumer in the image.
-RUN mkdir -p /opt/orbit/shell && ln -sf /usr/local/bin/orbit-shell /opt/orbit/shell/bash
+RUN mkdir -p /opt/kora/shell && ln -sf /usr/local/bin/kora-shell /opt/kora/shell/bash
 # Codex resolves its shell from the running user's passwd entry, not $SHELL, and
-# classifies it by basename. Pointing orbit's login shell at the proxy is what
+# classifies it by basename. Pointing kora's login shell at the proxy is what
 # routes its tool commands into the sandbox. Codex reads passwd before PATH, so
 # /bin/bash is unaffected for everything else, and a model naming /bin/bash is
 # re-resolved back through here. The grep fails the build if the sed missed.
-RUN sed -i 's#^orbit:\(.*\):/sbin/nologin$#orbit:\1:/opt/orbit/shell/bash#' /etc/passwd && \
-    getent passwd orbit | grep -q ':/opt/orbit/shell/bash$'
-COPY --from=builder /orbit-runtime-mcp /usr/local/bin/orbit-runtime-mcp
-COPY --from=builder /orbit-session-runner /usr/local/bin/orbit-session-runner
+RUN sed -i 's#^kora:\(.*\):/sbin/nologin$#kora:\1:/opt/kora/shell/bash#' /etc/passwd && \
+    getent passwd kora | grep -q ':/opt/kora/shell/bash$'
+COPY --from=builder /kora-runtime-mcp /usr/local/bin/kora-runtime-mcp
+COPY --from=builder /kora-session-runner /usr/local/bin/kora-session-runner
 
 # Workspaces directory (matches config/base.yaml workspaces.basePath)
-RUN mkdir -p /workspaces && chown orbit:orbit /workspaces /app
+RUN mkdir -p /workspaces && chown kora:kora /workspaces /app
 
-USER orbit
+USER kora
 
 EXPOSE 8090
 
-CMD ["./orbit"]
+CMD ["./kora"]

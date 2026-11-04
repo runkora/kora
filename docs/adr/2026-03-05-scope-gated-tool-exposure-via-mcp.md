@@ -65,7 +65,7 @@ kora needs to define:
 
 ### Option 1: Filter at Connection Time (Scope-Gated Advertisement)
 
-**Description:** When an agent connects over SSE and the MCP protocol's tool listing exchange occurs, the MCP server reads the `X-Orbit-Delegation-Token` and computes the intersection of the server's full tool manifest and the agent's granted scopes. Only permitted tools are included in the tool listing response. Out-of-scope tools are not mentioned.
+**Description:** When an agent connects over SSE and the MCP protocol's tool listing exchange occurs, the MCP server reads the `X-Kora-Delegation-Token` and computes the intersection of the server's full tool manifest and the agent's granted scopes. Only permitted tools are included in the tool listing response. Out-of-scope tools are not mentioned.
 
 **Pros:**
 - LLM never sees tools it cannot invoke — planning is always within permitted scope
@@ -152,7 +152,7 @@ Per-agent instances (Option 3) are operationally infeasible at scale and incompa
 
 ### Connection-Time Token Validation and Tool Filtering
 
-When an agent establishes an SSE connection to an MCP server, the Envoy sidecar validates the `X-Orbit-Delegation-Token` via `ext_authz` before the connection reaches the MCP server process. If the token is invalid or expired, the sidecar returns 401 and the connection is rejected at the network layer.
+When an agent establishes an SSE connection to an MCP server, the Envoy sidecar validates the `X-Kora-Delegation-Token` via `ext_authz` before the connection reaches the MCP server process. If the token is invalid or expired, the sidecar returns 401 and the connection is rejected at the network layer.
 
 If the token is valid, the MCP server process receives the connection with the delegation token available as a request header. The MCP server reads the token, extracts the granted scopes, and computes the permitted tool surface:
 
@@ -177,7 +177,7 @@ The agent's LLM receives only the three permitted tools. `send_email` does not e
 
 When an agent calls a tool that results in an outbound API call, the MCP server extends the delegation chain before calling the Outbound Gateway.
 
-Agent's inbound `X-Orbit-Delegation-Token`:
+Agent's inbound `X-Kora-Delegation-Token`:
 
 ```json
 {
@@ -219,7 +219,7 @@ MCP servers call the Outbound Gateway as plain HTTP clients:
 ```
 GET /proxy/msgraph/v1.0/me/mailFolders/inbox/messages
 Authorization: Bearer {platform-session-token}        ← injected by Envoy sidecar
-X-Orbit-Delegation-Token: {extended-delegation-token} ← attached by MCP server
+X-Kora-Delegation-Token: {extended-delegation-token} ← attached by MCP server
 ```
 
 The gateway:
@@ -275,7 +275,7 @@ The agent (or its framework) opens an SSE connection to the MSGraph MCP server e
 
 ```
 GET /sse
-X-Orbit-Delegation-Token: {delegation-token}
+X-Kora-Delegation-Token: {delegation-token}
 ```
 
 Envoy sidecar validates the token via `ext_authz`. Token is valid — connection passes to MCP server.
@@ -306,7 +306,7 @@ The MCP server appends its own identity to the `act` chain and calls the Outboun
 ```
 GET /proxy/msgraph/v1.0/me/mailFolders/inbox/messages?$filter=isRead eq false
 Authorization: Bearer {platform-session-token}
-X-Orbit-Delegation-Token: {chain: sarah → email-agent → mcp-msgraph}
+X-Kora-Delegation-Token: {chain: sarah → email-agent → mcp-msgraph}
 ```
 
 **Step 6 — Gateway computes scope intersection and performs OBO**
@@ -339,7 +339,7 @@ sequenceDiagram
     participant Entra as Microsoft Entra
     participant Graph as Microsoft Graph
 
-    A->>ES: GET /sse<br/>X-Orbit-Delegation-Token: {sarah→agent}
+    A->>ES: GET /sse<br/>X-Kora-Delegation-Token: {sarah→agent}
     ES->>ES: ext_authz: validate delegation token
     alt Token invalid or expired
         ES-->>A: 401 Unauthorised
@@ -356,7 +356,7 @@ sequenceDiagram
         ES->>MCP: invoke tool: list_emails<br/>{folder: inbox, unread: true}
         MCP->>MCP: Extend delegation chain:<br/>sarah → email-agent → mcp-msgraph
 
-        MCP->>GW: GET /proxy/msgraph/v1.0/me/mailFolders/inbox/messages<br/>Authorization: Bearer {platform-session-token}<br/>X-Orbit-Delegation-Token: {sarah→agent→mcp-msgraph}
+        MCP->>GW: GET /proxy/msgraph/v1.0/me/mailFolders/inbox/messages<br/>Authorization: Bearer {platform-session-token}<br/>X-Kora-Delegation-Token: {sarah→agent→mcp-msgraph}
 
         GW->>GW: Validate delegation chain<br/>Compute scope intersection:<br/>min(mail:read, Sarah Entra scopes, ceiling) → Mail.Read
 

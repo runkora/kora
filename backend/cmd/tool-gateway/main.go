@@ -1,7 +1,7 @@
 // The tool-gateway binary governs MCP tool access. One image runs in two modes,
 // deployed as two separate Deployments that scale independently:
 //
-//   - publisher: mounts the operator-rendered orbit-mcp-servers registry,
+//   - publisher: mounts the operator-rendered kora-mcp-servers registry,
 //     introspects each server's tool surface (initialize + tools/list), publishes
 //     the discovered tools as mcp:<server>:<tool>:use scopes, and writes the tool
 //     catalog.
@@ -27,18 +27,19 @@ import (
 	"syscall"
 	"time"
 
-	tgc "github.com/clear-route/orbit/cmd/tool-gateway/config"
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/config"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/observability"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/storage"
-	platformtoken "github.com/clear-route/orbit/internal/platform/token"
-	"github.com/clear-route/orbit/internal/toolgateway"
+	tgc "github.com/runkora/kora/backend/cmd/tool-gateway/config"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/storage"
+	platformtoken "github.com/runkora/kora/backend/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/toolgateway"
 )
 
 func main() {
@@ -59,6 +60,21 @@ func realMain() error {
 	defer shutdownObservability()
 
 	logger := initLogger()
+
+	metrics, err := platformmetrics.Setup(ctx, tgc.Current.Metrics, observability.Config{
+		ServiceName:    tgc.Current.Observability.ServiceName,
+		ServiceVersion: tgc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, tgc.Current.Observability.ServiceName, logger)
+	if err != nil {
+		return fmt.Errorf("setup metrics: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), tgc.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
+
 	// Trusted-host allowlist for the host-derived RFC 9728 protected-resource
 	// metadata and 401 challenge (ADR 2026-07-04).
 	platformapi.ConfigureTrustedHosts(tgc.Current.PublicHosts)
@@ -68,7 +84,7 @@ func realMain() error {
 		logging.Field{Key: "mode", Value: map[bool]string{true: "proxy", false: "publisher"}[proxyMode]})
 
 	// ── MCP server registry ──────────────────────────────────────────────────
-	// Sourced from the operator-aggregated orbit-mcp-servers ConfigMap the
+	// Sourced from the operator-aggregated kora-mcp-servers ConfigMap the
 	// gateway mounts, parsed + hot-reloaded from disk. Both modes read it.
 	registry, err := toolgateway.LoadRegistry(ctx, tgc.Current.Registry.ServersPath, logger)
 	if err != nil {
@@ -84,26 +100,36 @@ func realMain() error {
 	catalogRepo := toolgateway.NewPostgresCatalog(db.Pool())
 
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
+	// Both modes build upstream requests from the same credential lookup.
+	creds := toolgateway.NewUpstreamCredentials(tgc.Current.Registry.SecretsDir)
 	controllers := []platformapi.Controller{toolgateway.NewCatalogController(catalogRepo, registry, verifier, logger)}
 
 	if proxyMode {
 		// ── Request-path PEP + proxy ─────────────────────────────────────────
 		eval := policy.NewEvaluator(tgc.Current.Policy.BundleEndpoint, tgc.Current.BundlePollInterval(), logger)
 		eval.Start(ctx)
-		proxy := toolgateway.NewProxy(tgc.Current.App.Version, logger)
+		// The shared revoked-JTI blocklist rejects a revoked delegation before
+		// its token expires (docs/adr/2026-07-23-delegated-agent-identity.md).
+		redis, err := initRedis(ctx, logger)
+		if err != nil {
+			return fmt.Errorf("init redis: %w", err)
+		}
+		defer func() { _ = redis.Close() }()
+		blocklist := storage.NewJTIBlocklist(redis)
+		proxy := toolgateway.NewProxy(creds, tgc.Current.App.Version, logger)
 		// MCP OAuth (RFC 9728): the MCP route challenges unauthenticated clients
 		// toward the protected-resource metadata, which the metadata controller
 		// serves and which points at the identity authorization server. All URLs
 		// are derived from the request host — only the base path is configured.
 		basePath := tgc.Current.Server.BasePath
 		controllers = append(controllers,
-			toolgateway.NewMCPController(verifier, eval, catalogRepo, registry, proxy, basePath, logger),
+			toolgateway.NewMCPController(verifier, eval, catalogRepo, registry, proxy, blocklist, basePath, logger),
 			toolgateway.NewOAuthMetadataController(basePath, logger),
 		)
 		go registry.Watch(ctx) // keep the mounted registry fresh for server resolution
 	} else {
 		// ── Publisher: introspection + scope publishing + catalog write ──────
-		introspector := toolgateway.NewIntrospector(nil, tgc.Current.App.Version, logger)
+		introspector := toolgateway.NewIntrospector(creds, tgc.Current.App.Version, logger)
 		selfToken := identityclient.NewClient(tgc.Current.Identity.InternalURL, logger).SelfTokenSource()
 		scopeClient := routescopes.NewClient(tgc.Current.Policy.PolicyServiceInternalURL, selfToken, logger)
 		publisher := toolgateway.NewPublisher(registry, introspector, scopeClient, logger)
@@ -120,11 +146,11 @@ func realMain() error {
 			cycleMu.Lock()
 			defer cycleMu.Unlock()
 			introspector.Sync(ctx, registry.Servers(), force)
-			if err := publisher.Publish(ctx); err != nil {
-				logger.Error(ctx, "MCP scope publish failed", logging.Field{Key: "error", Value: err.Error()})
+			if pubErr := publisher.Publish(ctx); pubErr != nil {
+				logger.Error(ctx, "MCP scope publish failed", logging.Field{Key: "error", Value: pubErr.Error()})
 			}
-			if err := catalogRepo.Replace(ctx, toolgateway.CatalogToolsFromSnapshots(introspector.Snapshot())); err != nil {
-				logger.Error(ctx, "MCP catalog rebuild failed", logging.Field{Key: "error", Value: err.Error()})
+			if replaceErr := catalogRepo.Replace(ctx, toolgateway.CatalogToolsFromSnapshots(introspector.Snapshot())); replaceErr != nil {
+				logger.Error(ctx, "MCP catalog rebuild failed", logging.Field{Key: "error", Value: replaceErr.Error()})
 			}
 		}
 		registry.OnReload(func(ctx context.Context) { cycle(ctx, true) })
@@ -134,12 +160,15 @@ func realMain() error {
 
 	// ── HTTP server (health + catalog [+ MCP proxy in proxy mode]) ───────────
 	apiServer := platformapi.NewAPI(ctx, logger)
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
 	srv := apiServer.Server(
 		ctx,
 		tgc.Current.Server.HTTPPort,
 		tgc.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(tgc.Current.Observability.ServiceName),
+			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
 			// Rewrites /run/{run_id}/v1/mcp/… → /v1/mcp/… with the run identity
 			// in context — the same mechanism the inference gateway mounts, so
@@ -155,6 +184,7 @@ func realMain() error {
 			logger.Error(ctx, "tool-gateway HTTP server error", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
+	metrics.Start(ctx, logger)
 
 	<-ctx.Done()
 	logger.Info(ctx, "Shutting down tool gateway...")
@@ -164,6 +194,7 @@ func realMain() error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "tool-gateway HTTP server forced shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "Tool gateway shutdown complete")
 	return nil
@@ -185,6 +216,19 @@ func runIntrospectionLoop(ctx context.Context, cycle func(context.Context, bool)
 			cycle(ctx, false)
 		}
 	}
+}
+
+func initRedis(ctx context.Context, logger logging.Logger) (*storage.RedisClient, error) {
+	cfg, err := storage.LoadRedisConfig()
+	if err != nil {
+		return nil, err
+	}
+	rc, err := storage.NewRedis(ctx, cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info(ctx, "Redis initialized successfully")
+	return rc, nil
 }
 
 func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, error) {

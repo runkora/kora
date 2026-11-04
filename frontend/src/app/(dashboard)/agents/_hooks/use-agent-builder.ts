@@ -9,9 +9,9 @@
 // AgentBuilderProvider and never fetch.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiRoute } from '@orbit/lib/routing/api-routes';
-import { hasScopeCovering } from '@orbit/lib/permissions';
-import { deriveSlug, slugInput } from '@orbit/lib/slug';
+import { ApiRoute } from '@runkora/lib/routing/api-routes';
+import { hasScopeCovering } from '@runkora/lib/permissions';
+import { deriveSlug, slugInput } from '@runkora/lib/slug';
 import { usePermissions } from '../../_components/permissions-provider';
 import type {
   AgentEnvironment,
@@ -26,7 +26,7 @@ import type {
   McpCatalogTool,
   McpServer,
   ModelObject,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 import {
   createAgentType,
   createDraft,

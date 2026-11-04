@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // A delegated run belongs to its starter (docs/adr/2026-07-23-delegated-agent-identity.md,
@@ -48,6 +48,14 @@ func callerSubject(ctx context.Context) string {
 		return ""
 	}
 	return claims.Subject
+}
+
+// readsOwnRuns reports whether the caller sees the runs they started without a
+// read scope (D3). Only an interactive HUMAN session does. PATs, agents and
+// trigger services are bounded by their own grants.
+func readsOwnRuns(ctx context.Context) bool {
+	claims, ok := token.ClaimsFromContext(ctx)
+	return ok && claims != nil && claims.Kora.PrincipalType == token.PrincipalTypeHuman
 }
 
 // isRunStarter reports whether the caller's verified subject is the run's

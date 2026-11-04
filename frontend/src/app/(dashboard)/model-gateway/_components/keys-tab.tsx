@@ -17,15 +17,15 @@ import {
   PageSectionHeader,
   ConfirmDialog,
   EmptyState,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import Link from 'next/link';
 import { revokeToken } from '../_actions/tokens';
-import { CreateTokenModal } from './create-token-modal';
-import { TokenCreatedModal } from './token-created-modal';
+import { CreateApiKeyWizard } from './create-api-key-wizard';
 import { EditScopesModal } from './edit-scopes-modal';
-import { ScopeChip } from '@orbit/components';
-import type { CreatePATResponse, PAT } from '@orbit/shared/api';
-import { fmtDate, fmtExpiry, fmtNumCompact, isExpired } from '@orbit/utils';
+import { ScopeChip } from '@runkora/components';
+import type { ScopeOption } from '@runkora/components';
+import type { PAT } from '@runkora/shared/api';
+import { fmtDate, fmtExpiry, fmtNumCompact, isExpired } from '@runkora/utils';
 import type { TokenUsageStat } from '../_services/usage-server';
 
 // ── View model ────────────────────────────────────────────────────────────────
@@ -192,6 +192,8 @@ interface KeysTabProps {
   initialTokens: PAT[];
   initialError: string | null;
   effectiveScopes: string[];
+  /** `effectiveScopes` with vocabulary descriptions and grouping, for the scope pickers. */
+  scopeOptions?: ScopeOption[];
   usageStats: TokenUsageStat[];
 }
 
@@ -199,6 +201,7 @@ export function KeysTab({
   initialTokens,
   initialError,
   effectiveScopes,
+  scopeOptions,
   usageStats,
 }: KeysTabProps) {
   const statsById = useMemo(
@@ -208,20 +211,13 @@ export function KeysTab({
   const router = useRouter();
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [createdPAT, setCreatedPAT] = useState<CreatePATResponse | null>(null);
   const [revokeCandidate, setRevokeCandidate] = useState<PATViewModel | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [revokeError, setRevokeError] = useState<string | null>(null);
   const [editScopesCandidate, setEditScopesCandidate] = useState<PATViewModel | null>(null);
 
-  const handleCreated = useCallback(
-    (pat: CreatePATResponse) => {
-      setCreateOpen(false);
-      setCreatedPAT(pat);
-      router.refresh();
-    },
-    [router],
-  );
+  // The wizard stays open on its success step; this only refreshes the list behind it.
+  const handleCreated = useCallback(() => router.refresh(), [router]);
 
   const handleRevokeConfirm = useCallback(
     async (id: string) => {
@@ -297,13 +293,14 @@ export function KeysTab({
       </Stack>
 
       {/* Modals */}
-      <CreateTokenModal
-        open={createOpen}
-        availableScopes={effectiveScopes}
-        onClose={() => setCreateOpen(false)}
-        onCreated={handleCreated}
-      />
-      <TokenCreatedModal pat={createdPAT} onClose={() => setCreatedPAT(null)} />
+      {createOpen && (
+        <CreateApiKeyWizard
+          availableScopes={effectiveScopes}
+          scopeOptions={scopeOptions}
+          onClose={() => setCreateOpen(false)}
+          onCreated={handleCreated}
+        />
+      )}
       <ConfirmDialog
         open={!!revokeCandidate}
         title="Revoke API key"
@@ -326,6 +323,7 @@ export function KeysTab({
       <EditScopesModal
         pat={editScopesCandidate}
         availableScopes={effectiveScopes}
+        scopeOptions={scopeOptions}
         onClose={() => setEditScopesCandidate(null)}
         onUpdated={handleScopesUpdated}
       />

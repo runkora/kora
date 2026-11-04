@@ -11,8 +11,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Button } from '@orbit/hades';
-import { renderWithProviders } from '@orbit/test-utils';
+import { Button } from '@runkora/hades';
+import { renderWithProviders } from '@runkora/test-utils';
 import { SidebarStateProvider, useSidebarState } from './sidebar-state';
 import { MobileSidebarDrawer } from './mobile-sidebar-drawer';
 
@@ -21,10 +21,11 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
-vi.mock('./permissions-provider', () => ({
+vi.mock('./permissions-provider', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./permissions-provider')>()),
   useSession: vi.fn().mockReturnValue({
     scopes: [],
-    user: { sub: 'user-test-123', email: 'dev@orbit.local', name: 'Dev User' },
+    user: { sub: 'user-test-123', email: 'dev@runkora.test', name: 'Dev User' },
     loaded: true,
   }),
 }));
@@ -69,7 +70,7 @@ describe('MobileSidebarDrawer', () => {
     expect(screen.getByRole('img', { name: 'kora' })).toBeInTheDocument();
     // Reused SidebarUserFooter
     expect(screen.getByText('Dev User')).toBeInTheDocument();
-    expect(screen.getByText('dev@orbit.local')).toBeInTheDocument();
+    expect(screen.getByText('dev@runkora.test')).toBeInTheDocument();
     // Accessible dialog title
     expect(screen.getByText('Navigation')).toBeInTheDocument();
   });

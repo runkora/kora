@@ -1,4 +1,4 @@
-import { StatusDot } from '@orbit/hades';
+import { StatusDot } from '@runkora/hades';
 import type { ModelStatus } from '../_types';
 
 interface AvailabilityDotProps {

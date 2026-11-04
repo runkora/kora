@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"github.com/runkora/kora/backend/internal/platform/brand"
 	"io"
 	"os"
 	"path/filepath"
@@ -16,7 +17,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/yaml"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // podSecurityProvisioner builds a provisioner with the config a hardened
@@ -25,25 +26,26 @@ func podSecurityProvisioner() *K8sProvisioner {
 	return &K8sProvisioner{
 		logger: logging.NewLoggerWithOutput(io.Discard),
 		cfg: K8sProvisionerConfig{
-			SessionManagerImage: "ghcr.io/clear-route/orbit-session-manager:1.0.0",
-			SandboxImage:        "ghcr.io/clear-route/kora-sandbox-base:1.0.0",
+			SessionManagerImage: "ghcr.io/runkora/kora-session-manager:1.0.0",
+			SandboxImage:        "ghcr.io/runkora/kora-sandbox-base:1.0.0",
 			SandboxGRPCPort:     50051,
 			ImagePullSecrets:    []string{"ghcr-pull", "mirror-pull"},
-			TrustDomain:         "orbit.example.com",
-			SystemNamespace:     "orbit-prod",
+			TrustDomain:         "example.com",
+			SystemNamespace:     "kora-prod",
 			OTLPEndpoint:        "http://otel-collector.observability.svc:4317",
 			SamplingRate:        "1.0",
+			ProductName:         "Acme",
 		},
 	}
 }
 
 func renderedSandboxPod() *corev1.Pod {
-	return buildTestSandboxPod(podSecurityProvisioner(), Run{ID: "run-1", PodOrdinal: 0}, "coder", "orbit-tenant-acme", testSandboxSpec(), "test-exec-token")
+	return buildTestSandboxPod(podSecurityProvisioner(), Run{ID: "run-1", PodOrdinal: 0}, "coder", "kora-tenant-acme", testSandboxSpec(), "test-exec-token")
 }
 
 func renderedStatefulSet() appsv1.StatefulSet {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
-	return podSecurityProvisioner().buildSessionManagerStatefulSet(at, "orbit-tenant-acme", podLabels(at))
+	return podSecurityProvisioner().buildSessionManagerStatefulSet(at, "kora-tenant-acme", podLabels(at))
 }
 
 // assertRestrictedPodSpec checks the parts of the restricted Pod Security
@@ -142,8 +144,8 @@ func TestRuntimePods_BoundedScratchStorage(t *testing.T) {
 		spec  corev1.PodSpec
 		paths []string
 	}{
-		"sandbox":     {renderedSandboxPod().Spec, []string{"/var/tmp", "/home/orbit"}},
-		"statefulset": {renderedStatefulSet().Spec.Template.Spec, []string{"/tmp", "/home/orbit"}},
+		"sandbox":     {renderedSandboxPod().Spec, []string{"/var/tmp", "/home/kora"}},
+		"statefulset": {renderedStatefulSet().Spec.Template.Spec, []string{"/tmp", "/home/kora"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := tc.spec.Containers[0]
@@ -184,46 +186,49 @@ func TestSessionManagerStatefulSet_UsesConfiguredSystemNamespace(t *testing.T) {
 	for _, e := range ss.Spec.Template.Spec.Containers[0].Env {
 		env[e.Name] = e.Value
 	}
-	if got, want := env["ANTHROPIC_BASE_URL"], "http://orbit-inference-gateway.orbit-prod.svc.cluster.local"; got != want {
+	if got, want := env["ANTHROPIC_BASE_URL"], "http://kora-inference-gateway.kora-prod.svc.cluster.local"; got != want {
 		t.Errorf("ANTHROPIC_BASE_URL = %q, want %q", got, want)
 	}
-	if got, want := env["ORBIT_AGENTS_URL"], "http://orbit-agents.orbit-prod.svc.cluster.local"; got != want {
-		t.Errorf("ORBIT_AGENTS_URL = %q, want %q", got, want)
+	if got, want := env["KORA_AGENTS_URL"], "http://kora-agents.kora-prod.svc.cluster.local"; got != want {
+		t.Errorf("KORA_AGENTS_URL = %q, want %q", got, want)
 	}
-	if got, want := env["ORBIT_INFERENCE_GATEWAY_URL"], "http://orbit-inference-gateway.orbit-prod.svc.cluster.local"; got != want {
-		t.Errorf("ORBIT_INFERENCE_GATEWAY_URL = %q, want %q", got, want)
+	if got, want := env["KORA_INFERENCE_GATEWAY_URL"], "http://kora-inference-gateway.kora-prod.svc.cluster.local"; got != want {
+		t.Errorf("KORA_INFERENCE_GATEWAY_URL = %q, want %q", got, want)
 	}
-	if got, want := env["ORBIT_TOOL_GATEWAY_URL"], "http://orbit-tool-gateway.orbit-prod.svc.cluster.local"; got != want {
-		t.Errorf("ORBIT_TOOL_GATEWAY_URL = %q, want %q", got, want)
+	if got, want := env["KORA_TOOL_GATEWAY_URL"], "http://kora-tool-gateway.kora-prod.svc.cluster.local"; got != want {
+		t.Errorf("KORA_TOOL_GATEWAY_URL = %q, want %q", got, want)
 	}
 	// Without this a provisioned agent traces nothing, and the only symptom is
 	// an absence of spans.
-	if got, want := env["ORBIT_OTLP_ENDPOINT"], "http://otel-collector.observability.svc:4317"; got != want {
-		t.Errorf("ORBIT_OTLP_ENDPOINT = %q, want %q", got, want)
+	if got, want := env["KORA_OTLP_ENDPOINT"], "http://otel-collector.observability.svc:4317"; got != want {
+		t.Errorf("KORA_OTLP_ENDPOINT = %q, want %q", got, want)
 	}
 	// Without this a provisioned agent samples at its image default, so its
 	// traces are dropped at a different rate than the platform's.
-	if got, want := env["ORBIT_SAMPLING_RATE"], "1.0"; got != want {
-		t.Errorf("ORBIT_SAMPLING_RATE = %q, want %q", got, want)
+	if got, want := env["KORA_SAMPLING_RATE"], "1.0"; got != want {
+		t.Errorf("KORA_SAMPLING_RATE = %q, want %q", got, want)
+	}
+	// The env var is the only way the product name reaches a session pod.
+	if got, want := env[brand.EnvProductName], "Acme"; got != want {
+		t.Errorf("%s = %q, want %q", brand.EnvProductName, got, want)
 	}
 }
 
-// The session-manager caps the Node heap of its runs from this value, so an
-// install's setting must reach every agent pod.
-func TestSessionManagerStatefulSet_PassesNodeHeapCap(t *testing.T) {
+// The install's Landlock mode must reach every agent pod.
+func TestSessionManagerStatefulSet_PassesLandlockMode(t *testing.T) {
 	p := podSecurityProvisioner()
-	p.cfg.NodeMaxOldSpaceMB = 768
+	p.cfg.Landlock = "bestEffort"
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 	ss := p.buildSessionManagerStatefulSet(at, "ns", podLabels(at))
 	for _, e := range ss.Spec.Template.Spec.Containers[0].Env {
-		if e.Name == "ORBIT_NODE_MAX_OLD_SPACE_MB" {
-			if e.Value != "768" {
-				t.Errorf("ORBIT_NODE_MAX_OLD_SPACE_MB = %q, want 768", e.Value)
+		if e.Name == "KORA_LANDLOCK" {
+			if e.Value != "bestEffort" {
+				t.Errorf("KORA_LANDLOCK = %q, want bestEffort", e.Value)
 			}
 			return
 		}
 	}
-	t.Error("session-manager env is missing ORBIT_NODE_MAX_OLD_SPACE_MB")
+	t.Error("session-manager env is missing KORA_LANDLOCK")
 }
 
 func TestRuntimePods_NoPullSecretsWhenUnconfigured(t *testing.T) {
@@ -244,7 +249,7 @@ func TestRuntimePods_NoPullSecretsWhenUnconfigured(t *testing.T) {
 // while the digest-pinned image is left alone.
 func TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	stale := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns, Annotations: map[string]string{annotationImagePinned: "true"}},
 		Spec: appsv1.StatefulSetSpec{
@@ -256,7 +261,7 @@ func TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv(t *testing.T) {
 					Containers: []corev1.Container{{
 						Name:  sessionManagerContainerName,
 						Image: "old",
-						Env:   []corev1.EnvVar{{Name: "ANTHROPIC_BASE_URL", Value: "http://orbit-inference-gateway.orbit-system.svc.cluster.local"}},
+						Env:   []corev1.EnvVar{{Name: "ANTHROPIC_BASE_URL", Value: "http://kora-inference-gateway.kora-system.svc.cluster.local"}},
 					}},
 				},
 			},
@@ -284,7 +289,7 @@ func TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv(t *testing.T) {
 			base = e.Value
 		}
 	}
-	if base != "http://orbit-inference-gateway.orbit-prod.svc.cluster.local" {
+	if base != "http://kora-inference-gateway.kora-prod.svc.cluster.local" {
 		t.Errorf("ANTHROPIC_BASE_URL not synced to the configured system namespace: %q", base)
 	}
 }
@@ -294,7 +299,7 @@ func TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv(t *testing.T) {
 // container contexts and pull secrets without a manual delete.
 func TestEnsureStatefulSet_ExistingPicksUpHardening(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	stale := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns, Annotations: map[string]string{annotationImagePinned: "true"}},
 		Spec: appsv1.StatefulSetSpec{
@@ -324,7 +329,7 @@ func TestEnsureStatefulSet_ExistingPicksUpHardening(t *testing.T) {
 // Run start creates a missing StatefulSet and leaves an existing one alone, so starting a run never rolls pods.
 func TestEnsureStatefulSet_CreateOnly(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	stale := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns},
 		Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
@@ -355,7 +360,7 @@ func TestEnsureStatefulSet_CreateOnly(t *testing.T) {
 }
 
 // TestRuntimePods_RenderYAML marshals both runtime-created pod specs. With
-// ORBIT_RENDER_POD_SPECS_DIR set it writes them out so CI can evaluate the
+// KORA_RENDER_POD_SPECS_DIR set it writes them out so CI can evaluate the
 // files against the pod-security restricted policy set.
 func TestRuntimePods_RenderYAML(t *testing.T) {
 	pod := renderedSandboxPod()
@@ -367,7 +372,7 @@ func TestRuntimePods_RenderYAML(t *testing.T) {
 		"sandbox-pod.yaml":                 pod,
 		"session-manager-statefulset.yaml": ss,
 	}
-	dir := os.Getenv("ORBIT_RENDER_POD_SPECS_DIR")
+	dir := os.Getenv("KORA_RENDER_POD_SPECS_DIR")
 	for name, obj := range docs {
 		out, err := yaml.Marshal(obj)
 		if err != nil {
@@ -429,7 +434,7 @@ func TestRuntimePods_PeerMetadataInMeshOnly(t *testing.T) {
 // reconcile, so a chart upgrade reaches existing agents.
 func TestEnsureStatefulSet_UnpinnedImageFollowsRelease(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	stale := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns},
 		Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
@@ -451,7 +456,7 @@ func TestEnsureStatefulSet_UnpinnedImageFollowsRelease(t *testing.T) {
 }
 
 func TestReadyOrdinals(t *testing.T) {
-	const ns, slug = "orbit-tenant-acme", "coder"
+	const ns, slug = "kora-tenant-acme", "coder"
 	sel := map[string]string{"app": slug}
 	ss := func(gen, observed int64, rev string) *appsv1.StatefulSet {
 		return &appsv1.StatefulSet{

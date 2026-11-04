@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/clear-route/orbit/internal/platform/storage"
-	"github.com/clear-route/orbit/internal/platform/usagewindow"
+	"github.com/runkora/kora/backend/internal/platform/storage"
+	"github.com/runkora/kora/backend/internal/platform/usagewindow"
 )
 
 // InferenceUsageRepository defines the storage contract for inference usage records.
@@ -99,12 +99,12 @@ type InferenceUsageRepository interface {
 	GetPrincipalRoles(ctx context.Context, tenantID, principalID string) ([]string, error)
 
 	// AgentUsage returns the tenant's agent usage per agent and model over the
-	// window, or for one agent when slug is set. Powers the Agents page.
-	AgentUsage(ctx context.Context, tenantID string, w usagewindow.Window, slug string) ([]AgentModelUsage, error)
+	// window, for the agents f selects. Powers the Agents page.
+	AgentUsage(ctx context.Context, tenantID string, w usagewindow.Window, f AgentFilter) ([]AgentModelUsage, error)
 
 	// AgentSpendBuckets returns the previous window's total agent spend and the
-	// spend in each bucket of the window, for one agent when slug is set.
-	AgentSpendBuckets(ctx context.Context, tenantID string, w usagewindow.Window, slug string) (previous float64, buckets []float64, err error)
+	// spend in each bucket of the window, for the agents f selects.
+	AgentSpendBuckets(ctx context.Context, tenantID string, w usagewindow.Window, f AgentFilter) (previous float64, buckets []float64, err error)
 
 	// AgentBudgetSpend returns each listed agent's spend since the start of the
 	// current week and month.
@@ -618,7 +618,7 @@ const defaultPrincipalsLimit = 20
 
 // maxPrincipalsLimit caps a page of principals, both here and in the request
 // parser. Without a cap a caller can ask for every usage row the tenant has ever
-// written in one query. See https://github.com/clear-route/orbit/issues/229.
+// written in one query. See https://github.com/runkora/kora/issues/229.
 const maxPrincipalsLimit = 100
 
 // principalSortColumns maps the public sort_by key to the SQL column alias

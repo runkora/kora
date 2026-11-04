@@ -4,7 +4,7 @@
 // docs/adr/2026-06-20-extended-trigger-types.md and the original
 // docs/adr/2026-06-17-agent-triggers-and-webhook-ingestion.md.
 //
-// The package is hosted by the orbit-triggers binary, deliberately separate from
+// The package is hosted by the kora-triggers binary, deliberately separate from
 // identity: webhook ingestion is the one unauthenticated, internet-reachable
 // surface in the platform, and it should not share a process with the service
 // that mints every token. It is a self-contained feature package: it never
@@ -14,6 +14,7 @@
 package triggers
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -33,6 +34,8 @@ const (
 const (
 	ProviderGitHub       = "github"
 	ProviderAlertmanager = "alertmanager"
+	ProviderSlack        = "slack"
+	ProviderGeneric      = "generic"
 )
 
 // Delivery statuses recorded in trigger_deliveries — what happened to the
@@ -60,6 +63,8 @@ const (
 // auto-pause and the console's per-trigger badges act on.
 const (
 	RunStatusDispatched = "dispatched" // this trigger started a run
+	RunStatusJoined     = "joined"     // a routed trigger sent the delivery to a run already working
+	RunStatusUnrouted   = "unrouted"   // a routed trigger started nothing under the no-run fallback
 	RunStatusFailed     = "failed"     // tried and failed, including dispatch timeout
 	RunStatusFiltered   = "filtered"   // listening, but match_condition excluded this event
 	RunStatusDenied     = "denied"     // policy refused this trigger's run
@@ -78,21 +83,35 @@ var TerminalRunStatuses = map[string]bool{
 	RunStatusSuperseded: true,
 	RunStatusDropped:    true,
 	RunStatusPaused:     true,
+	RunStatusUnrouted:   true,
 }
 
 // Target kinds: what a trigger starts. Triggers are the platform's front door
-// for starting work; what gets started is a separate concern. 'agent' is the
-// only kind today, and 'workflow' becomes legal when that pillar lands
-// (ADR Decision 8).
+// for starting work; what gets started is a separate concern. 'agent' starts
+// one agent, 'routed' chooses among candidate agents per delivery
+// (docs/adr/2026-10-19-trigger-routing.md), and 'workflow' becomes legal when
+// that pillar lands (ADR Decision 8).
 const (
-	TargetKindAgent = "agent"
+	TargetKindAgent  = "agent"
+	TargetKindRouted = "routed"
 )
 
 // Sentinel errors. Callers branch on these with errors.Is.
 var (
+	// ErrDeclaredNameTaken is returned when an API trigger would take the name
+	// of a declared trigger.
+	ErrDeclaredNameTaken = errors.New("a trigger managed by a declarative resource already has this name")
+	// ErrAPINameTaken is returned when a declared trigger would take the name
+	// of an API trigger.
+	ErrAPINameTaken = errors.New("a trigger built through the API already has this name")
+	// ErrAgentProvisioning is a validation error for an agent whose run
+	// scopes are not registered yet. It clears once the agent's pods are ready.
+	ErrAgentProvisioning = fmt.Errorf("%w: agent is still provisioning", ErrValidation)
 	// ErrSourceNotFound is returned when a webhook source does not exist (or is
 	// not visible to the caller's tenant).
 	ErrSourceNotFound = errors.New("webhook source not found")
+	// ErrSourceNameTaken is returned when the tenant already has a source with the name.
+	ErrSourceNameTaken = errors.New("a webhook source with this name already exists")
 	// ErrTriggerNotFound is returned when a trigger does not exist.
 	ErrTriggerNotFound = errors.New("trigger not found")
 	// ErrSourceDisabled is returned when a delivery targets a disabled source.
@@ -125,6 +144,15 @@ var (
 	// ErrNotRedeliverable is returned when a delivery exists but cannot be
 	// replayed. The message names which of the reasons applies.
 	ErrNotRedeliverable = errors.New("delivery cannot be redelivered")
+	// ErrTriggerConflict is returned when a concurrent update replaced a routed
+	// trigger's grant first. The caller retries against the stored trigger.
+	ErrTriggerConflict = errors.New("the trigger was changed by another request; retry the update")
+	// ErrGrantRevokeFailed is returned, inside a GrantRevokeError, when an
+	// update stored a routed trigger's new grant but could not revoke the grant
+	// it replaced.
+	ErrGrantRevokeFailed = errors.New("the replaced trigger grant could not be revoked")
+	// ErrPendingNotClaimed is returned when a fire to hold is no longer claimed.
+	ErrPendingNotClaimed = errors.New("pending delivery is not claimed")
 	// ErrWrongKind is returned when an operation is not valid for the trigger's kind.
 	ErrWrongKind = errors.New("operation not valid for trigger kind")
 
@@ -133,6 +161,9 @@ var (
 	// executes under the trigger's principal, not the caller's, so a broad
 	// trigger cannot be borrowed by a narrowly-scoped caller.
 	ErrFireForbidden = errors.New("not authorized to fire this trigger")
+
+	// ErrBindForbidden is returned when the caller cannot start runs of the agent a trigger would bind.
+	ErrBindForbidden = errors.New("not authorized to run the agent this trigger binds")
 
 	// ErrTriggerAtCapacity is returned when a manual fire is refused because
 	// the trigger is already at its concurrency ceiling.
@@ -156,16 +187,27 @@ var (
 // owns bounds the write no matter what an attacker sends, while still telling an
 // admin their signing secret is wrong (ADR Decision 4).
 type WebhookSource struct {
-	ID          string         `json:"id"`
-	TenantID    string         `json:"tenant_id"`
-	Name        string         `json:"name"`
-	Provider    string         `json:"provider"`
+	ID       string `json:"id"`
+	TenantID string `json:"tenant_id"`
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+	// Category is "chat" or "webhook", set from the provider's adapter on reads; never stored.
+	Category    string         `json:"category,omitempty"`
 	PrincipalID string         `json:"-"`
 	GrantID     *string        `json:"-"`
 	Config      map[string]any `json:"config,omitempty"`
 	Enabled     bool           `json:"enabled"`
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
+	// Source is declarative.SourceAPI or SourceCRD. ResourceUID is the projected resource's UID.
+	// Repository is the repository that drives a crd row, if its resource names one.
+	Source      string `json:"source"`
+	ResourceUID string `json:"-"`
+	Repository  string `json:"repository,omitempty"`
+
+	// SigningSecretSet is false for a source of an issued-secret provider that is
+	// still waiting for its signing secret. Set from SecretCiphertext on reads.
+	SigningSecretSet bool `json:"signing_secret_set"`
 
 	// SecretCiphertext is the AES-GCM encrypted HMAC signing secret. It is never
 	// serialized; only the ingest path reads it (to verify deliveries).
@@ -319,18 +361,22 @@ func (m *ManualConfig) ApplyDefaults(values map[string]string) map[string]string
 
 // Trigger binds a firing condition to (agent, prompt template).
 // For KindWebhook: source_id, event_type, and match_condition drive firing.
+// A webhook trigger whose source was deleted keeps a null source_id.
 // For KindScheduled: kind_config carries the cron schedule; source_id is empty.
-// For KindManual: firing is driven by POST /triggers/{id}/fire; source_id is empty.
+// For KindManual: firing is driven by POST /trigger-fires/{id}; source_id is empty.
 // Scheduled and manual triggers have their own principal_id (not inherited from a source).
 type Trigger struct {
 	ID       string `json:"id"`
 	TenantID string `json:"tenant_id"`
 	Kind     string `json:"kind"`
-	// TargetKind is what this trigger starts. "agent" is the only kind today;
-	// "workflow" becomes legal when that pillar lands. Triggers are the front
-	// door for starting work, so nothing here assumes the target is an agent.
-	TargetKind     string              `json:"target_kind"`
-	SourceID       string              `json:"source_id,omitempty"`
+	// TargetKind is what this trigger starts: "agent" for one agent, "routed"
+	// for a choice among Routing's candidates. A routed trigger has no
+	// AgentTypeID or AgentSlug.
+	TargetKind string `json:"target_kind"`
+	SourceID   string `json:"source_id,omitempty"`
+	// SourceMissing marks a webhook trigger whose source was deleted. It does
+	// not fire and can only be disabled or deleted. Derived per read.
+	SourceMissing  bool                `json:"source_missing,omitempty"`
 	Name           string              `json:"name"`
 	AgentTypeID    string              `json:"agent_type_id"`
 	AgentSlug      string              `json:"agent_slug"`
@@ -345,6 +391,12 @@ type Trigger struct {
 	SenderRestriction *SenderRestriction `json:"sender_restriction,omitempty"`
 	// MatchContains maps a field to substrings, one of which it must contain.
 	MatchContains map[string][]string `json:"match_contains,omitempty"`
+	// Coalesce collapses bursts of fires about one subject into one run; nil
+	// dispatches every fire. Webhook triggers only.
+	Coalesce *CoalesceConfig `json:"coalesce,omitempty"`
+	// Routing holds the candidates and settings of a routed trigger; nil on
+	// every other trigger.
+	Routing *RoutingConfig `json:"routing,omitempty"`
 	// PrincipalID is the SERVICE principal for this trigger (scheduled/manual only;
 	// webhook triggers inherit from their WebhookSource).
 	PrincipalID string    `json:"-"`
@@ -353,6 +405,11 @@ type Trigger struct {
 	Enabled     bool      `json:"enabled"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	// Source is declarative.SourceAPI or SourceCRD. ResourceUID is the projected resource's UID.
+	// Repository is the repository that drives a crd row, if its resource names one.
+	Source      string `json:"source"`
+	ResourceUID string `json:"-"`
+	Repository  string `json:"repository,omitempty"`
 
 	// ─── Admission control ──────────────────────────────────────────────────
 	// MaxParallel caps how many runs from this trigger may be in flight.
@@ -362,7 +419,7 @@ type Trigger struct {
 	MaxQueueDepth int16  `json:"max_queue_depth"`
 
 	// ─── Delivery safety ────────────────────────────────────────────────────
-	// TimeoutSeconds bounds the start request, which returns once orbit-agents
+	// TimeoutSeconds bounds the start request, which returns once kora-agents
 	// has queued the run. A long-running agent is not a failure.
 	TimeoutSeconds   int16 `json:"timeout_seconds"`
 	DedupeEnabled    bool  `json:"dedupe_enabled"`
@@ -388,6 +445,9 @@ type Trigger struct {
 	// answer an operator most needs to trust, and an absent field reads as
 	// "unknown" rather than "none". Derived per read, not a stored column.
 	PendingCount int `json:"pending_count"`
+	// CanFire reports whether the caller may fire this trigger, set per read so
+	// the UI can disable Run now. Absent means no or not computed. Never stored.
+	CanFire bool `json:"can_fire,omitempty"`
 }
 
 // DisabledByPerson reports whether a person turned this trigger off, as
@@ -443,7 +503,28 @@ type Delivery struct {
 	ScheduledAt *time.Time    `json:"scheduled_at,omitempty"`
 	ReceivedAt  time.Time     `json:"received_at"`
 	Runs        []DeliveryRun `json:"runs,omitempty"`
+	// CoalesceKeys are the keys the triggers this delivery matched rendered for
+	// it, one per coalescing trigger. Populated on reads.
+	CoalesceKeys []DeliveryKey `json:"coalesce_keys,omitempty"`
 }
+
+// DeliveryKey is the coalescing key one trigger rendered for one delivery.
+//
+// It is per trigger because each trigger writes its own key template. It is
+// written when the fire is enqueued, so it is readable while the fire waits.
+type DeliveryKey struct {
+	DeliveryID string `json:"-"`
+	TenantID   string `json:"-"`
+	TriggerID  string `json:"trigger_id"`
+	// Key is the rendered key. Empty when KeyTooLong is set.
+	Key string `json:"key,omitempty"`
+	// KeyTooLong marks a render over MaxCoalesceKeyBytes. Such a fire did not coalesce.
+	KeyTooLong bool `json:"key_too_long,omitempty"`
+}
+
+// MaxCoalesceKeyBytes is the longest rendered key that coalesces. It matches the
+// length check on trigger_delivery_keys.
+const MaxCoalesceKeyBytes = 256
 
 // DeliveryRun records a single matched-trigger dispatch for a delivery — the
 // authoritative one-to-many audit detail behind a delivery. RunID is nil when
@@ -464,6 +545,11 @@ type DeliveryRun struct {
 	Status      string    `json:"status"`
 	Error       *string   `json:"error,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
+	// SupersededBy is the delivery whose fire replaced this one. Set only on a
+	// superseded outcome.
+	SupersededBy *string `json:"superseded_by,omitempty"`
+	// Routing is the decision a routed trigger made for this delivery.
+	Routing *RoutingDecision `json:"routing,omitempty"`
 }
 
 // ─── API request/response DTOs ────────────────────────────────────────────────
@@ -473,13 +559,17 @@ type CreateSourceRequest struct {
 	Name     string         `json:"name"`
 	Provider string         `json:"provider"`
 	Config   map[string]any `json:"config,omitempty"`
+	// SigningSecret is write-only and accepted only for a provider that issues its own secret.
+	SigningSecret string `json:"signing_secret,omitempty"`
 }
 
 // UpdateSourceRequest is the body for PATCH /api/v1/trigger-sources/{id}.
-// Only the enabled flag is mutable in v1; rotating the secret regenerates it.
+// Only the enabled flag is mutable; rotating the secret regenerates it, or for
+// a provider that issues its own secret, stores SigningSecret.
 type UpdateSourceRequest struct {
-	Enabled      *bool `json:"enabled,omitempty"`
-	RotateSecret bool  `json:"rotate_secret,omitempty"`
+	Enabled       *bool  `json:"enabled,omitempty"`
+	RotateSecret  bool   `json:"rotate_secret,omitempty"`
+	SigningSecret string `json:"signing_secret,omitempty"`
 }
 
 // SourceResponse is the API view of a webhook source. The signing secret and the
@@ -519,6 +609,12 @@ type CreateTriggerRequest struct {
 	SenderRestriction *SenderRestriction `json:"sender_restriction,omitempty"`
 	// MatchContains applies to webhook triggers only.
 	MatchContains map[string][]string `json:"match_contains,omitempty"`
+	// Coalesce applies to webhook triggers only, and needs overflow "wait".
+	Coalesce *CoalesceConfig `json:"coalesce,omitempty"`
+	// TargetKind is "agent" (the default) or "routed". A routed trigger is a
+	// webhook trigger that sets Routing instead of AgentTypeID.
+	TargetKind string         `json:"target_kind,omitempty"`
+	Routing    *RoutingConfig `json:"routing,omitempty"`
 
 	// Embedded, not repeated: create and update accept the same settings with
 	// the same bounds, and JSON field promotion keeps them flat on the wire.
@@ -560,18 +656,24 @@ type UpdateTriggerRequest struct {
 	SenderRestriction *SenderRestriction `json:"sender_restriction,omitempty"`
 	// MatchContains replaces the stored map when present; an empty map removes it.
 	MatchContains map[string][]string `json:"match_contains,omitempty"`
+	// Coalesce replaces the stored setting when present; an empty object removes it.
+	Coalesce *CoalesceConfig `json:"coalesce,omitempty"`
+	// TargetKind is immutable; a request that names a different one is rejected.
+	TargetKind *string `json:"target_kind,omitempty"`
+	// Routing replaces the stored routing object of a routed trigger.
+	Routing *RoutingConfig `json:"routing,omitempty"`
 	// Editable after creation with exactly the create-time bounds. Changes
 	// apply to the next delivery, not to work already in flight.
 	AdmissionSettings
 }
 
-// FireTriggerRequest is the body for POST /api/v1/triggers/{id}/fire.
+// FireTriggerRequest is the body for POST /api/v1/trigger-fires/{id}.
 // Variables are substituted into {{ var.key }} placeholders in the prompt template.
 type FireTriggerRequest struct {
 	Variables map[string]string `json:"variables,omitempty"`
 }
 
-// FireTriggerResponse is returned from POST /api/v1/triggers/{id}/fire.
+// FireTriggerResponse is returned from POST /api/v1/trigger-fires/{id}.
 //
 // The delivery id and nothing else. There is deliberately no run id: the fire is
 // durably queued and the run starts moments later, so at the moment of the
@@ -621,13 +723,19 @@ type UpdateRetentionRequest struct {
 //
 // Declared is every event type in the provider's schema. Observed is what a
 // source has sent, including events newer than the schema; a provider's catalog
-// has none.
-// Associations are the values a sender restriction may name, empty when the
-// provider identifies no sender.
+// has none. Senders is present when the provider reports who caused an event,
+// so a sender restriction applies.
 type EventTypesResponse struct {
-	Declared     []string `json:"declared"`
-	Observed     []string `json:"observed,omitempty"`
-	Associations []string `json:"associations"`
+	Declared []string `json:"declared"`
+	Observed []string `json:"observed,omitempty"`
+	Category string   `json:"category"`
+	Senders  *Senders `json:"senders,omitempty"`
+}
+
+// Senders is what a sender restriction on a provider's triggers may name.
+type Senders struct {
+	// Roles is empty when the provider reports no roles.
+	Roles []SenderRole `json:"roles"`
 }
 
 // FieldsResponse lists the fields a trigger on one event type can reference.
@@ -638,21 +746,62 @@ type FieldsResponse struct {
 // ─── Sender restriction ─────────────────────────────────────────────────────
 
 // SenderRestriction limits which senders can fire a webhook trigger. A sender
-// passes when its login is listed or its association is listed.
+// passes when its id is listed or any of its roles is listed.
 type SenderRestriction struct {
-	Logins       []string `json:"logins,omitempty"`
-	Associations []string `json:"associations,omitempty"`
+	IDs   []string `json:"ids,omitempty"`
+	Roles []string `json:"roles,omitempty"`
+}
+
+// errSenderRestrictionKeys refuses any key but ids and roles, which a plain
+// decode would drop: a typo or a legacy key would then clear a stored restriction.
+var errSenderRestrictionKeys = errors.New("sender_restriction takes only ids and roles")
+
+// UnmarshalJSON decodes ids and roles and refuses every other key.
+func (r *SenderRestriction) UnmarshalJSON(b []byte) error {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(b, &keys); err != nil {
+		return err
+	}
+	// encoding/json matches keys case-insensitively, so the check does too.
+	for key := range keys {
+		if !strings.EqualFold(key, "ids") && !strings.EqualFold(key, "roles") {
+			return fmt.Errorf("%w: unknown key %q", errSenderRestrictionKeys, key)
+		}
+	}
+	type plain SenderRestriction
+	return json.Unmarshal(b, (*plain)(r))
 }
 
 // empty reports whether the restriction lets every sender through.
 func (r *SenderRestriction) empty() bool {
-	return r == nil || (len(r.Logins) == 0 && len(r.Associations) == 0)
+	return r == nil || (len(r.IDs) == 0 && len(r.Roles) == 0)
+}
+
+// CoalesceConfig makes a webhook trigger start one run for a burst of fires
+// about the same subject.
+//
+// Key is a template in the prompt_template syntax, rendered per fire against
+// the event. Fires of one trigger that render the same key within WindowSeconds
+// of the first collapse into one run from the newest payload. Both fields are
+// required for it to apply, and the platform keeps no default key: what the
+// subject of an event is depends on the provider and on what the trigger does.
+type CoalesceConfig struct {
+	Key           string `json:"key"`
+	WindowSeconds int    `json:"window_seconds"`
 }
 
 // WebhookConfig is the kind_config for a webhook trigger.
 type WebhookConfig struct {
-	SenderRestriction *SenderRestriction  `json:"sender_restriction,omitempty"`
-	MatchContains     map[string][]string `json:"match_contains,omitempty"`
+	SenderRestriction *storedSenderRestriction `json:"sender_restriction,omitempty"`
+	MatchContains     map[string][]string      `json:"match_contains,omitempty"`
+	Coalesce          *CoalesceConfig          `json:"coalesce,omitempty"`
+}
+
+// storedSenderRestriction is a sender restriction as kind_config stores it. The
+// keys predate ids and roles and stay, so a rollback still reads every row.
+type storedSenderRestriction struct {
+	IDs   []string `json:"logins,omitempty"`
+	Roles []string `json:"associations,omitempty"`
 }
 
 // RedeliverResponse is returned from POST /api/v1/trigger-deliveries/{id}/redeliver.
@@ -704,7 +853,7 @@ func (e *InputValidationError) Is(target error) bool { return target == ErrValid
 // errors.Is without reaching for the concrete type.
 var ErrValidationFailed = errors.New("input validation failed")
 
-// dispatchTimeout is how long this trigger's start request may take. orbit-agents
+// dispatchTimeout is how long this trigger's start request may take. kora-agents
 // queues the run and answers at once. Falls back to the package default for
 // triggers created before the setting existed.
 func (t Trigger) dispatchTimeout() time.Duration {

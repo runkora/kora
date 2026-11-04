@@ -19,8 +19,8 @@ export const INGEST_HOST_FALLBACK = 'this cluster';
  * The public host webhook senders post to.
  *
  * Webhooks are ingested on the API ingress (`api.<host>`), not the console's
- * own host: the orbit-api VirtualService routes `/api/v1/webhooks/` to
- * orbit-triggers, while the console host redirects to login.
+ * own host: the kora-api VirtualService routes `/api/v1/webhooks/` to
+ * kora-triggers, while the console host redirects to login.
  */
 export function ingestHostFromWindow(): string {
   return typeof window === 'undefined' ? INGEST_HOST_FALLBACK : `api.${window.location.host}`;

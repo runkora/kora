@@ -8,8 +8,8 @@
  * connectivity tab. */
 
 import { useMemo } from 'react';
-import { Badge, Checkbox, Stack, Text } from '@orbit/hades';
-import type { McpCatalogTool, McpServer } from '@orbit/shared/api';
+import { Badge, Checkbox, Stack, Text } from '@runkora/hades';
+import type { McpCatalogTool, McpServer } from '@runkora/shared/api';
 
 interface McpToolsFieldsProps {
   /** Servers visible to the tenant (GET /v1/servers via the tool-gateway). */

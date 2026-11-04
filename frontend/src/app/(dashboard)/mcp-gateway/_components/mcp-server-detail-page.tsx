@@ -3,15 +3,17 @@
 /** @tier 3 — mcp-gateway-scoped. One server: tools-by-domain + Connect + Trust sidebar (spec-exact). */
 
 import { useState } from 'react';
-import type { McpCatalogTool } from '@orbit/shared/api';
-import { Icon, SidebarLayout, Stack, Text, EmptyState } from '@orbit/hades';
+import type { McpCatalogTool } from '@runkora/shared/api';
+import { Icon, SidebarLayout, Stack, Text, EmptyState } from '@runkora/hades';
+import { useBrand } from '@runkora/theme/brand-provider';
 import {
   MCP_CLIENTS,
+  PLATFORM_MCP_SERVER,
   buildMcpConfig,
   isCommandClient,
   mcpServerUrl,
   type McpClient,
-} from '@orbit/lib/mcp';
+} from '@runkora/lib/mcp';
 import type { DomainGroup, McpServer } from '../_types';
 import { buildDomainGroups, relativeTime, serverRollupScope, statusColor } from '../_types';
 import { ServerAvatar } from './server-avatar';
@@ -56,14 +58,14 @@ export function McpServerDetailPage({
   }
 
   const groups = buildDomainGroups(tools, serverSlug);
-  const accent = server.name === 'orbit';
+  const accent = server.name === PLATFORM_MCP_SERVER;
   const hColor = statusColor(server.status);
 
   return (
     <Stack gap="relaxed">
       {/* Identity header */}
       <Stack direction="horizontal" align="start" gap="comfortable">
-        <ServerAvatar name={server.name} accent={accent} size="lg" />
+        <ServerAvatar name={server.display_name} accent={accent} size="lg" />
         <Stack grow gap="none" style={{ minWidth: 0 }}>
           <Stack direction="horizontal" align="center" style={{ gap: 10 }} wrap>
             <Text as="span" weight="heavy" style={{ fontSize: 26, letterSpacing: '-0.02em' }}>
@@ -374,6 +376,7 @@ function ConnectCard({ slug, delegated }: { slug: string; delegated: boolean }) 
 }
 
 function TrustCard({ server }: { server: McpServer }) {
+  const { productName } = useBrand();
   const delegated = server.caller_identity === 'forward';
   const idColor = delegated ? 'var(--color-accent)' : 'var(--color-muted)';
   const meta: { k: string; v: string; color: string }[] = [
@@ -431,7 +434,7 @@ function TrustCard({ server }: { server: McpServer }) {
             </Text>
             <Text as="span" size="caption" color="muted" style={{ lineHeight: 1.5, marginTop: 3 }}>
               {delegated
-                ? 'Acts as you: it inherits your kora identity and is bound by exactly your grants. It can never exceed what you can do.'
+                ? `Acts as you: it inherits your ${productName} identity and is bound by exactly your grants. It can never exceed what you can do.`
                 : 'Acts as itself: the gateway injects a dedicated service credential just-in-time. It never sees your identity or tokens.'}
             </Text>
           </Stack>

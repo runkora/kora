@@ -1,4 +1,4 @@
-import type { Marketplace, SkillSummary } from '@orbit/shared/api';
+import type { Marketplace, SkillSummary } from '@runkora/shared/api';
 
 /**
  * Search can preserve backend relevance; alphabetical sorting happens in the BFF.

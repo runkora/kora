@@ -13,7 +13,7 @@ func TestServingPair_SignedByCAWithServiceNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := &Manager{Namespace: "orbit-system", ServiceName: "orbit-operator-webhook"}
+	m := &Manager{Namespace: "kora-system", ServiceName: "kora-operator-webhook"}
 	certPEM, _, err := m.newServingPair(ca, caKey)
 	if err != nil {
 		t.Fatal(err)
@@ -25,7 +25,7 @@ func TestServingPair_SignedByCAWithServiceNames(t *testing.T) {
 	caCert, _ := parseCert(ca)
 	pool := x509.NewCertPool()
 	pool.AddCert(caCert)
-	for _, name := range []string{"orbit-operator-webhook", "orbit-operator-webhook.orbit-system.svc", "orbit-operator-webhook.orbit-system.svc.cluster.local"} {
+	for _, name := range []string{"kora-operator-webhook", "kora-operator-webhook.kora-system.svc", "kora-operator-webhook.kora-system.svc.cluster.local"} {
 		if _, err := cert.Verify(x509.VerifyOptions{DNSName: name, Roots: pool}); err != nil {
 			t.Errorf("verify %s: %v", name, err)
 		}

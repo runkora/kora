@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"encoding/base64"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -15,7 +16,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/random"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
 func TestValidateImageConfig(t *testing.T) {
@@ -28,7 +29,7 @@ func TestValidateImageConfig(t *testing.T) {
 		{"uid only", imageConfig{User: "100", Labels: base}, ""},
 		{"uid and gid", imageConfig{User: "100:100", Labels: base}, ""},
 		{"root", imageConfig{User: "", Labels: base}, reasonWrongUser},
-		{"named user", imageConfig{User: "orbit", Labels: base}, reasonWrongUser},
+		{"named user", imageConfig{User: "kora", Labels: base}, reasonWrongUser},
 		{"other uid", imageConfig{User: "1000", Labels: base}, reasonWrongUser},
 		{"no label", imageConfig{User: "100"}, reasonMissingBaseLabel},
 		{"empty label", imageConfig{User: "100", Labels: map[string]string{si.BaseLabel: ""}}, reasonMissingBaseLabel},
@@ -111,5 +112,67 @@ func TestRemoteRegistryRead(t *testing.T) {
 	}
 	if got.Digest != want.String() || got.User != "100:100" || got.Labels[si.BaseLabel] != "v1" {
 		t.Errorf("Read = %+v, want digest %s, user 100:100 and the base label", got, want)
+	}
+}
+
+// Read tries each matching credential and uses the first the registry accepts.
+func TestRemoteRegistryReadCredentials(t *testing.T) {
+	reg := registry.New()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if u, p, ok := r.BasicAuth(); !ok || u != "good" || p != "pw" {
+			w.Header().Set("WWW-Authenticate", `Basic realm="test"`)
+			http.Error(w, "denied", http.StatusUnauthorized)
+			return
+		}
+		reg.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	host := strings.TrimPrefix(srv.URL, "http://")
+
+	img, err := random.Image(64, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err = mutate.Config(img, v1.Config{User: "100:100", Labels: map[string]string{si.BaseLabel: "v1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := name.ParseReference(host+"/acme/go:1", name.Insecure)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.Write(ref, img, remote.WithAuth(&authn.Basic{Username: "good", Password: "pw"})); err != nil {
+		t.Fatal(err)
+	}
+	want, _ := img.Digest()
+
+	secret := func(user, pass string) dockerConfig {
+		return dockerConfig{Auths: map[string]authn.AuthConfig{host: {Username: user, Password: pass}}}
+	}
+	r := remoteRegistry{Mirrors: map[string]string{"registry.local:5001": "http://" + host}}
+	for _, tc := range []struct {
+		name    string
+		auth    []dockerConfig
+		wantErr bool
+	}{
+		{"first matches", []dockerConfig{secret("good", "pw"), secret("bad", "x")}, false},
+		{"later matches", []dockerConfig{secret("bad", "x"), secret("good", "pw")}, false},
+		{"none matches", []dockerConfig{secret("bad", "x"), secret("worse", "y")}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := r.Read(context.Background(), "registry.local:5001/acme/go:1", tc.auth)
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "read manifest") {
+					t.Fatalf("err = %v, want a read manifest error", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Digest != want.String() {
+				t.Errorf("digest = %s, want %s", got.Digest, want)
+			}
+		})
 	}
 }

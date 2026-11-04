@@ -22,18 +22,21 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	oc "github.com/clear-route/orbit/cmd/operator/config"
-	"github.com/clear-route/orbit/internal/operator"
-	"github.com/clear-route/orbit/internal/operator/preflight"
-	"github.com/clear-route/orbit/internal/operator/webhookcert"
-	"github.com/clear-route/orbit/internal/platform/config"
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/observability"
+	oc "github.com/runkora/kora/backend/cmd/operator/config"
+	"github.com/runkora/kora/backend/internal/operator"
+	"github.com/runkora/kora/backend/internal/operator/preflight"
+	"github.com/runkora/kora/backend/internal/operator/webhookcert"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/clients/declared"
+	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 const (
-	webhookServiceName = "orbit-operator-webhook"
+	webhookServiceName = "kora-operator-webhook"
 	spiffeSocket       = "unix:///run/secrets/workload-spiffe-uds/socket"
 )
 
@@ -61,7 +64,7 @@ func main() {
 		os.Exit(1) //nolint:gocritic // exitAfterDefer: explicit cleanup before exit
 	}
 
-	// `orbit preflight` runs the prerequisite checks once and exits non-zero on
+	// `operator preflight` runs the prerequisite checks once and exits non-zero on
 	// failure; the chart's helm test uses it.
 	if len(os.Args) > 1 && os.Args[1] == "preflight" {
 		code := runPreflightOnce(ctx, restCfg, logger)
@@ -69,26 +72,32 @@ func main() {
 		os.Exit(code)
 	}
 
-	logger.Info(ctx, "orbit-operator starting",
+	logger.Info(ctx, "kora-operator starting",
 		logging.Field{Key: "version", Value: oc.Current.App.Version},
 		logging.Field{Key: "environment", Value: config.Environment()},
 		logging.Field{Key: "systemNamespace", Value: oc.Current.Install.SystemNamespace},
 	)
 
 	if err := run(ctx, restCfg, logger); err != nil {
-		logger.Error(ctx, "orbit-operator exited with error", logging.Field{Key: "error", Value: err.Error()})
+		logger.Error(ctx, "kora-operator exited with error", logging.Field{Key: "error", Value: err.Error()})
 		shutdownObservability()
 		os.Exit(1)
 	}
-	logger.Info(ctx, "orbit-operator shutdown complete")
+	logger.Info(ctx, "kora-operator shutdown complete")
 }
 
 func run(ctx context.Context, restCfg *rest.Config, logger logging.Logger) error {
 	install := oc.Current.Install
 
+	// The product name goes into the SandboxImage descriptions agents list.
+	b, err := brand.Load()
+	if err != nil {
+		return fmt.Errorf("load brand: %w", err)
+	}
+
 	// controller-runtime logs Reconcile errors and webhook TLS failures itself;
 	// route them through the injected logger instead of discarding them.
-	ctrl.SetLogger(logr.New(operator.NewLogSink(logger)))
+	ctrl.SetLogger(logr.New(logging.NewLogrSink(logger)))
 
 	mgr, err := initManager(restCfg)
 	if err != nil {
@@ -126,7 +135,7 @@ func run(ctx context.Context, restCfg *rest.Config, logger logging.Logger) error
 		return err
 	}
 
-	if err := initControllers(mgr, logger, checks); err != nil {
+	if err := initControllers(mgr, logger, checks, b); err != nil {
 		return fmt.Errorf("register controllers: %w", err)
 	}
 	initWebhooks(mgr)
@@ -235,6 +244,8 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 				operator.NewServiceEntry(): {Namespaces: map[string]cache.Config{install.SystemNamespace: {}}},
 				// The operator caches only the sandbox image warmer DaemonSets.
 				&appsv1.DaemonSet{}: {Label: operator.WarmerSelector()},
+				// The operator caches only the Secrets a TriggerSource may reference.
+				&corev1.Secret{}: {Label: operator.TriggerSourceSecretSelector()},
 			},
 		},
 		// Bypass the cache to avoid a cluster-wide Secret informer.
@@ -245,7 +256,7 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 		},
 		LeaderElection:          oc.Current.Operator.LeaderElection,
 		LeaderElectionNamespace: install.SystemNamespace,
-		LeaderElectionID:        "orbit-operator-leader",
+		LeaderElectionID:        "kora-operator-leader",
 		HealthProbeBindAddress:  ":8081",
 		WebhookServer: webhook.NewServer(webhook.Options{
 			Port:    9443,
@@ -275,6 +286,7 @@ func initWebhooks(mgr ctrl.Manager) {
 				OPAPullPolicy:           corev1.PullPolicy(install.Injection.OPAPullPolicy),
 				OPALogLevel:             install.Injection.OPALogLevel,
 				OPAResources:            install.Injection.OPAResources,
+				StartupProbeSeconds:     install.Injection.StartupProbeSeconds,
 				SandboxSidecars: operator.SandboxSidecars{
 					IstioProxy:    install.Injection.SandboxSidecars.IstioProxy,
 					IdentityProxy: install.Injection.SandboxSidecars.IdentityProxy,
@@ -290,9 +302,15 @@ func initWebhooks(mgr ctrl.Manager) {
 			IstioRevision: install.IstioRevision,
 		},
 	})
+	mgr.GetWebhookServer().Register("/validate-connection", &webhook.Admission{
+		Handler: &operator.ConnectionValidator{
+			Client:  mgr.GetClient(),
+			Decoder: decoder,
+		},
+	})
 }
 
-func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.Runner) error {
+func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.Runner, b brand.Brand) error {
 	install := oc.Current.Install
 
 	registry := operator.NewTenantRegistry(mgr.GetClient(), logger)
@@ -325,6 +343,7 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 		ImagePullSecrets: install.ImagePullSecrets,
 		SandboxBase:      operator.SandboxBase{Image: install.SandboxImages.BaseImage, Warm: install.SandboxImages.WarmBase},
 		SandboxBundled:   bundledSandboxImages(install.SandboxImages.Bundled),
+		ProductName:      b.ProductName(),
 		Collector:        agentCollector(install.CollectorNamespace, install.CollectorCIDRs),
 		Preflight:        preflightSource{checks},
 	}
@@ -370,7 +389,44 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 		Aggregator: marketplaceAggregator,
 		Logger:     logger,
 	}
-	return marketplaceReconciler.SetupWithManager(mgr)
+	if err := marketplaceReconciler.SetupWithManager(mgr); err != nil {
+		return err
+	}
+	return initDeclared(mgr, logger)
+}
+
+// initDeclared registers the controllers that project declarative resources
+// into their owning services, and the sweep that deletes items whose resource
+// is gone. Every call carries the operator's own platform token.
+func initDeclared(mgr ctrl.Manager, logger logging.Logger) error {
+	cfg := oc.Current.Declared
+	if cfg.IdentityURL == "" {
+		logger.Info(context.Background(), "declared resource projection is off: declared.identityURL is not set")
+		return nil
+	}
+	token := identityclient.NewClient(cfg.IdentityURL, logger).SelfTokenSource()
+	reconcilers := operator.NewDeclaredReconcilers(mgr.GetClient(), mgr.GetAPIReader(), declaredClients(cfg, token, logger), logger)
+	for _, r := range reconcilers {
+		if err := r.SetupWithManager(mgr); err != nil {
+			return err
+		}
+	}
+	return mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		if !mgr.GetCache().WaitForCacheSync(ctx) {
+			return nil
+		}
+		return operator.SweepAll(ctx, reconcilers, oc.Current.SyncPeriod(), logger)
+	}))
+}
+
+// declaredClients builds one client per owning service, all sharing token.
+func declaredClients(cfg oc.Declared, token declared.TokenSource, logger logging.Logger) operator.DeclaredClients {
+	return operator.DeclaredClients{
+		Agents:           declared.NewClient(cfg.AgentsURL, token, logger),
+		Triggers:         declared.NewClient(cfg.TriggersURL, token, logger),
+		PolicyService:    declared.NewClient(cfg.PolicyServiceURL, token, logger),
+		InferenceGateway: declared.NewClient(cfg.InferenceGatewayURL, token, logger),
+	}
 }
 
 // preflightSource adapts the runner to the reconciler's narrow interface.

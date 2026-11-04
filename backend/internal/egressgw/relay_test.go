@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials"
 )
 
 func TestShouldIntercept(t *testing.T) {
@@ -98,7 +98,7 @@ func TestRelayTCP_Bidirectional(t *testing.T) {
 		done <- counts{s, r}
 	}()
 
-	msg := []byte("hello-orbit")
+	msg := []byte("hello-kora")
 	if _, err := clientLocal.Write(msg); err != nil {
 		t.Fatalf("write: %v", err)
 	}

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Run with ORBIT_TEST_REDIS_URL against an isolated Redis with Search/BM25STD.
+// Run with KORA_TEST_REDIS_URL against an isolated Redis with Search/BM25STD.
 // This measures a warm search and all of its continuation batches, not ingestion.
 func BenchmarkRedisSearchAllResults(b *testing.B) {
 	for _, count := range []int{100, 1000, 10000} {

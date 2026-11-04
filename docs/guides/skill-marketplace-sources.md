@@ -9,11 +9,11 @@ The following guide assumes your tenant exists. See [Tenants](tenants.md) to set
 A marketplace is defined using the `SkillMarketplaceSource` CRD, short name `osms`. Apply one in your tenant's namespace:
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: SkillMarketplaceSource
 metadata:
   name: acme-internal
-  namespace: orbit-tenant-acme
+  namespace: kora-tenant-acme
 spec:
   github:
     owner: acme-corp
@@ -30,31 +30,31 @@ A `SkillMarketplaceSource` is declarative, applied the way you manage the rest o
 
 ## Permissions
 
-To manage sources, your Kubernetes role needs access to `skillmarketplacesources` in the `orbit.io` API group, in your tenant's namespace:
+To manage sources, your Kubernetes role needs access to `skillmarketplacesources` in the `runkora.io` API group, in your tenant's namespace:
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: skill-marketplace-source-admin
-  namespace: orbit-tenant-acme
+  namespace: kora-tenant-acme
 rules:
-  - apiGroups: [orbit.io]
+  - apiGroups: [runkora.io]
     resources: [skillmarketplacesources]
     verbs: [get, list, watch, create, update, patch, delete]
 ```
 
 `kubectl apply` and `kubectl edit` send changes to an existing source as patches, so the role includes `patch` alongside `update`. Bind the role to your tenant's administrators with a `RoleBinding` in the same namespace.
 
-The role must not give write access to `orbittenants`. That resource is cluster-scoped, and the list of approved repositories lives on it, so only platform administrators edit it.
+The role must not give write access to `koratenants`. That resource is cluster-scoped, and the list of approved repositories lives on it, so only platform administrators edit it.
 
 ## Requesting approval
 
 Check what kora made of your source:
 
 ```bash
-kubectl get skillmarketplacesources -n orbit-tenant-acme
-kubectl describe skillmarketplacesource acme-internal -n orbit-tenant-acme
+kubectl get skillmarketplacesources -n kora-tenant-acme
+kubectl describe skillmarketplacesource acme-internal -n kora-tenant-acme
 ```
 
 The `Phase` and `Reason` columns show the verdict, and `describe` shows its full message on the `Aggregated` condition. Unless another check in [Status](#status) applies first, a new source is `Pending` with reason `NotAllowlisted`.
@@ -71,7 +71,7 @@ The `Phase` and `Reason` columns report the operator's verdict. kora applies the
 
 | Phase | Reason | Meaning |
 | --- | --- | --- |
-| `Invalid` | `GlobalSourcesNotSupported` | The source was applied in `orbit-system`. Apply it in your tenant's namespace. |
+| `Invalid` | `GlobalSourcesNotSupported` | The source was applied in `kora-system`. Apply it in your tenant's namespace. |
 | `Pending` | `TenantNotActive` | No active tenant owns the namespace: the tenant is suspended, or none owns it. |
 | `Invalid` | `DuplicateRepository` | An older source in your namespace already registers this repository. Use one source per repository. |
 | `Pending` | `NotAllowlisted` | Waiting for a platform administrator to approve the repository. |

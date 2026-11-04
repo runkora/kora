@@ -29,10 +29,19 @@ const eslintConfig = defineConfig([
   // only need to list rule names — no repeated plugins: { local } per block.
   { plugins: { local: localPlugin } },
 
+  // ---- Hades is framework-agnostic ----------------------------------------
+  // Hades components use <img> for app-supplied images, not next/image.
+  {
+    files: ['src/packages/hades/**/*.tsx'],
+    rules: {
+      '@next/next/no-img-element': 'off',
+    },
+  },
+
   // ---- server-only guard ---------------------------------------------------
   // Every file in src/server/ and every Route Handler must import "server-only".
   {
-    files: ['src/server/**/*.{ts,tsx}', 'src/app/api/**/route.ts'],
+    files: ['src/server/**/*.{ts,tsx}', 'src/app/**/route.ts'],
     ignores: ['**/*.test.{ts,tsx}', '**/*.integration.test.{ts,tsx}'],
     rules: {
       'local/require-server-only': 'error',
@@ -202,7 +211,7 @@ const eslintConfig = defineConfig([
 
   // ---- Inline clipboard.writeText ban (hades and shared components exempted) -
   // Direct navigator.clipboard.writeText() calls in product code are forbidden.
-  // Use <CopyButton> from @orbit/components or a Tier 2 src/components/ wrapper.
+  // Use <CopyButton> from @runkora/components or a Tier 2 src/components/ wrapper.
   {
     files: ['src/**/*.{ts,tsx}'],
     ignores: ['src/packages/hades/**', 'src/components/**'],
@@ -235,6 +244,22 @@ const eslintConfig = defineConfig([
     files: ['src/app/**/*.{ts,tsx}', 'src/components/**/*.{ts,tsx}'],
     rules: {
       'local/no-hades-compound-in-server-component': 'error',
+    },
+  },
+
+  // ---- Product-name literal ban --------------------------------------------
+  // Copy reads the product name from the brand, not a literal. Mock data, tests and stories are excluded.
+  {
+    files: ['src/app/**/*.{ts,tsx}', 'src/components/**/*.{ts,tsx}'],
+    ignores: [
+      '**/*.test.{ts,tsx}',
+      '**/*.integration.test.{ts,tsx}',
+      '**/*.stories.{ts,tsx}',
+      '**/*-mock-data.ts',
+      '**/_data/mock.ts',
+    ],
+    rules: {
+      'local/no-product-name-literal': 'error',
     },
   },
 

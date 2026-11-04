@@ -9,7 +9,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Delivery listing bounds. An out-of-range ask gets the default page rather
@@ -75,6 +77,7 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 	if err != nil {
 		return nil, err
 	}
+	trace.SpanFromContext(ctx).SetAttributes(observability.TriggerNameKey.String(t.Name))
 	if t.Kind != KindManual {
 		return nil, fmt.Errorf("%w: only manual triggers can be fired directly", ErrWrongKind)
 	}
@@ -166,6 +169,13 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 // its cron tick. It creates a delivery record (with dedup) and starts the run.
 func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 	t := tick.Trigger
+	// Roots a scheduled fire's trace; other fires have a request span.
+	ctx, span := triggersTracer.Start(observability.WithTenant(ctx, t.TenantID), "triggers.Service.TickScheduled",
+		trace.WithAttributes(
+			observability.TriggerIDKey.String(t.ID),
+			observability.TriggerNameKey.String(t.Name),
+		))
+	defer span.End()
 	scheduledAt := scheduledAtMinute(tick.ScheduledAt)
 
 	deliveryID := uuid.NewString()
@@ -223,7 +233,8 @@ func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 }
 
 // ListDeliveries returns recent deliveries for a tenant, each with its full
-// per-trigger run fan-out attached (one batched query, no N+1).
+// per-trigger run fan-out and coalescing keys attached (one batched query each,
+// no N+1).
 func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error) {
 	// The page-size bounds are business policy, so they live here rather than
 	// in the storage layer: an unset limit gets the default page, and a caller
@@ -246,8 +257,13 @@ func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter De
 	if err != nil {
 		return nil, fmt.Errorf("attach delivery runs: %w", err)
 	}
+	keys, err := s.repo.ListDeliveryKeysForDeliveries(ctx, tenantID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("attach delivery keys: %w", err)
+	}
 	for i := range deliveries {
 		deliveries[i].Runs = runs[deliveries[i].ID]
+		deliveries[i].CoalesceKeys = keys[deliveries[i].ID]
 	}
 	return deliveries, nil
 }
@@ -326,9 +342,12 @@ func (s *Service) redeliverWebhook(ctx context.Context, tenantID string, origina
 	if src.SecretRotatedAt != nil && original.ReceivedAt.Before(*src.SecretRotatedAt) {
 		return nil, fmt.Errorf("%w: this payload arrived before the source's current signing secret was issued", ErrNotRedeliverable)
 	}
-	adapter, ok := s.registry.Get(src.Provider)
-	if !ok {
-		return nil, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
+	adapter, err := s.registry.ForSource(*src)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireRunAccessForSource(ctx, s.repo, s.agents, src.ID); err != nil {
+		return nil, err
 	}
 
 	// No signature check. The body was verified when it first arrived and has
@@ -392,6 +411,9 @@ func (s *Service) redeliverManual(ctx context.Context, tenantID string, original
 	// OFF is not worked around with a replay (Trigger.DisabledByPerson).
 	if t.DisabledByPerson() {
 		return nil, fmt.Errorf("%w: the trigger this delivery fired is disabled", ErrNotRedeliverable)
+	}
+	if err := requireRunAccess(ctx, s.agents, t.AgentTypeID); err != nil {
+		return nil, err
 	}
 
 	values := t.ManualConfig.ApplyDefaults(storedVariables(ctx, s.logger, original.Payload))

@@ -12,8 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // flushRecorder wraps httptest.ResponseRecorder and implements http.Flusher,
@@ -36,7 +37,7 @@ func newTestControllerWithEval(t *testing.T, eval policy.Evaluator) (*Controller
 	// directly without going through Middleware(), so JWT verification and
 	// scope enforcement are never reached. Tests that exercise tenant scoping
 	// inject claims into the request context manually.
-	c := NewController(facade.at, facade.run, nil, nil, nil, eval, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	c := NewController(facade.at, facade.run, nil, nil, nil, nil, eval, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	return c, repo, k8s, sm
 }
 
@@ -379,6 +380,37 @@ func TestHandleSendMessage_Accepted(t *testing.T) {
 	}
 }
 
+func TestHandleSendMessage_TriggerAttribution(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		principal token.PrincipalType
+		subject   string
+		body      string
+		want      int
+	}{
+		{"a trigger names itself", token.PrincipalTypeService, "trigger:trig-1", `{"content":"hi","trigger_id":"trig-1","trigger_name":"PR comments"}`, http.StatusAccepted},
+		{"a person may not name a trigger", token.PrincipalTypeHuman, "user:1", `{"content":"hi","trigger_id":"trig-1"}`, http.StatusForbidden},
+		{"a delivery needs a trigger", token.PrincipalTypeService, "trigger-source:github", `{"content":"hi","delivery_id":"del-1"}`, http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, repo, _, _ := newTestController(t)
+			at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+			run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/run-1/messages", bytes.NewBufferString(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			req.SetPathValue("id", run.ID)
+			req = req.WithContext(withPrincipalCtx(req.Context(), "t-1", tc.principal, tc.subject))
+			w := httptest.NewRecorder()
+			c.handleSendMessage(w, req)
+
+			if w.Code != tc.want {
+				t.Errorf("status = %d, want %d; body: %s", w.Code, tc.want, w.Body.String())
+			}
+		})
+	}
+}
+
 func TestHandleSendMessage_RunStarting(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
@@ -392,7 +424,8 @@ func TestHandleSendMessage_RunStarting(t *testing.T) {
 	w := httptest.NewRecorder()
 	c.handleSendMessage(w, req)
 
-	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "run is starting") || !strings.Contains(w.Body.String(), `"code":"conflict"`) {
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "run is starting") || !strings.Contains(w.Body.String(), `"code":"conflict"`) ||
+		!strings.Contains(w.Body.String(), `"reason":"run_starting"`) {
 		t.Errorf("status = %d, body = %s, want 409 run is starting", w.Code, w.Body.String())
 	}
 }
@@ -734,5 +767,51 @@ func TestHandleStreamEvents_DeduplicatesDurableEventFromLiveChannel(t *testing.T
 	count := strings.Count(body, "message_complete")
 	if count != 1 {
 		t.Errorf("expected message_complete exactly once, got %d; body:\n%s", count, body)
+	}
+}
+
+// bearerScopes answers only for the request's bearer and counts lookups.
+type bearerScopes struct {
+	held  []string
+	calls int
+}
+
+func (b *bearerScopes) CallerEffectiveScopes(_ context.Context, bearer string) ([]string, error) {
+	b.calls++
+	if bearer != "caller-token" {
+		return nil, errors.New("no caller bearer token")
+	}
+	return b.held, nil
+}
+
+// can_edit on a list read applies the scope ceiling with the request's bearer,
+// asking for the caller's scopes once however many autonomous agents there are.
+func TestHandleListAgentTypes_CanEditUsesRequestBearer(t *testing.T) {
+	facade, repo, _, _ := newTestServiceWithEval(t, &allowAllEvaluator{})
+	scopes := &bearerScopes{held: []string{"platform:grants:write"}}
+	facade.at.SetCallerScopes(scopes)
+	c := NewController(facade.at, facade.run, nil, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	seedAgentType(t, repo, AgentType{ID: "at-in", TenantID: "t-1", Slug: "within", IdentityMode: IdentityModeAutonomous, GrantScopes: []string{"platform:grants:write"}})
+	seedAgentType(t, repo, AgentType{ID: "at-out", TenantID: "t-1", Slug: "beyond", IdentityMode: IdentityModeAutonomous, GrantScopes: []string{"platform:roles:write"}})
+
+	req := withTenantRequest(httptest.NewRequest(http.MethodGet, "/", nil), "t-1")
+	req.Header.Set("Authorization", "Bearer caller-token")
+	w := httptest.NewRecorder()
+	c.handleListAgentTypes(w, req)
+
+	var body struct {
+		AgentTypes []AgentType `json:"agent_types"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	want := map[string]bool{"within": true, "beyond": false}
+	for _, at := range body.AgentTypes {
+		if at.CanEdit == nil || *at.CanEdit != want[at.Slug] {
+			t.Errorf("%s can_edit = %v, want %v", at.Slug, at.CanEdit, want[at.Slug])
+		}
+	}
+	if scopes.calls != 1 {
+		t.Errorf("caller scope lookups = %d, want 1", scopes.calls)
 	}
 }

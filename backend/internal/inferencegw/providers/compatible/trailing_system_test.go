@@ -8,7 +8,7 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
+	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
 )
 
 // claudeCodeTurn has the role sequence of a request on Claude Code's

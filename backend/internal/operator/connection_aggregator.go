@@ -1,15 +1,15 @@
 // Connection aggregator for the credential broker (Amendment 3 — GitOps).
 //
-// The egress gateway runs in orbit-system but needs every tenant's connection
+// The egress gateway runs in kora-system but needs every tenant's connection
 // config + secret material to broker outbound CONNECTs. Pods can only mount
 // Secrets/ConfigMaps from their own namespace, so the operator aggregates each
 // tenant's Connection CRs (in the tenant namespace) plus their referenced
-// Secrets into two orbit-system objects the gateway mounts:
+// Secrets into two kora-system objects the gateway mounts:
 //
-//   - ConfigMap orbit-tenant-connections — one data key, connections.json, a
+//   - ConfigMap kora-tenant-connections — one data key, connections.json, a
 //     JSON array of registry entries (tenant, name, adapter, base_host,
 //     secret_ref, config). The non-secret metadata only.
-//   - Secret orbit-tenant-connection-secrets — keyed by the same flat
+//   - Secret kora-tenant-connection-secrets — keyed by the same flat
 //     secret_ref filenames, each holding the referenced Secret's raw material.
 //
 // This mirrors tenant_ca_aggregator.go exactly: the gateway already receives
@@ -33,25 +33,25 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	platformconns "github.com/clear-route/orbit/internal/platform/connections"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 const (
-	// aggregatedConnectionsConfigMapName is the ConfigMap in orbit-system that
+	// aggregatedConnectionsConfigMapName is the ConfigMap in kora-system that
 	// collects every tenant's connection registry metadata. Its single data key
 	// is connections.json — the JSON array the gateway's ConfigMap-backed
 	// registry reader parses.
-	aggregatedConnectionsConfigMapName = "orbit-tenant-connections"
+	aggregatedConnectionsConfigMapName = "kora-tenant-connections"
 
 	// aggregatedConnectionsConfigMapKey is the data key within the ConfigMap.
 	aggregatedConnectionsConfigMapKey = "connections.json"
 
-	// aggregatedConnectionSecretsName is the Secret in orbit-system that
+	// aggregatedConnectionSecretsName is the Secret in kora-system that
 	// collects every connection's secret material, keyed by the flat secret_ref
 	// filenames the registry entries reference. The gateway's k8sfile resolver
 	// reads {ConnectionSecretRoot}/<secret_ref>.
-	aggregatedConnectionSecretsName = "orbit-tenant-connection-secrets"
+	aggregatedConnectionSecretsName = "kora-tenant-connection-secrets"
 )
 
 // secretRefSanitize replaces any character outside [-_a-zA-Z0-9] with "_" so a
@@ -69,7 +69,7 @@ var secretRefSanitize = regexp.MustCompile(`[^-_a-zA-Z0-9]`)
 
 // connectionRegistryEntry is one element of connections.json — the runtime
 // contract the egress gateway's registry reader agrees on. tenant_id MUST equal
-// the value the gateway sees as claims.Orbit.TenantID (the OrbitTenant CR name,
+// the value the gateway sees as claims.Kora.TenantID (the KoraTenant CR name,
 // the same key the CA aggregator uses for tenant CA lookup).
 type connectionRegistryEntry struct {
 	TenantID  string          `json:"tenant_id"`
@@ -86,8 +86,8 @@ type connectionRegistryEntry struct {
 
 // ConnectionAggregator reads each active tenant's Connection CRs from its
 // namespace, plus each referenced Secret, and renders the aggregated
-// orbit-tenant-connections ConfigMap and orbit-tenant-connection-secrets Secret
-// in orbit-system. Re-run on every reconcile (and on any Connection or
+// kora-tenant-connections ConfigMap and kora-tenant-connection-secrets Secret
+// in kora-system. Re-run on every reconcile (and on any Connection or
 // referenced-Secret change) so a newly-applied Connection appears in the
 // gateway's mount within a kubelet projection-update cycle.
 type ConnectionAggregator struct {
@@ -128,21 +128,15 @@ func (a *ConnectionAggregator) Sync(ctx context.Context) error {
 	return a.upsertSecret(ctx, secretData)
 }
 
-// listActiveTenants returns all OrbitTenant resources whose Spec.Active is true.
+// listActiveTenants returns the active tenants that hold their namespace.
 // Suspended tenants are excluded so the gateway will not broker their
 // connections — matching the CA aggregator's behavior.
-func (a *ConnectionAggregator) listActiveTenants(ctx context.Context) ([]OrbitTenant, error) {
-	list := &OrbitTenantList{}
+func (a *ConnectionAggregator) listActiveTenants(ctx context.Context) ([]KoraTenant, error) {
+	list := &KoraTenantList{}
 	if err := a.client.List(ctx, list); err != nil {
-		return nil, fmt.Errorf("list OrbitTenants: %w", err)
+		return nil, fmt.Errorf("list KoraTenants: %w", err)
 	}
-	out := make([]OrbitTenant, 0, len(list.Items))
-	for _, t := range list.Items {
-		if t.Spec.Active {
-			out = append(out, t)
-		}
-	}
-	return out, nil
+	return servedTenants(list.Items), nil
 }
 
 // collect walks every active tenant's Connection CRs and their referenced
@@ -150,7 +144,7 @@ func (a *ConnectionAggregator) listActiveTenants(ctx context.Context) ([]OrbitTe
 // are kept consistent: an entry is only emitted when its secret material is
 // successfully read, so connections.json never references a key the Secret
 // lacks.
-func (a *ConnectionAggregator) collect(ctx context.Context, tenants []OrbitTenant) ([]connectionRegistryEntry, map[string][]byte, error) {
+func (a *ConnectionAggregator) collect(ctx context.Context, tenants []KoraTenant) ([]connectionRegistryEntry, map[string][]byte, error) {
 	var entries []connectionRegistryEntry
 	secretData := make(map[string][]byte)
 
@@ -163,6 +157,9 @@ func (a *ConnectionAggregator) collect(ctx context.Context, tenants []OrbitTenan
 			return nil, nil, fmt.Errorf("list Connections in %q: %w", ns, err)
 		}
 
+		// Earlier connections win a conflict, matching the admission webhook.
+		sort.Slice(list.Items, func(i, j int) bool { return createdBefore(&list.Items[i], &list.Items[j]) })
+		var kept []*Connection
 		for j := range list.Items {
 			conn := &list.Items[j]
 
@@ -176,7 +173,18 @@ func (a *ConnectionAggregator) collect(ctx context.Context, tenants []OrbitTenan
 				continue
 			}
 
-			// tenant_id MUST equal claims.Orbit.TenantID — the OrbitTenant CR
+			if earlier := firstConflict(conn, kept); earlier != nil {
+				a.logger.Warn(ctx, "connection conflicts with an earlier connection on the same host, skipping",
+					logging.Field{Key: "connection", Value: conn.Name},
+					logging.Field{Key: "conflictsWith", Value: earlier.Name},
+					logging.Field{Key: "namespace", Value: ns},
+				)
+				continue
+			}
+			// Kept before the Secret read, so a late Secret never flips the winner.
+			kept = append(kept, conn)
+
+			// tenant_id MUST equal claims.Kora.TenantID — the KoraTenant CR
 			// name, the identifier the CA aggregator keys on. Do not invent one.
 			tenantID := t.Name
 			secretRef := connectionSecretRef(tenantID, conn.Name)
@@ -210,6 +218,17 @@ func (a *ConnectionAggregator) collect(ctx context.Context, tenants []OrbitTenan
 		return entries[i].Name < entries[j].Name
 	})
 	return entries, secretData, nil
+}
+
+// firstConflict returns the first of kept that the egress gateway could not
+// tell apart from conn, or nil.
+func firstConflict(conn *Connection, kept []*Connection) *Connection {
+	for _, k := range kept {
+		if connectionsConflict(conn, k) {
+			return k
+		}
+	}
+	return nil
 }
 
 // readConnectionSecret resolves the secret material for one Connection from its
@@ -313,8 +332,8 @@ func (a *ConnectionAggregator) upsertConfigMap(ctx context.Context, registryJSON
 				Name:      aggregatedConnectionsConfigMapName,
 				Namespace: systemNamespace,
 				Labels: map[string]string{
-					"app.kubernetes.io/managed-by": "orbit-operator",
-					"orbit.io/component":           "tenant-connections",
+					"app.kubernetes.io/managed-by": "kora-operator",
+					"runkora.io/component":         "tenant-connections",
 				},
 			},
 			Data: map[string]string{aggregatedConnectionsConfigMapKey: registryJSON},
@@ -368,8 +387,8 @@ func (a *ConnectionAggregator) upsertSecret(ctx context.Context, data map[string
 				Name:      aggregatedConnectionSecretsName,
 				Namespace: systemNamespace,
 				Labels: map[string]string{
-					"app.kubernetes.io/managed-by": "orbit-operator",
-					"orbit.io/component":           "tenant-connection-secrets",
+					"app.kubernetes.io/managed-by": "kora-operator",
+					"runkora.io/component":         "tenant-connection-secrets",
 				},
 			},
 			Type: corev1.SecretTypeOpaque,

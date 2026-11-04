@@ -13,10 +13,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
-	"github.com/clear-route/orbit/internal/egressgw/tlsca/testtlsca"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
+	"github.com/runkora/kora/backend/internal/egressgw/tlsca/testtlsca"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // rawProxyCONNECT performs a MANUAL CONNECT + inner TLS handshake + single inner
@@ -77,8 +77,8 @@ func recordingTLSUpstream(hit *int32) *httptest.Server {
 // to the request Host, inject nothing), exactly the path pinning protects.
 type interceptAllConns struct{}
 
-func (interceptAllConns) GetByHost(context.Context, string, string) (*credentials.Connection, error) {
-	return &credentials.Connection{}, nil
+func (interceptAllConns) ListByHost(context.Context, string, string) ([]*credentials.Connection, error) {
+	return []*credentials.Connection{{}}, nil
 }
 
 // buildPassthroughGateway wires a gateway whose broker has NO registered
@@ -94,8 +94,8 @@ func buildPassthroughGateway(t *testing.T) *httptest.Server {
 	repo := &memConnRepo{items: map[string]*credentials.Connection{}} // empty → broker passthrough
 	broker := NewBroker(&stubEvaluator{allow: true}, repo, NewAdapterRegistry(), passthrough.New(), logger)
 	forward := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-	claims := claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-1")
-	inner := authInjector(claims, NewProxyHandler(broker, forward, logger))
+	claims := claimsFor("acme", "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder", "run-1")
+	inner := authInjector(claims, NewProxyHandler(broker, forward, testBrand, logger))
 	connect := NewConnectHandler(&fixedCABundle{tenant: "acme", ca: ca}, inner, interceptAllConns{}, logger)
 	return httptest.NewServer(authInjector(claims, connect))
 }

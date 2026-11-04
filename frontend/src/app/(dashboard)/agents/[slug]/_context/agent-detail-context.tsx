@@ -7,7 +7,7 @@
 import { createContext, useContext } from 'react';
 import { useAgentDetail } from '../_hooks/use-agent-detail';
 import type { AgentDetailStateShape, DetailStatus } from '../_hooks/use-agent-detail';
-import type { RunStateCounts } from '@orbit/shared/api';
+import type { RunStateCounts } from '@runkora/shared/api';
 import type { AgentTypeRow, RunRow } from '../../_types';
 
 const AgentDetailContext = createContext<AgentDetailStateShape | null>(null);

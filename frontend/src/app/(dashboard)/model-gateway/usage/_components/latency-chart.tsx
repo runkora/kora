@@ -14,11 +14,11 @@ import {
   ChartLegendContent,
   Stack,
   type ChartConfig,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import { DAILY_LATENCY } from '../../_data/mock';
 import { type Period } from './table-controls';
 import { filterByPeriod } from './utils/table-utils';
-import { fmtDateAxis } from '@orbit/utils';
+import { fmtDateAxis } from '@runkora/utils';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 

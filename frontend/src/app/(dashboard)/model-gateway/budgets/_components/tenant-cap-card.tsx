@@ -19,24 +19,25 @@ import {
   Progress,
   Stack,
   Text,
-} from '@orbit/hades';
-import { usePermissions } from '../../../_components/permissions-provider';
-import { hasScope } from '@orbit/lib/permissions';
-import { fmtUsd, fmtWindowSuffix } from '@orbit/utils';
+} from '@runkora/hades';
+import { useHasScope } from '../../../_components/permissions-provider';
+import { fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import {
   upsertTenantBudgetAction,
   deleteTenantBudgetAction,
 } from '../../../policy/_actions/tenant-budget';
 import type { TenantCapStatus } from '../../_types';
+import { ManagedInGitBadge, PermissionHint } from '@runkora/components';
 
 interface TenantCapCardProps {
   cap: TenantCapStatus | null;
+  /** The budget is declared on the tenant's resource: read-only here. */
+  declared?: boolean;
 }
 
-export function TenantCapCard({ cap }: TenantCapCardProps) {
+export function TenantCapCard({ cap, declared = false }: TenantCapCardProps) {
   const router = useRouter();
-  const { scopes: sessionScopes } = usePermissions();
-  const canWrite = hasScope(sessionScopes, 'platform:budgets:write');
+  const canWrite = useHasScope('platform:budgets:write');
   const [editing, setEditing] = useState(false);
 
   const pct = cap && cap.limit_usd > 0 ? (cap.spend_usd / cap.limit_usd) * 100 : 0;
@@ -52,10 +53,19 @@ export function TenantCapCard({ cap }: TenantCapCardProps) {
               Tenant Cap
             </Text>
           </Stack>
-          {canWrite && (
-            <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-              {cap ? 'Edit' : 'Set cap'}
-            </Button>
+          {declared ? (
+            <ManagedInGitBadge />
+          ) : (
+            <PermissionHint allowed={canWrite} action="change the tenant cap">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!canWrite}
+                onClick={() => setEditing(true)}
+              >
+                {cap ? 'Edit' : 'Set cap'}
+              </Button>
+            </PermissionHint>
           )}
         </Stack>
       </CardHeader>

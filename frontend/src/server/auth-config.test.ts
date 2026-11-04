@@ -50,4 +50,48 @@ describe('getSessionOptions', () => {
     const opts = getSessionOptions();
     expect(opts.cookieName).toBe(SESSION_COOKIE_NAME);
   });
+
+  describe('cookie secure flag', () => {
+    const secureFor = (nodeEnv: string, appUrl: string | undefined) => {
+      process.env.BFF_SESSION_SECRET = 'a'.repeat(32);
+      Object.assign(process.env, { NODE_ENV: nodeEnv });
+      process.env.NEXT_PUBLIC_APP_URL = 'https://build.example';
+      if (appUrl === undefined) delete process.env.KORA_APP_URL;
+      else process.env.KORA_APP_URL = appUrl;
+      return getSessionOptions().cookieOptions?.secure;
+    };
+
+    it('keeps Secure on an https host', () => {
+      expect(secureFor('production', 'https://local.runkora.io:8443')).toBe(true);
+    });
+
+    it('keeps Secure on https://kora.localhost', () => {
+      expect(secureFor('production', 'https://kora.localhost')).toBe(true);
+    });
+
+    it('drops Secure on http://localhost', () => {
+      expect(secureFor('production', 'http://localhost:9880')).toBe(false);
+    });
+
+    it('drops Secure on http://kora.localhost', () => {
+      expect(secureFor('production', 'http://kora.localhost:9880')).toBe(false);
+    });
+
+    it('keeps Secure on http with a non-loopback host', () => {
+      expect(secureFor('production', 'http://example.com')).toBe(true);
+    });
+
+    it('keeps Secure on a host that only ends in localhost', () => {
+      expect(secureFor('production', 'http://notlocalhost')).toBe(true);
+    });
+
+    it('keeps Secure when the app URL is unset or invalid', () => {
+      expect(secureFor('production', undefined)).toBe(true);
+      expect(secureFor('production', 'not a url')).toBe(true);
+    });
+
+    it('stays non-Secure outside production', () => {
+      expect(secureFor('development', 'https://example.com')).toBe(false);
+    });
+  });
 });

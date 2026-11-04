@@ -1,5 +1,5 @@
 import 'server-only';
-import { config } from '@orbit/server/config';
+import { config } from '@runkora/server/config';
 import { ApiError } from './client';
 import type {
   SchedulePreviewResponse,
@@ -10,12 +10,13 @@ import type {
   TriggerField,
   TriggerFireRequest,
   TriggerFireResponse,
+  TriggerRoutingCandidate,
   TriggerUpdateRequest,
   WebhookSource,
   WebhookSourceCreateRequest,
   WebhookSourceResponse,
   WebhookSourceUpdateRequest,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 
 // ---------------------------------------------------------------------------
 // Core fetch helper
@@ -24,7 +25,7 @@ import type {
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
 /**
- * The Triggers feature is served by orbit-triggers, the platform's front door for
+ * The Triggers feature is served by kora-triggers, the platform's front door for
  * starting work. It is separate from identity so that unauthenticated,
  * internet-reachable webhook ingestion does not share a process with the token
  * authority; identity still mints each trigger's SERVICE token over the mesh.
@@ -37,7 +38,7 @@ async function request<T>(
   options: { method?: string; body?: unknown } = {},
 ): Promise<T | undefined> {
   const { method = 'GET', body } = options;
-  const url = `${config.orbitTriggersUrl}/${path.replace(/^\//, '')}`;
+  const url = `${config.koraTriggersUrl}/${path.replace(/^\//, '')}`;
 
   const response = await fetch(url, {
     method,
@@ -53,8 +54,13 @@ async function request<T>(
 
   if (!response.ok) {
     const errJson = await response.json().catch(() => ({}));
-    const err = errJson as { code?: string; message?: string };
-    throw new ApiError(response.status, err.code ?? 'UNKNOWN', err.message ?? response.statusText);
+    const err = errJson as { code?: string; message?: string; details?: Record<string, unknown> };
+    throw new ApiError(
+      response.status,
+      err.code ?? 'UNKNOWN',
+      err.message ?? response.statusText,
+      err.details,
+    );
   }
 
   if (response.status === 204 || response.headers.get('Content-Length') === '0') {
@@ -99,21 +105,19 @@ export async function deleteSource(accessToken: string, id: string): Promise<voi
 }
 
 // GET /api/v1/trigger-sources/{id}/event-types: the provider's declared event
-// types, the ones this source has sent, and the sender associations it knows.
+// types, the ones this source has sent, the source's category and, when the
+// provider identifies senders, the roles a sender restriction may name.
 export async function sourceEventTypes(
   accessToken: string,
   id: string,
 ): Promise<TriggerEventTypes> {
   const body = await request<TriggerEventTypes>(`/trigger-sources/${id}/event-types`, accessToken);
-  return {
-    declared: body?.declared ?? [],
-    observed: body?.observed ?? [],
-    associations: body?.associations ?? [],
-  };
+  return { ...eventTypesFrom(body), observed: body?.observed ?? [] };
 }
 
 // GET /api/v1/trigger-providers/{provider}/event-types: the event types in the
-// provider's schema, and the sender associations it knows.
+// provider's schema, its category and, when it identifies senders, the roles
+// a sender restriction may name.
 export async function providerEventTypes(
   accessToken: string,
   provider: string,
@@ -122,7 +126,17 @@ export async function providerEventTypes(
     `/trigger-providers/${encodeURIComponent(provider)}/event-types`,
     accessToken,
   );
-  return { declared: body?.declared ?? [], associations: body?.associations ?? [] };
+  return eventTypesFrom(body);
+}
+
+// Senders stays absent when the backend omits it: absence is how the API says
+// the provider identifies no sender.
+function eventTypesFrom(body: TriggerEventTypes | undefined): TriggerEventTypes {
+  return {
+    declared: body?.declared ?? [],
+    category: body?.category ?? 'webhook',
+    ...(body?.senders !== undefined && { senders: { roles: body.senders.roles ?? [] } }),
+  };
 }
 
 // GET /api/v1/trigger-providers/{provider}/fields: one event type's fields,
@@ -168,18 +182,30 @@ export async function updateTrigger(
   });
 }
 
+// GET /api/v1/triggers/routing/candidates: the agent types a routed trigger may
+// name, each marked runnable against the caller's own claims.
+export async function listRoutingCandidates(
+  accessToken: string,
+): Promise<TriggerRoutingCandidate[]> {
+  const body = await request<{ agent_types?: TriggerRoutingCandidate[] }>(
+    '/triggers/routing/candidates',
+    accessToken,
+  );
+  return body?.agent_types ?? [];
+}
+
 export async function deleteTrigger(accessToken: string, id: string): Promise<void> {
   await request<void>(`/triggers/${id}`, accessToken, { method: 'DELETE' });
 }
 
-// POST /api/v1/triggers/:id/fire — fire a manual trigger. The run executes
+// POST /api/v1/trigger-fires/:id — fire a manual trigger. The run executes
 // under the trigger's own SERVICE principal, not the caller's identity.
 export async function fireTrigger(
   accessToken: string,
   id: string,
   payload: TriggerFireRequest,
 ): Promise<TriggerFireResponse | undefined> {
-  return request<TriggerFireResponse>(`/triggers/${id}/fire`, accessToken, {
+  return request<TriggerFireResponse>(`/trigger-fires/${id}`, accessToken, {
     method: 'POST',
     body: payload,
   });

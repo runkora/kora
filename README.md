@@ -1,27 +1,49 @@
-# kora
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner-dark.svg">
+  <img src=".github/assets/banner-light.svg" alt="runkora: The open source control plane for running agent factories in production." width="100%">
+</picture>
 
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE) [![CI](https://github.com/clear-route/orbit/actions/workflows/ci.yml/badge.svg)](https://github.com/clear-route/orbit/actions/workflows/ci.yml) [![CodeQL](https://github.com/clear-route/orbit/actions/workflows/codeql.yml/badge.svg)](https://github.com/clear-route/orbit/actions/workflows/codeql.yml)
+[![Release](https://img.shields.io/github/v/release/runkora/kora?include_prereleases&sort=semver&label=release&labelColor=17191C&color=4D6B80)](https://github.com/runkora/kora/releases) [![CI](https://img.shields.io/github/actions/workflow/status/runkora/kora/ci.yml?branch=main&label=CI&labelColor=17191C)](https://github.com/runkora/kora/actions/workflows/ci.yml) [![CodeQL](https://img.shields.io/github/actions/workflow/status/runkora/kora/codeql.yml?branch=main&label=CodeQL&labelColor=17191C)](https://github.com/runkora/kora/actions/workflows/codeql.yml) [![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/runkora/kora?label=openssf%20scorecard&labelColor=17191C)](https://scorecard.dev/viewer/?uri=github.com/runkora/kora) [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/kora&labelColor=17191C)](https://artifacthub.io/packages/search?repo=kora) [![License](https://img.shields.io/badge/license-Apache%202.0-4D6B80?labelColor=17191C)](LICENSE) [![Discord](https://img.shields.io/discord/1544486672476016723?label=discord&labelColor=17191C&color=4D6B80)](https://runkora.io/discord)
 
-kora is an open source control plane for managing and running agents at scale. An agent on a laptop runs with its developer's credentials and leaves no audit trail of what it did. kora makes those agents safe to run in production.
+kora is an open source control plane for running agent factories in production. An agent on a laptop runs with its developer's credentials and leaves no audit trail of what it did. kora makes those agents safe to run at scale.
 
-kora is not an agent framework, a model router, or an LLM wrapper. It runs and governs the agents you already use.
+kora is not an agent framework, a model router, or an LLM wrapper. It runs the agent harnesses you already use, such as Claude Code, Codex and OpenCode, on Kubernetes, and governs everything they do.
 
-- **Identity.** Every agent deploys with its own verifiable identity and its own permissions.
-- **Policy.** Every action is evaluated against policy before execution.
+- **Agent execution.** Every agent works in a durable run inside its own sandbox, started by a webhook, queue, schedule, the API or a person.
+- **Identity.** Every agent has its own identity. Autonomous agents act with their own access, and delegated agents act for the person who started the run and can never do more than that person can.
+- **Policy.** Every action by a person or an agent is evaluated against policy before it runs.
 - **Connectivity.** Agents never handle credentials. kora intercepts outbound calls and injects a scoped, just-in-time credential.
-- **Audit.** Every action traces back to the person or system that started it and the policy that authorised it.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/console-dark.png">
+  <img src=".github/assets/console-light.png" alt="The kora console Agents page: agent count, active and completed runs, token use, spend by agent, and the runs in progress." width="100%">
+</picture>
 
 ## Getting started
 
+- **Try kora locally:** [`make up`](https://github.com/runkora/examples/tree/main/quickstart) in [runkora/examples](https://github.com/runkora/examples) installs kora on a local k3d cluster and applies one of its examples.
 - **Run kora in a Kubernetes cluster:** Install it with the [deployment guide](docs/guides/deployment.md).
-- **Work on kora:** Get it running locally with the [local development guide](docs/guides/local-development.md).
+- **Work on kora:** Get it running locally with the [local development guide](docs/contributing/local-development.md).
+
+## Agent factories
+
+In kora, an agent factory is a group of agents that are connected, each with a different role, and work towards a goal. A factory can be wired through various triggers, and include human gates to observe and interact with the factory at any step.
+
+- **[Autofix](https://github.com/runkora/examples/tree/main/factories/autofix):** Hunts for bugs, verifies issues and fixes them as pull requests.
+- **[SRE](https://github.com/runkora/examples/tree/main/factories/sre):** Triages alerts, proposes fixes as pull requests and sweeps the cluster's costs.
 
 ## Documentation
 
+- [Website](https://runkora.io): What kora is and who it's for.
+- [Concepts](docs/concepts/runs-and-sessions.md): Runs, sandboxes, identity and connectivity.
 - [Architecture](ARCHITECTURE.md): How kora works.
-- [Local development](docs/guides/local-development.md): Running kora locally.
+- [Docs](https://runkora.dev): Comprehensive platform documentation.
 - [Contributing](CONTRIBUTING.md): Start here if you want to contribute.
-- [docs/](docs/README.md): Comprehensive platform documentation.
+- [Examples](https://github.com/runkora/examples): Try kora locally with the quickstart examples.
+
+## Community
+
+Ask questions, get help and show what you've built on [Discord](https://runkora.io/discord). Report bugs and request features in [GitHub issues](https://github.com/runkora/kora/issues).
 
 ## Security
 

@@ -2,10 +2,11 @@
 
 /** @tier 3 — triggers-scoped. One trigger's delivery history, newest first. */
 
-import { Card, Icon, Separator, Stack, StatusDot, Text } from '@orbit/hades';
+import { Card, Icon, Separator, Stack, StatusDot, Text } from '@runkora/hades';
 import { deliveryDotStatus, dispatchDuration } from '../_types';
 import type { DeliveryRow } from '../_types';
 import { DeliveryDetail } from './delivery-detail';
+import type { RoutingAgentName } from './delivery-routing';
 
 interface DeliveryListProps {
   /** Deliveries that reached this trigger, newest first. */
@@ -15,10 +16,14 @@ interface DeliveryListProps {
   /** Which delivery's payload is open, if any. */
   expandedId: string | null;
   onToggleExpanded: (id: string | null) => void;
-  /** Replays a delivery. Absent for read-only callers. */
+  /** Replays a delivery. */
   onRedeliver?: (
     delivery: DeliveryRow,
   ) => Promise<{ deliveryId: string | null; error: string | null }>;
+  /** False when the caller may not replay; Redeliver shows disabled with the reason. */
+  redeliverAllowed?: boolean;
+  /** Names the agents a routing decision mentions. */
+  agents?: RoutingAgentName[];
 }
 
 /** Compact relative time, so a column of these stays scannable. */
@@ -38,6 +43,8 @@ export function DeliveryList({
   expandedId,
   onToggleExpanded,
   onRedeliver,
+  redeliverAllowed = true,
+  agents,
 }: DeliveryListProps) {
   return (
     <Stack gap="snug">
@@ -105,7 +112,13 @@ export function DeliveryList({
               <>
                 <Separator />
                 <Stack padding="cozy">
-                  <DeliveryDetail delivery={d} triggerId={triggerId} onRedeliver={onRedeliver} />
+                  <DeliveryDetail
+                    delivery={d}
+                    triggerId={triggerId}
+                    onRedeliver={onRedeliver}
+                    redeliverAllowed={redeliverAllowed}
+                    agents={agents}
+                  />
                 </Stack>
               </>
             )}

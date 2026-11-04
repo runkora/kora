@@ -10,11 +10,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	"github.com/clear-route/orbit/internal/agents/manifestpatch"
-	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
+	"github.com/runkora/kora/backend/internal/agents/manifestpatch"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
 )
 
-// RenderResources builds the patchable resources orbit-agents provisions for
+// RenderResources builds the patchable resources kora-agents provisions for
 // an agent type (ServiceAccount, StatefulSet with its PVC template, Service,
 // HPA, PDB, and optionally a sample sandbox Pod), applies the manifest
 // patches, and returns them in creation order. The Istio DestinationRule and
@@ -22,7 +22,7 @@ import (
 //
 // It calls the same build helpers as the runtime ensure functions and needs
 // no cluster or database. Owner references are omitted: the runtime resolves
-// them from live OrbitTenant and StatefulSet lookups.
+// them from live KoraTenant and StatefulSet lookups.
 func RenderResources(cfg K8sProvisionerConfig, at AgentType, namespace string, renderSandbox bool) ([]runtime.Object, error) {
 	p := &K8sProvisioner{cfg: cfg}
 	labels := agentTypeLabels(at)

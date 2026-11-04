@@ -1,4 +1,4 @@
-# A real cluster: Helmfile release inputs. Copy values/orbit.yaml into your own
+# A real cluster: Helmfile release inputs. Copy values/kora.yaml into your own
 # repository and edit it; this file only tells the Helmfile which charts and
 # versions to install and the facts SPIRE, Istio and kora share.
 versions:
@@ -6,16 +6,16 @@ versions:
   spire: "0.30.2"
   istio: "1.31.1"
 
-systemNamespace: orbit-system
-trustDomain: orbit.example.com
-clusterName: orbit
+systemNamespace: kora-system
+trustDomain: example.com
+clusterName: kora
 
-orbit:
-  chart: oci://ghcr.io/clear-route/charts/orbit
-  crdsChart: oci://ghcr.io/clear-route/charts/orbit-crds
+kora:
+  chart: oci://ghcr.io/runkora/charts/kora
+  crdsChart: oci://ghcr.io/runkora/charts/kora-crds
   version: 0.0.0
 
 istio:
   revision: ""
 
-orbitValuesFiles: []
+koraValuesFiles: []

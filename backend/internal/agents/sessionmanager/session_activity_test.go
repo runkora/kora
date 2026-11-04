@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // scriptRunner is a Runner whose events the test pushes by hand. Interrupt
@@ -121,7 +121,7 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 func startScripted(t *testing.T, idle time.Duration) (*Registry, *scriptRunner, *stateNotifier) {
 	t.Helper()
 	n := newStateNotifier()
-	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), n, idle)
+	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), n, idle, testBrand)
 	r := newScriptRunner()
 	if err := reg.Create(context.Background(), SessionConfig{RunID: "run-1", Runner: r}); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -263,7 +263,7 @@ func TestInterrupt_NextMessageTellsModelTheUserStopped(t *testing.T) {
 		}
 	}
 	got := resumed.sentTexts()
-	want := []string{stopNote + "carry on", "and again"}
+	want := []string{stopNote("Acme") + "carry on", "and again"}
 	if !slices.Equal(got, want) {
 		t.Errorf("sent = %q, want %q", got, want)
 	}
@@ -383,7 +383,7 @@ func TestInterrupt_RuntimeThatSurvivesTheStop(t *testing.T) {
 	if err := reg.Send(context.Background(), "run-1", "carry on"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if got := r.sentTexts(); !slices.Equal(got, []string{stopNote + "carry on"}) {
+	if got := r.sentTexts(); !slices.Equal(got, []string{stopNote("Acme") + "carry on"}) {
 		t.Errorf("sent = %q, want the stop note first", got)
 	}
 	reg.mu.RLock()
@@ -395,7 +395,7 @@ func TestInterrupt_RuntimeThatSurvivesTheStop(t *testing.T) {
 }
 
 // Text the agent wrote before a mid-turn message is recorded before the
-// message, which orbit-agents records once Send returns.
+// message, which kora-agents records once Send returns.
 func TestSend_RecordsTheTextBeforeAMidTurnMessage(t *testing.T) {
 	reg, r, n := startScripted(t, time.Minute)
 	t.Cleanup(func() { _ = reg.Close(context.Background(), "run-1") })

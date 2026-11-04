@@ -100,7 +100,7 @@ kora needs a dynamic SPIFFE grant model that preserves the naming structure from
 
 ### Option 3: Use dynamic `ClusterSPIFFEID` grants, but derive tenant ID from namespace
 
-**Description:** Use shared `ClusterSPIFFEID` resources, keep labels for workload-specific names, and derive tenant identity from the Kubernetes namespace boundary. System identities remain label-driven inside the reserved `orbit-system` namespace. Tenant identities use one namespace per tenant, with namespace name mapped to `{tenant-id}` and labels used only for `{service-name}` or `{agent-id}`.
+**Description:** Use shared `ClusterSPIFFEID` resources, keep labels for workload-specific names, and derive tenant identity from the Kubernetes namespace boundary. System identities remain label-driven inside the reserved `kora-system` namespace. Tenant identities use one namespace per tenant, with namespace name mapped to `{tenant-id}` and labels used only for `{service-name}` or `{agent-id}`.
 
 **Pros:**
 - Preserves the operational benefits of dynamic grants
@@ -129,7 +129,7 @@ However, the fully label-driven model is too weak at the tenant boundary. Labels
 
 This splits the model cleanly:
 
-- `/system/{component-name}` remains label-driven, but only inside the reserved `orbit-system` namespace
+- `/system/{component-name}` remains label-driven, but only inside the reserved `kora-system` namespace
 - `/tenant/{tenant-id}/service/{service-name}` derives `{tenant-id}` from namespace and `{service-name}` from `spiffe.io/service`
 - `/tenant/{tenant-id}/agent/{agent-id}` derives `{tenant-id}` from namespace and `{agent-id}` from `spiffe.io/agent`
 
@@ -141,7 +141,7 @@ The accepted metadata model is:
 
 ```text
 System services
-  Namespace: orbit-system
+  Namespace: kora-system
   Label:     spiffe.io/component={component-name}
   SPIFFE ID: spiffe://orbit.{instance-id}/system/{component-name}
 
@@ -162,7 +162,7 @@ Tenant agents
 
 The same metadata schema is also the canonical policy vocabulary for Cilium-backed network enforcement:
 
-- `spiffe.io/component` identifies platform workloads inside `orbit-system`
+- `spiffe.io/component` identifies platform workloads inside `kora-system`
 - `spiffe.io/service` identifies tenant-scoped service workloads inside a tenant namespace
 - `spiffe.io/agent` identifies tenant-scoped agent workloads inside a tenant namespace
 - Namespace provides tenant scope, which Cilium can also use as part of policy selection
@@ -214,7 +214,7 @@ The decision is to trust labels only after the workload has already been admitte
 The implementation model is:
 
 1. Keep reusable `ClusterSPIFFEID` resources for each identity class rather than per-service manifests
-2. Reserve `orbit-system` for platform-owned system workloads
+2. Reserve `kora-system` for platform-owned system workloads
 3. Introduce one namespace per tenant before tenant service or agent workloads are supported in shared clusters
 4. Update tenant `ClusterSPIFFEID` templates to read tenant scope from namespace and workload name from reserved labels
 5. Enforce the reserved label schema and namespace ownership through admission control

@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { ScopeChip } from './scope-chip';
 
 describe('ScopeChip', () => {
-  const scope = 'inference:anthropic:orbit-claude-sonnet:use';
+  const scope = 'inference:anthropic:kora-claude-sonnet:use';
 
   it('renders every segment, in order', () => {
     const { container } = render(<ScopeChip scope={scope} />);

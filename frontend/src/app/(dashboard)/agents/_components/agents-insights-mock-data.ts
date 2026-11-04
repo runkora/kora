@@ -1,4 +1,4 @@
-import type { AgentBudgetStatus, AgentInsightsResponse, AgentTypeUsage } from '@orbit/shared/api';
+import type { AgentBudgetStatus, AgentInsightsResponse, AgentTypeUsage } from '@runkora/shared/api';
 import type { RunRow } from '../_types';
 import type { Period } from '../_lib/spend';
 import { RUN_ROWS, SCALE_AGENT_ROWS, SCALE_USAGE, USAGE, ahead } from './agents-mock-data';

@@ -8,7 +8,7 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-// protectedPaths are fields a patch must leave exactly as orbit-agents built
+// protectedPaths are fields a patch must leave exactly as kora-agents built
 // them: resource identity and wiring, pod and container security context,
 // what the pod exposes to an agent, and the sandbox's per-run workspace mount. "*" matches every list element.
 var protectedPaths = [][]string{
@@ -47,12 +47,12 @@ var protectedPaths = [][]string{
 var IdentityLabels = []string{
 	"spiffe.io/agent",
 	"spiffe.io/spire-managed-identity",
-	"orbit.io/identity-proxy",
-	"orbit.io/tenant",
-	"orbit.io/agent-type",
-	"orbit.io/role",
-	"orbit.io/run-id",
-	"orbit.io/agent-slug",
+	"runkora.io/identity-proxy",
+	"runkora.io/tenant",
+	"runkora.io/agent-type",
+	"runkora.io/role",
+	"runkora.io/run-id",
+	"runkora.io/agent-slug",
 }
 
 // checkProtected rejects a patched resource whose protected fields differ

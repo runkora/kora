@@ -3,9 +3,9 @@
 /** @tier 3 — marketplace-scoped. List view of Skill results; each row opens its detail route. */
 
 import { useRouter } from 'next/navigation';
-import { DataTable, Icon, Stack, Text, type DataTableColumn } from '@orbit/hades';
-import { APP_ROUTES } from '@orbit/lib/routing';
-import type { SkillSummary } from '@orbit/shared/api';
+import { DataTable, Icon, Stack, Text, type DataTableColumn } from '@runkora/hades';
+import { APP_ROUTES } from '@runkora/lib/routing';
+import type { SkillSummary } from '@runkora/shared/api';
 import { useMarketplaceContext } from '../_context/marketplace-context';
 
 export function MarketplaceSkillList() {

@@ -3,8 +3,8 @@ package credentials_test
 import (
 	"testing"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/platform/connections"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/platform/connections"
 )
 
 // TestAdapterIDParity locks the two adapter identifier sets together. The

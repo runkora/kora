@@ -252,7 +252,7 @@ func (c BinaryConfig) ShutdownTimeout() time.Duration {
 `main.go` imports the config package and reads values directly:
 
 ```go
-import oc "github.com/clear-route/orbit/cmd/{binary}/config"
+import oc "github.com/runkora/kora/backend/cmd/{binary}/config"
 
 server := apiServer.Server(ctx, oc.Config.Server.Port, oc.Config.Server.BasePath, ...)
 ```

@@ -19,7 +19,7 @@ import (
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go/v3"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw"
 )
 
 // TranslationError is returned by translation functions when the caller
@@ -570,6 +570,7 @@ func MapOpenAIError(provider inferencegw.ProviderName, err error) error {
 			Provider:        provider,
 			Code:            code,
 			Retryable:       retryable,
+			RequestRejected: isRequestRejection(apiErr.StatusCode),
 			HTTPStatus:      apiErr.StatusCode,
 			Underlying:      fmt.Errorf("status %d: %s", apiErr.StatusCode, apiErr.Message),
 			ProviderMessage: apiErr.Message,
@@ -620,9 +621,21 @@ func MapAnthropicError(provider inferencegw.ProviderName, err error) error {
 			Provider:        provider,
 			Code:            code,
 			Retryable:       retryable,
+			RequestRejected: isRequestRejection(apiErr.StatusCode),
 			HTTPStatus:      apiErr.StatusCode,
 			Underlying:      fmt.Errorf("status %d: %s", apiErr.StatusCode, apiErr.Error()),
 			ProviderMessage: extractAnthropicMessage(apiErr.RawJSON()),
+		}
+	}
+	// The SDK refuses a synchronous call whose max_tokens implies more than 10
+	// minutes. The same request fails every time, so do not retry it.
+	if strings.Contains(err.Error(), "streaming is required") {
+		return &inferencegw.ConnectorError{
+			Provider:        provider,
+			Code:            "INVALID_REQUEST",
+			Retryable:       false,
+			RequestRejected: true,
+			Underlying:      err,
 		}
 	}
 	// Context cancellation means the caller gave up (client disconnect, upstream
@@ -658,6 +671,12 @@ func extractAnthropicMessage(raw string) string {
 		return body.Error.Message
 	}
 	return ""
+}
+
+// isRequestRejection reports whether an upstream status means the request body
+// itself was rejected, which no other target can fix.
+func isRequestRejection(status int) bool {
+	return status == http.StatusBadRequest || status == http.StatusUnprocessableEntity
 }
 
 func classifyAnthropicStatus(status int) (code string, retryable bool) {

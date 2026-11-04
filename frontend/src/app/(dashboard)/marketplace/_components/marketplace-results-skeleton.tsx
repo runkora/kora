@@ -12,7 +12,7 @@ import {
   TableRow,
   TableHead,
   TableCell,
-} from '@orbit/hades';
+} from '@runkora/hades';
 
 /**
  * Stands in for the toolbar and the Skill results while no Marketplace data

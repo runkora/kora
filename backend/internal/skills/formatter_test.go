@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/skills"
+	"github.com/runkora/kora/backend/internal/skills"
 )
 
 func TestParseSkillFrontmatter(t *testing.T) {

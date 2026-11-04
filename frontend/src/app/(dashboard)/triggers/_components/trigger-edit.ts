@@ -7,7 +7,7 @@
  * unit-testable on its own.
  */
 
-import type { InputField } from '@orbit/shared/api';
+import type { InputField } from '@runkora/shared/api';
 import { inputsToCatalog } from './trigger-wizard/field-catalog';
 import type { FieldCatalogEntry } from './trigger-wizard/types';
 import type { FilterRow } from './filter-rows-editor';

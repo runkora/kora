@@ -3,7 +3,7 @@
 // Holds the Agents page rollups: the server-rendered window, then each other period once selected.
 
 import { useMemo } from 'react';
-import type { AgentInsightsResponse } from '@orbit/shared/api';
+import type { AgentInsightsResponse } from '@runkora/shared/api';
 import { fetchAgentInsights } from '../_services/agents-api';
 import { toBudgetRows, toPeriodData } from '../_lib/insights';
 import { usePeriodCache } from './use-period-cache';

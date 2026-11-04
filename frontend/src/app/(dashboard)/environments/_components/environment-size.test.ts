@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { EnvironmentSizes } from '@orbit/shared/api';
+import type { EnvironmentSizes } from '@runkora/shared/api';
 import {
   customError,
   presetsFor,

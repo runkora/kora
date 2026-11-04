@@ -1,0 +1,5 @@
+{
+  "minLength": 1,
+  "maxLength": 40,
+  "pattern": "^[\\p{L}\\p{N} .\\-&']+$"
+}

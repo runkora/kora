@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -117,7 +117,7 @@ func TestToolGatewayURLForRun(t *testing.T) {
 	}{
 		{"plain", "http://tool-gw.test", "run-abc", "http://tool-gw.test/run/run-abc"},
 		{"trailing slash trimmed", "http://tool-gw.test/", "run-xyz", "http://tool-gw.test/run/run-xyz"},
-		{"cluster dns", "http://orbit-tool-gateway.orbit-system.svc.cluster.local", "run-1", "http://orbit-tool-gateway.orbit-system.svc.cluster.local/run/run-1"},
+		{"cluster dns", "http://kora-tool-gateway.kora-system.svc.cluster.local", "run-1", "http://kora-tool-gateway.kora-system.svc.cluster.local/run/run-1"},
 		{"empty base stays empty (no governed entries)", "", "run-1", ""},
 	}
 	for _, tc := range tests {
@@ -168,7 +168,7 @@ func TestClaudeTelemetryEnv_ParentsToRequestSpan(t *testing.T) {
 		"OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4317",
 		"OTEL_EXPORTER_OTLP_PROTOCOL=grpc",
 		"CLAUDE_CODE_PROPAGATE_TRACEPARENT=1",
-		"OTEL_RESOURCE_ATTRIBUTES=orbit.run_id=run-1,orbit.tenant_id=tenant-1",
+		"OTEL_RESOURCE_ATTRIBUTES=kora.run.id=run-1,kora.tenant.id=tenant-1",
 	} {
 		if !slices.Contains(env, want) {
 			t.Errorf("env missing %q: %v", want, env)

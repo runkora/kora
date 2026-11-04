@@ -4,9 +4,9 @@
  * The choice is immutable after creation, so the detail Configuration tab shows
  * the mode read-only rather than reusing these cards. */
 
-import { Grid, RadioCard, RadioGroup } from '@orbit/hades';
-import type { IconName } from '@orbit/hades';
-import type { AgentIdentityMode } from '@orbit/shared/api';
+import { Grid, RadioCard, RadioGroup } from '@runkora/hades';
+import type { IconName } from '@runkora/hades';
+import type { AgentIdentityMode } from '@runkora/shared/api';
 
 export const IDENTITY_MODE_LABELS: Record<AgentIdentityMode, string> = {
   autonomous: 'Autonomous',

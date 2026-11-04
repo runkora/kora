@@ -14,17 +14,17 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ── test fixtures ─────────────────────────────────────────────────────────────
 
 const (
-	testAgentSpiffeID   = "spiffe://orbit.test/tenant/t1/agent/reviewer"
-	testOtherAgentID    = "spiffe://orbit.test/tenant/t1/agent/deployer"
+	testAgentSpiffeID   = "spiffe://runkora.test/tenant/t1/agent/reviewer"
+	testOtherAgentID    = "spiffe://runkora.test/tenant/t1/agent/deployer"
 	testSandboxSpiffeID = testAgentSpiffeID + "/sandbox/run-1"
 )
 
@@ -120,9 +120,9 @@ func (m *mockDelegationRepository) ListActiveByDelegator(_ context.Context, tena
 // repository and blocklist, mirroring newTestService.
 func newDelegationTestService(t *testing.T) (*Service, *mockDelegationRepository, *mockJTIBlocklistRepository) {
 	t.Helper()
-	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+	t.Setenv("KORA_ALLOW_EPHEMERAL_KEY", "true")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY", "")
 
 	cfg := &Config{
 		Token: TokenConfig{
@@ -130,7 +130,7 @@ func newDelegationTestService(t *testing.T) (*Service, *mockDelegationRepository
 			RefreshTokenTTLDays:       30,
 			PATDefaultTTLDays:         90,
 			PATMaxTTLDays:             365,
-			Audience:                  "orbit-platform",
+			Audience:                  "kora-platform",
 			DelegationTokenTTLMinutes: 30,
 		},
 	}
@@ -163,9 +163,9 @@ func newDelegationTestService(t *testing.T) (*Service, *mockDelegationRepository
 // repo so the PAT-revocation cascade can be exercised end to end.
 func newDelegationTestServiceWithPAT(t *testing.T) (*Service, *mockDelegationRepository, *mockJTIBlocklistRepository, *mockPATRepository) {
 	t.Helper()
-	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+	t.Setenv("KORA_ALLOW_EPHEMERAL_KEY", "true")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY", "")
 
 	cfg := &Config{
 		Token: TokenConfig{
@@ -173,7 +173,7 @@ func newDelegationTestServiceWithPAT(t *testing.T) (*Service, *mockDelegationRep
 			RefreshTokenTTLDays:       30,
 			PATDefaultTTLDays:         90,
 			PATMaxTTLDays:             365,
-			Audience:                  "orbit-platform",
+			Audience:                  "kora-platform",
 			DelegationTokenTTLMinutes: 30,
 		},
 	}
@@ -268,21 +268,21 @@ func newDelegationTestController(t *testing.T) (*Controller, *Service, *mockDele
 // serviceClaims returns PlatformClaims for a SERVICE principal.
 func serviceClaims(tenantID, principalID string) *token.PlatformClaims {
 	c := humanClaims(tenantID, principalID)
-	c.Orbit.PrincipalType = token.PrincipalTypeService
+	c.Kora.PrincipalType = token.PrincipalTypeService
 	return c
 }
 
 // agentClaims returns PlatformClaims for an AGENT principal.
 func agentClaims(tenantID, principalID string) *token.PlatformClaims {
 	c := humanClaims(tenantID, principalID)
-	c.Orbit.PrincipalType = token.PrincipalTypeAgent
+	c.Kora.PrincipalType = token.PrincipalTypeAgent
 	return c
 }
 
 // systemClaims returns PlatformClaims for a SYSTEM principal (no tenant).
 func systemClaims(principalID string) *token.PlatformClaims {
 	c := humanClaims("", principalID)
-	c.Orbit.PrincipalType = token.PrincipalTypeSystem
+	c.Kora.PrincipalType = token.PrincipalTypeSystem
 	return c
 }
 
@@ -334,7 +334,7 @@ func newDelegationVerifier(t *testing.T, svc *Service) *token.Verifier {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return token.NewVerifier(context.Background(), srv.URL+"/keys", token.DefaultIssuer, "orbit-platform")
+	return token.NewVerifier(context.Background(), srv.URL+"/keys", token.DefaultIssuer, "kora-platform")
 }
 
 // ── mint ──────────────────────────────────────────────────────────────────────
@@ -346,7 +346,7 @@ func TestHandleCreateDelegation_RefusesNonPersonPrincipals(t *testing.T) {
 	}{
 		{"agent", agentClaims("t1", testAgentSpiffeID)},
 		{"service", serviceClaims("t1", "webhook-source-1")},
-		{"system", systemClaims("orbit-identity-service")},
+		{"system", systemClaims("kora-identity-service")},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -384,7 +384,7 @@ func TestHandleCreateDelegation_PersistsRecordAndReturnsNoToken(t *testing.T) {
 		// match), while the PAT lineage is preserved for audit/revocation.
 		{"pat normalises to human person and records lineage", func() *token.PlatformClaims {
 			c := patTokenClaims("t1", "user-1")
-			c.Orbit.PatID = "pat-uuid-1"
+			c.Kora.PatID = "pat-uuid-1"
 			return c
 		}(), token.PrincipalTypeHuman, "pat-uuid-1"},
 	}
@@ -543,7 +543,7 @@ func TestHandleGetDelegationForRun_ReleasesVerifiableToken(t *testing.T) {
 func TestHandleGetDelegationForRun_PATMintedTokenNamesThePerson(t *testing.T) {
 	c, svc, _, _ := newDelegationTestController(t)
 	patClaims := patTokenClaims("t1", "user-1")
-	patClaims.Orbit.PatID = "pat-uuid-1"
+	patClaims.Kora.PatID = "pat-uuid-1"
 	mintTestDelegation(t, svc, patClaims, "run-1")
 
 	w := getDelegationForRun(t, c, "run-1", testAgentSpiffeID)
@@ -674,8 +674,8 @@ func TestHandleRevokeDelegation_Authorization(t *testing.T) {
 		{"another human refused", humanClaims("t1", "user-2"), http.StatusForbidden},
 		{"same user other tenant refused", humanClaims("t2", "user-1"), http.StatusForbidden},
 		{"agent refused", agentClaims("t1", testAgentSpiffeID), http.StatusForbidden},
-		{"service allowed", serviceClaims("t1", "orbit-agents"), http.StatusNoContent},
-		{"system allowed", systemClaims("orbit-identity-service"), http.StatusNoContent},
+		{"service allowed", serviceClaims("t1", "kora-agents"), http.StatusNoContent},
+		{"system allowed", systemClaims("kora-identity-service"), http.StatusNoContent},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -783,7 +783,7 @@ func TestDelegationMiddleware_RejectsRevokedJTI(t *testing.T) {
 			)(next)
 
 			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(nil))
-			req.Header.Set("X-Orbit-Delegation-Token", raw)
+			req.Header.Set("X-Kora-Delegation-Token", raw)
 			w := httptest.NewRecorder()
 			handler.ServeHTTP(w, req)
 

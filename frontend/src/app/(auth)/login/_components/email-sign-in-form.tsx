@@ -20,14 +20,14 @@
 'use client';
 
 import { useState } from 'react';
-import { Alert, Button, Field, FieldError, Form, Input, Label, Text } from '@orbit/hades';
+import { Alert, Button, Field, FieldError, Form, Input, Label, Text } from '@runkora/hades';
 
 import {
   buildUserManager,
   TENANT_CONFIG_STORAGE_KEY,
   type TenantOidcConfig,
-} from '@orbit/lib/oidc-client';
-import { ApiRoute } from '@orbit/lib/routing/api-routes';
+} from '@runkora/lib/oidc-client';
+import { ApiRoute } from '@runkora/lib/routing/api-routes';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

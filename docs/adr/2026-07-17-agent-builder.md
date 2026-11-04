@@ -169,7 +169,7 @@ Step 1 ships as name, slug, description, owner, and team. The identity model sel
 
 ### 1. Backend
 
-New migration under `backend/cmd/orbit-agents/migrations/` creating `agent_type_drafts`. Nothing in `agent_types` changes: no constraint, no state, no column.
+New migration under `backend/cmd/kora-agents/migrations/` creating `agent_type_drafts`. Nothing in `agent_types` changes: no constraint, no state, no column.
 
 `internal/agents/` gains the draft stack alongside the existing one, per the standard feature structure: a `DraftRepository` interface, its Postgres implementation, service methods, and handlers. It does not become its own feature package, because drafts are part of the agents feature and feature packages must not import each other.
 
@@ -183,7 +183,7 @@ Routes live on a **sibling prefix**, not nested under `/api/v1/agent-types`. Nes
 | `PATCH /api/v1/agent-type-drafts/{id}` | `agents:types:write` |
 | `DELETE /api/v1/agent-type-drafts/{id}` | `agents:types:write` |
 
-The sibling prefix needs its own rows in the route-scope table (`cmd/orbit-agents/main.go`, `agentRoutes()`), mapping to the **existing** `agents:types:read|write` scopes. The scope vocabulary is unchanged: nothing new to compile into a bundle or grant. Drafting an agent requires the same authority as creating one, which is correct and also stops a read-only caller from littering a tenant.
+The sibling prefix needs its own rows in the route-scope table (`cmd/kora-agents/main.go`, `agentRoutes()`), mapping to the **existing** `agents:types:read|write` scopes. The scope vocabulary is unchanged: nothing new to compile into a bundle or grant. Drafting an agent requires the same authority as creating one, which is correct and also stops a read-only caller from littering a tenant.
 
 Every draft read and write is additionally filtered to `created_by` from the verified claims. `created_by` is never accepted from the body.
 

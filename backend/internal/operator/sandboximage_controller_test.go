@@ -17,11 +17,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
-const testNS = "orbit-tenant-acme"
+const testNS = "kora-tenant-acme"
 
 // fakeRegistry answers Read from a map and records the auth it was given.
 type fakeRegistry struct {
@@ -238,9 +238,9 @@ func TestSandboxImage_PullSecret(t *testing.T) {
 }
 
 func TestEnsureBaseSandboxImage(t *testing.T) {
-	tenant := &OrbitTenant{ObjectMeta: metav1.ObjectMeta{Name: "acme"}, Spec: OrbitTenantSpec{Namespace: testNS}}
+	tenant := &KoraTenant{ObjectMeta: metav1.ObjectMeta{Name: "acme"}, Spec: KoraTenantSpec{Namespace: testNS}}
 	c := fake.NewClientBuilder().WithScheme(NewScheme()).Build()
-	r := &TenantReconciler{Client: c, SandboxBase: SandboxBase{Image: "ghcr.io/clear-route/kora-sandbox-base:1", Warm: true}}
+	r := &TenantReconciler{Client: c, SandboxBase: SandboxBase{Image: "ghcr.io/runkora/kora-sandbox-base:1", Warm: true}}
 
 	if err := r.ensureBaseSandboxImage(context.Background(), tenant); err != nil {
 		t.Fatal(err)
@@ -263,7 +263,7 @@ func TestEnsureBaseSandboxImage(t *testing.T) {
 	if err := c.Get(context.Background(), key, got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Spec.Image != "ghcr.io/clear-route/kora-sandbox-base:1" || !got.Spec.Warm {
+	if got.Spec.Image != "ghcr.io/runkora/kora-sandbox-base:1" || !got.Spec.Warm {
 		t.Errorf("kora-base spec = %+v, want the install's base image, warm", got.Spec)
 	}
 	if got.Spec.PullSecretRef != nil {

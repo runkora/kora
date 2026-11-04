@@ -8,9 +8,9 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/convert"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // AnthropicMessages is the zero-translation path for POST /v1/messages.
@@ -40,7 +40,7 @@ func (c *Connector) AnthropicMessages(ctx context.Context, params anthropic.Mess
 		}
 	}
 
-	accumulated, eventCount, err := convert.AccumulateAnthropicStream(c.anthropicClient.Messages.NewStreaming(ctx, params), inferencegw.ProviderBedrock)
+	accumulated, eventCount, err := convert.AccumulateAnthropicStream(ctx, c.anthropicClient.Messages.NewStreaming(ctx, params), inferencegw.ProviderBedrock)
 	if err != nil {
 		c.logger.Error(ctx, "bedrock: AnthropicMessages stream error",
 			logging.Field{Key: "error", Value: err.Error()},

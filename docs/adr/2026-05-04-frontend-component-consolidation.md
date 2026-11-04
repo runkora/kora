@@ -10,7 +10,7 @@
 
 ## Context
 
-The kora control plane frontend is structured around a Hades design system (`@orbit/hades`) that provides low-level primitives — `Button`, `Card`, `Badge`, `Stack`, `Heading`, `Text`, `Separator`, `Progress` — and a set of product pages and feature tabs that compose those primitives into full UI. What is missing is the intermediate layer: the collection of higher-order, application-aware components that every feature page assembles from the same primitives in the same way.
+The kora control plane frontend is structured around a Hades design system (`@runkora/hades`) that provides low-level primitives — `Button`, `Card`, `Badge`, `Stack`, `Heading`, `Text`, `Separator`, `Progress` — and a set of product pages and feature tabs that compose those primitives into full UI. What is missing is the intermediate layer: the collection of higher-order, application-aware components that every feature page assembles from the same primitives in the same way.
 
 A systematic audit of the five densest page and component files revealed 22 recurring patterns implemented independently, without sharing. The most significant examples:
 
@@ -105,10 +105,10 @@ We need a set of architectural decisions that establish:
 
 ### Option 3: Promote every extracted component into Hades
 
-**Description:** All 22 candidates land in `@orbit/hades` as part of a Hades expansion.
+**Description:** All 22 candidates land in `@runkora/hades` as part of a Hades expansion.
 
 **Pros:**
-- Single import location for everything (`@orbit/hades`)
+- Single import location for everything (`@runkora/hades`)
 - Design system documents all reusable components in one place
 
 **Cons:**
@@ -324,9 +324,9 @@ interface FormFieldProps {
 | Component | Status | Import |
 |-----------|--------|--------|
 | `EmptyState` | ✅ Implemented | `@orbit/components` |
-| `ErrorBanner` | ✅ Deleted — styling transferred to `Alert variant="error"` in Hades (2026-04-28) | `@orbit/hades` `Alert` |
+| `ErrorBanner` | ✅ Deleted — styling transferred to `Alert variant="error"` in Hades (2026-04-28) | `@runkora/hades` `Alert` |
 | `StatusBadge` | ✅ Implemented | `@orbit/components` |
-| `PageSectionHeader` | ✅ Promoted to Tier 1 (2026-04-28) | `@orbit/hades` — zero domain knowledge confirmed |
+| `PageSectionHeader` | ✅ Promoted to Tier 1 (2026-04-28) | `@runkora/hades` — zero domain knowledge confirmed |
 | `ConfirmDialog` | ✅ Implemented | `@orbit/components` |
 | `MetricCard` | ✅ Implemented | `@orbit/components` |
 | `EventFeedItem` | ✅ Implemented | `@orbit/components` |
@@ -413,7 +413,7 @@ interface MetricCardProps {
 
 #### `PageSectionHeader`
 
-> **Promoted to Tier 1 (2026-04-28).** `PageSectionHeader` carries zero kora domain knowledge — it is a generic layout primitive. It now lives at `frontend/src/packages/hades/src/components/page-section-header/` and is exported from `@orbit/hades`. All callers import from `@orbit/hades`. Storybook story at `Hades/Layout/PageSectionHeader`.
+> **Promoted to Tier 1 (2026-04-28).** `PageSectionHeader` carries zero kora domain knowledge — it is a generic layout primitive. It now lives at `frontend/src/packages/hades/src/components/page-section-header/` and is exported from `@runkora/hades`. All callers import from `@runkora/hades`. Storybook story at `Hades/Layout/PageSectionHeader`.
 
 **Props**:
 ```ts
@@ -509,7 +509,7 @@ When about to write any frontend component code, an agent must consult these sou
 | 1 | `AGENTS.md` (repo root) — § Frontend Development | Three-tier model summary and banned patterns — read on every frontend task |
 | 2 | `frontend/docs/golden-paths/ui-components.md` | Placement decision tree, full Tier 1 Hades inventory, full Tier 2 inventory, `@tier` annotation format |
 | 3 | `frontend/docs/reference/hades-design-system.md` | Full Hades component props, JSX examples, every ESLint rule explained |
-| 4 | `frontend/src/packages/hades/src/index.ts` | Authoritative list of what is actually exported from `@orbit/hades` |
+| 4 | `frontend/src/packages/hades/src/index.ts` | Authoritative list of what is actually exported from `@runkora/hades` |
 | 5 | `frontend/src/components/index.ts` (Phase 2+) | Authoritative list of Tier 2 app-shared components |
 
 An agent must not write a component that already exists at a higher priority source. If a component satisfies the need, use it. If it almost satisfies the need, extend it via props rather than duplicating it.
@@ -547,7 +547,7 @@ A component that skips any step is incomplete. The agent that creates it owns al
 
 | Phase | Tier | Agent-ready? | What agents can rely on |
 |-------|------|-------------|------------------------|
-| Phase 0 ✅ | Tier 1 — Hades core | ✅ Yes | All pre-existing Hades components discoverable via `ui-components.md` and `@orbit/hades` barrel. `no-direct-lucide-import` enforced. |
+| Phase 0 ✅ | Tier 1 — Hades core | ✅ Yes | All pre-existing Hades components discoverable via `ui-components.md` and `@runkora/hades` barrel. `no-direct-lucide-import` enforced. |
 | Phase 1 ✅ | Tier 1 — Phase 1 additions | ✅ Yes | `Modal`, `useDialog`, `FormField` in barrel and documented. All raw `<dialog>` consumers migrated. |
 | Phase 2 ✅ | Tier 2 — app-shared | ✅ Yes | `@orbit/components` barrel exports all 7 Tier 2 components. `ui-components.md` Tier 2 section populated. `app-components.md` golden path created. All callers migrated. |
 
@@ -582,7 +582,7 @@ When creating or extracting a UI component, determine its tier:
      Place in frontend/src/packages/hades/src/components/.
      Must follow [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) authoring conventions: data-slot, React.forwardRef,
      cva/cn, React.ComponentPropsWithoutRef, Storybook story required.
-     Import via: import { ComponentName } from '@orbit/hades'
+     Import via: import { ComponentName } from '@runkora/hades'
 
    Has domain knowledge → Tier 2 (app-level shared).
      Place in frontend/src/components/.

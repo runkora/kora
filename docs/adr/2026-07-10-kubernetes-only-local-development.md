@@ -16,7 +16,7 @@ It no longer describes the platform. kora's behaviour now lives in the parts tha
 - **Identity.** SVID exchange and workload attestation come from SPIRE. There is no SPIRE on the host.
 - **Policy.** Enforcement happens at the edge, in Envoy with OPA, before a request reaches application code. On the host, that layer is absent, so a request takes a different path through the system than it takes anywhere else.
 - **Credentials.** The `identity-proxy` sidecar and `egress-gateway` inject credentials into outbound calls. Neither exists on the host.
-- **Agents.** `orbit-agents`, `session-manager` and `sandbox-exec` orchestrate pods. They have no meaning outside a cluster.
+- **Agents.** `kora-agents`, `session-manager` and `sandbox-exec` orchestrate pods. They have no meaning outside a cluster.
 
 `make dev` starts the `identity` binary and nothing else (`Makefile:762`). It does not start the inference gateway, the policy service, the policy gateway, the tool gateway, or the agent control plane. An engineer running Tier 1 is exercising one service with its enforcement layer removed.
 
@@ -93,13 +93,13 @@ Postgres, Redis and Dex stay in Docker Compose. They are dependencies of the clu
 
 `.env` currently holds three kinds of value, and the first kind dies with this decision.
 
-**Host-process config.** `ORBIT_API_URL`, `INFERENCE_GATEWAY_URL`, `POLICY_GATEWAY_URL`, `POLICY_SERVICE_URL`, `TOOL_GATEWAY_URL`, `ORBIT_AGENTS_URL`, `APP_ENV`, `DB_HOST`, `REDIS_HOST`, `ORBIT_ACCESS_TOKEN_TTL_MINUTES`, `ORBIT_TENANTS_CONFIG`, `ORBIT_TOKEN_JWKS_URL`, `ORBIT_TOKEN_SIGNING_KEY_FILE`, `VERTEX_ANTHROPIC_LOCATION`. These are read by a backend or frontend process running on the host. In the cluster the same settings come from chart values (`deploy/local/orbit-values.yaml` is what sets the local 4h token TTL, not `.env`). They are removed.
+**Host-process config.** `KORA_API_URL`, `INFERENCE_GATEWAY_URL`, `POLICY_GATEWAY_URL`, `POLICY_SERVICE_URL`, `TOOL_GATEWAY_URL`, `KORA_AGENTS_URL`, `APP_ENV`, `DB_HOST`, `REDIS_HOST`, `ORBIT_ACCESS_TOKEN_TTL_MINUTES`, `ORBIT_TENANTS_CONFIG`, `ORBIT_TOKEN_JWKS_URL`, `KORA_TOKEN_SIGNING_KEY_FILE`, `VERTEX_ANTHROPIC_LOCATION`. These are read by a backend or frontend process running on the host. In the cluster the same settings come from chart values (`deploy/local/orbit-values.yaml` is what sets the local 4h token TTL, not `.env`). They are removed.
 
 `NEXT_PUBLIC_OIDC_REDIRECT_URI` has no consumer anywhere in the tree. It is removed.
 
 **Compose inputs.** `DB_USER`, `DB_NAME`, `DB_PORT`, `DB_PASSWORD`, `REDIS_PORT`, `REDIS_PASSWORD`, `GLAUTH_DEV_PASSWORD_HASH`. These stay, but as defaults inside `docker-compose.yml` (`${DB_PORT:-5432}`) rather than as lines a human must copy.
 
-**Cluster secret inputs.** `create-secrets.sh` reads `BFF_SESSION_SECRET`, `DB_PASSWORD`, `REDIS_PASSWORD` and the tenant OIDC client secret from `.env` and writes them into `orbit-secrets`. These stay, and are generated.
+**Cluster secret inputs.** `create-secrets.sh` reads `BFF_SESSION_SECRET`, `DB_PASSWORD`, `REDIS_PASSWORD` and the tenant OIDC client secret from `.env` and writes them into `kora-secrets`. These stay, and are generated.
 
 ### How `.env` gets built
 
@@ -142,5 +142,5 @@ Postgres and Redis passwords stay at fixed local defaults rather than being rand
 - Remove `make dev`, `make frontend-dev`, `.air.toml`, and the `air` install from `make install-tools`.
 - Add `make up`, `make down`, `make auth`; make `SERVICE` optional on `make redeploy`.
 - Strip the host-process variables from `.env.example`, move compose inputs to defaults in `docker-compose.yml`, and have `make setup` generate `.env` with the two real secrets.
-- Rewrite `docs/guides/day-one.md` and `docs/guides/local-development.md` around the single path, and delete the Tier 1 and Tier 2 language from `README.md`, `CONTRIBUTING.md` and `AGENTS.md`.
+- Rewrite `docs/guides/day-one.md` and `docs/contributing/local-development.md` around the single path, and delete the Tier 1 and Tier 2 language from `README.md`, `CONTRIBUTING.md` and `AGENTS.md`.
 - Mark [local-development-environment](2026-03-10-local-development-environment.md) as superseded once this is accepted.

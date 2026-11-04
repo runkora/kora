@@ -3,7 +3,7 @@
 // Client-side fetch helpers. Call the BFF route handlers at /api/analytics/me
 // and /api/analytics — never the Go backend directly.
 
-import { ApiRoute } from '@orbit/lib/routing/api-routes';
+import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import type { AnalyticsResponse } from '../_types';
 
 export interface FetchAnalyticsResult {

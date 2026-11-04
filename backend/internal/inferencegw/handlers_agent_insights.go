@@ -1,13 +1,14 @@
 package inferencegw
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/validation"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/usagewindow"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/usagewindow"
 )
 
 // handleAgentInsights handles GET /v1/usage/agent-insights?period=24h|7d|30d|90d and
@@ -30,7 +31,16 @@ func (c *Controller) handleAgentInsights(w http.ResponseWriter, r *http.Request)
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidField, "a valid agent slug is required", nil), nil)
 		return
 	}
-	out, err := c.svc.Insights(ctx, p.TenantID, period, slug, time.Now().UTC())
+	agents, err := c.svc.ReadableAgents(ctx, slug)
+	if errors.Is(err, ErrAgentUsageForbidden) {
+		api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil), nil)
+		return
+	}
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to authorize agent usage", nil), err)
+		return
+	}
+	out, err := c.svc.Insights(ctx, p.TenantID, period, agents, time.Now().UTC())
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to get agent insights", nil), err)
 		return

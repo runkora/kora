@@ -12,15 +12,15 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/yaml"
 
-	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
-	"github.com/clear-route/orbit/internal/platform/config"
+	agentsConfig "github.com/runkora/kora/backend/cmd/kora-agents/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
-// renderChart renders the orbit chart over the CI values plus values, passing
+// renderChart renders the kora chart over the CI values plus values, passing
 // extra helm arguments through. Needs helm and the chart's dependencies.
 func renderChart(t *testing.T, values string, extra ...string) string {
 	t.Helper()
-	chart := filepath.Join("..", "..", "..", "..", "charts", "orbit")
+	chart := filepath.Join("..", "..", "..", "..", "charts", "kora")
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not installed")
 	}
@@ -31,7 +31,7 @@ func renderChart(t *testing.T, values string, extra ...string) string {
 	if err := os.WriteFile(file, []byte(values), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	args := append([]string{"template", "orbit", chart, "-n", "orbit-system", "-f", filepath.Join(chart, "ci", "default-values.yaml"), "-f", file}, extra...)
+	args := append([]string{"template", "kora", chart, "-n", "kora-system", "-f", filepath.Join(chart, "ci", "default-values.yaml"), "-f", file}, extra...)
 	out, err := exec.Command("helm", args...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("helm template: %v\n%s", err, out)
@@ -43,12 +43,12 @@ func renderChart(t *testing.T, values string, extra ...string) string {
 func TestChartMaxSizeFallsBackToDefaultSize(t *testing.T) {
 	out := renderChart(t, "agents:\n  environments:\n    defaultSize: {cpu: \"3\", memory: 6Gi, disk: 12Gi}\n    maxSize: {cpu: \"6\"}\n")
 	for _, root := range writeMountedConfig(t, out) {
-		if _, err := os.Stat(filepath.Join(root, "cmd", "orbit-agents.yaml")); err != nil {
+		if _, err := os.Stat(filepath.Join(root, "cmd", "kora-agents.yaml")); err != nil {
 			continue
 		}
 		config.SetOverlayRoot(root)
-		cfg, err := config.LoadService[agentsConfig.Config]("cmd/orbit-agents", "production")
-		config.SetOverlayRoot("/etc/orbit/config")
+		cfg, err := config.LoadService[agentsConfig.Config]("cmd/kora-agents", "production")
+		config.SetOverlayRoot("/etc/kora/config")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -58,7 +58,7 @@ func TestChartMaxSizeFallsBackToDefaultSize(t *testing.T) {
 		}
 		return
 	}
-	t.Fatal("no workload mounts the orbit-agents config")
+	t.Fatal("no workload mounts the kora-agents config")
 }
 
 // With no resources set, the headroom placeholder reserves one default sandbox
@@ -102,7 +102,7 @@ func TestChartHeadroomReservesDefaultSandboxPod(t *testing.T) {
 }
 
 // The chart exposes both idle timeouts, with the manual one at today's 20
-// minutes, and orbit-agents decodes what it renders.
+// minutes, and kora-agents decodes what it renders.
 func TestChartIdleTimeouts(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -117,12 +117,12 @@ func TestChartIdleTimeouts(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			out := renderChart(t, tt.values)
 			for _, root := range writeMountedConfig(t, out) {
-				if _, err := os.Stat(filepath.Join(root, "cmd", "orbit-agents.yaml")); err != nil {
+				if _, err := os.Stat(filepath.Join(root, "cmd", "kora-agents.yaml")); err != nil {
 					continue
 				}
 				config.SetOverlayRoot(root)
-				cfg, err := config.LoadService[agentsConfig.Config]("cmd/orbit-agents", "production")
-				config.SetOverlayRoot("/etc/orbit/config")
+				cfg, err := config.LoadService[agentsConfig.Config]("cmd/kora-agents", "production")
+				config.SetOverlayRoot("/etc/kora/config")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -134,7 +134,7 @@ func TestChartIdleTimeouts(t *testing.T) {
 				}
 				return
 			}
-			t.Fatal("no rendered orbit-agents config found")
+			t.Fatal("no rendered kora-agents config found")
 		})
 	}
 }

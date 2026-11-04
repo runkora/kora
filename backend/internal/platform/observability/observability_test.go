@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
 
 // setPlatformObs overwrites platform-level observability tunables for a single
@@ -345,18 +345,21 @@ func TestCreateNoOpProvider(t *testing.T) {
 	}
 	defer otel.SetTracerProvider(nil)
 
-	if err := shutdown(ctx); err != nil {
-		t.Errorf("shutdown() error = %v", err)
-	}
-
 	tracer := tp.Tracer("test")
 	if tracer == nil {
 		t.Fatal("Tracer should not be nil")
 	}
 
-	_, span := tracer.Start(ctx, "test-span")
+	spanCtx, span := tracer.Start(ctx, "test-span")
 	if span == nil {
 		t.Fatal("Span should not be nil")
 	}
+	if id := SampledTraceID(TraceParent(spanCtx)); id != nil {
+		t.Errorf("trace ID = %q, want none when no exporter is configured", *id)
+	}
 	span.End()
+
+	if err := shutdown(ctx); err != nil {
+		t.Errorf("shutdown() error = %v", err)
+	}
 }

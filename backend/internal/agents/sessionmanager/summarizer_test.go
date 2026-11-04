@@ -10,7 +10,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 func TestSummarizer_CallsMessagesEndpointWithModel(t *testing.T) {
@@ -131,7 +131,7 @@ func TestSummarizer_ErrorOnNon200(t *testing.T) {
 	}
 }
 
-func TestSummarizer_ErrorOnEmptyContent(t *testing.T) {
+func TestSummarizer_ErrorOnEmptyContentAndMessage(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -140,8 +140,8 @@ func TestSummarizer_ErrorOnEmptyContent(t *testing.T) {
 	defer srv.Close()
 
 	s := newSummarizer(logging.NewLogger())
-	if _, err := s.Summarize(context.Background(), srv.URL, "m", "x"); err == nil {
-		t.Fatal("expected error for empty content, got nil")
+	if _, err := s.Summarize(context.Background(), srv.URL, "m", "  \n"); err == nil {
+		t.Fatal("expected error for empty content and blank message, got nil")
 	}
 }
 
@@ -166,19 +166,23 @@ func TestSummarizer_SkipsLeadingThinkingBlock(t *testing.T) {
 }
 
 // A reasoning model can spend its whole token budget thinking and return only
-// a thinking block; that must still surface the empty-summary error, not a
-// summary built from the thinking block's own content.
-func TestSummarizer_ErrorOnThinkingBlockOnly(t *testing.T) {
+// a thinking block; the label falls back to the first line of the message, not
+// the thinking block's content.
+func TestSummarizer_FallsBackOnThinkingBlockOnly(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"content":[{"type":"thinking","thinking":"reasoning..."}]}`)) //nolint:errcheck
+		w.Write([]byte(`{"stop_reason":"max_tokens","content":[{"type":"thinking","thinking":"reasoning..."}]}`)) //nolint:errcheck
 	}))
 	defer srv.Close()
 
 	s := newSummarizer(logging.NewLogger())
-	if _, err := s.Summarize(context.Background(), srv.URL, "m", "x"); err == nil {
-		t.Fatal("expected error when only a thinking block is returned, got nil")
+	got, err := s.Summarize(context.Background(), srv.URL, "m", "\nSummarise https://github.com/runkora/kora/pull/768\nmore detail")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := "Summarise https://github.com/runkora/kora/pull/768"; got != want {
+		t.Errorf("summary = %q, want %q", got, want)
 	}
 }
 
@@ -262,5 +266,41 @@ func TestSummarizer_ThinkingRetryLimits(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Errorf("requests on 403 = %d, want 1", calls)
+	}
+}
+
+// A thinking-enabled retry shares max_tokens with the thinking block, so it
+// needs room for both or the response has no text block.
+func TestSummarizer_ThinkingRetryHasRoomForText(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			MaxTokens int `json:"max_tokens"`
+			Thinking  *struct {
+				Type string `json:"type"`
+			} `json:"thinking"`
+		}
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &body)
+		w.Header().Set("Content-Type", "application/json")
+		if body.Thinking != nil && body.Thinking.Type == "disabled" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		if body.MaxTokens < 500 {
+			w.Write([]byte(`{"stop_reason":"max_tokens","content":[{"type":"thinking","thinking":"hm"}]}`)) //nolint:errcheck
+			return
+		}
+		w.Write([]byte(`{"stop_reason":"end_turn","content":[{"type":"thinking","thinking":"hm"},{"type":"text","text":"Label"}]}`)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	s := newSummarizer(logging.NewLogger())
+	got, err := s.Summarize(context.Background(), srv.URL, "m", "x")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "Label" {
+		t.Errorf("summary = %q, want %q", got, "Label")
 	}
 }

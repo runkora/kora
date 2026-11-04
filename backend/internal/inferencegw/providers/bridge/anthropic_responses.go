@@ -8,9 +8,9 @@ import (
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"github.com/openai/openai-go/v3/responses"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/convert"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // AnthropicResponsesBridge translates Responses API calls to the Anthropic
@@ -47,12 +47,12 @@ func (b *AnthropicResponsesBridge) Execute(ctx context.Context, params responses
 		return nil, convert.WrapTranslationError(b.provider, err)
 	}
 
-	accumulated, _, err := convert.AccumulateAnthropicStream(b.client.Messages.NewStreaming(ctx, anthropicParams), b.provider)
+	accumulated, _, err := convert.AccumulateAnthropicStream(ctx, b.client.Messages.NewStreaming(ctx, anthropicParams), b.provider)
 	if err != nil {
 		return nil, err
 	}
 
-	resp := convert.AnthropicMessageToResponsesResponse(accumulated)
+	resp := convert.AnthropicMessageToResponsesResponse(accumulated, convert.ResponsesToolNames(params.Tools))
 	b.logger.Debug(ctx, "bridge: anthropic responses execute done",
 		logging.Field{Key: "status", Value: string(resp.Status)},
 	)
@@ -82,7 +82,7 @@ func (b *AnthropicResponsesBridge) ExecuteStream(ctx context.Context, params res
 		defer close(ch)
 		defer stream.Close()
 
-		state := convert.NewAnthropicResponsesStreamState()
+		state := convert.NewAnthropicResponsesStreamState(convert.ResponsesToolNames(params.Tools))
 		var completed bool
 		for stream.Next() {
 			for _, ev := range convert.AnthropicEventToResponsesEvents(stream.Current(), state) {

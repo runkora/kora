@@ -15,8 +15,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { renderWithProviders } from '@orbit/test-utils';
-import { APP_ROUTES } from '@orbit/lib/routing/routes';
+import { renderWithProviders } from '@runkora/test-utils';
+import { APP_ROUTES } from '@runkora/lib/routing/routes';
 import { SidebarUserFooter } from './sidebar-user-footer';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
@@ -24,13 +24,14 @@ import { SidebarUserFooter } from './sidebar-user-footer';
 const { DEFAULT_SESSION, pushMock } = vi.hoisted(() => ({
   DEFAULT_SESSION: {
     scopes: [],
-    user: { sub: 'user-test-123', email: 'dev@orbit.local', name: 'Dev User' },
+    user: { sub: 'user-test-123', email: 'dev@runkora.test', name: 'Dev User' },
     loaded: true,
   },
   pushMock: vi.fn(),
 }));
 
-vi.mock('./permissions-provider', () => ({
+vi.mock('./permissions-provider', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./permissions-provider')>()),
   useSession: vi.fn().mockReturnValue(DEFAULT_SESSION),
 }));
 
@@ -76,7 +77,7 @@ describe('SidebarUserFooter', () => {
   it('renders the user name and email in the trigger', () => {
     renderFooter();
     expect(screen.getByText('Dev User')).toBeInTheDocument();
-    expect(screen.getByText('dev@orbit.local')).toBeInTheDocument();
+    expect(screen.getByText('dev@runkora.test')).toBeInTheDocument();
   });
 
   it('shows "Loading…" before the session is loaded (user is null)', () => {
@@ -89,7 +90,7 @@ describe('SidebarUserFooter', () => {
   it('does not duplicate the email when the user has no display name', async () => {
     vi.mocked(useSession).mockReturnValue({
       scopes: [],
-      user: { sub: 'anon-sub', email: 'anon@orbit.local', name: '' },
+      user: { sub: 'anon-sub', email: 'anon@runkora.test', name: '' },
       loaded: true,
     });
     const user = userEvent.setup();
@@ -97,7 +98,7 @@ describe('SidebarUserFooter', () => {
 
     // The email renders with a zero-width space after '@' (soft wrap hint),
     // so match loosely rather than on the literal string.
-    const emailPattern = /anon@​?orbit\.local/;
+    const emailPattern = /anon@​?runkora\.test/;
 
     // Trigger: a single email line, no separate bold name row.
     expect(screen.getAllByText(emailPattern)).toHaveLength(1);

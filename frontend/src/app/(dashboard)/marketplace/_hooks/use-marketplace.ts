@@ -18,8 +18,8 @@
 
 import { startTransition, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { APP_ROUTES } from '@orbit/lib/routing';
-import type { Marketplace, SkillSummary } from '@orbit/shared/api';
+import { APP_ROUTES } from '@runkora/lib/routing';
+import type { Marketplace, SkillSummary } from '@runkora/shared/api';
 import { MarketplaceBrowseStateContext } from '../_context/marketplace-browse-state';
 import { fetchMarketplaceOverview } from '../_services/marketplace-api';
 import { cleanBrowseUrl, parseBrowseParams, toSearchQuery } from '../_utils/browse-params';

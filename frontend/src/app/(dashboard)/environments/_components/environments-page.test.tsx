@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
+import { renderWithProviders } from '@runkora/test-utils';
 import { EnvironmentsPage } from './environments-page';
 import type { EnvironmentRow } from '../_types';
 
@@ -25,6 +26,7 @@ const row = (id: string, name: string, sandboxImage: string): EnvironmentRow => 
   connectors: [],
   createdAt: '',
   updatedAt: '',
+  declared: false,
 });
 
 const ROWS = [
@@ -47,7 +49,7 @@ const IMAGES = [
 
 describe('EnvironmentsPage', () => {
   it('shows each image, its validity and the size', () => {
-    render(
+    renderWithProviders(
       <EnvironmentsPage rows={ROWS} connections={[]} images={IMAGES} sizes={null} error={null} />,
     );
     expect(screen.getByText('acme-go')).toBeInTheDocument();
@@ -56,8 +58,51 @@ describe('EnvironmentsPage', () => {
     expect(screen.getAllByText('2 CPU · 4Gi memory · 10Gi disk')).toHaveLength(3);
   });
 
+  it.each([
+    [['agents:environments:read'], false],
+    [['agents:environments:read', 'agents:environments:write'], true],
+  ])('with %j enables write controls: %s', (scopes, shown) => {
+    renderWithProviders(
+      <EnvironmentsPage rows={ROWS} connections={[]} images={IMAGES} sizes={null} error={null} />,
+      { scopes },
+    );
+    expect(
+      !(screen.getByRole('button', { name: /new environment/i }) as HTMLButtonElement).disabled,
+    ).toBe(shown);
+    expect(
+      !(screen.getByRole('button', { name: `Delete ${ROWS[0]!.name}` }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(shown);
+  });
+
+  it('shows a declared environment as managed in git with no edit or delete', () => {
+    renderWithProviders(
+      <EnvironmentsPage
+        rows={[{ ...ROWS[0]!, declared: true }, ROWS[1]!]}
+        connections={[]}
+        images={IMAGES}
+        sizes={null}
+        error={null}
+      />,
+    );
+    expect(screen.getByText('Managed in git')).toBeInTheDocument();
+    expect(screen.queryByLabelText(`Delete ${ROWS[0]!.name}`)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(`Edit ${ROWS[0]!.name}`)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(`Delete ${ROWS[1]!.name}`)).toBeInTheDocument();
+  });
+
+  it('in a locked tenant hides every write control and says why', () => {
+    renderWithProviders(
+      <EnvironmentsPage rows={ROWS} connections={[]} images={IMAGES} sizes={null} error={null} />,
+      { apiAuthoring: false },
+    );
+    expect(screen.queryByRole('button', { name: /new environment/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(`Delete ${ROWS[0]!.name}`)).not.toBeInTheDocument();
+    expect(screen.getByText(/configuration repository/)).toBeInTheDocument();
+  });
+
   it('shows each slug under its name', () => {
-    render(
+    renderWithProviders(
       <EnvironmentsPage
         rows={[{ ...ROWS[0]!, slug: 'go-services' }]}
         connections={[]}
@@ -72,7 +117,7 @@ describe('EnvironmentsPage', () => {
 
   it('refreshes after deleting an unattached environment', async () => {
     deleteEnvironment.mockResolvedValue({ error: null });
-    render(
+    renderWithProviders(
       <EnvironmentsPage rows={ROWS} connections={[]} images={IMAGES} sizes={null} error={null} />,
     );
     fireEvent.click(screen.getByLabelText('Delete Plain'));

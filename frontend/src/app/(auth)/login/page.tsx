@@ -18,8 +18,8 @@
  */
 import { redirect } from 'next/navigation';
 
-import { getSession, isSessionValid } from '@orbit/server/session';
-import { isSafeRedirectPath } from '@orbit/lib/routing';
+import { getSession, isSessionValid } from '@runkora/server/session';
+import { isSafeRedirectPath } from '@runkora/lib/routing';
 
 import { LoginCard } from './_components/login-card';
 

@@ -1,7 +1,7 @@
 import 'server-only';
 
-import type { GetMarketplaces, MarketplaceDetail, Skill, SkillSummary } from '@orbit/shared/api';
-import { config } from '@orbit/server/config';
+import type { GetMarketplaces, MarketplaceDetail, Skill, SkillSummary } from '@runkora/shared/api';
+import { config } from '@runkora/server/config';
 import { ApiError } from './api-error';
 
 const UPSTREAM_TIMEOUT_MS = 10_000;

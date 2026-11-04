@@ -20,7 +20,7 @@ The first and motivating use case is **triggering agents on pull requests** to a
 
 ### Current State
 
-- The agent control plane (`orbit-agents`) creates runs exclusively via `POST /api/v1/runs`, deriving `tenant_id` and `created_by` from a verified human/PAT platform token (`backend/internal/agents/run_service.go`). There is **no non-interactive path** to start a run.
+- The agent control plane (`kora-agents`) creates runs exclusively via `POST /api/v1/runs`, deriving `tenant_id` and `created_by` from a verified human/PAT platform token (`backend/internal/agents/run_service.go`). There is **no non-interactive path** to start a run.
 - The run-and-session lifecycle ADR (`docs/adr/2026-05-11-run-and-session-lifecycle.md`) explicitly lists *"Scheduled or trigger-based run initiation (deferred)"* as a non-goal. This is the gap we are now closing.
 - There is **zero inbound webhook infrastructure** anywhere in the codebase — no signature verification, no event ingestion, no delivery logging. This is greenfield.
 - The GitHub App connector (`internal/credentials/adapters/githubapp`) exists, but it is an **egress** credential-injection point. It does not (and should not) receive or govern inbound webhooks.

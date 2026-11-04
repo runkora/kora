@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/usagewindow"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/usagewindow"
 )
 
 // errTestInternal is a sentinel used in tests to simulate unexpected repository errors.
@@ -49,12 +49,12 @@ type mockInferenceUsageRepository struct {
 	agentSpendFor []string // slugs of the last budget spend read
 }
 
-func (m *mockInferenceUsageRepository) AgentUsage(_ context.Context, tenantID string, _ usagewindow.Window, _ string) ([]AgentModelUsage, error) {
+func (m *mockInferenceUsageRepository) AgentUsage(_ context.Context, tenantID string, _ usagewindow.Window, _ AgentFilter) ([]AgentModelUsage, error) {
 	m.agentTenant = tenantID
 	return m.agentRows, nil
 }
 
-func (m *mockInferenceUsageRepository) AgentSpendBuckets(context.Context, string, usagewindow.Window, string) (float64, []float64, error) {
+func (m *mockInferenceUsageRepository) AgentSpendBuckets(context.Context, string, usagewindow.Window, AgentFilter) (float64, []float64, error) {
 	return m.agentPrevious, m.agentBuckets, nil
 }
 

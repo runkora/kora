@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/credentials/resolvers/k8sfile"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/credentials/resolvers/k8sfile"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // TestResolve_SymlinkOutOfRootRefused locks containment against a symlink

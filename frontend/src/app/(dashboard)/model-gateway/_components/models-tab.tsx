@@ -10,11 +10,11 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@orbit/hades';
-import { SmartTable } from '@orbit/components';
-import type { DataTableColumn } from '@orbit/components';
+} from '@runkora/hades';
+import { SmartTable } from '@runkora/components';
+import type { DataTableColumn } from '@runkora/components';
 import { BadgeList } from './badge-list';
-import { fmtCost } from '@orbit/utils';
+import { fmtCost } from '@runkora/utils';
 import type { ModelObjectPricing, ModelRow } from '../_types';
 import { useModelsContext } from '../_context/models-context';
 import { AvailabilityDot } from './availability-dot';

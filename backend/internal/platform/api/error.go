@@ -166,6 +166,14 @@ const (
 	// right now", and resource_already_exists cannot say the second.
 	ErrCodeConflict = "conflict"
 
+	// ErrCodeManagedByResource indicates the item is projected from a declarative
+	// resource and is read-only through the API. Use with ConflictError.
+	ErrCodeManagedByResource = "managed_by_resource"
+
+	// ErrCodeAPIAuthoringDisabled indicates the platform or tenant has turned off
+	// authoring through the API. Use with ForbiddenError.
+	ErrCodeAPIAuthoringDisabled = "api_authoring_disabled"
+
 	// ErrCodeUnauthorized indicates the request lacks valid authentication credentials.
 	// Use with UnauthorizedError when authentication is missing or invalid.
 	ErrCodeUnauthorized = "unauthorized"

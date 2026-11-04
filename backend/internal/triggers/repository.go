@@ -3,6 +3,8 @@ package triggers
 import (
 	"context"
 	"time"
+
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 )
 
 // Repository is the storage contract for the Triggers feature: the union of the
@@ -20,6 +22,21 @@ type Repository interface {
 	PendingQueue
 	SafetyStore
 	RetentionStore
+	RoutingStore
+}
+
+// RoutingStore is the decision record of routed triggers. A routed trigger's
+// settings and candidates are written and read with the trigger itself.
+type RoutingStore interface {
+	// LatestJoinKeyRun returns the run and agent of the newest decision of this
+	// trigger with this join key and a run. found is false when there is none.
+	LatestJoinKeyRun(ctx context.Context, tenantID, triggerID, joinKey string) (runID, agentTypeID string, found bool, err error)
+	// InsertRoutingDecision records one routed delivery's decision. A second
+	// decision for the same delivery and trigger is ignored.
+	InsertRoutingDecision(ctx context.Context, d *RoutingDecision) error
+	// StartFieldsByDelivery returns the start fields recorded for the given
+	// deliveries of a trigger, keyed by delivery id. A delivery with none is absent.
+	StartFieldsByDelivery(ctx context.Context, tenantID, triggerID string, deliveryIDs []string) (map[string]map[string]string, error)
 }
 
 // SourceStore is the webhook sources a tenant registers, and the counters the
@@ -37,6 +54,11 @@ type SourceStore interface {
 	// must use GetSource.
 	GetSourceByID(ctx context.Context, id string) (*WebhookSource, error)
 	ListSources(ctx context.Context, tenantID string) ([]WebhookSource, error)
+	// GetSourceByName returns the tenant's source with the name. Names are
+	// unique per tenant across API and declared sources.
+	GetSourceByName(ctx context.Context, tenantID, name string) (*WebhookSource, error)
+	// ListDeclaredSources returns the tenant's sources projected from a resource.
+	ListDeclaredSources(ctx context.Context, tenantID string) ([]declarative.Declared, error)
 	UpdateSource(ctx context.Context, s *WebhookSource) error
 	DeleteSource(ctx context.Context, tenantID, id string) error
 
@@ -88,9 +110,26 @@ type TriggerStore interface {
 	// gates the enabled / auto_paused_at columns: an edit that did not touch
 	// enablement (a rename, a filter change) passes false so it cannot write
 	// back the stale enabled/auto_paused_at it read at the start of the request
-	// and silently revert a concurrent auto-pause.
-	UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement bool) error
+	// and silently revert a concurrent auto-pause. writeRouting gates the
+	// routing rows on the same reasoning.
+	UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement, writeRouting bool) error
+	// UpdateTriggerGrant is UpdateTrigger for an edit that replaced the
+	// trigger's grant: it writes only while the stored grant is still
+	// oldGrantID, and returns ErrTriggerConflict otherwise. A grant is only
+	// replaced by a routing change, so it always writes the routing rows.
+	UpdateTriggerGrant(ctx context.Context, t *Trigger, writeEnablement bool, oldGrantID *string) error
 	DeleteTrigger(ctx context.Context, tenantID, id string) error
+
+	// GetDeclaredTrigger returns the trigger projected from the tenant's
+	// Trigger resource with the name.
+	GetDeclaredTrigger(ctx context.Context, tenantID, name string) (*Trigger, error)
+	// TriggerNameTaken reports whether a trigger with the name and source exists in the tenant.
+	TriggerNameTaken(ctx context.Context, tenantID, name, source string) (bool, error)
+	// ListDeclaredTriggers returns the tenant's triggers projected from a resource.
+	ListDeclaredTriggers(ctx context.Context, tenantID string) ([]declarative.Declared, error)
+	// UpdateDeclaredTrigger writes every field a Trigger resource owns. It
+	// never writes auto_paused_at or consecutive_failures.
+	UpdateDeclaredTrigger(ctx context.Context, t *Trigger) error
 }
 
 // DeliveryStore is the audit spine: what arrived, what each trigger did with it,
@@ -140,6 +179,13 @@ type DeliveryStore interface {
 	// the given delivery ids, scoped to the tenant, keyed by delivery id. Used to
 	// attach the full run fan-out to a delivery listing without an N+1 query.
 	ListDeliveryRunsForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error)
+	// InsertDeliveryKey records the coalescing key a trigger rendered for a
+	// delivery. It is written before the fire is enqueued, so the key is
+	// readable for as long as the fire waits.
+	InsertDeliveryKey(ctx context.Context, k *DeliveryKey) error
+	// ListDeliveryKeysForDeliveries returns the recorded keys for the given
+	// delivery ids, scoped to the tenant, keyed by delivery id.
+	ListDeliveryKeysForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryKey, error)
 
 	// ClaimReplayKey records a body fingerprint against a source and reports
 	// whether the source may take that body under this provider delivery id.
@@ -161,7 +207,8 @@ type PendingQueue interface {
 	// through here, so an acknowledged fire always starts.
 	EnqueuePending(ctx context.Context, p *PendingDelivery) error
 	// ClaimPending takes up to limit unclaimed fires for triggers under their
-	// ceiling, using FOR UPDATE SKIP LOCKED so replicas do not contend.
+	// ceiling, using FOR UPDATE SKIP LOCKED so replicas do not contend. A fire
+	// still inside its coalescing window is not claimable.
 	ClaimPending(ctx context.Context, limit int) ([]PendingDelivery, error)
 	// ReleasePending removes a claimed row once its dispatch has settled.
 	ReleasePending(ctx context.Context, id string) error
@@ -184,6 +231,23 @@ type PendingQueue interface {
 	// caller records each as superseded) and enqueues the replacement in one
 	// transaction, under a lock on the trigger.
 	SupersedeAndEnqueue(ctx context.Context, p *PendingDelivery) ([]PendingDelivery, error)
+	// EnqueueCoalescing enqueues a fire under its coalescing key. The fire waits
+	// window before it can be claimed.
+	//
+	// If the trigger already has a waiting row with the same key that is still
+	// inside its window, that row is replaced in place: the newest fire's
+	// payload is kept, the original dispatch time is kept, and the replaced
+	// fire's delivery id is returned so the caller can record it as superseded.
+	// Otherwise a new row opens a new window and the returned id is empty.
+	// Claimed rows are never replaced. The lookup and the write are one
+	// transaction under a lock on the trigger, so concurrent fires with one key
+	// leave one row.
+	EnqueueCoalescing(ctx context.Context, p *PendingDelivery, window time.Duration) (replacedDeliveryID string, err error)
+	// HoldPending returns a claimed fire to the queue, claimable again after
+	// delay, counts the hold and records reason on the delivery.
+	HoldPending(ctx context.Context, pendingID, deliveryID string, delay time.Duration, reason string) error
+	// ClearDeliveryReason removes the reason a hold recorded on a delivery.
+	ClearDeliveryReason(ctx context.Context, deliveryID string) error
 	// TrimPending evicts the oldest waiting rows beyond depth, returning them.
 	TrimPending(ctx context.Context, triggerID string, depth int) ([]PendingDelivery, error)
 	// DrainPending removes everything still WAITING for a trigger, returning it.

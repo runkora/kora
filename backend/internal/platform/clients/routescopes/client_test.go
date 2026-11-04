@@ -7,9 +7,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func TestRegister_SendsBodyAndBearer(t *testing.T) {
@@ -70,7 +75,78 @@ func TestRegister_Non204IsError(t *testing.T) {
 	token := func(context.Context) (string, error) { return "self-token", nil }
 	c := NewClient(srv.URL, token, logging.NewLoggerWithOutput(io.Discard))
 
-	if err := c.Register(t.Context(), "orbit-agents", testRoutes, nil); !errors.Is(err, ErrRegistrationFailed) {
+	if err := c.Register(t.Context(), "kora-agents", testRoutes, nil); !errors.Is(err, ErrRegistrationFailed) {
 		t.Fatalf("Register error = %v, want %v", err, ErrRegistrationFailed)
+	}
+}
+
+// The policy service reads a null requires as unknown and [] as a clear.
+func TestScopeDeclaration_RequiresWireForm(t *testing.T) {
+	tests := []struct {
+		name     string
+		requires []string
+		want     string
+	}{
+		{name: "unknown", requires: nil, want: "null"},
+		{name: "declared empty", requires: []string{}, want: "[]"},
+		{name: "declared", requires: []string{"a:read"}, want: `["a:read"]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b, err := json.Marshal(ScopeDeclaration{Scope: "x:read", Requires: tt.requires})
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			var got map[string]json.RawMessage
+			if err := json.Unmarshal(b, &got); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if string(got["requires"]) != tt.want {
+				t.Errorf("requires = %s, want %s", got["requires"], tt.want)
+			}
+		})
+	}
+}
+
+func TestRegister_SpansOnlyOnChangeOrFailure(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	var status atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(int(status.Load()))
+	}))
+	defer srv.Close()
+	token := func(context.Context) (string, error) { return "self-token", nil }
+	c := NewClient(srv.URL, token, logging.NewLoggerWithOutput(io.Discard))
+
+	tests := []struct {
+		name       string
+		routes     []RouteScope
+		status     int
+		wantSpans  int
+		wantStatus codes.Code
+	}{
+		{name: "first registration records a span", routes: testRoutes, status: http.StatusNoContent, wantSpans: 1},
+		{name: "unchanged registration records no span", routes: testRoutes, status: http.StatusNoContent, wantSpans: 0},
+		{name: "unchanged registration that fails records an error span", routes: testRoutes, status: http.StatusInternalServerError, wantSpans: 1, wantStatus: codes.Error},
+		{name: "changed registration records a span", routes: testRoutes[:0], status: http.StatusNoContent, wantSpans: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status.Store(int32(tt.status))
+			before := len(recorder.Ended())
+			_ = c.Register(t.Context(), "inference-gateway", tt.routes, testScopes)
+
+			spans := recorder.Ended()[before:]
+			if len(spans) != tt.wantSpans {
+				t.Fatalf("spans = %d, want %d", len(spans), tt.wantSpans)
+			}
+			if tt.wantSpans == 1 && spans[0].Status().Code != tt.wantStatus {
+				t.Errorf("status = %v, want %v", spans[0].Status().Code, tt.wantStatus)
+			}
+		})
 	}
 }

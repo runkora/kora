@@ -334,6 +334,13 @@ type ConnectorError struct {
 	// provider in the failover chain.
 	Retryable bool
 
+	// RequestRejected is set when the provider rejected the request itself as
+	// invalid (HTTP 400/422). The same request fails identically on every
+	// target, so the routing engine returns the error instead of failing over.
+	// Target-specific refusals (unknown model, auth, unsupported route) leave
+	// it false so they still fail over.
+	RequestRejected bool
+
 	// Underlying is the raw provider error (never surfaced to callers).
 	Underlying error
 
@@ -394,6 +401,9 @@ type ModelPricing struct {
 	SecondOutputCost     float64 // USD per-second output (per-unit, not scaled)
 	AudioInputCostPer1M  float64 // USD per 1,000,000 audio tokens input
 	AudioOutputCostPer1M float64 // USD per 1,000,000 audio tokens output
+	// HasOverride is set when an admin overrode any price on the row, so an
+	// override of 0 reads as a free model, not as a missing price.
+	HasOverride bool
 }
 
 // EstimatedCostUSD returns the estimated total cost for the given token counts,

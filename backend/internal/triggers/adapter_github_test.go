@@ -86,38 +86,38 @@ func TestGitHubAdapter_Sender(t *testing.T) {
 		name      string
 		body      string
 		wantOK    bool
-		wantLogin string
-		wantAssoc string
+		wantID    string
+		wantRoles []string
 	}{
 		{
 			name:   "issue comment by its author",
 			body:   `{"sender":{"login":"Alice"},"comment":{"user":{"login":"alice"},"author_association":"MEMBER"}}`,
-			wantOK: true, wantLogin: "alice", wantAssoc: "MEMBER",
+			wantOK: true, wantID: "alice", wantRoles: []string{"MEMBER"},
 		},
 		{
 			name:   "review by its author",
 			body:   `{"sender":{"login":"bob"},"review":{"user":{"login":"bob"},"author_association":"COLLABORATOR"},"pull_request":{"user":{"login":"carol"},"author_association":"OWNER"}}`,
-			wantOK: true, wantLogin: "bob", wantAssoc: "COLLABORATOR",
+			wantOK: true, wantID: "bob", wantRoles: []string{"COLLABORATOR"},
 		},
 		{
 			name:   "discussion answer",
 			body:   `{"sender":{"login":"dan"},"answer":{"user":{"login":"dan"},"author_association":"OWNER"}}`,
-			wantOK: true, wantLogin: "dan", wantAssoc: "OWNER",
+			wantOK: true, wantID: "dan", wantRoles: []string{"OWNER"},
 		},
 		{
 			name:   "pull request opened by its author",
 			body:   `{"sender":{"login":"erin"},"pull_request":{"user":{"login":"erin"},"author_association":"CONTRIBUTOR"}}`,
-			wantOK: true, wantLogin: "erin", wantAssoc: "CONTRIBUTOR",
+			wantOK: true, wantID: "erin", wantRoles: []string{"CONTRIBUTOR"},
 		},
 		{
 			name:   "pull request labeled by someone else",
 			body:   `{"sender":{"login":"frank"},"pull_request":{"user":{"login":"erin"},"author_association":"MEMBER"}}`,
-			wantOK: true, wantLogin: "frank", wantAssoc: "",
+			wantOK: true, wantID: "frank",
 		},
 		{
 			name:   "push carries no association",
 			body:   `{"sender":{"login":"gina"},"pusher":{"name":"gina"}}`,
-			wantOK: true, wantLogin: "gina", wantAssoc: "",
+			wantOK: true, wantID: "gina",
 		},
 		{
 			name:   "no sender",
@@ -128,8 +128,8 @@ func TestGitHubAdapter_Sender(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s, ok := a.Sender("", decodeBody([]byte(tt.body)))
-			if ok != tt.wantOK || s.Login != tt.wantLogin || s.Association != tt.wantAssoc {
-				t.Errorf("Sender = (%+v, %v), want login %q association %q ok %v", s, ok, tt.wantLogin, tt.wantAssoc, tt.wantOK)
+			if ok != tt.wantOK || s.ID != tt.wantID || !slices.Equal(s.Roles, tt.wantRoles) {
+				t.Errorf("Sender = (%+v, %v), want id %q roles %v ok %v", s, ok, tt.wantID, tt.wantRoles, tt.wantOK)
 			}
 		})
 	}

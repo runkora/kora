@@ -3,7 +3,7 @@
 // Holds the agent Overview's figures for the selected period.
 
 import { useCallback, useState } from 'react';
-import type { AgentOverviewResponse } from '@orbit/shared/api';
+import type { AgentOverviewResponse } from '@runkora/shared/api';
 import { fetchAgentOverview } from '../_services/agent-detail-api';
 import { toAgentOverview } from '../../_lib/overview';
 import type { AgentOverview } from '../../_lib/overview';

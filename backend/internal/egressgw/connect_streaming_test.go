@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
-	"github.com/clear-route/orbit/internal/egressgw/tlsca/testtlsca"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
+	"github.com/runkora/kora/backend/internal/egressgw/tlsca/testtlsca"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // TestConnectResponseWriter_ChunkFraming asserts the on-wire format of a few
@@ -127,8 +127,8 @@ func TestConnect_StreamingResponse_ChunksArriveBeforeUpstreamCloses(t *testing.T
 
 	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, passthrough.New(), logger)
 	forwardTransport := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-	proxyHandler := NewProxyHandler(broker, forwardTransport, logger)
-	innerWithAuth := authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-9"), proxyHandler)
+	proxyHandler := NewProxyHandler(broker, forwardTransport, testBrand, logger)
+	innerWithAuth := authInjector(claimsFor("acme", "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder", "run-9"), proxyHandler)
 
 	ca, rootPEM, err := testtlsca.NewCA("acme")
 	if err != nil {
@@ -136,7 +136,7 @@ func TestConnect_StreamingResponse_ChunksArriveBeforeUpstreamCloses(t *testing.T
 	}
 	bundle := &fixedCABundle{tenant: "acme", ca: ca}
 	connect := NewConnectHandler(bundle, innerWithAuth, repo, logger)
-	gateway := httptest.NewServer(authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-9"), connect))
+	gateway := httptest.NewServer(authInjector(claimsFor("acme", "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder", "run-9"), connect))
 	defer gateway.Close()
 
 	clientPool := x509.NewCertPool()

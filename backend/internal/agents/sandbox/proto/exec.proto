@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package sandbox.exec.v1;
 
-option go_package = "github.com/clear-route/orbit/internal/agents/sandbox/proto";
+option go_package = "github.com/runkora/kora/backend/internal/agents/sandbox/proto";
 
 // ExecService runs shell commands inside a sandbox pod and streams output back.
 service ExecService {

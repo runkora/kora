@@ -1,0 +1,59 @@
+name: Bug report
+description: Something in kora doesn't work the way it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Please check [existing issues](https://github.com/runkora/kora/issues) first, and keep each report to a single problem.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, including any error messages.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Create an agent with ...
+        2. Start a run with ...
+        3. See ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: kora version
+      description: The release, such as `v0.10.0`, or the commit you built from.
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How kora is installed
+      options:
+        - Helm chart on a Kubernetes cluster
+        - Local development environment (make)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Kubernetes distribution and version, cloud provider, agent harness and anything else that might matter.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant log lines from the kora services or the run. Remove any secrets first.
+      render: shell

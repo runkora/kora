@@ -1,0 +1,20 @@
+{{- $mapping := .Values.skillsService.skillsMapping | default (dict "tenants" (list)) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kora-skill-marketplace-sources
+  namespace: {{ include "kora.systemNamespace" . }}
+{{- /*
+The chart owns skills-mapping.yaml only when skillsMapping lists tenants. By
+default it creates an empty ConfigMap, so the mount exists, and leaves the key to
+the operator, which renders it from SkillMarketplaceSource resources. When the
+chart writes the key it also sets the annotation below, and the operator stops
+writing it; otherwise each would overwrite the other's list.
+*/}}
+{{- if $mapping.tenants }}
+  annotations:
+    runkora.io/skills-mapping-from-chart: "true"
+data:
+  skills-mapping.yaml: |
+    {{- dict "skillsMapping" $mapping | toYaml | nindent 4 }}
+{{- end }}

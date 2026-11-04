@@ -2,10 +2,14 @@ package inferencegw
 
 import (
 	"context"
+	"errors"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
+
+var errPricingSync = errors.New("pricing sync failed")
 
 // DefaultSyncInterval is the default pricing sync frequency.
 const DefaultSyncInterval = 24 * time.Hour
@@ -48,11 +52,15 @@ func (w *PricingSyncWorker) Start(ctx context.Context) {
 	}
 }
 
+// sync roots a trace over one catalog fetch and its price writes.
 func (w *PricingSyncWorker) sync(ctx context.Context) {
 	start := time.Now()
+	ctx, span := tracer.Start(ctx, "inferencegw.PricingSyncWorker.sync")
+	defer span.End()
 
 	entries, err := w.source.Fetch(ctx)
 	if err != nil {
+		observability.RecordFailure(span, err, errPricingSync)
 		w.logger.Error(ctx, "pricing.sync.failed",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
@@ -60,6 +68,7 @@ func (w *PricingSyncWorker) sync(ctx context.Context) {
 	}
 
 	if err := w.catalog.UpsertSynced(ctx, entries); err != nil {
+		observability.RecordFailure(span, err, errPricingSync)
 		w.logger.Error(ctx, "pricing.sync.failed",
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "models_fetched", Value: len(entries)},

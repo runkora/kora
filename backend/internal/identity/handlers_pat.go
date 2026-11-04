@@ -1,14 +1,15 @@
 package identity
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 const maxAttributionIDs = 100
@@ -17,7 +18,7 @@ const maxScopesPerPAT = 100
 
 // handleCreatePAT handles POST /identity/tokens.
 // Issues a new Personal Access Token for the authenticated caller.
-// The raw token (prefixed with "orb_") is returned exactly once.
+// The raw token (prefixed with "kora_") is returned exactly once.
 func (c *Controller) handleCreatePAT(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -25,6 +26,9 @@ func (c *Controller) handleCreatePAT(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.UnauthorizedError(api.ErrCodeUnauthorized, "unauthorized", nil), nil)
+		return
+	}
+	if c.refuseDelegated(ctx, w) {
 		return
 	}
 
@@ -81,7 +85,7 @@ func (c *Controller) handleCreatePAT(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Name = name
-	resp, err := c.svc.CreatePAT(ctx, claims.Orbit.TenantID, claims.Subject, claims, req)
+	resp, err := c.svc.CreatePAT(ctx, claims.Kora.TenantID, claims.Subject, claims, req)
 	if err != nil {
 		var scopeErr *ErrPATScopesForbiddenError
 		if errors.As(err, &scopeErr) {
@@ -109,7 +113,7 @@ func (c *Controller) handleListPATs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := c.svc.ListPATs(ctx, claims.Orbit.TenantID, claims.Subject)
+	resp, err := c.svc.ListPATs(ctx, claims.Kora.TenantID, claims.Subject)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.InternalError(api.ErrCodeInternalError, "failed to list PATs", nil), err)
@@ -130,6 +134,9 @@ func (c *Controller) handleUpdatePATScopes(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.UnauthorizedError(api.ErrCodeUnauthorized, "unauthorized", nil), nil)
+		return
+	}
+	if c.refuseDelegated(ctx, w) {
 		return
 	}
 
@@ -166,7 +173,7 @@ func (c *Controller) handleUpdatePATScopes(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	if err := c.svc.UpdatePATScopes(ctx, claims.Orbit.TenantID, claims.Subject, patID, claims, req); err != nil {
+	if err := c.svc.UpdatePATScopes(ctx, claims.Kora.TenantID, claims.Subject, patID, claims, req); err != nil {
 		var scopeErr *ErrPATScopesForbiddenError
 		switch {
 		case errors.Is(err, ErrPATNotFound):
@@ -206,7 +213,7 @@ func (c *Controller) handleRevokePAT(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := c.svc.RevokePAT(ctx, claims.Orbit.TenantID, claims.Subject, patID); err != nil {
+	if err := c.svc.RevokePAT(ctx, claims.Kora.TenantID, claims.Subject, patID); err != nil {
 		// Intentionally returns 404 for both missing tokens and tokens that belong
 		// to a different user. This prevents cross-user token enumeration: a caller
 		// cannot distinguish "does not exist" from "exists but belongs to someone else".
@@ -259,7 +266,7 @@ func (c *Controller) handleGetPATAttribution(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	attribution, err := c.svc.GetPATAttribution(ctx, claims.Orbit.TenantID, patIDs)
+	attribution, err := c.svc.GetPATAttribution(ctx, claims.Kora.TenantID, patIDs)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.InternalError(api.ErrCodeInternalError, "failed to resolve PAT attribution", nil), err)
@@ -267,4 +274,15 @@ func (c *Controller) handleGetPATAttribution(w http.ResponseWriter, r *http.Requ
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusOK, PATAttributionResponse{Attribution: attribution})
+}
+
+// refuseDelegated writes 403 for a delegated run. A PAT it minted or widened
+// would carry the agent's grant without the delegation bound and outlive the run.
+func (c *Controller) refuseDelegated(ctx context.Context, w http.ResponseWriter) bool {
+	if policy.DelegationFromContext(ctx) == nil {
+		return false
+	}
+	api.ErrorResponse(ctx, w, c.logger,
+		api.ForbiddenError(api.ErrCodeForbidden, "a delegated run cannot create or change personal access tokens", nil), nil)
+	return true
 }

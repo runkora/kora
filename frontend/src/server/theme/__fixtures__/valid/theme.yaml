@@ -1,0 +1,18 @@
+# A small valid theme: favicon for dark only, plus one unknown token and one unknown slot.
+koraVersion: "1.0.0"
+productName: Acme Agents
+tokens:
+  --hades-raw-100:
+    dark: '#0a0a0a'
+    light: '#fafafa'
+  --hades-raw-accent-500:
+    dark: oklch(70% 0.15 250)
+  --hades-raw-not-a-token:
+    dark: '#123456'
+slots:
+  logo:
+    dark: https://assets.acme.example/brand/logo-dark.svg
+    light: https://assets.acme.example/brand/logo-light.svg
+  favicon:
+    dark: https://assets.acme.example/brand/favicon.svg
+  not-a-slot: https://assets.acme.example/brand/nothing.svg

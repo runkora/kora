@@ -1,6 +1,6 @@
 // Package cabundle is the per-tenant CA loader for the egress gateway. It reads
 // tenant CA material from the secret root the binary configures, typically a
-// Kubernetes Secret mounted at /var/run/orbit/tenant-ca/, and holds one
+// Kubernetes Secret mounted at /var/run/kora/tenant-ca/, and holds one
 // tlsca.IssuingCA per tenant in memory.
 //
 // The mount is flat, one pair of keys per tenant:
@@ -23,9 +23,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clear-route/orbit/internal/egressgw"
-	"github.com/clear-route/orbit/internal/egressgw/tlsca"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/egressgw"
+	"github.com/runkora/kora/backend/internal/egressgw/tlsca"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // ErrTenantNotFound is returned by For when the bundle has no CA for the
@@ -79,7 +79,7 @@ func (b *Bundle) For(tenant string) (egressgw.IssuingCA, error) {
 //
 // This is a flat layout because Kubernetes Secret data keys cannot contain
 // "/", and the operator's ClusterCAAggregator writes the aggregated
-// orbit-tenant-cas Secret with keys like "acme.ca.crt" / "acme.ca.key".
+// kora-tenant-cas Secret with keys like "acme.ca.crt" / "acme.ca.key".
 // When projected as a volume, those become files at the root of the mount.
 // Dev and test setups use the same layout so what we test is what
 // production runs.

@@ -11,17 +11,17 @@ import (
 )
 
 // Postgres integration tests for environments and their agent links. They run
-// only when ORBIT_TEST_DB_URL points at a database with the orbit-agents
+// only when KORA_TEST_DB_URL points at a database with the kora-agents
 // migrations applied. drafts_postgres_test.go uses the same harness.
 //
-//	ORBIT_TEST_DB_URL='postgres://orbit:orbit@localhost:5432/orbit?sslmode=disable' \
+//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora?sslmode=disable' \
 //	  go test ./internal/agents/ -run Postgres_
 
 func testEnvironmentRepo(t *testing.T) (*PostgresRepository, string) {
 	t.Helper()
-	dsn := os.Getenv("ORBIT_TEST_DB_URL")
+	dsn := os.Getenv("KORA_TEST_DB_URL")
 	if dsn == "" {
-		t.Skip("set ORBIT_TEST_DB_URL to run environment Postgres integration tests")
+		t.Skip("set KORA_TEST_DB_URL to run environment Postgres integration tests")
 	}
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)
@@ -73,7 +73,7 @@ func testAgentType(tenant string, envs ...AgentEnvironment) AgentType {
 		MaxConcurrentRunsPerPod: 1,
 		State:                   AgentTypeStateActive,
 		ModelID:                 new("bedrock/claude-sonnet-4-5"),
-		MCPTools:                []string{"mcp:orbit:use"},
+		MCPTools:                []string{"mcp:kora:use"},
 		Environments:            envs,
 		IdentityMode:            IdentityModeDelegated,
 	}
@@ -178,7 +178,7 @@ func TestPostgres_AgentEnvironments(t *testing.T) {
 	if len(got.Environments) != 2 || got.Environments[0] != (AgentEnvironment{EnvironmentID: goEnv.ID, IsDefault: true}) {
 		t.Errorf("environments = %+v, want the go default first", got.Environments)
 	}
-	if got.IdentityMode != IdentityModeDelegated || got.MCPTools[0] != "mcp:orbit:use" {
+	if got.IdentityMode != IdentityModeDelegated || got.MCPTools[0] != "mcp:kora:use" {
 		t.Errorf("agent type = %+v", got)
 	}
 

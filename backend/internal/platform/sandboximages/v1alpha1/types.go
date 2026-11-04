@@ -1,5 +1,8 @@
+// +kubebuilder:object:generate=true
+// +groupName=runkora.io
+
 // Package v1alpha1 holds the SandboxImage API types. The operator validates
-// and warms each image. orbit-agents reads its status when it starts a sandbox.
+// and warms each image. kora-agents reads its status when it starts a sandbox.
 //
 // See docs/adr/2026-10-03-sandbox-environments.md.
 package v1alpha1
@@ -14,22 +17,24 @@ import (
 )
 
 // GroupVersion is the API group and version of SandboxImage.
-var GroupVersion = schema.GroupVersion{Group: "orbit.io", Version: "v1alpha1"}
+var GroupVersion = schema.GroupVersion{Group: "runkora.io", Version: "v1alpha1"}
 
 // Resource is the plural resource name that dynamic clients use.
 var Resource = GroupVersion.WithResource("sandboximages")
 
 // BaseLabel marks an image built on kora-sandbox-base. Its value is the base version.
-const BaseLabel = "io.orbit.sandbox.base"
+const BaseLabel = "io.runkora.sandbox.base"
 
 // BaseName is the SandboxImage the operator keeps in every tenant namespace for
 // the base image. An environment without an image uses it.
 const BaseName = "kora-base"
 
 // BaseDescription describes the base image wherever it is listed.
-const BaseDescription = "The kora base image: general command-line tools, Go and Python."
+func BaseDescription(product string) string {
+	return "The " + product + " base image: general command-line tools, Go and Python."
+}
 
-// BundledComponent is the orbit.io/component label value on the bundled
+// BundledComponent is the runkora.io/component label value on the bundled
 // SandboxImages the operator keeps in tenant namespaces. Together with the
 // managed-by label it marks the resources the operator may patch and delete.
 const BundledComponent = "bundled-sandbox-image"
@@ -38,16 +43,22 @@ const BundledComponent = "bundled-sandbox-image"
 // every tenant (docs/adr/2026-10-07-bundled-sandbox-images.md).
 type BundledImage struct {
 	// Key is the image's key under agents.sandboxImages.bundled in the chart values.
-	Key         string
-	Name        string
-	Description string
+	Key  string
+	Name string
+	// Extras is what the image adds to the base image, for Description.
+	Extras string
+}
+
+// Description describes the image wherever it is listed.
+func (b BundledImage) Description(product string) string {
+	return "The " + product + " base image plus " + b.Extras + "."
 }
 
 // Bundled lists the bundled sandbox images.
 var Bundled = []BundledImage{
-	{Key: "go", Name: "kora-go", Description: "The kora base image plus golangci-lint, buf and protoc."},
-	{Key: "python", Name: "kora-python", Description: "The kora base image plus ruff and pytest."},
-	{Key: "node", Name: "kora-node", Description: "The kora base image plus Node LTS and pnpm."},
+	{Key: "go", Name: "kora-go", Extras: "golangci-lint, buf and protoc"},
+	{Key: "python", Name: "kora-python", Extras: "ruff and pytest"},
+	{Key: "node", Name: "kora-node", Extras: "Node LTS and pnpm"},
 }
 
 // SandboxUID is the user every sandbox image runs as.
@@ -59,33 +70,62 @@ const (
 	ConditionWarm  = "Warm"
 )
 
-// SandboxImage registers one sandbox image in a tenant namespace.
+// SandboxImage registers one sandbox image for the tenant whose namespace holds
+// it. The image must be built on kora-sandbox-base: it runs as uid 100 and
+// carries the io.runkora.sandbox.base label. The operator validates it and
+// resolves its digest. With warm set, it keeps the image pulled on the nodes
+// that run sandboxes. Environments select it by name. The operator owns
+// kora-base, the base image, in every tenant namespace, and the enabled bundled
+// images kora-go, kora-python and kora-node.
+//
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Namespaced,shortName=ksi
+// +kubebuilder:printcolumn:name=Image,type=string,JSONPath=`.spec.image`
+// +kubebuilder:printcolumn:name=Valid,type=string,JSONPath=`.status.conditions[?(@.type=="Valid")].status`
+// +kubebuilder:printcolumn:name=Warm,type=string,JSONPath=`.status.conditions[?(@.type=="Warm")].status`
+// +kubebuilder:printcolumn:name=Age,type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:validation:XValidation:rule="self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$') && size(self.metadata.name) <= 63",message="metadata.name must be a DNS label; it names the image's pre-pull DaemonSet."
 type SandboxImage struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+	// +optional
 	metav1.ObjectMeta `json:"metadata"`
 
-	Spec   Spec   `json:"spec"`
+	Spec Spec `json:"spec"`
+	// +optional
 	Status Status `json:"status"`
 }
 
 // Spec names the image and how to pull it.
 type Spec struct {
-	Image         string         `json:"image"`
-	Description   string         `json:"description,omitempty"`
+	// Image is the image reference, by tag or by digest.
+	// +kubebuilder:validation:MinLength=1
+	Image string `json:"image"`
+	// Description is shown to people choosing an image for an environment.
+	Description string `json:"description,omitempty"`
+	// PullSecretRef is a docker-registry Secret in this namespace. The operator
+	// reads the registry with it and sandboxes pull with it.
 	PullSecretRef *SecretNameRef `json:"pullSecretRef,omitempty"`
-	// Warm keeps the image pulled on every node that runs sandboxes.
+	// Warm keeps the image pulled on every node that runs sandboxes, so a
+	// sandbox starts without a pull.
+	// +kubebuilder:default=false
+	// +optional
 	Warm bool `json:"warm"`
 }
 
 // SecretNameRef names a Secret in the resource's namespace.
 type SecretNameRef struct {
+	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
 }
 
 // Status is written by the operator. Image and Digest are the reference it
 // last read from the registry and the digest that reference resolved to.
 type Status struct {
-	Image              string             `json:"image,omitempty"`
+	// Image is the image reference the operator last read from the registry.
+	// Digest is what it resolved to.
+	Image string `json:"image,omitempty"`
+	// Digest is the resolved image digest. Sandboxes pull the image by it.
 	Digest             string             `json:"digest,omitempty"`
 	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
 	Conditions         []metav1.Condition `json:"conditions,omitempty"`
@@ -129,6 +169,8 @@ func pin(ref, digest string) string {
 }
 
 // SandboxImageList is a list of SandboxImage resources.
+//
+// +kubebuilder:object:root=true
 type SandboxImageList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata"`
@@ -140,55 +182,4 @@ func AddToScheme(s *runtime.Scheme) error {
 	s.AddKnownTypes(GroupVersion, &SandboxImage{}, &SandboxImageList{})
 	metav1.AddToGroupVersion(s, GroupVersion)
 	return nil
-}
-
-// DeepCopyObject implements runtime.Object.
-func (s *SandboxImage) DeepCopyObject() runtime.Object {
-	if s == nil {
-		return nil
-	}
-	return s.DeepCopy()
-}
-
-// DeepCopy returns a deep copy.
-func (s *SandboxImage) DeepCopy() *SandboxImage {
-	if s == nil {
-		return nil
-	}
-	out := new(SandboxImage)
-	s.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies all fields into out.
-func (s *SandboxImage) DeepCopyInto(out *SandboxImage) {
-	*out = *s
-	s.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
-	if s.Spec.PullSecretRef != nil {
-		r := *s.Spec.PullSecretRef
-		out.Spec.PullSecretRef = &r
-	}
-	if s.Status.Conditions != nil {
-		out.Status.Conditions = make([]metav1.Condition, len(s.Status.Conditions))
-		for i := range s.Status.Conditions {
-			s.Status.Conditions[i].DeepCopyInto(&out.Status.Conditions[i])
-		}
-	}
-}
-
-// DeepCopyObject implements runtime.Object for SandboxImageList.
-func (l *SandboxImageList) DeepCopyObject() runtime.Object {
-	if l == nil {
-		return nil
-	}
-	out := new(SandboxImageList)
-	*out = *l
-	l.DeepCopyInto(&out.ListMeta)
-	if l.Items != nil {
-		out.Items = make([]SandboxImage, len(l.Items))
-		for i := range l.Items {
-			l.Items[i].DeepCopyInto(&out.Items[i])
-		}
-	}
-	return out
 }

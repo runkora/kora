@@ -9,12 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
-	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/token"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -30,7 +31,12 @@ type mockRepository struct {
 	mu         sync.Mutex
 	agentTypes map[string]*AgentType
 	slugIndex  map[string]*AgentType // tenantID+":"+slug → AgentType
-	runs       map[string]*Run
+	// deleted holds soft-deleted agent types. They leave agentTypes and slugIndex.
+	deleted map[string]*AgentType
+	runs    map[string]*Run
+	// usage holds seeded run totals by run id and usageCalls counts RunUsageTotals calls.
+	usage      map[string]RunUsage
+	usageCalls int
 	envs       map[string]*Environment
 	events     map[string][]RunEvent
 	messages   []RunMessage
@@ -70,6 +76,7 @@ func newMockRepository() *mockRepository {
 	return &mockRepository{
 		agentTypes: make(map[string]*AgentType),
 		slugIndex:  make(map[string]*AgentType),
+		deleted:    make(map[string]*AgentType),
 		runs:       make(map[string]*Run),
 		envs:       make(map[string]*Environment),
 		events:     make(map[string][]RunEvent),
@@ -104,6 +111,32 @@ func (m *mockRepository) GetAgentType(_ context.Context, id string) (*AgentType,
 	}
 	cp := *at
 	return &cp, nil
+}
+
+func (m *mockRepository) GetAgentTypeWithDeleted(ctx context.Context, id string) (*AgentType, error) {
+	m.mu.Lock()
+	at, ok := m.deleted[id]
+	m.mu.Unlock()
+	if ok {
+		cp := *at
+		return &cp, nil
+	}
+	return m.GetAgentType(ctx, id)
+}
+
+func (m *mockRepository) ListAgentTypesWithDeleted(ctx context.Context, tenantID string) ([]AgentType, error) {
+	out, err := m.ListAgentTypes(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, at := range m.deleted {
+		if at.TenantID == tenantID {
+			out = append(out, *at)
+		}
+	}
+	return out, nil
 }
 
 func (m *mockRepository) GetAgentTypeBySlug(_ context.Context, tenantID, slug string) (*AgentType, error) {
@@ -203,6 +236,9 @@ func (m *mockRepository) SetAgentTypeState(_ context.Context, id string, from, t
 		return ErrConflict
 	}
 	at.State = to
+	if to == AgentTypeStateActive {
+		at.ActivatedAt = time.Now().UTC()
+	}
 	return nil
 }
 
@@ -218,6 +254,25 @@ func (m *mockRepository) DeleteAgentType(_ context.Context, id string) error {
 	}
 	delete(m.slugIndex, at.TenantID+":"+at.Slug)
 	delete(m.agentTypes, id)
+	return nil
+}
+
+func (m *mockRepository) SoftDeleteAgentType(_ context.Context, id string) error {
+	if m.deleteAgentTypeErr != nil {
+		return m.deleteAgentTypeErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	at, ok := m.agentTypes[id]
+	if !ok {
+		return ErrNotFound
+	}
+	delete(m.slugIndex, at.TenantID+":"+at.Slug)
+	delete(m.agentTypes, id)
+	cp := *at
+	cp.State = AgentTypeStateDeleted
+	cp.Environments = nil
+	m.deleted[id] = &cp
 	return nil
 }
 
@@ -261,6 +316,21 @@ func (m *mockRepository) runIdentityModeLocked(r *Run) IdentityMode {
 	return r.IdentityMode.OrDefault()
 }
 
+// RunUsageTotals returns the seeded totals and counts the calls, so a test can
+// assert a page costs one query.
+func (m *mockRepository) RunUsageTotals(_ context.Context, _ string, runIDs []string) (map[string]RunUsage, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.usageCalls++
+	out := map[string]RunUsage{}
+	for _, id := range runIDs {
+		if u, ok := m.usage[id]; ok {
+			out[id] = u
+		}
+	}
+	return out, nil
+}
+
 func (m *mockRepository) CountRunOutcomes(_ context.Context, _ string, scope RunScope, _, _ time.Time) (RunOutcomes, error) {
 	m.outcomesScope = scope
 	return RunOutcomes{}, nil
@@ -269,6 +339,15 @@ func (m *mockRepository) CountRunOutcomes(_ context.Context, _ string, scope Run
 func (m *mockRepository) RunStats(_ context.Context, _ string, scope RunScope, _, _ time.Time) (RunStats, error) {
 	m.statsScope = scope
 	return m.statsResult, nil
+}
+
+// scopeMatches mirrors appendScope's agent-type and own-run clauses.
+func scopeMatches(scope RunScope, r *Run) bool {
+	if len(scope.OnlyAgentTypeIDs) > 0 && !slices.Contains(scope.OnlyAgentTypeIDs, r.AgentTypeID) {
+		return false
+	}
+	own := scope.Own && scope.Vis.Subject != "" && r.CreatedBy == scope.Vis.Subject
+	return own || slices.Contains(scope.AgentTypeIDs, r.AgentTypeID)
 }
 
 // ListRuns mirrors the SQL: scope (agent types and delegated visibility),
@@ -282,10 +361,13 @@ func (m *mockRepository) ListRuns(_ context.Context, tenantID string, q RunListQ
 	vis := q.Scope.Vis
 	var out []Run
 	for _, r := range m.runs {
-		if r.TenantID != tenantID || !slices.Contains(q.Scope.AgentTypeIDs, r.AgentTypeID) {
+		if r.TenantID != tenantID || !scopeMatches(q.Scope, r) {
 			continue
 		}
 		if len(q.States) > 0 && !slices.Contains(q.States, r.State) {
+			continue
+		}
+		if q.StartedByTrigger && r.StartedBy == nil {
 			continue
 		}
 		if !q.CreatedAfter.IsZero() && r.CreatedAt.Before(q.CreatedAfter) {
@@ -464,17 +546,25 @@ func (m *mockRepository) DeleteRun(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *mockRepository) DeleteRunsByAgentType(_ context.Context, agentTypeID string) ([]DeletedRun, error) {
+func (m *mockRepository) CancelRunsByAgentType(_ context.Context, agentTypeID string) ([]CancelledRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var deleted []DeletedRun
+	var cancelled []CancelledRun
 	for id, r := range m.runs {
-		if r.AgentTypeID == agentTypeID {
-			deleted = append(deleted, DeletedRun{ID: id, DelegationJTI: r.DelegationJTI})
-			delete(m.runs, id)
+		if r.AgentTypeID != agentTypeID {
+			continue
 		}
+		switch r.State {
+		case RunStateIdle, RunStateCompleting:
+			r.State = RunStateCompleted
+		case RunStatePending, RunStateStarting, RunStateActive:
+			r.State = RunStateFailed
+		default:
+			continue
+		}
+		cancelled = append(cancelled, CancelledRun{ID: id, State: r.State, DelegationJTI: r.DelegationJTI})
 	}
-	return deleted, nil
+	return cancelled, nil
 }
 
 func (m *mockRepository) ActiveRunsPerPod(_ context.Context, agentTypeID string) (map[int]int, error) {
@@ -597,6 +687,7 @@ type mockK8s struct {
 	noReadyPods bool
 
 	provisionAgentTypeErr   error
+	ensureAgentGrantErr     error
 	deprovisionAgentTypeErr error
 	// readyPods is how many pods ReadyOrdinals reports. Zero means one.
 	readyPods             int
@@ -690,7 +781,7 @@ func validSandboxImage(name, image, digest string) *si.SandboxImage {
 func (m *mockK8s) SandboxImage(_ context.Context, _, name string) (*si.SandboxImage, error) {
 	m.imageLookups++
 	if m.sandboxImages == nil && name == si.BaseName {
-		return validSandboxImage(si.BaseName, "ghcr.io/clear-route/kora-sandbox-base:1", "sha256:base"), nil
+		return validSandboxImage(si.BaseName, "ghcr.io/runkora/kora-sandbox-base:1", "sha256:base"), nil
 	}
 	img, ok := m.sandboxImages[name]
 	if !ok {
@@ -733,7 +824,7 @@ func (m *mockK8s) GetAgentBudget(_ context.Context, _ AgentType, _ string) (*Age
 }
 
 func (m *mockK8s) EnsureAgentGrant(_ context.Context, _ AgentType, _ string) error {
-	return nil
+	return m.ensureAgentGrantErr
 }
 
 func (m *mockK8s) WaitForStatefulSetReady(_ context.Context, _, _ string) error {
@@ -823,25 +914,31 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 	sm := &mockSMClient{}
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	authz := NewAuthz(eval)
+	pubsub := NewPubSub()
 	atSvc := NewAgentTypeService(
-		repo, repo, k8s, authz,
+		repo, repo, k8s, authz, pubsub, lockedTenants{},
 		AgentTypeServiceConfig{
 			MaxConcurrentRunsPerPod: 5,
-			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
+			TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },
 		},
 		logger,
 	)
-	runSvc := NewRunService(
-		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s, k8s, repo,
+	runSvc, err := NewRunService(
+		repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo,
 		RunServiceConfig{
 			DefaultEnvironmentSize:  testSizes.Default,
 			MaxConcurrentRunsPerPod: 5,
-			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
+			TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },
 			SandboxGuardrails:       SandboxGuardrails{ProvisionAttempts: 2, ProvisionBackoffSecs: 1, ProvisionBudgetSecs: 60},
+			Brand:                   brand.MustNew("kora"),
 		},
 		logger,
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	atSvc.SetEnvironmentLookup(repo)
+	atSvc.SetCallerScopes(broadScopes)
 	return &testServiceFacade{at: atSvc, run: runSvc}, repo, k8s, sm
 }
 
@@ -857,7 +954,7 @@ var testSizes = EnvironmentSizes{
 // without requiring every test to construct PlatformClaims manually.
 func withTenantCtx(ctx context.Context, tenantID string) context.Context {
 	return token.WithClaims(ctx, &token.PlatformClaims{
-		Orbit: token.OrbitClaims{TenantID: tenantID},
+		Kora: token.KoraClaims{TenantID: tenantID},
 	})
 }
 
@@ -867,11 +964,11 @@ func withTenantCtx(ctx context.Context, tenantID string) context.Context {
 // final segment of the SPIFFE path). Used by internal-callback handler tests.
 func withAgentCtx(ctx context.Context, tenantID, slug string) context.Context {
 	return token.WithClaims(ctx, &token.PlatformClaims{
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			PrincipalType: token.PrincipalTypeAgent,
 			TenantID:      tenantID,
 			DisplayName:   slug,
-			Claims:        map[string]string{"spiffe_path": "/tenant/orbit-tenant-" + tenantID + "/agent/" + slug},
+			Claims:        map[string]string{"spiffe_path": "/tenant/kora-tenant-" + tenantID + "/agent/" + slug},
 		},
 	})
 }
@@ -996,8 +1093,16 @@ func (f *testServiceFacade) GetRun(ctx context.Context, id string) (*Run, error)
 	return f.run.GetRun(f.withRunTenant(ctx, id), id)
 }
 
+func (f *testServiceFacade) GetRunWithUsage(ctx context.Context, id string) (*Run, error) {
+	return f.run.GetRunWithUsage(f.withRunTenant(ctx, id), id)
+}
+
 func (f *testServiceFacade) ListRuns(ctx context.Context, tenantID, agentTypeID string) ([]Run, error) {
-	page, err := f.run.ListRuns(withTenantCtx(ctx, tenantID), agentTypeID, RunListQuery{Limit: maxRunsLimit})
+	var ids []string
+	if agentTypeID != "" {
+		ids = []string{agentTypeID}
+	}
+	page, err := f.run.ListRuns(withTenantCtx(ctx, tenantID), ids, RunListQuery{Limit: maxRunsLimit})
 	return page.Runs, err
 }
 
@@ -1029,7 +1134,7 @@ func (f *testServiceFacade) TransitionRunState(ctx context.Context, runID string
 }
 
 func (f *testServiceFacade) SendMessage(ctx context.Context, runID, content string) error {
-	return f.run.SendMessage(f.withRunTenant(ctx, runID), runID, content)
+	return f.run.SendMessage(f.withRunTenant(ctx, runID), runID, SendMessageRequest{Content: content})
 }
 
 func (f *testServiceFacade) InterruptRun(ctx context.Context, runID string) error {

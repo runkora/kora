@@ -3,17 +3,19 @@
 /** @tier 3 — agents-scoped. Builder step 5: the complete configuration, grouped by owning step. */
 
 import { useMemo } from 'react';
-import { Alert, SectionHeading, Stack, Wizard } from '@orbit/hades';
+import { Alert, SectionHeading, Stack, Wizard } from '@runkora/hades';
+import { useBrand } from '@runkora/theme/brand-provider';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { FRAMEWORK_LABELS } from '../motif/framework-cards';
 import { IDENTITY_MODE_LABELS } from '../motif/identity-mode-cards';
 
 export function StepReview() {
   const { fields, catalogues, goTo, createBlockers, submitError } = useAgentBuilderContext();
+  const { productName } = useBrand();
 
   const model = catalogues.models.find((m) => m.id === fields.modelId);
   const environmentsSummary = useMemo(() => {
-    if (fields.environments.length === 0) return 'None. Runs on the kora base image.';
+    if (fields.environments.length === 0) return `None. Runs on the ${productName} base image.`;
     if (catalogues.status.environments === 'loading') return 'Loading environments.';
     const name = (id: string) =>
       catalogues.environments.find((e) => e.id === id)?.name ?? 'Deleted environment';
@@ -22,7 +24,7 @@ export function StepReview() {
     return fields.environments.length > 1 && def
       ? `${names} (default: ${name(def.environment_id)})`
       : names;
-  }, [fields.environments, catalogues.environments, catalogues.status.environments]);
+  }, [fields.environments, catalogues.environments, catalogues.status.environments, productName]);
   const grantedServers = useMemo(() => {
     const prefixes = new Set(fields.mcpTools.map((s) => s.split(':')[1]));
     return prefixes.size;

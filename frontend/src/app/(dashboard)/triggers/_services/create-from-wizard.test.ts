@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createFromWizardDraft } from './create-from-wizard';
-import { createSource, createTrigger } from './triggers-api';
+import { createSource, createTrigger, errorMessageOf } from './triggers-api';
 import type { TriggerDraft } from '../_components/trigger-wizard';
 
-vi.mock('./triggers-api', () => ({
+vi.mock('./triggers-api', async (original) => ({
+  errorMessageOf: (await original<typeof import('./triggers-api')>()).errorMessageOf,
   createSource: vi.fn(),
   createTrigger: vi.fn(),
 }));
@@ -12,7 +13,7 @@ vi.mock('./triggers-api', () => ({
 const mockCreateSource = vi.mocked(createSource);
 const mockCreateTrigger = vi.mocked(createTrigger);
 
-const OPTIONS = { ingestHost: 'api.orbit.example.com' };
+const OPTIONS = { ingestHost: 'api.example.com' };
 
 function draft(overrides: Partial<TriggerDraft> = {}): TriggerDraft {
   return {
@@ -21,6 +22,7 @@ function draft(overrides: Partial<TriggerDraft> = {}): TriggerDraft {
     promptTemplate: 'Review {{ push.branch }}',
     source: { existingId: 'src-1' },
     eventType: 'push',
+    targetKind: 'agent',
     agentTypeId: 'at-1',
     maxParallel: 4,
     overflow: 'wait',
@@ -52,23 +54,73 @@ describe('webhook drafts', () => {
     expect(result).toEqual({
       ok: true,
       triggerId: 't1',
-      endpoint: 'https://api.orbit.example.com/api/v1/webhooks/src-1',
+      endpoint: 'https://api.example.com/api/v1/webhooks/src-1',
+    });
+  });
+
+  it("sends a new generic source's config and pasted secret", async () => {
+    mockCreateSource.mockResolvedValue({ source: { id: 'src-9' }, error: null } as never);
+    const config = { verification: { method: 'standard_webhooks' } };
+    await createFromWizardDraft(
+      draft({
+        source: { newName: 'linear', provider: 'generic', config, signingSecret: 'whsec_x' },
+      }),
+      OPTIONS,
+    );
+    expect(mockCreateSource).toHaveBeenCalledWith({
+      name: 'linear',
+      provider: 'generic',
+      config,
+      signing_secret: 'whsec_x',
     });
   });
 
   it('sends the sender restriction when the draft carries one, and omits it otherwise', async () => {
     await createFromWizardDraft(
-      draft({ senderRestriction: { logins: ['octocat'], associations: ['MEMBER'] } }),
+      draft({ senderRestriction: { ids: ['octocat'], roles: ['MEMBER'] } }),
       OPTIONS,
     );
     expect(mockCreateTrigger).toHaveBeenCalledWith(
       expect.objectContaining({
-        sender_restriction: { logins: ['octocat'], associations: ['MEMBER'] },
+        sender_restriction: { ids: ['octocat'], roles: ['MEMBER'] },
       }),
     );
 
     await createFromWizardDraft(draft(), OPTIONS);
     expect(mockCreateTrigger.mock.calls[1]?.[0]).not.toHaveProperty('sender_restriction');
+  });
+
+  it('sends coalesce for a webhook draft that carries it, and omits it otherwise', async () => {
+    await createFromWizardDraft(
+      draft({ coalesce: { key: '{{ pr.number }}', windowSeconds: 30 } }),
+      OPTIONS,
+    );
+    expect(mockCreateTrigger).toHaveBeenCalledWith(
+      expect.objectContaining({ coalesce: { key: '{{ pr.number }}', window_seconds: 30 } }),
+    );
+
+    await createFromWizardDraft(draft(), OPTIONS);
+    expect(mockCreateTrigger.mock.calls[1]?.[0]).not.toHaveProperty('coalesce');
+  });
+
+  it('never sends coalesce for a scheduled or manual draft', async () => {
+    const coalesce = { key: 'k', windowSeconds: 30 };
+    await createFromWizardDraft(
+      draft({
+        kind: 'scheduled',
+        source: undefined,
+        eventType: undefined,
+        coalesce,
+        schedule: { cronExpression: '0 2 * * *', timezone: 'UTC', catchUp: false },
+      }),
+      OPTIONS,
+    );
+    await createFromWizardDraft(
+      draft({ kind: 'manual', source: undefined, eventType: undefined, coalesce }),
+      OPTIONS,
+    );
+    expect(mockCreateTrigger.mock.calls[0]?.[0]).not.toHaveProperty('coalesce');
+    expect(mockCreateTrigger.mock.calls[1]?.[0]).not.toHaveProperty('coalesce');
   });
 
   it('creates the source first, and passes its one-time secret through', async () => {
@@ -89,8 +141,22 @@ describe('webhook drafts', () => {
     expect(result).toEqual({
       ok: true,
       triggerId: 't1',
-      endpoint: 'https://api.orbit.example.com/api/v1/webhooks/src-new',
+      endpoint: 'https://api.example.com/api/v1/webhooks/src-new',
       secret: 'whsec_abc',
+    });
+  });
+
+  it('does not create a source the source step already created', async () => {
+    const result = await createFromWizardDraft(
+      draft({ source: { existingId: 'src-slack' } }),
+      OPTIONS,
+    );
+
+    expect(mockCreateSource).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      ok: true,
+      triggerId: 't1',
+      endpoint: 'https://api.example.com/api/v1/webhooks/src-slack',
     });
   });
 
@@ -218,10 +284,13 @@ describe('failures', () => {
       OPTIONS,
     );
 
-    // The source is real and the retry can pick it from the existing list, so
-    // it is deliberately not rolled back.
+    // The source is real and is not rolled back; the wizard's retry reuses it.
     expect(mockCreateSource).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({ ok: false, error: 'agent not found' });
+    expect(result).toEqual({
+      ok: false,
+      error: 'agent not found',
+      createdSource: { id: 'src-new', name: 'acme', provider: 'github', secret: 'whsec_abc' },
+    });
   });
 
   it('falls back to a sentence when the API gives no message', async () => {
@@ -230,6 +299,68 @@ describe('failures', () => {
     expect(await createFromWizardDraft(draft(), OPTIONS)).toEqual({
       ok: false,
       error: 'Failed to create the trigger.',
+    });
+  });
+});
+
+describe('routed drafts', () => {
+  it('sends target_kind and routing without an agent', async () => {
+    await createFromWizardDraft(
+      draft({
+        targetKind: 'routed',
+        agentTypeId: '',
+        routing: {
+          candidates: ['at-1', 'at-2'],
+          model: 'liquid/d1',
+          confidence: 'balanced',
+          fallbackAgentTypeId: null,
+          joinRuns: true,
+          joinKey: '{{ issue.number }}',
+        },
+      }),
+      OPTIONS,
+    );
+    const sent = mockCreateTrigger.mock.calls[0]?.[0];
+    expect(sent).toMatchObject({
+      target_kind: 'routed',
+      routing: {
+        candidates: ['at-1', 'at-2'],
+        model: 'liquid/d1',
+        confidence: 'balanced',
+        fallback_agent_type_id: null,
+        join_runs: true,
+        join_key: '{{ issue.number }}',
+      },
+    });
+    expect(sent).not.toHaveProperty('agent_type_id');
+  });
+
+  it('shows the decision model scope a refused routed trigger is missing', async () => {
+    mockCreateTrigger.mockResolvedValue({
+      trigger: null,
+      error: errorMessageOf(403, {
+        message: 'caller does not hold the scopes this routed trigger would be granted',
+        details: { missing_scopes: ['inference:liquid:d1:use'] },
+      }),
+    } as never);
+    const result = await createFromWizardDraft(draft(), OPTIONS);
+    expect(result).toEqual({
+      ok: false,
+      error: 'You do not hold every scope this trigger needs. Missing: inference:liquid:d1:use.',
+    });
+  });
+
+  it('shows the refusal for a candidate the caller cannot run', async () => {
+    mockCreateTrigger.mockResolvedValue({
+      trigger: null,
+      error: errorMessageOf(403, {
+        message: 'not authorized to run the agent this trigger binds: agent type "at_coder"',
+      }),
+    } as never);
+    const result = await createFromWizardDraft(draft(), OPTIONS);
+    expect(result).toEqual({
+      ok: false,
+      error: 'not authorized to run the agent this trigger binds: agent type "at_coder"',
     });
   });
 });

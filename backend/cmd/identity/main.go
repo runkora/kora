@@ -9,17 +9,18 @@ import (
 	"syscall"
 	"time"
 
-	ic "github.com/clear-route/orbit/cmd/identity/config"
-	"github.com/clear-route/orbit/internal/identity"
-	"github.com/clear-route/orbit/internal/platform/api"
-	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/config"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/observability"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/storage"
+	ic "github.com/runkora/kora/backend/cmd/identity/config"
+	"github.com/runkora/kora/backend/internal/identity"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 func main() {
@@ -48,6 +49,22 @@ func realMain() error {
 	logger := initLogger()
 	logger.Info(ctx, "Identity service starting", logging.Field{Key: "version", Value: ic.Current.App.Version})
 
+	// Initialize the metrics pipeline (OTLP, if configured, and/or a
+	// Prometheus /metrics endpoint, if enabled) with deferred cleanup.
+	metrics, err := platformmetrics.Setup(ctx, ic.Current.Metrics, observability.Config{
+		ServiceName:    ic.Current.Observability.ServiceName,
+		ServiceVersion: ic.Current.App.Version,
+		Environment:    config.Environment(),
+	}, ic.Current.Observability.ServiceName, logger)
+	if err != nil {
+		return fmt.Errorf("setup metrics: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), ic.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
+
 	// Trusted-host allowlist for host-derived OAuth discovery metadata (ADR 2026-07-04).
 	api.ConfigureTrustedHosts(ic.Current.PublicHosts)
 
@@ -60,13 +77,13 @@ func realMain() error {
 	defer redis.Close() //nolint:errcheck
 
 	// Create HTTP server with wired controllers.
-	server, err := initServer(ctx, logger, db, redis)
+	server, err := initServer(ctx, logger, db, redis, metrics)
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
 	}
 
 	// Run server until context is canceled (SIGTERM / SIGINT).
-	run(ctx, logger, server)
+	run(ctx, logger, server, metrics)
 	return nil
 }
 
@@ -184,14 +201,30 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		return nil, err
 	}
 
-	// Triggers moved to the orbit-triggers binary: inbound webhook ingestion is
+	// Triggers moved to the kora-triggers binary: inbound webhook ingestion is
 	// the platform's only unauthenticated, internet-reachable surface and must
 	// not share a process with the token authority. identity still mints each
 	// trigger's SERVICE token, now over the mesh via the internal service-token
 	// endpoint. See docs/adr/2026-06-20-extended-trigger-types.md, Decision 1.
+
+	// Publish the identity scope vocabulary, and keep it published across
+	// policy-service restarts. No route is published: identity's callers reach
+	// it east-west, and the scope is checked in-process.
+	scopeClient := routescopes.NewClient(policySvcURL, svc.SystemToken, logger)
+	go routescopes.KeepRegistered(ctx, logger, identity.ServiceName, func(ctx context.Context) error {
+		return scopeClient.Register(ctx, identity.ServiceName, nil, identityScopes())
+	})
+
 	return []api.Controller{
 		identity.NewController(svc, policyEval, identityRoutes(), ic.Current.Server.BasePath, logger),
 	}, nil
+}
+
+// identityScopes returns the scope vocabulary identity owns.
+func identityScopes() []routescopes.ScopeDeclaration {
+	return []routescopes.ScopeDeclaration{
+		{Scope: identity.UsersReadScope, ResourceType: "identity", PathSegments: []string{"users"}, Action: "read", Description: "List the users in the tenant and read any user's profile"},
+	}
 }
 
 // identityRoutes returns the static route → required-scope bindings for the
@@ -200,17 +233,18 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 // session, exchange, JWKS, tenant discovery) are registered directly with
 // mux.Handle in handlers.go Boot and never reach ScopeEnforcementMiddleware.
 //
-// Today every entry is RequiredScope: "" — meaning "any authenticated non-PAT
-// caller is allowed". This preserves current behavior. Follow-up PRs can
-// tighten scopes (e.g. platform:users:read for admin-only user listing,
-// platform:pats:write for cross-user PAT management).
+// RequiredScope "" means any authenticated caller. Listing users needs
+// identity:users:read. Reading one profile and resolving names by id
+// (/users/names) are authenticated-only at the route; the handler requires the
+// scope for anyone else's full profile.
 func identityRoutes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
 		{PathPrefix: "/api/v1/identity/tokens", Method: "POST", RequiredScope: ""},
 		{PathPrefix: "/api/v1/identity/tokens", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/api/v1/identity/tokens", Method: "PATCH", RequiredScope: ""},
 		{PathPrefix: "/api/v1/identity/tokens", Method: "DELETE", RequiredScope: ""},
-		{PathPrefix: "/api/v1/identity/users", Method: "GET", RequiredScope: ""},
+		{PathPrefix: "/api/v1/identity/users", Method: "GET", RequiredScope: identity.UsersReadScope},
+		{PathPrefix: "/api/v1/identity/users/", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/api/v1/identity/preferences", Method: "GET", RequiredScope: ""},
 		{PathPrefix: "/api/v1/identity/preferences", Method: "PUT", RequiredScope: ""},
 		{PathPrefix: "/api/v1/identity/preferences", Method: "DELETE", RequiredScope: ""},
@@ -227,7 +261,7 @@ func identityRoutes() []routescopes.RouteScope {
 }
 
 // initServer creates and configures the HTTP server with middleware and controllers.
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) (*http.Server, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, metrics *platformmetrics.Bootstrap) (*http.Server, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	controllers, err := initControllers(ctx, logger, db, redis)
@@ -235,13 +269,17 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 		return nil, err
 	}
 
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
+
 	// Middleware order: Tracing (provides context) → Logging (uses trace context).
 	server := apiServer.Server(
 		ctx,
 		ic.Current.Server.Port,
 		ic.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(ic.Current.Observability.ServiceName),
+			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
 		),
 		controllers...,
@@ -254,13 +292,14 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 // ctx is expected to be the signal-cancellable context created in main —
 // cancellation drives shutdown of both the HTTP server and background
 // goroutines (tenant registry watcher, etc.).
-func run(ctx context.Context, logger logging.Logger, server *http.Server) {
+func run(ctx context.Context, logger logging.Logger, server *http.Server, metrics *platformmetrics.Bootstrap) {
 	go func() {
 		logger.Info(ctx, "Starting HTTP server", logging.Field{Key: "addr", Value: server.Addr})
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error(ctx, "Failed to start server", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
+	metrics.Start(ctx, logger)
 
 	// Block until the context is canceled (SIGTERM / SIGINT from
 	// signal.NotifyContext in main).
@@ -273,6 +312,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server) {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "Identity service shutdown complete")
 }

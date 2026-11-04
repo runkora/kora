@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentOverviewResponse, AgentRunStats } from '@orbit/shared/api';
+import type { AgentOverviewResponse, AgentRunStats } from '@runkora/shared/api';
 import { toAgentOverview } from './overview';
 
 const RUN_STATS: AgentRunStats = {

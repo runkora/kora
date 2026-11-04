@@ -6,11 +6,11 @@ import (
 
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // Refresher manages proactive token renewal.
@@ -45,7 +45,7 @@ func NewRefresher(cache *TokenCache, exchanger tokenExchanger, logger logging.Lo
 		cache:     cache,
 		exchanger: exchanger,
 		logger:    logger,
-		tracer:    otel.Tracer("orbit.identity-proxy"),
+		tracer:    otel.Tracer("github.com/runkora/kora/backend/internal/identityproxy"),
 		cfg:       cfg,
 	}
 }
@@ -100,7 +100,7 @@ func (r *Refresher) exchangeWithBackoff(ctx context.Context) {
 		case <-r.envoyReady:
 			// Envoy is ready — proceed.
 		case <-ctx.Done():
-			span.SetStatus(codes.Error, "context canceled waiting for Envoy")
+			observability.RecordFailure(span, errSpanContextCanceledWaitingForEnvoy, errSpanContextCanceledWaitingForEnvoy)
 			return
 		}
 	}
@@ -112,7 +112,7 @@ func (r *Refresher) exchangeWithBackoff(ctx context.Context) {
 		token, expiry, err := r.exchanger.Exchange(ctx)
 		if err == nil {
 			r.cache.Set(token, expiry)
-			span.SetAttributes(attribute.Int("refresh.attempts", attempt))
+			span.SetAttributes(observability.TokenRefreshAttemptsKey.Int(attempt))
 			span.SetStatus(codes.Ok, "")
 			r.logger.Info(ctx, "token cache refreshed via background goroutine")
 			return
@@ -126,8 +126,8 @@ func (r *Refresher) exchangeWithBackoff(ctx context.Context) {
 
 		select {
 		case <-ctx.Done():
-			span.SetAttributes(attribute.Int("refresh.attempts", attempt))
-			span.SetStatus(codes.Error, "context canceled during retry")
+			span.SetAttributes(observability.TokenRefreshAttemptsKey.Int(attempt))
+			observability.RecordFailure(span, errSpanContextCanceledDuringRetry, errSpanContextCanceledDuringRetry)
 			return
 		case <-time.After(backoff):
 		}

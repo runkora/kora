@@ -26,10 +26,11 @@ import {
   Stack,
   Text,
   ToggleRow,
-} from '@orbit/hades';
-import type { IconName } from '@orbit/hades';
-import { admissionSummary, parallelWord } from './wizard-state';
+} from '@runkora/hades';
+import type { IconName } from '@runkora/hades';
+import { admissionSummary, coalesceDraftOf, parallelWord } from './wizard-state';
 import { LIMITS } from '../../_types';
+import { CoalesceEditor } from '../coalesce-editor';
 import type { StepComponentProps, TriggerKind, TriggerOverflow } from './types';
 
 interface OverflowOption {
@@ -136,7 +137,7 @@ export function StepDelivery({ state, patch, definition }: StepComponentProps) {
                 icon={o.icon}
                 title={o.label}
                 description={
-                  o.best.includes(definition.id)
+                  o.best.includes(definition.apiKind)
                     ? `${o.description} Recommended here.`
                     : o.description
                 }
@@ -195,12 +196,26 @@ export function StepDelivery({ state, patch, definition }: StepComponentProps) {
         <Stack direction="horizontal" gap="cozy" align="center">
           <Icon name="route" size="sm" color="accent" label="" shrink />
           <Text size="caption" color="muted">
-            {admissionSummary(state, definition.id)}
+            {admissionSummary(state, definition.apiKind)}
           </Text>
         </Stack>
       </Callout>
 
       <Stack gap="cozy">
+        {/* Coalescing is a webhook feature and needs `wait`; elsewhere it is hidden. */}
+        {definition.apiKind === 'webhook' && state.overflow === 'wait' && (
+          <CoalesceEditor
+            value={coalesceDraftOf(state)}
+            keyPlaceholder={definition.coalesceKeyExample?.(state.eventType)}
+            onChange={(next) =>
+              patch({
+                coalesceEnabled: next.enabled,
+                coalesceKey: next.key,
+                coalesceWindow: next.window,
+              })
+            }
+          />
+        )}
         <ToggleRow
           label="Suppress duplicates"
           description="Ignore a replay of a delivery already processed."

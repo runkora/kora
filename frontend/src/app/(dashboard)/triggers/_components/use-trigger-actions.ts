@@ -87,20 +87,35 @@ export function useTriggerActions({ refresh, notify }: TriggerActionsOptions) {
     [fireManualTrigger],
   );
 
-  /** Rotates a webhook trigger's source secret; the drawer shows it once. */
+  /**
+   * Rotates a webhook trigger's source secret; the drawer shows it once. A
+   * provider that issues the secret takes `signingSecret` and returns none, so
+   * success resolves with an empty string. `firstSecret` sets the first secret
+   * of a source that is waiting for one, which needs no rotation.
+   */
   const rotateSecret = useCallback(
-    async (row: TriggerRow): Promise<string | null> => {
-      const result = await updateSource(row.sourceId, { rotate_secret: true });
-      if (result.error || !result.source?.secret) {
+    async (
+      row: TriggerRow,
+      signingSecret?: string,
+      firstSecret = false,
+    ): Promise<string | null> => {
+      const result = await updateSource(row.sourceId, {
+        ...(!firstSecret && { rotate_secret: true }),
+        ...(signingSecret !== undefined && { signing_secret: signingSecret }),
+      });
+      if (result.error || (signingSecret === undefined && !result.source?.secret)) {
         notify({
           ok: false,
           message: `${row.name}: ${result.error ?? 'rotation returned no secret'}`,
         });
         return null;
       }
-      return result.source.secret;
+      // Without this the row keeps signingSecretSet=false, so the drawer keeps
+      // waiting and a second save would omit rotate_secret and be rejected.
+      refresh();
+      return result.source?.secret ?? '';
     },
-    [notify],
+    [refresh, notify],
   );
 
   const toggleTrigger = useCallback(

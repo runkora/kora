@@ -3,7 +3,9 @@ package triggers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -50,14 +52,14 @@ func TestCreateTrigger_Validation(t *testing.T) {
 	nameless := validReq(KindWebhook)
 	nameless.SourceID = src.ID
 	nameless.Name = ""
-	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nameless)
+	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, nameless)
 	if !errors.Is(err, ErrValidation) {
 		t.Errorf("missing name: got %v, want ErrValidation", err)
 	}
 
 	sourceless := validReq(KindWebhook)
 	sourceless.SourceID = "nope"
-	_, err = deps.triggers.CreateTrigger(context.Background(), testTenant, sourceless)
+	_, err = deps.triggers.CreateTrigger(context.Background(), testTenant, nil, sourceless)
 	if !errors.Is(err, ErrSourceNotFound) {
 		t.Errorf("missing source: got %v, want ErrSourceNotFound", err)
 	}
@@ -73,7 +75,7 @@ func TestCreateTrigger_DerivesCanonicalSlug(t *testing.T) {
 	req := validReq(KindWebhook)
 	req.SourceID = src.ID
 	req.AgentSlug = "attacker-controlled"
-	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
+	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req)
 	if err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
@@ -95,7 +97,7 @@ func TestCreateTrigger_AgentTypeNotFound(t *testing.T) {
 	req := validReq(KindWebhook)
 	req.SourceID = src.ID
 	req.AgentTypeID = "ghost"
-	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
+	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req)
 	if !errors.Is(err, ErrValidation) {
 		t.Errorf("got %v, want ErrValidation for an unknown agent type", err)
 	}
@@ -110,14 +112,14 @@ func TestCreateTrigger_AgentTypeNotFound(t *testing.T) {
 
 func TestCreateTrigger_AgentTypeWrongTenant(t *testing.T) {
 	// Defense in depth: an agent type reported under a different tenant must never
-	// bind, even if orbit-agents somehow returned it.
+	// bind, even if kora-agents somehow returned it.
 	_, deps := newTestService(t)
 	src := mustSource(t, deps.sources)
 	deps.agents.atTenant = "other-tenant"
 
 	req := validReq(KindWebhook)
 	req.SourceID = src.ID
-	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
+	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req)
 	if !errors.Is(err, ErrValidation) {
 		t.Errorf("got %v, want ErrValidation for a cross-tenant agent type", err)
 	}
@@ -146,7 +148,7 @@ func TestCreateTrigger_IdentityModeBinding(t *testing.T) {
 
 			req := validReq(KindWebhook)
 			req.SourceID = src.ID
-			tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
+			tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req)
 			if !tc.wantErr {
 				if err != nil {
 					t.Fatalf("CreateTrigger: %v", err)
@@ -172,6 +174,70 @@ func TestCreateTrigger_IdentityModeBinding(t *testing.T) {
 	}
 }
 
+// Binding hands the trigger principal the agent's run scopes. kora-agents must say the caller can run the agent first.
+func TestCreateTrigger_RequiresCallerRunAccess(t *testing.T) {
+	tests := []struct {
+		name         string
+		kind         string
+		noRun        bool
+		callerStatus int
+		wantErr      bool
+	}{
+		{"webhook allowed", KindWebhook, false, 0, false},
+		{"webhook refused", KindWebhook, true, 0, true},
+		{"scheduled allowed", KindScheduled, false, 0, false},
+		{"scheduled refused", KindScheduled, true, 0, true},
+		{"manual allowed", KindManual, false, 0, false},
+		{"manual refused", KindManual, true, 0, true},
+		{"caller cannot read the type", KindManual, false, http.StatusNotFound, true},
+		{"caller forbidden", KindManual, false, http.StatusForbidden, true},
+		{"kora-agents failure fails closed", KindManual, false, http.StatusInternalServerError, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, deps := newTestService(t)
+			deps.agents.atSlug = "real-slug"
+			deps.agents.atNoRun, deps.agents.callerStatus = tc.noRun, tc.callerStatus
+			req := validReq(tc.kind)
+			if tc.kind == KindWebhook {
+				req.SourceID = mustSource(t, deps.sources).ID
+			}
+			grantsBefore := len(deps.policy.created)
+
+			_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req)
+
+			if got := deps.agents.callerReadIDs(); !slices.Equal(got, []string{req.AgentTypeID}) {
+				t.Errorf("caller reads = %v, want one read of %s", got, req.AgentTypeID)
+			}
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("CreateTrigger: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("CreateTrigger succeeded, want a refusal")
+			}
+			want := ErrBindForbidden
+			if tc.callerStatus == http.StatusNotFound {
+				want = ErrValidation
+			}
+			if tc.callerStatus != http.StatusInternalServerError && !errors.Is(err, want) {
+				t.Fatalf("got %v, want %v", err, want)
+			}
+			if slices.Contains(deps.policy.lastScopes, "agents:runs:real-slug:write") {
+				t.Error("the run grant must not be created before the caller is checked")
+			}
+			if len(deps.repo.triggers) != 0 {
+				t.Error("no trigger should be persisted")
+			}
+			if len(deps.policy.created) != grantsBefore {
+				t.Errorf("no grant should outlive a refused bind (grants %d → %d)", grantsBefore, len(deps.policy.created))
+			}
+		})
+	}
+}
+
 // ── Admission settings at create ────────────────────────────────────────────
 
 func TestUpdateTrigger_Admission(t *testing.T) {
@@ -180,7 +246,7 @@ func TestUpdateTrigger_Admission(t *testing.T) {
 	tr := mustTrigger(t, deps.triggers, src.ID, nil, "p")
 
 	// Applied when set, with create-time bounds.
-	upd, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{
+	upd, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, nil, UpdateTriggerRequest{
 		AdmissionSettings: AdmissionSettings{
 			MaxParallel:    new(int16(2)),
 			Overflow:       new(OverflowRefuse),
@@ -196,7 +262,7 @@ func TestUpdateTrigger_Admission(t *testing.T) {
 	}
 
 	// Omitted fields stay put on an unrelated PATCH.
-	renamed, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{
+	renamed, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, nil, UpdateTriggerRequest{
 		Name: admissionPtr("renamed"),
 	})
 	if err != nil {
@@ -207,7 +273,7 @@ func TestUpdateTrigger_Admission(t *testing.T) {
 	}
 
 	// Out-of-range rejected.
-	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{
+	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, nil, UpdateTriggerRequest{
 		AdmissionSettings: AdmissionSettings{MaxParallel: new(int16(99))},
 	}); err == nil {
 		t.Fatal("expected max_parallel out of range to be rejected")
@@ -235,7 +301,7 @@ func TestCreateTrigger_AdmissionDefaults(t *testing.T) {
 				req.SourceID = mustSource(t, deps.sources).ID
 			}
 
-			tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
+			tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req)
 			if err != nil {
 				t.Fatalf("CreateTrigger: %v", err)
 			}
@@ -270,7 +336,7 @@ func TestCreateTrigger_AdmissionOverrides(t *testing.T) {
 		DedupeEnabled:    new(false),
 		AutopauseEnabled: new(false),
 	}
-	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
+	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req)
 	if err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
@@ -318,7 +384,7 @@ func TestCreateTrigger_AdmissionRejected(t *testing.T) {
 				s.apply(&req)
 				grantsBefore := len(deps.policy.created) // the source's own grant, for webhooks
 
-				if _, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req); !errors.Is(err, ErrValidation) {
+				if _, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req); !errors.Is(err, ErrValidation) {
 					t.Fatalf("got %v, want ErrValidation", err)
 				}
 				if len(deps.repo.triggers) != 0 {
@@ -354,7 +420,7 @@ func TestCreateTrigger_AdmissionBoundsAccepted(t *testing.T) {
 			req := validReq(KindWebhook)
 			req.SourceID = mustSource(t, deps.sources).ID
 			tc.apply(&req)
-			if _, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req); err != nil {
+			if _, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req); err != nil {
 				t.Fatalf("CreateTrigger: %v", err)
 			}
 		})
@@ -368,7 +434,7 @@ func TestUpdateTrigger(t *testing.T) {
 
 	enabled := false
 	newPrompt := "new prompt"
-	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{Enabled: &enabled, PromptTemplate: &newPrompt}); err != nil {
+	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, nil, UpdateTriggerRequest{Enabled: &enabled, PromptTemplate: &newPrompt}); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 	got := deps.repo.triggers[tr.ID]
@@ -515,7 +581,7 @@ func TestUpdateTrigger_AppliesManualConfig(t *testing.T) {
 	trig := mustManualTrigger(t, deps.triggers)
 	ctx := context.Background()
 
-	updated, err := deps.triggers.UpdateTrigger(ctx, testTenant, trig.ID, UpdateTriggerRequest{
+	updated, err := deps.triggers.UpdateTrigger(ctx, testTenant, trig.ID, nil, UpdateTriggerRequest{
 		ManualConfig: &ManualConfig{Inputs: []InputField{
 			{Name: "env", Type: InputTypeChoice, Required: true, Choices: []string{"dev", "prod"}},
 		}},
@@ -556,7 +622,7 @@ func TestUpdateTrigger_ValidatesManualConfig(t *testing.T) {
 	for _, tt := range bad {
 		t.Run(tt.name, func(t *testing.T) {
 			mc := tt.mc
-			if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, trig.ID, UpdateTriggerRequest{ManualConfig: &mc}); !errors.Is(err, ErrValidation) {
+			if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, trig.ID, nil, UpdateTriggerRequest{ManualConfig: &mc}); !errors.Is(err, ErrValidation) {
 				t.Errorf("err = %v, want ErrValidation", err)
 			}
 		})
@@ -604,7 +670,7 @@ func TestCreateTrigger_BoundsItsFreeText(t *testing.T) {
 			req := validReq(KindWebhook)
 			req.SourceID = src.ID
 			tc.apply(&req)
-			if _, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req); !errors.Is(err, ErrValidation) {
+			if _, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req); !errors.Is(err, ErrValidation) {
 				t.Fatalf("err = %v, want ErrValidation", err)
 			}
 		})
@@ -665,7 +731,7 @@ func TestUpdateTrigger_RenameDoesNotClobberConcurrentAutoPause(t *testing.T) {
 	}
 
 	// A rename carries no enabled flag, so it must leave enablement alone.
-	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, UpdateTriggerRequest{
+	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, nil, UpdateTriggerRequest{
 		Name: admissionPtr("renamed"),
 	}); err != nil {
 		t.Fatalf("rename: %v", err)
@@ -680,5 +746,79 @@ func TestUpdateTrigger_RenameDoesNotClobberConcurrentAutoPause(t *testing.T) {
 	}
 	if stored.Name != "renamed" {
 		t.Errorf("the rename itself should still apply, got %q", stored.Name)
+	}
+}
+
+// Edits that change what the bound agent is told or when it runs need run authority on it. Other edits do not.
+func TestUpdateTrigger_RunBehaviourNeedsRunAccess(t *testing.T) {
+	newPrompt, newName, off, on := "rewritten", "renamed", false, true
+	tests := []struct {
+		name      string
+		kind      string
+		req       UpdateTriggerRequest
+		wantCheck bool
+	}{
+		{"prompt", KindManual, UpdateTriggerRequest{PromptTemplate: &newPrompt}, true},
+		{"schedule", KindScheduled, UpdateTriggerRequest{ScheduleConfig: &ScheduleConfig{CronExpression: "* * * * *", Timezone: "UTC"}}, true},
+		{"sender restriction", KindWebhook, UpdateTriggerRequest{SenderRestriction: &SenderRestriction{}}, true},
+		{"manual inputs", KindManual, UpdateTriggerRequest{ManualConfig: &ManualConfig{}}, true},
+		{"event type", KindWebhook, UpdateTriggerRequest{EventType: &newName}, true},
+		{"match condition", KindWebhook, UpdateTriggerRequest{MatchCondition: map[string][]string{}}, true},
+		{"disable", KindManual, UpdateTriggerRequest{Enabled: &off}, true},
+		{"enabled unchanged", KindManual, UpdateTriggerRequest{Enabled: &on}, false},
+		{"rename", KindManual, UpdateTriggerRequest{Name: &newName}, false},
+	}
+	for _, tc := range tests {
+		for _, allow := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/allow=%v", tc.name, allow), func(t *testing.T) {
+				_, deps := newTestService(t)
+				deps.agents.atSlug = "real-slug"
+				req := validReq(tc.kind)
+				if tc.kind == KindWebhook {
+					req.SourceID = mustSource(t, deps.sources).ID
+				}
+				tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req)
+				if err != nil {
+					t.Fatalf("CreateTrigger: %v", err)
+				}
+				deps.agents.atNoRun = !allow
+				deps.agents.callerReadIDs()
+				before, _ := deps.repo.GetTrigger(context.Background(), testTenant, tr.ID)
+				snapshot := *before
+
+				_, err = deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, nil, tc.req)
+
+				if reads := deps.agents.callerReadIDs(); tc.wantCheck != slices.Equal(reads, []string{tr.AgentTypeID}) {
+					t.Fatalf("caller reads %v, want check=%v", reads, tc.wantCheck)
+				}
+				if tc.wantCheck && !allow {
+					if !errors.Is(err, ErrBindForbidden) {
+						t.Fatalf("got %v, want ErrBindForbidden", err)
+					}
+					if stored, _ := deps.repo.GetTrigger(context.Background(), testTenant, tr.ID); !reflect.DeepEqual(*stored, snapshot) {
+						t.Error("a refused edit must leave the trigger unchanged")
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("UpdateTrigger: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestCreateTrigger_ProvisioningAgentIsValidationError(t *testing.T) {
+	_, deps := newTestService(t)
+	deps.policy.unknownScopes = map[string]bool{}
+	for _, sc := range triggerRunScopes("code-reviewer") {
+		deps.policy.unknownScopes[sc] = true
+	}
+	for _, kind := range []string{KindScheduled, KindManual} {
+		req := validReq(kind)
+		_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req)
+		if !errors.Is(err, ErrValidation) || !strings.Contains(err.Error(), "still provisioning") {
+			t.Errorf("%s: got %v, want a validation error naming provisioning", kind, err)
+		}
 	}
 }

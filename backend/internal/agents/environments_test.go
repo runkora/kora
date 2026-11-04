@@ -13,8 +13,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
 func TestEnvironmentValidate_Size(t *testing.T) {
@@ -57,15 +58,37 @@ func TestEnvironmentSizes_Validate(t *testing.T) {
 	}
 }
 
-// fakeEnvStore is an in-memory environment store for the service tests.
+// fakeEnvStore is an in-memory environment store for the service tests. writes counts creates
+// and updates.
 type fakeEnvStore struct {
 	envs      map[string]Environment
 	deleteErr error
+	writes    int
 }
 
 func (f *fakeEnvStore) CreateEnvironment(_ context.Context, env Environment) error {
+	f.writes++
 	f.envs[env.ID] = env
 	return nil
+}
+
+func (f *fakeEnvStore) GetEnvironmentBySlug(_ context.Context, tenantID, slug string) (*Environment, error) {
+	for _, e := range f.envs {
+		if e.TenantID == tenantID && e.Slug == slug {
+			return &e, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (f *fakeEnvStore) ListDeclaredEnvironments(_ context.Context, tenantID string) ([]declarative.Declared, error) {
+	var out []declarative.Declared
+	for _, e := range f.envs {
+		if e.TenantID == tenantID && e.Source == declarative.SourceCRD {
+			out = append(out, declarative.Declared{Name: e.Slug, UID: e.ResourceUID})
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeEnvStore) GetEnvironment(_ context.Context, tenantID, id string) (*Environment, error) {
@@ -81,15 +104,22 @@ func (f *fakeEnvStore) ListEnvironments(context.Context, string) ([]Environment,
 }
 
 func (f *fakeEnvStore) UpdateEnvironment(_ context.Context, env Environment) error {
+	f.writes++
 	f.envs[env.ID] = env
 	return nil
 }
 
-func (f *fakeEnvStore) DeleteEnvironment(context.Context, string, string) error { return f.deleteErr }
+func (f *fakeEnvStore) DeleteEnvironment(_ context.Context, _, id string) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+	delete(f.envs, id)
+	return nil
+}
 
 func newEnvironmentService(store *fakeEnvStore, k8s *mockK8s) *EnvironmentService {
-	return NewEnvironmentService(store, newMockRepository(), k8s, k8s, EnvironmentServiceConfig{
-		TenantNamespaceFn: func(id string) string { return "orbit-tenant-" + id },
+	return NewEnvironmentService(store, newMockRepository(), k8s, k8s, fakeWriteChecker{}, lockedTenants{}, EnvironmentServiceConfig{
+		TenantNamespaceFn: func(id string) string { return "kora-tenant-" + id },
 		EnvironmentSizes:  testSizes,
 	}, logging.NewLoggerWithOutput(io.Discard))
 }
@@ -98,7 +128,7 @@ func TestCreateEnvironment(t *testing.T) {
 	k8s := &mockK8s{sandboxImages: map[string]*si.SandboxImage{
 		"acme-go":   validSandboxImage("acme-go", "ghcr.io/acme/go:1", "sha256:go"),
 		"broken":    {Status: si.Status{}},
-		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/clear-route/kora-sandbox-base:1", "sha256:base"),
+		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/runkora/kora-sandbox-base:1", "sha256:base"),
 	}}
 	ctx := withTenantCtx(context.Background(), "t-1")
 	for _, tc := range []struct {
@@ -183,7 +213,7 @@ func TestDeriveSlug(t *testing.T) {
 // and rejects a slug that is not a DNS-1123 label.
 func TestCreateEnvironment_Slug(t *testing.T) {
 	k8s := &mockK8s{sandboxImages: map[string]*si.SandboxImage{
-		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/clear-route/kora-sandbox-base:1", "sha256:base"),
+		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/runkora/kora-sandbox-base:1", "sha256:base"),
 	}}
 	ctx := withTenantCtx(context.Background(), "t-1")
 	for _, tc := range []struct {
@@ -220,7 +250,7 @@ func TestCreateEnvironment_Slug(t *testing.T) {
 // An update keeps the stored slug, even one that is not a DNS-1123 label, and refuses to change it.
 func TestUpdateEnvironment_SlugIsImmutable(t *testing.T) {
 	k8s := &mockK8s{sandboxImages: map[string]*si.SandboxImage{
-		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/clear-route/kora-sandbox-base:1", "sha256:base"),
+		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/runkora/kora-sandbox-base:1", "sha256:base"),
 	}}
 	ctx := withTenantCtx(context.Background(), "t-1")
 	for _, tc := range []struct {
@@ -260,12 +290,12 @@ func TestUpdateEnvironment_SlugIsImmutable(t *testing.T) {
 // An update that changes the slug is a 400.
 func TestHandleUpdateEnvironment_SlugChange(t *testing.T) {
 	k8s := &mockK8s{sandboxImages: map[string]*si.SandboxImage{
-		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/clear-route/kora-sandbox-base:1", "sha256:base"),
+		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/runkora/kora-sandbox-base:1", "sha256:base"),
 	}}
 	store := &fakeEnvStore{envs: map[string]Environment{
 		"env-1": {ID: "env-1", TenantID: "t-1", Slug: "go", Name: "Go", SandboxImage: si.BaseName},
 	}}
-	c := NewController(nil, nil, newEnvironmentService(store, k8s), nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	c := NewController(nil, nil, newEnvironmentService(store, k8s), nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	req := withTenantRequest(httptest.NewRequest(http.MethodPut, "/api/v1/environments/env-1", strings.NewReader(`{"slug":"node","name":"Go"}`)), "t-1")
 	req.SetPathValue("id", "env-1")
 	w := httptest.NewRecorder()
@@ -278,7 +308,7 @@ func TestHandleUpdateEnvironment_SlugChange(t *testing.T) {
 // Create and update require a name for people.
 func TestHandleEnvironment_NameRequired(t *testing.T) {
 	svc := newEnvironmentService(&fakeEnvStore{envs: map[string]Environment{}}, &mockK8s{})
-	c := NewController(nil, nil, svc, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	c := NewController(nil, nil, svc, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	for _, handle := range []func(http.ResponseWriter, *http.Request){c.handleCreateEnvironment, c.handleUpdateEnvironment} {
 		req := withTenantRequest(httptest.NewRequest(http.MethodPost, "/api/v1/environments", strings.NewReader(`{"slug":"go","name":"  "}`)), "t-1")
 		req.SetPathValue("id", "env-1")
@@ -292,8 +322,9 @@ func TestHandleEnvironment_NameRequired(t *testing.T) {
 
 // Deleting an attached environment is a 409. The frontend tells the user to detach it first.
 func TestHandleDeleteEnvironment_InUse(t *testing.T) {
-	svc := newEnvironmentService(&fakeEnvStore{deleteErr: ErrEnvironmentInUse}, &mockK8s{})
-	c := NewController(nil, nil, svc, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	store := &fakeEnvStore{envs: map[string]Environment{"env-1": {ID: "env-1", TenantID: "t-1"}}, deleteErr: ErrEnvironmentInUse}
+	svc := newEnvironmentService(store, &mockK8s{})
+	c := NewController(nil, nil, svc, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	req := withTenantRequest(httptest.NewRequest(http.MethodDelete, "/api/v1/environments/env-1", http.NoBody), "t-1")
 	req.SetPathValue("id", "env-1")
 	w := httptest.NewRecorder()
@@ -392,7 +423,7 @@ func TestHandleUpdateAgentType_InvalidEnvironmentsIs400(t *testing.T) {
 // The sizes endpoint returns the install's default and maximum sizes.
 func TestHandleEnvironmentSizes(t *testing.T) {
 	svc := newEnvironmentService(&fakeEnvStore{envs: map[string]Environment{}}, &mockK8s{})
-	c := NewController(nil, nil, svc, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	c := NewController(nil, nil, svc, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	w := httptest.NewRecorder()
 	c.handleEnvironmentSizes(w, withTenantRequest(httptest.NewRequest(http.MethodGet, "/api/v1/environment-sizes", http.NoBody), "t-1"))
 	want := `{"default":{"cpu":"2","memory":"4Gi","disk":"10Gi"},"max":{"cpu":"8","memory":"16Gi","disk":"50Gi"}}`
@@ -415,7 +446,7 @@ func TestSQLStateHelpers(t *testing.T) {
 
 // The built-in environment is selected by the slug default and shown as Default.
 func TestDefaultEnvironment_SlugAndName(t *testing.T) {
-	env := DefaultEnvironment(testSizes.Default)
+	env := DefaultEnvironment(testSizes.Default, "Acme")
 	if env.Slug != DefaultEnvironmentName || env.Name != "Default" {
 		t.Errorf("slug, name = %q, %q", env.Slug, env.Name)
 	}

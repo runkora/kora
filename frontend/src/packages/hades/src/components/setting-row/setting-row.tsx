@@ -7,7 +7,7 @@ import {
   settingsRowSurfaceVariants,
 } from './settings-row-surface';
 
-/** @tier 1 — Zero Orbit domain knowledge. A read-only settings row: label, description, value. */
+/** @tier 1 — Zero kora domain knowledge. A read-only settings row: label, description, value. */
 
 /**
  * The plain settings-row container. An alias for the shared surface

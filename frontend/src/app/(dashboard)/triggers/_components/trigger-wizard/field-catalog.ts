@@ -6,8 +6,8 @@
  */
 
 import { deriveFieldKey } from './wizard-state';
-import { parseTemplate, type TemplateCatalogEntry } from '@orbit/hades';
-import type { TriggerField } from '@orbit/shared/api';
+import { parseTemplate, type TemplateCatalogEntry } from '@runkora/hades';
+import type { TriggerField } from '@runkora/shared/api';
 import type { FieldCatalogEntry, WizardField } from './types';
 
 /** The scheduler injects these on every fire. */
@@ -109,7 +109,8 @@ export function schemaCatalog(fields: TriggerField[]): SchemaCatalogEntry[] {
 
 /**
  * The event types a trigger on a source can pick. Types the source has sent
- * but the schema does not declare are listed separately.
+ * but the schema does not declare are listed separately; with no schema they
+ * are the only suggestions.
  */
 export function eventTypeCatalog(declared: string[], observed: string[]): TemplateCatalogEntry[] {
   const known = new Set(declared);
@@ -119,7 +120,7 @@ export function eventTypeCatalog(declared: string[], observed: string[]): Templa
     ...extra.map((token) => ({
       token,
       description: 'Received from this source',
-      group: 'Received, not in the schema',
+      group: known.size === 0 ? 'Received' : 'Received, not in the schema',
     })),
   ];
 }

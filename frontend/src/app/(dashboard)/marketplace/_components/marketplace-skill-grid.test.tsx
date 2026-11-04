@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { screen } from '@testing-library/react';
-import { renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@runkora/test-utils';
 import { MarketplaceProvider } from '../_context/marketplace-context';
 import { MarketplaceSkillGrid } from './marketplace-skill-grid';
 import type { MarketplaceOverviewData } from '../_types';

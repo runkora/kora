@@ -9,7 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
 
-	"github.com/clear-route/orbit/internal/platform/storage"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // redisCAUsers returns the path where each rendered Deployment mounts the
@@ -30,7 +30,7 @@ func redisCAUsers(t *testing.T, rendered string) (mounts map[string]string, caFi
 		if err := yaml.Unmarshal([]byte(doc), &obj); err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(obj.Data["internal.platform.storage.yaml"], "caFile: /etc/orbit/redis-ca/ca.crt") {
+		if strings.Contains(obj.Data["internal.platform.storage.yaml"], "caFile: /etc/kora/redis-ca/ca.crt") {
 			caFileConfigs = append(caFileConfigs, obj.Metadata.Name)
 		}
 		for _, c := range obj.Spec.Template.Spec.Containers {
@@ -71,8 +71,8 @@ func TestChartRedisTLSDisabled(t *testing.T) {
 	}
 }
 
-// With TLS and a CA secret, only the three Redis clients mount the secret and
-// read the CA file from it.
+// With TLS and a CA secret, only the Redis clients mount the secret and read
+// the CA file from it. The tool-gateway publisher opens no Redis client.
 func TestChartRedisTLSWithCA(t *testing.T) {
 	out := renderChart(t, "config:\n  redis:\n    tls: {caSecret: redis-ca, serverName: redis.internal}\n")
 	r := loadRendered[storage.StorageConfig](t, out, "internal/platform/storage").Redis
@@ -81,14 +81,14 @@ func TestChartRedisTLSWithCA(t *testing.T) {
 	}
 	mounts, cfgs := redisCAUsers(t, out)
 	for name, path := range mounts {
-		if path != "/etc/orbit/redis-ca" {
+		if path != "/etc/kora/redis-ca" {
 			t.Errorf("%s mounts the CA at %s", name, path)
 		}
 	}
-	if names := slices.Sorted(maps.Keys(mounts)); strings.Join(names, ",") != "orbit-identity,orbit-inference-gateway,orbit-skills-service,orbit-triggers" {
-		t.Errorf("Redis CA mounted in %v, want identity, inference-gateway, skills-service and triggers", names)
+	if names := slices.Sorted(maps.Keys(mounts)); strings.Join(names, ",") != "kora-agents,kora-egress-gateway,kora-identity,kora-inference-gateway,kora-policy-gateway,kora-policy-service,kora-skills-service,kora-tool-gateway,kora-triggers" {
+		t.Errorf("Redis CA mounted in %v, want agents, egress-gateway, identity, inference-gateway, policy-gateway, policy-service, skills-service, tool-gateway and triggers", names)
 	}
-	if strings.Join(cfgs, ",") != "orbit-identity-config,orbit-inference-gateway-config,orbit-skills-service-config,orbit-triggers-config" {
-		t.Errorf("caFile rendered in %v, want identity, inference-gateway, skills-service and triggers", cfgs)
+	if strings.Join(cfgs, ",") != "kora-agents-config,kora-egress-gateway-config,kora-identity-config,kora-inference-gateway-config,kora-policy-gateway-config,kora-policy-service-config,kora-skills-service-config,kora-tool-gateway-config,kora-triggers-config" {
+		t.Errorf("caFile rendered in %v, want agents, egress-gateway, identity, inference-gateway, policy-gateway, policy-service, skills-service, tool-gateway and triggers", cfgs)
 	}
 }

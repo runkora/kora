@@ -3,6 +3,8 @@ package inferencegw
 import (
 	"context"
 	"fmt"
+
+	"github.com/runkora/kora/backend/internal/platform/declarative"
 )
 
 // CatalogStore is the write-side facade for the virtual model catalog.
@@ -62,6 +64,31 @@ func (s *CatalogStore) DeleteVirtualModel(ctx context.Context, id string) error 
 		return err
 	}
 	return s.refresh(ctx)
+}
+
+// UpsertDeclaredVirtualModel projects a VirtualModel resource, returns its
+// row id and refreshes the cache. The cache is left alone when the row already matched.
+func (s *CatalogStore) UpsertDeclaredVirtualModel(ctx context.Context, vm VirtualModel) (string, error) {
+	id, changed, err := s.repo.UpsertDeclaredVirtualModel(ctx, vm)
+	if err != nil || !changed {
+		return id, err
+	}
+	return id, s.refresh(ctx)
+}
+
+// DeleteDeclaredVirtualModel deletes a resource's row and refreshes the cache
+// when there was one.
+func (s *CatalogStore) DeleteDeclaredVirtualModel(ctx context.Context, resourceName string) error {
+	deleted, err := s.repo.DeleteDeclaredVirtualModel(ctx, resourceName)
+	if err != nil || !deleted {
+		return err
+	}
+	return s.refresh(ctx)
+}
+
+// ListDeclaredVirtualModels returns the resource of every declared row.
+func (s *CatalogStore) ListDeclaredVirtualModels(ctx context.Context) ([]declarative.Declared, error) {
+	return s.repo.ListDeclaredVirtualModels(ctx)
 }
 
 // ── Read-only pass-throughs ───────────────────────────────────────────────────

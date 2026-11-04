@@ -8,10 +8,10 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
 	"github.com/open-policy-agent/opa/v1/rego"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -132,7 +132,7 @@ func TestAuthz_DelegationRequired_UnscopedDelegation_AgentGrantStillRequired(t *
 // (c) An unmarked agent is byte-for-byte unaffected: its autonomous path still
 // allows, including when a marked agent's grant coexists in the same bundle.
 func TestAuthz_DelegationRequired_UnmarkedAgentUnaffected(t *testing.T) {
-	otherAgentID := "spiffe://orbit.test/tenant/test-tenant/agent/other-agent"
+	otherAgentID := "spiffe://runkora.test/tenant/test-tenant/agent/other-agent"
 	pq := compileAndPrepare(t, bundleOpts{
 		grants: []*grants.Grant{
 			agentGrant(testAgentID, "inference:invoke"),
@@ -241,7 +241,7 @@ func TestAuthz_Egress_UnmarkedAgent_StillAllowed(t *testing.T) {
 
 func TestGateway_DelegationRequired_NoDelegation_Denied(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/marked-agent"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/marked-agent"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
 		jwksURL:   jwksSrv.URL + "/jwks",
@@ -270,7 +270,7 @@ func TestGateway_DelegationRequired_NoDelegation_Denied(t *testing.T) {
 
 func TestGateway_DelegationRequired_UnscopedDelegation_FullChain_Allowed(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/marked-agent-2"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/marked-agent-2"
 	delegatorID := "user-delegator-unscoped"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
@@ -293,8 +293,8 @@ func TestGateway_DelegationRequired_UnscopedDelegation_FullChain_Allowed(t *test
 	delegationToken := signDelegationJWT(t, delegatorID, nil)
 
 	allow, reason := evalGateway(t, pq, "POST", "/v1/chat/completions", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": delegationToken,
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": delegationToken,
 	})
 	if !allow {
 		t.Errorf("expected allow for unscoped delegation with both other legs satisfied, got deny (reason: %s)", reason)
@@ -306,7 +306,7 @@ func TestGateway_DelegationRequired_UnscopedDelegation_FullChain_Allowed(t *test
 
 func TestGateway_DelegationRequired_UnmarkedAgentUnaffected(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/plain-agent"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/plain-agent"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
 		jwksURL:   jwksSrv.URL + "/jwks",
@@ -388,8 +388,8 @@ func TestAuthz_Layer1_DelegationRunBinding_PathMode(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			allow, reason := evalLayer1(t, pq, "POST", tc.path, map[string]string{
-				"authorization":            "Bearer " + mainJWT,
-				"x-orbit-delegation-token": delegationToken,
+				"authorization":           "Bearer " + mainJWT,
+				"x-kora-delegation-token": delegationToken,
 			})
 			if allow != tc.wantAllow {
 				t.Errorf("allow = %v, want %v (reason: %s)", allow, tc.wantAllow, reason)
@@ -422,8 +422,8 @@ func TestAuthz_Layer1_DelegationRunBinding_SandboxMode(t *testing.T) {
 				"claims": map[string]any{"run_id": tc.tokenRunID},
 			})
 			allow, reason := evalLayer1(t, pq, "POST", "/v1/messages", map[string]string{
-				"authorization":            "Bearer " + mainJWT,
-				"x-orbit-delegation-token": delegationToken,
+				"authorization":           "Bearer " + mainJWT,
+				"x-kora-delegation-token": delegationToken,
 			})
 			if allow != tc.wantAllow {
 				t.Errorf("allow = %v, want %v (reason: %s)", allow, tc.wantAllow, reason)
@@ -467,14 +467,14 @@ func TestAuthz_Layer1_DelegationRunBinding_UnboundTokenDenied(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			orbitExtra := map[string]any{}
+			koraExtra := map[string]any{}
 			if tc.tokenRunID != "" {
-				orbitExtra["claims"] = map[string]any{"run_id": tc.tokenRunID}
+				koraExtra["claims"] = map[string]any{"run_id": tc.tokenRunID}
 			}
-			mainJWT := signTestJWT(t, "AGENT", testTenantID, testAgentID, orbitExtra)
+			mainJWT := signTestJWT(t, "AGENT", testTenantID, testAgentID, koraExtra)
 			allow, reason := evalLayer1(t, pq, "POST", tc.path, map[string]string{
-				"authorization":            "Bearer " + mainJWT,
-				"x-orbit-delegation-token": tc.delegation,
+				"authorization":           "Bearer " + mainJWT,
+				"x-kora-delegation-token": tc.delegation,
 			})
 			if allow != tc.wantAllow {
 				t.Errorf("allow = %v, want %v (reason: %s)", allow, tc.wantAllow, reason)
@@ -498,8 +498,8 @@ func TestAuthz_Layer1_DelegationRunBinding_UnboundTokenDeniedOnEgress(t *testing
 
 	mainJWT := signTestJWT(t, "AGENT", testTenantID, testAgentID, nil)
 	allow, reason := evalLayer1Connect(t, pq, "api.github.com:443", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": signDelegationJWTWithoutRunID(t, testDelegateID),
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": signDelegationJWTWithoutRunID(t, testDelegateID),
 	})
 	if allow {
 		t.Error("expected deny: an unbound delegation must not satisfy the delegated egress rule")
@@ -511,7 +511,7 @@ func TestAuthz_Layer1_DelegationRunBinding_UnboundTokenDeniedOnEgress(t *testing
 
 func TestGateway_DelegationRunBinding_UnboundTokenDenied(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/unbound-agent"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/unbound-agent"
 	delegatorID := "user-delegator-unbound"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
@@ -535,8 +535,8 @@ func TestGateway_DelegationRunBinding_UnboundTokenDenied(t *testing.T) {
 	for _, path := range []string{"/v1/chat/completions", "/run/run-a/v1/chat/completions"} {
 		t.Run(path, func(t *testing.T) {
 			allow, reason := evalGateway(t, pq, "POST", path, map[string]string{
-				"authorization":            "Bearer " + mainJWT,
-				"x-orbit-delegation-token": unbound,
+				"authorization":           "Bearer " + mainJWT,
+				"x-kora-delegation-token": unbound,
 			})
 			if allow {
 				t.Error("expected deny at the gateway for a delegation bound to no run")
@@ -553,7 +553,7 @@ func TestGateway_DelegationRunBinding_UnboundTokenDenied(t *testing.T) {
 // signature, expiry, issuer, and audience against the same JWKS as the
 // platform token (the identity service signs both with one key). Previously it
 // used io.jwt.decode, which parses without verifying anything, and relied on
-// DelegationMiddleware having run first.
+// DelegationMiddlewareWithBlocklist having run first.
 // ═══════════════════════════════════════════════════════════════════════════
 
 func TestAuthz_Layer1_DelegationTokenVerification(t *testing.T) {
@@ -598,7 +598,7 @@ func TestAuthz_Layer1_DelegationTokenVerification(t *testing.T) {
 		},
 		{
 			name:       "wrong issuer",
-			token:      signDelegationClaims(t, clone(jwt.MapClaims{"iss": "not-orbit"})),
+			token:      signDelegationClaims(t, clone(jwt.MapClaims{"iss": "not-kora"})),
 			wantReason: "deny:invalid_delegation_token",
 		},
 		{
@@ -615,8 +615,8 @@ func TestAuthz_Layer1_DelegationTokenVerification(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			allow, reason := evalLayer1(t, pq, "POST", "/run/run-a/v1/messages", map[string]string{
-				"authorization":            "Bearer " + mainJWT,
-				"x-orbit-delegation-token": tc.token,
+				"authorization":           "Bearer " + mainJWT,
+				"x-kora-delegation-token": tc.token,
 			})
 			if allow != tc.wantAllow {
 				t.Errorf("allow = %v, want %v (reason: %s)", allow, tc.wantAllow, reason)
@@ -643,8 +643,8 @@ func TestAuthz_Layer1_ForgedDelegation_NoAutonomousFallback(t *testing.T) {
 	}, getOtherRSAKey())
 
 	allow, reason := evalLayer1(t, pq, "POST", "/v1/messages", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": forged,
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": forged,
 	})
 	if allow {
 		t.Error("expected deny: a forged delegation must not be honoured, nor fall back to autonomous access")
@@ -656,7 +656,7 @@ func TestAuthz_Layer1_ForgedDelegation_NoAutonomousFallback(t *testing.T) {
 
 func TestGateway_DelegationTokenVerification_ForgedDenied(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/forged-agent"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/forged-agent"
 	delegatorID := "user-delegator-forged"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
@@ -693,8 +693,8 @@ func TestGateway_DelegationTokenVerification_ForgedDenied(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			allow, reason := evalGateway(t, pq, "POST", "/v1/chat/completions", map[string]string{
-				"authorization":            "Bearer " + mainJWT,
-				"x-orbit-delegation-token": tc.token,
+				"authorization":           "Bearer " + mainJWT,
+				"x-kora-delegation-token": tc.token,
 			})
 			if allow != tc.wantAllow {
 				t.Errorf("allow = %v, want %v (reason: %s)", allow, tc.wantAllow, reason)
@@ -708,7 +708,7 @@ func TestGateway_DelegationTokenVerification_ForgedDenied(t *testing.T) {
 
 func TestGateway_DelegationRunBinding_PathMismatchDenied(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/bound-agent"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/bound-agent"
 	delegatorID := "user-delegator-bound"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
@@ -729,8 +729,8 @@ func TestGateway_DelegationRunBinding_PathMismatchDenied(t *testing.T) {
 	delegationToken := signDelegationJWTWithRunID(t, delegatorID, "run-a")
 
 	allow, reason := evalGateway(t, pq, "POST", "/run/run-b/v1/chat/completions", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": delegationToken,
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": delegationToken,
 	})
 	if allow {
 		t.Error("expected deny at the gateway for a delegation bound to a different run")

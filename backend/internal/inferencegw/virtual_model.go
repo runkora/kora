@@ -41,8 +41,15 @@ type VirtualModel struct {
 	Strategy    VirtualModelStrategy
 	Routes      []VirtualModelRoute // ordered by Priority ascending
 	Enabled     bool
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// Source is declarative.SourceAPI or SourceCRD. ResourceName and
+	// ResourceUID name the projecting resource of a SourceCRD row.
+	Source       string
+	ResourceName string
+	ResourceUID  string
+	// Repository is the repository that drives a SourceCRD row, if it names one.
+	Repository string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // FullID returns the consumer-facing model identifier: "{family}/{name}".

@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // okHandler records that the request reached the route.
@@ -32,7 +32,7 @@ func newAuthController(t *testing.T, verifier *token.Verifier) *Controller {
 // bearer), so the verifier only needs to exist.
 func unreachableVerifier(t *testing.T) *token.Verifier {
 	t.Helper()
-	return token.NewVerifier(context.Background(), "http://127.0.0.1:1/jwks.json", "orbit", "orbit-platform")
+	return token.NewVerifier(context.Background(), "http://127.0.0.1:1/jwks.json", "kora", "kora-platform")
 }
 
 // ── route classification ──────────────────────────────────────────────────────
@@ -97,7 +97,7 @@ func TestMiddleware_InternalRoutesAreLoopbackOnly(t *testing.T) {
 		wantReach  bool
 		wantStatus int
 	}{
-		// orbit-runtime-mcp and orbit-shell call http://localhost:8090 from
+		// kora-runtime-mcp and kora-shell call http://localhost:8090 from
 		// inside this container; the hop never leaves the pod.
 		{"ipv4 loopback", "127.0.0.1:41234", true, http.StatusOK},
 		{"ipv6 loopback", "[::1]:41234", true, http.StatusOK},
@@ -137,10 +137,10 @@ func TestRequireExpectedCaller(t *testing.T) {
 		wantStatus int
 	}{
 		{
-			name: "orbit-agents system token is accepted",
-			claims: &token.PlatformClaims{Orbit: token.OrbitClaims{
+			name: "kora-agents system token is accepted",
+			claims: &token.PlatformClaims{Kora: token.KoraClaims{
 				PrincipalType: token.PrincipalTypeSystem,
-				DisplayName:   "orbit-agents",
+				DisplayName:   "kora-agents",
 			}},
 			wantReach:  true,
 			wantStatus: http.StatusOK,
@@ -149,25 +149,25 @@ func TestRequireExpectedCaller(t *testing.T) {
 			// The whole point of the check: every in-mesh component can mint a
 			// SYSTEM token, and scope enforcement treats SYSTEM as unrestricted.
 			name: "another system component is rejected",
-			claims: &token.PlatformClaims{Orbit: token.OrbitClaims{
+			claims: &token.PlatformClaims{Kora: token.KoraClaims{
 				PrincipalType: token.PrincipalTypeSystem,
-				DisplayName:   "orbit-triggers",
+				DisplayName:   "kora-triggers",
 			}},
 			wantStatus: http.StatusForbidden,
 		},
 		{
 			name: "an agent's own token is rejected",
-			claims: &token.PlatformClaims{Orbit: token.OrbitClaims{
+			claims: &token.PlatformClaims{Kora: token.KoraClaims{
 				PrincipalType: token.PrincipalTypeAgent,
-				DisplayName:   "orbit-agents",
+				DisplayName:   "kora-agents",
 			}},
 			wantStatus: http.StatusForbidden,
 		},
 		{
 			name: "a human token is rejected",
-			claims: &token.PlatformClaims{Orbit: token.OrbitClaims{
+			claims: &token.PlatformClaims{Kora: token.KoraClaims{
 				PrincipalType: token.PrincipalTypeHuman,
-				DisplayName:   "dev@orbit.local",
+				DisplayName:   "dev@runkora.test",
 			}},
 			wantStatus: http.StatusForbidden,
 		},

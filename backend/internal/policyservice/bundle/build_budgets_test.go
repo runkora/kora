@@ -3,8 +3,8 @@ package bundle
 import (
 	"testing"
 
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/roles"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/roles"
 )
 
 // These tests exercise buildBudgets directly (internal package test).

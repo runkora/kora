@@ -301,21 +301,21 @@ rp := &httputil.ReverseProxy{Transport: transport, ...}
 Mirrors `deploy/local/connections/github.yaml`'s shape and comment style:
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: Connection
 metadata:
   name: orbit-local   # the cluster it points at, not a generic "kubernetes" —
                        # a tenant may register more than one kubernetes
                        # connection, and this name is what the Connections UI
                        # and agent-type connectors reference
-  namespace: orbit-tenant-example
+  namespace: kora-tenant-example
 spec:
   adapter: kubernetes
   baseHost: k3d-orbit-local-server-0:6443   # the k3d server container's own name — already a SAN on its
                                               # kube-apiserver TLS cert. See Amendment 2: a bare IP is
                                               # rejected outright. resolve-docker-ips.sh patches CoreDNS
                                               # NodeHosts so this name resolves in-cluster.
-  secretRef: orbit-local-token
+  secretRef: kora-local-token
   secretKey: token
   config:
     cluster_name: orbit-local
@@ -325,7 +325,7 @@ spec:
       -----END CERTIFICATE-----
 ```
 
-The referenced Secret (`orbit-local-token`) holds a ServiceAccount token provisioned against the local k3d cluster with least-privilege RBAC (e.g. read-only for `cluster:read` verification, or namespace-scoped for a write test) — provisioned via the deployer's own `kubectl create token`/RBAC flow, consistent with "the admin brings their own token."
+The referenced Secret (`kora-local-token`) holds a ServiceAccount token provisioned against the local k3d cluster with least-privilege RBAC (e.g. read-only for `cluster:read` verification, or namespace-scoped for a write test) — provisioned via the deployer's own `kubectl create token`/RBAC flow, consistent with "the admin brings their own token."
 
 #### 6. `frontend/src/app/(dashboard)/connections/_types/index.ts` — label
 
@@ -411,7 +411,7 @@ The adapter's shape (`CredentialAdapter`, `Resolve`, secret-based bearer token, 
 
 ### Why
 
-`charts/orbit/templates/egress-gateway/transparent-egress.yaml` authorizes a sandbox's outbound HTTPS by reading the TLS ClientHello's SNI extension and matching it against the connection's granted `egress:<host>:connect` scope. Per the TLS spec, a client never sends SNI when the destination is an IP literal. Confirmed directly against a real GKE cluster: the sandbox's OPA decision log showed the generated CONNECT with an empty `:authority` host and a `false` result — the transparent-egress interceptor's own header comment already documents this as intentional fail-closed behavior for empty SNI.
+`charts/kora/templates/egress-gateway/transparent-egress.yaml` authorizes a sandbox's outbound HTTPS by reading the TLS ClientHello's SNI extension and matching it against the connection's granted `egress:<host>:connect` scope. Per the TLS spec, a client never sends SNI when the destination is an IP literal. Confirmed directly against a real GKE cluster: the sandbox's OPA decision log showed the generated CONNECT with an empty `:authority` host and a `false` result — the transparent-egress interceptor's own header comment already documents this as intentional fail-closed behavior for empty SNI.
 
 **Consequence:** any `kubernetes` connection whose `baseHost` is a bare IP can never be driven through a live agent sandbox — including the ADR's own original local k3d example (`<k3d server address>:6443`), which used a raw Docker IP. This is not fixable by connection configuration alone; it is a structural incompatibility between IP-literal hosts and the transparent-egress design generally, not specific to this adapter.
 
@@ -419,7 +419,7 @@ Since a real Kubernetes cluster (cloud-managed or self-hosted) is always reachab
 
 - `internal/platform/connections/adapters.go` — `AdapterKubernetesBearer`'s metadata sets `requiresHostname: true`; the exported `ValidateBaseHost(adapter, baseHost) error` rejects an IPv4/IPv6 literal (with or without a port, brackets, or an `http(s)://` prefix) with sentinel `ErrBaseHostMustBeHostname`. Other adapters are unaffected.
 - `internal/operator/connection_aggregator.go` — `Sync` calls `ValidateBaseHost` per connection; a failing connection is skipped (logged `Warn`) rather than aggregated into the gateway's mounted registry, the same pattern already used for a missing Secret.
-- `charts/orbit-operator/templates/crd-connection.yaml` — an `x-kubernetes-validations` CEL rule rejects a `kubernetes` connection with a bare IPv4 `baseHost` at `kubectl apply` time, so this fails immediately and loudly instead of the connection silently vanishing from the gateway's registry later. Verified via `kubectl apply --dry-run=server`.
+- `charts/kora-operator/templates/crd-connection.yaml` — an `x-kubernetes-validations` CEL rule rejects a `kubernetes` connection with a bare IPv4 `baseHost` at `kubectl apply` time, so this fails immediately and loudly instead of the connection silently vanishing from the gateway's registry later. Verified via `kubectl apply --dry-run=server`.
 
 The local k3d example (`deploy/local/connections/kubernetes.yaml`) was updated to use the k3d server container's own name (`k3d-orbit-local-server-0`) as `baseHost` instead of its Docker IP — that name is already a SAN on the container's own kube-apiserver TLS cert (k3d puts it there itself), so it satisfies this constraint with no `--tls-san` flag or custom cert needed. `scripts/cluster/resolve-docker-ips.sh` patches CoreDNS's `NodeHosts` so the name resolves in-cluster to the container's Docker IP, mirroring the existing `orbit-postgres`/`orbit-redis` mechanism.
 

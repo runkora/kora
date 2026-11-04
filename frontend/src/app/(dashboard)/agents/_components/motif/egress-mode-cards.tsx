@@ -2,9 +2,9 @@
 
 /** @tier 3 — agents-scoped motif: shared between the builder wizard and the detail Configuration tab. */
 
-import { Badge, Grid, RadioCard, RadioGroup, Stack, Text, Textarea } from '@orbit/hades';
-import type { IconName } from '@orbit/hades';
-import type { ConnectivityMode } from '@orbit/shared/api';
+import { Badge, Grid, RadioCard, RadioGroup, Stack, Text, Textarea } from '@runkora/hades';
+import type { IconName } from '@runkora/hades';
+import type { ConnectivityMode } from '@runkora/shared/api';
 
 const EGRESS_MODES: { id: ConnectivityMode; name: string; desc: string; icon: IconName }[] = [
   {
@@ -32,11 +32,14 @@ export function EgressModeCards({
   hosts,
   onModeChange,
   onHostsChange,
+  disabled = false,
 }: {
   mode: ConnectivityMode;
   hosts: string;
   onModeChange: (m: ConnectivityMode) => void;
   onHostsChange: (h: string) => void;
+  /** Read-only, for callers who may not change the agent. */
+  disabled?: boolean;
 }) {
   return (
     <Stack gap="cozy">
@@ -55,6 +58,7 @@ export function EgressModeCards({
               icon={m.icon}
               title={m.name}
               description={m.desc}
+              disabled={disabled}
             />
           ))}
         </Grid>
@@ -65,6 +69,7 @@ export function EgressModeCards({
             value={hosts}
             onChange={(e) => onHostsChange(e.target.value)}
             rows={3}
+            disabled={disabled}
             placeholder={'api.github.com\n*.internal.example.com'}
             aria-label="Allowed hosts"
           />

@@ -5,7 +5,7 @@ package operator
 // names the system namespace.
 var (
 	// systemNamespace is where kora's services and the aggregated registries live.
-	systemNamespace = "orbit-system"
+	systemNamespace = "kora-system"
 
 	// istioNamespace is where the customer's istiod runs; tenant network policies
 	// admit xDS traffic to it.

@@ -7,16 +7,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
-	"github.com/clear-route/orbit/internal/policyservice/bundle"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/roles"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
 	jwt "github.com/golang-jwt/jwt/v5"
 	opabundle "github.com/open-policy-agent/opa/v1/bundle"
 	"github.com/open-policy-agent/opa/v1/rego"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/policyservice/bundle"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/roles"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
 // ---------------------------------------------------------------------------
@@ -24,7 +24,7 @@ import (
 // ---------------------------------------------------------------------------
 
 const (
-	testAgentID    = "spiffe://orbit.test/tenant/test-tenant/agent/test-agent"
+	testAgentID    = "spiffe://runkora.test/tenant/test-tenant/agent/test-agent"
 	testHumanID    = "test-human-001"
 	testDelegateID = "test-delegator-001"
 )
@@ -38,6 +38,8 @@ type bundleOpts struct {
 	vocab  []*vocabulary.ScopeEntry
 	roles  []*roles.RoleEntry
 	routes []routes.RouteScope
+	// tenantRoutes are registered for testTenantID, apart from the global routes.
+	tenantRoutes []routes.RouteScope
 	// principalRoles is the user→role membership snapshot emitted as
 	// principal_roles/data.json (delegator-leg role resolution).
 	principalRoles map[string][]string
@@ -63,8 +65,8 @@ func compileAndPrepare(t *testing.T, opts bundleOpts) rego.PreparedEvalQuery {
 	}
 	cfg := bundle.Config{
 		JWKSURL:            jwksURL,
-		Issuer:             "orbit",
-		Audience:           "orbit-platform",
+		Issuer:             "kora",
+		Audience:           "kora-platform",
 		TelemetryCollector: opts.telemetryCollector,
 	}
 
@@ -73,6 +75,13 @@ func compileAndPrepare(t *testing.T, opts bundleOpts) rego.PreparedEvalQuery {
 		routeStore.Register(&routes.Registration{
 			Service: "test",
 			Routes:  opts.routes,
+		})
+	}
+	if len(opts.tenantRoutes) > 0 {
+		routeStore.Register(&routes.Registration{
+			Service:  "test-tenant-service",
+			TenantID: testTenantID,
+			Routes:   opts.tenantRoutes,
 		})
 	}
 
@@ -88,7 +97,7 @@ func compileAndPrepare(t *testing.T, opts bundleOpts) rego.PreparedEvalQuery {
 	}
 
 	pq, err := rego.New(
-		rego.Query(`x := {"allow": data.orbit.authz.allow, "reason": data.orbit.authz.reason}`),
+		rego.Query(`x := {"allow": data.kora.authz.allow, "reason": data.kora.authz.reason}`),
 		rego.ParsedBundle(testTenantID, &b),
 	).PrepareForEval(context.Background())
 	if err != nil {
@@ -103,8 +112,8 @@ func evalLayer2(t *testing.T, pq rego.PreparedEvalQuery, claims *token.PlatformC
 
 	input := map[string]any{
 		"principal": map[string]any{
-			"type":      string(claims.Orbit.PrincipalType),
-			"tenant_id": claims.Orbit.TenantID,
+			"type":      string(claims.Kora.PrincipalType),
+			"tenant_id": claims.Kora.TenantID,
 			"id":        claims.Subject,
 			"roles":     extractRoles(claims),
 		},
@@ -148,10 +157,10 @@ func evalLayer1(t *testing.T, pq rego.PreparedEvalQuery, method, path string, he
 }
 
 func extractRoles(claims *token.PlatformClaims) []string {
-	if claims.Orbit.Claims == nil {
+	if claims.Kora.Claims == nil {
 		return []string{}
 	}
-	raw, ok := claims.Orbit.Claims["roles"]
+	raw, ok := claims.Kora.Claims["roles"]
 	if !ok || raw == "" {
 		return []string{}
 	}
@@ -171,7 +180,7 @@ func extractRoles(claims *token.PlatformClaims) []string {
 func agentClaims(principalID string) *token.PlatformClaims {
 	return &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: principalID},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			PrincipalType: token.PrincipalTypeAgent,
 			TenantID:      testTenantID,
 		},
@@ -185,7 +194,7 @@ func humanClaims(principalID string, rolesList ...string) *token.PlatformClaims 
 	}
 	return &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: principalID},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			PrincipalType: token.PrincipalTypeHuman,
 			TenantID:      testTenantID,
 			Claims:        claims,
@@ -228,8 +237,8 @@ func compileAndPrepareScopesQuery(t *testing.T, opts bundleOpts) rego.PreparedEv
 
 	cfg := bundle.Config{
 		JWKSURL:  "http://127.0.0.1:1/jwks",
-		Issuer:   "orbit",
-		Audience: "orbit-platform",
+		Issuer:   "kora",
+		Audience: "kora-platform",
 	}
 
 	routeStore := routes.NewStore()
@@ -237,6 +246,13 @@ func compileAndPrepareScopesQuery(t *testing.T, opts bundleOpts) rego.PreparedEv
 		routeStore.Register(&routes.Registration{
 			Service: "test",
 			Routes:  opts.routes,
+		})
+	}
+	if len(opts.tenantRoutes) > 0 {
+		routeStore.Register(&routes.Registration{
+			Service:  "test-tenant-service",
+			TenantID: testTenantID,
+			Routes:   opts.tenantRoutes,
 		})
 	}
 
@@ -252,7 +268,7 @@ func compileAndPrepareScopesQuery(t *testing.T, opts bundleOpts) rego.PreparedEv
 	}
 
 	pq, err := rego.New(
-		rego.Query(`x := data.orbit.authz.principal_all_scopes`),
+		rego.Query(`x := data.kora.authz.principal_all_scopes`),
 		rego.ParsedBundle(testTenantID, &b),
 	).PrepareForEval(context.Background())
 	if err != nil {
@@ -267,8 +283,8 @@ func evalScopes(t *testing.T, pq rego.PreparedEvalQuery, claims *token.PlatformC
 
 	input := map[string]any{
 		"principal": map[string]any{
-			"type":      string(claims.Orbit.PrincipalType),
-			"tenant_id": claims.Orbit.TenantID,
+			"type":      string(claims.Kora.PrincipalType),
+			"tenant_id": claims.Kora.TenantID,
 			"id":        claims.Subject,
 			"roles":     extractRoles(claims),
 		},
@@ -446,8 +462,8 @@ func TestAuthz_AgentAllowedWithGrant(t *testing.T) {
 func TestAuthz_QualifiedConnectionScopes(t *testing.T) {
 	pq := compileAndPrepare(t, bundleOpts{
 		grants: []*grants.Grant{agentGrant(testAgentID,
-			"connection:github:issues:write",          // unqualified — all repos
-			"connection:github:contents:orbit:read")}, // qualified — one repo
+			"connection:github:issues:write",         // unqualified — all repos
+			"connection:github:contents:kora:read")}, // qualified — one repo
 	})
 
 	cases := []struct {
@@ -456,13 +472,13 @@ func TestAuthz_QualifiedConnectionScopes(t *testing.T) {
 		verb  string
 		allow bool
 	}{
-		{"unqualified_grant_covers_qualified_request", []string{"github", "issues", "orbit"}, "write", true},
+		{"unqualified_grant_covers_qualified_request", []string{"github", "issues", "kora"}, "write", true},
 		{"unqualified_grant_covers_other_repo", []string{"github", "issues", "webapp"}, "write", true},
 		{"unqualified_grant_covers_unqualified_request", []string{"github", "issues"}, "write", true},
-		{"qualified_grant_matches_its_repo", []string{"github", "contents", "orbit"}, "read", true},
+		{"qualified_grant_matches_its_repo", []string{"github", "contents", "kora"}, "read", true},
 		{"qualified_grant_denies_sibling_repo", []string{"github", "contents", "webapp"}, "read", false},
 		{"qualified_grant_denies_unqualified_request", []string{"github", "contents"}, "read", false},
-		{"category_grant_denies_other_category", []string{"github", "admin", "orbit"}, "write", false},
+		{"category_grant_denies_other_category", []string{"github", "admin", "kora"}, "write", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -507,7 +523,7 @@ func TestAuthz_EmptyPrincipal(t *testing.T) {
 
 	emptyClaims := &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: ""},
-		Orbit:            token.OrbitClaims{TenantID: testTenantID},
+		Kora:             token.KoraClaims{TenantID: testTenantID},
 	}
 	allow, reason := evalLayer2(t, pq, emptyClaims, nil, "inference", nil, "invoke")
 	if allow {

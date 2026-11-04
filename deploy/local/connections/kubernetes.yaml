@@ -13,17 +13,17 @@
 # to an IP literal carries no SNI for the interceptor to match.
 #
 # The API server listens on 6443, and the gateway may only dial 443 by default.
-# egressGateway.upstreamPorts in deploy/reference/values/orbit.local.yaml opens
+# egressGateway.upstreamPorts in deploy/reference/values/kora.local.yaml opens
 # it.
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: Connection
 metadata:
-  name: orbit-local
-  namespace: orbit-tenant-example
+  name: kora-local
+  namespace: kora-tenant-example
 spec:
   adapter: kubernetes
-  baseHost: k3d-orbit-local-server-0:6443
-  secretRef: orbit-local-token
+  baseHost: k3d-kora-local-server-0:6443
+  secretRef: kora-local-token
   secretKey: token
   caCert: |
     -----BEGIN CERTIFICATE-----

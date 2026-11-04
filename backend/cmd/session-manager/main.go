@@ -10,18 +10,28 @@ import (
 
 	"time"
 
-	smConfig "github.com/clear-route/orbit/cmd/session-manager/config"
-	"github.com/clear-route/orbit/internal/agents/sessionmanager"
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/config"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/observability"
-	"github.com/clear-route/orbit/internal/platform/token"
+	smConfig "github.com/runkora/kora/backend/cmd/session-manager/config"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/landlockmode"
+	"github.com/runkora/kora/backend/internal/agents/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 func main() {
 	ctx := context.Background()
+
+	// kora-agents sets KORA_PRODUCT_NAME on session pods, which the chart does not render.
+	// Load the brand first so a bad name exits before observability starts.
+	b, err := brand.Load()
+	if err != nil {
+		log.Fatalf("Failed to load brand: %v", err)
+	}
 
 	shutdownObs, err := initObservability(ctx)
 	if err != nil {
@@ -34,8 +44,30 @@ func main() {
 		logging.Field{Key: "version", Value: smConfig.Current.App.Version},
 	)
 
-	server, registry := initServer(ctx, logger)
-	run(ctx, logger, server, registry)
+	// fatal flushes observability (the deferred shutdown above won't run
+	// after os.Exit) and exits.
+	fatal := func(msg string, err error) {
+		logger.Error(ctx, msg, logging.Field{Key: "error", Value: err})
+		shutdownObs()
+		os.Exit(1)
+	}
+
+	metrics, err := platformmetrics.Setup(ctx, smConfig.Current.Metrics, observability.Config{
+		ServiceName:    smConfig.Current.Observability.ServiceName,
+		ServiceVersion: smConfig.Current.App.Version,
+		Environment:    config.Environment(),
+	}, smConfig.Current.Observability.ServiceName, logger)
+	if err != nil {
+		fatal("Failed to setup metrics", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), smConfig.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
+
+	server, registry := initServer(ctx, logger, metrics, b)
+	run(ctx, logger, server, registry, metrics)
 }
 
 func initObservability(ctx context.Context) (func(), error) {
@@ -64,14 +96,14 @@ func initLogger() logging.Logger {
 	return logging.NewLogger()
 }
 
-func initServer(ctx context.Context, logger logging.Logger) (*http.Server, *sessionmanager.Registry) {
+func initServer(ctx context.Context, logger logging.Logger, metrics *platformmetrics.Bootstrap, b brand.Brand) (*http.Server, *sessionmanager.Registry) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := smConfig.Current
 
 	var notifier sessionmanager.Notifier = sessionmanager.NoopNotifier{}
-	if cfg.OrbitAgents.URL != "" {
-		notifier = sessionmanager.NewHTTPNotifier(cfg.OrbitAgents.URL, logger)
+	if cfg.KoraAgents.URL != "" {
+		notifier = sessionmanager.NewHTTPNotifier(cfg.KoraAgents.URL, logger)
 	}
 
 	// The session-control API can start, message, interrupt, and kill any run on
@@ -82,8 +114,10 @@ func initServer(ctx context.Context, logger logging.Logger) (*http.Server, *sess
 	// mistake.
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 
+	landlock, isolationErr := checkIsolation(ctx, logger, cfg.Runner.WrapperPath, cfg.Runner.Landlock)
+
 	idleTimeout := time.Duration(cfg.Session.IdleTimeoutSecs) * time.Second
-	registry := sessionmanager.NewRegistry(logger, cfg.Workspaces.BasePath, notifier, idleTimeout)
+	registry := sessionmanager.NewRegistry(logger, cfg.Workspaces.BasePath, notifier, idleTimeout, b)
 	controller := sessionmanager.NewController(logger, sessionmanager.ControllerConfig{
 		ClaudeBinaryPath:    cfg.Claude.BinaryPath,
 		WrapperPath:         cfg.Runner.WrapperPath,
@@ -96,22 +130,51 @@ func initServer(ctx context.Context, logger logging.Logger) (*http.Server, *sess
 		InferenceGatewayURL: cfg.InferenceGateway.URL,
 		ToolGatewayURL:      cfg.ToolGateway.URL,
 		OTLPEndpoint:        observability.DefaultConfig.OTLPEndpoint,
-		NodeMaxOldSpaceMB:   cfg.Runner.NodeMaxOldSpaceMB,
+		Landlock:            landlock,
+		IsolationErr:        isolationErr,
+		Brand:               b,
 	}, registry, verifier)
+
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
 
 	return apiServer.Server(
 		ctx,
 		cfg.Server.Port,
 		cfg.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(cfg.Observability.ServiceName),
+			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
 		),
 		controller,
 	), registry
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server, registry *sessionmanager.Registry) {
+// checkIsolation reports whether this node's kernel can confine agents in the
+// configured mode, and logs the confinement it cannot apply. Without a wrapper
+// there is nothing to check: that is local development off Kubernetes.
+func checkIsolation(ctx context.Context, logger logging.Logger, wrapperPath, mode string) (landlockmode.Mode, error) {
+	m, err := landlockmode.Parse(mode)
+	if err != nil || wrapperPath == "" {
+		return m, err
+	}
+	abi := landlockmode.KernelABI()
+	if err := m.Check(abi); err != nil {
+		logger.Error(ctx, "Agents cannot run on this node", logging.Field{Key: "error", Value: err.Error()})
+		return m, err
+	}
+	for _, missing := range landlockmode.Missing(abi) {
+		logger.Warn(ctx, "Landlock confinement unavailable on this node's kernel",
+			logging.Field{Key: "missing", Value: missing},
+			logging.Field{Key: "landlock_abi", Value: abi},
+			logging.Field{Key: "mode", Value: string(m)},
+		)
+	}
+	return m, nil
+}
+
+func run(ctx context.Context, logger logging.Logger, server *http.Server, registry *sessionmanager.Registry, metrics *platformmetrics.Bootstrap) {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
@@ -121,6 +184,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, regist
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
+	metrics.Start(ctx, logger)
 
 	<-quit
 	// The server keeps serving the runs on this pod while they finish. The kubelet
@@ -141,6 +205,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, regist
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "Session-manager shutdown complete")
 }

@@ -3,7 +3,7 @@ package inferencegw
 import (
 	"context"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // syncedPriceReplacer replaces one provider's synced prices. Overrides are kept.

@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Metrics is the Triggers feature's instrument set.
@@ -66,7 +66,7 @@ func NewMetrics(meter metric.Meter, repo pendingStatsReader, logger logging.Logg
 
 	var err error
 	if m.autoPauses, err = meter.Int64Counter(
-		"orbit.triggers.auto_pauses",
+		"kora.triggers.auto_pauses",
 		metric.WithDescription("Triggers auto-paused after consecutive failures"),
 		metric.WithUnit("{trigger}"),
 	); err != nil {
@@ -74,7 +74,7 @@ func NewMetrics(meter metric.Meter, repo pendingStatsReader, logger logging.Logg
 	}
 
 	if m.purgedPayloads, err = meter.Int64Counter(
-		"orbit.triggers.payloads_purged",
+		"kora.triggers.payloads_purged",
 		metric.WithDescription("Delivery payloads nulled past their tenant's retention window"),
 		metric.WithUnit("{payload}"),
 	); err != nil {
@@ -82,7 +82,7 @@ func NewMetrics(meter metric.Meter, repo pendingStatsReader, logger logging.Logg
 	}
 
 	if m.scannedTriggers, err = meter.Int64Counter(
-		"orbit.triggers.scheduler.triggers_scanned",
+		"kora.triggers.scheduler.triggers_scanned",
 		metric.WithDescription("Scheduled triggers evaluated by the cron loop"),
 		metric.WithUnit("{trigger}"),
 	); err != nil {
@@ -90,7 +90,7 @@ func NewMetrics(meter metric.Meter, repo pendingStatsReader, logger logging.Logg
 	}
 
 	if m.tickDuration, err = meter.Float64Histogram(
-		"orbit.triggers.scheduler.tick_duration",
+		"kora.triggers.scheduler.tick_duration",
 		metric.WithDescription("Wall time of one scheduler tick"),
 		metric.WithUnit("s"),
 	); err != nil {
@@ -98,7 +98,7 @@ func NewMetrics(meter metric.Meter, repo pendingStatsReader, logger logging.Logg
 	}
 
 	queueDepth, err := meter.Int64ObservableGauge(
-		"orbit.triggers.queue.depth",
+		"kora.triggers.queue.depth",
 		metric.WithDescription("Fires waiting for a slot, by claim state"),
 		metric.WithUnit("{fire}"),
 	)
@@ -107,7 +107,7 @@ func NewMetrics(meter metric.Meter, repo pendingStatsReader, logger logging.Logg
 	}
 
 	queueOldest, err := meter.Float64ObservableGauge(
-		"orbit.triggers.queue.oldest_unclaimed_age",
+		"kora.triggers.queue.oldest_unclaimed_age",
 		metric.WithDescription("Age of the oldest fire still waiting to be claimed"),
 		metric.WithUnit("s"),
 	)
@@ -116,7 +116,7 @@ func NewMetrics(meter metric.Meter, repo pendingStatsReader, logger logging.Logg
 	}
 
 	purgeLastSuccess, err := meter.Int64ObservableGauge(
-		"orbit.triggers.retention.last_success_time",
+		"kora.triggers.retention.last_success_time",
 		metric.WithDescription("Unix time of the last successful payload purge"),
 		metric.WithUnit("s"),
 	)
@@ -165,15 +165,16 @@ func (m *Metrics) Close() error {
 
 // recordAutoPause counts a trigger the platform paused itself.
 //
-// The trigger id is an attribute because the question this answers is "which
-// trigger keeps pausing", and an unattributed total cannot answer it. Trigger
-// ids are bounded by a tenant's own configuration, not by traffic, so this does
-// not open the cardinality hole that attributing per delivery would.
-func (m *Metrics) recordAutoPause(ctx context.Context, triggerID string) {
+// Unattributed: the metrics endpoint is unauthenticated, and a trigger ID is
+// tenant-controlled data, not a bounded enum like a status or outcome — see
+// docs/adr/2026-10-06-prometheus-metrics-endpoints.md, Decision (no tenant,
+// principal, run or trigger ID ever becomes a label). Which trigger keeps
+// pausing is a question for the trigger's own audit log, not this counter.
+func (m *Metrics) recordAutoPause(ctx context.Context) {
 	if m == nil {
 		return
 	}
-	m.autoPauses.Add(ctx, 1, metric.WithAttributes(attribute.String("trigger_id", triggerID)))
+	m.autoPauses.Add(ctx, 1)
 }
 
 // recordPurge records a completed retention purge: how much it removed, and

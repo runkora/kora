@@ -13,6 +13,7 @@ import noDirectLucideImport from './rules/no-direct-lucide-import.mjs';
 import noInlineClipboardWrite from './rules/no-inline-clipboard-write.mjs';
 import noHardcodedColor from './rules/no-hardcoded-color.mjs';
 import noHadesCompoundInServerComponent from './rules/no-hades-compound-in-server-component.mjs';
+import noProductNameLiteral from './rules/no-product-name-literal.mjs';
 
 const localPlugin = {
   rules: {
@@ -31,6 +32,7 @@ const localPlugin = {
     'no-inline-clipboard-write': noInlineClipboardWrite,
     'no-hardcoded-color': noHardcodedColor,
     'no-hades-compound-in-server-component': noHadesCompoundInServerComponent,
+    'no-product-name-literal': noProductNameLiteral,
   },
 };
 

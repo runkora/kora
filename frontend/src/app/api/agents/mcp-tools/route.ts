@@ -1,7 +1,8 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
-import { listMcpServers, listMcpTools } from '@orbit/server/mcp-client';
+import { withAuth } from '@runkora/server/route-helpers';
+import { ApiError } from '@runkora/server/client';
+import { listMcpServers, listMcpTools } from '@runkora/server/mcp-client';
 
 // GET /api/agents/mcp-tools — the governed MCP tool catalog (servers + tools with
 // their mcp:<server>:<tool>:use scopes), read from the tool-gateway. Powers the
@@ -13,9 +14,13 @@ export const GET = withAuth(async (_req, session) => {
       listMcpTools(session.accessToken),
     ]);
     return NextResponse.json({ servers, catalog });
-  } catch {
-    // Additive feature: if the tool-gateway is unreachable, degrade to an empty
+  } catch (err) {
+    // A refusal is passed through so the picker says so. Anything else is
+    // additive: if the upstream is unreachable, degrade to an empty
     // catalog so the agent form still renders.
+    if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+      return NextResponse.json({ code: err.code, message: err.message }, { status: err.status });
+    }
     return NextResponse.json({ servers: [], catalog: [] });
   }
 });

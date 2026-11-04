@@ -6,28 +6,28 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/policyservice/bundle"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/roles"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
-	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
 	opabundle "github.com/open-policy-agent/opa/v1/bundle"
 	"github.com/open-policy-agent/opa/v1/rego"
+	"github.com/runkora/kora/backend/internal/policyservice/bundle"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/roles"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
+	"github.com/runkora/kora/backend/internal/policyservice/tenantbudget"
 )
 
 // ---------------------------------------------------------------------------
-// orbit.budget Rego rule tests (hierarchical ceilings)
+// kora.budget Rego rule tests (hierarchical ceilings)
 // ---------------------------------------------------------------------------
 
 // compileAndPrepareBudgetQuery compiles a real bundle (identical to production)
-// and prepares it for evaluating the orbit.budget rules.
+// and prepares it for evaluating the kora.budget rules.
 func compileAndPrepareBudgetQuery(t *testing.T, grantList []*grants.Grant, roleList []*roles.RoleEntry, tb *tenantbudget.TenantBudget) rego.PreparedEvalQuery {
 	t.Helper()
 
 	cfg := bundle.Config{
 		JWKSURL:  "http://127.0.0.1:1/jwks",
-		Issuer:   "orbit",
-		Audience: "orbit-platform",
+		Issuer:   "kora",
+		Audience: "kora-platform",
 	}
 	compiler := bundle.NewCompiler(cfg, routes.NewStore())
 	cached, err := compiler.Compile(testTenantID, grantList, nil, roleList, tb, nil)
@@ -42,10 +42,10 @@ func compileAndPrepareBudgetQuery(t *testing.T, grantList []*grants.Grant, roleL
 
 	pq, err := rego.New(
 		rego.Query(`x := {
-			"budget_allow":        data.orbit.budget.budget_allow,
-			"spend_limit_reached": data.orbit.budget.spend_limit_reached,
-			"has_limit":           data.orbit.budget.has_limit,
-			"ceilings":            data.orbit.budget.ceilings
+			"budget_allow":        data.kora.budget.budget_allow,
+			"spend_limit_reached": data.kora.budget.spend_limit_reached,
+			"has_limit":           data.kora.budget.has_limit,
+			"ceilings":            data.kora.budget.ceilings
 		}`),
 		rego.ParsedBundle(testTenantID, &b),
 	).PrepareForEval(context.Background())

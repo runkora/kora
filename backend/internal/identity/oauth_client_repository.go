@@ -11,7 +11,7 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 )
 
-const oauthClientKeyPrefix = "orbit:oauth:client:"
+const oauthClientKeyPrefix = "kora:oauth:client:"
 
 // registeredClientTTL bounds how long a dynamically-registered client record
 // lives without re-registration. Generous, but finite so abandoned registrations
@@ -42,7 +42,7 @@ type ClientRepository interface {
 }
 
 // redisClientRepository implements ClientRepository using Redis, keyed under
-// orbit:oauth:client:{client_id}.
+// kora:oauth:client:{client_id}.
 type redisClientRepository struct {
 	client *goredis.Client
 }

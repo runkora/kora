@@ -12,17 +12,24 @@ import {
   Heading,
   Icon,
   SegmentedControl,
-  Separator,
   Stack,
   Text,
   EmptyState,
-} from '@orbit/hades';
-import type { DataTableColumn } from '@orbit/hades';
+} from '@runkora/hades';
+import type { DataTableColumn } from '@runkora/hades';
 import Link from 'next/link';
-import { StatusBadge } from '@orbit/components';
-import type { AgentInsightsResponse, AgentTypeUsage } from '@orbit/shared/api';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import {
+  ManagedInGitBadge,
+  ManagedInGitCallout,
+  PermissionHint,
+  StatusBadge,
+  ViewToggle,
+} from '@runkora/components';
+import type { ViewMode } from '@runkora/components';
+import type { AgentInsightsResponse, AgentTypeUsage } from '@runkora/shared/api';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import { useAgentsContext } from '../_context/agents-context';
+import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
 import { useAgentsInsights } from '../_hooks/use-agents-insights';
 import { StartRunModal } from './start-run-modal';
 import { openBuilder } from '../_lib/builder-url';
@@ -73,16 +80,23 @@ interface AgentsPageProps {
 }
 
 export function AgentsPage({ initialInsights }: AgentsPageProps) {
-  const { agentTypes, liveRuns, runStats, status, error, refresh } = useAgentsContext();
+  const { agentTypes, liveRuns, runStats, status, error, runsError, refresh } = useAgentsContext();
   const router = useRouter();
   const { drafts, refresh: refreshDrafts } = useDrafts();
 
   const [startRunTarget, setStartRunTarget] = useState<AgentTypeRow | null>(null);
   const [globalRunOpen, setGlobalRunOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [identityFilter, setIdentityFilter] = useState<'all' | 'autonomous' | 'delegated'>('all');
   const [draftsOpen, setDraftsOpen] = useState(false);
   const [period, setPeriod] = useState<Period>(DEFAULT_PERIOD);
+
+  const canCreateDelegated = useHasScope('agents:types:delegated:write');
+  const canCreateAutonomous = useHasScope('agents:types:autonomous:write');
+  const canCreate = canCreateDelegated || canCreateAutonomous;
+  // A locked tenant takes new agents from its configuration repository, so create is not offered.
+  const locked = useTenantLocked();
+  const runnableAgentTypes = useMemo(() => agentTypes.filter((a) => a.canRun), [agentTypes]);
 
   // The control picks the window. Without data for it the figures say so rather than show zeros.
   const { insights, status: windowStatus } = useAgentsInsights(period, agentTypes, initialInsights);
@@ -213,6 +227,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
                 Delegated
               </Badge>
             )}
+            {row.declared && <ManagedInGitBadge repository={row.repository} />}
           </Stack>
         ),
       },
@@ -250,15 +265,18 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
         gridWidth: '6rem',
         cell: (row) => (
           <Stack direction="horizontal" gap="tight" onClick={(e) => e.stopPropagation()}>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              title="Start run"
-              aria-label={`Start run for ${row.name}`}
-              onClick={() => setStartRunTarget(row)}
-            >
-              <Icon name="play" size="2xs" />
-            </Button>
+            <PermissionHint allowed={row.canRun} action="start runs of this agent">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title={row.canRun ? 'Start run' : undefined}
+                aria-label={`Start run for ${row.name}`}
+                disabled={!row.canRun}
+                onClick={() => setStartRunTarget(row)}
+              >
+                <Icon name="play" size="2xs" />
+              </Button>
+            </PermissionHint>
             <Button variant="ghost" size="icon-sm" aria-label={`Settings for ${row.name}`} asChild>
               <Link href={APP_ROUTES.agents.detail(row.slug)}>
                 <Icon name="settings" size="2xs" />
@@ -290,42 +308,41 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
             onChange={(value) => setPeriod(value as Period)}
             options={PERIOD_OPTIONS}
           />
-          <DraftsButton
-            count={drafts.length}
-            open={draftsOpen}
-            onToggle={() => setDraftsOpen((open) => !open)}
-          />
-          <Button variant="outline" onClick={() => setGlobalRunOpen(true)}>
-            <Icon name="play" size="xs" />
-            New Run
-          </Button>
-          <Button onClick={() => openBuilder()}>
-            <Icon name="plus" size="xs" />
-            New Agent
-          </Button>
-          <Separator orientation="vertical" style={{ height: '1.5rem', alignSelf: 'center' }} />
-          <Button
-            variant={viewMode === 'grid' ? 'default' : 'ghost'}
-            size="icon-sm"
-            aria-label="Grid view"
-            onClick={() => setViewMode('grid')}
-          >
-            <Icon name="layout-grid" size="xs" />
-          </Button>
-          <Button
-            variant={viewMode === 'list' ? 'default' : 'ghost'}
-            size="icon-sm"
-            aria-label="List view"
-            onClick={() => setViewMode('list')}
-          >
-            <Icon name="layout-list" size="xs" />
-          </Button>
+          {!locked && (
+            <DraftsButton
+              count={drafts.length}
+              open={draftsOpen}
+              onToggle={() => setDraftsOpen((open) => !open)}
+            />
+          )}
+          <PermissionHint allowed={runnableAgentTypes.length > 0} action="start runs of any agent">
+            <Button
+              variant="outline"
+              disabled={runnableAgentTypes.length === 0}
+              onClick={() => setGlobalRunOpen(true)}
+            >
+              <Icon name="play" size="xs" />
+              New Run
+            </Button>
+          </PermissionHint>
+          {!locked && (
+            <PermissionHint allowed={canCreate} action="create agents">
+              <Button disabled={!canCreate} onClick={() => openBuilder()}>
+                <Icon name="plus" size="xs" />
+                New Agent
+              </Button>
+            </PermissionHint>
+          )}
         </Stack>
       </Stack>
 
+      {locked && <ManagedInGitCallout subject="Agents in this tenant" />}
+
       {/* The caller's saved builder drafts (a draft has no status, runs, or
           spend, so it does not merge into the agent list) */}
-      {draftsOpen && drafts.length > 0 && <DraftsList drafts={drafts} onChanged={refreshDrafts} />}
+      {!locked && draftsOpen && drafts.length > 0 && (
+        <DraftsList drafts={drafts} onChanged={refreshDrafts} />
+      )}
 
       {/* Headline figures beside the spend card */}
       <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
@@ -355,27 +372,55 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
       <RunningNowCard
         runs={liveRuns}
         counts={live && runCounts ? { ...runCounts, total: live.live } : null}
+        error={runsError}
       />
 
       {/* Section header */}
-      <Stack direction="horizontal" align="baseline" gap="snug">
-        <Text size="supporting" weight="emphasis" color="subtle">
-          Agents
-        </Text>
-        <Text size="caption" color="subtle" mono tabular>
-          {agentTypes.length}
-        </Text>
+      <Stack direction="horizontal" align="center" justify="between">
+        <Stack direction="horizontal" align="baseline" gap="snug">
+          <Text size="supporting" weight="emphasis" color="subtle">
+            Agents
+          </Text>
+          <Text size="caption" color="subtle" mono tabular>
+            {agentTypes.length}
+          </Text>
+        </Stack>
+        {/* List mode carries the toggle in the table toolbar instead. */}
+        {viewMode === 'cards' && <ViewToggle viewMode={viewMode} onToggle={setViewMode} />}
       </Stack>
 
-      {/* Agent types view — show EmptyState when there are no agents and no error */}
-      {status !== 'error' && agentTypes.length === 0 && status !== 'loading' ? (
+      {/* Agent types view: the load error in both views, else EmptyState when there are no agents */}
+      {status === 'error' ? (
+        <EmptyState
+          icon="lock"
+          title="Agents unavailable"
+          description={error ?? 'Failed to load agents.'}
+          action={
+            <Button variant="outline" size="sm" onClick={() => void refresh()}>
+              Try again
+            </Button>
+          }
+        />
+      ) : agentTypes.length === 0 && status !== 'loading' ? (
         <EmptyState
           icon="bot"
           title="No agents yet"
-          description="Create your first agent definition to start running AI tasks."
-          action={<Button onClick={() => openBuilder()}>New Agent</Button>}
+          description={
+            canCreate && !locked
+              ? 'Create your first agent definition to start running AI tasks.'
+              : 'No agents are shared with you yet.'
+          }
+          action={
+            locked ? undefined : (
+              <PermissionHint allowed={canCreate} action="create agents">
+                <Button disabled={!canCreate} onClick={() => openBuilder()}>
+                  New Agent
+                </Button>
+              </PermissionHint>
+            )
+          }
         />
-      ) : viewMode === 'grid' ? (
+      ) : viewMode === 'cards' ? (
         /* ── Grid view ─────────────────────────────────────────────────────── */
         <Grid cols={{ base: 1, sm: 2, lg: 3 }} gap="comfortable">
           {agentTypes.map((agent) => (
@@ -415,18 +460,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
               ]}
             />
           }
-          error={
-            status === 'error' ? (
-              <Stack align="center" paddingBlock="comfortable">
-                <Text size="supporting" color="muted">
-                  {error ?? 'Failed to load agents.'}
-                </Text>
-                <Button variant="outline" size="sm" onClick={() => void refresh()}>
-                  Try again
-                </Button>
-              </Stack>
-            ) : undefined
-          }
+          toolbarActions={<ViewToggle viewMode={viewMode} onToggle={setViewMode} />}
           emptyMessage="No agents yet."
           filteredEmptyMessage="No agents match your search."
           onRowClick={(row) => router.push(APP_ROUTES.agents.detail(row.slug))}
@@ -448,7 +482,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
       <StartRunModal
         open={globalRunOpen}
         agentType={null}
-        agentTypes={agentTypes}
+        agentTypes={runnableAgentTypes}
         onClose={() => setGlobalRunOpen(false)}
         onStarted={(runId, agentSlug) => {
           setGlobalRunOpen(false);

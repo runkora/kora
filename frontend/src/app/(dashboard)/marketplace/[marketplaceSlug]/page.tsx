@@ -1,4 +1,4 @@
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { loadMarketplacePage } from '../_services/marketplace-server';
 import { MarketplaceShell } from '../_components/marketplace-shell';
 

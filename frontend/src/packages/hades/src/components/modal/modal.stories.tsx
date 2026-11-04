@@ -124,7 +124,7 @@ function RequiredContent({ onClose }: { onClose: () => void }) {
       <ModalHeader title="Copy your token" description="It is shown only once." showClose={false} />
       <ModalBody>
         <Text size="supporting" mono>
-          orb_3f9a1c07
+          kora_3f9a1c07
         </Text>
       </ModalBody>
       <ModalFooter>

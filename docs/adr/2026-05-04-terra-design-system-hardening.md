@@ -10,7 +10,7 @@
 
 ## Context
 
-[terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) established the Hades design system (`@orbit/hades`) as the mandatory UI primitive layer for the kora frontend. [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) extended enforcement with a suite of custom ESLint rules and expanded Hades' component catalogue to eliminate recurring inline patterns across the product. The result of those two phases is a frontend that passes `pnpm lint && pnpm tsc --noEmit` with zero errors and has nine active custom ESLint rules preventing the most common escape hatches.
+[terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) established the Hades design system (`@runkora/hades`) as the mandatory UI primitive layer for the kora frontend. [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) extended enforcement with a suite of custom ESLint rules and expanded Hades' component catalogue to eliminate recurring inline patterns across the product. The result of those two phases is a frontend that passes `pnpm lint && pnpm tsc --noEmit` with zero errors and has nine active custom ESLint rules preventing the most common escape hatches.
 
 However, a clean lint report is not the same as a fully hardened design system. The following structural gaps remain after Phase 1:
 
@@ -58,7 +58,7 @@ The root cause of these gaps is that Phase 1 focused on establishing the enforce
 * **Consistency with established precedent**: `Stack` and `Icon` already had `style` removed from their public APIs in Phase 1. `Text` and `StatusDot` must follow the same pattern to avoid a two-tier design system where some primitives are hardened and others are not.
 * **Inverted default (whitelist over blacklist)**: In a security-oriented system, safe default + explicit opt-in is always preferable to permissive default + opt-out. The prop whitelisting decision applies the same principle to the component API surface.
 * **Accessibility correctness**: `FormField` context exists specifically to eliminate the manual `id`/aria attribute threading that developers routinely skip. If the inputs don't consume the context, the feature is documented but non-functional — actively misleading.
-* **AI-agent code quality**: The ESLint rule messages are the primary mechanism by which AI agents (Forge, v0.dev) learn what the correct pattern is. A rule that says "don't use `<button>`" with no guidance produces unhelpful output; a rule that says "use `<Button>` from `@orbit/hades`" produces correct first-pass output.
+* **AI-agent code quality**: The ESLint rule messages are the primary mechanism by which AI agents (Forge, v0.dev) learn what the correct pattern is. A rule that says "don't use `<button>`" with no guidance produces unhelpful output; a rule that says "use `<Button>` from `@runkora/hades`" produces correct first-pass output.
 * **Reviewability**: A component `Props` interface with 40 inherited native HTML props is not reviewable in a PR. An explicit 8-prop whitelist is.
 
 ---
@@ -220,7 +220,7 @@ const noRawInteractiveElements = {
           context.report({
             node,
             message:
-              'Use <Button> from @orbit/hades instead of a raw <button>. ' +
+              'Use <Button> from @runkora/hades instead of a raw <button>. ' +
               'See frontend/docs/reference/hades-design-system.md.',
           })
         }
@@ -232,11 +232,11 @@ const noRawInteractiveElements = {
 
 Applied to `src/**/*.tsx` excluding `src/packages/hades/**`. Added to the `no-hades-disable-comment` HADES_RULES set.
 
-**Pre-activation migration:** Search for `<button` in `src/**/*.tsx` (excluding hades). Migrate each occurrence to `<Button>` from `@orbit/hades`. Verify variant mapping (if the raw button used custom classes to achieve a ghost/outline/destructive appearance, map to the appropriate `variant` prop).
+**Pre-activation migration:** Search for `<button` in `src/**/*.tsx` (excluding hades). Migrate each occurrence to `<Button>` from `@runkora/hades`. Verify variant mapping (if the raw button used custom classes to achieve a ghost/outline/destructive appearance, map to the appropriate `variant` prop).
 
 #### A2. Extend rule: `local/no-raw-inline-elements`
 
-Add `'code'`, `'kbd'`, `'samp'`, `'var'` to the blocked element set in `no-raw-inline-elements`. Update the error message to include: `"Use <Code> from @orbit/hades for inline code, keyboard input, and sample output."` The `Code` component in Hades accepts a `variant` prop (`"inline"` | `"bare"`) for the two common use cases.
+Add `'code'`, `'kbd'`, `'samp'`, `'var'` to the blocked element set in `no-raw-inline-elements`. Update the error message to include: `"Use <Code> from @runkora/hades for inline code, keyboard input, and sample output."` The `Code` component in Hades accepts a `variant` prop (`"inline"` | `"bare"`) for the two common use cases.
 
 **Pre-activation migration:**
 - `vocabulary-tab.tsx`: replace raw `<code>` elements with `<Code variant="inline">` or `<Code variant="bare">` as appropriate

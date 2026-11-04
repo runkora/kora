@@ -9,7 +9,7 @@
  * delivery to fire.
  */
 
-import { Button, Icon, Input, NativeSelect, Separator, Stack } from '@orbit/hades';
+import { Button, Icon, Input, NativeSelect, Separator, Stack } from '@runkora/hades';
 import { CatalogPicker } from './catalog-picker';
 import { completePattern } from './trigger-wizard/field-catalog';
 import type { SchemaCatalogEntry } from './trigger-wizard/field-catalog';
@@ -39,14 +39,22 @@ interface FilterRowsEditorProps {
   /** The fields this event carries, offered in the picker. */
   fields: SchemaCatalogEntry[];
   onChange: (next: FilterRow[]) => void;
-  /** Offer the Add filter button. Read-only callers pass false. */
-  canAdd?: boolean;
+  /** Renders every row and Add filter disabled, for callers who may not change the filters. */
+  disabled?: boolean;
+  /** Fields are typed, for a source with no schema; `fields` are offered as suggestions. */
+  freeText?: boolean;
 }
 
 const DEFAULT_VALUES_HINT = 'value | other';
 const CONTAINS_HINT = 'text | other';
 
-export function FilterRowsEditor({ rows, fields, onChange, canAdd = true }: FilterRowsEditorProps) {
+export function FilterRowsEditor({
+  rows,
+  fields,
+  onChange,
+  disabled = false,
+  freeText = false,
+}: FilterRowsEditorProps) {
   const setRow = (index: number, next: Partial<FilterRow>) =>
     onChange(rows.map((row, i) => (i === index ? { ...row, ...next } : row)));
 
@@ -66,11 +74,13 @@ export function FilterRowsEditor({ rows, fields, onChange, canAdd = true }: Filt
               <CatalogPicker
                 aria-label={`Filter ${i + 1} field`}
                 value={row.pattern ?? row.field}
-                placeholder="Choose a field"
+                placeholder={freeText ? 'data.issue.title' : 'Choose a field'}
                 catalog={fields}
                 selectablePatterns
+                disabled={disabled}
+                freeText={freeText}
                 onSelect={(token, entry) =>
-                  entry.pattern
+                  entry?.pattern
                     ? setRow(i, { pattern: token, patternName: '', field: '' })
                     : setRow(i, { field: token, pattern: undefined, patternName: undefined })
                 }
@@ -80,6 +90,7 @@ export function FilterRowsEditor({ rows, fields, onChange, canAdd = true }: Filt
               variant="ghost"
               size="icon-sm"
               aria-label={`Remove filter ${i + 1}`}
+              disabled={disabled}
               onClick={() => onChange(rows.filter((_, x) => x !== i))}
             >
               <Icon name="close" size="2xs" />
@@ -89,6 +100,7 @@ export function FilterRowsEditor({ rows, fields, onChange, canAdd = true }: Filt
             <Input
               mono
               aria-label={`Filter ${i + 1} name`}
+              disabled={disabled}
               value={row.patternName ?? ''}
               onChange={(e) =>
                 setRow(i, {
@@ -103,6 +115,7 @@ export function FilterRowsEditor({ rows, fields, onChange, canAdd = true }: Filt
             <Stack maxWidth="form-field-sm">
               <NativeSelect
                 aria-label={`Filter ${i + 1} operator`}
+                disabled={disabled}
                 value={row.operator ?? 'is'}
                 onChange={(e) => setRow(i, { operator: e.target.value as FilterOperator })}
               >
@@ -114,6 +127,7 @@ export function FilterRowsEditor({ rows, fields, onChange, canAdd = true }: Filt
               <Input
                 mono
                 aria-label={`Filter ${i + 1} values`}
+                disabled={disabled}
                 value={row.values}
                 onChange={(e) => setRow(i, { values: e.target.value })}
                 placeholder={valuesHint(row)}
@@ -123,18 +137,17 @@ export function FilterRowsEditor({ rows, fields, onChange, canAdd = true }: Filt
         </Stack>
       ))}
 
-      {canAdd && (
-        <Stack direction="horizontal">
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={() => onChange([...rows, { field: '', values: '' }])}
-          >
-            <Icon name="plus" size="2xs" />
-            Add filter
-          </Button>
-        </Stack>
-      )}
+      <Stack direction="horizontal">
+        <Button
+          variant="ghost"
+          size="xs"
+          disabled={disabled}
+          onClick={() => onChange([...rows, { field: '', values: '' }])}
+        >
+          <Icon name="plus" size="2xs" />
+          Add filter
+        </Button>
+      </Stack>
     </>
   );
 }

@@ -55,7 +55,7 @@ Similarly, OpenAI's Responses API (`POST /v1/responses`) is a distinct, newer wi
 
 - `POST /v1/embeddings` returns a valid `CreateEmbeddingResponse` for any configured embedding model virtual model.
 - `POST /v1/responses` returns a valid `Response` for any configured chat model virtual model.
-- Codex CLI can be configured with `OPENAI_BASE_URL=<orbit-gateway>` and works end-to-end with zero code changes.
+- Codex CLI can be configured with `OPENAI_BASE_URL=<kora-gateway>` and works end-to-end with zero code changes.
 - All requests to both endpoints appear in `GET /v1/usage` with correct token counts and cost attribution.
 - `GET /v1/models` returns embedding models (currently hidden) once the embeddings handler ships.
 - Gateway overhead for both endpoints is ≤ 50ms p95 (excluding provider latency), matching the existing chat endpoints.

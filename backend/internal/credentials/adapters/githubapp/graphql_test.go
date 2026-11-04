@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // graphqlConnector opens a connection whose installation belongs to

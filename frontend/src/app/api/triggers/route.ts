@@ -1,12 +1,16 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
-import { listTriggers, createTrigger } from '@orbit/server/triggers-client';
-import type { TriggerCreateRequest } from '@orbit/shared/api';
+import { withAuth } from '@runkora/server/route-helpers';
+import { listTriggers, createTrigger } from '@runkora/server/triggers-client';
+import type { TriggerCreateRequest } from '@runkora/shared/api';
 
 function validateCreateRequest(body: TriggerCreateRequest): string | null {
   if (!body.name?.trim()) return 'name is required';
-  if (!body.agent_type_id) return 'agent_type_id is required';
+  if (body.target_kind === 'routed') {
+    if (!body.routing) return 'routing is required when target_kind is routed';
+  } else if (!body.agent_type_id) {
+    return 'agent_type_id is required';
+  }
   if (!body.prompt_template?.trim()) return 'prompt_template is required';
   const kind = body.kind ?? 'webhook';
   switch (kind) {
@@ -54,6 +58,8 @@ export const POST = withAuth(async (req: NextRequest, session) => {
     source_id: body.source_id,
     name: body.name,
     agent_type_id: body.agent_type_id,
+    target_kind: body.target_kind,
+    routing: body.routing,
     event_type: body.event_type,
     match_condition: body.match_condition ?? {},
     match_contains: body.match_contains,
@@ -61,6 +67,7 @@ export const POST = withAuth(async (req: NextRequest, session) => {
     schedule_config: body.schedule_config,
     manual_config: body.manual_config,
     sender_restriction: body.sender_restriction,
+    coalesce: body.coalesce,
     max_parallel: body.max_parallel,
     overflow: body.overflow,
     max_queue_depth: body.max_queue_depth,

@@ -7,27 +7,25 @@
 // not revoke live scopes. The worker holds the per-server snapshots the scope
 // publisher (Phase 3.3) and catalog writer (Phase 3.4) consume.
 //
-// Introspection sends no credential. Servers may be tenant-owned, so the
-// gateway's platform token must never reach them, and tools/list needs none.
+// Introspection carries no caller. UpstreamCredentials decides what each
+// server receives.
 package toolgateway
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"sort"
 	"sync"
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // introspectClientName identifies the gateway in the MCP initialize handshake.
-const introspectClientName = "orbit-tool-gateway"
+const introspectClientName = "kora-tool-gateway"
 
 // defaultIntrospectTimeout bounds a single server's initialize + tools/list.
 const defaultIntrospectTimeout = 15 * time.Second
@@ -36,27 +34,23 @@ const defaultIntrospectTimeout = 15 * time.Second
 // concurrency-safe: Sync mutates snapshots under a write lock; Snapshot and the
 // prune-guard predicate read under a read lock.
 type Introspector struct {
-	httpClient *http.Client
-	version    string
-	timeout    time.Duration
-	logger     logging.Logger
+	creds   UpstreamCredentials
+	version string
+	timeout time.Duration
+	logger  logging.Logger
 
 	mu        sync.RWMutex
 	snapshots map[string]*ServerSnapshot // key: serverKey(tenantID, name)
 }
 
-// NewIntrospector constructs an Introspector. A nil httpClient defaults to a
-// client with the introspection timeout.
-func NewIntrospector(httpClient *http.Client, version string, logger logging.Logger) *Introspector {
-	if httpClient == nil {
-		httpClient = httpclient.NewHTTPClient(defaultIntrospectTimeout, httpclient.NewTracingTransport("orbit.toolgateway-introspector", nil))
-	}
+// NewIntrospector constructs an Introspector.
+func NewIntrospector(creds UpstreamCredentials, version string, logger logging.Logger) *Introspector {
 	return &Introspector{
-		httpClient: httpClient,
-		version:    version,
-		timeout:    defaultIntrospectTimeout,
-		logger:     logger,
-		snapshots:  make(map[string]*ServerSnapshot),
+		creds:     creds,
+		version:   version,
+		timeout:   defaultIntrospectTimeout,
+		logger:    logger,
+		snapshots: make(map[string]*ServerSnapshot),
 	}
 }
 
@@ -148,6 +142,7 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 			logging.Field{Key: "tenant_id", Value: srv.TenantID},
 			logging.Field{Key: "endpoint", Value: srv.Endpoint},
 			logging.Field{Key: "retained_tools", Value: len(snap.Tools)},
+			logging.Field{Key: "reason", Value: failureReason(err)},
 			logging.Field{Key: "error", Value: err.Error()})
 		return
 	}
@@ -169,39 +164,44 @@ func (i *Introspector) introspectOne(ctx context.Context, srv Server) ([]Tool, e
 	cctx, cancel := context.WithTimeout(ctx, i.timeout)
 	defer cancel()
 
+	headers, err := i.creds.Headers(ctx, srv, nil)
+	if err != nil {
+		return nil, fmt.Errorf("upstream credentials: %w", err)
+	}
 	client := sdk.NewClient(&sdk.Implementation{Name: introspectClientName, Version: i.version}, nil)
-	transport := &sdk.StreamableClientTransport{Endpoint: srv.Endpoint, HTTPClient: i.httpClient}
+	httpClient, upstream := upstreamClient(i.timeout, headers)
+	transport := &sdk.StreamableClientTransport{Endpoint: srv.Endpoint, HTTPClient: httpClient}
 
 	session, err := client.Connect(cctx, transport, nil)
 	if err != nil {
-		return nil, fmt.Errorf("connect: %w", err)
+		return nil, fmt.Errorf("connect: %w", upstream.upstreamError(err))
 	}
 	defer func() {
 		if cerr := session.Close(); cerr != nil {
 			i.logger.Debug(ctx, "closing introspection session",
 				logging.Field{Key: "server", Value: srv.Name},
-				logging.Field{Key: "error", Value: cerr.Error()})
+				logging.Field{Key: "error", Value: upstream.upstreamError(cerr).Error()})
 		}
 	}()
 
 	var tools []Tool
 	for tool, terr := range session.Tools(cctx, nil) {
 		if terr != nil {
-			return nil, fmt.Errorf("list tools: %w", terr)
+			return nil, fmt.Errorf("list tools: %w", upstream.upstreamError(terr))
 		}
 		tools = append(tools, Tool{
 			Name:           tool.Name,
 			Description:    tool.Description,
 			InputSchema:    marshalSchema(tool.InputSchema),
-			RequiresScopes: requiresFromMeta(tool.Meta),
+			RequiresScopes: toolRequires(srv, tool),
 		})
 	}
 	return tools, nil
 }
 
-// metaRequiresKey is the tool _meta field a first-party MCP server uses to
+// metaRequiresKey is the tool _meta field a global MCP server uses to
 // declare the platform scopes its tool calls upstream (see Tool.RequiresScopes).
-const metaRequiresKey = "orbit/requires"
+const metaRequiresKey = "kora/requires"
 
 // requiresFromMeta extracts the declared upstream scopes from a tool's _meta.
 // It accepts a JSON array of strings under metaRequiresKey; anything else
@@ -222,6 +222,16 @@ func requiresFromMeta(meta sdk.Meta) []string {
 		return nil
 	}
 	return out
+}
+
+// toolRequires returns the scopes a tool declares in _meta. Requires confer
+// authority to every holder of the tool through vocabulary every tenant reads,
+// so a tenant server declares none.
+func toolRequires(srv Server, tool *sdk.Tool) []string {
+	if srv.TenantID != "" {
+		return nil
+	}
+	return requiresFromMeta(tool.Meta)
 }
 
 // FlagDegraded marks a server's snapshot Degraded with a reason — used to flag

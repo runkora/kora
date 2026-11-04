@@ -23,7 +23,7 @@ make up
 make redeploy SERVICE=frontend
 ```
 
-The dashboard is served at `https://orbit.local.clearroute.io`. There is no hot module reload in the cluster workflow. Each product change requires a new image and rollout.
+The dashboard is served at `https://local.runkora.io`. There is no hot module reload in the cluster workflow. Each product change requires a new image and rollout.
 
 Linting, type checking, unit tests, integration tests, and Storybook run on the host:
 
@@ -64,6 +64,6 @@ make frontend-check
 - [Frontend documentation](docs/README.md): the index for frontend reference material and golden paths.
 - [Hades design system](docs/reference/hades-design-system.md): component APIs, usage, and verification.
 - [Component placement](docs/reference/component-placement.md): the three-tier component model and `@tier` rules.
-- [App-level components](docs/reference/app-components.md): shared kora-aware components exported by `@orbit/components`.
-- [Frontend testing](../docs/guides/frontend-testing.md): the test suites and where each kind of test belongs.
+- [App-level components](docs/reference/app-components.md): shared kora-aware components exported by `@runkora/components`.
+- [Frontend testing](../docs/contributing/frontend-testing.md): the test suites and where each kind of test belongs.
 - [Agent development guide](../AGENTS.md): the machine-enforced frontend conventions, including the Hades rules.

@@ -4,22 +4,35 @@
  * handed to the parent. No React, so every rule is unit-testable.
  */
 
+import type { ModelObject, TriggerRoutingCandidate } from '@runkora/shared/api';
 import { resolveBrowserZone, timezoneOptions } from './cron';
 import { LIMITS } from '../../_types';
-import type { Senders } from '../../_types';
+import { firstUnknownChatField, placeholderKeys } from '../../_lib/chat';
+import { EMPTY_GENERIC_DRAFT, fixedEventType } from '../../_lib/generic-source';
+import { FIELD_PATH } from '../../_lib/field-path';
+import type { Senders, TriggerCoalesce, TriggerRoutingRow } from '../../_types';
 import type { SenderRestrictionDraft } from '../sender-restriction-editor';
 import type { FilterOperator, FilterRow } from '../filter-rows-editor';
 import type {
+  DecisionModel,
   KindStep,
+  RoutingAgent,
+  RoutingDraft,
+  RoutingOptions,
   StepValidation,
   TriggerDraft,
   TriggerKind,
   TriggerKindDefinition,
+  TriggerWizardSource,
+  WizardContext,
   WizardField,
   WizardState,
 } from './types';
+import { NEW_SOURCE } from './types';
 
 export const VALID: StepValidation = { valid: true };
+
+const textEncoder = new TextEncoder();
 
 /**
  * Wraps a kind's own first-step checks with the two every kind shares: the
@@ -64,7 +77,7 @@ export function newField(index: number): WizardField {
 }
 
 /** State shared by every kind, before the kind's own defaults are merged in. */
-export function baseState(sources: { id: string }[]): WizardState {
+export function baseState(sources: readonly { id: string }[]): WizardState {
   const browserZone = resolveBrowserZone();
   const zones = timezoneOptions(browserZone);
   return {
@@ -74,9 +87,15 @@ export function baseState(sources: { id: string }[]): WizardState {
     sourceChoice: sources[0]?.id ?? '',
     newSourceName: '',
     newSourceProvider: 'github',
+    newSourceSecret: '',
+    newSourceCreated: null,
+    newSourceSecretSaved: false,
+    newSourceGeneric: EMPTY_GENERIC_DRAFT,
     eventType: '',
+    eventFields: null,
+    eventFieldsFailed: false,
     filters: [],
-    senders: { logins: '', associations: [] },
+    senders: { ids: '', roles: [] },
 
     freq: 'daily',
     interval: '15',
@@ -92,6 +111,7 @@ export function baseState(sources: { id: string }[]): WizardState {
     fields: [newField(0)],
 
     agentTypeId: '',
+    routing: DEFAULT_ROUTING,
     maxParallel: 4,
     overflow: 'wait',
     maxQueueDepth: 32,
@@ -99,12 +119,31 @@ export function baseState(sources: { id: string }[]): WizardState {
     timeoutSeconds: 30,
     dedupeEnabled: true,
     autopauseEnabled: true,
+
+    coalesceEnabled: false,
+    coalesceKey: '',
+    coalesceWindow: '',
   };
 }
 
-/** Initial state for a kind: the shared defaults with the kind's own on top. */
-export function initialState(def: TriggerKindDefinition, sources: { id: string }[]): WizardState {
-  return { ...baseState(sources), ...def.defaults };
+/**
+ * Initial state for a kind: the shared defaults with the kind's own on top. A
+ * kind that lists sources of one category starts on the first of those.
+ */
+export function initialState(
+  def: TriggerKindDefinition,
+  sources: readonly TriggerWizardSource[],
+): WizardState {
+  const own =
+    def.sourceCategory === undefined
+      ? sources
+      : sources.filter((s) => s.category === def.sourceCategory);
+  const state = { ...baseState(own), ...def.defaults };
+  if (own.length === 0 && def.newSourceWhenNone) return { ...state, sourceChoice: NEW_SOURCE };
+  // A generic source with no event type location gives every delivery one event type.
+  const first = own[0];
+  const eventType = first === undefined ? undefined : fixedEventType(first.provider, first.config);
+  return eventType === undefined ? state : { ...state, eventType };
 }
 
 /** Splits a filter row's values on `|`, dropping blanks. */
@@ -159,19 +198,36 @@ export function validateFilters(filters: FilterRow[]): StepValidation {
     return hasField !== hasValues;
   });
   if (halfWritten) return { valid: false, hint: 'Finish or remove the empty filter' };
+  // A typed field path must parse; a field from the schema always does.
+  const malformed = filters.find((row) => row.field.trim() && !FIELD_PATH.test(row.field.trim()));
+  if (malformed)
+    return {
+      valid: false,
+      hint: `${malformed.field.trim()} is not a field path. Use dotted names, such as data.issue.title.`,
+    };
   return VALID;
 }
 
-/** Splits the logins box on commas and whitespace, dropping blanks and repeats. */
-export function splitLogins(raw: string): string[] {
+/** Splits the sender ids box on commas and whitespace, dropping blanks and repeats. */
+export function splitIds(raw: string): string[] {
   return [...new Set(raw.split(/[\s,]+/).filter(Boolean))];
 }
 
 /** The sender restriction as the API takes it; undefined when nothing is set, which means anyone. */
 export function senderRestrictionFrom(draft: SenderRestrictionDraft): Senders | undefined {
-  const logins = splitLogins(draft.logins);
-  const { associations } = draft;
-  return logins.length > 0 || associations.length > 0 ? { logins, associations } : undefined;
+  const ids = splitIds(draft.ids);
+  const { roles } = draft;
+  return ids.length > 0 || roles.length > 0 ? { ids, roles } : undefined;
+}
+
+/** The hint for a placeholder or filter field the trigger cannot read. */
+export function unknownFieldHint(key: string): string {
+  return `${key} is not a field of this message. Use one listed under Insert field.`;
+}
+
+/** The hint for a join or coalesce key placeholder; those inputs have no Insert field picker. */
+export function unknownKeyFieldHint(key: string): string {
+  return `${key} is not a field of this message. Use a chat field such as {{ conversation.id }}.`;
 }
 
 /** Renders the composed condition for the review step. */
@@ -187,10 +243,137 @@ export function describeMatchCondition(filters: FilterRow[]): string | null {
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
-/** The Target step: an agent, and limits the platform will accept. */
-export function validateTarget(state: WizardState): StepValidation {
+export const DEFAULT_ROUTING: RoutingDraft = {
+  mode: 'one',
+  candidateIds: [],
+  modelId: '',
+  confidence: 'balanced',
+  unsure: 'fallback',
+  fallbackId: '',
+  joinOpenRuns: true,
+  joinKey: '',
+};
+
+/** The tenant catalog narrowed to the models that can answer a routing question. */
+export function decisionModelsOf(models: ModelObject[]): DecisionModel[] {
+  // The gateway omits capabilities for a model it has no discovered route data for.
+  return models
+    .filter((m) => m.status === 'available' && (m.capabilities ?? []).includes('decision'))
+    .map((m) => ({ id: m.id, name: m.display_name || m.id }));
+}
+
+/** A routing candidate from the API, as the picker lists it. */
+export function toRoutingAgent(c: TriggerRoutingCandidate): RoutingAgent {
+  return {
+    id: c.id,
+    slug: c.slug,
+    name: c.name,
+    description: c.description,
+    identityMode: c.identity_mode ?? 'autonomous',
+    runnable: c.runnable,
+    ...(c.reason !== undefined && c.reason !== '' && { reason: c.reason }),
+  };
+}
+
+/** Below this many characters a description is too thin to route on. */
+const MIN_DESCRIPTION = 40;
+
+export function needsDescription(agent: RoutingAgent): boolean {
+  return agent.description.trim().length < MIN_DESCRIPTION;
+}
+
+/** Whether the Target step is set to let kora choose. */
+export function isRouted(state: WizardState, context: WizardContext): boolean {
+  return context.routing !== undefined && state.routing.mode === 'choose';
+}
+
+/** No decision model in the catalog: the mode cannot be completed. */
+export function noDecisionModels(options: RoutingOptions): boolean {
+  return options.models.status === 'ready' && options.models.items.length === 0;
+}
+
+export function validateRouting(draft: RoutingDraft, options: RoutingOptions): StepValidation {
+  // The step says why inline and hides everything else, so no hint repeats it.
+  if (noDecisionModels(options)) return { valid: false };
+  if (draft.candidateIds.length < 1)
+    return { valid: false, hint: 'Pick at least one candidate agent.' };
+  if (draft.modelId === '') return { valid: false, hint: 'Choose a decision model.' };
+  if (draft.unsure === 'fallback' && !draft.candidateIds.includes(draft.fallbackId))
+    return { valid: false, hint: 'Choose the fallback agent.' };
+  if (draft.joinOpenRuns && textEncoder.encode(draft.joinKey.trim()).length > LIMITS.joinKeyBytes)
+    return { valid: false, hint: `Join key must be at most ${LIMITS.joinKeyBytes} bytes.` };
+  return VALID;
+}
+
+/** The Target step: one agent, or the routing settings when kora chooses. */
+export function validateTarget(state: WizardState, context?: WizardContext): StepValidation {
+  if (context?.routing !== undefined && state.routing.mode === 'choose') {
+    const routing = validateRouting(state.routing, context.routing);
+    // eventFields is set only for a chat command, whose backend refuses a join key outside its fields.
+    if (!routing.valid || !state.routing.joinOpenRuns || state.eventFields === null) return routing;
+    const unknown = firstUnknownChatField(
+      placeholderKeys(state.routing.joinKey),
+      state.eventFields,
+    );
+    return unknown === undefined ? VALID : { valid: false, hint: unknownKeyFieldHint(unknown) };
+  }
   if (!state.agentTypeId) return { valid: false, hint: 'Choose the agent this trigger runs.' };
   return VALID;
+}
+
+/** The routing settings as the trigger stores them. */
+export function routingRowOf(draft: RoutingDraft): TriggerRoutingRow {
+  return {
+    candidates: draft.candidateIds,
+    model: draft.modelId,
+    confidence: draft.confidence,
+    fallbackAgentTypeId: draft.unsure === 'fallback' ? draft.fallbackId : null,
+    joinRuns: draft.joinOpenRuns,
+    joinKey: draft.joinOpenRuns ? draft.joinKey.trim() : '',
+  };
+}
+
+/** The coalesce setting as edited: a switch, and the raw key and window. */
+export interface CoalesceDraft {
+  enabled: boolean;
+  key: string;
+  window: string;
+}
+
+/** The wizard's coalesce fields as one draft. */
+export function coalesceDraftOf(state: WizardState): CoalesceDraft {
+  return { enabled: state.coalesceEnabled, key: state.coalesceKey, window: state.coalesceWindow };
+}
+
+/**
+ * What is wrong with each coalesce field, if anything. These are the API's own
+ * rules, so a bad value is caught here instead of as a 400. Off has no errors.
+ */
+export function coalesceErrors(c: CoalesceDraft): { key?: string; window?: string } {
+  if (!c.enabled) return {};
+  const k = c.key.trim();
+  const w = c.window.trim();
+  const { min, max } = LIMITS.coalesce.window;
+  const errors: { key?: string; window?: string } = {};
+  if (!k) errors.key = 'Add a key template.';
+  else if (textEncoder.encode(k).length > LIMITS.coalesce.keyBytes)
+    errors.key = `Key must be at most ${LIMITS.coalesce.keyBytes} bytes.`;
+  if (!w) errors.window = 'Add a window in seconds.';
+  else if (!/^\d+$/.test(w) || Number(w) < min || Number(w) > max)
+    errors.window = `Window must be a whole number from ${min} to ${max} seconds.`;
+  return errors;
+}
+
+/** The first reason the coalesce setting cannot be sent, if any. */
+export function validateCoalesce(c: CoalesceDraft): string | undefined {
+  const errors = coalesceErrors(c);
+  return errors.key ?? errors.window;
+}
+
+/** The coalesce setting as the API takes it; undefined when off or not valid. */
+export function coalesceFrom(c: CoalesceDraft): TriggerCoalesce | undefined {
+  if (!c.enabled || validateCoalesce(c) !== undefined) return undefined;
+  return { key: c.key.trim(), windowSeconds: Number(c.window.trim()) };
 }
 
 /**
@@ -216,6 +399,15 @@ export function validateDelivery(state: WizardState): StepValidation {
       valid: false,
       hint: `Timeout must be between ${LIMITS.timeout.min} and ${LIMITS.timeout.max} seconds.`,
     };
+  // Coalescing needs `wait`; under any other overflow the section is hidden and ignored.
+  const coalesce = state.overflow === 'wait' ? validateCoalesce(coalesceDraftOf(state)) : undefined;
+  if (coalesce !== undefined) return { valid: false, hint: coalesce };
+  // eventFields is set only for a kind whose backend refuses unknown fields,
+  // so a bad key is caught here rather than after a new source exists.
+  if (state.overflow === 'wait' && state.coalesceEnabled && state.eventFields !== null) {
+    const unknown = firstUnknownChatField(placeholderKeys(state.coalesceKey), state.eventFields);
+    if (unknown !== undefined) return { valid: false, hint: unknownKeyFieldHint(unknown) };
+  }
   return VALID;
 }
 
@@ -256,11 +448,15 @@ export function previewBody(fields: WizardField[]): string {
 
 /** Builds the draft the parent submits: shared fields plus the kind's own. */
 export function toDraft(def: TriggerKindDefinition, state: WizardState): TriggerDraft {
+  // Only a webhook trigger can be routed, a chat command included; the step offers the mode for no other kind.
+  const routed = def.apiKind === 'webhook' && state.routing.mode === 'choose';
   return {
-    kind: def.id,
+    kind: def.apiKind,
     name: state.name.trim(),
     promptTemplate: state.promptTemplate,
-    agentTypeId: state.agentTypeId,
+    ...(routed
+      ? { targetKind: 'routed' as const, agentTypeId: '', routing: routingRowOf(state.routing) }
+      : { targetKind: 'agent' as const, agentTypeId: state.agentTypeId }),
     maxParallel: state.maxParallel,
     overflow: state.overflow,
     maxQueueDepth: state.maxQueueDepth,

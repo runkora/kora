@@ -42,7 +42,7 @@ Ask the user:
 3. **Consumers** — which file(s) or feature areas use (or will use) it? How many, and do they
    span more than one feature area?
 4. **kora domain knowledge** — does it reference any kora-specific vocabulary: agent/principal
-   types, model or provider names, status tokens (e.g. `OrbitStatus`), or permission/role
+   types, model or provider names, status tokens (e.g. `KoraStatus`), or permission/role
    concepts? A component that renders a plain spinner knows nothing about kora; one that renders
    an agent status badge is domain-aware.
 
@@ -111,7 +111,7 @@ Create three files:
 
 **`{name}.tsx`**
 ```tsx
-/** @tier 1 — Zero Orbit domain knowledge. {One-line description.} */
+/** @tier 1 — Zero kora domain knowledge. {One-line description.} */
 import * as React from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '../../utils'
@@ -171,10 +171,10 @@ comment (`// ─── Atoms`, `// ─── Molecules`, `// ─── Layout`, 
 ### Tier 2 — App-shared (`frontend/src/components/{name}.tsx`)
 
 ```tsx
-/** @tier 2 — Orbit-domain-aware: {note domain knowledge used}. Used by: {feature areas}. */
+/** @tier 2 — kora-domain-aware: {note domain knowledge used}. Used by: {feature areas}. */
 'use client'  // only if this file uses React hooks
-import { ... } from '@orbit/hades'
-// Import Orbit types as needed; no raw HTML
+import { ... } from '@runkora/hades'
+// Import kora types as needed; no raw HTML
 
 export interface {Name}Props { ... }
 
@@ -194,7 +194,7 @@ Then add an export to `frontend/src/components/index.ts`.
 ```tsx
 /** @tier 3 — {feature}-scoped. Promote to src/components/ if a second feature needs this. */
 'use client'  // only if this file uses React hooks
-import { ... } from '@orbit/hades'
+import { ... } from '@runkora/hades'
 
 export function {Name}({ ... }: {Name}Props) { ... }
 ```
@@ -226,10 +226,6 @@ const meta: Meta<typeof {Name}> = {
   tags: ['autodocs'],
   parameters: {
     layout: 'centered',
-    backgrounds: {
-      default: 'orbit',
-      values: [{ name: 'orbit', value: '#070a0f' }],
-    },
   },
   argTypes: {
     // Union props: control: 'select'
@@ -291,8 +287,8 @@ If the user explicitly requests a story anyway, create it without a `title` pref
 ### Promotion story changes
 
 Update the `title` field to match the new tier's prefix. Add or remove the `parameters` block:
-- Tier 3 → 2: remove `parameters.layout` and `parameters.backgrounds`; set `title: 'App/Shared/…'`
-- Tier 2 → 1: add `parameters.layout: 'centered'` and the orbit `backgrounds` preset; set
+- Tier 3 → 2: remove `parameters.layout`; set `title: 'App/Shared/…'`
+- Tier 2 → 1: add `parameters.layout: 'centered'`; set
   `title: 'Hades/{category}/…'`
 
 ---
@@ -322,8 +318,8 @@ Both must exit zero before the task is done. Do not declare success until they d
 
 | Tier | Path | Import | Story title prefix | Story required |
 |---|---|---|---|---|
-| 1 — Hades | `src/packages/hades/src/components/{name}/` | `@orbit/hades` | `Hades/{Category}/{Name}` | Yes (always) |
-| 2 — App-shared | `src/components/{name}.tsx` | `@orbit/components` | `App/Shared/{Name}` | Yes (always) |
+| 1 — Hades | `src/packages/hades/src/components/{name}/` | `@runkora/hades` | `Hades/{Category}/{Name}` | Yes (always) |
+| 2 — App-shared | `src/components/{name}.tsx` | `@runkora/components` | `App/Shared/{Name}` | Yes (always) |
 | 3 — Feature-scoped | `src/app/(dashboard)/{feature}/_components/{name}.tsx` | relative | — | No |
 
 ## Hard-won gotchas
@@ -335,8 +331,8 @@ Both must exit zero before the task is done. Do not declare success until they d
    reach for `className`.
 3. **ESLint Hades rules are suppressed inside `src/packages/hades/**`** — raw `<div>` in a story
    render function inside the Hades package is fine. Everywhere else it fails lint.
-4. **Storybook runs outside the component tree** — CSS variable tokens don't resolve. The three
-   background presets in `preview.ts` use hardcoded hex values for this reason; don't change them.
+4. **Storybook backgrounds are disabled**: the canvas uses the Hades background colour, so it
+   follows the brand and theme toolbar. Do not add a `backgrounds` preset to a story.
 5. **`pnpm tsc --noEmit` from `frontend/`** — not the repo root. The root `tsconfig.json` does
    not cover `frontend/src`.
 6. **Tier 3 has no barrel** — relative imports only. A Tier 3 component accidentally exported

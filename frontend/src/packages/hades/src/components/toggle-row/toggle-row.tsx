@@ -9,7 +9,7 @@ import {
 import { toggleKnobVariants, toggleTrackVariants } from '../toggle/toggle-visuals';
 import { Text } from '../typography/typography';
 
-/** @tier 1 — Zero Orbit domain knowledge. A labelled on/off setting row. */
+/** @tier 1 — Zero kora domain knowledge. A labelled on/off setting row. */
 
 /**
  * The row-as-switch container: the shared settings-row surface in its

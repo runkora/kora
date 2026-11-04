@@ -34,7 +34,7 @@ export const Overview: Story = {
           }
         >
           <Text size="caption" mono>
-            https://api.orbit.example/v1/ingest/gh-main
+            https://api.example.com/v1/ingest/gh-main
           </Text>
         </FieldRow>
       </Example>
@@ -77,7 +77,7 @@ export const Options: Story = {
         <Option name="leading" use="An icon or short marker before the value.">
           <FieldRow leading={<Icon name="globe" size="2xs" color="subtle" />}>
             <Text size="caption" mono>
-              https://api.orbit.example/v1
+              https://api.example.com/v1
             </Text>
           </FieldRow>
         </Option>
@@ -98,7 +98,7 @@ export const Options: Story = {
         <Option name="long value" use="A value that does not fit is cut off with an ellipsis.">
           <FieldRow leading={<Icon name="key" size="2xs" color="subtle" />}>
             <Text size="caption" mono>
-              https://api.orbit.example/v1/ingest/a-very-long-source-name-that-will-not-fit-here
+              https://api.example.com/v1/ingest/a-very-long-source-name-that-will-not-fit-here
             </Text>
           </FieldRow>
         </Option>

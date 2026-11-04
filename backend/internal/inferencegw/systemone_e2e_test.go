@@ -11,13 +11,13 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/compatible"
-	"github.com/clear-route/orbit/internal/platform/api"
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/compatible"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // allowAll is a policy evaluator that allows every check; the methods this
@@ -91,11 +91,11 @@ func TestSystemOneEndToEnd(t *testing.T) {
 
 	mux := api.NewMux(context.Background(), logger)
 	mux.SetBasePath("/v1")
-	inferencegw.NewController(context.Background(), svc, nil, nil, "/v1", nil, logger).Boot(mux)
+	inferencegw.NewController(context.Background(), svc, nil, nil, "/v1", nil, nil, logger).Boot(mux)
 
 	claims := &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1"},
-		Orbit:            token.OrbitClaims{TenantID: "tenant-1", PrincipalType: token.PrincipalTypeHuman},
+		Kora:             token.KoraClaims{TenantID: "tenant-1", PrincipalType: token.PrincipalTypeHuman},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/v1/systemone", strings.NewReader(request))
 	req = req.WithContext(token.WithClaims(req.Context(), claims))

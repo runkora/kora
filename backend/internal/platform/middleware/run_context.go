@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"regexp"
 
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // Run identity travels as a base-URL path prefix: the session-manager runner
@@ -44,7 +44,7 @@ func StripRunPrefix(next http.Handler) http.Handler {
 // a human or PAT caller cannot attach spend (or delegation context) to a run.
 func RunIDFromContext(ctx context.Context) string {
 	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims == nil || claims.Orbit.PrincipalType != token.PrincipalTypeAgent {
+	if !ok || claims == nil || claims.Kora.PrincipalType != token.PrincipalTypeAgent {
 		return ""
 	}
 	runID, _ := ctx.Value(runIDContextKey{}).(string)

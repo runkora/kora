@@ -1,4 +1,4 @@
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchAnalyticsFromGateway } from '../_services/analytics-server';
 import { fetchModelsFromGateway } from '../_services/models-server';
 import { fetchUsageFromGateway } from '../_services/usage-server';

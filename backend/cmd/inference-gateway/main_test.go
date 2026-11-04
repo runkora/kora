@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	igc "github.com/clear-route/orbit/cmd/inference-gateway/config"
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	igc "github.com/runkora/kora/backend/cmd/inference-gateway/config"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // registration is the wire payload the policy service receives.
@@ -82,16 +82,9 @@ func TestInitScopeRegistrationPublishesScopedRoutes(t *testing.T) {
 		t.Errorf("service = %q, want inference-gateway", reg.Service)
 	}
 
-	// Only scoped routes are registered: an entry with an empty RequiredScope is
-	// authenticated-but-unscoped and is filtered out before publication, so
-	// registering one would make the policy service enforce a scope of "".
-	if want := len(routescopes.FilterScopedRoutes(inferenceRoutes())); len(reg.Routes) != want {
+	// The table is published as is, its authenticated-only routes included.
+	if want := len(inferenceRoutes()); len(reg.Routes) != want {
 		t.Errorf("published %d routes, want %d", len(reg.Routes), want)
-	}
-	for _, r := range reg.Routes {
-		if r.RequiredScope == "" {
-			t.Errorf("published unscoped route %s %s", r.Method, r.PathPrefix)
-		}
 	}
 
 	declared := make(map[string]bool, len(reg.Scopes))

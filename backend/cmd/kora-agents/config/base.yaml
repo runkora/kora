@@ -1,0 +1,93 @@
+app:
+  version: "0.1.0"
+
+server:
+  port: 8080
+  basePath: ""
+  shutdownTimeoutSecs: 30
+
+observability:
+  serviceName: kora-agents
+
+metrics:
+  enabled: true
+  port: 9464
+  shutdownTimeoutSecs: 5
+
+kubernetes:
+  inCluster: true
+  tenantNamespacePrefix: kora-tenant-
+  systemNamespace: kora-system
+  # Where the chart mounts the kora-tenants ConfigMap.
+  tenantsPath: /etc/kora/tenants.yaml
+
+# The chart renders the trust domain and the identity and policy service URLs.
+platform:
+  # No default: local.yaml sets runkora.test.
+  trustDomain: ""
+
+policy:
+  # Shorter than the platform default (30s): triggers.createScheduledTrigger /
+  # createManualTrigger mint a brand-new SERVICE principal and its grant, then
+  # immediately resolve the agent type through this bundle in the same
+  # request. A 30s poll window made that resolution fail every time; 3s bounds
+  # the wait to something a synchronous admin request can retry through (see
+  # resolveAgentType's bounded retry in internal/triggers/service.go).
+  bundlePollIntervalSecs: 3
+
+# Agent type draft reaper: sweep hourly, delete drafts untouched for 30 days.
+drafts:
+  reaperIntervalSecs: 3600
+  retentionDays: 30
+
+agents:
+  # The chart renders the images for each install.
+  sessionManagerImage: ghcr.io/runkora/kora-session-manager:latest
+  sandboxImage: ghcr.io/runkora/kora-sandbox-base:latest
+  # Default and maximum environment sizes, rendered by the chart.
+  environments:
+    defaultSize:
+      cpu: "2"
+      memory: 4Gi
+      disk: 10Gi
+    maxSize:
+      cpu: "2"
+      memory: 4Gi
+      disk: 10Gi
+  # Pull secrets for the images above, rendered by the chart.
+  imagePullSecrets: []
+  maxConcurrentRunsPerPod: 10
+  sandboxStartupSeconds: 120
+  # Sandbox provisioning guardrails, sent with every run: attempts per request,
+  # the first backoff (doubling), and the budget across attempts. See
+  # docs/adr/2026-09-29-agent-run-guardrails.md.
+  guardrails:
+    sandboxProvisionAttempts: 3
+    sandboxProvisionBackoffSecs: 5
+    sandboxProvisionBudgetSecs: 600
+  # Idle timeouts by how the run started. See the chart's agents.idleTimeout.
+  idleTimeout:
+    manualSecs: 1200
+    triggerSecs: 300
+  # Run scheduler. See the chart's agents.scheduling.
+  scheduling:
+    workerConcurrency: 16
+    pollIntervalSecs: 1
+    startBudgetSecs: 180
+    provisionBudgetSecs: 600
+    minReplicas: 2
+    drainGracePeriodSecs: 3600
+  connectionRegistryPath: "/var/run/kora/connections/connections.json"
+  # Where the chart mounts the manifest patches ConfigMap.
+  manifestPatchDir: /etc/kora/manifest-patches
+  # Where the chart mounts the workload customization ConfigMap (placement, pod
+  # metadata, service account annotations and workspace storage). A missing file
+  # means no customization.
+  workloadsFile: /etc/kora/workloads/workloads.yaml
+  sessionManager:
+    # Restricts each agent pod's session-manager port to the kora-agents
+    # SPIFFE principal at the mesh layer. Requires SPIFFE.
+    authorizationPolicyEnabled: true
+    # enforce keeps agents off a node whose kernel lacks Landlock ABI v2.
+    # bestEffort runs them with whatever confinement the kernel supports.
+    landlock: enforce

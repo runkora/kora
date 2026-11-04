@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, within } from 'storybook/test';
-import { dashboardPage, sessionRoutes, ALL_NAV_SCOPES } from '@orbit/storybook/dashboard-frame';
+import { dashboardPage, sessionRoutes, ALL_NAV_SCOPES } from '@runkora/storybook/dashboard-frame';
 import CatalogLayout from '../layout';
 import type { ProviderStatusWire } from '../../_services/catalog-server';
 import { CatalogTab } from './catalog-tab';

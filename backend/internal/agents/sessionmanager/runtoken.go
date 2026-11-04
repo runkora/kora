@@ -8,18 +8,18 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 )
 
 // runTokenHeader carries the run's own credential on the /internal routes.
-const runTokenHeader = "X-Orbit-Run-Token"
+const runTokenHeader = "X-Kora-Run-Token"
 
 // The /internal routes authenticate the caller as loopback in this container,
 // which every subprocess of every run on this pod satisfies. The run token is
 // what makes a caller a particular run.
 //
 // It lives in the run's workspace, the one place a sibling run cannot reach:
-// orbit-session-runner confines each agent to RWDirs(workDir) and a Landlock
+// kora-session-runner confines each agent to its own workDir and a Landlock
 // domain of its own, so neither another run's files nor its environment are
 // readable. On the workspace volume it also survives a pod restart, which is
 // what lets a restarted pod verify a caller at all.
@@ -30,7 +30,7 @@ func runTokenPath(workspaces, runID string) (string, bool) {
 	if !runfs.IsRunID(runID) {
 		return "", false
 	}
-	return filepath.Join(workspaces, runID, ".orbit", "run-token"), true
+	return filepath.Join(workspaces, runID, ".kora", "run-token"), true
 }
 
 // mintRunToken returns the run's token, generating and storing one on first

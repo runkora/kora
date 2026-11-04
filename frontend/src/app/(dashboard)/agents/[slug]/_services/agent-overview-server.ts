@@ -1,8 +1,8 @@
 import 'server-only';
 
-import { agentsClient } from '@orbit/server/agents-client';
-import { ApiError } from '@orbit/server/client';
-import type { AgentOverviewResponse, AgentRunStats } from '@orbit/shared/api';
+import { agentsClient } from '@runkora/server/agents-client';
+import { ApiError } from '@runkora/server/client';
+import type { AgentOverviewResponse, AgentRunStats } from '@runkora/shared/api';
 import { fetchGatewayInsights } from '../../_services/agents-insights-server';
 import type { Period } from '../../_lib/spend';
 

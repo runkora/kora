@@ -12,9 +12,9 @@ import (
 	azureopenai "github.com/openai/openai-go/v3/azure"
 	openaiopt "github.com/openai/openai-go/v3/option"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Config holds one Azure AI resource.
@@ -47,7 +47,7 @@ func New(cfg *Config, name inferencegw.ProviderName, logger logging.Logger) (*Co
 		azureopenai.WithEndpoint(cfg.Endpoint, cfg.APIVersion),
 		azureopenai.WithAPIKey(cfg.APIKey),
 		openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
-			httpclient.NewTracingTransport("orbit.azure-openai", nil),
+			httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/azure", "", nil),
 		)),
 	)
 
@@ -55,7 +55,7 @@ func New(cfg *Config, name inferencegw.ProviderName, logger logging.Logger) (*Co
 		anthropicopt.WithBaseURL(cfg.AnthropicEndpoint),
 		anthropicopt.WithHeader("api-key", cfg.APIKey),
 		anthropicopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
-			httpclient.NewTracingTransport("orbit.azure-anthropic", nil),
+			httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/azure", "", nil),
 		)),
 	)
 

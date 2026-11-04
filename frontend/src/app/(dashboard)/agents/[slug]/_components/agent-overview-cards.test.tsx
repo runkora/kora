@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { renderWithProviders } from '@orbit/test-utils';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { renderWithProviders } from '@runkora/test-utils';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import { toAgentTypeRow, toRunRow, indexAgentTypes } from '../../_types';
 import { CODE_REVIEWER, RAW_RUNS } from '../../_components/agents-mock-data';
 import { AgentDetailProvider } from '../_context/agent-detail-context';

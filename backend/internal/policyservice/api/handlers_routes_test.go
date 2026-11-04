@@ -12,9 +12,9 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
 )
 
 // knownVocab reports every scope as present, so a tenant registration passes
@@ -23,7 +23,7 @@ type knownVocab struct{ idempotentVocab }
 
 func (knownVocab) Exists(context.Context, string) (bool, error) { return true, nil }
 
-const serviceSubject = "spiffe://orbit.local/tenant/orbit-tenant-example/service/billing"
+const serviceSubject = "spiffe://runkora.test/tenant/kora-tenant-example/service/billing"
 
 var registeredRoutes = []routes.RouteScope{{PathPrefix: "/v1/thing", Method: "GET", RequiredScope: "thing:read"}}
 
@@ -42,7 +42,7 @@ func newRoutesController() *Controller {
 		gatewayRecompileHealthy: true,
 	}
 	s.routeStore.Register(&routes.Registration{Service: "inference-gateway", Routes: registeredRoutes})
-	s.routeStore.Register(&routes.Registration{Service: "orbit-agents", Routes: registeredRoutes})
+	s.routeStore.Register(&routes.Registration{Service: "kora-agents", Routes: registeredRoutes})
 	s.routeStore.Register(&routes.Registration{Service: serviceSubject, TenantID: "example", Routes: registeredRoutes})
 	return &Controller{svc: s, logger: s.logger}
 }
@@ -50,35 +50,39 @@ func newRoutesController() *Controller {
 func TestHandleRegisterRoutes_CallerService(t *testing.T) {
 	system := func(name string) *token.PlatformClaims {
 		return &token.PlatformClaims{
-			RegisteredClaims: jwt.RegisteredClaims{Subject: "spiffe://orbit.local/system/" + name},
-			Orbit:            token.OrbitClaims{PrincipalType: token.PrincipalTypeSystem, DisplayName: name},
+			RegisteredClaims: jwt.RegisteredClaims{Subject: "spiffe://runkora.test/system/" + name},
+			Kora:             token.KoraClaims{PrincipalType: token.PrincipalTypeSystem, DisplayName: name},
 		}
 	}
 	service := &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: serviceSubject},
-		Orbit:            token.OrbitClaims{PrincipalType: token.PrincipalTypeService, TenantID: "example", DisplayName: "billing"},
+		Kora:             token.KoraClaims{PrincipalType: token.PrincipalTypeService, TenantID: "example", DisplayName: "billing"},
 	}
 	unnamedSystem := &token.PlatformClaims{
-		RegisteredClaims: jwt.RegisteredClaims{Subject: "orbit-identity-service"},
-		Orbit:            token.OrbitClaims{PrincipalType: token.PrincipalTypeSystem},
+		RegisteredClaims: jwt.RegisteredClaims{Subject: "kora-identity-service"},
+		Kora:             token.KoraClaims{PrincipalType: token.PrincipalTypeSystem},
 	}
+
+	declared := []routes.ScopeDeclaration{{Scope: "thing:read", ResourceType: "thing", Action: "read"}}
 
 	tests := []struct {
 		name    string
 		claims  *token.PlatformClaims
 		service string
+		scopes  []routes.ScopeDeclaration
 		want    int
 	}{
-		{"system registers its own service", system("inference-gateway"), "inference-gateway", http.StatusNoContent},
-		{"system registers another service", system("orbit-agents"), "inference-gateway", http.StatusForbidden},
-		{"system token without a component name", unnamedSystem, "inference-gateway", http.StatusForbidden},
-		{"service registers its own identity", service, serviceSubject, http.StatusNoContent},
-		{"service registers another service", service, "inference-gateway", http.StatusForbidden},
+		{"system registers its own service", system("inference-gateway"), "inference-gateway", nil, http.StatusNoContent},
+		{"system registers another service", system("kora-agents"), "inference-gateway", nil, http.StatusForbidden},
+		{"system token without a component name", unnamedSystem, "inference-gateway", nil, http.StatusForbidden},
+		{"service registers its own identity", service, serviceSubject, nil, http.StatusNoContent},
+		{"service registers another service", service, "inference-gateway", nil, http.StatusForbidden},
+		{"service declares a scope", service, serviceSubject, declared, http.StatusForbidden},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := newRoutesController()
-			body, _ := json.Marshal(registerRoutesRequest{Service: tt.service, Routes: registeredRoutes, SkipPrune: true})
+			body, _ := json.Marshal(registerRoutesRequest{Service: tt.service, Routes: registeredRoutes, Scopes: tt.scopes, SkipPrune: true})
 			req := httptest.NewRequest(http.MethodPost, "/policy/routes/register", bytes.NewReader(body))
 			req = req.WithContext(token.WithClaims(req.Context(), tt.claims))
 			rec := httptest.NewRecorder()

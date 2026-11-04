@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // TestAuthorize_PassthroughNotRegistrable locks the design guarantee: reaching
@@ -32,7 +32,7 @@ func TestAuthorize_PassthroughNotRegistrable(t *testing.T) {
 	broker := NewBroker(&stubEvaluator{allow: true}, repo, NewAdapterRegistry(), passthrough.New(), logger)
 	req, _ := http.NewRequest(http.MethodGet, "https://example.com/", nil)
 	_, err := broker.Authorize(context.Background(),
-		claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-1"),
+		claimsFor("acme", "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder", "run-1"),
 		FromHTTP(req))
 	if !errors.Is(err, credentials.ErrUnsupportedAdapter) {
 		t.Fatalf("Authorize with a declared passthrough connection = %v, want ErrUnsupportedAdapter", err)
@@ -49,7 +49,7 @@ func TestAuthorize_UnregisteredHostUsesPassthrough(t *testing.T) {
 	broker := NewBroker(eval, &memConnRepo{items: map[string]*credentials.Connection{}}, NewAdapterRegistry(), passthrough.New(), logger)
 	req, _ := http.NewRequest(http.MethodGet, "https://pypi.org/simple/", nil)
 	d, err := broker.Authorize(context.Background(),
-		claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-1"),
+		claimsFor("acme", "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder", "run-1"),
 		FromHTTP(req))
 	if err != nil {
 		t.Fatalf("Authorize(unregistered host) = %v, want allow", err)

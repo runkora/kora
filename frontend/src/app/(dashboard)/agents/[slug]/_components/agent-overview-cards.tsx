@@ -4,11 +4,11 @@
 
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Badge, Card, CardContent, CardHeader, DataTable, Stack, Text } from '@orbit/hades';
-import type { DataTableColumn } from '@orbit/hades';
-import { ScopeChip } from '@orbit/components';
-import { fmtDate } from '@orbit/utils';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { Badge, Card, CardContent, CardHeader, DataTable, Stack, Text } from '@runkora/hades';
+import type { DataTableColumn } from '@runkora/hades';
+import { ScopeChip } from '@runkora/components';
+import { fmtDate } from '@runkora/utils';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { formatDuration, formatRelativeTime } from '../../_types';
 import type { AgentTypeRow, RunRow } from '../../_types';

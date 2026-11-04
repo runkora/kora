@@ -3,8 +3,8 @@
 // Feature-local types for the profile page. Backend wire types are imported
 // from their canonical locations and re-exported for convenience.
 
-export type { ScopesExplainResponse, RoleDetail, GrantDetail } from '@orbit/shared/api';
-export type { PAT } from '@orbit/shared/api';
+export type { ScopesExplainResponse, RoleDetail, GrantDetail } from '@runkora/shared/api';
+export type { PAT } from '@runkora/shared/api';
 
 /**
  * Matches ADR-0042 GET /identity/users/{id} response shape.

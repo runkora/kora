@@ -1,8 +1,8 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
-import { agentsClient } from '@orbit/server/agents-client';
-import { ApiError } from '@orbit/server/client';
+import { withAuth } from '@runkora/server/route-helpers';
+import { agentsClient } from '@runkora/server/agents-client';
+import { ApiError } from '@runkora/server/client';
 
 /**
  * Single agent type draft — get, update (full payload replace), delete.

@@ -5,7 +5,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { screen } from '@testing-library/react';
-import { renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@runkora/test-utils';
 import { ModelCardGrid } from './model-card-grid';
 import type { ModelRow, ModelObjectPricing } from '../_types';
 

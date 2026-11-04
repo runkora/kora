@@ -12,11 +12,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/clear-route/orbit/internal/agents/manifestpatch"
+	"github.com/runkora/kora/backend/internal/agents/manifestpatch"
 )
 
 // loadTestPatches writes the given patch files to a temp dir and loads them
-// the way orbit-agents does at startup.
+// the way kora-agents does at startup.
 func loadTestPatches(t *testing.T, files map[string]string) []manifestpatch.Patch {
 	t.Helper()
 	dir := t.TempDir()
@@ -37,7 +37,7 @@ func loadTestPatches(t *testing.T, files map[string]string) []manifestpatch.Patc
 // StatefulSet, HPA and Service.
 func TestEnsure_ExistingResourcesPickUpPatches(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	existingSS := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns, Annotations: map[string]string{annotationImagePinned: "true"}},
 		Spec: appsv1.StatefulSetSpec{

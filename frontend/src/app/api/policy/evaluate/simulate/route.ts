@@ -1,6 +1,6 @@
 import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { checkSimulate } from '../../../../(dashboard)/policy/_services/policy-server';
 import type { CheckSimulateRequest } from '../../../../(dashboard)/policy/_types/api';
 

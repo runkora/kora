@@ -1,5 +1,5 @@
-import { Anchor, type AnchorProps } from '@orbit/hades';
-import { ExternalUrl } from '@orbit/lib/routing';
+import { Anchor, type AnchorProps } from '@runkora/hades';
+import { ExternalUrl } from '@runkora/lib/routing';
 
 type ExternalLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
   children: React.ReactNode;
@@ -12,7 +12,7 @@ type ExternalLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
    *
    * Always opens in a new tab with `rel="noopener noreferrer"` applied.
    *
-   * @example url="https://docs.orbit.dev"
+   * @example url="https://docs.runkora.io"
    */
   url: ExternalUrl;
 };
@@ -32,7 +32,7 @@ type ExternalLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
  * For internal navigation, use `AppLink` instead.
  *
  * @example
- *   <ExternalLink url="https://docs.orbit.dev">Documentation</ExternalLink>
+ *   <ExternalLink url="https://docs.runkora.io">Documentation</ExternalLink>
  *
  * @example Compact inline reference
  *   <ExternalLink size="sm" url="https://openid.net/specs/openid-connect-core-1_0.html">

@@ -8,10 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ─── stub evaluator ─────────────────────────────────────────────────────────
@@ -134,7 +135,7 @@ func (s *stubEvaluator) Start(_ context.Context) {}
 func testClaims(tenantID string) *token.PlatformClaims {
 	return &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1"},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			TenantID:      tenantID,
 			PrincipalType: token.PrincipalTypeHuman,
 		},
@@ -149,7 +150,7 @@ func ctxWithClaims(t *testing.T) context.Context {
 func ctxWithRoles(t *testing.T, roles ...string) context.Context {
 	t.Helper()
 	c := testClaims("tenant-1")
-	c.Orbit.Claims = map[string]string{"roles": strings.Join(roles, ",")}
+	c.Kora.Claims = map[string]string{"roles": strings.Join(roles, ",")}
 	return token.WithClaims(context.Background(), c)
 }
 
@@ -246,21 +247,21 @@ func TestModelPolicyFailure(t *testing.T) {
 	t.Parallel()
 	t.Run("unknown model", func(t *testing.T) {
 		err := fmt.Errorf("%w: %q", ErrModelNotFound, "bogus-model")
-		status, code, msg := modelPolicyFailure(err)
+		status, code, spanErr := modelPolicyFailure(err)
 		if status != UsageStatusModelNotFound || code != "MODEL_NOT_FOUND" {
 			t.Errorf("unknown model: got (%s, %s), want (model_not_found, MODEL_NOT_FOUND)", status, code)
 		}
-		if !strings.Contains(msg, "bogus-model") {
-			t.Errorf("span message should name the model, got: %q", msg)
+		if spanErr != ErrModelNotFound {
+			t.Errorf("span error: got %v, want %v", spanErr, ErrModelNotFound)
 		}
 	})
 	t.Run("policy denial", func(t *testing.T) {
-		status, code, msg := modelPolicyFailure(ErrPolicyDenied)
+		status, code, spanErr := modelPolicyFailure(ErrPolicyDenied)
 		if status != UsageStatusPolicyDenied || code != "POLICY_DENIED" {
 			t.Errorf("denial: got (%s, %s), want (policy_denied, POLICY_DENIED)", status, code)
 		}
-		if msg != ErrPolicyDenied.Error() {
-			t.Errorf("span message: got %q, want %q", msg, ErrPolicyDenied.Error())
+		if spanErr != ErrPolicyDenied {
+			t.Errorf("span error: got %v, want %v", spanErr, ErrPolicyDenied)
 		}
 	})
 	t.Run("wrapped policy-engine error stays policy_denied", func(t *testing.T) {
@@ -639,7 +640,7 @@ func TestCheckBudget_ScopesDerivedFromConfiguration(t *testing.T) {
 	counter := &mockSpendCounter{}
 	svc := newBudgetService(eval, counter)
 
-	_, err := svc.checkBudget(ctxWithRoles(t, "engineering", "engineer"), principal{
+	err := svc.checkBudget(ctxWithRoles(t, "engineering", "engineer"), principal{
 		TenantID: "tenant-1", PrincipalID: "user-1", PrincipalType: "HUMAN",
 	})
 	if err != nil {
@@ -726,7 +727,7 @@ func TestListBudgetPrincipals_WeeklyBlockedReportedAndTypeInferred(t *testing.T)
 	// and inferred type AGENT. The attribution counter is deliberately stale
 	// (zero) — weekly spend must come from the usage log, matching enforcement,
 	// so a freshly re-windowed assignment never reads as zero usage.
-	pid := "spiffe://orbit.test/tenant/t/agent/coder"
+	pid := "spiffe://runkora.test/tenant/t/agent/coder"
 	eval := &stubEvaluator{
 		allBudgets: map[string]policy.PrincipalBudget{
 			pid: {

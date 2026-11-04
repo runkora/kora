@@ -18,7 +18,7 @@
  * GET  — returns the public (non-sensitive) portion of the current session for
  *        use by client components that need to know who is logged in.
  *
- *        Response: 200 { user: SessionUser, expiresAt: number } — active session
+ *        Response: 200 { user, expiresAt, permissions, apiAuthoring } — active session
  *                  401 { error: 'unauthorized' }                — no/expired session
  *
  * The access token and refresh token are NEVER included in GET responses —
@@ -29,22 +29,22 @@ import 'server-only';
 import { getIronSession } from 'iron-session';
 import { cookies } from 'next/headers';
 
-import { getSessionOptions } from '@orbit/server/auth-config';
+import { getSessionOptions, tenantIdFromAccessToken } from '@runkora/server/auth-config';
 import type {
   SessionPayload,
   SessionUser,
   BackendSessionResponse,
-} from '@orbit/server/auth-config';
-import { config } from '@orbit/server/config';
-import { getSession, isSessionValid } from '@orbit/server/session';
+} from '@runkora/server/auth-config';
+import { config } from '@runkora/server/config';
+import { getSession, isSessionValid } from '@runkora/server/session';
 
 // ── Internal types ────────────────────────────────────────────────────────────
 
 /** Decoded kora JWT payload (unverified — trusted because it comes from our own backend). */
-interface OrbitJwtPayload {
+interface KoraJwtPayload {
   sub: string;
   exp: number;
-  orbit?: {
+  kora?: {
     display_name?: string;
     claims?: Record<string, string>;
   };
@@ -57,7 +57,7 @@ interface OrbitJwtPayload {
  * Safe because the token is received directly from the Go backend over a
  * trusted internal network — it is not user-supplied input.
  */
-function isOrbitJwtPayload(v: unknown): v is OrbitJwtPayload {
+function isKoraJwtPayload(v: unknown): v is KoraJwtPayload {
   if (
     typeof v !== 'object' ||
     v === null ||
@@ -66,14 +66,14 @@ function isOrbitJwtPayload(v: unknown): v is OrbitJwtPayload {
   ) {
     return false;
   }
-  const orbit = (v as Record<string, unknown>)['orbit'];
-  if (orbit !== undefined && (typeof orbit !== 'object' || orbit === null)) {
+  const kora = (v as Record<string, unknown>)['kora'];
+  if (kora !== undefined && (typeof kora !== 'object' || kora === null)) {
     return false;
   }
   return true;
 }
 
-function decodeJwtPayload(token: string): OrbitJwtPayload {
+function decodeJwtPayload(token: string): KoraJwtPayload {
   const parts = token.split('.');
   if (parts.length !== 3) throw new Error('Invalid JWT structure');
   // Normalise base64url → base64: swap alphabet chars then restore padding.
@@ -83,7 +83,7 @@ function decodeJwtPayload(token: string): OrbitJwtPayload {
     .replace(/_/g, '/')
     .padEnd(Math.ceil(parts[1].length / 4) * 4, '=');
   const parsed: unknown = JSON.parse(atob(base64));
-  if (!isOrbitJwtPayload(parsed)) throw new Error('JWT payload missing required claims');
+  if (!isKoraJwtPayload(parsed)) throw new Error('JWT payload missing required claims');
   return parsed;
 }
 
@@ -164,7 +164,7 @@ export async function POST(request: Request): Promise<Response> {
   // Forward to Go identity service.
   let backendRes: Response;
   try {
-    backendRes = await fetch(`${config.orbitApiUrl}/identity/session`, {
+    backendRes = await fetch(`${config.koraApiUrl}/identity/session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -196,7 +196,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // Decode the kora JWT to extract user identity claims.
-  let claims: OrbitJwtPayload;
+  let claims: KoraJwtPayload;
   try {
     claims = decodeJwtPayload(data.access_token);
   } catch {
@@ -205,8 +205,8 @@ export async function POST(request: Request): Promise<Response> {
 
   const user: SessionUser = {
     sub: claims.sub,
-    email: claims.orbit?.claims?.['email'] ?? '',
-    name: claims.orbit?.display_name ?? '',
+    email: claims.kora?.claims?.['email'] ?? '',
+    name: claims.kora?.display_name ?? '',
   };
 
   const payload: SessionPayload = {
@@ -214,7 +214,10 @@ export async function POST(request: Request): Promise<Response> {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
     expiresAt: data.issued_at + data.expires_in,
-    tenantId: tenantId as string,
+    // The token's tenant wins: a claim binding can move the person off the
+    // tenant Home Realm Discovery picked, which is only a hint.
+    tenantId: tenantIdFromAccessToken(data.access_token) ?? tenantId,
+    apiAuthoring: data.api_authoring ?? true,
   };
 
   // Create the session with a maxAge derived from the backend's refresh token
@@ -248,5 +251,6 @@ export async function GET(): Promise<Response> {
     user: session.user,
     expiresAt: session.expiresAt,
     permissions: { scopes },
+    apiAuthoring: session.apiAuthoring ?? true,
   });
 }

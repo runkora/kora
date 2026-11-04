@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
-import { BottomSheet, Button, Icon, SectionLabel, Separator, Stack, Text } from '@orbit/hades';
-import { APP_ROUTES } from '@orbit/lib/routing/routes';
-import { useLogout } from '@orbit/lib/use-logout';
+import { BottomSheet, Button, Icon, SectionLabel, Separator, Stack, Text } from '@runkora/hades';
+import { useBrand } from '@runkora/theme/brand-provider';
+import { APP_ROUTES } from '@runkora/lib/routing/routes';
+import { useLogout } from '@runkora/lib/use-logout';
 import { useSession } from './permissions-provider';
 import { FitEmailText } from './fit-email-text';
 
@@ -210,10 +211,11 @@ function IdentityBlock({
 // ── Shared confirm-logout block ──────────────────────────────────────────────
 
 function ConfirmLogoutBlock({ compact }: { compact: boolean }) {
+  const { productName } = useBrand();
   return (
     <>
       <Text as="span" style={{ display: 'block', fontSize: compact ? 14 : 16, fontWeight: 500 }}>
-        Log out of kora?
+        Log out of {productName}?
       </Text>
       <Text
         as="span"

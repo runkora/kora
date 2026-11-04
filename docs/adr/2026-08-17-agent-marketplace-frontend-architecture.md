@@ -18,7 +18,7 @@ Marketplace is part of the Kora dashboard, the web interface signed-in users use
 
 The frontend owns the Marketplace overview, Skill detail pages, browsing controls, and loading and error feedback. It follows the dashboard's existing Next.js Server Component and React patterns, using the same sign-in, navigation, and page layout.
 
-Hades (`@orbit/hades`) provides shared layouts and controls. The authenticated Backend-for-Frontend (BFF) requests backend data on behalf of the browser. Repository access, credentials, search, caching, and authorization remain backend responsibilities.
+Hades (`@runkora/hades`) provides shared layouts and controls. The authenticated Backend-for-Frontend (BFF) requests backend data on behalf of the browser. Repository access, credentials, search, caching, and authorization remain backend responsibilities.
 
 ### Problem Statement
 

@@ -9,18 +9,19 @@ import (
 	"net/http"
 	"strings"
 
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
-// ReservedRoleError is returned when a request attempts to modify the
-// reserved platform-admin role.
+// ReservedRoleError is returned when a request attempts to modify a reserved
+// role: platform-admin or a built-in kora-* role.
 type ReservedRoleError struct {
 	Role string
 }
@@ -39,9 +40,19 @@ type Controller struct {
 	svc      *Service
 	logger   logging.Logger
 	verifier *token.Verifier
-	eval     policy.Evaluator
-	routes   []routescopes.RouteScope
-	basePath string
+	// blocklist refuses revoked delegation tokens before they expire.
+	blocklist mw.JTIBlocklist
+	eval      policy.Evaluator
+	routes    []routescopes.RouteScope
+	basePath  string
+	registry  tenantRegistry
+}
+
+// tenantRegistry reports the declarative facts the operator writes for each
+// tenant: whether the API may author its roles, and its declared budget.
+type tenantRegistry interface {
+	APIAuthoringEnabled(tenantID string) bool
+	TenantBudget(tenantID string) (declarative.Budget, bool)
 }
 
 // NewController creates a ready-to-boot policy Controller.
@@ -51,25 +62,28 @@ type Controller struct {
 // Routes intentionally omitted from the table (e.g. POST /effective-scopes,
 // POST /routes/register) fail-closed at the middleware with 403. basePath
 // must match the server's BasePath so the middleware can reconstruct absolute
-// paths after http.StripPrefix.
-func NewController(svc *Service, logger logging.Logger, verifier *token.Verifier, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string) *Controller {
-	return &Controller{svc: svc, logger: logger, verifier: verifier, eval: eval, routes: routes, basePath: basePath}
+// paths after http.StripPrefix. registry locks a tenant's role writes and
+// refuses tenant budget writes while the tenant declares its budget.
+func NewController(svc *Service, logger logging.Logger, verifier *token.Verifier, blocklist mw.JTIBlocklist, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, registry tenantRegistry) *Controller {
+	return &Controller{svc: svc, logger: logger, verifier: verifier, blocklist: blocklist, eval: eval, routes: routes, basePath: basePath, registry: registry}
 }
 
 func (c *Controller) GroupedBy() string { return "/policy" }
 
-// Middleware applies JWT auth and scope enforcement to all policy routes
+// Middleware applies JWT auth, delegation verification and scope enforcement to all policy routes
 // except bundle polling endpoints.
 //
 // GET /bundles/{tenant_id} — polled by per-tenant OPA sidecars in tenant namespaces.
-// GET /bundles/gateway     — polled by the OPA gateway pod in orbit-system only;
+// GET /bundles/gateway     — polled by the OPA gateway pod in kora-system only;
 //
 //	an Istio AuthorizationPolicy (authorizationpolicy-policy-service.yaml) denies
-//	access from outside orbit-system, since the gateway bundle contains all tenants'
+//	access from outside kora-system, since the gateway bundle contains all tenants'
 //	grants, roles, and routes.
 func (c *Controller) Middleware() mw.MiddlewareHandler {
+	// The verified delegation bounds a delegated run's scope check by the person's access.
 	authChain := mw.MiddlewareChain(
 		mw.AuthMiddleware(c.verifier, c.logger),
+		mw.DelegationMiddlewareWithBlocklist(c.logger, c.verifier, c.blocklist),
 		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
 	)
 	return func(next http.Handler) http.Handler {
@@ -104,6 +118,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	GET    /policy/roles?tenant_id=                           List role→scope mappings for a tenant
 //	GET    /policy/roles/{role}?tenant_id=                    Get a single role→scope mapping
 //	DELETE /policy/roles/{role}?tenant_id=                    Remove a role→scope mapping
+//	PATCH  /policy/roles/{role}/budget                        Set or clear a role's budget
 //	GET    /policy/routes                                     List all registered route→scope mappings
 //	POST   /policy/routes/register                            Register route→scope mappings (SYSTEM or SERVICE principal)
 //	GET    /policy/bundles/{tenant_id}                        Serve OPA bundle (polling endpoint)
@@ -125,6 +140,7 @@ func (c *Controller) Boot(mux *platformapi.Mux) {
 	mux.Handle("GET /roles", c.handleListRoles)
 	mux.Handle("GET /roles/{role}", c.handleGetRole)
 	mux.Handle("DELETE /roles/{role}", c.handleDeleteRole)
+	mux.Handle("PATCH /roles/{role}/budget", c.handleUpdateRoleBudget)
 	mux.Handle("GET /routes", c.handleListRoutes)
 	mux.Handle("POST /routes/register", c.handleRegisterRoutes)
 	mux.Handle("GET /bundles/{tenant_id}", c.svc.BundleHandler().ServeHTTP)

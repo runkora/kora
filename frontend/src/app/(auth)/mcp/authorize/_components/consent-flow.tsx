@@ -2,7 +2,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Icon, Stack, Text } from '@orbit/hades';
+import { Button, Icon, Stack, Text } from '@runkora/hades';
+import { useBrand } from '@runkora/theme/brand-provider';
 
 // ── Props (all fetched server-side, passed as serialisable data) ──────────────
 
@@ -102,6 +103,7 @@ function ConsentCard(
     onDeny: () => void;
   },
 ) {
+  const { productName } = useBrand();
   return (
     <Stack
       style={{
@@ -124,7 +126,7 @@ function ConsentCard(
           >
             It wants to connect to the{' '}
             <Strong>
-              {(p.server?.displayName ?? 'kora').replace(/\s*MCP\s*$/i, '') || 'kora'}
+              {(p.server?.displayName ?? productName).replace(/\s*MCP\s*$/i, '') || productName}
             </Strong>{' '}
             MCP server and call its tools <Strong>as you</Strong>.
           </Text>
@@ -261,7 +263,8 @@ function ConsentCard(
             marginTop: 5,
           }}
         >
-          By authorising, kora issues a short-lived token that acts as you, bounded by your grants;
+          By authorising, {productName} issues a short-lived token that acts as you, bounded by your
+          grants;
           {p.clientName} re-authorises when it expires. You can revoke it any time from{' '}
           <Text as="span" mono style={{ fontSize: 11 }}>
             Connections

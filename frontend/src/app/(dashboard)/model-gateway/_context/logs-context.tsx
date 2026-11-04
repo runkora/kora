@@ -10,7 +10,7 @@ import { createContext, useContext } from 'react';
 import { useLogs } from '../_hooks/use-logs';
 import type { LogsStateShape } from '../_hooks/use-logs';
 import type { InferenceUsageRecord } from '../_types';
-import type { PAT } from '@orbit/shared/api';
+import type { PAT } from '@runkora/shared/api';
 
 // ── Context ───────────────────────────────────────────────────────────────────
 

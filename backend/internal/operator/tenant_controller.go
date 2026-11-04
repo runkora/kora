@@ -19,7 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // TenantReconciler provisions tenant resources and aggregates tenant configuration.
@@ -62,6 +62,9 @@ type TenantReconciler struct {
 	// SandboxBase is registered in every tenant namespace as kora-base.
 	SandboxBase SandboxBase
 
+	// ProductName is the product name used in sandbox image descriptions.
+	ProductName string
+
 	// SandboxBundled holds the bundled sandbox images keyed as in si.Bundled.
 	// Enabled ones are registered in every tenant namespace, and the rest are removed.
 	SandboxBundled map[string]BundledSandboxImage
@@ -89,38 +92,22 @@ type PodSecurityLabels struct {
 	Audit   string
 }
 
-// Reconcile is called by controller-runtime whenever an OrbitTenant is
+// Reconcile is called by controller-runtime whenever an KoraTenant is
 // created, updated, or when a requeue fires.
 func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := r.Logger
 
-	tenant := &OrbitTenant{}
+	tenant := &KoraTenant{}
 	if err := r.Get(ctx, req.NamespacedName, tenant); err != nil {
 		if apierrors.IsNotFound(err) {
-			// CR deleted: re-run every aggregator so the removed tenant is no
-			// longer served (registry, OIDC secrets, CAs, connections, MCP
-			// servers, OAuth clients, skill marketplace sources).
-			for _, sync := range []func(context.Context) error{
-				r.Registry.Sync,
-				r.Aggregator.Sync,
-				r.CAAggregator.Sync,
-				r.ConnAggregator.Sync,
-				r.MCPAggregator.Sync,
-				r.OAuthAggregator.Sync,
-				r.MarketplaceAggregator.Sync,
-			} {
-				if syncErr := sync(ctx); syncErr != nil {
-					return ctrl.Result{}, syncErr
-				}
-			}
-			return ctrl.Result{}, nil
+			return ctrl.Result{}, r.syncDeleted(ctx)
 		}
-		return ctrl.Result{}, fmt.Errorf("get OrbitTenant %q: %w", req.Name, err)
+		return ctrl.Result{}, fmt.Errorf("get KoraTenant %q: %w", req.Name, err)
 	}
 
 	ns := tenantNamespace(tenant)
 
-	log.Info(ctx, "reconciling OrbitTenant",
+	log.Info(ctx, "reconciling KoraTenant",
 		logging.Field{Key: "tenant", Value: tenant.Name},
 		logging.Field{Key: "namespace", Value: ns},
 		logging.Field{Key: "phase", Value: tenant.Status.Phase},
@@ -129,6 +116,10 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// Handle suspended tenants: update registry and status, no namespace work.
 	if !tenant.Spec.Active {
 		return r.reconcileSuspended(ctx, tenant)
+	}
+
+	if result, refused, err := r.refuseConflicts(ctx, tenant); refused || err != nil {
+		return result, err
 	}
 
 	// Only transition to Provisioning from an initial/unset state. Once the
@@ -170,7 +161,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 	_ = r.setTenantCondition(ctx, tenant, ConditionRegistryUpdated, metav1.ConditionTrue,
-		"Synced", "orbit-tenants ConfigMap updated")
+		"Synced", "kora-tenants ConfigMap updated")
 
 	// Steps 3-7: per-tenant resource ensure-steps. Each follows the same
 	// failure shape: log, degrade, requeue. They're collapsed into a
@@ -237,8 +228,8 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		},
 		{
 			// Aggregated tenant CAs: pods can only mount Secrets from
-			// their own namespace, so the per-tenant orbit-tenant-ca
-			// Secrets are aggregated into one orbit-system Secret the
+			// their own namespace, so the per-tenant kora-tenant-ca
+			// Secrets are aggregated into one kora-system Secret the
 			// egress gateway projects.
 			name: "aggregated tenant CAs",
 			run:  func(ctx context.Context) error { return r.CAAggregator.Sync(ctx) },
@@ -246,14 +237,14 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		{
 			// Aggregated connections: each tenant's Connection CRs (and
 			// their referenced Secrets) are aggregated into the
-			// orbit-tenant-connections ConfigMap + orbit-tenant-connection-secrets
-			// Secret in orbit-system the egress gateway mounts (Amendment 3).
+			// kora-tenant-connections ConfigMap + kora-tenant-connection-secrets
+			// Secret in kora-system the egress gateway mounts (Amendment 3).
 			name: "aggregated connections",
 			run:  func(ctx context.Context) error { return r.ConnAggregator.Sync(ctx) },
 		},
 		{
 			// Aggregated MCP servers: every MCPServer CR across all namespaces
-			// is rendered into the orbit-mcp-servers ConfigMap in orbit-system
+			// is rendered into the kora-mcp-servers ConfigMap in kora-system
 			// the tool-gateway mounts. Re-aggregated here so a tenant suspend /
 			// reactivate includes/excludes that tenant's servers.
 			name: "aggregated MCP servers",
@@ -261,8 +252,8 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		},
 		{
 			// Aggregated OAuth clients: each tenant's OAuthClient CRs are
-			// rendered into the orbit-tenant-oauth-clients ConfigMap in
-			// orbit-system the identity service mounts, so a pre-registered
+			// rendered into the kora-tenant-oauth-clients ConfigMap in
+			// kora-system the identity service mounts, so a pre-registered
 			// hosted-app client appears without a pod restart. Re-aggregated
 			// here so a tenant suspend / reactivate includes/excludes its clients.
 			name: "aggregated OAuth clients",
@@ -271,7 +262,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		{
 			// Aggregated skill marketplace sources: each tenant's
 			// SkillMarketplaceSource CRs are rendered into the
-			// orbit-skill-marketplace-sources ConfigMap skills-service mounts.
+			// kora-skill-marketplace-sources ConfigMap skills-service mounts.
 			// Re-aggregated here because an allowlist edit, a suspend and a
 			// reactivation all change which sources are served.
 			name: "aggregated skill marketplace sources",
@@ -294,13 +285,13 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	if err := r.markReady(ctx, tenant, ns); err != nil {
-		log.Error(ctx, "failed to patch OrbitTenant status",
+		log.Error(ctx, "failed to patch KoraTenant status",
 			logging.Field{Key: "tenant", Value: tenant.Name},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 	}
 
-	log.Info(ctx, "OrbitTenant reconciliation complete",
+	log.Info(ctx, "KoraTenant reconciliation complete",
 		logging.Field{Key: "tenant", Value: tenant.Name},
 		logging.Field{Key: "namespace", Value: ns},
 	)
@@ -309,19 +300,39 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 }
 
+// syncDeleted re-runs every aggregator after a tenant's CR is deleted. The
+// removed tenant is then no longer served (registry, OIDC secrets, CAs,
+// connections, MCP servers, OAuth clients).
+func (r *TenantReconciler) syncDeleted(ctx context.Context) error {
+	for _, sync := range []func(context.Context) error{
+		r.Registry.Sync,
+		r.Aggregator.Sync,
+		r.CAAggregator.Sync,
+		r.ConnAggregator.Sync,
+		r.MCPAggregator.Sync,
+		r.OAuthAggregator.Sync,
+		r.MarketplaceAggregator.Sync,
+	} {
+		if err := sync(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // markReady patches Namespace, LastReconciledAt and Phase in one call.
 // setTenantPhase alone would skip this: it no-ops when the phase is already
 // Ready, which is every reconcile after the first, so Namespace and
 // LastReconciledAt would never reach the API server on steady-state
 // reconciles.
-func (r *TenantReconciler) markReady(ctx context.Context, tenant *OrbitTenant, ns string) error {
+func (r *TenantReconciler) markReady(ctx context.Context, tenant *KoraTenant, ns string) error {
 	patch := client.MergeFrom(tenant.DeepCopy())
 	now := metav1.Now()
 	tenant.Status.Namespace = ns
 	tenant.Status.LastReconciledAt = &now
 	tenant.Status.Phase = TenantPhaseReady
 	if err := r.Status().Patch(ctx, tenant, patch); err != nil {
-		return fmt.Errorf("patch OrbitTenant %q status: %w", tenant.Name, err)
+		return fmt.Errorf("patch KoraTenant %q status: %w", tenant.Name, err)
 	}
 	return nil
 }
@@ -333,18 +344,18 @@ func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		// markReady patches status on every pass; without this predicate that
 		// patch re-enqueues the tenant and the reconciler spins.
-		For(&OrbitTenant{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		// A Connection CR change must re-aggregate the orbit-system connection
+		For(&KoraTenant{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		// A Connection CR change must re-aggregate the kora-system connection
 		// registry/secrets the egress gateway mounts (Amendment 3). The
 		// Connection lives in a tenant namespace, so map it to the owning
-		// OrbitTenant's reconcile, which runs ConnAggregator.Sync.
+		// KoraTenant's reconcile, which runs ConnAggregator.Sync.
 		Watches(
 			&Connection{},
 			handler.EnqueueRequestsFromMapFunc(r.connectionToTenants),
 		).
-		// An OAuthClient CR change must re-aggregate the orbit-system
+		// An OAuthClient CR change must re-aggregate the kora-system
 		// oauth-clients ConfigMap the identity service mounts. The OAuthClient
-		// lives in a tenant namespace, so map it to the owning OrbitTenant's
+		// lives in a tenant namespace, so map it to the owning KoraTenant's
 		// reconcile, which runs OAuthAggregator.Sync.
 		Watches(
 			&OAuthClient{},
@@ -353,7 +364,7 @@ func (r *TenantReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// connectionToTenants maps a Connection event to the OrbitTenant whose
+// connectionToTenants maps a Connection event to the KoraTenant whose
 // namespace the Connection lives in, so applying/deleting a Connection triggers
 // re-aggregation of the mounted gateway config.
 func (r *TenantReconciler) connectionToTenants(ctx context.Context, obj client.Object) []reconcile.Request {
@@ -362,9 +373,9 @@ func (r *TenantReconciler) connectionToTenants(ctx context.Context, obj client.O
 		return nil
 	}
 
-	list := &OrbitTenantList{}
+	list := &KoraTenantList{}
 	if err := r.List(ctx, list); err != nil {
-		r.Logger.Error(ctx, "failed to list OrbitTenants for connection watch",
+		r.Logger.Error(ctx, "failed to list KoraTenants for connection watch",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 		return nil
@@ -382,7 +393,7 @@ func (r *TenantReconciler) connectionToTenants(ctx context.Context, obj client.O
 	return reqs
 }
 
-// oauthClientToTenants maps an OAuthClient event to the OrbitTenant whose
+// oauthClientToTenants maps an OAuthClient event to the KoraTenant whose
 // namespace the OAuthClient lives in, so applying/deleting an OAuthClient
 // triggers re-aggregation of the mounted identity oauth-clients ConfigMap.
 func (r *TenantReconciler) oauthClientToTenants(ctx context.Context, obj client.Object) []reconcile.Request {
@@ -391,9 +402,9 @@ func (r *TenantReconciler) oauthClientToTenants(ctx context.Context, obj client.
 		return nil
 	}
 
-	list := &OrbitTenantList{}
+	list := &KoraTenantList{}
 	if err := r.List(ctx, list); err != nil {
-		r.Logger.Error(ctx, "failed to list OrbitTenants for oauth client watch",
+		r.Logger.Error(ctx, "failed to list KoraTenants for oauth client watch",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 		return nil
@@ -419,7 +430,7 @@ func (r *TenantReconciler) oauthClientToTenants(ctx context.Context, obj client.
 // it if required labels are missing. Namespace creation is done via client-go
 // CreateOrUpdate so Helm never owns the namespace (avoiding the ownership
 // conflict described in docs/adr/2026-03-31-orbit-kubernetes-operator.md).
-func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *OrbitTenant) error {
+func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *KoraTenant) error {
 	ns := tenantNamespace(tenant)
 
 	existing := &corev1.Namespace{}
@@ -432,8 +443,8 @@ func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *OrbitTen
 				Name:   ns,
 				Labels: r.tenantNamespaceLabels(tenant),
 				Annotations: map[string]string{
-					"orbit.io/managed-by": "orbit-operator",
-					"orbit.io/tenant":     tenant.Name,
+					"runkora.io/managed-by": "kora-operator",
+					"runkora.io/tenant":     tenant.Name,
 				},
 			},
 		}
@@ -473,7 +484,7 @@ func (r *TenantReconciler) ensureNamespace(ctx context.Context, tenant *OrbitTen
 
 // reconcileSuspended handles the case where spec.active is false. The
 // namespace is left intact; only the registry is synced to reflect suspension.
-func (r *TenantReconciler) reconcileSuspended(ctx context.Context, tenant *OrbitTenant) (ctrl.Result, error) {
+func (r *TenantReconciler) reconcileSuspended(ctx context.Context, tenant *KoraTenant) (ctrl.Result, error) {
 	r.Logger.Info(ctx, "tenant is suspended, syncing registry and aggregated secrets",
 		logging.Field{Key: "tenant", Value: tenant.Name},
 	)
@@ -509,25 +520,25 @@ func (r *TenantReconciler) reconcileSuspended(ctx context.Context, tenant *Orbit
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 }
 
-// setTenantPhase patches the OrbitTenant status phase.
+// setTenantPhase patches the KoraTenant status phase.
 // It is a no-op when the phase is already set to the requested value, which
 // prevents spurious status patches from triggering extra reconcile events.
-func (r *TenantReconciler) setTenantPhase(ctx context.Context, t *OrbitTenant, phase string) error {
+func (r *TenantReconciler) setTenantPhase(ctx context.Context, t *KoraTenant, phase string) error {
 	if t.Status.Phase == phase {
 		return nil
 	}
 	patch := client.MergeFrom(t.DeepCopy())
 	t.Status.Phase = phase
 	if err := r.Status().Patch(ctx, t, patch); err != nil {
-		return fmt.Errorf("patch OrbitTenant %q status phase to %q: %w", t.Name, phase, err)
+		return fmt.Errorf("patch KoraTenant %q status phase to %q: %w", t.Name, phase, err)
 	}
 	return nil
 }
 
-// setTenantCondition sets a named condition on the OrbitTenant status.
+// setTenantCondition sets a named condition on the KoraTenant status.
 func (r *TenantReconciler) setTenantCondition(
 	ctx context.Context,
-	t *OrbitTenant,
+	t *KoraTenant,
 	condType string,
 	status metav1.ConditionStatus,
 	reason, message string,
@@ -541,16 +552,16 @@ func (r *TenantReconciler) setTenantCondition(
 		Message:            message,
 	})
 	if err := r.Status().Patch(ctx, t, patch); err != nil {
-		return fmt.Errorf("patch OrbitTenant %q condition %q: %w", t.Name, condType, err)
+		return fmt.Errorf("patch KoraTenant %q condition %q: %w", t.Name, condType, err)
 	}
 	return nil
 }
 
-// ensureOPAConfig creates or updates the orbit-opa-config ConfigMap in the
+// ensureOPAConfig creates or updates the kora-opa-config ConfigMap in the
 // tenant namespace. The webhook mounts it into the OPA sidecar it injects: the
 // policy-service bundle endpoint and the tenant bundle path, resolved at runtime
-// from the pod's orbit.io/tenant-id annotation.
-func (r *TenantReconciler) ensureOPAConfig(ctx context.Context, tenant *OrbitTenant) error {
+// from the pod's runkora.io/tenant-id annotation.
+func (r *TenantReconciler) ensureOPAConfig(ctx context.Context, tenant *KoraTenant) error {
 	ns := tenantNamespace(tenant)
 
 	// OPA bundle polling interval is configurable via operator config. After a
@@ -567,12 +578,12 @@ func (r *TenantReconciler) ensureOPAConfig(ctx context.Context, tenant *OrbitTen
 	}
 	opaConfigYAML := fmt.Sprintf(`services:
   policy-service:
-    url: http://orbit-policy-service.%s.svc/api/v1/policy
+    url: http://kora-policy-service.%s.svc/api/v1/policy
 
 bundles:
   authz:
     service: policy-service
-    resource: "bundles/${ORBIT_TENANT_ID}"
+    resource: "bundles/${KORA_TENANT_ID}"
     polling:
       min_delay_seconds: %d
       max_delay_seconds: %d
@@ -580,7 +591,7 @@ bundles:
 plugins:
   envoy_ext_authz_grpc:
     addr: localhost:9191
-    path: orbit/authz/allow
+    path: kora/authz/allow
     allow_if_undefined: false
 
 decision_logs:
@@ -599,11 +610,11 @@ allow if input.path == ["health"]
 
 	desired := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "orbit-opa-config",
+			Name:      "kora-opa-config",
 			Namespace: ns,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "orbit-operator",
-				"orbit.io/tenant":              tenant.Name,
+				"app.kubernetes.io/managed-by": "kora-operator",
+				"runkora.io/tenant":            tenant.Name,
 			},
 		},
 		Data: map[string]string{
@@ -613,19 +624,19 @@ allow if input.path == ["health"]
 	}
 
 	existing := &corev1.ConfigMap{}
-	err := r.Get(ctx, client.ObjectKey{Name: "orbit-opa-config", Namespace: ns}, existing)
+	err := r.Get(ctx, client.ObjectKey{Name: "kora-opa-config", Namespace: ns}, existing)
 	if apierrors.IsNotFound(err) {
 		if createErr := r.Create(ctx, desired); createErr != nil {
-			return fmt.Errorf("create orbit-opa-config in %q: %w", ns, createErr)
+			return fmt.Errorf("create kora-opa-config in %q: %w", ns, createErr)
 		}
-		r.Logger.Info(ctx, "created orbit-opa-config",
+		r.Logger.Info(ctx, "created kora-opa-config",
 			logging.Field{Key: "namespace", Value: ns},
 			logging.Field{Key: "tenant", Value: tenant.Name},
 		)
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("get orbit-opa-config in %q: %w", ns, err)
+		return fmt.Errorf("get kora-opa-config in %q: %w", ns, err)
 	}
 
 	// Update if data has drifted. Compares the whole map, not one key: an
@@ -636,17 +647,82 @@ allow if input.path == ["health"]
 		patch := client.MergeFrom(existing.DeepCopy())
 		existing.Data = desired.Data
 		if err := r.Patch(ctx, existing, patch); err != nil {
-			return fmt.Errorf("patch orbit-opa-config in %q: %w", ns, err)
+			return fmt.Errorf("patch kora-opa-config in %q: %w", ns, err)
 		}
-		r.Logger.Info(ctx, "patched orbit-opa-config",
+		r.Logger.Info(ctx, "patched kora-opa-config",
 			logging.Field{Key: "namespace", Value: ns},
 		)
 	}
 	return nil
 }
 
+// refuseNamespaceConflict holds a tenant at Degraded while its namespace is
+// the system namespace or another tenant's. Declarative resources map to a
+// tenant by namespace. A shared namespace would hand one tenant's resources to
+// the other.
+func (r *TenantReconciler) refuseNamespaceConflict(ctx context.Context, tenant *KoraTenant) (ctrl.Result, bool, error) {
+	list := &KoraTenantList{}
+	if err := r.List(ctx, list); err != nil {
+		return ctrl.Result{}, false, fmt.Errorf("list KoraTenants: %w", err)
+	}
+	conflict := namespaceConflict(tenant, list.Items)
+	if conflict == "" {
+		return ctrl.Result{}, false, nil
+	}
+	r.Logger.Warn(ctx, "refusing tenant namespace",
+		logging.Field{Key: "tenant", Value: tenant.Name},
+		logging.Field{Key: "reason", Value: conflict},
+	)
+	_ = r.setTenantCondition(ctx, tenant, ConditionNamespaceReady, metav1.ConditionFalse, "NamespaceConflict", conflict)
+	_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
+	// Login and the authoring switch keep working for the refused tenant.
+	if err := r.Registry.Sync(ctx); err != nil {
+		return ctrl.Result{}, true, fmt.Errorf("sync tenant registry: %w", err)
+	}
+	// The other tenant's deletion does not enqueue this one.
+	return ctrl.Result{RequeueAfter: time.Minute}, true, nil
+}
+
+// refuseConflicts runs the namespace and email domain checks in order and
+// reports the first one that refuses the tenant.
+func (r *TenantReconciler) refuseConflicts(ctx context.Context, tenant *KoraTenant) (ctrl.Result, bool, error) {
+	if result, refused, err := r.refuseNamespaceConflict(ctx, tenant); refused || err != nil {
+		return result, refused, err
+	}
+	return r.refuseEmailDomainConflict(ctx, tenant)
+}
+
+// refuseEmailDomainConflict marks a tenant Invalid while it claims an email
+// domain of an older tenant without meeting the shared-domain rule. The
+// registry leaves the tenant out.
+func (r *TenantReconciler) refuseEmailDomainConflict(ctx context.Context, tenant *KoraTenant) (ctrl.Result, bool, error) {
+	list := &KoraTenantList{}
+	if err := r.List(ctx, list); err != nil {
+		return ctrl.Result{}, false, fmt.Errorf("list KoraTenants: %w", err)
+	}
+	conflict := emailDomainConflict(tenant, list.Items)
+	if conflict == "" {
+		_ = r.setTenantCondition(ctx, tenant, ConditionEmailDomainsValid, metav1.ConditionTrue, "Valid", "email domains are unique or shared through claimBinding")
+		if tenant.Status.Phase == TenantPhaseInvalid {
+			_ = r.setTenantPhase(ctx, tenant, TenantPhasePending)
+		}
+		return ctrl.Result{}, false, nil
+	}
+	r.Logger.Warn(ctx, "refusing tenant email domains",
+		logging.Field{Key: "tenant", Value: tenant.Name},
+		logging.Field{Key: "reason", Value: conflict},
+	)
+	_ = r.setTenantCondition(ctx, tenant, ConditionEmailDomainsValid, metav1.ConditionFalse, "EmailDomainConflict", conflict)
+	_ = r.setTenantPhase(ctx, tenant, TenantPhaseInvalid)
+	if err := r.Registry.Sync(ctx); err != nil {
+		return ctrl.Result{}, true, fmt.Errorf("sync tenant registry: %w", err)
+	}
+	// The other tenant's change does not enqueue this one.
+	return ctrl.Result{RequeueAfter: time.Minute}, true, nil
+}
+
 // applyPreflightGate marks the tenant Degraded until prerequisites pass.
-func (r *TenantReconciler) applyPreflightGate(ctx context.Context, tenant *OrbitTenant) (ctrl.Result, bool) {
+func (r *TenantReconciler) applyPreflightGate(ctx context.Context, tenant *KoraTenant) (ctrl.Result, bool) {
 	if r.Preflight == nil {
 		return ctrl.Result{}, false
 	}
@@ -680,12 +756,12 @@ func staleInjectionLabel(revision string) string {
 	return "istio.io/rev"
 }
 
-func (r *TenantReconciler) tenantNamespaceLabels(tenant *OrbitTenant) map[string]string {
+func (r *TenantReconciler) tenantNamespaceLabels(tenant *KoraTenant) map[string]string {
 	labels := map[string]string{
 		"spiffe.io/spire-managed":      "true",
-		"orbit.io/role":                "tenant",
-		"orbit.io/tenant":              tenant.Name,
-		"app.kubernetes.io/managed-by": "orbit-operator",
+		"runkora.io/role":              "tenant",
+		"runkora.io/tenant":            tenant.Name,
+		"app.kubernetes.io/managed-by": "kora-operator",
 	}
 	if r.IstioRevision != "" {
 		labels["istio.io/rev"] = r.IstioRevision

@@ -138,7 +138,7 @@ The SVID exchange endpoint (`POST /identity/exchange`) is **not available** in t
 - A k3d cluster with 1 server node and 2 agent nodes, joined to the same Docker bridge network as the Tier 1 postgres container (`orbit-network`). k3d nodes can reach `orbit-postgres` at the IP level via this shared network, but pods inside the cluster use **CoreDNS** for name resolution — Docker's embedded DNS is invisible to CoreDNS. `dev-cluster-up.sh` registers `orbit-postgres` in CoreDNS by creating a headless `Service` + manual `Endpoints` object pointing at the container's Docker IP. See [CoreDNS DNS Injection](#coredns-dns-injection) below.
 - **SPIRE Server** — deployed as a Kubernetes StatefulSet with a minimal trust domain (`spiffe://orbit.local.clearroute.io`), backed by the same PostgreSQL instance as the rest of the platform (no SQLite3 — SQLite3 is single-writer and inconsistent with the rest of the stack)
 - **SPIRE Agent** — deployed as a DaemonSet with the `k8s_psat` attestation plugin (Kubernetes projected service account tokens — works without hardware TPM)
-- **Istio** — installed via `helm upgrade --install` (`istio/base` + `istio/istiod`) with sidecar injection enabled for the `orbit-system` namespace; no `istioctl` dependency
+- **Istio** — installed via `helm upgrade --install` (`istio/base` + `istio/istiod`) with sidecar injection enabled for the `kora-system` namespace; no `istioctl` dependency
 - **SPIRE Controller Manager** — deployed as a sidecar on the SPIRE Server pod (included in the `spiffe/spire` umbrella chart); watches `ClusterSPIFFEID` CRDs and automatically creates SPIRE registration entries — no manual `spire-server entry create` calls required
 - Standard Kubernetes **NetworkPolicy** resources enforcing the sidecar-or-nothing constraint from [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)
 
@@ -270,7 +270,7 @@ SPIRE is deployed via the `spiffe/spire` Helm umbrella chart. Configuration is l
 
 k3d nodes join the Docker bridge network `orbit-network` and can reach the `orbit-postgres` container at the IP level. However, **pods inside the k3s cluster use CoreDNS for DNS resolution, not Docker's embedded DNS**. Docker container hostnames like `orbit-postgres` are not visible to CoreDNS — without intervention, SPIRE Server would crash-loop on startup with `lookup orbit-postgres: no such host`.
 
-`dev-cluster-up.sh` (step 9) resolves this by creating a headless Kubernetes `Service` + manual `Endpoints` object in the `spire` and `orbit-system` namespaces:
+`dev-cluster-up.sh` (step 9) resolves this by creating a headless Kubernetes `Service` + manual `Endpoints` object in the `spire` and `kora-system` namespaces:
 
 ```yaml
 apiVersion: v1

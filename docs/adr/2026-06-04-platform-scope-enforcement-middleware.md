@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-06-04
 **Deciders:** Platform Engineering
-**Technical Story:** A scope-enforcement gap was found in orbit-agents while implementing [orbit-agents-authorization-model](2026-06-04-orbit-agents-authorization-model.md): `POST /api/v1/agent-types` had no `agents:types:write` check, so any authenticated user could create agent types. Investigation showed the same gap exists in policy-service (`POST /grants`, `PUT /roles`) and identity (`POST /pats`) — these handlers only verify JWT validity and tenant equality. The fix needs to be uniform across all platform services, not service-by-service hand-rolling.
+**Technical Story:** A scope-enforcement gap was found in kora-agents while implementing [orbit-agents-authorization-model](2026-06-04-orbit-agents-authorization-model.md): `POST /api/v1/agent-types` had no `agents:types:write` check, so any authenticated user could create agent types. Investigation showed the same gap exists in policy-service (`POST /grants`, `PUT /roles`) and identity (`POST /pats`) — these handlers only verify JWT validity and tenant equality. The fix needs to be uniform across all platform services, not service-by-service hand-rolling.
 
 ---
 
@@ -11,7 +11,7 @@
 
 ### Background
 
-[policy-gateway-and-authorisation-model](2026-04-14-policy-gateway-and-authorisation-model.md) defined the policy-gateway and authorization model. [dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md) added dynamic route→scope registration so services can declare `(method, pathPrefix) → requiredScope` at startup. [orbit-agents-authorization-model](2026-06-04-orbit-agents-authorization-model.md) added in-process tenant + per-resource enforcement to orbit-agents via `policy.Evaluator`. Together these give the platform:
+[policy-gateway-and-authorisation-model](2026-04-14-policy-gateway-and-authorisation-model.md) defined the policy-gateway and authorization model. [dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md) added dynamic route→scope registration so services can declare `(method, pathPrefix) → requiredScope` at startup. [orbit-agents-authorization-model](2026-06-04-orbit-agents-authorization-model.md) added in-process tenant + per-resource enforcement to kora-agents via `policy.Evaluator`. Together these give the platform:
 
 - A way to register what scope each route requires (`routescopes.Client.Register`).
 - A way to ask OPA whether a principal has a scope (`policy.Evaluator.Check`).
@@ -28,7 +28,7 @@ The platform's enforcement model is split between two layers:
 | **Layer 1 — Envoy ext_authz → OPA sidecar** | Route-scope check before traffic reaches the application | Sidecar in pod, bypasses application code |
 | **Layer 2 — `policy.Evaluator` in service code** | Same Rego, but invoked in-process by the application | Application code |
 
-Layer 1 is correct for **tenant agent pods** (the LLM agent workloads) because we cannot trust an untrusted workload to enforce its own scopes — the sidecar terminates Envoy's ext_authz protocol and denies before the agent ever runs. [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) enforces this via the `orbit.io/opa-policy: "enabled"` pod label.
+Layer 1 is correct for **tenant agent pods** (the LLM agent workloads) because we cannot trust an untrusted workload to enforce its own scopes — the sidecar terminates Envoy's ext_authz protocol and denies before the agent ever runs. [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) enforces this via the `runkora.io/opa-policy: "enabled"` pod label.
 
 Layer 2 is correct for **platform services** because we control their code and adding a sidecar to every service adds memory/CPU per pod for a check we already have an in-process evaluator for.
 
@@ -39,7 +39,7 @@ The evidence (verified by code inspection on 2026-05-29):
 | Service | Has `policy.Evaluator` consult on writes? |
 |---|---|
 | inference-gateway | ✅ Yes — `service.go:541 checkModelPolicy`, `:606 filterTargetsByPolicy` |
-| orbit-agents (post-[orbit-agents-authorization-model](2026-06-04-orbit-agents-authorization-model.md)) | Partial — per-resource read/write checks present, **`POST /agent-types` had no check** until this ADR's middleware |
+| kora-agents (post-[orbit-agents-authorization-model](2026-06-04-orbit-agents-authorization-model.md)) | Partial — per-resource read/write checks present, **`POST /agent-types` had no check** until this ADR's middleware |
 | policy-service | ❌ No — `handlers_grants.go:11 handleCreateGrant` only verifies JWT + tenant equality |
 | identity | ❌ No on most write paths — only uses evaluator to validate requested PAT scopes against caller's effective scopes |
 
@@ -48,7 +48,7 @@ Building Layer 2 in handler code repeatedly is fragile. The route→scope vocabu
 ### Goals
 
 - A single platform middleware that performs Layer 1 enforcement in-process for any service that declares its routes via `[]routescopes.RouteScope`.
-- Behavior matches the OPA `_required_scope` rule in `bundle/authz.rego` exactly — path-prefix match + exact method match, with `"*"` method wildcard fallback. Unmatched routes deny-close.
+- Behavior matches the route matching in `bundle/authz.rego` and `bundle/authz_gateway.rego` exactly: an exact-method route beats a `"*"` route, the longest prefix wins, and a prefix matches on a path segment boundary. Unmatched routes deny-close.
 - Zero per-handler code; the only per-service change is one extra middleware in the chain.
 - Per-resource fine-grained decisions (`checkRun`, `filterAgentTypes`) remain in service code; this middleware handles the coarse "do you have the scope at all" check.
 - Internal endpoints (mTLS-protected callbacks) and liveness probes bypass cleanly.
@@ -65,7 +65,7 @@ Building Layer 2 in handler code repeatedly is fragile. The route→scope vocabu
 ## Decision Drivers
 
 - **Mechanical safety.** "Remember to call `Check` in every handler" produces silent gaps when forgotten. A middleware can't be forgotten — the controller composition itself enforces presence.
-- **Uniform pattern.** One way to do it across orbit-agents, policy-service, identity, inference-gateway, and any future platform service. Engineers learn it once.
+- **Uniform pattern.** One way to do it across kora-agents, policy-service, identity, inference-gateway, and any future platform service. Engineers learn it once.
 - **Reuse existing primitives.** `routescopes.RouteScope`, `policy.Evaluator`, `platformapi.ForbiddenError` already exist; the middleware just composes them.
 - **Matches Layer 1 semantics.** Tenant agent pods enforce route-scope via Envoy ext_authz; platform services enforce the same data structure in-process. Symmetry simplifies reasoning about the security boundary.
 - **Avoids sidecar overhead.** Adding `opa-policy` to every platform pod would double the OPA bundle-poll fan-out (one evaluator per service + one sidecar per service) for an enforcement we already have.
@@ -83,7 +83,7 @@ Each handler that performs a scoped action calls `policy.Evaluator.Check(...)` a
 - Per-handler granularity if the scope depends on the action (rarely needed).
 
 **Cons:**
-- Fragile — the orbit-agents bug exists because this pattern was followed for some handlers and missed for `CreateAgentType`.
+- Fragile — the kora-agents bug exists because this pattern was followed for some handlers and missed for `CreateAgentType`.
 - Duplicate boilerplate across every service.
 - No central place to enforce "every public route MUST have a scope check".
 
@@ -151,7 +151,7 @@ The split — "Layer 1 in middleware for platform services we control; Layer 1 i
 
 ### Neutral
 
-- The orbit-agents `Authz.checkAgentTypesAction` helper added on 2026-05-29 becomes redundant once the middleware is wired. It is removed in the same PR that introduces the middleware. Per-resource helpers (`checkRun`, `checkAgentType`, `filterAgentTypes`, `readableRunAgentTypes`) remain — they enforce things the middleware cannot.
+- The kora-agents `Authz.checkAgentTypesAction` helper added on 2026-05-29 becomes redundant once the middleware is wired. It is removed in the same PR that introduces the middleware. Per-resource helpers (`checkRun`, `checkAgentType`, `filterAgentTypes`, `readableRunAgentTypes`) remain — they enforce things the middleware cannot.
 - `routescopes.RouteScope` becomes the canonical source for route enforcement, both at registration time ([dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md)) and at request time (this ADR). This may invite future migration of the registration data into a shared package.
 
 ---
@@ -167,11 +167,11 @@ import (
     "net/http"
     "strings"
 
-    platformapi "github.com/clear-route/orbit/internal/platform/api"
-    "github.com/clear-route/orbit/internal/platform/clients/routescopes"
-    "github.com/clear-route/orbit/internal/platform/logging"
-    "github.com/clear-route/orbit/internal/platform/policy"
-    "github.com/clear-route/orbit/internal/platform/token"
+    platformapi "github.com/runkora/kora/backend/internal/platform/api"
+    "github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+    "github.com/runkora/kora/backend/internal/platform/logging"
+    "github.com/runkora/kora/backend/internal/platform/policy"
+    "github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ScopeEnforcementMiddleware enforces the route → required-scope binding
@@ -273,7 +273,7 @@ The bypass for `/internal/*` and `/health` stays in the controller (those paths 
 
 Phased per service. Each phase adds the middleware and verifies every public route end-to-end with a token that holds the expected scope.
 
-1. **orbit-agents** (this PR / immediate). The route table (`cmd/orbit-agents/main.go:agentRoutes`) needs a PATCH entry for `/api/v1/agent-types/{id}` which is currently missing — adding it is part of this PR.
+1. **kora-agents** (this PR / immediate). The route table (`cmd/kora-agents/main.go:agentRoutes`) needs a PATCH entry for `/api/v1/agent-types/{id}` which is currently missing — adding it is part of this PR.
 2. **policy-service** — closes the same gap on `POST /grants`, `PUT /roles`, etc. Route table needs construction.
 3. **identity** — closes the same gap on PAT and session admin paths.
 4. **inference-gateway** — already does in-process per-resource checks; adding the middleware is defense-in-depth and removes the per-handler boilerplate.
@@ -282,7 +282,7 @@ Each phase is its own PR.
 
 ### Timeline
 
-Phase 1 (orbit-agents) lands in the PR that addresses the merge-readiness audit. Phases 2–4 follow as separate PRs within the next sprint.
+Phase 1 (kora-agents) lands in the PR that addresses the merge-readiness audit. Phases 2–4 follow as separate PRs within the next sprint.
 
 ---
 
@@ -290,7 +290,7 @@ Phase 1 (orbit-agents) lands in the PR that addresses the merge-readiness audit.
 
 ### Success Metrics
 
-- **Scope checks on every public route in orbit-agents.** Test: send a request with a token holding no `agents:*` grant; assert 403 on every public route, 200/204 on `/health` and `/internal/*`.
+- **Scope checks on every public route in kora-agents.** Test: send a request with a token holding no `agents:*` grant; assert 403 on every public route, 200/204 on `/health` and `/internal/*`.
 - **Unmatched routes deny.** Test: add a `mux.Handle` for a path not in `agentRoutes()`; the test asserts 403.
 - **Existing happy paths still work.** Existing handler tests pass unchanged for tokens that hold the expected scope.
 
@@ -305,8 +305,8 @@ Phase 1 (orbit-agents) lands in the PR that addresses the merge-readiness audit.
 
 - [policy-gateway-and-authorisation-model](2026-04-14-policy-gateway-and-authorisation-model.md) — the broader authorization model this fits into.
 - [dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md) — the route-scope registration mechanism this middleware consumes.
-- [orbit-agents-route-scope-registration](2026-05-11-orbit-agents-route-scope-registration.md) — orbit-agents' specific route registration; this ADR makes those registrations load-bearing in code.
-- [orbit-agents-authorization-model](2026-06-04-orbit-agents-authorization-model.md) — per-resource fine-grained enforcement in orbit-agents; this ADR adds the coarse route-level layer underneath it.
+- [orbit-agents-route-scope-registration](2026-05-11-orbit-agents-route-scope-registration.md) — kora-agents' specific route registration; this ADR makes those registrations load-bearing in code.
+- [orbit-agents-authorization-model](2026-06-04-orbit-agents-authorization-model.md) — per-resource fine-grained enforcement in kora-agents; this ADR adds the coarse route-level layer underneath it.
 
 ---
 

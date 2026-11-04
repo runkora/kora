@@ -1,6 +1,6 @@
 // RSC — fetches initial analytics data, PATs, and personal budget server-side.
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchAnalyticsMeFromGateway } from '../_services/analytics-server';
 import { listPATsFromIdentity } from '../_services/tokens-server';
 import { fetchPersonalBudgetFromGateway } from '../_services/budget-personal-server';

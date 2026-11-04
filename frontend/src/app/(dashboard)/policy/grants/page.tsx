@@ -1,6 +1,8 @@
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchGrants, fetchVocabulary } from '../_services/policy-server';
-import { fetchPATAttribution, fetchUsersByIDs } from '../../model-gateway/_services/tokens-server';
+import { toScopeOption } from '@runkora/components/scope-option';
+import { fetchPATAttribution } from '../../model-gateway/_services/tokens-server';
+import { resolveUserDisplayNames } from '@runkora/server/services/identity-server';
 import type {
   PATAttributionEntry,
   PATGrantAttribution,
@@ -40,7 +42,9 @@ export default async function GrantsPage({ searchParams }: Props) {
 
   const grants = grantsResult.ok ? (grantsResult.data.grants ?? []) : [];
   const total = grantsResult.ok ? (grantsResult.data.total ?? 0) : 0;
-  const scopes = vocabResult.ok ? (vocabResult.data.scopes ?? []).map((s) => s.scope) : [];
+  const vocabulary = vocabResult.ok ? (vocabResult.data.scopes ?? []) : [];
+  const scopes = vocabulary.map((s) => s.scope);
+  const scopeOptions = vocabulary.map(toScopeOption);
   const error = !grantsResult.ok
     ? grantsResult.message
     : !vocabResult.ok
@@ -52,9 +56,10 @@ export default async function GrantsPage({ searchParams }: Props) {
   const patIds = grants.filter((g) => g.principal_type === 'PAT').map((g) => g.principal_id);
   const humanIds = grants.filter((g) => g.principal_type === 'HUMAN').map((g) => g.principal_id);
 
-  const [attributionResult, usersResult] = await Promise.all([
+  // Names come from the by-id lookup, which needs no directory scope (identity:users:read).
+  const [attributionResult, userNames] = await Promise.all([
     fetchPATAttribution(session.accessToken, patIds),
-    fetchUsersByIDs(session.accessToken, humanIds),
+    resolveUserDisplayNames(session.accessToken, humanIds),
   ]);
 
   const patAttribution: Record<string, PATGrantAttribution> = attributionResult.ok
@@ -62,16 +67,15 @@ export default async function GrantsPage({ searchParams }: Props) {
     : {};
 
   const userAttribution: Record<string, PATAttributionEntry> = {};
-  if (usersResult.ok) {
-    for (const u of usersResult.users) {
-      userAttribution[u.id] = u;
-    }
+  for (const [id, displayName] of userNames) {
+    userAttribution[id] = { id, email: '', display_name: displayName };
   }
 
   return (
     <GrantsTab
       initialGrants={grants}
       availableScopes={scopes}
+      scopeOptions={scopeOptions}
       patAttribution={patAttribution}
       userAttribution={userAttribution}
       initialError={error}

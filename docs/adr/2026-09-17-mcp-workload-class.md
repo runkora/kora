@@ -15,11 +15,11 @@ A tenant MCP server is a workload an operator deploys into a tenant namespace, r
 
 ### Background
 
-The mutating webhook stamps `orbit.io/identity-proxy: "enabled"` on every pod it admits, the `identity-proxy-ext-proc` EnvoyFilter attaches to every pod carrying that label, and it injects `Authorization: Bearer <platform token>` into every outbound HTTP request. A server authenticating to its own upstream has that header overwritten.
+The mutating webhook stamps `runkora.io/identity-proxy: "enabled"` on every pod it admits, the `identity-proxy-ext-proc` EnvoyFilter attaches to every pod carrying that label, and it injects `Authorization: Bearer <platform token>` into every outbound HTTP request. A server authenticating to its own upstream has that header overwritten.
 
-The validating webhook from [2026-09-04](2026-09-04-enforcement-sidecar-injection-and-preflight.md) denies any tenant pod carrying `sidecar.istio.io/inject: "false"`, or lacking an `istio-proxy`, `identity-proxy` or `opa` container. That ADR also deleted the `orbit.io/skip-injection` opt-out, because "it is a pod label, so anyone who can create a tenant pod could remove enforcement". `docs/guides/mcp-servers.md` still instructs operators to set both labels, so the documented path is denied at admission.
+The validating webhook from [2026-09-04](2026-09-04-enforcement-sidecar-injection-and-preflight.md) denies any tenant pod carrying `sidecar.istio.io/inject: "false"`, or lacking an `istio-proxy`, `identity-proxy` or `opa` container. That ADR also deleted the `runkora.io/skip-injection` opt-out, because "it is a pod label, so anyone who can create a tenant pod could remove enforcement". `docs/guides/register-mcp-server.md` still instructs operators to set both labels, so the documented path is denied at admission.
 
-The chart's `orbit-system` policies admit tool-gateway ingress *from* tenant namespaces (`allow-tenant-ingress-tool-gateway`, port 8096) and egress within `orbit-system` and to external `:443`. Egress into a tenant namespace is absent, so the tool-gateway cannot dial a tenant MCP.
+The chart's `kora-system` policies admit tool-gateway ingress *from* tenant namespaces (`allow-tenant-ingress-tool-gateway`, port 8096) and egress within `kora-system` and to external `:443`. Egress into a tenant namespace is absent, so the tool-gateway cannot dial a tenant MCP.
 
 ### Problem Statement
 
@@ -34,7 +34,7 @@ An injection exemption addresses the first of those and leaves the second.
 - A tenant MCP server runs from an ordinary Deployment, a Service and an `MCPServer` CR, with no kora-specific pod annotations.
 - The tool-gateway reaches it without an operator writing policy.
 - Only the tool-gateway may call it, verified by workload identity.
-- The exemption cannot be granted by anything `orbit-agents` can create.
+- The exemption cannot be granted by anything `kora-agents` can create.
 - Agent and sandbox pods keep identity-proxy and OPA, unconditionally.
 
 ### Non-Goals
@@ -48,7 +48,7 @@ An injection exemption addresses the first of those and leaves the second.
 
 ## Decision Drivers
 
-* **The exemption must not be forgeable by `orbit-agents`.** It creates pods in tenant namespaces, so a pod label cannot be the authority.
+* **The exemption must not be forgeable by `kora-agents`.** It creates pods in tenant namespaces, so a pod label cannot be the authority.
 * **Least configuration for the operator.** Three objects, no annotations, nothing to keep in sync by hand.
 * **Authenticate the caller, not just the route.** Only the tool-gateway should invoke an MCP server's tools, and a port rule cannot identify the caller.
 * **Report configuration that does nothing.** A selector matching no pods, or policies not yet reconciled, must be visible.
@@ -66,7 +66,7 @@ An injection exemption addresses the first of those and leaves the second.
 - Smallest change. The guide already documents a label.
 
 **Cons:**
-- Reverses [2026-09-04](2026-09-04-enforcement-sidecar-injection-and-preflight.md). A compromised `orbit-agents` sets one label and runs unenforced code in a tenant namespace.
+- Reverses [2026-09-04](2026-09-04-enforcement-sidecar-injection-and-preflight.md). A compromised `kora-agents` sets one label and runs unenforced code in a tenant namespace.
 - Says nothing about reachability, so #300 remains.
 
 ### Option 2: kora provisions the MCP workload from the CR
@@ -87,7 +87,7 @@ An injection exemption addresses the first of those and leaves the second.
 
 **Pros:**
 - Operators keep their own Deployment, or any upstream chart, and add one label.
-- The authority is a CR, which `orbit-agents` has no RBAC to create, so the exemption is not forgeable by it.
+- The authority is a CR, which `kora-agents` has no RBAC to create, so the exemption is not forgeable by it.
 - Reachability and the caller check come from the same field, with the port parsed from `endpoint` so the two cannot drift.
 - Agent and sandbox pods are untouched.
 
@@ -97,7 +97,7 @@ An injection exemption addresses the first of those and leaves the second.
 
 ### Option 4: Run tenant MCP servers in the system namespace
 
-**Description:** Deploy MCP workloads into `orbit-system`, where neither webhook applies, and keep the CR tenant-scoped.
+**Description:** Deploy MCP workloads into `kora-system`, where neither webhook applies, and keep the CR tenant-scoped.
 
 **Pros:**
 - Needs no code.
@@ -116,7 +116,7 @@ An injection exemption addresses the first of those and leaves the second.
 
 kora has no model of an MCP workload, so it treats one as an agent pod. Naming the pods in the CR supplies that model, and one field then determines which pods skip identity-proxy and OPA, which port to admit, which principal may call it, and what to remove when the server is deregistered.
 
-The authority stays where [2026-09-04](2026-09-04-enforcement-sidecar-injection-and-preflight.md) put it. That ADR rejected a pod label because any actor able to create a tenant pod could set it. A label grants nothing here: the webhook matches the pod against `MCPServer` CRs at admission, and `orbit-agents` has no RBAC for those.
+The authority stays where [2026-09-04](2026-09-04-enforcement-sidecar-injection-and-preflight.md) put it. That ADR rejected a pod label because any actor able to create a tenant pod could set it. A label grants nothing here: the webhook matches the pod against `MCPServer` CRs at admission, and `kora-agents` has no RBAC for those.
 
 ### The class
 
@@ -128,10 +128,10 @@ An MCP pod keeps the Istio sidecar and drops identity-proxy and OPA:
 | SPIRE identity | `agent` or `sandbox` path | `tenant/<ns>/service/<server>` |
 | identity-proxy | yes | no |
 | OPA | yes | no |
-| `orbit.io/identity-proxy` label | set | not set |
+| `runkora.io/identity-proxy` label | set | not set |
 | Generated policies | sandbox egress | MCP ingress, L4 and L7 |
 
-kora's sidecars take their certificates from SPIRE (`PILOT_CERT_PROVIDER: spire`), so an MCP pod needs a registration of its own or its sidecar has no certificate and the tool-gateway cannot complete mTLS. The webhook labels the pod `spiffe.io/service`, which the existing `orbit-tenant-service` ClusterSPIFFEID already matches, so no new registration is introduced.
+kora's sidecars take their certificates from SPIRE (`PILOT_CERT_PROVIDER: spire`), so an MCP pod needs a registration of its own or its sidecar has no certificate and the tool-gateway cannot complete mTLS. The webhook labels the pod `spiffe.io/service`, which the existing `kora-tenant-service` ClusterSPIFFEID already matches, so no new registration is introduced.
 
 The sidecar supplies the workload identity the generated `AuthorizationPolicy` matches on. A `NetworkPolicy` admits a namespace and a port and cannot identify the caller, so it serves as the L4 layer beneath that check. With identity-proxy skipped, the sidecar does not alter the server's outbound requests.
 
@@ -140,14 +140,14 @@ The sidecar supplies the workload identity the generated `AuthorizationPolicy` m
 ### Configuration
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: MCPServer
 metadata:
   name: github
-  namespace: orbit-tenant-clearroute
+  namespace: kora-tenant-clearroute
 spec:
   displayName: GitHub
-  endpoint: http://github-mcp.orbit-tenant-clearroute.svc.cluster.local:8000/mcp
+  endpoint: http://github-mcp.kora-tenant-clearroute.svc.cluster.local:8000/mcp
   transport: streamable-http
   workload:
     selector:
@@ -163,7 +163,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: github-mcp
-  namespace: orbit-tenant-clearroute
+  namespace: kora-tenant-clearroute
 spec:
   selector:
     matchLabels: { app: github-mcp }
@@ -190,7 +190,7 @@ The port comes from parsing `spec.endpoint`, defaulting to the scheme's port whe
 
 The three are applied in sequence and the reconcile returns on the first failure, so a server can sit with some of them present until the next attempt succeeds. The trust domain is checked before any of the identity-bearing resources are written: a principal built from an empty one matches nothing, so an unset `global.trustDomain` fails the reconcile rather than leaving the server behind the address check alone. The server's name is bounded to a label value's 63 characters for the same reason: the generated resources carry it in a label, and a longer name would be rejected when the resource is written.
 
-The tool-gateway's own egress is a single rule in the chart, admitting it to namespaces labelled `orbit.io/role: tenant`. Per-server egress would have to live in the system namespace, where a CR in a tenant namespace cannot own it: cross-namespace owner references are invalid and the garbage collector deletes dependents carrying one. That leaves a finalizer, a delete permission and a deletion-event predicate to maintain, to narrow an L4 rule that the `AuthorizationPolicy` already narrows by identity. The chart rule costs ten lines and no reconciliation.
+The tool-gateway's own egress is a single rule in the chart, admitting it to namespaces labelled `runkora.io/role: tenant`. Per-server egress would have to live in the system namespace, where a CR in a tenant namespace cannot own it: cross-namespace owner references are invalid and the garbage collector deletes dependents carrying one. That leaves a finalizer, a delete permission and a deletion-event predicate to maintain, to narrow an L4 rule that the `AuthorizationPolicy` already narrows by identity. The chart rule costs ten lines and no reconciliation.
 
 ### Status
 
@@ -230,12 +230,12 @@ The existing `Aggregated` condition's message reports how many pods the selector
 4. `MCPServer` controller: reconcile the three resources with owner references, and report the matched pod count in the `Aggregated` condition's message.
 5. Operator RBAC: `create` and `patch` on `networkpolicies`, `security.istio.io/authorizationpolicies` and `networking.istio.io/destinationrules`, and `list` on `pods` for the matched count. The ClusterRole has none of them. The pod count reads through the API server rather than the manager's cache, which would otherwise start a cluster-wide Pod informer and need a watch on every pod in the cluster.
 6. The tool-gateway egress rule in the platform NetworkPolicies.
-7. Rewrite the MCP guide: no `inject=false`, no `orbit.io/skip-injection`, no hand-written `NetworkPolicy`, and document `workload.selector`.
+7. Rewrite the MCP guide: no `inject=false`, no `runkora.io/skip-injection`, no hand-written `NetworkPolicy`, and document `workload.selector`.
 8. Tests: webhook match and no-match, a forged marker label on an unmatched pod, endpoint port parsing, and policy generation.
 
 ### Migration Path
 
-A tenant MCP following the current guide is rejected at admission, so nothing is live to migrate. Adopting this means deleting `sidecar.istio.io/inject` and `orbit.io/skip-injection` from the pod template, adding `workload.selector` to the CR, and deleting any hand-written `NetworkPolicy` for the server.
+A tenant MCP following the current guide is rejected at admission, so nothing is live to migrate. Adopting this means deleting `sidecar.istio.io/inject` and `runkora.io/skip-injection` from the pod template, adding `workload.selector` to the CR, and deleting any hand-written `NetworkPolicy` for the server.
 
 ### Timeline
 

@@ -9,13 +9,13 @@
 # registry.tenantsPath in backend/internal/identity/config/base.yaml at this file.
 #
 # For cluster dev (make cluster-platform + make cluster-deploy):
-#   The orbit-operator builds the orbit-tenants ConfigMap from OrbitTenant CRs
+#   The kora-operator builds the kora-tenants ConfigMap from KoraTenant CRs
 #   defined in deploy/local/tenants/. This file is not read or mounted.
 #   Edit deploy/local/tenants/example.yaml to change cluster tenant config.
 #
 # DO NOT put secrets in this file. Client secrets for confidential OIDC clients
-# are managed by the orbit-operator (ADR-0029): the operator aggregates them
-# into the Secret orbit-tenant-oidc-secrets in orbit-system; the identity
+# are managed by the kora-operator (ADR-0029): the operator aggregates them
+# into the Secret kora-tenant-oidc-secrets in kora-system; the identity
 # service picks them up via a file watcher. The local Dex client is a public
 # client — no secret is needed here.
 #
@@ -31,19 +31,19 @@ tenants:
     state: "active"
     oidc:
       # Local Dex OIDC provider — started by: make dev-up
-      # Issuer discovery: https://dex.orbit.local.clearroute.io:5556/dex/.well-known/openid-configuration
+      # Issuer discovery: https://dex.local.runkora.io:5556/dex/.well-known/openid-configuration
       #
       # Dex must be reachable at this URL from the identity service process.
       # In make dev (host process): add to /etc/hosts —
-      #   127.0.0.1  dex.orbit.local.clearroute.io
+      #   127.0.0.1  dex.local.runkora.io
       # In cluster (k3d): CoreDNS is patched by dev-cluster-up.sh to resolve
-      #   dex.orbit.local.clearroute.io → Docker bridge gateway IP.
-      issuerURL: "https://dex.orbit.local.clearroute.io:5556/dex"
-      clientID: "orbit-local"
-      # orbit-local is a public Dex client — no client secret is required.
+      #   dex.local.runkora.io → Docker bridge gateway IP.
+      issuerURL: "https://dex.local.runkora.io:5556/dex"
+      clientID: "kora-local"
+      # kora-local is a public Dex client — no client secret is required.
       # See config/dex/config.yaml: staticClients[0].public: true
       emailDomains:
-        - "orbit.local.clearroute.io"
+        - "local.runkora.io"
       scopes:
         - openid
         - profile
@@ -55,4 +55,4 @@ tenants:
       # Example:
       #   claimBinding:
       #     claim: "email"
-      #     value: "dev@orbit.local.clearroute.io"
+      #     value: "dev@local.runkora.io"

@@ -368,7 +368,7 @@ test.describe('/marketplace — overview and Skill detail', () => {
     // Confirmed against src/proxy.ts: the Edge middleware reads the cookie
     // directly (session.user and session.accessToken are both present here),
     // so step 3's unauthenticated check does not fire. Step 4 then sees
-    // secondsUntilExpiry <= 0, attempts a refresh against ORBIT_API_URL (no
+    // secondsUntilExpiry <= 0, attempts a refresh against KORA_API_URL (no
     // backend is running in this E2E setup, so it fails), destroys the
     // session, and redirects to /login — before the Marketplace overview's
     // own isSessionValid()/"Session expired" branch in page.tsx ever runs.

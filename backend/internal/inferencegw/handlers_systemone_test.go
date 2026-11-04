@@ -10,9 +10,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // systemOneStub is a connector whose SystemOne is scripted; every other
@@ -287,6 +287,30 @@ func TestHandleSystemOne_FailoverFromRefusingRoute(t *testing.T) {
 	row := env.usage.records[0]
 	if row.Provider == nil || *row.Provider != "typesafe" || row.RetryCount == 0 {
 		t.Errorf("row provider/retries = %v/%d, want typesafe after a retry", row.Provider, row.RetryCount)
+	}
+}
+
+func TestHandleSystemOne_RequestRejectedStopsFailover(t *testing.T) {
+	t.Parallel()
+	rejecting := &systemOneStub{err: &ConnectorError{Provider: "typesafe", Code: "INVALID_REQUEST", HTTPStatus: 400,
+		RequestRejected: true, Underlying: errors.New("bad state"), ProviderMessage: "bad state"}}
+	next := &systemOneStub{result: &SystemOneResult{Body: []byte(upstreamBody)}}
+	env := newSystemOneEnv(t, allow(),
+		map[ProviderName]ProviderConnector{"typesafe": rejecting, "other": next},
+		decisionModel(
+			VirtualModelRoute{Provider: "typesafe", ModelID: "jev-latest"},
+			VirtualModelRoute{Provider: "other", ModelID: "jev-latest"},
+		), nil)
+
+	rec := env.post(systemOneBody)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "bad state") {
+		t.Fatalf("got %d %s, want 400 with the upstream message", rec.Code, rec.Body)
+	}
+	if len(rejecting.calls) != 1 {
+		t.Errorf("rejecting route calls = %d, want 1", len(rejecting.calls))
+	}
+	if len(next.calls) != 0 {
+		t.Errorf("next route calls = %d, want 0 after a rejected request", len(next.calls))
 	}
 }
 

@@ -10,9 +10,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // badConfigAdapter refuses every connection, standing in for an adapter whose
@@ -44,9 +44,9 @@ func TestAuthorize_UnreadableConnectionDenies(t *testing.T) {
 	registry.Register(badConfigAdapter{})
 	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, passthrough.New(), logger)
 
-	req, _ := http.NewRequest(http.MethodGet, "https://github.com/orbital/orbit", nil)
+	req, _ := http.NewRequest(http.MethodGet, "https://github.com/orbital/kora", nil)
 	_, err := broker.Authorize(context.Background(),
-		claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-1"),
+		claimsFor("acme", "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder", "run-1"),
 		FromHTTP(req))
 
 	if !errors.Is(err, credentials.ErrInvalidConfig) {
@@ -62,7 +62,7 @@ func TestAuthorize_UnreadableConnectionDenies(t *testing.T) {
 // wrapped in ErrForbidden it must surface as a server fault: reported as a
 // denial it sends whoever reads it hunting a grant that was never the problem.
 func TestHandleBrokerError_ConfigFaultOutranksForbidden(t *testing.T) {
-	p := &ProxyHandler{logger: logging.NewLoggerWithOutput(io.Discard)}
+	p := &ProxyHandler{brand: testBrand, logger: logging.NewLoggerWithOutput(io.Discard)}
 
 	for name, err := range map[string]error{
 		"bare":               credentials.ErrInvalidConfig,

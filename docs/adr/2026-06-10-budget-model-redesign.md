@@ -172,7 +172,7 @@ The `categories` array is included so that the inference gateway can construct t
 ### Rego rule
 
 ```rego
-package orbit.budget
+package kora.budget
 
 import rego.v1
 

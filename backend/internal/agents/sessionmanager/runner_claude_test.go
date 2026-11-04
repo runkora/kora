@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 func newTestRunner() *ClaudeRunner {
@@ -593,23 +593,23 @@ func TestWriteMCPConfig(t *testing.T) {
 		t.Fatal("missing mcpServers.runtime")
 	}
 	env, _ := runtime["env"].(map[string]any)
-	if env["ORBIT_SESSION_MANAGER_URL"] != "http://localhost:8090" {
-		t.Errorf("ORBIT_SESSION_MANAGER_URL = %v", env["ORBIT_SESSION_MANAGER_URL"])
+	if env["KORA_SESSION_MANAGER_URL"] != "http://localhost:8090" {
+		t.Errorf("KORA_SESSION_MANAGER_URL = %v", env["KORA_SESSION_MANAGER_URL"])
 	}
-	if env["ORBIT_RUN_ID"] != "run-42" {
-		t.Errorf("ORBIT_RUN_ID = %v", env["ORBIT_RUN_ID"])
+	if env["KORA_RUN_ID"] != "run-42" {
+		t.Errorf("KORA_RUN_ID = %v", env["KORA_RUN_ID"])
 	}
 	// No gateway URL configured — no governed MCP entry.
-	if _, ok := servers["orbit"]; ok {
-		t.Error("unexpected mcpServers.orbit without ToolGatewayURL")
+	if _, ok := servers["kora"]; ok {
+		t.Error("unexpected mcpServers.kora without ToolGatewayURL")
 	}
 }
 
 func TestWriteMCPConfig_ToolGateway(t *testing.T) {
 	r := newTestRunner()
-	r.cfg.ToolGatewayURL = "http://orbit-tool-gateway.orbit-system.svc.cluster.local/"
+	r.cfg.ToolGatewayURL = "http://kora-tool-gateway.kora-system.svc.cluster.local/"
 	// The agent has grants on two servers → one governed entry each.
-	r.cfg.MCPServers = []string{"orbit", "github"}
+	r.cfg.MCPServers = []string{"kora", "github"}
 
 	dir := t.TempDir()
 	path, err := r.writeMCPConfig(dir)
@@ -625,8 +625,8 @@ func TestWriteMCPConfig_ToolGateway(t *testing.T) {
 		t.Fatalf("unmarshal config: %v", err)
 	}
 	servers, _ := cfg["mcpServers"].(map[string]any)
-	base := "http://orbit-tool-gateway.orbit-system.svc.cluster.local/v1/mcp/"
-	for _, name := range []string{"orbit", "github"} {
+	base := "http://kora-tool-gateway.kora-system.svc.cluster.local/v1/mcp/"
+	for _, name := range []string{"kora", "github"} {
 		entry, _ := servers[name].(map[string]any)
 		if entry == nil {
 			t.Fatalf("missing mcpServers.%s gateway entry", name)
@@ -726,6 +726,21 @@ func TestClaudeBuildRunEnv_Offline(t *testing.T) {
 	}
 	if got["CLAUDE_CODE_ENABLE_TELEMETRY"] != "1" || got["HOME"] != "/run/home" {
 		t.Errorf("telemetry, HOME = %q, %q", got["CLAUDE_CODE_ENABLE_TELEMETRY"], got["HOME"])
+	}
+}
+
+// Tool search is off: its tool_reference blocks fail the next model call with a 400 through the gateway on Bedrock.
+func TestClaudeBuildRunEnv_ToolSearchOff(t *testing.T) {
+	r := NewClaudeRunner(ClaudeRunnerConfig{})
+	env := r.buildRunEnv([]string{"ENABLE_TOOL_SEARCH=true"}, "/run/home", "/run/tmp")
+	var vals []string
+	for _, e := range env {
+		if strings.HasPrefix(e, "ENABLE_TOOL_SEARCH=") {
+			vals = append(vals, e)
+		}
+	}
+	if len(vals) != 1 || vals[0] != "ENABLE_TOOL_SEARCH=false" {
+		t.Errorf("ENABLE_TOOL_SEARCH entries = %v, want [ENABLE_TOOL_SEARCH=false]", vals)
 	}
 }
 

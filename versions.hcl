@@ -10,7 +10,7 @@
 #
 # GO_VERSION must equal the go directive in backend/go.mod (`make check-versions`).
 
-GO_VERSION = "1.26.9"
+GO_VERSION = "1.26.10"
 GITLEAKS_VERSION = "v8.27.2"
 GOLANGCI_LINT_VERSION = "v2.11.3"
 NODE_VERSION = "24"

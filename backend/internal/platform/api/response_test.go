@@ -12,7 +12,10 @@ import (
 	"testing"
 	"testing/iotest"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
 
 func TestJSON(t *testing.T) {
@@ -92,6 +95,7 @@ func TestErrorResponse(t *testing.T) {
 		underlyingErr  error
 		wantLogLevel   string
 		wantStatusCode int
+		wantAppError   bool
 		wantBodyMatch  map[string]any
 	}{
 		{
@@ -138,6 +142,7 @@ func TestErrorResponse(t *testing.T) {
 			underlyingErr:  fmt.Errorf("connection failed"),
 			wantLogLevel:   "error",
 			wantStatusCode: http.StatusInternalServerError,
+			wantAppError:   true,
 			wantBodyMatch: map[string]any{
 				"code":    "database_error",
 				"message": "Database error occurred",
@@ -149,9 +154,22 @@ func TestErrorResponse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			logger := logging.NewLogger()
-			ctx := context.Background()
+			recorder := tracetest.NewSpanRecorder()
+			provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+			ctx, span := provider.Tracer("test").Start(context.Background(), "GET /test")
 
 			ErrorResponse(ctx, w, logger, tt.apiErr, tt.underlyingErr)
+			span.End()
+
+			var gotAppError bool
+			for _, attr := range recorder.Ended()[0].Attributes() {
+				if attr.Key == semconv.ErrorTypeKey {
+					gotAppError = true
+				}
+			}
+			if gotAppError != tt.wantAppError {
+				t.Errorf("error.type set = %v, want %v", gotAppError, tt.wantAppError)
+			}
 
 			// Check status code
 			if w.Code != tt.wantStatusCode {

@@ -4,7 +4,8 @@ package toolGatewayConfig
 import (
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 )
 
 // Config holds tool-gateway configuration values.
@@ -13,7 +14,7 @@ import (
 //
 //  1. cmd/tool-gateway/config/base.yaml      — service defaults
 //  2. cmd/tool-gateway/config/{env}.yaml     — env overrides (optional)
-//  3. /etc/orbit/config/cmd/tool-gateway.yaml — rendered by the chart per Deployment
+//  3. /etc/kora/config/cmd/tool-gateway.yaml — rendered by the chart per Deployment
 //
 // The tool-gateway runs in two modes from one binary: the publisher (this
 // phase — mounts the registry, introspects, publishes scopes) and the
@@ -58,10 +59,13 @@ type Config struct {
 
 	Registry struct {
 		// ServersPath is the mounted servers.json file rendered by the
-		// operator's MCPServerAggregator into the orbit-mcp-servers ConfigMap.
+		// operator's MCPServerAggregator into the kora-mcp-servers ConfigMap.
 		// The gateway parses it into the server registry and hot-reloads on
 		// change. Absent/empty means no servers until the operator renders it.
 		ServersPath string `yaml:"serversPath"`
+		// SecretsDir is the mounted kora-mcp-server-secrets Secret holding
+		// the values of servers' auth headers, one file per key.
+		SecretsDir string `yaml:"secretsDir"`
 	} `yaml:"registry"`
 
 	Introspection struct {
@@ -77,6 +81,8 @@ type Config struct {
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
+
+	Metrics platformmetrics.Config `yaml:"metrics"`
 }
 
 // ShutdownTimeout returns the configured graceful-shutdown timeout.

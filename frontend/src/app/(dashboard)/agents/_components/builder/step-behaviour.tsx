@@ -2,10 +2,10 @@
 
 /** @tier 3 — agents-scoped. Builder step 2: system instructions, framework, model. */
 
-import { Alert, FormField, SectionHeading, Separator, Stack, Text, Textarea } from '@orbit/hades';
+import { Alert, FormField, SectionHeading, Separator, Stack, Text, Textarea } from '@runkora/hades';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { FrameworkCards } from '../motif/framework-cards';
-import { ModelPicker } from '@orbit/components';
+import { ModelPicker } from '@runkora/components';
 
 export function StepBehaviour() {
   const { fields, setField, catalogues } = useAgentBuilderContext();

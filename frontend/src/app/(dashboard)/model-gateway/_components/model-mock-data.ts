@@ -299,7 +299,7 @@ export const PROVIDER_MODELS: ProviderModel[] = MODEL_OBJECTS.map((m) => ({
   model_id: m.id.split('/')[1] ?? m.id,
   display_name: m.display_name,
   family: m.family,
-  capabilities: m.capabilities,
+  capabilities: m.capabilities ?? [],
   aliases: m.aliases,
   input_modalities: m.input_modalities,
   output_modalities: m.output_modalities,

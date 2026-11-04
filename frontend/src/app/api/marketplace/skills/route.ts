@@ -15,7 +15,7 @@
 import 'server-only';
 
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
+import { withAuth } from '@runkora/server/route-helpers';
 import { loadMarketplaceOverview } from '../../../(dashboard)/marketplace/_services/marketplace-server';
 import { parseBrowseParams } from '../../../(dashboard)/marketplace/_utils/browse-params';
 

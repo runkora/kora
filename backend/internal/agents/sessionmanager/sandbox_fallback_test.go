@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 func discardLogger() logging.Logger { return logging.NewLoggerWithOutput(io.Discard) }
@@ -41,7 +41,7 @@ func writeDescriptor(t *testing.T, workspaces, runID, endpoint, token string) {
 func sandboxTestController(t *testing.T) (*Controller, string) {
 	t.Helper()
 	workspaces := t.TempDir()
-	reg := NewRegistry(discardLogger(), workspaces, NoopNotifier{}, time.Minute)
+	reg := NewRegistry(discardLogger(), workspaces, NoopNotifier{}, time.Minute, testBrand)
 	c := &Controller{
 		registry: reg,
 		logger:   discardLogger(),
@@ -59,7 +59,7 @@ func getSandboxReq(runID, runToken string) *http.Request {
 	return r
 }
 
-// lookupNotifier stands in for orbit-agents, which holds the sandbox pod and so
+// lookupNotifier stands in for kora-agents, which holds the sandbox pod and so
 // can answer after this pod's memory is gone.
 type lookupNotifier struct {
 	NoopNotifier
@@ -77,7 +77,7 @@ func (n *lookupNotifier) GetSandbox(_ context.Context, _ string) (Sandbox, bool,
 func controllerWithNotifier(t *testing.T, n Notifier) (*Controller, string) {
 	t.Helper()
 	workspaces := t.TempDir()
-	reg := NewRegistry(discardLogger(), workspaces, n, time.Minute)
+	reg := NewRegistry(discardLogger(), workspaces, n, time.Minute, testBrand)
 	c := &Controller{
 		registry: reg,
 		logger:   discardLogger(),
@@ -86,10 +86,10 @@ func controllerWithNotifier(t *testing.T, n Notifier) (*Controller, string) {
 	return c, workspaces
 }
 
-// A restart empties the session map, and orbit-shell only asks when its own
-// workspace copy is missing. orbit-agents holds the sandbox pod, so it is the
+// A restart empties the session map, and kora-shell only asks when its own
+// workspace copy is missing. kora-agents holds the sandbox pod, so it is the
 // one place that still knows.
-func TestGetSandbox_AsksOrbitAgentsAfterRestart(t *testing.T) {
+func TestGetSandbox_AsksKoraAgentsAfterRestart(t *testing.T) {
 	n := &lookupNotifier{sandbox: Sandbox{Endpoint: "10.0.0.5:50051", ExecToken: "exec-abc"}, found: true}
 	c, workspaces := controllerWithNotifier(t, n)
 	tok, err := mintRunToken(workspaces, "run-1")
@@ -119,8 +119,8 @@ func TestGetSandbox_AsksOrbitAgentsAfterRestart(t *testing.T) {
 }
 
 // The regression that made the previous fallback useless: the workspace
-// descriptor cannot be the answer, because it is the same file orbit-shell has
-// already failed to find. Only orbit-agents decides.
+// descriptor cannot be the answer, because it is the same file kora-shell has
+// already failed to find. Only kora-agents decides.
 func TestGetSandbox_WorkspaceDescriptorAloneDoesNotAnswer(t *testing.T) {
 	n := &lookupNotifier{found: false}
 	c, workspaces := controllerWithNotifier(t, n)
@@ -134,15 +134,15 @@ func TestGetSandbox_WorkspaceDescriptorAloneDoesNotAnswer(t *testing.T) {
 	c.handleGetSandbox(w, getSandboxReq("run-1", tok))
 
 	if w.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want 404; a descriptor on disk must not stand in for orbit-agents. Body: %s", w.Code, w.Body.String())
+		t.Fatalf("status = %d, want 404; a descriptor on disk must not stand in for kora-agents. Body: %s", w.Code, w.Body.String())
 	}
 }
 
-// A lookup that fails is not a run without a sandbox. 404 is what orbit-shell
+// A lookup that fails is not a run without a sandbox. 404 is what kora-shell
 // reads as permission to run the command locally, so an unreachable
-// orbit-agents must stop the command rather than relax where it runs.
+// kora-agents must stop the command rather than relax where it runs.
 func TestGetSandbox_LookupFailureIsNotA404(t *testing.T) {
-	n := &lookupNotifier{err: errors.New("orbit-agents unreachable")}
+	n := &lookupNotifier{err: errors.New("kora-agents unreachable")}
 	c, workspaces := controllerWithNotifier(t, n)
 	tok, err := mintRunToken(workspaces, "run-1")
 	if err != nil {
@@ -235,7 +235,7 @@ func TestGetSandbox_NoDescriptorIsNotFound(t *testing.T) {
 // authenticate to the sandbox.
 func TestSandboxFromDisk_RequiresBothHalves(t *testing.T) {
 	workspaces := t.TempDir()
-	reg := NewRegistry(discardLogger(), workspaces, NoopNotifier{}, time.Minute)
+	reg := NewRegistry(discardLogger(), workspaces, NoopNotifier{}, time.Minute, testBrand)
 
 	writeDescriptor(t, workspaces, "both", "10.0.0.5:50051", "tok-abc")
 	got, ok := reg.sandboxFromDisk("both")
@@ -387,7 +387,7 @@ func TestGetSandbox_RejectsTraversingRunID(t *testing.T) {
 // gets the same treatment as the token path.
 func TestSandboxFromDisk_RejectsTraversingRunIDs(t *testing.T) {
 	workspaces := t.TempDir()
-	reg := NewRegistry(discardLogger(), workspaces, NoopNotifier{}, time.Minute)
+	reg := NewRegistry(discardLogger(), workspaces, NoopNotifier{}, time.Minute, testBrand)
 	writeDescriptor(t, workspaces, "victim", "10.0.0.9:50051", "exec-victim")
 
 	for _, runID := range []string{"", ".", "..", "../victim", "a/b"} {

@@ -6,12 +6,21 @@
  */
 'use client';
 
-import { CopyButton, Modal, ModalBody, ModalHeader, Separator, Stack, Text } from '@orbit/hades';
-import { ScopeChip } from '@orbit/components';
-import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
+import { CopyButton, Modal, ModalBody, ModalHeader, Separator, Stack, Text } from '@runkora/hades';
+import { ScopeChip } from '@runkora/components';
+import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import type { BudgetAssignment, Grant } from '../_types';
 import type { GrantIdentity } from '../_utils/grant-identity';
-import { PrincipalBadge } from '@orbit/components';
+import { isGrantEditable } from '../_utils/grant-owner';
+import { GrantOwnerLink } from './grant-owner-link';
+import { PrincipalBadge } from '@runkora/components';
+
+const OWNER_NOUN: Record<Grant['principal_type'], string> = {
+  AGENT: 'an agent',
+  SERVICE: 'a trigger',
+  PAT: 'a token',
+  HUMAN: 'a person',
+};
 
 function budgetLines(budget: BudgetAssignment | null | undefined): string[] {
   if (!budget) return [];
@@ -70,6 +79,18 @@ export function GrantDetailModal({ grant, identity, onClose }: GrantDetailModalP
                 <CopyButton value={grant.principal_id} label="Copy principal ID" />
               </Stack>
             </Section>
+
+            {!isGrantEditable(grant) && (
+              <>
+                <Separator />
+                <Section label="Managed by">
+                  <Text size="supporting" color="muted">
+                    This grant belongs to {OWNER_NOUN[grant.principal_type]} and is read-only here.
+                  </Text>
+                  <GrantOwnerLink grant={grant} />
+                </Section>
+              </>
+            )}
 
             <Separator />
 

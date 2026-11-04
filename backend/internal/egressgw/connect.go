@@ -9,17 +9,19 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"regexp"
+	"strconv"
 	"time"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/credentials"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // interceptIdleTimeout tears down a TLS-intercepted tunnel after this much
@@ -29,7 +31,7 @@ var interceptIdleTimeout = 5 * time.Minute
 
 // tracer instruments the CONNECT path. The listener carries no tracing
 // middleware, so this package starts the server span itself.
-var tracer = otel.Tracer("orbit.egress-gateway")
+var tracer = otel.Tracer("github.com/runkora/kora/backend/internal/egressgw")
 
 // Span status descriptions are package-level sentinels: the raw error text can
 // carry hostnames and addresses, which must not land in a span string field.
@@ -90,14 +92,15 @@ type ConnectHandler struct {
 	inner  http.Handler
 	conns  connLookup
 	logger logging.Logger
+	// traces links each CONNECT span to its run's trace. Nil links nothing.
+	traces *TraceLinker
 }
 
-// connLookup is the narrow slice of the connection repository the CONNECT
-// handler needs: "is there a registered connection for this host?", used to
-// decide intercept-vs-relay for non-:443 ports. *credentials.ConfigMapRegistry
-// (the gateway's registry since Amendment 3) and the test repos satisfy it.
+// connLookup is the narrow slice of the connection registry the broker and the
+// CONNECT handler need: every connection serving a host in a tenant.
+// *credentials.ConfigMapRegistry and the test repos satisfy it.
 type connLookup interface {
-	GetByHost(ctx context.Context, tenantID, host string) (*credentials.Connection, error)
+	ListByHost(ctx context.Context, tenantID, host string) ([]*credentials.Connection, error)
 }
 
 // NewConnectHandler constructs a ConnectHandler. bundle resolves the per-tenant
@@ -108,6 +111,12 @@ type connLookup interface {
 // intercepted and all other ports are relayed).
 func NewConnectHandler(bundle CABundle, inner http.Handler, conns connLookup, logger logging.Logger) *ConnectHandler {
 	return &ConnectHandler{bundle: bundle, inner: inner, conns: conns, logger: logger}
+}
+
+// WithTraceLinker makes every CONNECT span link to the trace of its run.
+func (h *ConnectHandler) WithTraceLinker(l *TraceLinker) *ConnectHandler {
+	h.traces = l
+	return h
 }
 
 // ServeHTTP handles one CONNECT request. Non-CONNECT methods are rejected; the
@@ -133,7 +142,7 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tenantID := claims.Orbit.TenantID
+	tenantID := claims.Kora.TenantID
 	if tenantID == "" {
 		platformapi.ErrorResponse(ctx, w, h.logger,
 			platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, "platform token missing tenant", nil),
@@ -145,10 +154,12 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// intercepted and credential-brokered (below); every other port is a raw,
 	// authorized TCP relay. The sandbox OPA already gated the destination, so
 	// the gateway lets it through. See shouldIntercept and serveRelay.
-	host, port, splitErr := net.SplitHostPort(r.Host)
-	if splitErr != nil {
-		// CONNECT normally carries "host:port"; tolerate a bare host as HTTPS.
-		host, port = r.Host, "443"
+	host, port, ok := parseConnectAuthority(r)
+	if !ok {
+		platformapi.ErrorResponse(ctx, w, h.logger,
+			platformapi.BadRequestError(platformapi.ErrCodeValidationFailed,
+				"CONNECT target must be host:port", nil), nil)
+		return
 	}
 	if !h.shouldIntercept(ctx, tenantID, r.Host, port) {
 		h.serveRelay(ctx, w, claims, host, port)
@@ -247,14 +258,15 @@ func (h *ConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // is untraced: the broker's decision, the credential mint and the forward leg
 // all become orphan roots, and every log line on the path carries no trace id.
 func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.Conn, claims *token.PlatformClaims, host, port string) {
-	ctx, span := tracer.Start(ctx, "egress "+host,
+	// parseConnectAuthority has already checked port is numeric.
+	portNum, _ := strconv.Atoi(port)
+	ctx, span := tracer.Start(ctx, http.MethodConnect,
 		trace.WithSpanKind(trace.SpanKindServer),
+		trace.WithLinks(h.traces.Links(ctx, observability.RunFromContext(ctx))...),
 		trace.WithAttributes(
-			attribute.String("server.address", host),
-			attribute.String("server.port", port),
-			attribute.String("orbit.tenant_id", claims.Orbit.TenantID),
-			attribute.String("orbit.principal_id", claims.Subject),
-			attribute.String("orbit.run_id", claims.Orbit.Claims["run_id"]),
+			semconv.ServerAddressKey.String(host),
+			semconv.ServerPortKey.Int(portNum),
+			observability.PrincipalIDKey.String(claims.Subject),
 		))
 	defer span.End()
 
@@ -263,15 +275,14 @@ func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.
 	// with an unbounded request line / header / body stream.
 	innerReq, err := http.ReadRequest(bufio.NewReader(io.LimitReader(tlsConn, maxInnerRequestBytes)))
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errReadInnerRequest.Error())
+		observability.RecordFailure(span, err, errReadInnerRequest)
 		h.logger.Warn(ctx, "read inner request failed",
 			logging.Field{Key: "host", Value: host},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 		return
 	}
-	span.SetAttributes(attribute.String("http.request.method", innerReq.Method))
+	span.SetAttributes(semconv.HTTPRequestMethodKey.String(innerReq.Method))
 
 	// Pin the inner request to the CONNECT target the OPA posture authorized. The
 	// inner Host header is attacker-controlled, since a sandbox can put any
@@ -293,9 +304,9 @@ func (h *ConnectHandler) serveTunneledRequest(ctx context.Context, tlsConn *tls.
 	// headers into the body; the response writer goes back through tlsConn.
 	rw := newConnectResponseWriter(tlsConn)
 	h.inner.ServeHTTP(rw, innerReq)
-	span.SetAttributes(attribute.Int("http.response.status_code", rw.statusCode))
+	span.SetAttributes(semconv.HTTPResponseStatusCodeKey.Int(rw.statusCode))
 	if rw.statusCode >= http.StatusBadRequest {
-		span.SetStatus(codes.Error, errInnerRequestFailed.Error())
+		observability.RecordFailure(span, errInnerRequestFailed, errInnerRequestFailed)
 	}
 	if err := rw.finish(); err != nil {
 		span.RecordError(err)
@@ -328,7 +339,7 @@ func (h *ConnectHandler) shouldIntercept(ctx context.Context, tenantID, authorit
 	if h.conns == nil {
 		return false
 	}
-	_, err := h.conns.GetByHost(ctx, tenantID, authority)
+	_, err := h.conns.ListByHost(ctx, tenantID, authority)
 	return err == nil
 }
 
@@ -465,3 +476,28 @@ func (w *connectResponseWriter) finish() error {
 // Hijack is intentionally absent: the inner ProxyHandler must not hijack the
 // tunneled TLS conn. Streaming inner handlers use Flush instead.
 var _ http.ResponseWriter = (*connectResponseWriter)(nil)
+
+// dnsName matches a DNS hostname or a dotted IPv4 address: dot-separated
+// labels of letters, digits and inner hyphens. The sandbox OPA uses the same.
+var dnsName = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$`)
+
+// parseConnectAuthority returns the CONNECT target only when it is exactly a
+// hostname or IPv4 address and one port, the shape the sandbox OPA accepts.
+// The sandbox controls the SNI that becomes this authority, so userinfo or
+// extra separators are refused rather than read differently from the OPA.
+func parseConnectAuthority(r *http.Request) (host, port string, ok bool) {
+	if r.URL != nil && r.URL.User != nil {
+		return "", "", false
+	}
+	host, port, err := net.SplitHostPort(r.Host)
+	if err != nil {
+		return "", "", false
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 || strconv.Itoa(n) != port {
+		return "", "", false
+	}
+	if !dnsName.MatchString(host) {
+		return "", "", false
+	}
+	return host, port, true
+}

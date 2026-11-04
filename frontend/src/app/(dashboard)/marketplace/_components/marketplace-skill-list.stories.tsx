@@ -1,7 +1,7 @@
 /** @tier 3 — marketplace-scoped. Preview of the Skill results table and clickable rows. */
 
 import type { Meta, StoryObj } from '@storybook/react';
-import { mockApi } from '@orbit/storybook/mock-api';
+import { mockApi } from '@runkora/storybook/mock-api';
 import { PreferencesProvider } from '../../_preferences/preferences-context';
 import { PREFERENCE_DEFAULTS } from '../../_preferences/preferences.schema';
 import { MarketplaceProvider } from '../_context/marketplace-context';

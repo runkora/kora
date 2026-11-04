@@ -1,39 +1,26 @@
 'use client';
 
-import { useSyncExternalStore } from 'react';
-
 import { usePathname } from 'next/navigation';
-import { Badge, Button, Icon, Show, Stack, Text } from '@orbit/hades';
+import { Badge, Button, Icon, Show, Stack, Text } from '@runkora/hades';
 import { ThemeToggle } from './theme-toggle';
 import { useSidebarState } from './sidebar-state';
-import { mcpGatewayHost } from '@orbit/lib/mcp';
 
 /**
- * Per-section header content. `title` + `tag` render on the left of the top bar;
- * `endpoint` fills the otherwise-dead right slot with a governed-endpoint note.
+ * Per-section header content: `title` renders on the left of the top bar.
  * Sections not listed fall back to a plain "Dashboard" title.
  */
 interface SectionHeader {
   title: string;
-  tag?: string;
-  // showEndpoint renders the governed-endpoint note; the host is derived from the
-  // dashboard origin at render (not hardcoded) — see mcpGatewayHost.
-  showEndpoint?: boolean;
 }
 
 const SECTIONS: Record<string, SectionHeader> = {
   agents: { title: 'Agents' },
   policy: { title: 'Policy' },
   'model-gateway': { title: 'Model Gateway' },
-  'mcp-gateway': { title: 'MCP Servers', tag: 'tool-gateway', showEndpoint: true },
+  'mcp-gateway': { title: 'MCP Servers' },
   chat: { title: 'Chat' },
   marketplace: { title: 'Marketplace' },
 };
-
-// useSyncExternalStore plumbing for reading the browser host: the host never
-// changes, so the store has no subscription; the server snapshot is empty.
-const subscribeNoop = () => () => {};
-const getServerHost = () => '';
 
 export function DashboardHeader() {
   const pathname = usePathname();
@@ -47,12 +34,6 @@ export function DashboardHeader() {
   const header = SECTIONS[section] ?? { title: 'Dashboard' };
   const isDetail = segments.length > 1;
   const detailLabel = segments[segments.length - 1];
-
-  // Derived from the dashboard origin. useSyncExternalStore reads window on the
-  // client and '' on the server with no hydration mismatch (window isn't
-  // available during SSR); the note simply doesn't render until the client host.
-  const host = useSyncExternalStore(subscribeNoop, mcpGatewayHost, getServerHost);
-  const endpoint = header?.showEndpoint ? host : '';
 
   return (
     <Stack
@@ -93,25 +74,11 @@ export function DashboardHeader() {
             </Text>
           </Stack>
         ) : header ? (
-          // Section root: title + service tag.
+          // Section root: title.
           <Stack direction="horizontal" align="center" style={{ gap: 8 }}>
             <Text as="span" style={{ fontSize: 13, fontWeight: 600 }}>
               {header.title}
             </Text>
-            {header.tag ? (
-              <Text
-                as="span"
-                mono
-                style={{
-                  fontSize: 11,
-                  fontWeight: 500,
-                  color: 'var(--color-subtle)',
-                  marginLeft: 2,
-                }}
-              >
-                {header.tag}
-              </Text>
-            ) : null}
           </Stack>
         ) : (
           <Text as="span" style={{ fontSize: 13, fontWeight: 600 }}>
@@ -121,16 +88,8 @@ export function DashboardHeader() {
       </Stack>
 
       <Stack direction="horizontal" align="center" gap="snug">
-        {!isDetail && endpoint ? (
-          <Text as="span" style={{ fontSize: 12, color: 'var(--color-subtle)' }}>
-            Governed endpoint ·{' '}
-            <Text as="span" mono style={{ fontSize: 12, color: 'var(--color-muted)' }}>
-              {endpoint}
-            </Text>
-          </Text>
-        ) : null}
         <Badge variant="outline" size="sm">
-          {process.env.NEXT_PUBLIC_ORBIT_VERSION ?? 'dev'}
+          {process.env.NEXT_PUBLIC_KORA_VERSION ?? 'dev'}
         </Badge>
         <ThemeToggle />
       </Stack>

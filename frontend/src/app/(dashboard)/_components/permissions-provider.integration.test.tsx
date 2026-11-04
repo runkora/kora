@@ -11,17 +11,19 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
-import { server } from '@orbit/test-utils';
-import { createSessionUser } from '@orbit/test-utils/factories/session';
-import { Text } from '@orbit/hades';
-import { PermissionsProvider, useSession } from './permissions-provider';
+import { server } from '@runkora/test-utils';
+import { createSessionUser } from '@runkora/test-utils/factories/session';
+import { Text } from '@runkora/hades';
+import { PermissionsProvider, useSession, useTenantLocked } from './permissions-provider';
 
 // ── Test consumer ─────────────────────────────────────────────────────────────
 
 function Consumer() {
   const { scopes, user, loaded } = useSession();
+  const locked = useTenantLocked();
   return (
     <>
+      <Text data-testid="locked">{String(locked)}</Text>
       <Text data-testid="loaded">{String(loaded)}</Text>
       <Text data-testid="scopes">{scopes.join(',')}</Text>
       <Text data-testid="user-email">{user?.email ?? 'null'}</Text>
@@ -69,7 +71,7 @@ describe('PermissionsProvider', () => {
   });
 
   it('extracts user from data.user in the response', async () => {
-    const user = createSessionUser({ email: 'alice@orbit.local', name: 'Alice' });
+    const user = createSessionUser({ email: 'alice@runkora.test', name: 'Alice' });
     server.use(
       http.get('/api/auth/session', () =>
         HttpResponse.json({
@@ -81,8 +83,34 @@ describe('PermissionsProvider', () => {
 
     renderProvider();
     await waitFor(() => {
-      expect(screen.getByTestId('user-email').textContent).toBe('alice@orbit.local');
+      expect(screen.getByTestId('user-email').textContent).toBe('alice@runkora.test');
     });
+  });
+
+  it('reports a locked tenant when the session says API authoring is off', async () => {
+    server.use(
+      http.get('/api/auth/session', () =>
+        HttpResponse.json({
+          user: createSessionUser(),
+          expiresAt: Math.floor(Date.now() / 1000) + 3600,
+          apiAuthoring: false,
+        }),
+      ),
+    );
+
+    renderProvider();
+    expect(screen.getByTestId('locked').textContent).toBe('false');
+    await waitFor(() => {
+      expect(screen.getByTestId('locked').textContent).toBe('true');
+    });
+  });
+
+  it('treats a session without apiAuthoring as unlocked', async () => {
+    renderProvider();
+    await waitFor(() => {
+      expect(screen.getByTestId('loaded').textContent).toBe('true');
+    });
+    expect(screen.getByTestId('locked').textContent).toBe('false');
   });
 
   it('fails open: scopes = [], loaded = true when session returns non-ok (401)', async () => {

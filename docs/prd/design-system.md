@@ -2,11 +2,11 @@
 
 **Status:** Implemented
 **Created:** 2025-07-11
-**Last Updated:** 2025-07-11
+**Last Updated:** 2026-10-19
 **Owner:** Frontend
 **Stakeholders:** Product, Engineering
 
-> **Name:** Hades (`@orbit/hades`, `frontend/src/packages/hades/`, formerly Terra) — the underworld half of kora: the tokens and primitives beneath every screen.
+> **Name:** Hades (`@runkora/hades`, `frontend/src/packages/hades/`, formerly Terra) — the underworld half of kora: the tokens and primitives beneath every screen.
 
 ---
 
@@ -75,7 +75,7 @@ The kora frontend is a bare Next.js scaffold. The only styling in `globals.css` 
 - [ ] A `Card` component exists for containing content blocks
 - [ ] A `Badge` component exists for status indicators (e.g., agent status, policy state)
 - [ ] All components use design tokens, not arbitrary utility classes
-- [ ] Components are importable via `import { Button } from "@orbit/hades"`
+- [ ] Components are importable via `import { Button } from "@runkora/hades"`
 
 ---
 
@@ -124,13 +124,66 @@ The kora frontend is a bare Next.js scaffold. The only styling in `globals.css` 
 
 ---
 
+### Version the design system so a theme contract can be defined against it
+
+> Required by [white-labelling](white-labelling.md). Not yet built.
+
+**As a** maintainer of the white-labelling theme contract,  
+**I want** Hades versioned with kora, with the theme surface declared in a manifest,  
+**So that** a theme records the kora release it was written against and an instance of the same major can validate it.
+
+**Rules:**
+
+- A major defines the theme surface and the theme format. A theme is accepted by an instance of the same major. Which release gets a major is decided by whoever cuts it; nothing checks it.
+- Hades has no version of its own. It is released with kora, under the kora version, and that is the version an instance validates themes against. The pin is implicit in the monorepo: the frontend consumes Hades by workspace link, so the Hades in a release is the one in the tree at that release. How the version is exposed to the instance is subsection 2 of the Hades versioning ADR.
+
+**Acceptance Criteria:**
+- [ ] The design system package is versioned by the kora release it ships in. There is no separate contract version. The version is the release tag, stamped into the package when the release is built, and the manifest carries none. Nothing is promised below `1.0.0`.
+- [ ] The surface is settled before any release carries the contract, with the radius steps as literal tokens, the font slot tokens and the identity slots in place.
+- [ ] Each Hades release carries a machine-readable manifest of its theme surface: token and slot names, modes, value formats, and the product-name bounds. The validation rules the white-labelling PRD publishes per version are generated from it.
+- [ ] Hades can be obtained outside the kora frontend as a buildable package, per release, so that consumers kora assumes will exist can render the product's own components. Which majors continue to receive releases is not decided until it matters.
+
+**Scope:**
+
+- Versioning of the design system under the kora release version, and each kora release carrying one design system.
+- The theme surface manifest, carried by every release.
+- Four Hades changes made before the first release that carries the contract: radius steps as literal tokens rather than derived from one unit; agnostic identity slot components; font slot tokens the font families resolve through; the kora logo and mark moved out of Hades into the kora default theme at app level.
+- Delivery of Hades per release to external consumers.
+
+**Consumers:**
+
+- The kora frontend pins one version by workspace link. That is the release's version, which an instance validates themes against.
+- The kora backend reads the product name, a contract-shaped value, from the theme. It does not depend on Hades.
+- External consumers that render the product's components against a theme are specified in their own documents, against this story. This PRD does not name them, so that Hades and kora never depend on anything that depends on them.
+
+**Constraint:** Hades stays in this repository. It is not extracted to serve external consumers. How each major is delivered from here is an ADR decision. Hades contains no kora identity: the kora default is a theme like any other, owned by the app, and the kora logo is an asset of that theme. Hades provides the agnostic components that render whatever a theme supplies for a slot.
+
+**ADR hand-off:** How the design system is versioned is decided separately from white-labelling, because it affects more than white-labelling. Two ADRs follow from this story:
+
+- Hades versioning and theme surface manifest, with numbered subsections: (1) the version source of truth and the release process; (2) how kora pins and exposes the version, which the white-labelling PRD cites; (3) the manifest.
+- Hades delivery to external consumers. The deliverable is the tokens, the manifest and the components, buildable without the Next.js app. Storybook is not part of it.
+
+The [Hades Frontend Design System ADR](../adr/2026-03-25-terra-frontend-design-system.md) gains a pointer to both.
+
+**Risks:**
+
+| Risk | Impact | Probability | Mitigation |
+|------|--------|-------------|------------|
+| A design system change breaks existing themes without a major bump | High | Medium | The instance validates a theme against its own manifest, so a theme a release no longer fits fails at validation with the fault named. Nothing checks that a break is released as a major; review catches it. Below `1.0.0` nothing is promised. |
+| Delivering Hades to external consumers adds release friction | Medium | Medium | The ADR decides the delivery mechanism. A theme records the kora release it was written against, and the release carries the manifest, so what a consumer's release implements is always identifiable. |
+
+**Milestone:**
+- [ ] Design system versioning decided in its own ADR
+
+---
+
 ## Proposed Solution
 
 ### High-Level Approach
 
 Build the design system in four layers:
 
-1. **Isolated Workspace Package** — The design system lives at `frontend/src/packages/hades/`, inside the frontend directory. It has its own `package.json`, TypeScript config, and Storybook instance. The frontend consumes it via the pnpm workspace protocol (`"@orbit/hades": "workspace:*"`), meaning changes are reflected immediately with no publish step. This isolation means the design system can be developed, tested, and documented with no dependency on application code.
+1. **Isolated Workspace Package** — The design system lives at `frontend/src/packages/hades/`, inside the frontend directory. It has its own `package.json`, TypeScript config, and Storybook instance. The frontend consumes it via the pnpm workspace protocol (`"@runkora/hades": "workspace:*"`), meaning changes are reflected immediately with no publish step. This isolation means the design system can be developed, tested, and documented with no dependency on application code.
 
 2. **Design Tokens** — kora's visual vocabulary is defined as semantic CSS custom properties in the package's `src/tokens.css` file, exported and imported by the frontend's `globals.css`. Tokens are mapped into Tailwind v4 via `@theme inline` and cover: color (brand, surface, text, status, border), typography (font families, size scale), spacing extensions, and border radius. **The design system is intentionally flat — no shadow tokens are defined.** Depth and hierarchy are communicated through background lightness, borders, and spacing, not drop shadows. The frontend's Tailwind config uses the `@source` directive to scan the package's component files so token-based utility classes are generated correctly across both codebases.
 
@@ -157,7 +210,7 @@ kora's visual identity should feel like infrastructure — not a consumer app. T
 #### User Flow — Developer experience (consuming app)
 
 1. Developer needs a new UI element (e.g., an agent status card)
-2. Imports primitives from the design system package: `import { Card, Badge } from "@orbit/hades"`
+2. Imports primitives from the design system package: `import { Card, Badge } from "@runkora/hades"`
 3. Composes them using kora token classes (e.g., `text-foreground`, `bg-surface`, `text-status-healthy`)
 4. Result integrates visually without any bespoke CSS
 
@@ -182,7 +235,7 @@ kora's visual identity should feel like infrastructure — not a consumer app. T
 - **Component library** (`frontend/src/packages/hades/src/components/`): Folder-per-component structure — each component gets its own directory containing the component file, a co-located Storybook story, and an `index.ts` re-export. Initial set: `Button`, `Badge`, `Card` (exports `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter`), `Input`, `Label`, `Separator`, `Skeleton`, `Tooltip`, `PageLayout`, `Section`
 - **Shadcn scaffolding** (dev-time only): CLI used once to bootstrap Radix-based component code; output is immediately cleaned of all shadcn-specific imports and references before committing
 - **Storybook instance**: Configured in `frontend/src/packages/hades/` to run against the package directly with Tailwind v4 support
-- **Frontend integration**: `globals.css` updated to import `tokens.css` from the package; `layout.tsx` updated to apply global base theme classes; `page.tsx` refactored to import components from `@orbit/hades`
+- **Frontend integration**: `globals.css` updated to import `tokens.css` from the package; `layout.tsx` updated to apply global base theme classes; `page.tsx` refactored to import components from `@runkora/hades`
 
 ---
 
@@ -199,9 +252,9 @@ kora's visual identity should feel like infrastructure — not a consumer app. T
 - First 8 foundational UI components: Button, Card, Badge, Input, Label, Separator, Skeleton, Tooltip
 - Storybook setup in `frontend/src/packages/hades/` with Tailwind v4 support; one story per P0 component
 - Public package API (`frontend/src/packages/hades/src/index.ts`) exporting all components and the `cn()` utility
-- Frontend `package.json` updated to depend on `"@orbit/hades": "workspace:*"`
+- Frontend `package.json` updated to depend on `"@runkora/hades": "workspace:*"`
 - Updated root `layout.tsx` with global theme classes applied
-- Updated `page.tsx` (landing page) refactored to import and use components from `@orbit/hades`
+- Updated `page.tsx` (landing page) refactored to import and use components from `@runkora/hades`
 - A `cn()` utility helper (`class-variance-authority` + `clsx` + `tailwind-merge`)
 
 ### Out of Scope
@@ -238,9 +291,9 @@ kora's visual identity should feel like infrastructure — not a consumer app. T
 - [ ] Button component with variants: default, secondary, ghost, destructive, outline — with Storybook story
 - [ ] Card component with sub-components: CardHeader, CardTitle, CardDescription, CardContent, CardFooter — with Storybook story
 - [ ] Badge component with variants: default, secondary, destructive, outline + kora status variants (healthy, degraded, error) — with Storybook story
-- [ ] Frontend `package.json` references `"@orbit/hades": "workspace:*"`; `globals.css` imports `tokens.css` from the package
+- [ ] Frontend `package.json` references `"@runkora/hades": "workspace:*"`; `globals.css` imports `tokens.css` from the package
 - [ ] Root `layout.tsx` applies global background and text color from tokens
-- [ ] Landing `page.tsx` refactored to import and use components from `@orbit/hades` (no inline arbitrary color classes)
+- [ ] Landing `page.tsx` refactored to import and use components from `@runkora/hades` (no inline arbitrary color classes)
 
 **Should Have (P1):**
 - [ ] Input, Label, Separator components — each with a Storybook story
@@ -263,7 +316,7 @@ kora's visual identity should feel like infrastructure — not a consumer app. T
 - CSS bundle size increase from design tokens is negligible (custom properties are inlined, not generated as utilities)
 
 **Developer Experience:**
-- Import paths for components are short and predictable: `import { Button } from "@orbit/hades"`
+- Import paths for components are short and predictable: `import { Button } from "@runkora/hades"`
 - Design system components can be developed entirely in isolation via `pnpm storybook` from `frontend/src/packages/hades/` — no application server required
 - The `cn()` utility is re-exported from the package's public API
 - AI tools (Forge, v0.dev) can generate correct on-brand components using the documented token vocabulary in the package README and Storybook
@@ -285,7 +338,7 @@ kora's visual identity should feel like infrastructure — not a consumer app. T
 
 - **Monorepo workspace config** (`frontend/pnpm-workspace.yaml`): Declares `src/packages/*` as workspace members.
 - **`frontend/src/packages/hades/`**: The workspace package. Scaffolded with `package.json`, `tsconfig.json`, and Storybook config.
-- **`frontend/package.json`**: Will gain `"@orbit/hades": "workspace:*"` as a dependency. Runtime deps (`class-variance-authority`, `clsx`, `tailwind-merge`, `@radix-ui/*`) will live in the package's `package.json`, not the frontend's.
+- **`frontend/package.json`**: Will gain `"@runkora/hades": "workspace:*"` as a dependency. Runtime deps (`class-variance-authority`, `clsx`, `tailwind-merge`, `@radix-ui/*`) will live in the package's `package.json`, not the frontend's.
 - **`frontend/src/app/globals.css`**: Must be updated to import `tokens.css` from the package; the full `@theme` block moves to the package.
 - **`frontend/src/app/layout.tsx`**: Must be updated to apply base theme classes globally.
 - **Frontend Tailwind config**: Must add `@source` directive pointing at `../packages/hades/src/**` (relative to `globals.css`) so component class names are included in the generated CSS.
@@ -360,7 +413,7 @@ kora's visual identity should feel like infrastructure — not a consumer app. T
 
 ## Open Questions
 
-1. **Design system name:** *(Decided)* — **Hades** (`@orbit/hades`, `frontend/src/packages/hades/`, formerly Terra). kora is another name for Persephone, who lives half the year in Olympus and half in the underworld; Hades is the underworld half of kora, the tokens and primitives beneath every screen. Named Terra (terra firma, solid ground) until the kora rebrand.
+1. **Design system name:** *(Decided)* — **Hades** (`@runkora/hades`, `frontend/src/packages/hades/`, formerly Terra). kora is another name for Persephone, who lives half the year in Olympus and half in the underworld; Hades is the underworld half of kora, the tokens and primitives beneath every screen. Named Terra (terra firma, solid ground) until the kora rebrand.
    - **Status:** Resolved
 
 2. **Token naming convention:** *(Resolved)* Semantic naming — `--color-status-healthy`, `--color-status-degraded`, etc. This is more expressive for an agent control plane where "healthy", "degraded", and "idle" are domain concepts, not generic success/warning/error states. Generic role names like `--color-success` are interchangeable with any product; semantic names encode kora's specific operating model.
@@ -384,7 +437,7 @@ kora's visual identity should feel like infrastructure — not a consumer app. T
 - Configure monorepo workspace (`pnpm-workspace.yaml`)
 - Define complete design token vocabulary in `frontend/src/packages/hades/src/tokens.css`
 - Initialize and validate Storybook in `frontend/src/packages/hades/` with Tailwind v4
-- Wire frontend: add `@orbit/hades` dependency, import `tokens.css` in `globals.css`, add `@source` to Tailwind config
+- Wire frontend: add `@runkora/hades` dependency, import `tokens.css` in `globals.css`, add `@source` to Tailwind config
 - Update `layout.tsx` to apply base theme
 
 **Phase 2: Component Foundation** (Week 1–2)
@@ -393,7 +446,7 @@ kora's visual identity should feel like infrastructure — not a consumer app. T
 - Add P0 components: `Button`, `Badge`, `Card` (with `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter` co-located in `card.tsx`) — each with co-located Storybook stories
 - Add P1 components: `Input`, `Label`, `Separator`, `Skeleton`, `Tooltip` — each with Storybook stories
 - Export all components from `src/index.ts`
-- Refactor `page.tsx` to import from `@orbit/hades`
+- Refactor `page.tsx` to import from `@runkora/hades`
 
 **Phase 3: Layout Primitives + Documentation** (Week 2)
 - Create PageLayout and Section wrapper components
@@ -411,7 +464,7 @@ kora's visual identity should feel like infrastructure — not a consumer app. T
 - [ ] Design tokens defined and imported by frontend
 - [ ] Atomic component structure scaffolded; Radix UI installed; shadcn references stripped
 - [ ] P0 component suite complete with stories
-- [ ] Landing page refactored to import from `@orbit/hades`
+- [ ] Landing page refactored to import from `@runkora/hades`
 - [ ] First real kora feature built on design system
 
 ---
@@ -422,6 +475,7 @@ kora's visual identity should feel like infrastructure — not a consumer app. T
 
 - [ADR to be created](../adr/) — Architecture decision for package structure, Storybook setup, token conventions, and Tailwind cross-package config
 - [Inference Gateway PRD](inference-gateway.md) — Example of a feature PRD; design system must support the UI this feature will require
+- [White-labelling PRD](white-labelling.md) — Defines the theme contract against the kora release version, which Hades is released under, per the versioning story above
 
 ### References
 
@@ -434,7 +488,7 @@ kora's visual identity should feel like infrastructure — not a consumer app. T
 ### Glossary
 
 - **Design Token**: A named, semantic CSS custom property that represents a single visual decision (e.g., `--color-accent` rather than `#3b82f6`).
-- **Monorepo workspace package**: A package that lives inside the same repository as its consumers. The workspace protocol (`workspace:*`) allows the frontend to depend on `frontend/src/packages/hades/` directly — changes are reflected immediately without publishing or versioning.
+- **Monorepo workspace package**: A package that lives inside the same repository as its consumers. The workspace protocol (`workspace:*`) allows the frontend to depend on `frontend/src/packages/hades/` directly — changes are reflected immediately without publishing. The package carries a semantic version per the versioning story above; the frontend consumes whichever version is in the tree, which is the version that kora release pins.
 - **shadcn/ui**: A CLI tool and component collection used as a one-time scaffolding aid to generate Radix-based component boilerplate. Shadcn is not a runtime dependency of Hades — all shadcn-specific code is stripped after generation, and the resulting components are Hades-native.
 - **Atomic Design**: A methodology for reasoning about UI component complexity in a hierarchy from smallest (atoms) to largest (organisms). Hades uses it as a mental model — not a directory structure. It helps categorize components by how much they compose other components, without prescribing where files must live.
 - **Radix UI**: A low-level, accessibility-first React component library providing unstyled UI primitives (dialogs, dropdowns, tooltips, etc.).
@@ -443,6 +497,8 @@ kora's visual identity should feel like infrastructure — not a consumer app. T
 - **`cn()`**: A utility function combining `clsx` (conditional class joining) and `tailwind-merge` (conflicting Tailwind class resolution) used universally in shadcn components.
 - **Surface elevation**: Hades' approach to depth — UI layers are distinguished by progressively lighter background token shades (`background` → `surface` → `surface-elevated`), paired with subtle borders. No drop shadows are used; the aesthetic is intentionally flat.
 - **Storybook**: An open-source tool for developing and documenting UI components in isolation. Version 8.x supports Tailwind v4 via the Vite builder.
+- **Design system version:** the kora release version. Hades has no version of its own; each kora release carries one design system, and the package is published under that version.
+- **Theme surface manifest:** the machine-readable description of every value a theme can set, carried by each Hades release: token and slot names, modes, value formats and the product-name bounds. The white-labelling validation rules are generated from it.
 
 ---
 

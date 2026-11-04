@@ -19,13 +19,13 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/credentials/adapters/githubapp"
-	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
-	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/githubapp"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
+	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ── stubs ─────────────────────────────────────────────────────────────────────
@@ -49,6 +49,10 @@ func (s *stubEvaluator) Check(_ context.Context, input policy.CheckInput) (polic
 	return policy.Result{Allow: s.allow, Reason: s.reason}, nil
 }
 
+func (s *stubEvaluator) Scopes(context.Context, policy.ScopesInput) ([]string, error) {
+	return nil, nil
+}
+
 type memConnRepo struct {
 	items map[string]*credentials.Connection // key: tenant|name
 }
@@ -63,10 +67,10 @@ func (m *memConnRepo) Create(_ context.Context, c *credentials.Connection) error
 	m.items[c.TenantID+"|"+c.Name] = c
 	return nil
 }
-func (m *memConnRepo) GetByHost(_ context.Context, tenantID, host string) (*credentials.Connection, error) {
+func (m *memConnRepo) ListByHost(_ context.Context, tenantID, host string) ([]*credentials.Connection, error) {
 	for _, c := range m.items {
 		if c.TenantID == tenantID && c.BaseHost == host {
-			return c, nil
+			return []*credentials.Connection{c}, nil
 		}
 	}
 	return nil, credentials.ErrConnectionNotFound
@@ -107,7 +111,7 @@ func testKeyPEM(t *testing.T) []byte {
 func claimsFor(tenant, principal, run string) *token.PlatformClaims {
 	return &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: principal},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			TenantID:      tenant,
 			PrincipalType: token.PrincipalTypeAgent,
 			Claims:        map[string]string{"run_id": run},
@@ -118,7 +122,7 @@ func claimsFor(tenant, principal, run string) *token.PlatformClaims {
 // ── end-to-end fixture ────────────────────────────────────────────────────────
 //
 // In production the agent calls https://github.com/... directly; the gateway's
-// TLS terminator sees Host: github.com and the broker's GetByHost("github.com")
+// TLS terminator sees Host: github.com and the broker's ListByHost("github.com")
 // resolves the connection. The test simulates that by registering the
 // connection with base_host equal to the upstream httptest server's host:port,
 // and setting r.Host to the same value on inbound requests.
@@ -180,13 +184,13 @@ func newFixture(t *testing.T) *fixture {
 		InstallationID int64             `json:"installation_id"`
 		Repositories   []string          `json:"repositories"`
 		Permissions    map[string]string `json:"permissions"`
-	}{AppID: "12345", InstallationID: 42, Repositories: []string{"orbit"}, Permissions: map[string]string{"contents": "write"}})
+	}{AppID: "12345", InstallationID: 42, Repositories: []string{"kora"}, Permissions: map[string]string{"contents": "write"}})
 
 	repo := &memConnRepo{items: map[string]*credentials.Connection{}}
 	_ = repo.Create(context.Background(), &credentials.Connection{
 		ID: "conn-1", TenantID: "acme", Name: "github",
 		Adapter: credentials.AdapterGitHubApp, BaseHost: f.connectionHost,
-		SecretRef: "k8s:orbit-conn-acme-github", Config: cfg,
+		SecretRef: "k8s:kora-conn-acme-github", Config: cfg,
 	})
 	f.repo = repo
 
@@ -204,11 +208,11 @@ func newFixture(t *testing.T) *fixture {
 
 	// Forward transport must accept the upstream's self-signed test cert.
 	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-	handler := NewProxyHandler(f.broker, tr, logger)
+	handler := NewProxyHandler(f.broker, tr, testBrand, logger)
 
 	// The gateway runs as plain HTTP here; the CONNECT handler's TLS
 	// termination has its own tests. authInjector stands in for AuthMiddleware.
-	f.gateway = httptest.NewServer(authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-9"), handler))
+	f.gateway = httptest.NewServer(authInjector(claimsFor("acme", "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder", "run-9"), handler))
 
 	t.Cleanup(func() {
 		f.gateway.Close()
@@ -251,7 +255,7 @@ func TestProxy_HappyPath_GitPush_MintsAndForwards(t *testing.T) {
 	f := newFixture(t)
 
 	// git push discovery: the path the adapter classifies as repo:write.
-	resp, err := f.callGateway(http.MethodGet, "/orbit/orbit.git/info/refs?service=git-receive-pack", f.connectionHost)
+	resp, err := f.callGateway(http.MethodGet, "/kora/kora.git/info/refs?service=git-receive-pack", f.connectionHost)
 	if err != nil {
 		t.Fatalf("call: %v", err)
 	}
@@ -293,7 +297,7 @@ func TestProxy_HappyPath_GitPush_MintsAndForwards(t *testing.T) {
 func TestProxy_HappyPath_RestRead_ClassifiesAsRepoRead(t *testing.T) {
 	f := newFixture(t)
 
-	resp, err := f.callGateway(http.MethodGet, "/orgs/orbit/repos", f.connectionHost)
+	resp, err := f.callGateway(http.MethodGet, "/orgs/kora/repos", f.connectionHost)
 	if err != nil {
 		t.Fatalf("call: %v", err)
 	}
@@ -390,7 +394,7 @@ func TestProxy_Unauthenticated(t *testing.T) {
 	registry := NewAdapterRegistry()
 	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, passthrough.New(), logger)
 	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-	handler := NewProxyHandler(broker, tr, logger)
+	handler := NewProxyHandler(broker, tr, testBrand, logger)
 
 	srv := httptest.NewServer(authInjector(nil, handler)) // no claims in context
 	defer srv.Close()

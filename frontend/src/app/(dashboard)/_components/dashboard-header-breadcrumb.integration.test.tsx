@@ -8,10 +8,10 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
-import { renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@runkora/test-utils';
 import { SidebarStateProvider } from './sidebar-state';
 import { DashboardHeader } from './dashboard-header';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES } from '@runkora/lib/routing';
 
 vi.mock('next/navigation', () => ({
   usePathname: vi.fn(),

@@ -10,7 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // pullSecretComponent marks a Secret in a tenant namespace as a replica of a
@@ -22,7 +22,7 @@ const pullSecretComponent = "image-pull-secret"
 // namespace and removes the replicas that are no longer configured, so a
 // credential dropped from global.imagePullSecrets is dropped from the tenants
 // that received it.
-func (r *TenantReconciler) ensureImagePullSecrets(ctx context.Context, tenant *OrbitTenant) error {
+func (r *TenantReconciler) ensureImagePullSecrets(ctx context.Context, tenant *KoraTenant) error {
 	ns := tenantNamespace(tenant)
 	for _, name := range r.ImagePullSecrets {
 		src := &corev1.Secret{}
@@ -34,9 +34,9 @@ func (r *TenantReconciler) ensureImagePullSecrets(ctx context.Context, tenant *O
 				Name:      name,
 				Namespace: ns,
 				Labels: map[string]string{
-					"app.kubernetes.io/managed-by": "orbit-operator",
-					"orbit.io/component":           pullSecretComponent,
-					"orbit.io/tenant":              tenant.Name,
+					"app.kubernetes.io/managed-by": "kora-operator",
+					"runkora.io/component":         pullSecretComponent,
+					"runkora.io/tenant":            tenant.Name,
 				},
 			},
 			Type: src.Type,
@@ -57,7 +57,7 @@ func (r *TenantReconciler) ensureImagePullSecrets(ctx context.Context, tenant *O
 			return fmt.Errorf("get pull secret %q in %q: %w", name, ns, err)
 		case !reflect.DeepEqual(existing.Data, desired.Data) ||
 			existing.Type != desired.Type ||
-			existing.Labels["orbit.io/component"] != pullSecretComponent:
+			existing.Labels["runkora.io/component"] != pullSecretComponent:
 			// Labels are reconciled alongside the data: a replica created
 			// before the component label existed has to gain it, or the prune
 			// below can never see it.
@@ -78,8 +78,8 @@ func (r *TenantReconciler) ensureImagePullSecrets(ctx context.Context, tenant *O
 func (r *TenantReconciler) pruneImagePullSecrets(ctx context.Context, ns string) error {
 	replicas := &corev1.SecretList{}
 	if err := r.List(ctx, replicas, client.InNamespace(ns), client.MatchingLabels{
-		"app.kubernetes.io/managed-by": "orbit-operator",
-		"orbit.io/component":           pullSecretComponent,
+		"app.kubernetes.io/managed-by": "kora-operator",
+		"runkora.io/component":         pullSecretComponent,
 	}); err != nil {
 		return fmt.Errorf("list pull secrets in %q: %w", ns, err)
 	}

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { server } from '@orbit/test-utils/msw/server';
+import { server } from '@runkora/test-utils/msw/server';
 import { fetchAnalyticsPrincipalById } from './analytics-api';
 import type { AnalyticsResponse } from '../_types';
 

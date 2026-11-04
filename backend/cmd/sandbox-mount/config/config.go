@@ -4,7 +4,7 @@ package sandboxMountConfig
 import (
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
 // Config holds the node agent's settings, loaded from cmd/sandbox-mount/config/{base,env}.yaml.

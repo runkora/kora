@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { Stack } from '@orbit/hades';
-import type { EffectiveAccess } from '@orbit/shared/api';
+import { Stack } from '@runkora/hades';
+import type { EffectiveAccess } from '@runkora/shared/api';
 import { Example, Option, OptionTable } from '../packages/hades/src/docs/story-ui';
 import { EffectiveAccessPanel } from './effective-access-panel';
 
@@ -22,10 +22,10 @@ const access: EffectiveAccess = {
   open: false,
   own_hosts: ['api.example.com', '*.staging.internal'],
   environments: [
-    { id: 'env-1', name: 'Staging', hosts: ['telemetry.orbit.sh'] },
+    { id: 'env-1', name: 'Staging', hosts: ['telemetry.example.com'] },
     { id: 'env-2', name: 'Go services', hosts: ['proxy.golang.org'] },
   ],
-  environment_hosts: ['proxy.golang.org', 'telemetry.orbit.sh'],
+  environment_hosts: ['proxy.golang.org', 'telemetry.example.com'],
   connector_egress: [
     {
       connection: 'github',
@@ -42,7 +42,7 @@ const access: EffectiveAccess = {
     'codeload.github.com',
     'github.com',
     'proxy.golang.org',
-    'telemetry.orbit.sh',
+    'telemetry.example.com',
   ],
 };
 

@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 1 — Zero Orbit domain knowledge. Could be extracted to a standalone library. */
+/** @tier 1 — Zero kora domain knowledge. Could be extracted to a standalone library. */
 
 import * as React from 'react';
 import { cn } from '../../utils';

@@ -7,7 +7,7 @@
 # without any cloud accounts or mocking.
 #
 # Test credentials (local dev only):
-#   Email:    dev@orbit.local.clearroute.io
+#   Email:    dev@local.runkora.io
 #   Password: password
 #   Groups:   platform-admin
 #
@@ -16,13 +16,13 @@
 # OIDC token just like a production corporate directory (Okta, Entra, etc.).
 #
 # Client:
-#   ID:     orbit-local
+#   ID:     kora-local
 #   Secret: (none — public client, Device Grant does not require a secret)
 #
-# Issuer:  https://dex.orbit.local.clearroute.io:5556/dex
+# Issuer:  https://dex.local.runkora.io:5556/dex
 # =============================================================================
 
-issuer: https://dex.orbit.local.clearroute.io:5556/dex
+issuer: https://dex.local.runkora.io:5556/dex
 
 # In-memory storage — state is lost on restart, which is fine for local dev.
 storage:
@@ -35,12 +35,12 @@ web:
   # allowedOrigins lets the browser fetch Dex's OIDC discovery document and
   # token endpoints from a different origin (the Next.js dev server).
   # Required because oidc-client-ts runs in the browser at http://localhost:3000
-  # and makes cross-origin requests to https://dex.orbit.local.clearroute.io:5556.
+  # and makes cross-origin requests to https://dex.local.runkora.io:5556.
   allowedOrigins:
     - http://localhost:3000
-    - https://orbit.local.clearroute.io
-    - https://orbit.local.clearroute.io:8443
-    - https://dex.orbit.local.clearroute.io:8443
+    - https://local.runkora.io
+    - https://local.runkora.io:8443
+    - https://dex.local.runkora.io:8443
 
 oauth2:
   # Enable the Device Authorization Grant (RFC 8628).
@@ -66,14 +66,14 @@ logger:
 # ─── Clients ──────────────────────────────────────────────────────────────────
 
 staticClients:
-  - id: orbit-local
+  - id: kora-local
     name: "kora (local dev)"
     # public: true — no client secret required. Correct for Device Grant + CLI tooling.
     public: true
     redirectURIs:
       - "http://localhost:3000/auth/callback"
-      - "https://orbit.local.clearroute.io/auth/callback"
-      - "https://orbit.local.clearroute.io:8443/auth/callback"
+      - "https://local.runkora.io/auth/callback"
+      - "https://local.runkora.io:8443/auth/callback"
       - "/device/callback"
 
 # ─── Identity backend ────────────────────────────────────────────────────────
@@ -92,11 +92,11 @@ connectors:
       insecureNoSSL: true
 
       # Service account — Dex binds as this to search users/groups.
-      bindDN: cn=serviceuser,dc=orbit,dc=local
+      bindDN: cn=serviceuser,dc=kora,dc=local
       bindPW: password
 
       userSearch:
-        baseDN: dc=orbit,dc=local
+        baseDN: dc=kora,dc=local
         filter: "(objectClass=posixAccount)"
         username: mail
         idAttr: cn
@@ -104,7 +104,7 @@ connectors:
         nameAttr: givenName
 
       groupSearch:
-        baseDN: dc=orbit,dc=local
+        baseDN: dc=kora,dc=local
         filter: "(objectClass=posixGroup)"
         userMatchers:
           - userAttr: DN

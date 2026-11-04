@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * @tier 2 — Orbit-domain-aware: reads and writes `preferences.tables.columns`
+ * @tier 2 — kora-domain-aware: reads and writes `preferences.tables.columns`
  * via `usePreferences()`. Used by: model-gateway, policy, catalog, analytics.
  *
  * USAGE SCOPE: Requires `<PreferencesProvider>` in the ancestor tree, which is
@@ -19,25 +19,25 @@
  *
  * ```
  * Are you building inside (dashboard)/ (authenticated shell)?
- * ├── No  → use DataTable from @orbit/hades
+ * ├── No  → use DataTable from @runkora/hades
  * └── Yes → Does this table need column visibility persisted per user?
- *           ├── No  → use DataTable from @orbit/hades
- *           └── Yes → use SmartTable from @orbit/components  ← default choice
+ *           ├── No  → use DataTable from @runkora/hades
+ *           └── Yes → use SmartTable from @runkora/components  ← default choice
  * ```
  */
 
-import { DataTable } from '@orbit/hades';
-import type { DataTableProps } from '@orbit/hades';
+import { DataTable } from '@runkora/hades';
+import type { DataTableProps } from '@runkora/hades';
 import { usePreferences } from '../app/(dashboard)/_preferences/preferences-context';
 
 // Re-export column and filter types for caller convenience — one import covers all.
-export type { DataTableColumn } from '@orbit/hades';
+export type { DataTableColumn } from '@runkora/hades';
 export type {
   DataTableColumnFilter,
   DataTableClientFilter,
   DataTableServerFilter,
   DataTableFilterOption,
-} from '@orbit/hades';
+} from '@runkora/hades';
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 

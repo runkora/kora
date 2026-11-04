@@ -11,11 +11,11 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/convert"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // maxSystemOneBody caps the upstream answer read into memory. A body that
@@ -56,17 +56,16 @@ func (c *Connector) SystemOne(ctx context.Context, req inferencegw.SystemOneRequ
 			HTTPStatus:      http.StatusBadRequest,
 		}
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/systemone", bytes.NewReader(body))
-	if err != nil {
-		return nil, convert.MapOpenAIError(c.name, err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "application/json")
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	header.Set("Accept", "application/json")
 	if c.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+		header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
-	_, span, resp, err := c.decide.Do(ctx, "compatible.Connector.SystemOne", httpReq)
+	_, span, resp, err := c.decide.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/systemone", Header: header, Body: bytes.NewReader(body),
+	})
 	defer span.End()
 	if err != nil {
 		return nil, c.transportError(ctx, err)
@@ -79,20 +78,17 @@ func (c *Connector) SystemOne(ctx context.Context, req inferencegw.SystemOneRequ
 		if len(msg) > maxSystemOneErrorMessage {
 			msg = strings.ToValidUTF8(msg[:maxSystemOneErrorMessage], "")
 		}
-		span.SetAttributes(attribute.String("error.upstream_message", msg))
-		span.RecordError(fmt.Errorf("%w: status %d: %s", errSystemOneStatus, resp.StatusCode, msg))
-		span.SetStatus(codes.Error, errSystemOneStatus.Error())
+		span.SetAttributes(observability.ErrorUpstreamMessageKey.String(msg))
+		observability.RecordFailure(span, fmt.Errorf("%w: status %d: %s", errSystemOneStatus, resp.StatusCode, msg), errSystemOneStatus)
 		return nil, c.systemOneError(resp.StatusCode, msg)
 	}
 	out, err := io.ReadAll(io.LimitReader(resp.Body, maxSystemOneBody))
 	if err != nil {
-		span.RecordError(fmt.Errorf("%w: %w", errSystemOneReadBody, err))
-		span.SetStatus(codes.Error, errSystemOneReadBody.Error())
+		observability.RecordFailure(span, fmt.Errorf("%w: %w", errSystemOneReadBody, err), errSystemOneReadBody)
 		return nil, c.transportError(ctx, err)
 	}
 	if len(out) >= maxSystemOneBody {
-		span.RecordError(errSystemOneTooLarge)
-		span.SetStatus(codes.Error, errSystemOneTooLarge.Error())
+		observability.RecordFailure(span, errSystemOneTooLarge, errSystemOneTooLarge)
 		return nil, &inferencegw.ConnectorError{
 			Provider:        c.name,
 			Code:            "PROVIDER_ERROR",
@@ -127,10 +123,11 @@ func (c *Connector) transportError(ctx context.Context, err error) error {
 // retryable; 401 and 403 are the gateway's own credential for this provider,
 // so they are provider errors, not a client auth error.
 func (c *Connector) systemOneError(status int, msg string) error {
-	code, retryable := "PROVIDER_ERROR", false
+	code, retryable, rejected := "PROVIDER_ERROR", false, false
 	switch {
 	case status == http.StatusBadRequest, status == http.StatusUnprocessableEntity:
-		code = "INVALID_REQUEST"
+		// No other target can fix the caller's request, so stop failover.
+		code, rejected = "INVALID_REQUEST", true
 	case status == http.StatusTooManyRequests:
 		code, retryable = "THROTTLED", true
 	case status >= 500:
@@ -140,6 +137,7 @@ func (c *Connector) systemOneError(status int, msg string) error {
 		Provider:        c.name,
 		Code:            code,
 		Retryable:       retryable,
+		RequestRejected: rejected,
 		HTTPStatus:      status,
 		Underlying:      fmt.Errorf("status %d: %s", status, msg),
 		ProviderMessage: msg,

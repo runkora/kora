@@ -10,20 +10,20 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Tenant changes must re-evaluate sources even without a source event.
 func TestTenantReconciler_MarketplaceSourcesFollowTenantChanges(t *testing.T) {
 	ctx := context.Background()
 	tenant := marketTenant("acme", true)
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
 	otherTenant := marketTenant("other", true, "other-corp/skills")
-	otherSrc := marketSrc("orbit-tenant-other", "other", "other-corp", "skills", marketplaceT0)
+	otherSrc := marketSrc("kora-tenant-other", "other", "other-corp", "skills", marketplaceT0)
 	scheme := NewScheme()
 	c := fake.NewClientBuilder().WithScheme(scheme).
 		WithObjects(&tenant, &src, &otherTenant, &otherSrc).
-		WithStatusSubresource(&OrbitTenant{}, &SkillMarketplaceSource{}).
+		WithStatusSubresource(&KoraTenant{}, &SkillMarketplaceSource{}).
 		Build()
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	r := &TenantReconciler{
@@ -56,7 +56,7 @@ func TestTenantReconciler_MarketplaceSourcesFollowTenantChanges(t *testing.T) {
 	}
 	for _, step := range steps {
 		if !t.Run(step.name, func(t *testing.T) {
-			current := &OrbitTenant{}
+			current := &KoraTenant{}
 			if err := c.Get(ctx, key, current); err != nil {
 				t.Fatal(err)
 			}

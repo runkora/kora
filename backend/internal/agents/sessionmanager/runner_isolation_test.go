@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // ── buildFlags ────────────────────────────────────────────────────────────────
@@ -30,6 +30,8 @@ func TestBuildFlags_BaseFlags(t *testing.T) {
 		"--verbose",
 		"--include-partial-messages",
 		"--dangerously-skip-permissions",
+		"--strict-mcp-config",
+		"--setting-sources", "project,local",
 	}
 	for _, want := range always {
 		if !containsFlag(flags, want) {
@@ -39,7 +41,7 @@ func TestBuildFlags_BaseFlags(t *testing.T) {
 }
 
 // Every run must disable Claude Code's own commit trailer and PR footer:
-// Orbit, not the subprocess's default settings, is the record of who ran an
+// kora, not the subprocess's default settings, is the record of who ran an
 // agent.
 func TestBuildFlags_DisablesOwnAttribution(t *testing.T) {
 	r := NewClaudeRunner(ClaudeRunnerConfig{
@@ -207,7 +209,7 @@ func TestStart_RunHomeDirCreated(t *testing.T) {
 }
 
 func TestStart_PerRunTmpDirCreated(t *testing.T) {
-	// The per-run tmpdir is .tmp/{runID} beside the workspace, which orbit-session-runner
+	// The per-run tmpdir is .tmp/{runID} beside the workspace, which kora-session-runner
 	// grants and the sandbox mounts at /tmp. See docs/adr/2026-06-04-per-session-home-isolation.md.
 	_, workDir := startIsolated(t, ClaudeRunnerConfig{})
 	tmpDir := runfs.TmpDir(workDir)
@@ -280,15 +282,6 @@ func TestStart_OtherExtraEnvPreserved(t *testing.T) {
 	assertEnvContains(t, r.cmd.Env, "CUSTOM_VAR=hello")
 }
 
-func TestBuildRunEnv_RunNodeOptionsReplacesInherited(t *testing.T) {
-	// The per-run heap cap must win over a NODE_OPTIONS the pod carries, or
-	// Node would read whichever came first.
-	r := &ClaudeRunner{cfg: ClaudeRunnerConfig{ExtraEnv: []string{"NODE_OPTIONS=--max-old-space-size=512"}}}
-	env := r.buildRunEnv([]string{"NODE_OPTIONS=--max-old-space-size=8192"}, "/home", "/tmp")
-	assertEnvExact(t, env, "NODE_OPTIONS", "--max-old-space-size=512")
-	assertEnvNoDuplicates(t, env, "NODE_OPTIONS")
-}
-
 // ── cross-run isolation ───────────────────────────────────────────────────────
 
 func TestStart_SiblingRunsGetDistinctHOME(t *testing.T) {
@@ -349,7 +342,7 @@ func TestStart_WithWrapper_CommandIsWrapper(t *testing.T) {
 
 func TestStart_WithWrapper_ArgsLayout(t *testing.T) {
 	// The wrapper must receive: <workDir> <claudeBinary> [claude-flags...]
-	// so orbit-session-runner can apply Landlock and then exec claude.
+	// so kora-session-runner can apply Landlock and then exec claude.
 	truePath := stubBinary(t)
 	r, workDir := startIsolated(t, ClaudeRunnerConfig{
 		WrapperPath: truePath,
@@ -373,7 +366,7 @@ func TestStart_WithWrapper_ArgsLayout(t *testing.T) {
 }
 
 func TestStart_WithWrapper_TmpDirMatchesRunnerGrant(t *testing.T) {
-	// orbit-session-runner grants .tmp/{base} beside the workDir it receives as
+	// kora-session-runner grants .tmp/{base} beside the workDir it receives as
 	// argv[1]; TMPDIR must be exactly that directory or Landlock denies it.
 	truePath := stubBinary(t)
 	r, workDir := startIsolated(t, ClaudeRunnerConfig{

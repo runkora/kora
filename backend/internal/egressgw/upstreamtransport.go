@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 )
 
 // ErrTransportUnavailable is returned by TransportCache.For when a connection's
@@ -19,7 +19,7 @@ var ErrTransportUnavailable = errors.New("upstream transport unavailable")
 
 // upstreamTracer names the OTel tracer for the forward leg. ReverseProxy owns
 // the request lifecycle, so the span comes from the RoundTripper layer.
-const upstreamTracer = "orbit.egress-upstream"
+const upstreamTracer = "github.com/runkora/kora/backend/internal/egressgw"
 
 // TransportCache resolves the http.RoundTripper the proxy should use to
 // re-originate a call to a given connection's upstream. Connections with no
@@ -46,7 +46,7 @@ type TransportCache struct {
 func NewTransportCache(base *http.Transport) *TransportCache {
 	return &TransportCache{
 		base:   base,
-		shared: httpclient.NewTracingTransport(upstreamTracer, base),
+		shared: httpclient.NewTracingTransport(upstreamTracer, "", base),
 		byConn: make(map[string]http.RoundTripper),
 	}
 }
@@ -69,7 +69,7 @@ func (c *TransportCache) For(conn *credentials.Connection) (http.RoundTripper, e
 	if err != nil {
 		return nil, err
 	}
-	traced := httpclient.NewTracingTransport(upstreamTracer, clone)
+	traced := httpclient.NewTracingTransport(upstreamTracer, "", clone)
 
 	c.mu.Lock()
 	c.byConn[conn.ID] = traced

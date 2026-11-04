@@ -115,7 +115,7 @@ A pool counter can only be rebuilt after a Redis loss if usage rows record which
 
 ### Enforcement (inference gateway + Rego)
 
-- Gateway resolves run identity from `X-Orbit-Run-Id` (AGENT principals only), gathers the windows/pools applicable to the caller from bundle data + JWT roles, reads the corresponding canonical counters (rehydrating window-aware from `inference_usage` on miss), and passes a spends document to OPA: `{ run, principal: {weekly?, monthly?}, role_pools: {role: spend}, tenant: {weekly?, monthly?} }`.
+- Gateway resolves run identity from `X-Kora-Run-Id` (AGENT principals only), gathers the windows/pools applicable to the caller from bundle data + JWT roles, reads the corresponding canonical counters (rehydrating window-aware from `inference_usage` on miss), and passes a spends document to OPA: `{ run, principal: {weekly?, monthly?}, role_pools: {role: spend}, tenant: {weekly?, monthly?} }`.
 - `budget.rego` denies when ANY applicable ceiling is met:
   - principal per window: spend(window) ≥ MAX of (grant ∪ held-role per-member) limits for that window.
   - role pool: pool spend ≥ pool limit, for each held pooled role.
@@ -124,10 +124,10 @@ A pool counter can only be rebuilt after a Redis loss if usage rows record which
 - `incrementSpend` writes every applicable canonical counter (principal per configured window, pools, tenant, run) plus the existing attribution counters.
 - `inference_usage` gains nullable `run_id` and `principal_roles` columns — run/pool rehydration and audit.
 
-### Agent control plane (orbit-agents + session-manager)
+### Agent control plane (kora-agents + session-manager)
 
 - Session-manager runner sets the per-subprocess base-URL env with the `/run/{run_id}` path prefix (replacing the inherited pod-level value, same strip-and-replace pattern as `HOME`). Transparent to the agent runtime; sidecar token injection unchanged.
-- On `BUDGET_EXCEEDED` (gateway 403 — non-retryable so runtimes fail fast instead of retry-storming) surfacing from the subprocess, emit `run_error` with code `budget_exhausted`; the session closes immediately and orbit-agents transitions the run to a terminal `budget_exhausted` state instead of `failed`.
+- On `BUDGET_EXCEEDED` (gateway 403 — non-retryable so runtimes fail fast instead of retry-storming) surfacing from the subprocess, emit `run_error` with code `budget_exhausted`; the session closes immediately and kora-agents transitions the run to a terminal `budget_exhausted` state instead of `failed`.
 
 ### UI (Budgets page)
 
@@ -144,7 +144,7 @@ A pool counter can only be rebuilt after a Redis loss if usage rows record which
 
 - Tenant monthly cap (record, API, bundle, Rego, counters, UI card) with agent/service-only blocking.
 - Per-run limits on grant budgets (schema, bundle, Rego, run counter, UI field) enforced via request run context.
-- `run_id` on `inference_usage`; run-state handling of `BUDGET_EXCEEDED` in orbit-agents.
+- `run_id` on `inference_usage`; run-state handling of `BUDGET_EXCEEDED` in kora-agents.
 
 ### Out of Scope (future work, same model)
 

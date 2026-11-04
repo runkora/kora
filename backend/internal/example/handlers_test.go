@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/api"
 )
 
 // newTestServer wires a Controller over a fake repo and mounts it on a real
@@ -27,7 +27,7 @@ func newTestServer(t *testing.T) (http.Handler, *fakeRepo) {
 func TestHandleHello(t *testing.T) {
 	srv, _ := newTestServer(t)
 	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/example/hello/orbit", nil))
+	srv.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/example/hello/kora", nil))
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body: %s)", w.Code, w.Body.String())
@@ -36,8 +36,8 @@ func TestHandleHello(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if body["message"] != "Hello, orbit!" {
-		t.Errorf("message = %q, want %q", body["message"], "Hello, orbit!")
+	if body["message"] != "Hello, kora!" {
+		t.Errorf("message = %q, want %q", body["message"], "Hello, kora!")
 	}
 }
 

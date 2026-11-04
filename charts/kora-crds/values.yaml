@@ -1,0 +1,3 @@
+# No configurable behaviour. The CRDs are a separate release from kora so a
+# kora uninstall leaves them in place.
+{}

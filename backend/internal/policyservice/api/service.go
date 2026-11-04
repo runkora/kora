@@ -12,17 +12,28 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/policyservice/bundle"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/roles"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
-	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
+	"github.com/google/uuid"
+
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/policyservice/bundle"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/roles"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
+	"github.com/runkora/kora/backend/internal/policyservice/tenantbudget"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
 // ErrInvalidPrincipalType is returned when principal_type is not a known value.
 var ErrInvalidPrincipalType = errors.New("principal_type must be AGENT, HUMAN, PAT, or SERVICE")
+
+// ErrTenantScopeDeclaration is returned when a tenant-scoped registration
+// declares scopes. The vocabulary is global and only SYSTEM services write it.
+var ErrTenantScopeDeclaration = errors.New("tenant route registrations cannot declare scopes")
+
+// ErrInvalidRegistration is returned for a registration the policy service
+// refuses outright: an empty scope declaration, or a tenant route with no
+// scope or no path prefix.
+var ErrInvalidRegistration = errors.New("invalid route registration")
 
 // ScopeVocabularyError is returned when a grant includes a scope that is not
 // registered in the scope vocabulary.
@@ -87,6 +98,47 @@ func qualifiedConnectionScopeBase(scope string) (string, bool) {
 	base = append(base, parts[:len(parts)-2]...)
 	base = append(base, parts[len(parts)-1])
 	return strings.Join(base, ":"), true
+}
+
+// isTriggerFireScope reports whether scope is trigger:<trigger-id>:fire for a canonical UUID trigger id.
+// Trigger ids are data, so the vocabulary holds only trigger:fire and grants accept the per-trigger form by shape.
+func isTriggerFireScope(scope string) bool {
+	rest, ok := strings.CutPrefix(scope, "trigger:")
+	if !ok {
+		return false
+	}
+	id, ok := strings.CutSuffix(rest, ":fire")
+	if !ok {
+		return false
+	}
+	parsed, err := uuid.Parse(id)
+	return err == nil && parsed.String() == id
+}
+
+// validateScopes checks every scope against the vocabulary. A resource-qualified
+// connection scope is valid when its unqualified base is in the vocabulary.
+// For a grant, per-host egress and per-trigger fire scopes name data and are
+// checked by shape (ADR 2026-06-06, Amendment 2026-06-07). A role accepts them
+// only when registered in the vocabulary, as egress:connect is.
+func validateScopes(ctx context.Context, exists func(context.Context, string) (bool, error), scopes []string, grant bool) error {
+	for _, scope := range scopes {
+		if grant && (isStructurallyValidEgressScope(scope) || isTriggerFireScope(scope)) {
+			continue
+		}
+		ok, err := exists(ctx, scope)
+		if err != nil {
+			return fmt.Errorf("vocabulary check: %w", err)
+		}
+		if base, qualified := qualifiedConnectionScopeBase(scope); !ok && qualified {
+			if ok, err = exists(ctx, base); err != nil {
+				return fmt.Errorf("vocabulary check: %w", err)
+			}
+		}
+		if !ok {
+			return &ScopeVocabularyError{Scope: scope}
+		}
+	}
+	return nil
 }
 
 // recompileDebounce is the delay before a bundle recompilation fires. Multiple
@@ -188,34 +240,8 @@ func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalTyp
 		return nil, ErrInvalidPrincipalType
 	}
 
-	for _, scope := range scopes {
-		// Egress connectivity-posture scopes (egress:<host>:connect) name a
-		// destination HOST — open-ended data, not a bounded catalog capability —
-		// so they are validated structurally rather than against the scope
-		// vocabulary (there is no finite set of hostnames to pre-register).
-		// See ADR 2026-06-06-jit-credential-brokering-egress-gateway
-		// (Amendment 2026-06-07).
-		if isStructurallyValidEgressScope(scope) {
-			continue
-		}
-		exists, err := s.vocabRepo.Exists(ctx, scope)
-		if err != nil {
-			return nil, fmt.Errorf("vocabulary check: %w", err)
-		}
-		if !exists {
-			// Resource-qualified connection scopes are grant data over an open
-			// upstream set — validated structurally against their unqualified
-			// vocabulary base, mirroring egress host scopes above.
-			if base, ok := qualifiedConnectionScopeBase(scope); ok {
-				exists, err = s.vocabRepo.Exists(ctx, base)
-				if err != nil {
-					return nil, fmt.Errorf("vocabulary check: %w", err)
-				}
-			}
-		}
-		if !exists {
-			return nil, &ScopeVocabularyError{Scope: scope}
-		}
+	if err := validateScopes(ctx, s.vocabRepo.Exists, scopes, true); err != nil {
+		return nil, err
 	}
 
 	g := &grants.Grant{
@@ -305,32 +331,34 @@ func (s *Service) ListVocabulary(ctx context.Context, resourceType string) ([]*v
 }
 
 // ListVocabularyWithUsage returns all scopes with grant and role usage counts
-// scoped to a specific tenant. The admin role's scopes are derived, not
-// stored, so role_count is raised here for each scope the admin holds.
+// scoped to a specific tenant. Reserved roles are derived and never stored:
+// role_count is raised here for each reserved role holding the scope.
 func (s *Service) ListVocabularyWithUsage(ctx context.Context, resourceType, tenantID string) ([]*vocabulary.ScopeEntryWithUsage, error) {
 	entries, err := s.vocabRepo.ListWithUsage(ctx, resourceType, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	admin, err := s.adminScopes(ctx)
+	reserved, err := s.reservedRoles(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, e := range entries {
-		if slices.Contains(admin, e.Scope) {
-			e.RoleCount++
+		for _, scopes := range reserved {
+			if slices.Contains(scopes, e.Scope) {
+				e.RoleCount++
+			}
 		}
 	}
 	return entries, nil
 }
 
-// adminScopes derives the platform-admin scopes from the current vocabulary.
-func (s *Service) adminScopes(ctx context.Context) ([]string, error) {
+// reservedRoles derives the reserved roles' scopes from the current vocabulary.
+func (s *Service) reservedRoles(ctx context.Context) (map[string][]string, error) {
 	vocab, err := s.vocabRepo.List(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("list vocabulary: %w", err)
 	}
-	return bundle.AdminScopes(vocab), nil
+	return bundle.ReservedRoles(vocab), nil
 }
 
 // Stats returns aggregate counts across grants, roles, vocabulary, routes,
@@ -341,7 +369,7 @@ func (s *Service) Stats(ctx context.Context, tenantID string) (*statsResponse, e
 		return nil, fmt.Errorf("count grants: %w", err)
 	}
 
-	customRoleCount, err := s.roleRepo.CountByTenant(ctx, tenantID)
+	customRoleCount, err := s.roleRepo.CountByTenant(ctx, tenantID, bundle.ReservedRoleNames)
 	if err != nil {
 		return nil, fmt.Errorf("count roles: %w", err)
 	}
@@ -385,8 +413,8 @@ func (s *Service) Stats(ctx context.Context, tenantID string) (*statsResponse, e
 			ByPrincipalType: grantByType,
 		},
 		Roles: roleStats{
-			Total:    1 + customRoleCount,
-			Reserved: 1,
+			Total:    len(bundle.ReservedRoleNames) + customRoleCount,
+			Reserved: len(bundle.ReservedRoleNames),
 			Custom:   customRoleCount,
 		},
 		Vocabulary: vocabStats{
@@ -417,15 +445,31 @@ func (s *Service) GetScope(ctx context.Context, scope string) (*vocabulary.Scope
 // Grants apply to every principal type (an AGENT orchestrating the platform uses
 // its own grants regardless of type).
 func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalType, principalID string, principalRoles []string) ([]string, error) {
-	scopeSet := make(map[string]struct{})
+	// An empty type or ID would match every grant in the tenant. The bundle grants such a principal nothing.
+	if principalType == "" || principalID == "" {
+		return []string{}, nil
+	}
+	grantList, _, err := s.grantRepo.List(ctx, tenantID, grants.PrincipalType(principalType), principalID, 0, 0)
+	if err != nil {
+		return nil, fmt.Errorf("list grants: %w", err)
+	}
+	// One delegation-marked grant makes the bundle refuse every autonomous allow
+	// path to the principal, its other grants and roles included.
+	if slices.ContainsFunc(grantList, func(g *grants.Grant) bool { return g.DelegationRequired }) {
+		return []string{}, nil
+	}
 
+	scopeSet := make(map[string]struct{})
+	builtinSet := make(map[string]struct{})
 	if grants.PrincipalType(principalType) == grants.PrincipalTypeHuman {
-		if err := s.addRoleScopes(ctx, tenantID, principalRoles, scopeSet); err != nil {
+		if err = s.addRoleScopes(ctx, tenantID, principalRoles, scopeSet, builtinSet); err != nil {
 			return nil, err
 		}
 	}
-	if err := s.addGrantScopes(ctx, tenantID, grants.PrincipalType(principalType), principalID, scopeSet); err != nil {
-		return nil, err
+	for _, g := range grantList {
+		for _, sc := range g.Scopes {
+			scopeSet[sc] = struct{}{}
+		}
 	}
 
 	// Expand family-level scopes (e.g. "inference:anthropic:use") to also include
@@ -439,24 +483,39 @@ func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalType, 
 	}
 	expandScopeFamily(allVocab, scopeSet)
 	result := bundle.ExpandRequires(slices.Collect(maps.Keys(scopeSet)), allVocab)
+	// Built-in role scopes take no requires expansion, as in the bundle.
+	expandScopeFamily(allVocab, builtinSet)
+	for sc := range builtinSet {
+		if !slices.Contains(result, sc) {
+			result = append(result, sc)
+		}
+	}
 	sort.Strings(result)
 	return result, nil
 }
 
-// addRoleScopes populates scopeSet with scopes derived from the principal's OIDC roles.
-func (s *Service) addRoleScopes(ctx context.Context, tenantID string, principalRoles []string, scopeSet map[string]struct{}) error {
+// addRoleScopes populates scopeSet with scopes derived from the principal's OIDC
+// roles, and builtinSet with the scopes of its built-in kora-* roles.
+func (s *Service) addRoleScopes(ctx context.Context, tenantID string, principalRoles []string, scopeSet, builtinSet map[string]struct{}) error {
+	var reserved map[string][]string
 	for _, role := range principalRoles {
 		role = strings.TrimSpace(role)
 		if role == "" {
 			continue
 		}
-		if role == bundle.PlatformAdminRole {
-			admin, err := s.adminScopes(ctx)
-			if err != nil {
-				return err
+		if bundle.IsReservedRole(role) {
+			if reserved == nil {
+				var err error
+				if reserved, err = s.reservedRoles(ctx); err != nil {
+					return err
+				}
 			}
-			for _, sc := range admin {
-				scopeSet[sc] = struct{}{}
+			target := scopeSet
+			if bundle.IsBuiltinRole(role) {
+				target = builtinSet
+			}
+			for _, sc := range reserved[role] {
+				target[sc] = struct{}{}
 			}
 			continue
 		}
@@ -468,21 +527,6 @@ func (s *Service) addRoleScopes(ctx context.Context, tenantID string, principalR
 			continue
 		}
 		for _, sc := range entry.Scopes {
-			scopeSet[sc] = struct{}{}
-		}
-	}
-	return nil
-}
-
-// addGrantScopes populates scopeSet with scopes from explicit grants held by the
-// principal (matched by its type + id).
-func (s *Service) addGrantScopes(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, scopeSet map[string]struct{}) error {
-	grantList, _, err := s.grantRepo.List(ctx, tenantID, principalType, principalID, 0, 0)
-	if err != nil {
-		return fmt.Errorf("list grants: %w", err)
-	}
-	for _, g := range grantList {
-		for _, sc := range g.Scopes {
 			scopeSet[sc] = struct{}{}
 		}
 	}
@@ -535,20 +579,15 @@ func scopeCovers(a, b string) bool {
 }
 
 // UpsertRole creates or replaces the scope mapping for a role within a tenant.
-// All scopes must exist in the vocabulary. Reserved platform admin roles cannot
-// be modified.
+// Scopes are validated as for grants, except that per-host and connector egress
+// scopes stay agent grants: a role holds only egress scopes registered in the
+// vocabulary. Reserved roles cannot be modified.
 func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes []string, budget *roles.BudgetAssignment) (*roles.RoleEntry, error) {
-	if role == bundle.PlatformAdminRole {
+	if bundle.IsReservedRole(role) {
 		return nil, &ReservedRoleError{Role: role}
 	}
-	for _, scope := range scopes {
-		exists, err := s.vocabRepo.Exists(ctx, scope)
-		if err != nil {
-			return nil, fmt.Errorf("vocabulary check: %w", err)
-		}
-		if !exists {
-			return nil, &ScopeVocabularyError{Scope: scope}
-		}
+	if err := validateScopes(ctx, s.vocabRepo.Exists, scopes, false); err != nil {
+		return nil, err
 	}
 	entry := &roles.RoleEntry{TenantID: tenantID, Role: role, Scopes: scopes, Budget: budget}
 	if err := s.roleRepo.Upsert(ctx, entry); err != nil {
@@ -560,15 +599,40 @@ func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes 
 	return entry, nil
 }
 
+// UpdateRoleBudget sets or clears a role's budget and leaves its scopes alone.
+// Reserved roles carry no budget.
+func (s *Service) UpdateRoleBudget(ctx context.Context, tenantID, role string, budget *roles.BudgetAssignment) (*roles.RoleEntry, error) {
+	if bundle.IsReservedRole(role) {
+		return nil, &ReservedRoleError{Role: role}
+	}
+	entry, err := s.roleRepo.UpdateBudget(ctx, tenantID, role, budget)
+	if err != nil {
+		return nil, fmt.Errorf("update role budget: %w", err)
+	}
+	s.recordWrite(tenantID)
+	s.scheduleRecompile(ctx, tenantID)
+	s.scheduleGatewayRecompile(ctx)
+	return entry, nil
+}
+
 // GetRole returns the scope mapping for a specific role within a tenant.
+// A reserved role is derived from the vocabulary.
 func (s *Service) GetRole(ctx context.Context, tenantID, role string) (*roles.RoleEntry, error) {
-	return s.roleRepo.GetByRole(ctx, tenantID, role)
+	if !bundle.IsReservedRole(role) {
+		return s.roleRepo.GetByRole(ctx, tenantID, role)
+	}
+	vocab, err := s.vocabRepo.List(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("list vocabulary: %w", err)
+	}
+	return reservedRoleEntry(tenantID, role, vocab), nil
 }
 
 // ListRoles returns all role→scope mappings for a tenant, with the derived
-// admin role prepended on the first page so the dashboard can display it.
+// reserved roles prepended on the first page so the dashboard can display them.
 func (s *Service) ListRoles(ctx context.Context, tenantID string, limit, offset int) ([]*roles.RoleEntry, error) {
-	custom, err := s.roleRepo.ListByTenant(ctx, tenantID, limit, offset)
+	// A stored row under a reserved name is never compiled, so it is not listed.
+	custom, err := s.roleRepo.ListByTenant(ctx, tenantID, bundle.ReservedRoleNames, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -578,22 +642,32 @@ func (s *Service) ListRoles(ctx context.Context, tenantID string, limit, offset 
 		return custom, nil
 	}
 
-	admin, err := s.adminScopes(ctx)
+	vocab, err := s.vocabRepo.List(ctx, "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list vocabulary: %w", err)
 	}
-	reserved := &roles.RoleEntry{
-		ID:       "reserved-" + bundle.PlatformAdminRole,
-		TenantID: tenantID,
-		Role:     bundle.PlatformAdminRole,
-		Scopes:   admin,
+	out := make([]*roles.RoleEntry, 0, len(bundle.ReservedRoleNames)+len(custom))
+	for _, role := range bundle.ReservedRoleNames {
+		out = append(out, reservedRoleEntry(tenantID, role, vocab))
 	}
-	return append([]*roles.RoleEntry{reserved}, custom...), nil
+	return append(out, custom...), nil
+}
+
+// reservedRoleEntry builds the API view of a reserved role. A built-in role
+// lists the declared scopes the vocabulary does not hold yet as unregistered.
+func reservedRoleEntry(tenantID, role string, vocab []*vocabulary.ScopeEntry) *roles.RoleEntry {
+	entry := &roles.RoleEntry{ID: "reserved-" + role, TenantID: tenantID, Role: role, Reserved: true}
+	if role == bundle.PlatformAdminRole {
+		entry.Scopes = bundle.AdminScopes(vocab)
+	} else {
+		entry.Scopes, entry.UnregisteredScopes = bundle.BuiltinRoleScopes(role, vocab)
+	}
+	return entry
 }
 
 // DeleteRole removes the scope mapping for a role within a tenant.
 func (s *Service) DeleteRole(ctx context.Context, tenantID, role string) error {
-	if role == bundle.PlatformAdminRole {
+	if bundle.IsReservedRole(role) {
 		return &ReservedRoleError{Role: role}
 	}
 	if err := s.roleRepo.Delete(ctx, tenantID, role); err != nil {
@@ -611,11 +685,11 @@ func (s *Service) ListRoutes() []*routes.Registration {
 }
 
 // RegisterRoutes stores a service's route→scope mappings and upserts any declared
-// scopes into the vocabulary. Scope declarations are always upserted — services
-// are the authoritative owners of their scopes.
+// scopes into the vocabulary. A service updates only the scopes it registered
+// first; a declaration of another service's scope is skipped with a warning.
 //
-// For tenant-scoped registrations (tenantID != ""), any required scopes not
-// covered by the service's own declarations must already exist in the vocabulary.
+// Tenant-scoped registrations (tenantID != "") cannot declare scopes, and every
+// required scope must already exist in the vocabulary.
 // Global registrations (tenantID == "") trigger recompilation for all tenants.
 func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, routeScopes []routes.RouteScope, scopeDecls []routes.ScopeDeclaration) error {
 	return s.RegisterRoutesWithPrune(ctx, service, tenantID, routeScopes, scopeDecls, true)
@@ -629,11 +703,18 @@ func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, 
 // live mcp scopes from grants and roles. Tenant registrations never prune, so
 // prune is a no-op for them.
 func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID string, routeScopes []routes.RouteScope, scopeDecls []routes.ScopeDeclaration, prune bool) error {
-	// Upsert declared scopes into vocabulary first so that the existence check
-	// below sees the freshly declared entries. changed tracks whether this
-	// registration moved anything a bundle is compiled from: services
-	// re-register on a timer, and recompiling every tenant for a registration
-	// that changed nothing is pure load.
+	if err := validateRegistration(tenantID, routeScopes, scopeDecls); err != nil {
+		return err
+	}
+	if tenantID != "" {
+		if err := s.checkTenantRegistration(ctx, routeScopes, scopeDecls); err != nil {
+			return err
+		}
+	}
+
+	// changed tracks whether this registration moved anything a bundle is
+	// compiled from: services re-register on a timer, and recompiling every
+	// tenant for a registration that changed nothing is pure load.
 	incomingScopes, changed, err := s.upsertDeclaredScopes(ctx, service, scopeDecls)
 	if err != nil {
 		return err
@@ -657,22 +738,10 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 		changed = changed || stateChanged
 	}
 
-	if tenantID != "" {
-		for _, r := range routeScopes {
-			exists, xErr := s.vocabRepo.Exists(ctx, r.RequiredScope)
-			if xErr != nil {
-				return fmt.Errorf("vocabulary check: %w", xErr)
-			}
-			if !exists {
-				return &ScopeVocabularyError{Scope: r.RequiredScope}
-			}
-		}
-	}
-
 	if s.routeStore.Register(&routes.Registration{
 		Service:  service,
 		TenantID: tenantID,
-		Routes:   routeScopes,
+		Routes:   markAuthenticatedOnly(tenantID, routeScopes),
 		Scopes:   scopeDecls,
 	}) {
 		changed = true
@@ -696,6 +765,59 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 	return nil
 }
 
+// checkTenantRegistration enforces the rules for a tenant-scoped registration.
+// The vocabulary is shared by every tenant's bundle, so a tenant principal may
+// not write to it, and every route must name a scope that already exists.
+func (s *Service) checkTenantRegistration(ctx context.Context, routeScopes []routes.RouteScope, scopeDecls []routes.ScopeDeclaration) error {
+	if len(scopeDecls) > 0 {
+		return ErrTenantScopeDeclaration
+	}
+	for _, r := range routeScopes {
+		exists, err := s.vocabRepo.Exists(ctx, r.RequiredScope)
+		if err != nil {
+			return fmt.Errorf("vocabulary check: %w", err)
+		}
+		if !exists {
+			return &ScopeVocabularyError{Scope: r.RequiredScope}
+		}
+	}
+	return nil
+}
+
+// validateRegistration refuses an empty scope declaration, which would let an
+// empty route scope pass the vocabulary check. A tenant route always needs a
+// scope and a path prefix: only platform (global) registrations carry
+// authenticated-only routes.
+func validateRegistration(tenantID string, rs []routes.RouteScope, decls []routes.ScopeDeclaration) error {
+	for _, d := range decls {
+		if d.Scope == "" {
+			return fmt.Errorf("%w: empty scope declaration", ErrInvalidRegistration)
+		}
+	}
+	if tenantID == "" {
+		return nil
+	}
+	for _, r := range rs {
+		if r.RequiredScope == "" || r.PathPrefix == "" {
+			return fmt.Errorf("%w: tenant route %s %q needs a scope and a path prefix", ErrInvalidRegistration, r.Method, r.PathPrefix)
+		}
+	}
+	return nil
+}
+
+// markAuthenticatedOnly returns a copy of rs with every empty-scope global
+// route marked AuthenticatedOnly. An empty RequiredScope is the route-table
+// convention for "authenticated caller, checked in the service", and the
+// marker is what the rego reads. Tenant routes are never marked.
+func markAuthenticatedOnly(tenantID string, rs []routes.RouteScope) []routes.RouteScope {
+	out := make([]routes.RouteScope, len(rs))
+	for i, r := range rs {
+		r.AuthenticatedOnly = tenantID == "" && r.RequiredScope == ""
+		out[i] = r
+	}
+	return out
+}
+
 // upsertDeclaredScopes writes the service's declared scopes into the
 // vocabulary and reports the scope strings it declared plus whether any row
 // actually changed.
@@ -712,6 +834,14 @@ func (s *Service) upsertDeclaredScopes(ctx context.Context, service string, scop
 			RegisteredBy: service,
 			Requires:     scopeDecls[i].Requires,
 		})
+		// Skipping keeps a service that shares a scope name registering its routes.
+		if errors.Is(uErr, vocabulary.ErrScopeOwnedByAnother) {
+			s.logger.Warn(ctx, "scope declaration skipped: registered by another service",
+				logging.Field{Key: "scope", Value: scopeDecls[i].Scope},
+				logging.Field{Key: "service", Value: service},
+				logging.Field{Key: "error", Value: uErr.Error()})
+			continue
+		}
 		if uErr != nil {
 			return nil, false, fmt.Errorf("upsert scope %q: %w", scopeDecls[i].Scope, uErr)
 		}

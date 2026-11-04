@@ -16,7 +16,7 @@ import {
   Stack,
   Text,
   Textarea,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import { DelegatedRunNotice } from './motif/delegated-run-notice';
 import { fetchStartRun } from '../_services/agents-api';
 import type { AgentTypeRow } from '../_types';

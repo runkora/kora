@@ -2,24 +2,24 @@
  * Integration tests for GET /api/policy/grants and POST /api/policy/grants
  *
  * Strategy:
- * - `@orbit/server/config` is vi.mock'd to set `policyServiceUrl` without
+ * - `@runkora/server/config` is vi.mock'd to set `policyServiceUrl` without
  *   triggering `requireEnv` at import time.
- * - `@orbit/server/session` is vi.mock'd so `getSession` and `isSessionValid`
+ * - `@runkora/server/session` is vi.mock'd so `getSession` and `isSessionValid`
  *   return controllable state without a real iron-session cookie.
  * - MSW intercepts calls to `http://test-policy-svc/policy/grants`.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { NextRequest } from 'next/server';
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
-vi.mock('@orbit/server/config', () => ({
+vi.mock('@runkora/server/config', () => ({
   config: { policyServiceUrl: 'http://test-policy-svc' },
 }));
 
-vi.mock('@orbit/server/session', () => ({
+vi.mock('@runkora/server/session', () => ({
   getSession: vi.fn(),
   isSessionValid: vi.fn().mockReturnValue(true),
 }));
@@ -27,7 +27,7 @@ vi.mock('@orbit/server/session', () => ({
 // ── Import under test ─────────────────────────────────────────────────────────
 
 import { GET, POST } from './route';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -35,7 +35,7 @@ const GRANTS_URL = 'http://test-policy-svc/policy/grants';
 
 function makeSession(overrides: Record<string, unknown> = {}) {
   return {
-    user: { sub: 'test-sub', email: 'test@orbit.local', name: 'Test' },
+    user: { sub: 'test-sub', email: 'test@runkora.test', name: 'Test' },
     accessToken: 'test-access-token',
     refreshToken: 'test-refresh',
     expiresAt: Math.floor(Date.now() / 1000) + 3600,

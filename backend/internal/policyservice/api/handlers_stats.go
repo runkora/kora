@@ -3,8 +3,8 @@ package api
 import (
 	"net/http"
 
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
 )
 
 // statsResponse is the body for GET /policy/stats.
@@ -59,7 +59,7 @@ func (c *Controller) handleStats(w http.ResponseWriter, r *http.Request) {
 
 	supplied := r.URL.Query().Get("tenant_id")
 	if supplied == "" {
-		supplied = claims.Orbit.TenantID
+		supplied = claims.Kora.TenantID
 	}
 	tenantID, ok := c.resolveTenantID(w, r, claims, supplied)
 	if !ok {

@@ -10,25 +10,39 @@
  * Deliveries tab and the agent page so the two surfaces cannot drift.
  */
 
-import { Button, Icon, SidePanel, SidePanelBody, SidePanelHeader, Stack, Text } from '@orbit/hades';
-import { StatusBadge } from '@orbit/components';
+import {
+  Button,
+  Icon,
+  SidePanel,
+  SidePanelBody,
+  SidePanelHeader,
+  Stack,
+  Text,
+} from '@runkora/hades';
+import { StatusBadge } from '@runkora/components';
 import { DeliveryDetail } from './delivery-detail';
 import { deliveryStatusTone, formatTimestampUtc } from '../_types';
 import type { DeliveryRow } from '../_types';
+import { useHasScope } from '../../_components/permissions-provider';
+import type { RoutingAgentName } from './delivery-routing';
 
 export interface DeliveryDetailPanelProps {
   delivery: DeliveryRow;
   onClose: () => void;
-  /** Replays the delivery; absent for read-only callers. */
+  /** Replays the delivery. */
   onRedeliver?: (
     delivery: DeliveryRow,
   ) => Promise<{ deliveryId: string | null; error: string | null }>;
+  /** False when the caller lacks run authority on the trigger's agent. */
+  redeliverAllowed?: boolean;
   /**
    * Jumps to the owning trigger's configuration. Offered only when the caller
    * has somewhere to jump to: the platform page opens its drawer, the agent
    * page navigates to Triggers.
    */
   onOpenTrigger?: (triggerId: string) => void;
+  /** Names the agents a routing decision mentions. */
+  agents?: RoutingAgentName[];
 }
 
 /**
@@ -40,8 +54,11 @@ export function DeliveryDetailPanel({
   delivery,
   onClose,
   onRedeliver,
+  redeliverAllowed = true,
   onOpenTrigger,
+  agents,
 }: DeliveryDetailPanelProps) {
+  const canWrite = useHasScope('triggers:write');
   // Read once into a const so the narrowing survives into the click handler.
   const triggerId = delivery.triggerId;
   return (
@@ -59,7 +76,12 @@ export function DeliveryDetailPanel({
               {formatTimestampUtc(delivery.receivedAt)}
             </Text>
           </Stack>
-          <DeliveryDetail delivery={delivery} onRedeliver={onRedeliver} />
+          <DeliveryDetail
+            delivery={delivery}
+            onRedeliver={onRedeliver}
+            redeliverAllowed={canWrite && redeliverAllowed}
+            agents={agents}
+          />
           {triggerId !== null && onOpenTrigger !== undefined && (
             <Stack direction="horizontal" justify="end">
               <Button variant="ghost" size="xs" onClick={() => onOpenTrigger(triggerId)}>

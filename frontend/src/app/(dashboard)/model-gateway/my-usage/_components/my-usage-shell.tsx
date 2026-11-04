@@ -3,7 +3,7 @@
 import { AnalyticsMeProvider } from '../../_context/analytics-context';
 import { MyUsageTab } from './my-usage-tab';
 import type { AnalyticsResponse, BudgetStatus } from '../../_types';
-import type { PAT } from '@orbit/shared/api';
+import type { PAT } from '@runkora/shared/api';
 
 interface MyUsageShellProps {
   initialData: AnalyticsResponse | null;

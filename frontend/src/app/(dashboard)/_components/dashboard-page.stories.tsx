@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { dashboardPage } from '@orbit/storybook/dashboard-frame';
+import { dashboardPage } from '@runkora/storybook/dashboard-frame';
 import { DashboardPage } from './dashboard-page';
 import {
   ALERTING_WORKSPACE,

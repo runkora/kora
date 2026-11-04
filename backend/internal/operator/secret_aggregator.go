@@ -10,14 +10,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	sigsyaml "sigs.k8s.io/yaml"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 const (
-	// aggregatedSecretName is the Secret in orbit-system that collects all
+	// aggregatedSecretName is the Secret in kora-system that collects all
 	// per-tenant OIDC client secrets. The identity service mounts this as a
 	// volume and hot-reloads it when Kubelet updates the symlink.
-	aggregatedSecretName = "orbit-tenant-oidc-secrets"
+	aggregatedSecretName = "kora-tenant-oidc-secrets"
 
 	// aggregatedSecretKey is the key within the aggregated Secret that holds
 	// the YAML map of tenantID → clientSecret.
@@ -30,7 +30,7 @@ const (
 
 // ClientSecretAggregator reads per-tenant OIDC client secrets from the
 // Secrets referenced by spec.oidc.clientSecretRef and writes a single
-// aggregated Secret (orbit-tenant-oidc-secrets) in orbit-system.
+// aggregated Secret (kora-tenant-oidc-secrets) in kora-system.
 //
 // The identity service mounts this Secret as a file and hot-reloads it
 // via fsnotify when Kubelet writes a new symlink — tenant additions and
@@ -47,9 +47,9 @@ func NewClientSecretAggregator(c client.Client, logger logging.Logger) *ClientSe
 	return &ClientSecretAggregator{client: c, logger: logger}
 }
 
-// Sync reads the OIDC client secret for each active OrbitTenant that
+// Sync reads the OIDC client secret for each active KoraTenant that
 // specifies a clientSecretRef, then writes (or updates) the aggregated
-// Secret in orbit-system. Tenants without a clientSecretRef (public OIDC
+// Secret in kora-system. Tenants without a clientSecretRef (public OIDC
 // clients) are omitted — the identity service treats a missing entry as an
 // empty secret, which suppresses the client_secret parameter in token requests.
 //
@@ -76,12 +76,12 @@ func (a *ClientSecretAggregator) Sync(ctx context.Context) error {
 
 // listConfidentialTenants returns active tenants that have a clientSecretRef —
 // i.e. confidential OIDC clients that require a client_secret in token requests.
-func (a *ClientSecretAggregator) listConfidentialTenants(ctx context.Context) ([]OrbitTenant, error) {
-	list := &OrbitTenantList{}
+func (a *ClientSecretAggregator) listConfidentialTenants(ctx context.Context) ([]KoraTenant, error) {
+	list := &KoraTenantList{}
 	if err := a.client.List(ctx, list); err != nil {
-		return nil, fmt.Errorf("list OrbitTenants: %w", err)
+		return nil, fmt.Errorf("list KoraTenants: %w", err)
 	}
-	out := make([]OrbitTenant, 0, len(list.Items))
+	out := make([]KoraTenant, 0, len(list.Items))
 	for _, t := range list.Items {
 		if t.Spec.Active && t.Spec.OIDC.ClientSecretRef != nil {
 			out = append(out, t)
@@ -93,7 +93,7 @@ func (a *ClientSecretAggregator) listConfidentialTenants(ctx context.Context) ([
 // collectSecrets fetches the OIDC_CLIENT_SECRET key from each tenant's
 // referenced Secret. Missing Secrets and missing keys produce a warning and
 // are skipped rather than aborting the sync.
-func (a *ClientSecretAggregator) collectSecrets(ctx context.Context, tenants []OrbitTenant) (map[string]string, error) {
+func (a *ClientSecretAggregator) collectSecrets(ctx context.Context, tenants []KoraTenant) (map[string]string, error) {
 	out := make(map[string]string, len(tenants))
 	for _, t := range tenants {
 		ref := t.Spec.OIDC.ClientSecretRef
@@ -131,7 +131,7 @@ func (a *ClientSecretAggregator) collectSecrets(ctx context.Context, tenants []O
 	return out, nil
 }
 
-// upsertAggregatedSecret creates or patches orbit-tenant-oidc-secrets.
+// upsertAggregatedSecret creates or patches kora-tenant-oidc-secrets.
 // It is a no-op when the content is unchanged to avoid spurious Kubelet
 // volume re-mounts.
 func (a *ClientSecretAggregator) upsertAggregatedSecret(ctx context.Context, secrets map[string]string) error {
@@ -166,8 +166,8 @@ func (a *ClientSecretAggregator) createAggregatedSecret(ctx context.Context, pay
 			Name:      aggregatedSecretName,
 			Namespace: systemNamespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "orbit-operator",
-				"orbit.io/component":           "tenant-client-secrets",
+				"app.kubernetes.io/managed-by": "kora-operator",
+				"runkora.io/component":         "tenant-client-secrets",
 			},
 		},
 		Data: map[string][]byte{

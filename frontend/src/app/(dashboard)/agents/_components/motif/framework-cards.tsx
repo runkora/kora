@@ -2,8 +2,8 @@
 
 /** @tier 3 — agents-scoped motif: shared between the builder wizard and the detail Configuration tab. */
 
-import { Grid, RadioCard, RadioGroup } from '@orbit/hades';
-import type { AgentFramework } from '@orbit/shared/api';
+import { Grid, RadioCard, RadioGroup } from '@runkora/hades';
+import type { AgentFramework } from '@runkora/shared/api';
 
 export const FRAMEWORK_LABELS: Record<AgentFramework, string> = {
   'claude-code': 'Claude Code',
@@ -24,9 +24,12 @@ const FRAMEWORKS: { id: AgentFramework; name: string; desc: string }[] = [
 export function FrameworkCards({
   value,
   onChange,
+  disabled = false,
 }: {
   value: AgentFramework;
   onChange: (v: AgentFramework) => void;
+  /** Read-only, for callers who may not change the agent. */
+  disabled?: boolean;
 }) {
   return (
     <RadioGroup
@@ -44,6 +47,7 @@ export function FrameworkCards({
             icon="square-terminal"
             title={f.name}
             description={f.desc}
+            disabled={disabled}
           />
         ))}
       </Grid>

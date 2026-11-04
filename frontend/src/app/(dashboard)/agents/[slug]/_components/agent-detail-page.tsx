@@ -4,7 +4,7 @@
  * (docs/adr/2026-07-17-agent-detail-configuration.md §1). */
 
 import { useState } from 'react';
-import type { AgentOverviewResponse } from '@orbit/shared/api';
+import type { AgentOverviewResponse } from '@runkora/shared/api';
 import { useRouter } from 'next/navigation';
 import {
   Badge,
@@ -20,10 +20,10 @@ import {
   TabsTrigger,
   Text,
   EmptyState,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import Link from 'next/link';
-import { StatusBadge } from '@orbit/components';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { ManagedInGitBadge, PermissionHint, StatusBadge } from '@runkora/components';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { AgentOverviewTab } from './agent-overview-tab';
 import { useAgentOverview } from '../_hooks/use-agent-overview';
@@ -33,6 +33,7 @@ import { AgentRunsTab } from './agent-runs-tab';
 import { AgentConfigurationTab } from './agent-configuration-tab';
 import { AgentTriggersTab } from './agent-triggers-tab';
 import { StartRunModal } from '../../_components/start-run-modal';
+import { useHasScope } from '../../../_components/permissions-provider';
 
 interface AgentDetailPageProps {
   /** The default window's overview, fetched by the server render so first paint has data. */
@@ -45,6 +46,7 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
 
   const [startRunOpen, setStartRunOpen] = useState(false);
   const [tab, setTab] = useState('overview');
+  const canReadTriggers = useHasScope('triggers:read');
   // Set when another tab sends the reader to a Configuration step; any tab click clears it.
   const [configSection, setConfigSection] = useState<string | undefined>();
   const [period, setPeriod] = useState<Period>(DEFAULT_PERIOD);
@@ -140,6 +142,7 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
                 status={statusMap[agent.state] ?? 'unknown'}
                 label={labelMap[agent.state]}
               />
+              {agent.declared && <ManagedInGitBadge repository={agent.repository} />}
             </Stack>
             <Stack direction="horizontal" align="center" gap="snug" wrap>
               <Text as="span" mono size="supporting" color="subtle">
@@ -192,15 +195,17 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
               options={PERIOD_OPTIONS}
             />
           )}
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => setStartRunOpen(true)}
-            disabled={agent.state !== 'active'}
-          >
-            <Icon name="play" size="xs" />
-            Start Run
-          </Button>
+          <PermissionHint allowed={agent.canRun} action="start runs of this agent">
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => setStartRunOpen(true)}
+              disabled={!agent.canRun || agent.state !== 'active'}
+            >
+              <Icon name="play" size="xs" />
+              Start Run
+            </Button>
+          </PermissionHint>
         </Stack>
       </Stack>
 
@@ -222,9 +227,11 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
           <TabsTrigger value="configuration" icon="edit">
             Configuration
           </TabsTrigger>
-          <TabsTrigger value="triggers" icon="zap">
-            Triggers
-          </TabsTrigger>
+          {canReadTriggers && (
+            <TabsTrigger value="triggers" icon="zap">
+              Triggers
+            </TabsTrigger>
+          )}
         </TabsList>
         <TabsContent value="overview">
           <AgentOverviewTab
@@ -242,9 +249,11 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
         <TabsContent value="configuration">
           <AgentConfigurationTab initialSection={configSection} />
         </TabsContent>
-        <TabsContent value="triggers">
-          <AgentTriggersTab />
-        </TabsContent>
+        {canReadTriggers && (
+          <TabsContent value="triggers">
+            <AgentTriggersTab />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Start run modal */}

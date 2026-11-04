@@ -1,6 +1,7 @@
 import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
+import { renderWithProviders as render } from '@runkora/test-utils';
 
 import { TriggerList } from './trigger-list';
 import type { TriggerRow } from '../_types';
@@ -21,6 +22,7 @@ function list(overrides: Partial<ComponentProps<typeof TriggerList>> = {}) {
       sourceName={(id) => id}
       onOpen={vi.fn()}
       onToggle={vi.fn()}
+      canRunAgent={() => true}
       emptyMessage="No triggers yet."
       resetKey="all|"
       {...overrides}
@@ -123,5 +125,83 @@ describe('auto-paused', () => {
     // The toggle already reports that one.
     render(list({ triggers: [makeTrigger({ enabled: false })] }));
     expect(screen.queryByText('Auto-paused')).toBeNull();
+  });
+});
+
+describe('run authority', () => {
+  const routed = makeTrigger({
+    id: 'r1',
+    name: 'routed',
+    targetKind: 'routed',
+    agentTypeId: '',
+    routing: {
+      candidates: ['at-a', 'at-b'],
+      model: 'liquid/d1',
+      confidence: 'balanced',
+      fallbackAgentTypeId: null,
+      joinRuns: true,
+      joinKey: '',
+    },
+  });
+
+  it('lets a routed trigger be toggled only when every candidate can run', () => {
+    const view = render(list({ triggers: [routed], canRunAgent: (id) => id === 'at-a' }));
+    expect(screen.getByLabelText('Disable routed').hasAttribute('disabled')).toBe(true);
+
+    view.rerender(list({ triggers: [routed], canRunAgent: () => true }));
+    expect(screen.getByLabelText('Disable routed').hasAttribute('disabled')).toBe(false);
+  });
+});
+
+describe('chat command triggers', () => {
+  const chat = makeTrigger({
+    id: 'c1',
+    name: 'answer-mentions',
+    sourceId: 'slack-src',
+    eventType: 'mention',
+  });
+  const hook = makeTrigger({ id: 'w1', name: 'on-push', sourceId: 'gh-src', eventType: 'push' });
+  const category = (id: string) => (id === 'slack-src' ? 'chat' : 'webhook') as 'chat' | 'webhook';
+
+  it('shows the chat event by its label and a webhook event as its type', () => {
+    render(list({ triggers: [chat, hook], sourceCategory: category }));
+    expect(screen.getByText('Mention')).toBeTruthy();
+    expect(screen.getByText('push')).toBeTruthy();
+  });
+
+  it('finds a chat command by the label it shows', () => {
+    const dm = makeTrigger({
+      id: 'c2',
+      name: 'dm-helper',
+      sourceId: 'slack-src',
+      eventType: 'direct_message',
+    });
+    render(list({ triggers: [dm, hook], sourceCategory: category }));
+    fireEvent.change(screen.getByPlaceholderText('Search triggers…'), {
+      target: { value: 'direct message' },
+    });
+    expect(screen.getByText('dm-helper')).toBeTruthy();
+    expect(screen.queryByText('on-push')).toBeNull();
+  });
+
+  it('reads every trigger as a webhook when the caller knows no categories', () => {
+    render(list({ triggers: [chat] }));
+    expect(screen.getByText('mention')).toBeTruthy();
+  });
+});
+
+describe('source missing', () => {
+  it('marks a webhook trigger whose source was deleted', () => {
+    render(list({ triggers: [makeTrigger({ sourceId: '', sourceMissing: true })] }));
+    expect(screen.getByText('Source deleted')).toBeTruthy();
+    expect(screen.getByText('No source')).toBeTruthy();
+  });
+});
+
+describe('managed in git', () => {
+  it('marks a declared trigger and locks its switch', () => {
+    render(list({ triggers: [makeTrigger({ declared: true })] }));
+    expect(screen.getByText('Managed in git')).toBeTruthy();
+    expect(screen.getByRole('switch')).toBeDisabled();
   });
 });

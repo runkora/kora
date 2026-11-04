@@ -12,8 +12,9 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	"github.com/clear-route/orbit/internal/operator"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/operator"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // recordingManager keeps what initControllers adds, so a test can see which
@@ -60,7 +61,7 @@ func TestInitControllers_WiresSkillMarketplaceAggregation(t *testing.T) {
 		t.Fatalf("NewManager: %v", err)
 	}
 	mgr := &recordingManager{Manager: real}
-	if err := initControllers(mgr, logging.NewLoggerWithOutput(io.Discard), nil); err != nil {
+	if err := initControllers(mgr, logging.NewLoggerWithOutput(io.Discard), nil, brand.MustNew("kora")); err != nil {
 		t.Fatalf("initControllers: %v", err)
 	}
 
@@ -73,9 +74,9 @@ func TestInitControllers_WiresSkillMarketplaceAggregation(t *testing.T) {
 	if source.Aggregator == nil || source.Logger == nil {
 		t.Errorf("SkillMarketplaceSourceReconciler has Aggregator=%v Logger=%v, want both set", source.Aggregator, source.Logger)
 	}
-	tenant, ok := reconcilers["orbittenant"].(*operator.TenantReconciler)
+	tenant, ok := reconcilers["koratenant"].(*operator.TenantReconciler)
 	if !ok {
-		t.Fatalf("controller orbittenant = %T, want *TenantReconciler", reconcilers["orbittenant"])
+		t.Fatalf("controller koratenant = %T, want *TenantReconciler", reconcilers["koratenant"])
 	}
 	if tenant.MarketplaceAggregator == nil {
 		t.Error("TenantReconciler.MarketplaceAggregator is nil, so every tenant reconcile would panic")

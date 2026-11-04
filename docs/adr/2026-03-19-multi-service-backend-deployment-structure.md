@@ -21,9 +21,9 @@ However, the enforcement architecture has since been fully specified ([spiffe-sp
 
 The infrastructure SPIFFE ID model (established in `infrastructure/base/spiffe.yaml`) uses three generic `ClusterSPIFFEID` templates rather than per-service resources:
 
-- `orbit-system-component` — any pod in the `orbit-system` namespace carrying the label `spiffe.io/component: <name>` is automatically issued SPIFFE ID `spiffe://orbit.test/system/<name>`
-- `orbit-tenant-service` — any pod in the `orbit-tenant` namespace with label `spiffe.io/service: <name>` gets `spiffe://orbit.test/tenant/<namespace>/service/<name>`
-- `orbit-tenant-agent` — any pod in the `orbit-agent` namespace with label `spiffe.io/agent: <name>` gets `spiffe://orbit.test/tenant/<namespace>/agent/<name>`
+- `kora-system-component` — any pod in the `kora-system` namespace carrying the label `spiffe.io/component: <name>` is automatically issued SPIFFE ID `spiffe://orbit.test/system/<name>`
+- `kora-tenant-service` — any pod in the `kora-tenant` namespace with label `spiffe.io/service: <name>` gets `spiffe://orbit.test/tenant/<namespace>/service/<name>`
+- `kora-tenant-agent` — any pod in the `kora-agent` namespace with label `spiffe.io/agent: <name>` gets `spiffe://orbit.test/tenant/<namespace>/agent/<name>`
 
 No per-service `ClusterSPIFFEID` resource is required. A new service acquires its SPIFFE identity solely by setting the appropriate pod label. Application manifests live in `k8s/` (not `infrastructure/`), which handles cluster-level concerns only (SPIRE, Istio, namespaces, network policies).
 
@@ -128,7 +128,7 @@ We need to define:
 
 The Go module system's `internal/` visibility rules are sufficient to enforce the package boundaries that matter. A Go workspace is solving a problem we do not have. The mode-flag approach (Option A) papers over the deployment reality rather than modelling it.
 
-Option B produces code structure that directly mirrors the deployment topology: `backend/cmd/identity/` maps to a k8s Deployment in `k8s/identity.yaml`, labelled `spiffe.io/component: identity`, which the generic `orbit-system-component` ClusterSPIFFEID template automatically gives the SPIFFE ID `spiffe://orbit.test/system/identity`. The relationship from source to running workload is unambiguous.
+Option B produces code structure that directly mirrors the deployment topology: `backend/cmd/identity/` maps to a k8s Deployment in `k8s/identity.yaml`, labelled `spiffe.io/component: identity`, which the generic `kora-system-component` ClusterSPIFFEID template automatically gives the SPIFFE ID `spiffe://orbit.test/system/identity`. The relationship from source to running workload is unambiguous.
 
 ---
 
@@ -195,10 +195,10 @@ To give a service its SPIFFE identity, set the appropriate label on its pod:
 
 | Namespace | Pod label | Resulting SPIFFE ID |
 |---|---|---|
-| `orbit-system` | `spiffe.io/component: identity` | `spiffe://orbit.test/system/identity` |
-| `orbit-system` | `spiffe.io/component: ext-authz` | `spiffe://orbit.test/system/ext-authz` |
-| `orbit-tenant` | `spiffe.io/service: <name>` | `spiffe://orbit.test/tenant/<ns>/service/<name>` |
-| `orbit-agent` | `spiffe.io/agent: <name>` | `spiffe://orbit.test/tenant/<ns>/agent/<name>` |
+| `kora-system` | `spiffe.io/component: identity` | `spiffe://orbit.test/system/identity` |
+| `kora-system` | `spiffe.io/component: ext-authz` | `spiffe://orbit.test/system/ext-authz` |
+| `kora-tenant` | `spiffe.io/service: <name>` | `spiffe://orbit.test/tenant/<ns>/service/<name>` |
+| `kora-agent` | `spiffe.io/agent: <name>` | `spiffe://orbit.test/tenant/<ns>/agent/<name>` |
 
 Example pod template labels for the identity service:
 
@@ -366,7 +366,7 @@ Each service's `cmd/{service}/config/` directory contains the standard environme
 When a new service is introduced:
 1. Create `backend/cmd/{service}/main.go` — wire only the feature packages the service owns
 2. Create `backend/cmd/{service}/migrations/` — add SQL files for tables the service owns
-3. Add `k8s/{service}.yaml` — Deployment and ServiceAccount with `spiffe.io/component: {service}` pod label; the generic `orbit-system-component` ClusterSPIFFEID template issues the SPIFFE ID automatically
+3. Add `k8s/{service}.yaml` — Deployment and ServiceAccount with `spiffe.io/component: {service}` pod label; the generic `kora-system-component` ClusterSPIFFEID template issues the SPIFFE ID automatically
 4. Update `make build-all` to include the new binary target
 
 No `ClusterSPIFFEID` resource is required — step 3 is the only infrastructure touch point for SPIFFE identity.

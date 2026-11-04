@@ -2,13 +2,15 @@
 
 /** @tier 3 · agents/[slug]-scoped. The Overview tab. */
 
-import { Card, CardContent, CardHeader, Grid, Stack, Text } from '@orbit/hades';
-import { fmtTokens, fmtUsd } from '@orbit/utils';
+import { Card, CardContent, CardHeader, Grid, Stack, Text } from '@runkora/hades';
+import { fmtTokens, fmtUsd } from '@runkora/utils';
 import { StatTile } from '../../_components/agent-stat-tiles';
 import { Breakdown } from '../../_components/agents-spend-card';
 import { DEFAULT_PERIOD, PERIOD_DAYS, PERIOD_TEXT, changeText } from '../../_lib/spend';
 import type { AgentOverview } from '../../_lib/overview';
+import { managedInGit } from '@runkora/lib/declarative';
 import { formatDuration } from '../../_types';
+import { useTenantLocked } from '../../../_components/permissions-provider';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import type { WindowStatus } from '../../_hooks/use-period-cache';
 import { AgentInstructionsCard } from './agent-instructions-card';
@@ -56,6 +58,7 @@ function modelSegments(models: { name: string; cost: number }[]) {
 
 export function AgentOverviewTab({ overview, status, onEditInstructions }: AgentOverviewTabProps) {
   const { agent } = useAgentDetailContext();
+  const locked = useTenantLocked();
   if (!agent) return null;
 
   const usage = overview?.usage;
@@ -66,6 +69,13 @@ export function AgentOverviewTab({ overview, status, onEditInstructions }: Agent
   const runsFailed = overview ? overview.failed.runs : status === 'failed';
   const usageFailed = overview ? overview.failed.usage : status === 'failed';
   const loading = status === 'loading';
+  // Size the row to the tiles that render so they fill it. A failed part shows one card.
+  const tiles = (runs ? 3 : 0) + (usage ? 2 : 0) + (runsFailed ? 1 : 0) + (usageFailed ? 1 : 0);
+  const statCols = { base: 2, md: Math.min(tiles, 3), xl: Math.min(tiles, 5) } as {
+    base: 2;
+    md: 1 | 2 | 3;
+    xl: 1 | 2 | 3 | 4 | 5;
+  };
 
   return (
     <Stack
@@ -74,7 +84,7 @@ export function AgentOverviewTab({ overview, status, onEditInstructions }: Agent
       style={{ opacity: loading ? 0.6 : 1, transition: 'opacity 150ms' }}
     >
       {(usage || runs || runsFailed || usageFailed) && (
-        <Grid cols={{ base: 2, md: 3, xl: 5 }} gap="comfortable">
+        <Grid cols={statCols} gap="comfortable">
           {runsFailed && <CouldNotLoad title="Run stats" />}
           {usageFailed && <CouldNotLoad title="Tokens and spend" />}
           {runs && (
@@ -159,7 +169,12 @@ export function AgentOverviewTab({ overview, status, onEditInstructions }: Agent
       <Stack direction={{ base: 'vertical', xl: 'horizontal' }} gap="comfortable">
         <Stack gap="comfortable" grow minWidth="none">
           <RecentRunsTable />
-          <AgentInstructionsCard prompt={agent.systemPrompt} onEdit={onEditInstructions} />
+          {/* Edit stays visible but disabled where the configuration form would be read only. */}
+          <AgentInstructionsCard
+            prompt={agent.systemPrompt}
+            onEdit={onEditInstructions}
+            editDisabled={!agent.canEdit || managedInGit(agent.declared, locked)}
+          />
         </Stack>
 
         <Stack

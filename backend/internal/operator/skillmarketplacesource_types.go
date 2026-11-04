@@ -3,8 +3,8 @@
 // A SkillMarketplaceSource registers one GitHub repository as a skill
 // marketplace for the tenant that owns the namespace it is applied in. The
 // tenant comes from the namespace, never the spec. The operator's
-// SkillMarketplaceAggregator renders it into the orbit-system
-// orbit-skill-marketplace-sources ConfigMap skills-service mounts, but only
+// SkillMarketplaceAggregator renders it into the kora-system
+// kora-skill-marketplace-sources ConfigMap skills-service mounts, but only
 // once its owner/repo is on the tenant's spec.allowedMarketplaceRepos, and
 // reports the verdict on its status. Only the repository reaches
 // skills-service: it names the marketplace after the repo and reads the
@@ -17,7 +17,6 @@ import (
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // SkillMarketplaceSource phases.
@@ -27,11 +26,11 @@ const (
 	// the chart sets the marketplace list itself.
 	SkillMarketplaceSourcePhasePending = "Pending"
 	// SkillMarketplaceSourcePhaseAggregated means the source was rendered into
-	// orbit-skill-marketplace-sources for its tenant.
+	// kora-skill-marketplace-sources for its tenant.
 	SkillMarketplaceSourcePhaseAggregated = "Aggregated"
 	// SkillMarketplaceSourcePhaseInvalid means the source can never be served
 	// as applied: an older sibling already registers its repository, or it is in
-	// orbit-system.
+	// kora-system.
 	SkillMarketplaceSourcePhaseInvalid = "Invalid"
 )
 
@@ -56,6 +55,7 @@ const (
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=`.status.conditions[?(@.type=="Aggregated")].reason`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:object:generate=true
 type SkillMarketplaceSource struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -65,12 +65,14 @@ type SkillMarketplaceSource struct {
 }
 
 // SkillMarketplaceSourceSpec is the declared marketplace.
+// +kubebuilder:object:generate=true
 type SkillMarketplaceSourceSpec struct {
 	// GitHub is the repository to read skills from.
 	GitHub SkillMarketplaceSourceGitHub `json:"github"`
 }
 
 // SkillMarketplaceSourceGitHub names a GitHub repository.
+// +kubebuilder:object:generate=true
 type SkillMarketplaceSourceGitHub struct {
 	// Owner is the organization or user account that owns the repository.
 	// +kubebuilder:validation:MaxLength=39
@@ -93,6 +95,7 @@ func (g SkillMarketplaceSourceGitHub) repoKey() string {
 // SkillMarketplaceSourceStatus is the operator's verdict on the source.
 // Whether GitHub can actually serve the repository is skills-service runtime
 // state, not reported here.
+// +kubebuilder:object:generate=true
 type SkillMarketplaceSourceStatus struct {
 	// Phase is one of Pending|Aggregated|Invalid.
 	// +optional
@@ -107,78 +110,9 @@ type SkillMarketplaceSourceStatus struct {
 
 // SkillMarketplaceSourceList is a list of SkillMarketplaceSource resources.
 // +kubebuilder:object:root=true
+// +kubebuilder:object:generate=true
 type SkillMarketplaceSourceList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []SkillMarketplaceSource `json:"items"`
-}
-
-// -----------------------------------------------------------------------------
-// DeepCopy (hand-written, mirroring MCPServer)
-// -----------------------------------------------------------------------------
-
-// DeepCopyObject implements runtime.Object.
-func (s *SkillMarketplaceSource) DeepCopyObject() runtime.Object {
-	if s == nil {
-		return nil
-	}
-	out := new(SkillMarketplaceSource)
-	s.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies all fields into out. The spec holds only strings.
-func (s *SkillMarketplaceSource) DeepCopyInto(out *SkillMarketplaceSource) {
-	*out = *s
-	out.TypeMeta = s.TypeMeta
-	s.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
-	out.Spec = s.Spec
-	s.Status.DeepCopyInto(&out.Status)
-}
-
-// DeepCopy returns a deep copy.
-func (s *SkillMarketplaceSource) DeepCopy() *SkillMarketplaceSource {
-	if s == nil {
-		return nil
-	}
-	out := new(SkillMarketplaceSource)
-	s.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies the status, including the time pointer and conditions.
-func (s *SkillMarketplaceSourceStatus) DeepCopyInto(out *SkillMarketplaceSourceStatus) {
-	*out = *s
-	if s.LastReconciledAt != nil {
-		out.LastReconciledAt = s.LastReconciledAt.DeepCopy()
-	}
-	if s.Conditions != nil {
-		out.Conditions = make([]metav1.Condition, len(s.Conditions))
-		for i := range s.Conditions {
-			s.Conditions[i].DeepCopyInto(&out.Conditions[i])
-		}
-	}
-}
-
-// DeepCopyObject implements runtime.Object for SkillMarketplaceSourceList.
-func (l *SkillMarketplaceSourceList) DeepCopyObject() runtime.Object {
-	if l == nil {
-		return nil
-	}
-	out := new(SkillMarketplaceSourceList)
-	l.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies all fields into out.
-func (l *SkillMarketplaceSourceList) DeepCopyInto(out *SkillMarketplaceSourceList) {
-	*out = *l
-	out.TypeMeta = l.TypeMeta
-	l.ListMeta.DeepCopyInto(&out.ListMeta)
-	if l.Items != nil {
-		out.Items = make([]SkillMarketplaceSource, len(l.Items))
-		for i := range l.Items {
-			l.Items[i].DeepCopyInto(&out.Items[i])
-		}
-	}
 }

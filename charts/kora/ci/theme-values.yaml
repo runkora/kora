@@ -1,0 +1,14 @@
+# A configured theme for the render matrix. Slots hold URLs, so nothing is fetched.
+theme:
+  document: |
+    koraVersion: "1.0.0"
+    productName: Acme Agents
+    tokens:
+      --hades-raw-100:
+        dark: "#0b1020"
+        light: "#f4f6fb"
+    slots:
+      logo:
+        dark: https://assets.acme.example/brand/logo-dark.svg
+        light: https://assets.acme.example/brand/logo-light.svg
+      font.sans: https://assets.acme.example/brand/sans.woff2

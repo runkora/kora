@@ -30,6 +30,11 @@ export interface HumanTurn {
   delivery?: Delivery;
   /** Why a send failed; set with delivery 'failed'. */
   error?: string;
+  /**
+   * Set on a message a trigger sent to this run while it was working: the
+   * trigger's name, or its id when the name is unknown.
+   */
+  fromTrigger?: string;
 }
 
 export interface ToolCall {
@@ -80,7 +85,7 @@ export interface ErrorTurn {
 export type AgentElement =
   | { kind: 'text'; content: string }
   | { kind: 'tool'; tool: ToolCall }
-  /** A stopped turn; byGuardrail when Orbit's loop guard paused it, not the user. */
+  /** A stopped turn; byGuardrail when kora's loop guard paused it, not the user. */
   | { kind: 'stopped'; byGuardrail?: boolean }
   /** A platform notice, such as a guardrail asking the agent to change approach. */
   | { kind: 'notice'; message: string; tone?: 'error' }
@@ -171,4 +176,12 @@ export interface RunChatState {
   startedBy: string | null;
   /** True when the agent is delegated: the run acts on the starter's behalf and is private to them. */
   delegated: boolean;
+  /** Whether the caller may message or stop this run. Null until known, which leaves it to the API. */
+  canSteer: boolean | null;
+  /** Why the run could not be loaded; the page shows this instead of an empty thread. */
+  loadError: string | null;
+  /** Why the last Stop was refused; null when it was not. */
+  stopError: string | null;
+  /** The run's trace viewer link; null without a trace URL template or a sampled trace. */
+  traceUrl: string | null;
 }

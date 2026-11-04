@@ -3,6 +3,7 @@
 // Mirrors the JSON shapes returned by the policy-service (PAP) and
 // policy-gateway (PDP). Feature-local — NOT in shared/api.ts.
 // Only promote to shared when another feature module needs them.
+import type { ResourceSource } from '@runkora/shared/api';
 
 // ── Budget ───────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,8 @@ export interface TenantBudget {
   limit_usd: number;
   reset_cadence: string;
   updated_at?: string;
+  /** "crd" when the budget is declared on the tenant's resource. */
+  source?: ResourceSource;
 }
 
 // ── Grants ───────────────────────────────────────────────────────────────────
@@ -62,6 +65,14 @@ export interface RoleEntry {
   scopes: string[];
   budget?: BudgetAssignment | null;
   created_at: string;
+  /** Set on platform-derived roles (platform-admin and the built-in kora-* roles). */
+  reserved?: boolean;
+  /** Built-in role scopes no service has registered yet. */
+  unregistered_scopes?: string[];
+  /** "crd" when the role is declared in the configuration repository. Reserved roles omit it. */
+  source?: ResourceSource;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 export interface RolesListResponse {
@@ -159,7 +170,7 @@ export interface TenantBundleStatus {
 
 // ── Scopes Explain (policy-gateway) ──────────────────────────────────────────
 
-export type { GrantDetail, RoleDetail, ScopesExplainResponse } from '@orbit/shared/api';
+export type { GrantDetail, RoleDetail, ScopesExplainResponse } from '@runkora/shared/api';
 
 // ── Check Simulate (policy-gateway) ──────────────────────────────────────────
 

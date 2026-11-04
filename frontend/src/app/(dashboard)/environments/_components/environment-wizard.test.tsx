@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { TooltipProvider } from '@orbit/hades';
-import type { EnvironmentSizes, SandboxImage } from '@orbit/shared/api';
+import { TooltipProvider } from '@runkora/hades';
+import type { EnvironmentSizes, SandboxImage } from '@runkora/shared/api';
 import { EnvironmentWizard, nameFromImage, stepForError } from './environment-wizard';
 import type { EnvironmentRow } from '../_types';
 
@@ -14,7 +14,7 @@ vi.mock('../_services/environments-api', () => ({
   previewEnvironmentAccess: () => new Promise(() => {}),
 }));
 
-vi.mock('@orbit/components', () => ({
+vi.mock('@runkora/components', () => ({
   ConnectionCards: () => null,
   EffectiveAccessPanel: () => null,
 }));
@@ -43,6 +43,7 @@ const ROW: EnvironmentRow = {
   connectors: [],
   createdAt: '',
   updatedAt: '',
+  declared: false,
 };
 
 const REVIEW_ROW: EnvironmentRow = {
@@ -56,6 +57,7 @@ const REVIEW_ROW: EnvironmentRow = {
   connectors: [{ connection: 'github', actions: ['repo:read'] }],
   createdAt: '',
   updatedAt: '',
+  declared: false,
 };
 
 const SIZES: EnvironmentSizes = {

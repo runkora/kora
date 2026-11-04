@@ -7,19 +7,19 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
 // PolicyConfig configures the in-process OPA policy evaluator and the
 // policy-service client used for route/scope registration.
 type PolicyConfig struct {
 	// BundleEndpoint is the base URL for the policy-service bundle API.
-	// e.g. http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles
+	// e.g. http://kora-policy-service.kora-system.svc/api/v1/policy/bundles
 	BundleEndpoint         string `yaml:"bundleEndpoint"`
 	BundlePollIntervalSecs int    `yaml:"bundlePollIntervalSecs"`
 	// PolicyServiceURL is the base URL of the policy service.
 	// Used for route registration at startup.
-	// e.g. http://orbit-policy-service.orbit-system.svc
+	// e.g. http://kora-policy-service.kora-system.svc
 	PolicyServiceURL string `yaml:"policyServiceURL"`
 	RegisterRoutes   bool   `yaml:"registerRoutes"`
 }
@@ -37,7 +37,7 @@ func (c *PolicyConfig) BundlePollInterval() time.Duration {
 // Secrets and deployment-specific paths are loaded from env vars only, never
 // from YAML (per AGENTS.md "No secrets in YAML"):
 //   - REDIS_HOST / REDIS_PASSWORD          — owned by internal/platform/storage
-//   - ORBIT_MARKETPLACE_SOURCES_CONFIG     — ConfigMap mount path
+//   - KORA_MARKETPLACE_SOURCES_CONFIG     — ConfigMap mount path
 //   - GITHUB_APP_ID / GITHUB_APP_INSTALLATION_ID / GITHUB_APP_PRIVATE_KEY_PATH
 //     — GitHub App credentials for the TokenProvider
 type Config struct {
@@ -64,7 +64,7 @@ type Config struct {
 
 	Marketplace struct {
 		// SourcesConfigPath is the path to the mounted skills-mapping.yaml.
-		// Loaded from ORBIT_MARKETPLACE_SOURCES_CONFIG — never from YAML.
+		// Loaded from KORA_MARKETPLACE_SOURCES_CONFIG — never from YAML.
 		SourcesConfigPath string `yaml:"-"`
 
 		// LocalTenantID, when non-empty, bypasses token auth and uses this
@@ -108,9 +108,9 @@ func (c *Config) CacheTTL() time.Duration {
 // must be present at boot; missing values return an error so the readiness
 // probe fails fast rather than surfacing a 5xx on the first user request.
 func (c *Config) ApplyEnvOverrides() error {
-	dir := os.Getenv("ORBIT_MARKETPLACE_SOURCES_CONFIG")
+	dir := os.Getenv("KORA_MARKETPLACE_SOURCES_CONFIG")
 	if dir == "" {
-		return fmt.Errorf("ORBIT_MARKETPLACE_SOURCES_CONFIG environment variable is required")
+		return fmt.Errorf("KORA_MARKETPLACE_SOURCES_CONFIG environment variable is required")
 	}
 	c.Marketplace.SourcesConfigPath = filepath.Join(dir, "skills-mapping.yaml")
 

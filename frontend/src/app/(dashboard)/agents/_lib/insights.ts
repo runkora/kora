@@ -1,5 +1,5 @@
-import { fmtDateAxis } from '@orbit/utils';
-import type { AgentBudgetStatus, AgentInsightsResponse } from '@orbit/shared/api';
+import { fmtDateAxis } from '@runkora/utils';
+import type { AgentBudgetStatus, AgentInsightsResponse } from '@runkora/shared/api';
 import { closestToLimit } from './spend';
 import type { BudgetRow, Period, PeriodData } from './spend';
 

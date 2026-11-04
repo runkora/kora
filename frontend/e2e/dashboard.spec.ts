@@ -23,7 +23,7 @@ import { injectSessionCookie } from './fixtures';
 // ── Shared fixture data ────────────────────────────────────────────────────────
 
 const SESSION_RESPONSE = {
-  user: { sub: 'user-e2e', email: 'e2e@orbit.local', name: 'E2E User' },
+  user: { sub: 'user-e2e', email: 'e2e@runkora.test', name: 'E2E User' },
   expiresAt: Math.floor(Date.now() / 1000) + 3600,
   permissions: { scopes: [], evaluatedAt: Math.floor(Date.now() / 1000) },
 };

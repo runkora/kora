@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw';
-import { ApiRoute } from '@orbit/lib/routing';
+import { ApiRoute } from '@runkora/lib/routing';
 import { createSessionPayload } from '../../factories/session';
 
 /**

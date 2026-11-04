@@ -16,9 +16,9 @@ func TestProcessor_CollectorGetsNoTokens(t *testing.T) {
 	p := NewProcessor(cache, nil, testCollector, discardLogger())
 
 	resp := p.handleRequestHeaders(context.Background(), reqHeaders(map[string]string{
-		":authority":               "OTEL-Collector.observability.svc:4317",
-		":path":                    "/opentelemetry.proto.collector.trace.v1.TraceService/Export",
-		"x-orbit-delegation-token": "forged",
+		":authority":              "OTEL-Collector.observability.svc:4317",
+		":path":                   "/opentelemetry.proto.collector.trace.v1.TraceService/Export",
+		"x-kora-delegation-token": "forged",
 	}))
 	mutation := mutationOf(t, resp)
 	if len(mutation.GetSetHeaders()) != 0 {
@@ -35,7 +35,7 @@ func TestProcessor_OtherAuthorityStillGetsToken(t *testing.T) {
 	p := NewProcessor(cache, nil, testCollector, discardLogger())
 
 	resp := p.handleRequestHeaders(context.Background(), reqHeaders(map[string]string{
-		":authority": "orbit-inference-gateway.orbit-system.svc.cluster.local",
+		":authority": "kora-inference-gateway.kora-system.svc.cluster.local",
 		":path":      "/v1/messages",
 	}))
 	if got := setHeaderValue(mutationOf(t, resp), authorizationHeader); got != "Bearer bearer-xyz" {

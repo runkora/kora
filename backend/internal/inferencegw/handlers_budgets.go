@@ -3,7 +3,7 @@ package inferencegw
 import (
 	"net/http"
 
-	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/api"
 )
 
 // ─── GET /v1/budgets/principals ──────────────────────────────────────────────
@@ -18,7 +18,7 @@ import (
 func (c *Controller) handleListBudgetPrincipals(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	ctx, span := tracer.Start(ctx, "handleListBudgetPrincipals")
+	ctx, span := tracer.Start(ctx, "inferencegw.Controller.handleListBudgetPrincipals")
 	defer span.End()
 
 	p, err := principalFromClaims(ctx)

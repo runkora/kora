@@ -1,7 +1,7 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
-import { config } from '@orbit/server/config';
+import { withAuth } from '@runkora/server/route-helpers';
+import { config } from '@runkora/server/config';
 
 type Params = { runId: string };
 
@@ -9,7 +9,7 @@ export const GET = withAuth(
   async (req: NextRequest, session, context?: { params: Promise<Params> }) => {
     const { runId } = await (context?.params ?? Promise.resolve({ runId: '' }));
 
-    const upstreamUrl = `${config.orbitAgentsUrl}/api/v1/runs/${runId}/events`;
+    const upstreamUrl = `${config.koraAgentsUrl}/api/v1/runs/${runId}/events`;
     const headers: HeadersInit = {
       Accept: 'text/event-stream',
       Authorization: `Bearer ${session.accessToken}`,

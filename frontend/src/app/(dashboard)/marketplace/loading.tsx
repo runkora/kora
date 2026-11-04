@@ -1,4 +1,4 @@
-import { Skeleton, Stack } from '@orbit/hades';
+import { Skeleton, Stack } from '@runkora/hades';
 import { MarketplaceResultsSkeleton } from './_components/marketplace-results-skeleton';
 
 /**

@@ -1,11 +1,13 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/policyservice/tenantbudget"
 )
 
 // handleUpsertTenantBudget handles PUT /policy/tenant-budget.
@@ -19,23 +21,18 @@ func (c *Controller) handleUpsertTenantBudget(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
+	if c.refuseDelegated(ctx, w) {
+		return
+	}
 
 	var req tenantBudgetRequest
 	if !platformapi.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
 
-	if req.LimitUSD <= 0 {
-		platformapi.ErrorResponse(ctx, w, c.logger,
-			platformapi.ValidationError(platformapi.ErrCodeInvalidField,
-				"limit_usd must be greater than zero", nil), nil)
-		return
-	}
-	cadence, okCadence := normalizeCadence(req.ResetCadence)
-	if !okCadence {
-		platformapi.ErrorResponse(ctx, w, c.logger,
-			platformapi.ValidationError(platformapi.ErrCodeInvalidField,
-				"reset_cadence must be 'weekly' or 'monthly'", nil), nil)
+	cadence, apiErr := validTenantBudget(req.LimitUSD, req.ResetCadence)
+	if apiErr != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
 
@@ -49,7 +46,14 @@ func (c *Controller) handleUpsertTenantBudget(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	if c.refuseDeclaredTenantBudget(ctx, w, tenantID) {
+		return
+	}
+
 	tb, err := c.svc.UpsertTenantBudget(ctx, tenantID, req.LimitUSD, cadence)
+	if declarative.WriteRefusal(ctx, w, c.logger, err) {
+		return
+	}
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.InternalError(platformapi.ErrCodeDatabaseError, "tenant budget operation failed", nil), err)
@@ -97,9 +101,16 @@ func (c *Controller) handleDeleteTenantBudget(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
+	if c.refuseDelegated(ctx, w) {
+		return
+	}
 
 	tenantID, ok := c.resolveTenantID(w, r, claims, r.URL.Query().Get("tenant_id"))
 	if !ok {
+		return
+	}
+
+	if c.refuseDeclaredTenantBudget(ctx, w, tenantID) {
 		return
 	}
 
@@ -115,4 +126,23 @@ func (c *Controller) handleDeleteTenantBudget(w http.ResponseWriter, r *http.Req
 	}
 
 	platformapi.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
+}
+
+// refuseDeclaredTenantBudget writes 409 while the tenant's KoraTenant declares its budget.
+func (c *Controller) refuseDeclaredTenantBudget(ctx context.Context, w http.ResponseWriter, tenantID string) bool {
+	_, declared := c.registry.TenantBudget(tenantID)
+	return declared && declarative.WriteRefusal(ctx, w, c.logger, declarative.ErrManagedByResource)
+}
+
+// validTenantBudget checks a tenant budget and normalizes its cadence. The API
+// and the declared budget sync both call it.
+func validTenantBudget(limitUSD float64, cadence string) (string, *platformapi.APIError) {
+	if limitUSD <= 0 {
+		return "", platformapi.ValidationError(platformapi.ErrCodeInvalidField, "limit_usd must be greater than zero", nil)
+	}
+	normalized, ok := normalizeCadence(cadence)
+	if !ok {
+		return "", platformapi.ValidationError(platformapi.ErrCodeInvalidField, "reset_cadence must be 'weekly' or 'monthly'", nil)
+	}
+	return normalized, nil
 }

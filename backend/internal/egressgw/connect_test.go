@@ -16,13 +16,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/credentials/adapters/githubapp"
-	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
-	"github.com/clear-route/orbit/internal/egressgw/tlsca"
-	"github.com/clear-route/orbit/internal/egressgw/tlsca/testtlsca"
-	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/githubapp"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
+	"github.com/runkora/kora/backend/internal/egressgw/tlsca"
+	"github.com/runkora/kora/backend/internal/egressgw/tlsca/testtlsca"
+	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // fixedCABundle is a one-tenant CABundle for tests.
@@ -102,13 +102,13 @@ func TestConnect_EndToEnd_GitHubMintAndForward(t *testing.T) {
 		InstallationID int64             `json:"installation_id"`
 		Repositories   []string          `json:"repositories"`
 		Permissions    map[string]string `json:"permissions"`
-	}{AppID: "12345", InstallationID: 42, Repositories: []string{"orbit"}, Permissions: map[string]string{"contents": "write"}})
+	}{AppID: "12345", InstallationID: 42, Repositories: []string{"kora"}, Permissions: map[string]string{"contents": "write"}})
 
 	repo := &memConnRepo{items: map[string]*credentials.Connection{}}
 	_ = repo.Create(context.Background(), &credentials.Connection{
 		ID: "conn-1", TenantID: "acme", Name: "github",
 		Adapter: credentials.AdapterGitHubApp, BaseHost: upstreamHost,
-		SecretRef: "k8s:orbit-conn-acme-github", Config: cfg,
+		SecretRef: "k8s:kora-conn-acme-github", Config: cfg,
 	})
 
 	gh := githubapp.New(ghclient.NewClient(githubAPI.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
@@ -120,10 +120,10 @@ func TestConnect_EndToEnd_GitHubMintAndForward(t *testing.T) {
 	// Forward transport must accept the upstream's self-signed cert. The
 	// proxy itself terminates inbound TLS via the IssuingCA.
 	forwardTransport := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-	proxyInner := NewProxyHandler(broker, forwardTransport, logger)
+	proxyInner := NewProxyHandler(broker, forwardTransport, testBrand, logger)
 
 	// Wrap proxyInner with claims-injection so the broker sees a verified caller.
-	innerWithAuth := authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-9"), proxyInner)
+	innerWithAuth := authInjector(claimsFor("acme", "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder", "run-9"), proxyInner)
 
 	// Wrap the single test CA in a one-tenant bundle so it satisfies
 	// CABundle. In production this comes from cabundle.LoadEager scanning the
@@ -138,7 +138,7 @@ func TestConnect_EndToEnd_GitHubMintAndForward(t *testing.T) {
 	// We bypass http.ServeMux because its routing is path-based and CONNECT
 	// requests carry host:port in the request-target (no path). The simplest
 	// correct behavior is to register a handler that always runs.
-	gatewayHandler := authInjector(claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-9"), connect)
+	gatewayHandler := authInjector(claimsFor("acme", "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder", "run-9"), connect)
 
 	// httptest.NewServer is plain HTTP, which is what we want here: the proxy
 	// connection itself doesn't need TLS in the test (in production it sits
@@ -174,7 +174,7 @@ func TestConnect_EndToEnd_GitHubMintAndForward(t *testing.T) {
 	//   2. On 200, perform a TLS handshake; the gateway's IssuingCA mints a
 	//      leaf with that SNI which the client accepts via the trusted root.
 	//   3. Send the actual GET as a plain HTTP request inside the TLS tunnel.
-	reqURL := "https://" + upstreamHost + "/orbit/orbit.git/info/refs?service=git-receive-pack"
+	reqURL := "https://" + upstreamHost + "/kora/kora.git/info/refs?service=git-receive-pack"
 	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
 		t.Fatalf("build req: %v", err)

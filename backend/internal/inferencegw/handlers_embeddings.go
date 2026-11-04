@@ -5,7 +5,7 @@ import (
 
 	openai "github.com/openai/openai-go/v3"
 
-	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/api"
 )
 
 // ─── POST /embeddings ─────────────────────────────────────────────────────────

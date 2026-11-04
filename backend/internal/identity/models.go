@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ─── Principal ───────────────────────────────────────────────────────────────
@@ -45,9 +45,9 @@ type Principal = token.Principal
 // Aliased from internal/platform/token.
 type PlatformClaims = token.PlatformClaims
 
-// OrbitClaims are the kora-specific claims embedded in the platform token's
-// "orbit" namespace. Aliased from internal/platform/token.
-type OrbitClaims = token.OrbitClaims
+// KoraClaims are the kora-specific claims embedded in the platform token's
+// "kora" namespace. Aliased from internal/platform/token.
+type KoraClaims = token.KoraClaims
 
 // ─── Storage records ─────────────────────────────────────────────────────────
 
@@ -129,6 +129,10 @@ type SessionResponse struct {
 	// token lifetime, so the cookie never outlives the refresh token.
 	// Omitted for agent sessions (no refresh token issued).
 	RefreshTokenExpiresIn int `json:"refresh_token_expires_in,omitempty"`
+	// APIAuthoring is false when the principal's tenant authors its items
+	// only in its configuration repository. The dashboard then shows them
+	// read-only.
+	APIAuthoring bool `json:"api_authoring"`
 }
 
 // TenantDiscovery is the response body for GET /identity/tenants/discover.
@@ -165,7 +169,7 @@ func (e *OAuthError) Error() string {
 
 // PatTokenPrefix is prepended to every issued PAT JWT for visual identification.
 // Security-significant: auth middleware strips this prefix before JWT validation.
-const PatTokenPrefix = "orb_"
+const PatTokenPrefix = "kora_"
 
 // ─── PAT types ───────────────────────────────────────────────────────────────
 
@@ -192,7 +196,7 @@ type CreatePATRequest struct {
 }
 
 // CreatePATResponse is returned on successful PAT creation.
-// Token is the raw JWT prefixed with "orb_" — shown exactly once.
+// Token is the raw JWT prefixed with "kora_" — shown exactly once.
 type CreatePATResponse struct {
 	ID        string   `json:"id"`
 	Name      string   `json:"name"`
@@ -267,6 +271,18 @@ type UserProfileResponse struct {
 	ID          string `json:"id"`
 	Email       string `json:"email"`
 	DisplayName string `json:"display_name"`
+}
+
+// UserNameResponse is one entry of GET /identity/users/names: the display name
+// only, so any signed-in caller may resolve ids without reading the directory.
+type UserNameResponse struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+}
+
+// UserNamesResponse is returned by GET /identity/users/names.
+type UserNamesResponse struct {
+	Users []UserNameResponse `json:"users"`
 }
 
 // UserProfilesResponse is returned by GET /identity/users.
@@ -384,6 +400,8 @@ var (
 	ErrUnsupportedTokenType        = errors.New("unsupported token type")
 	ErrIDTokenInvalid              = errors.New("id_token failed verification")
 	ErrTenantNotFound              = errors.New("tenant not found for email domain")
+	ErrClaimBindingMismatch        = errors.New("id_token claims match no tenant")
+	ErrMultipleTenantsMatch        = errors.New("id_token claims match several tenants")
 	ErrDeviceFlowNotSupported      = errors.New("tenant OIDC provider does not support Device Authorization Grant")
 	ErrInvalidEmailFormat          = errors.New("invalid email format")
 	ErrPATNotFound                 = errors.New("PAT not found")

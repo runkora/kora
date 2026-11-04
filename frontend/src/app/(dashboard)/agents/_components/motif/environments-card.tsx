@@ -3,9 +3,20 @@
 /** @tier 3 — agents-scoped. Attaches environments to an agent and marks the
  * default. Used by the builder wizard and the detail Configuration tab. */
 
-import { Alert, Badge, Button, Card, CardContent, Checkbox, Icon, Stack, Text } from '@orbit/hades';
-import type { Environment } from '@orbit/shared/api';
-import { sizeLabel } from '@orbit/lib/environments';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  Checkbox,
+  Icon,
+  Stack,
+  Text,
+} from '@runkora/hades';
+import { useBrand } from '@runkora/theme/brand-provider';
+import type { Environment } from '@runkora/shared/api';
+import { sizeLabel } from '@runkora/lib/environments';
 import { setDefaultEnvironment, toggleEnvironment } from '../../_types';
 import type { AgentEnvironment } from '../../_types';
 
@@ -15,6 +26,7 @@ export function EnvironmentsCard({
   onChange,
   loading = false,
   error,
+  disabled = false,
 }: {
   /** Every environment in the tenant. */
   environments: Environment[];
@@ -25,13 +37,16 @@ export function EnvironmentsCard({
   loading?: boolean;
   /** Set when the tenant's environments failed to load. */
   error?: string | null;
+  /** Read-only, for callers who may not change the agent. */
+  disabled?: boolean;
 }) {
+  const { productName } = useBrand();
   const attached = new Map(value.map((e) => [e.environment_id, e.is_default]));
   // A restored draft can hold a deleted environment. Listing it lets the user detach it.
   const missing = value.filter((v) => !environments.some((e) => e.id === v.environment_id));
   const summary =
     value.length === 0
-      ? 'None attached. The agent runs on the kora base image at the default size.'
+      ? `None attached. The agent runs on the ${productName} base image at the default size.`
       : value.length === 1
         ? 'The agent runs in this environment.'
         : `${value.length} attached. The agent starts in the default and can switch to another.`;
@@ -79,6 +94,7 @@ export function EnvironmentsCard({
                     <Stack grow gap="none">
                       <Checkbox
                         checked={isAttached}
+                        disabled={disabled}
                         onChange={() => onChange(toggleEnvironment(value, env.id))}
                       >
                         {env.name}
@@ -96,6 +112,7 @@ export function EnvironmentsCard({
                       <Button
                         variant="ghost"
                         size="xs"
+                        disabled={disabled}
                         onClick={() => onChange(setDefaultEnvironment(value, env.id))}
                         aria-label={`Make ${env.name} the default`}
                       >
@@ -109,6 +126,7 @@ export function EnvironmentsCard({
                 <Stack key={m.environment_id} gap="none">
                   <Checkbox
                     checked
+                    disabled={disabled}
                     onChange={() => onChange(toggleEnvironment(value, m.environment_id))}
                   >
                     Deleted environment

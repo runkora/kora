@@ -3,9 +3,9 @@ package api
 import (
 	"net/http"
 
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/token"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
 )
 
 func (c *Controller) handleCreateGrant(w http.ResponseWriter, r *http.Request) {
@@ -13,6 +13,9 @@ func (c *Controller) handleCreateGrant(w http.ResponseWriter, r *http.Request) {
 
 	claims, ok := c.claimsFromContext(w, r)
 	if !ok {
+		return
+	}
+	if c.refuseDelegated(ctx, w) {
 		return
 	}
 
@@ -32,6 +35,12 @@ func (c *Controller) handleCreateGrant(w http.ResponseWriter, r *http.Request) {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ValidationError(platformapi.ErrCodeInvalidField,
 				"principal_id must not exceed 255 characters", nil), nil)
+		return
+	}
+
+	// Only a SYSTEM caller writes a non-HUMAN grant (2026-10-22 amendment to the
+	// policy administration dashboard ADR).
+	if c.refuseNonHumanGrantWrite(ctx, w, claims, grants.PrincipalType(req.PrincipalType)) {
 		return
 	}
 
@@ -63,7 +72,7 @@ func (c *Controller) handleCreateGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	platformapi.JSON(ctx, w, c.logger, http.StatusCreated, g)
+	platformapi.JSON(ctx, w, c.logger, http.StatusCreated, grantWriteResponse{Grant: g, Warnings: c.svc.LintScopes(ctx, req.Scopes)})
 }
 
 // grantBudgetFromRequest validates and maps a budget request body onto a grant
@@ -112,7 +121,7 @@ func (c *Controller) handleGetGrant(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Non-SYSTEM principals can only see grants within their own tenant.
-	if claims.Orbit.PrincipalType != token.PrincipalTypeSystem && g.TenantID != claims.Orbit.TenantID {
+	if claims.Kora.PrincipalType != token.PrincipalTypeSystem && g.TenantID != claims.Kora.TenantID {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.NotFoundError(platformapi.ErrCodeResourceNotFound, "grant not found", nil), nil)
 		return
@@ -126,6 +135,9 @@ func (c *Controller) handleUpdateGrantBudget(w http.ResponseWriter, r *http.Requ
 
 	claims, ok := c.claimsFromContext(w, r)
 	if !ok {
+		return
+	}
+	if c.refuseDelegated(ctx, w) {
 		return
 	}
 
@@ -147,9 +159,14 @@ func (c *Controller) handleUpdateGrantBudget(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if claims.Orbit.PrincipalType != token.PrincipalTypeSystem && g.TenantID != claims.Orbit.TenantID {
+	if claims.Kora.PrincipalType != token.PrincipalTypeSystem && g.TenantID != claims.Kora.TenantID {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.NotFoundError(platformapi.ErrCodeResourceNotFound, "grant not found", nil), nil)
+		return
+	}
+
+	// Checks the stored type, after the tenant 404, so a foreign grant still reads as not found.
+	if c.refuseNonHumanGrantWrite(ctx, w, claims, g.PrincipalType) {
 		return
 	}
 
@@ -169,6 +186,9 @@ func (c *Controller) handleDeleteGrant(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if c.refuseDelegated(ctx, w) {
+		return
+	}
 
 	// Fetch first to enforce tenant ownership before deleting.
 	g, err := c.svc.GetGrant(ctx, r.PathValue("id"))
@@ -177,9 +197,14 @@ func (c *Controller) handleDeleteGrant(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if claims.Orbit.PrincipalType != token.PrincipalTypeSystem && g.TenantID != claims.Orbit.TenantID {
+	if claims.Kora.PrincipalType != token.PrincipalTypeSystem && g.TenantID != claims.Kora.TenantID {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.NotFoundError(platformapi.ErrCodeResourceNotFound, "grant not found", nil), nil)
+		return
+	}
+
+	// Checks the stored type, after the tenant 404, so a foreign grant still reads as not found.
+	if c.refuseNonHumanGrantWrite(ctx, w, claims, g.PrincipalType) {
 		return
 	}
 
@@ -201,7 +226,7 @@ func (c *Controller) handleListGrants(w http.ResponseWriter, r *http.Request) {
 
 	supplied := r.URL.Query().Get("tenant_id")
 	if supplied == "" {
-		supplied = claims.Orbit.TenantID
+		supplied = claims.Kora.TenantID
 	}
 	tenantID, ok := c.resolveTenantID(w, r, claims, supplied)
 	if !ok {

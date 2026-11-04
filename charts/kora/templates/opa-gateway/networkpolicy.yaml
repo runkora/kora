@@ -1,0 +1,33 @@
+{{- if .Values.networkPolicy.enabled }}
+# Allows the Istio IngressGateway to reach the OPA gateway pod.
+# Port 9191: gRPC ext_authz calls from the IngressGateway Envoy.
+# Port 8282: OPA diagnostic listener (health/readiness probes only).
+# Port 8181, OPA's management API, is intentionally NOT opened here: it stays
+# loopback-only so nothing outside the pod can read the tenant's grant bundle.
+# Without this rule, the default-deny-all NetworkPolicy blocks ext_authz calls
+# and all external traffic is denied (failure_mode_allow: false).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-opa-gateway-ingress
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.opaGateway.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kora.opaGateway.selectorLabels" . | nindent 6 }}
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ include "kora.gatewayWorkloadNamespace" . }}
+          podSelector:
+            matchLabels:
+              {{- include "kora.gatewayWorkloadSelector" $ | nindent 14 }}
+      ports:
+        - port: 9191
+          protocol: TCP
+        - port: 8282
+          protocol: TCP
+{{- end }}

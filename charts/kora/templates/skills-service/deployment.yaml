@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kora-skills-service
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.skillsService.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.skillsService.replicas }}
+  selector:
+    matchLabels:
+      {{- include "kora.skillsService.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kora.skillsService.selectorLabels" . | nindent 8 }}
+        {{- include "kora.skillsService.labels" . | nindent 8 }}
+        spiffe.io/component: skills-service
+        {{- include "kora.podLabels" (dict "root" $ "name" "skillsService") | nindent 8 }}
+      annotations:
+        {{- include "kora.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
+        checksum/config: {{ include (print $.Template.BasePath "/skills-service/config.yaml") . | sha256sum }}
+        checksum/marketplace-sources: {{ include (print $.Template.BasePath "/skills-service/configmap.yaml") . | sha256sum }}
+        {{- include "kora.podAnnotations" (dict "root" $ "name" "skillsService") | nindent 8 }}
+    spec:
+      serviceAccountName: kora-skills-service
+      {{- include "kora.imagePullSecrets" . | nindent 6 }}
+      {{- include "kora.scheduling" (dict "root" $ "name" "skillsService") | nindent 6 }}
+      securityContext:
+        {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
+      volumes:
+        {{- include "kora.spireVolumes" . | nindent 8 }}
+        {{- include "kora.configVolume" (dict "root" $ "name" "skillsService" "configMap" "kora-skills-service-config" "modules" (include "kora.skillsService.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "kora.redisCAVolume" . | nindent 8 }}
+        - name: marketplace-sources
+          configMap:
+            name: kora-skill-marketplace-sources
+        {{- range .Values.skillsService.githubApps }}
+        - name: github-app-{{ .secretName }}
+          secret:
+            secretName: {{ .secretName }}
+        {{- end }}
+        {{- include "kora.extraVolumes" (dict "root" $ "name" "skillsService") | nindent 8 }}
+      containers:
+        - name: kora-skills-service
+          image: {{ include "kora.image" (dict "root" $ "name" "skillsService") | quote }}
+          imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "skillsService") }}
+          securityContext:
+            {{- include "kora.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
+          env:
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: "unix:///run/secrets/workload-spiffe-uds/socket"
+            - name: GITHUB_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ index .Values.skillsService.githubApps 0 "secretName" }}
+                  key: GITHUB_APP_ID
+            - name: GITHUB_APP_INSTALLATION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ index .Values.skillsService.githubApps 0 "secretName" }}
+                  key: GITHUB_APP_INSTALLATION_ID
+            - name: GITHUB_APP_PRIVATE_KEY_PATH
+              value: {{ index .Values.skillsService.githubApps 0 "mountPath" }}/private-key.pem
+            - name: KORA_MARKETPLACE_SOURCES_CONFIG
+              value: "/etc/kora/marketplace"
+            {{- include "kora.platformEnv" (dict "root" $ "name" "skillsService" "keys" (list "REDIS_PASSWORD")) | nindent 12 }}
+          ports:
+            - name: skills-http
+              containerPort: 8098
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8098
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8098
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.skillsService.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "kora.spireVolumeMount" . | nindent 12 }}
+            {{- include "kora.configVolumeMount" . | nindent 12 }}
+            {{- include "kora.redisCAVolumeMount" . | nindent 12 }}
+            - name: marketplace-sources
+              mountPath: /etc/kora/marketplace
+            {{- range .Values.skillsService.githubApps }}
+            - name: github-app-{{ .secretName }}
+              mountPath: {{ .mountPath }}
+              readOnly: true
+            {{- end }}
+            {{- include "kora.extraVolumeMounts" (dict "root" $ "name" "skillsService") | nindent 12 }}

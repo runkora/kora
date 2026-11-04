@@ -4,9 +4,9 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 )
 
 // Controller is the HTTP transport for the example feature. It decodes
@@ -43,7 +43,7 @@ func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]string{
 		"status":  "healthy",
-		"service": "orbit-example",
+		"service": "kora-example",
 	})
 }
 

@@ -13,14 +13,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 )
 
 // testSandboxSpec is the built-in default environment on the base image.
 func testSandboxSpec() SandboxSpec {
 	return SandboxSpec{
 		Environment: DefaultEnvironmentName,
-		Image:       "ghcr.io/clear-route/kora-sandbox-base@sha256:base",
+		Image:       "ghcr.io/runkora/kora-sandbox-base@sha256:base",
 		Size:        testSizes.Default,
 	}
 }
@@ -35,7 +35,7 @@ func TestSandboxPod_FromEnvironment(t *testing.T) {
 		PullSecret:    "acme-pull",
 		Size:          EnvironmentSize{CPU: "4", Memory: "8Gi", Disk: "20Gi"},
 	}
-	pod := buildTestSandboxPod(podSecurityProvisioner(), Run{ID: "run-1"}, "coder", "orbit-tenant-acme", spec, "token")
+	pod := buildTestSandboxPod(podSecurityProvisioner(), Run{ID: "run-1"}, "coder", "kora-tenant-acme", spec, "token")
 	c := pod.Spec.Containers[0]
 
 	if c.Image != spec.Image || c.ImagePullPolicy != corev1.PullIfNotPresent {
@@ -185,5 +185,25 @@ func TestWaitForPodReady_UnschedulableReportsReason(t *testing.T) {
 	p.client = fake.NewSimpleClientset(pending)
 	if _, err := p.waitForPodReady(context.Background(), "sandbox-run-1", "ns"); err == nil || errors.Is(err, errSandboxUnschedulable) {
 		t.Errorf("err = %v, want a plain timeout for a scheduled pod", err)
+	}
+}
+
+// A failed pod's error names the container that failed and why.
+func TestWaitForPodReady_FailedReportsReason(t *testing.T) {
+	failed := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "sandbox-run-1", Namespace: "ns"},
+		Status: corev1.PodStatus{Phase: corev1.PodFailed, InitContainerStatuses: []corev1.ContainerStatus{{
+			Name: "istio-validation",
+			State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+				Reason: "Error", Message: "pod is scheduled before the node is ready", ExitCode: 126,
+			}},
+		}}},
+	}
+	p := podSecurityProvisioner()
+	p.client = fake.NewSimpleClientset(failed)
+
+	_, err := p.waitForPodReady(context.Background(), "sandbox-run-1", "ns")
+	if err == nil || !strings.Contains(err.Error(), "istio-validation") || !strings.Contains(err.Error(), "scheduled before the node is ready") {
+		t.Errorf("err = %v, want the failed container and its message", err)
 	}
 }

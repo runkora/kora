@@ -12,13 +12,14 @@ import {
   Text,
   ConfirmDialog,
   EmptyState,
-} from '@orbit/hades';
+} from '@runkora/hades';
 
 import { DelegatedRunNotice } from '../../_components/motif/delegated-run-notice';
-import type { DataTableColumn } from '@orbit/hades';
-import { StatusBadge } from '@orbit/components';
-import { APP_ROUTES } from '@orbit/lib/routing';
-import type { RunStateCounts } from '@orbit/shared/api';
+import type { DataTableColumn } from '@runkora/hades';
+import { PermissionHint, StatusBadge } from '@runkora/components';
+import { APP_ROUTES } from '@runkora/lib/routing';
+import { fmtUsd } from '@runkora/utils';
+import type { RunStateCounts } from '@runkora/shared/api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { RUN_FILTER_STATES } from '../_hooks/use-agent-detail';
 import type { RunFilter } from '../_hooks/use-agent-detail';
@@ -198,6 +199,18 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
         ),
       },
       {
+        id: 'cost',
+        header: 'Cost',
+        gridWidth: '6rem',
+        minWidth: '4rem',
+        locked: true,
+        cell: (row) => (
+          <Text mono size="supporting">
+            {fmtUsd(row.costUsd)}
+          </Text>
+        ),
+      },
+      {
         id: 'actions',
         header: '',
         pinEnd: true,
@@ -217,17 +230,20 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
             >
               Open
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setDeleteError(null);
-                setDeleteTarget(row);
-              }}
-            >
-              Delete
-            </Button>
+            <PermissionHint allowed={!!agent?.canRun} action="delete runs of this agent">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!agent?.canRun}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeleteError(null);
+                  setDeleteTarget(row);
+                }}
+              >
+                Delete
+              </Button>
+            </PermissionHint>
           </Stack>
         ),
       },
@@ -252,9 +268,11 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
           title="No runs yet"
           description="Start your first run to execute tasks with this agent."
           action={
-            <Button onClick={onStartRun} disabled={agent?.state !== 'active'}>
-              Start your first run
-            </Button>
+            <PermissionHint allowed={!!agent?.canRun} action="start runs of this agent">
+              <Button onClick={onStartRun} disabled={!agent?.canRun || agent.state !== 'active'}>
+                Start your first run
+              </Button>
+            </PermissionHint>
           }
         />
       ) : (

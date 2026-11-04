@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import { PageLayout } from '@orbit/hades';
+import { PageLayout } from '@runkora/hades';
 import {
   DashboardHeader,
   DashboardSidebar,
@@ -15,7 +15,7 @@ import { PreferencesProvider } from './_preferences/preferences-context';
 import { getPreferences, readPreferences } from './_preferences/preferences-server';
 import { mergeWithDefaults } from './_preferences/preferences.schema';
 import { MarketplaceBrowseStateProvider } from './marketplace/_context/marketplace-browse-state';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 
 /**
  * Dashboard shell layout — sidebar + header + scrollable main.

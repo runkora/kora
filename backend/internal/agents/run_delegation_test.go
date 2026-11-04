@@ -10,9 +10,10 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ── fakes ─────────────────────────────────────────────────────────────────────
@@ -65,7 +66,7 @@ func (f *fakeDelegationIssuer) revokedJTIs() []string {
 func withPrincipalCtx(ctx context.Context, tenantID string, pt token.PrincipalType, sub string) context.Context {
 	return token.WithClaims(ctx, &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: sub},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			TenantID:      tenantID,
 			PrincipalType: pt,
 		},
@@ -77,7 +78,7 @@ func withPrincipalCtx(ctx context.Context, tenantID string, pt token.PrincipalTy
 func newDelegationTestBroker(issuer *fakeDelegationIssuer) *DelegationBroker {
 	return NewDelegationBroker(issuer, func(context.Context) (string, error) {
 		return "svc-token", nil
-	}, "orbit.test", logging.NewLoggerWithOutput(io.Discard))
+	}, "runkora.test", logging.NewLoggerWithOutput(io.Discard))
 }
 
 func seedDelegatedAgentType(t *testing.T, repo *mockRepository, id, tenantID, slug string) AgentType {
@@ -150,7 +151,7 @@ func TestStartRun_Delegated_PrincipalGating(t *testing.T) {
 			if got, want := issuer.minted[0].SubjectToken, tc.bearer; got != want {
 				t.Errorf("mint subject_token = %q, want the caller's bearer %q", got, want)
 			}
-			wantPrincipal := "spiffe://orbit.test/tenant/orbit-tenant-t1/agent/reviewer"
+			wantPrincipal := "spiffe://runkora.test/tenant/kora-tenant-t1/agent/reviewer"
 			if got := issuer.minted[0].AgentPrincipalID; got != wantPrincipal {
 				t.Errorf("mint agent principal = %q, want %q", got, wantPrincipal)
 			}
@@ -282,7 +283,7 @@ func TestTransition_TerminalStatesRevokeDelegation(t *testing.T) {
 			if got := issuer.revokedJTIs(); len(got) != 1 || got[0] != jti {
 				t.Errorf("revoked = %v, want [%s]", got, jti)
 			}
-			// The revoke authenticated with orbit-agents' own service token.
+			// The revoke authenticated with kora-agents' own service token.
 			if len(issuer.revokeBearers) != 1 || issuer.revokeBearers[0] != "svc-token" {
 				t.Errorf("revoke bearer = %v, want [svc-token]", issuer.revokeBearers)
 			}
@@ -360,12 +361,16 @@ func TestReaper_RevokesDelegationOnReapedRuns(t *testing.T) {
 	repo := newMockRepository()
 	issuer := &fakeDelegationIssuer{}
 	logger := logging.NewLoggerWithOutput(io.Discard)
-	runSvc := NewRunService(repo, repo, &mockSMClient{}, &mockK8s{}, NewPubSub(), NewAuthz(&allowAllEvaluator{}), repo, &mockK8s{}, &mockK8s{}, repo, RunServiceConfig{
+	runSvc, err := NewRunService(repo, repo, &mockSMClient{}, &mockK8s{}, NewPubSub(), NewAuthz(&allowAllEvaluator{}), repo, &mockK8s{}, &mockK8s{}, repo, RunServiceConfig{
 		MaxConcurrentRunsPerPod: 5,
-		TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
+		TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },
 		StaleRunTimeout:         time.Millisecond,
 		ReaperInterval:          5 * time.Millisecond,
+		Brand:                   brand.MustNew("kora"),
 	}, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
 	runSvc.SetDelegationBroker(newDelegationTestBroker(issuer))
 
 	jti := "jti-stale"
@@ -385,7 +390,7 @@ func TestReaper_RevokesDelegationOnReapedRuns(t *testing.T) {
 	t.Fatalf("reaper did not revoke the stale run's delegation; revoked = %v", issuer.revokedJTIs())
 }
 
-func TestDeleteAgentType_RevokesDelegationsOfForceDeletedRuns(t *testing.T) {
+func TestDeleteAgentType_RevokesDelegationsOfCancelledRuns(t *testing.T) {
 	f, repo, _, _ := newTestService(t)
 	issuer := &fakeDelegationIssuer{}
 	f.at.SetDelegationBroker(newDelegationTestBroker(issuer))

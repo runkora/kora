@@ -1,9 +1,9 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
-import { previewEffectiveAccess } from '@orbit/server/agents-client';
-import { ApiError } from '@orbit/server/client';
-import type { EffectiveAccessPreviewRequest } from '@orbit/shared/api';
+import { withAuth } from '@runkora/server/route-helpers';
+import { previewEffectiveAccess } from '@runkora/server/agents-client';
+import { ApiError } from '@runkora/server/client';
+import type { EffectiveAccessPreviewRequest } from '@runkora/shared/api';
 
 // POST /api/agents/types/effective-access — resolves the effective-access view
 // for a *draft* (unsaved) connectivity config. Backs the Connectivity tab's

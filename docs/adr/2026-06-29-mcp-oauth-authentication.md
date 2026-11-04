@@ -62,7 +62,7 @@ Decide how kora satisfies the MCP authorization spec for human MCP clients, reus
 
 ### Option A — kora identity service becomes a minimal OAuth 2.1 authorization server, federating to the tenant IdP (chosen)
 
-kora's identity service grows the MCP-required authorization-server surface — `/authorize`, `/token`, AS metadata (RFC 8414), protected-resource metadata served by the gateway (RFC 9728), and dynamic client registration (RFC 7591) — but does **not** become a user directory. When a client hits `/authorize`, kora runs its existing OIDC relying-party flow against the **tenant's** configured identity provider (the same per-tenant OIDC it already uses for browser/device login), then issues its own **platform token** as the OAuth access token — an ordinary `aud=orbit-platform` token like every other kora token, `PrincipalType=HUMAN`, revocable via the existing JTI blocklist.
+kora's identity service grows the MCP-required authorization-server surface — `/authorize`, `/token`, AS metadata (RFC 8414), protected-resource metadata served by the gateway (RFC 9728), and dynamic client registration (RFC 7591) — but does **not** become a user directory. When a client hits `/authorize`, kora runs its existing OIDC relying-party flow against the **tenant's** configured identity provider (the same per-tenant OIDC it already uses for browser/device login), then issues its own **platform token** as the OAuth access token — an ordinary `aud=kora-platform` token like every other kora token, `PrincipalType=HUMAN`, revocable via the existing JTI blocklist.
 
 - **Pros:** fully spec-compliant (real clients work); reuses token signing, JWKS, claims, JTI revocation, and per-tenant OIDC federation; the access token is already a first-class kora principal the PEP understands; one identity authority.
 - **Cons:** genuinely new endpoints (`/authorize`, `/token`, metadata, DCR) and the security surface of an authorization server (redirect-URI validation, PKCE enforcement, consent). This is the real cost the PRD flagged.
@@ -93,7 +93,7 @@ The MCP spec has moved DCR from required toward optional, allowing alternatives 
 |---|----------|
 | 1 | kora's identity service becomes a **minimal OAuth 2.1 authorization server** for the MCP profile (Option A) — not a user directory. |
 | 2 | `/authorize` federates to the **tenant's existing OIDC provider**; the human logs in where they already do. |
-| 3 | The issued **access token is an ordinary kora platform token** (`aud=orbit-platform`), `PrincipalType=HUMAN`, revocable via the existing JTI blocklist — no new token shape. |
+| 3 | The issued **access token is an ordinary kora platform token** (`aud=kora-platform`), `PrincipalType=HUMAN`, revocable via the existing JTI blocklist — no new token shape. |
 | 4 | The **gateway** (resource server) serves protected-resource metadata (RFC 9728); the **identity service** serves AS metadata (RFC 8414) and DCR (RFC 7591). |
 | 5 | Reuse token signing, JWKS verification, `PlatformClaims`, and the `oidc_id_token` validation path internally. |
 
@@ -129,8 +129,8 @@ The access token is a `PlatformClaims` JWT, RS256-signed by the existing signing
 
 ```jsonc
 {
-  "aud": "orbit-platform",          // ordinary platform token (same as agent/PAT tokens)
-  "orbit": {
+  "aud": "kora-platform",          // ordinary platform token (same as agent/PAT tokens)
+  "kora": {
     "principal_type": "HUMAN",
     "tenant_id": "acme",
     "identity_source": "FEDERATED", // logged in via the tenant's OIDC IdP
@@ -143,7 +143,7 @@ The access token is a `PlatformClaims` JWT, RS256-signed by the existing signing
 
 The gateway validates it with the existing `token.Verifier`, gets `*PlatformClaims` in context, and authorises with the unchanged PEP. No new principal *type* is strictly required — `HUMAN` is correct; the `mcp_client_id` claim records which registered client was used.
 
-The token is a standard `aud=orbit-platform` platform token — the same shape `signToken` already produces and the same audience every kora verifier already accepts. So both doors (agent and human) present the same audience and the gateway uses the existing verifier with **no signing or verification changes**. Authorisation is by the human's scopes, exactly as it is for agents and PATs. Per-resource audience binding (RFC 8707 resource indicators) is a possible future hardening, deferred — see *Future Work*.
+The token is a standard `aud=kora-platform` platform token — the same shape `signToken` already produces and the same audience every kora verifier already accepts. So both doors (agent and human) present the same audience and the gateway uses the existing verifier with **no signing or verification changes**. Authorisation is by the human's scopes, exactly as it is for agents and PATs. Per-resource audience binding (RFC 8707 resource indicators) is a possible future hardening, deferred — see *Future Work*.
 
 ### New surface vs reuse
 
@@ -155,7 +155,7 @@ The token is a standard `aud=orbit-platform` platform token — the same shape `
 | `/authorize` + `/token` (OAuth 2.1 + PKCE) | identity service | **new** (the real surface) |
 | Login (who is this human) | per-tenant OIDC federation | **reused** |
 | id_token → platform token | `oidc_id_token` handoff path | **reused** |
-| Token signing / JWKS / verification | `internal/platform/token`, identity `signToken` | **reused** (no change — ordinary `aud=orbit-platform` token) |
+| Token signing / JWKS / verification | `internal/platform/token`, identity `signToken` | **reused** (no change — ordinary `aud=kora-platform` token) |
 | Revocation | JTI blocklist (Redis) | **reused** |
 | Principal in the gateway | `PlatformClaims` + `AuthMiddleware` | **reused** |
 
@@ -187,7 +187,7 @@ Two layers of SSO therefore reduce prompts: the **tenant IdP's own** session alr
 
 ### `/token` and `/register` stay on the **identity service** (back-channel)
 
-The MCP client exchanges `{code, PKCE verifier}` at `/token`; identity validates against its **code store** (Redis, alongside the JTI blocklist) and mints the ordinary `aud=orbit-platform` HUMAN token via `signToken`. No session is needed here — the code already carries the human the BFF authenticated. DCR (`/register`), AS metadata, and JWKS also stay on identity.
+The MCP client exchanges `{code, PKCE verifier}` at `/token`; identity validates against its **code store** (Redis, alongside the JTI blocklist) and mints the ordinary `aud=kora-platform` HUMAN token via `signToken`. No session is needed here — the code already carries the human the BFF authenticated. DCR (`/register`), AS metadata, and JWKS also stay on identity.
 
 **Tier split:** the **BFF** owns the session-aware browser step (`/authorize` — reads the iron-session, decides silent-code vs federate); the **identity service** owns the code store, token mint, DCR, and signing (`/token`, `/register`, metadata, JWKS). The thin BFF `/authorize` asks identity to mint the code after its session check.
 
@@ -201,7 +201,7 @@ Discovery-metadata URLs (PRM, AS metadata, the 401 challenge) are **derived from
 
 ### The gap
 
-The first cut of `/token` (`authorization_code` grant) returned only a short-lived access token — `aud=orbit-platform`, lifetime `accessTokenTtlMinutes` (15 min in production). No `refresh_token` was issued and `grant_type=refresh_token` was not accepted. So when the access token expired, an MCP client had **no way to refresh** — it had to re-run the entire authorization-code + consent flow. At a 15-minute access-token lifetime that means re-consent every 15 minutes, which is unusable for a long-lived desktop MCP connection.
+The first cut of `/token` (`authorization_code` grant) returned only a short-lived access token — `aud=kora-platform`, lifetime `accessTokenTtlMinutes` (15 min in production). No `refresh_token` was issued and `grant_type=refresh_token` was not accepted. So when the access token expired, an MCP client had **no way to refresh** — it had to re-run the entire authorization-code + consent flow. At a 15-minute access-token lifetime that means re-consent every 15 minutes, which is unusable for a long-lived desktop MCP connection.
 
 ### Decision
 
@@ -217,7 +217,7 @@ The MCP `/token` endpoint issues a **refresh token** on the authorization-code e
 - **Rotation is mandatory.** Every refresh revokes the used token (one-time use), matching the OAuth 2.1 requirement for public clients. Because the client is public (no secret; PKCE is the proof), the refresh token itself is the bearer credential — rotation is the protection against replay, and a stolen-then-reused token is detected as an already-revoked token.
 - **Lifetimes.** Access tokens stay short (`accessTokenTtlMinutes`); refresh tokens use the existing `refreshTokenTtlDays`. The short access-token lifetime plus JTI revocation is unchanged — refresh only removes the re-consent, not the revocation guarantees.
 - **Revocation still works.** Refresh tokens are session-bound and the session is revocable, so a human revoking a connection kills both the access path (JTI/session) and the refresh path.
-- **No new token model.** Still `aud=orbit-platform`; the [per-resource audience future work](#future-work--per-resource-audiences) is unchanged and orthogonal.
+- **No new token model.** Still `aud=kora-platform`; the [per-resource audience future work](#future-work--per-resource-audiences) is unchanged and orthogonal.
 
 ### Deliberate non-goal
 
@@ -265,11 +265,11 @@ Exit: a stock MCP client completes discovery → registration → authorization 
 
 ## Future Work — per-resource audiences
 
-This ADR deliberately issues the human's MCP token as an ordinary `aud=orbit-platform` platform token, identical to agent and PAT tokens. That keeps one token model across the platform and means *no* signing or verification changes. The trade-off is that, like every kora token today, it is not bound to a single resource server — a leaked token is bounded by its *scopes*, not by its audience.
+This ADR deliberately issues the human's MCP token as an ordinary `aud=kora-platform` platform token, identical to agent and PAT tokens. That keeps one token model across the platform and means *no* signing or verification changes. The trade-off is that, like every kora token today, it is not bound to a single resource server — a leaked token is bounded by its *scopes*, not by its audience.
 
 If kora later wants true per-resource token binding (OAuth 2.1 / RFC 8707 Resource Indicators) — so a token minted for the MCP gateway cannot be replayed against the inference gateway or the main API — that is a **platform-wide change to the token model**, not an MCP concern, and should be its **own ADR**. It would introduce a per-request audience in `signToken`, an audience registry, and multi-audience verifiers across every service, and would let each resource server (the MCP gateway included) require its own audience. Until that exists, MCP rides the existing uniform-audience model rather than inventing a one-off audience for itself.
 
-**This same work hardens the gateway→upstream caller-identity hop.** The [Gateway ADR](2026-06-29-mcp-tool-gateway.md) forwards the caller's full-power `aud=orbit-platform` token to `callerIdentity: forward` upstreams (e.g. the kora MCP) as raw passthrough in MVP. Per-resource audiences plus **RFC 8693 token exchange** would let the gateway swap that for a narrowed `aud=<server>` *delegated* token before forwarding — so even a trusted first-party upstream never holds a replayable full-Orbit credential. Passthrough-now / exchange-later is one coherent thread: the future audience ADR should cover this upstream-hop case alongside the resource-server case.
+**This same work hardens the gateway→upstream caller-identity hop.** The [Gateway ADR](2026-06-29-mcp-tool-gateway.md) forwards the caller's full-power `aud=kora-platform` token to `callerIdentity: forward` upstreams (e.g. the kora MCP) as raw passthrough in MVP. Per-resource audiences plus **RFC 8693 token exchange** would let the gateway swap that for a narrowed `aud=<server>` *delegated* token before forwarding — so even a trusted first-party upstream never holds a replayable full-Orbit credential. Passthrough-now / exchange-later is one coherent thread: the future audience ADR should cover this upstream-hop case alongside the resource-server case.
 
 ---
 

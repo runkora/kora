@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"sort"
 
-	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/api"
 )
 
 // SandboxImageView is a registered sandbox image as an environment author sees it.

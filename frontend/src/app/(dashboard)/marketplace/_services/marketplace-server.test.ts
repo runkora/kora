@@ -28,7 +28,7 @@ const { getPreferences, fetchMarketplaces, fetchSkills } = vi.hoisted(() => ({
   fetchSkills: vi.fn(),
 }));
 vi.mock('../../_preferences/preferences-server', () => ({ getPreferences }));
-vi.mock('@orbit/server/marketplace-client', () => ({
+vi.mock('@runkora/server/marketplace-client', () => ({
   fetchMarketplaces,
   fetchSkills,
   fetchSkillDetail: vi.fn(),

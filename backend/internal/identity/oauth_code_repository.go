@@ -10,7 +10,7 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 )
 
-const oauthCodeKeyPrefix = "orbit:oauth:code:"
+const oauthCodeKeyPrefix = "kora:oauth:code:"
 
 // ErrAuthCodeNotFound is returned when an authorization code is absent, expired,
 // or already consumed. Codes are single-use, so a second exchange returns this.
@@ -28,7 +28,7 @@ type AuthCode struct {
 	// Claims are the human's verified source claims (roles, etc.) captured from
 	// their session. They must ride through to the minted MCP token so it carries
 	// the same permissions — the consent promise is "acts as you". Without this,
-	// role-derived grants (e.g. platform-admin → mcp:orbit:use) would be lost.
+	// role-derived grants (e.g. platform-admin → mcp:kora:use) would be lost.
 	Claims map[string]string `json:"claims,omitempty"`
 	// ClientID is the MCP client (from DCR later; free-form for now).
 	ClientID string `json:"client_id"`
@@ -49,7 +49,7 @@ type AuthCodeRepository interface {
 }
 
 // redisAuthCodeRepository implements AuthCodeRepository using Redis, keyed under
-// orbit:oauth:code:{code}. Consume uses GETDEL so a code can never be redeemed
+// kora:oauth:code:{code}. Consume uses GETDEL so a code can never be redeemed
 // twice even under concurrent exchange attempts.
 type redisAuthCodeRepository struct {
 	client *goredis.Client

@@ -4,8 +4,7 @@ import { Group, Page, Tile, readRadius } from './foundation-ui';
 /**
  * Radius
  *
- * Corner radii are multiples of `--hades-radius-unit`. Changing that one value
- * changes every radius.
+ * Corner radii are five literal steps, each a settable theme token.
  */
 const meta: Meta = {
   title: 'Hades/Foundation/Radius',
@@ -20,31 +19,31 @@ const STEPS = [
     cssVar: '--radius-sm',
     label: 'Small',
     utility: 'rounded-sm',
-    detail: '1x the unit. Badges and tags.',
+    detail: '6px by default. Badges and tags.',
   },
   {
     cssVar: '--radius-md',
     label: 'Medium',
     utility: 'rounded-md',
-    detail: '2x the unit. Inputs and buttons.',
+    detail: '12px by default. Inputs and buttons.',
   },
   {
     cssVar: '--radius-lg',
     label: 'Large',
     utility: 'rounded-lg',
-    detail: '3x the unit. Cards and panels.',
+    detail: '18px by default. Cards and panels.',
   },
   {
     cssVar: '--radius-xl',
     label: 'Extra large',
     utility: 'rounded-xl',
-    detail: '3x the unit. Dialogs.',
+    detail: '18px by default. Dialogs.',
   },
   {
     cssVar: '--radius-2xl',
     label: '2x large',
     utility: 'rounded-2xl',
-    detail: '4x the unit. Chat input.',
+    detail: '24px by default. Chat input.',
   },
 ];
 

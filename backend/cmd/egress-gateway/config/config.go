@@ -4,7 +4,8 @@ package egressGatewayConfig
 import (
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 )
 
 // Config holds egress-gateway configuration values.
@@ -43,6 +44,12 @@ type Config struct {
 		InternalURL string `yaml:"internalURL"`
 	} `yaml:"identity"`
 
+	Agents struct {
+		// InternalURL is the in-cluster base URL for kora-agents. The gateway reads a run's
+		// trace context there to link its CONNECT spans to the run trace.
+		InternalURL string `yaml:"internalURL"`
+	} `yaml:"agents"`
+
 	Policy struct {
 		// BundleEndpoint is the base URL for the policy-service bundle polling endpoint.
 		BundleEndpoint string `yaml:"bundleEndpoint"`
@@ -73,7 +80,7 @@ type Config struct {
 		ConnectionSecretRoot string `yaml:"connectionSecretRoot"`
 
 		// ConnectionRegistryPath is the mounted connections.json file rendered
-		// by the operator's ConnectionAggregator into the orbit-tenant-connections
+		// by the operator's ConnectionAggregator into the kora-tenant-connections
 		// ConfigMap (Amendment 3). The gateway parses it into the connection
 		// registry and hot-reloads on change. Absent/empty means no connections
 		// are brokered until the operator renders the ConfigMap.
@@ -83,6 +90,8 @@ type Config struct {
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
+
+	Metrics platformmetrics.Config `yaml:"metrics"`
 }
 
 // ShutdownTimeout returns the configured graceful-shutdown timeout.

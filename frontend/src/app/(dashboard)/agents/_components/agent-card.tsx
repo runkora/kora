@@ -14,11 +14,11 @@ import {
   Progress,
   Stack,
   Text,
-} from '@orbit/hades';
-import { StatusBadge } from '@orbit/components';
-import { fmtUsd } from '@orbit/utils';
-import type { AgentTypeUsage } from '@orbit/shared/api';
-import { APP_ROUTES } from '@orbit/lib/routing';
+} from '@runkora/hades';
+import { ManagedInGitBadge, PermissionHint, StatusBadge } from '@runkora/components';
+import { fmtUsd } from '@runkora/utils';
+import type { AgentTypeUsage } from '@runkora/shared/api';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import type { AgentTypeRow } from '../_types';
 
 const STATUS: Record<string, 'healthy' | 'degraded' | 'error'> = {
@@ -58,7 +58,7 @@ export function AgentCard({
   const router = useRouter();
   const cost = usage?.estimated_cost_usd ?? 0;
   const share = totalCost > 0 ? (cost / totalCost) * 100 : 0;
-  const canRun = agent.state === 'active';
+  const runnable = agent.state === 'active';
 
   return (
     // The whole card is a mouse target; the settings link is the keyboard route to the same page,
@@ -72,8 +72,8 @@ export function AgentCard({
         leadingIcon="bot"
         title={agent.name}
         description={
-          <Stack direction="horizontal" align="center" gap="snug">
-            <Text mono size="caption" color="muted">
+          <Stack direction="horizontal" align="center" gap="snug" wrap>
+            <Text mono size="caption" color="muted" truncate>
               {agent.slug}
             </Text>
             {agent.identityMode === 'delegated' && (
@@ -81,6 +81,7 @@ export function AgentCard({
                 Delegated
               </Text>
             )}
+            {agent.declared && <ManagedInGitBadge repository={agent.repository} />}
           </Stack>
         }
         action={
@@ -134,10 +135,16 @@ export function AgentCard({
                   : 'Idle'}
             </Text>
             <Stack direction="horizontal" align="center" gap="tight">
-              <Button size="sm" disabled={!canRun} onClick={() => onRun(agent)}>
-                <Icon name="play" size="xs" />
-                Run
-              </Button>
+              <PermissionHint allowed={agent.canRun} action="start runs of this agent">
+                <Button
+                  size="sm"
+                  disabled={!runnable || !agent.canRun}
+                  onClick={() => onRun(agent)}
+                >
+                  <Icon name="play" size="xs" />
+                  Run
+                </Button>
+              </PermissionHint>
               <Button
                 variant="ghost"
                 size="icon-sm"

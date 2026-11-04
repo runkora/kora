@@ -10,7 +10,7 @@ import (
 )
 
 // The sandbox descriptor: the folder in a run's workspace that the session-manager
-// writes and orbit-shell reads, and the files in it.
+// writes and kora-shell reads, and the files in it.
 const (
 	ExecDir       = ".sandbox-exec"
 	EndpointFile  = "endpoint"

@@ -1,10 +1,10 @@
 # Example GitHub App connection for the local example tenant.
-# make cluster-deploy applies this resource when secrets/orbit-github-app.pem exists.
-apiVersion: orbit.io/v1alpha1
+# make cluster-deploy applies this resource when secrets/kora-github-app.pem exists.
+apiVersion: runkora.io/v1alpha1
 kind: Connection
 metadata:
   name: github
-  namespace: orbit-tenant-example
+  namespace: kora-tenant-example
 spec:
   adapter: github_app
   baseHost: github.com

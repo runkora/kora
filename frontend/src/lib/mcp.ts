@@ -8,7 +8,10 @@
  * path: POST /v1/mcp/<server> (ADR 2026-06-29 Decision 5, per-server mounts) — a
  * client connects per server, not to one aggregate endpoint.
  */
-import type { IconName } from '@orbit/hades';
+import type { IconName } from '@runkora/hades';
+
+/** Slug of the platform's own MCP server: the mount path `/v1/mcp/kora`, not the product name. */
+export const PLATFORM_MCP_SERVER = 'kora';
 
 /** The `api.` host an MCP client uses to reach the gateway, derived from the dashboard origin. */
 export function mcpGatewayHost(): string {

@@ -51,6 +51,13 @@ type PricingCatalogEntry struct {
 	SyncedAudioOutputCostPer1M    float64 // USD per 1M audio tokens output
 }
 
+// HasOverride reports whether an admin set any override on the row. An override
+// of 0 is a price: it makes the model free, and is not a missing price.
+func (e PricingCatalogEntry) HasOverride() bool {
+	return e.OverrideInput != nil || e.OverrideOutput != nil ||
+		e.OverrideCacheRead != nil || e.OverrideCacheWrite != nil
+}
+
 // EffectiveInput returns the COALESCE(override_input, synced_input) price.
 func (e PricingCatalogEntry) EffectiveInput() float64 {
 	if e.OverrideInput != nil {
@@ -215,7 +222,26 @@ func upsertSynced(ctx context.Context, tx pgx.Tx, entries []ModelPriceEntry) err
 // pair. Only non-nil arguments change their column. A model with no synced
 // price gets an override-only row; its last_synced_at is the epoch, so it never
 // reads as freshly synced.
+//
+// A regional inference profile's row must end up with both an input and an
+// output price (ErrIncompleteOverride otherwise). Such a row shadows the base
+// model's row, so an unset price would bill as zero instead of falling back to
+// the base price.
 func (r *PostgresPricingCatalogRepository) SetOverride(ctx context.Context, provider ProviderName, modelID string, input, output, cacheRead, cacheWrite *float64) error {
+	if (input == nil || output == nil) && hasRegionPrefix(provider, modelID) {
+		var priced bool
+		const pricedQ = `
+			SELECT EXISTS (
+				SELECT 1 FROM model_pricing WHERE provider = $1 AND model_id = $2
+				AND ($3 OR synced_input_cost_per_1m <> 0 OR override_input_cost_per_1m IS NOT NULL)
+				AND ($4 OR synced_output_cost_per_1m <> 0 OR override_output_cost_per_1m IS NOT NULL))`
+		if err := r.pool.QueryRow(ctx, pricedQ, string(provider), modelID, input != nil, output != nil).Scan(&priced); err != nil {
+			return fmt.Errorf("pricing catalog set override check (%s/%s): %w", provider, modelID, err)
+		}
+		if !priced {
+			return fmt.Errorf("pricing catalog set override (%s/%s): %w", provider, modelID, ErrIncompleteOverride)
+		}
+	}
 	const q = `
 		INSERT INTO model_pricing (provider, model_id,
 			override_input_cost_per_1m, override_output_cost_per_1m,
@@ -253,8 +279,21 @@ func (r *PostgresPricingCatalogRepository) SetOverride(ctx context.Context, prov
 }
 
 // ClearOverride sets all four override columns to NULL, reverting the model to
-// synced prices.
+// synced prices. An override-only row (never synced, last_synced_at at the
+// epoch) has no price left once cleared, so it is deleted instead: an empty row
+// would otherwise shadow the prices the route falls back to.
 func (r *PostgresPricingCatalogRepository) ClearOverride(ctx context.Context, provider ProviderName, modelID string) error {
+	const deleteOverrideOnly = `
+		DELETE FROM model_pricing
+		WHERE provider = $1 AND model_id = $2 AND last_synced_at = 'epoch'`
+	deleted, err := r.pool.Exec(ctx, deleteOverrideOnly, string(provider), modelID)
+	if err != nil {
+		return fmt.Errorf("pricing catalog clear override (%s/%s): %w", provider, modelID, err)
+	}
+	if deleted.RowsAffected() > 0 {
+		return nil
+	}
+
 	const q = `
 		UPDATE model_pricing SET
 			override_input_cost_per_1m       = NULL,
@@ -274,7 +313,8 @@ func (r *PostgresPricingCatalogRepository) ClearOverride(ctx context.Context, pr
 	return nil
 }
 
-// LoadAll returns the complete model_pricing table.
+// LoadAll returns the complete model_pricing table in primary-key order, so the
+// order rows load in does not depend on how Postgres happens to store them.
 func (r *PostgresPricingCatalogRepository) LoadAll(ctx context.Context) ([]PricingCatalogEntry, error) {
 	const q = `
 		SELECT provider, model_id,
@@ -287,7 +327,8 @@ func (r *PostgresPricingCatalogRepository) LoadAll(ctx context.Context) ([]Prici
 		       synced_request_input_cost, synced_request_output_cost,
 		       synced_second_input_cost, synced_second_output_cost,
 		       synced_audio_input_cost_per_1m, synced_audio_output_cost_per_1m
-		FROM model_pricing`
+		FROM model_pricing
+		ORDER BY provider, model_id`
 
 	rows, err := r.pool.Query(ctx, q)
 	if err != nil {

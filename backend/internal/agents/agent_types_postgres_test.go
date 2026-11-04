@@ -20,7 +20,7 @@ func TestPostgres_AgentTypeRoundTrip(t *testing.T) {
 		t.Fatalf("inspect schema: %v", err)
 	}
 	if exists {
-		t.Fatal("agent_types.tool_scopes still exists; apply the orbit-agents migrations")
+		t.Fatal("agent_types.tool_scopes still exists; apply the kora-agents migrations")
 	}
 
 	at := AgentType{
@@ -32,10 +32,11 @@ func TestPostgres_AgentTypeRoundTrip(t *testing.T) {
 		Framework:               AgentFrameworkClaudeCode,
 		GrantScopes:             []string{"inference:invoke"},
 		Connectors:              []Connector{},
-		MCPTools:                []string{"mcp:orbit:agents.list:use"},
+		MCPTools:                []string{"mcp:kora:agents.list:use"},
 		MaxConcurrentRunsPerPod: 2,
 		State:                   AgentTypeStateActive,
 		ModelID:                 new("bedrock/claude-sonnet-4-5"),
+		CreatedBy:               "alice",
 	}
 	if err := r.CreateAgentType(ctx, at); err != nil {
 		t.Fatalf("CreateAgentType: %v", err)
@@ -45,7 +46,7 @@ func TestPostgres_AgentTypeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAgentType: %v", err)
 	}
-	if got.Slug != at.Slug || got.SystemPrompt != at.SystemPrompt || !slices.Equal(got.GrantScopes, at.GrantScopes) || !slices.Equal(got.MCPTools, at.MCPTools) {
+	if got.Slug != at.Slug || got.CreatedBy != "alice" || got.SystemPrompt != at.SystemPrompt || !slices.Equal(got.GrantScopes, at.GrantScopes) || !slices.Equal(got.MCPTools, at.MCPTools) {
 		t.Errorf("read back %+v, want the created fields of %+v", got, at)
 	}
 
@@ -58,8 +59,8 @@ func TestPostgres_AgentTypeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetAgentTypeBySlug: %v", err)
 	}
-	if updated.SystemPrompt != "be thorough" || updated.MaxConcurrentRunsPerPod != 3 {
-		t.Errorf("after update got prompt %q and max runs %d, want %q and 3", updated.SystemPrompt, updated.MaxConcurrentRunsPerPod, "be thorough")
+	if updated.SystemPrompt != "be thorough" || updated.MaxConcurrentRunsPerPod != 3 || updated.CreatedBy != "alice" {
+		t.Errorf("after update got prompt %q, max runs %d and creator %q, want %q, 3 and alice", updated.SystemPrompt, updated.MaxConcurrentRunsPerPod, updated.CreatedBy, "be thorough")
 	}
 }
 

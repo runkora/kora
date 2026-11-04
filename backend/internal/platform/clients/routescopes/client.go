@@ -30,31 +30,36 @@
 //
 // Usage:
 //
-//	client := routescopes.NewClient("http://orbit-policy-service.orbit-system.svc", identityClient.SelfTokenSource(), logger)
+//	client := routescopes.NewClient("http://kora-policy-service.kora-system.svc", identityClient.SelfTokenSource(), logger)
 //	register := func(ctx context.Context) error {
-//	    return client.Register(ctx, "inference-gateway",
-//	        routescopes.FilterScopedRoutes(inferenceRoutes()),
-//	        inferenceScopes(),
-//	    )
+//	    return client.Register(ctx, "inference-gateway", inferenceRoutes(), inferenceScopes())
 //	}
 //	go routescopes.KeepRegistered(ctx, logger, "inference-gateway", register)
 //
-// [issue #170]: https://github.com/clear-route/orbit/issues/170
+// [issue #170]: https://github.com/runkora/kora/issues/170
 package routescopes
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // ErrRegistrationFailed is returned when the policy service rejects a registration.
 var ErrRegistrationFailed = errors.New("route scope registration rejected by policy service")
+
+// errRegisterFailed is the static span status for a registration that failed.
+var errRegisterFailed = errors.New("route scope registration failed")
+
+const registerSpan = "routescopes.Client.register"
 
 // RouteScope maps an HTTP path prefix and method to the scope required to access it.
 type RouteScope struct {
@@ -73,11 +78,13 @@ type ScopeDeclaration struct {
 	Description  string   `json:"description,omitempty"`
 	// Requires lists other scopes this scope depends on: holding this scope in a
 	// grant additionally confers the required scopes in the compiled effective
-	// set (not in the stored grant). Used by first-party platform MCP tools whose
-	// mcp:<server>:<tool>:use scope needs the underlying platform scope the tool
-	// calls upstream (e.g. mcp:orbit:agents:list:use requires agents:types:read).
-	// Empty for ordinary scopes and every external MCP.
-	Requires []string `json:"requires,omitempty"`
+	// set (not in the stored grant), for example the GitHub repo umbrella
+	// conferring each category scope.
+	//
+	// nil is sent as null and means unknown: the stored set is kept. A non-nil
+	// empty slice is sent as [] and clears it. Only the owning service's
+	// declaration changes a stored entry.
+	Requires []string `json:"requires"`
 }
 
 // registrationRequest is the wire format for POST /api/v1/policy/routes/register.
@@ -102,21 +109,25 @@ type Client struct {
 	*httpclient.Base
 	serviceURL string
 	token      TokenSource
+
+	mu   sync.Mutex
+	sent map[string][sha256.Size]byte // service → digest of its last accepted registration
 }
 
 const (
-	tracerName    = "orbit.routescopes-client"
+	tracerName    = "github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	clientTimeout = 10 * time.Second
 )
 
 // NewClient creates a Client targeting the given policy service base URL,
-// e.g. "http://orbit-policy-service.orbit-system.svc". token supplies the
+// e.g. "http://kora-policy-service.kora-system.svc". token supplies the
 // caller's own platform token for each registration.
 func NewClient(serviceURL string, token TokenSource, logger logging.Logger) *Client {
 	return &Client{
 		Base:       httpclient.New(tracerName, logger, clientTimeout),
 		serviceURL: serviceURL,
 		token:      token,
+		sent:       make(map[string][sha256.Size]byte),
 	}
 }
 
@@ -145,10 +156,29 @@ func (c *Client) RegisterWithPrune(ctx context.Context, service string, routes [
 
 // register makes exactly one registration call. Failure is returned to the
 // caller, which owns whatever retry policy it wants.
+//
+// A changed or failed registration gets a summary span; a repeat is a heartbeat and gets none.
 func (c *Client) register(ctx context.Context, reg registrationRequest) error {
-	if err := c.doRegister(ctx, reg); err != nil {
+	raw, err := json.Marshal(reg)
+	if err != nil {
+		return fmt.Errorf("encode registration: %w", err)
+	}
+	sum := sha256.Sum256(raw)
+	c.mu.Lock()
+	repeat := c.sent[reg.Service] == sum
+	c.mu.Unlock()
+
+	start := time.Now()
+	err = c.doRegister(ctx, reg)
+	if !repeat || err != nil {
+		c.SpanSince(ctx, registerSpan, start, err, errRegisterFailed)
+	}
+	if err != nil {
 		return err
 	}
+	c.mu.Lock()
+	c.sent[reg.Service] = sum
+	c.mu.Unlock()
 	c.Logger().Info(ctx, "route scopes registered",
 		logging.Field{Key: "service", Value: reg.Service},
 		logging.Field{Key: "route_count", Value: len(reg.Routes)},
@@ -163,18 +193,17 @@ func (c *Client) doRegister(ctx context.Context, reg registrationRequest) error 
 		return fmt.Errorf("encode registration: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.serviceURL+"/api/v1/policy/routes/register", body)
-	if err != nil {
-		return fmt.Errorf("build registration request: %w", err)
-	}
+	header := http.Header{}
 	tok, err := c.token(ctx)
 	if err != nil {
 		return fmt.Errorf("get platform token for registration: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+tok)
+	header.Set("Content-Type", "application/json")
+	header.Set("Authorization", "Bearer "+tok)
 
-	_, span, resp, err := c.Do(ctx, "routescopes.Client.Register", req)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.serviceURL, Path: "/api/v1/policy/routes/register", Header: header, Body: body,
+	})
 	defer span.End()
 	if err != nil {
 		return err

@@ -14,7 +14,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
+	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
 )
 
 func testKeyPEM(t *testing.T) []byte {

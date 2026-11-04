@@ -18,7 +18,8 @@ kora records every significant technical decision as an ADR. This index is the c
 - [YAML File-Based Configuration with Typed Generic Loader](2026-02-18-yaml-file-based-configuration.md) — `Accepted (Amended 2026-10-06)` · 2026-02-18
 - [Database Infrastructure Layer](2026-03-03-database-infrastructure-layer.md) — `Accepted` · 2026-03-03
 - [Multi-Service Backend Deployment Structure](2026-03-19-multi-service-backend-deployment-structure.md) — `Accepted` · 2026-03-19
-- [OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md) — `Accepted` · 2026-03-21
+- [OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md) — `Accepted (Amended 2026-10-31)` · 2026-03-21
+- [Prometheus Metrics Endpoints for Backend Services](2026-10-06-prometheus-metrics-endpoints.md) — `Accepted` · 2026-10-06
 - [Local Development Environment](2026-03-10-local-development-environment.md) — `Superseded` · 2026-03-10
 - [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) — `Accepted` · 2026-07-10
 - [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) — `Proposed` · 2026-07-21
@@ -34,6 +35,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [OIDC Client Secret Projection for Confidential Tenants](2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md) — `Accepted` · 2026-03-31
 - [Browser-Based Authentication Flow and BFF Session Architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) — `Accepted` · 2026-04-01
 - [Home Realm Discovery and Email-Based Tenant Routing](2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md) — `Accepted` · 2026-04-01
+- [Tenant Claim Binding and Shared Email Domains](2026-10-26-tenant-claim-binding-and-shared-email-domains.md) — `Proposed` · 2026-10-26
 - [Personal Access Tokens for Inference](2026-04-02-personal-access-tokens.md) — `Accepted` · 2026-04-02
 - [User Profiles Table for Principal Attribution](2026-04-19-user-profiles-table-for-principal-attribution.md) — `Accepted` · 2026-04-19
 - [User App Preferences](2026-05-08-user-app-preferences.md) — `Proposed` · 2026-05-08
@@ -46,7 +48,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md) — `Accepted (revised 2026-04-13)` · 2026-04-14
 - [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) — `Accepted (Amended 2026-10-01)` · 2026-04-14
 - [Frontend Policy Projection via BFF](2026-04-14-frontend-policy-projection.md) — `Accepted` · 2026-04-14
-- [Policy Administration Dashboard](2026-04-15-policy-administration-dashboard.md) — `Accepted` · 2026-04-15
+- [Policy Administration Dashboard](2026-04-15-policy-administration-dashboard.md) — `Accepted (Amended 2026-10-22)` · 2026-04-15
 - [PAT Scope Assignment via Explicit Grants](2026-04-19-pat-scope-assignment-via-explicit-grants.md) — `Accepted` · 2026-04-19
 - [Gateway-Level OPA Enforcement for External Traffic](2026-04-27-gateway-level-opa-enforcement-for-external-traffic.md) — `Accepted` · 2026-04-27
 - [Platform-wide Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md) — `Accepted` · 2026-06-04
@@ -80,11 +82,13 @@ kora records every significant technical decision as an ADR. This index is the c
 - [MCP Server Registration, Deployment, and Governance](2026-03-05-mcp-server-registration-deployment-and-governance.md) — `Accepted` · 2026-03-05
 - [Scope-Gated Tool Exposure via MCP](2026-03-05-scope-gated-tool-exposure-via-mcp.md) — `Accepted` · 2026-03-05
 - [Credential-Aware Outbound Gateway](2026-03-05-credential-aware-outbound-gateway.md) — `Superseded` · 2026-03-05
-- [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) — `Proposed (Amended 2026-10-07: Amendment 5 Accepted)` · 2026-06-06
+- [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) — `Proposed (Amended 2026-10-27: Amendment 6 Accepted)` · 2026-06-06
 - [Kubernetes Connection — `kubernetes` Adapter and Per-Connection Gateway CA Trust](2026-07-06-kubernetes-connection-bearer-adapter-and-gateway-ca-trust.md) — `Proposed` · 2026-07-06
 - [Connection Scope Qualifiers — Grant-Time Resource Scoping for Connectors](2026-07-22-connection-scope-qualifiers.md) — `Accepted` · 2026-07-22
 - [GitHub Connection — Category-Scoped Actions, Repository Qualifiers, and Down-Scoped Token Minting](2026-07-22-github-connection-category-scoped-actions.md) — `Accepted` · 2026-07-22
 - [GitHub GraphQL Authorised by the Granular Actions of Selected Fields](2026-09-29-github-graphql-field-classification.md) — `Accepted` · 2026-09-29
+- [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md) — `Accepted` · 2026-10-15
+- [Release Asset Downloads Without Connection Selection](2026-10-26-release-asset-downloads-without-connection-selection.md) — `Proposed` · 2026-10-26
 - [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) — `Superseded by [sandbox-environments](2026-10-03-sandbox-environments.md)` · 2026-06-14
 - [Sandbox Environments](2026-10-03-sandbox-environments.md) — `Accepted (Amended 2026-10-08)` · 2026-10-03
 - [Bundled Sandbox Images](2026-10-07-bundled-sandbox-images.md) — `Accepted` · 2026-10-07
@@ -94,27 +98,29 @@ kora records every significant technical decision as an ADR. This index is the c
 - [OpenCode Agent Runner](2026-06-04-opencode-agent-runner.md) — `Accepted (Amended 2026-09-30)` · 2026-06-04
 - [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) — `Accepted (Amended 2026-09-29)` · 2026-05-11
 - [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — `Accepted (Amended 2026-10-12)` · 2026-05-11
-- [orbit-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) — `Accepted` · 2026-05-11
+- [kora-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) — `Accepted` · 2026-05-11
 - [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — `Accepted (Amended 2026-10-12)` · 2026-05-11
 - [Run Scheduling](2026-10-12-run-scheduling.md) — `Accepted` · 2026-10-12
+- [Per-Run Cost on the Run Record](2026-10-20-run-cost-on-run-record.md) — `Proposed` · 2026-10-20
 - [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) — `Accepted` · 2026-05-11
 - [Agent Workspace Model](2026-05-11-agent-workspace-model.md) — `Accepted` · 2026-05-11
 - [BYOC Agent Discovery & Observability](2026-05-11-byoc-agent-discovery-and-observability.md) — `Accepted` · 2026-05-11
 - [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — `Accepted (Amended 2026-09-29)` · 2026-05-11
 - [Agent Portal & Chat UI](2026-05-11-agent-portal-and-chat-ui.md) — `Accepted` · 2026-05-11
 - [Sandbox Provisioning and Shell Proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) — `Accepted` · 2026-05-11
-- [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) — `Accepted` · 2026-09-18
+- [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) — `Accepted (Amended 2026-10-31)` · 2026-09-18
 - [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) — `Accepted` · 2026-09-18
+- [One Trace per Agent Run](2026-10-31-one-trace-per-run.md) — `Accepted (Amended 2026-11-01)` · 2026-10-31
 - [Run Activity Events](2026-09-29-run-activity-events.md) — `Accepted` · 2026-09-29
-- [orbit-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) — `Accepted` · 2026-05-11
+- [kora-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) — `Accepted` · 2026-05-11
 - [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) — `Accepted` · 2026-06-04
 - [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) — `Accepted (Amended 2026-09-29, 2026-09-30, 2026-10-08)` · 2026-06-04
 - [Service-Layer Authorization for orbit-agents](2026-06-04-orbit-agents-authorization-model.md) — `Accepted` · 2026-06-04
 
 - [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md) — `Superseded by [manifest-patches-configmap](2026-09-15-manifest-patches-configmap.md)` · 2026-06-12
 - [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md) — `Accepted` · 2026-09-15
-- [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md) — `Accepted` · 2026-09-16
-- [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) — `Accepted (Decision item 3 superseded in part 2026-09-29)` · 2026-06-17
+- [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md) — `Accepted (Amended 2026-10-29)` · 2026-09-16
+- [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) — `Accepted (Decision item 3 superseded in part 2026-09-29; Amended 2026-10-31)` · 2026-06-17
 - [Run Task Summarization](2026-06-19-run-task-summarization.md) — `Accepted` · 2026-06-19
 - [Extended Trigger Types and an Operable Delivery Pipeline](2026-06-20-extended-trigger-types.md) — `Accepted (field map, empty event_type rule and declared event types superseded 2026-09-29)` · 2026-06-20
 - [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md) — `Accepted` · 2026-06-20
@@ -127,21 +133,26 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Hades Wizard Component](2026-08-03-terra-wizard-component.md) — `Proposed` · 2026-08-03
 - [Agent Marketplace — Cache-Aside, Tenant-Scoped Redis Keys, and Resource-Aware Skills](2026-08-28-marketplace-adr-backend.md) — `Proposed` · 2026-08-28
 - [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) — `Proposed` · 2026-09-06
-- [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) — `Proposed` · 2026-09-18
+- [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) — `Accepted (Amended 2026-10-31: Amendment 1 Accepted)` · 2026-09-18
 - [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) — `Accepted` · 2026-09-28
 - [Agent Run Guardrails](2026-09-29-agent-run-guardrails.md) — `Accepted (Amended 2026-09-30)` · 2026-09-29
 - [Agent Marketplace Backend](2026-08-28-marketplace-adr-backend.md) — `Proposed` · 2026-09-17
 - [Skill Marketplace Source Registration via a Tenant-Scoped CRD](2026-10-13-skill-marketplace-source-registration.md) — `Proposed (Amended 2026-10-30)` · 2026-10-13
+- [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) — `Accepted` · 2026-10-13
+- [Trigger Routing](2026-10-19-trigger-routing.md) — `Accepted` · 2026-10-19
+- [Chat Command Triggers](2026-10-20-chat-command-triggers.md) — `Accepted` · 2026-10-20
+- [Generic Webhook Source](2026-10-27-generic-webhook-source.md) — `Accepted` · 2026-10-27
 
 ### MCP / Tool Gateway
 
 Build order: **Registration** is the foundation; the **Gateway** depends on it, and on **OAuth** (which can be built in parallel with the Gateway).
 
-- [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) — `Accepted` · 2026-06-29
+- [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) — `Accepted (Amended 2026-10-22)` · 2026-06-29
 - [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) — `Accepted` · 2026-06-29
 - [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) — `Accepted` · 2026-06-29
 - [kora MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) — `Accepted` · 2026-06-30
 - [Tenant MCP Servers as a Recognised Workload Class](2026-09-17-mcp-workload-class.md) — `Proposed` · 2026-09-17
+- [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md) — `Accepted` · 2026-10-22
 
 ### Service Mesh, Operator & Deployment
 
@@ -150,15 +161,19 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [kora Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) — `Superseded` · 2026-03-31
 - [Frontend Cluster Deployment and Ingress Routing](2026-04-06-frontend-cluster-deployment-and-ingress-routing.md) — `Accepted` · 2026-04-06
 - [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md) — `Accepted` · 2026-07-04
-- [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) — `Proposed` · 2026-09-04
+- [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) — `Proposed (Amended 2026-10-24: Amendment 1 Accepted)` · 2026-09-04
 - [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) — `Accepted (Amended 2026-10-02, 2026-10-12)` · 2026-09-04
 - [Database Migrations](2026-09-10-database-migrations.md) — `Proposed` · 2026-09-10
 - [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) — `Accepted` · 2026-09-30
+- [Declarative Resources](2026-10-24-declarative-resources.md) — `Accepted` · 2026-10-24
 
 ### Frontend & Design System
 
 - [Frontend Scaffolding and Toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md) — `Accepted` · 2026-03-17
 - [Hades Frontend Design System](2026-03-25-terra-frontend-design-system.md) — `Accepted` · 2026-03-25
+- [Hades Versioning and Theme Surface Manifest](2026-10-11-hades-versioning-and-theme-surface-manifest.md) — `Accepted` · 2026-10-11
+- [Hades Delivery to External Consumers](2026-10-11-hades-delivery-to-external-consumers.md) — `Accepted` · 2026-10-11
+- [White-labelling Theme](2026-10-12-white-labelling-theme.md) — `Accepted` · 2026-10-12
 - [Frontend Component Consolidation](2026-05-04-frontend-component-consolidation.md) — `Accepted` · 2026-05-04
 - [Hades Design System Hardening](2026-05-04-terra-design-system-hardening.md) — `Accepted` · 2026-05-04
 - [Semantic HTML Consolidation — Unconditional Ban on header, article, nav, aside, footer](2026-05-04-semantic-html-consolidation.md) — `Accepted` · 2026-05-04
@@ -193,7 +208,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-03-17 | [Frontend Scaffolding and Toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md) | Accepted | 0019 |
 | 2026-03-19 | [Multi-Service Backend Deployment Structure](2026-03-19-multi-service-backend-deployment-structure.md) | Accepted | 0020 |
 | 2026-03-21 | [Envoy ext_proc Sidecar for Transparent Platform Token Injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md) | Accepted | 0021 |
-| 2026-03-21 | [OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md) | Accepted | 0022 |
+| 2026-03-21 | [OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md) | Accepted (Amended 2026-10-31) | 0022 |
 | 2026-03-25 | [Hades Frontend Design System](2026-03-25-terra-frontend-design-system.md) | Accepted | 0021 |
 | 2026-03-31 | [Helm Chart Distribution and GitOps Repository Structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) | Accepted | 0027 |
 | 2026-03-31 | [OIDC Client Secret Projection for Confidential Tenants](2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md) | Accepted | 0029 |
@@ -210,7 +225,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-04-14 | [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) | Accepted (Amended 2026-10-01) | 0036 |
 | 2026-04-14 | [Frontend Policy Projection via BFF](2026-04-14-frontend-policy-projection.md) | Accepted | 0037 |
 | 2026-04-14 | [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md) | Accepted (revised 2026-04-13) | 0035 |
-| 2026-04-15 | [Policy Administration Dashboard](2026-04-15-policy-administration-dashboard.md) | Accepted | 0038 |
+| 2026-04-15 | [Policy Administration Dashboard](2026-04-15-policy-administration-dashboard.md) | Accepted (Amended 2026-10-22) | 0038 |
 | 2026-04-17 | [Inference Usage Logs](2026-04-17-inference-usage-logs.md) | Accepted | 0040 |
 | 2026-04-17 | [Virtual Model Catalog and Platform Routing](2026-04-17-virtual-model-catalog-and-platform-routing.md) | Accepted | 0039 |
 | 2026-04-19 | [PAT Scope Assignment via Explicit Grants](2026-04-19-pat-scope-assignment-via-explicit-grants.md) | Accepted | 0041 |
@@ -230,8 +245,8 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-05-11 | [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) | Accepted (Amended 2026-09-29) | 0050 |
 | 2026-05-11 | [Agent Workspace Model](2026-05-11-agent-workspace-model.md) | Accepted | 0055 |
 | 2026-05-11 | [BYOC Agent Discovery & Observability](2026-05-11-byoc-agent-discovery-and-observability.md) | Accepted | 0056 |
-| 2026-05-11 | [orbit-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) | Accepted | 0060 |
-| 2026-05-11 | [orbit-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) | Accepted | 0052 |
+| 2026-05-11 | [kora-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) | Accepted | 0060 |
+| 2026-05-11 | [kora-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) | Accepted | 0052 |
 | 2026-05-11 | [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) | Accepted (Amended 2026-10-12) | 0053 |
 | 2026-05-11 | [Sandbox Provisioning and Shell Proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) | Accepted | 0059 |
 | 2026-05-13 | [Profile Page Architecture](2026-05-13-profile-page-architecture.md) | Proposed | — |
@@ -243,14 +258,14 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-04 | [OpenCode Agent Runner](2026-06-04-opencode-agent-runner.md) | Accepted (Amended 2026-09-30) | — |
 | 2026-06-05 | [Inference Log Detail Modal and Failure Details Capture](2026-06-05-inference-log-details.md) | Accepted | 0050 |
 | 2026-06-05 | [LLM Cost Tracking: Pricing Pipeline, Budget Enforcement, and Quota Roles](2026-06-05-llm-cost-tracking.md) | Accepted (Decision 5 superseded 2026-06-10) | — |
-| 2026-06-06 | [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) | Proposed (Amended 2026-10-07: Amendment 5 Accepted) | 0065 |
+| 2026-06-06 | [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) | Proposed (Amended 2026-10-27: Amendment 6 Accepted) | 0065 |
 | 2026-06-10 | [Budget Model Redesign: Inline JSONB on Roles/Grants, MAX Resolution, Per-Category Spend](2026-06-10-budget-model-redesign.md) | Proposed | — |
 | 2026-06-10 | [Budget Enforcement Corrections: Canonical Spend Counter, Request-Time Role Enforcement, All Principal Types, and the Budgets Management Surface](2026-06-10-budget-enforcement-corrections-and-budgets-page.md) | Proposed | — |
 | 2026-06-10 | [Hierarchical Budget Enforcement: Windows, Pools, Tenant Caps, and Per-Run Limits](2026-06-10-hierarchical-budget-enforcement.md) | Proposed | — |
 | 2026-06-14 | [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) | Superseded by [sandbox-environments](2026-10-03-sandbox-environments.md) | — |
 | 2026-06-12 | [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md) | Superseded by [manifest-patches-configmap](2026-09-15-manifest-patches-configmap.md) | — |
 | 2026-06-15 | [Role-Budget Attribution for Non-Interactive Credentials](2026-06-15-role-budget-attribution-for-non-interactive-credentials.md) | Accepted | — |
-| 2026-06-17 | [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) | Accepted (Decision item 3 superseded in part 2026-09-29) | — |
+| 2026-06-17 | [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) | Accepted (Decision item 3 superseded in part 2026-09-29; Amended 2026-10-31) | — |
 | 2026-06-19 | [Provider Error Visibility in the Inference Gateway](2026-06-19-provider-error-visibility.md) | Accepted | — |
 | 2026-06-19 | [Nav Cleanup and Live Dashboard](2026-06-19-nav-cleanup-and-live-dashboard.md) | Accepted | — |
 | 2026-06-19 | [Mobile & Tablet Responsive Design](2026-06-19-mobile-responsive-design.md) | Accepted | — |
@@ -271,7 +286,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-08-03 | [Hades Wizard Component](2026-08-03-terra-wizard-component.md) | Proposed | — |
 | 2026-08-17 | [Agent Marketplace Frontend Architecture](2026-08-17-agent-marketplace-frontend-architecture.md) | Proposed (Amended 2026-10-16: server detail routing Accepted) | — |
 | 2026-09-06 | [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) | Proposed | — |
-| 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted | — |
+| 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted (Amended 2026-10-22) | — |
 | 2026-07-24 | [Non-Token Model Pricing: Full Cost Dimension Pipeline](2026-07-24-non-token-model-pricing.md) | Accepted | — |
 | 2026-06-29 | [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) | Accepted | — |
 | 2026-06-29 | [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) | Accepted | — |
@@ -281,16 +296,16 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-19 | [Multi-Account AWS Bedrock Support](2026-06-19-multi-account-bedrock.md) | Superseded by [crd-inference-providers](2026-10-01-crd-inference-providers.md) | — |
 | 2026-07-21 | [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md) | Accepted (curated fields and sub-decision 3 superseded in part 2026-09-29) | — |
 | 2026-07-21 | [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) | Proposed | — |
-| 2026-09-04 | [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) | Proposed | — |
+| 2026-09-04 | [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) | Proposed (Amended 2026-10-24: Amendment 1 Accepted) | — |
 | 2026-09-04 | [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) | Accepted (Amended 2026-10-02, 2026-10-12) | — |
 | 2026-08-28 | [Agent Marketplace — Cache-Aside, Tenant-Scoped Redis Keys, and Resource-Aware Skills](2026-08-28-marketplace-adr-backend.md) | Proposed | — |
 | 2026-09-10 | [Database Migrations](2026-09-10-database-migrations.md) | Proposed | — |
 | 2026-09-15 | [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md) | Accepted | — |
-| 2026-09-16 | [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md) | Accepted | — |
+| 2026-09-16 | [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md) | Accepted (Amended 2026-10-29) | — |
 | 2026-09-17 | [Tenant MCP Servers as a Recognised Workload Class](2026-09-17-mcp-workload-class.md) | Proposed | — |
 | 2026-09-17 | [Agent Marketplace Backend](2026-08-28-marketplace-adr-backend.md) | Proposed | — |
-| 2026-09-18 | [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) | Proposed | — |
-| 2026-09-18 | [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) | Accepted | — |
+| 2026-09-18 | [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) | Accepted (Amended 2026-10-31: Amendment 1 Accepted) | — |
+| 2026-09-18 | [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) | Accepted (Amended 2026-10-31) | — |
 | 2026-09-18 | [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) | Accepted | — |
 | 2026-09-28 | [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) | Accepted | — |
 | 2026-09-29 | [GitHub GraphQL Authorised by the Granular Actions of Selected Fields](2026-09-29-github-graphql-field-classification.md) | Accepted | — |
@@ -303,6 +318,24 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-07 | [Bundled Sandbox Images](2026-10-07-bundled-sandbox-images.md) | Accepted | — |
 | 2026-10-08 | [Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md) | Accepted | — |
 | 2026-10-10 | [Decision Models and the System One API](2026-10-10-systemone-decision-models.md) | Accepted | — |
+| 2026-10-11 | [Hades Versioning and Theme Surface Manifest](2026-10-11-hades-versioning-and-theme-surface-manifest.md) | Accepted | — |
+| 2026-10-11 | [Hades Delivery to External Consumers](2026-10-11-hades-delivery-to-external-consumers.md) | Accepted | — |
 | 2026-10-12 | [Run Scheduling](2026-10-12-run-scheduling.md) | Accepted | — |
+| 2026-10-12 | [White-labelling Theme](2026-10-12-white-labelling-theme.md) | Accepted | — |
+| 2026-10-13 | [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) | Accepted | — |
 | 2026-10-13 | [Skill Marketplace Source Registration via a Tenant-Scoped CRD](2026-10-13-skill-marketplace-source-registration.md) | Proposed (Amended 2026-10-30) | — |
+| 2026-10-15 | [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md) | Accepted | — |
+| 2026-10-19 | [Trigger Routing](2026-10-19-trigger-routing.md) | Accepted | — |
+| 2026-10-19 | [Explain GitHub's Workflow-File Push Refusal at the Egress Gateway](2026-10-19-workflow-push-refusal-message.md) | Accepted | — |
+| 2026-10-20 | [Chat Command Triggers](2026-10-20-chat-command-triggers.md) | Accepted | — |
+| 2026-10-20 | [Non-Text Model Discovery on Compatible Providers](2026-10-20-compatible-non-text-model-discovery.md) | Accepted | — |
+| 2026-10-20 | [Per-Run Cost on the Run Record](2026-10-20-run-cost-on-run-record.md) | Proposed | — |
+| 2026-10-19 | [Repository Id Owner Selection in the Egress Gateway](2026-10-19-repository-id-owner-selection.md) | Accepted | — |
+| 2026-10-20 | [Actions Results Receiver Classification](2026-10-20-actions-results-receiver-classification.md) | Accepted | — |
+| 2026-10-22 | [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md) | Accepted | — |
+| 2026-10-24 | [Declarative Resources](2026-10-24-declarative-resources.md) | Accepted | — |
+| 2026-10-26 | [Tenant Claim Binding and Shared Email Domains](2026-10-26-tenant-claim-binding-and-shared-email-domains.md) | Proposed | — |
+| 2026-10-26 | [Release Asset Downloads Without Connection Selection](2026-10-26-release-asset-downloads-without-connection-selection.md) | Proposed | — |
+| 2026-10-27 | [Generic Webhook Source](2026-10-27-generic-webhook-source.md) | Accepted | — |
+| 2026-10-31 | [One Trace per Agent Run](2026-10-31-one-trace-per-run.md) | Accepted (Amended 2026-11-01) | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

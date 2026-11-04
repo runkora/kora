@@ -16,7 +16,7 @@ import (
 func TestTenantPredicate_StatusPatchDoesNotRequeue(t *testing.T) {
 	p := predicate.GenerationChangedPredicate{}
 
-	old := &OrbitTenant{ObjectMeta: metav1.ObjectMeta{Name: "example", Generation: 3, ResourceVersion: "100"}}
+	old := &KoraTenant{ObjectMeta: metav1.ObjectMeta{Name: "example", Generation: 3, ResourceVersion: "100"}}
 	statusOnly := old.DeepCopy()
 	statusOnly.ResourceVersion = "101"
 	statusOnly.Status.Phase = TenantPhaseReady

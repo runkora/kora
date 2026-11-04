@@ -8,34 +8,34 @@ See [multi-service-backend-deployment-structure](adr/2026-03-19-multi-service-ba
 
 ## The big picture
 
-The backend compiles to a set of small binaries under `backend/cmd/`, all sharing one `backend/internal/platform/` layer. Each is listed in the [binary table below](#binaries-backendcmd). There is **no single "orbit" binary**: the main control-plane API is the `identity` service. Feature logic lives in `backend/internal/{feature}/` packages; cross-cutting infrastructure lives in `backend/internal/platform/`. Dependency flow is strictly one-directional: **features → platform**, and features never import each other.
+The backend compiles to a set of small binaries under `backend/cmd/`, all sharing one `backend/internal/platform/` layer. Each is listed in the [binary table below](#binaries-backendcmd). There is **no single "kora" binary**: the main control-plane API is the `identity` service. Feature logic lives in `backend/internal/{feature}/` packages; cross-cutting infrastructure lives in `backend/internal/platform/`. Dependency flow is strictly one-directional: **features → platform**, and features never import each other.
 
 ### Binaries (`backend/cmd/`)
 
 | Binary | Role | Local port | Owns tables |
 |--------|------|------------|-------------|
-| `identity` | **Main control-plane API**: identity, sessions, PATs, user profiles, tenant registry, JWKS | `8080` (`/api/v1`) | ✅ |
-| `inference-gateway` | OpenAI/Anthropic-compatible LLM gateway: chat/completions, embeddings, responses, model catalog, usage logs, analytics | `8081` (`/v1`) | ✅ |
-| `policy-service` | Authorization data plane (PDP/PAP): grants, roles, vocabulary, route-scope store; compiles & serves OPA bundles | `8083` (`/api/v1`) | ✅ |
-| `policy-gateway` | In-app authorization API (PEP): `/policy/check`, `/query`, `/scopes`, `/explain`, `/simulate` | `8084` (`/v1`) | none |
-| `egress-gateway` | JIT credential broker: intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer); backed by `internal/credentials` | `8085` | none |
-| `orbit-mcp` | Platform-management MCP server: exposes kora's own APIs as governed MCP tools | `8095` | none |
-| `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`) | ✅ |
-| `orbit-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster) | ✅ |
-| `orbit-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097` | ✅ |
-| `skills-service` | Read-only Agent Marketplace: browses and serves skills from GitHub-hosted repositories; cache-aside via Redis | `8098` | none |
-| `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090` | none |
-| `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar) | health `8081`, webhook `9443` | none |
+| `identity` | **Main control-plane API**: identity, sessions, PATs, user profiles, tenant registry, JWKS | `8080` (`/api/v1`); metrics `9464` | ✅ |
+| `inference-gateway` | OpenAI/Anthropic-compatible LLM gateway: chat/completions, embeddings, responses, model catalog, usage logs, analytics | `8081` (`/v1`); metrics `9464` | ✅ |
+| `policy-service` | Authorization data plane (PDP/PAP): grants, roles, vocabulary, route-scope store; compiles & serves OPA bundles | `8083` (`/api/v1`); metrics `9464` | ✅ |
+| `policy-gateway` | In-app authorization API (PEP): `/policy/check`, `/query`, `/scopes`, `/explain`, `/simulate` | `8084` (`/v1`); metrics `9464` | none |
+| `egress-gateway` | JIT credential broker: intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer); backed by `internal/credentials` | `8085`; metrics `9464` | none |
+| `kora-mcp` | Platform-management MCP server: exposes kora's own APIs as governed MCP tools | `8095`; metrics `9464` | none |
+| `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`); metrics `9464` | ✅ |
+| `kora-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster); metrics `9464` | ✅ |
+| `kora-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097`; metrics `9464` | ✅ |
+| `skills-service` | Read-only Agent Marketplace: browses and serves skills from GitHub-hosted repositories; cache-aside via Redis | `8098`; metrics `9464` | none |
+| `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090`; metrics `9464` (Go-side only, no chart wiring: there is no `charts/kora/templates/session-manager/`, so no Service port, scrape annotation, or NetworkPolicy allowance) | none |
+| `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar), projects declared resources into their owning services | health `8081`, webhook `9443` | none |
 | `identity-proxy` | Envoy `ext_proc` gRPC sidecar: injects platform Bearer tokens into agent outbound calls (SPIFFE→JWT exchange) | unix socket; health `9090` | none |
 | `sandbox-exec` | gRPC exec server inside a sandbox pod: streams stdout/stderr/exit for commands | gRPC `50051` | none |
-| `orbit-runtime-mcp` | MCP server (stdio) spawned by the agent CLI: exposes the `list_environments`, `provision_sandbox` and `replace_environment` tools | stdio | none |
-| `orbit-shell` | `$SHELL` shim in the agent container: execs local bash or streams `-c` commands to the sandbox pod | none | none |
-| `orbit-session-runner` | Wrapper that applies Landlock, then `exec()`s the agent CLI | none | none |
+| `kora-runtime-mcp` | MCP server (stdio) spawned by the agent CLI: exposes the `list_environments`, `provision_sandbox` and `replace_environment` tools | stdio | none |
+| `kora-shell` | `$SHELL` shim in the agent container: streams `-c` commands to the sandbox pod and refuses them when the run has no sandbox | none | none |
+| `kora-session-runner` | Wrapper that applies Landlock, then `exec()`s the agent CLI. The agent can execute only its CLI and the CLI's helper binaries, `kora-shell` and `kora-runtime-mcp` | none | none |
 | `sandbox-mount` | Privileged node agent (DaemonSet): exports each sandbox's local working folder with the kernel NFS server and mounts it into the session-manager pod at `/workspaces/<run>/sandbox` | NFS `20490` (host network, `sandboxMount.port`) | none |
 | `migrate` | Schema migrations: embeds every service's `migrations/` and runs them as the chart's pre-install/pre-upgrade hook Job | none | none |
 | `example` | Reference implementation demonstrating the patterns (not production) | `8081` | ✅ |
 
-> The sandbox, shell, MCP and session-runner binaries form the agent execution stack. `session-manager` runs Claude Code through `orbit-session-runner`, and Claude calls `orbit-runtime-mcp` to `list_environments`, `provision_sandbox` and `replace_environment`. The sandbox pod runs `sandbox-exec`, and Claude's `Bash` goes through `orbit-shell` to that pod. With `sandboxMount.enabled`, `sandbox-mount` shares the sandbox's local folder with the session-manager pod ([sandbox-workspace-mount](adr/2026-10-08-sandbox-workspace-mount.md)). See [sandbox-provisioning-and-shell-proxy](adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md).
+> The sandbox, shell, MCP and session-runner binaries form the agent execution stack. `session-manager` runs Claude Code through `kora-session-runner`, and Claude calls `kora-runtime-mcp` to `list_environments`, `provision_sandbox` and `replace_environment`. The sandbox pod runs `sandbox-exec`, and Claude's `Bash` goes through `kora-shell` to that pod. With `sandboxMount.enabled`, `sandbox-mount` shares the sandbox's local folder with the session-manager pod ([sandbox-workspace-mount](adr/2026-10-08-sandbox-workspace-mount.md)). See [sandbox-provisioning-and-shell-proxy](adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md).
 
 ### Feature packages (`backend/internal/`)
 
@@ -44,9 +44,9 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `identity` | Sessions, refresh tokens, PATs, user profiles, JTI blocklist, tenant registry, principal extraction |
 | `inferencegw` | Inference router, providers, catalog, usage, analytics, virtual models; OpenAI/Anthropic/embeddings/responses handlers |
 | `agents` | Agent control plane: types, runs, sessions, pubsub, k8s, authz; sub-packages `sandbox/`, `sessionmanager/` |
-| `policyservice` | Authz data plane; sub-packages `api/`, `bundle/`, `grants/`, `roles/`, `routes/`, `vocabulary/` |
+| `policyservice` | Authz data plane; sub-packages `api/`, `bundle/`, `grants/`, `principalroles/`, `roles/`, `routes/`, `tenantbudget/`, `vocabulary/` |
 | `policygw` | Policy-gateway HTTP transport (delegates evaluation to policy-service) |
-| `operator` | K8s reconciliation: tenant/platform controllers, Helm render, Istio templates, pod webhook |
+| `operator` | K8s reconciliation: tenant/platform controllers, Helm render, Istio templates, pod webhook, projection of declared resources |
 | `identityproxy` | `ext_proc` server, token cache, refresh loop |
 | `example` | Reference implementation, not production. Full feature layout (`models`, `repository`, `postgres`, `service`, `handlers`) with tests, demonstrating the pattern |
 | `credentials` | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, and the non-registrable `passthrough`) + `resolvers/` ([jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) |
@@ -61,7 +61,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 ## Directory structure
 
 ```
-orbit/
+kora/
 ├── backend/
 │   ├── cmd/                          # One subdirectory per deployable binary
 │   │   ├── identity/                 # Main control-plane API (port 8080)
@@ -72,24 +72,25 @@ orbit/
 │   │   ├── policy-service/           # ... owns tables (migrations/)
 │   │   ├── policy-gateway/           # config only (no DB)
 │   │   ├── egress-gateway/           # JIT credential broker (no DB)
-│   │   ├── orbit-mcp/                # platform-management MCP server (no DB)
+│   │   ├── kora-mcp/                 # platform-management MCP server (no DB)
 │   │   ├── tool-gateway/             # governed MCP/tool gateway; owns tables (migrations/)
-│   │   ├── orbit-agents/             # ... owns tables (migrations/)
-│   │   ├── orbit-triggers/           # ... owns tables (migrations/)
+│   │   ├── kora-agents/              # ... owns tables (migrations/)
+│   │   ├── kora-triggers/            # ... owns tables (migrations/)
 │   │   ├── skills-service/           # Agent Marketplace (no DB; Redis cache)
 │   │   ├── session-manager/          # config only
 │   │   ├── operator/                 # K8s operator (controller-runtime)
 │   │   ├── identity-proxy/           # ext_proc sidecar
 │   │   ├── sandbox-exec/             # gRPC exec server (no config/)
-│   │   ├── orbit-runtime-mcp/        # stdio MCP server (no config/)
-│   │   ├── orbit-shell/              # $SHELL shim (no config/)
-│   │   ├── orbit-session-runner/     # isolation wrapper (no config/)
+│   │   ├── kora-runtime-mcp/         # stdio MCP server (no config/)
+│   │   ├── kora-shell/               # $SHELL shim (no config/)
+│   │   ├── kora-session-runner/      # isolation wrapper (no config/)
 │   │   ├── sandbox-mount/            # node agent for sandbox working folders
 │   │   └── example/                  # Reference binary
 │   │
 │   ├── internal/
 │   │   ├── platform/                 # Cross-cutting infrastructure — never imports features
 │   │   │   ├── api/                  # Mux, Controller interface, JSON/error helpers
+│   │   │   ├── brand/                # Product name for every string people or agents read
 │   │   │   ├── clients/              # Typed service-to-service HTTP clients (embed httpclient.Base)
 │   │   │   ├── config/               # Generic + per-service YAML loaders
 │   │   │   ├── logging/              # Logger interface + implementation (injected, never global)
@@ -142,6 +143,7 @@ Infrastructure shared by all features. Platform packages **never import feature 
 | Package | Purpose |
 |---------|---------|
 | `api` | HTTP `Mux`, `Controller` interface, `DecodeJSON`/`JSON`/`ErrorResponse` helpers, typed `APIError` |
+| `brand` | The product name (`productName`, default `kora`) every speaking service reads for the text people or agents see; chart-rendered, `KORA_PRODUCT_NAME` on session pods |
 | `clients` | Typed service-to-service HTTP clients; `httpclient.Base` owns OTel spans + W3C trace propagation + structured logging |
 | `config` | Generic YAML loaders: `Load[T]` / `MustLoad[T]` and the service variants `LoadService[T]` / `MustLoadService[T]`, keyed by `APP_ENV`, with the chart-rendered file merged last |
 | `logging` | `Logger` interface + implementation; injected via constructors, never global |
@@ -230,7 +232,7 @@ Use `errors.Is(err, pgx.ErrNoRows)` for not-found checks. `storage.WithTransacti
 
 ### 4. Redis access via `storage.RedisClient`
 
-Redis is a first-class storage primitive. `storage.RedisClient` wraps a `*redis.Client`; features that need it receive `*storage.RedisClient` via their constructor (the identity service uses it for the JTI blocklist).
+Redis is a first-class storage primitive. `storage.RedisClient` wraps a `*redis.Client`; features that need it receive `*storage.RedisClient` via their constructor (the identity service writes the JTI blocklist; identity, kora-agents, kora-triggers, policy-service and the inference, tool, egress and policy gateways read it to refuse revoked delegations). `storage.NewRedis` never fails because Redis is unreachable. A background probe tracks reachability and publishes `kora.redis.available`; while Redis is down the JTI blocklist fails open with an error log.
 
 ### 5. Service-to-service calls via platform clients
 
@@ -240,7 +242,7 @@ All outbound HTTP to other kora services goes through a typed client in `interna
 
 ### 6. Configuration via `config.LoadService[T]` + `base.yaml`
 
-Each binary has a typed config struct loaded at startup from `backend/cmd/{binary}/config/base.yaml`, an optional `{APP_ENV}.yaml` overlay (`APP_ENV` defaults to `production`) and the file the chart renders at `/etc/orbit/config/cmd/{binary}.yaml`:
+Each binary has a typed config struct loaded at startup from `backend/cmd/{binary}/config/base.yaml`, an optional `{APP_ENV}.yaml` overlay (`APP_ENV` defaults to `production`) and the file the chart renders at `/etc/kora/config/cmd/{binary}.yaml`:
 
 ```go
 // Per-service config loader (most binaries)
@@ -248,7 +250,7 @@ cfg := config.MustLoadService[AppConfig]("cmd/identity", config.Environment())
 // Generic loader (module-relative) is also available: config.Load[T](module, env)
 ```
 
-**Secrets never appear in YAML.** Secret fields are tagged `yaml:"-"` and loaded via `os.Getenv`. See [docs/configuration/config.md](configuration/config.md) and [docs/configuration/secrets.md](configuration/secrets.md).
+**Secrets never appear in YAML.** Secret fields are tagged `yaml:"-"` and loaded via `os.Getenv`. See [docs/contributing/configuration.md](contributing/configuration.md) and [docs/reference/secrets.md](reference/secrets.md).
 
 ### 7. Migrations via Goose (per-binary)
 
@@ -269,8 +271,8 @@ Each binary under `backend/cmd/` has its own `main.go` and is otherwise independ
 - **`cmd/identity`**: the main API (port 8080). Loads its config via `MustLoadService`, initializes observability, builds `*storage.DB` + `*storage.RedisClient` (`initStorage`), wires feature services and their `api.Controller`s (`initControllers`), and serves HTTP. Runs in the cluster; roll a change with `make redeploy SERVICE=identity`.
 - **`cmd/inference-gateway`**: the LLM gateway (port 8081); provider backends under `internal/inferencegw/providers/`.
 - **`cmd/policy-service`** / **`cmd/policy-gateway`**: the PDP/PAP (8083) and PEP (8084) split; see [policy-gateway-and-authorisation-model](adr/2026-04-14-policy-gateway-and-authorisation-model.md).
-- **`cmd/orbit-agents`**: the agent control plane; see [orbit-agents-service-architecture](adr/2026-05-11-orbit-agents-service-architecture.md).
-- **`cmd/orbit-triggers`**: the platform's front door for starting work; see [extended-trigger-types](adr/2026-06-20-extended-trigger-types.md).
+- **`cmd/kora-agents`**: the agent control plane; see [orbit-agents-service-architecture](adr/2026-05-11-orbit-agents-service-architecture.md).
+- **`cmd/kora-triggers`**: the platform's front door for starting work; see [extended-trigger-types](adr/2026-06-20-extended-trigger-types.md).
 - **`cmd/identity-proxy`**: the `ext_proc` sidecar; see [envoy-ext-proc-sidecar-token-injection](adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md).
 - **`cmd/operator`**: the Kubernetes operator; see [orbit-kubernetes-operator](adr/2026-03-31-orbit-kubernetes-operator.md).
 
@@ -303,7 +305,7 @@ Create `cmd/{name}/` with its own `main.go` and (if it needs config) a `config/b
 - **No `database/sql`**: `pgx/v5` exclusively.
 - **No third-party router**: no Gin, Chi, Echo, Gorilla; routing is `api.Mux` + the `Controller` interface.
 - **No global logger**: no `log`/`log/slog`/`fmt.Print*`; inject `*logging.Logger`.
-- **No `cmd/orbit` binary**: the main API is `cmd/identity`.
+- **No `cmd/kora` binary**: the main API is `cmd/identity`.
 - **No shared `internal/models/` package**: each feature owns its types.
 - **No central `router.go`**: features self-register via `Controller.Boot()`.
 - **No `providers/` in every feature**: external integrations live in `service.go` (the inference gateway's `providers/` subtree is the deliberate exception for multi-provider routing).
@@ -321,5 +323,5 @@ Create `cmd/{name}/` with its own `main.go` and (if it needs config) a `config/b
 - [database-infrastructure-layer](adr/2026-03-03-database-infrastructure-layer.md): Database infrastructure layer
 - [multi-service-backend-deployment-structure](adr/2026-03-19-multi-service-backend-deployment-structure.md): Multi-binary deployment model and typed platform clients
 - [opentelemetry-observability-discipline](adr/2026-03-21-opentelemetry-observability-discipline.md): OpenTelemetry observability discipline
-- [docs/configuration/config.md](configuration/config.md) · [docs/configuration/secrets.md](configuration/secrets.md): Configuration & secret-management reference
-- [docs/guides/local-development.md](guides/local-development.md): Local setup walkthrough
+- [docs/contributing/configuration.md](contributing/configuration.md) · [docs/reference/secrets.md](reference/secrets.md): Configuration & secret-management reference
+- [docs/contributing/local-development.md](contributing/local-development.md): Local setup walkthrough

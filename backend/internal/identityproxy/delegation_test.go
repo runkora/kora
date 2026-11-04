@@ -6,6 +6,8 @@ import (
 	"slices"
 	"sync"
 	"testing"
+
+	"go.opentelemetry.io/otel/trace"
 	"time"
 
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -14,7 +16,7 @@ import (
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 
-	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
+	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
 )
 
 // ── fakes and helpers ─────────────────────────────────────────────────────────
@@ -307,7 +309,7 @@ func TestDelegationSVIDWatcher_ExtractsSandboxRunID(t *testing.T) {
 	m, _ := newTestManager(&stubFetcher{})
 	watcher := m.SVIDWatcher(context.Background())
 
-	id := spiffeid.RequireFromString("spiffe://orbit.test/tenant/orbit-tenant-t1/agent/coder/sandbox/run-9")
+	id := spiffeid.RequireFromString("spiffe://runkora.test/tenant/kora-tenant-t1/agent/coder/sandbox/run-9")
 	watcher.OnX509ContextUpdate(&workloadapi.X509Context{SVIDs: []*x509svid.SVID{{ID: id}}})
 	if got := m.SandboxRunID(); got != "run-9" {
 		t.Fatalf("SandboxRunID = %q, want run-9", got)
@@ -318,7 +320,7 @@ func TestDelegationSVIDWatcher_SharedPodSVIDIgnored(t *testing.T) {
 	m, _ := newTestManager(&stubFetcher{})
 	watcher := m.SVIDWatcher(context.Background())
 
-	id := spiffeid.RequireFromString("spiffe://orbit.test/tenant/orbit-tenant-t1/agent/coder")
+	id := spiffeid.RequireFromString("spiffe://runkora.test/tenant/kora-tenant-t1/agent/coder")
 	watcher.OnX509ContextUpdate(&workloadapi.X509Context{SVIDs: []*x509svid.SVID{{ID: id}}})
 	if got := m.SandboxRunID(); got != "" {
 		t.Fatalf("SandboxRunID = %q, want empty for a shared-pod SVID", got)
@@ -378,8 +380,8 @@ func TestProcessor_StripsInboundDelegationHeader(t *testing.T) {
 	p := NewProcessor(cache, m, "", discardLogger())
 
 	resp := p.handleRequestHeaders(context.Background(), reqHeaders(map[string]string{
-		":path":                    "/run/run-a/v1/messages",
-		"x-orbit-delegation-token": "forged-by-subprocess",
+		":path":                   "/run/run-a/v1/messages",
+		"x-kora-delegation-token": "forged-by-subprocess",
 	}))
 	mutation := mutationOf(t, resp)
 
@@ -396,8 +398,8 @@ func TestProcessor_EmptyCache_StillStripsDelegationHeader(t *testing.T) {
 	p := NewProcessor(cache, nil, "", discardLogger())
 
 	resp := p.handleRequestHeaders(context.Background(), reqHeaders(map[string]string{
-		":path":                    "/run/run-a/v1/messages",
-		"x-orbit-delegation-token": "forged",
+		":path":                   "/run/run-a/v1/messages",
+		"x-kora-delegation-token": "forged",
 	}))
 	mutation := mutationOf(t, resp)
 	if !removesHeader(mutation, delegationHeader) {
@@ -462,4 +464,36 @@ func TestProcessor_SlowDelegationDoesNotBlockOrDropAuthorization(t *testing.T) {
 	// Release the background fetch and let it settle so the goroutine exits.
 	close(bf.release)
 	awaitFetchIdle(t, m, "run-a")
+}
+
+// ctxFetcher records the span context each fetch ran under.
+type ctxFetcher struct {
+	stubFetcher
+	spans chan trace.SpanContext
+}
+
+func (f *ctxFetcher) GetDelegationForRun(ctx context.Context, runID string) (*identityclient.DelegationToken, error) {
+	f.spans <- trace.SpanContextFromContext(ctx)
+	return f.stubFetcher.GetDelegationForRun(ctx, runID)
+}
+
+// A delegation lookup started by a request joins the trace of the proxied call.
+func TestProcessor_DelegationLookupJoinsRequestTrace(t *testing.T) {
+	cache := NewTokenCache()
+	cache.Set("platform-token", time.Now().Add(5*time.Minute))
+	f := &ctxFetcher{stubFetcher: stubFetcher{token: "delegation-token", expiresIn: 3600}, spans: make(chan trace.SpanContext, 1)}
+	m, _ := newTestManager(f)
+	p := NewProcessor(cache, m, "", discardLogger())
+
+	const tp = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	p.handleRequestHeaders(context.Background(), reqHeaders(map[string]string{":path": "/run/run-a/v1/messages", "traceparent": tp}))
+
+	select {
+	case sc := <-f.spans:
+		if sc.TraceID().String() != "4bf92f3577b34da6a3ce929d0e0e4736" {
+			t.Errorf("fetch trace = %s, want the request's", sc.TraceID())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no delegation fetch")
+	}
 }

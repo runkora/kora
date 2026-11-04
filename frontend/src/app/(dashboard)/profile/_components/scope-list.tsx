@@ -3,8 +3,8 @@
  * needs a scope-chip list.
  */
 
-import { Stack } from '@orbit/hades';
-import { ScopeChip } from '@orbit/components';
+import { Stack } from '@runkora/hades';
+import { ScopeChip } from '@runkora/components';
 
 interface ScopeListProps {
   scopes: string[];

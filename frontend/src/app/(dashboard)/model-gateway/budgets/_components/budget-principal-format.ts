@@ -1,7 +1,7 @@
 /** @tier 3 — budgets-page-scoped. Status and budget-source formatting shared
  * by the principals table and its row-click detail modal. */
 
-import { fmtUsd, fmtWindowSuffix } from '@orbit/utils';
+import { fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import type { BudgetCategoryStatus, BudgetPrincipalRow } from '../../_types';
 
 export const NEAR_LIMIT_THRESHOLD = 0.8;

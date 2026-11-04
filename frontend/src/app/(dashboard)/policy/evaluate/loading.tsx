@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle, Skeleton, Stack } from '@orbit/hades';
+import { Card, CardContent, CardHeader, CardTitle, Skeleton, Stack } from '@runkora/hades';
 
 export default function EvaluateLoading() {
   return (

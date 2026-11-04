@@ -17,7 +17,7 @@ The only runner is the developer workstation. `make migrate-up` copies every ser
 
 Six files carry row changes alongside schema changes: a scope vocabulary seed that the vocabulary repository also registers at boot, a JSONB key rename, a backfill, a `Down` that rewrites `runs.state`, a `Down` that deletes lineage rows, and a data repair that joins tables owned by another service.
 
-session-manager pods run in tenant namespaces and reach no database; `run_events` rows are written by orbit-agents on the event push ([sandbox-exec-trust-boundary](2026-09-18-sandbox-exec-trust-boundary.md)).
+session-manager pods run in tenant namespaces and reach no database; `run_events` rows are written by kora-agents on the event push ([sandbox-exec-trust-boundary](2026-09-18-sandbox-exec-trust-boundary.md)).
 
 ### Problem Statement
 
@@ -58,7 +58,7 @@ A Helm or Argo CD install of the published charts does not apply the schema. The
 
 ### Option 1: Helm hook Job running an embedded migrate binary
 
-**Description:** A `cmd/migrate` binary embeds every service's migrations, runs goose as a library, and ships as its own image. The `orbit` chart renders it as a `pre-install,pre-upgrade` hook Job.
+**Description:** A `cmd/migrate` binary embeds every service's migrations, runs goose as a library, and ships as its own image. The `kora` chart renders it as a `pre-install,pre-upgrade` hook Job.
 
 **Pros:**
 - Runs once per release before any Deployment rolls. Failure fails the release.
@@ -101,7 +101,7 @@ A Helm or Argo CD install of the published charts does not apply the schema. The
 
 ### Decision 1: Embedding
 
-Each `backend/cmd/<service>/migrations/` directory gains an `embed.go` declaring `package migrations` with `//go:embed *.sql` and an exported `embed.FS`. `go:embed` cannot reference parent directories. `cmd/migrate` imports the six packages (`identity`, `inference-gateway`, `orbit-agents`, `orbit-triggers`, `policy-service`, `tool-gateway`) and merges them into one `fs.FS` that serves every file at its root directory. A duplicate filename or version prefix across directories fails the merge before any migration runs; goose rejects a duplicate version independently. `cmd/example` migrations are not embedded and its tables do not ship.
+Each `backend/cmd/<service>/migrations/` directory gains an `embed.go` declaring `package migrations` with `//go:embed *.sql` and an exported `embed.FS`. `go:embed` cannot reference parent directories. `cmd/migrate` imports the six packages (`identity`, `inference-gateway`, `kora-agents`, `kora-triggers`, `policy-service`, `tool-gateway`) and merges them into one `fs.FS` that serves every file at its root directory. A duplicate filename or version prefix across directories fails the merge before any migration runs; goose rejects a duplicate version independently. `cmd/example` migrations are not embedded and its tables do not ship.
 
 ### Decision 2: The migrate binary
 
@@ -112,7 +112,7 @@ Subcommands:
 - `up` applies every pending migration, including files versioned below the highest applied one (`WithAllowOutofOrder`), and exits 0.
 - `status` prints applied and pending versions.
 - `create --service <name> <slug>` writes a new timestamped file into that service's directory. Development only, run with `go run` from `backend/`.
-- `down` refuses to run unless `ORBIT_MIGRATE_ALLOW_DOWN=1` is set.
+- `down` refuses to run unless `KORA_MIGRATE_ALLOW_DOWN=1` is set.
 - `lint` runs the content rule (Decision 7) over the embedded set.
 
 The goose CLI is removed from `make install-tools`.
@@ -127,7 +127,7 @@ One run covers every tenant.
 
 ### Decision 4: Packaging
 
-`migrate` is one more entry in the `backend-images` bake matrix, built from `backend/Dockerfile` with `SERVICE=migrate` and published as `orbit-migrate`. The Dockerfile builds `./cmd/${SERVICE}`. `migrate.image` in chart values puts it through the existing release stamping, signing and inventory scripts.
+`migrate` is one more entry in the `backend-images` bake matrix, built from `backend/Dockerfile` with `SERVICE=migrate` and published as `kora-migrate`. The Dockerfile builds `./cmd/${SERVICE}`. `migrate.image` in chart values puts it through the existing release stamping, signing and inventory scripts.
 
 Service runtime images contain their binary and YAML configuration only.
 
@@ -167,11 +167,11 @@ Development history is discarded. Each table-owning service's directory is rewri
 
 ### Decision 9: Chart
 
-`charts/orbit/templates/migrate/job.yaml` renders the Job with:
+`charts/kora/templates/migrate/job.yaml` renders the Job with:
 
 - `helm.sh/hook: pre-install,pre-upgrade`, `helm.sh/hook-weight: "-10"`, `helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded`.
 - `sidecar.istio.io/inject: "false"`. The Job needs no SVID and no Envoy for a Postgres connection.
-- `command: ["./orbit"]`, `args: ["up"]`, `backoffLimit: 0`, `activeDeadlineSeconds` from `migrate.activeDeadlineSeconds`, default 240, below Helm's default timeout of 300 and the 600 the reference Helmfile sets.
+- `command: ["./kora"]`, `args: ["up"]`, `backoffLimit: 0`, `activeDeadlineSeconds` from `migrate.activeDeadlineSeconds`, default 240, below Helm's default timeout of 300 and the 600 the reference Helmfile sets.
 - The restricted security context the services use.
 - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` rendered inline from `.Values.config.db`, `DB_PASSWORD` from the pre-existing platform Secret, and `ORBIT_POSTGRES_SSL_MODE` and `ORBIT_LOG_FORMAT` through `orbit.serviceConfig`, with the `global` values as defaults and `migrate.config` as the override. A pre-install hook runs before the release's ConfigMaps exist; the Job cannot mount `orbit-config`.
 - The namespace default ServiceAccount with no token mounted. The Job needs no API access.
@@ -184,11 +184,11 @@ Values: `migrate.image`, `migrate.activeDeadlineSeconds`, `migrate.config`, and 
 
 ### Decision 10: Local development
 
-`make up` no longer runs `migrate-up`. The reference Helmfile applies the `orbit` chart and the hook runs in-cluster against the compose Postgres through the resolved Docker IP. Helmfile upgrades only a release whose rendered output changed, so every target that destroys the Postgres volume stamps a reset time onto the Job as a pod annotation in `local.generated.yaml`; the next `make up` renders a different Job and the hook re-applies the schema.
+`make up` no longer runs `migrate-up`. The reference Helmfile applies the `kora` chart and the hook runs in-cluster against the compose Postgres through the resolved Docker IP. Helmfile upgrades only a release whose rendered output changed, so every target that destroys the Postgres volume stamps a reset time onto the Job as a pod annotation in `local.generated.yaml`; the next `make up` renders a different Job and the hook re-applies the schema.
 
 `make redeploy`, for any service, hashes `backend/cmd/*/migrations/*.sql` and compares it with the hash recorded in `local.generated.yaml`. On a change it rebuilds and pushes the migrate image, records the digest under `migrate.image.digest` and the hash beside it, and runs `helmfile -e local apply` for the `orbit` release. Helmfile upgrades the release on the digest change and the hook fires.
 
-`make test-postgres` exports the `DB_*` variables and `ORBIT_POSTGRES_SSL_MODE=disable` and runs `go run ./cmd/migrate up` before the tests. The `example` repository test is gated on `ORBIT_EXAMPLE_TEST_DB_URL`. Nothing sets it; its tables are no longer migrated. `make migrate-create` and `make migrate-status` wrap `go run ./cmd/migrate`. `make migrate-up` and `make migrate-down` are removed.
+`make test-postgres` exports the `DB_*` variables and `ORBIT_POSTGRES_SSL_MODE=disable` and runs `go run ./cmd/migrate up` before the tests. The `example` repository test is gated on `KORA_EXAMPLE_TEST_DB_URL`. Nothing sets it; its tables are no longer migrated. `make migrate-create` and `make migrate-status` wrap `go run ./cmd/migrate`. `make migrate-up` and `make migrate-down` are removed.
 
 ---
 
@@ -197,8 +197,8 @@ Values: `migrate.image`, `migrate.activeDeadlineSeconds`, `migrate.config`, and 
 ```
 release N                         consumer cluster
 ┌──────────────────────┐          ┌─────────────────────────────────────────────┐
-│ orbit-migrate image  │  helm    │ orbit-system                                │
-│  cmd/migrate         │ upgrade  │  Job orbit-migrate (pre-upgrade hook) ──────┼──▶ PostgreSQL
+│ kora-migrate image  │  helm    │ kora-system                                │
+│  cmd/migrate         │ upgrade  │  Job kora-migrate (pre-upgrade hook) ──────┼──▶ PostgreSQL
 │  embeds identity/    │ ───────▶ │      goose up over merged set               │    goose_db_version
 │  agents/ triggers/   │          │      exit 0  ──▶ Deployments roll           │
 │  inference/ policy/  │          │      exit 1  ──▶ release fails, pods unchanged
@@ -221,7 +221,7 @@ release N                         consumer cluster
 - Every contract change is a two-release change with a release-notes entry.
 - One more image to build, sign, pin and list.
 - The baseline resets every development database once.
-- The `orbit-example` tenant workload still deploys locally but its tables are not created; only its health endpoint works.
+- The `kora-example` tenant workload still deploys locally but its tables are not created; only its health endpoint works.
 - Under Argo CD a failed migration Job is deleted on the next attempt; the failure is visible only in sync history.
 - On a skipped upgrade, pods from the old release may return errors between the hook completing and the rollout finishing.
 
@@ -253,7 +253,7 @@ No upgrade path is supported for schemas created before the 0.1.0 baseline.
 
 ## Validation
 
-- `helm install` of the `orbit` chart on a blank cluster with an empty database reaches every service Ready with no manual step.
+- `helm install` of the `kora` chart on a blank cluster with an empty database reaches every service Ready with no manual step.
 - `helm upgrade` from N-1 to N with N-1 pods serving throughout, then `helm rollback` to N-1 against the N schema, verified on the local cluster before each release.
 - `make migrate-lint` fails on a migration that violates any clause of Decision 7.
 

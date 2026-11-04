@@ -10,7 +10,12 @@ server:
   shutdownTimeoutSecs: 10
 
 observability:
-  serviceName: orbit-inference-gateway
+  serviceName: kora-inference-gateway
+
+metrics:
+  enabled: true
+  port: 9464
+  shutdownTimeoutSecs: 5
 
 pricing:
   # How often the pricing cache refreshes (seconds). 3600 = 1 hour.
@@ -22,3 +27,8 @@ pricing:
 
 policy:
   bundlePollIntervalSecs: 30
+
+catalog:
+  # Virtual model writes through the API. The chart renders
+  # inferenceGateway.catalog.apiAuthoring here.
+  apiAuthoring: true

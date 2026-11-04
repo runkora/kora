@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 )
 
 // Platform defaults for an agent type's loop thresholds

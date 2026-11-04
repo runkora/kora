@@ -16,6 +16,9 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Extended Trigger Types](extended-trigger-types.md) | Implemented | [extended-trigger-types](../adr/2026-06-20-extended-trigger-types.md) |
 | [Trigger Deliveries Filter and Event Detail](trigger-deliveries-filter.md) | Approved | [trigger-deliveries-filter](../adr/2026-06-20-trigger-deliveries-filter.md) |
 | [Trigger Payload Templating](trigger-payload-templating.md) | Implemented | [trigger-payload-templating](../adr/2026-09-28-trigger-payload-templating.md) |
+| [Trigger Routing](trigger-routing.md) | Approved | [trigger-routing](../adr/2026-10-19-trigger-routing.md) |
+| [Chat Command Triggers](chat-command-triggers.md) | Approved | [chat-command-triggers](../adr/2026-10-20-chat-command-triggers.md) |
+| [Generic Webhook Source](generic-webhook-source.md) | Implemented | [generic-webhook-source](../adr/2026-10-27-generic-webhook-source.md) |
 | [Agent Token Breakdown and Spend Card](agent-token-breakdown-and-spend-card.md) | Approved | [agent-token-breakdown-and-spend-card](../adr/2026-06-23-agent-token-breakdown-and-spend-card.md) |
 | [Credential Broker & Outbound Connections](credential-broker-and-outbound-connections.md) | Draft | [jit-credential-brokering-egress-gateway](../adr/2026-06-06-jit-credential-brokering-egress-gateway.md) |
 | [Kubernetes Connection](kubernetes-connection.md) | Draft | [jit-credential-brokering-egress-gateway](../adr/2026-06-06-jit-credential-brokering-egress-gateway.md) |
@@ -35,7 +38,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Model Cost Visibility](model-cost-visibility.md) | Approved | [model-cost-visibility](../adr/2026-06-22-model-cost-visibility.md) |
 | [MCP / Tool Gateway](mcp-tool-gateway.md) | Approved | [mcp-server-registration-and-introspection](../adr/2026-06-29-mcp-server-registration-and-introspection.md), [mcp-tool-gateway](../adr/2026-06-29-mcp-tool-gateway.md), [mcp-oauth-authentication](../adr/2026-06-29-mcp-oauth-authentication.md) |
 | [kora MCP](orbit-mcp.md) | Approved | [orbit-mcp](../adr/2026-06-30-orbit-mcp.md) |
-| [Hades Design System](design-system.md) | Implemented | [terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md) |
+| [Hades Design System](design-system.md) | Implemented | [terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md), [hades-versioning-and-theme-surface-manifest](../adr/2026-10-11-hades-versioning-and-theme-surface-manifest.md), [hades-delivery-to-external-consumers](../adr/2026-10-11-hades-delivery-to-external-consumers.md) |
 | [Hades Design System Hardening](terra-design-system-hardening.md) | Implemented | [terra-design-system-hardening](../adr/2026-05-04-terra-design-system-hardening.md) |
 | [Hades Reusable Wizard Flow](terra-reusable-wizard-flow.md) | In Review | [terra-wizard-component](../adr/2026-08-03-terra-wizard-component.md) |
 | [Frontend Component Consolidation](frontend-component-consolidation.md) | Implemented | [frontend-component-consolidation](../adr/2026-05-04-frontend-component-consolidation.md) |
@@ -47,7 +50,11 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [CRD-Driven Inference Providers](crd-inference-providers.md) | Approved | [crd-inference-providers](../adr/2026-10-01-crd-inference-providers.md) |
 | [Non-Token Model Pricing](non-token-model-pricing.md) | Approved | [non-token-model-pricing](../adr/2026-07-24-non-token-model-pricing.md) |
 | [Sandbox Environments](sandbox-environments.md) | Approved | [sandbox-environments](../adr/2026-10-03-sandbox-environments.md) |
+| [Declarative Resources](declarative-resources.md) | Implemented | [declarative-resources](../adr/2026-10-24-declarative-resources.md) |
 | [Bundled Sandbox Images](bundled-sandbox-images.md) | Approved | [bundled-sandbox-images](../adr/2026-10-07-bundled-sandbox-images.md) |
+| [Prometheus Metrics Endpoints](prometheus-metrics-endpoints.md) | Approved | [prometheus-metrics-endpoints](../adr/2026-10-06-prometheus-metrics-endpoints.md) |
 | [Profile Page](profile-page.md) | Draft | [profile-page-architecture](../adr/2026-05-13-profile-page-architecture.md) |
 | [User App Preferences](user-app-preferences.md) | Approved | [user-app-preferences](../adr/2026-05-08-user-app-preferences.md) |
+| [White-labelling](white-labelling.md) | Approved | [white-labelling-theme](../adr/2026-10-12-white-labelling-theme.md) |
+| [Run Tracing](run-tracing.md) | Approved | [one-trace-per-run](../adr/2026-10-31-one-trace-per-run.md) |
 

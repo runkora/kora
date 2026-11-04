@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // Delegated-run transport support (docs/adr/2026-07-23-delegated-agent-identity.md,
@@ -45,14 +45,14 @@ type delegationIssuer interface {
 	RevokeDelegation(ctx context.Context, bearer, jti string) error
 }
 
-// ServiceTokenSource returns a bearer token for orbit-agents' own service
+// ServiceTokenSource returns a bearer token for kora-agents' own service
 // identity — the same exchanged-platform-token pattern the policy client uses
-// (cmd/orbit-agents/main.go wires it to identityclient.Client.Exchange).
+// (cmd/kora-agents/main.go wires it to identityclient.Client.Exchange).
 type ServiceTokenSource func(ctx context.Context) (string, error)
 
 // DelegationBroker mints delegation issuances at run start (forwarding the
 // caller's bearer) and revokes them on terminal run state (authenticating as
-// orbit-agents' own SERVICE principal).
+// kora-agents' own SYSTEM principal, spiffe://<td>/system/kora-agents).
 type DelegationBroker struct {
 	issuer      delegationIssuer
 	tokenSource ServiceTokenSource
@@ -80,7 +80,7 @@ func (b *DelegationBroker) AgentPrincipalID(namespace, slug string) string {
 
 // Mint creates a delegation issuance for runID. The caller's own bearer token
 // travels as the RFC 8693 subject_token in the request body; the Authorization
-// header carries orbit-agents' own token as transport auth. Identity verifies the subject token and derives the delegator from it,
+// header carries kora-agents' own token as transport auth. Identity verifies the subject token and derives the delegator from it,
 // so it never mints delegated authority the runner does not hold (ADR
 // Decision 3). Returns the issuance JTI.
 func (b *DelegationBroker) Mint(ctx context.Context, callerBearer, agentPrincipalID, runID string) (string, error) {
@@ -100,7 +100,7 @@ func (b *DelegationBroker) Mint(ctx context.Context, callerBearer, agentPrincipa
 }
 
 // RevokeBestEffort tombstones a delegation issuance, authenticating as
-// orbit-agents' own service identity. Failures are logged and swallowed —
+// kora-agents' own service identity. Failures are logged and swallowed —
 // revocation must never wedge run termination; the JTI blocklist is defense in
 // depth and the fail-closed rego marker is the real guarantee.
 func (b *DelegationBroker) RevokeBestEffort(ctx context.Context, jti, runID string) {
@@ -161,11 +161,11 @@ func requireDelegatorPrincipal(ctx context.Context) error {
 	if !ok || claims == nil {
 		return ErrDelegatedRunPrincipal
 	}
-	switch claims.Orbit.PrincipalType {
+	switch claims.Kora.PrincipalType {
 	case token.PrincipalTypeHuman, token.PrincipalTypePAT:
 		return nil
 	default:
-		return fmt.Errorf("%w (principal type %s)", ErrDelegatedRunPrincipal, claims.Orbit.PrincipalType)
+		return fmt.Errorf("%w (principal type %s)", ErrDelegatedRunPrincipal, claims.Kora.PrincipalType)
 	}
 }
 
@@ -179,8 +179,7 @@ func (s *RunService) authorizeDelegatedStart(ctx context.Context, span trace.Spa
 		return nil
 	}
 	if err := requireDelegatorPrincipal(ctx); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errDelegatedRunRefused.Error())
+		observability.RecordFailure(span, err, errDelegatedRunRefused)
 		return err
 	}
 	return nil
@@ -193,8 +192,7 @@ func (s *RunService) authorizeDelegatedStart(ctx context.Context, span trace.Spa
 func (s *RunService) mintRunDelegation(ctx context.Context, span trace.Span, runID string, at AgentType, namespace string) (string, error) {
 	jti, err := s.mintAndPersistDelegation(ctx, runID, at, namespace)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errDelegationMintFailed.Error())
+		observability.RecordFailure(span, err, errDelegationMintFailed)
 		return "", err
 	}
 	s.logger.Info(ctx, "delegation minted for run",

@@ -23,7 +23,7 @@ What exists today (verified in code):
 - **CA trust** — `internal/agents/k8s.go` mounts the per-tenant CA over the OS bundle (`/etc/ssl/certs/ca-certificates.crt`) and sets `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `GIT_SSL_CAINFO`, `PIP_CERT` so unmodified tools trust the interception cert.
 - **Connectivity / connectors** — `internal/agents/models.go`: `AgentType.Connectivity` (`Mode` + `Hosts`) compiles to `egress:<host>:connect` via `EgressScopes()`; `AgentType.Connectors` (`[]{Connection, Actions}`) compiles to `connection:<name>:<action>` via `ConnectorScopes()`; `EffectiveGrantScopes()` is the dedup union of `GrantScopes` ∪ egress ∪ connectors, reconciled to the policy service by `ensureAgentGrant` (`k8s.go`). Both persist as JSONB columns on `agent_types`.
 - **Adapters** — `internal/credentials`: the `CredentialAdapter` interface declares `Type()`, `Actions()`, `ClassifyAction()`, `Resolve()`. Implemented: `github_app`, `passthrough`. An adapter declares its **action vocabulary** but **not the hosts it needs to reach** — only the per-connection `Connection.BaseHost` exists.
-- **The import wall** — orbit-agents may not import `internal/credentials` (depguard; features must not import each other). This is why `internal/agents/connection_catalog.go` keeps a *static mirror* `adapterActions = {github_app: [repo:read, repo:write], ...}` rather than reading the adapter. Any new adapter-derived data that grant compilation needs hits the same wall.
+- **The import wall** — kora-agents may not import `internal/credentials` (depguard; features must not import each other). This is why `internal/agents/connection_catalog.go` keeps a *static mirror* `adapterActions = {github_app: [repo:read, repo:write], ...}` rather than reading the adapter. Any new adapter-derived data that grant compilation needs hits the same wall.
 
 ### Problem Statement
 
@@ -54,7 +54,7 @@ Three coupled gaps stand between the current sandbox and an effective agent:
 - **Enforce-below-the-agent decouples effective from secure.** A rich image is safe because the controls are structural, not based on a thin toolchain.
 - **The three questions** — primarily *What can it access?* and *How does it connect?*, without weakening *Who is this agent?*.
 - **Reduce admin toil and footguns** — granular per-agent egress and "connector without egress" are the two sharpest edges today.
-- **Respect the import wall** — orbit-agents cannot import `internal/credentials`; the design must feed grant compilation without that import.
+- **Respect the import wall** — kora-agents cannot import `internal/credentials`; the design must feed grant compilation without that import.
 - **Tightening over loosening** — derived egress scoped to a connection's declared hosts is *narrower and more auditable* than a hand-typed `egress:*` grant.
 - **Startup latency** — the sandbox pod already pulls a sizeable image; the toolchain decision must not balloon it.
 
@@ -82,7 +82,7 @@ Three coupled gaps stand between the current sandbox and an effective agent:
 - **Pros:** Consistent with connection registration; declarative.
 - **Cons:** Environments are an *admin-UX composition over existing governed primitives* (hosts + already-GitOps connections), edited frequently by tenant admins; a CRD + git round-trip for "add npm to the Python agents' bundle" is heavyweight. **Rejected by decision.**
 
-**Option 2B — UI-configurable, persisted in orbit-agents; agents reference it (chosen).** A tenant-scoped, named bundle of `{egress hosts (incl. curated registries) + connections}` managed through the agents API/UI. An agent type references an Environment and may add its own hosts/connectors on top.
+**Option 2B — UI-configurable, persisted in kora-agents; agents reference it (chosen).** A tenant-scoped, named bundle of `{egress hosts (incl. curated registries) + connections}` managed through the agents API/UI. An agent type references an Environment and may add its own hosts/connectors on top.
 - **Pros:** Fast admin loop; lives next to the agent-type/connectivity model it composes; the sensitive part (connection *secrets/registration*) stays GitOps — an Environment only references connections by name. Reference model means "edit the bundle once, every agent using it updates," which is *stronger* central governance.
 - **Cons:** New table/CRUD/UI surface; introduces a compile-time dependency (resolve the Environment when reconciling grants).
 
@@ -92,11 +92,11 @@ Three coupled gaps stand between the current sandbox and an effective agent:
 
 ### Decision 3 — Connection-derived egress: where do a connection's hosts come from, and how does grant compilation get them across the import wall?
 
-**Option 3A — Adapter declares hosts; a shared `internal/platform/connections` metadata table feeds everyone (chosen).** Add the adapter's required egress hosts (templated on `base_host` for enterprise) to a small, cross-cutting metadata table in `internal/platform/` that `credentials`, the operator, and orbit-agents may all import. orbit-agents reads each connection's `adapter` + `base_host` from the mounted registry (`connections.json`) and expands to hosts via the table; grant compilation adds `egress:<host>:connect` for every connector.
+**Option 3A — Adapter declares hosts; a shared `internal/platform/connections` metadata table feeds everyone (chosen).** Add the adapter's required egress hosts (templated on `base_host` for enterprise) to a small, cross-cutting metadata table in `internal/platform/` that `credentials`, the operator, and kora-agents may all import. kora-agents reads each connection's `adapter` + `base_host` from the mounted registry (`connections.json`) and expands to hosts via the table; grant compilation adds `egress:<host>:connect` for every connector.
 - **Pros:** Single source of truth for adapter metadata; **collapses the existing `adapterActions` static-mirror duplication** (and the broader triple-shape drift) rather than adding a fourth copy; no feature-to-feature import; egress is derived, scoped, and auditable.
 - **Cons:** Touches the adapter impls to source their `Actions()`/hosts from the shared table; a modest refactor.
 
-**Option 3B — Adapter declares hosts; orbit-agents keeps a second static mirror `adapterEgressHosts`.** Pragmatic, matches today's `adapterActions` pattern.
+**Option 3B — Adapter declares hosts; kora-agents keeps a second static mirror `adapterEgressHosts`.** Pragmatic, matches today's `adapterActions` pattern.
 - **Pros:** Smallest change; no refactor of the adapters.
 - **Cons:** Adds a *second* place the adapter set is duplicated; drift-prone; doubles down on the very pattern 3A cleans up.
 
@@ -130,7 +130,7 @@ Environment {
 }
 ```
 
-- Persisted in **orbit-agents** (new `environments` table, repository, service, handlers) and edited in the dashboard. **Not a CRD.** Connections are still registered as GitOps `Connection` CRs — an Environment only *references* them by name.
+- Persisted in **kora-agents** (new `environments` table, repository, service, handlers) and edited in the dashboard. **Not a CRD.** Connections are still registered as GitOps `Connection` CRs — an Environment only *references* them by name.
 - An `AgentType` gains an optional `environment_id`. The agent's **effective** connectivity = the Environment's `{egress_hosts ∪ connections}` **∪** the agent's own `Connectivity.Hosts`/`Connectors`. Resolution happens in the service layer (where DB access exists) before `EffectiveGrantScopes()` is reconciled.
 - **Reference, not snapshot:** editing an Environment re-reconciles every agent that references it. This is the stronger governance primitive — "this class of agent operates in the *GitHub + Python OSS* environment" is one auditable fact.
 - The **"dev registries"** are not a special mechanism — they are a platform-seeded Environment (or a host set within one): npm (`registry.npmjs.org`), PyPI (`pypi.org`, `files.pythonhosted.org`), Go (`proxy.golang.org`, `sum.golang.org`), crates (`index.crates.io`, `static.crates.io`), Debian mirrors (`deb.debian.org`). Curated, editable, governed like any Environment.
@@ -138,8 +138,8 @@ Environment {
 ### Decision 3 — Connection-derived egress via shared adapter metadata
 
 - The **adapter is the source of truth** for the hosts its connection needs. Introduce `internal/platform/connections` — a small, dependency-free metadata table mapping each adapter to `{ actions, egressHosts(baseHost) }`. For `github_app`: actions `repo:read|repo:write`; egress hosts derived from `base_host` (SaaS `github.com` → `github.com`, `api.github.com`, `codeload.github.com`, `*.githubusercontent.com`; Enterprise → the base host's family).
-- `internal/credentials` adapters and `internal/agents` both consume this table — orbit-agents **drops its `adapterActions` mirror** and reads the shared table, which it is *allowed* to import (platform is cross-cutting).
-- **Grant compilation change:** for each `Connector`, orbit-agents resolves the connection's `adapter` + `base_host` from the mounted registry (`connections.json` already carries both), expands via the table, and adds `egress:<host>:connect` for each host. So selecting the GitHub connector auto-allows exactly GitHub's hosts — derived, scoped, auditable, and *narrower* than a hand-typed wildcard.
+- `internal/credentials` adapters and `internal/agents` both consume this table — kora-agents **drops its `adapterActions` mirror** and reads the shared table, which it is *allowed* to import (platform is cross-cutting).
+- **Grant compilation change:** for each `Connector`, kora-agents resolves the connection's `adapter` + `base_host` from the mounted registry (`connections.json` already carries both), expands via the table, and adds `egress:<host>:connect` for each host. So selecting the GitHub connector auto-allows exactly GitHub's hosts — derived, scoped, auditable, and *narrower* than a hand-typed wildcard.
 
 ### Rationale
 
@@ -164,7 +164,7 @@ Each is a *tightening or a convenience over existing primitives*, never a new es
 
 ### Negative
 
-- New surface in orbit-agents (Environments table/CRUD/UI) and a refactor of adapter metadata into platform.
+- New surface in kora-agents (Environments table/CRUD/UI) and a refactor of adapter metadata into platform.
 - A compile-time Environment resolution step in grant reconciliation.
 - The Dockerfile keeps growing; default pull size rises modestly.
 
@@ -179,9 +179,9 @@ Each is a *tightening or a convenience over existing primitives*, never a new es
 
 Suggested order (each independently shippable):
 
-1. **Connection-derived egress (Decision 3)** — `internal/platform/connections` table; wire orbit-agents grant compilation + retire `adapterActions`; adapters source actions from the table. Smallest, highest-leverage, fixes a real footgun.
+1. **Connection-derived egress (Decision 3)** — `internal/platform/connections` table; wire kora-agents grant compilation + retire `adapterActions`; adapters source actions from the table. Smallest, highest-leverage, fixes a real footgun.
 2. **Image enrichment (Decision 1)** — add `gh`, `ripgrep`, `fd-find`, `jq`, `wget` to the base layer of `Dockerfile.sandbox-exec`.
-3. **Environments (Decision 2)** — `environments` table + repository/service/handlers (`make migrate-create service=orbit-agents name=add_environments`), `environment_id` on agent types, effective-grant resolution, dashboard CRUD + an agent-form selector, and a platform-seeded "dev registries" Environment.
+3. **Environments (Decision 2)** — `environments` table + repository/service/handlers (`make migrate-create service=kora-agents name=add_environments`), `environment_id` on agent types, effective-grant resolution, dashboard CRUD + an agent-form selector, and a platform-seeded "dev registries" Environment.
 
 ### Migration Path
 

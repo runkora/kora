@@ -8,7 +8,7 @@
 // namespace or in a namespace with no tenant maps to no tenant and would never
 // get a status.
 //
-// Allowlist edits, suspends and deletes of an OrbitTenant are handled by the
+// Allowlist edits, suspends and deletes of an KoraTenant are handled by the
 // TenantReconciler, which runs the same aggregator.
 //
 // See docs/adr/2026-10-13-skill-marketplace-source-registration.md.
@@ -21,7 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // SkillMarketplaceSourceReconciler re-aggregates skill marketplace sources

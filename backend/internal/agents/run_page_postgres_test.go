@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// Keyset paging and run stats against real SQL; gated on ORBIT_TEST_DB_URL (see testRunRepo).
+// Keyset paging and run stats against real SQL; gated on KORA_TEST_DB_URL (see testRunRepo).
 
 // seedRunAt writes a run in state with the given created_at and started_at.
 func seedRunAt(t *testing.T, r *PostgresRepository, tenant, agentTypeID, createdBy string, state RunState, createdAt time.Time, startedAt *time.Time) string {
@@ -103,6 +103,39 @@ func TestPostgres_ListRunsKeyset(t *testing.T) {
 	}
 }
 
+// D3: Own adds the caller's runs of any agent type, AgentTypeID narrows both halves,
+// and the delegated-run rule still applies to other people's delegated runs.
+func TestPostgres_ListRunsOwnRuns(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	readable := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	hidden := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	del := seedRunAgentType(t, r, tenant, IdentityModeDelegated)
+	now := time.Now().UTC()
+	readableBob := seedRunAt(t, r, tenant, readable.ID, "bob", RunStateCompleted, now.Add(-4*time.Minute), nil)
+	hiddenAlice := seedRunAt(t, r, tenant, hidden.ID, "alice", RunStateCompleted, now.Add(-3*time.Minute), nil)
+	seedRunAt(t, r, tenant, hidden.ID, "bob", RunStateCompleted, now.Add(-2*time.Minute), nil)
+	seedRunAt(t, r, tenant, del.ID, "bob", RunStateCompleted, now.Add(-time.Minute), nil)
+
+	vis := RunVisibility{Subject: "alice"}
+	tests := []struct {
+		name  string
+		scope RunScope
+		want  []string
+	}{
+		{"readable agents and own runs", RunScope{AgentTypeIDs: []string{readable.ID, del.ID}, Vis: vis, Own: true}, []string{hiddenAlice, readableBob}},
+		{"readable agents only", RunScope{AgentTypeIDs: []string{readable.ID, del.ID}, Vis: vis}, []string{readableBob}},
+		{"narrowed to an unreadable agent", RunScope{AgentTypeIDs: []string{readable.ID}, Vis: vis, Own: true, OnlyAgentTypeIDs: []string{hidden.ID}}, []string{hiddenAlice}},
+		{"empty subject owns nothing", RunScope{AgentTypeIDs: []string{readable.ID}, Own: true}, []string{readableBob}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := walkRepo(t, r, tenant, RunListQuery{Scope: tt.scope, Limit: 10}); !slices.Equal(got, tt.want) {
+				t.Errorf("runs = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPostgres_ListRunsStateFilter(t *testing.T) {
 	r, tenant := testRunRepo(t)
 	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
@@ -118,6 +151,41 @@ func TestPostgres_ListRunsStateFilter(t *testing.T) {
 	})
 	if err != nil || len(runs) != 2 || runs[0].ID != pending || runs[1].ID != active {
 		t.Errorf("live runs = %+v, %v; want the pending then the active run", runs, err)
+	}
+}
+
+func TestPostgres_ListRunsStartedByTrigger(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	ctx := context.Background()
+	a := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	b := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	now := time.Now().UTC()
+	triggered := func(at string, state RunState, age time.Duration) string {
+		run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at, CreatedBy: "trigger:trig-1", StartedBy: &StartedByTrigger{TriggerID: "trig-1", TriggerName: "PR comments"}}
+		if err := r.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun: %v", err)
+		}
+		if _, err := r.pool.Exec(ctx, `UPDATE runs SET state=$1, created_at=$2 WHERE id=$3`, string(state), now.Add(-age), run.ID); err != nil {
+			t.Fatalf("set run state: %v", err)
+		}
+		return run.ID
+	}
+	wantA := triggered(a.ID, RunStateIdle, time.Minute)
+	wantB := triggered(b.ID, RunStateActive, 2*time.Minute)
+	triggered(a.ID, RunStateCompleted, 3*time.Minute)
+	seedRunAt(t, r, tenant, a.ID, "bob", RunStateActive, now.Add(-4*time.Minute), nil)
+
+	runs, err := r.ListRuns(ctx, tenant, RunListQuery{
+		Scope:            RunScope{AgentTypeIDs: []string{a.ID, b.ID}, Vis: RunVisibility{SeeAll: true}},
+		States:           []RunState{RunStateActive, RunStateIdle},
+		StartedByTrigger: true,
+		Limit:            10,
+	})
+	if err != nil || len(runs) != 2 || runs[0].ID != wantA || runs[1].ID != wantB {
+		t.Fatalf("trigger runs = %+v, %v; want the idle run of a then the active run of b", runs, err)
+	}
+	if runs[0].StartedBy == nil || runs[0].StartedBy.TriggerName != "PR comments" {
+		t.Errorf("started_by = %+v, want the trigger attribution", runs[0].StartedBy)
 	}
 }
 

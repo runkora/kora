@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 )
 
 // Mux wraps http.ServeMux with controller-level routing and middleware support.
@@ -28,6 +28,19 @@ type Mux struct {
 	middleware mw.MiddlewareHandler
 	logger     logging.Logger
 	ctx        context.Context
+
+	// mountPath is the base path http.StripPrefix removed; span names add it back.
+	mountPath string
+
+	// metricsMiddleware is applied per-route, inside RoutePattern, so it can
+	// actually read the route the request matched. See HandleWithMiddleware.
+	// Nil when the binary has no meter wired (metrics disabled).
+	metricsMiddleware mw.MiddlewareHandler
+
+	// health is the handler a controller registered for "GET /health", if any.
+	// Server serves it in place of the default health response. It is the
+	// raw handler, without middleware.
+	health http.Handler
 }
 
 func NewMux(ctx context.Context, logger logging.Logger) *Mux {
@@ -44,6 +57,13 @@ func (m *Mux) SetBasePath(basePath string) {
 
 func (m *Mux) SetMiddleware(middleware mw.MiddlewareHandler) {
 	m.middleware = middleware
+}
+
+// SetMetricsMiddleware mirrors api.Server's setter: applied per-route, inside
+// RoutePattern, so it can actually read the route the request matched. See
+// HandleWithMiddleware.
+func (m *Mux) SetMetricsMiddleware(metricsMiddleware mw.MiddlewareHandler) {
+	m.metricsMiddleware = metricsMiddleware
 }
 
 // Handles routes for each controller and adds them to the server.
@@ -116,20 +136,41 @@ func (m *Mux) HandleWithMiddleware(
 		finalHandler = m.middleware(finalHandler)
 	}
 
-	finalHandler = mw.SpanRouteName(finalHandler)
+	finalHandler = mw.SpanRouteName(m.mountPath)(finalHandler)
+
+	// Between SpanRouteName and RoutePattern (not in the global chain a
+	// binary builds in main.go), so it executes after RoutePattern has set
+	// the route pattern on the request context. The global chain runs
+	// outside this Mux's own dispatch, so a context value set in here is
+	// local to this call stack and never visible out there.
+	if m.metricsMiddleware != nil {
+		finalHandler = m.metricsMiddleware(finalHandler)
+	}
 
 	// Outermost, so every middleware above reads the route from the context.
 	finalHandler = mw.RoutePattern(fullPath)(finalHandler)
 
+	if method == http.MethodGet && fullPath == "/health" {
+		// Raw handler, not the wrapped chain: probes bypass controller
+		// middleware and stay out of traces, logs and HTTP metrics.
+		m.health = http.HandlerFunc(handler)
+	}
+
 	m.ServeMux.Handle(joinedRoute, finalHandler)
 }
 
+// HandleFileServer mounts handler at route without controller middleware. It
+// still names the request's span after the route.
 func (m *Mux) HandleFileServer(
 	route string,
 	handler http.Handler,
 ) {
+	path := route
+	if _, p, ok := strings.Cut(route, " "); ok {
+		path = p
+	}
 	m.ServeMux.Handle(
 		route,
-		handler,
+		mw.RoutePattern(path)(mw.SpanRouteName(m.mountPath)(handler)),
 	)
 }

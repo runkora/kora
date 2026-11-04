@@ -3,7 +3,7 @@ app:
 
 server:
   shutdownTimeoutSecs: 5
-  socketPath: /run/orbit/identity-proxy.sock
+  socketPath: /run/kora/identity-proxy.sock
   readyTimeoutSecs: 25
   healthAddr: ":9090"
   envoyReadyTimeoutSecs: 60
@@ -17,4 +17,4 @@ proxy:
   delegationNegativeTTLSecs: 300
 
 observability:
-  serviceName: orbit-identity-proxy
+  serviceName: kora-identity-proxy

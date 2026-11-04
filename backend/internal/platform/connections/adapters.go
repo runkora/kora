@@ -161,8 +161,8 @@ var registry = map[string]adapterMeta{
 			{Action: ActionGitHubChecksWrite, Description: "Create and update check runs, check suites, and commit statuses", Requires: githubMeta},
 			{Action: ActionGitHubAdminRead, Description: "Read repository administration: settings, webhooks, deploy keys, collaborators, branch protection, Actions secrets metadata", Requires: githubMeta},
 			{Action: ActionGitHubAdminWrite, Description: "Administer the repository: settings, webhooks, deploy keys, collaborators, branch protection, Actions/Dependabot secrets", Requires: githubMeta},
-			{Action: ActionGitHubRepoRead, Description: "Catch-all read for uncategorized GitHub routes (search, GraphQL, long-tail APIs); as a legacy umbrella it also confers every category read", Requires: githubCategoryReads},
-			{Action: ActionGitHubRepoWrite, Description: "Catch-all write for uncategorized GitHub routes; as a legacy umbrella it also confers every category write", Requires: githubCategoryWrites},
+			{Action: ActionGitHubRepoRead, Description: "Catch-all read for uncategorized GitHub routes (search, GraphQL, long-tail APIs). Unqualified, it also confers every category read, admin:read included. A repository-qualified grant confers no categories", Requires: githubCategoryReads},
+			{Action: ActionGitHubRepoWrite, Description: "Catch-all write for uncategorized GitHub routes. Unqualified, it also confers every category write, admin:write included. A repository-qualified grant confers no categories", Requires: githubCategoryWrites},
 		},
 		egressHosts: githubEgressHosts,
 		qualifier: &QualifierMeta{
@@ -239,7 +239,7 @@ func declaredHostOnly(baseHost string) []string {
 // requires a DNS hostname and baseHost is a bare IP literal. TLS ClientHellos
 // never carry SNI for an IP-literal destination (per spec), and the sandbox's
 // transparent-egress interceptor
-// (charts/orbit/templates/egress-gateway/transparent-egress.yaml) authorizes
+// (charts/kora/templates/egress-gateway/transparent-egress.yaml) authorizes
 // outbound HTTPS by matching that SNI against the connection's granted
 // egress:<host>:connect scope, so an IP-literal connection can never be
 // authorized through a live agent sandbox. See

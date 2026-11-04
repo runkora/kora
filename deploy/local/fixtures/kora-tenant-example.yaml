@@ -1,0 +1,115 @@
+# Example tenant workload for the local cluster. The namespace comes from
+# deploy/local/tenants/example.yaml; the operator's webhook adds the sidecars.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: example-config
+  namespace: kora-tenant-example
+data:
+  # Mounted as the storage config file the loader merges last.
+  storage.yaml: |
+    postgres:
+      host: kora-postgres
+      port: 5432
+      database: kora
+      user: kora
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kora-example
+  namespace: kora-tenant-example
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kora-example
+  namespace: kora-tenant-example
+  labels:
+    app: kora-example
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kora-example
+  template:
+    metadata:
+      labels:
+        app: kora-example
+        # Selects the kora-tenant-agent ClusterSPIFFEID: .../agent/example.
+        spiffe.io/agent: example
+    spec:
+      serviceAccountName: kora-example
+      # Tenant namespaces enforce restricted Pod Security.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: kora-example
+          image: kora-registry:5001/kora-example:latest
+          imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          env:
+            - name: APP_ENV
+              value: local
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: kora-secrets
+          volumeMounts:
+            - name: config-files
+              mountPath: /etc/kora/config
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: config-files
+          configMap:
+            name: example-config
+            items:
+              - key: storage.yaml
+                path: internal/platform/storage.yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kora-example
+  namespace: kora-tenant-example
+spec:
+  selector:
+    app: kora-example
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8081
+      protocol: TCP

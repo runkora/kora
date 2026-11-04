@@ -8,8 +8,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // Evaluator provides in-process OPA policy evaluation.
@@ -28,7 +28,7 @@ type Evaluator interface {
 	// ScopesExplain returns the principal's scopes broken down by source.
 	ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesExplainResult, error)
 
-	// CheckBudget evaluates the orbit.budget hierarchical ceiling rules for
+	// CheckBudget evaluates the kora.budget hierarchical ceiling rules for
 	// the caller. The request carries verified identity context (principal,
 	// type, JWT roles, run identity) and the spends the gateway read from the
 	// canonical counters; OPA resolves the applicable ceilings from bundle
@@ -226,7 +226,7 @@ type DelegationClaims struct {
 	TenantID string
 }
 
-// BudgetCheckInput is the OPA input shape for the orbit.budget module.
+// BudgetCheckInput is the OPA input shape for the kora.budget module.
 type BudgetCheckInput struct {
 	Principal  budgetPrincipal   `json:"principal"`
 	Delegation *budgetDelegation `json:"delegation,omitempty"`
@@ -257,7 +257,7 @@ type BudgetResult struct {
 
 // NewEvaluator returns an Evaluator backed by in-process OPA.
 // bundleEndpoint is the base URL of the policy-service bundle API,
-// e.g. http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles
+// e.g. http://kora-policy-service.kora-system.svc/api/v1/policy/bundles
 func NewEvaluator(bundleEndpoint string, pollInterval time.Duration, logger logging.Logger) Evaluator {
 	return newEngine(bundleEndpoint, pollInterval, logger)
 }

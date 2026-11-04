@@ -341,6 +341,27 @@ function ErrorTable() {
   );
 }
 
+function ControlledSearchExample() {
+  const [query, setQuery] = useState('');
+  return (
+    <Stack gap="snug">
+      <Text size="supporting" color="muted">
+        Parent state: {query ? `"${query}"` : 'empty'}
+      </Text>
+      <DataTable
+        data={sample}
+        noun="agents"
+        getRowKey={getKey}
+        columns={[nameColumn, statusColumn, runsColumn]}
+        searchPlaceholder="Search agents"
+        searchFn={searchAgents}
+        searchQuery={query}
+        onSearchChange={setQuery}
+      />
+    </Stack>
+  );
+}
+
 export const Options: Story = {
   render: () => (
     <div className="max-w-5xl space-y-10">
@@ -360,6 +381,12 @@ export const Options: Story = {
             searchPlaceholder="Search agents"
             searchFn={searchAgents}
           />
+        </Option>
+        <Option
+          name="searchQuery, onSearchChange"
+          use="Own the search text yourself, for example to share one search box with a card view. Leave both out and the table keeps the text itself."
+        >
+          <ControlledSearchExample />
         </Option>
         <Option
           name="sortable, sortAccessor, defaultSortId"

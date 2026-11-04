@@ -1,17 +1,17 @@
 # OAuth clients
 
-kora exposes an OAuth authorization server. A hosted application can send its users to kora to sign in and receive a token to act on their behalf against kora's APIs. An `OAuthClient` pre-registers that application: its client ID and the exact redirect URIs kora will return users to.
+runkora exposes an OAuth authorization server. A hosted application can send its users to kora to sign in and receive a token to act on their behalf against kora's APIs. An `OAuthClient` pre-registers that application: its client ID and the exact redirect URIs kora will return users to.
 
 Every client is public and uses PKCE. A platform owner registers an `OAuthClient` through a CR rather than the app self-registering at runtime. Unlike dynamically-registered clients, it may declare non-loopback HTTPS redirect URIs.
 
-The following guide assumes kora is already installed. See [Deploying kora](deployment.md) for the install.
+The following guide assumes kora is already installed. See [Deploying runkora](deployment.md) for the install.
 
 ## Configuring an OAuth client
 
 An OAuth client is defined with the `OAuthClient` CRD. The operator aggregates it into the identity service config, registering the client with the authorization server.
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: OAuthClient
 metadata:
   name: example-app

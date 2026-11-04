@@ -1,8 +1,12 @@
 import 'server-only';
 
-import type { Marketplace, Skill, SkillSummary } from '@orbit/shared/api';
-import { ApiError } from '@orbit/server/api-error';
-import { fetchMarketplaces, fetchSkillDetail, fetchSkills } from '@orbit/server/marketplace-client';
+import type { Marketplace, Skill, SkillSummary } from '@runkora/shared/api';
+import { ApiError } from '@runkora/server/api-error';
+import {
+  fetchMarketplaces,
+  fetchSkillDetail,
+  fetchSkills,
+} from '@runkora/server/marketplace-client';
 import { getPreferences } from '../../_preferences/preferences-server';
 import { parseBrowseParams } from '../_utils/browse-params';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData, SkillSort } from '../_types';

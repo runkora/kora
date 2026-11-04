@@ -19,9 +19,8 @@ import {
   RadioGroupItem,
   Stack,
   Text,
-  ViewToggle,
-  type ViewToggleProps,
-} from '@orbit/hades';
+} from '@runkora/hades';
+import { ViewToggle, type ViewToggleProps } from '@runkora/components';
 import { useMarketplaceContext } from '../_context/marketplace-context';
 import { MIN_SEARCH_LENGTH, SORT_OPTIONS, type SkillSort } from '../_types';
 import { toResultState } from '../_utils/browse-params';

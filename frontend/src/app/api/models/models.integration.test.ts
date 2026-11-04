@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
-vi.mock('@orbit/server/session', () => ({
+vi.mock('@runkora/server/session', () => ({
   getSession: vi.fn(),
   isSessionValid: vi.fn().mockReturnValue(true),
 }));
@@ -16,7 +16,7 @@ vi.mock('../../(dashboard)/policy/_services/policy-server', () => ({
 }));
 
 import { GET } from './route';
-import { getSession } from '@orbit/server/session';
+import { getSession } from '@runkora/server/session';
 import { fetchRawModelsFromGateway } from '../../(dashboard)/model-gateway/_services/models-server';
 import { fetchEffectiveScopes } from '../../(dashboard)/policy/_services/policy-server';
 

@@ -1,4 +1,4 @@
-// Package operatorConfig holds the configuration for the orbit-operator binary.
+// Package operatorConfig holds the configuration for the kora-operator binary.
 package operatorConfig
 
 import (
@@ -6,7 +6,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
 // Config contains operator configuration.
@@ -36,6 +36,20 @@ type Config struct {
 
 	// Install holds the per-install settings the chart renders.
 	Install Install `yaml:"install"`
+
+	// Declared holds the services the operator projects declarative resources
+	// into. With IdentityURL empty the declared controllers do not start.
+	Declared Declared `yaml:"declared"`
+}
+
+// Declared holds service base URLs, each including the service's base path.
+type Declared struct {
+	// IdentityURL is where the operator exchanges its SVID for a platform token.
+	IdentityURL         string `yaml:"identityURL"`
+	AgentsURL           string `yaml:"agentsURL"`
+	TriggersURL         string `yaml:"triggersURL"`
+	PolicyServiceURL    string `yaml:"policyServiceURL"`
+	InferenceGatewayURL string `yaml:"inferenceGatewayURL"`
 }
 
 // Install contains chart-supplied settings.
@@ -109,6 +123,9 @@ type Injection struct {
 	BundlePollingMinDelay int                         `yaml:"bundlePollingMinDelay"`
 	BundlePollingMaxDelay int                         `yaml:"bundlePollingMaxDelay"`
 	OPAResources          corev1.ResourceRequirements `yaml:"opaResources"`
+
+	// StartupProbeSeconds is the startup probe budget of both sidecars. Zero takes the default.
+	StartupProbeSeconds int `yaml:"startupProbeSeconds"`
 
 	// SandboxSidecars pins each sidecar on sandbox pods: its requests equal its limits.
 	SandboxSidecars SandboxSidecars `yaml:"sandboxSidecars"`

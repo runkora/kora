@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // writeRegistryFile writes a minimal valid tenant registry YAML to path.
@@ -26,9 +26,9 @@ func writeRegistryFile(t *testing.T, path string) {
 // signing key, no OIDC providers at startup, no real repos.
 func newWatcherTestService(t *testing.T) *Service {
 	t.Helper()
-	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
-	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
+	t.Setenv("KORA_ALLOW_EPHEMERAL_KEY", "true")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY_FILE", "")
+	t.Setenv("KORA_TOKEN_SIGNING_KEY", "")
 
 	cfg := &Config{
 		Token: TokenConfig{
@@ -36,7 +36,7 @@ func newWatcherTestService(t *testing.T) *Service {
 			RefreshTokenTTLDays:   30,
 			PATDefaultTTLDays:     90,
 			PATMaxTTLDays:         365,
-			Audience:              "orbit-platform",
+			Audience:              "kora-platform",
 		},
 	}
 	svc, err := NewService(

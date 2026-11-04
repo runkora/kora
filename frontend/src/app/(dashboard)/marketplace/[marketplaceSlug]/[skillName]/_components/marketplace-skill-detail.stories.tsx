@@ -1,7 +1,7 @@
 /** @tier 3 — marketplace/[marketplaceSlug]/[skillName]-scoped. Preview of a Skill's contents and source details. */
 
 import type { Meta, StoryObj } from '@storybook/react';
-import type { Skill } from '@orbit/shared/api';
+import type { Skill } from '@runkora/shared/api';
 import { MarketplaceSkillDetail } from './marketplace-skill-detail';
 
 const sampleSkill: Skill = {

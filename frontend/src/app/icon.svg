@@ -1,16 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -10.5 172 172">
-  <style>
-    .upper { fill: #ece9e2; }
-    .lower { fill: #4d6b80; }
-    @media (prefers-color-scheme: light) {
-      .upper { fill: #0d0f11; }
-      .lower { fill: #445f71; }
-    }
-  </style>
-  <defs>
-    <clipPath id="upper"><rect x="0" y="0" width="150" height="72" /></clipPath>
-    <clipPath id="lower"><rect x="19" y="78" width="152" height="73" /></clipPath>
-  </defs>
-  <circle class="upper" cx="75" cy="75" r="75" clip-path="url(#upper)" />
-  <circle class="lower" cx="95" cy="75" r="76" clip-path="url(#lower)" />
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>runkora</title>
+  <circle cx="256" cy="256" r="256" fill="#FFFFFF"/>
+  <g transform="translate(256 256) scale(1.2) translate(-256 -256)">
+    <path fill="#0D0F11" d="M110.93 251.73A128 128 0 0 1 366.93 251.73Z"/>
+    <path fill="#4D6B80" d="M145.07 260.27A128 128 0 0 0 401.07 260.27Z"/>
+  </g>
 </svg>

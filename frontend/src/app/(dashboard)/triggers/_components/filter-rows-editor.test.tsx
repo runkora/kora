@@ -77,4 +77,19 @@ describe('FilterRowsEditor', () => {
       'value | other',
     );
   });
+
+  it('disables every row and Add filter when disabled', () => {
+    render(
+      <FilterRowsEditor
+        rows={[{ field: 'action', values: 'opened' }]}
+        fields={FIELDS}
+        onChange={() => undefined}
+        disabled
+      />,
+    );
+    expect(screen.getByLabelText('Filter 1 values')).toBeDisabled();
+    expect(screen.getByLabelText('Filter 1 operator')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Remove filter 1' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /add filter/i })).toBeDisabled();
+  });
 });

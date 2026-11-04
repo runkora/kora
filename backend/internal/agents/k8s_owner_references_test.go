@@ -19,13 +19,13 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // ownerRefFixture wires a K8sProvisioner backed by both a fake typed client
 // (agents create SA/StatefulSet/Service/HPA/PDB through it) and a fake dynamic
-// client (DestinationRule + AuthorizationPolicy + OrbitTenant go through it),
-// seeded with an OrbitTenant so tenantOwnerRef finds a UID to reference.
+// client (DestinationRule + AuthorizationPolicy + KoraTenant go through it),
+// seeded with an KoraTenant so tenantOwnerRef finds a UID to reference.
 func ownerRefFixture(t *testing.T, cfg K8sProvisionerConfig, tenantName string) (*K8sProvisioner, *fake.Clientset, *dynamicfake.FakeDynamicClient) {
 	t.Helper()
 	typed := fake.NewSimpleClientset()
@@ -34,12 +34,12 @@ func ownerRefFixture(t *testing.T, cfg K8sProvisionerConfig, tenantName string) 
 	kinds := map[schema.GroupVersionResource]string{
 		authorizationPolicyGVR: "AuthorizationPolicyList",
 		destinationRuleGVR:     "DestinationRuleList",
-		orbitTenantGVR:         "OrbitTenantList",
+		koraTenantGVR:          "KoraTenantList",
 	}
 	tenant := &unstructured.Unstructured{
 		Object: map[string]any{
-			"apiVersion": "orbit.io/v1alpha1",
-			"kind":       "OrbitTenant",
+			"apiVersion": "runkora.io/v1alpha1",
+			"kind":       "KoraTenant",
 			"metadata": map[string]any{
 				"name": tenantName,
 				"uid":  "tenant-uid-" + tenantName,
@@ -61,12 +61,12 @@ func ownerRefFixture(t *testing.T, cfg K8sProvisionerConfig, tenantName string) 
 func assertTenantOwnerRef(t *testing.T, refs []metav1.OwnerReference, tenantName string) {
 	t.Helper()
 	if len(refs) == 0 {
-		t.Fatalf("no owner references set; want OrbitTenant/%s", tenantName)
+		t.Fatalf("no owner references set; want KoraTenant/%s", tenantName)
 	}
 	for _, r := range refs {
-		if r.Kind == orbitTenantKind && r.Name == tenantName {
-			if r.APIVersion != orbitTenantAPIVersion {
-				t.Errorf("apiVersion = %q, want %q", r.APIVersion, orbitTenantAPIVersion)
+		if r.Kind == koraTenantKind && r.Name == tenantName {
+			if r.APIVersion != koraTenantAPIVersion {
+				t.Errorf("apiVersion = %q, want %q", r.APIVersion, koraTenantAPIVersion)
 			}
 			if r.UID != types.UID("tenant-uid-"+tenantName) {
 				t.Errorf("uid = %q, want tenant-uid-%s", r.UID, tenantName)
@@ -80,17 +80,17 @@ func assertTenantOwnerRef(t *testing.T, refs []metav1.OwnerReference, tenantName
 			return
 		}
 	}
-	t.Fatalf("no OrbitTenant/%s ref among %+v", tenantName, refs)
+	t.Fatalf("no KoraTenant/%s ref among %+v", tenantName, refs)
 }
 
 func TestProvisionAgentType_SetsTenantOwnerReferenceOnEveryObject(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SystemNamespace:            "orbit-system",
-		TrustDomain:                "orbit.test",
+		SystemNamespace:            "kora-system",
+		TrustDomain:                "runkora.test",
 		AuthorizationPolicyEnabled: true,
 	}
 	const tenantID = "acme"
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	p, typed, dc := ownerRefFixture(t, cfg, tenantID)
 
 	at := AgentType{ID: "coder", Slug: "coder", TenantID: tenantID}
@@ -128,9 +128,9 @@ func TestProvisionAgentType_SetsTenantOwnerReferenceOnEveryObject(t *testing.T) 
 	}
 	assertTenantOwnerRef(t, pdb.OwnerReferences, tenantID)
 
-	// DestinationRule lives in orbit-system; a cluster-scoped OrbitTenant owner
+	// DestinationRule lives in kora-system; a cluster-scoped KoraTenant owner
 	// is legal for a namespaced child in any namespace.
-	dr, err := dc.Resource(destinationRuleGVR).Namespace(cfg.SystemNamespace).Get(context.Background(), "agent-coder", metav1.GetOptions{})
+	dr, err := dc.Resource(destinationRuleGVR).Namespace(cfg.SystemNamespace).Get(context.Background(), agentDestinationRuleName("coder", ns), metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get destinationrule: %v", err)
 	}
@@ -145,17 +145,17 @@ func TestProvisionAgentType_SetsTenantOwnerReferenceOnEveryObject(t *testing.T) 
 
 func TestProvisionAgentType_MissingTenantCRDegradesGracefully(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SystemNamespace: "orbit-system",
-		TrustDomain:     "orbit.test",
+		SystemNamespace: "kora-system",
+		TrustDomain:     "runkora.test",
 	}
 	// Fixture seeded with a DIFFERENT tenant name — Get(tenantID) returns NotFound.
 	p, typed, _ := ownerRefFixture(t, cfg, "someone-else")
 
 	const tenantID = "acme"
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	at := AgentType{ID: "coder", Slug: "coder", TenantID: tenantID}
 	if err := p.ProvisionAgentType(context.Background(), at, ns); err != nil {
-		t.Fatalf("ProvisionAgentType must not fail when OrbitTenant is missing: %v", err)
+		t.Fatalf("ProvisionAgentType must not fail when KoraTenant is missing: %v", err)
 	}
 
 	ss, err := typed.AppsV1().StatefulSets(ns).Get(context.Background(), "coder", metav1.GetOptions{})
@@ -172,7 +172,7 @@ func TestSandboxOwnerRef_PointsAtParentStatefulSet(t *testing.T) {
 	// dynamic client (unused here); build both directly rather than through
 	// the ProvisionSandbox path, which requires Istio injection state we do
 	// not have in the fake.
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 	ss := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: "coder", Namespace: ns, UID: types.UID("sts-uid-coder")},
 	}
@@ -192,7 +192,7 @@ func TestSandboxOwnerRef_PointsAtParentStatefulSet(t *testing.T) {
 	// Non-controller: the StatefulSet controller is not us; the reference
 	// exists only to gate GC.
 	if ref.Controller == nil || *ref.Controller {
-		t.Errorf("Controller = %v, want false (sandbox pods are not controlled by orbit-agents)", ref.Controller)
+		t.Errorf("Controller = %v, want false (sandbox pods are not controlled by kora-agents)", ref.Controller)
 	}
 	if ref.BlockOwnerDeletion == nil || *ref.BlockOwnerDeletion {
 		t.Errorf("BlockOwnerDeletion = %v, want false", ref.BlockOwnerDeletion)
@@ -210,7 +210,7 @@ func TestSandboxOwnerRef_MissingStatefulSetIsZero(t *testing.T) {
 	typed := fake.NewSimpleClientset()
 	p := &K8sProvisioner{client: typed, logger: logging.NewLoggerWithOutput(io.Discard)}
 
-	ref := p.statefulSetOwnerRef(context.Background(), "coder", "orbit-tenant-acme")
+	ref := p.statefulSetOwnerRef(context.Background(), "coder", "kora-tenant-acme")
 	if ref.Kind != "" {
 		t.Fatalf("ref = %+v, want zero value when StatefulSet does not exist", ref)
 	}
@@ -223,10 +223,10 @@ func TestIsNoKindMatchError(t *testing.T) {
 		want bool
 	}{
 		{"nil", nil, false},
-		{"no matches for kind", errors.New(`no matches for kind "OrbitTenant" in group "orbit.io"`), true},
-		{"server could not find", errors.New("the server could not find the requested resource (get orbittenants.orbit.io)"), true},
+		{"no matches for kind", errors.New(`no matches for kind "KoraTenant" in group "runkora.io"`), true},
+		{"server could not find", errors.New("the server could not find the requested resource (get koratenants.runkora.io)"), true},
 		{"unrelated", errors.New("boom"), false},
-		{"apierrors NotFound is separate", apierrors.NewNotFound(schema.GroupResource{Group: "orbit.io", Resource: "orbittenants"}, "acme"), false},
+		{"apierrors NotFound is separate", apierrors.NewNotFound(schema.GroupResource{Group: "runkora.io", Resource: "koratenants"}, "acme"), false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -238,7 +238,7 @@ func TestIsNoKindMatchError(t *testing.T) {
 }
 
 func TestTenantOwnerRef_CRDMissingDegradesGracefully(t *testing.T) {
-	// Fake dynamic client with the OrbitTenant list-kind unregistered — Get
+	// Fake dynamic client with the KoraTenant list-kind unregistered — Get
 	// returns an "invalid API kind" error that isNoKindMatchError catches,
 	// mirroring a cluster where the operator's CRD is not installed.
 	scheme := runtime.NewScheme()
@@ -250,7 +250,7 @@ func TestTenantOwnerRef_CRDMissingDegradesGracefully(t *testing.T) {
 
 	ref := p.tenantOwnerRef(context.Background(), "acme")
 	if ref.Kind != "" {
-		t.Fatalf("ref = %+v, want zero-value when the OrbitTenant CRD is unregistered", ref)
+		t.Fatalf("ref = %+v, want zero-value when the KoraTenant CRD is unregistered", ref)
 	}
 }
 
@@ -272,7 +272,7 @@ func TestApplyOwnerRef_ZeroValueIsNoop(t *testing.T) {
 }
 
 func TestApplyOwnerRef_ReplacesExistingEntry(t *testing.T) {
-	first := metav1.OwnerReference{APIVersion: orbitTenantAPIVersion, Kind: orbitTenantKind, Name: "acme", UID: "old"}
+	first := metav1.OwnerReference{APIVersion: koraTenantAPIVersion, Kind: koraTenantKind, Name: "acme", UID: "old"}
 	second := first
 	second.UID = "new"
 
@@ -287,17 +287,17 @@ func TestApplyOwnerRef_ReplacesExistingEntry(t *testing.T) {
 // TestProvisionAgentType_BackfillsOwnerRefOnExistingObjects seeds the cluster
 // with unowned copies of every agent-type resource (the shape upgraded
 // clusters land in on first run of this feature) and asserts a re-provision
-// stamps the OrbitTenant owner reference onto each one. The ADR's
+// stamps the KoraTenant owner reference onto each one. The ADR's
 // "existing objects gain owner references on next reconcile" claim depends
 // on this behaviour.
 func TestProvisionAgentType_BackfillsOwnerRefOnExistingObjects(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SystemNamespace:            "orbit-system",
-		TrustDomain:                "orbit.test",
+		SystemNamespace:            "kora-system",
+		TrustDomain:                "runkora.test",
 		AuthorizationPolicyEnabled: true,
 	}
 	const tenantID = "acme"
-	const ns = "orbit-tenant-acme"
+	const ns = "kora-tenant-acme"
 
 	// Seed unowned versions of every object ProvisionAgentType manages.
 	typed := fake.NewSimpleClientset(
@@ -312,11 +312,11 @@ func TestProvisionAgentType_BackfillsOwnerRefOnExistingObjects(t *testing.T) {
 	kinds := map[schema.GroupVersionResource]string{
 		authorizationPolicyGVR: "AuthorizationPolicyList",
 		destinationRuleGVR:     "DestinationRuleList",
-		orbitTenantGVR:         "OrbitTenantList",
+		koraTenantGVR:          "KoraTenantList",
 	}
 	tenant := &unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": "orbit.io/v1alpha1",
-		"kind":       "OrbitTenant",
+		"apiVersion": "runkora.io/v1alpha1",
+		"kind":       "KoraTenant",
 		"metadata":   map[string]any{"name": tenantID, "uid": "tenant-uid-" + tenantID},
 		"spec":       map[string]any{},
 	}}
@@ -325,7 +325,8 @@ func TestProvisionAgentType_BackfillsOwnerRefOnExistingObjects(t *testing.T) {
 	dr := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "networking.istio.io/v1beta1",
 		"kind":       "DestinationRule",
-		"metadata":   map[string]any{"name": "agent-coder", "namespace": cfg.SystemNamespace},
+		"metadata":   map[string]any{"name": agentDestinationRuleName("coder", ns), "namespace": cfg.SystemNamespace},
+		"spec":       map[string]any{"host": agentServiceHost("coder", ns)},
 	}}
 	ap := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "security.istio.io/v1beta1",
@@ -361,7 +362,7 @@ func TestProvisionAgentType_BackfillsOwnerRefOnExistingObjects(t *testing.T) {
 	pdb, _ := typed.PolicyV1().PodDisruptionBudgets(ns).Get(context.Background(), "coder", metav1.GetOptions{})
 	assertTenantOwnerRef(t, pdb.OwnerReferences, tenantID)
 
-	drOut, _ := dc.Resource(destinationRuleGVR).Namespace(cfg.SystemNamespace).Get(context.Background(), "agent-coder", metav1.GetOptions{})
+	drOut, _ := dc.Resource(destinationRuleGVR).Namespace(cfg.SystemNamespace).Get(context.Background(), agentDestinationRuleName("coder", ns), metav1.GetOptions{})
 	assertTenantOwnerRef(t, drOut.GetOwnerReferences(), tenantID)
 
 	apOut, _ := dc.Resource(authorizationPolicyGVR).Namespace(ns).Get(context.Background(), agentAuthorizationPolicyName("coder"), metav1.GetOptions{})
@@ -370,7 +371,7 @@ func TestProvisionAgentType_BackfillsOwnerRefOnExistingObjects(t *testing.T) {
 
 func TestMergeOwnerRefs(t *testing.T) {
 	unrelated := metav1.OwnerReference{APIVersion: "v1", Kind: "ConfigMap", Name: "other"}
-	first := metav1.OwnerReference{APIVersion: orbitTenantAPIVersion, Kind: orbitTenantKind, Name: "acme", UID: "old"}
+	first := metav1.OwnerReference{APIVersion: koraTenantAPIVersion, Kind: koraTenantKind, Name: "acme", UID: "old"}
 	updated := first
 	updated.UID = "new"
 

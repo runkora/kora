@@ -13,9 +13,9 @@ import {
   Stack,
   Text,
   donutSegmentColor,
-} from '@orbit/hades';
-import type { IconName } from '@orbit/hades';
-import { fmtTokens } from '@orbit/utils';
+} from '@runkora/hades';
+import type { IconName } from '@runkora/hades';
+import { fmtTokens } from '@runkora/utils';
 import { formatDuration } from '../_types';
 
 interface TileSegment {

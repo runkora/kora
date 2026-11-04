@@ -17,11 +17,11 @@
 
 import { createSource, createTrigger } from './triggers-api';
 import { endpointFor } from '../_lib/endpoints';
-import { toScheduleConfigRequest } from '../_types';
+import { toCoalesceRequest, toRoutingRequest, toScheduleConfigRequest } from '../_types';
 import type { TriggerCreateResult, TriggerDraft } from '../_components/trigger-wizard';
 
 export interface CreateFromWizardOptions {
-  /** Public base for webhook endpoints, e.g. "api.orbit.example.com". */
+  /** Public base for webhook endpoints, e.g. "api.example.com". */
   ingestHost: string;
 }
 
@@ -37,9 +37,12 @@ export async function createFromWizardDraft(
     if ('existingId' in draft.source) {
       sourceId = draft.source.existingId;
     } else {
+      const { newName, provider, config, signingSecret } = draft.source;
       const made = await createSource({
-        name: draft.source.newName,
-        provider: draft.source.provider,
+        name: newName,
+        provider,
+        ...(config !== undefined && { config }),
+        ...(signingSecret !== undefined && { signing_secret: signingSecret }),
       });
       if (made.error !== null || made.source === null) {
         return { ok: false, error: made.error ?? 'Failed to create the source.' };
@@ -52,7 +55,9 @@ export async function createFromWizardDraft(
   const made = await createTrigger({
     kind: draft.kind,
     name: draft.name,
-    agent_type_id: draft.agentTypeId,
+    ...(draft.targetKind === 'routed' && draft.routing !== undefined
+      ? { target_kind: 'routed' as const, routing: toRoutingRequest(draft.routing) }
+      : { agent_type_id: draft.agentTypeId }),
     prompt_template: draft.promptTemplate,
     ...(sourceId !== undefined && { source_id: sourceId }),
     ...(draft.kind === 'webhook' && { event_type: draft.eventType ?? '' }),
@@ -61,6 +66,8 @@ export async function createFromWizardDraft(
     ...(draft.senderRestriction !== undefined && {
       sender_restriction: draft.senderRestriction,
     }),
+    ...(draft.kind === 'webhook' &&
+      draft.coalesce !== undefined && { coalesce: toCoalesceRequest(draft.coalesce) }),
     ...(draft.schedule !== undefined && {
       schedule_config: toScheduleConfigRequest(draft.schedule),
     }),
@@ -83,9 +90,13 @@ export async function createFromWizardDraft(
     autopause_enabled: draft.autopauseEnabled,
   });
   if (made.error !== null || made.trigger === null) {
-    // A just-created source outlives the failure on purpose: it is real, and
-    // the retry can pick it from the existing-sources list.
-    return { ok: false, error: made.error ?? 'Failed to create the trigger.' };
+    const error = made.error ?? 'Failed to create the trigger.';
+    // A just-created source outlives the failure: the wizard's retry reuses it.
+    if (draft.source !== undefined && 'newName' in draft.source && sourceId !== undefined) {
+      const { newName: name, provider } = draft.source;
+      return { ok: false, error, createdSource: { id: sourceId, name, provider, secret } };
+    }
+    return { ok: false, error };
   }
 
   return {

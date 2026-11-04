@@ -1,3 +1,0 @@
-# No configurable behaviour. The CRDs are a separate release from orbit so an
-# orbit uninstall leaves them in place.
-{}

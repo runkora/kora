@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // scopedEvaluator answers Check from a fixed scope set, so a test says what
@@ -78,8 +78,8 @@ func testController(held ...string) *Controller {
 func callerClaims() *token.PlatformClaims {
 	c := &token.PlatformClaims{}
 	c.Subject = "user-1"
-	c.Orbit.PrincipalType = token.PrincipalTypeHuman
-	c.Orbit.TenantID = "tenant-1"
+	c.Kora.PrincipalType = token.PrincipalTypeHuman
+	c.Kora.TenantID = "tenant-1"
 	return c
 }
 
@@ -152,8 +152,8 @@ func TestScopesExplain_OtherPrincipalRequiresGrantsRead(t *testing.T) {
 // so a per-tenant bundle lookup would deny it whatever it holds.
 func TestScopesExplain_SystemPrincipalPasses(t *testing.T) {
 	claims := &token.PlatformClaims{}
-	claims.Subject = "orbit-agents"
-	claims.Orbit.PrincipalType = token.PrincipalTypeSystem
+	claims.Subject = "kora-agents"
+	claims.Kora.PrincipalType = token.PrincipalTypeSystem
 
 	c := testController()
 	w := httptest.NewRecorder()

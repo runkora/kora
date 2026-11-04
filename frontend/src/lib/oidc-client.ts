@@ -38,7 +38,7 @@ export interface TenantOidcConfig {
  * Stored in sessionStorage (not localStorage) so it is scoped to the tab and
  * cleared automatically when the tab is closed.
  */
-export const TENANT_CONFIG_STORAGE_KEY = 'orbit_tenant_config';
+export const TENANT_CONFIG_STORAGE_KEY = 'kora_tenant_config';
 
 // ── Factory ───────────────────────────────────────────────────────────────────
 

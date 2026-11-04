@@ -1,11 +1,11 @@
 // MCPServer reconciler (Phase 3: MCP Tool Gateway).
 //
 // Unlike Connection (which has no status and is aggregated off the tenant
-// reconcile), an MCPServer carries its own Status and can live in orbit-system
-// (global) where there is no owning OrbitTenant. It gets its own
+// reconcile), an MCPServer carries its own Status and can live in kora-system
+// (global) where there is no owning KoraTenant. It gets its own
 // reconciler. On each MCPServer change this validates the spec, sets the CR's
 // reconciliation Status (Pending|Aggregated|Invalid), and re-renders the
-// orbit-mcp-servers registry ConfigMap via the shared MCPServerAggregator.
+// kora-mcp-servers registry ConfigMap via the shared MCPServerAggregator.
 //
 // Tenant active/suspend changes that affect which servers are included are
 // handled by the TenantReconciler, which runs the same aggregator.
@@ -15,7 +15,9 @@ package operator
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -28,7 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // conditionAggregated is the MCPServer status condition reporting whether the CR
@@ -47,7 +49,7 @@ type mcpPolicyResult struct {
 }
 
 func (res mcpPolicyResult) message() string {
-	const base = "rendered into the orbit-mcp-servers registry"
+	const base = "rendered into the kora-mcp-servers registry"
 	switch {
 	case !res.applies:
 		return base
@@ -59,7 +61,7 @@ func (res mcpPolicyResult) message() string {
 }
 
 // MCPServerReconciler reconciles MCPServer CRs: it sets each CR's reconciliation
-// Status and re-aggregates the orbit-mcp-servers registry ConfigMap.
+// Status and re-aggregates the kora-mcp-servers registry ConfigMap.
 type MCPServerReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
@@ -115,9 +117,25 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, pErr
 	}
 
-	return ctrl.Result{}, r.setStatus(ctx, srv, MCPServerPhaseAggregated,
-		metav1.ConditionTrue, "Aggregated", policies.message())
+	// No Secret watch exists, so a server with credentials is rechecked on the
+	// tenant reconciler's cadence to keep its condition current.
+	var result ctrl.Result
+	if srv.Spec.Auth != nil {
+		result.RequeueAfter = credentialRecheckInterval
+	}
+	reason, message := "Aggregated", policies.message()
+	credErr := mcpCredentialStatus(ctx, r.Client, srv)
+	switch {
+	case errors.Is(credErr, ErrMCPCredentialUnavailable):
+		reason, message = "CredentialUnavailable", message+"; "+credErr.Error()
+	case credErr != nil:
+		return ctrl.Result{}, credErr
+	}
+	return result, r.setStatus(ctx, srv, MCPServerPhaseAggregated, metav1.ConditionTrue, reason, message)
 }
+
+// credentialRecheckInterval matches the tenant reconciler's periodic requeue.
+const credentialRecheckInterval = 5 * time.Minute
 
 // reconcilePolicies applies the policies fronting a server's workload, both in
 // the CR's namespace and owned by it: ingress admitting the tool-gateway, and an
@@ -197,7 +215,7 @@ func (r *MCPServerReconciler) apply(ctx context.Context, obj client.Object) erro
 	if !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("create %T %q in %q: %w", obj, obj.GetName(), obj.GetNamespace(), err)
 	}
-	if err := r.Patch(ctx, obj, client.Merge, client.FieldOwner("orbit-operator")); err != nil {
+	if err := r.Patch(ctx, obj, client.Merge, client.FieldOwner("kora-operator")); err != nil {
 		return fmt.Errorf("patch %T %q in %q: %w", obj, obj.GetName(), obj.GetNamespace(), err)
 	}
 	return nil

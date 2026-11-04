@@ -20,7 +20,7 @@ A Phase 0 of Hades primitive additions (Icon, ChatBubble, Show, Card `interactiv
 
 ### Current State
 
-The Hades design system (`@orbit/hades`) provides low-level primitives: `Button`, `Card`, `Badge`, `Stack`, `Grid`, `Heading`, `Text`, `Separator`, `Progress`, `Alert`. Product pages assemble these primitives into higher-order patterns — a metric card, a confirm dialog, an empty state — but every page or tab does so independently. There is no intermediate layer.
+The Hades design system (`@runkora/hades`) provides low-level primitives: `Button`, `Card`, `Badge`, `Stack`, `Grid`, `Heading`, `Text`, `Separator`, `Progress`, `Alert`. Product pages assemble these primitives into higher-order patterns — a metric card, a confirm dialog, an empty state — but every page or tab does so independently. There is no intermediate layer.
 
 The result is that logically identical UI constructs — `StatCard` in `(dashboard)/page.tsx`, `KPICard` in `model-gateway/_components/overview-tab.tsx`, and `KPICard` in `policy/_components/overview-tab.tsx` — are three separate implementations of the same component. The same duplication applies to modal dialogs (5+ implementations of a raw `<dialog>` scaffold), status badges (5+ separate variant maps), empty states (the policy version is extracted but every other section reimplements it inline), and section headers (3 byte-identical occurrences). A `formatDate` utility function is copy-pasted into three separate files.
 
@@ -78,7 +78,7 @@ The result is that logically identical UI constructs — `StatCard` in `(dashboa
 
 **Acceptance Criteria:**
 - [ ] `MetricCard`, `EmptyState`, `PageSectionHeader`, `StatusBadge` are importable from `frontend/src/components/`
-- [ ] `Modal`, `Modal.Header`, `Modal.Body`, `Modal.Footer` are importable from `@orbit/hades`
+- [ ] `Modal`, `Modal.Header`, `Modal.Body`, `Modal.Footer` are importable from `@runkora/hades`
 - [ ] All components are typed with full TypeScript prop interfaces
 - [ ] All components accept and forward `className` for layout overrides where appropriate
 
@@ -130,7 +130,7 @@ Introduce a three-tier placement model for UI components and migrate every ident
 
 | Tier | Location | Rule |
 |------|----------|------|
-| **1 — Design system primitives** | `frontend/src/packages/hades/` (`@orbit/hades`) | Truly generic, zero domain knowledge, could ship as a standalone library. Must be built from a ShadCN/Radix UI base. |
+| **1 — Design system primitives** | `frontend/src/packages/hades/` (`@runkora/hades`) | Truly generic, zero domain knowledge, could ship as a standalone library. Must be built from a ShadCN/Radix UI base. |
 | **2 — App-level shared components** | `frontend/src/components/` | Domain-aware but cross-feature. Used by two or more distinct dashboard features. Not generic enough for Hades. |
 | **3 — Feature-scoped shared components** | `frontend/src/app/(dashboard)/[feature]/_components/` | Used by two or more files within a single feature area (e.g., model-gateway). Not needed outside that feature. |
 
@@ -142,7 +142,7 @@ Extracted components must be:
 
 ### Component Placement
 
-#### Tier 1 — Hades (`@orbit/hades`)
+#### Tier 1 — Hades (`@runkora/hades`)
 
 **Phase 0 additions — implemented ([embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md) Hades Primitives):**
 
@@ -304,7 +304,7 @@ When beginning any frontend component task, an agent must consult these sources 
 | 1 | `AGENTS.md` (repo root) — § Frontend Development | Three-tier model summary and banned patterns — read on every frontend task |
 | 2 | `frontend/docs/golden-paths/ui-components.md` | Placement decision tree, full Tier 1 Hades inventory, Tier 2 inventory, `@tier` annotation format |
 | 3 | `frontend/docs/reference/hades-design-system.md` | Full Hades component props, JSX examples, every ESLint rule explained |
-| 4 | `frontend/src/packages/hades/src/index.ts` | Authoritative list of what is actually exported from `@orbit/hades` |
+| 4 | `frontend/src/packages/hades/src/index.ts` | Authoritative list of what is actually exported from `@runkora/hades` |
 | 5 | `frontend/src/components/index.ts` (Phase 2+) | Authoritative list of Tier 2 app-shared components |
 
 An agent must not write a component that already exists in a higher-priority source. If a component *almost* satisfies the need, extend it via props before duplicating it.
@@ -344,7 +344,7 @@ A component that skips any step is incomplete. The agent that creates it owns al
 
 | Phase | Tier | Agent-ready? | What agents can rely on |
 |-------|------|-------------|------------------------|
-| Phase 0 ✅ | Tier 1 — Hades core | ✅ Yes | All pre-existing Hades components in `@orbit/hades` barrel and documented in `ui-components.md`. `no-direct-lucide-import` enforced. |
+| Phase 0 ✅ | Tier 1 — Hades core | ✅ Yes | All pre-existing Hades components in `@runkora/hades` barrel and documented in `ui-components.md`. `no-direct-lucide-import` enforced. |
 | Phase 1 ✅ | Tier 1 — Phase 1 additions | ✅ Yes | `Modal`, `useDialog`, `FormField` in barrel and documented. All raw `<dialog>` consumers migrated. |
 | Phase 2 ✅ | Tier 2 — app-shared | ✅ Yes | `frontend/src/components/index.ts` barrel exports all Tier 2 components. `app-components.md` golden path documents each component. Import via `@orbit/components`. |
 
@@ -446,7 +446,7 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 
 ### Internal Dependencies
 
-- **Hades design system** (`@orbit/hades`): `Modal` and `FormField` additions depend on the existing Hades package structure and conventions ([terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md)).
+- **Hades design system** (`@runkora/hades`): `Modal` and `FormField` additions depend on the existing Hades package structure and conventions ([terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md)).
 - **`@orbit/utils`**: utility extractions require this package to accept new exports. Verify the barrel export pattern before adding helpers.
 - **ESLint custom rules**: `no-raw-layout-elements`, `no-raw-inline-elements`, and `no-direct-lucide-import` constrain how extracted components are authored. All new components must be written within these constraints from the start.
 
@@ -482,7 +482,7 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 
 ### Alternative 2: Extract everything into Hades regardless of domain specificity
 
-**Description:** All 22 candidates land in `@orbit/hades`.
+**Description:** All 22 candidates land in `@runkora/hades`.
 
 **Why not chosen:**
 - Hades is domain-free. `MetricCard`, `StatusBadge`, `PrincipalBadge`, and `ConfirmDialog` carry kora domain knowledge (status token names, principal types, destructive-action semantics) that does not belong in a portable component library.

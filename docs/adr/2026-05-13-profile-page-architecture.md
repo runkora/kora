@@ -48,7 +48,7 @@ Two architectural questions must be resolved:
 * **Server-side data fetching** — access tokens must never reach the browser (BFF pattern). All API calls use the server-side `orbitClient`.
 * **Independent error boundaries** — the three data sources (session, policy gateway, identity service) have different availability profiles. A policy gateway outage should not prevent the user from seeing their identity or API keys.
 * **Feature boundary isolation** — per the golden path pattern, each feature owns its client-initiated data lifecycle (Steps 3–8: BFF route, API route registry, client service, hook, context, tab shell) and its components (Step 10). Server-side API call helpers that wrap backend endpoints are infrastructure, not feature-specific concerns — they belong in a shared location when multiple features call the same endpoint.
-* **Hades component enforcement** — all UI must use Hades (`@orbit/hades`) or app-shared (`@orbit/components`) primitives. Raw HTML is banned by ESLint with zero escape hatches (`AGENTS.md` § Frontend Development).
+* **Hades component enforcement** — all UI must use Hades (`@runkora/hades`) or app-shared (`@orbit/components`) primitives. Raw HTML is banned by ESLint with zero escape hatches (`AGENTS.md` § Frontend Development).
 * **Golden path scoping** — the golden path's Steps 3–8 exist for client-initiated data fetching and state management (BFF routes, API route registry, client services, hooks, context, tab shells). A read-only page with no client-initiated data fetching correctly omits these steps while still following the golden path (Steps 1, 2, 9, 10).
 
 ---
@@ -319,7 +319,7 @@ All client components use `'use client'` as the first line. All components use H
 `profile/loading.tsx` — Suspense skeleton that mirrors the real layout:
 
 ```typescript
-import { Card, Skeleton, Stack } from '@orbit/hades';
+import { Card, Skeleton, Stack } from '@runkora/hades';
 
 export default function ProfileLoading() {
   return (
@@ -415,7 +415,7 @@ Per the golden path and `AGENTS.md` conventions:
 - [ ] RSC page has NO `'use client'` directive and NO React hooks
 - [ ] RSC page calls `isSessionValid(session)` before any fetch
 - [ ] All client components have `'use client'` as first line
-- [ ] All components use Hades (`@orbit/hades`) or `@orbit/components` — no raw HTML elements
+- [ ] All components use Hades (`@runkora/hades`) or `@orbit/components` — no raw HTML elements
 - [ ] Scopes rendered via `ScopeChip` (`@orbit/components`) — not raw `Badge`
 - [ ] PAT status rendered via `StatusBadge` (`@orbit/components`) — not raw `Badge`
 - [ ] No `import { X } from 'lucide-react'` — use `<Icon name="..." />` only

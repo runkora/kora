@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // emptyTurnNotifier records run errors, idle transitions and how the run ended.
@@ -55,7 +55,7 @@ func (n *emptyTurnNotifier) snapshot() (errs []string, idles int) {
 func startEmptyTurnSession(t *testing.T, triggered bool) (*Registry, *scriptRunner, *emptyTurnNotifier) {
 	t.Helper()
 	n := &emptyTurnNotifier{completed: make(chan bool, 1)}
-	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), n, time.Minute)
+	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), n, time.Minute, testBrand)
 	r := newScriptRunner()
 	if err := reg.Create(context.Background(), SessionConfig{RunID: "run-1", Runner: r, Triggered: triggered}); err != nil {
 		t.Fatalf("Create: %v", err)

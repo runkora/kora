@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@runkora/test-utils';
 import { MarketplaceProvider } from '../_context/marketplace-context';
 import { MarketplacePage } from './marketplace-page';
 import type { MarketplaceOverviewData } from '../_types';

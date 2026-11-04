@@ -6,12 +6,12 @@ There are two tiers depending on what the rule needs to inspect:
 
 | Tier | Mechanism | File | What it can catch |
 |------|-----------|------|-------------------|
-| 1 | `gocritic` / `ruleguard` AST matcher | `rules/orbit_rules.go` | Call-site patterns, argument shapes, expression forms |
+| 1 | `gocritic` / `ruleguard` AST matcher | `rules/kora_rules.go` | Call-site patterns, argument shapes, expression forms |
 | 2 | `depguard` import ban | `.golangci.yml` | Whole-package imports |
 
 ---
 
-## Tier 1: AST rules (`rules/orbit_rules.go`)
+## Tier 1: AST rules (`rules/kora_rules.go`)
 
 Each function in the file is one rule. The rule name is the function name. Violation messages include the governing ADR and a link to the decision document.
 
@@ -19,21 +19,23 @@ Each function in the file is one rule. The rule name is the function name. Viola
 |------|-------------|-----|
 | `spanSetStatusLocalErr` | `span.SetStatus(_, err.Error())`: dynamic local error string in span status | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
 | `spanSetStatusCtxErr` | `span.SetStatus(_, ctx.Err().Error())`: dynamic context error in span status | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
+| `spanSetStatusErrorDirect` | `span.SetStatus(<pkg>.Error, _)` under any import alias outside `internal/platform/observability`: use `observability.RecordFailure`, which also sets `error.type` | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
 | `spanAttrStringLocalErr` | `attribute.String(_, err.Error())`: raw error string in a span attribute | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
 | `spanAttrStringCtxErr` | `attribute.String(_, ctx.Err().Error())`: context error string in a span attribute | [ADD-0022] |
+| `spanAttrKeyVocabulary` | `attribute.String("run_id", ...)`: a string literal as an attribute key instead of a semconv or `internal/platform/observability` constant | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
 | `noRawJsonDecodeRequest` | `json.NewDecoder(r.Body).Decode(...)`: raw body decode bypassing `api.DecodeJSON` | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
 | `noFmtErrorfStringErr` | `fmt.Errorf("...: %s", err)`: `%s` formatting that discards the error chain | [[repository-pattern-and-code-organization](../docs/adr/2026-02-17-repository-pattern-and-code-organization.md)] |
 | `noRawHttpClientLiteral` | `http.Client{...}` composite literal outside the httpclient base package | [[multi-service-backend-deployment-structure](../docs/adr/2026-03-19-multi-service-backend-deployment-structure.md)] |
 | `noHttpErrorInHandler` | `http.Error(w, ...)`: plain-text error response bypassing `api.ErrorResponse` | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
 | `noDirectWriteHeader` | `w.WriteHeader(code)`: bare status code bypassing `api.JSON` / `api.ErrorResponse` | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
+| `noProductNameLiteral` | a prose `kora` / `orbit` string literal in a speaking package: the product name must come from `internal/platform/brand` | [[white-labelling-theme](../docs/adr/2026-10-12-white-labelling-theme.md)] |
 
 ### [opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md) rules (span telemetry)
 
 Span status descriptions and span attributes are indexed by observability backends (Jaeger, Tempo, Datadog). A dynamic `err.Error()` string leaks internal hostnames, connection strings, and upstream messages into those indexes, a security and cardinality problem. The mandatory pattern is:
 
 ```go
-span.RecordError(err)                              // full error as an exception event
-span.SetStatus(codes.Error, errSentinel.Error())   // static sentinel string only
+observability.RecordFailure(span, err, errSentinel) // err as an exception event; sentinel as status and error.type
 ```
 
 The rules target the literal identifier `err` and the `ctx.Err()` chain, which covers all realistic violations without false-positives against correctly named package-level sentinels.
@@ -50,6 +52,12 @@ The rules target the literal identifier `err` and the `ctx.Err()` chain, which c
 
 `httpclient.Base` is the sole legitimate owner of `*http.Client`. It injects W3C `traceparent`/`tracestate` headers, opens a `SpanKindClient` OTel span, and logs transport outcomes. A raw `http.Client{}` literal bypasses all of this.
 
+### [white-labelling-theme](../docs/adr/2026-10-12-white-labelling-theme.md) rule (product name)
+
+A white-labelled install must never show the kora name in text its people or agents read, so every such string takes the name from `internal/platform/brand`. The rule matches the whole word `kora` or `orbit`, case-insensitively, not adjacent to `-`, `_` or `/`, nor to a `.` followed by a letter or digit: `orbit.io`, `kora-base`, `kora-system` and `KORA_RUN_ID` pass, prose fails, including a sentence ending `kora.`. It is scoped to `internal/agents`, `internal/koramcp`, `internal/egressgw` and `internal/platform/sandboximages` through `m.File().PkgPath`, and skips a literal passed directly to a `logging.Logger` method, since log lines keep the kora name.
+
+Two limits of the bundled ruleguard shape the rule. A bare `$s` pattern never visits a literal, so the rule names each position a literal can occupy (call argument, composite-literal element, const or var initialiser, return, assignment, operand of `+`). And gogrep has no pattern for a struct field's tag, so the rule does not see a `jsonschema:"..."` description. `scripts/check-brand-tags.go`, run by `make brand-tags-check` as part of `make check`, parses the same packages and fails on a struct tag that matches the same word pattern. Keep tag text neutral and put the product-specific sentence in code, as `internal/koramcp/tools_agents.go` does.
+
 ### Exclusions
 
 Some call sites are legitimately exempt. Rather than scattering `//nolint` directives, all exceptions are centrally declared as path-scoped rules in the `exclusions:` block of `.golangci.yml` with documented rationale. Notable examples:
@@ -59,6 +67,11 @@ Some call sites are legitimately exempt. Rather than scattering `//nolint` direc
 - `internal/identity/service.go`: constructs `*http.Client` for coreos/go-oidc provider discovery (external IdP, not a platform service)
 - `internal/identityproxy/server.go`: constructs `*http.Client` for the Istio readiness health poll (local loopback, no tracing required)
 - `internal/platform/middleware/`: uses `http.Error` in the defensive nil-handler guard that fires before any request context exists
+- `internal/platform/middleware/metrics.go` and `internal/triggers/metrics.go`: metric labels (`method`, `route`, `status`, `state`) are not span attributes and keep their names
+- `internal/egressgw/tlsca/`: the X.509 subject of the per-tenant CA's leaf certificates is an identifier, not prose, and keeps the kora name
+- `internal/agents/sessionmanager/runner_codex.go` and `runner_opencode.go`, scoped by `source:` to the one declaration line each: `codexProvider` and `openCodeProvider` are the config-table keys the runtimes key on; the provider display name beside them reads the brand
+
+There is deliberately no exclusion for ruleguard's `used Run() with an empty rule set` message. It appears on every file when `rules/kora_rules.go` fails to load, which is how a DSL construct the bundled ruleguard rejects surfaces, and never when it loads; excluding it would switch every Tier 1 rule off without a signal.
 
 ---
 
@@ -101,7 +114,7 @@ Stdlib `log` and `log/slog` produce unstructured output and have no access to th
 
 ## Adding a new rule
 
-**Tier 1 (call-site pattern):** Add a new `func ruleName(m dsl.Matcher)` to `rules/orbit_rules.go`. Follow the existing doc-comment convention: state what is banned, show a Bad/Good example, and cite the ADR. If the rule has legitimate exceptions, add a path-scoped entry to the `exclusions:` block in `.golangci.yml` rather than using an inline `//nolint` directive.
+**Tier 1 (call-site pattern):** Add a new `func ruleName(m dsl.Matcher)` to `rules/kora_rules.go`. Follow the existing doc-comment convention: state what is banned, show a Bad/Good example, and cite the ADR. If the rule has legitimate exceptions, add a path-scoped entry to the `exclusions:` block in `.golangci.yml` rather than using an inline `//nolint` directive.
 
 **Tier 2 (import ban):** Add a new named rule under `linters-settings.depguard.rules` in `.golangci.yml`. Use the `files:` key to scope exceptions. Add a comment block above the `depguard:` key following the existing `# Rule: name` documentation format.
 
@@ -114,3 +127,4 @@ Run `make check` to verify the rule compiles, fires correctly, and doesn't produ
 [[database-infrastructure-layer](../docs/adr/2026-03-03-database-infrastructure-layer.md)]: docs/adr/2026-03-03-database-infrastructure-layer.md
 [[multi-service-backend-deployment-structure](../docs/adr/2026-03-19-multi-service-backend-deployment-structure.md)]: docs/adr/2026-03-19-multi-service-backend-deployment-structure.md
 [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)]: docs/adr/2026-03-21-opentelemetry-observability-discipline.md
+[[white-labelling-theme](../docs/adr/2026-10-12-white-labelling-theme.md)]: docs/adr/2026-10-12-white-labelling-theme.md

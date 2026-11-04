@@ -1,4 +1,4 @@
-import type { McpCatalogTool, McpServer } from '@orbit/shared/api';
+import type { McpCatalogTool, McpServer } from '@runkora/shared/api';
 
 /** Mock MCP servers and tool catalog for the page stories. */
 
@@ -79,7 +79,7 @@ export const KORA = server({
   display_name: 'kora Platform',
   description:
     'Manage agents, runs, policy grants and models through the kora control plane. Every call is checked against your own grants.',
-  endpoint: 'http://orbit-mcp-gateway.orbit-system.svc:8095/kora',
+  endpoint: 'http://kora-mcp-gateway.kora-system.svc:8095/kora',
   tool_count: 18,
   domains: ['agents', 'runs', 'policy', 'models', 'triggers'],
   last_synced: hoursAgo(0.1),

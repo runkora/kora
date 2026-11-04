@@ -1,0 +1,36 @@
+name: DCO
+
+# The DCO covers contributions from forks. A branch in this repository can only
+# be pushed with write access, and the people and apps holding it are covered
+# by their agreements with the project, so those pull requests pass without a
+# check. The merge queue needs the check to report on its merge group too, and
+# the queue's squash commit is GitHub's, so merge groups pass as well.
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dco-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dco:
+    name: DCO
+    runs-on: ubuntu-latest
+    steps:
+      - if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The check reads every commit in the pull request.
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/check-dco.sh "$BASE_SHA" "$HEAD_SHA"
+      - if: github.event_name == 'merge_group' || github.event.pull_request.head.repo.full_name == github.repository
+        run: echo "Not a pull request from a fork. The DCO check applies to forks."

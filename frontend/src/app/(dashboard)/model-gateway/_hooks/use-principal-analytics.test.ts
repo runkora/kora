@@ -1,7 +1,7 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
-import { server } from '@orbit/test-utils/msw/server';
+import { server } from '@runkora/test-utils/msw/server';
 import { usePrincipalAnalytics } from './use-principal-analytics';
 import type { AnalyticsResponse } from '../_types';
 

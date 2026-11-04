@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
+	sandboxfolder "github.com/runkora/kora/backend/internal/agents/sandbox/folder"
 )
 
 // awaitFolderOrFail waits for the sandbox's folder when it has one, and records a

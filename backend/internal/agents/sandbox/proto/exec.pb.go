@@ -195,7 +195,7 @@ const file_internal_agents_sandbox_proto_exec_proto_rawDesc = "" +
 	"\texit_code\x18\x03 \x01(\x05H\x00R\bexitCodeB\b\n" +
 	"\x06output2]\n" +
 	"\vExecService\x12N\n" +
-	"\aExecute\x12\x1f.sandbox.exec.v1.ExecuteRequest\x1a .sandbox.exec.v1.ExecuteResponse0\x01B<Z:github.com/clear-route/orbit/internal/agents/sandbox/protob\x06proto3"
+	"\aExecute\x12\x1f.sandbox.exec.v1.ExecuteRequest\x1a .sandbox.exec.v1.ExecuteResponse0\x01B?Z=github.com/runkora/kora/backend/internal/agents/sandbox/protob\x06proto3"
 
 var (
 	file_internal_agents_sandbox_proto_exec_proto_rawDescOnce sync.Once

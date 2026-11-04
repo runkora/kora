@@ -448,7 +448,7 @@ func TestPricingFromModelPricing_AllZero_ReturnsNonNil(t *testing.T) {
 func TestVmEffectivePricing_NoRoutes(t *testing.T) {
 	t.Parallel()
 	vm := VirtualModel{}
-	if got := vmEffectivePricing(vm, nil, nil, nil, nil); got != nil {
+	if got := vmEffectivePricing(vm, nil, nil, nil); got != nil {
 		t.Errorf("expected nil for empty VM, got %+v", got)
 	}
 }
@@ -461,8 +461,8 @@ func TestVmEffectivePricing_NoPricingData(t *testing.T) {
 		},
 	}
 	connectors := map[ProviderName]ProviderConnector{ProviderBedrock: nil}
-	if got := vmEffectivePricing(vm, map[string]ModelPricing{}, nil, nil, connectors); got != nil {
-		t.Errorf("expected nil when pricing map is empty, got %+v", got)
+	if got := vmEffectivePricing(vm, mkPricingIdx(), nil, connectors); got != nil {
+		t.Errorf("expected nil when pricing index is empty, got %+v", got)
 	}
 }
 
@@ -473,15 +473,13 @@ func TestVmEffectivePricing_NonTokenFallback(t *testing.T) {
 			{Provider: ProviderBedrock, ModelID: "image-model", Enabled: true},
 		},
 	}
-	pricingIdx := map[string]ModelPricing{
-		"bedrock/image-model": {
-			Provider:       ProviderBedrock,
-			ModelID:        "image-model",
-			ImageInputCost: 0.001, // non-token only — no token pricing
-		},
-	}
+	pricingIdx := mkPricingIdx(ModelPricing{
+		Provider:       ProviderBedrock,
+		ModelID:        "image-model",
+		ImageInputCost: 0.001, // non-token only — no token pricing
+	})
 	connectors := map[ProviderName]ProviderConnector{ProviderBedrock: nil}
-	got := vmEffectivePricing(vm, pricingIdx, nil, nil, connectors)
+	got := vmEffectivePricing(vm, pricingIdx, nil, connectors)
 	if got == nil {
 		t.Fatal("expected non-nil: non-token fallback should fire when no token-priced route exists")
 	}
@@ -498,11 +496,9 @@ func TestVmEffectivePricing_NilWhenNeitherPricing(t *testing.T) {
 		},
 	}
 	// Model exists in pricing index but has no token or non-token costs.
-	pricingIdx := map[string]ModelPricing{
-		"bedrock/free-model": {Provider: ProviderBedrock, ModelID: "free-model"},
-	}
+	pricingIdx := mkPricingIdx(ModelPricing{Provider: ProviderBedrock, ModelID: "free-model"})
 	connectors := map[ProviderName]ProviderConnector{ProviderBedrock: nil}
-	if got := vmEffectivePricing(vm, pricingIdx, nil, nil, connectors); got != nil {
+	if got := vmEffectivePricing(vm, pricingIdx, nil, connectors); got != nil {
 		t.Errorf("expected nil when no token or non-token pricing, got %+v", got)
 	}
 }
@@ -542,22 +538,22 @@ func TestVmEffectivePricing_PicksLowestCost(t *testing.T) {
 			{Provider: ProviderVertexAI, ModelID: "expensive-model", Enabled: true},
 		},
 	}
-	pricingIdx := map[string]ModelPricing{
-		"bedrock/cheap-model": {
+	pricingIdx := mkPricingIdx(
+		ModelPricing{
 			Provider:             ProviderBedrock,
 			ModelID:              "cheap-model",
 			InputCostPerMillion:  1.0,
 			OutputCostPerMillion: 5.0,
 		},
-		"vertexai/expensive-model": {
+		ModelPricing{
 			Provider:             ProviderVertexAI,
 			ModelID:              "expensive-model",
 			InputCostPerMillion:  3.0,
 			OutputCostPerMillion: 15.0,
 		},
-	}
+	)
 	connectors := map[ProviderName]ProviderConnector{ProviderBedrock: nil, ProviderVertexAI: nil}
-	got := vmEffectivePricing(vm, pricingIdx, nil, nil, connectors)
+	got := vmEffectivePricing(vm, pricingIdx, nil, connectors)
 	if got == nil {
 		t.Fatal("expected non-nil pricing")
 	}
@@ -577,22 +573,22 @@ func TestVmEffectivePricing_SkipsDisabledRoutes(t *testing.T) {
 			{Provider: ProviderVertexAI, ModelID: "expensive-model", Enabled: true},
 		},
 	}
-	pricingIdx := map[string]ModelPricing{
-		"bedrock/cheap-model": {
+	pricingIdx := mkPricingIdx(
+		ModelPricing{
 			Provider:             ProviderBedrock,
 			ModelID:              "cheap-model",
 			InputCostPerMillion:  1.0,
 			OutputCostPerMillion: 5.0,
 		},
-		"vertexai/expensive-model": {
+		ModelPricing{
 			Provider:             ProviderVertexAI,
 			ModelID:              "expensive-model",
 			InputCostPerMillion:  3.0,
 			OutputCostPerMillion: 15.0,
 		},
-	}
+	)
 	connectors := map[ProviderName]ProviderConnector{ProviderBedrock: nil, ProviderVertexAI: nil}
-	got := vmEffectivePricing(vm, pricingIdx, nil, nil, connectors)
+	got := vmEffectivePricing(vm, pricingIdx, nil, connectors)
 	if got == nil {
 		t.Fatal("expected non-nil pricing")
 	}
@@ -610,15 +606,13 @@ func TestVmEffectivePricing_NonTokenOnly_NilsTokenFields(t *testing.T) {
 			{Provider: ProviderBedrock, ModelID: "image-model", Enabled: true},
 		},
 	}
-	pricingIdx := buildPricingIndex([]ModelPricing{
-		{
-			Provider:       ProviderBedrock,
-			ModelID:        "image-model",
-			ImageInputCost: 0.001,
-		},
+	pricingIdx := mkPricingIdx(ModelPricing{
+		Provider:       ProviderBedrock,
+		ModelID:        "image-model",
+		ImageInputCost: 0.001,
 	})
 	connectors := map[ProviderName]ProviderConnector{ProviderBedrock: nil}
-	got := vmEffectivePricing(vm, pricingIdx, nil, nil, connectors)
+	got := vmEffectivePricing(vm, pricingIdx, nil, connectors)
 	if got == nil {
 		t.Fatal("expected non-nil for non-token-only model")
 	}

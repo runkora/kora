@@ -2,11 +2,11 @@
  * Integration tests for POST /api/auth/logout
  *
  * Strategy:
- * - `@orbit/server/config` is vi.mock'd so `config.orbitApiUrl` resolves to
- *   `http://test-orbit-api` without triggering `requireEnv` at import time.
- * - `@orbit/server/session` is vi.mock'd so tests control the session state
+ * - `@runkora/server/config` is vi.mock'd so `config.koraApiUrl` resolves to
+ *   `http://test-kora-api` without triggering `requireEnv` at import time.
+ * - `@runkora/server/session` is vi.mock'd so tests control the session state
  *   (logged-in or logged-out) without a real iron-session cookie.
- * - MSW intercepts calls to `http://test-orbit-api/identity/revoke` so
+ * - MSW intercepts calls to `http://test-kora-api/identity/revoke` so
  *   revocation behaviour (success, failure, network error) can be exercised.
  * - `server-only` is shimmed by the Vitest alias so the bare import at the
  *   top of the route module does not throw in Node/jsdom.
@@ -18,8 +18,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { NextRequest } from 'next/server';
-import { server } from '@orbit/test-utils';
-import { createSessionPayload } from '@orbit/test-utils/factories/session';
+import { server } from '@runkora/test-utils';
+import { createSessionPayload } from '@runkora/test-utils/factories/session';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
@@ -27,22 +27,22 @@ vi.mock('next/headers', () => ({
   cookies: vi.fn().mockResolvedValue({}),
 }));
 
-vi.mock('@orbit/server/config', () => ({
-  config: { orbitApiUrl: 'http://test-orbit-api' },
+vi.mock('@runkora/server/config', () => ({
+  config: { koraApiUrl: 'http://test-kora-api' },
 }));
 
-vi.mock('@orbit/server/session', () => ({
+vi.mock('@runkora/server/session', () => ({
   getSession: vi.fn(),
 }));
 
 // ── Import under test ─────────────────────────────────────────────────────────
 
 import { POST } from './route';
-import { getSession } from '@orbit/server/session';
+import { getSession } from '@runkora/server/session';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const REVOKE_URL = 'http://test-orbit-api/identity/revoke';
+const REVOKE_URL = 'http://test-kora-api/identity/revoke';
 
 function makePostRequest(): NextRequest {
   return new NextRequest('http://localhost/api/auth/logout', { method: 'POST' });

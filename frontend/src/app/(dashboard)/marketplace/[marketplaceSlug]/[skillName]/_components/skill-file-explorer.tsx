@@ -15,9 +15,9 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/hades';
-import type { IconColor, IconName } from '@orbit/hades';
-import type { SkillFile } from '@orbit/shared/api';
+} from '@runkora/hades';
+import type { IconColor, IconName } from '@runkora/hades';
+import type { SkillFile } from '@runkora/shared/api';
 
 /** A file of the Skill, with its path relative to the Skill's folder. */
 export interface ExplorerFile {

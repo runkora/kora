@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { expect, userEvent, within } from 'storybook/test';
-import { dashboardPage } from '@orbit/storybook/dashboard-frame';
+import { dashboardPage } from '@runkora/storybook/dashboard-frame';
 import { EnvironmentsPage } from './environments-page';
 import { MANY_IMAGES_120 } from './sandbox-images-mock-data';
 import {

@@ -1,31 +1,32 @@
 /**
  * Integration tests for POST /api/triggers.
  *
- * The route copies an explicit list of fields to orbit-triggers. Each field the
+ * The route copies an explicit list of fields to kora-triggers. Each field the
  * backend accepts needs a test that the route forwards it.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { NextRequest } from 'next/server';
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 
-vi.mock('@orbit/server/config', () => ({
-  config: { orbitTriggersUrl: 'http://test-triggers-svc' },
+vi.mock('@runkora/server/config', () => ({
+  config: { koraTriggersUrl: 'http://test-triggers-svc' },
 }));
 
-vi.mock('@orbit/server/session', () => ({
+vi.mock('@runkora/server/session', () => ({
   getSession: vi.fn(),
   isSessionValid: vi.fn().mockReturnValue(true),
 }));
 
 import { POST } from './route';
-import { getSession } from '@orbit/server/session';
+import { PATCH } from './[id]/route';
+import { getSession } from '@runkora/server/session';
 
 const TRIGGERS_URL = 'http://test-triggers-svc/triggers';
 
 function makeSession() {
   return {
-    user: { sub: 'test-sub', email: 'test@orbit.local', name: 'Test' },
+    user: { sub: 'test-sub', email: 'test@runkora.test', name: 'Test' },
     accessToken: 'test-access-token',
     refreshToken: 'test-refresh',
     expiresAt: Math.floor(Date.now() / 1000) + 3600,
@@ -47,7 +48,7 @@ describe('POST /api/triggers', () => {
     vi.mocked(getSession).mockResolvedValue(makeSession() as never);
   });
 
-  it('forwards sender_restriction to orbit-triggers', async () => {
+  it('forwards sender_restriction to kora-triggers', async () => {
     let received: Record<string, unknown> | undefined;
     server.use(
       http.post(TRIGGERS_URL, async ({ request }) => {
@@ -64,19 +65,45 @@ describe('POST /api/triggers', () => {
         agent_type_id: 'agent-1',
         event_type: 'issue_comment',
         prompt_template: '{{ comment.body }}',
-        sender_restriction: { logins: ['octocat'], associations: ['MEMBER'] },
+        sender_restriction: { ids: ['octocat'], roles: ['MEMBER'] },
       }),
       { params: Promise.resolve({}) } as never,
     );
 
     expect(res.status).toBe(201);
     expect(received?.sender_restriction).toEqual({
-      logins: ['octocat'],
-      associations: ['MEMBER'],
+      ids: ['octocat'],
+      roles: ['MEMBER'],
     });
   });
 
-  it('forwards match_contains to orbit-triggers', async () => {
+  it('forwards coalesce to kora-triggers unchanged', async () => {
+    let received: Record<string, unknown> | undefined;
+    server.use(
+      http.post(TRIGGERS_URL, async ({ request }) => {
+        received = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: 't-1', ...received }, { status: 201 });
+      }),
+    );
+
+    const res = await POST(
+      makePostRequest({
+        kind: 'webhook',
+        source_id: 'src-1',
+        name: 'pr-review',
+        agent_type_id: 'agent-1',
+        event_type: 'pull_request',
+        prompt_template: '{{ pull_request.title }}',
+        coalesce: { key: '{{ pull_request.number }}', window_seconds: 30 },
+      }),
+      { params: Promise.resolve({}) } as never,
+    );
+
+    expect(res.status).toBe(201);
+    expect(received?.coalesce).toEqual({ key: '{{ pull_request.number }}', window_seconds: 30 });
+  });
+
+  it('forwards match_contains to kora-triggers', async () => {
     let received: Record<string, unknown> | undefined;
     server.use(
       http.post(TRIGGERS_URL, async ({ request }) => {
@@ -102,6 +129,73 @@ describe('POST /api/triggers', () => {
     expect(received?.match_contains).toEqual({ 'comment.body': ['@kora-agent'] });
   });
 
+  it('forwards a routed trigger without an agent', async () => {
+    let received: Record<string, unknown> | undefined;
+    server.use(
+      http.post(TRIGGERS_URL, async ({ request }) => {
+        received = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: 't-1', ...received }, { status: 201 });
+      }),
+    );
+    const routing = {
+      candidates: ['agent-1', 'agent-2'],
+      model: 'liquid/d1',
+      confidence: 'balanced',
+      fallback_agent_type_id: null,
+      join_runs: true,
+      join_key: '{{ issue.number }}',
+    };
+
+    const res = await POST(
+      makePostRequest({
+        kind: 'webhook',
+        source_id: 'src-1',
+        name: 'route-github-work',
+        target_kind: 'routed',
+        routing,
+        event_type: 'issues',
+        prompt_template: '{{ issue.title }}',
+      }),
+      { params: Promise.resolve({}) } as never,
+    );
+
+    expect(res.status).toBe(201);
+    expect(received?.target_kind).toBe('routed');
+    expect(received?.routing).toEqual(routing);
+    expect(received?.agent_type_id).toBeUndefined();
+  });
+
+  it('passes the missing scopes of a refused routed trigger through', async () => {
+    server.use(
+      http.post(TRIGGERS_URL, () =>
+        HttpResponse.json(
+          {
+            code: 'forbidden',
+            message: 'caller does not hold the scopes this routed trigger would be granted',
+            details: { missing_scopes: ['inference:liquid:d1:use'], grant_id: 'grant-internal' },
+          },
+          { status: 403 },
+        ),
+      ),
+    );
+
+    const res = await POST(
+      makePostRequest({
+        kind: 'webhook',
+        source_id: 'src-1',
+        name: 'route-github-work',
+        target_kind: 'routed',
+        routing: { candidates: ['a', 'b'], model: 'liquid/d1', confidence: 'balanced' },
+        event_type: 'issues',
+        prompt_template: '{{ issue.title }}',
+      }),
+      { params: Promise.resolve({}) } as never,
+    );
+
+    expect(res.status).toBe(403);
+    expect((await res.json()).details).toEqual({ missing_scopes: ['inference:liquid:d1:use'] });
+  });
+
   it('rejects a webhook trigger without an event type', async () => {
     let called = false;
     server.use(
@@ -124,5 +218,33 @@ describe('POST /api/triggers', () => {
 
     expect(res.status).toBe(400);
     expect(called).toBe(false);
+  });
+});
+
+describe('PATCH /api/triggers/[id]', () => {
+  beforeEach(() => {
+    vi.mocked(getSession).mockResolvedValue(makeSession() as never);
+  });
+
+  it('forwards a sender restriction of ids and roles unchanged', async () => {
+    let received: Record<string, unknown> | undefined;
+    server.use(
+      http.patch(`${TRIGGERS_URL}/t-1`, async ({ request }) => {
+        received = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: 't-1' });
+      }),
+    );
+
+    const res = await PATCH(
+      new NextRequest('http://localhost/api/triggers/t-1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sender_restriction: { ids: ['U012AB3CD'], roles: [] } }),
+      }),
+      { params: Promise.resolve({ id: 't-1' }) } as never,
+    );
+
+    expect(res.status).toBe(200);
+    expect(received).toEqual({ sender_restriction: { ids: ['U012AB3CD'], roles: [] } });
   });
 });

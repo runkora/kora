@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { Stack, Text } from '@orbit/hades';
+import { Stack, Text } from '@runkora/hades';
 import { Example, Option, OptionTable } from '../../packages/hades/src/docs/story-ui';
 import { ExternalLink } from './external-link';
 
@@ -18,7 +18,7 @@ const meta: Meta<typeof ExternalLink> = {
 export default meta;
 type Story = StoryObj<typeof ExternalLink>;
 
-const URL = 'https://github.com/clear-route/orbit';
+const URL = 'https://github.com/runkora/kora';
 
 export const Overview: Story = {
   render: () => (

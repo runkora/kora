@@ -7,7 +7,7 @@
 // Reference shapes accepted by Resolve:
 //
 //	"acme/github/app.pem"               → {root}/acme/github/app.pem
-//	"connections/orbit-prod-github.pem" → {root}/connections/orbit-prod-github.pem
+//	"connections/kora-prod-github.pem" → {root}/connections/kora-prod-github.pem
 //
 // Path traversal is rejected: a SecretRef containing ".." or starting with "/"
 // returns an error without touching the filesystem.
@@ -25,7 +25,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // ErrInvalidRef is returned when a SecretRef is empty, contains "..", or is

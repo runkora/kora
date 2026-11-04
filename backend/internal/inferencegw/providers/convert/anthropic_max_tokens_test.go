@@ -3,7 +3,7 @@ package convert_test
 import (
 	"testing"
 
-	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/convert"
 )
 
 func TestAnthropicModelMaxOutputTokens(t *testing.T) {

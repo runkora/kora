@@ -5,9 +5,9 @@ import type {
   Trigger,
   TriggerDelivery,
   WebhookSource,
-} from '@orbit/shared/api';
-import { dashboardPage } from '@orbit/storybook/dashboard-frame';
-import type { MockRequest, MockRoutes } from '@orbit/storybook/mock-api';
+} from '@runkora/shared/api';
+import { dashboardPage } from '@runkora/storybook/dashboard-frame';
+import type { MockRequest, MockRoutes } from '@runkora/storybook/mock-api';
 import {
   CODE_REVIEWER,
   ENVIRONMENTS,

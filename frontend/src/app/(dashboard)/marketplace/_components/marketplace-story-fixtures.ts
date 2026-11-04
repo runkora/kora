@@ -1,6 +1,6 @@
 /** @tier 3 — marketplace-scoped. Browser-safe sample Skills shared by result stories. */
 
-import type { Marketplace, SkillSummary } from '@orbit/shared/api';
+import type { Marketplace, SkillSummary } from '@runkora/shared/api';
 
 export const marketplaceStorySkills: SkillSummary[] = [
   {

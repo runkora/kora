@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { server } from '@orbit/test-utils/msw/server';
+import { server } from '@runkora/test-utils/msw/server';
 
 /**
  * Unit tests for fetchAnalyticsPrincipalByIdFromGateway — the server-side
  * gateway call added for the admin drill-down view (GET
  * /v1/analytics/principals/{id} via the inference gateway).
  *
- * `@orbit/server/config` evaluates every required env var eagerly at module
+ * `@runkora/server/config` evaluates every required env var eagerly at module
  * load time (see src/server/config.ts — each property calls requireEnv()
  * directly in the object literal). That means the env vars it needs must be
  * stubbed *before* analytics-server.ts is first imported anywhere in this
@@ -47,12 +47,12 @@ function analyticsPayload(overrides: Record<string, unknown> = {}) {
 let fetchAnalyticsPrincipalByIdFromGateway: typeof import('./analytics-server').fetchAnalyticsPrincipalByIdFromGateway;
 
 beforeAll(async () => {
-  vi.stubEnv('ORBIT_API_URL', 'http://orbit-api.test');
+  vi.stubEnv('KORA_API_URL', 'http://kora-api.test');
   vi.stubEnv('INFERENCE_GATEWAY_URL', GATEWAY_URL);
   vi.stubEnv('POLICY_GATEWAY_URL', 'http://policy-gateway.test');
   vi.stubEnv('POLICY_SERVICE_URL', 'http://policy-service.test');
-  vi.stubEnv('ORBIT_AGENTS_URL', 'http://orbit-agents.test');
-  vi.stubEnv('ORBIT_TRIGGERS_URL', 'http://orbit-triggers.test');
+  vi.stubEnv('KORA_AGENTS_URL', 'http://kora-agents.test');
+  vi.stubEnv('KORA_TRIGGERS_URL', 'http://kora-triggers.test');
   vi.stubEnv('TOOL_GATEWAY_URL', 'http://tool-gateway.test');
   vi.stubEnv('SKILLS_SERVICE_URL', 'http://skills-service.test/v1');
 
@@ -133,7 +133,7 @@ describe('fetchAnalyticsPrincipalByIdFromGateway', () => {
     expect(capturedPathname).toBe('/analytics/principals/user%40example.com');
   });
 
-  it('returns ok:false with the response body as the message on a non-OK response', async () => {
+  it('returns ok:false with a no-access sentence, not the response body, on a 403', async () => {
     server.use(
       http.get(
         `${GATEWAY_URL}/analytics/principals/:id`,
@@ -146,7 +146,7 @@ describe('fetchAnalyticsPrincipalByIdFromGateway', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(403);
-      expect(result.message).toBe('forbidden — missing platform:analytics:read');
+      expect(result.message).toBe('You do not have access to analytics.');
     }
   });
 

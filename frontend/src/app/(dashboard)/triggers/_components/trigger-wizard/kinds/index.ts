@@ -6,19 +6,20 @@
  * one module here plus one line in `TRIGGER_KINDS`.
  */
 
-import type { PlannedKind, TriggerKind, TriggerKindDefinition } from '../types';
-import { webhookKind } from './webhook';
+import type { ConsoleKind, PlannedKind, TriggerKindDefinition } from '../types';
+import { chatKind, webhookKind } from './webhook';
 import { scheduledKind } from './scheduled';
 import { manualKind } from './manual';
 
-export const TRIGGER_KINDS: Record<TriggerKind, TriggerKindDefinition> = {
+export const TRIGGER_KINDS: Record<ConsoleKind, TriggerKindDefinition> = {
   webhook: webhookKind,
+  chat: chatKind,
   scheduled: scheduledKind,
   manual: manualKind,
 };
 
 /** Picker order. Explicit, so it does not depend on object key order. */
-export const KIND_ORDER: TriggerKind[] = ['webhook', 'scheduled', 'manual'];
+export const KIND_ORDER: ConsoleKind[] = ['webhook', 'chat', 'scheduled', 'manual'];
 
 /**
  * Kinds the model accommodates but that are not built.
@@ -32,17 +33,13 @@ export const PLANNED_KINDS: PlannedKind[] = [
   {
     icon: 'activity',
     title: 'Control-plane event',
-    description: 'When something happens inside kora: a run finishes, a budget is crossed.',
+    description: (productName) =>
+      `When something happens inside ${productName}: a run finishes, a budget is crossed.`,
   },
   {
     icon: 'route',
     title: 'Chained run',
     description: "When another agent's run reaches a given outcome.",
-  },
-  {
-    icon: 'send',
-    title: 'Chat command',
-    description: 'When someone invokes the agent from Slack or Teams.',
   },
   {
     icon: 'layers',
@@ -61,4 +58,4 @@ export const PLANNED_KINDS: PlannedKind[] = [
   },
 ];
 
-export { webhookKind, scheduledKind, manualKind };
+export { webhookKind, chatKind, scheduledKind, manualKind };

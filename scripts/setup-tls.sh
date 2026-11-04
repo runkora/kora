@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# setup-tls.sh — Generate a TLS certificate for *.orbit.local.clearroute.io
+# setup-tls.sh — Generate a TLS certificate for *.local.runkora.io
 #
 # macOS (primary):
 #   Uses mkcert to generate a browser-trusted wildcard certificate.
@@ -52,8 +52,10 @@ case "${OS}" in
 esac
 
 # ── Existing certs — skip unless FORCE=1 ──────────────────────────────────
-if [[ -f "${CERT_FILE}" && -f "${KEY_FILE}" && "${FORCE:-}" != "1" ]]; then
-  ok "TLS certificate already exists (secrets/tls.crt). Skipping."
+# A certificate issued for another domain is replaced rather than reused.
+if [[ -f "${CERT_FILE}" && -f "${KEY_FILE}" && "${FORCE:-}" != "1" ]] \
+  && openssl x509 -in "${CERT_FILE}" -noout -text 2>/dev/null | grep -q "DNS:\*\.local\.runkora\.io"; then
+  ok "TLS certificate for *.local.runkora.io already exists (secrets/tls.crt). Skipping."
   ok "To regenerate, run: FORCE=1 make setup-tls"
   exit 0
 fi
@@ -78,8 +80,8 @@ if [[ "${OS}" == "Darwin" ]]; then
   mkcert -install
   ok "Local CA trusted by system and browsers"
 
-  info "Generating TLS certificate for orbit.local.clearroute.io + *.orbit.local.clearroute.io..."
-  mkcert -cert-file "${CERT_FILE}" -key-file "${KEY_FILE}" "orbit.local.clearroute.io" "*.orbit.local.clearroute.io"
+  info "Generating TLS certificate for local.runkora.io + *.local.runkora.io..."
+  mkcert -cert-file "${CERT_FILE}" -key-file "${KEY_FILE}" "local.runkora.io" "*.local.runkora.io"
   chmod 600 "${KEY_FILE}"
   ok "Certificate written:"
   echo "    cert: ${CERT_FILE}"
@@ -93,10 +95,10 @@ if [[ "${OS}" == "Darwin" ]]; then
 
   echo ""
   echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
-  echo -e "${GREEN}  TLS certificate for *.orbit.local.clearroute.io generated      ${RESET}"
+  echo -e "${GREEN}  TLS certificate for *.local.runkora.io generated      ${RESET}"
   echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
   echo ""
-  echo "  Browsers on this machine will trust https://orbit.local.clearroute.io:8443"
+  echo "  Browsers on this machine will trust https://local.runkora.io:8443"
   echo "  without certificate warnings."
   echo ""
   echo "  To load into the k3d cluster:"
@@ -114,13 +116,13 @@ warn "mkcert not available on ${OS} — generating self-signed certificate via o
 warn "Dex and the local stack will work, but browsers will show a certificate warning."
 warn "For browser-trusted certs, install mkcert: https://github.com/FiloSottile/mkcert#installation"
 
-info "Generating self-signed TLS certificate for orbit.local.clearroute.io + *.orbit.local.clearroute.io..."
+info "Generating self-signed TLS certificate for local.runkora.io + *.local.runkora.io..."
 openssl req -x509 -newkey rsa:2048 -nodes \
   -keyout "${KEY_FILE}" \
   -out "${CERT_FILE}" \
   -days 365 \
-  -subj "/CN=orbit.local.clearroute.io" \
-  -addext "subjectAltName=DNS:orbit.local.clearroute.io,DNS:*.orbit.local.clearroute.io" \
+  -subj "/CN=local.runkora.io" \
+  -addext "subjectAltName=DNS:local.runkora.io,DNS:*.local.runkora.io" \
   2>/dev/null
 chmod 600 "${KEY_FILE}"
 ok "Self-signed certificate written:"

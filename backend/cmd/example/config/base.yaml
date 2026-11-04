@@ -7,4 +7,4 @@ server:
   shutdownTimeoutSecs: 5
 
 observability:
-  serviceName: orbit-example
+  serviceName: kora-example

@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 )
 
 func TestSplitScope_Roundtrips(t *testing.T) {

@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import type { SchedulePreviewFire } from '@orbit/shared/api';
+import type { SchedulePreviewFire } from '@runkora/shared/api';
 import { fetchSchedulePreview } from '../../_services/triggers-api';
 
 /** Long enough that typing a cron expression does not fire a call per keystroke. */

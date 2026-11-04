@@ -4,7 +4,8 @@ package policyServiceConfig
 import (
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 )
 
 // Config holds policy-service configuration values.
@@ -13,7 +14,7 @@ import (
 //
 //  1. cmd/policy-service/config/base.yaml        — service defaults
 //  2. cmd/policy-service/config/{env}.yaml       — env overrides (optional)
-//  3. /etc/orbit/config/cmd/policy-service.yaml  — rendered by the chart
+//  3. /etc/kora/config/cmd/policy-service.yaml  — rendered by the chart
 type Config struct {
 	App struct {
 		Version string `yaml:"version"`
@@ -39,14 +40,17 @@ type Config struct {
 		// Compiled into the gateway bundle so authz_gateway.rego can bypass
 		// OPA enforcement for browser UI traffic (`:authority` header match).
 		FrontendHost string `yaml:"frontendHost"`
-		// TenantsPath is the operator's tenant registry; the gateway bundle
-		// lists every tenant in it.
+		// TenantsPath is the operator's tenant registry. The gateway bundle
+		// lists every tenant in it. Each tenant's authoring switch and
+		// declared budget come from it too.
 		TenantsPath string `yaml:"tenantsPath"`
 	} `yaml:"bundle"`
 
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
+
+	Metrics platformmetrics.Config `yaml:"metrics"`
 }
 
 func (c *Config) ShutdownTimeout() time.Duration {

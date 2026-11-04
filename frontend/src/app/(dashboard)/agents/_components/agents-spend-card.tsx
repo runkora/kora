@@ -27,9 +27,9 @@ import {
   Stack,
   Text,
   donutSegmentColor,
-} from '@orbit/hades';
-import { AppLink } from '@orbit/components/links';
-import { fmtDate, fmtUsd } from '@orbit/utils';
+} from '@runkora/hades';
+import { AppLink } from '@runkora/components/links';
+import { fmtDate, fmtUsd } from '@runkora/utils';
 import {
   BUDGET_ROWS,
   SPEND_ALERT_PCT,

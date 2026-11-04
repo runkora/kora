@@ -88,11 +88,11 @@ The deployed cluster runs session-managers and sandboxes on Bottlerocket 1.66 wi
 
 *   **Pod watches (chosen):** Each node agent lists and watches sandbox pods and session-manager pods by label and reconciles on every change. The claim `workspaces-<pod>` on the sandbox pod's `workspaces` volume identifies its session-manager pod.
 *   **An annotation with the session-manager pod's name (rejected):** The node agent checks the sandbox's workspace claim before it accepts a pairing. The annotation repeated what the claim states.
-*   **A new orbit-agents API (rejected):** It would add a caller, an authorization path and a port for data that the pods already carry.
+*   **A new kora-agents API (rejected):** It would add a caller, an authorization path and a port for data that the pods already carry.
 
 ### D6. When the Agent Gets the Sandbox
 
-*   **The session-manager waits for the mount (chosen):** orbit-agents returns the sandbox pod's UID. The session-manager reads its own mountinfo and hands the sandbox over once `/workspaces/<run>/sandbox` is mounted from that pod. After 60 s the provision fails. The UID is kept in `.sandbox-exec/folder`, and a restarted session-manager waits again before it reuses the sandbox.
+*   **The session-manager waits for the mount (chosen):** kora-agents returns the sandbox pod's UID. The session-manager reads its own mountinfo and hands the sandbox over once `/workspaces/<run>/sandbox` is mounted from that pod. After 60 s the provision fails. The UID is kept in `.sandbox-exec/folder`, and a restarted session-manager waits again before it reuses the sandbox.
 *   **A readiness gate the node agent sets (rejected):** The node agent would need cluster-wide patch access to pod status.
 *   **No wait (rejected):** The agent's first writes would land on the shared volume under the folder the mount later covers.
 
@@ -135,7 +135,7 @@ The deployed cluster runs session-managers and sandboxes on Bottlerocket 1.66 wi
 
 ### D13. Chart
 
-*   **A top-level `sandboxMount` block, off by default (chosen):** `sandboxMount.enabled` runs the DaemonSet in the host network and the host PID namespace in the `orbit-sandbox-mount` namespace, and the chart creates that namespace at the privileged Pod Security level. The DaemonSet carries the tolerations of both workloads, and its ClusterRole lists and watches pods. The local reference environment turns the feature on. The deployment guide's scale-out section turns it on with a `ReadWriteMany` workspace.
+*   **A top-level `sandboxMount` block, off by default (chosen):** `sandboxMount.enabled` runs the DaemonSet in the host network and the host PID namespace in the `kora-sandbox-mount` namespace, and the chart creates that namespace at the privileged Pod Security level. The DaemonSet carries the tolerations of both workloads, and its ClusterRole lists and watches pods. The local reference environment turns the feature on. The deployment guide's scale-out section turns it on with a `ReadWriteMany` workspace.
 *   **On by default (rejected):** Every install would need kernel NFS on its nodes and a privileged DaemonSet.
 *   **Under `agents` (rejected):** The release pins component digests from top-level image blocks only.
 
@@ -168,7 +168,7 @@ The deployed cluster runs session-managers and sandboxes on Bottlerocket 1.66 wi
 
 Each sandbox will have a working folder on its local disk at `/workspaces/<run>/sandbox`, shared with its session-manager pod over kernel NFS by a privileged node agent.
 
-*   With `sandboxMount.enabled`, orbit-agents will mount the local disk's `sandbox` directory at `/workspaces/<run>/sandbox` in the sandbox pod and give the session-manager's workspace mount `HostToContainer` propagation.
+*   With `sandboxMount.enabled`, kora-agents will mount the local disk's `sandbox` directory at `/workspaces/<run>/sandbox` in the sandbox pod and give the session-manager's workspace mount `HostToContainer` propagation.
 *   On the sandbox's node, the node agent will bind the folder under `/exports/<client>/<pod UID>` and export it with `fsid=<pod UID>`.
 *   On the session-manager's node, it will mount `<sandbox node>:/<pod UID>` on the run's `sandbox` directory under the session-manager pod's volume.
 *   The capabilities brief will say: "Starting a sandbox gives you a working folder at `/workspaces/<run>/sandbox`. Do all your work there from then on: create and edit files, clone repos, install, build and run commands. Your file tools and the sandbox see the same files in that folder. The folder and its contents last as long as the sandbox."

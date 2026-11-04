@@ -6,7 +6,7 @@ import (
 
 	bedrockSDKtypes "github.com/aws/aws-sdk-go-v2/service/bedrock/types"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw"
 )
 
 // knownRegionPrefixes are the cross-region inference profile prefixes that

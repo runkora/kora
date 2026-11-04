@@ -10,12 +10,18 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/runkora/kora/backend/internal/platform/api"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 func newTestController(t *testing.T) (*Controller, *testDeps, *Service) {
@@ -30,7 +36,7 @@ func newTestController(t *testing.T) (*Controller, *testDeps, *Service) {
 
 // withTenant injects verified platform claims so tenantFromCtx resolves a tenant.
 func withTenant(req *http.Request) *http.Request {
-	ctx := token.WithClaims(req.Context(), &token.PlatformClaims{Orbit: token.OrbitClaims{TenantID: testTenant}})
+	ctx := token.WithClaims(req.Context(), &token.PlatformClaims{Kora: token.KoraClaims{TenantID: testTenant}})
 	return req.WithContext(ctx)
 }
 
@@ -108,6 +114,32 @@ func TestHandleCreateSource_ValidationError(t *testing.T) {
 	}
 }
 
+func TestHandleCreateSource_NameTaken(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.repo.createSourceErr = ErrSourceNameTaken
+
+	w := call(t, c.handleCreateSource, http.MethodPost, "/trigger-sources", nil,
+		CreateSourceRequest{Name: "gh", Provider: ProviderGitHub})
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (body: %s)", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), ErrSourceNameTaken.Error()) {
+		t.Errorf("body = %s, want the name-taken message", w.Body.String())
+	}
+}
+
+func TestSourceWriteError(t *testing.T) {
+	taken := &pgconn.PgError{Code: "23505", ConstraintName: sourceNameKey}
+	if err := sourceWriteError("create webhook source", taken); !errors.Is(err, ErrSourceNameTaken) {
+		t.Errorf("duplicate name = %v, want ErrSourceNameTaken", err)
+	}
+	other := &pgconn.PgError{Code: "23505", ConstraintName: "webhook_sources_pkey"}
+	if err := sourceWriteError("create webhook source", other); errors.Is(err, ErrSourceNameTaken) || !errors.As(err, new(*pgconn.PgError)) {
+		t.Errorf("other unique violation = %v, want it wrapped unchanged", err)
+	}
+}
+
 func TestHandleListSources(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	mustSource(t, deps.sources)
@@ -175,6 +207,103 @@ func TestHandleIngest_UnknownSource(t *testing.T) {
 	// Missing source is reported as 404 (does not leak existence vs. disabled).
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
+// scopeSetEvaluator allows exactly the scopes it holds.
+type scopeSetEvaluator struct {
+	policy.Evaluator
+	held map[string]bool
+}
+
+func (e scopeSetEvaluator) Check(_ context.Context, in policy.CheckInput) (policy.Result, error) {
+	scope := strings.Join(append(append([]string{in.ResourceType}, in.PathSegments...), in.Action), ":")
+	return policy.Result{Allow: e.held[scope]}, nil
+}
+
+// The fire route carries no route scope. triggers:write must neither be needed nor be enough.
+func TestBoot_FireIsAuthorizedByTriggerScopeAlone(t *testing.T) {
+	routes := []routescopes.RouteScope{
+		{PathPrefix: "/api/v1/triggers", Method: http.MethodPost, RequiredScope: "triggers:write"},
+		{PathPrefix: "/api/v1/trigger-fires", Method: http.MethodPost, RequiredScope: ""},
+	}
+	tests := []struct {
+		name     string
+		held     []string
+		path     string
+		wantCode int
+	}{
+		{"per-trigger scope fires", []string{"trigger:{id}:fire"}, "/trigger-fires/{id}", http.StatusAccepted},
+		{"triggers:write alone cannot fire", []string{"triggers:write"}, "/trigger-fires/{id}", http.StatusForbidden},
+		{"per-trigger scope cannot create", []string{"trigger:{id}:fire"}, "/triggers", http.StatusForbidden},
+		{"old fire path is gone", []string{"trigger:{id}:fire", "triggers:write"}, "/triggers/{id}/fire", http.StatusNotFound},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, deps := newTestService(t)
+			trig, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, validReq(KindManual))
+			if err != nil {
+				t.Fatalf("CreateTrigger: %v", err)
+			}
+			held := map[string]bool{}
+			for _, sc := range tc.held {
+				held[strings.ReplaceAll(sc, "{id}", trig.ID)] = true
+			}
+			passthrough := mw.NewMiddleware(func(next http.Handler) http.Handler { return next })
+			c := NewController(svc, deps.sources, deps.triggers, passthrough, scopeSetEvaluator{held: held}, routes, "/api/v1", silentLogger())
+			mux := api.NewMux(context.Background(), silentLogger())
+			mux.SetBasePath("")
+			c.Boot(mux)
+
+			req := withTenant(newRequest(t, http.MethodPost, strings.ReplaceAll(tc.path, "{id}", trig.ID), nil, []byte(`{}`)))
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, req)
+
+			if w.Code != tc.wantCode {
+				t.Fatalf("status = %d (body %s), want %d", w.Code, w.Body.String(), tc.wantCode)
+			}
+		})
+	}
+}
+
+// The run-access question goes to kora-agents with the caller's own bearer and delegation, never the trigger principal's.
+func TestBoot_CreateAsksWithCallerBearer(t *testing.T) {
+	svc, deps := newTestService(t)
+	routes := []routescopes.RouteScope{{PathPrefix: "/api/v1/triggers", Method: http.MethodPost, RequiredScope: "triggers:write"}}
+	passthrough := mw.NewMiddleware(func(next http.Handler) http.Handler { return next })
+	c := NewController(svc, deps.sources, deps.triggers, passthrough, scopeSetEvaluator{held: map[string]bool{"triggers:write": true}}, routes, "/api/v1", silentLogger())
+	mux := api.NewMux(context.Background(), silentLogger())
+	mux.SetBasePath("")
+	c.Boot(mux)
+
+	req := withTenant(newRequest(t, http.MethodPost, "/triggers", nil, validReq(KindManual)))
+	req.Header.Set("Authorization", "Bearer caller-tok")
+	req.Header.Set("X-Kora-Delegation-Token", "caller-delegation")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d (body %s), want 201", w.Code, w.Body.String())
+	}
+	deps.agents.mu.Lock()
+	defer deps.agents.mu.Unlock()
+	if !slices.Equal(deps.agents.callerBearers, []string{"Bearer caller-tok"}) {
+		t.Errorf("caller bearers = %v, want the caller's own", deps.agents.callerBearers)
+	}
+	// A delegated caller's delegation goes with it, so kora-agents evaluates the delegated run.
+	if !slices.Equal(deps.agents.callerDelegs, []string{"caller-delegation"}) {
+		t.Errorf("caller delegations = %v, want the caller's own", deps.agents.callerDelegs)
+	}
+}
+
+func TestHandleCreateTrigger_BindForbidden(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.agents.atNoRun = true
+
+	w := call(t, c.handleCreateTrigger, http.MethodPost, "/triggers", nil, validReq(KindManual))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (body: %s)", w.Code, w.Body.String())
 	}
 }
 
@@ -476,7 +605,7 @@ func newFireController(t *testing.T, allow bool, evalErr error) (*Controller, *m
 func TestHandleFireTrigger_DeniedWithoutPerTriggerScope(t *testing.T) {
 	c, eval, _, _ := newFireController(t, false, nil)
 
-	w := call(t, c.handleFireTrigger, http.MethodPost, "/triggers/trig-1/fire",
+	w := call(t, c.handleFireTrigger, http.MethodPost, "/trigger-fires/trig-1",
 		map[string]string{"id": "trig-1"}, []byte(`{}`))
 
 	if w.Code != http.StatusForbidden {
@@ -492,7 +621,7 @@ func TestHandleFireTrigger_DeniedWithoutPerTriggerScope(t *testing.T) {
 func TestHandleFireTrigger_EvaluatorErrorFailsClosed(t *testing.T) {
 	c, _, _, _ := newFireController(t, true, errors.New("bundle unavailable"))
 
-	w := call(t, c.handleFireTrigger, http.MethodPost, "/triggers/trig-1/fire",
+	w := call(t, c.handleFireTrigger, http.MethodPost, "/trigger-fires/trig-1",
 		map[string]string{"id": "trig-1"}, []byte(`{}`))
 
 	if w.Code != http.StatusForbidden {
@@ -504,7 +633,7 @@ func TestHandleFireTrigger_EvaluatorErrorFailsClosed(t *testing.T) {
 func TestHandleFireTrigger_NilEvaluatorFailsClosed(t *testing.T) {
 	c, _, _ := newTestController(t) // built with a nil evaluator
 
-	w := call(t, c.handleFireTrigger, http.MethodPost, "/triggers/trig-1/fire",
+	w := call(t, c.handleFireTrigger, http.MethodPost, "/trigger-fires/trig-1",
 		map[string]string{"id": "trig-1"}, []byte(`{}`))
 
 	if w.Code != http.StatusForbidden {
@@ -516,7 +645,7 @@ func TestHandleFireTrigger_NilEvaluatorFailsClosed(t *testing.T) {
 func TestHandleFireTrigger_NoClaimsDenied(t *testing.T) {
 	c, _, _, _ := newFireController(t, true, nil)
 
-	w := invoke(c.handleFireTrigger, newRequest(t, http.MethodPost, "/triggers/trig-1/fire",
+	w := invoke(c.handleFireTrigger, newRequest(t, http.MethodPost, "/trigger-fires/trig-1",
 		map[string]string{"id": "trig-1"}, []byte(`{}`)))
 
 	if w.Code != http.StatusForbidden {
@@ -532,7 +661,7 @@ func TestHandleFireTrigger_AllowedWithPerTriggerScope(t *testing.T) {
 	trig := mustTrigger(t, deps.triggers, src.ID, nil, "p")
 	deps.minter.reset()
 
-	w := call(t, c.handleFireTrigger, http.MethodPost, "/triggers/"+trig.ID+"/fire",
+	w := call(t, c.handleFireTrigger, http.MethodPost, "/trigger-fires/"+trig.ID,
 		map[string]string{"id": trig.ID}, []byte(`{}`))
 
 	if w.Code == http.StatusForbidden {
@@ -540,6 +669,39 @@ func TestHandleFireTrigger_AllowedWithPerTriggerScope(t *testing.T) {
 	}
 	if got := eval.scopeAsked(); got != "trigger:"+trig.ID+":fire" {
 		t.Errorf("checked scope %q, want the specific trigger's fire scope", got)
+	}
+}
+
+func TestTriggerReads_CanFire(t *testing.T) {
+	tests := []struct {
+		name    string
+		allow   bool
+		evalErr error
+		want    bool
+	}{
+		{"fire scope held", true, nil, true},
+		{"fire scope missing", false, nil, false},
+		{"evaluator error reads as no", true, errors.New("bundle unavailable"), false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _, deps, _ := newFireController(t, tc.allow, tc.evalErr)
+			src := mustSource(t, deps.sources)
+			trig := mustTrigger(t, deps.triggers, src.ID, nil, "p")
+
+			w := call(t, c.handleListTriggers, http.MethodGet, "/triggers", nil, nil)
+			list := decode[struct {
+				Triggers []Trigger `json:"triggers"`
+			}](t, w)
+			if len(list.Triggers) != 1 || list.Triggers[0].CanFire != tc.want {
+				t.Errorf("list can_fire = %+v, want %v", list.Triggers, tc.want)
+			}
+
+			w = call(t, c.handleGetTrigger, http.MethodGet, "/triggers/"+trig.ID, map[string]string{"id": trig.ID}, nil)
+			if got := decode[Trigger](t, w); got.CanFire != tc.want {
+				t.Errorf("get can_fire = %v, want %v", got.CanFire, tc.want)
+			}
+		})
 	}
 }
 
@@ -552,15 +714,16 @@ func TestHandleProviderEventTypes(t *testing.T) {
 		t.Fatalf("status = %d (%s), want 200", w.Code, w.Body.String())
 	}
 	got := decode[EventTypesResponse](t, w)
-	if !slices.Contains(got.Declared, "issue_comment") || !slices.Equal(got.Associations, []string{"OWNER", "MEMBER", "COLLABORATOR"}) {
+	if !slices.Contains(got.Declared, "issue_comment") || got.Category != CategoryWebhook ||
+		got.Senders == nil || !slices.Equal(roleValuesOf(got.Senders.Roles), []string{"OWNER", "MEMBER", "COLLABORATOR"}) {
 		t.Errorf("response = %+v", got)
 	}
 
 	w = call(t, c.handleProviderEventTypes, http.MethodGet, "/trigger-providers/alertmanager/event-types",
 		map[string]string{"provider": ProviderAlertmanager}, nil)
 	if am := decode[EventTypesResponse](t, w); !slices.Equal(am.Declared, []string{"alert.firing", "alert.resolved"}) ||
-		am.Associations == nil || len(am.Associations) != 0 {
-		t.Errorf("alertmanager = %+v, want its two types and an empty association list", am)
+		am.Senders != nil {
+		t.Errorf("alertmanager = %+v, want its two types and no senders", am)
 	}
 
 	w = call(t, c.handleProviderEventTypes, http.MethodGet, "/trigger-providers/gitlab/event-types",
@@ -657,5 +820,85 @@ func TestHandleListDeliveries_TimeAndPayload(t *testing.T) {
 		if code, _ := list(q); code != http.StatusBadRequest {
 			t.Errorf("%s: status %d, want 400", q, code)
 		}
+	}
+}
+
+// A routed create the caller lacks authority for is a 403 that lists the scopes.
+func TestHandleCreateTrigger_RoutedMissingScopes(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.agents.atSlugs = map[string]string{"at-a": "coder", "at-b": "reviewer", "at-c": "security"}
+	deps.eval.deny = map[string]bool{"inference:liquid:d1:use": true}
+	src := mustSource(t, deps.sources)
+
+	w := call(t, c.handleCreateTrigger, http.MethodPost, "/triggers", nil, routedReq(src.ID, nil))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (body: %s)", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"missing_scopes":["inference:liquid:d1:use"]`) {
+		t.Errorf("body = %s, want the missing scope listed", w.Body.String())
+	}
+}
+
+// A decision model outside the catalog is a 400 naming the model, on create and update.
+func TestHandleRoutedTrigger_UnknownModel(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.agents.atSlugs = map[string]string{"at-a": "coder", "at-b": "reviewer", "at-c": "security"}
+	src := mustSource(t, deps.sources)
+	tr := mustRouted(t, deps, src.ID, nil)
+	deps.policy.unknownScopes = map[string]bool{"inference:liquid:missing:use": true}
+
+	create := call(t, c.handleCreateTrigger, http.MethodPost, "/triggers", nil,
+		routedReq(src.ID, func(r *CreateTriggerRequest) { r.Routing.Model = "liquid/missing" }))
+	update := call(t, c.handleUpdateTrigger, http.MethodPatch, "/triggers/"+tr.ID, map[string]string{"id": tr.ID}, UpdateTriggerRequest{
+		Routing: routingReq(func(r *RoutingConfig) { r.Model = "liquid/missing" }),
+	})
+
+	for name, w := range map[string]*httptest.ResponseRecorder{"create": create, "update": update} {
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%s status = %d, want 400 (body: %s)", name, w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), `routing.model \"liquid/missing\" is not a model in this tenant's catalog`) {
+			t.Errorf("%s body = %s, want the model named", name, w.Body.String())
+		}
+	}
+}
+
+func TestHandleRoutingCandidates(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.agents.agentTypes = []agentsclient.AgentType{{ID: "at-a", Slug: "coder", Name: "Coder", CanRun: true}}
+
+	req := withTenant(newRequest(t, http.MethodGet, "/triggers/routing/candidates", nil, nil))
+	req.Header.Set("Authorization", "Bearer caller-token")
+	w := invoke(c.handleRoutingCandidates, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d (body: %s)", w.Code, w.Body.String())
+	}
+	got := decode[struct {
+		AgentTypes []RoutingCandidate `json:"agent_types"`
+	}](t, w)
+	if len(got.AgentTypes) != 1 || !got.AgentTypes[0].Runnable || got.AgentTypes[0].Name != "Coder" {
+		t.Errorf("candidates = %+v", got.AgentTypes)
+	}
+}
+
+// A failed revocation answers with a fixed message and the trigger id, never the grant ids.
+func TestHandleUpdateTrigger_RevokeFailureHidesGrants(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.agents.atSlugs = map[string]string{"at-a": "coder", "at-b": "reviewer", "at-c": "security"}
+	src := mustSource(t, deps.sources)
+	tr := mustRouted(t, deps, src.ID, nil)
+	deps.policy.failDelete = true
+
+	w := call(t, c.handleUpdateTrigger, http.MethodPatch, "/triggers/"+tr.ID, map[string]string{"id": tr.ID}, UpdateTriggerRequest{
+		Routing: routingReq(func(r *RoutingConfig) { r.Candidates = []string{"at-a", "at-b"} }),
+	})
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d (body: %s)", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "previous grant could not be revoked") || !strings.Contains(body, tr.ID) || strings.Contains(body, "grant-") {
+		t.Errorf("body = %s, want the fixed message and trigger id only", body)
 	}
 }

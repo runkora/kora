@@ -1,0 +1,37 @@
+{{- if .Values.platform.spiffe.enabled }}
+{{- /*
+The declared-item endpoints apply declarative resources without a caller
+check. Each service refuses them to every principal but the operator, and the
+mesh refuses them first (docs/adr/2026-10-24-declarative-resources.md).
+
+Paths sit under each service's base path. Principals are written without
+"spiffe://": Istio adds it.
+*/}}
+{{- range $svc := list
+  (dict "app" "kora-agents" "path" "/internal/declared/*")
+  (dict "app" "kora-triggers" "path" "/api/v1/internal/declared/*")
+  (dict "app" "kora-policy-service" "path" "/api/v1/internal/declared/*")
+  (dict "app" "kora-inference-gateway" "path" "/v1/internal/declared/*") }}
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ $svc.app }}-declared-items
+  namespace: {{ include "kora.systemNamespace" $ }}
+  labels:
+    {{- include "kora.labels" $ | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ $svc.app }}
+  action: DENY
+  rules:
+    - to:
+        - operation:
+            paths: [{{ $svc.path | quote }}]
+      from:
+        - source:
+            notPrincipals:
+              - "{{ include "kora.trustDomain" $ }}/system/operator"
+{{- end }}
+{{- end }}

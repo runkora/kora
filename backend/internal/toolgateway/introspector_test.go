@@ -6,13 +6,14 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	orbitmcp "github.com/clear-route/orbit/internal/platform/mcp"
+	mcpkit "github.com/runkora/kora/backend/internal/platform/mcp"
 )
 
 // newFakeMCPServer starts an in-process MCP server exposing one tool, and
@@ -22,13 +23,13 @@ func newFakeMCPServer(t *testing.T) (endpoint string, listCalls *int) {
 	t.Helper()
 	listCalls = new(int)
 
-	srv := orbitmcp.NewServer("fake", "v0")
+	srv := mcpkit.NewServer("fake", "v0")
 	srv.AddTool(&sdk.Tool{Name: "echo", InputSchema: json.RawMessage(`{"type":"object"}`)},
 		func(ctx context.Context, _ *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 			return &sdk.CallToolResult{}, nil
 		})
 
-	handler := orbitmcp.NewController("/mcp", srv).Handler()
+	handler := mcpkit.NewController("/mcp", srv).Handler()
 	counting := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handler.ServeHTTP(w, r)
 	})
@@ -59,7 +60,7 @@ func TestIntrospectorSync_PerServerInterval(t *testing.T) {
 	ctx := context.Background()
 	endpoint, calls := newFakeMCPServer(t)
 
-	i := NewIntrospector(nil, "test", testLogger())
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
 	srv := Server{TenantID: "", Name: "s", Endpoint: endpoint, ReintrospectIntervalSeconds: 3600}
 
 	// First sync (unforced) — never introspected yet, so it always runs.
@@ -90,7 +91,7 @@ func TestIntrospectorSync_ZeroIntervalIsReloadOnly(t *testing.T) {
 	ctx := context.Background()
 	endpoint, calls := newFakeMCPServer(t)
 
-	i := NewIntrospector(nil, "test", testLogger())
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
 	srv := Server{TenantID: "", Name: "s", Endpoint: endpoint, ReintrospectIntervalSeconds: 0}
 
 	i.Sync(ctx, []Server{srv}, false) // never seen — always introspected once
@@ -113,7 +114,7 @@ func TestIntrospectorSync_ZeroIntervalIsReloadOnly(t *testing.T) {
 // TestIntrospectorDue exercises the due predicate directly, without spinning
 // up a fake server, covering the boundary and never-seen cases.
 func TestIntrospectorDue(t *testing.T) {
-	i := NewIntrospector(nil, "test", testLogger())
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
 
 	neverSeen := Server{TenantID: "", Name: "never-seen", ReintrospectIntervalSeconds: 60}
 	if !i.due(serverKey(neverSeen.TenantID, neverSeen.Name), neverSeen) {
@@ -167,7 +168,7 @@ func TestIntrospectorDue(t *testing.T) {
 // a concurrent forced Sync is writing. Run under -race.
 func TestIntrospectorSync_ConcurrentSyncsDoNotRace(t *testing.T) {
 	ctx := context.Background()
-	i := NewIntrospector(nil, "test", testLogger())
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
 	srv := Server{TenantID: "", Name: "s", Endpoint: "http://127.0.0.1:1/mcp", ReintrospectIntervalSeconds: 3600}
 	i.Sync(ctx, []Server{srv}, true)
 
@@ -176,4 +177,26 @@ func TestIntrospectorSync_ConcurrentSyncsDoNotRace(t *testing.T) {
 		wg.Go(func() { i.Sync(ctx, []Server{srv}, n%2 == 0) })
 	}
 	wg.Wait()
+}
+
+func TestToolRequires(t *testing.T) {
+	meta := func(scopes ...any) sdk.Meta { return sdk.Meta{metaRequiresKey: scopes} }
+	tests := []struct {
+		name string
+		srv  Server
+		tool *sdk.Tool
+		want []string
+	}{
+		{"neither", Server{}, &sdk.Tool{Name: "t"}, nil},
+		{"meta only", Server{}, &sdk.Tool{Name: "t", Meta: meta("agents:types:read")}, []string{"agents:types:read"}},
+		{"tenant server declares nothing", Server{TenantID: "acme"},
+			&sdk.Tool{Name: "t", Meta: meta("platform:grants:write")}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := toolRequires(tt.srv, tt.tool); !slices.Equal(got, tt.want) {
+				t.Errorf("toolRequires = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

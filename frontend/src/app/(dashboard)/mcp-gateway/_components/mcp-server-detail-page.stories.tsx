@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { dashboardPage } from '@orbit/storybook/dashboard-frame';
+import { dashboardPage } from '@runkora/storybook/dashboard-frame';
 import { McpServerDetailShell } from './mcp-server-detail-shell';
 import {
   GITHUB,

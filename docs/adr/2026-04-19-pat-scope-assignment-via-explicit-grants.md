@@ -154,11 +154,11 @@ The explicit grant model has a meaningful security advantage: the scope of each 
 
 [personal-access-tokens](2026-04-02-personal-access-tokens.md) sets the JWT `sub` claim to the **issuing user's OIDC subject** to preserve usage attribution. This means `sub` cannot be used as the grant `principal_id` for PATs — the OPA grant lookup `(principal_type=PAT, principal_id=<pat_id>)` requires the PAT's own UUID, not the user's.
 
-The PAT UUID is carried in a new `pat_id` field added to `OrbitClaims`:
+The PAT UUID is carried in a new `pat_id` field added to `KoraClaims`:
 
 ```go
 // backend/internal/platform/token/claims.go
-type OrbitClaims struct {
+type KoraClaims struct {
     SessionID      string            `json:"session_id,omitempty"`
     PrincipalType  PrincipalType     `json:"principal_type"`
     TenantID       string            `json:"tenant_id"`
@@ -174,8 +174,8 @@ At issuance, `PatID` is set to the UUID from `user_pat_tokens.id`. For all other
 The policy evaluator derives `_principal_id` for PAT principals from `PatID`, not `sub`:
 
 ```rego
-_principal_id := claims.orbit.pat_id if {
-    claims.orbit.principal_type == "PAT"
+_principal_id := claims.kora.pat_id if {
+    claims.kora.principal_type == "PAT"
 } else := claims.sub
 ```
 

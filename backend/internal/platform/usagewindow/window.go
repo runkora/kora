@@ -1,5 +1,5 @@
 // Package usagewindow defines the reporting windows the Agents page offers, so
-// the inference gateway and orbit-agents cut them the same way.
+// the inference gateway and kora-agents cut them the same way.
 package usagewindow
 
 import (

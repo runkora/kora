@@ -4,7 +4,7 @@ package exampleConfig
 import (
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
 // Config holds the example service's own configuration values.

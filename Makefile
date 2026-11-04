@@ -31,27 +31,27 @@ $(foreach v,$(shell sed -n 's/^\([A-Z_]*\) *=.*/\1/p' versions.hcl),$(eval $(v) 
 # mirror the defaults in docker-compose.yml and are overridable from .env.
 DB_HOST ?= localhost
 DB_PORT ?= 5432
-DB_USER ?= orbit
-DB_NAME ?= orbit
-DB_PASSWORD ?= orbit
+DB_USER ?= kora
+DB_NAME ?= kora
+DB_PASSWORD ?= kora
 REDIS_HOST ?= localhost
 REDIS_PORT ?= 6379
-REDIS_PASSWORD ?= orbit
+REDIS_PASSWORD ?= kora
 
 # Database connection string
 DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=disable
 
 
 # Frontend public URL — baked into the Next.js client bundle at Docker build time.
-# Override for non-local environments (e.g. CI): NEXT_PUBLIC_APP_URL=https://my.host docker buildx bake -f docker-bake.hcl -f versions.hcl orbit-frontend
-NEXT_PUBLIC_APP_URL ?= https://orbit.local.clearroute.io:8443
+# Override for non-local environments (e.g. CI): NEXT_PUBLIC_APP_URL=https://my.host docker buildx bake -f docker-bake.hcl -f versions.hcl kora-frontend
+NEXT_PUBLIC_APP_URL ?= https://local.runkora.io:8443
 
 # Docker image publishing (generic backend/Dockerfile via docker buildx bake)
 DOCKER_BAKE_FILE ?= docker-bake.hcl
 IMAGE_REGISTRY ?= ghcr.io
-IMAGE_NAMESPACE ?= clear-route
+IMAGE_NAMESPACE ?= runkora
 IMAGE_TAG ?= latest
-IMAGE_REPOSITORY_PREFIX ?= $(IMAGE_REGISTRY)/$(IMAGE_NAMESPACE)/orbit-
+IMAGE_REPOSITORY_PREFIX ?= $(IMAGE_REGISTRY)/$(IMAGE_NAMESPACE)/kora-
 BACKEND_IMAGE_GROUP ?= backend-images
 DOCKER_BUILD_PLATFORMS ?= linux/amd64
 DOCKER_PUSH_PLATFORMS ?= linux/amd64,linux/arm64
@@ -96,17 +96,17 @@ help: ## Display this help screen
 # Generates .env rather than copying a template. Everything with a safe default
 # lives in docker-compose.yml, so the file holds only machine-local secrets.
 # Never overwrites: the Postgres volume bakes DB_PASSWORD at first init, and the
-# cluster's orbit-secrets is built from these values.
+# cluster's kora-secrets is built from these values.
 .PHONY: env
 env: ## Generate .env with machine-local secrets (existing .env keeps its values; missing keys are appended)
 	@if [ -f .env ]; then \
 		echo "$(COLOR_YELLOW).env already exists, leaving its values alone$(COLOR_RESET)"; \
-		if ! grep -q '^ORBIT_TRIGGERS_ENCRYPTION_KEY=' .env; then \
+		if ! grep -q '^KORA_TRIGGERS_ENCRYPTION_KEY=' .env; then \
 			printf '\n%s\n%s\n%s\n' \
-				"# At-rest key for webhook signing secrets. orbit-triggers refuses to" \
+				"# At-rest key for webhook signing secrets. kora-triggers refuses to" \
 				"# start without it; there is no in-code fallback." \
-				"ORBIT_TRIGGERS_ENCRYPTION_KEY=$$(openssl rand -base64 32)" >> .env; \
-			echo "$(COLOR_GREEN)✓ appended a generated ORBIT_TRIGGERS_ENCRYPTION_KEY$(COLOR_RESET)"; \
+				"KORA_TRIGGERS_ENCRYPTION_KEY=$$(openssl rand -base64 32)" >> .env; \
+			echo "$(COLOR_GREEN)✓ appended a generated KORA_TRIGGERS_ENCRYPTION_KEY$(COLOR_RESET)"; \
 			echo "$(COLOR_YELLOW)  Webhook sources created before this used the old built-in dev key and can no longer be decrypted; rotate their secrets.$(COLOR_RESET)"; \
 		fi; \
 	else \
@@ -117,15 +117,15 @@ env: ## Generate .env with machine-local secrets (existing .env keeps its values
 			"" \
 			"# Local Postgres and Redis. Fixed, not secret: they listen on loopback," \
 			"# and the Postgres volume bakes this password at first initialisation." \
-			"DB_PASSWORD=orbit" \
-			"REDIS_PASSWORD=orbit" \
+			"DB_PASSWORD=kora" \
+			"REDIS_PASSWORD=kora" \
 			"" \
 			"# Real secrets, generated per machine." \
 			"BFF_SESSION_SECRET=$$(openssl rand -base64 32)" \
 			"" \
-			"# At-rest key for webhook signing secrets. orbit-triggers refuses to" \
+			"# At-rest key for webhook signing secrets. kora-triggers refuses to" \
 			"# start without it; there is no in-code fallback." \
-			"ORBIT_TRIGGERS_ENCRYPTION_KEY=$$(openssl rand -base64 32)" \
+			"KORA_TRIGGERS_ENCRYPTION_KEY=$$(openssl rand -base64 32)" \
 			> .env; \
 		echo "$(COLOR_GREEN)✓ .env generated with machine-local secrets$(COLOR_RESET)"; \
 	fi
@@ -140,14 +140,22 @@ setup: env install-tools install-tools-cluster tidy frontend-install hooks setup
 	fi
 
 .PHONY: setup-dns
-setup-dns: ## Verify *.orbit.local.clearroute.io resolves (public wildcard record; no local DNS config needed)
+setup-dns: ## Verify *.local.runkora.io resolves (public wildcard record; no local DNS config needed)
 	@chmod +x scripts/setup-dns.sh
 	@bash scripts/setup-dns.sh
 
 .PHONY: hooks
-hooks: ## Configure git to use the project's tracked hooks from .githooks/
+hooks: ## Configure git to use the project's tracked hooks from .githooks/, sign commits and add DCO sign-offs
 	@git config core.hooksPath .githooks
 	@echo "$(COLOR_GREEN)✓ Git hooks installed (.githooks/)$(COLOR_RESET)"
+	@echo "Configuring DCO sign-off..."
+	@if [ -n "$$(git config user.name)" ] && [ -n "$$(git config user.email)" ]; then \
+		echo "$(COLOR_GREEN)✓ Commits are signed off as $$(git config user.name) <$$(git config user.email)>$(COLOR_RESET)"; \
+	else \
+		echo "$(COLOR_YELLOW)! Set git user.name and user.email so commits can be signed off, then run: make hooks$(COLOR_RESET)"; \
+	fi
+	@echo "Configuring commit signing..."
+	@bash scripts/setup-signing.sh
 
 # ===========================================
 # Worktree Management
@@ -157,7 +165,7 @@ hooks: ## Configure git to use the project's tracked hooks from .githooks/
 worktree-new: ## Create a sibling worktree for a branch (usage: make worktree-new BRANCH=feature/my-feature)
 	$(if $(BRANCH),,$(error BRANCH is required — usage: make worktree-new BRANCH=feature/my-feature))
 	@SLUG=$$(echo "$(BRANCH)" | tr '/' '-'); \
-	WORKTREE_DIR="../orbit-$$SLUG"; \
+	WORKTREE_DIR="../kora-$$SLUG"; \
 	if [ -d "$$WORKTREE_DIR" ]; then \
 		echo "$(COLOR_YELLOW)⚠ Worktree already exists at $$WORKTREE_DIR$(COLOR_RESET)"; \
 		exit 1; \
@@ -192,7 +200,7 @@ worktree-new: ## Create a sibling worktree for a branch (usage: make worktree-ne
 worktree-remove: ## Remove a sibling worktree (usage: make worktree-remove BRANCH=feature/my-feature [FORCE=1])
 	$(if $(BRANCH),,$(error BRANCH is required — usage: make worktree-remove BRANCH=feature/my-feature))
 	@SLUG=$$(echo "$(BRANCH)" | tr '/' '-'); \
-	WORKTREE_DIR="../orbit-$$SLUG"; \
+	WORKTREE_DIR="../kora-$$SLUG"; \
 	if [ ! -d "$$WORKTREE_DIR" ]; then \
 		echo "$(COLOR_YELLOW)⚠ No worktree found at $$WORKTREE_DIR$(COLOR_RESET)"; \
 		exit 1; \
@@ -260,7 +268,7 @@ proto-gen: ## Generate Go code from proto files (requires buf — run make insta
 	@echo "$(COLOR_GREEN)✓ Proto files generated$(COLOR_RESET)"
 
 .PHONY: check-versions
-check-versions: ## Verify GO_VERSION in versions.hcl matches the go directive in backend/go.mod
+check-versions: ## Verify GO_VERSION matches backend/go.mod
 	@GOMOD=$$(awk '$$1 == "go" { print $$2; exit }' backend/go.mod); \
 	if [ "$$GOMOD" != "$(GO_VERSION)" ]; then \
 		echo "$(COLOR_RED)✗ versions.hcl GO_VERSION=$(GO_VERSION) but backend/go.mod has go $$GOMOD$(COLOR_RESET)"; \
@@ -330,7 +338,7 @@ db-reset: ## DESTRUCTIVE: destroy the Postgres volume and recreate it. Every loc
 .PHONY: schema-reset-marker
 schema-reset-marker:
 	@[ -f deploy/reference/environments/local.generated.yaml ] || echo "{}" > deploy/reference/environments/local.generated.yaml
-	@yq -i '.migrate.podAnnotations."orbit.io/schema-reset" = "'"$$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"' deploy/reference/environments/local.generated.yaml
+	@yq -i '.migrate.podAnnotations."runkora.io/schema-reset" = "'"$$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"' deploy/reference/environments/local.generated.yaml
 
 .PHONY: db-logs
 db-logs: ## Show database logs
@@ -338,7 +346,7 @@ db-logs: ## Show database logs
 
 .PHONY: db-shell
 db-shell: ## Open a psql shell to the database
-	@docker compose exec postgres psql -U $${DB_USER:-orbit} -d $${DB_NAME:-orbit}
+	@docker compose exec postgres psql -U $${DB_USER:-kora} -d $${DB_NAME:-kora}
 
 # cmd/migrate embeds every service's migrations and is what the chart runs as a
 # pre-upgrade hook (docs/adr/2026-09-10-database-migrations.md). Locally it
@@ -367,13 +375,13 @@ migrate-create: ## Create a new migration (usage: make migrate-create service=id
 	@cd $(BACKEND_DIR) && $(GOCMD) run ./cmd/migrate create --service $(service) $(name)
 	@echo "$(COLOR_GREEN)✓ Migration created in backend/cmd/$(service)/migrations/$(COLOR_RESET)"
 
-# The migrate image is rebuilt and the orbit release re-applied only when the
+# The migrate image is rebuilt and the kora release re-applied only when the
 # migration files changed since the last push. redeploy.sh records the content
 # hash beside the digest in local.generated.yaml. A redeploy of any service on
 # a branch that added a migration fires the hook before the service boots
 # against the stale schema.
 .PHONY: redeploy-migrate-if-changed
-redeploy-migrate-if-changed: ## Rebuild the migrate image and re-apply the orbit release when the migration files changed
+redeploy-migrate-if-changed: ## Rebuild the migrate image and re-apply the kora release when the migration files changed
 	@HASH=$$(bash scripts/cluster/migrations-hash.sh); \
 	RECORDED=$$(yq -r '.migrate.sourceHash // ""' deploy/reference/environments/local.generated.yaml 2>/dev/null); \
 	if [ "$$HASH" = "$$RECORDED" ]; then \
@@ -385,7 +393,7 @@ redeploy-migrate-if-changed: ## Rebuild the migrate image and re-apply the orbit
 	fi
 
 .PHONY: redeploy-migrate
-redeploy-migrate: ## Rebuild the migrate image and re-apply the orbit release so the schema hook runs
+redeploy-migrate: ## Rebuild the migrate image and re-apply the kora release so the schema hook runs
 	@bash scripts/cluster/redeploy.sh migrate $(REDEPLOY_FLAGS)
 
 # ===========================================
@@ -398,16 +406,13 @@ dev-up: ## Start Postgres + Redis + glauth + Dex (local OIDC provider) for daily
 		echo "$(COLOR_YELLOW)→ secrets/signing.key not found — generating RSA signing key...$(COLOR_RESET)"; \
 		$(MAKE) --no-print-directory gen-signing-key; \
 	fi
-	@if [ ! -f secrets/tls.crt ] || [ ! -f secrets/tls.key ]; then \
-		echo "$(COLOR_YELLOW)→ TLS certificates not found — generating for Dex HTTPS...$(COLOR_RESET)"; \
-		$(MAKE) --no-print-directory setup-tls; \
-	fi
+	@$(MAKE) --no-print-directory setup-tls
 	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + glauth + Dex + port proxy)...$(COLOR_RESET)"
 	@docker compose up -d --wait postgres redis glauth dex port-proxy
 	@echo "$(COLOR_GREEN)✓ Postgres + Redis + glauth + Dex + port proxy ready$(COLOR_RESET)"
-	@echo "  Dex OIDC issuer:  https://dex.orbit.local.clearroute.io:5556/dex"
-	@echo "  Test user:        dev@orbit.local.clearroute.io / password"
-	@echo "  Client ID:        orbit-local  (no secret — public client)"
+	@echo "  Dex OIDC issuer:  https://dex.local.runkora.io:5556/dex"
+	@echo "  Test user:        dev@local.runkora.io / password"
+	@echo "  Client ID:        kora-local  (no secret — public client)"
 	@echo ""
 	@echo "  Authenticate:     make auth"
 
@@ -439,14 +444,14 @@ install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm, helmfile,
 # Each composes the granular recipes below.
 # ===========================================
 
-# The schema is applied by the orbit chart's pre-install hook during
+# The schema is applied by the kora chart's pre-install hook during
 # cluster-platform, before any service starts.
 .PHONY: up
-up: dev-cluster cluster-platform cluster-deploy ## Bring up everything: backing services, k3d cluster, SPIRE + Istio + kora (schema applied by the chart's migrate hook), tenants. Idempotent.
+up: dev-cluster cluster-observability cluster-platform cluster-deploy ## Bring up everything: backing services, k3d cluster, LGTM, SPIRE + Istio + kora (schema applied by the chart's migrate hook), tenants. Idempotent.
 	@echo ""
 	@echo "$(COLOR_GREEN)✓ kora is up$(COLOR_RESET)"
-	@echo "  Dashboard:   https://orbit.local.clearroute.io"
-	@echo "  Backend API: https://api.orbit.local.clearroute.io"
+	@echo "  Dashboard:   https://local.runkora.io"
+	@echo "  Backend API: https://api.local.runkora.io"
 	@echo ""
 	@echo "$(COLOR_BLUE)Next: 'make auth' for a token, 'make redeploy SERVICE=<name>' to iterate$(COLOR_RESET)"
 
@@ -463,7 +468,7 @@ reset: dev-cluster-down up ## Recreate the cluster from scratch. Keeps Postgres 
 auth: auth-device-k3d ## Authenticate against the cluster (Device Authorization Grant)
 
 .PHONY: auth-refresh
-auth-refresh: auth-refresh-k3d ## Refresh the access token in /tmp/orbit_credentials.json
+auth-refresh: auth-refresh-k3d ## Refresh the access token in /tmp/kora_credentials.json
 
 .PHONY: dev-cluster
 dev-cluster: dev-up ## Bring up the local k3d cluster. Starts postgres + Redis + Dex first, then creates the k3d cluster. Run 'make cluster-platform' next.
@@ -479,26 +484,27 @@ dev-cluster-down: ## Tear down the local k3d cluster
 # matters only for readability — they're all built serially via redeploy.sh.
 # Adding a new service is a one-line edit here plus an entry in redeploy.sh.
 REDEPLOY_PLATFORM_SERVICES := \
-	identity identity-proxy inference-gateway policy-service \
-	policy-gateway \
-	egress-gateway agents frontend orbit-mcp tool-gateway \
-	orbit-triggers skills-service migrate operator \
+	identity identity-proxy inference-gateway policy-service policy-gateway \
+	egress-gateway agents frontend kora-mcp tool-gateway kora-triggers skills-service migrate operator \
 	session-manager sandbox-mount sandbox-base
 REDEPLOY_TENANT_SERVICES := example
 
-# Services with a long-lived orbit-system workload that `cluster-update` rolls
+# Services with a long-lived kora-system workload that `cluster-update` rolls
 # after the build pass. Excludes identity-proxy (sidecar), sandbox-base
 # (on-demand), session-manager (tenant StatefulSet, may not exist yet) and
 # operator (helm-managed — upgraded separately so chart/CRD changes land).
 REDEPLOY_ROLLOUT_SERVICES := \
 	identity inference-gateway policy-service policy-gateway egress-gateway \
-	agents frontend orbit-mcp tool-gateway orbit-triggers
+	agents frontend kora-mcp tool-gateway kora-triggers
 
-# orbit-system deployments we don't build (third-party images) but still restart
+# kora-system deployments we don't build (third-party images) but still restart
 # on cluster-update so they re-read chart-managed config on the way back up.
-REDEPLOY_RESTART_ONLY := orbit-opa-gateway
+REDEPLOY_RESTART_ONLY := kora-opa-gateway
 
 OPA_ENVOY_IMAGE := openpolicyagent/opa:1.21.0-envoy-static
+# Read from the manifest, where the pod's image is pinned.
+LGTM_IMAGE := $(shell sed -n 's|^ *image: kora-registry:5001/||p' deploy/local/observability/lgtm.yaml)
+THIRD_PARTY_IMAGES := $(OPA_ENVOY_IMAGE) $(LGTM_IMAGE)
 
 # ===========================================
 # Image bake (CI / multi-arch publishing)
@@ -522,13 +528,20 @@ docker-bake-push: ## Build and push images via docker buildx bake (defaults to G
 			--push $(BACKEND_IMAGE_GROUP)
 	@echo "$(COLOR_GREEN)✓ Published images to $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG)$(COLOR_RESET)"
 
+# Skips images already in the registry; the LGTM image is several GB.
 .PHONY: docker-pull-third-party
-docker-pull-third-party: ## Pull third-party sidecar images and push to local registry (OPA envoy)
-	@echo "$(COLOR_YELLOW)Pulling $(OPA_ENVOY_IMAGE)...$(COLOR_RESET)"
-	@docker pull $(OPA_ENVOY_IMAGE)
-	@docker tag $(OPA_ENVOY_IMAGE) localhost:5001/$(OPA_ENVOY_IMAGE)
-	@docker push localhost:5001/$(OPA_ENVOY_IMAGE)
-	@echo "$(COLOR_GREEN)✓ localhost:5001/$(OPA_ENVOY_IMAGE)$(COLOR_RESET)"
+docker-pull-third-party: ## Pull third-party images and push to local registry (OPA envoy, LGTM)
+	@for img in $(THIRD_PARTY_IMAGES); do \
+		if docker buildx imagetools inspect "localhost:5001/$$img" >/dev/null 2>&1; then \
+			echo "$(COLOR_BLUE)ℹ $$img already in registry, skipping pull$(COLOR_RESET)"; \
+			continue; \
+		fi; \
+		echo "$(COLOR_YELLOW)Pulling $$img...$(COLOR_RESET)"; \
+		docker pull $$img || exit $$?; \
+		docker tag $$img localhost:5001/$$img || exit $$?; \
+		docker push localhost:5001/$$img || exit $$?; \
+		echo "$(COLOR_GREEN)✓ localhost:5001/$$img$(COLOR_RESET)"; \
+	done
 
 # ===========================================
 # Cluster bring-up + bulk operations
@@ -538,13 +551,13 @@ docker-pull-third-party: ## Pull third-party sidecar images and push to local re
 # and cluster-update — anything that needs the local registry seeded but does
 # its own restart logic later. Serial by default (parallel builds overload
 # low-spec Docker VMs and cascade into mesh/Postgres failures). On machines
-# with the headroom, set ORBIT_PARALLEL_BUILDS=1 in .env to switch to a single
+# with the headroom, set KORA_PARALLEL_BUILDS=1 in .env to switch to a single
 # parallel `docker buildx bake` graph — see the local development guide and
 # docs/adr/2026-07-21-ci-pipeline-and-local-build-parallelisation.md.
 # One prune at the end instead of per-service so cache pruning happens once.
 .PHONY: redeploy-platform
-redeploy-platform: ## Build + push every platform service to the local registry (no rollout). ORBIT_PARALLEL_BUILDS=1 builds them in parallel.
-ifeq ($(ORBIT_PARALLEL_BUILDS),1)
+redeploy-platform: ## Build + push every platform service to the local registry (no rollout). KORA_PARALLEL_BUILDS=1 builds them in parallel.
+ifeq ($(KORA_PARALLEL_BUILDS),1)
 	@$(MAKE) --no-print-directory redeploy-platform-bake
 else
 	@for svc in $(REDEPLOY_PLATFORM_SERVICES); do \
@@ -592,7 +605,7 @@ redeploy-tenant-missing: ## Build + push only the tenant images absent from the 
 redeploy-warm: redeploy-platform redeploy-tenant ## Pre-build every service to warm BuildKit caches (no rollout) — run once at start of session for fast subsequent redeploys
 	@echo "$(COLOR_GREEN)✓ All caches warm — single-service redeploys should now be fast$(COLOR_RESET)"
 
-# redeploy-platform-bake — the ORBIT_PARALLEL_BUILDS=1 path behind
+# redeploy-platform-bake — the KORA_PARALLEL_BUILDS=1 path behind
 # redeploy-platform. One `docker buildx bake` invocation over the whole
 # local-platform group: BuildKit builds every image concurrently and dedups the
 # shared mod-download + COPY layers across the graph, which the serial
@@ -600,17 +613,17 @@ redeploy-warm: redeploy-platform redeploy-tenant ## Pre-build every service to w
 # (≥12 CPUs / 24 GiB); on smaller VMs the concurrent build pressure cascades
 # into mesh/Postgres failures — keep the serial default there.
 # Image names below must match the bake target names in docker-bake.local.hcl,
-# which are also the registry image names (service `orbit-mcp` → image
-# `orbit-mcp`, not `orbit-orbit-mcp` — don't derive them from
+# which are also the registry image names (service `kora-mcp` → image
+# `kora-mcp`, not `kora-kora-mcp` — don't derive them from
 # REDEPLOY_PLATFORM_SERVICES).
 BAKE_PLATFORM_IMAGES := \
-	orbit-identity orbit-identity-proxy orbit-inference-gateway \
-	orbit-policy-service orbit-policy-gateway orbit-egress-gateway \
-	orbit-agents orbit-frontend orbit-mcp orbit-tool-gateway orbit-triggers orbit-migrate \
-	orbit-operator orbit-session-manager orbit-sandbox-mount kora-sandbox-base
+	kora-identity kora-identity-proxy kora-inference-gateway \
+	kora-policy-service kora-policy-gateway kora-egress-gateway \
+	kora-agents kora-frontend kora-mcp kora-tool-gateway kora-triggers kora-migrate \
+	kora-operator kora-session-manager kora-sandbox-mount kora-sandbox-base
 
 .PHONY: redeploy-platform-bake
-redeploy-platform-bake: ## Build + push every platform service in one parallel docker buildx bake graph (the ORBIT_PARALLEL_BUILDS=1 path)
+redeploy-platform-bake: ## Build + push every platform service in one parallel docker buildx bake graph (the KORA_PARALLEL_BUILDS=1 path)
 	@GIT_SHA="$$(git rev-parse --short HEAD 2>/dev/null || echo dev)"; \
 	if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then GIT_SHA="$${GIT_SHA}-dirty"; fi; \
 	echo "$(COLOR_YELLOW)Baking platform images in parallel (GIT_SHA=$$GIT_SHA)...$(COLOR_RESET)"; \
@@ -619,10 +632,10 @@ redeploy-platform-bake: ## Build + push every platform service in one parallel d
 			-f docker-bake.hcl -f docker-bake.local.hcl -f versions.hcl \
 			--load local-platform || exit $$?; \
 	if [ -f secrets/mkcert-ca.pem ]; then \
-		echo "$(COLOR_YELLOW)Layering mkcert CA into orbit-identity...$(COLOR_RESET)"; \
-		printf 'FROM localhost:5001/orbit-identity:latest\nUSER 0\nCOPY mkcert-ca.pem /usr/local/share/ca-certificates/mkcert-ca.crt\nRUN update-ca-certificates\nUSER 65532:65532\n' | \
-			docker build -q -t localhost:5001/orbit-identity:latest -f - secrets/ > /dev/null; \
-		docker tag localhost:5001/orbit-identity:latest "localhost:5001/orbit-identity:$$GIT_SHA"; \
+		echo "$(COLOR_YELLOW)Layering mkcert CA into kora-identity...$(COLOR_RESET)"; \
+		printf 'FROM localhost:5001/kora-identity:latest\nUSER 0\nCOPY mkcert-ca.pem /usr/local/share/ca-certificates/mkcert-ca.crt\nRUN update-ca-certificates\nUSER 65532:65532\n' | \
+			docker build -q -t localhost:5001/kora-identity:latest -f - secrets/ > /dev/null; \
+		docker tag localhost:5001/kora-identity:latest "localhost:5001/kora-identity:$$GIT_SHA"; \
 	fi; \
 	echo "$(COLOR_YELLOW)Pushing platform images to localhost:5001 (latest + $$GIT_SHA)...$(COLOR_RESET)"; \
 	for img in $(BAKE_PLATFORM_IMAGES); do \
@@ -657,15 +670,15 @@ redeploy-tenant-bake: ## (Experimental) Build + push every tenant service via do
 	@GIT_SHA="$$(git rev-parse --short HEAD 2>/dev/null || echo dev)"; \
 	if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then GIT_SHA="$${GIT_SHA}-dirty"; fi; \
 	echo "$(COLOR_YELLOW)Baking tenant images (serial, GIT_SHA=$$GIT_SHA)...$(COLOR_RESET)"; \
-	for tgt in orbit-example; do \
+	for tgt in kora-example; do \
 		GIT_SHA="$$GIT_SHA" \
 			docker buildx bake \
 				-f docker-bake.hcl -f docker-bake.local.hcl -f versions.hcl \
 				--load $$tgt || exit $$?; \
 	done
 	@for svc in $(REDEPLOY_TENANT_SERVICES); do \
-		docker push --quiet localhost:5001/orbit-$$svc:latest > /dev/null && \
-		echo "  ✓ orbit-$$svc"; \
+		docker push --quiet localhost:5001/kora-$$svc:latest > /dev/null && \
+		echo "  ✓ kora-$$svc"; \
 	done
 	@docker image prune -f > /dev/null
 	@echo "$(COLOR_GREEN)✓ Tenant images built and pushed via bake$(COLOR_RESET)"
@@ -676,31 +689,33 @@ redeploy-tenant-bake: ## (Experimental) Build + push every tenant service via do
 cluster-restore: ## Re-push locally-built images to the registry after a Colima/k3d restart
 	@echo "$(COLOR_YELLOW)Syncing locally-built images to local registry...$(COLOR_RESET)"
 	@for svc in $(REDEPLOY_PLATFORM_SERVICES) $(REDEPLOY_TENANT_SERVICES); do \
-		if docker image inspect orbit-$$svc:latest > /dev/null 2>&1; then \
-			echo "  pushing orbit-$$svc:latest"; \
-			docker tag orbit-$$svc:latest localhost:5001/orbit-$$svc:latest; \
-			docker push localhost:5001/orbit-$$svc:latest > /dev/null; \
+		if docker image inspect kora-$$svc:latest > /dev/null 2>&1; then \
+			echo "  pushing kora-$$svc:latest"; \
+			docker tag kora-$$svc:latest localhost:5001/kora-$$svc:latest || exit $$?; \
+			docker push localhost:5001/kora-$$svc:latest > /dev/null || exit $$?; \
 		fi; \
 	done
-	@if docker image inspect $(OPA_ENVOY_IMAGE) > /dev/null 2>&1; then \
-		echo "  pushing $(OPA_ENVOY_IMAGE)"; \
-		docker tag $(OPA_ENVOY_IMAGE) localhost:5001/$(OPA_ENVOY_IMAGE); \
-		docker push localhost:5001/$(OPA_ENVOY_IMAGE) > /dev/null; \
-	fi
+	@for img in $(THIRD_PARTY_IMAGES); do \
+		if docker image inspect $$img > /dev/null 2>&1; then \
+			echo "  pushing $$img"; \
+			docker tag $$img localhost:5001/$$img || exit $$?; \
+			docker push localhost:5001/$$img > /dev/null || exit $$?; \
+		fi; \
+	done
 	@docker image prune -f > /dev/null
 	@echo "$(COLOR_GREEN)✓ Registry synced$(COLOR_RESET)"
 
 .PHONY: cluster-platform
 cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install SPIRE, Istio and kora from deploy/reference/helmfile.yaml.gotmpl
-	@EXPECTED="$${ORBIT_KUBE_CONTEXT:-k3d-orbit-local}"; \
+	@EXPECTED="$${KORA_KUBE_CONTEXT:-k3d-kora-local}"; \
 	 CURRENT="$$(kubectl config current-context 2>/dev/null || echo '<none>')"; \
 	 if [ "$$CURRENT" != "$$EXPECTED" ]; then \
-	   echo "$(COLOR_RED)✗ kube context is '$$CURRENT', expected '$$EXPECTED'. Switch context or set ORBIT_KUBE_CONTEXT.$(COLOR_RESET)"; exit 1; \
+	   echo "$(COLOR_RED)✗ kube context is '$$CURRENT', expected '$$EXPECTED'. Switch context or set KORA_KUBE_CONTEXT.$(COLOR_RESET)"; exit 1; \
 	 fi
-	@echo "$(COLOR_YELLOW)Preparing the orbit-system namespace...$(COLOR_RESET)"
-	@kubectl create namespace orbit-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-	@echo "$(COLOR_YELLOW)Creating orbit-system secrets (DB + Redis + signing key)...$(COLOR_RESET)"
-	@bash scripts/cluster/create-secrets.sh orbit-system
+	@echo "$(COLOR_YELLOW)Preparing the kora-system namespace...$(COLOR_RESET)"
+	@kubectl create namespace kora-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+	@echo "$(COLOR_YELLOW)Creating kora-system secrets (DB + Redis + signing key)...$(COLOR_RESET)"
+	@bash scripts/cluster/create-secrets.sh kora-system
 	@echo "$(COLOR_YELLOW)Creating mkcert CA ConfigMap for Dex TLS verification...$(COLOR_RESET)"
 	@$(MAKE) cluster-ca-configmap
 	@echo "$(COLOR_YELLOW)Creating TLS secret for the kora ingress gateway...$(COLOR_RESET)"
@@ -711,61 +726,75 @@ cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install S
 	@cd deploy/reference && helmfile -e local apply
 	@if [ -n "$$BEDROCK_ACCOUNTS" ]; then bash scripts/cluster/refresh-bedrock-creds.sh; fi
 	@echo "$(COLOR_GREEN)✓ Platform ready — SPIRE, Istio, and kora services are running$(COLOR_RESET)"
-	@echo "  Dashboard:   https://orbit.local.clearroute.io"
-	@echo "  Backend API: https://api.orbit.local.clearroute.io"
+	@echo "  Dashboard:   https://local.runkora.io"
+	@echo "  Backend API: https://api.local.runkora.io"
 	@echo "  (HTTP on :8880 redirects to HTTPS)"
 	@echo "$(COLOR_YELLOW)Next: 'make cluster-deploy' to register tenants and deploy workloads$(COLOR_RESET)"
+
+.PHONY: cluster-observability
+cluster-observability: docker-pull-third-party ## Run the local LGTM stack (Grafana, Tempo, Prometheus, Loki) that the platform exports telemetry to
+	@# Pinned to the local context: the LGTM image is only served by the local registry.
+	@kubectl --context "$${KORA_KUBE_CONTEXT:-k3d-kora-local}" apply -f deploy/local/observability/
+	@kubectl --context "$${KORA_KUBE_CONTEXT:-k3d-kora-local}" rollout status deployment/lgtm -n observability --timeout=180s
+
+.PHONY: grafana
+grafana: ## Open the local Grafana on http://localhost:3000 (port-forward; Ctrl-C to stop)
+	@kubectl --context "$${KORA_KUBE_CONTEXT:-k3d-kora-local}" -n observability port-forward svc/lgtm 3000:3000
 
 .PHONY: cluster-deploy
 cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads (builds tenant images only if absent)
 	@echo "$(COLOR_YELLOW)Deploying tenant workloads...$(COLOR_RESET)"
-	@echo "$(COLOR_YELLOW)Registering tenants (applying OrbitTenant CRs)...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Registering tenants (applying KoraTenant CRs)...$(COLOR_RESET)"
 	@kubectl apply -f deploy/local/tenants/
 	@echo "  Waiting for tenant namespaces (operator provisioning)..."
-	@until kubectl get namespace orbit-tenant-example &>/dev/null; do sleep 3; done
+	@until kubectl get namespace kora-tenant-example &>/dev/null; do sleep 3; done
 	@echo "  Waiting for the operator to write the tenant registry ConfigMap..."
-	@until kubectl get configmap orbit-tenants -n orbit-system -o jsonpath='{.data.tenants\.yaml}' 2>/dev/null | grep -q "id: example"; do sleep 2; done
-	@# orbit-identity boots before the tenant exists (cluster-platform runs first) and
+	@until kubectl get configmap kora-tenants -n kora-system -o jsonpath='{.data.tenants\.yaml}' 2>/dev/null | grep -q "id: example"; do sleep 2; done
+	@# kora-identity boots before the tenant exists (cluster-platform runs first) and
 	@# builds its OIDC providers at startup. It watches the ConfigMap, but the fsnotify
 	@# watcher dies with "too many open files" when the host's inotify limits are low,
 	@# leaving federated auth disabled and `make auth` failing with oidc_not_configured.
 	@# Restart it unless it has already initialised a provider.
-	@if kubectl logs deployment/orbit-identity -n orbit-system -c orbit-identity 2>/dev/null | grep -q "OIDC provider initialized"; then \
-		echo "  orbit-identity has the tenant OIDC config"; \
+	@if kubectl logs deployment/kora-identity -n kora-system -c kora-identity 2>/dev/null | grep -q "OIDC provider initialized"; then \
+		echo "  kora-identity has the tenant OIDC config"; \
 	else \
-		echo "$(COLOR_YELLOW)  orbit-identity booted before the tenant existed; restarting it$(COLOR_RESET)"; \
-		kubectl rollout restart deployment/orbit-identity -n orbit-system >/dev/null; \
-		kubectl rollout status deployment/orbit-identity -n orbit-system --timeout=180s; \
-		if ! kubectl logs deployment/orbit-identity -n orbit-system -c orbit-identity 2>/dev/null | grep -q "OIDC provider initialized"; then \
-			echo "$(COLOR_RED)✗ orbit-identity still has no OIDC provider. 'make auth' will fail with oidc_not_configured.$(COLOR_RESET)"; \
-			echo "  Check: kubectl logs deployment/orbit-identity -n orbit-system -c orbit-identity | grep -i tenant"; \
+		echo "$(COLOR_YELLOW)  kora-identity booted before the tenant existed; restarting it$(COLOR_RESET)"; \
+		kubectl rollout restart deployment/kora-identity -n kora-system >/dev/null; \
+		kubectl rollout status deployment/kora-identity -n kora-system --timeout=180s; \
+		for i in $$(seq 1 30); do \
+			kubectl logs deployment/kora-identity -n kora-system -c kora-identity 2>/dev/null | grep -q "OIDC provider initialized" && break; \
+			sleep 2; \
+		done; \
+		if ! kubectl logs deployment/kora-identity -n kora-system -c kora-identity 2>/dev/null | grep -q "OIDC provider initialized"; then \
+			echo "$(COLOR_RED)✗ kora-identity still has no OIDC provider. 'make auth' will fail with oidc_not_configured.$(COLOR_RESET)"; \
+			echo "  Check: kubectl logs deployment/kora-identity -n kora-system -c kora-identity | grep -i tenant"; \
 			exit 1; \
 		fi; \
 	fi
 	@echo "$(COLOR_YELLOW)Creating tenant secrets...$(COLOR_RESET)"
-	@bash scripts/cluster/create-secrets.sh orbit-tenant-example
+	@bash scripts/cluster/create-secrets.sh kora-tenant-example
 	@echo "$(COLOR_YELLOW)Registering tenant connections...$(COLOR_RESET)"
-	@kubectl get secret orbit-local-token -n orbit-tenant-example &>/dev/null && kubectl apply -f deploy/local/connections/kubernetes.yaml || echo "  (no orbit-local-token; run 'make cluster-k8s-connection' to register the local cluster as a connection)"
-	@if [ -f secrets/orbit-github-app.pem ]; then \
-		kubectl create secret generic github-app-key -n orbit-tenant-example --from-file=key.pem=secrets/orbit-github-app.pem --dry-run=client -o yaml | kubectl apply -f - ; \
+	@kubectl get secret kora-local-token -n kora-tenant-example &>/dev/null && kubectl apply -f deploy/local/connections/kubernetes.yaml || echo "  (no kora-local-token; run 'make cluster-k8s-connection' to register the local cluster as a connection)"
+	@if [ -f secrets/kora-github-app.pem ]; then \
+		kubectl create secret generic github-app-key -n kora-tenant-example --from-file=key.pem=secrets/kora-github-app.pem --dry-run=client -o yaml | kubectl apply -f - ; \
 		kubectl apply -f deploy/local/connections/github.yaml ; \
-		echo "  ✓ GitHub connection registered from secrets/orbit-github-app.pem"; \
+		echo "  ✓ GitHub connection registered from secrets/kora-github-app.pem"; \
 	else \
-		echo "  (no secrets/orbit-github-app.pem — skipping GitHub connection; it is optional)"; \
+		echo "  (no secrets/kora-github-app.pem — skipping GitHub connection; it is optional)"; \
 	fi
 	@echo "$(COLOR_YELLOW)Applying tenant workload fixtures...$(COLOR_RESET)"
 	@kubectl apply -f deploy/local/fixtures/
 	@echo "$(COLOR_YELLOW)Registering skill marketplace sources...$(COLOR_RESET)"
 	@kubectl apply -f deploy/local/marketplace/
 	@echo "$(COLOR_YELLOW)Waiting for example workload to be ready...$(COLOR_RESET)"
-	@until kubectl get deployment orbit-example -n orbit-tenant-example &>/dev/null; do sleep 3; done
-	@kubectl rollout status deployment/orbit-example -n orbit-tenant-example --timeout=180s
+	@until kubectl get deployment kora-example -n kora-tenant-example &>/dev/null; do sleep 3; done
+	@kubectl rollout status deployment/kora-example -n kora-tenant-example --timeout=180s
 	@echo "$(COLOR_GREEN)✓ Tenant workloads deployed$(COLOR_RESET)"
 
 .PHONY: cluster-update
 cluster-update: redeploy-platform redeploy-tenant ## Rebuild every service image and restart deployments
 	@echo "$(COLOR_YELLOW)Re-applying the kora releases (picks up CRD + template changes)...$(COLOR_RESET)"
-	@cd deploy/reference && helmfile -e local apply --selector name=orbit-crds && helmfile -e local apply --selector name=orbit
+	@cd deploy/reference && helmfile -e local apply --selector name=kora-crds && helmfile -e local apply --selector name=kora
 	@yq -i ".migrate.sourceHash = \"$$(bash scripts/cluster/migrations-hash.sh)\"" deploy/reference/environments/local.generated.yaml
 	@bash scripts/cluster/redeploy.sh operator --no-build
 	@echo "$(COLOR_YELLOW)Rolling platform services onto the images just built...$(COLOR_RESET)"
@@ -777,9 +806,9 @@ cluster-update: redeploy-platform redeploy-tenant ## Rebuild every service image
 	done
 	@echo "$(COLOR_YELLOW)Restarting non-built platform deployments...$(COLOR_RESET)"
 	@for dep in $(REDEPLOY_RESTART_ONLY); do \
-		kubectl get deployment $$dep -n orbit-system >/dev/null 2>&1 || continue; \
-		kubectl rollout restart deployment/$$dep -n orbit-system; \
-		kubectl rollout status deployment/$$dep -n orbit-system --timeout=120s; \
+		kubectl get deployment $$dep -n kora-system >/dev/null 2>&1 || continue; \
+		kubectl rollout restart deployment/$$dep -n kora-system; \
+		kubectl rollout status deployment/$$dep -n kora-system --timeout=120s; \
 	done
 	@echo "$(COLOR_YELLOW)Rolling tenant workloads...$(COLOR_RESET)"
 	@for svc in $(REDEPLOY_TENANT_SERVICES); do \
@@ -864,7 +893,7 @@ redeploy-egress-gateway: ## Redeploy the egress gateway (per-tenant credential b
 	@bash scripts/cluster/redeploy.sh egress-gateway $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-agents
-redeploy-agents: ## Redeploy orbit-agents (agent control plane)
+redeploy-agents: ## Redeploy kora-agents (agent control plane)
 	@bash scripts/cluster/redeploy.sh agents $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-frontend
@@ -876,11 +905,11 @@ redeploy-tool-gateway: ## Redeploy the tool gateway (also rolls the publisher �
 	@bash scripts/cluster/redeploy.sh tool-gateway $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-triggers
-redeploy-triggers: ## Redeploy orbit-triggers (webhook ingestion, management API, scheduler)
-	@bash scripts/cluster/redeploy.sh orbit-triggers $(REDEPLOY_FLAGS)
+redeploy-triggers: ## Redeploy kora-triggers (webhook ingestion, management API, scheduler)
+	@bash scripts/cluster/redeploy.sh kora-triggers $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-operator
-redeploy-operator: ## Redeploy the orbit-operator (tenant lifecycle, webhooks, preflight)
+redeploy-operator: ## Redeploy the kora-operator (tenant lifecycle, webhooks, preflight)
 	@bash scripts/cluster/redeploy.sh operator $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-example
@@ -892,7 +921,7 @@ redeploy-session-manager: ## Redeploy session-manager (statefulset, default tena
 	@bash scripts/cluster/redeploy.sh session-manager $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-sandbox-mount
-redeploy-sandbox-mount: ## Redeploy the sandbox-mount node agent (rolled by re-applying the orbit release)
+redeploy-sandbox-mount: ## Redeploy the sandbox-mount node agent (rolled by re-applying the kora release)
 	@bash scripts/cluster/redeploy.sh sandbox-mount $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-sandbox-base
@@ -918,7 +947,7 @@ build-backend: proto-gen ## Build every cmd/ binary to .bin (runs proto-gen firs
 	@for dir in $(BACKEND_DIR)/cmd/*/; do \
 		name=$$(basename "$$dir"); \
 		[ -f "$$dir/main.go" ] || continue; \
-		(cd $(BACKEND_DIR) && $(GOBUILD) -o "../$(BINARY_DIR)/orbit-$${name#orbit-}" "./cmd/$$name") || exit 1; \
+		(cd $(BACKEND_DIR) && $(GOBUILD) -o "../$(BINARY_DIR)/kora-$${name#kora-}" "./cmd/$$name") || exit 1; \
 	done
 
 # ===========================================
@@ -928,7 +957,7 @@ build-backend: proto-gen ## Build every cmd/ binary to .bin (runs proto-gen firs
 .PHONY: test-integration
 test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d cluster (dev-cluster + cluster-platform + cluster-deploy + auth-device-k3d). Not run by CI or `make check`.
 	@echo "$(COLOR_YELLOW)Running integration tests...$(COLOR_RESET)"
-	@kubectl port-forward svc/orbit-policy-service -n orbit-system 8083:80 >/tmp/orbit-pf-policy.log 2>&1 & \
+	@kubectl port-forward svc/kora-policy-service -n kora-system 8083:80 >/tmp/kora-pf-policy.log 2>&1 & \
 		PF_PID=$$!; \
 		sleep 2; \
 		cd $(BACKEND_DIR) && $(GOTEST) -v -race -timeout=5m -tags=integration ./...; \
@@ -941,7 +970,7 @@ test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d
 test-postgres: ## Postgres-backed repository tests against the local Postgres. Needs the compose Postgres up. Not run by CI or `make check`.
 	@$(MIGRATE) up
 	@echo "$(COLOR_YELLOW)Running Postgres-backed repository tests...$(COLOR_RESET)"
-	@cd $(BACKEND_DIR) && ORBIT_TEST_DB_URL="$(DB_URL)" $(GOTEST) -race -timeout=5m ./... -run Postgres
+	@cd $(BACKEND_DIR) && KORA_TEST_DB_URL="$(DB_URL)" $(GOTEST) -race -timeout=5m ./... -run Postgres
 
 .PHONY: test
 test: ## Run unit tests with coverage (no cluster required)
@@ -1030,6 +1059,11 @@ fix: ## Run go fix
 # Frontend
 # ===========================================
 
+# Seconds before a Corepack registry call is abandoned in frontend-install.
+COREPACK_TIMEOUT ?= 60
+# GNU timeout, or gtimeout from Homebrew coreutils on macOS. Empty when neither exists.
+TIMEOUT_CMD ?= $(shell command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)
+
 .PHONY: frontend-install
 frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pnpm, idempotent)
 	@echo "$(COLOR_YELLOW)Setting up frontend environment...$(COLOR_RESET)"
@@ -1045,13 +1079,26 @@ frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pn
 	echo "  Ensuring Node LTS via nvm (skipped if already installed)..."; \
 	nvm install $(NODE_VERSION); \
 	nvm use $(NODE_VERSION); \
+	if [ -z "$(TIMEOUT_CMD)" ]; then \
+		echo "$(COLOR_RED)✗ Neither timeout nor gtimeout found on PATH$(COLOR_RESET)"; \
+		echo "  On macOS run: brew install coreutils"; \
+		exit 1; \
+	fi; \
 	echo "  Enabling Corepack..."; \
 	corepack enable; \
-	if pnpm --version 2>/dev/null | grep -q "^$(PNPM_VERSION)$$"; then \
+	if $(TIMEOUT_CMD) $(COREPACK_TIMEOUT) pnpm --version | grep -q "^$(PNPM_VERSION)$$"; then \
 		echo "  pnpm $(PNPM_VERSION) already installed — skipping"; \
 	else \
 		echo "  Installing pnpm $(PNPM_VERSION) via Corepack..."; \
-		corepack install -g pnpm@$(PNPM_VERSION); \
+		$(TIMEOUT_CMD) $(COREPACK_TIMEOUT) corepack install -g pnpm@$(PNPM_VERSION); rc=$$?; \
+		if [ $$rc -eq 124 ]; then \
+			echo "$(COLOR_RED)✗ Timed out after $(COREPACK_TIMEOUT)s reaching $${COREPACK_NPM_REGISTRY:-https://registry.npmjs.org}$(COLOR_RESET)"; \
+			echo "  Check network, DNS and proxy settings (HTTPS_PROXY, COREPACK_NPM_REGISTRY)."; \
+			exit 1; \
+		elif [ $$rc -ne 0 ]; then \
+			echo "$(COLOR_RED)✗ Corepack failed with exit code $$rc (not a timeout)$(COLOR_RESET)"; \
+			exit 1; \
+		fi; \
 	fi; \
 	cd $(FRONTEND_DIR) && pnpm install $(if $(CI),--frozen-lockfile,)
 	@echo "$(COLOR_GREEN)✓ Frontend dependencies installed$(COLOR_RESET)"
@@ -1073,9 +1120,10 @@ frontend-lint: ## Lint the frontend (eslint)
 	@echo "$(COLOR_GREEN)✓ Frontend lint passed$(COLOR_RESET)"
 
 .PHONY: frontend-type-check
-frontend-type-check: ## Type-check the frontend (tsc --noEmit)
+frontend-type-check: ## Type-check the frontend and, under its own strict flags, the Hades package (tsc --noEmit)
 	@echo "$(COLOR_YELLOW)Type-checking frontend...$(COLOR_RESET)"
 	@cd $(FRONTEND_DIR) && pnpm type-check
+	@cd $(FRONTEND_DIR) && pnpm --filter @runkora/hades run type-check
 	@echo "$(COLOR_GREEN)✓ Frontend type-check passed$(COLOR_RESET)"
 
 .PHONY: frontend-fmt
@@ -1087,7 +1135,7 @@ frontend-fmt: ## Format frontend code (prettier --write locally, --check in CI)
 .PHONY: frontend-test-unit
 frontend-test-unit: ## Run frontend unit tests (Hades first, then app)
 	@echo "$(COLOR_YELLOW)Running frontend unit tests...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
+	@cd $(FRONTEND_DIR) && pnpm --filter @runkora/hades run test:unit
 	@cd $(FRONTEND_DIR) && pnpm run test:unit
 	@echo "$(COLOR_GREEN)✓ Frontend unit tests passed$(COLOR_RESET)"
 
@@ -1100,8 +1148,46 @@ frontend-test-integration: ## Run frontend integration tests (MSW + jsdom)
 .PHONY: frontend-test-hades
 frontend-test-hades: ## Run Hades component unit tests in isolation (happy-dom)
 	@echo "$(COLOR_YELLOW)Running Hades unit tests...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
+	@cd $(FRONTEND_DIR) && pnpm --filter @runkora/hades run test:unit
 	@echo "$(COLOR_GREEN)✓ Hades unit tests passed$(COLOR_RESET)"
+
+# ─── Hades versioning ────────────────────────────────────────────────────────
+# Scripts are TypeScript that Node runs directly.
+
+HADES_DIR := $(FRONTEND_DIR)/src/packages/hades
+HADES_NODE := node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON
+
+.PHONY: hades-manifest
+hades-manifest: ## Regenerate the Hades theme surface manifest (manifest.json), theme.schema.json and the chart's product-name rule from tokens.css and surface.ts
+	@cd $(HADES_DIR) && $(HADES_NODE) scripts/manifest.ts
+	@$(MAKE) --no-print-directory hades-chart-rules
+
+.PHONY: hades-chart-rules
+hades-chart-rules: ## Copy the product-name bounds from the Hades manifest into the chart, which validates the name at render time
+	@mkdir -p charts/kora/files
+	@jq '.productName' $(HADES_DIR)/manifest.json > charts/kora/files/hades-product-name.json
+
+.PHONY: hades-chart-rules-check
+hades-chart-rules-check: ## Verify the chart's product-name rule is what the Hades manifest carries
+	@jq '.productName' $(HADES_DIR)/manifest.json | diff -q - charts/kora/files/hades-product-name.json >/dev/null \
+		|| { echo "$(COLOR_RED)✗ charts/kora/files/hades-product-name.json is out of sync with the Hades manifest. Run: make hades-manifest$(COLOR_RESET)"; exit 1; }
+	@echo "$(COLOR_GREEN)✓ the chart's product-name rule matches the Hades manifest$(COLOR_RESET)"
+
+.PHONY: hades-manifest-check
+hades-manifest-check: ## Verify manifest.json and theme.schema.json are what tokens.css and surface.ts generate
+	@cd $(HADES_DIR) && $(HADES_NODE) scripts/manifest.ts --check
+
+.PHONY: hades-check
+hades-check: hades-manifest-check hades-chart-rules-check ## Hades manifest sync and the chart's product-name rule (part of make check)
+
+.PHONY: hades-smoke
+hades-smoke: ## Pack Hades and build a throwaway Vite consumer from the tarball: the release workflow's smoke build, run locally (needs network)
+	@echo "$(COLOR_YELLOW)Packing @runkora/hades...$(COLOR_RESET)"
+	@dest=$$(mktemp -d "$${TMPDIR:-/tmp}/hades-pack.XXXXXX") && \
+	trap 'rm -rf "$$dest"' EXIT && \
+	cd $(FRONTEND_DIR) && pnpm --filter @runkora/hades pack --pack-destination "$$dest" >/dev/null && \
+	cd $(CURDIR) && bash .github/scripts/hades-smoke-build.sh "$$dest/runkora-hades-$$(jq -r .version $(HADES_DIR)/package.json).tgz"
+	@echo "$(COLOR_GREEN)✓ Hades smoke build passed$(COLOR_RESET)"
 
 .PHONY: frontend-test-e2e
 frontend-test-e2e: ## Run frontend E2E tests (Playwright + Chromium, spins up Next.js dev server)
@@ -1135,7 +1221,7 @@ frontend-storybook-build: ## Build Storybook as a static site
 .PHONY: frontend-storybook-hades
 frontend-storybook-hades: ## Start Hades-isolated Storybook (Hades package only, port 6006)
 	@echo "$(COLOR_YELLOW)Starting Hades-isolated Storybook...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades storybook
+	@cd $(FRONTEND_DIR) && pnpm --filter @runkora/hades storybook
 
 # ===========================================
 # Cleanup
@@ -1163,55 +1249,55 @@ clean-all: clean ## DESTRUCTIVE: clean build artifacts and delete the Postgres a
 .PHONY: auth-device-k3d
 auth-device-k3d: ## Authenticate via Device Authorization Grant (k3d cluster via port-forward)
 	@chmod +x scripts/auth-device.sh
-	@echo "$(COLOR_CYAN)→ Starting port-forward orbit-identity → localhost:6069$(COLOR_RESET)"
-	@kubectl port-forward svc/orbit-identity -n orbit-system 6069:80 >/tmp/orbit-pf.log 2>&1 & \
+	@echo "$(COLOR_CYAN)→ Starting port-forward kora-identity → localhost:6069$(COLOR_RESET)"
+	@kubectl port-forward svc/kora-identity -n kora-system 6069:80 >/tmp/kora-pf.log 2>&1 & \
 		PF_PID=$$!; \
 		sleep 2; \
 		./scripts/auth-device.sh \
 			--api-base "http://localhost:6069/api/v1" \
-			--tenant-id "$${ORBIT_TENANT_ID:-$(or $(tenant),example)}"; \
+			--tenant-id "$${KORA_TENANT_ID:-$(or $(tenant),example)}"; \
 		STATUS=$$?; \
 		kill $$PF_PID 2>/dev/null || true; \
 		exit $$STATUS
 
 .PHONY: auth-refresh-k3d
-auth-refresh-k3d: ## Refresh the access token in /tmp/orbit_credentials.json (k3d cluster via port-forward)
+auth-refresh-k3d: ## Refresh the access token in /tmp/kora_credentials.json (k3d cluster via port-forward)
 	@chmod +x scripts/auth-refresh.sh
-	@echo "$(COLOR_CYAN)→ Starting port-forward orbit-identity → localhost:6069$(COLOR_RESET)"
-	@kubectl port-forward svc/orbit-identity -n orbit-system 6069:80 >/tmp/orbit-pf.log 2>&1 & \
+	@echo "$(COLOR_CYAN)→ Starting port-forward kora-identity → localhost:6069$(COLOR_RESET)"
+	@kubectl port-forward svc/kora-identity -n kora-system 6069:80 >/tmp/kora-pf.log 2>&1 & \
 		PF_PID=$$!; \
 		./scripts/auth-refresh.sh \
 			--api-base "http://localhost:6069/api/v1" \
-			--tenant-id "$${ORBIT_TENANT_ID:-$(or $(tenant),example)}"; \
+			--tenant-id "$${KORA_TENANT_ID:-$(or $(tenant),example)}"; \
 		STATUS=$$?; \
 		kill $$PF_PID 2>/dev/null || true; \
 		exit $$STATUS
 
 .PHONY: setup-tls
-setup-tls: ## Generate a locally-trusted TLS cert for *.orbit.local.clearroute.io (installs mkcert + CA if needed)
+setup-tls: ## Generate a locally-trusted TLS cert for *.local.runkora.io (installs mkcert + CA if needed)
 	@chmod +x scripts/setup-tls.sh
 	@bash scripts/setup-tls.sh
 
 .PHONY: cluster-tls-secret
-cluster-tls-secret: ## Create the orbit-gateway-tls TLS secret in orbit-system, where the ingress gateway runs (run after setup-tls)
+cluster-tls-secret: ## Create the kora-gateway-tls TLS secret in kora-system, where the ingress gateway runs (run after setup-tls)
 	@[ -f secrets/tls.crt ] && [ -f secrets/tls.key ] || \
 		(echo "$(COLOR_RED)✗ secrets/tls.crt / secrets/tls.key not found — run 'make setup-tls' first$(COLOR_RESET)" && exit 1)
-	@kubectl create secret tls orbit-gateway-tls \
+	@kubectl create secret tls kora-gateway-tls \
 		--cert=secrets/tls.crt \
 		--key=secrets/tls.key \
-		--namespace orbit-system \
+		--namespace kora-system \
 		--dry-run=client -o yaml | kubectl apply -f -
-	@echo "$(COLOR_GREEN)✓ orbit-gateway-tls secret applied in orbit-system$(COLOR_RESET)"
+	@echo "$(COLOR_GREEN)✓ kora-gateway-tls secret applied in kora-system$(COLOR_RESET)"
 
 .PHONY: cluster-ca-configmap
-cluster-ca-configmap: ## Create a ConfigMap with the mkcert root CA in orbit-system (for Dex TLS verification)
+cluster-ca-configmap: ## Create a ConfigMap with the mkcert root CA in kora-system (for Dex TLS verification)
 	@[ -f secrets/mkcert-ca.pem ] || \
 		(echo "$(COLOR_RED)✗ secrets/mkcert-ca.pem not found — run 'make setup-tls' first$(COLOR_RESET)" && exit 1)
 	@kubectl create configmap mkcert-ca \
 		--from-file=mkcert-ca.pem=secrets/mkcert-ca.pem \
-		--namespace orbit-system \
+		--namespace kora-system \
 		--dry-run=client -o yaml | kubectl apply -f -
-	@echo "$(COLOR_GREEN)✓ mkcert-ca ConfigMap applied in orbit-system$(COLOR_RESET)"
+	@echo "$(COLOR_GREEN)✓ mkcert-ca ConfigMap applied in kora-system$(COLOR_RESET)"
 
 .PHONY: gen-session-secret
 gen-session-secret: ## Print a BFF_SESSION_SECRET for .env (32+ chars, never written to disk)
@@ -1227,7 +1313,7 @@ gen-signing-key: ## Write a 4096-bit RSA signing key to secrets/signing.key
 	@echo ""
 	@echo "Make sure your .env contains:"
 	@echo ""
-	@echo "  ORBIT_TOKEN_SIGNING_KEY_FILE=secrets/signing.key"
+	@echo "  KORA_TOKEN_SIGNING_KEY_FILE=secrets/signing.key"
 	@echo ""
 
 # ===========================================
@@ -1239,11 +1325,30 @@ deadcode: ## Report Go functions no main package can reach
 	@DEADCODE_VERSION=$(DEADCODE_VERSION) ./scripts/check-deadcode.sh
 
 HELM_DOCS_VERSION := v1.14.2
+CONTROLLER_GEN_VERSION := v0.23.0
+GENERATED := backend/internal/platform/declarative/v1alpha1/zz_generated.deepcopy.go backend/internal/operator/zz_generated.deepcopy.go backend/internal/platform/inferenceproviders/v1alpha1/zz_generated.deepcopy.go backend/internal/platform/sandboximages/v1alpha1/zz_generated.deepcopy.go charts/kora-crds/generated
+
+.PHONY: generate
+generate: ## Regenerate the CRD kinds' deepcopy functions and CRDs with controller-gen
+	@rm -f charts/kora-crds/generated/*.yaml
+	@cd backend && go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION) \
+	  object crd:allowDangerousTypes=true \
+	  paths=./internal/platform/declarative/v1alpha1/... paths=./internal/operator \
+	  paths=./internal/platform/inferenceproviders/v1alpha1 paths=./internal/platform/sandboximages/v1alpha1 \
+	  output:crd:artifacts:config=../charts/kora-crds/generated
+
+.PHONY: generate-check
+generate-check: generate ## Fail if the generated deepcopy functions or CRDs are out of date
+	@git diff --exit-code -- $(GENERATED) \
+	  && test -z "$$(git ls-files --others --exclude-standard -- $(GENERATED))" \
+	  || { echo "$(COLOR_RED)✗ generated code out of date, run: make generate$(COLOR_RESET)"; exit 1; }
 
 .PHONY: chart-lint
 chart-lint: ## Lint the Helm charts (helm lint with ci/ values)
-	@helm lint charts/orbit -f charts/orbit/ci/default-values.yaml
-	@helm lint charts/orbit-crds
+	@helm lint charts/kora -f charts/kora/ci/default-values.yaml
+	@helm lint charts/kora -f charts/kora/ci/default-values.yaml -f charts/kora/ci/theme-values.yaml
+	@helm lint charts/kora -f charts/kora/ci/default-values.yaml -f charts/kora/ci/inference-gateway-ha-values.yaml
+	@helm lint charts/kora-crds
 
 .PHONY: chart-docs
 chart-docs: ## Regenerate charts/*/README.md from values with helm-docs
@@ -1259,12 +1364,16 @@ chart-check: chart-lint chart-docs-check ## Lint the charts and verify their gen
 	@echo "$(COLOR_GREEN)✓ chart checks passed$(COLOR_RESET)"
 
 .PHONY: chart-deps
-chart-deps: ## Update charts/orbit/Chart.lock from its Chart.yaml dependencies
-	@helm dependency update charts/orbit
+chart-deps: ## Update charts/kora/Chart.lock from its Chart.yaml dependencies
+	@helm dependency update charts/kora
 
 .PHONY: check
-check: check-versions tidy fmt vet fix lint deadcode secrets docs-check migrate-lint test frontend-check ## Run all checks (check-versions, tidy, fmt, vet, lint, deadcode, secrets, docs-check, migrate-lint, test, frontend-check)
+check: check-versions tidy generate-check fmt vet fix lint brand-tags-check deadcode secrets docs-check hades-check migrate-lint test frontend-check ## Run all checks (check-versions, tidy, generate-check, fmt, vet, lint, brand-tags-check, deadcode, secrets, docs-check, hades-check, migrate-lint, test, frontend-check)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
+
+.PHONY: brand-tags-check
+brand-tags-check: ## Fail when a struct tag in a speaking package names the product (ruleguard cannot match tags)
+	@go run scripts/check-brand-tags.go && echo "$(COLOR_GREEN)✓ No product name in struct tags$(COLOR_RESET)"
 
 .PHONY: all
 all: tidy check build-backend ## Run all quality checks and build

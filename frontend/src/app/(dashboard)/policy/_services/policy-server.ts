@@ -1,7 +1,8 @@
 import 'server-only';
 
-import { config } from '@orbit/server/config';
-import { policyGatewayFetch } from '@orbit/server/services/policy-gateway-server';
+import { declarativeRefusal } from '@runkora/lib/declarative';
+import { config } from '@runkora/server/config';
+import { policyGatewayFetch } from '@runkora/server/services/policy-gateway-server';
 import type {
   StatsResponse,
   GrantsListResponse,
@@ -20,13 +21,22 @@ import type {
 
 // ── Shared (promoted to src/server/services/) ─────────────────────────────────
 
-export { fetchScopesExplain } from '@orbit/server/services/policy-gateway-server';
+export { fetchScopesExplain } from '@runkora/server/services/policy-gateway-server';
 
 // ── Result types ─────────────────────────────────────────────────────────────
 
 type Ok<T> = { ok: true; data: T };
 type Err = { ok: false; status: number; message: string };
 type Result<T> = Ok<T> | Err;
+
+/** The managed-in-git message when the body carries a declarative refusal code. */
+function refusalOf(body: string): string | null {
+  try {
+    return declarativeRefusal((JSON.parse(body) as { code?: unknown }).code);
+  } catch {
+    return null;
+  }
+}
 
 // ── Internal fetch helper ────────────────────────────────────────────────────
 
@@ -68,7 +78,7 @@ async function policyServiceFetch<T>(
       status: res.status,
       statusText: res.statusText,
     });
-    return { ok: false, status: res.status, message: body || res.statusText };
+    return { ok: false, status: res.status, message: refusalOf(body) ?? (body || res.statusText) };
   }
 
   // 204 No Content — successful mutation with no body.
@@ -140,6 +150,18 @@ export async function updateGrantBudget(
   });
 }
 
+export async function updateRoleBudget(
+  accessToken: string,
+  tenantId: string,
+  role: string,
+  budget: BudgetAssignment | null,
+): Promise<Result<RoleEntry>> {
+  return policyServiceFetch(`/roles/${encodeURIComponent(role)}/budget`, accessToken, {
+    method: 'PATCH',
+    body: JSON.stringify({ tenant_id: tenantId, budget }),
+  });
+}
+
 export async function fetchTenantBudget(
   accessToken: string,
   tenantId: string,
@@ -181,6 +203,17 @@ export async function fetchRoles(
 ): Promise<Result<RolesListResponse>> {
   return policyServiceFetch(
     `/roles?tenant_id=${encodeURIComponent(tenantId)}&limit=500`,
+    accessToken,
+  );
+}
+
+export async function getRole(
+  accessToken: string,
+  tenantId: string,
+  role: string,
+): Promise<Result<RoleEntry>> {
+  return policyServiceFetch(
+    `/roles/${encodeURIComponent(role)}?tenant_id=${encodeURIComponent(tenantId)}`,
     accessToken,
   );
 }

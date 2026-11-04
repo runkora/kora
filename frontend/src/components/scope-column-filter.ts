@@ -1,12 +1,12 @@
 /**
- * @tier 2 — Orbit-domain-aware: scope strings.
+ * @tier 2 — kora-domain-aware: scope strings.
  *
  * Builds the `DataTable` column filter used on every scope column: a
  * searchable, multi-select list of the distinct scopes present in the data.
  * Selecting several scopes keeps any row that carries at least one of them
  * (union).
  */
-import type { DataTableClientFilter } from '@orbit/hades';
+import type { DataTableClientFilter } from '@runkora/hades';
 
 export function scopeColumnFilter<TData>(
   rows: readonly TData[],

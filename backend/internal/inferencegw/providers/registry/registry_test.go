@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -19,16 +20,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/azure"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/bedrock"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/compatible"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/vertexai"
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/azure"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/bedrock"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/compatible"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/vertexai"
+	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-const ns = "orbit-system"
+const ns = "kora-system"
 
 var discard = logging.NewLoggerWithOutput(io.Discard)
 
@@ -48,8 +49,25 @@ func secret(name string, data map[string]string) *corev1.Secret {
 	return s
 }
 
+// hermeticAWS keeps the host's AWS settings out of the connectors a test
+// builds. Bedrock loads the default AWS config, which honours AWS_PROFILE and
+// the shared config files; `make test` exports .env, where a developer who has
+// run `make cluster-bedrock-creds` has AWS_PROFILE set, and a profile the SDK
+// cannot resolve fails the build. The test must not depend on any of that.
+//
+// It uses t.Setenv, so tests that call it (directly or via newWatcher) must
+// not call t.Parallel.
+func hermeticAWS(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("AWS_PROFILE", "")
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "config"))
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(dir, "credentials"))
+}
+
 func newWatcher(t *testing.T, objs ...client.Object) (*Watcher, client.Client) {
 	t.Helper()
+	hermeticAWS(t)
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = ip.AddToScheme(scheme)

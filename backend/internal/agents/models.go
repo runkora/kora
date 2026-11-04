@@ -21,7 +21,12 @@ const (
 	AgentTypeStateProvisioning AgentTypeState = "provisioning"
 	AgentTypeStateActive       AgentTypeState = "active"
 	AgentTypeStateDeleting     AgentTypeState = "deleting"
+	// AgentTypeStateDeleted is terminal. The row stays so the agent's runs keep their history.
+	AgentTypeStateDeleted AgentTypeState = "deleted"
 )
+
+// IsDeleted reports whether the agent type was deleted. Its slug may belong to a newer agent.
+func (at AgentType) IsDeleted() bool { return at.State == AgentTypeStateDeleted }
 
 // AgentFramework identifies the CLI framework running inside agent pods.
 type AgentFramework string
@@ -173,7 +178,7 @@ type Connector struct {
 }
 
 // AgentBudget is the spending configuration applied to the agent's policy
-// grant. Not persisted by orbit-agents — the grant is the source of truth
+// grant. Not persisted by kora-agents — the grant is the source of truth
 // (budgets live in policy, one place); this struct carries the desired value
 // through create/update and the current value on reads. Both limits zero =
 // remove the budget.
@@ -213,20 +218,45 @@ type AgentType struct {
 	// backend composes into EffectiveGrantScopes (like Connectors); the coarse
 	// mcp:invoke gate is derived there, not stored.
 	MCPTools []string `json:"mcp_tools,omitempty"`
+	// EffectiveConnectors are the agent's own connectors merged with its environments', by connection.
+	// Only a list read with include=effective_access fills it; it is not stored.
+	EffectiveConnectors []Connector `json:"effective_connectors,omitempty"`
 	// Environments are the sandboxes this agent may run in, one of them the default; none means kora-base.
 	// Their egress and connectors join the agent's grant.
 	Environments            []AgentEnvironment `json:"environments"`
 	MaxConcurrentRunsPerPod int                `json:"max_concurrent_runs_per_pod"`
 	// Guardrails are the loop-guard thresholds; unset fields take the platform defaults.
-	Guardrails Guardrails     `json:"guardrails"`
+	Guardrails Guardrails `json:"guardrails"`
+	// CreatedBy is the token subject that created the type; the owner check in Authz reads it.
+	// A declared agent has resource:<namespace>/<name>.
+	CreatedBy string `json:"created_by,omitempty"`
+	// Source is declarative.SourceAPI or SourceCRD. A crd row is read-only through the API.
+	Source string `json:"source"`
+	// ResourceUID is the UID of the Agent resource a crd row projects.
+	ResourceUID string `json:"-"`
+	// ResourceGeneration is the resource generation the crd row last applied.
+	ResourceGeneration int64 `json:"-"`
+	// Repository is the repository that drives a crd row, if its resource names one.
+	Repository string         `json:"repository,omitempty"`
 	State      AgentTypeState `json:"state"`
-	CreatedAt  time.Time      `json:"created_at"`
-	UpdatedAt  time.Time      `json:"updated_at"`
-	ModelID    *string        `json:"model_id,omitempty"`
+	// ActivatedAt is when the type last became active; zero if it never has. The run start budget runs from it.
+	ActivatedAt time.Time `json:"activated_at"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	ModelID     *string   `json:"model_id,omitempty"`
 	// Budget mirrors the budget on the agent's policy grant. Transient: never
 	// written to the agent_types table; populated on detail reads and carried
 	// as the desired state during grant reconciliation.
 	Budget *AgentBudget `json:"budget,omitempty"`
+	// CanRun and CanEdit are the caller's own permissions on this agent, set per
+	// request on reads: CanRun by the run-start check, CanEdit by the mode write
+	// check. Triggers ask CanRun for a caller before binding. Absent means not
+	// computed: write responses leave them unset. Never stored.
+	CanRun  *bool `json:"can_run,omitempty"`
+	CanEdit *bool `json:"can_edit,omitempty"`
+	// CanDelete is set like CanEdit but by the delete check: mode write, and no
+	// delegated caller on an autonomous agent. The scope ceiling does not apply.
+	CanDelete *bool `json:"can_delete,omitempty"`
 }
 
 // ConnectorScopes compiles the attached connectors into the connection scope set
@@ -271,7 +301,7 @@ func (at AgentType) ConnectorScopes() []string {
 // deriveInferenceScopes returns the inference grant scopes for a model id:
 // inference:invoke, plus the fine-grained inference:{family}:{name}:use when the id
 // is a two-segment family/name (e.g. anthropic/claude-sonnet-4-6). This is the
-// single source of truth for inference grant derivation — clients (orbit-mcp, the
+// single source of truth for inference grant derivation — clients (kora-mcp, the
 // frontend BFF) declare model_id and do NOT derive. See the 2026-06-30 amendment to
 // docs/adr/2026-05-11-agent-identity-and-policy-provisioning.md.
 func deriveInferenceScopes(modelID string) []string {
@@ -531,7 +561,7 @@ type Run struct {
 	Summary *string `json:"summary"`
 	// DelegationJTI identifies the delegation issuance minted for this run at
 	// start when the agent type is delegated (docs/adr/2026-07-23-delegated-agent-identity.md,
-	// Decision 3). Nil for autonomous runs. orbit-agents revokes the issuance
+	// Decision 3). Nil for autonomous runs. kora-agents revokes the issuance
 	// by this JTI when the run reaches a terminal state.
 	DelegationJTI *string `json:"delegation_jti,omitempty"`
 	// IdentityMode is the agent type's identity model, denormalized onto run
@@ -539,6 +569,9 @@ type Run struct {
 	// the governance posture — and attribute created_by accordingly — without a
 	// second lookup. Not a runs column.
 	IdentityMode IdentityMode `json:"identity_mode,omitempty"`
+	// AgentSlug and AgentName come from the agent type like IdentityMode. They name the agent of a run whose agent was deleted.
+	AgentSlug string `json:"agent_slug,omitempty"`
+	AgentName string `json:"agent_name,omitempty"`
 	// StartedBy names the trigger that started this run, when one did. Nil for a
 	// run a person started, which is what its absence means on the wire.
 	//
@@ -553,6 +586,23 @@ type Run struct {
 	// InitialMessage is the run's first message. Only a claimed run carries it, and
 	// the scheduling worker sends it when it creates the session.
 	InitialMessage string `json:"-"`
+	// TraceParent is the StartRun span's traceparent; the scheduler and later run actions continue or link to it.
+	TraceParent string `json:"-"`
+	// TraceID is the run's trace, read from TraceParent. Nil when the run was not sampled.
+	TraceID *string `json:"trace_id"`
+	// Usage is the run's inference total so far. It is read from
+	// inference_usage when the run is served and is not a runs column. A run
+	// with no usage rows reads as zeros.
+	Usage RunUsage `json:"usage"`
+}
+
+// RunUsage is the sum of a run's inference_usage rows. A live run reports its
+// total so far.
+type RunUsage struct {
+	CostUSD      float64 `json:"cost_usd"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	RequestCount int64   `json:"request_count"`
 }
 
 // StartedByTrigger is the run's backlink to the trigger and delivery that
@@ -568,11 +618,11 @@ type StartedByTrigger struct {
 	DeliveryID  string `json:"delivery_id,omitempty"`
 }
 
-// DeletedRun is one force-deleted run returned by DeleteRunsByAgentType: the
-// ID (for sandbox pod cleanup) and the delegation JTI, when the run was
-// delegated (for issuance revocation — the delegation ends with the run).
-type DeletedRun struct {
+// CancelledRun is one run ended by agent deletion. The ID names its sandbox pod. The delegation JTI,
+// set for a delegated run, is revoked because the delegation ends with the run.
+type CancelledRun struct {
 	ID            string
+	State         RunState
 	DelegationJTI *string
 }
 
@@ -591,7 +641,7 @@ type Session struct {
 // ── Events ────────────────────────────────────────────────────────────────────
 
 // RunEvent is one entry in the event log for a run.
-// Written by orbit-agents when state changes, or by draining session-manager events.
+// Written by kora-agents when state changes, or by draining session-manager events.
 type RunEvent struct {
 	SequenceNo int64
 	RunID      string

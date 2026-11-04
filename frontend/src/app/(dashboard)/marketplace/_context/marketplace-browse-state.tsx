@@ -4,7 +4,7 @@
 
 import { createContext, useCallback, useState, type ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import type { MarketplaceBrowseParams, SkillSort } from '../_types';
 
 type BrowseByMarketplace = Partial<

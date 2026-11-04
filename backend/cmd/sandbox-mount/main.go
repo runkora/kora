@@ -22,9 +22,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	sandboxMountConfig "github.com/clear-route/orbit/cmd/sandbox-mount/config"
-	"github.com/clear-route/orbit/internal/agents/sandbox/mount"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	sandboxMountConfig "github.com/runkora/kora/backend/cmd/sandbox-mount/config"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/mount"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // errBadPort reports a configured nfsd port outside the TCP range.

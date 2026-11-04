@@ -13,16 +13,16 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-// ORBIT_TEST_REDIS_URL enables tests against a real Redis with Search/BM25STD.
+// KORA_TEST_REDIS_URL enables tests against a real Redis with Search/BM25STD.
 // Tests use unique scopes and delete only their own feature-prefixed records.
 func redisSearchForTest(t testing.TB, ttl time.Duration) (*SearchIndex, string) {
 	t.Helper()
-	address := os.Getenv("ORBIT_TEST_REDIS_URL")
+	address := os.Getenv("KORA_TEST_REDIS_URL")
 	if address == "" {
-		t.Skip("set ORBIT_TEST_REDIS_URL to run Redis Search integration tests")
+		t.Skip("set KORA_TEST_REDIS_URL to run Redis Search integration tests")
 	}
 	options, err := redis.ParseURL(address)
 	if err != nil {

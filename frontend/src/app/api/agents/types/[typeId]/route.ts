@@ -1,9 +1,9 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
-import { agentsClient } from '@orbit/server/agents-client';
-import { ApiError } from '@orbit/server/client';
-import type { AgentType, UpdateAgentTypeRequest } from '@orbit/shared/api';
+import { withAuth } from '@runkora/server/route-helpers';
+import { agentsClient } from '@runkora/server/agents-client';
+import { ApiError } from '@runkora/server/client';
+import type { AgentType, UpdateAgentTypeRequest } from '@runkora/shared/api';
 
 type Params = { typeId: string };
 

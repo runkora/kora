@@ -1,6 +1,6 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchVocabulary } from '../../../(dashboard)/policy/_services/policy-server';
 
 export async function GET(): Promise<NextResponse> {

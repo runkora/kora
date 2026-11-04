@@ -11,7 +11,7 @@
 
 ## Context
 
-The inference gateway builds its provider connectors once at start from env vars: `BEDROCK_ACCOUNTS` and per-alias regions and keys, `VERTEX_*` and `AZURE_*`. The chart renders the Bedrock env from `inferenceGateway.bedrock.accounts`. Local development writes Bedrock credentials into `orbit-secrets`, which every platform service mounts through `envFrom`. A changed provider or credential needs a gateway restart. There is no connector for OpenAI, Anthropic or other compatible endpoints.
+The inference gateway builds its provider connectors once at start from env vars: `BEDROCK_ACCOUNTS` and per-alias regions and keys, `VERTEX_*` and `AZURE_*`. The chart renders the Bedrock env from `inferenceGateway.bedrock.accounts`. Local development writes Bedrock credentials into `kora-secrets`, which every platform service mounts through `envFrom`. A changed provider or credential needs a gateway restart. There is no connector for OpenAI, Anthropic or other compatible endpoints.
 
 `RoutingEngine.connectors` is fixed at construction. Postgres holds virtual models, routes, per-model toggles and prices, keyed by provider name. Three CHECK constraints allow only `bedrock`, `vertexai`, `azure` and `bedrock:<alias>`.
 
@@ -60,7 +60,7 @@ This touches *How does it connect?*. Provider credentials move from env into Sec
 
 ### D4. Secret access
 
-- **Option A: Secrets in the system namespace, labelled `orbit.io/inference-provider=true`.** The gateway caches only labelled Secrets.
+- **Option A: Secrets in the system namespace, labelled `runkora.io/inference-provider=true`.** The gateway caches only labelled Secrets.
 - **Option B: a dedicated providers namespace.** RBAC confines the gateway to that namespace's Secrets. Resources and their Secrets move out of the system namespace.
 
 ### D5. Status
@@ -86,11 +86,11 @@ This touches *How does it connect?*. Provider credentials move from env into Sec
 
 ### 1. The `InferenceProvider` resource
 
-`orbit.io/v1alpha1`, kind `InferenceProvider`, short name `oip`, namespaced, status subresource. It ships in `charts/orbit-crds`. The Go types live in `internal/platform/inferenceproviders/v1alpha1`.
+`runkora.io/v1alpha1`, kind `InferenceProvider`, short name `oip`, namespaced, status subresource. It ships in `charts/kora-crds`. The Go types live in `internal/platform/inferenceproviders/v1alpha1`.
 
 | Type | Fields | Credential |
 |---|---|---|
-| `bedrock` | `region` (required), `assumeRoleARN`, `externalID`, `roleSessionName` (default `orbit-inference-gateway`) | `credentials.secretRef.name`: keys `accessKeyID`, `secretAccessKey`, optional `sessionToken`. Absent: workload identity (IRSA, EKS Pod Identity). AssumeRole applies on top of either. |
+| `bedrock` | `region` (required), `assumeRoleARN`, `externalID`, `roleSessionName` (default `kora-inference-gateway`) | `credentials.secretRef.name`: keys `accessKeyID`, `secretAccessKey`, optional `sessionToken`. Absent: workload identity (IRSA, EKS Pod Identity). AssumeRole applies on top of either. |
 | `vertexai` | `projectID`, `location` (required), `anthropicLocation` | `credentialsSecretRef {name, key}`: service account JSON. Absent: Application Default Credentials (GKE Workload Identity). |
 | `azure` | `endpoint`, `apiVersion` (required), `anthropicEndpoint` | `apiKeySecretRef {name, key}`, required. |
 | `compatible` | `baseURL` (required, http or https), `apis` (required) | `apiKeySecretRef {name, key}`, optional. |
@@ -98,7 +98,7 @@ This touches *How does it connect?*. Provider credentials move from env into Sec
 - CEL requires the block named by `spec.type` and forbids the others. `metadata.name` is a DNS label.
 - The provider name is `<type>:<metadata.name>`. Routes, overrides and usage filters accept only that form.
 - `spec.models` optionally limits the offered models. When the upstream has no model list, it is the list.
-- A ValidatingAdmissionPolicy in the `orbit` chart rejects an InferenceProvider outside the system namespace.
+- A ValidatingAdmissionPolicy in the `kora` chart rejects an InferenceProvider outside the system namespace.
 
 ### 2. The `compatible` type
 
@@ -115,11 +115,11 @@ This touches *How does it connect?*. Provider credentials move from env into Sec
 An OpenRouter registration:
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: openrouter
-  namespace: orbit-system
+  namespace: kora-system
 spec:
   type: compatible
   compatible:
@@ -132,14 +132,14 @@ spec:
 
 ### 3. The gateway watches
 
-- The gateway runs a controller-runtime cache scoped to the system namespace. It caches InferenceProviders and the Secrets labelled `orbit.io/inference-provider=true`.
+- The gateway runs a controller-runtime cache scoped to the system namespace. It caches InferenceProviders and the Secrets labelled `runkora.io/inference-provider=true`.
 - At start it waits for the cache, builds every provider and constructs the routing engine with them.
 - Any add, spec change or delete of a resource or a labelled Secret triggers one debounced rebuild. The new connector set is swapped into the routing engine. In-flight requests finish on the connector they started with.
 - A resource that fails to build is left out and described with its error. The others load.
 - Model discovery reruns after every rebuild, bounded by a timeout. A rebuild cancels the previous discovery, and results from a replaced provider set are dropped.
 - When `spec.models` is set and discovery fails, the declared models are still offered and the error shows in the provider's health.
 - RBAC is a Role in the system namespace: `get/list/watch` on `inferenceproviders`, `patch` on `inferenceproviders/status`, and `get/list/watch` on `secrets`. RBAC cannot narrow Secrets by label; the label bounds what the gateway caches and reads.
-- The gateway pod carries `orbit.io/kube-api-client: "true"` to reach the API server.
+- The gateway pod carries `runkora.io/kube-api-client: "true"` to reach the API server.
 - The operator reads InferenceProviders to register their hosts with the mesh ([Amendment 1](#amendment-1-2026-10-02-the-operator-registers-provider-hosts-with-the-mesh)). It never writes them or their status.
 
 ### 4. Status
@@ -167,7 +167,7 @@ One expand migration replaces the provider CHECK on `virtual_model_routes`, `pro
 ### 8. Env vars and local development
 
 - The gateway reads no provider env vars. `inferenceGateway.bedrock.accounts` is removed from the chart, with its Bedrock ServiceEntries.
-- `make cluster-bedrock-creds` writes the SSO session into Secret `orbit-bedrock-credentials` and applies one Bedrock resource per alias in `.env`. `make up` runs it when `BEDROCK_ACCOUNTS` is set.
+- `make cluster-bedrock-creds` writes the SSO session into Secret `kora-bedrock-credentials` and applies one Bedrock resource per alias in `.env`. `make up` runs it when `BEDROCK_ACCOUNTS` is set.
 
 ### Rationale
 
@@ -181,13 +181,13 @@ One typed kind gives admission-time validation per provider with one list. A dec
 
 - A provider is one reviewable manifest. OpenRouter is one resource serving three APIs.
 - Provider changes and credential rotation apply within seconds, without a restart.
-- Provider credentials leave `orbit-secrets`. Only the gateway reads them.
+- Provider credentials leave `kora-secrets`. Only the gateway reads them.
 - One gateway identity can reach many AWS accounts through AssumeRole.
 
 ### Negative
 
-- The gateway holds Kubernetes API access. Its Role allows reading every Secret in the system namespace, even though it caches and reads only labelled ones. The gateway is a platform service in that namespace and already receives `orbit-secrets` through `envFrom`.
-- Every provider Secret needs the `orbit.io/inference-provider=true` label. An unlabelled Secret reports `SecretNotFound`.
+- The gateway holds Kubernetes API access. Its Role allows reading every Secret in the system namespace, even though it caches and reads only labelled ones. The gateway is a platform service in that namespace and already receives `kora-secrets` through `envFrom`.
+- Every provider Secret needs the `runkora.io/inference-provider=true` label. An unlabelled Secret reports `SecretNotFound`.
 - Upgrading needs the resources applied in the same deploy. There is no env fallback.
 - A key on an `http://` base URL crosses the network in cleartext unless the network encrypts it. Choosing http is the admin's call.
 - Renaming a resource renames its provider. Routes, overrides and prices keyed on the old name stop matching.
@@ -202,18 +202,18 @@ One typed kind gives admission-time validation per provider with one list. A dec
 
 ## Implementation
 
-- `charts/orbit-crds/templates/crd-inferenceprovider.yaml`.
+- `charts/kora-crds/templates/crd-inferenceprovider.yaml`.
 - `backend/internal/platform/inferenceproviders/v1alpha1/`: API types.
 - `backend/internal/inferencegw/providers/registry/`: build per type, the watcher and status writes.
 - `backend/internal/inferencegw/providers/compatible/`: the compatible connector.
 - `backend/internal/inferencegw/`: swappable connectors, provider status, `GET /v1/catalog/providers`, `InferFamily`, provider-name validation, pricing by type.
 - `backend/cmd/inference-gateway/`: start the watcher and seed the routing engine; the CHECK widening migration.
-- `backend/internal/orbitmcp/tools_models.go`: `models.providers.status`.
+- `backend/internal/koramcp/tools_models.go`: `models.providers.status`.
 - `frontend/src/app/(dashboard)/model-gateway/catalog/`: the Providers tab.
-- `charts/orbit/`: the gateway Role, API server label, namespace env and the admission policy.
-- `backend/internal/operator/inferenceprovider_serviceentry.go` and `charts/orbit/templates/operator/role.yaml`: Amendment 1.
+- `charts/kora/`: the gateway Role, API server label, namespace env and the admission policy.
+- `backend/internal/operator/inferenceprovider_serviceentry.go` and `charts/kora/templates/operator/role.yaml`: Amendment 1.
 - `scripts/cluster/refresh-bedrock-creds.sh`, `scripts/cluster/create-secrets.sh`, `Makefile`, `.env.example`.
-- `docs/guides/model-providers.md`.
+- `docs/guides/register-inference-provider.md`.
 
 ---
 

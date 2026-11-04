@@ -14,14 +14,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
-const bundledTestNS = "orbit-tenant-example"
+const bundledTestNS = "kora-tenant-example"
 
-func bundledTenant() *OrbitTenant {
-	return &OrbitTenant{ObjectMeta: metav1.ObjectMeta{Name: "example"}}
+func bundledTenant() *KoraTenant {
+	return &KoraTenant{ObjectMeta: metav1.ObjectMeta{Name: "example"}}
 }
 
 // newBundledReconciler returns a tenant reconciler over a fake client holding objs.
@@ -48,9 +48,9 @@ func getSandboxImage(t *testing.T, c client.Client, name string) (*si.SandboxIma
 
 func TestEnsureBundledSandboxImages_CreatesEnabledAndSkipsDisabled(t *testing.T) {
 	r, c := newBundledReconciler(io.Discard, map[string]BundledSandboxImage{
-		"go":     {Enabled: true, Warm: true, Image: "ghcr.io/clear-route/kora-sandbox-go:v1"},
-		"python": {Enabled: true, Image: "ghcr.io/clear-route/kora-sandbox-python:v1"},
-		"node":   {Enabled: false, Image: "ghcr.io/clear-route/kora-sandbox-node:v1"},
+		"go":     {Enabled: true, Warm: true, Image: "ghcr.io/runkora/kora-sandbox-go:v1"},
+		"python": {Enabled: true, Image: "ghcr.io/runkora/kora-sandbox-python:v1"},
+		"node":   {Enabled: false, Image: "ghcr.io/runkora/kora-sandbox-node:v1"},
 	})
 	if err := r.ensureBundledSandboxImages(context.Background(), bundledTenant()); err != nil {
 		t.Fatalf("ensureBundledSandboxImages: %v", err)
@@ -60,10 +60,10 @@ func TestEnsureBundledSandboxImages_CreatesEnabledAndSkipsDisabled(t *testing.T)
 	if !ok {
 		t.Fatal("kora-go was not created")
 	}
-	if img.Spec.Image != "ghcr.io/clear-route/kora-sandbox-go:v1" || !img.Spec.Warm || img.Spec.Description == "" {
+	if img.Spec.Image != "ghcr.io/runkora/kora-sandbox-go:v1" || !img.Spec.Warm || img.Spec.Description == "" {
 		t.Errorf("kora-go spec = %+v", img.Spec)
 	}
-	if !ownsBundledSandboxImage(img) || img.Labels["orbit.io/tenant"] != "example" {
+	if !ownsBundledSandboxImage(img) || img.Labels["runkora.io/tenant"] != "example" {
 		t.Errorf("kora-go labels = %v", img.Labels)
 	}
 	if img, _ := getSandboxImage(t, c, "kora-python"); img == nil || img.Spec.Warm {
@@ -76,19 +76,19 @@ func TestEnsureBundledSandboxImages_CreatesEnabledAndSkipsDisabled(t *testing.T)
 
 func TestEnsureBundledSandboxImages_DeletesDisabledAndPatchesEnabled(t *testing.T) {
 	owned := func(name, image string) *si.SandboxImage {
-		return bundledSandboxImage(bundledTestNS, "example", si.BundledImage{Name: name}, BundledSandboxImage{Image: image})
+		return bundledSandboxImage(bundledTestNS, "example", si.BundledImage{Name: name}, BundledSandboxImage{Image: image}, "Acme")
 	}
 	r, c := newBundledReconciler(io.Discard, map[string]BundledSandboxImage{
-		"go": {Enabled: true, Warm: true, Image: "ghcr.io/clear-route/kora-sandbox-go:v2"},
+		"go": {Enabled: true, Warm: true, Image: "ghcr.io/runkora/kora-sandbox-go:v2"},
 	},
-		owned("kora-go", "ghcr.io/clear-route/kora-sandbox-go:v1"),
-		owned("kora-node", "ghcr.io/clear-route/kora-sandbox-node:v1"),
+		owned("kora-go", "ghcr.io/runkora/kora-sandbox-go:v1"),
+		owned("kora-node", "ghcr.io/runkora/kora-sandbox-node:v1"),
 	)
 	if err := r.ensureBundledSandboxImages(context.Background(), bundledTenant()); err != nil {
 		t.Fatalf("ensureBundledSandboxImages: %v", err)
 	}
 
-	if img, _ := getSandboxImage(t, c, "kora-go"); img == nil || img.Spec.Image != "ghcr.io/clear-route/kora-sandbox-go:v2" || !img.Spec.Warm {
+	if img, _ := getSandboxImage(t, c, "kora-go"); img == nil || img.Spec.Image != "ghcr.io/runkora/kora-sandbox-go:v2" || !img.Spec.Warm {
 		t.Errorf("kora-go = %+v, want patched to v2 and warm", img)
 	}
 	// A key missing from the config counts as disabled.
@@ -106,15 +106,15 @@ func TestEnsureBundledSandboxImages_LeavesTenantImageAlone(t *testing.T) {
 				Name:      name,
 				Namespace: bundledTestNS,
 				// managed-by alone does not mark a bundled image.
-				Labels: map[string]string{"app.kubernetes.io/managed-by": "orbit-operator"},
+				Labels: map[string]string{"app.kubernetes.io/managed-by": "kora-operator"},
 			},
 			Spec: si.Spec{Image: "registry.example.com/team/" + name + ":1"},
 		}
 	}
 	var logs bytes.Buffer
 	r, c := newBundledReconciler(&logs, map[string]BundledSandboxImage{
-		"go":   {Enabled: true, Image: "ghcr.io/clear-route/kora-sandbox-go:v1"},
-		"node": {Enabled: false, Image: "ghcr.io/clear-route/kora-sandbox-node:v1"},
+		"go":   {Enabled: true, Image: "ghcr.io/runkora/kora-sandbox-go:v1"},
+		"node": {Enabled: false, Image: "ghcr.io/runkora/kora-sandbox-node:v1"},
 	},
 		tenantImage("kora-go"),
 		tenantImage("kora-node"),
@@ -150,9 +150,9 @@ func TestEnsureBundledSandboxImages_ContinuesPastAFailure(t *testing.T) {
 		},
 	}).Build()
 	r, _ := newBundledReconcilerWith(c, io.Discard, map[string]BundledSandboxImage{
-		"go":     {Enabled: true, Image: "ghcr.io/clear-route/kora-sandbox-go:v1"},
-		"python": {Enabled: true, Image: "ghcr.io/clear-route/kora-sandbox-python:v1"},
-		"node":   {Enabled: true, Image: "ghcr.io/clear-route/kora-sandbox-node:v1"},
+		"go":     {Enabled: true, Image: "ghcr.io/runkora/kora-sandbox-go:v1"},
+		"python": {Enabled: true, Image: "ghcr.io/runkora/kora-sandbox-python:v1"},
+		"node":   {Enabled: true, Image: "ghcr.io/runkora/kora-sandbox-node:v1"},
 	})
 
 	err := r.ensureBundledSandboxImages(context.Background(), bundledTenant())

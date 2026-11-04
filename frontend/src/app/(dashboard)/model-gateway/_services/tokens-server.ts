@@ -1,15 +1,18 @@
 import 'server-only';
 
-import { ApiError, orbitClient } from '@orbit/server/client';
+import { ApiError, koraClient } from '@runkora/server/client';
 import type {
   CreatePATRequest,
   CreatePATResponse,
   UpdatePATScopesRequest,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 
 // ── Shared (promoted to src/server/services/) ─────────────────────────────────
 
-export { listPATsFromIdentity, type ListPATsResult } from '@orbit/server/services/identity-server';
+export {
+  listPATsFromIdentity,
+  type ListPATsResult,
+} from '@runkora/server/services/identity-server';
 
 // ── Feature-local types ──────────────────────────────────────────────────────
 
@@ -61,7 +64,7 @@ export async function createPATInIdentity(
   req: CreatePATRequest,
 ): Promise<CreatePATResult> {
   try {
-    const data = await orbitClient.post<CreatePATResponse>('/identity/tokens', req, {
+    const data = await koraClient.post<CreatePATResponse>('/identity/tokens', req, {
       Authorization: `Bearer ${accessToken}`,
     });
     if (!data) {
@@ -78,7 +81,7 @@ export async function revokePATInIdentity(
   patId: string,
 ): Promise<RevokePATResult> {
   try {
-    await orbitClient.delete(`/identity/tokens/${patId}`, {
+    await koraClient.delete(`/identity/tokens/${patId}`, {
       Authorization: `Bearer ${accessToken}`,
     });
     return { ok: true };
@@ -93,7 +96,7 @@ export async function updatePATScopesInIdentity(
   req: UpdatePATScopesRequest,
 ): Promise<UpdatePATScopesResult> {
   try {
-    await orbitClient.patch(`/identity/tokens/${patId}/scopes`, req, {
+    await koraClient.patch(`/identity/tokens/${patId}/scopes`, req, {
       Authorization: `Bearer ${accessToken}`,
     });
     return { ok: true };
@@ -109,7 +112,7 @@ export async function fetchPATAttribution(
   if (patIds.length === 0) return { ok: true, attribution: {} };
   try {
     const ids = patIds.join(',');
-    const data = await orbitClient.get<PATAttributionResponse>(
+    const data = await koraClient.get<PATAttributionResponse>(
       `/identity/tokens/attribution?ids=${encodeURIComponent(ids)}`,
       { Authorization: `Bearer ${accessToken}` },
     );
@@ -138,7 +141,7 @@ export async function fetchUsersByIDs(
   if (userIds.length === 0) return { ok: true, users: [] };
   try {
     const ids = userIds.join(',');
-    const data = await orbitClient.get<IdentityUsersResponse>(
+    const data = await koraClient.get<IdentityUsersResponse>(
       `/identity/users?ids=${encodeURIComponent(ids)}&limit=100`,
       { Authorization: `Bearer ${accessToken}` },
     );
@@ -156,7 +159,7 @@ export async function searchUsers(
   try {
     const params = new URLSearchParams({ limit: String(limit) });
     if (query.trim()) params.set('search', query.trim());
-    const data = await orbitClient.get<IdentityUsersResponse>(
+    const data = await koraClient.get<IdentityUsersResponse>(
       `/identity/users?${params.toString()}`,
       { Authorization: `Bearer ${accessToken}` },
     );
@@ -178,7 +181,7 @@ export async function fetchAllTenantUsers(accessToken: string): Promise<GetUsers
   const users: PATAttributionEntry[] = [];
   try {
     for (let page = 1; page <= TENANT_USERS_MAX_PAGES; page++) {
-      const data = await orbitClient.get<IdentityUsersResponse>(
+      const data = await koraClient.get<IdentityUsersResponse>(
         `/identity/users?limit=${TENANT_USERS_PAGE_LIMIT}&page=${page}`,
         { Authorization: `Bearer ${accessToken}` },
       );

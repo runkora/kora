@@ -22,7 +22,7 @@
 //	                              filter chains), unlike the CONNECT port.
 //
 // Connections are GitOps CRs (Amendment 3): the operator aggregates each
-// tenant's Connection CRs into the orbit-tenant-connections ConfigMap, which
+// tenant's Connection CRs into the kora-tenant-connections ConfigMap, which
 // the gateway mounts and parses into its in-memory registry (hot-reloaded on
 // change). There is no Postgres dependency and no admin connections API.
 package main
@@ -31,31 +31,36 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	egc "github.com/clear-route/orbit/cmd/egress-gateway/config"
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/config"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/observability"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	platformtoken "github.com/clear-route/orbit/internal/platform/token"
+	egc "github.com/runkora/kora/backend/cmd/egress-gateway/config"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/storage"
+	platformtoken "github.com/runkora/kora/backend/internal/platform/token"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/credentials/adapters/githubapp"
-	"github.com/clear-route/orbit/internal/credentials/adapters/k8sbearer"
-	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
-	"github.com/clear-route/orbit/internal/credentials/resolvers/k8sfile"
-	"github.com/clear-route/orbit/internal/egressgw"
-	"github.com/clear-route/orbit/internal/egressgw/cabundle"
-	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
-	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/githubapp"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/k8sbearer"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
+	"github.com/runkora/kora/backend/internal/credentials/resolvers/k8sfile"
+	"github.com/runkora/kora/backend/internal/egressgw"
+	"github.com/runkora/kora/backend/internal/egressgw/cabundle"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
+	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 )
 
 func main() {
@@ -78,12 +83,26 @@ func realMain() error {
 	logger := initLogger()
 	logger.Info(ctx, "Egress gateway starting", logging.Field{Key: "version", Value: egc.Current.App.Version})
 
+	metrics, err := platformmetrics.Setup(ctx, egc.Current.Metrics, observability.Config{
+		ServiceName:    egc.Current.Observability.ServiceName,
+		ServiceVersion: egc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, egc.Current.Observability.ServiceName, logger)
+	if err != nil {
+		return fmt.Errorf("setup metrics: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), egc.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
+
 	// ── Policy evaluator ─────────────────────────────────────────────────────
 	eval := policy.NewEvaluator(egc.Current.Policy.BundleEndpoint, egc.Current.BundlePollInterval(), logger)
 	eval.Start(ctx)
 
 	// ── Connection registry ──────────────────────────────────────────────────
-	// Sourced from the operator-aggregated orbit-tenant-connections ConfigMap
+	// Sourced from the operator-aggregated kora-tenant-connections ConfigMap
 	// the gateway mounts (Amendment 3), parsed + hot-reloaded from disk. No
 	// Postgres dependency.
 	connRegistry, err := credentials.LoadConfigMapRegistry(ctx, egc.Current.Secrets.ConnectionRegistryPath, logger)
@@ -124,13 +143,28 @@ func realMain() error {
 	if err != nil {
 		return fmt.Errorf("build upstream transport: %w", err)
 	}
-	proxyHandler := egressgw.NewProxyHandler(broker, forward, logger)
+	// The product name reaches the denial messages agents read.
+	b, err := brand.Load()
+	if err != nil {
+		return fmt.Errorf("load brand: %w", err)
+	}
+	proxyHandler := egressgw.NewProxyHandler(broker, forward, b, logger)
 	connectHandler := egressgw.NewConnectHandler(caBundle, proxyHandler, connRegistry, logger)
+	selfToken := identityclient.NewClient(egc.Current.Identity.InternalURL, logger).SelfTokenSource()
+	connectHandler.WithTraceLinker(egressgw.NewTraceLinker(
+		agentsclient.NewClient(egc.Current.Agents.InternalURL, logger), selfToken, logger))
 
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
 
+	// The shared revoked-JTI blocklist rejects a revoked delegation before its
+	// token expires (docs/adr/2026-07-23-delegated-agent-identity.md).
+	redis, err := initRedis(ctx, logger)
+	if err != nil {
+		return fmt.Errorf("init redis: %w", err)
+	}
+	defer func() { _ = redis.Close() }()
+
 	// ── Scope publisher ──────────────────────────────────────────────────────
-	selfToken := identityclient.NewClient(egc.Current.Identity.InternalURL, logger).SelfTokenSource()
 	registerScopes := initScopeRegistration(logger, selfToken, connRegistry, registry)
 
 	// ── Admin/read HTTP server (health + read-only connections) ──────────────
@@ -146,12 +180,16 @@ func realMain() error {
 	// wired outside the controller mux and stays open.
 	connectionsReadController := egressgw.NewConnectionsReadController(connRegistry, registry, verifier, logger)
 	apiServer := platformapi.NewAPI(ctx, logger)
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
+
 	adminHTTP := apiServer.Server(
 		ctx,
 		egc.Current.Server.AdminHTTPPort,
 		egc.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(egc.Current.Observability.ServiceName),
+			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
 		),
 		connectionsReadController,
@@ -162,8 +200,13 @@ func realMain() error {
 	// CONNECT bypasses the admin server's middleware, because the request body
 	// of a CONNECT is a TLS stream that logging and tracing must not touch. It
 	// still flows through AuthMiddleware so the broker sees verified claims.
+	// The delegation middleware adds the run's verified delegator, which every
+	// connection check intersects with, and refuses a revoked delegation.
 	// ConnectHandler itself rejects any non-CONNECT verb with an error response.
-	connectChain := mw.MiddlewareChain(mw.AuthMiddleware(verifier, logger))
+	connectChain := mw.MiddlewareChain(
+		mw.AuthMiddleware(verifier, logger),
+		mw.DelegationMiddlewareWithBlocklist(logger, verifier, storage.NewJTIBlocklist(redis)),
+	)
 	authedConnect := connectChain(connectHandler)
 
 	connectSrv := &http.Server{
@@ -208,6 +251,7 @@ func realMain() error {
 			logger.Error(ctx, "admin HTTP server error", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
+	metrics.Start(ctx, logger)
 
 	<-ctx.Done()
 	logger.Info(ctx, "Shutting down egress gateway...")
@@ -220,6 +264,7 @@ func realMain() error {
 	if err := adminHTTP.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "admin HTTP server forced shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "Egress gateway shutdown complete")
 	return nil
@@ -254,6 +299,9 @@ func upstreamTransport() (*http.Transport, error) {
 	}
 	t := base.Clone()
 	t.ResponseHeaderTimeout = upstreamResponseHeaderTimeout
+	// The forward host comes from a sandbox, so the dial refuses the gateway's
+	// own loopback and link-local targets. Timeouts match http.DefaultTransport.
+	t.DialContext = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second, Control: egressgw.RefuseLocalTarget}).DialContext
 	return t, nil
 }
 
@@ -281,4 +329,17 @@ func initLogger() logging.Logger {
 		return logging.NewDevelopmentLogger()
 	}
 	return logging.NewLogger()
+}
+
+func initRedis(ctx context.Context, logger logging.Logger) (*storage.RedisClient, error) {
+	cfg, err := storage.LoadRedisConfig()
+	if err != nil {
+		return nil, err
+	}
+	rc, err := storage.NewRedis(ctx, cfg, logger)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info(ctx, "Redis initialized successfully")
+	return rc, nil
 }

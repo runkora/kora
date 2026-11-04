@@ -18,7 +18,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // CodexRunnerConfig holds settings for the Codex app-server subprocess.
@@ -26,23 +27,26 @@ type CodexRunnerConfig struct {
 	// BinaryPath is the path to the codex binary. Defaults to "codex".
 	BinaryPath string
 
-	// WrapperPath is the path to orbit-session-runner. When set, codex is invoked
+	// WrapperPath is the path to kora-session-runner. When set, codex is invoked
 	// as: WrapperPath <workDir> <BinaryPath> [args...] so Landlock and a PID
 	// namespace are applied first. Empty invokes codex directly, with no
 	// filesystem restriction (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 	WrapperPath string
 
 	// ExtraEnv is appended to the subprocess environment (WORKSPACE and the
-	// orbit-shell callback variables).
+	// kora-shell callback variables).
 	ExtraEnv []string
 
-	// SessionManagerURL is where orbit-runtime-mcp calls back to provision a
+	// SessionManagerURL is where kora-runtime-mcp calls back to provision a
 	// sandbox. Always http://localhost:{port}, since it runs in this pod.
 	SessionManagerURL string
 
 	// ToolGatewayURL is the in-mesh base URL of the MCP tool-gateway. Empty
 	// disables the governed entries.
 	ToolGatewayURL string
+
+	// Brand names the product as the model provider Codex shows the agent.
+	Brand brand.Brand
 
 	// MCPServers are the governed MCP servers this agent holds tool grants on,
 	// one streamable-HTTP entry each.
@@ -173,7 +177,7 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 	}
 	runEnv := []string{
 		"CODEX_HOME=" + codexHome,
-		"ORBIT_INFERENCE_KEY=orbit-managed",
+		"KORA_INFERENCE_KEY=kora-managed",
 	}
 	runEnv = append(runEnv, r.cfg.ExtraEnv...)
 	// HOME and TMPDIR last: nothing earlier may move the agent off the only
@@ -219,7 +223,7 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 
 	// Synchronous initialize handshake — 30-second deadline.
 	if err := r.sendRPCRequest(ctx, "initialize", map[string]any{
-		"clientInfo":   map[string]string{"name": "orbit-session-manager", "version": "1.0"},
+		"clientInfo":   map[string]string{"name": "kora-session-manager", "version": "1.0"},
 		"capabilities": map[string]any{},
 	}); err != nil {
 		cleanupProc()
@@ -363,7 +367,7 @@ func (r *CodexRunner) Close() error {
 // sandboxToolInstructions tells a Codex agent to provision a sandbox, and where
 // to find the tool. Codex keeps MCP tools out of the model's tool list until
 // they are searched for. Claude Code and OpenCode list them directly.
-const sandboxToolInstructions = `Your commands run inside this container until you provision a sandbox, and only a sandbox can reach the network. Provision one with the provision_sandbox tool before you clone, install, build, run tests, do anything memory-heavy, or call anything outside. If the tool is not already in your tool list, search for it by name.`
+const sandboxToolInstructions = `Commands run only in a sandbox. Provision one with the provision_sandbox tool before your first command. If the tool is not already in your tool list, search for it by name.`
 
 // codexDeveloperInstructions is the agent's own prompt with the sandbox
 // instructions appended, or those instructions alone when the agent has no prompt.
@@ -385,15 +389,15 @@ func (r *CodexRunner) mcpServersTOML() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, `
 [mcp_servers.runtime]
-command = "orbit-runtime-mcp"
+command = "kora-runtime-mcp"
 args    = []
 default_tools_approval_mode = "approve"
 # Codex starts MCP servers with a filtered env; the run token proves the run on /internal calls.
-env_vars = ["ORBIT_RUN_TOKEN"]
+env_vars = ["KORA_RUN_TOKEN"]
 
 [mcp_servers.runtime.env]
-ORBIT_SESSION_MANAGER_URL = %q
-ORBIT_RUN_ID              = %q
+KORA_SESSION_MANAGER_URL = %q
+KORA_RUN_ID              = %q
 `, r.cfg.SessionManagerURL, r.cfg.RunID)
 
 	// The agent calls the gateway unauthenticated; the identity-proxy sidecar
@@ -1033,11 +1037,14 @@ func (r *CodexRunner) emit(t EventType, payload any) {
 	r.events <- ev
 }
 
+// codexProvider is Codex's config-table key for the inference gateway, not the product name.
+const codexProvider = "kora"
+
 // writeCodexConfig creates a per-run CODEX_HOME directory under workDir and
 // writes a config.toml that points Codex at the kora inference gateway.
 //
-// The bearer token is read from the ORBIT_INFERENCE_KEY environment variable
-// (env_key = "ORBIT_INFERENCE_KEY" in config.toml). This keeps the credential
+// The bearer token is read from the KORA_INFERENCE_KEY environment variable
+// (env_key = "KORA_INFERENCE_KEY" in config.toml). This keeps the credential
 // out of process argv — which is world-readable on Linux via /proc — and relies
 // on the OS environment being scoped to the subprocess, which is the standard
 // safe approach for secrets in child processes.
@@ -1060,18 +1067,18 @@ func (r *CodexRunner) writeCodexConfig(workDir string) (string, error) {
 	// Build minimal config.toml: one custom provider pointing at the gateway.
 	// wire_api = "responses" is required — Codex only speaks the Responses API.
 	// env_key names an environment variable that holds the bearer token; the
-	// identity-proxy sidecar injects a platform token via ORBIT_INFERENCE_KEY,
+	// identity-proxy sidecar injects a platform token via KORA_INFERENCE_KEY,
 	// so the actual secret value never appears on the command line or in the file.
-	configContent := fmt.Sprintf(`model_provider = "orbit"
+	configContent := fmt.Sprintf(`model_provider = %q
 model = %q
 # Codex refuses to run a command unless it can sandbox it with bubblewrap, which
 # this image does not carry: without this it panics with "bubblewrap is
-# unavailable" and no command runs at all. kora's boundary is the sandbox pod
-# and the Landlock wrapper around this process, so a second sandbox nested inside
-# them would add nothing (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
+# unavailable" and no command runs at all. The platform's boundary is the sandbox
+# pod and the Landlock wrapper around this process, so a second sandbox nested
+# inside them would add nothing (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 # Stays above the first table header: a key after one belongs to that table.
 sandbox_mode = "danger-full-access"
-# Headless: no human can answer an approval, and kora's gateways enforce policy.
+# Headless: no human can answer an approval, and the platform's gateways enforce policy.
 approval_policy = "never"
 # The agent pod reaches only platform services
 # (docs/adr/2026-09-30-agent-pod-egress-lockdown.md): no update check, and no
@@ -1085,10 +1092,10 @@ enabled = false
 [feedback]
 enabled = false
 
-[model_providers.orbit]
-name     = "kora"
+[model_providers.%s]
+name     = %q
 base_url = %q
-env_key  = "ORBIT_INFERENCE_KEY"
+env_key  = "KORA_INFERENCE_KEY"
 wire_api = "responses"
 
 [projects.%q]
@@ -1096,9 +1103,9 @@ trust_level = "trusted"
 
 # Codex's unified exec runs a persistent shell session and sends it a startup
 # script that names its resolved shell by path, which is meaningless once
-# orbit-shell forwards the command into the sandbox container. The legacy shell
+# kora-shell forwards the command into the sandbox container. The legacy shell
 # tool sends one self-contained command per call, which is the same shape Claude
-# Code uses and the shape orbit-shell implements
+# Code uses and the shape kora-shell implements
 # (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 [features]
 shell_tool = true
@@ -1109,7 +1116,7 @@ unified_exec = false
 shell_snapshot = false
 # The curated plugin sync clones github.com/openai/plugins at start.
 plugins = false
-%s`, r.cfg.Model, perRunURL, workDir, r.mcpServersTOML())
+%s`, codexProvider, r.cfg.Model, codexProvider, r.cfg.Brand.ProductName(), perRunURL, workDir, r.mcpServersTOML())
 
 	configPath := filepath.Join(codexHome, "config.toml")
 	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {

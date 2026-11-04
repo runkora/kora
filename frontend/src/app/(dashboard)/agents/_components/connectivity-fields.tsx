@@ -4,8 +4,8 @@
  * hosts), shared by the create form and the settings tab. Promote to
  * src/components/ only if a non-agents feature needs it. */
 
-import { FormField, NativeSelect, Stack, Text, Textarea } from '@orbit/hades';
-import type { ConnectivityMode } from '@orbit/shared/api';
+import { FormField, NativeSelect, Stack, Text, Textarea } from '@runkora/hades';
+import type { ConnectivityMode } from '@runkora/shared/api';
 
 // hostsToText / textToHosts bridge the API's string[] and the textarea's
 // one-host-per-line text. Trimming + empty-line filtering happens on the way in.

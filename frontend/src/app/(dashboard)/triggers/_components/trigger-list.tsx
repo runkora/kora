@@ -11,12 +11,15 @@
  */
 
 import { useMemo } from 'react';
-import { Badge, DataTable, Icon, IconTile, Sparkline, Stack, Text, Toggle } from '@orbit/hades';
-import type { DataTableColumn } from '@orbit/hades';
-import { KIND_ICON, relativeTime } from '../_types';
-import type { DeliveryRow, TriggerRow } from '../_types';
+import { Badge, DataTable, Icon, IconTile, Sparkline, Stack, Text, Toggle } from '@runkora/hades';
+import type { DataTableColumn } from '@runkora/hades';
+import { consoleKindOf, KIND_ICON, relativeTime, runTargets, triggerToggleOpen } from '../_types';
+import type { ConsoleKind, DeliveryRow, SourceCategory, TriggerRow } from '../_types';
+import { chatEventLabel } from '../_lib/chat';
 import { lastFired, recentFailures, sparkline } from '../_types/fleet';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../_types/pagination';
+import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
+import { ManagedInGitBadge, PermissionHint } from '@runkora/components';
 
 // ── View-model type ───────────────────────────────────────────────────────────
 
@@ -36,11 +39,15 @@ interface TriggerDisplayRow extends TriggerRow {
   lastFiredAt: string | null;
   /** Fires-on label (schedule expression, "on demand", event type, etc). */
   firesOnLabel: string;
+  /** Chat command for a webhook trigger on a chat source, else the stored kind. */
+  consoleKind: ConsoleKind;
 }
 
 /** What this trigger fires on, in its own vocabulary. */
-function firesOn(t: TriggerRow): string {
-  switch (t.kind) {
+function firesOn(t: TriggerRow, kind: ConsoleKind): string {
+  switch (kind) {
+    case 'chat':
+      return t.eventType ? chatEventLabel(t.eventType) : 'no event type (never fires)';
     case 'scheduled':
       return t.scheduleConfig?.cronExpression ?? 'schedule';
     case 'manual':
@@ -54,7 +61,11 @@ function firesOn(t: TriggerRow): string {
 
 function makeColumns(
   sourceName: (id: string) => string,
+  sourceWaiting: (id: string) => boolean,
   onToggle: (t: TriggerRow) => void,
+  canWrite: boolean,
+  canRunAgent: (agentTypeId: string) => boolean,
+  tenantLocked: boolean,
 ): DataTableColumn<TriggerDisplayRow>[] {
   return [
     {
@@ -66,16 +77,27 @@ function makeColumns(
       cell: (row) => (
         <Stack direction="horizontal" gap="cozy" align="center" minWidth="none">
           <IconTile tone={row.autoPausedAt !== null ? 'accent' : 'muted'}>
-            <Icon name={KIND_ICON[row.kind]} size="xs" />
+            <Icon name={KIND_ICON[row.consoleKind]} size="xs" />
           </IconTile>
           <Stack gap="tight" minWidth="none">
             <Stack direction="horizontal" gap="snug" align="center" minWidth="none">
               <Text mono size="supporting" weight="emphasis" truncate title={row.name}>
                 {row.name}
               </Text>
+              {row.declared && <ManagedInGitBadge repository={row.repository} />}
               {row.autoPausedAt !== null && (
                 <Badge variant="degraded" size="sm" shape="pill">
                   Auto-paused
+                </Badge>
+              )}
+              {row.sourceMissing && (
+                <Badge variant="error" size="sm" shape="pill">
+                  Source deleted
+                </Badge>
+              )}
+              {row.kind === 'webhook' && sourceWaiting(row.sourceId) && (
+                <Badge variant="degraded" size="sm" shape="pill">
+                  Waiting for signing secret
                 </Badge>
               )}
               {row.failures > 0 && (
@@ -85,11 +107,13 @@ function makeColumns(
               )}
             </Stack>
             <Text size="caption" color="subtle" truncate>
-              {row.kind === 'webhook'
-                ? sourceName(row.sourceId)
-                : row.kind === 'scheduled'
-                  ? (row.scheduleConfig?.timezone ?? 'schedule')
-                  : `POST /api/v1/triggers/${row.id}/fire`}
+              {row.sourceMissing
+                ? 'No source'
+                : row.kind === 'webhook'
+                  ? sourceName(row.sourceId)
+                  : row.kind === 'scheduled'
+                    ? (row.scheduleConfig?.timezone ?? 'schedule')
+                    : `POST /api/v1/trigger-fires/${row.id}`}
             </Text>
           </Stack>
         </Stack>
@@ -113,18 +137,28 @@ function makeColumns(
       header: 'Target agent',
       gridWidth: '148px',
       minWidth: '8rem',
-      cell: (row) => (
-        <Stack direction="horizontal" gap="snug" align="center" minWidth="none">
-          <IconTile size="sm">
-            <Text mono size="micro" weight="heavy">
-              {row.agentSlug.charAt(0).toUpperCase()}
+      cell: (row) =>
+        row.routing !== null ? (
+          <Stack direction="horizontal" gap="snug" align="center" minWidth="none">
+            <IconTile size="sm">
+              <Icon name="route" size="2xs" label="" />
+            </IconTile>
+            <Text size="supporting" color="muted" truncate>
+              Routed among {row.routing.candidates.length} agents
             </Text>
-          </IconTile>
-          <Text size="supporting" color="muted" truncate>
-            {row.agentSlug}
-          </Text>
-        </Stack>
-      ),
+          </Stack>
+        ) : (
+          <Stack direction="horizontal" gap="snug" align="center" minWidth="none">
+            <IconTile size="sm">
+              <Text mono size="micro" weight="heavy">
+                {row.agentSlug.charAt(0).toUpperCase()}
+              </Text>
+            </IconTile>
+            <Text size="supporting" color="muted" truncate>
+              {row.agentSlug}
+            </Text>
+          </Stack>
+        ),
     },
     {
       id: 'activity',
@@ -162,20 +196,30 @@ function makeColumns(
       minWidth: '4.5rem',
       align: 'right',
       locked: true,
-      cell: (row) => (
-        <Stack
-          direction="horizontal"
-          justify="end"
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => e.stopPropagation()}
-        >
-          <Toggle
-            checked={row.enabled}
-            onChange={() => onToggle(row)}
-            aria-label={`${row.enabled ? 'Disable' : 'Enable'} ${row.name}`}
-          />
-        </Stack>
-      ),
+      cell: (row) => {
+        // Turning a trigger on or off also needs run authority on every agent it can start.
+        const runs = runTargets(row).every(canRunAgent);
+        return (
+          <Stack
+            direction="horizontal"
+            justify="end"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <PermissionHint
+              allowed={canWrite && runs}
+              action={canWrite ? "run this trigger's agent" : 'turn triggers on or off'}
+            >
+              <Toggle
+                checked={row.enabled}
+                onChange={() => onToggle(row)}
+                disabled={!canWrite || !runs || !triggerToggleOpen(row, tenantLocked)}
+                aria-label={`${row.enabled ? 'Disable' : 'Enable'} ${row.name}`}
+              />
+            </PermissionHint>
+          </Stack>
+        );
+      },
     },
   ];
 }
@@ -186,9 +230,14 @@ function triggerMatchesSearch(row: TriggerDisplayRow, q: string): boolean {
   return (
     row.name.toLowerCase().includes(q) ||
     row.agentSlug.toLowerCase().includes(q) ||
-    row.eventType.toLowerCase().includes(q)
+    row.eventType.toLowerCase().includes(q) ||
+    row.firesOnLabel.toLowerCase().includes(q)
   );
 }
+
+/** Used when the caller does not know source categories: every source reads as a webhook source. */
+const noCategory = (): SourceCategory | undefined => undefined;
+const notWaiting = (): boolean => false;
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -197,8 +246,14 @@ interface TriggerListProps {
   deliveries: DeliveryRow[];
   /** Resolves a webhook source id to its name for the row subtitle. */
   sourceName: (id: string) => string;
+  /** Resolves a source id to its category, so a trigger on a chat source shows as a chat command. */
+  sourceCategory?: (id: string) => SourceCategory | undefined;
+  /** Whether a source is still waiting for its signing secret; such a trigger cannot fire yet. */
+  sourceWaiting?: (id: string) => boolean;
   onOpen: (t: TriggerRow) => void;
   onToggle: (t: TriggerRow) => void;
+  /** Whether the caller may run an agent; the on or off switch needs it. */
+  canRunAgent: (agentTypeId: string) => boolean;
   /** Shown inside the frame when there are no rows. */
   emptyMessage: string;
   /** Segmented filter or similar, rendered in the toolbar's right slot. */
@@ -216,8 +271,11 @@ export function TriggerList({
   triggers,
   deliveries,
   sourceName,
+  sourceCategory = noCategory,
+  sourceWaiting = notWaiting,
   onOpen,
   onToggle,
+  canRunAgent,
   emptyMessage,
   quickFilters,
   toolbarActions,
@@ -232,19 +290,26 @@ export function TriggerList({
         const buckets = sparkline(t.id, deliveries);
         const activity = buckets.map((b) => b.started + b.failed + b.other);
         const failures = recentFailures(t.id, deliveries);
+        const consoleKind = consoleKindOf(t, sourceCategory);
         return {
           ...t,
           failures,
           activity,
           hasActivity: activity.some((v) => v > 0),
           lastFiredAt: lastFired(t.id, deliveries),
-          firesOnLabel: firesOn(t),
+          firesOnLabel: firesOn(t, consoleKind),
+          consoleKind,
         };
       }),
-    [triggers, deliveries],
+    [triggers, deliveries, sourceCategory],
   );
 
-  const columns = useMemo(() => makeColumns(sourceName, onToggle), [sourceName, onToggle]);
+  const canWrite = useHasScope('triggers:write');
+  const tenantLocked = useTenantLocked();
+  const columns = useMemo(
+    () => makeColumns(sourceName, sourceWaiting, onToggle, canWrite, canRunAgent, tenantLocked),
+    [sourceName, sourceWaiting, onToggle, canWrite, canRunAgent, tenantLocked],
+  );
 
   return (
     <DataTable

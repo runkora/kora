@@ -2,13 +2,15 @@ package api
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
 // fakeTenantLister returns a fixed tenant set, standing in for the bundle
@@ -87,7 +89,7 @@ func TestRegisterRoutes_NoOpDoesNotRecompile(t *testing.T) {
 }
 
 // TestGlobalStateChanged_TenantSetDrift covers a registry-only tenant: one
-// that exists (an OrbitTenant CR) but holds no grant and no route, so it
+// that exists (an KoraTenant CR) but holds no grant and no route, so it
 // never shows up in a vocabulary or route diff. Without tracking the known
 // tenant set separately, a periodic re-registration whose own catalog is
 // unchanged would report changed=false and the new tenant's bundle — and the
@@ -160,5 +162,53 @@ func TestGlobalStateChanged_RetriesAfterFailedRecompile(t *testing.T) {
 
 	if changed, err := s.globalStateChanged(context.Background()); err != nil || changed {
 		t.Fatalf("changed = %v, err = %v; want false, nil once both recompiles are healthy again", changed, err)
+	}
+}
+
+// foreignVocab answers every upsert as a scope another service owns.
+type foreignVocab struct{ vocabulary.Repository }
+
+func (foreignVocab) Upsert(context.Context, *vocabulary.ScopeEntry) (bool, error) {
+	return false, fmt.Errorf("%w: other-service", vocabulary.ErrScopeOwnedByAnother)
+}
+
+func (foreignVocab) Exists(context.Context, string) (bool, error) { return true, nil }
+
+// The vocabulary is shared by every tenant. A tenant registration may not
+// write to it, and a service that declares another's scope is skipped.
+func TestRegisterRoutes_ScopeDeclarations(t *testing.T) {
+	declared := []routes.ScopeDeclaration{{Scope: "thing:read", ResourceType: "thing", Action: "read"}}
+	declaredRoutes := []routes.RouteScope{{PathPrefix: "/v1/thing", Method: "GET", RequiredScope: "thing:read"}}
+
+	tests := []struct {
+		name     string
+		vocab    vocabulary.Repository
+		tenantID string
+		wantErr  error
+	}{
+		{name: "global owner", vocab: idempotentVocab{}},
+		{name: "global declaration of a foreign scope is skipped", vocab: foreignVocab{}},
+		{name: "tenant declaration is rejected", vocab: foreignVocab{}, tenantID: "tenant-1", wantErr: ErrTenantScopeDeclaration},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Service{
+				vocabRepo:               tt.vocab,
+				routeStore:              routes.NewStore(),
+				tenants:                 fakeTenantLister{tenants: []string{"tenant-1"}},
+				logger:                  logging.NewLoggerWithOutput(io.Discard),
+				recompileTimers:         make(map[string]*time.Timer),
+				lastWriteAt:             make(map[string]time.Time),
+				lastKnownTenants:        []string{"tenant-1"},
+				recompileAllHealthy:     true,
+				gatewayRecompileHealthy: true,
+			}
+			s.routeStore.Register(&routes.Registration{Service: "svc", TenantID: tt.tenantID, Routes: declaredRoutes, Scopes: declared})
+
+			err := s.RegisterRoutesWithPrune(context.Background(), "svc", tt.tenantID, declaredRoutes, declared, false)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tt.wantErr)
+			}
+		})
 	}
 }

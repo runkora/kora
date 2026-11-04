@@ -8,46 +8,51 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
-	"github.com/clear-route/orbit/internal/platform/usagewindow"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/usagewindow"
 )
 
-// Controller implements the orbit-agents HTTP API.
+// Controller implements the kora-agents HTTP API.
 type Controller struct {
 	agentTypes   *AgentTypeService
 	runs         *RunService
 	environments *EnvironmentService
 	drafts       *DraftService
 	verifier     *token.Verifier
+	blocklist    mw.JTIBlocklist
 	eval         policy.Evaluator
 	routes       []routescopes.RouteScope
 	basePath     string
 	logger       logging.Logger
 }
 
-// NewController creates an orbit-agents HTTP controller.
+// NewController creates a kora-agents HTTP controller.
 //
 // routes is the same RouteScope slice that is registered with policy-service
-// at startup (see cmd/orbit-agents/main.go agentRoutes). It is also used at
+// at startup (see cmd/kora-agents/main.go agentRoutes). It is also used at
 // request time by ScopeEnforcementMiddleware to enforce route → required-scope
 // bindings in-process. basePath must match the server's BasePath so the
 // middleware can reconstruct full paths after http.StripPrefix. See docs/adr/2026-06-04-platform-scope-enforcement-middleware.md.
+// blocklist refuses a revoked delegation token before it expires.
 func NewController(
 	agentTypes *AgentTypeService,
 	runs *RunService,
 	environments *EnvironmentService,
 	drafts *DraftService,
 	verifier *token.Verifier,
+	blocklist mw.JTIBlocklist,
 	eval policy.Evaluator,
 	routes []routescopes.RouteScope,
 	basePath string,
@@ -59,6 +64,7 @@ func NewController(
 		environments: environments,
 		drafts:       drafts,
 		verifier:     verifier,
+		blocklist:    blocklist,
 		eval:         eval,
 		routes:       routes,
 		basePath:     basePath,
@@ -75,7 +81,7 @@ func (c *Controller) GroupedBy() string { return "" }
 //     and route→scope enforcement.
 //   - Internal callback routes get JWT auth ONLY. The agent's platform token is
 //     injected on every outbound request by the identity-proxy ext_proc sidecar
-//     on the agent pod (see cmd/orbit-agents k8s.go: "actual auth is the
+//     on the agent pod (see cmd/kora-agents k8s.go: "actual auth is the
 //     identity-proxy-issued JWT"). ScopeEnforcementMiddleware is intentionally
 //     omitted: the route→scope table (agentRoutes) only covers the public
 //     surface, and agent principals hold no route scopes — running it would
@@ -85,7 +91,7 @@ func (c *Controller) GroupedBy() string { return "" }
 func (c *Controller) Middleware() mw.MiddlewareHandler {
 	publicChain := mw.MiddlewareChain(
 		mw.AuthMiddleware(c.verifier, c.logger),
-		mw.DelegationMiddleware(c.logger, c.verifier),
+		mw.DelegationMiddlewareWithBlocklist(c.logger, c.verifier, c.blocklist),
 		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
 	)
 	internalChain := mw.MiddlewareChain(
@@ -150,6 +156,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /internal/runs/{id}/summary", c.handleSetRunSummary)
 	mux.Handle("POST /internal/runs/{id}/provision-sandbox", c.handleProvisionSandbox)
 	mux.Handle("GET /internal/runs/{id}/sandbox", c.handleGetRunSandbox)
+	mux.Handle("GET /internal/runs/{id}/trace-parent", c.handleGetRunTraceParent)
 	mux.Handle("GET /internal/runs/{id}/environments", c.handleListRunEnvironments)
 }
 
@@ -157,6 +164,12 @@ func (c *Controller) Boot(mux *api.Mux) {
 func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+// withCallerBearerFrom lifts r's bearer into ctx for calls made on the caller's behalf.
+// AuthMiddleware has already verified the token; this carries the raw string.
+func withCallerBearerFrom(ctx context.Context, r *http.Request) context.Context {
+	return WithCallerBearer(ctx, strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")))
 }
 
 // ── Agent Types ───────────────────────────────────────────────────────────────
@@ -176,8 +189,11 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	at, err := c.agentTypes.CreateAgentType(ctx, req)
+	at, err := c.agentTypes.CreateAgentType(withCallerBearerFrom(ctx, r), req)
 	if err != nil {
+		if declarative.WriteRefusal(ctx, w, c.logger, err) {
+			return
+		}
 		if errors.Is(err, ErrSlugTaken) {
 			apiErr := api.ConflictError(api.ErrCodeResourceExists, "slug already taken for this tenant", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -188,9 +204,9 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		if errors.Is(err, ErrIdentityModeWriteForbidden) {
+		if errors.Is(err, ErrIdentityModeWriteForbidden) || errors.Is(err, ErrScopeCeiling) {
 			// 403 with the explicit reason: the message names the missing
-			// mode-qualified scope and the identity model's stakes.
+			// scopes and, for a mode refusal, the identity model's stakes.
 			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
@@ -203,10 +219,49 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 	api.JSON(ctx, w, c.logger, http.StatusCreated, at)
 }
 
+// includeEffectiveAccess is the include value that adds each listed agent type's effective connectors.
+const includeEffectiveAccess = "effective_access"
+
+// splitIDs splits a comma-separated id list, dropping blanks.
+func splitIDs(raw string) []string {
+	var ids []string
+	for id := range strings.SplitSeq(raw, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 func (c *Controller) handleListAgentTypes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// Tenant is derived from the verified platform claims; query-string is ignored.
-	types, err := c.agentTypes.ListAgentTypes(ctx)
+	// The bearer lets can_edit resolve the caller's scopes for the ceiling check.
+	query := r.URL.Query()
+	withAccess := false
+	switch include := query.Get("include"); include {
+	case "":
+	case includeEffectiveAccess:
+		withAccess = true
+	default:
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "include must be effective_access", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+	var (
+		types []AgentType
+		err   error
+	)
+	switch {
+	case query.Has("ids"):
+		types, err = c.agentTypes.ListAgentTypesByIDs(withCallerBearerFrom(ctx, r), splitIDs(query.Get("ids")), withAccess)
+	case withAccess:
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "include=effective_access needs ids", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	default:
+		types, err = c.agentTypes.ListAgentTypes(withCallerBearerFrom(ctx, r))
+	}
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list agent types", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
@@ -220,7 +275,7 @@ func (c *Controller) handleGetAgentType(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	at, err := c.agentTypes.GetAgentType(ctx, id)
+	at, err := c.agentTypes.GetAgentType(withCallerBearerFrom(ctx, r), id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)
@@ -236,8 +291,8 @@ func (c *Controller) handleGetAgentType(w http.ResponseWriter, r *http.Request) 
 }
 
 // handleGetEffectiveAccess returns the resolved access view (egress posture +
-// environment + connector auto-egress, combined) for an agent type. Read-scoped
-// via the /api/v1/agent-types/ GET binding (agents:types:read).
+// environment + connector auto-egress, combined) for an agent type.
+// AgentTypeService.GetEffectiveAccess runs the agent-type read check.
 func (c *Controller) handleGetEffectiveAccess(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	access, err := c.agentTypes.GetEffectiveAccess(ctx, r.PathValue("id"))
@@ -290,8 +345,11 @@ func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	at, err := c.agentTypes.UpdateAgentType(ctx, req)
+	at, err := c.agentTypes.UpdateAgentType(withCallerBearerFrom(ctx, r), req)
 	if err != nil {
+		if declarative.WriteRefusal(ctx, w, c.logger, err) {
+			return
+		}
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -302,7 +360,7 @@ func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Reques
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		if errors.Is(err, ErrIdentityModeWriteForbidden) {
+		if errors.Is(err, ErrIdentityModeWriteForbidden) || errors.Is(err, ErrScopeCeiling) {
 			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
@@ -320,12 +378,15 @@ func (c *Controller) handleDeleteAgentType(w http.ResponseWriter, r *http.Reques
 	id := r.PathValue("id")
 
 	if err := c.agentTypes.DeleteAgentType(ctx, id); err != nil {
+		if declarative.WriteRefusal(ctx, w, c.logger, err) {
+			return
+		}
 		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found or not in active state", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		if errors.Is(err, ErrIdentityModeWriteForbidden) {
+		if errors.Is(err, ErrIdentityModeWriteForbidden) || errors.Is(err, ErrScopeCeiling) {
 			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
@@ -354,13 +415,9 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Lift the caller's raw bearer into context: a delegated agent's run start
-	// forwards it to POST /identity/delegation so identity mints only authority
-	// the caller already holds (delegated-agent-identity ADR, Decision 3). The
-	// token was already verified by AuthMiddleware; this carries the raw string.
-	if bearer := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")); bearer != "" {
-		ctx = WithCallerBearer(ctx, bearer)
-	}
+	// A delegated agent's run start forwards the caller's bearer to POST
+	// /identity/delegation (delegated-agent-identity ADR, Decision 3).
+	ctx = withCallerBearerFrom(ctx, r)
 
 	run, err := c.runs.StartRun(ctx, req)
 	if err != nil {
@@ -387,7 +444,7 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, ErrForbidden):
 			// A refused start is the caller's answer, not a server fault. It
 			// also has to arrive as 403 for the caller to tell it apart from a
-			// broken service: orbit-triggers retries a refusal while a young
+			// broken service: kora-triggers retries a refusal while a young
 			// grant propagates, and cannot do so if the refusal reads as 500.
 			apiErr := api.ForbiddenError(api.ErrCodeForbidden,
 				"not permitted to start runs for this agent", nil)
@@ -402,7 +459,8 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusCreated, run)
 }
 
-// handleListRuns handles GET /api/v1/runs?agent_type_id=&state=&created_after=&created_before=&limit=&cursor=, clamping limit to maxRunsLimit.
+// handleListRuns handles GET /api/v1/runs?agent_type_id=&state=&started_by=&created_after=&created_before=&limit=&cursor=, clamping limit to maxRunsLimit.
+// agent_type_id and state may repeat; started_by=trigger keeps runs a trigger started.
 func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
@@ -446,7 +504,18 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page, err := c.runs.ListRuns(ctx, q.Get("agent_type_id"), p)
+	switch q.Get("started_by") {
+	case "":
+	case startedByTrigger:
+		p.StartedByTrigger = true
+	default:
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "started_by must be trigger", map[string]any{"field": "started_by"})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+	agentTypeIDs := slices.DeleteFunc(slices.Clone(q["agent_type_id"]), func(id string) bool { return id == "" })
+
+	page, err := c.runs.ListRuns(ctx, agentTypeIDs, p)
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list runs", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
@@ -533,7 +602,7 @@ func (c *Controller) handleGetRun(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	run, err := c.runs.GetRun(ctx, id)
+	run, err := c.runs.GetRunWithUsage(ctx, id)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
@@ -566,15 +635,11 @@ func (c *Controller) handleTerminateRun(w http.ResponseWriter, r *http.Request) 
 	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
-type sendMessageRequest struct {
-	Content string `json:"content"`
-}
-
 func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
 
-	var req sendMessageRequest
+	var req SendMessageRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
@@ -584,9 +649,21 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := c.runs.SendMessage(ctx, id, req.Content); err != nil {
+	if err := c.runs.SendMessage(ctx, id, req); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrTriggerAttributionRefused) {
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden,
+				"only a service principal may send a message as a trigger", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrTriggerAttributionIncomplete) {
+			apiErr := api.ValidationError(api.ErrCodeMissingField,
+				"trigger_id is required when attributing a message to a trigger", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
@@ -597,13 +674,15 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		// The reason detail tells a caller that can wait for a starting run
+		// apart from one that should give up on a closed run.
 		if errors.Is(err, ErrRunStarting) {
-			apiErr := api.ConflictError(api.ErrCodeConflict, "run is starting", nil)
+			apiErr := api.ConflictError(api.ErrCodeConflict, "run is starting", map[string]any{"reason": "run_starting"})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
 		if errors.Is(err, ErrRunNotAcceptingMessages) {
-			apiErr := api.ConflictError(api.ErrCodeConflict, "run is not accepting messages", nil)
+			apiErr := api.ConflictError(api.ErrCodeConflict, "run is not accepting messages", map[string]any{"reason": "run_closed"})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
@@ -870,7 +949,7 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
-// writeSSE writes one event. data is an envelope: "at" is when orbit-agents
+// writeSSE writes one event. data is an envelope: "at" is when kora-agents
 // recorded the event (or received it, for streaming-only types) and "payload"
 // is the event as stored, so clients never stamp events with their own clock.
 func writeSSE(w io.Writer, seqNo int64, eventType string, at time.Time, payload json.RawMessage) {
@@ -963,6 +1042,35 @@ func (c *Controller) handleGetRunSandbox(w http.ResponseWriter, r *http.Request)
 		"endpoint":   sandbox.Endpoint,
 		"exec_token": sandbox.ExecToken,
 	})
+}
+
+// traceParentCaller is the SYSTEM principal allowed to read a run's trace context
+// (docs/adr/2026-10-31-one-trace-per-run.md).
+const traceParentCaller = "egress-gateway"
+
+// handleGetRunTraceParent returns the run's stored traceparent, empty when the run has none.
+// Any SYSTEM token is not enough: the caller must be the egress gateway.
+func (c *Controller) handleGetRunTraceParent(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims.Kora.PrincipalType != token.PrincipalTypeSystem || claims.Kora.DisplayName != traceParentCaller {
+		apiErr := api.ForbiddenError(api.ErrCodeForbidden, "caller is not authorized to read run trace context", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+
+	traceParent, err := c.runs.TraceParent(ctx, r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to look up the run trace context", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]string{"trace_parent": traceParent})
 }
 
 func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Request) {

@@ -370,7 +370,7 @@ func startedSleep(t *testing.T) *exec.Cmd {
 
 func TestCodex_UnwrapShell(t *testing.T) {
 	tests := map[string]string{
-		`/opt/orbit/shell/bash -lc 'echo a'`:             "echo a",
+		`/opt/kora/shell/bash -lc 'echo a'`:              "echo a",
 		`/bin/bash -lc 'ls /usr | wc -l'`:                "ls /usr | wc -l",
 		`/bin/bash -lc 'echo '\''quoted'\'''`:            "echo 'quoted'",
 		`git status`:                                     "git status",

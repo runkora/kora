@@ -21,10 +21,10 @@ import (
 	openai "github.com/openai/openai-go/v3"
 	openaiopt "github.com/openai/openai-go/v3/option"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/bridge"
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/bridge"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Config holds one Bedrock account and region. Empty keys use the AWS default
@@ -118,7 +118,7 @@ func New(cfg *Config, providerName inferencegw.ProviderName, logger logging.Logg
 	openaiClient := openai.NewClient(
 		openaiopt.WithBaseURL(openaiEndpoint),
 		openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
-			httpclient.NewTracingTransport("orbit.bedrock-openai", newSigV4Transport(awsCfg)),
+			httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/bedrock", "", newSigV4Transport(awsCfg)),
 		)),
 	)
 
@@ -128,7 +128,7 @@ func New(cfg *Config, providerName inferencegw.ProviderName, logger logging.Logg
 	mantleClient := openai.NewClient(
 		openaiopt.WithBaseURL(mantleEndpoint),
 		openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
-			httpclient.NewTracingTransport("orbit.bedrock-mantle", newSigV4Transport(awsCfg)),
+			httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/bedrock", "", newSigV4Transport(awsCfg)),
 		)),
 	)
 
@@ -140,7 +140,7 @@ func New(cfg *Config, providerName inferencegw.ProviderName, logger logging.Logg
 	mantleOpenAIV1Client := openai.NewClient(
 		openaiopt.WithBaseURL(mantleOpenAIV1Endpoint),
 		openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
-			httpclient.NewTracingTransport("orbit.bedrock-mantle-openai-v1", newSigV4Transport(awsCfg)),
+			httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/bedrock", "", newSigV4Transport(awsCfg)),
 		)),
 	)
 
@@ -151,7 +151,7 @@ func New(cfg *Config, providerName inferencegw.ProviderName, logger logging.Logg
 	anthropicClient := anthropic.NewClient(
 		awsbedrock.WithConfig(awsCfg),
 		anthropicOption.WithHTTPClient(httpclient.NewStreamingHTTPClient(
-			httpclient.NewTracingTransport("orbit.bedrock-anthropic", nil),
+			httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/bedrock", "", nil),
 		)),
 	)
 
@@ -457,7 +457,7 @@ func isAnthropicModel(id string) bool {
 }
 
 // defaultRoleSessionName names assumed sessions when the resource sets none.
-const defaultRoleSessionName = "orbit-inference-gateway"
+const defaultRoleSessionName = "kora-inference-gateway"
 
 // assumeRoleCredentials assumes roleARN with the base credentials in base. The
 // cache refreshes the session before it expires.

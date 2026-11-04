@@ -65,7 +65,7 @@ We need to define:
 
 - Replacing the SPIRE CSI driver's role in mounting the Workload API socket into pods — the CSI driver (node-level DaemonSet) continues to serve as the mechanism by which `istio-proxy` and identity-proxy access SVIDs
 - Implementing in-application policy enforcement inside the agent workload (that is Layer 2 per [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md))
-- Handling the delegation token (`X-Orbit-Delegation-Token`) — delegation is an application-level concern per [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md); the sidecar only handles the workload identity token
+- Handling the delegation token (`X-Kora-Delegation-Token`) — delegation is an application-level concern per [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md); the sidecar only handles the workload identity token
 - Defining the ext_authz OPA policy evaluation path (separate from token injection)
 
 ---
@@ -230,7 +230,7 @@ identity-proxy binary
 │     Ensures token is always bound to the current SVID before it is injected.
 │
 └── ext_proc gRPC server
-      Listens on Unix domain socket (e.g. /run/orbit/identity-proxy.sock).
+      Listens on Unix domain socket (e.g. /run/kora/identity-proxy.sock).
       Implements envoy.service.ext_proc.v3.ExternalProcessor.
       On ProcessingRequest (request_headers phase):
         1. Acquire RLock on TokenCache.
@@ -257,9 +257,9 @@ identity-proxy binary
 5. Waits for Envoy to be xDS-ready by polling localhost:15021/healthz/ready.
    This ensures iptables intercept is active before any outbound call is made.
 6. Performs initial exchange:
-   POST {ORBIT_IDENTITY_SERVICE_URL}/api/v1/identity/exchange
-   where ORBIT_IDENTITY_SERVICE_URL is the scheme+host only, e.g.
-   "http://orbit-identity.orbit-system.svc.cluster.local".
+   POST {KORA_IDENTITY_SERVICE_URL}/api/v1/identity/exchange
+   where KORA_IDENTITY_SERVICE_URL is the scheme+host only, e.g.
+   "http://kora-identity.kora-system.svc.cluster.local".
    The "/api/v1/identity/exchange" suffix is appended by Exchange() —
    do NOT include it in the env var.
    mTLS: Envoy intercepts the outbound HTTP call and presents the pod's SPIRE
@@ -303,8 +303,8 @@ containers:
   - name: identity-proxy
     image: orbit/identity-proxy:<version>
     env:
-      - name: ORBIT_IDENTITY_SERVICE_URL
-        value: http://orbit-identity.orbit-system.svc.cluster.local
+      - name: KORA_IDENTITY_SERVICE_URL
+        value: http://kora-identity.kora-system.svc.cluster.local
       - name: SPIFFE_ENDPOINT_SOCKET
         value: unix:///run/secrets/workload-spiffe-uds/socket
     volumeMounts:
@@ -312,12 +312,12 @@ containers:
         mountPath: /run/secrets/workload-spiffe-uds
         readOnly: true
       - name: identity-proxy-socket
-        mountPath: /run/orbit
+        mountPath: /run/kora
 ```
 
-Envoy is configured (via Istio `EnvoyFilter` CRD) with an `ext_proc` filter on its outbound HTTP listener pointing at `/run/orbit/identity-proxy.sock`. The filter is applied to all outbound requests from the pod.
+Envoy is configured (via Istio `EnvoyFilter` CRD) with an `ext_proc` filter on its outbound HTTP listener pointing at `/run/kora/identity-proxy.sock`. The filter is applied to all outbound requests from the pod.
 
-Future: sidecar injection can be automated via a Kubernetes `MutatingAdmissionWebhook` that injects the identity-proxy container and the Envoy filter config into pods carrying a well-known label (e.g. `orbit.io/identity-proxy: enabled`).
+Future: sidecar injection can be automated via a Kubernetes `MutatingAdmissionWebhook` that injects the identity-proxy container and the Envoy filter config into pods carrying a well-known label (e.g. `runkora.io/identity-proxy: enabled`).
 
 ---
 
@@ -341,7 +341,7 @@ Future: sidecar injection can be automated via a Kubernetes `MutatingAdmissionWe
 ### Neutral
 
 - The SPIRE CSI driver (node-level DaemonSet) continues to serve its existing role unchanged — mounting the Workload API socket into pods. identity-proxy adds a second independent Workload API consumer alongside `istio-proxy` — this is additive, not a change to the existing node infrastructure
-- The `ORBIT_IDENTITY_SERVICE_URL` environment variable becomes a platform convention for all agent pod specs — injected by the reference pod template or mutating webhook
+- The `KORA_IDENTITY_SERVICE_URL` environment variable becomes a platform convention for all agent pod specs — injected by the reference pod template or mutating webhook
 
 ---
 
@@ -392,7 +392,7 @@ metadata:
 spec:
   workloadSelector:
     labels:
-      orbit.io/identity-proxy: enabled
+      runkora.io/identity-proxy: enabled
   configPatches:
     - applyTo: HTTP_FILTER
       match:
@@ -432,11 +432,11 @@ spec:
                   - endpoint:
                       address:
                         pipe:
-                          path: /run/orbit/identity-proxy.sock
+                          path: /run/kora/identity-proxy.sock
           http2_protocol_options: {}
 ```
 
-The filter references `cluster_name: identity_proxy_local`. The second `configPatches` entry above defines that cluster as a static STATIC cluster resolving to the Unix domain socket at `/run/orbit/identity-proxy.sock`. Both patches must be deployed together — the filter patch alone is not deployable.
+The filter references `cluster_name: identity_proxy_local`. The second `configPatches` entry above defines that cluster as a static STATIC cluster resolving to the Unix domain socket at `/run/kora/identity-proxy.sock`. Both patches must be deployed together — the filter patch alone is not deployable.
 
 #### Fail-open posture (`failure_mode_allow: true`)
 
@@ -446,7 +446,7 @@ This is an explicit, considered choice. The alternative (`failure_mode_allow: fa
 
 **Why fail-open is correct here:**
 
-1. **Defence-in-depth at the destination.** The orbit-identity service and all other kora platform APIs enforce token validation independently — an unauthenticated request without `Authorization: Bearer` will receive a 401 at the application level. The token injection sidecar is a convenience layer, not the sole enforcement point. Fail-closed would make this sidecar a single point of failure for all workload egress traffic.
+1. **Defence-in-depth at the destination.** The kora-identity service and all other kora platform APIs enforce token validation independently — an unauthenticated request without `Authorization: Bearer` will receive a 401 at the application level. The token injection sidecar is a convenience layer, not the sole enforcement point. Fail-closed would make this sidecar a single point of failure for all workload egress traffic.
 
 2. **Startup race.** identity-proxy takes a small but nonzero amount of time to start, connect to SPIRE, and obtain its initial token. During this window, fail-closed would cause the agent workload's first outbound requests to fail with 500s. Fail-open allows those requests to proceed (and fail with 401 at the destination if they need auth), without permanently erroring before the proxy is ready.
 
@@ -468,7 +468,7 @@ securityContext:
     drop: [ALL]
 ```
 
-`readOnlyRootFilesystem: true` is safe because identity-proxy writes nothing to the container filesystem at runtime. The Unix domain socket at `/run/orbit/identity-proxy.sock` and the SPIRE Workload API socket at `/run/secrets/workload-spiffe-uds/socket` are both `emptyDir` or CSI volume mounts — writable at the volume level regardless of the container root filesystem restriction.
+`readOnlyRootFilesystem: true` is safe because identity-proxy writes nothing to the container filesystem at runtime. The Unix domain socket at `/run/kora/identity-proxy.sock` and the SPIRE Workload API socket at `/run/secrets/workload-spiffe-uds/socket` are both `emptyDir` or CSI volume mounts — writable at the volume level regardless of the container root filesystem restriction.
 
 The health endpoint port in the sidecar template is named `health` (not `metrics`). No Prometheus `/metrics` scrape endpoint is exposed in this revision. The port name reflects what the endpoint actually serves. Metrics instrumentation is deferred to a follow-on iteration.
 

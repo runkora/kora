@@ -1,0 +1,91 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.23.0
+  name: oauthclients.runkora.io
+spec:
+  group: runkora.io
+  names:
+    kind: OAuthClient
+    listKind: OAuthClientList
+    plural: oauthclients
+    shortNames:
+    - oauthc
+    singular: oauthclient
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.clientId
+      name: ClientID
+      type: string
+    - jsonPath: .spec.clientName
+      name: Name
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          OAuthClient pre-registers a public OAuth client (a hosted web app) with the
+          identity authorization server. It lives in the tenant namespace.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              OAuthClientSpec declares the public-client identity the authorization server
+              enforces at the authorize endpoint. There is no secret and no grant/scope
+              vocabulary here: authorization of the resulting human token is owned by the
+              policy service, exactly as with Connection under Amendment 3.
+            properties:
+              clientId:
+                description: |-
+                  ClientID is the stable, human-readable client identifier the app presents
+                  at the authorize and token endpoints (e.g. "example-app"). It MUST be
+                  unique across the whole authorization server — the identity service looks
+                  clients up by client_id alone, not scoped by tenant.
+                minLength: 1
+                type: string
+              clientName:
+                description: ClientName is the display name shown on the consent screen.
+                  Optional.
+                type: string
+              redirectUris:
+                description: |-
+                  RedirectURIs is the exact list of permitted redirect URIs for this client.
+                  The authorize endpoint requires an exact string match against this list
+                  (no prefix or wildcard matching), which is the security gate that makes
+                  non-loopback redirect URIs safe. At least one is required.
+                items:
+                  type: string
+                minItems: 1
+                type: array
+            required:
+            - clientId
+            - redirectUris
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources: {}

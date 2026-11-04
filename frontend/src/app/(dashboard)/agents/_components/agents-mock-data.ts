@@ -17,7 +17,7 @@ import type {
   ModelObject,
   Run,
   RunWithAttribution,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 import { RUNNING_ROWS } from '../_lib/spend';
 import { LIVE_RUN_STATES, indexAgentTypes, toAgentTypeRow, toRunRow } from '../_types';
 import type { AgentTypeRow, RunRow } from '../_types';
@@ -56,6 +56,9 @@ function agentType(
     updated_at: ago(2 * DAY),
     model_id: 'anthropic/claude-sonnet-4-6',
     environments: [],
+    can_run: true,
+    can_edit: true,
+    can_delete: true,
     ...partial,
   };
 }
@@ -679,7 +682,7 @@ export const SCALE_USAGE: AgentTypeUsage[] = SCALE_AGENT_TYPES.map((a, i) => {
 
 // ── Run stats ────────────────────────────────────────────────────────────────
 
-/** The run stats orbit-agents would return for these rows, all inside the window. */
+/** The run stats kora-agents would return for these rows, all inside the window. */
 export function mockRunStats(rows: RunRow[]): AgentRunStats {
   const byState: AgentRunStats['current']['by_state'] = {};
   const liveByAgentType: Record<string, number> = {};

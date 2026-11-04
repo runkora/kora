@@ -11,22 +11,93 @@
  * (WebhookSource, Trigger, TriggerDelivery) only appear at the service boundary.
  */
 
-import type { IconName } from '@orbit/hades';
+import { isDeclared, managedInGit } from '@runkora/lib/declarative';
+import type { IconName } from '@runkora/hades';
 import type {
   InputField,
   SenderRestriction,
+  SourceCategory,
   Trigger,
+  TriggerCoalesce as TriggerCoalesceWire,
   TriggerDelivery,
   TriggerKind,
   TriggerOverflow,
+  TriggerRouteOutcome,
+  TriggerRouting,
+  TriggerRoutingConfidence,
+  TriggerRoutingDecision,
+  TriggerTargetKind,
   TriggerUpdateRequest,
   WebhookSource,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 
-export type { InputField, TriggerKind, TriggerOverflow };
+export type {
+  InputField,
+  SourceCategory,
+  TriggerKind,
+  TriggerOverflow,
+  TriggerRouteOutcome,
+  TriggerRoutingConfidence,
+  TriggerTargetKind,
+};
 
-/** Who may fire a webhook trigger; both lists empty means anyone. */
+/** Burst coalescing for a webhook trigger: a key template and a window in seconds. */
+export interface TriggerCoalesce {
+  key: string;
+  windowSeconds: number;
+}
+
+/** Who may fire a webhook or chat command trigger; both lists empty means anyone. */
 export type Senders = Required<SenderRestriction>;
+
+/** A routed trigger's candidates and settings. */
+export interface TriggerRoutingRow {
+  /** Agent type ids. */
+  candidates: string[];
+  /** The decision model's catalog id. */
+  model: string;
+  confidence: TriggerRoutingConfidence;
+  /** Null starts no run when routing is unsure. */
+  fallbackAgentTypeId: string | null;
+  joinRuns: boolean;
+  /** Empty when the trigger has no join key. */
+  joinKey: string;
+}
+
+/**
+ * The probability each confidence preset routes at. Mirrors the backend's
+ * thresholds, so the delivery panel can name the preset a decision used.
+ */
+export const CONFIDENCE_THRESHOLDS: Record<TriggerRoutingConfidence, number> = {
+  strict: 0.85,
+  balanced: 0.7,
+  loose: 0.5,
+};
+
+/** The preset a recorded threshold belongs to, or null for a value none of them uses. */
+export function confidencePresetOf(threshold: number): TriggerRoutingConfidence | null {
+  const found = (Object.keys(CONFIDENCE_THRESHOLDS) as TriggerRoutingConfidence[]).find(
+    (p) => Math.abs(CONFIDENCE_THRESHOLDS[p] - threshold) < 1e-9,
+  );
+  return found ?? null;
+}
+
+/**
+ * How the console groups triggers. A chat command trigger is stored as a
+ * `webhook` trigger on a chat source, so `chat` exists only in the console.
+ */
+export type ConsoleKind = TriggerKind | 'chat';
+
+/**
+ * A trigger's console kind: `chat` for a webhook trigger whose source is a
+ * chat source, else its stored kind.
+ */
+export function consoleKindOf(
+  t: Pick<TriggerRow, 'kind' | 'sourceId'>,
+  sourceCategory: (sourceId: string) => SourceCategory | undefined,
+): ConsoleKind {
+  return t.kind === 'webhook' && sourceCategory(t.sourceId) === 'chat' ? 'chat' : t.kind;
+}
 
 // ── Shared vocabulary ─────────────────────────────────────────────────────────
 //
@@ -44,11 +115,16 @@ export const LIMITS = {
   parallel: { min: 1, max: 16 },
   queueDepth: { min: 1, max: 500 },
   timeout: { min: 5, max: 600 },
+  /** Coalescing: window in seconds, and the key template's size in bytes. */
+  coalesce: { window: { min: 1, max: 300 }, keyBytes: 256 },
+  /** A routed trigger's join key template, in bytes. */
+  joinKeyBytes: 256,
 };
 
 /** Icon per kind: what wakes this trigger up. One map, so every surface agrees. */
-export const KIND_ICON: Record<TriggerKind, IconName> = {
+export const KIND_ICON: Record<ConsoleKind, IconName> = {
   webhook: 'webhook',
+  chat: 'send',
   scheduled: 'clock',
   manual: 'play',
 };
@@ -57,7 +133,13 @@ export interface SourceRow {
   id: string;
   name: string;
   provider: string;
+  /** `chat` for a chat platform's source, else `webhook`. */
+  category: SourceCategory;
   enabled: boolean;
+  /** False for a source whose provider issues its secret and that is still waiting for it. */
+  signingSecretSet: boolean;
+  /** The provider's settings for this source; only a generic source has any. */
+  config?: Record<string, unknown>;
   createdAt: string;
   /**
    * Requests that failed authentication. Never deliveries, since those are
@@ -67,22 +149,38 @@ export interface SourceRow {
   rejectionCount: number;
   lastRejectionAt: string | null;
   lastRejectionReason: string | null;
+  /** Declared in the configuration repository: read-only here. */
+  declared: boolean;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 export interface TriggerRow {
   id: string;
   kind: TriggerKind;
   sourceId: string;
+  /** A webhook trigger whose source was deleted. It does not fire and can only be disabled or deleted. */
+  sourceMissing: boolean;
+  /** Declared in the configuration repository: read-only here. */
+  declared: boolean;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
   name: string;
+  /** "routed" triggers have no single agent: both agent fields are empty. */
+  targetKind: TriggerTargetKind;
   agentTypeId: string;
   agentSlug: string;
+  /** Routed triggers only. */
+  routing: TriggerRoutingRow | null;
   /** Webhook triggers only. */
   eventType: string;
   matchCondition: Record<string, string[]>;
   /** Webhook triggers only. field → substrings, matched ignoring case. */
   matchContains: Record<string, string[]>;
-  /** Webhook triggers only. Both lists empty means anyone may fire it. */
+  /** Webhook and chat command triggers only. Both lists empty means anyone may fire it. */
   senderRestriction: Senders;
+  /** Webhook triggers only. Null when bursts are not coalesced. */
+  coalesce: TriggerCoalesce | null;
   promptTemplate: string;
   /** Scheduled triggers only. */
   scheduleConfig?: { cronExpression: string; timezone: string; catchUp?: boolean };
@@ -113,6 +211,8 @@ export interface TriggerRow {
    * rather than a wrong number.
    */
   pendingCount: number;
+  /** Whether the caller may fire this trigger. */
+  canFire: boolean;
 }
 
 export interface DeliveryRow {
@@ -138,6 +238,16 @@ export interface DeliveryRow {
   receivedAt: string;
   /** Full per-trigger dispatch fan-out for this delivery. */
   runs: DeliveryRunRow[];
+  /** The coalescing key each matched coalescing trigger rendered for this delivery. */
+  coalesceKeys: DeliveryCoalesceKeyRow[];
+}
+
+export interface DeliveryCoalesceKeyRow {
+  triggerId: string;
+  /** Null when the rendered key was too long to use. */
+  key: string | null;
+  /** The key exceeded the size limit, so this fire did not coalesce. */
+  keyTooLong: boolean;
 }
 
 export interface DeliveryRunRow {
@@ -147,12 +257,35 @@ export interface DeliveryRunRow {
   runId: string | null;
   status: string;
   error: string | null;
+  /** The delivery whose fire replaced this one; set when the status is `superseded`. */
+  supersededBy?: string;
+  /** The decision a routed trigger made for this delivery. Absent on every other trigger. */
+  routing?: DeliveryRoutingRow;
   /**
    * When this outcome was recorded. Against the delivery's receivedAt this is
    * how long the platform took to start the run, which is the only dispatch
    * latency signal available without instrumenting the agent API.
    */
   createdAt: string | null;
+}
+
+/** What a routed trigger decided for one delivery. */
+export interface DeliveryRoutingRow {
+  outcome: TriggerRouteOutcome;
+  keyMatched: boolean;
+  joinKey: string | null;
+  /** Null when the join key decided without a model call. */
+  model: string | null;
+  /** The agent that received the delivery. */
+  agentTypeId: string | null;
+  /** The chosen option's probability. */
+  probability: number | null;
+  threshold: number | null;
+  /** Each candidate agent's probability, highest first. */
+  agentScores: { agentTypeId: string; probability: number }[];
+  /** below_threshold, decision_failed or run_closed. */
+  fallbackReason: string | null;
+  error: string | null;
 }
 
 /** Minimal agent identity used by the trigger create/edit form's agent picker. */
@@ -165,21 +298,45 @@ export interface AgentOption {
    * (they only run on behalf of a person), so the picker disables them.
    */
   identityMode: 'autonomous' | 'delegated';
+  /** Whether the caller may run this agent; binding and run-shaping edits need it. */
+  canRun: boolean;
 }
 
 // ── Transformers ──────────────────────────────────────────────────────────────
+
+/** The agents a trigger can start: its bound agent, or every candidate of a routed trigger. */
+export function runTargets(t: Pick<TriggerRow, 'agentTypeId' | 'routing'>): string[] {
+  return t.routing ? t.routing.candidates : [t.agentTypeId];
+}
 
 export function toSourceRow(s: WebhookSource): SourceRow {
   return {
     id: s.id,
     name: s.name,
     provider: s.provider,
+    // A backend that predates categories has only webhook sources.
+    category: s.category ?? 'webhook',
     enabled: s.enabled,
+    signingSecretSet: s.signing_secret_set ?? true,
+    ...(s.config !== undefined && { config: s.config }),
     createdAt: s.created_at,
     rejectionCount: s.rejection_count ?? 0,
     lastRejectionAt: s.last_rejection_at ?? null,
     lastRejectionReason: s.last_rejection_reason ?? null,
+    declared: isDeclared(s),
+    repository: s.repository,
   };
+}
+
+/**
+ * Whether the on or off control may change. A trigger whose source was deleted
+ * can be turned off, never on. A trigger managed in git can only be re-enabled
+ * after an auto-pause, which the API still accepts.
+ */
+export function triggerToggleOpen(t: TriggerRow, tenantLocked: boolean): boolean {
+  if (t.sourceMissing && !t.enabled) return false;
+  if (!managedInGit(t.declared, tenantLocked)) return true;
+  return t.autoPausedAt !== null && !t.enabled;
 }
 
 export function toTriggerRow(t: Trigger): TriggerRow {
@@ -187,16 +344,22 @@ export function toTriggerRow(t: Trigger): TriggerRow {
     id: t.id,
     kind: t.kind,
     sourceId: t.source_id ?? '',
+    sourceMissing: t.source_missing ?? false,
+    declared: isDeclared(t),
+    repository: t.repository,
     name: t.name,
-    agentTypeId: t.agent_type_id,
-    agentSlug: t.agent_slug,
+    targetKind: t.target_kind ?? 'agent',
+    agentTypeId: t.agent_type_id ?? '',
+    agentSlug: t.agent_slug ?? '',
+    routing: t.routing ? toRoutingRow(t.routing) : null,
     eventType: t.event_type ?? '',
     matchCondition: t.match_condition ?? {},
     matchContains: t.match_contains ?? {},
     senderRestriction: {
-      logins: t.sender_restriction?.logins ?? [],
-      associations: t.sender_restriction?.associations ?? [],
+      ids: t.sender_restriction?.ids ?? [],
+      roles: t.sender_restriction?.roles ?? [],
     },
+    coalesce: t.coalesce ? { key: t.coalesce.key, windowSeconds: t.coalesce.window_seconds } : null,
     promptTemplate: t.prompt_template,
     scheduleConfig: t.schedule_config
       ? {
@@ -219,6 +382,7 @@ export function toTriggerRow(t: Trigger): TriggerRow {
     // Zero until the backend reports it, so a console deployed ahead of the
     // API shows nothing rather than a wrong number.
     pendingCount: t.pending_count ?? 0,
+    canFire: t.can_fire ?? false,
   };
 }
 
@@ -248,12 +412,63 @@ export function toDeliveryRow(d: TriggerDelivery): DeliveryRow {
       runId: r.run_id ?? null,
       status: r.status,
       error: r.error ?? null,
+      ...(r.superseded_by !== undefined && { supersededBy: r.superseded_by }),
+      ...(r.routing !== undefined && { routing: toDeliveryRoutingRow(r.routing) }),
       createdAt: r.created_at ?? null,
+    })),
+    coalesceKeys: (d.coalesce_keys ?? []).map((c) => ({
+      triggerId: c.trigger_id,
+      key: c.key ?? null,
+      keyTooLong: c.key_too_long ?? false,
     })),
   };
 }
 
+export function toRoutingRow(r: TriggerRouting): TriggerRoutingRow {
+  return {
+    candidates: r.candidates ?? [],
+    model: r.model,
+    confidence: r.confidence,
+    fallbackAgentTypeId: r.fallback_agent_type_id ?? null,
+    joinRuns: r.join_runs ?? true,
+    joinKey: r.join_key ?? '',
+  };
+}
+
+export function toDeliveryRoutingRow(d: TriggerRoutingDecision): DeliveryRoutingRow {
+  return {
+    outcome: d.outcome,
+    keyMatched: d.key_matched,
+    joinKey: d.join_key ?? null,
+    model: d.model ?? null,
+    agentTypeId: d.agent_type_id ?? null,
+    probability: d.probability ?? null,
+    threshold: d.threshold ?? null,
+    agentScores: Object.entries(d.scores?.agents ?? {})
+      .map(([agentTypeId, probability]) => ({ agentTypeId, probability }))
+      .sort((a, b) => b.probability - a.probability),
+    fallbackReason: d.fallback_reason ?? null,
+    error: d.error ?? null,
+  };
+}
+
 // ── Request mapping ───────────────────────────────────────────────────────────
+
+/**
+ * The wire form of a routing object. Shared by create and update. A join key
+ * is sent only while joining is on, since the backend reads it for nothing else.
+ */
+export function toRoutingRequest(r: TriggerRoutingRow): TriggerRouting {
+  const joinKey = r.joinKey.trim();
+  return {
+    candidates: r.candidates,
+    model: r.model,
+    confidence: r.confidence,
+    fallback_agent_type_id: r.fallbackAgentTypeId,
+    join_runs: r.joinRuns,
+    ...(r.joinRuns && joinKey !== '' && { join_key: joinKey }),
+  };
+}
 
 /** A schedule as the console holds it, before it is put on the wire. */
 export interface TriggerScheduleDraft {
@@ -277,6 +492,8 @@ export interface TriggerPatch {
   matchContains?: Record<string, string[]>;
   /** Webhook only. Replaces the restriction; both lists empty removes it. */
   senderRestriction?: Senders;
+  /** Webhook only. Replaces the setting; null removes it. */
+  coalesce?: TriggerCoalesce | null;
   scheduleConfig?: TriggerScheduleDraft;
   enabled?: boolean;
   dedupeEnabled?: boolean;
@@ -285,6 +502,11 @@ export interface TriggerPatch {
   overflow?: TriggerOverflow;
   maxQueueDepth?: number;
   timeoutSeconds?: number;
+}
+
+/** The wire form of a coalesce setting. Shared by create and update. */
+export function toCoalesceRequest(coalesce: TriggerCoalesce): TriggerCoalesceWire {
+  return { key: coalesce.key, window_seconds: coalesce.windowSeconds };
 }
 
 /** The wire form of a schedule. Shared by create and update. */
@@ -312,6 +534,10 @@ export function toTriggerUpdateRequest(patch: TriggerPatch): TriggerUpdateReques
     ...(patch.matchContains !== undefined && { match_contains: patch.matchContains }),
     ...(patch.senderRestriction !== undefined && {
       sender_restriction: patch.senderRestriction,
+    }),
+    // `{}` is how the API removes the setting; omitting it leaves it alone.
+    ...(patch.coalesce !== undefined && {
+      coalesce: patch.coalesce === null ? {} : toCoalesceRequest(patch.coalesce),
     }),
     ...(patch.scheduleConfig !== undefined && {
       schedule_config: toScheduleConfigRequest(patch.scheduleConfig),
@@ -373,9 +599,12 @@ export function formatTimestampUtc(iso: string): string {
 export function deliveryStatusTone(status: string): 'healthy' | 'degraded' | 'error' | 'unknown' {
   switch (status) {
     case 'dispatched':
+    case 'joined':
       return 'healthy';
     case 'verified':
     case 'skipped':
+    // A routed trigger that was not sure enough and had no fallback worked as configured.
+    case 'unrouted':
     // A repeat arrival and a tick that fired while the platform was away are
     // notable but not faults; they share the cautionary tone with skipped.
     case 'duplicate':
@@ -475,6 +704,37 @@ export function isRedeliverable(status: string): boolean {
   return REDELIVERABLE_STATUSES.has(status);
 }
 
+/**
+ * What to show for the key a trigger rendered on a delivery.
+ *
+ * A key too long to use is stated plainly, since the fire ran on its own and
+ * the reader would otherwise wonder why nothing was coalesced.
+ */
+export function coalesceKeyText(entry: DeliveryCoalesceKeyRow): string {
+  if (entry.keyTooLong) return 'Key too long, not coalesced';
+  return entry.key ?? '';
+}
+
+/**
+ * The coalescing keys to show for a delivery. Scoped to one trigger when the
+ * surface is, so a trigger's drawer never shows another trigger's key.
+ */
+export function coalesceKeysFor(d: DeliveryRow, triggerId?: string): DeliveryCoalesceKeyRow[] {
+  return triggerId === undefined
+    ? d.coalesceKeys
+    : d.coalesceKeys.filter((c) => c.triggerId === triggerId);
+}
+
+/**
+ * The runs of a delivery that a newer delivery replaced, with the replacing
+ * delivery's id. Scoped to one trigger when the surface is.
+ */
+export function supersededRuns(d: DeliveryRow, triggerId?: string): DeliveryRunRow[] {
+  return d.runs.filter(
+    (r) => r.supersededBy !== undefined && (triggerId === undefined || r.triggerId === triggerId),
+  );
+}
+
 /** Max characters of a payload excerpt rendered in the Deliveries "Detail" column. */
 export const DELIVERY_EXCERPT_MAX = 120;
 
@@ -500,7 +760,7 @@ export type DeliveryDetail =
  * The human end of a failure chain.
  *
  * Backend errors arrive as a wrapped chain, often ending in a JSON error body:
- * "start run: unexpected status from orbit-agents: status 500: {\"code\":...,
+ * "start run: unexpected status from kora-agents: status 500: {\"code\":...,
  * \"message\":\"failed to start run\"}". The message inside that body is what a
  * person acts on; the full chain stays available as detail.
  */

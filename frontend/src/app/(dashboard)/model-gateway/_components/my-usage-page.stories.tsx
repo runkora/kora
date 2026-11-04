@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { dashboardPage } from '@orbit/storybook/dashboard-frame';
-import type { MockRoutes } from '@orbit/storybook/mock-api';
+import { dashboardPage } from '@runkora/storybook/dashboard-frame';
+import type { MockRoutes } from '@runkora/storybook/mock-api';
 import type { AnalyticsDays } from '../_types';
 import { MyUsageShell } from '../my-usage/_components/my-usage-shell';
 import {

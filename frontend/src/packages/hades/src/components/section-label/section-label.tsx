@@ -2,7 +2,7 @@ import * as React from 'react';
 import { cva } from 'class-variance-authority';
 import { cn } from '../../utils';
 
-/** @tier 1 — Zero Orbit domain knowledge. The overline that labels a region of dense UI. */
+/** @tier 1 — Zero kora domain knowledge. The overline that labels a region of dense UI. */
 
 /**
  * The one overline treatment in Hades: 10px, semibold, uppercase, tracked to

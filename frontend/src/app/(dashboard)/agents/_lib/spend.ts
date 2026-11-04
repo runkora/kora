@@ -1,4 +1,4 @@
-import type { AgentInsightsPeriod, AgentTypeUsage } from '@orbit/shared/api';
+import type { AgentInsightsPeriod, AgentTypeUsage } from '@runkora/shared/api';
 
 /** The windows the Agents page can report spend and run outcomes over. */
 export type Period = AgentInsightsPeriod;

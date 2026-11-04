@@ -9,13 +9,13 @@ import (
 	"regexp"
 	"slices"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/principalroles"
-	"github.com/clear-route/orbit/internal/policyservice/roles"
-	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/principalroles"
+	"github.com/runkora/kora/backend/internal/policyservice/roles"
+	"github.com/runkora/kora/backend/internal/policyservice/tenantbudget"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
 // validTenantID matches alphanumeric IDs with hyphens, underscores, and dots.
@@ -24,9 +24,12 @@ import (
 var validTenantID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$`)
 
 // tenantLister names the tenants that exist, whether or not they have policy
-// rows yet. The operator-written tenant registry is the implementation.
+// rows yet. Err reports why it cannot be read, and Loaded whether it holds a
+// good read. The operator-written tenant registry is the implementation.
 type tenantLister interface {
-	ActiveTenantIDs(ctx context.Context) ([]string, error)
+	TenantIDs() []string
+	Err() error
+	Loaded() bool
 }
 
 // Server serves per-tenant OPA bundles at GET /v1/policy/bundles/{tenant_id}.
@@ -61,11 +64,12 @@ func NewServer(compiler *Compiler, grantRepo grants.Repository, vocabRepo vocabu
 // grants, and tenants with registered routes. A registered tenant with no
 // rows is still a tenant; its reserved roles must reach the gateway bundle.
 func (s *Server) KnownTenantIDs(ctx context.Context) ([]string, error) {
-	set := map[string]struct{}{}
-	registered, err := s.tenants.ActiveTenantIDs(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list registered tenants: %w", err)
+	registered := s.tenants.TenantIDs()
+	// An unreadable registry with no last good contents would drop tenants that have no rows.
+	if err := s.tenants.Err(); err != nil && !s.tenants.Loaded() {
+		return nil, fmt.Errorf("read tenant registry: %w", err)
 	}
+	set := map[string]struct{}{}
 	for _, tid := range registered {
 		set[tid] = struct{}{}
 	}
@@ -138,7 +142,7 @@ func (s *Server) RecompileGateway(ctx context.Context) error {
 		}
 		allGrants[tid] = tGrants
 
-		tRoles, tErr := s.roleRepo.ListByTenant(ctx, tid, 0, 0)
+		tRoles, tErr := s.roleRepo.ListByTenant(ctx, tid, nil, 0, 0)
 		if tErr != nil {
 			return fmt.Errorf("list roles for tenant %s: %w", tid, tErr)
 		}
@@ -211,7 +215,7 @@ func (s *Server) Recompile(ctx context.Context, tenantID string, vocabEntries []
 		}
 	}
 
-	roleEntries, err := s.roleRepo.ListByTenant(ctx, tenantID, 0, 0)
+	roleEntries, err := s.roleRepo.ListByTenant(ctx, tenantID, nil, 0, 0)
 	if err != nil {
 		return fmt.Errorf("list role scopes for tenant %s: %w", tenantID, err)
 	}

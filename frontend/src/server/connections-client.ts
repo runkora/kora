@@ -1,6 +1,7 @@
 import 'server-only';
-import { config } from '@orbit/server/config';
-import type { ConnectionCatalogEntry, ConnectionQualifierEntry } from '@orbit/shared/api';
+import { config } from '@runkora/server/config';
+import type { ConnectionCatalogEntry, ConnectionQualifierEntry } from '@runkora/shared/api';
+import { ApiError } from './api-error';
 
 /** The slice of the gateway's connection record the catalog picker needs. */
 interface GatewayConnection {
@@ -14,19 +15,19 @@ interface GatewayConnection {
 }
 
 /**
- * Lists the caller's tenant's registered connections from orbit-agents.
+ * Lists the caller's tenant's registered connections from kora-agents.
  *
- * The read-only catalog is served by orbit-agents — a normal HTTP service the
+ * The read-only catalog is served by kora-agents — a normal HTTP service the
  * frontend reaches through the mesh (it also serves agent-types) — rather than
  * the egress-gateway, which is a CONNECT/egress broker the frontend cannot reach
- * over plain HTTP. orbit-agents reads the same orbit-tenant-connections registry
+ * over plain HTTP. kora-agents reads the same kora-tenant-connections registry
  * the gateway brokers from. We forward the session token and hit the service
  * directly; the result is scoped to the caller's tenant from the token, so no
  * tenant param is needed. `actions` is the connection's adapter's declared
  * action vocabulary: the set of actions an agent may be granted through it.
  */
 export async function listConnections(accessToken: string): Promise<ConnectionCatalogEntry[]> {
-  const res = await fetch(`${config.orbitAgentsUrl}/api/v1/connections`, {
+  const res = await fetch(`${config.koraAgentsUrl}/api/v1/connections`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
@@ -35,7 +36,11 @@ export async function listConnections(accessToken: string): Promise<ConnectionCa
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) {
-    throw new Error(`orbit-agents list connections failed: ${res.status}`);
+    throw new ApiError(
+      res.status,
+      'UPSTREAM_ERROR',
+      `kora-agents list connections failed: ${res.status}`,
+    );
   }
   const body = (await res.json()) as { connections?: GatewayConnection[] };
   return (body.connections ?? []).map((c) => ({

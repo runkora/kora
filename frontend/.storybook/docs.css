@@ -10,7 +10,7 @@ html body .sbdocs-wrapper {
 
 html body .sbdocs {
   color: var(--hades-raw-white);
-  font-family: var(--font-inter, 'Inter', ui-sans-serif, system-ui, sans-serif);
+  font-family: var(--hades-raw-font-sans);
 }
 html
   body
@@ -36,7 +36,7 @@ html
     textarea
   ):not(.docs-story *) {
   color: var(--hades-raw-white);
-  font-family: var(--font-inter, 'Inter', ui-sans-serif, system-ui, sans-serif);
+  font-family: var(--hades-raw-font-sans);
 }
 html body .sbdocs a:not(.docs-story *) {
   color: var(--hades-raw-accent-400);
@@ -68,7 +68,7 @@ html body .sbdocs button:not(.docs-story *) {
 /* Code */
 html body .sbdocs :is(code, pre):not(.docs-story *),
 html body .sbdocs .docblock-source {
-  font-family: var(--font-geist-mono, 'Geist Mono', ui-monospace, monospace);
+  font-family: var(--hades-raw-font-mono);
   color: var(--hades-raw-white);
 }
 html body .sbdocs :not(pre) > code:not(.docs-story *) {

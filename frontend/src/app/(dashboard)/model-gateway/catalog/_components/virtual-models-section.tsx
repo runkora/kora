@@ -12,17 +12,20 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@orbit/hades';
-import { SmartTable } from '@orbit/components';
-import type { DataTableColumn } from '@orbit/components';
-import { fmtCost } from '@orbit/utils';
+} from '@runkora/hades';
+import { ManagedInGitBadge, PermissionHint, SmartTable } from '@runkora/components';
+import type { DataTableColumn } from '@runkora/components';
+import { fmtCost } from '@runkora/utils';
 import type { VirtualModel } from '../_types/catalog';
 import { providerTitle } from '../_utils/catalog-constants';
 import { StrategyBadge } from './strategy-badge';
+import { useHasScope } from '../../../_components/permissions-provider';
 
 interface VirtualModelsSectionProps {
   models: VirtualModel[];
   onSelect: (m: VirtualModel) => void;
+  /** False when the platform takes virtual models from the configuration repository only. */
+  apiAuthoring?: boolean;
 }
 
 function virtualModelMatchesSearch(m: VirtualModel, q: string): boolean {
@@ -85,9 +88,15 @@ const NEW_VIRTUAL_MODEL: VirtualModel = {
   strategy: 'priority',
   routes: [],
   enabled: true,
+  declared: false,
 };
 
-export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionProps) {
+export function VirtualModelsSection({
+  models,
+  onSelect,
+  apiAuthoring = true,
+}: VirtualModelsSectionProps) {
+  const canWrite = useHasScope('platform:catalog:write');
   const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
 
   const statusCounts = useMemo(
@@ -119,9 +128,12 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
             <Text size="caption" color="subtle">
               {m.family}
             </Text>
-            <Text size="supporting" weight="emphasis" mono>
-              {m.name}
-            </Text>
+            <Stack direction="horizontal" align="center" gap="snug" wrap>
+              <Text size="supporting" weight="emphasis" mono>
+                {m.name}
+              </Text>
+              {m.declared && <ManagedInGitBadge repository={m.repository} />}
+            </Stack>
             <Text size="caption" color="muted">
               {m.displayName}
             </Text>
@@ -223,10 +235,14 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
         />
       }
       toolbarActions={
-        <Button size="sm" onClick={() => onSelect(NEW_VIRTUAL_MODEL)}>
-          <Icon name="plus" size="2xs" />
-          New Virtual Model
-        </Button>
+        apiAuthoring ? (
+          <PermissionHint allowed={canWrite} action="change the model catalog">
+            <Button size="sm" disabled={!canWrite} onClick={() => onSelect(NEW_VIRTUAL_MODEL)}>
+              <Icon name="plus" size="2xs" />
+              New Virtual Model
+            </Button>
+          </PermissionHint>
+        ) : undefined
       }
     />
   );

@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@orbit/server/marketplace-client', () => ({
+vi.mock('@runkora/server/marketplace-client', () => ({
   fetchMarketplaces: vi.fn(),
   fetchSkills: vi.fn(),
   fetchSkillDetail: vi.fn(),
@@ -17,10 +17,14 @@ vi.mock('../../_preferences/preferences-server', () => ({
 }));
 
 import { loadMarketplaceOverview, loadMarketplacePage, loadSkillPage } from './marketplace-server';
-import { fetchMarketplaces, fetchSkillDetail, fetchSkills } from '@orbit/server/marketplace-client';
+import {
+  fetchMarketplaces,
+  fetchSkillDetail,
+  fetchSkills,
+} from '@runkora/server/marketplace-client';
 import { getPreferences } from '../../_preferences/preferences-server';
-import { ApiError } from '@orbit/server/api-error';
-import type { Skill } from '@orbit/shared/api';
+import { ApiError } from '@runkora/server/api-error';
+import type { Skill } from '@runkora/shared/api';
 import type { MarketplaceBrowseParams } from '../_types';
 import type { UserPreferences } from '../../_preferences/preferences.schema';
 

@@ -29,7 +29,7 @@ func TestGetSandbox_ReturnsTheLiveSandbox(t *testing.T) {
 	}
 }
 
-// A run that never asked for a sandbox is not an error. orbit-shell routes
+// A run that never asked for a sandbox is not an error. kora-shell routes
 // pre-sandbox work locally on this answer.
 func TestGetSandbox_NoSandboxIsItsOwnError(t *testing.T) {
 	svc, repo, k8s, _ := newTestService(t)
@@ -42,8 +42,8 @@ func TestGetSandbox_NoSandboxIsItsOwnError(t *testing.T) {
 	}
 }
 
-// A lookup failure is not "no sandbox": reporting one would send the agent's
-// command to a local shell because Kubernetes was briefly unreachable.
+// A lookup failure is not "no sandbox": reporting one would tell the agent to
+// provision a sandbox because Kubernetes was briefly unreachable.
 func TestGetSandbox_LookupErrorIsNotNoSandbox(t *testing.T) {
 	svc, repo, k8s, _ := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
@@ -55,7 +55,7 @@ func TestGetSandbox_LookupErrorIsNotNoSandbox(t *testing.T) {
 		t.Fatal("a lookup failure returned no error")
 	}
 	if errors.Is(err, ErrNoSandbox) {
-		t.Fatal("a lookup failure reported ErrNoSandbox, which routes the agent to a local shell")
+		t.Fatal("a lookup failure reported ErrNoSandbox")
 	}
 }
 
@@ -117,6 +117,6 @@ func TestLookupSandbox_UnusablePodIsAnError(t *testing.T) {
 		t.Fatal("an unusable pod returned no error")
 	}
 	if errors.Is(err, ErrNoSandbox) {
-		t.Error("an unusable pod reported ErrNoSandbox, which routes the agent to a local shell")
+		t.Error("an unusable pod reported ErrNoSandbox")
 	}
 }

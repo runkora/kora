@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
-	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/execauth"
+	execpb "github.com/runkora/kora/backend/internal/agents/sandbox/proto"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 	"google.golang.org/grpc"
 )
 
@@ -74,7 +74,7 @@ func testSandbox(addr string) Sandbox {
 
 func newTestRegistryForCanary(t *testing.T) *Registry {
 	t.Helper()
-	return NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), NoopNotifier{}, time.Minute)
+	return NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), NoopNotifier{}, time.Minute, testBrand)
 }
 
 // TestAwaitEgressReady_PassesOnFirstSuccess verifies that awaitEgressReady

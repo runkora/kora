@@ -3,7 +3,7 @@ package azure
 import (
 	"context"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw"
 )
 
 // SystemOne refuses: azure serves no decision models, and a chat model is never

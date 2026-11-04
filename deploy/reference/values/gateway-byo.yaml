@@ -1,7 +1,7 @@
 # Running kora behind an Istio ingress gateway you already operate
 # (gateway.create: false). Four pieces, in order.
 #
-# 1. orbit chart values (environments/<name>.yaml or your values repository).
+# 1. kora chart values (environments/<name>.yaml or your values repository).
 #    VirtualServices bind to gateway.name; the OPA ext_authz EnvoyFilter and
 #    the gateway NetworkPolicies select gateway.byo.selector in
 #    gateway.byo.namespace. The chart renders no Gateway resource in this mode.
@@ -27,16 +27,16 @@
 #          app: istio-ingressgateway
 #        servers:
 #          - port: { number: 443, name: https, protocol: HTTPS }
-#            tls: { mode: SIMPLE, credentialName: orbit-gateway-tls }
-#            hosts: [orbit.example.com, api.orbit.example.com]
+#            tls: { mode: SIMPLE, credentialName: kora-gateway-tls }
+#            hosts: [example.com, api.example.com]
 #
 # 3. A SPIRE registration for the gateway pods. The chart's
-#    orbit-system-component registration covers only the system namespace:
+#    kora-system-component registration covers only the system namespace:
 #
 #      apiVersion: spire.spiffe.io/v1alpha1
 #      kind: ClusterSPIFFEID
 #      metadata:
-#        name: orbit-byo-ingress-gateway
+#        name: kora-byo-ingress-gateway
 #      spec:
 #        className: spire-system-spire
 #        spiffeIDTemplate: "spiffe://<trustDomain>/system/ingress-gateway"

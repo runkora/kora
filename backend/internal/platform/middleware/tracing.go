@@ -1,15 +1,17 @@
 package middleware
 
 import (
+	"errors"
 	"net"
 	"net/http"
 	"strconv"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // TracingMiddleware creates middleware that handles OpenTelemetry distributed tracing.
@@ -20,11 +22,21 @@ import (
 // include trace_id and span_id for correlation.
 //
 // Trace context propagation follows W3C TraceContext standard (configured in observability.Setup).
-func TracingMiddleware(serviceName string) Middleware {
+//
+// A request any filter rejects is served untraced unless its incoming parent is sampled.
+func TracingMiddleware(filters ...TraceFilter) Middleware {
 	return NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Get the global tracer for this service
-			tracer := otel.Tracer(serviceName)
+			propagatedCtx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+			if !trace.SpanContextFromContext(propagatedCtx).IsSampled() {
+				for _, traced := range filters {
+					if !traced(r) {
+						next.ServeHTTP(w, r)
+						return
+					}
+				}
+			}
+			tracer := otel.Tracer("github.com/runkora/kora/backend/internal/platform/middleware")
 
 			// Extract the route pattern from the request context
 			// Go 1.22+ ServeMux stores the matched pattern in the request context
@@ -33,11 +45,6 @@ func TracingMiddleware(serviceName string) Middleware {
 				// Fallback to URL path if pattern is not available
 				routePattern = r.URL.Path
 			}
-
-			// Extract trace context from incoming request headers (W3C TraceContext format)
-			// Then start a new span for this HTTP request
-			// The span name follows OpenTelemetry semantic conventions: "HTTP {method}"
-			propagatedCtx := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
 
 			// Build span attributes following OpenTelemetry semantic conventions
 			attrs := []trace.SpanStartOption{
@@ -98,15 +105,17 @@ func TracingMiddleware(serviceName string) Middleware {
 			}
 			span.SetAttributes(semconv.HTTPResponseStatusCode(statusCode))
 
-			// Mark span as error only for server errors (5xx), not client errors (4xx).
-			// Client errors indicate issues with the request, not failures in our service.
-			// This aligns with OpenTelemetry semantic conventions for HTTP server spans.
+			// Only 5xx fails a server span; error.type is the status code per HTTP semconv.
 			if statusCode >= 500 {
-				span.SetStatus(codes.Error, "HTTP server error")
+				observability.RecordFailure(span, errServerError, errServerError)
+				span.SetAttributes(semconv.ErrorTypeKey.String(strconv.Itoa(statusCode)))
 			}
 		})
 	})
 }
+
+// TraceFilter reports whether TracingMiddleware should trace a request.
+type TraceFilter func(*http.Request) bool
 
 // tracingResponseWriter wraps http.ResponseWriter to capture status code for tracing
 type tracingResponseWriter struct {
@@ -153,3 +162,5 @@ func mustParsePort(portStr string) int {
 	}
 	return port
 }
+
+var errServerError = errors.New("HTTP server error")

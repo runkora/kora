@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // workRunner is a scriptRunner that reports work in flight, as the Claude
@@ -41,7 +41,7 @@ func (r *workRunner) InFlightWork() int { return int(r.work.Load()) }
 func newRegistryFor(t *testing.T, fallback time.Duration) (*Registry, *stateNotifier) {
 	t.Helper()
 	n := newStateNotifier()
-	return NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), n, fallback), n
+	return NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), n, fallback, testBrand), n
 }
 
 func completesWithin(n *stateNotifier, d time.Duration) bool {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/storage"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // ─── JTI blocklist repository interface ──────────────────────────────────────
@@ -26,7 +26,7 @@ type JTIBlocklistRepository interface {
 // redisJTIBlocklistRepository implements JTIBlocklistRepository via the shared
 // platform blocklist (internal/platform/storage.JTIBlocklist), so the identity
 // service writes to the exact namespace other services read revocation from
-// (e.g. DelegationMiddleware's revoked-delegation check).
+// (e.g. DelegationMiddlewareWithBlocklist's revoked-delegation check).
 type redisJTIBlocklistRepository struct {
 	blocklist *storage.JTIBlocklist
 }

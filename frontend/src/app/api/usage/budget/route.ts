@@ -1,6 +1,6 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchPersonalBudgetFromGateway } from '../../../(dashboard)/model-gateway/_services/budget-personal-server';
 
 export async function GET(): Promise<NextResponse> {

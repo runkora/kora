@@ -1,6 +1,6 @@
 'use server';
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { createGrant, deleteGrant, updateGrantBudget } from '../_services/policy-server';
 import { searchUsers } from '../../model-gateway/_services/tokens-server';
 import type { PATAttributionEntry } from '../../model-gateway/_services/tokens-server';

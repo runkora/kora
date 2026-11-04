@@ -4,7 +4,7 @@
 // Each tenant's bundle is compiled on every grant write and cached in memory.
 // The bundle contains:
 //   - policy/authz.rego         — the kora authorisation rules
-//   - policy/budget.rego        — the orbit.budget enforcement rules
+//   - policy/budget.rego        — the kora.budget enforcement rules
 //   - data/grants/data.json     — this tenant's grants only
 //   - data/vocabulary/data.json — the scope vocabulary (shared, but bundled per-tenant)
 //   - data/roles/data.json      — OIDC role → platform scope mappings
@@ -21,16 +21,17 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sort"
 	"sync"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/roles"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
-	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/roles"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
+	"github.com/runkora/kora/backend/internal/policyservice/tenantbudget"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
 //go:embed authz.rego
@@ -42,7 +43,7 @@ var authzGatewayRego string
 //go:embed budget.rego
 var budgetRego string
 
-// PlatformAdminRole is the one reserved role. Its scopes are not stored: they
+// PlatformAdminRole is the reserved admin role. Its scopes are not stored: they
 // are the vocabulary's covering set, derived at every compile, so a scope a
 // service registers is held by the admin with no further edit.
 const PlatformAdminRole = "platform-admin"
@@ -143,8 +144,12 @@ type rolesDocument struct {
 // It maps HTTP method + path prefix to the required OAuth scope.
 // The OPA Envoy plugin sidecar (Layer 1) reads this to derive the required
 // scope for a request without any Go code involvement.
+//
+// In a tenant bundle RouteScopes holds the global routes and TenantRouteScopes
+// the tenant's own. The gateway bundle keeps tenant routes under tenants/.
 type routesDocument struct {
-	RouteScopes []routes.RouteScope `json:"route_scopes"`
+	RouteScopes       []routes.RouteScope `json:"route_scopes"`
+	TenantRouteScopes []routes.RouteScope `json:"tenant_route_scopes,omitempty"`
 }
 
 // configDocument is the JSON structure of data/config/data.json.
@@ -190,8 +195,8 @@ func buildRoleBudgets(roleEntries []*roles.RoleEntry) roleBudgetsDocument {
 		if e.Budget == nil {
 			continue
 		}
-		if e.Role == PlatformAdminRole {
-			continue // the reserved role cannot carry a budget
+		if IsReservedRole(e.Role) {
+			continue // reserved roles cannot carry a budget
 		}
 		doc.RoleBudgets[e.Role] = roleBudgetEntry{
 			LimitUSD:     e.Budget.LimitUSD,
@@ -359,8 +364,9 @@ func NewCompiler(cfg Config, routeStore *routes.Store) *Compiler {
 // user carries roles). The result is cached and replaces any prior bundle for
 // that tenant. Returns the compiled bundle bytes.
 func (c *Compiler) Compile(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantBudget *tenantbudget.TenantBudget, principalRoles map[string][]string) (*CachedBundle, error) {
-	tenantRoutes := c.routes.RoutesForTenant(tenantID)
-	data, revision, err := buildBundle(tenantID, tenantGrants, vocabEntries, roleEntries, tenantBudget, principalRoles, tenantRoutes, c.cfg)
+	globalRoutes, tenantRoutes := c.routes.RoutesForTenant(tenantID)
+	routesDoc := routesDocument{RouteScopes: globalRoutes, TenantRouteScopes: tenantRoutes}
+	data, revision, err := buildBundle(tenantID, tenantGrants, vocabEntries, roleEntries, tenantBudget, principalRoles, routesDoc, c.cfg)
 	if err != nil {
 		return nil, fmt.Errorf("build bundle for tenant %s: %w", tenantID, err)
 	}
@@ -456,10 +462,8 @@ func marshalBudgetDocs(tenantGrants []*grants.Grant, roleEntries []*roles.RoleEn
 // buildBundle constructs the .tar.gz bytes for a tenant's OPA bundle.
 // requiresFromVocab builds the scope→requires adjacency used to expand grants.
 // A grant holding a scope with requires confers those scopes in the compiled
-// effective set (never the stored grant) — the mechanism first-party platform
-// MCP tools use to pull in the platform scope they call upstream (e.g.
-// mcp:orbit:agents:list:use → agents:types:read). Empty for ordinary scopes and
-// every external MCP.
+// effective set (never the stored grant), for example the GitHub repo umbrella
+// conferring each category scope. Empty for ordinary scopes.
 func requiresFromVocab(vocabEntries []*vocabulary.ScopeEntry) map[string][]string {
 	m := make(map[string][]string)
 	for _, e := range vocabEntries {
@@ -476,8 +480,7 @@ func requiresFromVocab(vocabEntries []*vocabulary.ScopeEntry) map[string][]strin
 // Expansion is prefix-aware: a scope confers the requires of every vocabulary leaf
 // it *covers* (via the same ScopeCovers hierarchy the edge authorizes with), not
 // only the leaf whose key matches it exactly. So a family/parent grant or role
-// such as mcp:orbit:use confers each covered tool's upstream requires — without
-// this, a family scope passes the gateway PEP but the upstream call is denied.
+// such as mcp:<server>:use confers each covered tool's requires.
 // requiresMap keys are iterated in sorted order so the output (and thus the
 // compiled bundle hash) is deterministic.
 func expandRequires(scopes []string, requiresMap map[string][]string) []string {
@@ -506,6 +509,25 @@ func expandRequires(scopes []string, requiresMap map[string][]string) []string {
 		}
 	}
 	return out
+}
+
+// mergeRoles builds the roles document: the derived reserved roles plus the
+// tenant's stored roles. A stored row under a reserved name cannot override a
+// reserved role. Every role except the built-ins takes its transitive requires,
+// as grants do, for a role bundling an MCP tool scope to confer the tool's upstream scope.
+func mergeRoles(reserved map[string][]string, stored []*roles.RoleEntry, requiresMap map[string][]string) map[string][]string {
+	merged := maps.Clone(reserved)
+	for _, e := range stored {
+		if !IsReservedRole(e.Role) {
+			merged[e.Role] = e.Scopes
+		}
+	}
+	for role, scopes := range merged {
+		if !IsBuiltinRole(role) {
+			merged[role] = expandRequires(scopes, requiresMap)
+		}
+	}
+	return merged
 }
 
 // marshalVocabulary builds the vocabulary data document, carrying the requires
@@ -544,7 +566,7 @@ func marshalPrincipalRoles(principalRoles map[string][]string) ([]byte, error) {
 	return out, nil
 }
 
-func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantBudget *tenantbudget.TenantBudget, principalRoles map[string][]string, tenantRoutes []routes.RouteScope, cfg Config) ([]byte, string, error) {
+func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*vocabulary.ScopeEntry, roleEntries []*roles.RoleEntry, tenantBudget *tenantbudget.TenantBudget, principalRoles map[string][]string, routesDoc routesDocument, cfg Config) ([]byte, string, error) {
 	revision := fmt.Sprintf("%s-%d", tenantID, time.Now().UnixNano())
 
 	// Build grants data document, expanding each grant's scopes with their
@@ -578,30 +600,13 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 		return nil, "", err
 	}
 
-	// Roles data document: the derived admin role plus tenant-managed roles.
-	// The admin role is set first and skipped below so it cannot be overridden.
-	mergedRoles := map[string][]string{PlatformAdminRole: AdminScopes(vocabEntries)}
-	for _, e := range roleEntries {
-		if e.Role != PlatformAdminRole {
-			mergedRoles[e.Role] = e.Scopes
-		}
-	}
-	// Expand each role's scopes with their transitive requires, exactly like grants,
-	// so a role bundling an MCP tool (or family) scope confers the tool's upstream
-	// platform scope — otherwise a HUMAN holding the role passes the gateway PEP but
-	// the upstream call is denied.
-	for role, scopes := range mergedRoles {
-		mergedRoles[role] = expandRequires(scopes, requiresMap)
-	}
-	rolesDoc := rolesDocument{RoleScopes: mergedRoles}
+	rolesDoc := rolesDocument{RoleScopes: mergeRoles(ReservedRoles(vocabEntries), roleEntries, requiresMap)}
 	rolesJSON, err := json.Marshal(rolesDoc)
 	if err != nil {
 		return nil, "", fmt.Errorf("marshal roles: %w", err)
 	}
 
 	// Build routes data document (method+path → required scope for OPA Envoy plugin).
-	// Routes are the merged set of global registrations and tenant-specific registrations.
-	routesDoc := routesDocument{RouteScopes: tenantRoutes}
 	routesJSON, err := json.Marshal(routesDoc)
 	if err != nil {
 		return nil, "", fmt.Errorf("marshal routes: %w", err)
@@ -627,7 +632,7 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 	// Build manifest
 	mf := manifest{
 		Revision: revision,
-		Roots:    []string{"orbit/authz", "orbit/budget", "grants", "vocabulary", "roles", "principal_roles", "routes", "config", "budgets", "role_budgets", "tenant_budget"},
+		Roots:    []string{"kora/authz", "kora/budget", "grants", "vocabulary", "roles", "principal_roles", "routes", "config", "budgets", "role_budgets", "tenant_budget"},
 		Metadata: &metadata{
 			CompiledAt: time.Now().UTC().Format(time.RFC3339),
 			TenantID:   tenantID,
@@ -749,7 +754,7 @@ func buildGatewayBundle(
 	// Expand requires here as the per-tenant bundle does; edge and sidecar
 	// must authorize on the same effective set.
 	requiresMap := requiresFromVocab(vocabEntries)
-	adminScopes := AdminScopes(vocabEntries)
+	reservedRoles := ReservedRoles(vocabEntries)
 	for _, tenantID := range tenantIDs {
 		grantDoc := grantsDocument{Grants: make([]grantEntry, 0)}
 		for _, g := range allGrants[tenantID] {
@@ -767,16 +772,7 @@ func buildGatewayBundle(
 			return nil, "", fmt.Errorf("marshal grants for tenant %s: %w", tenantID, err)
 		}
 
-		mergedRoles := map[string][]string{PlatformAdminRole: adminScopes}
-		for _, e := range allRoles[tenantID] {
-			if e.Role != PlatformAdminRole {
-				mergedRoles[e.Role] = e.Scopes
-			}
-		}
-		for role, scopes := range mergedRoles {
-			mergedRoles[role] = expandRequires(scopes, requiresMap)
-		}
-		rolesJSON, err = json.Marshal(rolesDocument{RoleScopes: mergedRoles})
+		rolesJSON, err = json.Marshal(rolesDocument{RoleScopes: mergeRoles(reservedRoles, allRoles[tenantID], requiresMap)})
 		if err != nil {
 			return nil, "", fmt.Errorf("marshal roles for tenant %s: %w", tenantID, err)
 		}
@@ -803,7 +799,7 @@ func buildGatewayBundle(
 
 	mf := manifest{
 		Revision: revision,
-		Roots:    []string{"orbit/authz_gateway", "routes", "config", "vocabulary", "tenants"},
+		Roots:    []string{"kora/authz_gateway", "routes", "config", "vocabulary", "tenants"},
 		Metadata: &metadata{
 			CompiledAt: time.Now().UTC().Format(time.RFC3339),
 		},

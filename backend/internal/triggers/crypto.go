@@ -69,7 +69,7 @@ func (c *secretCipher) decrypt(encoded string) (string, error) {
 }
 
 // LoadCipherKey resolves the AES-256 key for encrypting webhook signing secrets
-// from ORBIT_TRIGGERS_ENCRYPTION_KEY, base64-encoded and 32 bytes.
+// from KORA_TRIGGERS_ENCRYPTION_KEY, base64-encoded and 32 bytes.
 //
 // Required, with no fallback. There used to be one: an unset variable derived a
 // stable key from a fixed passphrase so the feature worked out of the box, and
@@ -80,18 +80,18 @@ func (c *secretCipher) decrypt(encoded string) (string, error) {
 // repository and stayed up to keep doing it. A missing key is now a refusal to
 // start, so the failure is at boot and unmissable rather than silent and
 // permanent. Environments supply the key themselves: `make setup` generates one
-// into .env for local, and create-secrets.sh puts it in orbit-secrets.
+// into .env for local, and create-secrets.sh puts it in kora-secrets.
 func LoadCipherKey() ([]byte, error) {
-	raw := os.Getenv("ORBIT_TRIGGERS_ENCRYPTION_KEY")
+	raw := os.Getenv("KORA_TRIGGERS_ENCRYPTION_KEY")
 	if raw == "" {
-		return nil, fmt.Errorf("%w: ORBIT_TRIGGERS_ENCRYPTION_KEY is required (base64-encoded 32 bytes)", ErrCipherKey)
+		return nil, fmt.Errorf("%w: KORA_TRIGGERS_ENCRYPTION_KEY is required (base64-encoded 32 bytes)", ErrCipherKey)
 	}
 	decoded, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {
-		return nil, fmt.Errorf("%w: ORBIT_TRIGGERS_ENCRYPTION_KEY is not valid base64: %w", ErrCipherKey, err)
+		return nil, fmt.Errorf("%w: KORA_TRIGGERS_ENCRYPTION_KEY is not valid base64: %w", ErrCipherKey, err)
 	}
 	if len(decoded) != 32 {
-		return nil, fmt.Errorf("%w: ORBIT_TRIGGERS_ENCRYPTION_KEY must decode to 32 bytes, got %d", ErrCipherKey, len(decoded))
+		return nil, fmt.Errorf("%w: KORA_TRIGGERS_ENCRYPTION_KEY must decode to 32 bytes, got %d", ErrCipherKey, len(decoded))
 	}
 	return decoded, nil
 }

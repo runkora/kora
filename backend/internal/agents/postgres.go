@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,7 +15,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/clear-route/orbit/internal/platform/storage"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // ErrNotFound is returned when a requested resource does not exist.
@@ -77,11 +80,11 @@ func (r *PostgresRepository) CreateAgentType(ctx context.Context, at AgentType) 
 	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO agent_types
-				(id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, identity_mode, guardrails)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16,$17,$18::jsonb)`,
+				(id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, identity_mode, guardrails, created_by, source, resource_uid, resource_generation, repository)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16,$17,$18::jsonb,$19,$20,NULLIF($21, ''),$22,NULLIF($23, ''))`,
 			at.ID, at.TenantID, at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework),
 			at.GrantScopes, at.MaxConcurrentRunsPerPod, string(at.State), at.ModelID, now, now, string(connectivityJSON), string(connectorsJSON), at.MCPTools, string(at.IdentityMode.OrDefault()),
-			guardrailsColumn(at.Guardrails),
+			guardrailsColumn(at.Guardrails), at.CreatedBy, cmp.Or(at.Source, declarative.SourceAPI), at.ResourceUID, at.ResourceGeneration, at.Repository,
 		)
 		if err != nil {
 			if isUniqueViolation(err) {
@@ -112,6 +115,14 @@ func writeAgentEnvironments(ctx context.Context, tx pgx.Tx, agentTypeID string, 
 func (r *PostgresRepository) GetAgentType(ctx context.Context, id string) (*AgentType, error) {
 	row := r.pool.QueryRow(ctx, `
 		SELECT `+agentTypeColumns+`
+		FROM agent_types WHERE id = $1 AND deleted_at IS NULL`, id)
+	return scanAgentType(row)
+}
+
+// GetAgentTypeWithDeleted returns the agent type even when it is deleted. Run reads use it to show a deleted agent's runs.
+func (r *PostgresRepository) GetAgentTypeWithDeleted(ctx context.Context, id string) (*AgentType, error) {
+	row := r.pool.QueryRow(ctx, `
+		SELECT `+agentTypeColumns+`
 		FROM agent_types WHERE id = $1`, id)
 	return scanAgentType(row)
 }
@@ -119,14 +130,30 @@ func (r *PostgresRepository) GetAgentType(ctx context.Context, id string) (*Agen
 func (r *PostgresRepository) GetAgentTypeBySlug(ctx context.Context, tenantID, slug string) (*AgentType, error) {
 	row := r.pool.QueryRow(ctx, `
 		SELECT `+agentTypeColumns+`
-		FROM agent_types WHERE tenant_id = $1 AND slug = $2`, tenantID, slug)
+		FROM agent_types WHERE tenant_id = $1 AND slug = $2 AND deleted_at IS NULL`, tenantID, slug)
 	return scanAgentType(row)
 }
 
+// ListDeclaredAgentTypes returns the slug and resource UID of a tenant's live agent types projected from resources.
+func (r *PostgresRepository) ListDeclaredAgentTypes(ctx context.Context, tenantID string) ([]declarative.Declared, error) {
+	return r.listDeclared(ctx, `SELECT slug, resource_uid FROM agent_types WHERE tenant_id = $1 AND source = 'crd' AND deleted_at IS NULL ORDER BY slug`, tenantID)
+}
+
 func (r *PostgresRepository) ListAgentTypes(ctx context.Context, tenantID string) ([]AgentType, error) {
-	rows, err := r.pool.Query(ctx, `
+	return r.listAgentTypes(ctx, `
+		SELECT `+agentTypeColumns+`
+		FROM agent_types WHERE tenant_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`, tenantID)
+}
+
+// ListAgentTypesWithDeleted lists a tenant's agent types, deleted ones included. Run reads scope by it.
+func (r *PostgresRepository) ListAgentTypesWithDeleted(ctx context.Context, tenantID string) ([]AgentType, error) {
+	return r.listAgentTypes(ctx, `
 		SELECT `+agentTypeColumns+`
 		FROM agent_types WHERE tenant_id = $1 ORDER BY created_at DESC`, tenantID)
+}
+
+func (r *PostgresRepository) listAgentTypes(ctx context.Context, query string, args ...any) ([]AgentType, error) {
+	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query agent_types: %w", err)
 	}
@@ -158,10 +185,10 @@ func (r *PostgresRepository) UpdateAgentType(ctx context.Context, at AgentType) 
 	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE agent_types
-			SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, grant_scopes=$6, max_concurrent_runs_per_pod=$7, model_id=$8, updated_at=$9, connectivity=$10::jsonb, connectors=$11::jsonb, mcp_tools=$12, guardrails=$13::jsonb
-			WHERE id=$14`,
+			SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, grant_scopes=$6, max_concurrent_runs_per_pod=$7, model_id=$8, updated_at=$9, connectivity=$10::jsonb, connectors=$11::jsonb, mcp_tools=$12, guardrails=$13::jsonb, resource_generation=$15, repository=NULLIF($16, '')
+			WHERE id=$14 AND deleted_at IS NULL`,
 			at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework), at.GrantScopes, at.MaxConcurrentRunsPerPod, at.ModelID, time.Now().UTC(), string(connectivityJSON), string(connectorsJSON), at.MCPTools,
-			guardrailsColumn(at.Guardrails), at.ID,
+			guardrailsColumn(at.Guardrails), at.ID, at.ResourceGeneration, at.Repository,
 		)
 		if err != nil {
 			return fmt.Errorf("update agent_type: %w", err)
@@ -175,7 +202,8 @@ func (r *PostgresRepository) UpdateAgentType(ctx context.Context, at AgentType) 
 
 func (r *PostgresRepository) SetAgentTypeState(ctx context.Context, id string, from, to AgentTypeState) error {
 	tag, err := r.pool.Exec(ctx, `
-		UPDATE agent_types SET state=$1, updated_at=$2
+		UPDATE agent_types SET state=$1, updated_at=$2,
+			activated_at = CASE WHEN $1 = 'active' THEN $2 ELSE activated_at END
 		WHERE id=$3 AND state=$4`,
 		string(to), time.Now().UTC(), id, string(from),
 	)
@@ -210,7 +238,7 @@ func (r *PostgresRepository) ListActiveAgentTypes(ctx context.Context) ([]AgentT
 }
 
 func (r *PostgresRepository) ListAllAgentTypeSlugs(ctx context.Context) ([]string, error) {
-	rows, err := r.pool.Query(ctx, `SELECT DISTINCT slug FROM agent_types ORDER BY slug`)
+	rows, err := r.pool.Query(ctx, `SELECT DISTINCT slug FROM agent_types WHERE deleted_at IS NULL ORDER BY slug`)
 	if err != nil {
 		return nil, fmt.Errorf("query agent_type slugs: %w", err)
 	}
@@ -227,6 +255,7 @@ func (r *PostgresRepository) ListAllAgentTypeSlugs(ctx context.Context) ([]strin
 	return out, rows.Err()
 }
 
+// DeleteAgentType removes the row. Only a failed first provisioning uses it; agent deletion is SoftDeleteAgentType.
 func (r *PostgresRepository) DeleteAgentType(ctx context.Context, id string) error {
 	tag, err := r.pool.Exec(ctx, `DELETE FROM agent_types WHERE id=$1`, id)
 	if err != nil {
@@ -236,6 +265,30 @@ func (r *PostgresRepository) DeleteAgentType(ctx context.Context, id string) err
 		return ErrNotFound
 	}
 	return nil
+}
+
+// SoftDeleteAgentType detaches the agent's environments and marks it deleted. The row stays for its runs.
+func (r *PostgresRepository) SoftDeleteAgentType(ctx context.Context, id string) error {
+	// The row update comes first. Its lock makes a concurrent UpdateAgentType wait and then match no row,
+	// so it cannot re-attach environments after they are removed.
+	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		now := time.Now().UTC()
+		tag, err := tx.Exec(ctx, `
+			UPDATE agent_types SET state=$1, deleted_at=$2, updated_at=$2
+			WHERE id=$3 AND deleted_at IS NULL`,
+			string(AgentTypeStateDeleted), now, id,
+		)
+		if err != nil {
+			return fmt.Errorf("soft delete agent_type: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM agent_environments WHERE agent_type_id=$1`, id); err != nil {
+			return fmt.Errorf("delete agent environments: %w", err)
+		}
+		return nil
+	})
 }
 
 // ── Runs ──────────────────────────────────────────────────────────────────────
@@ -256,10 +309,10 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO runs
 			(id, tenant_id, agent_type_id, state, pod_ordinal, created_by, created_at, updated_at,
-			 trigger_id, trigger_name, delivery_id, initial_message)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+			 trigger_id, trigger_name, delivery_id, initial_message, trace_parent)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
 		run.ID, run.TenantID, run.AgentTypeID, string(RunStatePending), -1, run.CreatedBy, now, now,
-		triggerID, triggerName, deliveryID, run.InitialMessage,
+		triggerID, triggerName, deliveryID, run.InitialMessage, storage.NullIfZero(run.TraceParent),
 	)
 	if err != nil {
 		return fmt.Errorf("insert run: %w", err)
@@ -267,14 +320,13 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 	return nil
 }
 
-// selectRun joins agent_types so every run read carries the agent's
-// identity_mode (runs always reference an existing agent type — DeleteAgentType
-// force-deletes its runs first, so the inner join never drops rows).
+// selectRun joins agent_types so every run read carries the agent's identity mode, slug and name.
+// Agent deletion keeps the agent_types row, so the inner join never drops a run.
 const selectRun = `SELECT ` + runColumns + ` FROM runs r JOIN agent_types at ON at.id = r.agent_type_id`
 
 const runColumns = `
-	r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode,
-	r.trigger_id, r.trigger_name, r.delivery_id, r.environment_id`
+	r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode, at.slug, at.name,
+	r.trigger_id, r.trigger_name, r.delivery_id, r.environment_id, r.trace_parent`
 
 func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error) {
 	row := r.pool.QueryRow(ctx, selectRun+` WHERE r.id=$1`, id)
@@ -288,6 +340,10 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, q Ru
 	if len(q.States) > 0 {
 		args = append(args, stateStrings(q.States))
 		query += fmt.Sprintf(" AND r.state = ANY($%d)", len(args))
+	}
+	if q.StartedByTrigger {
+		// Matches scanRun, which reads a run as trigger-started only when trigger_id is non-empty.
+		query += " AND r.trigger_id <> ''"
 	}
 	if !q.CreatedAfter.IsZero() {
 		args = append(args, q.CreatedAfter)
@@ -318,6 +374,38 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, q Ru
 			return nil, err
 		}
 		out = append(out, *run)
+	}
+	return out, rows.Err()
+}
+
+// RunUsageTotals sums inference_usage per run for the given runs in one query,
+// using idx_inference_usage_run_id. The table belongs to the inference gateway;
+// a cross-service read at query time is allowed by the database migrations ADR.
+func (r *PostgresRepository) RunUsageTotals(ctx context.Context, tenantID string, runIDs []string) (map[string]RunUsage, error) {
+	out := make(map[string]RunUsage, len(runIDs))
+	if len(runIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT run_id,
+		       COALESCE(SUM(estimated_cost_usd), 0)::float8,
+		       COALESCE(SUM(prompt_tokens), 0)::bigint,
+		       COALESCE(SUM(completion_tokens), 0)::bigint,
+		       COUNT(*)
+		FROM inference_usage
+		WHERE tenant_id = $1 AND run_id = ANY($2)
+		GROUP BY run_id`, tenantID, runIDs)
+	if err != nil {
+		return nil, fmt.Errorf("query run usage: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var u RunUsage
+		if err := rows.Scan(&id, &u.CostUSD, &u.InputTokens, &u.OutputTokens, &u.RequestCount); err != nil {
+			return nil, fmt.Errorf("scan run usage: %w", err)
+		}
+		out[id] = u
 	}
 	return out, rows.Err()
 }
@@ -507,22 +595,32 @@ func (r *PostgresRepository) DeleteRun(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *PostgresRepository) DeleteRunsByAgentType(ctx context.Context, agentTypeID string) ([]DeletedRun, error) {
-	rows, err := r.pool.Query(ctx, `DELETE FROM runs WHERE agent_type_id=$1 RETURNING id, delegation_jti`, agentTypeID)
+// CancelRunsByAgentType ends every unfinished run of an agent type. A run that finished its
+// turn (idle or completing) completes and any other run fails.
+func (r *PostgresRepository) CancelRunsByAgentType(ctx context.Context, agentTypeID string) ([]CancelledRun, error) {
+	now := time.Now().UTC()
+	rows, err := r.pool.Query(ctx, `
+		UPDATE runs
+		SET state = CASE WHEN state IN ('idle','completing') THEN 'completed' ELSE 'failed' END,
+		    completed_at = $2, updated_at = $2
+		WHERE agent_type_id = $1 AND state IN ('pending','starting','active','idle','completing')
+		RETURNING id, state, delegation_jti`, agentTypeID, now)
 	if err != nil {
-		return nil, fmt.Errorf("delete runs for agent type: %w", err)
+		return nil, fmt.Errorf("cancel runs for agent type: %w", err)
 	}
 	defer rows.Close()
 
-	var deleted []DeletedRun
+	var cancelled []CancelledRun
 	for rows.Next() {
-		var d DeletedRun
-		if scanErr := rows.Scan(&d.ID, &d.DelegationJTI); scanErr != nil {
-			return nil, fmt.Errorf("scan deleted run: %w", scanErr)
+		var c CancelledRun
+		var state string
+		if scanErr := rows.Scan(&c.ID, &state, &c.DelegationJTI); scanErr != nil {
+			return nil, fmt.Errorf("scan cancelled run: %w", scanErr)
 		}
-		deleted = append(deleted, d)
+		c.State = RunState(state)
+		cancelled = append(cancelled, c)
 	}
-	return deleted, rows.Err()
+	return cancelled, rows.Err()
 }
 
 // podOccupancySQLList renders the pod-occupying run states as a SQL literal
@@ -696,7 +794,7 @@ type scanner interface {
 // a query that drifts from the scanner fails on every row at runtime rather
 // than at compile time.
 // The last column aggregates the agent's environment links, default first.
-const agentTypeColumns = `id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, identity_mode, guardrails,
+const agentTypeColumns = `id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, identity_mode, guardrails, created_by, activated_at, source, COALESCE(resource_uid, ''), resource_generation, COALESCE(repository, ''),
 	COALESCE((SELECT jsonb_agg(jsonb_build_object('environment_id', ae.environment_id, 'is_default', ae.is_default) ORDER BY ae.is_default DESC, ae.environment_id)
 		FROM agent_environments ae WHERE ae.agent_type_id = agent_types.id), '[]'::jsonb)`
 
@@ -704,9 +802,10 @@ func scanAgentType(s scanner) (*AgentType, error) {
 	var at AgentType
 	var state, framework, identityMode string
 	var connectivityJSON, connectorsJSON, guardrailsJSON, environmentsJSON []byte
+	var activatedAt *time.Time
 	err := s.Scan(
 		&at.ID, &at.TenantID, &at.Name, &at.Slug, &at.Description, &at.SystemPrompt, &framework,
-		&at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.ModelID, &at.CreatedAt, &at.UpdatedAt, &connectivityJSON, &connectorsJSON, &at.MCPTools, &identityMode, &guardrailsJSON, &environmentsJSON,
+		&at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.ModelID, &at.CreatedAt, &at.UpdatedAt, &connectivityJSON, &connectorsJSON, &at.MCPTools, &identityMode, &guardrailsJSON, &at.CreatedBy, &activatedAt, &at.Source, &at.ResourceUID, &at.ResourceGeneration, &at.Repository, &environmentsJSON,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -715,6 +814,9 @@ func scanAgentType(s scanner) (*AgentType, error) {
 		return nil, fmt.Errorf("scan agent_type: %w", err)
 	}
 	at.State = AgentTypeState(state)
+	if activatedAt != nil {
+		at.ActivatedAt = *activatedAt
+	}
 	at.Framework = AgentFramework(framework)
 	at.IdentityMode = IdentityMode(identityMode)
 	if len(connectivityJSON) > 0 {
@@ -742,12 +844,12 @@ func scanAgentType(s scanner) (*AgentType, error) {
 func scanRun(s scanner, extra ...any) (*Run, error) {
 	var r Run
 	var state, identityMode string
-	var triggerID, triggerName, deliveryID *string
+	var triggerID, triggerName, deliveryID, traceParent *string
 	err := s.Scan(append([]any{
 		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodOrdinal,
 		&r.CreatedBy, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
-		&r.Summary, &r.DelegationJTI, &identityMode,
-		&triggerID, &triggerName, &deliveryID, &r.EnvironmentID,
+		&r.Summary, &r.DelegationJTI, &identityMode, &r.AgentSlug, &r.AgentName,
+		&triggerID, &triggerName, &deliveryID, &r.EnvironmentID, &traceParent,
 	}, extra...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -757,6 +859,8 @@ func scanRun(s scanner, extra ...any) (*Run, error) {
 	}
 	r.State = RunState(state)
 	r.IdentityMode = IdentityMode(identityMode).OrDefault()
+	r.TraceParent = storage.Deref(traceParent)
+	r.TraceID = observability.SampledTraceID(r.TraceParent)
 	// The trigger id is what makes the attribution real; a name or delivery
 	// without one would be a run claiming automation without naming what
 	// automated it, so the whole block hangs off the id being present.

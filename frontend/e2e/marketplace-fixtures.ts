@@ -9,7 +9,7 @@
  * backend rules: marketplaceSlug = org__repo, skillSlug =
  * marketplaceSlug__slugify(name), with skillName = slugify(name).
  */
-import type { Marketplace, Skill, SkillSummary } from '@orbit/shared/api';
+import type { Marketplace, Skill, SkillSummary } from '@runkora/shared/api';
 
 export const MARKETPLACE_FIXTURES: Marketplace[] = [
   {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRunPage, fetchRunStats } from './agents-api';
+import { fetchModels, fetchRunPage, fetchRunStats } from './agents-api';
 import { AGENT_ROWS, RAW_RUNS } from '../_components/agents-mock-data';
 
 const respond = (body: unknown, status = 200) =>
@@ -39,5 +39,23 @@ describe('fetchRunStats', () => {
   it('gives null stats on failure', async () => {
     respond({ message: 'down' }, 502);
     expect(await fetchRunStats('7d')).toEqual({ data: null, error: 'down' });
+  });
+});
+
+describe('fetchModels', () => {
+  it('keeps available chat models when another model has no capabilities', async () => {
+    // The gateway omits an empty capability list, and a deployment may send null.
+    respond({
+      data: [
+        { id: 'anthropic/claude', status: 'available', capabilities: ['chat'] },
+        { id: 'nomic/embed', status: 'available' },
+        { id: 'openrouter/oss', status: 'available', capabilities: null },
+        { id: 'liquid/d1', status: 'available', capabilities: ['decision'] },
+        { id: 'openai/gpt', status: 'unavailable', capabilities: ['chat'] },
+      ],
+    });
+    const result = await fetchModels();
+    expect(result.error).toBeNull();
+    expect(result.data.map((m) => m.id)).toEqual(['anthropic/claude']);
   });
 });

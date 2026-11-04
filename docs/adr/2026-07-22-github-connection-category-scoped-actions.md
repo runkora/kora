@@ -95,7 +95,7 @@ A kora admin cannot express any GitHub authorization narrower than "all reads" /
 **Pros:**
 - Zero stored-grant migration. Every existing `repo:read`/`repo:write` grant expands to the full category set at the next bundle compile — behaviorally identical to today.
 - The go-forward umbrella needs no expansion machinery at all: `connection:<n>:read`/`write` cover the whole subtree by the prefix rule, including scopes that don't exist yet (future categories, any repository qualifier).
-- Reuses the exact mechanism the MCP tool gateway already ships for scope dependency (`orbit/requires`) for the legacy bridge, and the platform's one hierarchy mechanism (`covers`) for breadth — no wildcard semantics invented anywhere.
+- Reuses the exact mechanism the MCP tool gateway already ships for scope dependency (`kora/requires`) for the legacy bridge, and the platform's one hierarchy mechanism (`covers`) for breadth — no wildcard semantics invented anywhere.
 
 **Cons:**
 - Two umbrella spellings coexist during the deprecation window: legacy `repo:read`/`repo:write` (requires-expanded) and the covering parents. The vocabulary description strings must state that `repo:*` is the *catch-all category plus legacy bridge*, and new grants should prefer the parents.
@@ -310,6 +310,6 @@ The broker's existing structured logging needs no changes: `egress authorized` /
 
 - Exact GitHub permission-key names in the minting table (`repository_hooks` vs `webhooks`, `dependabot_secrets`, variables) are to be verified against the installation-token API during implementation; the categories they back are the decision, the key spellings are not.
 - Open, deliberately deferred: org-level categories and GraphQL classification. Each is additive to this taxonomy, none is blocked by it. (Per-repository scoping, deferred in the first draft, is now Decision E via the [qualifier pattern](2026-07-22-connection-scope-qualifiers.md).)
-- **Pre-existing constraint, called out so it isn't lost:** the broker resolves connections by `(tenant, destination host)` with first-match-wins over the load order (`ConfigMapRegistry.GetByHost`), and every github.com SaaS connection claims the same egress host family. Two same-host connections in one tenant (two installations — e.g. two GitHub orgs) therefore silently shadow each other: all traffic routes to whichever loads first, and nothing at registration rejects the overlap. Not caused or solved by this ADR. Decision E's declared `owner` supplies the natural disambiguator (resolve candidates by host, select by the path's owner segment; owner-less paths like `/graphql` must fail loudly under multi-installation); the cheap interim is aggregator-level validation rejecting overlapping host families per tenant. Follow-up, tracked here.
+- **Same-host connections:** two github.com connections in one tenant claim the same egress host family. [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md) decides how the broker selects among them by the declared `owner` and how the operator rejects overlaps it cannot resolve.
 
 **Last Updated:** 2026-07-22

@@ -1,103 +1,43 @@
-# Security Policy
+# Security policy
 
-## Overview
+Report a suspected vulnerability in kora privately, through a GitHub security advisory or by email. Do not open a public issue, pull request or discussion about it.
 
-kora is a platform orchestrator for AI agents that handles identity, credentials, policy enforcement, and agent execution. Security is fundamental to our mission of making autonomous agents production-grade and safe.
+## Supported versions
 
-**If you discover a security vulnerability, please report it responsibly** as described below.
+Security fixes go to `main` and the latest minor release. A minor release stops receiving fixes when the next one ships.
 
-## Supported Versions
+| Version | Supported |
+| --- | --- |
+| `main` | Yes |
+| Latest minor release | Yes |
+| Earlier releases | No |
 
-| Version | Supported          |
-| ------- | ------------------ |
-| main    | :white_check_mark: |
+## Report a vulnerability
 
-As kora is in early development, we currently support only the main branch. Once we release versioned releases, this table will be updated to reflect our support policy.
+Open a report with **Report a vulnerability** on the [Security Advisories page](https://github.com/runkora/kora/security/advisories). The report stays private between you and the maintainers until a fix is published. You can also email **security@runkora.io**.
 
-## Reporting a Vulnerability
+Include:
 
-**DO NOT** open a public GitHub issue for security vulnerabilities.
+- the affected component, and the kora version or commit
+- steps to reproduce, or a proof of concept
+- what an attacker could do with it
+- a suggested fix, if you have one
 
-Instead, please report security issues via one of these methods:
+## Scope
 
-### GitHub Security Advisories (Preferred)
+kora issues identities and credentials to agents and enforces the policy around them. These areas are the most sensitive:
 
-1. Go to the [Security Advisories page](https://github.com/clear-route/orbit/security/advisories)
-2. Click "Report a vulnerability"
-3. Fill out the advisory form with details
+| Area | Examples |
+| --- | --- |
+| Identity | The identity service, platform and delegation tokens, the `identity-proxy`, SPIFFE attestation |
+| Policy | A request allowed without a matching grant, a delegated request that exceeds the person's access, a bypass of the OPA sidecars |
+| Credentials | The egress gateway and connections, credentials exposed in logs, events or an agent's context |
+| Sandboxes | Escaping a sandbox, commands reaching `sandbox-exec` from an unauthorised caller, one run reaching another run's workspace |
+| Tenancy | One tenant reaching another tenant's agents, runs, budgets or data |
+| Supply chain | Published images, Helm charts and release artifacts |
 
-### Email
+## Disclosure
 
-Alternatively, email security reports to: **security@clearroute.io**
+When a fix is released, the maintainers publish a GitHub security advisory with the affected versions, the impact and the fix. The advisory credits the reporter unless they ask not to be named.
 
-Please include:
-- Description of the vulnerability
-- Steps to reproduce
-- Potential impact
-- Any suggested fixes (if applicable)
-
-## Response Timeline
-
-- **Initial Response**: Within 48 hours of report
-- **Status Update**: Within 5 business days
-- **Fix Timeline**: Depends on severity (critical issues prioritized)
-
-## Security Considerations for kora
-
-Given kora's role as infrastructure for autonomous agents, the following areas are particularly security-sensitive:
-
-### Identity & Authentication
-- Agent identity validation
-- Human authentication integration (SSO, Entra, etc.)
-- Token issuance and validation
-- Credential brokering
-
-### Policy Enforcement
-- Policy bypass vulnerabilities
-- Policy injection attacks
-- Authorization boundary violations
-
-### Agent Execution
-- Sandbox escapes
-- Tool permission escalation
-- Resource exhaustion (DoS)
-- Malicious agent behavior
-
-### Secrets Management
-- Credential leakage
-- Secrets in logs or events
-- Key material handling
-
-### Supply Chain
-- Dependency vulnerabilities
-- Build/release integrity
-- Container image security
-
-## Security Best Practices for Contributors
-
-When contributing to kora:
-
-1. **Never commit secrets** - No API keys, tokens, or credentials in code
-2. **Validate all inputs** - Especially agent-provided data and user inputs
-3. **Principle of least privilege** - Grant minimal permissions necessary
-4. **Secure defaults** - Default configurations should be secure
-5. **Audit logging** - Security-relevant actions must be logged
-6. **Dependency hygiene** - Keep dependencies updated and minimal
-
-## Disclosure Policy
-
-Once a vulnerability is fixed:
-
-1. We will publish a security advisory
-2. Credit will be given to the reporter (unless anonymity requested)
-3. CVE may be requested for significant vulnerabilities
-4. Detailed timeline and impact will be disclosed
-
-## Security Updates
-
-Subscribe to security advisories:
-- Watch this repository and enable "Security alerts"
-- Follow releases for security patches
-- Monitor our security advisories page
-
-Thank you for helping keep kora and its users safe!
+To hear about advisories, watch the repository with **Custom** → **Security alerts** selected.

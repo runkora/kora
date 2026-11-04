@@ -14,9 +14,10 @@ export const TARGET_STEP: KindStep = {
   id: 'target',
   railTitle: 'Target',
   railSub: 'Which agent',
-  description: 'The agent this trigger runs.',
+  description: (productName) =>
+    `The agent this trigger runs, or the agents ${productName} chooses between.`,
   Component: StepTarget,
-  validate: (state) => validateTarget(state),
+  validate: (state, context) => validateTarget(state, context),
 };
 
 export const DELIVERY_STEP: KindStep = {

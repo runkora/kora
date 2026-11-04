@@ -4,8 +4,8 @@ import "testing"
 
 // A shared backing array would let a reconciler editing its copy of a cached
 // tenant change the informer's object underneath every other reader.
-func TestOrbitTenantDeepCopy_CopiesLists(t *testing.T) {
-	in := &OrbitTenant{Spec: OrbitTenantSpec{
+func TestKoraTenantDeepCopy_CopiesLists(t *testing.T) {
+	in := &KoraTenant{Spec: KoraTenantSpec{
 		AllowedMarketplaceRepos: []string{"acme-corp/internal-skills"},
 		OIDC:                    TenantOIDCSpec{EmailDomains: []string{"acme.com"}},
 	}}

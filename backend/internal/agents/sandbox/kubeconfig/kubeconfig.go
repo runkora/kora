@@ -29,11 +29,11 @@ import (
 // deliberately non-functional and self-describing: it never reaches the API
 // server (the gateway strips it), and it reads unambiguously as a non-secret to
 // a credential scanner. Same value and reasoning as the sandbox's GH_TOKEN.
-const PlaceholderToken = "placeholder-credential-injected-by-orbit-egress-gateway"
+const PlaceholderToken = "placeholder-credential-injected-by-kora-egress-gateway"
 
-// ClustersEnvVar carries the JSON-encoded []Cluster from orbit-agents into the
+// ClustersEnvVar carries the JSON-encoded []Cluster from kora-agents into the
 // sandbox, where sandbox-exec renders it to disk at startup.
-const ClustersEnvVar = "ORBIT_KUBE_CLUSTERS"
+const ClustersEnvVar = "KORA_KUBE_CLUSTERS"
 
 // ErrNoServer is returned when a cluster entry names no API server.
 var ErrNoServer = errors.New("kubeconfig cluster has no server")

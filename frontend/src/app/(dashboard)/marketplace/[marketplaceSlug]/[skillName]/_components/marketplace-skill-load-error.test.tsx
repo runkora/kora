@@ -42,7 +42,7 @@ describe('MarketplaceSkillLoadError', () => {
   it('shows the failed-load message and an enabled Try again button', () => {
     render(<MarketplaceSkillLoadError />);
     expect(
-      screen.getByText('Orbit could not load this Skill from the Marketplace.'),
+      screen.getByText('kora could not load this Skill from the Marketplace.'),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled();
   });

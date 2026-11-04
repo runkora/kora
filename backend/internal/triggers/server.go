@@ -7,14 +7,17 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // maxWebhookBodyBytes caps the inbound webhook body read to defend against
@@ -53,7 +56,7 @@ type Controller struct {
 }
 
 // NewController builds the Triggers controller. authMW is the platform JWT auth
-// middleware (supplied by the identity service); eval/routes/basePath drive
+// and delegation middleware (supplied by main); eval/routes/basePath drive
 // ScopeEnforcementMiddleware on the management routes, exactly as for identity's
 // own authenticated routes.
 func NewController(svc *Service, sources *SourceService, triggers *TriggerService, authMW mw.Middleware, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) *Controller {
@@ -61,7 +64,7 @@ func NewController(svc *Service, sources *SourceService, triggers *TriggerServic
 }
 
 // GroupedBy returns "" — routes are registered with paths relative to the
-// server base path, like the orbit-agents controller.
+// server base path, like the kora-agents controller.
 func (c *Controller) GroupedBy() string { return "" }
 
 // Middleware returns nil; auth is applied per-route so the public webhook
@@ -74,7 +77,10 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //
 //	POST /api/v1/webhooks/{sourceID}          Inbound webhook delivery.
 //
-// Management (platform-admin; triggers:read / triggers:write):
+// Management (platform-admin; triggers:read / triggers:write). Creating a
+// trigger, editing what it runs or when, replaying a delivery, and rotating, enabling
+// or disabling a source also need kora-agents to report can_run for the caller
+// on each agent involved:
 //
 //	POST   /api/v1/trigger-sources            Register a webhook source.
 //	GET    /api/v1/trigger-sources            List webhook sources.
@@ -94,11 +100,12 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	GET    /api/v1/trigger-retention          Read this tenant's payload retention window.
 //	PUT    /api/v1/trigger-retention          Shorten this tenant's payload retention window.
 //	POST   /api/v1/triggers/schedule-preview  Preview a schedule's upcoming fires.
+//	GET    /api/v1/triggers/routing/candidates  Agent types a routed trigger may name.
 //
-// Fire (requires the per-trigger trigger:{id}:fire scope, checked in the
-// handler because RouteScope cannot express a path-dependent scope):
+// Fire (authenticated-only route; the handler requires trigger:fire or
+// trigger:{id}:fire because RouteScope cannot express a path-dependent scope):
 //
-//	POST   /api/v1/triggers/{id}/fire         Fire a manual trigger.
+//	POST   /api/v1/trigger-fires/{id}         Fire a manual trigger.
 func (c *Controller) Boot(mux *api.Mux) {
 	// Public inbound webhook — authenticated by the per-source adapter (HMAC
 	// signature for GitHub, bearer token for Alertmanager), not a platform
@@ -108,6 +115,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	auth := mw.MiddlewareChain(
 		c.authMW,
 		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
+		keepBearer,
 	)
 
 	mux.HandleWithMiddleware("POST /trigger-sources", auth, c.handleCreateSource)
@@ -128,11 +136,8 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.HandleWithMiddleware("PATCH /triggers/{id}", auth, c.handleUpdateTrigger)
 	mux.HandleWithMiddleware("DELETE /triggers/{id}", auth, c.handleDeleteTrigger)
 
-	// The fire endpoint shares the management auth chain for authentication,
-	// then checks trigger:{id}:fire in the handler. Route-level enforcement
-	// cannot do it: RouteScope matches static prefixes, so this path is
-	// indistinguishable from POST /api/v1/triggers (creation).
-	mux.HandleWithMiddleware("POST /triggers/{id}/fire", auth, c.handleFireTrigger)
+	// Fire has its own prefix with an authenticated-only route entry. authorizeFire is the authority.
+	mux.HandleWithMiddleware("POST /trigger-fires/{id}", auth, c.handleFireTrigger)
 
 	// Schedule preview for the creation wizard. Read-only and computed from the
 	// request alone: it touches no stored trigger and writes nothing.
@@ -146,12 +151,15 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// this one.
 	mux.HandleWithMiddleware("POST /triggers/schedule-preview", auth, c.handleSchedulePreview)
 
+	// The routing step of the trigger wizard lists agent types with whether the
+	// caller may make each a candidate (trigger routing ADR, Console).
+	mux.HandleWithMiddleware("GET /triggers/routing/candidates", auth, c.handleRoutingCandidates)
+
 	mux.HandleWithMiddleware("GET /trigger-deliveries", auth, c.handleListDeliveries)
 
 	// Replaying a delivery starts real work, so it takes triggers:write like
-	// every other route that changes something. It is not per-trigger authorized
-	// the way firing is: a webhook replay has no single trigger to name, and it
-	// starts exactly what the original arrival would start today.
+	// every other route that changes something. The service also requires run
+	// authority on every agent the replay would start.
 	mux.HandleWithMiddleware("POST /trigger-deliveries/{id}/redeliver", auth, c.handleRedeliver)
 
 	// Payload retention is a tenant-level setting, so it has no id in its path:
@@ -173,7 +181,7 @@ func (c *Controller) handleIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	outcome, err := c.svc.Ingest(ctx, sourceID, r.Header, body)
+	result, err := c.svc.Ingest(ctx, sourceID, r.Header, body)
 	if err != nil {
 		switch {
 		// One answer for every way an unauthenticated caller can be refused:
@@ -194,11 +202,14 @@ func (c *Controller) handleIngest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if outcome == IngestDuplicate {
+	switch result.Outcome {
+	case IngestHandshake:
+		api.JSON(ctx, w, c.logger, http.StatusOK, result.Reply)
+	case IngestDuplicate:
 		api.JSON(ctx, w, c.logger, http.StatusOK, map[string]string{"status": "duplicate"})
-		return
+	default:
+		api.JSON(ctx, w, c.logger, http.StatusAccepted, map[string]string{"status": "accepted"})
 	}
-	api.JSON(ctx, w, c.logger, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
 // ─── Sources ──────────────────────────────────────────────────────────────────
@@ -271,7 +282,7 @@ func (c *Controller) handleCreateTrigger(w http.ResponseWriter, r *http.Request)
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	t, err := c.triggers.CreateTrigger(ctx, tenantFromCtx(ctx), req)
+	t, err := c.triggers.CreateTrigger(ctx, tenantFromCtx(ctx), claimsFromCtx(ctx), req)
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
@@ -287,7 +298,16 @@ func (c *Controller) handleListTriggers(w http.ResponseWriter, r *http.Request) 
 		c.writeServiceError(w, r, err)
 		return
 	}
+	for i := range triggers {
+		c.setCanFire(ctx, &triggers[i])
+	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"triggers": triggers})
+}
+
+// setCanFire records whether the caller passes authorizeFire for t. Any refusal
+// or evaluator error reads as false.
+func (c *Controller) setCanFire(ctx context.Context, t *Trigger) {
+	t.CanFire = c.authorizeFire(ctx, t.ID) == nil
 }
 
 func (c *Controller) handleGetTrigger(w http.ResponseWriter, r *http.Request) {
@@ -297,6 +317,7 @@ func (c *Controller) handleGetTrigger(w http.ResponseWriter, r *http.Request) {
 		c.writeServiceError(w, r, err)
 		return
 	}
+	c.setCanFire(ctx, t)
 	api.JSON(ctx, w, c.logger, http.StatusOK, t)
 }
 
@@ -307,7 +328,7 @@ func (c *Controller) handleUpdateTrigger(w http.ResponseWriter, r *http.Request)
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	t, err := c.triggers.UpdateTrigger(ctx, tenantFromCtx(ctx), r.PathValue("id"), req)
+	t, err := c.triggers.UpdateTrigger(ctx, tenantFromCtx(ctx), r.PathValue("id"), claimsFromCtx(ctx), req)
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
@@ -324,13 +345,12 @@ func (c *Controller) handleDeleteTrigger(w http.ResponseWriter, r *http.Request)
 	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
-// handleFireTrigger handles POST /api/v1/triggers/{id}/fire.
+// handleFireTrigger handles POST /api/v1/trigger-fires/{id}.
 //
 // Firing is authorized per trigger, here rather than on the route.
 // ScopeEnforcementMiddleware matches static path prefixes, so it cannot express
-// a scope containing the trigger id; the route-level check it does apply
-// (triggers:write, shared with trigger creation) would mean anyone who can
-// manage triggers can fire any trigger.
+// a scope containing the trigger id. The route entry is authenticated-only, so
+// triggers:write neither grants nor is needed for a fire.
 //
 // The caller's permission does not narrow what the run can do. The run executes
 // under the trigger's own principal, so a caller with narrow permissions firing
@@ -399,6 +419,19 @@ func (c *Controller) authorizeFire(ctx context.Context, triggerID string) error 
 		return fmt.Errorf("%w: trigger:%s:fire", ErrFireForbidden, triggerID)
 	}
 	return nil
+}
+
+// handleRoutingCandidates lists the agent types the caller may read, with
+// runnable from the caller's can_run on each. The caller's own token reads
+// them, so the list is what the caller may see.
+func (c *Controller) handleRoutingCandidates(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	candidates, err := c.triggers.RoutingCandidates(ctx)
+	if err != nil {
+		c.writeServiceError(w, r, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"agent_types": candidates})
 }
 
 // ─── Deliveries ───────────────────────────────────────────────────────────────
@@ -519,7 +552,16 @@ func (c *Controller) handleSetRetention(w http.ResponseWriter, r *http.Request) 
 func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	ctx := r.Context()
 	var ive *InputValidationError
+	var mse *MissingScopesError
+	var gre *GrantRevokeError
+	if declarative.WriteRefusal(ctx, w, c.logger, err) {
+		return
+	}
 	switch {
+	case errors.As(err, &mse):
+		// 403 with the scopes, so the caller knows what to ask for.
+		api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, err.Error(),
+			map[string]any{"missing_scopes": mse.Scopes}), nil)
 	case errors.Is(err, ErrSourceNotFound), errors.Is(err, ErrTriggerNotFound), errors.Is(err, ErrDeliveryNotFound),
 		errors.Is(err, ErrProviderNotFound):
 		api.ErrorResponse(ctx, w, c.logger, api.NotFoundError(api.ErrCodeResourceNotFound, err.Error(), nil), nil)
@@ -527,6 +569,13 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 		// 429 rather than 500: the trigger is healthy, it is just busy, and the
 		// caller should retry rather than treat this as a fault.
 		api.ErrorResponse(ctx, w, c.logger, api.TooManyRequestsError(api.ErrCodeTooManyRequests, err.Error(), nil), nil)
+	case errors.Is(err, ErrTriggerConflict):
+		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeConflict, err.Error(), nil), nil)
+	case errors.As(err, &gre):
+		// The update is stored. Grant ids stay in the log.
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError,
+			"trigger updated, but its previous grant could not be revoked and is still live; ask your platform team to revoke it",
+			map[string]any{"trigger_id": gre.TriggerID}), err)
 	case errors.Is(err, ErrTriggerDisabled), errors.Is(err, ErrTriggerAutoPaused):
 		// 409 for both: the trigger is not accepting fires until someone acts.
 		// Which one it is decides what that action is, so the two keep separate
@@ -534,10 +583,14 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 		// 'resource_already_exists' — nothing was being created, and a client
 		// branching on the code was being told the opposite of what happened.
 		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeConflict, err.Error(), nil), nil)
+	case errors.Is(err, ErrSourceNameTaken), errors.Is(err, ErrDeclaredNameTaken), errors.Is(err, ErrAPINameTaken):
+		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeResourceExists, err.Error(), nil), nil)
 	case errors.Is(err, ErrNotRedeliverable):
 		// 400: the delivery exists and the caller may see it, but replaying this
 		// one is not a thing that can be done. The message says which reason.
 		api.ErrorResponse(ctx, w, c.logger, api.ValidationError(api.ErrCodeValidationFailed, err.Error(), nil), nil)
+	case errors.Is(err, ErrBindForbidden):
+		api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil), nil)
 	case errors.Is(err, ErrWrongKind):
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidField, err.Error(), nil), nil)
 	case errors.As(err, &ive):
@@ -556,12 +609,38 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 	}
 }
 
+type bearerKey struct{}
+
+// keepBearer stores the caller's bearer and any delegation the auth chain
+// verified, so the service can ask kora-agents about the caller's own access.
+var keepBearer = mw.NewMiddleware(func(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		caller := agentsclient.Caller{
+			Bearer:     strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")),
+			Delegation: strings.TrimSpace(r.Header.Get(mw.DelegationTokenHeader)),
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), bearerKey{}, caller)))
+	})
+})
+
+// callerOf returns the caller keepBearer stored, or the zero Caller outside a management request.
+func callerOf(ctx context.Context) agentsclient.Caller {
+	c, _ := ctx.Value(bearerKey{}).(agentsclient.Caller)
+	return c
+}
+
 func tenantFromCtx(ctx context.Context) string {
 	claims, ok := token.ClaimsFromContext(ctx)
 	if !ok || claims == nil {
 		return ""
 	}
-	return claims.Orbit.TenantID
+	return claims.Kora.TenantID
+}
+
+// claimsFromCtx returns the caller's verified claims, or nil.
+func claimsFromCtx(ctx context.Context) *token.PlatformClaims {
+	claims, _ := token.ClaimsFromContext(ctx)
+	return claims
 }
 
 func principalFromCtx(ctx context.Context) string {

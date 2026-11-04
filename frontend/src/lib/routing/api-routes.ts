@@ -13,7 +13,7 @@
  * call site that references the deleted route.
  *
  * @example
- *   import { ApiRoute } from '@orbit/lib/routing';
+ *   import { ApiRoute } from '@runkora/lib/routing';
  *
  *   // Without parameter
  *   fetch(ApiRoute.logout.POST(), { method: 'POST' });
@@ -22,7 +22,7 @@
  *   fetch(ApiRoute.session.POST(), { method: 'POST', body: JSON.stringify({ id_token }) });
  */
 
-import type { AgentInsightsPeriod } from '@orbit/shared/api';
+import type { AgentInsightsPeriod } from '@runkora/shared/api';
 
 // ── Base segments ─────────────────────────────────────────────────────────────
 
@@ -111,7 +111,7 @@ export const ApiRoute = {
    * `/api/models`
    *
    * GET — proxies to the Go inference gateway `GET /v1/models` and returns
-   *       the full list of available models. Requires an authenticated session.
+   *       the models the caller can use. Requires an authenticated session.
    */
   models: {
     GET: (): `${typeof API_BASE}/models` => `${API_BASE}/models`,
@@ -391,7 +391,7 @@ export const ApiRoute = {
       `${API_BASE}/trigger-sources/${id}/event-types`,
   },
 
-  /** Per-provider schema catalogue: event types, fields and sender associations. */
+  /** Per-provider schema catalogue: event types, category, fields and sender roles. */
   triggerProviders: {
     eventTypes: (provider: string): `${typeof API_BASE}/trigger-providers/${string}/event-types` =>
       `${API_BASE}/trigger-providers/${encodeURIComponent(provider)}/event-types`,
@@ -411,6 +411,9 @@ export const ApiRoute = {
     delete: (id: string): `${typeof API_BASE}/triggers/${string}` => `${API_BASE}/triggers/${id}`,
     fire: (id: string): `${typeof API_BASE}/triggers/${string}/fire` =>
       `${API_BASE}/triggers/${id}/fire`,
+    /** Agent types a routed trigger may name, each marked runnable for the caller. */
+    routingCandidates: (): `${typeof API_BASE}/triggers/routing/candidates` =>
+      `${API_BASE}/triggers/routing/candidates`,
     /** Next fires for a cron expression, resolved by the scheduler itself. */
     schedulePreview: (): `${typeof API_BASE}/triggers/schedule-preview` =>
       `${API_BASE}/triggers/schedule-preview`,

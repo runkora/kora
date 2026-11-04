@@ -6,38 +6,28 @@ import {
   Callout,
   Alert,
   Button,
-  ButtonGroup,
   Card,
   CardContent,
   CardFooter,
   CardHeader,
-  Eyebrow,
   Grid,
   Icon,
   Input,
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
-  RadioCard,
-  RadioGroup,
   Stack,
   Text,
-  Toggle,
-  ToggleRow,
   PageSectionHeader,
   EmptyState,
   ConfirmDialog,
-} from '@orbit/hades';
-import type { IconName } from '@orbit/hades';
-import { SmartTable } from '@orbit/components';
-import type { DataTableColumn } from '@orbit/components';
+} from '@runkora/hades';
+import { SmartTable } from '@runkora/components';
+import type { DataTableColumn, ScopeOption } from '@runkora/components';
 import type {
   PATAttributionEntry,
   PATGrantAttribution,
 } from '../../model-gateway/_services/tokens-server';
 import type { BudgetAssignment, Grant, PrincipalType } from '../_types';
 import { resolveGrantIdentity } from '../_utils/grant-identity';
+import { isGrantEditable } from '../_utils/grant-owner';
 
 // budgetSummary renders "$50.00/mo · $5.00/run" for a grant budget.
 function budgetSummary(budget: BudgetAssignment): string {
@@ -50,21 +40,51 @@ function budgetSummary(budget: BudgetAssignment): string {
   }
   return parts.join(' · ');
 }
-import { createGrantAction, deleteGrantAction, searchUsersAction } from '../_actions/grants';
-import { usePermissions } from '../../_components/permissions-provider';
-import { hasScope } from '@orbit/lib/permissions';
-import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
-import { PrincipalBadge, ScopeChip, ScopeChipList, scopeColumnFilter } from '@orbit/components';
-import { ScopePicker } from '@orbit/components';
-import { FilterChip } from './filter-chip';
+import { deleteGrantAction } from '../_actions/grants';
+import { useHasScope } from '../../_components/permissions-provider';
+import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
+import {
+  PrincipalBadge,
+  principalLabel,
+  ScopeChip,
+  ScopeChipList,
+  scopeColumnFilter,
+} from '@runkora/components';
+import { FilterChip } from '@runkora/components';
+import { CreateGrantWizard } from './create-grant-wizard';
 import { GrantDetailModal } from './grant-detail-modal';
-import { ViewToggle } from '@orbit/hades';
+import { GrantOwnerLink } from './grant-owner-link';
+import { ViewToggle } from '@runkora/components';
+import { PermissionHint } from '@runkora/components';
+
+const PRINCIPAL_TYPES: PrincipalType[] = ['AGENT', 'HUMAN', 'PAT', 'SERVICE'];
+
+function grantMatches(
+  g: Grant,
+  q: string,
+  patAttribution: Record<string, PATGrantAttribution>,
+  userAttribution: Record<string, PATAttributionEntry>,
+): boolean {
+  const identity = resolveGrantIdentity(g, patAttribution, userAttribution);
+  return (
+    identity.primary.toLowerCase().includes(q) ||
+    (identity.email?.toLowerCase().includes(q) ?? false) ||
+    (identity.ownerName?.toLowerCase().includes(q) ?? false) ||
+    (identity.ownerEmail?.toLowerCase().includes(q) ?? false) ||
+    g.principal_id.toLowerCase().includes(q) ||
+    g.principal_type.toLowerCase().includes(q) ||
+    principalLabel(g.principal_type).toLowerCase().includes(q) ||
+    g.scopes.some((s) => s.toLowerCase().includes(q))
+  );
+}
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
 interface GrantsTabProps {
   initialGrants: Grant[];
   availableScopes: string[];
+  /** The vocabulary entries behind `availableScopes`, so the wizard can group and describe them. */
+  scopeOptions?: ScopeOption[];
   patAttribution: Record<string, PATGrantAttribution>;
   userAttribution: Record<string, PATAttributionEntry>;
   initialError: string | null;
@@ -78,6 +98,7 @@ interface GrantsTabProps {
 export function GrantsTab({
   initialGrants,
   availableScopes,
+  scopeOptions,
   patAttribution,
   userAttribution,
   initialError,
@@ -86,8 +107,7 @@ export function GrantsTab({
   total,
 }: GrantsTabProps) {
   const router = useRouter();
-  const { scopes: sessionScopes } = usePermissions();
-  const canWrite = hasScope(sessionScopes, 'platform:grants:write');
+  const canWrite = useHasScope('platform:grants:write');
   const [grants, setGrants] = useState(initialGrants);
   const [error, setError] = useState(initialError);
 
@@ -124,18 +144,7 @@ export function GrantsTab({
     }
     if (search) {
       const q = search.toLowerCase();
-      result = result.filter((g) => {
-        const identity = resolveGrantIdentity(g, patAttribution, userAttribution);
-        return (
-          identity.primary.toLowerCase().includes(q) ||
-          (identity.email?.toLowerCase().includes(q) ?? false) ||
-          (identity.ownerName?.toLowerCase().includes(q) ?? false) ||
-          (identity.ownerEmail?.toLowerCase().includes(q) ?? false) ||
-          g.principal_id.toLowerCase().includes(q) ||
-          g.principal_type.toLowerCase().includes(q) ||
-          g.scopes.some((s) => s.toLowerCase().includes(q))
-        );
-      });
+      result = result.filter((g) => grantMatches(g, q, patAttribution, userAttribution));
     }
     return result;
   }, [grants, search, typeFilter, patAttribution, userAttribution]);
@@ -164,12 +173,12 @@ export function GrantsTab({
         title="Grants"
         description="Permission grants assigned to principals in your tenant."
         action={
-          canWrite ? (
-            <Button size="sm" onClick={() => setCreating(true)}>
+          <PermissionHint allowed={canWrite} action="create grants">
+            <Button size="sm" disabled={!canWrite} onClick={() => setCreating(true)}>
               <Icon name="plus" />
               Create Grant
             </Button>
-          ) : undefined
+          </PermissionHint>
         }
       />
 
@@ -178,6 +187,8 @@ export function GrantsTab({
         <Text size="caption" color="muted">
           Grants assign specific scopes directly to a principal. Unlike roles (which map OIDC claims
           to scopes), grants are explicit: they apply regardless of how the principal authenticates.
+          You create and delete grants for people here. Agent, trigger and token grants are managed
+          by the agent, trigger or token they belong to.
         </Text>
       </Callout>
 
@@ -212,10 +223,10 @@ export function GrantsTab({
                 active={typeFilter === 'all'}
                 onClick={() => setTypeFilter('all')}
               />
-              {(['AGENT', 'HUMAN', 'PAT', 'SERVICE'] as PrincipalType[]).map((type) => (
+              {PRINCIPAL_TYPES.map((type) => (
                 <FilterChip
                   key={type}
-                  label={type}
+                  label={principalLabel(type)}
                   count={typeCounts[type] ?? 0}
                   active={typeFilter === type}
                   onClick={() => setTypeFilter(type)}
@@ -242,14 +253,14 @@ export function GrantsTab({
             <EmptyState
               icon="shield-check"
               title="No grants yet"
-              description="Grants assign scopes directly to principals. Create your first grant to give an agent, human, or service access to specific operations."
+              description="Grants assign scopes directly to principals. Create your first grant to give a person access to specific operations."
               action={
-                canWrite ? (
-                  <Button size="sm" onClick={() => setCreating(true)}>
+                <PermissionHint allowed={canWrite} action="create grants">
+                  <Button size="sm" disabled={!canWrite} onClick={() => setCreating(true)}>
                     <Icon name="plus" />
                     Create Grant
                   </Button>
-                ) : undefined
+                </PermissionHint>
               }
             />
           )
@@ -258,7 +269,8 @@ export function GrantsTab({
             grants={filtered}
             patAttribution={patAttribution}
             userAttribution={userAttribution}
-            onDelete={canWrite ? setDeleteCandidate : undefined}
+            onDelete={setDeleteCandidate}
+            canWrite={canWrite}
           />
         )
       ) : (
@@ -267,7 +279,8 @@ export function GrantsTab({
           patAttribution={patAttribution}
           userAttribution={userAttribution}
           onSelect={setSelectedGrant}
-          onDelete={canWrite ? setDeleteCandidate : undefined}
+          onDelete={setDeleteCandidate}
+          canWrite={canWrite}
           viewToggle={<ViewToggle viewMode={viewMode} onToggle={setViewMode} />}
         />
       )}
@@ -311,7 +324,6 @@ export function GrantsTab({
         )}
       </ConfirmDialog>
 
-      {/* Create grant modal */}
       <GrantDetailModal
         grant={selectedGrant}
         identity={
@@ -322,16 +334,14 @@ export function GrantsTab({
         onClose={() => setSelectedGrant(null)}
       />
 
-      <CreateGrantModal
-        key={creating ? 'create' : 'closed'}
-        open={creating}
-        availableScopes={availableScopes}
-        onClose={() => setCreating(false)}
-        onCreated={() => {
-          setCreating(false);
-          router.refresh();
-        }}
-      />
+      {creating && (
+        <CreateGrantWizard
+          availableScopes={availableScopes}
+          scopeOptions={scopeOptions}
+          onClose={() => setCreating(false)}
+          onCreated={() => router.refresh()}
+        />
+      )}
     </Stack>
   );
 }
@@ -383,11 +393,13 @@ function GrantCardGrid({
   patAttribution,
   userAttribution,
   onDelete,
+  canWrite,
 }: {
   grants: Grant[];
   patAttribution: Record<string, PATGrantAttribution>;
   userAttribution: Record<string, PATAttributionEntry>;
-  onDelete?: (grant: Grant) => void;
+  onDelete: (grant: Grant) => void;
+  canWrite: boolean;
 }) {
   return (
     <Grid cols={{ base: 1, sm: 2 }} gap="comfortable">
@@ -444,15 +456,20 @@ function GrantCardGrid({
                 <Text size="caption" color="subtle">
                   Created {fmtDate(grant.created_at)}
                 </Text>
-                {onDelete && (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => onDelete(grant)}
-                    aria-label="Delete grant"
-                  >
-                    <Icon name="trash" size="2xs" />
-                  </Button>
+                {isGrantEditable(grant) ? (
+                  <PermissionHint allowed={canWrite} action="delete grants">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      disabled={!canWrite}
+                      onClick={() => onDelete(grant)}
+                      aria-label="Delete grant"
+                    >
+                      <Icon name="trash" size="2xs" />
+                    </Button>
+                  </PermissionHint>
+                ) : (
+                  <GrantOwnerLink grant={grant} />
                 )}
               </Stack>
             </CardFooter>
@@ -465,12 +482,7 @@ function GrantCardGrid({
 
 // ── Table view ──────────────────────────────────────────────────────────────
 
-const TYPE_OPTIONS = [
-  { value: 'AGENT', label: 'Agent' },
-  { value: 'HUMAN', label: 'Human' },
-  { value: 'PAT', label: 'PAT' },
-  { value: 'SERVICE', label: 'Service' },
-];
+const TYPE_OPTIONS = PRINCIPAL_TYPES.map((value) => ({ value, label: principalLabel(value) }));
 
 function GrantTable({
   grants,
@@ -478,13 +490,15 @@ function GrantTable({
   userAttribution,
   onSelect,
   onDelete,
+  canWrite,
   viewToggle,
 }: {
   grants: Grant[];
   patAttribution: Record<string, PATGrantAttribution>;
   userAttribution: Record<string, PATAttributionEntry>;
   onSelect: (grant: Grant) => void;
-  onDelete?: (grant: Grant) => void;
+  onDelete: (grant: Grant) => void;
+  canWrite: boolean;
   viewToggle: React.ReactNode;
 }) {
   const columns = useMemo<DataTableColumn<Grant>[]>(
@@ -596,24 +610,29 @@ function GrantTable({
         header: '',
         pinEnd: true,
         locked: true,
-        gridWidth: '3rem',
+        gridWidth: '7rem',
         cell: (g) =>
-          onDelete ? (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(g);
-              }}
-              aria-label="Delete grant"
-            >
-              <Icon name="trash" size="2xs" />
-            </Button>
-          ) : null,
+          isGrantEditable(g) ? (
+            <PermissionHint allowed={canWrite} action="delete grants">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!canWrite}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(g);
+                }}
+                aria-label="Delete grant"
+              >
+                <Icon name="trash" size="2xs" />
+              </Button>
+            </PermissionHint>
+          ) : (
+            <GrantOwnerLink grant={g} />
+          ),
       },
     ],
-    [onDelete, patAttribution, userAttribution, grants],
+    [onDelete, canWrite, patAttribution, userAttribution, grants],
   );
 
   return (
@@ -628,321 +647,12 @@ function GrantTable({
         `View details for ${resolveGrantIdentity(g, patAttribution, userAttribution).primary}`
       }
       searchPlaceholder="Search grants…"
-      searchFn={(g, q) => {
-        const identity = resolveGrantIdentity(g, patAttribution, userAttribution);
-        return (
-          identity.primary.toLowerCase().includes(q) ||
-          (identity.email?.toLowerCase().includes(q) ?? false) ||
-          (identity.ownerName?.toLowerCase().includes(q) ?? false) ||
-          (identity.ownerEmail?.toLowerCase().includes(q) ?? false) ||
-          g.principal_id.toLowerCase().includes(q) ||
-          g.principal_type.toLowerCase().includes(q) ||
-          g.scopes.some((s) => s.toLowerCase().includes(q))
-        );
-      }}
+      searchFn={(g, q) => grantMatches(g, q, patAttribution, userAttribution)}
       defaultSortId="principal"
       defaultSortDir="asc"
       emptyMessage="No grants yet."
       filteredEmptyMessage="No grants match your filters."
       toolbarActions={viewToggle}
     />
-  );
-}
-
-// ── User picker ───────────────────────────────────────────────────────────────
-
-function UserPicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
-  const [users, setUsers] = useState<PATAttributionEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-
-  useEffect(() => {
-    let cancelled = false;
-    const delay = search ? 300 : 0;
-    const timer = setTimeout(async () => {
-      if (cancelled) return;
-      setLoading(true);
-      const result = await searchUsersAction(search);
-      if (cancelled) return;
-      setLoading(false);
-      if (result.ok) setUsers(result.data);
-    }, delay);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [search]);
-
-  return (
-    <Stack gap="none">
-      <Stack marginBottom="tight">
-        <Input
-          type="text"
-          placeholder="Search users…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </Stack>
-      <Card maxHeight="scroll-sm" overflowY="auto" border="default" divide>
-        {loading || users.length === 0 ? (
-          <Stack paddingBlock="tight" paddingInline="snug">
-            <Text size="caption" color="muted">
-              {loading ? 'Loading…' : search ? 'No users match your search' : 'No users found'}
-            </Text>
-          </Stack>
-        ) : (
-          users.map((u) => {
-            const isSelected = value === u.id;
-            return (
-              <Button
-                key={u.id}
-                variant="ghost"
-                shape="square"
-                size="sm"
-                selected={isSelected}
-                fullWidth
-                onClick={() => onChange(u.id)}
-              >
-                <Stack direction="horizontal" grow align="center" justify="between" minWidth="none">
-                  <Text
-                    size="micro"
-                    truncate
-                    color={isSelected ? 'accent' : 'foreground'}
-                    weight={isSelected ? 'emphasis' : undefined}
-                  >
-                    {u.display_name || u.email}
-                  </Text>
-                  {u.display_name && u.display_name !== u.email && (
-                    <Text size="micro" color="muted">
-                      {u.email}
-                    </Text>
-                  )}
-                </Stack>
-              </Button>
-            );
-          })
-        )}
-      </Card>
-    </Stack>
-  );
-}
-
-// ── Create modal ─────────────────────────────────────────────────────────────
-
-const PRINCIPAL_TYPE_OPTIONS: {
-  value: PrincipalType;
-  icon: IconName;
-  description: string;
-}[] = [
-  { value: 'AGENT', icon: 'bot', description: 'Autonomous workload' },
-  { value: 'HUMAN', icon: 'user', description: 'A person in the tenant' },
-  { value: 'SERVICE', icon: 'server', description: 'External system' },
-];
-
-function CreateGrantModal({
-  open,
-  availableScopes,
-  onClose,
-  onCreated,
-}: {
-  open: boolean;
-  availableScopes: string[];
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const [principalType, setPrincipalType] = useState<PrincipalType>('AGENT');
-  const [principalId, setPrincipalId] = useState('');
-  const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
-  const [budgetEnabled, setBudgetEnabled] = useState(false);
-  const [limitUSD, setLimitUSD] = useState('');
-  const [cadence, setCadence] = useState('monthly');
-  const [perRunUSD, setPerRunUSD] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-
-  const selectPrincipalType = useCallback((value: string) => {
-    setPrincipalType(value as PrincipalType);
-    setPrincipalId('');
-  }, []);
-
-  const handleSubmit = useCallback(async () => {
-    const trimmedId = principalId.trim();
-    if (!trimmedId || selectedScopes.length === 0) return;
-    setSubmitting(true);
-    setSubmitError(null);
-    const budget =
-      budgetEnabled && (limitUSD || perRunUSD)
-        ? {
-            reset_cadence: cadence,
-            ...(limitUSD ? { limit_usd: parseFloat(limitUSD) } : {}),
-            ...(perRunUSD ? { per_run_limit_usd: parseFloat(perRunUSD) } : {}),
-          }
-        : null;
-    const result = await createGrantAction({
-      principal_type: principalType,
-      principal_id: trimmedId,
-      scopes: selectedScopes,
-      budget,
-    });
-    if (result.ok) {
-      setPrincipalId('');
-      setSelectedScopes([]);
-      setBudgetEnabled(false);
-      setLimitUSD('');
-      setPerRunUSD('');
-      onCreated();
-    } else {
-      setSubmitError(result.message);
-    }
-    setSubmitting(false);
-  }, [
-    principalType,
-    principalId,
-    selectedScopes,
-    budgetEnabled,
-    limitUSD,
-    cadence,
-    perRunUSD,
-    onCreated,
-  ]);
-
-  return (
-    <Modal open={open} onClose={onClose} size="lg">
-      <ModalHeader title="Create Grant" />
-      <ModalBody flushY constrained>
-        <Stack gap="comfortable">
-          {/* Principal type */}
-          <Stack gap="tight">
-            <Eyebrow>Principal Type</Eyebrow>
-            <RadioGroup
-              value={principalType}
-              onValueChange={selectPrincipalType}
-              aria-label="Principal type"
-            >
-              <Grid cols={3} gap="cozy">
-                {PRINCIPAL_TYPE_OPTIONS.map((option) => (
-                  <RadioCard
-                    key={option.value}
-                    value={option.value}
-                    selected={principalType === option.value}
-                    onSelect={selectPrincipalType}
-                    icon={option.icon}
-                    title={option.value}
-                    description={option.description}
-                  />
-                ))}
-              </Grid>
-            </RadioGroup>
-          </Stack>
-
-          {/* Principal — user picker for HUMAN, freeform for others */}
-          <Stack gap="tight">
-            <Eyebrow>{principalType === 'HUMAN' ? 'User' : 'Principal ID'}</Eyebrow>
-            {principalType === 'HUMAN' ? (
-              <UserPicker value={principalId} onChange={setPrincipalId} />
-            ) : (
-              <Input
-                type="text"
-                placeholder={principalType === 'AGENT' ? 'Agent UUID' : 'Service identifier'}
-                value={principalId}
-                onChange={(e) => setPrincipalId(e.target.value)}
-              />
-            )}
-          </Stack>
-
-          {/* Scopes */}
-          <Stack gap="tight">
-            <Stack direction="horizontal" align="center" gap="tight">
-              <Eyebrow>Scopes</Eyebrow>
-              <Text size="caption" color="subtle">
-                ({selectedScopes.length} selected)
-              </Text>
-            </Stack>
-            <ScopePicker
-              scopes={availableScopes}
-              selected={selectedScopes}
-              onChange={setSelectedScopes}
-            />
-          </Stack>
-
-          {/* Budget */}
-          <Stack gap="snug">
-            <ToggleRow
-              label="Budget"
-              description="Spend ceiling on this grant"
-              htmlFor="grant-budget-toggle"
-              control={
-                <Toggle
-                  id="grant-budget-toggle"
-                  checked={budgetEnabled}
-                  onChange={setBudgetEnabled}
-                />
-              }
-            />
-            {budgetEnabled && (
-              <Stack gap="snug">
-                <Stack direction="horizontal" align="center" gap="snug">
-                  <Input
-                    type="number"
-                    placeholder="e.g. 50"
-                    startAdornment="$"
-                    value={limitUSD}
-                    onChange={(e) => setLimitUSD(e.target.value)}
-                  />
-                  <ButtonGroup>
-                    <Button
-                      variant="outline-muted"
-                      size="sm"
-                      selected={cadence === 'weekly'}
-                      onClick={() => setCadence('weekly')}
-                    >
-                      Weekly
-                    </Button>
-                    <Button
-                      variant="outline-muted"
-                      size="sm"
-                      selected={cadence === 'monthly'}
-                      onClick={() => setCadence('monthly')}
-                    >
-                      Monthly
-                    </Button>
-                  </ButtonGroup>
-                </Stack>
-                <Stack direction="horizontal" align="center" gap="snug">
-                  <Input
-                    type="number"
-                    placeholder="e.g. 5"
-                    startAdornment="$"
-                    value={perRunUSD}
-                    onChange={(e) => setPerRunUSD(e.target.value)}
-                  />
-                  <Text size="caption" color="muted">
-                    / run (agents)
-                  </Text>
-                </Stack>
-              </Stack>
-            )}
-          </Stack>
-
-          {submitError && (
-            <Text color="status-error" size="caption">
-              {submitError}
-            </Text>
-          )}
-        </Stack>
-      </ModalBody>
-      <ModalFooter>
-        <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>
-          Cancel
-        </Button>
-        <Button
-          size="sm"
-          onClick={() => void handleSubmit()}
-          disabled={submitting || !principalId || selectedScopes.length === 0}
-        >
-          {submitting ? 'Creating...' : 'Create Grant'}
-        </Button>
-      </ModalFooter>
-    </Modal>
   );
 }

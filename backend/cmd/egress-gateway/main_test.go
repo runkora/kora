@@ -3,21 +3,23 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	egc "github.com/clear-route/orbit/cmd/egress-gateway/config"
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/credentials/adapters/githubapp"
-	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
-	"github.com/clear-route/orbit/internal/egressgw"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	egc "github.com/runkora/kora/backend/cmd/egress-gateway/config"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/githubapp"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
+	"github.com/runkora/kora/backend/internal/egressgw"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // mountedRegistry writes a connections.json the way the operator renders it and
@@ -99,7 +101,7 @@ func TestInitScopeRegistrationPublishesConnectionVocabulary(t *testing.T) {
 	defer srv.Close()
 	withPolicyServiceURL(t, srv.URL)
 
-	conns := mountedRegistry(t, `[{"tenant_id":"acme","name":"github","adapter":"github_app","base_host":"github.com","secret_ref":"k8s:orbit-conn-acme-github"}]`)
+	conns := mountedRegistry(t, `[{"tenant_id":"acme","name":"github","adapter":"github_app","base_host":"github.com","secret_ref":"k8s:kora-conn-acme-github"}]`)
 	register := initScopeRegistration(logging.NewLoggerWithOutput(io.Discard), testToken, conns, testAdapters(t))
 
 	if err := register(t.Context()); err != nil {
@@ -135,5 +137,28 @@ func TestInitScopeRegistrationPublishesConnectionVocabulary(t *testing.T) {
 		if _, ok := declared[want]; !ok {
 			t.Errorf("scope %q missing from the registration: %v", want, declared)
 		}
+	}
+}
+
+// The forward leg refuses to dial the gateway's own loopback: the upstream host
+// comes from a sandbox.
+func TestUpstreamTransportRefusesLoopback(t *testing.T) {
+	var hit atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hit.Store(true) }))
+	defer srv.Close()
+
+	transport, err := upstreamTransport()
+	if err != nil {
+		t.Fatalf("upstreamTransport: %v", err)
+	}
+	resp, err := (&http.Client{Transport: transport, Timeout: 5 * time.Second}).Get(srv.URL)
+	if err == nil {
+		_ = resp.Body.Close()
+	}
+	if !errors.Is(err, egressgw.ErrLocalTarget) {
+		t.Errorf("err = %v, want ErrLocalTarget", err)
+	}
+	if hit.Load() {
+		t.Error("loopback upstream was reached")
 	}
 }

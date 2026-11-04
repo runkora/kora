@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { server } from '@orbit/test-utils';
-import type { MarketplaceDetail, SkillSummary } from '@orbit/shared/api';
+import { server } from '@runkora/test-utils';
+import type { MarketplaceDetail, SkillSummary } from '@runkora/shared/api';
 import type { SkillSort } from '../_types';
 
-vi.mock('@orbit/server/config', () => ({
+vi.mock('@runkora/server/config', () => ({
   config: { skillsServiceUrl: 'http://skills-service.test/v1' },
 }));
 vi.mock('../../_preferences/preferences-server', () => ({ getPreferences: vi.fn() }));

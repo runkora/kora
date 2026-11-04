@@ -11,15 +11,15 @@
 
 ### Background
 
-The Orbit Marketplace is a read-only catalogue where users browse, search, and review skills — pre-packaged sets of Claude instructions hosted in approved GitHub repositories. Skills are never installed or executed from this surface.
+The kora Marketplace is a read-only catalogue where users browse, search, and review skills — pre-packaged sets of Claude instructions hosted in approved GitHub repositories. Skills are never installed or executed from this surface.
 
 A `skills-service` owns this capability. GitHub is the source of truth for all Marketplace content.
 
-Marketplace sources are declared through GitOps — one `SkillMarketplaceSource` CRD per GitHub repository, scoped to a tenant. The `orbit-operator` watches all `SkillMarketplaceSource` CRDs and aggregates the valid entries into one ConfigMap (`orbit-skill-marketplace-sources`). `skills-service` reads a `skills-mapping.yaml` file from that ConfigMap to know which repos are declared for which tenant.
+Marketplace sources are declared through GitOps — one `SkillMarketplaceSource` CRD per GitHub repository, scoped to a tenant. The `kora-operator` watches all `SkillMarketplaceSource` CRDs and aggregates the valid entries into one ConfigMap (`kora-skill-marketplace-sources`). `skills-service` reads a `skills-mapping.yaml` file from that ConfigMap to know which repos are declared for which tenant.
 
 The service authenticates with GitHub using a **GitHub App**. A `TokenProvider` mints short-lived installation tokens on demand and refreshes them before expiry. Today one GitHub App serves every source; per-source credentials (`credentialsRef` with a `TokenProviderPool`) are deferred (see [GitHub App Authentication and Platform Client](#github-app-authentication-and-platform-client)). All content fetches go through the platform GitHub client at `internal/platform/clients/github/`, which embeds `httpclient.Base` — the same convention every other service-to-service HTTP client follows.
 
-A single Redis instance is shared across all tenants. Isolation is enforced by prefixing marketplace list keys with the tenant ID. `skills-service` is the only service allowed to read or write these keys, and it lives in the `orbit-system` namespace — no other workload has network access to this Redis instance or to the `skills-service` API.
+A single Redis instance is shared across all tenants. Isolation is enforced by prefixing marketplace list keys with the tenant ID. `skills-service` is the only service allowed to read or write these keys, and it lives in the `kora-system` namespace — no other workload has network access to this Redis instance or to the `skills-service` API.
 
 ### Problem Statement
 
@@ -142,7 +142,7 @@ A single Redis instance is shared across all tenants. Isolation is enforced by p
 
 **Chosen Option: D — Cache-Aside with Tenant-Scoped Per-Repo Redis Keys**
 
-Every read goes to Redis first. On a hit, the cached `[]SkillEntry` is used directly. On a miss, the handler crawls the repository through the platform GitHub client, writes `[]SkillEntry` back to Redis with the configured TTL, and serves the response from the same in-memory result. Full `Skill` content (file bodies) is cached separately per-skill on first detail request. `skills-service` runs in the `orbit-system` namespace; it is the only service permitted to read or write these Redis keys, and network policy in the cluster enforces that.
+Every read goes to Redis first. On a hit, the cached `[]SkillEntry` is used directly. On a miss, the handler crawls the repository through the platform GitHub client, writes `[]SkillEntry` back to Redis with the configured TTL, and serves the response from the same in-memory result. Full `Skill` content (file bodies) is cached separately per-skill on first detail request. `skills-service` runs in the `kora-system` namespace; it is the only service permitted to read or write these Redis keys, and network policy in the cluster enforces that.
 
 ### Skill Data Model
 
@@ -256,14 +256,14 @@ The tenant ID is the isolation boundary for list keys; a request from `tenant-a`
 
 ### Access Restrictions
 
-- `skills-service` runs in the `orbit-system` namespace.
+- `skills-service` runs in the `kora-system` namespace.
 - The Redis instance is exposed only inside the mesh, with an authorization policy that allows connections from `skills-service` only.
 - `skills-service` is the sole owner of these Redis keys — no other service reads or writes them.
 - The tenant ID used to construct every marketplace list key is derived from the authenticated caller's identity, not from any request parameter, so a request cannot cross tenant boundaries even if the URL is manipulated.
 
 ### ConfigMap Structure
 
-The `orbit-operator` renders all valid `SkillMarketplaceSource` CRDs into the `orbit-skill-marketplace-sources` ConfigMap as `skills-mapping.yaml`. Sources are grouped by tenant ID; the tenant ID is derived by the operator from the namespace in which each `SkillMarketplaceSource` CRD is installed — it is never a field on the CRD spec itself:
+The `kora-operator` renders all valid `SkillMarketplaceSource` CRDs into the `kora-skill-marketplace-sources` ConfigMap as `skills-mapping.yaml`. Sources are grouped by tenant ID; the tenant ID is derived by the operator from the namespace in which each `SkillMarketplaceSource` CRD is installed — it is never a field on the CRD spec itself:
 
 ```yaml
 skillsMapping:
@@ -281,7 +281,7 @@ Each entry in `marketplaces` is a GitHub repository URL. The registry parses eac
 
 `Branch` is not configurable — the crawler always uses `HEAD`, which GitHub resolves to the repository's default branch. There is no per-source branch override.
 
-`skills-service` mounts `orbit-skill-marketplace-sources` as a read-only directory at `ORBIT_MARKETPLACE_SOURCES_CONFIG`, reads `skills-mapping.yaml` once at startup, and does not hot-reload. A restart picks up any ConfigMap changes. The backend never imports the CRD type and never calls the Kubernetes API.
+`skills-service` mounts `kora-skill-marketplace-sources` as a read-only directory at `KORA_MARKETPLACE_SOURCES_CONFIG`, reads `skills-mapping.yaml` once at startup, and does not hot-reload. A restart picks up any ConfigMap changes. The backend never imports the CRD type and never calls the Kubernetes API.
 
 ### GitHub App Authentication and Platform Client
 
@@ -390,7 +390,7 @@ Every `SKILL.md` must open with a YAML frontmatter block delimited by `---`:
 
 ### API Surface
 
-All Marketplace endpoints live under `/v1/marketplaces`, matching the versioned REST layout used elsewhere in Orbit. The tenant is resolved from the authenticated caller and is never a path parameter. The frontend addresses a marketplace by its `marketplaceSlug`; `org` and `repoName` are backend-internal and never appear in a URL or response.
+All Marketplace endpoints live under `/v1/marketplaces`, matching the versioned REST layout used elsewhere in kora. The tenant is resolved from the authenticated caller and is never a path parameter. The frontend addresses a marketplace by its `marketplaceSlug`; `org` and `repoName` are backend-internal and never appear in a URL or response.
 
 | Method | Path | Description |
 |---|---|---|
@@ -558,13 +558,13 @@ All three endpoints require scope `marketplace:read`. Middleware chain: `AuthMid
 
 ### Step 1 — Admin Declares Marketplace Sources
 
-A platform operator creates one `SkillMarketplaceSource` CRD per GitHub repository via GitOps. The `orbit-operator` validates each CRD, marks it `Aggregated` or `Invalid`, and renders the approved set into the `orbit-skill-marketplace-sources` ConfigMap as `skills-mapping.yaml`. This is a one-time setup step per repository; the operator keeps the ConfigMap up to date as CRDs are added, changed, or removed.
+A platform operator creates one `SkillMarketplaceSource` CRD per GitHub repository via GitOps. The `kora-operator` validates each CRD, marks it `Aggregated` or `Invalid`, and renders the approved set into the `kora-skill-marketplace-sources` ConfigMap as `skills-mapping.yaml`. This is a one-time setup step per repository; the operator keeps the ConfigMap up to date as CRDs are added, changed, or removed.
 
 ### Step 2 — Service Starts
 
 When `skills-service` starts:
 
-1. Reads `ORBIT_MARKETPLACE_SOURCES_CONFIG/skills-mapping.yaml` to build the tenant-scoped in-memory registry.
+1. Reads `KORA_MARKETPLACE_SOURCES_CONFIG/skills-mapping.yaml` to build the tenant-scoped in-memory registry.
 2. Builds a default `TokenProvider` from `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY_PATH`. All sources share it (per-source credentials are deferred).
 3. Constructs the platform GitHub client (`internal/platform/clients/github`) and wires it into the `Crawler` with that provider.
 4. Passes the readiness probe. No preload is performed.
@@ -615,7 +615,7 @@ backend/internal/platform/clients/github/
 backend/internal/operator/
 └── marketplace_aggregator.go  — MarketplaceSourceAggregator: watches SkillMarketplaceSource CRDs;
                                   validates sources; marks Pending/Aggregated/Invalid;
-                                  renders orbit-skill-marketplace-sources ConfigMap
+                                  renders kora-skill-marketplace-sources ConfigMap
 ```
 
 The GitHub HTTP client lives under `internal/platform/clients/github/` because the platform-client convention requires it. The feature package supplies GitHub App semantics (`TokenProvider`) but never constructs its own HTTP client.
@@ -640,7 +640,7 @@ Revisit if metrics show duplicate crawls on cold-cache bursts, or if the first-r
 
 ### Migration Path
 
-No migration is required — `skills-service` is a new service with no existing data to migrate. The `SkillMarketplaceSource` CRD and `orbit-skill-marketplace-sources` ConfigMap are new resources with no prior state.
+No migration is required — `skills-service` is a new service with no existing data to migrate. The `SkillMarketplaceSource` CRD and `kora-skill-marketplace-sources` ConfigMap are new resources with no prior state.
 
 ---
 

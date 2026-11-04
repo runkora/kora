@@ -2,8 +2,8 @@
 
 import type { ReactNode } from 'react';
 
-import { Stack, Text } from '@orbit/hades';
-import { hasScope } from '@orbit/lib/permissions';
+import { Stack, Text } from '@runkora/hades';
+import { hasScopeCovering } from '@runkora/lib/permissions';
 import { useSession } from './permissions-provider';
 
 /**
@@ -32,7 +32,7 @@ export function ScopeGuard({ scope, children }: { scope: string; children: React
   // missing scope.
   if (!loaded) return <>{children}</>;
 
-  if (!hasScope(scopes, scope)) {
+  if (!hasScopeCovering(scopes, scope)) {
     return (
       <Stack direction="vertical" align="center" justify="center" minHeight="full">
         <Text size="lead" weight="emphasis">

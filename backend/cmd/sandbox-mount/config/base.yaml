@@ -4,7 +4,7 @@ node:
   # The kubelet directory's path on the node, set by the chart from sandboxMount.kubeletDir.
   hostKubeletDir: /var/lib/kubelet
   # The mounts the agent made, in the kubelet's plugin directory where no pod can write.
-  ledgerFile: /var/lib/kubelet/plugins/orbit-sandbox-mount/mounts.json
+  ledgerFile: /var/lib/kubelet/plugins/kora-sandbox-mount/mounts.json
   resyncSecs: 30
   retrySecs: 2
 
@@ -15,7 +15,7 @@ server:
   # nfsd's TCP port on every node, set by the chart from sandboxMount.port.
   port: 20490
   # nfsdcld's client records, in the kubelet's plugin directory so they outlive the agent's container.
-  trackingDir: /var/lib/kubelet/plugins/orbit-sandbox-mount/nfsdcld
+  trackingDir: /var/lib/kubelet/plugins/kora-sandbox-mount/nfsdcld
   # NFSv4 grace and lease time. The kernel minimum is 10.
   graceSecs: 10
 

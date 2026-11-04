@@ -86,7 +86,7 @@ The identity-proxy sidecar ([envoy-ext-proc-sidecar-token-injection](2026-03-21-
 | Tier | Declared by | Compiled into | Scope constraint |
 |---|---|---|---|
 | **Global** | Platform services (inference-gw, policy-gw) | Every tenant bundle | None — platform scopes are not in any tenant vocabulary |
-| **Per-tenant** | Tenant-published services | That tenant's bundle only | Every `required_scope` must exist in the tenant's scope vocabulary |
+| **Per-tenant** | Tenant-published services | That tenant's bundle only | Every `required_scope` must already exist in the vocabulary; the registration cannot declare scopes |
 
 The vocabulary is the trust anchor for tenant registration. Since vocabulary writes require an authenticated API call with `platform:grants:write`, a tenant cannot register a route that maps to a scope they have not explicitly defined.
 
@@ -114,7 +114,7 @@ Content-Type: application/json
 }
 ```
 
-The `scopes` array is optional vocabulary — services may register new scope entries alongside their routes in a single call. This is used by the inference gateway to register the static top-level inference scopes and to upsert per-model/family scopes dynamically as the catalog changes.
+The `scopes` array is optional vocabulary. A `SYSTEM` service may register new scope entries alongside its routes in a single call. The inference gateway uses it to register the static top-level inference scopes and to upsert per-model/family scopes as the catalog changes. A `SERVICE` registration that declares scopes is rejected. The first service to declare a scope owns it, and only the owner can change it.
 
 - Registration is global (included in every tenant bundle) when made by a `SYSTEM` or `SERVICE` principal
 - Re-registration is idempotent — replaces the prior route set for the service, upserts vocabulary entries
@@ -134,20 +134,14 @@ Keyed by `(service_name, tenant_id)`. A global registration (`tenant_id = ""`) i
 
 ### Bundle compilation
 
-The compiler merges routes at compile time:
-
-```
-bundle_routes = global_registrations + tenant_registrations[tenant_id]
-```
-
-Written to `routes/data.json`. The Rego is unchanged — it still reads `data.routes.route_scopes`. Bundle recompilation is triggered immediately on any registration change, consistent with how grant writes trigger recompilation today.
+The compiler writes both route sets to `routes/data.json`: global registrations as `route_scopes` and the tenant's registrations as `tenant_route_scopes`. The Rego matches a global route first, so a tenant registration cannot shadow a platform route. Bundle recompilation is triggered immediately on any registration change, consistent with how grant writes trigger recompilation today.
 
 ### JWKS URL and JWT parameters
 
 The JWKS URL, issuer, and audience are moved out of `authz.rego` into a config data document compiled into each bundle:
 
 ```
-data/config/data.json → {"jwks_url": "...", "issuer": "orbit", "audience": "orbit-platform"}
+data/config/data.json → {"jwks_url": "...", "issuer": "kora", "audience": "kora-platform"}
 ```
 
 `authz.rego` reads `data.config.jwks_url`, `data.config.issuer`, `data.config.audience`. Values are set via environment variables on the policy-service deployment (`POLICY_SERVICE_BUNDLE_JWKS_URL`, `POLICY_SERVICE_BUNDLE_ISSUER`, `POLICY_SERVICE_BUNDLE_AUDIENCE`), removing the last cluster-specific value from the Rego source.
@@ -226,10 +220,10 @@ Touches *How does it connect?* and *Who is this agent?* A platform service's tok
 
 - Platform services carry no identity-proxy. Each fetches its own platform token in-process with the identity client's `SelfTokenSource()`, which exchanges the pod's SVID at `POST /api/v1/identity/exchange` over the mesh and caches the token until shortly before expiry. Each service's config sets `identity.internalURL`.
 - `routescopes.NewClient` takes a token source and sets `Authorization: Bearer <token>` on the registration request only. `routescopes.KeepRegistered` retries until identity and the policy service are both reachable.
-- `routescopes.Client` is the one registration client. orbit-triggers uses it, and `policyclient.RegisterRoutes` is removed.
+- `routescopes.Client` is the one registration client. kora-triggers uses it, and `policyclient.RegisterRoutes` is removed.
 - A SYSTEM caller may register, and so prune, only its own service. `service` must equal the token's `display_name`, the `<name>` in `spiffe://<trust-domain>/system/<name>`. A SERVICE caller's `service` must equal the token subject, as before. A mismatch returns 403.
-- Each platform service registers under its `spiffe.io/component` label: `orbit-agents`, `inference-gateway`, `egress-gateway`, `tool-gateway`, `orbit-triggers`. The policy service registers itself in-process.
-- Tool-gateway introspection sends no credential. Servers may be tenant-owned, and `tools/list` needs none.
+- Each platform service registers under its `spiffe.io/component` label: `kora-agents`, `inference-gateway`, `egress-gateway`, `tool-gateway`, `kora-triggers`. The policy service registers itself in-process.
+- Tool-gateway introspection sends no credential. Servers may be tenant-owned, and `tools/list` needs none. *Amended 2026-10-22 by [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md): introspection sends a server's `spec.auth` headers.*
 
 **Consequences.** The Design lines saying the identity-proxy injects the registration token, and the "Registration is global" line covering SERVICE principals, no longer describe the system. Registration depends on identity being reachable; a failed exchange fails that attempt and `KeepRegistered` retries it. A SYSTEM token can no longer overwrite or prune another service's routes and scopes. Plain-HTTP calls from platform services carry no platform token.
 

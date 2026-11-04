@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { ApiError } from '@orbit/server/api-error';
+import { ApiError } from '@runkora/server/api-error';
 
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
@@ -8,14 +8,14 @@ const mocks = vi.hoisted(() => ({
   fetchMarketplaces: vi.fn(),
   fetchSkills: vi.fn(),
 }));
-vi.mock('@orbit/server/session', () => ({
+vi.mock('@runkora/server/session', () => ({
   getSession: mocks.getSession,
   isSessionValid: mocks.isSessionValid,
 }));
-vi.mock('@orbit/server/config', () => ({ config: { orbitApiUrl: 'http://test-identity' } }));
+vi.mock('@runkora/server/config', () => ({ config: { koraApiUrl: 'http://test-identity' } }));
 // The production client is fixture-backed. Stub its boundary, keeping the
 // actual auth wrapper, parameter validation, service, and response mapping.
-vi.mock('@orbit/server/marketplace-client', () => ({
+vi.mock('@runkora/server/marketplace-client', () => ({
   fetchMarketplaces: mocks.fetchMarketplaces,
   fetchSkills: mocks.fetchSkills,
   fetchSkillDetail: vi.fn(),

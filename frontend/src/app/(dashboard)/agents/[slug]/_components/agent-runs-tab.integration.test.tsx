@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { renderWithProviders, server } from '@orbit/test-utils';
-import type { RunStateCounts } from '@orbit/shared/api';
+import { renderWithProviders, server } from '@runkora/test-utils';
+import type { RunStateCounts } from '@runkora/shared/api';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),

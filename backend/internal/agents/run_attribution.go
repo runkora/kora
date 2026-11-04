@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // Trigger attribution: the run half of the trigger↔run backlink
@@ -37,7 +37,7 @@ var ErrTriggerAttributionIncomplete = errors.New("trigger attribution requires a
 
 // Principal-id prefixes the triggers feature mints its SERVICE principals under
 // (internal/triggers/service.go). They are the wire contract this package checks
-// attribution against: orbit-agents never reads the triggers database, so the
+// attribution against: kora-agents never reads the triggers database, so the
 // shape of the caller's own principal id is the only evidence available here
 // without a cross-feature lookup.
 const (
@@ -59,11 +59,8 @@ const (
 func (s *RunService) authorizeAttribution(ctx context.Context, span trace.Span, req StartRunRequest) (*StartedByTrigger, error) {
 	startedBy, err := authorizeTriggerAttribution(ctx, req)
 	if err != nil {
-		span.RecordError(err)
-		// Neutral description: this covers both a refused claim and an
-		// incomplete one, so it must not name either sentinel. RecordError
-		// above carries which it was.
-		span.SetStatus(codes.Error, "authorize trigger attribution")
+		// Neutral status: this covers both a refused and an incomplete claim, and err carries which.
+		observability.RecordFailure(span, err, errSpanAuthorizeTriggerAttribution)
 		return nil, err
 	}
 	return startedBy, nil
@@ -92,13 +89,19 @@ func (s *RunService) authorizeAttribution(ctx context.Context, span trace.Span, 
 //
 // Residual, stated rather than hidden: a webhook source principal could name a
 // sibling trigger id in its own tenant. Closing that needs a triggers-database
-// lookup from orbit-agents, which the feature boundary deliberately forbids;
+// lookup from kora-agents, which the feature boundary deliberately forbids;
 // the alternative is a trigger id stamped into the minted token's claims, which
 // is the durable fix (see the ADR's Future Work).
 func authorizeTriggerAttribution(ctx context.Context, req StartRunRequest) (*StartedByTrigger, error) {
-	triggerID := strings.TrimSpace(req.TriggerID)
-	deliveryID := strings.TrimSpace(req.DeliveryID)
-	name := strings.TrimSpace(req.TriggerName)
+	return authorizeTriggerClaim(ctx, req.TriggerID, req.TriggerName, req.DeliveryID)
+}
+
+// authorizeTriggerClaim applies the rules above to one trigger claim, for a run
+// start or a message. It returns nil when the claim is empty.
+func authorizeTriggerClaim(ctx context.Context, triggerID, name, deliveryID string) (*StartedByTrigger, error) {
+	triggerID = strings.TrimSpace(triggerID)
+	deliveryID = strings.TrimSpace(deliveryID)
+	name = strings.TrimSpace(name)
 
 	if triggerID == "" {
 		if deliveryID != "" || name != "" {
@@ -112,8 +115,8 @@ func authorizeTriggerAttribution(ctx context.Context, req StartRunRequest) (*Sta
 	if !ok || claims == nil {
 		return nil, ErrTriggerAttributionRefused
 	}
-	if claims.Orbit.PrincipalType != token.PrincipalTypeService {
-		return nil, fmt.Errorf("%w (principal type %s)", ErrTriggerAttributionRefused, claims.Orbit.PrincipalType)
+	if claims.Kora.PrincipalType != token.PrincipalTypeService {
+		return nil, fmt.Errorf("%w (principal type %s)", ErrTriggerAttributionRefused, claims.Kora.PrincipalType)
 	}
 	if err := triggerPrincipalMayClaim(claims.Subject, triggerID); err != nil {
 		return nil, err
@@ -142,4 +145,34 @@ func triggerPrincipalMayClaim(principal, triggerID string) error {
 	default:
 		return fmt.Errorf("%w (principal %q may not claim trigger %q)", ErrTriggerAttributionRefused, principal, triggerID)
 	}
+}
+
+// messageTrigger reports the trigger a message comes from, or nil for any other
+// sender (trigger routing ADR, Decision 14). Only a trigger's or a webhook
+// source's SERVICE principal is a trigger, and the trigger it names passes the
+// same check as a run start. Any other caller that names a trigger is refused.
+func messageTrigger(ctx context.Context, req SendMessageRequest) (*StartedByTrigger, error) {
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil || !isTriggerPrincipal(claims) {
+		if req.TriggerID != "" || req.TriggerName != "" || req.DeliveryID != "" {
+			return nil, ErrTriggerAttributionRefused
+		}
+		return nil, nil
+	}
+	triggerID := req.TriggerID
+	if own, isTrigger := strings.CutPrefix(claims.Subject, triggerPrincipalPrefix); triggerID == "" && isTrigger {
+		// A trigger's own principal names its trigger.
+		triggerID = own
+	}
+	from, err := authorizeTriggerClaim(ctx, triggerID, req.TriggerName, req.DeliveryID)
+	if err != nil || from != nil {
+		return from, err
+	}
+	return &StartedByTrigger{}, nil
+}
+
+// isTriggerPrincipal reports whether the caller is a trigger's or a webhook source's SERVICE principal.
+func isTriggerPrincipal(claims *token.PlatformClaims) bool {
+	return claims.Kora.PrincipalType == token.PrincipalTypeService &&
+		(strings.HasPrefix(claims.Subject, triggerPrincipalPrefix) || strings.HasPrefix(claims.Subject, triggerSourcePrincipalPrefix))
 }

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // bffAuthorizePath is the browser-facing OAuth authorization endpoint, served by
@@ -90,17 +90,24 @@ func (c *Controller) handleCreateOAuthCode(w http.ResponseWriter, r *http.Reques
 			api.UnauthorizedError(api.ErrCodeUnauthorized, "unauthorized", nil), nil)
 		return
 	}
+	// The code mints a HUMAN token for the caller's subject. Only a human session
+	// may start it; an agent, service or PAT would come out as a HUMAN principal.
+	if claims.Kora.PrincipalType != token.PrincipalTypeHuman {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.ForbiddenError(api.ErrCodeForbidden, "only a human session can authorize an MCP client", nil), nil)
+		return
+	}
 	var req createCodeRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
 	human := AuthCode{
 		Subject:     claims.Subject,
-		TenantID:    claims.Orbit.TenantID,
-		DisplayName: claims.Orbit.DisplayName,
+		TenantID:    claims.Kora.TenantID,
+		DisplayName: claims.Kora.DisplayName,
 		// Carry the human's verified claims (roles, etc.) so the minted MCP token
 		// has the same permissions — the token acts as this human.
-		Claims: claims.Orbit.Claims,
+		Claims: claims.Kora.Claims,
 	}
 	code, err := c.svc.CreateAuthCode(ctx, human, AuthorizeParams(req))
 	if err != nil {
@@ -113,7 +120,7 @@ func (c *Controller) handleCreateOAuthCode(w http.ResponseWriter, r *http.Reques
 
 // handleOAuthToken handles POST /identity/oauth/token (public, RFC 6749
 // authorization_code grant, form-encoded). Validates the code + PKCE and mints
-// the human's ordinary aud=orbit-platform token.
+// the human's ordinary aud=kora-platform token.
 func (c *Controller) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	r.Body = http.MaxBytesReader(w, r.Body, 16*1024) // bound the token-endpoint body

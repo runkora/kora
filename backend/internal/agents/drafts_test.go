@@ -12,8 +12,8 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // Compile-time interface check.
@@ -132,7 +132,7 @@ func newDraftTestService(t *testing.T) (*DraftService, *mockDraftRepository) {
 func withUserCtx(ctx context.Context, tenantID, subject string) context.Context {
 	return token.WithClaims(ctx, &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: subject},
-		Orbit:            token.OrbitClaims{TenantID: tenantID},
+		Kora:             token.KoraClaims{TenantID: tenantID},
 	})
 }
 

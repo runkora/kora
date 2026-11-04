@@ -7,8 +7,8 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { ApiRoute } from '@orbit/lib/routing';
-import { server } from '@orbit/test-utils';
+import { ApiRoute } from '@runkora/lib/routing';
+import { server } from '@runkora/test-utils';
 import { fetchMarketplaceOverview } from './marketplace-api';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData } from '../_types';
 

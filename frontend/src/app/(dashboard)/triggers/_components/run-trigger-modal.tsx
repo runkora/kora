@@ -22,8 +22,8 @@ import {
   Stack,
   Text,
   ToggleRow,
-} from '@orbit/hades';
-import type { InputField } from '@orbit/shared/api';
+} from '@runkora/hades';
+import type { InputField } from '@runkora/shared/api';
 import type { TriggerRow } from '../_types';
 
 interface RunTriggerModalProps {

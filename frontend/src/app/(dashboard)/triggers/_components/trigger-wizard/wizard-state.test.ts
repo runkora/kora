@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  coalesceErrors,
+  coalesceFrom,
   describeMatchCondition,
   deriveFieldKey,
   initialState,
@@ -10,9 +12,12 @@ import {
   parallelWord,
   previewBody,
   resolvedFields,
+  senderRestrictionFrom,
+  splitIds,
   splitFilterValues,
   stepsFor,
   toDraft,
+  validateCoalesce,
   validateDelivery,
   validateFilters,
   validateTarget,
@@ -20,15 +25,17 @@ import {
 import { SHARED_STEPS } from './shared-steps';
 import { TRIGGER_KINDS } from './kinds';
 import { NEW_SOURCE } from './types';
-import type { WizardContext, WizardField, WizardState } from './types';
+import type { TriggerWizardSource, WizardContext, WizardField, WizardState } from './types';
 
-const SOURCES = [{ id: 'src-1', name: 'acme/widgets', provider: 'github' }];
+const SOURCES: TriggerWizardSource[] = [
+  { id: 'src-1', name: 'acme/widgets', provider: 'github', category: 'webhook' },
+];
 const AGENTS = [{ id: 'at-1', slug: 'coder', name: 'Coder' }];
 
 const CONTEXT: WizardContext = {
   agents: AGENTS,
   sources: SOURCES,
-  ingestHost: 'orbit.local.clearroute.io:8443',
+  ingestHost: 'local.runkora.io:8443',
 };
 
 function field(overrides: Partial<WizardField> = {}): WizardField {
@@ -222,10 +229,38 @@ describe('toDraft', () => {
     });
   });
 
+  it('stores a chat command as a webhook trigger', () => {
+    const draft = toDraft(
+      TRIGGER_KINDS.chat,
+      state({ sourceChoice: 'src-chat', eventType: 'mention' }),
+    );
+    expect(draft.kind).toBe('webhook');
+    expect(draft.source).toEqual({ existingId: 'src-chat' });
+    expect(draft.eventType).toBe('mention');
+  });
+
   it('omits matchCondition entirely when no filter is set', () => {
     const draft = toDraft(TRIGGER_KINDS.webhook, state({ filters: [] }));
     expect(draft.matchCondition).toBeUndefined();
     expect('matchCondition' in draft).toBe(false);
+  });
+});
+
+describe('sender restriction', () => {
+  it('splits the ids on commas and whitespace, dropping blanks and repeats', () => {
+    expect(splitIds(' octocat, hubot\noctocat,, ')).toEqual(['octocat', 'hubot']);
+  });
+
+  it('sends ids and roles, and nothing when both are empty', () => {
+    expect(senderRestrictionFrom({ ids: 'U012AB3CD', roles: [] })).toEqual({
+      ids: ['U012AB3CD'],
+      roles: [],
+    });
+    expect(senderRestrictionFrom({ ids: '', roles: ['OWNER'] })).toEqual({
+      ids: [],
+      roles: ['OWNER'],
+    });
+    expect(senderRestrictionFrom({ ids: ' ', roles: [] })).toBeUndefined();
   });
 });
 
@@ -294,6 +329,14 @@ describe('validateFilters', () => {
     expect(noValues.hint).toBe('Finish or remove the empty filter');
 
     expect(validateFilters([{ field: '', values: 'opened' }]).valid).toBe(false);
+  });
+
+  it('blocks a typed field that is not a dotted path', () => {
+    expect(validateFilters([{ field: 'data..state', values: 'open' }])).toEqual({
+      valid: false,
+      hint: 'data..state is not a field path. Use dotted names, such as data.issue.title.',
+    });
+    expect(validateFilters([{ field: 'data.issue_2.state', values: 'open' }]).valid).toBe(true);
   });
 });
 
@@ -377,5 +420,162 @@ describe('admissionSummary', () => {
       const sentence = admissionSummary(state({ overflow, timeoutSeconds: 90 }), 'webhook');
       expect(sentence).toContain('up to 90s to start');
     }
+  });
+});
+
+const on = (key: string, window: string) => ({ enabled: true, key, window });
+
+describe('validateCoalesce', () => {
+  it('accepts off, whatever the fields hold', () => {
+    expect(validateCoalesce({ enabled: false, key: '', window: '999' })).toBeUndefined();
+  });
+
+  it('accepts a key with a window in range', () => {
+    expect(validateCoalesce(on('{{ pr.number }}', '1'))).toBeUndefined();
+    expect(validateCoalesce(on('{{ pr.number }}', '300'))).toBeUndefined();
+  });
+
+  it('needs both when on', () => {
+    expect(validateCoalesce(on('k', ''))).toMatch(/window/i);
+    expect(validateCoalesce(on('', '30'))).toMatch(/key/i);
+    expect(validateCoalesce(on('  ', '30'))).toMatch(/key/i);
+  });
+
+  it('bounds the window to 1..300 whole seconds', () => {
+    expect(validateCoalesce(on('k', '0'))).toMatch(/1 to 300/);
+    expect(validateCoalesce(on('k', '301'))).toMatch(/1 to 300/);
+    expect(validateCoalesce(on('k', '1.5'))).toMatch(/1 to 300/);
+    expect(validateCoalesce(on('k', 'abc'))).toMatch(/1 to 300/);
+  });
+
+  it('bounds the key to 256 bytes, not characters', () => {
+    expect(validateCoalesce(on('a'.repeat(256), '30'))).toBeUndefined();
+    expect(validateCoalesce(on('a'.repeat(257), '30'))).toMatch(/256 bytes/);
+    expect(validateCoalesce(on('é'.repeat(129), '30'))).toMatch(/256 bytes/);
+  });
+});
+
+describe('coalesceErrors', () => {
+  it('reports each field on its own', () => {
+    expect(coalesceErrors(on('a'.repeat(257), '0'))).toEqual({
+      key: 'Key must be at most 256 bytes.',
+      window: 'Window must be a whole number from 1 to 300 seconds.',
+    });
+    expect(coalesceErrors(on('k', '30'))).toEqual({});
+  });
+});
+
+describe('coalesceFrom', () => {
+  it('is undefined when off or invalid', () => {
+    expect(coalesceFrom({ enabled: false, key: 'k', window: '30' })).toBeUndefined();
+    expect(coalesceFrom(on('k', ''))).toBeUndefined();
+    expect(coalesceFrom(on('k', '999'))).toBeUndefined();
+  });
+
+  it('trims the key and parses the window', () => {
+    expect(coalesceFrom(on(' k ', ' 30 '))).toEqual({ key: 'k', windowSeconds: 30 });
+  });
+});
+
+describe('coalesce in the wizard state', () => {
+  it('starts off', () => {
+    const s = state();
+    expect(s.coalesceEnabled).toBe(false);
+    expect(s.coalesceKey).toBe('');
+    expect(s.coalesceWindow).toBe('');
+  });
+
+  it('blocks the delivery step when on without a window under wait', () => {
+    const v = validateDelivery(
+      state({ coalesceEnabled: true, coalesceKey: 'k', coalesceWindow: '' }),
+    );
+    expect(v.valid).toBe(false);
+    expect(v.hint).toMatch(/window/i);
+  });
+
+  it('ignores coalesce fields under replace', () => {
+    expect(
+      validateDelivery(state({ overflow: 'replace', coalesceEnabled: true, coalesceKey: 'k' }))
+        .valid,
+    ).toBe(true);
+  });
+
+  it('puts coalesce on a webhook draft only when on', () => {
+    const set = { coalesceKey: 'k', coalesceWindow: '30' };
+    const draft = toDraft(TRIGGER_KINDS.webhook, state({ ...set, coalesceEnabled: true }));
+    expect(draft.coalesce).toEqual({ key: 'k', windowSeconds: 30 });
+    expect('coalesce' in toDraft(TRIGGER_KINDS.webhook, state(set))).toBe(false);
+  });
+
+  it('drops coalesce from a webhook draft when overflow is not wait', () => {
+    const draft = toDraft(
+      TRIGGER_KINDS.webhook,
+      state({ overflow: 'replace', coalesceEnabled: true, coalesceKey: 'k', coalesceWindow: '30' }),
+    );
+    expect('coalesce' in draft).toBe(false);
+  });
+
+  it('never puts coalesce on scheduled or manual drafts', () => {
+    const set = { coalesceEnabled: true, coalesceKey: 'k', coalesceWindow: '30' };
+    expect('coalesce' in toDraft(TRIGGER_KINDS.scheduled, state(set))).toBe(false);
+    expect('coalesce' in toDraft(TRIGGER_KINDS.manual, state(set))).toBe(false);
+  });
+});
+
+describe('validateDelivery chat coalesce key', () => {
+  const chat = {
+    coalesceEnabled: true,
+    coalesceWindow: '10',
+    eventFields: ['text', 'conversation.id', 'thread.id', 'meta.source'],
+  };
+
+  it('names a coalesce key placeholder that is not a chat field', () => {
+    expect(
+      validateDelivery(state({ ...chat, coalesceKey: '{{ channel }}:{{ thread.id }}' })),
+    ).toEqual({
+      valid: false,
+      hint: 'channel is not a field of this message. Use a chat field such as {{ conversation.id }}.',
+    });
+  });
+
+  it('passes a key of chat fields', () => {
+    expect(
+      validateDelivery(state({ ...chat, coalesceKey: '{{ conversation.id }}:{{ thread.id }}' }))
+        .valid,
+    ).toBe(true);
+  });
+
+  it('ignores the key when coalescing is off or the kind does not check fields', () => {
+    expect(
+      validateDelivery(state({ ...chat, coalesceEnabled: false, coalesceKey: '{{ channel }}' }))
+        .valid,
+    ).toBe(true);
+    expect(
+      validateDelivery(state({ ...chat, eventFields: null, coalesceKey: '{{ channel }}' })).valid,
+    ).toBe(true);
+  });
+});
+
+describe('initialState on a generic source', () => {
+  const generic = (config: Record<string, unknown>): TriggerWizardSource => ({
+    id: 'src-gen',
+    name: 'linear',
+    provider: 'generic',
+    category: 'webhook',
+    config,
+  });
+
+  it('starts on webhook when the source has no event type location', () => {
+    const state = initialState(TRIGGER_KINDS.webhook, [
+      generic({ verification: { method: 'bearer' } }),
+    ]);
+    expect(state.eventType).toBe('webhook');
+  });
+
+  it('starts empty when the source reads the event type from the delivery', () => {
+    const state = initialState(TRIGGER_KINDS.webhook, [
+      generic({ verification: { method: 'bearer' }, event_type: { path: 'type' } }),
+    ]);
+    expect(state.eventType).toBe('');
   });
 });

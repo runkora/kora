@@ -51,3 +51,31 @@ func TestStore_RegisterReportsChange(t *testing.T) {
 		t.Error("first registration for a second tenant reported no change")
 	}
 }
+
+// TestStore_RoutesForTenantKeepsTablesApart: the rego gives global routes
+// precedence, so the tenant bundle must carry them separately.
+func TestStore_RoutesForTenantKeepsTablesApart(t *testing.T) {
+	s := NewStore()
+	s.Register(&Registration{Service: "global", Routes: []RouteScope{{PathPrefix: "/g", Method: "GET"}}})
+	s.Register(&Registration{Service: "svc", TenantID: "t1", Routes: []RouteScope{{PathPrefix: "/t1", Method: "GET"}}})
+	s.Register(&Registration{Service: "svc", TenantID: "t2", Routes: []RouteScope{{PathPrefix: "/t2", Method: "GET"}}})
+
+	tests := []struct {
+		tenant         string
+		wantGlobal     string
+		wantTenantLen  int
+		wantTenantPath string
+	}{
+		{"t1", "/g", 1, "/t1"},
+		{"none", "/g", 0, ""},
+	}
+	for _, tc := range tests {
+		global, tenant := s.RoutesForTenant(tc.tenant)
+		if len(global) != 1 || global[0].PathPrefix != tc.wantGlobal {
+			t.Errorf("%s: global = %+v", tc.tenant, global)
+		}
+		if tenant == nil || len(tenant) != tc.wantTenantLen || (tc.wantTenantLen == 1 && tenant[0].PathPrefix != tc.wantTenantPath) {
+			t.Errorf("%s: tenant = %+v", tc.tenant, tenant)
+		}
+	}
+}

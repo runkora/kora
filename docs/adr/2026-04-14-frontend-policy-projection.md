@@ -349,7 +349,7 @@ Platform-admins can administer multiple tenants. The `/v1/policy/scopes` endpoin
 
 ### Prerequisite
 
-The identity service must propagate OIDC role claims into the platform token's `orbit.claims.roles` field. Without this, the OPA bundle cannot match the principal's OIDC roles to role→scope mappings. This is a backend change to the token issuance flow, independent of this ADR.
+The identity service must propagate OIDC role claims into the platform token's `kora.claims.roles` field. Without this, the OPA bundle cannot match the principal's OIDC roles to role→scope mappings. This is a backend change to the token issuance flow, independent of this ADR.
 
 ---
 

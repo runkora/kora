@@ -12,15 +12,15 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // withRunCallerCtx builds verified HUMAN claims with a subject.
 func withRunCallerCtx(ctx context.Context, tenantID, sub string) context.Context {
 	return token.WithClaims(ctx, &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: sub},
-		Orbit:            token.OrbitClaims{TenantID: tenantID, PrincipalType: token.PrincipalTypeHuman},
+		Kora:             token.KoraClaims{TenantID: tenantID, PrincipalType: token.PrincipalTypeHuman},
 	})
 }
 
@@ -66,7 +66,9 @@ func TestDelegatedRun_SteerMatrix(t *testing.T) {
 		call       func(s *RunService, ctx context.Context, runID string) error
 		wantHolder error
 	}{
-		{"send message", func(s *RunService, ctx context.Context, id string) error { return s.SendMessage(ctx, id, "hello") }, ErrDelegatedRunSteer},
+		{"send message", func(s *RunService, ctx context.Context, id string) error {
+			return s.SendMessage(ctx, id, SendMessageRequest{Content: "hello"})
+		}, ErrDelegatedRunSteer},
 		{"interrupt", func(s *RunService, ctx context.Context, id string) error { return s.InterruptRun(ctx, id) }, ErrDelegatedRunSteer},
 		{"terminate", func(s *RunService, ctx context.Context, id string) error { return s.TerminateRun(ctx, id) }, nil},
 	}
@@ -101,7 +103,7 @@ func TestAutonomousRun_SteerUnchanged(t *testing.T) {
 	seedAutonomousRun(t, repo, "run-a", "alice", RunStateActive)
 	ctx := withRunCallerCtx(context.Background(), "t1", "bob")
 
-	if err := f.run.SendMessage(ctx, "run-a", "hi"); err != nil {
+	if err := f.run.SendMessage(ctx, "run-a", SendMessageRequest{Content: "hi"}); err != nil {
 		t.Fatalf("SendMessage on autonomous run by non-starter: %v", err)
 	}
 	if len(sm.sentMessages) != 1 {
@@ -200,7 +202,7 @@ func TestDelegatedRun_ListRunsVisibility(t *testing.T) {
 			f, _ := seed(t)
 			ctx := withRunCallerCtx(context.Background(), "t1", tc.subject)
 
-			page, err := f.run.ListRuns(ctx, "", RunListQuery{Limit: maxRunsLimit})
+			page, err := f.run.ListRuns(ctx, nil, RunListQuery{Limit: maxRunsLimit})
 			runs := page.Runs
 			if err != nil {
 				t.Fatalf("ListRuns: %v", err)
@@ -226,7 +228,7 @@ func TestRunVisibility_FailClosedWithoutSubject(t *testing.T) {
 	seedDelegatedRun(t, repo, "run-empty", "", RunStateActive)
 	ctx := withRunCallerCtx(context.Background(), "t1", "")
 
-	page, err := f.run.ListRuns(ctx, "", RunListQuery{Limit: maxRunsLimit})
+	page, err := f.run.ListRuns(ctx, nil, RunListQuery{Limit: maxRunsLimit})
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
@@ -338,7 +340,7 @@ func TestRunOutcomes_UsesTheRunListScope(t *testing.T) {
 			f, repo, _, _ := newTestServiceWithEval(t, auditorEval)
 			seedAgentType(t, repo, AgentType{ID: "at-auto", TenantID: "t1", Slug: "helper"})
 			ctx := withRunCallerCtx(context.Background(), "t1", tc.subject)
-			want := RunScope{AgentTypeIDs: []string{"at-auto"}, Vis: tc.want}
+			want := RunScope{AgentTypeIDs: []string{"at-auto"}, Vis: tc.want, Own: true}
 			if _, err := f.run.RunOutcomes(ctx, time.Time{}, time.Time{}); err != nil || !reflect.DeepEqual(repo.outcomesScope, want) {
 				t.Errorf("scope %+v, %v; want %+v", repo.outcomesScope, err, want)
 			}

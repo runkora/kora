@@ -15,19 +15,20 @@ package toolgateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	platformtoken "github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	platformtoken "github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // mcpProtocolVersion is the MCP protocol revision the gateway advertises.
@@ -38,28 +39,31 @@ const jsonRPCVersion = "2.0"
 
 // MCPController implements the governing MCP proxy.
 type MCPController struct {
-	verifier *platformtoken.Verifier
-	eval     policy.Evaluator
-	catalog  CatalogRepository
-	registry *Registry
-	proxy    *Proxy
-	basePath string // the gateway base path (e.g. /v1), used to form the per-server resource
-	logger   logging.Logger
-	tracer   trace.Tracer
+	verifier  *platformtoken.Verifier
+	blocklist mw.JTIBlocklist
+	eval      policy.Evaluator
+	catalog   CatalogRepository
+	registry  *Registry
+	proxy     *Proxy
+	basePath  string // the gateway base path (e.g. /v1), used to form the per-server resource
+	logger    logging.Logger
+	tracer    trace.Tracer
 }
 
 // NewMCPController constructs the request-path controller. basePath forms the
 // per-server resource in the 401 challenge (host derived per request).
-func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, catalog CatalogRepository, registry *Registry, proxy *Proxy, basePath string, logger logging.Logger) *MCPController {
+// blocklist holds revoked delegation JTIs.
+func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, catalog CatalogRepository, registry *Registry, proxy *Proxy, blocklist mw.JTIBlocklist, basePath string, logger logging.Logger) *MCPController {
 	return &MCPController{
-		verifier: verifier,
-		eval:     eval,
-		catalog:  catalog,
-		registry: registry,
-		proxy:    proxy,
-		basePath: basePath,
-		logger:   logger,
-		tracer:   otel.Tracer("orbit.tool-gateway"),
+		verifier:  verifier,
+		blocklist: blocklist,
+		eval:      eval,
+		catalog:   catalog,
+		registry:  registry,
+		proxy:     proxy,
+		basePath:  basePath,
+		logger:    logger,
+		tracer:    otel.Tracer("github.com/runkora/kora/backend/internal/toolgateway"),
 	}
 }
 
@@ -67,15 +71,18 @@ func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, c
 // under the server base path).
 func (c *MCPController) GroupedBy() string { return "" }
 
-// Middleware enforces platform JWT auth. The coarse mcp:invoke gate is enforced
-// at the Envoy sidecar (the registered route); this app-level PEP does the
-// per-tool Check.
+// Middleware enforces platform JWT auth and verifies the optional delegation
+// token. The coarse mcp:invoke gate is enforced at the Envoy sidecar (the
+// registered route); this app-level PEP does the per-tool Check.
 func (c *MCPController) Middleware() mw.MiddlewareHandler {
 	// challengeMiddleware runs first so its writer wraps AuthMiddleware's 401,
 	// adding the RFC 9728 WWW-Authenticate pointer to the protected-resource metadata.
+	// The delegation middleware puts the run's verified delegator into context
+	// for every tool decision below and refuses a revoked delegation.
 	return mw.MiddlewareChain(
 		challengeMiddleware(c.basePath),
 		mw.AuthMiddleware(c.verifier, c.logger),
+		mw.DelegationMiddlewareWithBlocklist(c.logger, c.verifier, c.blocklist),
 	)
 }
 
@@ -111,7 +118,7 @@ func (c *MCPController) handleMCP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	claims, ok := platformtoken.ClaimsFromContext(ctx)
-	if !ok || claims.Orbit.TenantID == "" {
+	if !ok || claims.Kora.TenantID == "" {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.UnauthorizedError(api.ErrCodeUnauthorized, "missing tenant in token", nil), nil)
 		return
@@ -119,20 +126,20 @@ func (c *MCPController) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 	// The connection is scoped to one server, selected by the URL path.
 	server := r.PathValue("server")
-	srv, found := c.registry.lookup(server)
+	srv, found := c.registry.lookup(server, claims.Kora.TenantID)
 	if !found {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.NotFoundError(api.ErrCodeResourceNotFound, "unknown MCP server", nil), nil)
 		return
 	}
 	// Tenant-ownership binding. A global server (TenantID == "") is reachable by
-	// every tenant; a tenant-scoped server only by its owner. lookup() resolves by
-	// name alone and the scope vocabulary is tenant-blind in the MVP (two tenants'
+	// every tenant; a tenant-scoped server only by its owner. lookup() is
+	// tenant-aware, but the scope vocabulary is tenant-blind in the MVP (two tenants'
 	// same-named servers share one scope string), so without this a tenant holding
 	// mcp:<server>:<tool>:use could reach — or shadow — another tenant's server.
 	// Reject as 404 (indistinguishable from an unknown server) so a cross-tenant
 	// server can't even be probed. Covers tools/list, tools/call, and initialize.
-	if srv.TenantID != "" && srv.TenantID != claims.Orbit.TenantID {
+	if srv.TenantID != "" && srv.TenantID != claims.Kora.TenantID {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.NotFoundError(api.ErrCodeResourceNotFound, "unknown MCP server", nil), nil)
 		return
@@ -181,7 +188,7 @@ type mcpTool struct {
 // server by its path. The filter is one Query whose prefix rule lets a
 // server-level grant cover the whole list.
 func (c *MCPController) handleToolsList(ctx context.Context, w http.ResponseWriter, req jsonRPCRequest, claims *platformtoken.PlatformClaims, server string) {
-	tools, err := c.catalog.ListByTenant(ctx, claims.Orbit.TenantID)
+	tools, err := c.catalog.ListByTenant(ctx, claims.Kora.TenantID)
 	if err != nil {
 		c.writeRPCError(ctx, w, req.ID, -32603, "failed to load tool catalog")
 		return
@@ -202,6 +209,7 @@ func (c *MCPController) handleToolsList(ctx context.Context, w http.ResponseWrit
 
 	allowed, err := c.eval.Query(ctx, policy.QueryInput{
 		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
 		ResourceType: "mcp",
 		Action:       scopeAction,
 		Candidates:   candidates,
@@ -217,7 +225,7 @@ func (c *MCPController) handleToolsList(ctx context.Context, w http.ResponseWrit
 		out = append(out, mcpTool{Name: name, Description: t.Description, InputSchema: t.InputSchema})
 	}
 	c.logger.Info(ctx, "tools/list filtered",
-		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
 		logging.Field{Key: "server", Value: server},
 		logging.Field{Key: "candidates", Value: len(candidates)},
 		logging.Field{Key: "allowed", Value: len(out)})
@@ -245,28 +253,30 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 		return
 	}
 
-	ctx, span := c.tracer.Start(ctx, "mcp.tools.call")
+	ctx, span := c.tracer.Start(ctx, "tools/call "+tool)
 	defer span.End()
 	span.SetAttributes(
-		attribute.String("mcp.server", server),
-		attribute.String("mcp.tool", tool),
-		attribute.String("orbit.tenant_id", claims.Orbit.TenantID),
-		attribute.String("orbit.principal", claims.Subject),
+		observability.MCPMethodNameKey.String("tools/call"),
+		observability.MCPServerKey.String(server),
+		observability.GenAIToolNameKey.String(tool),
+		observability.PrincipalIDKey.String(claims.Subject),
 	)
 
 	res, err := c.eval.Check(ctx, policy.CheckInput{
 		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
 		ResourceType: "mcp",
 		PathSegments: toolScopePath(server, tool),
 		Action:       scopeAction,
+		RunID:        mw.RunIDFromContext(ctx),
 	})
 	if err != nil {
-		span.SetAttributes(attribute.String("mcp.decision", "error"))
+		span.SetAttributes(observability.MCPDecisionKey.String("error"))
 		c.writeRPCError(ctx, w, req.ID, -32603, "policy check failed")
 		return
 	}
 	if !res.Allow {
-		span.SetAttributes(attribute.String("mcp.decision", "deny"))
+		span.SetAttributes(observability.MCPDecisionKey.String("deny"))
 		c.logger.Info(ctx, "tools/call denied",
 			logging.Field{Key: "server", Value: server},
 			logging.Field{Key: "tool", Value: tool},
@@ -281,22 +291,26 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 		c.writeRPCError(ctx, w, req.ID, -32001, "tool not permitted ("+res.Reason+")")
 		return
 	}
-	span.SetAttributes(attribute.String("mcp.decision", "allow"))
+	span.SetAttributes(observability.MCPDecisionKey.String("allow"))
 	c.logger.Info(ctx, "tools/call allowed",
 		logging.Field{Key: "server", Value: server},
 		logging.Field{Key: "tool", Value: tool},
 		logging.Field{Key: "principal", Value: claims.Subject})
 
-	// callerIdentity: forward only for global (tenant_id == "") forward servers.
-	forward := srv.CallerIdentity == callerIdentityForward && srv.TenantID == ""
-	result, err := c.proxy.CallTool(ctx, srv, tool, params.Arguments, bearerFromRequest(r), forward)
+	caller := &Caller{Bearer: bearerFromRequest(r), Delegation: r.Header.Get(mw.DelegationTokenHeader)}
+	result, err := c.proxy.CallTool(ctx, srv, tool, params.Arguments, caller)
 	if err != nil {
 		span.RecordError(err)
 		c.logger.Error(ctx, "upstream tools/call failed",
 			logging.Field{Key: "server", Value: server},
 			logging.Field{Key: "tool", Value: tool},
+			logging.Field{Key: "reason", Value: failureReason(err)},
 			logging.Field{Key: "error", Value: err.Error()})
-		c.writeRPCError(ctx, w, req.ID, -32603, "upstream call failed")
+		msg := "upstream call failed"
+		if errors.Is(err, ErrCredentialUnavailable) {
+			msg = "upstream credential unavailable"
+		}
+		c.writeRPCError(ctx, w, req.ID, -32603, msg)
 		return
 	}
 	c.writeRPCResult(ctx, w, req.ID, result)
@@ -307,7 +321,7 @@ func (c *MCPController) initializeResult(server string) map[string]any {
 	return map[string]any{
 		"protocolVersion": mcpProtocolVersion,
 		"capabilities":    map[string]any{"tools": map[string]any{}},
-		"serverInfo":      map[string]any{"name": "orbit/" + server, "version": "0.1.0"},
+		"serverInfo":      map[string]any{"name": "kora/" + server, "version": "0.1.0"},
 	}
 }
 

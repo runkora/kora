@@ -1,7 +1,7 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
-import { config } from '@orbit/server/config';
+import { withAuth } from '@runkora/server/route-helpers';
+import { config } from '@runkora/server/config';
 
 type Params = { runId: string };
 

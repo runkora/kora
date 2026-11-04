@@ -61,7 +61,7 @@ const badgeVariants = cva(
          * hints, and toolbar annotations that should not compete with primary UI.
          *
          * ```tsx
-         * <Badge variant="dim" size="sm">orbit-3-turbo</Badge>
+         * <Badge variant="dim" size="sm">kora-3-turbo</Badge>
          * ```
          */
         dim: 'bg-transparent text-subtle border border-border font-normal',
@@ -152,7 +152,7 @@ const badgeVariants = cva(
          * surrounding text.
          *
          * ```tsx
-         * <Badge variant="dim" size="sm">orbit-3-turbo</Badge>
+         * <Badge variant="dim" size="sm">kora-3-turbo</Badge>
          * <Badge variant="secondary" size="sm">⌘ K</Badge>
          * ```
          */
@@ -259,7 +259,7 @@ export interface BadgeProps extends VariantProps<typeof badgeVariants> {
  * <Badge variant="healthy" dot>Healthy</Badge>
  * <Badge variant="pending">Awaiting approval</Badge>
  * <Badge variant="secondary">v1.4.2</Badge>
- * <Badge variant="dim" size="sm">orbit-3-turbo</Badge>
+ * <Badge variant="dim" size="sm">kora-3-turbo</Badge>
  * <Badge variant="healthy" shape="pill" dot>Enabled</Badge>
  * <Badge variant="muted"   shape="pill" dot>Disabled</Badge>
  * <Badge variant="elevated" size="sm" mono>models:read</Badge>

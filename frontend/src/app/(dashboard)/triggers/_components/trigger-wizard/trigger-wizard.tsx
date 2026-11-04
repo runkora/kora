@@ -5,13 +5,23 @@
  * Everything kind-specific comes from the registry in ./kinds. */
 
 import { useCallback, useMemo, useState } from 'react';
-import { Card, CardContent, Heading, Icon, Stack, Text, Wizard } from '@orbit/hades';
+import { Card, CardContent, Heading, Icon, Stack, Text, Wizard } from '@runkora/hades';
+import { useBrand } from '@runkora/theme/brand-provider';
 import { KindPicker } from './kind-picker';
 import { SuccessPanel } from './success-panel';
 import { SHARED_STEPS } from './shared-steps';
 import { TRIGGER_KINDS } from './kinds';
 import { initialState, stepsFor, toDraft } from './wizard-state';
-import type { TriggerKind, TriggerWizardProps, WizardContext, WizardState } from './types';
+import { useRoutingOptions } from './use-routing-options';
+import {
+  brandedCopy,
+  type ConsoleKind,
+  type CreatedSource,
+  type TriggerDraft,
+  type TriggerWizardProps,
+  type WizardContext,
+  type WizardState,
+} from './types';
 
 interface Created {
   triggerId: string;
@@ -22,12 +32,15 @@ interface Created {
 export function TriggerWizard({
   initialKind,
   agents,
+  agentsError = null,
   sources,
   ingestHost,
+  allowRouting = false,
   onCreate,
   onClose,
 }: TriggerWizardProps) {
-  const [kind, setKind] = useState<TriggerKind | null>(initialKind ?? null);
+  const { productName } = useBrand();
+  const [kind, setKind] = useState<ConsoleKind | null>(initialKind ?? null);
   const [state, setState] = useState<WizardState | null>(() =>
     initialKind ? initialState(TRIGGER_KINDS[initialKind], sources) : null,
   );
@@ -36,10 +49,15 @@ export function TriggerWizard({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<Created | null>(null);
+  const [createdSource, setCreatedSource] = useState<CreatedSource | null>(null);
 
+  // Only a webhook trigger can be routed, a chat command included.
+  const routing = useRoutingOptions(
+    allowRouting && kind !== null && TRIGGER_KINDS[kind].apiKind === 'webhook',
+  );
   const context = useMemo<WizardContext>(
-    () => ({ agents, sources, ingestHost }),
-    [agents, sources, ingestHost],
+    () => ({ agents, agentsError, sources, ingestHost, ...(routing !== undefined && { routing }) }),
+    [agents, agentsError, sources, ingestHost, routing],
   );
 
   const definition = kind ? TRIGGER_KINDS[kind] : null;
@@ -56,7 +74,7 @@ export function TriggerWizard({
   );
 
   const chooseKind = useCallback(
-    (next: TriggerKind) => {
+    (next: ConsoleKind) => {
       setKind(next);
       setState(initialState(TRIGGER_KINDS[next], sources));
       setStep(0);
@@ -99,18 +117,19 @@ export function TriggerWizard({
     }
     setPending(true);
     setError(null);
-    const result = await onCreate(toDraft(definition, state));
+    const result = await onCreate(reuseCreatedSource(toDraft(definition, state), createdSource));
     setPending(false);
     if (!result.ok) {
       setError(result.error);
+      if (result.createdSource) setCreatedSource(result.createdSource);
       return;
     }
     setCreated({
       triggerId: result.triggerId,
       endpoint: result.endpoint,
-      secret: result.secret,
+      secret: result.secret ?? createdSource?.secret,
     });
-  }, [definition, state, validation.valid, pending, isLast, step, onCreate]);
+  }, [definition, state, validation.valid, pending, isLast, step, onCreate, createdSource]);
 
   const StepBody = currentStep?.Component;
   const hasKind = definition !== null && state !== null;
@@ -194,7 +213,7 @@ export function TriggerWizard({
           <Stack gap="snug">
             <Heading variant="subsection">{currentStep?.railTitle}</Heading>
             <Text size="supporting" color="muted">
-              {currentStep?.description}
+              {currentStep && brandedCopy(currentStep.description, productName)}
             </Text>
           </Stack>
           {StepBody && (
@@ -235,4 +254,15 @@ function PolicyCheckedInfo() {
       </CardContent>
     </Card>
   );
+}
+
+/**
+ * Points a retry at the source an earlier attempt created, while the draft
+ * still asks for that same new source.
+ */
+function reuseCreatedSource(draft: TriggerDraft, made: CreatedSource | null): TriggerDraft {
+  const source = draft.source;
+  if (made === null || source === undefined || !('newName' in source)) return draft;
+  if (source.newName !== made.name || source.provider !== made.provider) return draft;
+  return { ...draft, source: { existingId: made.id } };
 }

@@ -3,7 +3,8 @@
 // EnvironmentRow is the shape consumed by the UI. The raw API shape
 // (Environment) only appears at the service-layer boundary.
 
-import type { Environment, Connector, EnvironmentSize } from '@orbit/shared/api';
+import { isDeclared } from '@runkora/lib/declarative';
+import type { Environment, Connector, EnvironmentSize } from '@runkora/shared/api';
 
 export type { Connector };
 
@@ -21,6 +22,10 @@ export interface EnvironmentRow {
   connectors: Connector[];
   createdAt: string;
   updatedAt: string;
+  /** Declared in the configuration repository: read-only here. */
+  declared: boolean;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 // ── Transformers ──────────────────────────────────────────────────────────────
@@ -28,7 +33,7 @@ export interface EnvironmentRow {
 export function toEnvironmentRow(e: Environment): EnvironmentRow {
   return {
     id: e.id,
-    // An orbit-agents from the previous release sends only name, which is then the slug.
+    // A kora-agents from the previous release sends only name, which is then the slug.
     slug: e.slug || e.name,
     name: e.name,
     description: e.description,
@@ -38,6 +43,8 @@ export function toEnvironmentRow(e: Environment): EnvironmentRow {
     connectors: e.connectors ?? [],
     createdAt: e.created_at,
     updatedAt: e.updated_at,
+    declared: isDeclared(e),
+    repository: e.repository,
   };
 }
 

@@ -10,7 +10,7 @@ Run this **once** to create the k3d cluster. After the cluster exists, use
 - [k3d](https://k3d.io/) ≥ v5
 - [kubectl](https://kubernetes.io/docs/tasks/tools/)
 - [helm](https://helm.sh/) and [helmfile](https://helmfile.readthedocs.io/)
-- Docker running with the `orbit-network` bridge network (created by `make dev-up`)
+- Docker running with the `kora-network` bridge network (created by `make dev-up`)
 
 ## Create the cluster
 
@@ -21,7 +21,7 @@ make dev-cluster
 This will:
 1. Start Postgres + Redis + Dex via `make dev-up` (if not already running)
 2. Create the k3d cluster from `infrastructure/bootstrap/k3d-config.yaml`
-3. Patch CoreDNS to resolve `dex.orbit.local.clearroute.io` → Docker bridge gateway
+3. Patch CoreDNS to resolve `dex.local.runkora.io` → Docker bridge gateway
 
 **This command is idempotent**: re-running it when the cluster already exists is a no-op.
 
@@ -33,11 +33,11 @@ Install SPIRE, Istio and kora from the reference Helmfile:
 make cluster-platform   # build + push missing images; secrets and TLS;
                         # helmfile -e local apply from deploy/reference/
 
-make cluster-deploy     # build + push tenant images; apply OrbitTenant
+make cluster-deploy     # build + push tenant images; apply KoraTenant
                         # resources and workload fixtures in deploy/local/
 ```
 
-See [docs/guides/local-development.md](../../docs/guides/local-development.md) for the full annotated install sequence.
+See [docs/contributing/local-development.md](../../docs/contributing/local-development.md) for the full annotated install sequence.
 
 
 ## What lives here vs deploy/local/

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, within } from 'storybook/test';
-import { dashboardPage } from '@orbit/storybook/dashboard-frame';
-import type { MockRequest, MockRoutes } from '@orbit/storybook/mock-api';
+import { dashboardPage } from '@runkora/storybook/dashboard-frame';
+import type { MockRequest, MockRoutes } from '@runkora/storybook/mock-api';
 import { AgentsShell } from './agents-shell';
 import {
   AGENT_ROWS,
@@ -202,4 +202,22 @@ export const HundredFiftyAgents: Story = {
     initialInsights: scaleInsights('7d'),
   },
   decorators: withRoutes(scaleRoutes),
+};
+
+/** A declared agent whose repository is too long for the card header. */
+export const ManagedInGitLongRepository: Story = {
+  decorators: withRoutes(listRoutes()),
+  args: {
+    ...Default.args,
+    initialAgentTypes: AGENT_ROWS.slice(0, 3).map((a, i) =>
+      i === 0
+        ? {
+            ...a,
+            slug: 'pr-summariser',
+            declared: true,
+            repository: 'github.com/example-org/example-agents-with-a-long-name',
+          }
+        : a,
+    ),
+  },
 };

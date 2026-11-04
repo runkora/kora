@@ -9,15 +9,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/landlockmode"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-// Every framework goes through orbit-session-runner, so Codex and OpenCode runs
+// Every framework goes through kora-session-runner, so Codex and OpenCode runs
 // are confined the same way a Claude run is.
-// See https://github.com/clear-route/orbit/issues/217.
+// See https://github.com/runkora/kora/issues/217.
 func TestWrapExec(t *testing.T) {
 	const (
-		wrapper = "/usr/local/bin/orbit-session-runner"
+		wrapper = "/usr/local/bin/kora-session-runner"
 		workDir = "/workspaces/run-1"
 		binary  = "codex"
 	)
@@ -46,14 +47,14 @@ func TestWrapExec(t *testing.T) {
 
 // OpenCode takes the shell its tool commands run through from its config.
 func TestOpenCodeConfig_ShellPath(t *testing.T) {
-	const shellPath = "/opt/orbit/shell/bash"
+	const shellPath = "/opt/kora/shell/bash"
 
 	read := func(t *testing.T, cfg OpenCodeRunnerConfig) map[string]any {
 		t.Helper()
 		workDir := t.TempDir()
 		cfg.Logger = logging.NewLoggerWithOutput(io.Discard)
 		cfg.RunID = "run-1"
-		cfg.InferenceGatewayURL = "http://orbit-inference-gateway"
+		cfg.InferenceGatewayURL = "http://kora-inference-gateway"
 		r := NewOpenCodeRunner(cfg)
 		data, err := r.openCodeConfig(workDir)
 		if err != nil {
@@ -81,7 +82,7 @@ func TestOpenCodeConfig_ShellPath(t *testing.T) {
 	})
 }
 
-// orbit-shell reads all four from its environment: WORKSPACE to find the
+// kora-shell reads all four from its environment: WORKSPACE to find the
 // sandbox descriptor, the others to ask this pod for a replacement and to prove
 // which run is asking.
 func TestRunEnv(t *testing.T) {
@@ -95,9 +96,9 @@ func TestRunEnv(t *testing.T) {
 		"PATH=/usr/bin:/bin:/usr/local/go/bin:/usr/local/cargo/bin:/workspaces/.runlocal/run-42/.local/bin:/workspaces/.runlocal/run-42/go/bin:/workspaces/.runlocal/run-42/.cargo/bin",
 		// The sandbox mounts its local disk at the same path.
 		"GOCACHE=/workspaces/.runlocal/run-42/.cache/go-build",
-		"ORBIT_SESSION_MANAGER_URL=http://localhost:8090",
-		"ORBIT_RUN_ID=run-42",
-		"ORBIT_RUN_TOKEN=tok-42",
+		"KORA_SESSION_MANAGER_URL=http://localhost:8090",
+		"KORA_RUN_ID=run-42",
+		"KORA_RUN_TOKEN=tok-42",
 	}
 	for _, w := range want {
 		if !slices.Contains(got, w) {
@@ -106,52 +107,26 @@ func TestRunEnv(t *testing.T) {
 	}
 }
 
-// The cap reaches Node processes a run starts on the agent pod, and replaces any
-// NODE_OPTIONS the pod itself carries.
-func TestRunEnv_NodeHeapCap(t *testing.T) {
-	tests := []struct {
-		name string
-		mb   int
-		want string
-	}{
-		{name: "capped", mb: 512, want: "--max-old-space-size=512"},
-		{name: "disabled", mb: 0, want: ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := &Controller{cfg: ControllerConfig{WorkspacesBasePath: "/workspaces", SelfPort: 8090, NodeMaxOldSpaceMB: tt.mb}}
-			env := withRunEnv([]string{"NODE_OPTIONS=--max-old-space-size=8192"}, c.runEnv("run-42", "tok-42"))
-			var got []string
-			for _, e := range env {
-				if v, ok := strings.CutPrefix(e, "NODE_OPTIONS="); ok {
-					got = append(got, v)
-				}
-			}
-			if tt.want == "" {
-				if !slices.Equal(got, []string{"--max-old-space-size=8192"}) {
-					t.Errorf("NODE_OPTIONS = %v, want the inherited value untouched", got)
-				}
-				return
-			}
-			if !slices.Equal(got, []string{tt.want}) {
-				t.Errorf("NODE_OPTIONS = %v, want exactly [%s]", got, tt.want)
-			}
-		})
+// kora-session-runner reads the Landlock mode from the run's environment.
+func TestRunEnv_LandlockMode(t *testing.T) {
+	c := &Controller{cfg: ControllerConfig{WorkspacesBasePath: "/workspaces", SelfPort: 8090, Landlock: landlockmode.BestEffort}}
+	if got := c.runEnv("run-42", "tok-42"); !slices.Contains(got, "KORA_LANDLOCK=bestEffort") {
+		t.Errorf("run env %v is missing KORA_LANDLOCK=bestEffort", got)
 	}
 }
 
 // Without the runtime MCP server a run cannot ask for a sandbox, and without an
 // entry per governed server its mcp_tools grants do nothing.
-// See https://github.com/clear-route/orbit/issues/217.
+// See https://github.com/runkora/kora/issues/217.
 func TestCodexConfig_MCPServers(t *testing.T) {
 	workDir := t.TempDir()
 	r := NewCodexRunner(CodexRunnerConfig{
 		Logger:              logging.NewLoggerWithOutput(io.Discard),
 		RunID:               "run-1",
 		Model:               "anthropic/claude-sonnet-4-6",
-		InferenceGatewayURL: "http://orbit-inference-gateway",
+		InferenceGatewayURL: "http://kora-inference-gateway",
 		SessionManagerURL:   "http://localhost:8090",
-		ToolGatewayURL:      "http://orbit-tool-gateway/run/run-1",
+		ToolGatewayURL:      "http://kora-tool-gateway/run/run-1",
 		MCPServers:          []string{"github"},
 	})
 	codexHome, err := r.writeCodexConfig(workDir)
@@ -177,7 +152,7 @@ func TestCodexConfig_MCPServers(t *testing.T) {
 	// Each server table carries its keys ahead of any subtable such as
 	// [mcp_servers.runtime.env], or they land in the subtable and Codex rejects the file.
 	for server, keys := range map[string][]string{
-		"runtime": {`default_tools_approval_mode = "approve"`, `env_vars = ["ORBIT_RUN_TOKEN"]`},
+		"runtime": {`default_tools_approval_mode = "approve"`, `env_vars = ["KORA_RUN_TOKEN"]`},
 		"github":  {`default_tools_approval_mode = "approve"`},
 	} {
 		header := "[mcp_servers." + server + "]\n"
@@ -201,16 +176,16 @@ func TestCodexConfig_MCPServers(t *testing.T) {
 		`sandbox_mode = "danger-full-access"`,
 		// Headless: an approval request would wait forever for a human.
 		`approval_policy = "never"`,
-		// The one-shot shell tool, which is the shape orbit-shell implements.
+		// The one-shot shell tool, which is the shape kora-shell implements.
 		"unified_exec = false",
 		// A login-shell snapshot from this pod would replace the sandbox's PATH.
 		"shell_snapshot = false",
 		"[mcp_servers.runtime]",
-		`command = "orbit-runtime-mcp"`,
-		`ORBIT_SESSION_MANAGER_URL = "http://localhost:8090"`,
-		`ORBIT_RUN_ID              = "run-1"`,
+		`command = "kora-runtime-mcp"`,
+		`KORA_SESSION_MANAGER_URL = "http://localhost:8090"`,
+		`KORA_RUN_ID              = "run-1"`,
 		"[mcp_servers.github]",
-		`url = "http://orbit-tool-gateway/run/run-1/v1/mcp/github"`,
+		`url = "http://kora-tool-gateway/run/run-1/v1/mcp/github"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("config.toml is missing %q:\n%s", want, got)
@@ -223,9 +198,9 @@ func TestOpenCodeConfig_MCPServers(t *testing.T) {
 	r := NewOpenCodeRunner(OpenCodeRunnerConfig{
 		Logger:              logging.NewLoggerWithOutput(io.Discard),
 		RunID:               "run-1",
-		InferenceGatewayURL: "http://orbit-inference-gateway",
+		InferenceGatewayURL: "http://kora-inference-gateway",
 		SessionManagerURL:   "http://localhost:8090",
-		ToolGatewayURL:      "http://orbit-tool-gateway/run/run-1",
+		ToolGatewayURL:      "http://kora-tool-gateway/run/run-1",
 		MCPServers:          []string{"github"},
 	})
 	data, err := r.openCodeConfig(workDir)
@@ -249,10 +224,10 @@ func TestOpenCodeConfig_MCPServers(t *testing.T) {
 	if !ok {
 		t.Fatalf("no runtime MCP server in %v", cfg.MCP)
 	}
-	if rt.Type != "local" || len(rt.Command) != 1 || rt.Command[0] != "orbit-runtime-mcp" || !rt.Enabled {
+	if rt.Type != "local" || len(rt.Command) != 1 || rt.Command[0] != "kora-runtime-mcp" || !rt.Enabled {
 		t.Errorf("runtime entry = %+v", rt)
 	}
-	if rt.Environment["ORBIT_RUN_ID"] != "run-1" || rt.Environment["ORBIT_SESSION_MANAGER_URL"] != "http://localhost:8090" {
+	if rt.Environment["KORA_RUN_ID"] != "run-1" || rt.Environment["KORA_SESSION_MANAGER_URL"] != "http://localhost:8090" {
 		t.Errorf("runtime environment = %v", rt.Environment)
 	}
 
@@ -260,7 +235,7 @@ func TestOpenCodeConfig_MCPServers(t *testing.T) {
 	if !ok {
 		t.Fatalf("no github MCP server in %v", cfg.MCP)
 	}
-	if gh.Type != "remote" || gh.URL != "http://orbit-tool-gateway/run/run-1/v1/mcp/github" || !gh.Enabled {
+	if gh.Type != "remote" || gh.URL != "http://kora-tool-gateway/run/run-1/v1/mcp/github" || !gh.Enabled {
 		t.Errorf("github entry = %+v", gh)
 	}
 }

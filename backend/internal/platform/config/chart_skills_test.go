@@ -13,11 +13,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
 
-	skillsConfig "github.com/clear-route/orbit/cmd/skills-service/config"
-	"github.com/clear-route/orbit/internal/platform/config"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/marketplace"
-	"github.com/clear-route/orbit/internal/skills"
+	skillsConfig "github.com/runkora/kora/backend/cmd/skills-service/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/marketplace"
+	"github.com/runkora/kora/backend/internal/skills"
 )
 
 const skillsMappingValues = `skillsService:
@@ -68,7 +68,7 @@ func TestChartSkillsMappingLoadsRegistry(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			t.Setenv("ORBIT_MARKETPLACE_SOURCES_CONFIG", dir)
+			t.Setenv("KORA_MARKETPLACE_SOURCES_CONFIG", dir)
 			t.Setenv("GITHUB_APP_ID", "12345")
 			t.Setenv("GITHUB_APP_INSTALLATION_ID", "67890")
 			t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", filepath.Join(dir, "privateKey"))
@@ -126,8 +126,8 @@ func TestChartSkillsMappingChangeRollsDeployment(t *testing.T) {
 
 func TestChartSkillsMappingRejectsInvalidShape(t *testing.T) {
 	renderChart(t, "{}\n", "--show-only", "templates/skills-service/configmap.yaml")
-	chart := filepath.Join("..", "..", "..", "..", "charts", "orbit")
-	out, err := exec.Command("helm", "template", "orbit", chart, "-n", "orbit-system",
+	chart := filepath.Join("..", "..", "..", "..", "charts", "kora")
+	out, err := exec.Command("helm", "template", "kora", chart, "-n", "kora-system",
 		"-f", filepath.Join(chart, "ci", "default-values.yaml"),
 		"--show-only", "templates/skills-service/configmap.yaml",
 		"--set-string", "skillsService.skillsMapping.tenants=not-a-list").CombinedOutput()
@@ -187,7 +187,7 @@ func TestChartSkillsServiceWiring(t *testing.T) {
 	}
 	var frontend corev1.ConfigMap
 	decode("templates/frontend/configmap.yaml", &frontend)
-	want := fmt.Sprintf("http://orbit-skills-service.orbit-system.svc.cluster.local:%d/v1", port)
+	want := fmt.Sprintf("http://kora-skills-service.kora-system.svc.cluster.local:%d/v1", port)
 	if got := frontend.Data["SKILLS_SERVICE_URL"]; got != want {
 		t.Errorf("frontend Skills URL = %q, want %q", got, want)
 	}

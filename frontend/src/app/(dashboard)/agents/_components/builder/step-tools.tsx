@@ -3,10 +3,10 @@
 /** @tier 3 — agents-scoped. Builder step 3: MCP tool tree, connections, egress, environments. */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, SectionHeading, Separator, Stack, Text } from '@orbit/hades';
-import type { EffectiveAccess } from '@orbit/shared/api';
+import { Alert, SectionHeading, Separator, Stack, Text } from '@runkora/hades';
+import type { EffectiveAccess } from '@runkora/shared/api';
 import { previewEffectiveAccess } from '../../[slug]/_services/agent-detail-api';
-import { ConnectionCards, EffectiveAccessPanel } from '@orbit/components';
+import { ConnectionCards, EffectiveAccessPanel } from '@runkora/components';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { EgressModeCards } from '../motif/egress-mode-cards';
 import { EnvironmentsCard } from '../motif/environments-card';

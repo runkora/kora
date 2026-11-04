@@ -8,10 +8,10 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/credentials"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ProxyHandler is the gateway's inbound HTTP handler. AuthMiddleware has
@@ -25,14 +25,21 @@ import (
 type ProxyHandler struct {
 	broker     *Broker
 	transports *TransportCache // upstream forward transport, keyed per-connection CA trust
+	brand      productNamer    // names the product in the denial message the agent reads
 	logger     logging.Logger
+}
+
+// productNamer is the one brand method the proxy calls.
+type productNamer interface {
+	ProductName() string
 }
 
 // NewProxyHandler constructs a ProxyHandler. transport is the base transport for
 // the forward leg, cloned per connection that declares its own CA. Every
 // transport handed to the proxy is traced, so spans cover each forwarded call.
-func NewProxyHandler(broker *Broker, transport *http.Transport, logger logging.Logger) *ProxyHandler {
-	return &ProxyHandler{broker: broker, transports: NewTransportCache(transport), logger: logger}
+// brand supplies the product name denial messages read.
+func NewProxyHandler(broker *Broker, transport *http.Transport, brand productNamer, logger logging.Logger) *ProxyHandler {
+	return &ProxyHandler{broker: broker, transports: NewTransportCache(transport), brand: brand, logger: logger}
 }
 
 // Transports exposes the handler's TransportCache so the owning binary can
@@ -63,7 +70,7 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Forward to the host the client asked for, not the connection's base_host:
 	// one connection can serve a host family (github.com for git, plus
 	// api.github.com, codeload.github.com and *.githubusercontent.com for the
-	// REST API, archives and raw content). GetByHost has already constrained
+	// REST API, archives and raw content). ListByHost has already constrained
 	// that host to the connection's own, so the minted credential never leaves
 	// them.
 	//
@@ -119,15 +126,18 @@ func (p *ProxyHandler) forward(w http.ResponseWriter, r *http.Request, upstream 
 				pr.Out.Header.Set(d.Credential.Header, d.Credential.Value)
 			}
 		},
+		ModifyResponse: p.explainWorkflowRefusal,
 		ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
 			p.logger.Error(req.Context(), "egress forward failed",
 				logging.Field{Key: "connection", Value: d.Connection.Name},
 				logging.Field{Key: "upstream", Value: upstream.String()},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
-			platformapi.ErrorResponse(req.Context(), rw, p.logger,
-				platformapi.ServiceUnavailableError(platformapi.ErrCodeServiceUnavailable, "upstream call failed", nil),
-				err)
+			apiErr := platformapi.ServiceUnavailableError(platformapi.ErrCodeServiceUnavailable, "upstream call failed", nil)
+			if errors.Is(err, ErrLocalTarget) {
+				apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, "egress target not allowed", nil)
+			}
+			platformapi.ErrorResponse(req.Context(), rw, p.logger, apiErr, err)
 		},
 	}
 	rp.ServeHTTP(w, r)
@@ -152,8 +162,10 @@ func (p *ProxyHandler) handleBrokerError(w http.ResponseWriter, r *http.Request,
 		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "connection configuration is invalid", nil)
 	case errors.Is(err, credentials.ErrUnsupportedAdapter):
 		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "unsupported adapter", nil)
+	case errors.Is(err, ErrDelegationRunUnattested):
+		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, ErrDelegationRunUnattested.Error(), nil)
 	case errors.As(err, &denial):
-		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, denial.Message(), denial.Details())
+		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, denial.Message(p.brand.ProductName()), denial.Details())
 	case errors.Is(err, ErrForbidden):
 		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, "egress denied", nil)
 	case errors.Is(err, ErrTenantMismatch):

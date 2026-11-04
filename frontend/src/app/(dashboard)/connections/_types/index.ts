@@ -5,7 +5,7 @@
 // presents the connection catalog and computes, from the agent-type list, which
 // agents attach each connection.
 
-import type { ConnectionCatalogEntry, AgentType } from '@orbit/shared/api';
+import type { ConnectionCatalogEntry, AgentType } from '@runkora/shared/api';
 
 /** An agent that attaches a connection. */
 export interface ConnectionUsage {

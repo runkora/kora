@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
-import { renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@runkora/test-utils';
 import { VirtualModelsSection } from './virtual-models-section';
 import type { VirtualModel } from '../_types/catalog';
 
@@ -20,6 +20,7 @@ function vm(overrides: Partial<VirtualModel> = {}): VirtualModel {
     strategy: 'priority',
     routes: [],
     enabled: true,
+    declared: false,
     ...overrides,
   };
 }
@@ -93,5 +94,19 @@ describe('VmEffectivePriceCell tooltip', () => {
     );
     await userEvent.setup().hover(screen.getByRole('button', { name: /non-token pricing/i }));
     expect(screen.queryByText(/see model details/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('managed in git', () => {
+  it('marks a declared virtual model', () => {
+    renderWithProviders(<VirtualModelsSection models={[vm({ declared: true })]} onSelect={noop} />);
+    expect(screen.getByText('Managed in git')).toBeInTheDocument();
+  });
+
+  it('offers no create control with the platform switch off', () => {
+    renderWithProviders(
+      <VirtualModelsSection models={[vm()]} onSelect={noop} apiAuthoring={false} />,
+    );
+    expect(screen.queryByRole('button', { name: /new virtual model/i })).not.toBeInTheDocument();
   });
 });

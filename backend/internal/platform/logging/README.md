@@ -9,7 +9,7 @@ This package provides a `Logger` interface with automatic trace context extracti
 ## Quick Start
 
 ```go
-import "github.com/clear-route/orbit/internal/platform/logging"
+import "github.com/runkora/kora/backend/internal/platform/logging"
 
 // Create logger (inject via dependency injection in production)
 logger := logging.NewLogger() // Production: JSON to stdout
@@ -87,7 +87,7 @@ logger := logging.NewDevelopmentLogger()
 import (
     "bytes"
     "testing"
-    "github.com/clear-route/orbit/internal/platform/logging"
+    "github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 func TestMyService(t *testing.T) {

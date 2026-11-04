@@ -7,7 +7,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // Overflow behaviors: what a trigger does when it is already at its concurrency
@@ -85,6 +86,14 @@ type PendingDelivery struct {
 	DeliveryID string
 	Fields     map[string]string
 	EnqueuedAt time.Time
+	// CoalesceKey is the rendered key the fire coalesces under. Written on
+	// enqueue only; reads leave it empty.
+	CoalesceKey string
+	// HoldCount is how many times the fire returned to the queue to wait for a
+	// starting run its join key names.
+	HoldCount int16
+	// TraceParent is the W3C traceparent of the fire, continued by its dispatch.
+	TraceParent string
 }
 
 // OrphanedPending is a waiting fire whose trigger can no longer run it.
@@ -140,11 +149,13 @@ type Admission struct {
 	outcomes outcomeRecorder
 }
 
-// admissionStore is what admission touches: the queue it manages, and the two
-// outcome writes it makes when it refuses or displaces a fire.
+// admissionStore is what admission touches: the queue it manages, the two
+// outcome writes it makes when it refuses or displaces a fire, and the key it
+// records for a fire that coalesces.
 type admissionStore interface {
 	PendingQueue
 	outcomeStore
+	InsertDeliveryKey(ctx context.Context, k *DeliveryKey) error
 }
 
 // NewAdmission constructs the admission controller.
@@ -172,11 +183,12 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 	// One pending row, built once: both enqueue paths below store the same
 	// thing, so a field added to it cannot reach one and miss the other.
 	pending := &PendingDelivery{
-		ID:         newID(),
-		TenantID:   t.TenantID,
-		TriggerID:  t.ID,
-		DeliveryID: deliveryID,
-		Fields:     fields,
+		ID:          newID(),
+		TenantID:    t.TenantID,
+		TriggerID:   t.ID,
+		DeliveryID:  deliveryID,
+		Fields:      fields,
+		TraceParent: observability.TraceParent(ctx),
 	}
 
 	switch t.Overflow {
@@ -190,7 +202,7 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 			return AdmitDropped, fmt.Errorf("supersede and enqueue: %w", err)
 		}
 		for _, s := range superseded {
-			a.recordOutcome(ctx, t, s.DeliveryID, RunStatusSuperseded, "replaced by a newer fire")
+			a.recordSuperseded(ctx, t, s.DeliveryID, deliveryID, "replaced by a newer fire")
 		}
 		return AdmitEnqueued, nil
 
@@ -215,6 +227,10 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 		return AdmitEnqueued, nil
 
 	case OverflowWait:
+		if key, ok := a.coalesceKey(ctx, t, deliveryID, fields); ok {
+			pending.CoalesceKey = key
+			return a.admitCoalescing(ctx, t, pending)
+		}
 		// Bound the backlog. Dropping the oldest rather than the newest is
 		// deliberate: when a trigger is behind, the freshest events are the
 		// ones still worth acting on.
@@ -223,12 +239,77 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 			return AdmitDropped, fmt.Errorf("trim pending: %w", err)
 		}
 		for _, e := range evicted {
-			a.recordOutcome(ctx, t, e.DeliveryID, RunStatusDropped, "evicted: the trigger's backlog is full")
+			a.recordEviction(ctx, t, e.DeliveryID)
 		}
 	}
 
 	if err := a.repo.EnqueuePending(ctx, pending); err != nil {
 		return AdmitDropped, fmt.Errorf("enqueue pending: %w", err)
+	}
+	return AdmitEnqueued, nil
+}
+
+// recordEviction records a waiting fire pushed out of a full backlog and logs a
+// warning, so an eviction is visible outside the outcome table.
+func (a *Admission) recordEviction(ctx context.Context, t Trigger, deliveryID string) {
+	a.logger.Warn(ctx, "evicted a waiting fire: the trigger's backlog is full",
+		logging.Field{Key: "trigger_id", Value: t.ID},
+		logging.Field{Key: "delivery_id", Value: deliveryID},
+		logging.Field{Key: "max_queue_depth", Value: t.MaxQueueDepth},
+	)
+	a.recordOutcome(ctx, t, deliveryID, RunStatusDropped, "evicted: the trigger's backlog is full")
+}
+
+// coalesceKey renders the fire's coalescing key and records it against the
+// delivery, before the fire is enqueued, so the key is readable for as long as
+// the fire waits. ok is false when the fire does not coalesce.
+//
+// A render over the cap is recorded as too long and stores no text. A failed
+// write is logged and the fire proceeds: the key is audit, and losing it must
+// not lose the fire.
+func (a *Admission) coalesceKey(ctx context.Context, t Trigger, deliveryID string, fields map[string]string) (key string, ok bool) {
+	key, ok, tooLong := renderCoalesceKey(t, fields)
+	if !ok && !tooLong {
+		return "", false
+	}
+	err := a.repo.InsertDeliveryKey(ctx, &DeliveryKey{
+		DeliveryID: deliveryID, TenantID: t.TenantID, TriggerID: t.ID, Key: key, KeyTooLong: tooLong,
+	})
+	if err != nil {
+		a.logger.Error(ctx, "failed to record coalescing key",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "delivery_id", Value: deliveryID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+	return key, ok
+}
+
+// admitCoalescing enqueues a fire under its key, replacing the waiting fire with
+// the same key if its window is still open.
+func (a *Admission) admitCoalescing(ctx context.Context, t Trigger, pending *PendingDelivery) (AdmissionResult, error) {
+	replaced, err := a.repo.EnqueueCoalescing(ctx, pending, t.Coalesce.Window())
+	if err != nil {
+		return AdmitDropped, fmt.Errorf("enqueue coalescing: %w", err)
+	}
+	if replaced != "" {
+		a.recordSuperseded(ctx, t, replaced, pending.DeliveryID, "replaced by a newer fire with the same coalescing key")
+	}
+
+	// Trimmed after the enqueue, to the full depth: a replacement does not grow
+	// the backlog, so it must not evict an unrelated waiting fire to make room
+	// the way a plain enqueue does. The fire is already queued, so a failure
+	// here is logged rather than reported as a drop.
+	evicted, err := a.repo.TrimPending(ctx, t.ID, int(t.MaxQueueDepth)+1)
+	if err != nil {
+		a.logger.Error(ctx, "failed to trim the backlog after a coalescing enqueue",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return AdmitEnqueued, nil
+	}
+	for _, e := range evicted {
+		a.recordEviction(ctx, t, e.DeliveryID)
 	}
 	return AdmitEnqueued, nil
 }
@@ -272,6 +353,20 @@ func (a *Admission) recordOutcome(ctx context.Context, t Trigger, deliveryID, st
 		TriggerName: t.Name,
 		Status:      status,
 		Error:       &detail,
+	})
+}
+
+// recordSuperseded writes the audit row for a fire a newer one replaced, naming
+// the delivery that replaced it.
+func (a *Admission) recordSuperseded(ctx context.Context, t Trigger, deliveryID, supersededBy, detail string) {
+	a.outcomes.record(ctx, &DeliveryRun{
+		TenantID:     t.TenantID,
+		DeliveryID:   deliveryID,
+		TriggerID:    t.ID,
+		TriggerName:  t.Name,
+		Status:       RunStatusSuperseded,
+		Error:        &detail,
+		SupersededBy: &supersededBy,
 	})
 }
 

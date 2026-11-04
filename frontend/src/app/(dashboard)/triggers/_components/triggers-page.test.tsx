@@ -1,0 +1,102 @@
+import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, screen } from '@testing-library/react';
+import { renderWithProviders } from '@runkora/test-utils';
+
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+
+import { TriggersPage } from './triggers-page';
+import type { SourceRow } from '../_types';
+import { makeTrigger } from '../_types/fixtures';
+
+const SOURCE: Omit<SourceRow, 'id' | 'name' | 'provider' | 'category'> = {
+  enabled: true,
+  signingSecretSet: true,
+  createdAt: '2026-07-01T00:00:00Z',
+  rejectionCount: 0,
+  lastRejectionAt: null,
+  lastRejectionReason: null,
+  declared: false,
+};
+const SOURCES: SourceRow[] = [
+  { ...SOURCE, id: 'gh', name: 'acme/widgets', provider: 'github', category: 'webhook' },
+  { ...SOURCE, id: 'sl', name: 'acme-slack', provider: 'slack', category: 'chat' },
+];
+const TRIGGERS = [
+  makeTrigger({ id: 'w1', name: 'on-push', sourceId: 'gh', eventType: 'push' }),
+  makeTrigger({ id: 'c1', name: 'answer-mentions', sourceId: 'sl', eventType: 'mention' }),
+  makeTrigger({ id: 'c2', name: 'dm-helper', sourceId: 'sl', eventType: 'direct_message' }),
+];
+
+function renderPage() {
+  return renderWithProviders(
+    <TriggersPage sources={SOURCES} triggers={TRIGGERS} deliveries={[]} agents={[]} error={null} />,
+  );
+}
+
+describe('the kind filter', () => {
+  it('counts chat commands apart from webhooks', () => {
+    renderPage();
+    const filter = screen.getByRole('group', { name: 'Filter triggers by kind' });
+    expect(filter.textContent).toContain('Webhook1');
+    expect(filter.textContent).toContain('Chat command2');
+  });
+
+  it('lists only chat commands under Chat command', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /Chat command/ }));
+    expect(screen.getByText('answer-mentions')).toBeTruthy();
+    expect(screen.getByText('dm-helper')).toBeTruthy();
+    expect(screen.queryByText('on-push')).toBeNull();
+  });
+
+  it('lists no chat command under Webhook', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: /^Webhook/ }));
+    expect(screen.getByText('on-push')).toBeTruthy();
+    expect(screen.queryByText('answer-mentions')).toBeNull();
+  });
+});
+
+describe('a chat source waiting for its signing secret', () => {
+  it('marks its triggers and no others', () => {
+    const waiting = SOURCES.map((s) => (s.id === 'sl' ? { ...s, signingSecretSet: false } : s));
+    renderWithProviders(
+      <TriggersPage
+        sources={waiting}
+        triggers={TRIGGERS}
+        deliveries={[]}
+        agents={[]}
+        error={null}
+      />,
+    );
+    expect(screen.getAllByText('Waiting for signing secret')).toHaveLength(2);
+  });
+
+  it('marks nothing when every source holds its secret', () => {
+    renderPage();
+    expect(screen.queryByText('Waiting for signing secret')).toBeNull();
+  });
+});
+
+describe('a locked tenant', () => {
+  it('explains the lock and offers no new trigger', () => {
+    renderWithProviders(
+      <TriggersPage
+        sources={SOURCES}
+        triggers={TRIGGERS}
+        deliveries={[]}
+        agents={[]}
+        error={null}
+      />,
+      { apiAuthoring: false },
+    );
+    expect(screen.getByText(/Triggers and sources in this tenant are managed in git/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /New trigger/ })).toBeNull();
+  });
+
+  it('offers a new trigger when the tenant is not locked', () => {
+    renderPage();
+    expect(screen.queryByText(/are managed in git/)).toBeNull();
+    expect(screen.getByRole('button', { name: /New trigger/ })).toBeTruthy();
+  });
+});

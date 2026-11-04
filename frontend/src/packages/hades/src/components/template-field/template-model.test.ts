@@ -240,11 +240,11 @@ describe('replaceSelection', () => {
 describe('renderPreview', () => {
   const examples = new Map([
     ['pr.title', 'Fix login retry'],
-    ['repo.full_name', 'orbital/orbit'],
+    ['repo.full_name', 'runkora/kora'],
   ]);
 
   it('substitutes sample values', () => {
-    expect(renderPreview(TPL, examples)).toBe('Review Fix login retry on orbital/orbit');
+    expect(renderPreview(TPL, examples)).toBe('Review Fix login retry on runkora/kora');
   });
 
   it('renders unknown fields as the empty string', () => {
@@ -309,7 +309,7 @@ describe('readModelFromDom', () => {
 
 describe('domPositionToModelOffset', () => {
   const root = buildEditor(['Review ', { token: 'pr.title' }, ' on ']);
-  const [text0, pill, text1] = Array.from(root.childNodes);
+  const [text0, pill, text1] = Array.from(root.childNodes) as [ChildNode, ChildNode, ChildNode];
 
   it('maps an offset inside a leading text node', () => {
     expect(domPositionToModelOffset(root, text0, 0)).toBe(0);
@@ -421,19 +421,19 @@ describe('modelOffsetToDom', () => {
 const CATALOG: TemplateCatalogEntry[] = [
   { token: 'pr.title', description: 'Title', example: 'Fix login retry', group: 'Pull request' },
   { token: 'pr.number', description: 'Number', example: '412', group: 'Pull request' },
-  { token: 'repo.full_name', description: 'Owner and name', example: 'orbital/orbit' },
+  { token: 'repo.full_name', description: 'Owner and name', example: 'runkora/kora' },
   { token: 'group.labels.<name>', description: 'Any label', pattern: true },
 ];
 
 describe('catalog helpers', () => {
   it('takes an explicit group, else the token prefix', () => {
-    expect(groupNameFor(CATALOG[0])).toBe('Pull request');
-    expect(groupNameFor(CATALOG[2])).toBe('Repo');
+    expect(groupNameFor(CATALOG[0]!)).toBe('Pull request');
+    expect(groupNameFor(CATALOG[2]!)).toBe('Repo');
   });
 
   it('groups in first-seen order', () => {
     expect(groupCatalog(CATALOG).map((g) => g.name)).toEqual(['Pull request', 'Repo', 'Group']);
-    expect(groupCatalog(CATALOG)[0].entries).toHaveLength(2);
+    expect(groupCatalog(CATALOG)[0]!.entries).toHaveLength(2);
   });
 
   it('filters on token and description, case-insensitively', () => {

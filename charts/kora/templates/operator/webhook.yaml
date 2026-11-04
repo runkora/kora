@@ -1,0 +1,86 @@
+# The operator owns caBundle and failurePolicy; Helm intentionally omits both.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kora-operator-webhook
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.operator.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "kora.operator.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: https-webhook
+      port: 443
+      targetPort: 9443
+      protocol: TCP
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  # Run before Istio injection so Istio reads the required annotations.
+  name: aaa-kora-agent-pod-mutator
+  labels:
+    {{- include "kora.operator.labels" . | nindent 4 }}
+webhooks:
+  - name: pod.runkora.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: kora-operator-webhook
+        namespace: {{ include "kora.systemNamespace" . }}
+        path: /mutate-pod
+    rules:
+      - operations: ["CREATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+    namespaceSelector:
+      matchLabels:
+        runkora.io/role: tenant
+    reinvocationPolicy: Never
+    sideEffects: None
+    timeoutSeconds: 10
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: kora-agent-pod-validator
+  labels:
+    {{- include "kora.operator.labels" . | nindent 4 }}
+webhooks:
+  - name: pod.runkora.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: kora-operator-webhook
+        namespace: {{ include "kora.systemNamespace" . }}
+        path: /validate-pod
+    rules:
+      - operations: ["CREATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+    namespaceSelector:
+      matchLabels:
+        runkora.io/role: tenant
+    sideEffects: None
+    timeoutSeconds: 10
+  # Rejects a Connection the egress gateway cannot tell apart from an earlier one.
+  - name: connection.runkora.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: kora-operator-webhook
+        namespace: {{ include "kora.systemNamespace" . }}
+        path: /validate-connection
+    rules:
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: ["runkora.io"]
+        apiVersions: ["v1alpha1"]
+        resources: ["connections"]
+    namespaceSelector:
+      matchLabels:
+        runkora.io/role: tenant
+    sideEffects: None
+    timeoutSeconds: 10

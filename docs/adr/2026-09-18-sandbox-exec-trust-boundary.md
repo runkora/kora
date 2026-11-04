@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-09-18-sandbox-exec-trust-boundary.md  (decision date + slug; no sequential number) -->
 
-**Status:** Proposed
+**Status:** Accepted (Amended 2026-10-31: Amendment 1 Accepted, the sandbox is the only place a run executes commands)
 **Date:** 2026-09-18
 **Deciders:** Justin Wilkin
 **Technical Story:** Establish who may execute commands in a run's sandbox, and give every agent framework the same confinement. Resolves clear-route/orbit#202, #217 and #200.
@@ -62,7 +62,7 @@ Separately, `session-manager`'s loopback `/internal/runs/{id}/provision-sandbox`
 
 #### Option A1: Per-run bearer token in gRPC metadata
 
-**Description:** `orbit-agents` mints a random per-run token when it provisions the sandbox, sets it in the sandbox pod's environment, and returns it in the provisioning response. `sandbox-exec` rejects any `Execute` whose metadata does not carry that exact token. `session-manager` holds it for the session and publishes it into the run's workspace directory alongside the endpoint, so `orbit-shell` can read it.
+**Description:** `kora-agents` mints a random per-run token when it provisions the sandbox, sets it in the sandbox pod's environment, and returns it in the provisioning response. `sandbox-exec` rejects any `Execute` whose metadata does not carry that exact token. `session-manager` holds it for the session and publishes it into the run's workspace directory alongside the endpoint, so `orbit-shell` can read it.
 
 **Pros:**
 - Scopes to the run, which is the only granularity that addresses the threat.
@@ -184,7 +184,7 @@ Confidentiality of both the token and the endpoint rests on Landlock, the same m
 
 ## Implementation
 
-- `orbit-agents` mints the token at sandbox provisioning and sets it on the sandbox pod. The provisioning response carries it to `session-manager`.
+- `kora-agents` mints the token at sandbox provisioning and sets it on the sandbox pod. The provisioning response carries it to `session-manager`.
 - `sandbox-exec` compares the metadata value against its own environment with a constant-time comparison, and refuses the call when absent or different.
 - `session-manager` writes the token into the run's `.sandbox-exec` directory with owner-only permissions, next to the endpoint, and `orbit-shell` sends it as gRPC metadata.
 - Both interceptor surfaces are registered on the exec server, streaming and unary, so a unary RPC added later cannot land unauthenticated.
@@ -198,7 +198,7 @@ Confidentiality of both the token and the endpoint rests on Landlock, the same m
 - Codex is put on its one-shot shell tool rather than unified exec. Unified exec runs a persistent shell session fed by a startup script; `orbit-shell` issues one stateless call per command, the shape Claude Code's Bash tool has.
 - The sandbox image provides the same shell path as the agent pod. Codex bakes its resolved shell into a snapshot prefixed onto every command, so a command arriving in the sandbox names that path. In the agent pod it routes commands out; in the sandbox it runs them.
 - `orbit-runtime-mcp` answers `resources/list` with an empty list. It exposes tools only and says so, and Codex probes for resources regardless.
-- A sandbox is provisioned only when the agent calls `provision_sandbox`, in the environment it names or in its default. A run start creates no sandbox pod. Pre-provisioning at run start is removed: it ignored the environment the agent would have chosen, and `orbit-agents` warming the pod itself left the descriptor unwritten, so the pod sat idle.
+- A sandbox is provisioned only when the agent calls `provision_sandbox`, in the environment it names or in its default. A run start creates no sandbox pod. Pre-provisioning at run start is removed: it ignored the environment the agent would have chosen, and `kora-agents` warming the pod itself left the descriptor unwritten, so the pod sat idle.
 
 ### Migration Path
 
@@ -216,12 +216,59 @@ A Codex run executes its commands in its own sandbox, reported back as the sandb
 
 ---
 
+## Amendment 1 (2026-10-31): The sandbox is the only place a run executes commands
+
+**Status:** Accepted
+
+A run executes commands only in its sandbox. A run with no sandbox executes none, and a run that never needs a command needs no sandbox. Landlock in `kora-session-runner` enforces the boundary for every harness.
+
+### Decision
+
+*   `kora-shell` refuses a command when the run has no sandbox and refuses an interactive shell in every case. The refusal tells the agent to call `provision_sandbox` and run the command again.
+*   `kora-session-runner` grants the Landlock execute right only on the harness binary, `kora-shell`, `kora-runtime-mcp` and the ELF interpreter each one names. It resolves the two platform binaries next to its own binary. The run's PATH holds directories the agent writes. OpenCode can also execute the image's `/usr/bin/rg`. Its search tools pass the model's input to `rg` after `--` or inside `--glob=`.
+*   The workspace, TMPDIR, local dir, `/dev` and the system directories keep their read and write rights without execute.
+*   Each harness ignores the configuration the agent can write wherever that configuration starts a process or loads code:
+    *   Claude Code runs with `--strict-mcp-config` and reads project and local settings only. Its user settings live in the agent-writable HOME. Image-managed settings pin `CLAUDE_CODE_SHELL` to `kora-shell`, allow managed hooks only and refuse every plugin marketplace.
+    *   OpenCode runs with project config disabled and reads the workspace `AGENTS.md` as instructions. Its HOME and config home are the run's config dir. The agent can only read that dir, and its sandbox does not mount it.
+    *   Codex is a static binary, and its allowlist holds no interpreter.
+*   The `agents.landlock` chart value is `enforce` or `bestEffort`, and `enforce` is the default. kora-agents passes it to each agent pod, and the session-manager passes it to `kora-session-runner`.
+*   In `enforce`, the session-manager reads the node's Landlock ABI at start. Below ABI v2 the pod fails readiness and logs an error that cites `agents.landlock`. `kora-session-runner` also refuses to start a harness below ABI v2.
+*   File truncation (ABI v3) and signal and abstract socket scoping (ABI v6) apply when the kernel has them. The session-manager logs a warning for each one the kernel lacks. Agent types have no status surface for the warning.
+*   `bestEffort` applies whatever the kernel supports, down to nothing. The local reference environment sets `bestEffort`.
+
+### Operating `agents.landlock`
+
+*   **Failure:** An agent pod on a node without Landlock ABI v2 stays not ready, and no run lands on it. `kubectl -n <tenant namespace> logs <agent pod> -c session-manager` shows `Agents cannot run on this node` with the node's ABI. A seccomp profile that blocks the Landlock syscalls reads as a kernel without Landlock.
+*   **When to set `bestEffort`:** Set it only for nodes whose kernel lacks Landlock ABI v2 (Linux 5.19) or boots without Landlock in its LSM list. Agents on those nodes run without filesystem and execute confinement.
+
+### Consequences
+
+#### Positive
+
+*   A hook, a script in the workspace or a binary the agent writes cannot execute in the agent pod.
+*   A node that cannot confine agents takes no runs in `enforce`.
+
+#### Negative
+
+*   A run's first command fails until the agent provisions a sandbox, and then waits for the sandbox to start.
+*   The ELF interpreter is executable for Claude Code and OpenCode. The kernel checks execute on the interpreter of a dynamically linked binary. Run directly, the interpreter loads any binary the agent can read. The boundary holds only while no harness starts a process with arguments the agent controls. Each harness upgrade needs that check repeated.
+*   Landlock does not restrict code a harness loads into its own process. A harness that loads plugins or tools from a path the agent writes runs them in the agent pod.
+*   OpenCode ignores the project config in the workspace. It still reads the workspace `AGENTS.md` as instructions.
+*   Each harness needs its own configuration lock, verified against the pinned CLI version.
+
+#### Neutral
+
+*   A run that only calls MCP tools needs no sandbox.
+*   Claude Code's shell snapshot fails before a sandbox exists, and Claude Code continues without it.
+
+---
+
 ## Related Decisions
 
 - [sandbox-provisioning-and-shell-proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) - Establishes `orbit-shell`, the endpoint file and the re-provision retry this decision authenticates
 - [per-session-home-isolation](2026-06-04-per-session-home-isolation.md) - Supplies the Landlock confinement extended here to every runner
 - [jit-credential-brokering-egress-gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) - Rejoins the sandbox to the mesh for outbound enforcement and excludes port 50051 inbound
-- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) - Defines the event path that carries provisioning between `orbit-agents` and `session-manager`
+- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) - Defines the event path that carries provisioning between `kora-agents` and `session-manager`
 
 ---
 
@@ -232,4 +279,4 @@ A Codex run executes its commands in its own sandbox, reported back as the sandb
 
 ---
 
-**Last Updated:** 2026-09-18
+**Last Updated:** 2026-10-31

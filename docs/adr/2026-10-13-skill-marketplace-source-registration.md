@@ -5,7 +5,7 @@
 **Status:** Proposed (Amended 2026-10-30)
 **Date:** 2026-10-13
 **Deciders:** Platform Engineering, Product Owner
-**Technical Story:** Builds on [PR #351](https://github.com/clear-route/orbit/pull/351) (`skills-service`: binary skeleton, models, registry, GitHub client) and its [Agent Marketplace backend ADR](2026-08-28-marketplace-adr-backend.md). Product context: [Agent Marketplace PRD](../prd/agent-marketplace.md).
+**Technical Story:** Builds on [PR #351](https://github.com/runkora/kora/pull/351) (`skills-service`: binary skeleton, models, registry, GitHub client) and its [Agent Marketplace backend ADR](2026-08-28-marketplace-adr-backend.md). Product context: [Agent Marketplace PRD](../prd/agent-marketplace.md).
 
 ---
 
@@ -13,11 +13,11 @@
 
 ### Background
 
-PR #351's `skills-service` reads marketplace sources from `marketplace-sources.json` in the `orbit-skill-marketplace-sources` ConfigMap. The backend ADR says the operator fills this ConfigMap from `SkillMarketplaceSource` CRs, but does not design the CRD.
+PR #351's `skills-service` reads marketplace sources from `marketplace-sources.json` in the `kora-skill-marketplace-sources` ConfigMap. The backend ADR says the operator fills this ConfigMap from `SkillMarketplaceSource` CRs, but does not design the CRD.
 
 **Gap:** nothing fills the ConfigMap today — the chart renders it as a static `{"tenants": {}}`, and no `SkillMarketplaceSource` CRD exists anywhere in the codebase (no Go types, no CRD YAML, no scheme registration, no RBAC rule).
 
-A tenant is a customer organisation. Each tenant owns one namespace (`orbit-tenant-<name>`), where its admins apply CRs. Tenants must not see, affect or learn about each other.
+A tenant is a customer organisation. Each tenant owns one namespace (`kora-tenant-<name>`), where its admins apply CRs. Tenants must not see, affect or learn about each other.
 
 ### Problem Statement
 
@@ -60,15 +60,15 @@ This ADR accepts that the chosen design does not close the Reach gap — see Rat
 
 ### Option A: Platform Credential with a Per-Tenant Allowlist
 
-**Description:** Keep PR #351's single platform installation. Platform admins list on each `OrbitTenant` which `owner/repo` the tenant may register, and the operator drops everything else.
+**Description:** Keep PR #351's single platform installation. Platform admins list on each `KoraTenant` which `owner/repo` the tenant may register, and the operator drops everything else.
 
 **Pros:**
 - No `skills-service` change.
 - Tenants share no secret and set up nothing new.
 
 **Cons:**
-- Reaches only Orbit's own account and public repos.
-- Isolation depends on Orbit's list being right, and a mistake exposes everything the platform installation can read.
+- Reaches only kora's own account and public repos.
+- Isolation depends on kora's list being right, and a mistake exposes everything the platform installation can read.
 - Every repository needs admin approval, public ones included, because the operator cannot tell public from private without calling GitHub.
 
 ### Option B: Tenant's Own GitHub App via its Connection
@@ -76,20 +76,20 @@ This ADR accepts that the chosen design does not close the Reach gap — see Rat
 **Description:** Each source references a `github_app` `Connection` in the same namespace. `skills-service` crawls that source only with that Connection's App installation, and holds no platform credential.
 
 **Pros:**
-- GitHub caps each credential at one tenant's installation, so a bug in Orbit's credential selection exposes at most one tenant's repos.
+- GitHub caps each credential at one tenant's installation, so a bug in kora's credential selection exposes at most one tenant's repos.
 - Tenants reach their own private repos.
 - Each tenant uses its own GitHub rate limit, so no tenant can starve another's crawl quota.
 
 **Cons:**
-- `skills-service` changes and holds every tenant's App key, duplicating key material into a second `orbit-system` Secret.
+- `skills-service` changes and holds every tenant's App key, duplicating key material into a second `kora-system` Secret.
 - A credential is needed even for public repos.
 - Meaningfully more operator and service code: per-source credential resolution, Connection validation, a new Secret lifecycle.
 
-### Option C: Orbit's App Installed in Each Customer Account
+### Option C: kora's App Installed in Each Customer Account
 
-**Description:** Customers install Orbit's App on chosen repos, and platform admins bind each GitHub account to one tenant.
+**Description:** Customers install kora's App on chosen repos, and platform admins bind each GitHub account to one tenant.
 
-**Cons:** Isolation depends on Orbit's binding being right, and one Orbit key opens every customer's selected repos. `skills-service` still changes, to find the installation for each repo.
+**Cons:** Isolation depends on kora's binding being right, and one kora key opens every customer's selected repos. `skills-service` still changes, to find the installation for each repo.
 
 ---
 
@@ -103,19 +103,19 @@ A ships the entire feature — self-service CR-based registration, the CRD, the 
 
 This trades away two things deliberately, and the team is accepting both as known, scoped risks rather than solving them here:
 
-- **Reach.** A tenant cannot register a private repository that lives in its own GitHub organisation — only a repo Orbit's own installation can already read. For V1, registered sources are expected to be a small, explicitly vetted set agreed during tenant onboarding, not an open self-service catalogue of arbitrary tenant-owned repos. The admin-approval step is, for this phase, a feature that enforces that expectation, not just friction to route around later.
-- **Isolation.** The boundary between tenants is an allowlist Orbit's own code maintains and checks, not something GitHub enforces. A wrong entry — a typo, a stale repo reference, a copy-paste from the wrong tenant's ticket — has no external backstop; it exposes whatever the platform installation can read to the wrong tenant. This is the one risk this ADR does **not** reduce to zero. It is bounded only by process rigor (review on every allowlist change, audit logging on every crawl, periodic reconciliation between the allowlist and what's actually registered), not by architecture.
+- **Reach.** A tenant cannot register a private repository that lives in its own GitHub organisation — only a repo kora's own installation can already read. For V1, registered sources are expected to be a small, explicitly vetted set agreed during tenant onboarding, not an open self-service catalogue of arbitrary tenant-owned repos. The admin-approval step is, for this phase, a feature that enforces that expectation, not just friction to route around later.
+- **Isolation.** The boundary between tenants is an allowlist kora's own code maintains and checks, not something GitHub enforces. A wrong entry — a typo, a stale repo reference, a copy-paste from the wrong tenant's ticket — has no external backstop; it exposes whatever the platform installation can read to the wrong tenant. This is the one risk this ADR does **not** reduce to zero. It is bounded only by process rigor (review on every allowlist change, audit logging on every crawl, periodic reconciliation between the allowlist and what's actually registered), not by architecture.
 
 If the product's trajectory moves toward tenants routinely registering their own private repositories at scale, or the admin-approval queue becomes an onboarding bottleneck, that is the trigger to revisit this decision — Option B (or a hybrid with multiple platform-owned installations sharded across tenants) becomes the better trade at that point. Nothing in this CRD's shape — the `SkillMarketplaceSource` type, its status lifecycle, the ConfigMap contract — needs to change to get there later; only the credential-resolution step and the allowlist mechanism would be replaced.
 
 ### The CRD — gap: does not exist today
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
+apiVersion: runkora.io/v1alpha1
 kind: SkillMarketplaceSource
 metadata:
   name: acme-internal
-  namespace: orbit-tenant-acme   # tenant "acme" comes from the namespace, never the spec
+  namespace: kora-tenant-acme   # tenant "acme" comes from the namespace, never the spec
 spec:
   displayName: Acme Internal Skills
   github:
@@ -124,11 +124,11 @@ spec:
     branch: main                 # optional, defaults to main
 ```
 
-No `connectionRef` field — there is nothing to reference. The CRD is namespaced, in `orbit.io/v1alpha1`, with a status subresource. The operator renders each source as:
+No `connectionRef` field — there is nothing to reference. The CRD is namespaced, in `runkora.io/v1alpha1`, with a status subresource. The operator renders each source as:
 
 | CRD | `marketplace-sources.json` |
 |---|---|
-| the namespace's `OrbitTenant` name | key under `tenants` |
+| the namespace's `KoraTenant` name | key under `tenants` |
 | `displayName` | `name` |
 | `github.owner` | `org` |
 | `github.repo` | `repo` |
@@ -140,13 +140,13 @@ Field shapes are validated by the CRD schema, so a malformed source is rejected 
 
 Whether `owner/repo` is actually permitted for this tenant depends on something outside the CR's own spec — the allowlist, below — so the operator marks a source `Invalid`/`Pending` for that reason independently of schema validity.
 
-### Allowlist — gap: new field on `OrbitTenant`, new operator logic
+### Allowlist — gap: new field on `KoraTenant`, new operator logic
 
-`OrbitTenant.spec` gains a new field, visible only to platform admins (tenant admins cannot edit their own `OrbitTenant`):
+`KoraTenant.spec` gains a new field, visible only to platform admins (tenant admins cannot edit their own `KoraTenant`):
 
 ```yaml
-apiVersion: orbit.io/v1alpha1
-kind: OrbitTenant
+apiVersion: runkora.io/v1alpha1
+kind: KoraTenant
 metadata:
   name: acme
 spec:
@@ -162,12 +162,12 @@ A `SkillMarketplaceSource`'s `owner/repo` must appear in its tenant's `allowedMa
 
 **Registering a source**
 
-1. A tenant admin applies a `SkillMarketplaceSource` CR in `orbit-tenant-<name>`, naming a repo.
-2. The operator reconciles it immediately. It checks the namespace's `OrbitTenant.spec.allowedMarketplaceRepos` for this `owner/repo` — if absent (the common first-time case), the source is marked `Pending`/`NotAllowlisted`. This step is instant and automatic; no human is involved yet.
+1. A tenant admin applies a `SkillMarketplaceSource` CR in `kora-tenant-<name>`, naming a repo.
+2. The operator reconciles it immediately. It checks the namespace's `KoraTenant.spec.allowedMarketplaceRepos` for this `owner/repo` — if absent (the common first-time case), the source is marked `Pending`/`NotAllowlisted`. This step is instant and automatic; no human is involved yet.
 3. **Nothing in the system notifies anyone at this point.** The tenant admin sees the rejection via `kubectl describe`, and has to escalate out-of-band (a ticket, Slack, email) to a platform admin — this hand-off is not automated in this version.
-4. A platform admin edits `OrbitTenant.spec.allowedMarketplaceRepos` to add the entry. This is a deliberate, manual, human action, gated entirely by that person's availability and queue — this is the real latency in the whole flow.
+4. A platform admin edits `KoraTenant.spec.allowedMarketplaceRepos` to add the entry. This is a deliberate, manual, human action, gated entirely by that person's availability and queue — this is the real latency in the whole flow.
 5. That edit itself triggers the tenant's reconcile loop (the same trigger already used for suspend/delete/periodic requeue), which re-runs the marketplace aggregator for every source in that namespace.
-6. The previously-rejected source now matches the allowlist. Its status flips to `Aggregated`, and it's written into `orbit-skill-marketplace-sources`.
+6. The previously-rejected source now matches the allowlist. Its status flips to `Aggregated`, and it's written into `kora-skill-marketplace-sources`.
 7. `skills-service` picks up the ConfigMap via its existing `fsnotify` watch — no restart required.
 
 **Serving a request (unchanged from PR #351 today)**
@@ -180,7 +180,7 @@ A `SkillMarketplaceSource`'s `owner/repo` must appear in its tenant's `allowedMa
 
 ### Credential reuse — no new Secret, no new `skills-service` code
 
-`skills-service` keeps using exactly the `GITHUB_APP_ID` / `GITHUB_APP_INSTALLATION_ID` / private-key configuration PR #351 already ships. No `orbit-skill-marketplace-credentials` Secret is introduced, no key material is duplicated into a second `orbit-system` Secret, and no per-source credential resolution code is added — the existing `TokenProviderPool`'s fallback to the default platform `TokenProvider` already covers this case for free, because every source under this design simply has no credential reference to resolve.
+`skills-service` keeps using exactly the `GITHUB_APP_ID` / `GITHUB_APP_INSTALLATION_ID` / private-key configuration PR #351 already ships. No `kora-skill-marketplace-credentials` Secret is introduced, no key material is duplicated into a second `kora-system` Secret, and no per-source credential resolution code is added — the existing `TokenProviderPool`'s fallback to the default platform `TokenProvider` already covers this case for free, because every source under this design simply has no credential reference to resolve.
 
 ### Status — gap: new CRD, status now depends on a sibling resource's field
 
@@ -189,14 +189,14 @@ Each source has a phase (`Pending`, `Aggregated` or `Invalid`) and an `Aggregate
 | Reason | Phase | When |
 |---|---|---|
 | `Aggregated` | Aggregated | `owner/repo` is on the tenant's allowlist; rendered for its tenant |
-| `TenantNotActive` | Pending | The namespace has no active `OrbitTenant` |
+| `TenantNotActive` | Pending | The namespace has no active `KoraTenant` |
 | `NotAllowlisted` | Pending | `owner/repo` is not (yet) in this tenant's `allowedMarketplaceRepos` |
-| `GlobalSourcesNotSupported` | Invalid | Applied in `orbit-system` |
+| `GlobalSourcesNotSupported` | Invalid | Applied in `kora-system` |
 | `DuplicateName`, `DuplicateRepository` | Invalid | An older source in this namespace already holds the name or the repo |
 
 `Aggregated` means the source was handed to `skills-service`, not that GitHub can actually serve the repo at crawl time — the platform installation's own GitHub-side grants are still the final word, and a 503 at request time is possible even for an `Aggregated` source if GitHub denies the platform installation access.
 
-**Keeping statuses current.** A source's verdict depends on its sibling sources (name/repo clashes) and on its tenant's `allowedMarketplaceRepos` field, not only on its own spec — so status cannot be set only when a CR's own generation changes. Every aggregation run computes a verdict for every source and patches the status of each source whose verdict changed. A run is triggered by: any `SkillMarketplaceSource` change; a change to its `OrbitTenant` (which is what an allowlist edit actually is); or the tenant reconcile (suspension, deletion, periodic requeue).
+**Keeping statuses current.** A source's verdict depends on its sibling sources (name/repo clashes) and on its tenant's `allowedMarketplaceRepos` field, not only on its own spec — so status cannot be set only when a CR's own generation changes. Every aggregation run computes a verdict for every source and patches the status of each source whose verdict changed. A run is triggered by: any `SkillMarketplaceSource` change; a change to its `KoraTenant` (which is what an allowlist edit actually is); or the tenant reconcile (suspension, deletion, periodic requeue).
 
 ### Name clashes — gap: new logic, unaffected by the credential-model choice
 
@@ -208,11 +208,11 @@ Clashes are checked within one tenant only; two tenants may use the same name or
 
 ### Global sources — deferred
 
-A source applied in `orbit-system` is marked `Invalid`. Until global sources exist, Orbit's own catalogue reaches a tenant only if its repo is allow-listed for that tenant. Adding global sources later needs no change to this CRD or to `skills-service`.
+A source applied in `kora-system` is marked `Invalid`. Until global sources exist, kora's own catalogue reaches a tenant only if its repo is allow-listed for that tenant. Adding global sources later needs no change to this CRD or to `skills-service`.
 
 ### Sources view (PRD FR-13) — deferred
 
-This ADR does not deliver it. Registration state and errors are on each CR, readable with `kubectl describe`. Allowlist state is on `OrbitTenant`, readable the same way. A UI for either needs a new read API and a frontend page, which belong in their own ADR.
+This ADR does not deliver it. Registration state and errors are on each CR, readable with `kubectl describe`. Allowlist state is on `KoraTenant`, readable the same way. A UI for either needs a new read API and a frontend page, which belong in their own ADR.
 
 ---
 
@@ -222,7 +222,7 @@ This ADR does not deliver it. Registration state and errors are on each CR, read
 
 - Zero change to `skills-service`'s credential handling — the smallest possible diff to ship self-service registration.
 - No new Secret, no duplicated key material, nothing new for `skills-service` to hold or rotate.
-- Tenants need no new trust relationship or setup — no `Connection`, no App installation on their side. The only new workflow is internal to Orbit.
+- Tenants need no new trust relationship or setup — no `Connection`, no App installation on their side. The only new workflow is internal to kora.
 - The JSON file, the API, the BFF and the frontend are unchanged.
 - Tenants can see why a source is pending or rejected with `kubectl describe`.
 
@@ -233,8 +233,8 @@ This ADR does not deliver it. Registration state and errors are on each CR, read
 - **Isolation is self-enforced, not GitHub-enforced.** A wrong or stale allowlist entry exposes whatever the platform installation can read to the wrong tenant, with no external backstop. This is the architecture's single largest known risk and is not reduced by better code elsewhere — only by review discipline and auditing.
 - **All tenants share one GitHub App installation's rate limit and crawl capacity.** A large or heavy-crawling tenant can degrade or rate-limit the marketplace for every other tenant. There is no per-tenant quota isolation.
 - **The platform-wide crawl ceiling is fixed and does not grow with tenant count.** Each tenant onboarded is a smaller effective share of the same number — the ceiling gets tighter as adoption succeeds, not looser.
-- **No notification mechanism exists for a pending allowlist request.** The hand-off from a rejected CR to a platform admin's action happens entirely outside Orbit's own tooling (tickets, Slack, email) in this version.
-- `OrbitTenant.spec.allowedMarketplaceRepos` has no cap and could grow unbounded as a tenant's approved list accumulates over time.
+- **No notification mechanism exists for a pending allowlist request.** The hand-off from a rejected CR to a platform admin's action happens entirely outside kora's own tooling (tickets, Slack, email) in this version.
+- `KoraTenant.spec.allowedMarketplaceRepos` has no cap and could grow unbounded as a tenant's approved list accumulates over time.
 - The same repo cannot be registered twice in one tenant, for example on two branches.
 
 ### Neutral
@@ -257,10 +257,10 @@ The operator, `skills-service`, and chart and docs parts below ship together. Ot
 
 - **Operator — gap: none of this exists.**
   - the CRD YAML, the Go types and their registration in `scheme.go`;
-  - extend `OrbitTenant`'s CRD and Go type with `allowedMarketplaceRepos`, including its own field validation;
+  - extend `KoraTenant`'s CRD and Go type with `allowedMarketplaceRepos`, including its own field validation;
   - an aggregator that checks each source against its tenant's allowlist and sibling sources, writes the ConfigMap (no credentials Secret — there is none to write), and returns a verdict for every source;
   - a reconciler that patches the status of every source whose verdict changed, triggered as described under Status;
-  - the aggregator added to the tenant reconcile (suspend, delete, the periodic run, and any change to `OrbitTenant.spec.allowedMarketplaceRepos`);
+  - the aggregator added to the tenant reconcile (suspend, delete, the periodic run, and any change to `KoraTenant.spec.allowedMarketplaceRepos`);
   - wiring in `cmd/operator/main.go`, and ClusterRole rules for the new resource and its status.
 
 - **`skills-service` — gap: none. No code change is required here.**
@@ -271,10 +271,10 @@ The operator, `skills-service`, and chart and docs parts below ship together. Ot
 - **Chart, local development and docs — gap: all net-new or currently wrong.**
   - delete the chart's `skills-service/configmap.yaml` (today it hardcodes `{"tenants": {}}`);
   - mount the ConfigMap with `optional: true`, taking its name from a new `skillsService.marketplaceSourcesConfigMapName` value (no such value exists today — the name is hardcoded in the deployment template); no equivalent secret-name value is needed, since this option introduces no new Secret;
-  - in the same env block, fix `REDIS_PASSWORD` to read from an existing Secret instead of the chart's current hardcoded literal `"orbit"`, which violates the install ADR's "charts create no credentials" rule;
-  - add an example source (no `connectionRef`) to `deploy/local/`, and add an example `allowedMarketplaceRepos` entry to the local `OrbitTenant` fixture;
+  - in the same env block, fix `REDIS_PASSWORD` to read from an existing Secret instead of the chart's current hardcoded literal `"kora"`, which violates the install ADR's "charts create no credentials" rule;
+  - add an example source (no `connectionRef`) to `deploy/local/`, and add an example `allowedMarketplaceRepos` entry to the local `KoraTenant` fixture;
   - add a tenant guide to `docs/guides/` explaining: declare your source, then request platform-admin approval for the `owner/repo`;
-  - add a platform-admin runbook describing how to edit `OrbitTenant.spec.allowedMarketplaceRepos` and the expected turnaround;
+  - add a platform-admin runbook describing how to edit `KoraTenant.spec.allowedMarketplaceRepos` and the expected turnaround;
   - correct `skills-service`'s port in `docs/code-organization.md` — it currently reads 8098; the service actually listens on 8085;
   - amend the backend ADR: tenant from the namespace, and allowlist-gated registration (replacing any assumption of per-tenant credentials).
 
@@ -303,10 +303,10 @@ Registration follows the pattern kora already uses for `MCPServer` and `Connecti
 
 ### The same structure as the other CRDs
 
-- **CRD.** `SkillMarketplaceSource` is a namespaced `orbit.io/v1alpha1` CRD in the `orbit-crds` chart, with a status subresource and `helm.sh/resource-policy: keep`, like every other kora CRD.
+- **CRD.** `SkillMarketplaceSource` is a namespaced `runkora.io/v1alpha1` CRD in the `kora-crds` chart, with a status subresource and `helm.sh/resource-policy: keep`, like every other kora CRD.
 - **Go types.** The types live in `internal/operator`, next to `mcpserver_types.go` and `connection_types.go`. They are registered in `scheme.go`, and the operator's ClusterRole gets rules for the resource and its status.
 - **Tenant.** The tenant comes from the namespace, never the spec, as for `MCPServer` and `Connection`.
-- **Aggregation.** A `SkillMarketplaceAggregator`, a mirror of `MCPServerAggregator` and `ConnectionAggregator`, renders every source into one `orbit-system` ConfigMap, `orbit-skill-marketplace-sources`. It runs from the resource's own reconciler and from the tenant reconcile. The operator only talks to Kubernetes and never calls GitHub.
+- **Aggregation.** A `SkillMarketplaceAggregator`, a mirror of `MCPServerAggregator` and `ConnectionAggregator`, renders every source into one `kora-system` ConfigMap, `kora-skill-marketplace-sources`. It runs from the resource's own reconciler and from the tenant reconcile. The operator only talks to Kubernetes and never calls GitHub.
 - **Status.** `phase` is `Pending`, `Aggregated` or `Invalid`, with an `Aggregated` condition, as for `MCPServer`. Status holds reconciliation state only. Whether GitHub can serve the repository is runtime state of `skills-service`.
 - **Consumer.** `skills-service` mounts the ConfigMap and reloads it on change, as the `tool-gateway` does with the MCP registry.
 
@@ -316,34 +316,34 @@ The GitOps repository is the deployer's own, separate from the kora repository. 
 
 | In the GitOps repository | Written by | Holds |
 |---|---|---|
-| `OrbitTenant` manifest | Platform admin, by a reviewed change | The tenant and its `spec.allowedMarketplaceRepos`. |
+| `KoraTenant` manifest | Platform admin, by a reviewed change | The tenant and its `spec.allowedMarketplaceRepos`. |
 | `SkillMarketplaceSource` manifests, in the tenant's namespace | Tenant admin | One manifest per marketplace: `owner` and `repo`, nothing else. |
-| Helm values for the `orbit` chart | Platform admin | The name of the GitHub App Secret to mount. No key material. |
+| Helm values for the `kora` chart | Platform admin | The name of the GitHub App Secret to mount. No key material. |
 
 Never in the GitOps repository:
 
 - `skills-mapping.yaml`. The operator derives it from the manifests above. Unless a platform admin sets `skillsService.skillsMapping` (see the chart, below), the chart does not render its key, so neither Helm nor Argo CD owns it, and nobody commits it.
-- The GitHub App private key and IDs. The deployer's secret manager creates the Secret `orbit-skills-github-app`, and the GitOps repository only names it.
+- The GitHub App private key and IDs. The deployer's secret manager creates the Secret `kora-skills-github-app`, and the GitOps repository only names it.
 - CR `status`, which the operator writes at runtime.
 - Skill lists and skill content. They are read from GitHub, which holds the skills themselves, and cached in Redis.
 
-### How the GitOps repository, Orbit and Kubernetes work together
+### How the GitOps repository, kora and Kubernetes work together
 
 1. A tenant admin adds a `SkillMarketplaceSource` to the GitOps repository.
 2. Argo CD (or `kubectl apply`) applies it. The Kubernetes API server checks `owner` and `repo` against the CRD schema, rejects a malformed source, and stores the rest.
 3. The operator picks up the source and writes its status. Without an allowlist entry it is `Pending` with reason `NotAllowlisted`. Nothing notifies the platform admin, so the tenant asks through its usual channel.
 4. A platform admin adds `owner/repo` to the tenant's `allowedMarketplaceRepos` in the GitOps repository, through a reviewed change. Argo CD applies it.
-5. The `OrbitTenant` change triggers the tenant reconcile, which re-runs the aggregator for every source in that tenant's namespace. The source becomes `Aggregated`, and the operator writes `skills-mapping.yaml` into the ConfigMap.
+5. The `KoraTenant` change triggers the tenant reconcile, which re-runs the aggregator for every source in that tenant's namespace. The source becomes `Aggregated`, and the operator writes `skills-mapping.yaml` into the ConfigMap.
 6. Kubernetes projects the ConfigMap into the `skills-service` pod, and the service reloads its registry without a restart.
 7. On a request, `skills-service` checks that the marketplace belongs to the caller's tenant, reads the repository from GitHub with the platform GitHub App, and caches the result in Redis.
 
-Removing a source, or its allowlist entry, from the GitOps repository takes the marketplace out the same way. Under Argo CD, the `OrbitTenant` and `SkillMarketplaceSource` manifests belong in the separate Application that syncs after `orbit-crds`, as the [deployment guide](../guides/deployment.md#argo-cd-gitops) describes for the other kora CRs.
+Removing a source, or its allowlist entry, from the GitOps repository takes the marketplace out the same way. Under Argo CD, the `KoraTenant` and `SkillMarketplaceSource` manifests belong in the separate Application that syncs after `kora-crds`, as the [deployment guide](../guides/deployment.md#argo-cd-gitops) describes for the other kora CRs.
 
-### The allowlist on `OrbitTenant`
+### The allowlist on `KoraTenant`
 
-`OrbitTenant.spec` gains an optional `allowedMarketplaceRepos`, a list of `owner/repo` strings. The CRD validates each entry against a pattern with a 140-character limit, and the operator matches entries without regard to case. The list is the only gate on what a tenant can surface through its sources, because every marketplace is read with the one platform GitHub App. `OrbitTenant` is cluster-scoped and only platform admins write it, so a tenant admin cannot approve their own repositories. The operator needs no GitHub call to enforce the list.
+`KoraTenant.spec` gains an optional `allowedMarketplaceRepos`, a list of `owner/repo` strings. The CRD validates each entry against a pattern with a 140-character limit, and the operator matches entries without regard to case. The list is the only gate on what a tenant can surface through its sources, because every marketplace is read with the one platform GitHub App. `KoraTenant` is cluster-scoped and only platform admins write it, so a tenant admin cannot approve their own repositories. The operator needs no GitHub call to enforce the list.
 
-Under GitOps that RBAC rule does not hold on its own. Argo CD applies every manifest with its own service account, so Kubernetes cannot tell a tenant admin's change from a platform admin's, and whoever can get a change merged and synced can edit the allowlist. The deployer must therefore ensure that only platform admins can change `OrbitTenant` manifests, and that no change a tenant admin can merge brings an `OrbitTenant`, or a `SkillMarketplaceSource` in another tenant's namespace, to the cluster. kora states this requirement and does not enforce it.
+Under GitOps that RBAC rule does not hold on its own. Argo CD applies every manifest with its own service account, so Kubernetes cannot tell a tenant admin's change from a platform admin's, and whoever can get a change merged and synced can edit the allowlist. The deployer must therefore ensure that only platform admins can change `KoraTenant` manifests, and that no change a tenant admin can merge brings an `KoraTenant`, or a `SkillMarketplaceSource` in another tenant's namespace, to the cluster. kora states this requirement and does not enforce it.
 
 ### What changes from the text above
 
@@ -352,7 +352,7 @@ Under GitOps that RBAC rule does not hold on its own. Argo CD applies every mani
   ```yaml
   skillsMapping:
     tenants:
-      - id: acme                  # the OrbitTenant name
+      - id: acme                  # the KoraTenant name
         marketplaces:
           - https://github.com/acme-corp/internal-skills
   ```
@@ -362,7 +362,7 @@ Under GitOps that RBAC rule does not hold on its own. Argo CD applies every mani
 - **The CRD.** `spec.github` carries `owner` and `repo` only. There is no `displayName` or `branch`, and no CEL rule for them. The rule that `repo` is not `.` or `..` stays. `skills-service` names a marketplace after its repository and always reads the default branch, so the mapping table to the JSON fields above does not apply.
 
 - **Statuses.** A source has no name to clash on, so there is no `DuplicateName`. The operator checks each source in this order, and the first match decides:
-  1. Applied in `orbit-system`: `Invalid`, `GlobalSourcesNotSupported`.
+  1. Applied in `kora-system`: `Invalid`, `GlobalSourcesNotSupported`.
   2. No active tenant owns the namespace: `Pending`, `TenantNotActive`.
   3. An older source in the namespace holds the repository: `Invalid`, `DuplicateRepository`.
   4. The repository is not on the tenant's `allowedMarketplaceRepos`: `Pending`, `NotAllowlisted`.
@@ -373,7 +373,7 @@ Under GitOps that RBAC rule does not hold on its own. Argo CD applies every mani
 
 - **Marketplace names and URL segments.** `skills-service` derives both from the repository: the name is the lowercase repository name, and the URL segment is `<owner>__<repo>`, lowercase. The frontend uses the segment it receives and has no slug function of its own, so the slug function under "Name clashes" and the Neutral consequence about `frontend/src/lib/marketplace.ts` no longer apply. `DuplicateRepository` stays, for a new reason: two sources for one repository render the same link, which `skills-service` collapses into one marketplace, so the newer source is marked `Invalid` rather than reported `Aggregated` while never served. Two approved repositories with the same name under different owners, such as `acme-corp/skills` and `partner/skills`, both appear as `skills` in the dashboard's marketplace picker. Their URL segments differ, so each opens its own marketplace; only the label is ambiguous. This is a consequence of dropping `displayName`.
 
-- **`skills-service`.** It reads `skills-mapping.yaml` from the mounted directory (`ORBIT_MARKETPLACE_SOURCES_CONFIG`), reloads it on change, and starts without the file. Credential handling does not change. This replaces "no code change is required" under Implementation.
+- **`skills-service`.** It reads `skills-mapping.yaml` from the mounted directory (`KORA_MARKETPLACE_SOURCES_CONFIG`), reloads it on change, and starts without the file. Credential handling does not change. This replaces "no code change is required" under Implementation.
 
 - **Credentials.** There is no `TokenProviderPool` and no per-source credential reference. `skills-service` builds one `TokenProvider` from the platform GitHub App, and the crawler uses it for every source. This replaces the fallback described under "Credential reuse" and Implementation; the outcome, one platform credential, is the same. `skillsService.githubApps` in the chart is a list: the deployment mounts every Secret listed, but reads the App IDs and private key from the first entry only.
 
@@ -381,9 +381,9 @@ Under GitOps that RBAC rule does not hold on its own. Argo CD applies every mani
 
 - **Port.** `skills-service` listens on 8098: `server.port` in `base.yaml`, the container and Service ports, and the frontend's default `SKILLS_SERVICE_URL` all use it. This replaces the Implementation item that names 8085.
 
-- **The chart.** `skills-service/configmap.yaml` stays, replacing the instruction to delete it. By default it creates the ConfigMap with no data, so the mount always exists, and leaves `skills-mapping.yaml` to the operator. It writes the key itself only when `skillsService.skillsMapping.tenants` lists tenants, and then also sets the annotation `orbit.io/skills-mapping-from-chart: "true"`. The operator runs the aggregator on every tenant reconcile and writes the file even when no source exists, so without the annotation it would replace the chart's list on its next run and the next `helm upgrade` would put it back. When it sees the annotation it writes nothing, and holds every source it would have rendered at `Pending`, `MappingManagedByChart`. The chart's list is a platform-admin path around the allowlist: it is served as written, with no `allowedMarketplaceRepos` or duplicate check. Emptying the list and upgrading removes the key and the annotation, and the operator renders the sources on its next tenant reconcile. The deployment mounts the ConfigMap by its fixed name, so there is no `marketplaceSourcesConfigMapName` value and no `optional: true`.
+- **The chart.** `skills-service/configmap.yaml` stays, replacing the instruction to delete it. By default it creates the ConfigMap with no data, so the mount always exists, and leaves `skills-mapping.yaml` to the operator. It writes the key itself only when `skillsService.skillsMapping.tenants` lists tenants, and then also sets the annotation `runkora.io/skills-mapping-from-chart: "true"`. The operator runs the aggregator on every tenant reconcile and writes the file even when no source exists, so without the annotation it would replace the chart's list on its next run and the next `helm upgrade` would put it back. When it sees the annotation it writes nothing, and holds every source it would have rendered at `Pending`, `MappingManagedByChart`. The chart's list is a platform-admin path around the allowlist: it is served as written, with no `allowedMarketplaceRepos` or duplicate check. Emptying the list and upgrading removes the key and the annotation, and the operator renders the sources on its next tenant reconcile. The deployment mounts the ConfigMap by its fixed name, so there is no `marketplaceSourcesConfigMapName` value and no `optional: true`.
 
-- **Local development.** `scripts/cluster/create-secrets.sh` creates the Secret `orbit-skills-github-app` from `secrets/orbit-github-app.pem` and the IDs in `deploy/local/connections/github.yaml`, because `skills-service` does not start without it. It is the existing platform credential, not a new one.
+- **Local development.** `scripts/cluster/create-secrets.sh` creates the Secret `kora-skills-github-app` from `secrets/kora-github-app.pem` and the IDs in `deploy/local/connections/github.yaml`, because `skills-service` does not start without it. It is the existing platform credential, not a new one.
 
 - **Docs.** The [tenant guide](../guides/skill-marketplace-sources.md) and the [platform admin steps](../guides/tenants.md#approving-skill-marketplace-repositories) describe the workflow above.
 
@@ -406,7 +406,7 @@ This option does not depend on the `Connection` CRD or the egress gateway's cred
 
 ## References
 
-- [PR #351](https://github.com/clear-route/orbit/pull/351) - `skills-service`: binary skeleton, models, registry, GitHub client
+- [PR #351](https://github.com/runkora/kora/pull/351) - `skills-service`: binary skeleton, models, registry, GitHub client
 - [Agent Marketplace PRD](../prd/agent-marketplace.md)
 
 **Last Updated:** 2026-11-02 (Amendment 1: the operator renders skills-mapping.yaml, and a source names only a repository)

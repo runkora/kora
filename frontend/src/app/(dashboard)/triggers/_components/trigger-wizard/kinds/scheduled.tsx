@@ -22,7 +22,7 @@ import {
   Stack,
   Text,
   ToggleRow,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import {
   FREQS,
   INTERVAL_PRESETS,
@@ -355,6 +355,7 @@ function DoneContent({ state }: DoneContentProps) {
 
 export const scheduledKind: TriggerKindDefinition = {
   id: 'scheduled',
+  apiKind: 'scheduled',
   icon: 'clock',
   title: 'Schedule',
   description: 'Run on a recurring cadence, in a timezone you choose.',

@@ -1,0 +1,14 @@
+{{- /*
+Skills Service configuration files.
+*/}}
+{{- define "kora.skillsService.configModules" -}}
+cmd/skills-service:
+  identity:
+    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-identity") | toJson }}
+  policy:
+    policyServiceURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-policy-service") | toJson }}
+{{ include "kora.observabilityConfigModule" . }}
+{{ include "kora.storageConfigModule" (dict "root" . "redisClient" true) }}
+{{ include "kora.tokenConfigModule" . }}
+{{- end }}
+{{- include "kora.configMap" (dict "root" $ "name" "skillsService" "configMap" "kora-skills-service-config" "modules" (include "kora.skillsService.configModules" . | fromYaml)) }}

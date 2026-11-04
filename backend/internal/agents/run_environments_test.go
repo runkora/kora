@@ -12,9 +12,9 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
 // seedEnvironments gives the agent "bot" the environments go (default) and node
@@ -43,7 +43,7 @@ func TestProvisionSandbox_BuiltinDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := k8s.provisionSpec
-	if spec.Image != "ghcr.io/clear-route/kora-sandbox-base@sha256:base" || spec.Size != testSizes.Default || spec.EnvironmentID != "" {
+	if spec.Image != "ghcr.io/runkora/kora-sandbox-base@sha256:base" || spec.Size != testSizes.Default || spec.EnvironmentID != "" {
 		t.Errorf("spec = %+v, want kora-base pinned at the default size", spec)
 	}
 	if repo.runs["run-1"].EnvironmentID != nil {

@@ -6,8 +6,9 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"go.opentelemetry.io/otel/attribute"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -39,7 +40,7 @@ func NoBody(w http.ResponseWriter, status int) {
 
 // ErrorResponse writes an APIError as a JSON response with tracing and logging integration.
 // It automatically:
-// - Adds error attributes to the current trace span
+// - Adds error attributes to the current trace span, flagging only 5xx as an error
 // - Logs the error with appropriate level based on status code
 // - Returns a JSON error response with consistent format
 //
@@ -47,13 +48,14 @@ func NoBody(w http.ResponseWriter, status int) {
 func ErrorResponse(ctx context.Context, w http.ResponseWriter, logger logging.Logger, apiErr *APIError, underlyingErr error) {
 	span := trace.SpanFromContext(ctx)
 
-	// Add error context to trace span
 	span.SetAttributes(
-		attribute.Bool("app.error", true),
-		attribute.String("app.error.code", apiErr.Code),
-		attribute.Int("app.error.status", apiErr.StatusCode),
-		attribute.String("app.error.message", apiErr.Message),
+		observability.ErrorCodeKey.String(apiErr.Code),
+		observability.ErrorMessageKey.String(apiErr.Message),
+		semconv.HTTPResponseStatusCode(apiErr.StatusCode),
 	)
+	if apiErr.StatusCode >= 500 {
+		span.SetAttributes(semconv.ErrorTypeKey.String(apiErr.Code))
+	}
 
 	if underlyingErr != nil {
 		span.RecordError(underlyingErr)

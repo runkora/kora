@@ -1,10 +1,10 @@
 package policygw
 
 import (
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/token"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // Controller wires the policy gateway's check and query API to HTTP routes.
@@ -12,15 +12,18 @@ import (
 type Controller struct {
 	svc      *Service
 	verifier *token.Verifier
-	logger   logging.Logger
+	// blocklist refuses a revoked delegation token before it expires.
+	blocklist mw.JTIBlocklist
+	logger    logging.Logger
 }
 
 // NewController creates a ready-to-boot policy gateway Controller.
-func NewController(svc *Service, verifier *token.Verifier, logger logging.Logger) *Controller {
+func NewController(svc *Service, verifier *token.Verifier, blocklist mw.JTIBlocklist, logger logging.Logger) *Controller {
 	return &Controller{
-		svc:      svc,
-		verifier: verifier,
-		logger:   logger,
+		svc:       svc,
+		verifier:  verifier,
+		blocklist: blocklist,
+		logger:    logger,
 	}
 }
 

@@ -9,7 +9,7 @@ import (
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
 
-	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/convert"
 )
 
 // breakpoints reports where cache_control appears in the marshalled request.
@@ -51,7 +51,7 @@ func breakpoints(t *testing.T, p anthropic.MessageNewParams) (system, tools, mes
 // Claude reached through the Responses or OpenAI dialects was paying full input
 // rate on every token: neither dialect can express cache_control, and neither
 // converter set one, so no prefix was ever cached.
-// See https://github.com/clear-route/orbit/pull/205.
+// See https://github.com/runkora/kora/pull/205.
 func TestResponsesParamsToAnthropicParams_CacheBreakpoints(t *testing.T) {
 	t.Parallel()
 
@@ -132,7 +132,7 @@ func TestAnthropicMessageToResponsesResponse_CacheWriteCountsAsInput(t *testing.
 			CacheReadInputTokens:     0,
 			CacheCreationInputTokens: 11215,
 		},
-	})
+	}, nil)
 
 	if got.Usage.InputTokens != 11217 {
 		t.Errorf("InputTokens = %d, want 11217 (uncached 2 + cache write 11215)", got.Usage.InputTokens)
@@ -148,7 +148,7 @@ func TestAnthropicMessageToResponsesResponse_CacheWriteCountsAsInput(t *testing.
 func TestAnthropicStreamToResponses_CacheWriteCountsAsInput(t *testing.T) {
 	t.Parallel()
 
-	state := convert.NewAnthropicResponsesStreamState()
+	state := convert.NewAnthropicResponsesStreamState(nil)
 	events := []anthropic.MessageStreamEventUnion{
 		{
 			Type: "message_start",

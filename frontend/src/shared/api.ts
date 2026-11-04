@@ -3,9 +3,12 @@
 // These interfaces mirror Go backend JSON response shapes exactly.
 // Field names match json tags — do not rename without updating the backend.
 
+/** Where an item came from: the API, or a declarative resource (read-only here). */
+export type ResourceSource = 'api' | 'crd';
+
 export interface HealthResponse {
   status: string;
-  /** Human-readable service name, e.g. "orbit-identity". */
+  /** Human-readable service name, e.g. "kora-identity". */
   service: string;
   timestamp: string;
 }
@@ -81,7 +84,8 @@ export interface ModelObject {
   output_modalities: Modality[];
   /** Only populated for models with CapabilityChat. */
   dialects: APIDialect[];
-  capabilities: ModelCapability[];
+  /** Absent when the model has no capabilities: the gateway omits an empty list. */
+  capabilities?: ModelCapability[];
   /** Effective pricing derived from the lowest-cost enabled route. Absent when no pricing data exists. */
   pricing?: ModelObjectPricing;
 }
@@ -117,14 +121,14 @@ export interface CreatePATRequest {
 }
 
 /**
- * Response from POST /tokens — includes the raw `orb_<jwt>` token.
+ * Response from POST /tokens — includes the raw `kora_<jwt>` token.
  * This is the only time the token is returned; it cannot be retrieved again.
  * Mirrors Go: identity.CreatePATResponse
  */
 export interface CreatePATResponse {
   id: string;
   name: string;
-  /** Raw PAT string (`orb_<jwt>`). Store it securely — shown once only. */
+  /** Raw PAT string (`kora_<jwt>`). Store it securely — shown once only. */
   token: string;
   scopes: string[];
   expires_at: string;
@@ -313,6 +317,10 @@ export interface Environment {
   connectors: Connector[];
   created_at: string;
   updated_at: string;
+  /** "crd" when the item is declared in the configuration repository and read-only here. */
+  source?: ResourceSource;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 /** A sandbox's CPU, memory and local disk as Kubernetes quantities, e.g. "2", "4Gi". */
@@ -401,6 +409,16 @@ export interface AgentType {
   budget?: AgentBudget;
   /** Attached environments. None means the agent runs on the kora base image. */
   environments?: AgentEnvironment[];
+  /** Whether the caller may start a run of this agent. Set on reads. */
+  can_run?: boolean;
+  /** Whether the caller may change this agent. Set on reads. */
+  can_edit?: boolean;
+  /** Whether the caller may delete this agent. Set on reads. */
+  can_delete?: boolean;
+  /** "crd" when the item is declared in the configuration repository and read-only here. */
+  source?: ResourceSource;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 /**
@@ -433,8 +451,17 @@ export interface Run {
   updated_at: string;
   /** Number of tool calls made during this run, if available. */
   tool_calls?: number;
+  /** Inference totals summed over the run's requests; a live run reports its total so far. */
+  usage?: {
+    cost_usd: number;
+    input_tokens: number;
+    output_tokens: number;
+    request_count: number;
+  };
   /** LLM-generated one-sentence summary of the run's task intent, if available. */
   summary?: string | null;
+  /** The run's W3C trace ID; null when the run was not sampled. */
+  trace_id?: string | null;
   /**
    * Present when a trigger started this run. trigger_name and delivery_id are
    * omitted when unknown; absent entirely for human-started runs.
@@ -444,6 +471,10 @@ export interface Run {
     trigger_name?: string;
     delivery_id?: string;
   };
+  /** The agent's identity model, slug and name, also set for a run whose agent was deleted. */
+  identity_mode?: AgentIdentityMode;
+  agent_slug?: string;
+  agent_name?: string;
 }
 
 /**
@@ -513,7 +544,7 @@ export interface AgentInsightsResponse {
   trend: { start: string; cost_usd: number }[];
   /** Absent when the policy bundle could not be read. */
   budgets?: AgentBudgetStatus[];
-  /** Absent when orbit-agents could not count runs. */
+  /** Absent when kora-agents could not count runs. */
   outcomes?: { completed: number; failed: number };
 }
 
@@ -536,7 +567,7 @@ export interface RunStateCounts {
 /**
  * Mirrors Go: agents.RunStats.
  * The run counts and durations of one agent, or of every agent the caller can
- * read, for a window, from orbit-agents.
+ * read, for a window, from kora-agents.
  */
 export interface AgentRunStats {
   /** Runs created in the window, and the part a trigger started; the rest are manual. */
@@ -726,6 +757,8 @@ export interface WebhookSource {
   name: string;
   /** Source adapter id, e.g. "github". */
   provider: string;
+  /** Read-only, set from the provider's adapter: `chat` for a chat platform, else `webhook`. */
+  category?: SourceCategory;
   config?: Record<string, unknown>;
   enabled: boolean;
   created_at: string;
@@ -737,8 +770,14 @@ export interface WebhookSource {
    * here so an admin with a wrong signing secret can still see it.
    */
   rejection_count?: number;
+  /** False for a source of a provider that issues its own secret and is still waiting for it. */
+  signing_secret_set?: boolean;
   last_rejection_at?: string;
   last_rejection_reason?: string;
+  /** "crd" when the item is declared in the configuration repository and read-only here. */
+  source?: ResourceSource;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 /**
@@ -748,7 +787,7 @@ export interface WebhookSource {
 export interface WebhookSourceResponse extends WebhookSource {
   /** Inbound path to configure on the provider; combine with the public base URL. */
   webhook_path: string;
-  /** HMAC signing secret — shown once; never returned on reads. */
+  /** HMAC signing secret, shown once. Never returned on reads, nor when the provider issued it. */
   secret?: string;
 }
 
@@ -757,12 +796,16 @@ export interface WebhookSourceCreateRequest {
   name: string;
   provider: string;
   config?: Record<string, unknown>;
+  /** Write-only. Optional for a provider that issues its own secret, e.g. Slack; refused otherwise. */
+  signing_secret?: string;
 }
 
 /** Request body for PATCH /api/trigger-sources/:id. */
 export interface WebhookSourceUpdateRequest {
   enabled?: boolean;
   rotate_secret?: boolean;
+  /** Write-only. The first secret of a source that has none, or the new secret with `rotate_secret`. */
+  signing_secret?: string;
 }
 
 /** Trigger kind discriminant. */
@@ -820,13 +863,30 @@ export interface SchedulePreviewResponse {
   timezone: string;
 }
 
+/** What kind of source a provider's adapter makes. Mirrors Go: triggers.CategoryChat, CategoryWebhook. */
+export type SourceCategory = 'chat' | 'webhook';
+
 /**
- * Who may fire a webhook trigger. A sender passes when its login or its
- * association is listed; both lists empty means anyone.
+ * Who may fire a webhook or chat command trigger. A sender passes when its id
+ * or any of its roles is listed; both lists empty means anyone. The API
+ * refuses any other key.
  */
 export interface SenderRestriction {
-  logins?: string[];
-  associations?: string[];
+  ids?: string[];
+  roles?: string[];
+}
+
+/** A role a provider reports for a sender, with the text the console shows. Mirrors Go: triggers.SenderRole. */
+export interface SenderRole {
+  value: string;
+  label: string;
+  description: string;
+}
+
+/** What a sender restriction on a provider's triggers may name. Mirrors Go: triggers.Senders. */
+export interface TriggerSenders {
+  /** Empty when the provider reports no roles. */
+  roles: SenderRole[];
 }
 
 /**
@@ -837,8 +897,9 @@ export interface SenderRestriction {
 export interface TriggerEventTypes {
   declared: string[];
   observed?: string[];
-  /** Association values a sender restriction may name; empty when the provider identifies no sender. */
-  associations: string[];
+  category: SourceCategory;
+  /** Present when the provider reports who caused an event, so a sender restriction applies. */
+  senders?: TriggerSenders;
 }
 
 /** One field of a provider event, from its schema. Mirrors Go: triggers.Field. */
@@ -853,6 +914,17 @@ export interface TriggerField {
   pattern?: boolean;
 }
 
+/**
+ * Burst coalescing for a webhook trigger. Fires that render the same `key`
+ * within `window_seconds` start one run from the newest payload.
+ */
+export interface TriggerCoalesce {
+  /** Template in the prompt_template syntax, at most 256 bytes. */
+  key: string;
+  /** 1..300. */
+  window_seconds: number;
+}
+
 /** A trigger binds a firing condition to an agent. Mirrors Go: triggers.Trigger. */
 export interface Trigger {
   id: string;
@@ -861,6 +933,12 @@ export interface Trigger {
   kind: TriggerKind;
   /** Present for webhook triggers only. */
   source_id?: string;
+  /** Set on a webhook trigger whose source was deleted. It does not fire and can only be disabled or deleted. */
+  source_missing?: boolean;
+  /** "crd" when the trigger is declared in the configuration repository and read-only here. */
+  source?: ResourceSource;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
   name: string;
   agent_type_id: string;
   agent_slug: string;
@@ -877,14 +955,21 @@ export interface Trigger {
   manual_config?: ManualConfig;
   /** Webhook triggers only. */
   sender_restriction?: SenderRestriction;
+  /** Webhook only, and only with overflow `wait`. Absent when off. */
+  coalesce?: TriggerCoalesce;
   /**
-   * What this trigger starts. "agent" is the only kind today; triggers are the
-   * front door for starting work, and what gets started is a separate concern.
+   * What this trigger starts: "agent" for one agent, "routed" for a choice
+   * among `routing.candidates` per delivery. A routed trigger has an empty
+   * `agent_type_id` and `agent_slug`.
    */
-  target_kind?: string;
+  target_kind?: TriggerTargetKind;
+  /** Webhook only, set when `target_kind` is "routed". */
+  routing?: TriggerRouting;
   enabled: boolean;
   created_at: string;
   updated_at: string;
+  /** Whether the caller may fire this trigger. Set on reads. */
+  can_fire?: boolean;
 
   /** Admission control: concurrency ceiling and what happens beyond it. */
   max_parallel?: number;
@@ -905,6 +990,68 @@ export interface Trigger {
   pending_count?: number;
 }
 
+/** What a trigger starts. Mirrors Go: triggers.TargetKindAgent, TargetKindRouted. */
+export type TriggerTargetKind = 'agent' | 'routed';
+
+/** How sure the decision model must be before a delivery is routed. */
+export type TriggerRoutingConfidence = 'strict' | 'balanced' | 'loose';
+
+/** A routed trigger's routing object. Mirrors Go: triggers.RoutingConfig. */
+export interface TriggerRouting {
+  /** Agent type ids a delivery may start or join, 2..20. */
+  candidates: string[];
+  /** The decision model's catalog id, e.g. "liquid/d1". */
+  model: string;
+  confidence: TriggerRoutingConfidence;
+  /** The candidate that takes a delivery routing is unsure about; null starts no run. */
+  fallback_agent_type_id: string | null;
+  /** Lets a delivery join an open run. Omitted on a request, it is on. */
+  join_runs?: boolean;
+  /** Template in the prompt_template syntax; a match joins that key's open run. */
+  join_key?: string;
+}
+
+/**
+ * An agent type as the routing step lists it. Mirrors Go:
+ * triggers.RoutingCandidate, from GET /api/v1/triggers/routing/candidates.
+ */
+export interface TriggerRoutingCandidate {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  identity_mode?: AgentIdentityMode;
+  /** The caller holds the agent's run scopes and the agent is not delegated. */
+  runnable: boolean;
+  /** Why a non-runnable agent cannot be a candidate. */
+  reason?: string;
+}
+
+/** Outcomes of a routing decision. Mirrors Go: triggers.RouteOutcome*. */
+export type TriggerRouteOutcome = 'new_run' | 'joined_run' | 'fallback_run' | 'no_run';
+
+/**
+ * What a routed trigger decided for one delivery, on its delivery run row.
+ * Mirrors Go: triggers.RoutingDecision.
+ */
+export interface TriggerRoutingDecision {
+  outcome: TriggerRouteOutcome;
+  key_matched: boolean;
+  join_key: string | null;
+  /** Null when the join key decided without a model call. */
+  model: string | null;
+  /** The agent that received the delivery. */
+  agent_type_id: string | null;
+  /** The chosen option's probability. */
+  probability: number | null;
+  threshold: number | null;
+  /** Probabilities keyed by agent type id, and by run id ("new" for a new run). */
+  scores: { agents?: Record<string, number>; runs?: Record<string, number> };
+  /** below_threshold, decision_failed or run_closed. */
+  fallback_reason: string | null;
+  error: string | null;
+}
+
 /** Request body for POST /api/triggers. */
 export interface TriggerCreateRequest {
   /**
@@ -914,7 +1061,11 @@ export interface TriggerCreateRequest {
   /** Required for webhook triggers. */
   source_id?: string;
   name: string;
-  agent_type_id: string;
+  /** Required unless `target_kind` is "routed". */
+  agent_type_id?: string;
+  /** Defaults to "agent". "routed" is webhook only and needs `routing`. */
+  target_kind?: TriggerTargetKind;
+  routing?: TriggerRouting;
   /**
    * Ignored by the backend, which resolves the canonical slug from
    * `agent_type_id` server-side. Optional and retained only for backward
@@ -932,6 +1083,8 @@ export interface TriggerCreateRequest {
   manual_config?: ManualConfig;
   /** Webhook only. */
   sender_restriction?: SenderRestriction;
+  /** Webhook only, and only with overflow `wait`. Both fields are required together. */
+  coalesce?: TriggerCoalesce;
   // ── Admission control (all optional; defaults per kind when omitted) ──
   /** Concurrency ceiling, 1..16. */
   max_parallel?: number;
@@ -958,6 +1111,10 @@ export interface TriggerUpdateRequest {
   schedule_config?: ScheduleConfig;
   /** Webhook only. Replaces the restriction; both lists empty removes it. */
   sender_restriction?: SenderRestriction;
+  /** Webhook only. Replaces the setting; `{}` removes it; omit to leave it alone. */
+  coalesce?: TriggerCoalesce | Record<string, never>;
+  /** Routed triggers only. Replaces the stored routing object. */
+  routing?: TriggerRouting;
   /**
    * Suppress a repeat of a delivery already seen. Omit to leave unchanged: a
    * PATCH that only renames a trigger must not re-arm its safety settings.
@@ -1027,6 +1184,17 @@ export interface TriggerDelivery {
   received_at: string;
   /** One entry per matched trigger — the complete per-trigger dispatch record. */
   runs?: TriggerDeliveryRun[];
+  /** One entry per coalescing trigger this delivery matched. */
+  coalesce_keys?: TriggerDeliveryCoalesceKey[];
+}
+
+/** The coalescing key one trigger rendered for a delivery. */
+export interface TriggerDeliveryCoalesceKey {
+  trigger_id: string;
+  /** Absent when `key_too_long` is set. */
+  key?: string;
+  /** The rendered key exceeded 256 bytes, so this fire did not coalesce. */
+  key_too_long?: boolean;
 }
 
 /** A single matched-trigger dispatch within a delivery. */
@@ -1040,13 +1208,19 @@ export interface TriggerDeliveryRun {
   run_id?: string;
   /**
    * What happened for this trigger:
-   * dispatched | failed | filtered | denied | superseded | dropped | paused.
+   * dispatched | joined | unrouted | failed | filtered | denied | superseded |
+   * dropped | paused. `joined` sent the delivery to a run already working;
+   * `unrouted` started nothing under a routed trigger's no-run fallback.
    *
    * This is the level admission control, auto-pause and the console's
    * per-trigger badges act on.
    */
   status: string;
   error?: string;
+  /** Id of the delivery whose fire replaced this one; set when `status` is `superseded`. */
+  superseded_by?: string;
+  /** The decision a routed trigger made for this delivery. */
+  routing?: TriggerRoutingDecision;
   created_at: string;
 }
 

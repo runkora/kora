@@ -59,7 +59,7 @@ The agent control plane needs a home. The question is whether to extend an exist
 
 ### Option B: New service + OrbitAgent CRD for k8s reconciliation
 
-**Description:** `orbit-agents` service owns business logic. A lightweight `OrbitAgent` CRD is created for k8s reconciliation. The operator watches CRDs and manages StatefulSets/SPIRE; the service manages everything else.
+**Description:** `kora-agents` service owns business logic. A lightweight `OrbitAgent` CRD is created for k8s reconciliation. The operator watches CRDs and manages StatefulSets/SPIRE; the service manages everything else.
 
 **Pros:**
 - Clean separation: service owns runtime, operator owns k8s reconciliation
@@ -72,7 +72,7 @@ The agent control plane needs a home. The question is whether to extend an exist
 
 ### Option C: New service, fully imperative k8s management, no CRDs
 
-**Description:** `orbit-agents` service owns everything — agent type registry, run lifecycle, k8s resource management (via k8s API), SPIRE entry registration (via SPIRE registration API), and BYOC discovery. No CRDs. No operator extension.
+**Description:** `kora-agents` service owns everything — agent type registry, run lifecycle, k8s resource management (via k8s API), SPIRE entry registration (via SPIRE registration API), and BYOC discovery. No CRDs. No operator extension.
 
 **Pros:**
 - Single service, single source of truth
@@ -84,7 +84,7 @@ The agent control plane needs a home. The question is whether to extend an exist
 **Cons:**
 - Not GitOps-native — agent type definitions cannot be applied via `kubectl`
 - Requires the service to hold k8s RBAC permissions to create StatefulSets, Services, etc. in tenant namespaces
-- No automatic reconciliation if `orbit-agents` is down when a resource is deleted externally
+- No automatic reconciliation if `kora-agents` is down when a resource is deleted externally
 
 ---
 
@@ -96,7 +96,7 @@ CRDs are deferred to v2 when GitOps management of agent types becomes a stated r
 
 ### Service Scope
 
-`orbit-agents` owns:
+`kora-agents` owns:
 
 | Responsibility | Mechanism |
 |---|---|
@@ -107,7 +107,7 @@ CRDs are deferred to v2 when GitOps management of agent types becomes a stated r
 | Grant management | Calls policy-service HTTP API on agent type create/delete |
 | k8s resource management | k8s API (StatefulSet, Service, HPA, PDB, ServiceAccount, AuthorizationPolicy) |
 | Agent SPIFFE label | Sets `spiffe.io/agent={agent_type_id}` on StatefulSet pod template; ClusterSPIFFEID handles SVID issuance |
-| BYOC discovery | k8s pod watch across `orbit-tenant-*` namespaces |
+| BYOC discovery | k8s pod watch across `kora-tenant-*` namespaces |
 | Drift detection | k8s resource watch; reconciles missing resources on detection |
 
 ### What orbit-agents Does NOT Own
@@ -121,41 +121,41 @@ CRDs are deferred to v2 when GitOps management of agent types becomes a stated r
 
 ### SPIRE Authentication
 
-`orbit-agents` runs in `orbit-system` with its own SPIFFE SVID: `spiffe://{trust-domain}/system/orbit-agents`, issued via the `orbit-system-component` ClusterSPIFFEID (pod label `spiffe.io/component=orbit-agents`). Istio mTLS uses this SVID for all inter-service calls. `orbit-agents` does not call the SPIRE registration gRPC API — agent identity is provisioned via pod labels on the StatefulSet ([agent-identity-and-policy-provisioning](2026-05-11-agent-identity-and-policy-provisioning.md)).
+`kora-agents` runs in `kora-system` with its own SPIFFE SVID: `spiffe://{trust-domain}/system/kora-agents`, issued via the `kora-system-component` ClusterSPIFFEID (pod label `spiffe.io/component=kora-agents`). Istio mTLS uses this SVID for all inter-service calls. `kora-agents` does not call the SPIRE registration gRPC API — agent identity is provisioned via pod labels on the StatefulSet ([agent-identity-and-policy-provisioning](2026-05-11-agent-identity-and-policy-provisioning.md)).
 
 ### k8s RBAC
 
-`orbit-agents` service account is granted:
-- `create`, `update`, `delete`, `watch` on `StatefulSet`, `Service`, `HPA`, `PodDisruptionBudget`, `ServiceAccount` in `orbit-tenant-*` namespaces
-- `create`, `delete` on `AuthorizationPolicy` in `orbit-tenant-*` namespaces
-- `list`, `watch` on `Pod` in `orbit-tenant-*` namespaces (for BYOC discovery and session-state label queries)
+`kora-agents` service account is granted:
+- `create`, `update`, `delete`, `watch` on `StatefulSet`, `Service`, `HPA`, `PodDisruptionBudget`, `ServiceAccount` in `kora-tenant-*` namespaces
+- `create`, `delete` on `AuthorizationPolicy` in `kora-tenant-*` namespaces
+- `list`, `watch` on `Pod` in `kora-tenant-*` namespaces (for BYOC discovery and session-state label queries)
 - `patch` on `Pod` is not required — session-manager patches its own pod label via its own service account
 
 ### Pod Selection Algorithm
 
-When a new run is created (`POST /api/v1/runs`), `orbit-agents` must select a pod ordinal to assign it to. The selection algorithm:
+When a new run is created (`POST /api/v1/runs`), `kora-agents` must select a pod ordinal to assign it to. The selection algorithm:
 
 1. Query the `runs` table for active run counts per pod ordinal for the given agent type: `SELECT pod_ordinal, COUNT(*) FROM runs WHERE agent_type_id = ? AND state IN ('starting','active','completing') GROUP BY pod_ordinal`
 2. Fetch the current StatefulSet replica count from k8s (or from the `agent_types` table's last-known replica count, refreshed by drift detection)
 3. Select the pod ordinal with the fewest active runs (round-robin among tied ordinals)
 4. If all pods are at the configured `max_concurrent_runs_per_pod` limit (stored on the agent type), reject with `429 Too Many Requests`
 
-The selected `pod_ordinal` is written atomically to `runs.pod_ordinal` when the run transitions `pending → starting`. Routing thereafter uses the stable StatefulSet DNS: `{agent-type-id}-{pod_ordinal}.{agent-type-id}.orbit-tenant-{tenant-id}.svc.cluster.local`.
+The selected `pod_ordinal` is written atomically to `runs.pod_ordinal` when the run transitions `pending → starting`. Routing thereafter uses the stable StatefulSet DNS: `{agent-type-id}-{pod_ordinal}.{agent-type-id}.kora-tenant-{tenant-id}.svc.cluster.local`.
 
 ### Session-Manager Internal API
 
-`orbit-agents` communicates with the session-manager running inside each agent pod via an internal HTTP API. These are intra-cluster calls protected by Istio mTLS — no platform JWT is required.
+`kora-agents` communicates with the session-manager running inside each agent pod via an internal HTTP API. These are intra-cluster calls protected by Istio mTLS — no platform JWT is required.
 
 | Method | Path | Caller | Description |
 |---|---|---|---|
-| POST | `/session` | orbit-agents | Start a Claude Code subprocess for the given run |
-| POST | `/session/{run_id}/messages` | orbit-agents | Relay user message to the CLI subprocess |
-| POST | `/session/{run_id}/tool-results` | orbit-agents | Inject a tool result for a pending `AskFollowupQuestion` |
-| DELETE | `/session/{run_id}` | orbit-agents | Terminate the CLI subprocess and clean up the session |
-| GET | `/health` | orbit-agents | Session-manager liveness check |
+| POST | `/session` | kora-agents | Start a Claude Code subprocess for the given run |
+| POST | `/session/{run_id}/messages` | kora-agents | Relay user message to the CLI subprocess |
+| POST | `/session/{run_id}/tool-results` | kora-agents | Inject a tool result for a pending `AskFollowupQuestion` |
+| DELETE | `/session/{run_id}` | kora-agents | Terminate the CLI subprocess and clean up the session |
+| GET | `/health` | kora-agents | Session-manager liveness check |
 | POST | `/internal/session/{run_id}/provision-sandbox` | orbit-runtime-mcp | Request sandbox pod provisioning from inside Claude |
 
-The session-manager calls back to orbit-agents to signal state changes:
+The session-manager calls back to kora-agents to signal state changes:
 
 | Method | Path | Caller | Description |
 |---|---|---|---|
@@ -163,7 +163,7 @@ The session-manager calls back to orbit-agents to signal state changes:
 | POST | `/internal/runs/{run_id}/events` | session-manager | Push a durable or ephemeral event for SSE fan-out |
 | POST | `/internal/runs/{run_id}/provision-sandbox` | session-manager | Request K8s sandbox pod provisioning |
 
-These internal endpoints are not part of the public API surface and are not authenticated with platform JWTs. Istio `AuthorizationPolicy` restricts `/internal/*` to traffic from session-manager service accounts only, and `/session/*` and `/internal/session/*` to traffic from `orbit-agents`' service account only.
+These internal endpoints are not part of the public API surface and are not authenticated with platform JWTs. Istio `AuthorizationPolicy` restricts `/internal/*` to traffic from session-manager service accounts only, and `/session/*` and `/internal/session/*` to traffic from `kora-agents`' service account only.
 
 ### Conventions
 
@@ -198,7 +198,7 @@ Follows all existing platform conventions:
 
 ### Positive
 
-- Clean service boundary: `orbit-agents` owns the full control plane; other services are untouched
+- Clean service boundary: `kora-agents` owns the full control plane; other services are untouched
 - Data model can evolve without CRD schema constraints
 - Independent deployability and scalability
 - Drift detection via internal watch loop provides basic reconciliation safety
@@ -207,7 +207,7 @@ Follows all existing platform conventions:
 
 - Not GitOps-native in v1 — agent type definitions cannot be version-controlled as k8s manifests
 - Broad k8s RBAC permissions across tenant namespaces — scope must be documented and audited
-- If `orbit-agents` is unavailable, new agent type provisioning and teardown are blocked (runs in progress are unaffected — they run in pods)
+- If `kora-agents` is unavailable, new agent type provisioning and teardown are blocked (runs in progress are unaffected — they run in pods)
 
 ### Neutral
 
@@ -242,7 +242,7 @@ backend/internal/agents/
 
 - Agent type created and all k8s resources provisioned within 60 seconds
 - SPIRE entry registered and pod receives SVID within 30 seconds of StatefulSet pod reaching Running
-- `orbit-agents` restart does not affect in-progress runs
+- `kora-agents` restart does not affect in-progress runs
 - Drift detection reconciles a deleted StatefulSet within 60 seconds
 
 ---

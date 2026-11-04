@@ -21,7 +21,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/clear-route/orbit/internal/egressgw/tlsca"
+	"github.com/runkora/kora/backend/internal/egressgw/tlsca"
 )
 
 // NewCA mints a fresh self-signed root CA suitable for tests. Returns an

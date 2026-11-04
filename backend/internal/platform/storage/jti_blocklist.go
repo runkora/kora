@@ -11,7 +11,7 @@ import (
 // sole writer for platform-token revocation; delegation revocation writes the
 // delegation JTI under the same namespace), so any service holding a Redis
 // client can check revocation with a shared JTIBlocklist.
-const jtiBlocklistKeyPrefix = "orbit:jti:blocklist:"
+const jtiBlocklistKeyPrefix = "kora:jti:blocklist:"
 
 // JTIBlocklist is the Redis-backed revoked-JTI set shared across services.
 // Entries carry a TTL equal to the token's maximum remaining lifetime so the
@@ -34,8 +34,12 @@ func (b *JTIBlocklist) BlockJTI(ctx context.Context, jti string, ttl time.Durati
 	return nil
 }
 
-// IsBlocked reports whether a JTI is present in the blocklist.
+// IsBlocked reports whether a JTI is present in the blocklist. While Redis is
+// unreachable it returns ErrRedisUnavailable at once, and callers fail open.
 func (b *JTIBlocklist) IsBlocked(ctx context.Context, jti string) (bool, error) {
+	if !b.redis.Available() {
+		return false, fmt.Errorf("check jti %q: %w", jti, ErrRedisUnavailable)
+	}
 	blocked, err := b.redis.Exists(ctx, jtiBlocklistKeyPrefix+jti)
 	if err != nil {
 		return false, fmt.Errorf("check jti %q: %w", jti, err)

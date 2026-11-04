@@ -11,34 +11,55 @@ import (
 
 	"github.com/google/uuid"
 
-	agentsclient "github.com/clear-route/orbit/internal/platform/clients/agents"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // ─── Ingest (webhook) ─────────────────────────────────────────────────────────
 
+// ingestWithoutSecret serves a source that is still waiting for its signing
+// secret (ADR Decision 5). Verify cannot run, so the source answers only the
+// provider handshake, unsigned, and writes no row, takes no replay key and moves
+// no counter. Every other request gets the same ErrSignatureInvalid as a failed
+// Verify, so the response does not show that the secret is missing.
+func (s *Service) ingestWithoutSecret(ctx context.Context, src *WebhookSource, adapter SourceAdapter, body []byte) (IngestResult, error) {
+	if hs, ok := adapter.(handshaker); ok {
+		if reply, isHandshake := hs.Handshake(body); isHandshake {
+			return IngestResult{Outcome: IngestHandshake, Reply: reply}, nil
+		}
+	}
+	s.recordSourceRejection(ctx, src.ID, "signing secret not set")
+	return IngestResult{}, ErrSignatureInvalid
+}
+
 // Ingest verifies an inbound delivery, records it, and queues asynchronous
-// dispatch. It returns IngestAccepted for a new, verified delivery and
-// IngestDuplicate for a redelivery. Signature/visibility failures are returned as
+// dispatch. It returns IngestAccepted for a new, verified delivery,
+// IngestDuplicate for a redelivery and IngestHandshake with the reply for a
+// verified provider handshake. Signature/visibility failures are returned as
 // sentinel errors and produce no delivery row (so unauthenticated callers cannot
 // flood the audit log).
-func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Header, body []byte) (IngestOutcome, error) {
+func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Header, body []byte) (IngestResult, error) {
 	src, err := s.repo.GetSourceByID(ctx, sourceID)
 	if err != nil {
-		return 0, err
+		return IngestResult{}, err
 	}
 	if !src.Enabled {
 		s.recordSourceRejection(ctx, src.ID, "source is disabled")
-		return 0, ErrSourceDisabled
+		return IngestResult{}, ErrSourceDisabled
 	}
-	adapter, ok := s.registry.Get(src.Provider)
-	if !ok {
-		return 0, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
+	adapter, err := s.registry.ForSource(*src)
+	if err != nil {
+		return IngestResult{}, err
+	}
+
+	if src.SecretCiphertext == "" {
+		return s.ingestWithoutSecret(ctx, src, adapter, body)
 	}
 
 	secret, err := s.cipher.decrypt(src.SecretCiphertext)
 	if err != nil {
-		return 0, fmt.Errorf("decrypt signing secret: %w", err)
+		return IngestResult{}, fmt.Errorf("decrypt signing secret: %w", err)
 	}
 
 	if verifyErr := adapter.Verify(secret, headers, body); verifyErr != nil {
@@ -47,7 +68,16 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		// recorded as a delivery: this request is unauthenticated, so a row per
 		// request would be an attacker-controlled write (ADR Decision 4).
 		s.recordSourceRejection(ctx, src.ID, "invalid signature")
-		return 0, ErrSignatureInvalid
+		return IngestResult{}, ErrSignatureInvalid
+	}
+
+	// A handshake is not a delivery: it writes no row, takes no replay key and
+	// moves no counter. It is answered only after Verify, so an unsigned caller
+	// cannot tell a real source id from an unknown one.
+	if hs, ok := adapter.(handshaker); ok {
+		if reply, isHandshake := hs.Handshake(body); isHandshake {
+			return IngestResult{Outcome: IngestHandshake, Reply: reply}, nil
+		}
 	}
 
 	deliveryID := adapter.DeliveryID(headers, body)
@@ -59,7 +89,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		// captured-and-replayed delivery whose id was stripped or unparseable
 		// would otherwise re-dispatch unbounded. Reject fail-closed.
 		s.recordSourceRejection(ctx, src.ID, "missing provider delivery id")
-		return 0, ErrMissingDeliveryID
+		return IngestResult{}, ErrMissingDeliveryID
 	}
 	// Replay defense that does not depend on the delivery id being honest. The id
 	// is not part of what a provider signs (GitHub puts it in a plain header), so
@@ -80,7 +110,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		)
 	} else if !fresh {
 		s.recordSourceRejection(ctx, src.ID, "payload already delivered under a different delivery id")
-		return 0, ErrReplayedPayload
+		return IngestResult{}, ErrReplayedPayload
 	}
 
 	eventType := adapter.EventType(headers, body)
@@ -99,7 +129,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 	}
 	inserted, err := s.repo.InsertDelivery(ctx, delivery)
 	if err != nil {
-		return 0, err
+		return IngestResult{}, err
 	}
 	if !inserted {
 		// The sender retried something already handled. The retry is recorded
@@ -107,7 +137,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		// delivery history has to be able to answer, and until now the repeats
 		// left nothing behind at all.
 		s.recordDuplicate(ctx, *src, adapter, delivery, body)
-		return IngestDuplicate, nil
+		return IngestResult{Outcome: IngestDuplicate}, nil
 	}
 
 	s.recordAccepted(ctx, src.ID)
@@ -124,7 +154,7 @@ func (s *Service) Ingest(ctx context.Context, sourceID string, headers http.Head
 		deliveryID: delivery.ID, providerDeliveryID: deliveryID, eventType: eventType, body: body,
 	})
 
-	return IngestAccepted, nil
+	return IngestResult{Outcome: IngestAccepted}, nil
 }
 
 // replayWindow is how long a source remembers the bodies it has handled.
@@ -266,6 +296,12 @@ func (s *Service) fanOut(
 	}
 	meta := map[string]string{metaEventType: eventType, metaDeliveryID: a.providerDeliveryID, metaSource: src.Name}
 	sender, hasSender := identifySender(adapter, eventType, doc)
+	doc, readable := chatDocument(adapter, eventType, doc)
+	if !readable {
+		// A chat payload kora cannot read must never start or join a run.
+		s.outcomes.derive(ctx, deliveryID)
+		return
+	}
 
 	triggers, err := s.repo.ListMatchableTriggersForSource(ctx, src.ID)
 	if err != nil {
@@ -353,8 +389,34 @@ func identifySender(adapter SourceAdapter, eventType string, doc any) (Sender, b
 	return si.Sender(eventType, doc)
 }
 
-// senderAllowed applies a trigger's sender restriction. Stored logins are
-// already normalised. An event with no sender fails any restriction.
+// chatDocument swaps a chat source's payload for the chat document its
+// triggers read. ok is false when a chat adapter cannot map the payload, or
+// maps it without the ids its triggers key on.
+func chatDocument(adapter SourceAdapter, eventType string, doc any) (any, bool) {
+	ca, ok := adapter.(chatAdapter)
+	if !ok {
+		return doc, true
+	}
+	if doc == nil {
+		return nil, false
+	}
+	event, ok := ca.ChatEvent(eventType, doc)
+	if !ok {
+		return nil, false
+	}
+	for _, key := range chatRequiredFields {
+		if resolvePath(event, key) == "" {
+			return nil, false
+		}
+	}
+	return event, true
+}
+
+// chatRequiredFields are the chat document fields without which a payload is unreadable.
+var chatRequiredFields = []string{"user.id", "conversation.id", "thread.id"}
+
+// senderAllowed applies a trigger's sender restriction. Stored ids are already
+// normalised. An event with no sender fails any restriction.
 func senderAllowed(r *SenderRestriction, s Sender, ok bool) bool {
 	if r.empty() {
 		return true
@@ -362,7 +424,9 @@ func senderAllowed(r *SenderRestriction, s Sender, ok bool) bool {
 	if !ok {
 		return false
 	}
-	return slices.Contains(r.Logins, s.Login) || (s.Association != "" && slices.Contains(r.Associations, s.Association))
+	return slices.Contains(r.IDs, s.ID) || slices.ContainsFunc(s.Roles, func(role string) bool {
+		return role != "" && slices.Contains(r.Roles, role)
+	})
 }
 
 // runStatusForDispatchError maps a dispatch failure to the per-trigger outcome
@@ -386,7 +450,7 @@ func runStatusForDispatchError(err error) string {
 // futile and the failure is the trigger's own, so pausing stops the noise.
 //
 // Everything else is a platform condition that pausing cannot fix, and is
-// matched by exclusion rather than by name: orbit-agents unreachable (a raw
+// matched by exclusion rather than by name: kora-agents unreachable (a raw
 // transport error) or erroring (5xx), a dispatch that timed out, shutdown
 // canceling the call, or a token the identity service could not mint. Each of
 // those fails every trigger in the tenant at once, so counting them would pause
@@ -426,15 +490,15 @@ func (s *Service) runPrincipal(ctx context.Context, t Trigger) (principalID, dis
 }
 
 // startRunForTriggerWithFields renders the prompt and starts a run under the
-// trigger's resolved identity, telling orbit-agents which trigger and delivery
+// trigger's resolved identity, telling kora-agents which trigger and delivery
 // the run came from.
 //
-// The backlink is set here, at the only place a run is started from a trigger.
+// The backlink is set in startRunAs, the only place a run is started from a trigger.
 // Without it the run's created_by is the trigger's SERVICE principal and nothing
 // more, so a person opening the run cannot tell what caused it — the forward
 // link (delivery → run) existed, and the reverse did not.
 func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, deliveryID string, fields map[string]string) (string, error) {
-	principalID, displayName, err := s.runPrincipal(ctx, t)
+	tok, err := s.triggerToken(ctx, t)
 	if err != nil {
 		return "", err
 	}
@@ -444,14 +508,57 @@ func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, d
 	} else {
 		prompt = renderTemplate(t.PromptTemplate, fields)
 	}
-	tok, err := s.minter.MintServiceToken(ctx, t.TenantID, principalID, displayName, sourceTokenTTL)
+	return s.startRunAs(ctx, t, tok, t.AgentTypeID, prompt, deliveryID)
+}
+
+// triggerToken mints the SERVICE token a trigger's runs, messages and decision
+// calls travel under.
+func (s *Service) triggerToken(ctx context.Context, t Trigger) (string, error) {
+	principalID, displayName, err := s.runPrincipal(ctx, t)
 	if err != nil {
+		return "", err
+	}
+	// A mint call can fail for a moment (a mesh disruption, a timeout) without
+	// the trigger having done anything wrong, so retry it within the budget.
+	// A refusal, an unexpected status and an empty token are answers from
+	// identity, not transient failures, and are not retried.
+	var tok string
+	var mintErr error
+	err = retryWhileGrantPropagates(ctx,
+		func(err error) bool {
+			return ctx.Err() == nil &&
+				!errors.Is(err, identityclient.ErrMintForbidden) &&
+				!errors.Is(err, identityclient.ErrUnexpectedStatus) &&
+				!errors.Is(err, identityclient.ErrMissingToken)
+		},
+		func(backoff time.Duration) {
+			s.logger.Debug(ctx, "token mint failed, retrying",
+				logging.Field{Key: "trigger_id", Value: t.ID},
+				logging.Field{Key: "backoff", Value: backoff.String()},
+			)
+		},
+		func() error {
+			tok, mintErr = s.minter.MintServiceToken(ctx, t.TenantID, principalID, displayName, sourceTokenTTL)
+			return mintErr
+		})
+	if err != nil {
+		// A cancel during backoff returns the context error; the outcome should
+		// still show the mint error that was being retried.
+		if mintErr != nil {
+			err = mintErr
+		}
 		return "", fmt.Errorf("mint trigger token: %w", err)
 	}
+	return tok, nil
+}
+
+// startRunAs starts a run of agentTypeID under tok, attributed to the trigger
+// and delivery.
+func (s *Service) startRunAs(ctx context.Context, t Trigger, tok, agentTypeID, prompt, deliveryID string) (string, error) {
 	req := agentsclient.StartRunRequest{
-		AgentTypeID:    t.AgentTypeID,
+		AgentTypeID:    agentTypeID,
 		InitialMessage: prompt,
-		// The name travels with the ids: orbit-agents does not read the triggers
+		// The name travels with the ids: kora-agents does not read the triggers
 		// database, and a run that outlives its trigger still has to render as
 		// something a person recognizes.
 		TriggerID:   t.ID,
@@ -459,35 +566,46 @@ func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, d
 		DeliveryID:  deliveryID,
 	}
 
-	// A trigger's run grant is minted when the trigger is created, and is not
-	// visible to orbit-agents until its next OPA bundle poll. A trigger fired
-	// within that window is refused for a reason that is nothing to do with the
-	// fire: the grant exists, it is merely young.
-	//
-	// Retry only while that explanation is available. Once the trigger is older
-	// than the propagation window, a refusal is a real denial (a revoked grant,
-	// a delegated agent type) and retrying would delay an honest failure and
-	// hold a queue slot for the whole budget.
-	young := time.Since(t.CreatedAt) < grantPropagationWindow
-
 	var run agentsclient.StartRunResponse
-	err = retryWhileGrantPropagates(ctx,
-		func(err error) bool { return young && errors.Is(err, agentsclient.ErrForbidden) },
-		func(backoff time.Duration) {
-			s.logger.Debug(ctx, "run start refused, retrying while the grant propagates",
-				logging.Field{Key: "trigger_id", Value: t.ID},
-				logging.Field{Key: "backoff", Value: backoff.String()},
-			)
-		},
-		func() error {
-			var startErr error
-			run, startErr = s.agents.StartRun(ctx, tok, req)
-			return startErr
-		})
+	err := s.retryYoungGrant(ctx, t, agentsclient.ErrForbidden, func() error {
+		var startErr error
+		run, startErr = s.agents.StartRun(ctx, tok, req)
+		return startErr
+	})
 	if err != nil {
 		return "", fmt.Errorf("start run: %w", err)
 	}
 	return run.ID, nil
+}
+
+// retryYoungGrant runs call, retrying a refusal while the trigger is young
+// enough for it to be grant propagation.
+//
+// A trigger's grant is minted when the trigger is created, and is not visible
+// to kora-agents or the inference gateway until their next OPA bundle poll. A
+// trigger fired within that window is refused for a reason that is nothing to
+// do with the fire: the grant exists, it is merely young.
+//
+// Retry only while that explanation is available. Once the trigger is older
+// than the propagation window, a refusal is a real denial (a revoked grant, a
+// delegated agent type) and retrying would delay an honest failure and hold a
+// queue slot for the whole budget.
+func (s *Service) retryYoungGrant(ctx context.Context, t Trigger, refusal error, call func() error) error {
+	// A routing update can replace the grant, so its age runs from the later write.
+	minted := t.CreatedAt
+	if t.UpdatedAt.After(minted) {
+		minted = t.UpdatedAt
+	}
+	young := time.Since(minted) < grantPropagationWindow
+	return retryWhileGrantPropagates(ctx,
+		func(err error) bool { return young && errors.Is(err, refusal) },
+		func(backoff time.Duration) {
+			s.logger.Debug(ctx, "call refused, retrying while the grant propagates",
+				logging.Field{Key: "trigger_id", Value: t.ID},
+				logging.Field{Key: "backoff", Value: backoff.String()},
+			)
+		},
+		call)
 }
 
 // retryWhileGrantPropagates runs call, retrying with exponential backoff while
@@ -522,11 +640,11 @@ func retryWhileGrantPropagates(ctx context.Context, retryable func(error) bool, 
 	}
 }
 
-// Retry budget for reaching orbit-agents under a just-created grant, used both
+// Retry budget for reaching kora-agents under a just-created grant, used both
 // when resolving the agent type at create and when starting the first run.
 //
-// The budget is sized against orbit-agents' OPA bundle poll interval
-// (policy.bundlePollIntervalSecs in backend/cmd/orbit-agents/config/base.yaml,
+// The budget is sized against kora-agents' OPA bundle poll interval
+// (policy.bundlePollIntervalSecs in backend/cmd/kora-agents/config/base.yaml,
 // currently 3s): it must comfortably exceed one poll, or a create request
 // returns "not found in this tenant" for a grant that is merely young. Raising
 // that interval without raising this budget breaks trigger creation.

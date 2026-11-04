@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"time"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Timeouts of the connector's own HTTP clients. Each covers one request,
@@ -44,20 +46,19 @@ const decisionsModality = "decisions"
 
 // decisionQuery asks an endpoint that supports it for its decision models only.
 // OpenRouter's default listing leaves them out.
-const decisionQuery = "?output_modalities=" + decisionsModality
+var decisionQuery = url.Values{"output_modalities": {decisionsModality}}
 
-// getModels reads GET <baseURL>/models<query> in either list shape and returns its raw entries.
-func (c *Connector) getModels(ctx context.Context, query string) ([]json.RawMessage, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/models"+query, http.NoBody)
-	if err != nil {
-		return nil, fmt.Errorf("%s: list models: %w", c.name, err)
-	}
-	req.Header.Set("Accept", "application/json")
+// getModels reads GET <baseURL>/models?<query> in either list shape and returns its raw entries.
+func (c *Connector) getModels(ctx context.Context, query url.Values) ([]json.RawMessage, error) {
+	header := http.Header{}
+	header.Set("Accept", "application/json")
 	if c.apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
-	_, span, resp, err := c.http.Do(ctx, "compatible.Connector.ListModels", req)
+	_, span, resp, err := c.http.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/models", Query: query, Header: header,
+	})
 	defer span.End()
 	if err != nil {
 		return nil, fmt.Errorf("%s: list models: %w", c.name, err)
@@ -76,7 +77,7 @@ func (c *Connector) getModels(ctx context.Context, query string) ([]json.RawMess
 // listDecisionModels lists a systemone-only endpoint's models. The OpenAI and
 // Anthropic SDKs are not involved: the endpoint declares neither API.
 func (c *Connector) listDecisionModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
-	entries, err := c.getModels(ctx, "")
+	entries, err := c.getModels(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -100,16 +101,68 @@ func (c *Connector) listDecisionModels(ctx context.Context) ([]inferencegw.Provi
 	return models, nil
 }
 
-// declaresDecisions reports whether a /models entry lists decisions among its
-// architecture.output_modalities. An endpoint that ignores the query returns
-// entries without that metadata, and none of them counts.
-func declaresDecisions(raw json.RawMessage) bool {
+// allModalitiesQuery asks an endpoint that supports it for every model,
+// whatever its output modality. OpenRouter's default listing is text only.
+var allModalitiesQuery = url.Values{"output_modalities": {"all"}}
+
+// Output modalities OpenRouter declares for the models classified here.
+const (
+	embeddingsModality = "embeddings"
+	rerankModality     = "rerank"
+)
+
+// outputModalities reads architecture.output_modalities from a /models entry.
+// An endpoint without that metadata yields nil.
+func outputModalities(raw json.RawMessage) []string {
 	var e struct {
 		Architecture struct {
 			OutputModalities []string `json:"output_modalities"`
 		} `json:"architecture"`
 	}
-	return json.Unmarshal(raw, &e) == nil && slices.Contains(e.Architecture.OutputModalities, decisionsModality)
+	if json.Unmarshal(raw, &e) != nil {
+		return nil
+	}
+	return e.Architecture.OutputModalities
+}
+
+// mergeNonTextModels adds the embedding and rerank models the default listing
+// leaves out, and corrects the capability of a listed model that declares one.
+// Only an entry that publishes architecture.output_modalities counts, so an
+// endpoint that ignores the query adds nothing. Image, speech, video and
+// transcription models are skipped. A failed request keeps the models and logs
+// a warning.
+func (c *Connector) mergeNonTextModels(ctx context.Context, models []inferencegw.ProviderModel) []inferencegw.ProviderModel {
+	entries, err := c.getModels(ctx, allModalitiesQuery)
+	if err != nil {
+		c.logger.Warn(ctx, "non-text model listing failed; keeping the default models", logging.Field{Key: "provider", Value: string(c.name)}, logging.Field{Key: "error", Value: err.Error()})
+		return models
+	}
+	for _, raw := range entries {
+		var l listedModel
+		if json.Unmarshal(raw, &l) != nil || l.ID == "" {
+			continue
+		}
+		out := outputModalities(raw)
+		var m inferencegw.ProviderModel
+		switch {
+		case slices.Contains(out, embeddingsModality):
+			m = c.describeEmbedding(l.ID)
+		case slices.Contains(out, rerankModality):
+			m = c.describeRerank(l.ID)
+		default:
+			continue
+		}
+		m.Price = parsePrice(string(raw))
+		models = upsertModel(models, m)
+	}
+	return models
+}
+
+// declaresDecisions reports whether a /models entry lists decisions among its
+// architecture.output_modalities. An endpoint that ignores the query returns
+// entries without that metadata, and none of them counts.
+func declaresDecisions(raw json.RawMessage) bool {
+	return slices.Contains(outputModalities(raw), decisionsModality)
 }
 
 // mergeDecisionModels adds the models a mixed endpoint declares as decision

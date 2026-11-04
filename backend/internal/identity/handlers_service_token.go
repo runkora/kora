@@ -6,13 +6,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // The internal service-token endpoint exists so that a platform component which
-// starts work on behalf of a tenant principal — today only orbit-triggers — can
+// starts work on behalf of a tenant principal — today only kora-triggers — can
 // obtain that principal's short-lived token without holding any signing key.
 // identity remains the sole token authority.
 //
@@ -30,7 +30,7 @@ import (
 // in any tenant, bounded only by that principal's grants. Adding an entry is a
 // security decision, not a wiring detail.
 var mintServiceTokenCallers = map[string]struct{}{
-	"orbit-triggers": {},
+	"kora-triggers": {},
 }
 
 // maxServiceTokenTTL caps the lifetime a caller may request. Trigger tokens are

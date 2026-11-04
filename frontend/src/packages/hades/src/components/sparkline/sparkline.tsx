@@ -2,7 +2,7 @@ import * as React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../utils';
 
-/** @tier 1 — Zero Orbit domain knowledge. A bare inline bar series for table rows and cards. */
+/** @tier 1 — Zero kora domain knowledge. A bare inline bar series for table rows and cards. */
 
 /**
  * Sparkline bar tones.

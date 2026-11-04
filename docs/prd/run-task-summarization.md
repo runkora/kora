@@ -98,9 +98,9 @@ Neither view shows *what the run is doing* or *what it was asked to do*.
 
 ### High-Level Approach
 
-When a run starts with an initial message, the **session-manager** (the agent's own pod) makes a best-effort LLM call on the agent's authorized inference path — `{ANTHROPIC_BASE_URL}/run/{runID}/v1/messages`, using the agent's **effective** model — to produce a single short sentence describing the task. It reports the result to orbit-agents via a callback, which persists it in a new `summary` column on the `runs` table. The frontend displays this field wherever runs are listed or shown.
+When a run starts with an initial message, the **session-manager** (the agent's own pod) makes a best-effort LLM call on the agent's authorized inference path — `{ANTHROPIC_BASE_URL}/run/{runID}/v1/messages`, using the agent's **effective** model — to produce a single short sentence describing the task. It reports the result to kora-agents via a callback, which persists it in a new `summary` column on the `runs` table. The frontend displays this field wherever runs are listed or shown.
 
-Summarization must run where the agent's inference identity, effective model, and per-run budget exist — the session-manager — **not** in the orbit-agents control plane, which has no inference grant (a direct call is denied by policy) and does not know the effective model. See the ADR for the full rationale.
+Summarization must run where the agent's inference identity, effective model, and per-run budget exist — the session-manager — **not** in the kora-agents control plane, which has no inference grant (a direct call is denied by policy) and does not know the effective model. See the ADR for the full rationale.
 
 Generation is strictly best-effort: if the LLM call fails or times out, the run proceeds normally with a null summary. It runs in a detached goroutine and never blocks the run or the `StartRun` response.
 
@@ -117,7 +117,7 @@ Generation is strictly best-effort: if the LLM call fails or times out, the run 
 ### Key Components
 
 - **Backend — `runs.summary` column**: A nullable `TEXT` column on the `runs` table, populated asynchronously after run start (set-once).
-- **Backend — session-manager summarizer**: Calls the inference gateway's Anthropic `/v1/messages` endpoint on the agent's per-run authorized path with a fixed prompt, then reports the result to orbit-agents via the `POST /internal/runs/{id}/summary` callback, which persists it via a new `SetRunSummary` repository method.
+- **Backend — session-manager summarizer**: Calls the inference gateway's Anthropic `/v1/messages` endpoint on the agent's per-run authorized path with a fixed prompt, then reports the result to kora-agents via the `POST /internal/runs/{id}/summary` callback, which persists it via a new `SetRunSummary` repository method.
 - **API**: The `Run` struct and all run-response payloads include the `summary` field (null-safe).
 - **Frontend — `Run` interface**: `summary?: string` added to the shared API type.
 - **Frontend — `RunRow`**: `summary: string | null` added to the display-layer type and transformer.
@@ -192,7 +192,7 @@ Generation is strictly best-effort: if the LLM call fails or times out, the run 
 ### Internal Dependencies
 
 - **Inference Gateway** (`internal/inferencegw`): The session-manager calls the gateway's Anthropic `/v1/messages` endpoint on the agent's per-run path (already reachable — the agent subprocess calls it for every LLM turn).
-- **session-manager → orbit-agents callback**: A new `POST /internal/runs/{id}/summary` internal endpoint persists the reported summary. No new config — the session-manager reuses the `ANTHROPIC_BASE_URL` already in its pod.
+- **session-manager → kora-agents callback**: A new `POST /internal/runs/{id}/summary` internal endpoint persists the reported summary. No new config — the session-manager reuses the `ANTHROPIC_BASE_URL` already in its pod.
 
 ### External Dependencies
 
@@ -222,13 +222,13 @@ Generation is strictly best-effort: if the LLM call fails or times out, the run 
 - Long preambles (e.g. system context) in the initial message produce misleading summaries.
 - Misses the compression value of LLM summarization.
 
-### Alternative 2: Generate the summary in the orbit-agents control plane
+### Alternative 2: Generate the summary in the kora-agents control plane
 
-**Description:** Have orbit-agents call the inference gateway directly after sending the initial message (the original implementation).
+**Description:** Have kora-agents call the inference gateway directly after sending the initial message (the original implementation).
 
 **Why not chosen:**
 - The control plane has no agent identity, so OPA denies the call (`403 policy_denied`) — and granting the control plane inference would violate the platform's trust model.
-- orbit-agents only knows the agent type's default model, not the run's effective model.
+- kora-agents only knows the agent type's default model, not the run's effective model.
 - No per-run budget attribution.
 - The chosen design instead generates in the session-manager (where identity, model, and budget exist) and reports back via a callback. See the ADR for the full analysis.
 

@@ -5,7 +5,7 @@
  * load time so relative copy stays realistic whenever a story is opened.
  */
 
-import type { CreatePATResponse, PAT } from '@orbit/shared/api';
+import type { CreatePATResponse, PAT } from '@runkora/shared/api';
 import type { Grant, RoleEntry } from '../../policy/_types/api';
 import type { TokenUsageStat } from '../_services/usage-server';
 import type {
@@ -127,7 +127,7 @@ export const CREATED_PAT: CreatePATResponse = {
   id: '0e6b4a92-7c15-4d38-a2f9-61d3b8e05c47',
   name: 'code-reviewer-staging',
   token:
-    'orb_eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c3JfNDJiN2U5Iiwic2NwIjpbImluZmVyZW5jZTpjaGF0Il19.Zk3vQe1xPq9TnW5mB7rYcL2dHsA8uJf0oGiXaNtVb4E',
+    'kora_eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c3JfNDJiN2U5Iiwic2NwIjpbImluZmVyZW5jZTpjaGF0Il19.Zk3vQe1xPq9TnW5mB7rYcL2dHsA8uJf0oGiXaNtVb4E',
   scopes: ['inference:chat', 'inference:embeddings'],
   expires_at: fromNow(90 * DAY),
   created_at: new Date().toISOString(),
@@ -879,6 +879,7 @@ export const BUDGET_ROLES: RoleEntry[] = [
     scopes: ['platform:budgets:read', 'platform:budgets:write', 'platform:grants:read'],
     budget: null,
     created_at: ago(120 * DAY),
+    reserved: true,
   },
 ];
 

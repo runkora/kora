@@ -22,7 +22,7 @@ Hosted endpoints that serve the format include TypeSafe, OpenRouter (`/api/v1/sy
 
 The gateway has no place for decision models today:
 
-*   **`compatible` APIs:** `chatCompletions`, `embeddings`, `responses` and `messages` (`internal/platform/inferenceproviders/v1alpha1/types.go` and the `apis` enum in `charts/orbit-crds/templates/crd-inferenceprovider.yaml`).
+*   **`compatible` APIs:** `chatCompletions`, `embeddings`, `responses` and `messages` (`internal/platform/inferenceproviders/v1alpha1/types.go` and the `apis` enum in `charts/kora-crds/templates/crd-inferenceprovider.yaml`).
 *   **Capabilities:** chat, embedding, image, video, rerank and audio (`internal/inferencegw/connector.go`).
 *   **Routes:** `/chat/completions`, `/messages`, `/embeddings`, `/responses` and `/models` (`internal/inferencegw/controller.go`).
 
@@ -204,13 +204,13 @@ None at this time.
 
 ## Implementation
 
-*   `backend/internal/platform/inferenceproviders/v1alpha1/types.go` and `charts/orbit-crds/templates/crd-inferenceprovider.yaml`: `systemone`, the optional `decisionModels` list and its CEL rule.
+*   `backend/internal/platform/inferenceproviders/v1alpha1/types.go` and `charts/kora-crds/templates/crd-inferenceprovider.yaml`: `systemone`, the optional `decisionModels` list and its CEL rule.
 *   `backend/internal/inferencegw/connector.go`: `CapabilityDecision`, the `SystemOneConnector` interface, and the request and result types.
 *   `backend/internal/inferencegw/providers/compatible/`: the connector method, discovery for `systemone`-only providers, and decision-model detection on mixed endpoints.
 *   `backend/internal/inferencegw/providers/{bedrock,vertexai,azure}/`: the refusal.
 *   `backend/internal/inferencegw/service.go`, `handlers_systemone.go` and `controller.go`: the service method, handler and route.
 *   `backend/cmd/inference-gateway/main.go`: the route table entry.
-*   `docs/guides/model-providers.md` and `docs/adr/2026-04-01-model-capability-taxonomy.md`: provider configuration and the capability taxonomy.
+*   `docs/guides/register-inference-provider.md` and `docs/adr/2026-04-01-model-capability-taxonomy.md`: provider configuration and the capability taxonomy.
 
 ---
 

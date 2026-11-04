@@ -170,7 +170,7 @@ const DENIAL =
   /egress denied|egress policy denied|tool not permitted|denied by policy|blocked by policy/i;
 
 /**
- * Reports whether a call was blocked by Orbit policy, and names what was
+ * Reports whether a call was blocked by kora policy, and names what was
  * blocked when it can: the host a command reached for, or the MCP tool.
  */
 export function policyDenial(tool: ToolCall): { blocked: string } | null {

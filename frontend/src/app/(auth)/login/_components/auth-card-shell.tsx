@@ -1,10 +1,14 @@
+'use client';
+
 /**
  * @tier 3 — login-scoped. The sign-in card shared by the login and already-signed-in
  * screens: a brand panel on the left, a title, content and a footer on the right.
  * The panel is hidden on small screens, where the logo moves into the form column.
+ * The logo and product name come from the effective brand.
  */
 import type { ReactNode } from 'react';
-import { Card, CardFooter, Heading, KoraLogo, Show, Stack, Text } from '@orbit/hades';
+import { BrandLogo, Card, CardFooter, Heading, Show, Stack, Text } from '@runkora/hades';
+import { useBrand } from '@runkora/theme/brand-provider';
 
 const PANEL_GRADIENT =
   'linear-gradient(25deg, color-mix(in oklch, var(--color-border-accent) 55%, var(--color-surface-elevated)) 0%, var(--color-surface-elevated) 55%, var(--color-surface) 100%)';
@@ -18,6 +22,7 @@ interface AuthCardShellProps {
 }
 
 export function AuthCardShell({ title, description, footer, children }: AuthCardShellProps) {
+  const brand = useBrand();
   return (
     <Card style={{ width: '100%', maxWidth: 740, overflow: 'hidden' }}>
       <Stack direction="horizontal" gap="none" align="stretch">
@@ -36,7 +41,12 @@ export function AuthCardShell({ title, description, footer, children }: AuthCard
           >
             <Stack align="center" gap="relaxed" textAlign="center">
               <Heading variant="title">
-                <KoraLogo size={40} title="kora" />
+                <BrandLogo
+                  dark={brand.logo.dark}
+                  light={brand.logo.light}
+                  size={40}
+                  title={brand.productName}
+                />
               </Heading>
               <Stack style={{ textWrap: 'balance' }}>
                 <Heading variant="section">Governed passage for agents.</Heading>
@@ -50,7 +60,12 @@ export function AuthCardShell({ title, description, footer, children }: AuthCard
             <Stack gap="relaxed" style={{ width: '100%', maxWidth: 305 }}>
               <Show below="md">
                 <Heading variant="title">
-                  <KoraLogo size={34} title="kora" />
+                  <BrandLogo
+                    dark={brand.logo.dark}
+                    light={brand.logo.light}
+                    size={34}
+                    title={brand.productName}
+                  />
                 </Heading>
               </Show>
               <Stack gap="snug">

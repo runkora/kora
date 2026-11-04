@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { Text } from '@orbit/hades';
+import { Text } from '@runkora/hades';
 import { PageGutter } from './page-gutter';
 
 const pathname = vi.fn();

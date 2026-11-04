@@ -19,7 +19,7 @@ import {
   TabsTrigger,
   Text,
   ConfirmDialog,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import { createFromWizardDraft } from '../_services/create-from-wizard';
 import { useTriggerActions } from './use-trigger-actions';
 import type { TriggerNotice } from './use-trigger-actions';
@@ -31,15 +31,25 @@ import { FleetKpis } from './fleet-kpis';
 import { TriggerDrawer } from './trigger-drawer';
 import { TriggerList } from './trigger-list';
 import { DeliveryGrid } from './delivery-grid';
-import { matchesStatusFilter } from '../_types';
+import { consoleKindOf, matchesStatusFilter, runTargets } from '../_types';
 import { ingestHostFromWindow } from '../_lib/endpoints';
-import type { AgentOption, DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
+import type {
+  AgentOption,
+  ConsoleKind,
+  DeliveryRow,
+  SourceCategory,
+  SourceRow,
+  TriggerRow,
+} from '../_types';
+import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
+import { ManagedInGitCallout, PermissionHint } from '@runkora/components';
 
 interface TriggersPageProps {
   sources: SourceRow[];
   triggers: TriggerRow[];
   deliveries: DeliveryRow[];
   agents: AgentOption[];
+  agentsError?: string | null;
   error: string | null;
 }
 
@@ -54,9 +64,36 @@ const DELIVERY_STATUS_OPTIONS = [
   { value: 'missed', label: 'Missed' },
 ];
 
-export function TriggersPage({ sources, triggers, deliveries, agents, error }: TriggersPageProps) {
+/** The kind in the empty-list message, e.g. "No chat command triggers." */
+const KIND_FILTER_NOUN: Record<ConsoleKind, string> = {
+  webhook: 'webhook',
+  chat: 'chat command',
+  scheduled: 'scheduled',
+  manual: 'manual',
+};
+
+export function TriggersPage({
+  sources,
+  triggers,
+  deliveries,
+  agents,
+  agentsError = null,
+  error,
+}: TriggersPageProps) {
   const router = useRouter();
+  const canWrite = useHasScope('triggers:write');
+  // A locked tenant takes its triggers and sources from the configuration repository.
+  const locked = useTenantLocked();
   const ingestHost = ingestHostFromWindow();
+
+  const canRunAgent = useCallback(
+    (agentTypeId: string) => agents.some((a) => a.id === agentTypeId && a.canRun),
+    [agents],
+  );
+  const canRunTrigger = (t: TriggerRow | undefined) =>
+    t !== undefined && runTargets(t).every(canRunAgent);
+  const canRunOwner = (triggerId: string | null) =>
+    canRunTrigger(triggers.find((t) => t.id === triggerId));
 
   const sourceName = useMemo(() => {
     const map = new Map<string, string>();
@@ -64,7 +101,29 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
     return (id: string) => map.get(id) ?? id;
   }, [sources]);
 
-  const formSources = useMemo(() => sources.map((s) => ({ id: s.id, name: s.name })), [sources]);
+  const sourceCategory = useMemo(() => {
+    const map = new Map<string, SourceCategory>();
+    for (const s of sources) map.set(s.id, s.category);
+    return (id: string) => map.get(id);
+  }, [sources]);
+
+  const sourceWaiting = useMemo(() => {
+    const waiting = new Set(sources.filter((s) => !s.signingSecretSet).map((s) => s.id));
+    return (id: string) => waiting.has(id);
+  }, [sources]);
+
+  const wizardSources = useMemo(
+    () =>
+      sources.map((s) => ({
+        id: s.id,
+        name: s.name,
+        provider: s.provider,
+        category: s.category,
+        signingSecretSet: s.signingSecretSet,
+        config: s.config,
+      })),
+    [sources],
+  );
 
   // ── Modal + dialog state ─────────────────────────────────────────────────────
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -73,14 +132,21 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
   // its own panel rather than the owning trigger's drawer: the question being
   // asked is "what did this delivery do", not "how is that trigger set up".
   const [detailDelivery, setDetailDelivery] = useState<DeliveryRow | null>(null);
-  const [kindFilter, setKindFilter] = useState<TriggerKind | 'all'>('all');
+  const [kindFilter, setKindFilter] = useState<ConsoleKind | 'all'>('all');
 
   // Filter by how a trigger starts. Triggers are the front door for starting
   // work, so the kind is the primary way to slice them, and the counts are part
   // of the answer rather than decoration.
+  // A chat command is a webhook trigger on a chat source, so it is counted
+  // under Chat command and never under Webhook.
+  const kindCount = (kind: ConsoleKind) =>
+    triggers.filter((t) => consoleKindOf(t, sourceCategory) === kind).length;
   const visibleTriggers = useMemo(
-    () => (kindFilter === 'all' ? triggers : triggers.filter((t) => t.kind === kindFilter)),
-    [triggers, kindFilter],
+    () =>
+      kindFilter === 'all'
+        ? triggers
+        : triggers.filter((t) => consoleKindOf(t, sourceCategory) === kindFilter),
+    [triggers, kindFilter, sourceCategory],
   );
 
   // ── Deliveries: status filter ─────────────────────────────────────────────────
@@ -126,7 +192,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
   const createFromWizard = useCallback(
     async (draft: TriggerDraft): Promise<TriggerCreateResult> => {
       const result = await createFromWizardDraft(draft, { ingestHost });
-      if (result.ok) router.refresh();
+      if (result.ok || result.createdSource) router.refresh();
       return result;
     },
     [router, ingestHost],
@@ -148,14 +214,15 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
           <Stack gap="tight" maxWidth="prose">
             <Heading variant="section">Triggers</Heading>
             <Text size="supporting" color="muted">
-              Everything that starts work on the platform: inbound webhooks, schedules and manual
-              fires today, with control-plane events, chained runs and chat commands coming. Every
-              delivery is recorded.
+              Everything that starts work on the platform: inbound webhooks, chat commands,
+              schedules and manual fires today, with control-plane events and chained runs coming.
+              Every delivery is recorded.
             </Text>
           </Stack>
         </Stack>
       </Stack>
 
+      {locked && <ManagedInGitCallout subject="Triggers and sources in this tenant" />}
       {error && <Alert variant="error">{error}</Alert>}
       {fireResult && <Alert variant={fireResult.ok ? 'info' : 'error'}>{fireResult.message}</Alert>}
 
@@ -177,7 +244,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
                 <SegmentedControl
                   aria-label="Filter triggers by kind"
                   value={kindFilter}
-                  onChange={(v) => setKindFilter(v as TriggerKind | 'all')}
+                  onChange={(v) => setKindFilter(v as ConsoleKind | 'all')}
                   options={[
                     {
                       value: 'all',
@@ -189,39 +256,52 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
                       value: 'webhook',
                       label: 'Webhook',
                       icon: <Icon name="webhook" size="2xs" />,
-                      count: triggers.filter((t) => t.kind === 'webhook').length,
+                      count: kindCount('webhook'),
+                    },
+                    {
+                      value: 'chat',
+                      label: 'Chat command',
+                      icon: <Icon name="send" size="2xs" />,
+                      count: kindCount('chat'),
                     },
                     {
                       value: 'scheduled',
                       label: 'Schedule',
                       icon: <Icon name="clock" size="2xs" />,
-                      count: triggers.filter((t) => t.kind === 'scheduled').length,
+                      count: kindCount('scheduled'),
                     },
                     {
                       value: 'manual',
                       label: 'Manual',
                       icon: <Icon name="play" size="2xs" />,
-                      count: triggers.filter((t) => t.kind === 'manual').length,
+                      count: kindCount('manual'),
                     },
                   ]}
                 />
               }
               toolbarActions={
-                <Button size="sm" onClick={() => setWizardOpen(true)}>
-                  <Icon name="plus" size="xs" />
-                  New trigger
-                </Button>
+                locked ? undefined : (
+                  <PermissionHint allowed={canWrite} action="create triggers">
+                    <Button size="sm" disabled={!canWrite} onClick={() => setWizardOpen(true)}>
+                      <Icon name="plus" size="xs" />
+                      New trigger
+                    </Button>
+                  </PermissionHint>
+                )
               }
               resetKey={kindFilter}
               triggers={visibleTriggers}
               deliveries={deliveries}
               sourceName={sourceName}
+              sourceCategory={sourceCategory}
+              sourceWaiting={sourceWaiting}
               onOpen={setDrawerTrigger}
               onToggle={(t) => void toggleTrigger(t)}
+              canRunAgent={canRunAgent}
               emptyMessage={
                 triggers.length === 0
                   ? 'No triggers yet.'
-                  : `No ${kindFilter === 'all' ? '' : kindFilter + ' '}triggers.`
+                  : `No ${kindFilter === 'all' ? '' : KIND_FILTER_NOUN[kindFilter] + ' '}triggers.`
               }
             />
           </Stack>
@@ -264,6 +344,8 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
           delivery={detailDelivery}
           onClose={() => setDetailDelivery(null)}
           onRedeliver={redeliver}
+          redeliverAllowed={canRunOwner(detailDelivery.triggerId)}
+          agents={agents}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);
@@ -275,6 +357,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       {/* Modals */}
       <TriggerDrawer
         trigger={drawerRow}
+        canRunAgent={drawerRow !== null && canRunTrigger(drawerRow)}
         sources={sources}
         deliveries={deliveries}
         ingestHost={ingestHost}
@@ -295,6 +378,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
         // Scoped to the trigger on screen: firing one trigger must not make
         // another one's panel claim it is queueing.
         firing={firingId === drawerRow?.id}
+        agents={agents}
       />
 
       {/* One modal owns the whole creation flow: kind picker, the kind's own
@@ -302,11 +386,10 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       {wizardOpen && (
         <TriggerWizard
           agents={agents}
-          sources={formSources.map((f) => ({
-            ...f,
-            provider: sources.find((x) => x.id === f.id)?.provider ?? 'github',
-          }))}
+          agentsError={agentsError}
+          sources={wizardSources}
           ingestHost={ingestHost}
+          allowRouting
           onCreate={createFromWizard}
           onClose={() => setWizardOpen(false)}
         />

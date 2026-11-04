@@ -1,31 +1,31 @@
 /**
  * Integration tests for GET /api/agents/runs and GET /api/agents/types/{typeId}/runs.
  *
- * MSW stands in for orbit-agents and records the query each route sends upstream.
+ * MSW stands in for kora-agents and records the query each route sends upstream.
  * Name resolution is mocked; it has its own tests.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { NextRequest } from 'next/server';
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 
-vi.mock('@orbit/server/config', () => ({
-  config: { orbitAgentsUrl: 'http://test-agents' },
+vi.mock('@runkora/server/config', () => ({
+  config: { koraAgentsUrl: 'http://test-agents' },
 }));
 
-vi.mock('@orbit/server/session', () => ({
+vi.mock('@runkora/server/session', () => ({
   getSession: vi.fn(),
   isSessionValid: vi.fn().mockReturnValue(true),
 }));
 
-vi.mock('@orbit/server/services/identity-server', () => ({
+vi.mock('@runkora/server/services/identity-server', () => ({
   resolveUserDisplayNames: vi.fn(),
 }));
 
 import { GET } from './route';
 import { GET as GET_FOR_TYPE } from '../types/[typeId]/runs/route';
-import { getSession, isSessionValid } from '@orbit/server/session';
-import { resolveUserDisplayNames } from '@orbit/server/services/identity-server';
+import { getSession, isSessionValid } from '@runkora/server/session';
+import { resolveUserDisplayNames } from '@runkora/server/services/identity-server';
 
 const RUNS_URL = 'http://test-agents/api/v1/runs';
 

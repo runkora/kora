@@ -1,12 +1,18 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
-import { agentsClient } from '@orbit/server/agents-client';
-import { ApiError } from '@orbit/server/client';
-import { resolveUserDisplayNames } from '@orbit/server/services/identity-server';
-import type { Run, RunWithAttribution, AgentType } from '@orbit/shared/api';
+import { withAuth } from '@runkora/server/route-helpers';
+import { agentsClient } from '@runkora/server/agents-client';
+import { ApiError } from '@runkora/server/client';
+import { resolveUserDisplayNames } from '@runkora/server/services/identity-server';
+import type { Run, RunWithAttribution, AgentType } from '@runkora/shared/api';
 
 type Params = { runId: string };
+
+// Fills the chart's trace URL template with the run's trace ID; null when either is missing.
+function traceUrl(traceId: string | null | undefined): string | null {
+  const template = process.env.KORA_TRACE_URL_TEMPLATE;
+  return template && traceId ? template.replaceAll('{trace_id}', traceId) : null;
+}
 
 export const GET = withAuth(
   async (_req: NextRequest, session, context?: { params: Promise<Params> }) => {
@@ -27,7 +33,18 @@ export const GET = withAuth(
         ...run,
         created_by_name: names.get(run.created_by) ?? null,
       };
-      return NextResponse.json({ data, agent_type: agentType });
+      // Steering needs run access to the agent. A delegated run is also its starter's alone.
+      // Null when the agent type is unreadable: the page then leaves the decision to the API.
+      const canSteer = agentType
+        ? !!agentType.can_run &&
+          (agentType.identity_mode !== 'delegated' || run.created_by === session.user.sub)
+        : null;
+      return NextResponse.json({
+        data,
+        agent_type: agentType,
+        can_steer: canSteer,
+        trace_url: traceUrl(run.trace_id),
+      });
     } catch (err) {
       if (err instanceof ApiError) {
         return NextResponse.json({ code: err.code, message: err.message }, { status: err.status });

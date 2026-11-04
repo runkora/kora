@@ -69,8 +69,8 @@ func TestIngest_Accepted_NoTriggerSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
-	if out != IngestAccepted {
-		t.Errorf("outcome = %v, want IngestAccepted", out)
+	if out.Outcome != IngestAccepted {
+		t.Errorf("outcome = %v, want IngestAccepted", out.Outcome)
 	}
 	// The fan-out re-derives the delivery when it finishes, which is the signal
 	// that it ran at all. Nothing matched, so it recorded no outcomes.
@@ -92,7 +92,7 @@ func TestIngest_Duplicate_RecordsLinkedRow(t *testing.T) {
 	body := prBody("opened", "main")
 	h := sign(src.Secret, body)
 
-	if out, _ := svc.Ingest(context.Background(), src.ID, h, body); out != IngestAccepted {
+	if out, _ := svc.Ingest(context.Background(), src.ID, h, body); out.Outcome != IngestAccepted {
 		t.Fatalf("first delivery should be accepted")
 	}
 	original := deps.repo.lastDelivery()
@@ -101,8 +101,8 @@ func TestIngest_Duplicate_RecordsLinkedRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ingest(dup): %v", err)
 	}
-	if out != IngestDuplicate {
-		t.Errorf("redelivery outcome = %v, want IngestDuplicate", out)
+	if out.Outcome != IngestDuplicate {
+		t.Errorf("redelivery outcome = %v, want IngestDuplicate", out.Outcome)
 	}
 
 	all := deps.repo.allDeliveries()
@@ -329,7 +329,7 @@ func TestDispatch_StartRunError_Failed(t *testing.T) {
 
 func TestDispatch_DelegatedStartRefusal_RecordsReason(t *testing.T) {
 	// Defense in depth for a trigger that predates the identity model (or a
-	// race): if orbit-agents' run-start principal gate refuses the SERVICE
+	// race): if kora-agents' run-start principal gate refuses the SERVICE
 	// start with the delegated-identity 403, the delivery must record that
 	// reason legibly — the upstream body flows into the delivery error via the
 	// agents client's error wrapping, not as an opaque 403.
@@ -339,6 +339,7 @@ func TestDispatch_DelegatedStartRefusal_RecordsReason(t *testing.T) {
 	deps.repo.mu.Lock()
 	for _, tr := range deps.repo.triggers {
 		tr.CreatedAt = time.Now().Add(-2 * time.Hour)
+		tr.UpdatedAt = tr.CreatedAt
 	}
 	deps.repo.mu.Unlock()
 	deps.agents.status = http.StatusForbidden
@@ -569,7 +570,7 @@ func TestDispatch_ManuallyDisabledTrigger_RecordsNothing(t *testing.T) {
 	src := mustSource(t, deps.sources)
 	off := mustWebhookTrigger(t, deps.triggers, src.ID, "off", true)
 	enabled := false
-	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, off.ID, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
+	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, off.ID, nil, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 
@@ -621,7 +622,7 @@ func TestIngest_RefusesAReplayedBodyUnderAFreshDeliveryID(t *testing.T) {
 	body := prBody("opened", "main")
 
 	h := sign(src.Secret, body)
-	if out, err := svc.Ingest(context.Background(), src.ID, h, body); err != nil || out != IngestAccepted {
+	if out, err := svc.Ingest(context.Background(), src.ID, h, body); err != nil || out.Outcome != IngestAccepted {
 		t.Fatalf("first delivery = %v, %v; want accepted", out, err)
 	}
 
@@ -649,8 +650,8 @@ func TestIngest_AGenuineRetryIsStillADuplicateNotAReplay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retry = %v, want it handled as a duplicate", err)
 	}
-	if out != IngestDuplicate {
-		t.Errorf("retry outcome = %v, want IngestDuplicate", out)
+	if out.Outcome != IngestDuplicate {
+		t.Errorf("retry outcome = %v, want IngestDuplicate", out.Outcome)
 	}
 }
 
@@ -679,11 +680,34 @@ func TestIngest_CountsWhatGotThroughAsWellAsWhatDidNot(t *testing.T) {
 	}
 }
 
-// A grant minted moments ago is not yet visible to orbit-agents; the fire that
+// A grant minted moments ago is not yet visible to kora-agents; the fire that
 // follows must not fail for that reason alone.
 func TestStartRun_RetriesWhileAYoungGrantPropagates(t *testing.T) {
 	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")
 	deps.agents.statusOnce = http.StatusForbidden // one refusal, as an unpolled bundle gives
+	adapter, _ := mustRegistry().Get(ProviderGitHub)
+
+	svc.dispatch(context.Background(), src, adapter, arrival{deliveryID: delID, eventType: "pull_request", body: prBody("opened", "main")})
+	drainPending(t, svc, deps.repo)
+
+	if got := deps.agents.callCount(); got < 2 {
+		t.Fatalf("call count = %d, want a retry after the refusal", got)
+	}
+	if got := deps.repo.deliveryByID(delID).Status; got != StatusDispatched {
+		t.Errorf("status = %q, want dispatched once the grant landed", got)
+	}
+}
+
+// A routing update can replace an old trigger's grant, so the window runs from
+// the update as well as the creation.
+func TestStartRun_RetriesAGrantReplacedByAnUpdate(t *testing.T) {
+	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")
+	deps.repo.mu.Lock()
+	for _, tr := range deps.repo.triggers {
+		tr.CreatedAt, tr.UpdatedAt = time.Now().Add(-2*time.Hour), time.Now()
+	}
+	deps.repo.mu.Unlock()
+	deps.agents.statusOnce = http.StatusForbidden
 	adapter, _ := mustRegistry().Get(ProviderGitHub)
 
 	svc.dispatch(context.Background(), src, adapter, arrival{deliveryID: delID, eventType: "pull_request", body: prBody("opened", "main")})
@@ -705,6 +729,7 @@ func TestStartRun_DoesNotRetryAnEstablishedTrigger(t *testing.T) {
 	deps.repo.mu.Lock()
 	for _, tr := range deps.repo.triggers {
 		tr.CreatedAt = time.Now().Add(-2 * time.Hour)
+		tr.UpdatedAt = tr.CreatedAt
 	}
 	deps.repo.mu.Unlock()
 	deps.agents.status = http.StatusForbidden
@@ -737,8 +762,8 @@ func TestIngest_EnqueuesBeforeAcknowledging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
-	if outcome != IngestAccepted {
-		t.Fatalf("outcome = %v, want IngestAccepted", outcome)
+	if outcome.Outcome != IngestAccepted {
+		t.Fatalf("outcome = %v, want IngestAccepted", outcome.Outcome)
 	}
 
 	// No waitFor: the enqueue is synchronous, so the durable pending row must

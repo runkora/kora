@@ -1,14 +1,14 @@
 'use client';
 
 /**
- * @orbit/hades
+ * @runkora/hades
  *
  * kora is another name for Persephone, who lives half the year in Olympus and
  * half in the underworld. Hades is the underworld half of kora: the tokens and
  * primitives beneath every screen.
  *
  * Import the token stylesheet separately in your app's global CSS:
- *   @import "@orbit/hades/src/tokens/tokens.css";
+ *   @import "@runkora/hades/src/tokens/tokens.css";
  *
  * The banners below are load-bearing: an atom is a single element with no
  * internal composition, a molecule composes atoms into one reusable unit, an
@@ -28,10 +28,8 @@ export { Callout } from './components/callout';
 export type { CalloutProps } from './components/callout';
 
 export { Icon } from './components/icon';
-export { KoraLogo } from './components/kora-logo';
-export type { KoraLogoProps } from './components/kora-logo';
-export { KoraMark } from './components/kora-mark';
-export type { KoraMarkProps } from './components/kora-mark';
+export { BrandLogo } from './components/brand-logo';
+export type { BrandLogoProps } from './components/brand-logo';
 export type {
   IconProps,
   IconName,
@@ -403,9 +401,6 @@ export type {
   DataTableServerFilter,
   DataTableFilterOption,
 } from './components/data-table';
-
-export { ViewToggle } from './components/view-toggle';
-export type { ViewToggleProps } from './components/view-toggle';
 
 // ─── Hooks ───────────────────────────────────────────────────────────────────
 

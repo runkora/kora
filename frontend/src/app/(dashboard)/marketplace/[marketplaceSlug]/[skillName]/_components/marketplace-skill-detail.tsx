@@ -3,8 +3,8 @@
 /** @tier 3 — marketplace/[marketplaceSlug]/[skillName]-scoped. Read-only presentation of one Skill's details. */
 
 import { useMemo, useState } from 'react';
-import { Card, CardContent, CodeBlock, IconTile, Stack, Text } from '@orbit/hades';
-import type { Skill } from '@orbit/shared/api';
+import { Card, CardContent, CodeBlock, IconTile, Stack, Text } from '@runkora/hades';
+import type { Skill } from '@runkora/shared/api';
 import { SkillFileExplorer } from './skill-file-explorer';
 import type { ExplorerFile } from './skill-file-explorer';
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { screen } from '@testing-library/react';
-import { renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@runkora/test-utils';
 import { ProvidersSection } from './providers-section';
 import type { ProviderStatusWire } from '../../_services/catalog-server';
 

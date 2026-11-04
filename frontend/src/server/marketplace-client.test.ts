@@ -7,9 +7,9 @@
  * and to marketplace-server.ts, not to this client.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { MarketplaceDetail, SkillSummary } from '@orbit/shared/api';
+import type { MarketplaceDetail, SkillSummary } from '@runkora/shared/api';
 
-vi.mock('@orbit/server/config', () => ({
+vi.mock('@runkora/server/config', () => ({
   config: { skillsServiceUrl: 'http://skills-service.test/v1' },
 }));
 

@@ -2,10 +2,11 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Alert, CodeBlock, Icon, Stack, Text } from '@orbit/hades';
-import { SmartTable, StatusBadge } from '@orbit/components';
-import type { DataTableColumn } from '@orbit/components';
-import { fmtDate } from '@orbit/utils';
+import { Alert, CodeBlock, Icon, Stack, Text } from '@runkora/hades';
+import { useBrand } from '@runkora/theme/brand-provider';
+import { SmartTable, StatusBadge } from '@runkora/components';
+import type { DataTableColumn } from '@runkora/components';
+import { fmtDate } from '@runkora/utils';
 import type { ProviderStatusWire } from '../../_services/catalog-server';
 import { ProviderBadge } from './provider-badge';
 
@@ -14,11 +15,11 @@ interface ProvidersSectionProps {
   error?: string | null;
 }
 
-const EXAMPLE = `apiVersion: orbit.io/v1alpha1
+const EXAMPLE = `apiVersion: runkora.io/v1alpha1
 kind: InferenceProvider
 metadata:
   name: openrouter
-  namespace: orbit-system
+  namespace: kora-system
 spec:
   type: compatible
   compatible:
@@ -37,6 +38,7 @@ function providerMatchesSearch(p: ProviderStatusWire, q: string): boolean {
 }
 
 export function ProvidersSection({ providers, error }: ProvidersSectionProps) {
+  const { productName } = useBrand();
   const columns = useMemo<DataTableColumn<ProviderStatusWire>[]>(
     () => [
       {
@@ -161,8 +163,9 @@ export function ProvidersSection({ providers, error }: ProvidersSectionProps) {
     return (
       <Stack gap="snug">
         <Text size="supporting" color="muted">
-          No providers are registered. Apply an InferenceProvider resource in the kora system
-          namespace, with its API key in a Secret labelled orbit.io/inference-provider=true.
+          No providers are registered. Apply an InferenceProvider resource in the {productName}{' '}
+          system namespace, with its API key in a Secret labelled
+          runkora.io/inference-provider=true.
         </Text>
         <CodeBlock text={EXAMPLE} filename="openrouter.yaml" />
       </Stack>

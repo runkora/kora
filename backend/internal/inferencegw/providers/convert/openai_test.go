@@ -11,8 +11,8 @@ import (
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go/v3"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/convert"
 )
 
 // newAnthropicAPIError constructs a valid *anthropic.Error with the given HTTP
@@ -761,5 +761,32 @@ func TestMapAnthropicError_HTTPStatusPreserved(t *testing.T) {
 				t.Errorf("HTTPStatus = %d, want %d", connErr.HTTPStatus, tc.statusCode)
 			}
 		})
+	}
+}
+
+func TestMapAnthropicError_RequestRejected(t *testing.T) {
+	t.Parallel()
+	for status, want := range map[int]bool{400: true, 422: true, 401: false, 404: false, 429: false, 503: false} {
+		got := convert.MapAnthropicError(inferencegw.ProviderBedrock, newAnthropicAPIError(status))
+		var connErr *inferencegw.ConnectorError
+		if !errors.As(got, &connErr) {
+			t.Fatalf("status %d: expected *ConnectorError, got %T", status, got)
+		}
+		if connErr.RequestRejected != want {
+			t.Errorf("status %d: RequestRejected = %v, want %v", status, connErr.RequestRejected, want)
+		}
+	}
+}
+
+func TestMapAnthropicError_StreamingRequiredNotRetryable(t *testing.T) {
+	t.Parallel()
+	err := errors.New("streaming is required for operations that may take longer than 10 minutes")
+	got := convert.MapAnthropicError(inferencegw.ProviderBedrock, err)
+	var connErr *inferencegw.ConnectorError
+	if !errors.As(got, &connErr) {
+		t.Fatalf("expected *ConnectorError, got %T", got)
+	}
+	if connErr.Retryable {
+		t.Error("Retryable = true, want false")
 	}
 }

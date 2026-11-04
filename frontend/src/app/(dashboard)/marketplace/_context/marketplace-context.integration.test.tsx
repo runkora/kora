@@ -18,7 +18,7 @@ import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
-import { renderWithProviders, server } from '@orbit/test-utils';
+import { renderWithProviders, server } from '@runkora/test-utils';
 import { PreferencesProvider } from '../../_preferences/preferences-context';
 import { PREFERENCE_DEFAULTS, type UserPreferences } from '../../_preferences/preferences.schema';
 import type { MarketplaceStateShape } from '../_hooks/use-marketplace';

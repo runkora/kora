@@ -1,0 +1,351 @@
+package main
+
+// kora-shell is the Bash proxy that routes the agent's command execution into the
+// per-run sandbox pod. It is wired in as Claude Code's shell via CLAUDE_CODE_SHELL.
+//
+// Wiring note: Claude Code IGNORES $SHELL and resolves its Bash-tool shell from
+// CLAUDE_CODE_SHELL, which it only honors when the path's basename is a known shell
+// (bash/zsh/fish) — any other basename (e.g. "kora-shell") is silently rejected and
+// Claude falls back to /bin/bash. So the deploy image exposes this binary under a
+// "bash" basename symlink (/opt/kora/shell/bash) and sets CLAUDE_CODE_SHELL to it.
+// This was validated empirically against the real claude binary.
+//
+// It checks $WORKSPACE/.sandbox-exec/endpoint on every invocation and streams the
+// command to the gRPC exec server in the run's sandbox pod. Without a sandbox it
+// refuses the command. Nothing runs in the agent container.
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/runkora/kora/backend/internal/agents/sandbox/execauth"
+	execpb "github.com/runkora/kora/backend/internal/agents/sandbox/proto"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+)
+
+func main() {
+	sb := readSandbox()
+
+	// Ask the session-manager when the descriptor is missing. The agent can delete
+	// it from its own workspace, so its absence does not mean there is no sandbox.
+	if sb.endpoint == "" || sb.token == "" {
+		fresh, provisioned, err := fetchSandbox()
+		switch {
+		case err != nil:
+			log.Fatalf("kora-shell: cannot determine this run's sandbox: %v", err)
+		case !provisioned:
+			refuse(errNoSandbox)
+		default:
+			sb = fresh
+		}
+	}
+
+	runRemote(sb)
+}
+
+// sandbox is where this run's exec server listens and the token it requires.
+type sandbox struct {
+	endpoint string
+	token    string
+}
+
+// readSandbox reads this run's sandbox address and exec token from its workspace.
+// Landlock confines this process to that directory, so a sibling run's token is
+// out of reach. Missing files yield a zero sandbox; the caller decides what that
+// means.
+func readSandbox() sandbox {
+	workspace := os.Getenv("WORKSPACE")
+	if workspace == "" {
+		return sandbox{}
+	}
+	dir := filepath.Join(workspace, runfs.ExecDir)
+	return sandbox{
+		endpoint: readTrimmed(filepath.Join(dir, runfs.EndpointFile)),
+		token:    readTrimmed(filepath.Join(dir, runfs.ExecTokenFile)),
+	}
+}
+
+// runTokenHeader carries this run's credential to the session-manager. It must
+// match sessionmanager.runTokenHeader.
+const runTokenHeader = "X-Kora-Run-Token"
+
+// provisionTimeout sits above the session-manager's worst case for a provision
+// (its retry budget, at most 600s, plus the 90s egress canary), so its verdict
+// arrives. kora-runtime-mcp uses the same bound.
+const provisionTimeout = 720 * time.Second
+
+// readTrimmed returns the file's trimmed contents, or empty if it cannot be read.
+func readTrimmed(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// The agent reads these as the command's output. They tell it what to do next.
+const (
+	errNoSandbox   = "kora-shell: this run has no sandbox. Commands run only in a sandbox. Call the provision_sandbox tool, then run the command again."
+	errInteractive = "kora-shell: interactive shells are not supported. Pass the command with -c."
+)
+
+// refuse reports why the command did not run and exits non-zero.
+func refuse(reason string) {
+	fmt.Fprintln(os.Stderr, reason)
+	os.Exit(1)
+}
+
+// runRemote streams the command to the sandbox gRPC exec server.
+//
+// If the sandbox is unreachable (the pod died/was evicted, leaving a stale
+// endpoint), execOne returns an infra error. Rather than failing the command —
+// which would wedge the run — we ask the session-manager to re-provision the sandbox,
+// re-read the freshly written endpoint, and retry once. The endpoint workspace
+// files survive on the shared volume, so a replacement sandbox resumes against
+// the same workspace. A normal non-zero command exit is NOT an infra error and
+// never triggers a retry.
+func runRemote(sb sandbox) {
+	command := parseCommand()
+	if command == "" {
+		refuse(errInteractive)
+	}
+
+	exitCode, err := execOne(sb, command)
+	if err == nil {
+		os.Exit(exitCode)
+	}
+
+	// Sandbox unreachable: re-provision once and retry. A replacement pod has a
+	// new token, so the retry reads the freshly written pair.
+	fresh, reErr := reprovisionSandbox()
+	if reErr != nil {
+		log.Fatalf("kora-shell: sandbox unreachable (%v) and re-provision failed: %v", err, reErr)
+	}
+	exitCode, err = execOne(fresh, command)
+	if err != nil {
+		log.Fatalf("kora-shell: sandbox unreachable after re-provision: %v", err)
+	}
+	os.Exit(exitCode)
+}
+
+// execOne dials the sandbox and streams a single command. It returns the
+// command's exit code on success. It returns a non-nil error ONLY for
+// infrastructure failures (dial/Execute/Recv) that indicate the sandbox is
+// unreachable — a command that runs and exits non-zero is a success here, with
+// its code returned via exitCode.
+func execOne(sb sandbox, command string) (exitCode int, err error) {
+	conn, err := grpc.NewClient(sb.endpoint, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return 0, fmt.Errorf("dial %s: %w", sb.endpoint, err)
+	}
+	defer conn.Close() //nolint:errcheck
+
+	client := execpb.NewExecServiceClient(conn)
+	req := &execpb.ExecuteRequest{
+		Command:    command,
+		WorkingDir: workingDir(),
+	}
+
+	stream, err := client.Execute(execContext(sb.token), req)
+	if err != nil {
+		return 0, fmt.Errorf("execute: %w", err)
+	}
+
+	for {
+		resp, recvErr := stream.Recv()
+		if errors.Is(recvErr, io.EOF) {
+			break
+		}
+		if recvErr != nil {
+			return 0, fmt.Errorf("recv: %w", recvErr)
+		}
+		switch v := resp.Output.(type) {
+		case *execpb.ExecuteResponse_Stdout:
+			os.Stdout.Write(v.Stdout) //nolint:errcheck
+		case *execpb.ExecuteResponse_Stderr:
+			os.Stderr.Write(v.Stderr) //nolint:errcheck
+		case *execpb.ExecuteResponse_ExitCode:
+			exitCode = int(v.ExitCode)
+		}
+	}
+	return exitCode, nil
+}
+
+// fetchSandbox asks the session-manager for this run's sandbox. The bool reports
+// whether the run has one at all, which is false for a run that never asked.
+//
+// A missing KORA_SESSION_MANAGER_URL or KORA_RUN_ID is an error, not an
+// absent sandbox. reprovisionSandbox treats the same condition as fatal.
+func fetchSandbox() (sandbox, bool, error) {
+	smURL := os.Getenv("KORA_SESSION_MANAGER_URL")
+	runID := os.Getenv("KORA_RUN_ID")
+	if smURL == "" || runID == "" {
+		return sandbox{}, false, fmt.Errorf("missing KORA_SESSION_MANAGER_URL/KORA_RUN_ID")
+	}
+
+	url := fmt.Sprintf("%s/internal/session/%s/sandbox", smURL, runID)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return sandbox{}, false, fmt.Errorf("build sandbox request: %w", err)
+	}
+	req.Header.Set(runTokenHeader, os.Getenv("KORA_RUN_TOKEN"))
+	setTraceParent(req.Header)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return sandbox{}, false, fmt.Errorf("get sandbox: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode == http.StatusNotFound {
+		return sandbox{}, false, nil
+	}
+	if resp.StatusCode/100 != 2 {
+		return sandbox{}, false, fmt.Errorf("get sandbox returned %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Endpoint  string `json:"endpoint"`
+		ExecToken string `json:"exec_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return sandbox{}, false, fmt.Errorf("decode sandbox: %w", err)
+	}
+	if body.Endpoint == "" || body.ExecToken == "" {
+		return sandbox{}, false, fmt.Errorf("session-manager returned an incomplete sandbox")
+	}
+	return sandbox{endpoint: body.Endpoint, token: body.ExecToken}, true, nil
+}
+
+// reprovisionSandbox asks the session-manager to (re)provision the run's sandbox
+// and returns the fresh gRPC endpoint. The session-manager liveness-checks the
+// existing endpoint and replaces a dead sandbox, then rewrites
+// $WORKSPACE/.sandbox-exec/endpoint, which we re-read here.
+func reprovisionSandbox() (sandbox, error) {
+	smURL := os.Getenv("KORA_SESSION_MANAGER_URL")
+	runID := os.Getenv("KORA_RUN_ID")
+	if smURL == "" || runID == "" {
+		return sandbox{}, fmt.Errorf("missing KORA_SESSION_MANAGER_URL/KORA_RUN_ID")
+	}
+
+	url := fmt.Sprintf("%s/internal/session/%s/provision-sandbox", smURL, runID)
+	ctx, cancel := context.WithTimeout(context.Background(), provisionTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return sandbox{}, fmt.Errorf("build provision request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(runTokenHeader, os.Getenv("KORA_RUN_TOKEN"))
+	setTraceParent(req.Header)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return sandbox{}, fmt.Errorf("post provision-sandbox: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode/100 != 2 {
+		// The session-manager words a lost sandbox for the model; pass it through.
+		var apiErr struct {
+			Message string `json:"message"`
+		}
+		if json.NewDecoder(resp.Body).Decode(&apiErr) == nil && apiErr.Message != "" {
+			return sandbox{}, errors.New(apiErr.Message)
+		}
+		return sandbox{}, fmt.Errorf("provision-sandbox returned %d", resp.StatusCode)
+	}
+	// Drain the body so the connection can be reused / cleanly closed.
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return sandbox{}, fmt.Errorf("drain provision response: %w", err)
+	}
+
+	sb := readSandbox()
+	if sb.endpoint == "" || sb.token == "" {
+		return sandbox{}, fmt.Errorf("sandbox endpoint or exec token still missing after re-provision")
+	}
+	return sb, nil
+}
+
+// parseCommand extracts the command string bash would run for a `-c` invocation.
+//
+// It must match bash's real option grammar, not just "the arg after -c". bash parses
+// ALL leading options first, then takes the FIRST non-option operand as the command
+// string. Claude Code invokes its shell as `bash -c -l "<command>"` (and variants like
+// `bash -c -l "SNAPSHOT_FILE=…; …"`), so the command is the first operand — NOT the arg
+// immediately after `-c`, which is the `-l` flag. Getting this wrong shipped "-l" to the
+// sandbox and produced `/bin/bash: -c: option requires an argument`.
+//
+// Returns "" when there is no `-c` (interactive or non-command invocation), which the
+// caller refuses.
+func parseCommand() string {
+	return parseCommandArgs(os.Args[1:])
+}
+
+// parseCommandArgs is the testable core of parseCommand; args excludes argv[0].
+func parseCommandArgs(args []string) string {
+	commandMode := false
+	endOfOptions := false
+	for _, arg := range args {
+		switch {
+		case endOfOptions:
+			// First operand after `--`.
+			if commandMode {
+				return arg
+			}
+			return ""
+		case arg == "--":
+			endOfOptions = true
+		case strings.HasPrefix(arg, "--"):
+			// Long option (e.g. --norc, --login) — never the -c command flag.
+			continue
+		case strings.HasPrefix(arg, "-"):
+			// Short-option bundle (e.g. -c, -l, -lc). A 'c' selects command mode.
+			if strings.ContainsRune(arg, 'c') {
+				commandMode = true
+			}
+		default:
+			// First non-option operand: this is the command string in -c mode.
+			if commandMode {
+				return arg
+			}
+			return ""
+		}
+	}
+	return ""
+}
+
+func workingDir() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "kora-shell: getwd: %v\n", err)
+	}
+	return wd
+}
+
+// setTraceParent puts a session-manager call in the run's trace via Claude Code's TRACEPARENT.
+func setTraceParent(h http.Header) {
+	if tp := os.Getenv("TRACEPARENT"); tp != "" {
+		h.Set("traceparent", tp)
+	}
+}
+
+// execContext authenticates a sandbox exec call and carries the run's trace in its metadata.
+func execContext(token string) context.Context {
+	ctx := execauth.WithToken(context.Background(), token)
+	if tp := os.Getenv("TRACEPARENT"); tp != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, "traceparent", tp)
+	}
+	return ctx
+}

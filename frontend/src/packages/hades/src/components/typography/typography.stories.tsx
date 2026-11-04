@@ -263,7 +263,7 @@ export const CodeStyles: Story = {
           name="highlight"
           use="A named value that needs attention, such as an environment variable."
         >
-          <Code variant="highlight">ORBIT_API_KEY</Code>
+          <Code variant="highlight">KORA_API_KEY</Code>
         </Row>
       </Table>
     </div>

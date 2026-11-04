@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { dashboardPage } from '@orbit/storybook/dashboard-frame';
+import { dashboardPage } from '@runkora/storybook/dashboard-frame';
 import { UsageTab } from '../usage/_components/usage-tab';
 
 /** The legacy usage view. It renders from built-in sample data, so it takes no props. */

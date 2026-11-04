@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-# create-secrets.sh — Create per-namespace orbit-secrets in the local cluster
+# create-secrets.sh — Create per-namespace kora-secrets in the local cluster
 #
 # Usage:
 #   bash create-secrets.sh                    # all namespaces
-#   bash create-secrets.sh orbit-system       # platform secrets only
-#   bash create-secrets.sh orbit-tenant-example  # tenant secrets only
+#   bash create-secrets.sh kora-system       # platform secrets only
+#   bash create-secrets.sh kora-tenant-example  # tenant secrets only
 #
 # Each namespace block declares exactly the secrets it needs — no more.
 # To add a new tenant namespace: add a create_secret block in the tenant
@@ -16,14 +16,14 @@
 #
 # Required environment variables (loaded from .env by the Makefile):
 #   DB_PASSWORD              Postgres password
-#   REDIS_PASSWORD           Redis password           (orbit-system only)
-#   BFF_SESSION_SECRET       Frontend session secret  (orbit-system only, min 32 chars)
-#   ORBIT_TRIGGERS_ENCRYPTION_KEY  At-rest key for webhook signing secrets (base64, 32 bytes)
-#   ORBIT_OIDC_CLIENT_SECRET Dex client secret        (optional — public client)
+#   REDIS_PASSWORD           Redis password           (kora-system only)
+#   BFF_SESSION_SECRET       Frontend session secret  (kora-system only, min 32 chars)
+#   KORA_TRIGGERS_ENCRYPTION_KEY  At-rest key for webhook signing secrets (base64, 32 bytes)
+#   KORA_OIDC_CLIENT_SECRET Dex client secret        (optional — public client)
 #
 # Required files:
-#   secrets/signing.key      RSA private key for JWT signing (orbit-system only)
-#   secrets/orbit-github-app.pem  GitHub App private key for skills-service (orbit-system only)
+#   secrets/signing.key      RSA private key for JWT signing (kora-system only)
+#   secrets/kora-github-app.pem  GitHub App private key for skills-service (kora-system only)
 # =============================================================================
 set -euo pipefail
 
@@ -54,19 +54,19 @@ should_run() {
 # =============================================================================
 # create_secret <namespace> [kubectl secret flags...]
 #
-# Wraps kubectl create secret generic orbit-secrets with --dry-run=client so
+# Wraps kubectl create secret generic kora-secrets with --dry-run=client so
 # the apply is fully idempotent — creates on first run, patches on subsequent.
 # =============================================================================
 create_secret() {
   local namespace="$1"
   shift  # remaining args are --from-literal / --from-file flags
 
-  kubectl create secret generic orbit-secrets \
+  kubectl create secret generic kora-secrets \
     --namespace "${namespace}" \
     "$@" \
     --dry-run=client -o yaml | kubectl apply -f -
 
-  ok "orbit-secrets in ${namespace}"
+  ok "kora-secrets in ${namespace}"
 }
 
 # ── Preflight ─────────────────────────────────────────────────────────────────
@@ -74,14 +74,14 @@ step "Checking prerequisites"
 
 [[ -n "${DB_PASSWORD:-}" ]] || fail "DB_PASSWORD is not set"
 
-if should_run "orbit-system"; then
+if should_run "kora-system"; then
   [[ -f "${SECRETS_DIR}/signing.key" ]] \
     || fail "secrets/signing.key not found — run 'make gen-signing-key' first"
   # skills-service reads this key at startup and exits without it. Its pod would
-  # never become Ready and the orbit release's --wait would run out its 10
+  # never become Ready and the kora release's --wait would run out its 10
   # minutes before reporting anything, so stop here instead.
-  [[ -f "${SECRETS_DIR}/orbit-github-app.pem" ]] \
-    || fail "secrets/orbit-github-app.pem not found — skills-service cannot start without the GitHub App key"
+  [[ -f "${SECRETS_DIR}/kora-github-app.pem" ]] \
+    || fail "secrets/kora-github-app.pem not found — skills-service cannot start without the GitHub App key"
   # The IDs come from the local github Connection so the App is named in one place.
   GITHUB_CONNECTION="${REPO_ROOT}/deploy/local/connections/github.yaml"
   GITHUB_APP_ID="$(yq '.spec.config.app_id' "${GITHUB_CONNECTION}")"
@@ -89,12 +89,12 @@ if should_run "orbit-system"; then
   [[ "${GITHUB_APP_ID}" =~ ^[0-9]+$ && "${GITHUB_APP_INSTALLATION_ID}" =~ ^[0-9]+$ ]] \
     || fail "could not read numeric app_id and installation_id from deploy/local/connections/github.yaml"
   [[ -n "${REDIS_PASSWORD:-}" ]] \
-    || fail "REDIS_PASSWORD is not set (required for orbit-system)"
+    || fail "REDIS_PASSWORD is not set (required for kora-system)"
   [[ -n "${BFF_SESSION_SECRET:-}" ]] \
     || fail "BFF_SESSION_SECRET is not set. 'make setup' generates it into .env"
   [[ ${#BFF_SESSION_SECRET} -ge 32 ]] \
     || fail "BFF_SESSION_SECRET must be at least 32 characters (got ${#BFF_SESSION_SECRET})"
-  # orbit-triggers refuses to start without this: it encrypts every webhook
+  # kora-triggers refuses to start without this: it encrypts every webhook
   # source's signing secret at rest, and there is deliberately no in-code
   # fallback to boot without one.
   #
@@ -102,75 +102,75 @@ if should_run "orbit-system"; then
   # predates this key does not stop mid-`make up`. It cannot come from `make
   # env`: the Makefile parses .env once at startup, so a key appended during the
   # same run is invisible to this script's environment.
-  if [[ -z "${ORBIT_TRIGGERS_ENCRYPTION_KEY:-}" ]]; then
+  if [[ -z "${KORA_TRIGGERS_ENCRYPTION_KEY:-}" ]]; then
     ENV_FILE="${REPO_ROOT}/.env"
-    if [[ -f "$ENV_FILE" ]] && grep -q '^ORBIT_TRIGGERS_ENCRYPTION_KEY=' "$ENV_FILE"; then
-      ORBIT_TRIGGERS_ENCRYPTION_KEY=$(grep '^ORBIT_TRIGGERS_ENCRYPTION_KEY=' "$ENV_FILE" | cut -d= -f2-)
+    if [[ -f "$ENV_FILE" ]] && grep -q '^KORA_TRIGGERS_ENCRYPTION_KEY=' "$ENV_FILE"; then
+      KORA_TRIGGERS_ENCRYPTION_KEY=$(grep '^KORA_TRIGGERS_ENCRYPTION_KEY=' "$ENV_FILE" | cut -d= -f2-)
     else
-      ORBIT_TRIGGERS_ENCRYPTION_KEY=$(openssl rand -base64 32)
+      KORA_TRIGGERS_ENCRYPTION_KEY=$(openssl rand -base64 32)
       {
         printf '\n%s\n' "# At-rest key for webhook signing secrets, generated on first use."
-        printf '%s\n' "ORBIT_TRIGGERS_ENCRYPTION_KEY=${ORBIT_TRIGGERS_ENCRYPTION_KEY}"
+        printf '%s\n' "KORA_TRIGGERS_ENCRYPTION_KEY=${KORA_TRIGGERS_ENCRYPTION_KEY}"
       } >> "$ENV_FILE"
-      warn "generated ORBIT_TRIGGERS_ENCRYPTION_KEY into .env"
+      warn "generated KORA_TRIGGERS_ENCRYPTION_KEY into .env"
       warn "webhook sources created before this used a built-in dev key and can no longer be decrypted; rotate their secrets"
     fi
-    export ORBIT_TRIGGERS_ENCRYPTION_KEY
+    export KORA_TRIGGERS_ENCRYPTION_KEY
   fi
-  [[ $(printf %s "${ORBIT_TRIGGERS_ENCRYPTION_KEY}" | base64 -d 2>/dev/null | wc -c) -eq 32 ]] \
-    || fail "ORBIT_TRIGGERS_ENCRYPTION_KEY must be base64 of exactly 32 bytes (openssl rand -base64 32)"
+  [[ $(printf %s "${KORA_TRIGGERS_ENCRYPTION_KEY}" | base64 -d 2>/dev/null | wc -c) -eq 32 ]] \
+    || fail "KORA_TRIGGERS_ENCRYPTION_KEY must be base64 of exactly 32 bytes (openssl rand -base64 32)"
 fi
 
 ok "Prerequisites satisfied"
 
-# ── orbit-system (identity service) ──────────────────────────────────────────
+# ── kora-system (identity service) ──────────────────────────────────────────
 # Needs: Postgres, Redis, RSA signing key.
-# ORBIT_OIDC_CLIENT_SECRET is optional — Dex is configured as a public client
+# KORA_OIDC_CLIENT_SECRET is optional — Dex is configured as a public client
 # for Device Grant so no secret is required. Include it only when set.
-if should_run "orbit-system"; then
-  step "Creating secrets for orbit-system"
+if should_run "kora-system"; then
+  step "Creating secrets for kora-system"
 
   IDENTITY_SECRET_ARGS=(
     --from-literal=DB_PASSWORD="${DB_PASSWORD}"
     --from-literal=REDIS_PASSWORD="${REDIS_PASSWORD}"
-    --from-file=ORBIT_TOKEN_SIGNING_KEY="${SECRETS_DIR}/signing.key"
-    --from-literal=ORBIT_TRIGGERS_ENCRYPTION_KEY="${ORBIT_TRIGGERS_ENCRYPTION_KEY}"
+    --from-file=KORA_TOKEN_SIGNING_KEY="${SECRETS_DIR}/signing.key"
+    --from-literal=KORA_TRIGGERS_ENCRYPTION_KEY="${KORA_TRIGGERS_ENCRYPTION_KEY}"
   )
-  if [[ -n "${ORBIT_OIDC_CLIENT_SECRET:-}" ]]; then
-    IDENTITY_SECRET_ARGS+=(--from-literal=ORBIT_OIDC_CLIENT_SECRET="${ORBIT_OIDC_CLIENT_SECRET}")
-    ok "ORBIT_OIDC_CLIENT_SECRET included (confidential client)"
+  if [[ -n "${KORA_OIDC_CLIENT_SECRET:-}" ]]; then
+    IDENTITY_SECRET_ARGS+=(--from-literal=KORA_OIDC_CLIENT_SECRET="${KORA_OIDC_CLIENT_SECRET}")
+    ok "KORA_OIDC_CLIENT_SECRET included (confidential client)"
   else
-    warn "ORBIT_OIDC_CLIENT_SECRET is empty — skipping (public client mode)"
+    warn "KORA_OIDC_CLIENT_SECRET is empty — skipping (public client mode)"
   fi
 
-  create_secret "orbit-system" "${IDENTITY_SECRET_ARGS[@]}"
+  create_secret "kora-system" "${IDENTITY_SECRET_ARGS[@]}"
 
-  # orbit-frontend-secrets — BFF iron-session cookie signing key.
+  # kora-frontend-secrets — BFF iron-session cookie signing key.
   # The dashboard loads this Secret whole, named by the chart's frontend.existingSecret.
-  kubectl create secret generic orbit-frontend-secrets \
-    --namespace orbit-system \
+  kubectl create secret generic kora-frontend-secrets \
+    --namespace kora-system \
     --from-literal=BFF_SESSION_SECRET="${BFF_SESSION_SECRET}" \
     --dry-run=client -o yaml | kubectl apply -f -
 
-  ok "orbit-frontend-secrets in orbit-system"
+  ok "kora-frontend-secrets in kora-system"
 
-  # orbit-skills-github-app — skills-service's GitHub App credential. The chart
+  # kora-skills-github-app — skills-service's GitHub App credential. The chart
   # mounts private-key.pem and reads both IDs from this Secret's keys.
-  kubectl create secret generic orbit-skills-github-app \
-    --namespace orbit-system \
-    --from-file=private-key.pem="${SECRETS_DIR}/orbit-github-app.pem" \
+  kubectl create secret generic kora-skills-github-app \
+    --namespace kora-system \
+    --from-file=private-key.pem="${SECRETS_DIR}/kora-github-app.pem" \
     --from-literal=GITHUB_APP_ID="${GITHUB_APP_ID}" \
     --from-literal=GITHUB_APP_INSTALLATION_ID="${GITHUB_APP_INSTALLATION_ID}" \
     --dry-run=client -o yaml | kubectl apply -f -
 
-  ok "orbit-skills-github-app in orbit-system"
+  ok "kora-skills-github-app in kora-system"
 fi
 
-# ── orbit-tenant-example (example agent) ─────────────────────────────────────
+# ── kora-tenant-example (example agent) ─────────────────────────────────────
 # Needs: Postgres only — no Redis, no OIDC client, no signing key.
-if should_run "orbit-tenant-example"; then
-  step "Creating secrets for orbit-tenant-example"
-  create_secret "orbit-tenant-example" \
+if should_run "kora-tenant-example"; then
+  step "Creating secrets for kora-tenant-example"
+  create_secret "kora-tenant-example" \
     --from-literal=DB_PASSWORD="${DB_PASSWORD}"
 fi
 
@@ -181,8 +181,8 @@ if [[ -z "${TARGET_NAMESPACE}" ]]; then
   echo -e "${GREEN}  Secrets applied to all namespaces               ${RESET}"
   echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
   echo ""
-  echo "  orbit-system         → orbit-secrets (DB + Redis + signing key) + orbit-frontend-secrets (BFF session) + orbit-skills-github-app (GitHub App key)"
-  echo "  orbit-tenant-example → DB only"
+  echo "  kora-system         → kora-secrets (DB + Redis + signing key) + kora-frontend-secrets (BFF session) + kora-skills-github-app (GitHub App key)"
+  echo "  kora-tenant-example → DB only"
 else
   echo -e "${GREEN}  Secrets applied to ${TARGET_NAMESPACE}${RESET}"
   echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"

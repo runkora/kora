@@ -6,17 +6,18 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
+	dv1 "github.com/runkora/kora/backend/internal/platform/declarative/v1alpha1"
+	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
 // AddToScheme registers the kora CRD types into a runtime.Scheme.
 // Call this on the controller-runtime manager's scheme before starting.
 func AddToScheme(s *runtime.Scheme) error {
-	// Register the concrete CRD types for orbit.io/v1alpha1.
+	// Register the concrete CRD types for runkora.io/v1alpha1.
 	s.AddKnownTypes(GroupVersion,
-		&OrbitTenant{},
-		&OrbitTenantList{},
+		&KoraTenant{},
+		&KoraTenantList{},
 		&Connection{},
 		&ConnectionList{},
 		&MCPServer{},
@@ -29,7 +30,7 @@ func AddToScheme(s *runtime.Scheme) error {
 
 	// Wire up metav1 types (ListOptions, WatchEvent, etc.) to our group version.
 	// Without this, the reflector/informer machinery cannot list or watch our CRDs
-	// and produces: "v1.ListOptions is not suitable for converting to orbit.io/v1alpha1".
+	// and produces: "v1.ListOptions is not suitable for converting to runkora.io/v1alpha1".
 	metav1.AddToGroupVersion(s, GroupVersion)
 
 	return nil
@@ -43,5 +44,6 @@ func NewScheme() *runtime.Scheme {
 	utilruntime.Must(AddToScheme(s))
 	utilruntime.Must(ip.AddToScheme(s))
 	utilruntime.Must(si.AddToScheme(s))
+	utilruntime.Must(dv1.AddToScheme(s))
 	return s
 }

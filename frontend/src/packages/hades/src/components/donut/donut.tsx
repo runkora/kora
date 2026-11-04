@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { cn } from '../../utils';
 
-/** @tier 1 — Zero Orbit domain knowledge. A ring split into proportional segments. */
+/** @tier 1 — Zero kora domain knowledge. A ring split into proportional segments. */
 
 export interface DonutSegment {
   label: string;

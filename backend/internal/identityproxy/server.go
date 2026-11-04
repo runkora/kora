@@ -28,9 +28,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/api"
 	corev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	ext_procv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
+	"github.com/runkora/kora/backend/internal/platform/api"
 	"go.opentelemetry.io/otel"
 	otelcodes "go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -40,7 +40,8 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // authorizationHeader is the canonical HTTP header name injected by the proxy.
@@ -68,7 +69,7 @@ const istioReadyURL = "http://localhost:15021/healthz/ready"
 // Processor implements ExternalProcessorServer.
 // It injects the cached platform JWT as an Authorization header on every
 // request, and — when the request carries per-run identity — the run's
-// delegation token as X-Orbit-Delegation-Token
+// delegation token as X-Kora-Delegation-Token
 // (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 4). Any inbound
 // delegation header is stripped unconditionally: the untrusted subprocess must
 // never be able to inject one. The zero-value is not usable — use NewProcessor.
@@ -142,9 +143,11 @@ func headerValue(headers *ext_procv3.HttpHeaders, key string) string {
 // handleRequestHeaders reads the cached tokens and returns a ProcessingResponse
 // that injects the Authorization header — and, when the request carries run
 // identity (the /run/{run_id} path prefix, or this pod's own sandbox SVID) and
-// that run holds an active delegation, the X-Orbit-Delegation-Token header —
+// that run holds an active delegation, the X-Kora-Delegation-Token header —
 // into the upstream request.
 func (p *Processor) handleRequestHeaders(ctx context.Context, headers *ext_procv3.HttpHeaders) *ext_procv3.ProcessingResponse {
+	// Lookups made for this request join the trace of the call being proxied.
+	ctx = observability.ContextWithTraceParent(ctx, headerValue(headers, "traceparent"))
 	// Telemetry export is platform infrastructure: the collector gets neither
 	// the agent's token nor its delegation token.
 	if p.collector != "" && strings.EqualFold(headerValue(headers, ":authority"), p.collector) {
@@ -274,7 +277,7 @@ func NewServer(
 		exchanger:  exchanger,
 		refresher:  refresher,
 		logger:     logger,
-		tracer:     otel.Tracer("orbit.identity-proxy"),
+		tracer:     otel.Tracer("github.com/runkora/kora/backend/internal/identityproxy"),
 		cfg:        cfg,
 		envoyReady: envoyReady,
 	}
@@ -371,7 +374,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// Step 3: wait for Envoy to be fully configured before making any outbound
 	// calls. Envoy returns 200 on localhost:15021/healthz/ready only after it
 	// has received all xDS configuration (listeners, clusters, and its SPIRE-
-	// issued mTLS certificate). Without this, the exchange call to orbit-identity
+	// issued mTLS certificate). Without this, the exchange call to kora-identity
 	// is RST by Envoy because it has no client cert to present for mTLS.
 	if err := s.waitForEnvoy(ctx); err != nil {
 		s.grpc.GracefulStop()
@@ -416,8 +419,7 @@ func (s *Server) waitForEnvoy(ctx context.Context) error {
 	for {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, istioReadyURL, nil)
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(otelcodes.Error, errBuildRequest.Error())
+			observability.RecordFailure(span, err, errBuildRequest)
 			return fmt.Errorf("build request: %w", err)
 		}
 		resp, err := client.Do(req)
@@ -432,15 +434,13 @@ func (s *Server) waitForEnvoy(ctx context.Context) error {
 
 		if time.Now().After(deadline) {
 			err = fmt.Errorf("timed out after %s waiting for Envoy to become ready", s.cfg.EnvoyReadyTimeout)
-			span.RecordError(err)
-			span.SetStatus(otelcodes.Error, errEnvoyReadyTimeout.Error())
+			observability.RecordFailure(span, err, errEnvoyReadyTimeout)
 			return err
 		}
 
 		select {
 		case <-ctx.Done():
-			span.RecordError(ctx.Err())
-			span.SetStatus(otelcodes.Error, errContextCanceled.Error())
+			observability.RecordFailure(span, ctx.Err(), errContextCanceled)
 			return ctx.Err()
 		case <-time.After(1 * time.Second):
 		}
@@ -452,7 +452,7 @@ func (s *Server) waitForEnvoy(ctx context.Context) error {
 // listening. Istio's PostStart hook probes this to determine when it is safe
 // to configure iptables intercept. If we returned 503 until the first token
 // is cached, Envoy would never finish its PostStart hook and the identity-proxy
-// could never reach orbit-identity to exchange the token (circular deadlock).
+// could never reach kora-identity to exchange the token (circular deadlock).
 // The ext_proc Processor already handles an empty cache gracefully by passing
 // requests through without an Authorization header.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
@@ -481,13 +481,12 @@ func (s *Server) waitForInitialToken(ctx context.Context) error {
 			return nil
 		}
 
-		span.RecordError(err)
-
 		if time.Now().After(deadline) {
 			err = fmt.Errorf("timed out after %s waiting for first token: %w", s.cfg.ReadyTimeout, err)
-			span.SetStatus(otelcodes.Error, errInitialTokenTimeout.Error())
+			observability.RecordFailure(span, err, errInitialTokenTimeout)
 			return err
 		}
+		span.RecordError(err)
 
 		s.logger.Warn(ctx, "initial exchange failed, retrying",
 			logging.Field{Key: "error", Value: err.Error()},
@@ -496,7 +495,7 @@ func (s *Server) waitForInitialToken(ctx context.Context) error {
 
 		select {
 		case <-ctx.Done():
-			span.SetStatus(otelcodes.Error, errContextCanceled.Error())
+			observability.RecordFailure(span, ctx.Err(), errContextCanceled)
 			return ctx.Err()
 		case <-time.After(backoff):
 		}

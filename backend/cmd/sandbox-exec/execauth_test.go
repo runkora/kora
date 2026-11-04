@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/execauth"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -25,7 +25,7 @@ func incoming(pairs ...string) context.Context {
 }
 
 // Anything short of the run's exact token is refused. Nothing above this process
-// authenticates the caller. See https://github.com/clear-route/orbit/issues/202.
+// authenticates the caller. See https://github.com/runkora/kora/issues/202.
 func TestRequireExecToken(t *testing.T) {
 	const want = "correct-horse-battery-staple"
 

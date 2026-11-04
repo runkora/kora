@@ -8,7 +8,7 @@ vi.mock('../../[slug]/_services/agent-detail-api', () => ({
   previewEffectiveAccess: () => new Promise(() => {}),
 }));
 
-vi.mock('@orbit/components', () => ({
+vi.mock('@runkora/components', () => ({
   ConnectionCards: () => null,
   EffectiveAccessPanel: () => null,
 }));

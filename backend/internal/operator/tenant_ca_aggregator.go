@@ -1,10 +1,10 @@
 // Per-tenant CA aggregator for the credential broker (Phase 4b).
 //
-// The egress gateway runs in orbit-system but needs every tenant's CA cert
+// The egress gateway runs in kora-system but needs every tenant's CA cert
 // + key to mint leaves on outbound CONNECTs. Pods can only mount Secrets
 // from their own namespace, so the operator aggregates each tenant's
-// orbit-tenant-ca Secret (in the tenant namespace) into a single
-// orbit-tenant-cas Secret in orbit-system. The egress-gateway pod projects
+// kora-tenant-ca Secret (in the tenant namespace) into a single
+// kora-tenant-cas Secret in kora-system. The egress-gateway pod projects
 // that aggregated Secret as a volume; cabundle.LoadEager reads the flat
 // {tenant}.ca.{crt,key} keys it produces.
 //
@@ -24,18 +24,18 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-// aggregatedTenantCASecretName is the Secret in orbit-system that
+// aggregatedTenantCASecretName is the Secret in kora-system that
 // collects every tenant's CA cert + key. Its data keys are
 // "{tenant}.ca.crt" / "{tenant}.ca.key" — the layout cabundle.LoadEager
 // expects when the Secret is projected as a volume.
-const aggregatedTenantCASecretName = "orbit-tenant-cas"
+const aggregatedTenantCASecretName = "kora-tenant-cas"
 
-// TenantCAAggregator reads each active OrbitTenant's orbit-tenant-ca
+// TenantCAAggregator reads each active KoraTenant's kora-tenant-ca
 // Secret from its tenant namespace and writes a single aggregated Secret
-// in orbit-system. Re-run on every reconcile so a newly-provisioned
+// in kora-system. Re-run on every reconcile so a newly-provisioned
 // tenant's CA appears in the gateway's mount within a kubelet
 // projection-update cycle (typically <60s).
 type TenantCAAggregator struct {
@@ -68,30 +68,24 @@ func (a *TenantCAAggregator) Sync(ctx context.Context) error {
 	return a.upsert(ctx, data)
 }
 
-// listActiveTenants returns all OrbitTenant resources whose Spec.Active is
-// true. Suspended/inactive tenants are excluded from the aggregated Secret
+// listActiveTenants returns the active tenants that hold their namespace.
+// Suspended/inactive tenants are excluded from the aggregated Secret
 // so the gateway will refuse CONNECTs from their sandboxes — there are
 // none currently running, but this future-proofs the aggregator against
 // a tenant suspension while a sandbox is somehow still alive.
-func (a *TenantCAAggregator) listActiveTenants(ctx context.Context) ([]OrbitTenant, error) {
-	list := &OrbitTenantList{}
+func (a *TenantCAAggregator) listActiveTenants(ctx context.Context) ([]KoraTenant, error) {
+	list := &KoraTenantList{}
 	if err := a.client.List(ctx, list); err != nil {
-		return nil, fmt.Errorf("list OrbitTenants: %w", err)
+		return nil, fmt.Errorf("list KoraTenants: %w", err)
 	}
-	out := make([]OrbitTenant, 0, len(list.Items))
-	for _, t := range list.Items {
-		if t.Spec.Active {
-			out = append(out, t)
-		}
-	}
-	return out, nil
+	return servedTenants(list.Items), nil
 }
 
-// collectCAMaterial reads each tenant's orbit-tenant-ca Secret from its
+// collectCAMaterial reads each tenant's kora-tenant-ca Secret from its
 // tenant namespace and returns the aggregated keyspace. The keys produced
 // are "{tenant}.ca.crt" / "{tenant}.ca.key", matching what
 // cabundle.LoadEager expects.
-func (a *TenantCAAggregator) collectCAMaterial(ctx context.Context, tenants []OrbitTenant) (map[string][]byte, error) {
+func (a *TenantCAAggregator) collectCAMaterial(ctx context.Context, tenants []KoraTenant) (map[string][]byte, error) {
 	out := make(map[string][]byte, len(tenants)*2)
 	for i := range tenants {
 		t := &tenants[i]
@@ -154,8 +148,8 @@ func (a *TenantCAAggregator) create(ctx context.Context, data map[string][]byte)
 			Name:      aggregatedTenantCASecretName,
 			Namespace: systemNamespace,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "orbit-operator",
-				"orbit.io/component":           "tenant-cas",
+				"app.kubernetes.io/managed-by": "kora-operator",
+				"runkora.io/component":         "tenant-cas",
 			},
 		},
 		Type: corev1.SecretTypeOpaque,

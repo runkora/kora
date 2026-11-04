@@ -9,11 +9,12 @@ import (
 	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
-	"go.opentelemetry.io/otel/attribute"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // ─── Request envelope ─────────────────────────────────────────────────────────
@@ -236,6 +237,21 @@ func normalizeSystemPrompt(b []byte) []byte {
 	return result
 }
 
+// ─── Response serialization ──────────────────────────────────────────────────
+
+// marshalMessage returns the provider's own bytes for msg: re-marshaling the
+// SDK type emits zero-valued union fields that Bedrock rejects on replay (#860).
+func marshalMessage(msg *anthropic.Message) (json.RawMessage, error) {
+	if raw := msg.RawJSON(); raw != "" {
+		return json.RawMessage(raw), nil
+	}
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return nil, fmt.Errorf("marshal message: %w", err)
+	}
+	return b, nil
+}
+
 // ─── Anthropic-format error helpers ──────────────────────────────────────────
 
 // writeAnthropicError writes an error in the Anthropic Messages API wire format:
@@ -249,11 +265,13 @@ func normalizeSystemPrompt(b []byte) []byte {
 func (c *Controller) writeAnthropicError(ctx context.Context, w http.ResponseWriter, apiErr *api.APIError, underlying error) {
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(
-		attribute.Bool("app.error", true),
-		attribute.String("app.error.code", apiErr.Code),
-		attribute.Int("app.error.status", apiErr.StatusCode),
-		attribute.String("app.error.message", apiErr.Message),
+		observability.ErrorCodeKey.String(apiErr.Code),
+		observability.ErrorMessageKey.String(apiErr.Message),
+		semconv.HTTPResponseStatusCode(apiErr.StatusCode),
 	)
+	if apiErr.StatusCode >= 500 {
+		span.SetAttributes(semconv.ErrorTypeKey.String(apiErr.Code))
+	}
 	if underlying != nil {
 		span.RecordError(underlying)
 	}
@@ -337,6 +355,74 @@ func (c *Controller) handleMessages(w http.ResponseWriter, r *http.Request) {
 	c.handleMessagesNonStreaming(w, r, env.Params)
 }
 
+const (
+	// nonStreamingCommitDelay is how long a non-streaming request may run
+	// before the handler is willing to commit a 200 and start keepalives.
+	nonStreamingCommitDelay = 5 * time.Second
+	// nonStreamingAcceptWait caps how long the status is held waiting for the
+	// upstream to accept the request, kept under typical NAT/proxy idle timeouts.
+	nonStreamingAcceptWait = 20 * time.Second
+)
+
+// writeNonStreamingResult writes a result that arrived before the status was
+// committed, so a failure still carries its real HTTP status code.
+func (c *Controller) writeNonStreamingResult(
+	ctx context.Context,
+	w http.ResponseWriter,
+	msg *anthropic.Message,
+	err error,
+) {
+	if err != nil {
+		c.writeAnthropicError(ctx, w, inferenceErrorResponse(err), err)
+		return
+	}
+	body, err := marshalMessage(msg)
+	if err != nil {
+		c.writeAnthropicError(ctx, w, inferenceErrorResponse(err), err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, body)
+}
+
+// writeCommittedResult writes a result that arrived after 200 OK was
+// committed. The status cannot change, so an error, from the provider or from
+// serializing the message, is written as an Anthropic-format error body with
+// the 200 status (better than a timeout).
+func (c *Controller) writeCommittedResult(
+	ctx context.Context,
+	w http.ResponseWriter,
+	msg *anthropic.Message,
+	err error,
+) {
+	var body json.RawMessage
+	if err == nil {
+		body, err = marshalMessage(msg)
+	}
+	if err != nil {
+		apiErr := inferenceErrorResponse(err)
+		span := trace.SpanFromContext(ctx)
+		span.RecordError(err)
+		span.SetAttributes(
+			semconv.ErrorTypeKey.String(apiErr.Code),
+			observability.ErrorCodeKey.String(apiErr.Code),
+			observability.ErrorMessageKey.String(apiErr.Message),
+		)
+		c.logger.Error(ctx, "anthropic non-streaming: error after 200 OK committed",
+			logging.Field{Key: "code", Value: apiErr.Code},
+			logging.Field{Key: "message", Value: apiErr.Message},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		body, _ = json.Marshal(map[string]any{
+			"type": "error",
+			"error": map[string]string{
+				"type":    anthropicErrorType(apiErr.Code),
+				"message": apiErr.Message,
+			},
+		})
+	}
+	_, _ = w.Write(body)
+}
+
 // handleMessagesNonStreaming handles the non-streaming POST /v1/messages path.
 // It uses a context detached from the HTTP request so that client-side and
 // proxy timeouts (typically 30 s) do not cancel an in-progress generation.
@@ -356,6 +442,8 @@ func (c *Controller) handleMessagesNonStreaming(
 	genCtx, cancelGen := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
 	defer cancelGen()
 
+	genCtx, accepted := WithAcceptedSignal(genCtx)
+
 	type genResult struct {
 		msg *anthropic.Message
 		err error
@@ -368,18 +456,29 @@ func (c *Controller) handleMessagesNonStreaming(
 
 	// Fast path: give short-lived errors (policy denied, model not found,
 	// auth failures) 5 s to surface with the correct HTTP status code before
-	// we commit to 200 OK.
+	// we consider committing to 200 OK.
 	select {
 	case res := <-ch:
 		cancelGen()
-		if res.err != nil {
-			c.writeAnthropicError(ctx, w, inferenceErrorResponse(res.err), res.err)
-			return
-		}
-		api.JSON(ctx, w, c.logger, http.StatusOK, res.msg)
+		c.writeNonStreamingResult(ctx, w, res.msg, res.err)
 		return
-	case <-time.After(5 * time.Second):
-		// Generation is still running. Commit to 200 OK and use keepalives.
+	case <-time.After(nonStreamingCommitDelay):
+	}
+
+	// Past the delay, still hold the status until the upstream has accepted the
+	// request: a rejection (e.g. an invalid parameter) is only reportable as a
+	// real 4xx until we commit. Connectors report acceptance on the first
+	// stream event; those that never do are bounded by nonStreamingAcceptWait.
+	// A client disconnect is deliberately not watched here: generation stays
+	// detached from the request, and the keepalive loop below cancels it once
+	// a write fails.
+	select {
+	case res := <-ch:
+		cancelGen()
+		c.writeNonStreamingResult(ctx, w, res.msg, res.err)
+		return
+	case <-accepted:
+	case <-time.After(nonStreamingAcceptWait - nonStreamingCommitDelay):
 	}
 
 	// Slow path: write 200 OK + Content-Type now. We cannot change the status
@@ -403,32 +502,7 @@ func (c *Controller) handleMessagesNonStreaming(
 		select {
 		case res := <-ch:
 			cancelGen()
-			if res.err != nil {
-				apiErr := inferenceErrorResponse(res.err)
-				span := trace.SpanFromContext(ctx)
-				span.RecordError(res.err)
-				span.SetAttributes(
-					attribute.Bool("app.error", true),
-					attribute.String("app.error.code", apiErr.Code),
-					attribute.String("app.error.message", apiErr.Message),
-				)
-				c.logger.Error(ctx, "anthropic non-streaming: provider error after 200 OK committed",
-					logging.Field{Key: "code", Value: apiErr.Code},
-					logging.Field{Key: "message", Value: apiErr.Message},
-					logging.Field{Key: "error", Value: res.err.Error()},
-				)
-				body, _ := json.Marshal(map[string]any{
-					"type": "error",
-					"error": map[string]string{
-						"type":    anthropicErrorType(apiErr.Code),
-						"message": apiErr.Message,
-					},
-				})
-				_, _ = w.Write(body)
-			} else {
-				body, _ := json.Marshal(res.msg)
-				_, _ = w.Write(body)
-			}
+			c.writeCommittedResult(ctx, w, res.msg, res.err)
 			if canFlush {
 				flusher.Flush()
 			}

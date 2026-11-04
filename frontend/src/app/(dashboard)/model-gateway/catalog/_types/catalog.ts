@@ -44,6 +44,10 @@ export interface VirtualModel {
   routes: RouteTarget[];
   enabled: boolean;
   pricing?: VirtualModelPricing;
+  /** Declared in the configuration repository: read-only here. */
+  declared: boolean;
+  /** The repository that drives a declared item, if its resource names one. */
+  repository?: string;
 }
 
 export interface ProviderModel {

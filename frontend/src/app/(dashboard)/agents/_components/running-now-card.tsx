@@ -19,9 +19,9 @@ import {
   TableRoot,
   TableRow,
   Text,
-} from '@orbit/hades';
-import { RUN_STATE_DISPLAY } from '@orbit/components';
-import { APP_ROUTES } from '@orbit/lib/routing';
+} from '@runkora/hades';
+import { RUN_STATE_DISPLAY } from '@runkora/components';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import { RUNNING_ROWS } from '../_lib/spend';
 import { formatDuration, formatRelativeTime } from '../_types';
 import type { RunRow } from '../_types';
@@ -51,9 +51,11 @@ export interface RunningNowCardProps {
     total: number;
     longestMs: number;
   } | null;
+  /** Why the runs could not be read; shown instead of the empty message. */
+  error?: string | null;
 }
 
-export function RunningNowCard({ runs, counts }: RunningNowCardProps) {
+export function RunningNowCard({ runs, counts, error = null }: RunningNowCardProps) {
   const total = counts?.total ?? runs.length;
 
   return (
@@ -82,7 +84,7 @@ export function RunningNowCard({ runs, counts }: RunningNowCardProps) {
         {runs.length === 0 ? (
           <CardContent padded grow>
             <Text size="supporting" color="muted">
-              Nothing is running. Start a run to see it here.
+              {error ?? 'Nothing is running. Start a run to see it here.'}
             </Text>
           </CardContent>
         ) : (

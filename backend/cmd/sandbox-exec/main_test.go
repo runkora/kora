@@ -6,10 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
-	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/execauth"
+	execpb "github.com/runkora/kora/backend/internal/agents/sandbox/proto"
 	"google.golang.org/grpc"
 )
 
@@ -17,7 +19,7 @@ import (
 // subprocess behavior (dynamic linker, allocator, executable lookup, shell
 // swap) are stripped from a request's env before being appended to the
 // subprocess environment. Part of the fix for
-// https://github.com/clear-route/orbit/issues/231.
+// https://github.com/runkora/kora/issues/231.
 func TestFilterEnv_BlocksHijackVariables(t *testing.T) {
 	blocked := []string{
 		"LD_PRELOAD=/tmp/evil.so",
@@ -47,7 +49,7 @@ func TestFilterEnv_AllowsSafeVariables(t *testing.T) {
 		"WORKSPACE=/workspaces/run-abc",
 		"ANTHROPIC_BASE_URL=https://api.example.com",
 		"CUSTOM_VAR=hello",
-		"HOME=/home/orbit",
+		"HOME=/home/kora",
 	}
 
 	got := filterEnv(safe)
@@ -141,5 +143,36 @@ func TestExecute_CommandEnvOmitsServerSettings(t *testing.T) {
 	}
 	if !strings.Contains(env, "WORKSPACE_PROBE=kept") {
 		t.Error("command env lost the pod environment")
+	}
+}
+
+// raceExecStream fails a Send that overlaps another, as gRPC does with
+// "SendHeader called multiple times".
+type raceExecStream struct {
+	grpc.ServerStream
+	active atomic.Int32
+	raced  atomic.Bool
+}
+
+func (r *raceExecStream) Context() context.Context { return context.Background() }
+
+func (r *raceExecStream) Send(*execpb.ExecuteResponse) error {
+	if r.active.Add(1) > 1 {
+		r.raced.Store(true)
+	}
+	time.Sleep(50 * time.Microsecond)
+	r.active.Add(-1)
+	return nil
+}
+
+func TestExecute_SerializesConcurrentSends(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
+	stream := &raceExecStream{}
+	cmd := "i=0; while [ $i -lt 200 ]; do echo out; echo err >&2; i=$((i+1)); done"
+	if err := (&execServer{}).Execute(&execpb.ExecuteRequest{Command: cmd}, stream); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if stream.raced.Load() {
+		t.Error("Send was called concurrently on one stream")
 	}
 }

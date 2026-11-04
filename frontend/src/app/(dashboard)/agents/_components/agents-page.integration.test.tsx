@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
-import { renderWithProviders, server } from '@orbit/test-utils';
+import { renderWithProviders, server } from '@runkora/test-utils';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
@@ -92,5 +92,90 @@ describe('Agents page without run stats', () => {
     expect(screen.getByText('Unavailable')).toBeInTheDocument();
     expect(screen.getAllByText('Run count unavailable')).toHaveLength(AGENT_ROWS.length);
     expect(screen.queryByText('Nothing running')).not.toBeInTheDocument();
+  });
+});
+
+describe('Agents page permissions', () => {
+  const VIEWER_SCOPES = ['agents:types:read', 'agents:environments:read', 'triggers:read'];
+
+  function renderAgents(
+    scopes: string[],
+    agentTypes = AGENT_ROWS,
+    runsError: string | null = null,
+    apiAuthoring = true,
+  ) {
+    server.use(http.get('/api/agents/types/drafts', () => HttpResponse.json({ data: [] })));
+    return renderWithProviders(
+      <AgentsShell
+        initialAgentTypes={agentTypes}
+        {...(runsError ? { initialLiveRuns: [], initialRunStats: null } : mockRunArgs(RUN_ROWS))}
+        initialError={null}
+        initialRunsError={runsError}
+        initialInsights={mockInsightsResponse('7d')}
+      />,
+      { scopes, apiAuthoring },
+    );
+  }
+
+  it('shows a viewer the agents with create and run controls disabled and explained', () => {
+    renderAgents(
+      VIEWER_SCOPES,
+      AGENT_ROWS.map((a) => ({ ...a, canRun: false, canEdit: false })),
+    );
+    expect(screen.getAllByText(AGENT_ROWS[0].name).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /new agent/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /new run/i })).toBeDisabled();
+    for (const run of screen.getAllByRole('button', { name: /^run$/i })) {
+      expect(run).toBeDisabled();
+    }
+    expect(
+      screen.getByLabelText("You don't have permission to create agents."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByLabelText("You don't have permission to start runs of this agent.").length,
+    ).toBe(AGENT_ROWS.length);
+  });
+
+  it('enables Run only on the agents the caller may run', () => {
+    renderAgents(
+      VIEWER_SCOPES,
+      AGENT_ROWS.map((a, i) => ({ ...a, canRun: i === 0 })),
+    );
+    const enabled = screen
+      .getAllByRole('button', { name: /^run$/i })
+      .filter((b) => !(b as HTMLButtonElement).disabled);
+    expect(enabled).toHaveLength(AGENT_ROWS[0].state === 'active' ? 1 : 0);
+    expect(screen.getByRole('button', { name: /new run/i })).toBeEnabled();
+  });
+
+  it('enables New Agent for a delegated-only creator', () => {
+    renderAgents([...VIEWER_SCOPES, 'agents:types:delegated:write']);
+    expect(screen.getByRole('button', { name: /new agent/i })).toBeEnabled();
+  });
+
+  it('hides create in a locked tenant and keeps runs', () => {
+    renderAgents(
+      [...VIEWER_SCOPES, 'agents:types:delegated:write'],
+      AGENT_ROWS.map((a) => ({ ...a, canRun: true })),
+      null,
+      false,
+    );
+    expect(screen.queryByRole('button', { name: /new agent/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Agents in this tenant are managed in git/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /new run/i })).toBeEnabled();
+  });
+
+  it('marks a declared agent as managed in git', () => {
+    renderAgents(
+      VIEWER_SCOPES,
+      AGENT_ROWS.map((a, i) => ({ ...a, declared: i === 0 })),
+    );
+    expect(screen.getAllByText('Managed in git')).toHaveLength(1);
+  });
+
+  it('keeps the agents on screen when the runs are refused', () => {
+    renderAgents(VIEWER_SCOPES, AGENT_ROWS, 'You do not have access to runs.');
+    expect(screen.getAllByText(AGENT_ROWS[0].name).length).toBeGreaterThan(0);
+    expect(screen.getByText('You do not have access to runs.')).toBeInTheDocument();
   });
 });

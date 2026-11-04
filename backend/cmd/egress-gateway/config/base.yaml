@@ -15,14 +15,19 @@ server:
   basePath: "/api/v1"
   shutdownTimeoutSecs: 30
 
-# The chart renders the identity and policy service URLs.
+# The chart renders the identity, agents and policy service URLs.
 policy:
   bundlePollIntervalSecs: 30
 
 secrets:
-  tenantCARoot: "/var/run/orbit/tenant-ca"
-  connectionSecretRoot: "/var/run/orbit/connection-secrets"
-  connectionRegistryPath: "/var/run/orbit/connections/connections.json"
+  tenantCARoot: "/var/run/kora/tenant-ca"
+  connectionSecretRoot: "/var/run/kora/connection-secrets"
+  connectionRegistryPath: "/var/run/kora/connections/connections.json"
 
 observability:
   serviceName: "egress-gateway"
+
+metrics:
+  enabled: true
+  port: 9464
+  shutdownTimeoutSecs: 5

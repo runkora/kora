@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
-// The RFC 8693 subject_token path: a platform service (orbit-agents) brokers
+// The RFC 8693 subject_token path: a platform service (kora-agents) brokers
 // the mint because its identity-proxy overwrites the Authorization header on
 // egress — the runner's own platform token travels in the body and the
 // delegator is derived from IT after full verification (ADR Decision 3).
@@ -36,8 +36,8 @@ func TestHandleCreateDelegation_SubjectTokenBrokeredMint(t *testing.T) {
 	}, "subject-jti-1")
 
 	// Transport principal is the SYSTEM service token the identity-proxy
-	// stamps on orbit-agents egress.
-	w := postJSONWithClaims(t, c.handleCreateDelegation, systemClaims("orbit-agents"), CreateDelegationRequest{
+	// stamps on kora-agents egress.
+	w := postJSONWithClaims(t, c.handleCreateDelegation, systemClaims("kora-agents"), CreateDelegationRequest{
 		AgentPrincipalID: testAgentSpiffeID,
 		RunID:            "run-subject-1",
 		SubjectToken:     subject,
@@ -93,7 +93,7 @@ func TestHandleCreateDelegation_SubjectTokenRefusals(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			w := postJSONWithClaims(t, c.handleCreateDelegation, systemClaims("orbit-agents"), CreateDelegationRequest{
+			w := postJSONWithClaims(t, c.handleCreateDelegation, systemClaims("kora-agents"), CreateDelegationRequest{
 				AgentPrincipalID: testAgentSpiffeID,
 				RunID:            "run-" + strings.ReplaceAll(tc.name, " ", "-"),
 				SubjectToken:     tc.subjectToken,
@@ -111,10 +111,9 @@ func TestHandleCreateDelegation_SubjectTokenRefusals(t *testing.T) {
 	}
 }
 
-// A blocklist backend error on the subject-token path fails closed: the mint
-// refuses rather than accept a token it cannot confirm is unrevoked (ADR
-// Decision 3, fail-closed).
-func TestHandleCreateDelegation_SubjectTokenFailsClosedOnBlocklistError(t *testing.T) {
+// A blocklist backend error on the subject-token path fails open: the mint goes
+// ahead, as every other blocklist lookup does while Redis is unavailable.
+func TestHandleCreateDelegation_SubjectTokenFailsOpenOnBlocklistError(t *testing.T) {
 	c, svc, delegations, blocklist := newDelegationTestController(t)
 
 	subject := signSubjectToken(t, svc, &Principal{
@@ -125,17 +124,17 @@ func TestHandleCreateDelegation_SubjectTokenFailsClosedOnBlocklistError(t *testi
 	}, "subject-jti-blockerr")
 	blocklist.isBlockedErr = errors.New("redis unavailable")
 
-	w := postJSONWithClaims(t, c.handleCreateDelegation, systemClaims("orbit-agents"), CreateDelegationRequest{
+	w := postJSONWithClaims(t, c.handleCreateDelegation, systemClaims("kora-agents"), CreateDelegationRequest{
 		AgentPrincipalID: testAgentSpiffeID,
 		RunID:            "run-blockerr",
 		SubjectToken:     subject,
 	})
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401; body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
 	}
-	if len(delegations.byJTI) != 0 {
-		t.Errorf("no issuance should be persisted when the blocklist check fails, found %d", len(delegations.byJTI))
+	if len(delegations.byJTI) != 1 {
+		t.Errorf("one issuance should be persisted when the blocklist is unavailable, found %d", len(delegations.byJTI))
 	}
 }
 

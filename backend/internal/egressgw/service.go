@@ -7,15 +7,15 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // Span status descriptions are package-level sentinels: raw error text can
@@ -26,10 +26,12 @@ var (
 	errOpenConnector     = errors.New("open connector")
 )
 
-// policyChecker is the single method the broker needs from the policy
-// evaluator: does this caller hold the scope the classified call requires.
+// policyChecker is what the broker needs from the policy evaluator: does this
+// caller hold the scope the classified call requires, and which scopes does it
+// hold. Scopes only chooses among same-host connections and never authorizes.
 type policyChecker interface {
 	Check(ctx context.Context, input policy.CheckInput) (policy.Result, error)
+	Scopes(ctx context.Context, input policy.ScopesInput) ([]string, error)
 }
 
 // Broker is the orchestrator that turns one verified inbound request into a
@@ -51,6 +53,7 @@ type Broker struct {
 	adapters    *AdapterRegistry
 	passthrough credentials.Adapter
 	logger      logging.Logger
+	nodeOwners  *ownerCache
 }
 
 // NewBroker constructs a Broker. None of the dependencies are optional; passing
@@ -66,7 +69,7 @@ func NewBroker(
 	pass credentials.Adapter,
 	logger logging.Logger,
 ) *Broker {
-	return &Broker{policy: pol, conns: conns, adapters: adapters, passthrough: pass, logger: logger}
+	return &Broker{policy: pol, conns: conns, adapters: adapters, passthrough: pass, logger: logger, nodeOwners: newOwnerCache(time.Now)}
 }
 
 // Authorize is the broker's one entry point. It validates the request, looks
@@ -78,31 +81,27 @@ func NewBroker(
 // them to the right HTTP status. The broker never logs the minted credential
 // value, only its expiry and metadata.
 func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, req EgressRequest) (Decision, error) {
-	ctx, span := tracer.Start(ctx, "egress.authorize", trace.WithSpanKind(trace.SpanKindInternal))
+	ctx, span := tracer.Start(ctx, "egressgw.Broker.Authorize", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
 
-	if claims == nil {
-		span.SetStatus(codes.Error, ErrUnauthenticated.Error())
-		return Decision{}, ErrUnauthenticated
+	if err := b.validateCaller(ctx, span, claims, req); err != nil {
+		return Decision{}, err
 	}
-	tenantID := claims.Orbit.TenantID
-	if tenantID == "" {
-		return Decision{}, ErrUnauthenticated
-	}
-	if req.Host == "" {
-		return Decision{}, ErrMissingHost
-	}
+	tenantID := claims.Kora.TenantID
 
-	conn, registered, err := b.resolveConnection(ctx, tenantID, req.Host)
+	conn, registered, err := b.resolveConnection(ctx, claims, req)
+	var unresolved *Denial
+	if errors.As(err, &unresolved) {
+		return b.unresolvedConnection(ctx, span, claims, req, unresolved)
+	}
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errResolveConnection.Error())
+		observability.RecordFailure(span, err, errResolveConnection)
 		return Decision{}, err
 	}
 	span.SetAttributes(
-		attribute.String("orbit.connection", conn.Name),
-		attribute.String("orbit.adapter", string(conn.Adapter)),
-		attribute.Bool("orbit.connection.registered", registered),
+		observability.ConnectionNameKey.String(conn.Name),
+		observability.ConnectionAdapterKey.String(string(conn.Adapter)),
+		observability.ConnectionRegisteredKey.Bool(registered),
 	)
 	if conn.TenantID != tenantID {
 		return Decision{}, ErrTenantMismatch
@@ -121,8 +120,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	}
 	connector, err := adapter.Open(*conn)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errOpenConnector.Error())
+		observability.RecordFailure(span, err, errOpenConnector)
 		// A connection kora cannot read is an operator error, not a caller
 		// one. It still denies, but reporting it as forbidden sends whoever
 		// reads the audit log hunting a grant that was never the problem.
@@ -131,12 +129,11 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 
 	cls, err := b.classify(connector, req)
 	if err != nil {
-		span.RecordError(err)
 		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, deny(DenialUnclassified, req.Host, conn, credentials.Classification{}, err))
 	}
 	span.SetAttributes(
-		attribute.String("orbit.action", cls.Action),
-		attribute.String("orbit.qualifier", cls.Qualifier),
+		observability.EgressActionKey.String(cls.Action),
+		observability.EgressQualifierKey.String(cls.Qualifier),
 	)
 
 	// A passthrough host has no connection scope to check against. Its
@@ -151,16 +148,16 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		action, also = authorized[0], authorized[1:]
 	}
 	span.SetAttributes(
-		attribute.Bool("orbit.allowed", true),
-		attribute.String("orbit.action", action),
-		attribute.StringSlice("orbit.also_authorized", also),
+		observability.EgressAllowedKey.Bool(true),
+		observability.EgressActionKey.String(action),
+		observability.EgressAlsoAuthorizedKey.StringSlice(also),
 	)
 
 	// Mint.
 	identity := credentials.CallerIdentity{
 		TenantID:       tenantID,
 		PrincipalID:    claims.Subject,
-		RunID:          claims.Orbit.Claims["run_id"],
+		RunID:          claims.Kora.Claims["run_id"],
 		Action:         action,
 		Qualifier:      cls.Qualifier,
 		AlsoAuthorized: also,
@@ -170,14 +167,14 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		// The upstream refusing to issue a credential for this scope (e.g. the
 		// GitHub App installation lacks the permission kora authorized) is a
 		// forbidden, not an internal error. The App is the outer ceiling.
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errMintCredential.Error())
+		observability.RecordFailure(span, err, errMintCredential)
 		if errors.Is(err, credentials.ErrCredentialScopeRejected) {
 			b.logger.Info(ctx, "egress denied: upstream refused credential scope",
 				logging.Field{Key: "connection", Value: conn.Name},
 				logging.Field{Key: "action", Value: action},
 				logging.Field{Key: "qualifier", Value: cls.Qualifier},
 				logging.Field{Key: "tenant_id", Value: tenantID},
+				logging.Field{Key: "principal_id", Value: claims.Subject},
 			)
 			refused := credentials.Classification{Action: action, Qualifier: cls.Qualifier}
 			return Decision{}, deny(DenialCredentialRefused, req.Host, conn, refused, err)
@@ -201,20 +198,43 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	return Decision{Connection: conn, Action: action, Qualifier: cls.Qualifier, Credential: cred}, nil
 }
 
+// validateCaller rejects a request with no usable caller or host before any
+// lookup. A delegation must be bound to the run the caller attests, and only a
+// per-run sandbox identity attests one.
+func (b *Broker) validateCaller(ctx context.Context, span trace.Span, claims *token.PlatformClaims, req EgressRequest) error {
+	switch {
+	case claims == nil:
+		observability.RecordFailure(span, ErrUnauthenticated, ErrUnauthenticated)
+		return ErrUnauthenticated
+	case claims.Kora.TenantID == "":
+		return ErrUnauthenticated
+	case req.Host == "":
+		return ErrMissingHost
+	case policy.DelegationFromContext(ctx) != nil && attestedRunID(claims) == "":
+		observability.RecordFailure(span, ErrDelegationRunUnattested, ErrDelegationRunUnattested)
+		b.logger.Info(ctx, "egress denied: delegated call without a per-run sandbox identity",
+			logging.Field{Key: "host", Value: req.Host},
+			logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
+			logging.Field{Key: "principal_id", Value: claims.Subject},
+		)
+		return fmt.Errorf("%w: %w", ErrForbidden, ErrDelegationRunUnattested)
+	}
+	return nil
+}
+
 // policyDenied handles a policy refusal. A denial the grant could explain may
 // still be served by the anonymous fallback; a failed evaluation never is.
 func (b *Broker) policyDenied(ctx context.Context, span trace.Span, claims *token.PlatformClaims, conn *credentials.Connection, req EgressRequest, perr error) (Decision, error) {
-	span.SetAttributes(attribute.Bool("orbit.allowed", false))
-	span.RecordError(perr)
+	span.SetAttributes(observability.EgressAllowedKey.Bool(false))
 	var denial *Denial
 	if errors.As(perr, &denial) && denial.Reason != DenialPolicyUnavailable {
 		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, denial)
 	}
-	span.SetStatus(codes.Error, ErrForbidden.Error())
+	observability.RecordFailure(span, perr, ErrForbidden)
 	// An evaluator error is logged where it happens. An operational result
 	// such as no policy for the tenant is logged here.
 	if denial != nil && denial.decision != "" {
-		b.logDenial(ctx, claims.Orbit.TenantID, req, denial)
+		b.logDenial(ctx, claims, req, denial)
 	}
 	return Decision{}, perr
 }
@@ -230,22 +250,22 @@ const anonymousReadAction = "anonymous_read"
 // docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md, Amendment 5.
 func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claims *token.PlatformClaims, conn *credentials.Connection, req EgressRequest, denial *Denial) (Decision, error) {
 	if conn.Adapter != credentials.AdapterGitHubApp || !isRead(req) || !b.ownEgressAllows(ctx, claims, req.Host) {
-		span.SetStatus(codes.Error, ErrForbidden.Error())
-		b.logDenial(ctx, claims.Orbit.TenantID, req, denial)
+		observability.RecordFailure(span, denial, ErrForbidden)
+		b.logDenial(ctx, claims, req, denial)
 		return Decision{}, denial
 	}
 
 	span.SetAttributes(
-		attribute.Bool("orbit.allowed", true),
-		attribute.String("orbit.action", anonymousReadAction),
+		observability.EgressAllowedKey.Bool(true),
+		observability.EgressActionKey.String(anonymousReadAction),
 	)
 	b.logger.Info(ctx, "egress authorized: anonymous read",
 		logging.Field{Key: "decision", Value: anonymousReadAction},
 		logging.Field{Key: "connection", Value: conn.Name},
 		logging.Field{Key: "denial_reason", Value: string(denial.Reason)},
-		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
 		logging.Field{Key: "principal_id", Value: claims.Subject},
-		logging.Field{Key: "run_id", Value: claims.Orbit.Claims["run_id"]},
+		logging.Field{Key: "run_id", Value: claims.Kora.Claims["run_id"]},
 		logging.Field{Key: "host", Value: req.Host},
 		logging.Field{Key: "method", Value: req.Method},
 		logging.Field{Key: "path", Value: requestPath(req)},
@@ -258,7 +278,26 @@ func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claim
 
 // logDenial records a refused call once, after the fallback has declined it.
 // The query string and headers stay out of the log: either can carry tokens.
-func (b *Broker) logDenial(ctx context.Context, tenantID string, req EgressRequest, d *Denial) {
+func (b *Broker) logDenial(ctx context.Context, claims *token.PlatformClaims, req EgressRequest, d *Denial) {
+	tenantID := claims.Kora.TenantID
+	if d.Reason == DenialConnectionUnresolved {
+		fields := []logging.Field{
+			{Key: "host", Value: req.Host},
+			{Key: "method", Value: req.Method},
+			{Key: "path", Value: requestPath(req)},
+			{Key: "candidates", Value: strings.Join(d.Candidates, ",")},
+			{Key: "tenant_id", Value: tenantID},
+			{Key: "principal_id", Value: claims.Subject},
+		}
+		// The sandbox egress canary sends GET / with no owner on every start.
+		// The denial still reaches the caller, and it passes the canary.
+		if isRootRead(req) {
+			b.logger.Debug(ctx, "egress denied: connection unresolved", fields...)
+			return
+		}
+		b.logger.Info(ctx, "egress denied: connection unresolved", fields...)
+		return
+	}
 	if d.Reason == DenialUnclassified {
 		cause := ""
 		if d.cause != nil {
@@ -269,6 +308,8 @@ func (b *Broker) logDenial(ctx context.Context, tenantID string, req EgressReque
 			logging.Field{Key: "host", Value: req.Host},
 			logging.Field{Key: "method", Value: req.Method},
 			logging.Field{Key: "path", Value: requestPath(req)},
+			logging.Field{Key: "tenant_id", Value: tenantID},
+			logging.Field{Key: "principal_id", Value: claims.Subject},
 			logging.Field{Key: "error", Value: cause},
 		)
 		return
@@ -281,6 +322,7 @@ func (b *Broker) logDenial(ctx context.Context, tenantID string, req EgressReque
 		logging.Field{Key: "action", Value: d.Action},
 		logging.Field{Key: "qualifier", Value: d.Qualifier},
 		logging.Field{Key: "tenant_id", Value: tenantID},
+		logging.Field{Key: "principal_id", Value: claims.Subject},
 		logging.Field{Key: "reason", Value: d.decision},
 	)
 }
@@ -291,6 +333,7 @@ func (b *Broker) logDenial(ctx context.Context, tenantID string, req EgressReque
 func (b *Broker) ownEgressAllows(ctx context.Context, claims *token.PlatformClaims, host string) bool {
 	res, err := b.policy.Check(ctx, policy.CheckInput{
 		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
 		ResourceType: "egress",
 		PathSegments: []string{hostWithoutPort(host)},
 		Action:       "connect",
@@ -422,10 +465,17 @@ func (b *Broker) checkAction(ctx context.Context, claims *token.PlatformClaims, 
 	segments, verb := scopePath(conn, action, qualifier)
 	return b.policy.Check(ctx, policy.CheckInput{
 		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
 		ResourceType: resourceType,
 		PathSegments: segments,
 		Action:       verb,
 	})
+}
+
+// attestedRunID is the run named by the caller's per-run sandbox SVID, or ""
+// for any other workload. The engine binds a delegation to this claim.
+func attestedRunID(claims *token.PlatformClaims) string {
+	return claims.Kora.Claims["run_id"]
 }
 
 // scopePath returns the policy path segments and verb for one action on a
@@ -440,6 +490,11 @@ func scopePath(conn *credentials.Connection, action, qualifier string) (segments
 		segments = append(segments, qualifier)
 	}
 	return segments, verb
+}
+
+// isRootRead reports whether req is a GET of the host root.
+func isRootRead(req EgressRequest) bool {
+	return req.Method == http.MethodGet && requestPath(req) == "/"
 }
 
 // requestPath is the request path for deny logs. The query string and headers
@@ -505,8 +560,9 @@ func splitActionFragment(action string) (category, verb string) {
 // the name, because the broker synthesizes it only on a lookup miss.
 const passthroughConnectionName = "passthrough"
 
-// resolveConnection finds the connection serving host within the caller's
-// tenant. Cross-tenant access is impossible because GetByHost is tenant-scoped:
+// resolveConnection finds the connection serving the request's host within the
+// caller's tenant, choosing among several with selectConnection. Cross-tenant
+// access is impossible because ListByHost is tenant-scoped:
 // a connection in another tenant matching the same host is indistinguishable
 // from "not found" here.
 //
@@ -514,11 +570,15 @@ const passthroughConnectionName = "passthrough"
 // synthesizes one for the passthrough adapter, which injects nothing.
 // Connections are a credential overlay, not the reachability gate, so a host
 // that only needs to be reached needs the egress whitelist and nothing else.
-func (b *Broker) resolveConnection(ctx context.Context, tenantID, host string) (*credentials.Connection, bool, error) {
-	conn, err := b.conns.GetByHost(ctx, tenantID, host)
+func (b *Broker) resolveConnection(ctx context.Context, claims *token.PlatformClaims, req EgressRequest) (*credentials.Connection, bool, error) {
+	tenantID, host := claims.Kora.TenantID, req.Host
+	candidates, err := b.conns.ListByHost(ctx, tenantID, host)
 	switch {
+	case err == nil && len(candidates) == 1:
+		return candidates[0], true, nil
 	case err == nil:
-		return conn, true, nil
+		conn, selectErr := b.selectConnection(ctx, claims, req, candidates)
+		return conn, selectErr == nil, selectErr
 	case errors.Is(err, credentials.ErrConnectionNotFound):
 		return &credentials.Connection{
 			TenantID: tenantID,

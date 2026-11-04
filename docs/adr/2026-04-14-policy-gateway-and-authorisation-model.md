@@ -154,7 +154,7 @@ inference:invoke                           call the inference endpoints (Layer 1
 inference:use                              use any model across all providers
 inference:anthropic:use                    use any Anthropic model
 inference:anthropic:claude-sonnet-4:use    use a specific model by family alias
-inference:list                             list available models
+inference:list                             list the models the caller can use
 
 mcp:invoke                            all MCP tools, invoke
 mcp:gmail:invoke                      Gmail MCP tools, invoke
@@ -290,7 +290,7 @@ The Policy Service is a standard kora Go service (following [multi-service-backe
 - Bundle compilation triggered on every grant write — the affected tenant's bundle is recompiled immediately
 - A per-tenant bundle polling endpoint: `GET /v1/policy/bundles/{tenant_id}`
 
-**PAP Authorization — OIDC Role Bootstrap:** The grant management API is itself a platform resource (`platform:grants:write`). To avoid a circular dependency (you need a grant to create grants), access to the PAP API is bootstrapped via OIDC role claims rather than grants. When the identity service federates an OIDC token, role or group claims from the IdP (e.g. an Entra group membership) are embedded in `PlatformClaims.Orbit.Claims["roles"]`. The ext_authz Rego evaluates a `role_scopes` mapping (compiled into the bundle) that translates the `tenant-admin` role to `platform:grants:write`. This is the only documented exception to "grants govern all access" — it is explicit, inspectable in the bundle, and constrained to the `platform:` resource type.
+**PAP Authorization — OIDC Role Bootstrap:** The grant management API is itself a platform resource (`platform:grants:write`). To avoid a circular dependency (you need a grant to create grants), access to the PAP API is bootstrapped via OIDC role claims rather than grants. When the identity service federates an OIDC token, role or group claims from the IdP (e.g. an Entra group membership) are embedded in `PlatformClaims.Kora.Claims["roles"]`. The ext_authz Rego evaluates a `role_scopes` mapping (compiled into the bundle) that translates the `tenant-admin` role to `platform:grants:write`. This is the only documented exception to "grants govern all access" — it is explicit, inspectable in the bundle, and constrained to the `platform:` resource type.
 
 ### Layer 1 PDP — OPA Envoy Plugin Sidecar
 
@@ -304,14 +304,14 @@ The OPA sidecar:
 - Runs the OPA Envoy plugin which natively implements the `envoy.service.auth.v3.Authorization` gRPC protocol
 - Listens on `localhost:9191` — same-pod loopback only, not exposed to the mesh
 - Polls the policy-service bundle endpoint directly in the background
-- Evaluates `data.orbit.authz.allow` against the locally loaded bundle on every Check call
+- Evaluates `data.kora.authz.allow` against the locally loaded bundle on every Check call
 
 An EnvoyFilter in `istio-system` wires the outbound ext_authz filter on agent pods to `localhost:9191`. It is inserted **after** the identity-proxy ext_proc filter so the platform token is already present in the `Authorization` header when OPA receives the CheckRequest:
 
 ```yaml
 workloadSelector:
   labels:
-    orbit.io/identity-proxy: "enabled"
+    runkora.io/identity-proxy: "enabled"
 configPatches:
   - applyTo: HTTP_FILTER
     match:
@@ -339,18 +339,18 @@ The identity-proxy and OPA sidecars are a **coupled pair** for Layer 1 enforceme
 
 Without identity-proxy, the `Authorization` header is absent and OPA denies all requests with `deny:invalid_token`. Without OPA, the ext_authz filter has no handler and requests are blocked (fail-closed). They must always be present together.
 
-The operator registers a `MutatingWebhookConfiguration` that automatically injects the required labels and annotations onto every pod created in a tenant namespace (any namespace labelled `orbit.io/role: "tenant"`). This ensures Layer 1 enforcement is universal — no per-pod opt-in, no accidental gaps.
+The operator registers a `MutatingWebhookConfiguration` that automatically injects the required labels and annotations onto every pod created in a tenant namespace (any namespace labelled `runkora.io/role: "tenant"`). This ensures Layer 1 enforcement is universal — no per-pod opt-in, no accidental gaps.
 
 **Injected by the webhook on every tenant pod:**
 
 | Field | Value | Purpose |
 |---|---|---|
-| label `orbit.io/identity-proxy` | `"enabled"` | Activates the identity-proxy EnvoyFilter (ext_proc) |
-| label `orbit.io/opa-policy` | `"enabled"` | Activates the OPA ext_authz EnvoyFilter |
-| annotation `orbit.io/tenant-id` | `<tenant-name>` | Tells the OPA sidecar which bundle to fetch from the policy service |
+| label `runkora.io/identity-proxy` | `"enabled"` | Activates the identity-proxy EnvoyFilter (ext_proc) |
+| label `runkora.io/opa-policy` | `"enabled"` | Activates the OPA ext_authz EnvoyFilter |
+| annotation `runkora.io/tenant-id` | `<tenant-name>` | Tells the OPA sidecar which bundle to fetch from the policy service |
 | annotation `inject.istio.io/templates` | `"sidecar,spire,identity-proxy,opa-policy"` | Injects all four Istio sidecars; merged with any templates already set |
 
-The tenant name is read from the namespace label `orbit.io/tenant`, which is set by the operator's `TenantReconciler` at namespace provisioning time.
+The tenant name is read from the namespace label `runkora.io/tenant`, which is set by the operator's `TenantReconciler` at namespace provisioning time.
 
 **Failure policy: `Ignore`**
 
@@ -360,7 +360,7 @@ If the webhook is temporarily unavailable (e.g. operator restart), pods start wi
 
 The identity-proxy exchanges the pod's SPIFFE SVID for a platform token. For this to succeed, the pod must match a `ClusterSPIFFEID` selector — either `spiffe.io/agent: <name>` (autonomous agents) or `spiffe.io/service: <name>` (tenant-deployed services). Without a SPIFFE identity, the identity-proxy fails its readiness probe and the pod never becomes Ready. This is the correct fail-closed behaviour: an agent without a declared identity cannot reach platform services.
 
-**Implementation:** `internal/operator/pod_webhook.go` — `PodMutator` registered with the controller-runtime webhook server on port 9443. TLS for the webhook server is provisioned by the Helm chart (`charts/orbit-operator/templates/webhook.yaml`) using Helm's `genCA`/`genSignedCert` with `lookup` to prevent cert regeneration on upgrade.
+**Implementation:** `internal/operator/pod_webhook.go` — `PodMutator` registered with the controller-runtime webhook server on port 9443. TLS for the webhook server is provisioned by the Helm chart (`charts/kora-operator/templates/webhook.yaml`) using Helm's `genCA`/`genSignedCert` with `lookup` to prevent cert regeneration on upgrade.
 
 ### Layer 2 PDP — `internal/platform/policy` Go Library
 
@@ -459,7 +459,7 @@ Note: data files at `<dir>/data.json` are loaded into `data.<dir>` in OPA's name
 
 Core Rego evaluation:
 ```rego
-package orbit.authz
+package kora.authz
 
 import rego.v1
 
@@ -552,7 +552,7 @@ scope_covers(a, b) if {
 }
 ```
 
-`required_scope` is derived by the ext_authz service from the resource attributes and action provided by the calling service. `delegation_scopes` is the delegation token's `scope` claim split on spaces. `delegator_id` is the delegation token's `sub` claim (the human who delegated). The `act.sub` claim is the agent acting on the delegator's behalf — which is the calling principal, already identified in `principal.id`. `roles` is populated from the `PlatformClaims.Orbit.Claims` map for HUMAN principals.
+`required_scope` is derived by the ext_authz service from the resource attributes and action provided by the calling service. `delegation_scopes` is the delegation token's `scope` claim split on spaces. `delegator_id` is the delegation token's `sub` claim (the human who delegated). The `act.sub` claim is the agent acting on the delegator's behalf — which is the calling principal, already identified in `principal.id`. `roles` is populated from the `PlatformClaims.Kora.Claims` map for HUMAN principals.
 
 ### Failure Mode — Fail-Closed
 
@@ -584,7 +584,7 @@ The Rego for Layer 1 derives `required_scope` from `data.routes.route_scopes` us
 
 ### Layer 1 and Layer 2 Enforcement
 
-**Layer 1 (Envoy outbound, OPA sidecar):** Handles path-level decisions — can this principal reach this service at this path? The OPA Envoy plugin sidecar receives the Envoy `CheckRequest` on `localhost:9191` and evaluates `data.orbit.authz.allow` against the locally loaded bundle. Returns 403 before the request leaves the calling pod. Applies to all outbound requests from agent pods, covering all destination services — owned and third-party — with no application code changes required at the destination.
+**Layer 1 (Envoy outbound, OPA sidecar):** Handles path-level decisions — can this principal reach this service at this path? The OPA Envoy plugin sidecar receives the Envoy `CheckRequest` on `localhost:9191` and evaluates `data.kora.authz.allow` against the locally loaded bundle. Returns 403 before the request leaves the calling pod. Applies to all outbound requests from agent pods, covering all destination services — owned and third-party — with no application code changes required at the destination.
 
 **Layer 2 (in-process, owned services only):** Handles payload-aware decisions — can this principal use this specific resource identified in the request body? Owned services call `platform/policy.Evaluator.Check()` or `.Query()` inline in their handler code. Evaluation is pure in-memory against the service's own locally loaded bundle. Listing endpoints call `.Query()` to filter their response sets, passing the full resource catalog as candidates. The service owns the catalog; the policy system owns the grants.
 
@@ -697,7 +697,7 @@ backend/internal/policygw/
 ├── handlers.go                     # POST /v1/policy/check, /v1/policy/query (utility API)
 └── models.go                       # Request/response types for utility HTTP API
 
-charts/orbit/templates/
+charts/kora/templates/
 └── policy-gateway/
     └── envoyfilter.yaml            # OPA ext_authz EnvoyFilter for agent pods (SIDECAR_OUTBOUND)
 
@@ -791,7 +791,8 @@ Enforce a **creation-time scope ceiling** on grant and role administration, as a
 > A non-SYSTEM caller may create or modify a grant or role only if **every** scope it assigns is **covered by the caller's own effective scopes** — the same `ScopeCovers` hierarchy used everywhere else (A covers B if same resource + action and A's path is a prefix of B's path).
 
 - **Where.** In the Policy Service (PAP) write path — `CreateGrant` and the role upsert — before persistence. Compute the caller's effective scopes (`EffectiveScopes`), and reject with `403` if any requested scope is not covered by `AnyScopeCovers(callerScopes, requested)`, naming the offending scopes. This is a new, separate check from the existing vocabulary validation.
-- **SYSTEM exemption.** SYSTEM principals are exempt. Trusted platform components (e.g. `orbit-agents` provisioning an agent's grant) legitimately assign scopes they do not personally hold, and already bypass tenant-scoping on these routes (`PrincipalType != SYSTEM` guards). The ceiling therefore applies to **HUMAN** and **AGENT** callers only — exactly the principals that could escalate.
+- **SYSTEM exemption.** SYSTEM principals are exempt. Trusted platform components (e.g. `kora-agents` provisioning an agent's grant) legitimately assign scopes they do not personally hold, and already bypass tenant-scoping on these routes (`PrincipalType != SYSTEM` guards). The ceiling therefore applies to **HUMAN** and **AGENT** callers only — exactly the principals that could escalate.
+- **Agent grants.** `kora-agents` provisions an agent's grant as SYSTEM. Before it does, it applies the same ceiling to the caller creating or changing an autonomous agent, or editing an environment attached to one. Every scope the grant would hold, except the egress a connector derives (`egress:<host>:connector`), must be covered by the caller's effective scopes, read from `GET /policy/effective-scopes` with the caller's own token. For a delegated agent only its own egress (`egress:connect`, `egress:<host>:connect`) is checked. Egress is evaluated on the agent alone under delegation.
 - **Roles too.** `PUT /policy/roles` gets the same ceiling: a role bundles scopes, and assigning a role is an indirect grant, so an unbounded role upsert would be the same escalation by another door.
 - **Budget-only updates unaffected.** `PATCH /policy/grants/{id}` changes only the budget; scopes are immutable on a grant, so it needs no ceiling check.
 

@@ -3,7 +3,7 @@ package inferencegw
 import (
 	"strings"
 
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // agentSlugFromPrincipal returns the agent segment of an AGENT principal's

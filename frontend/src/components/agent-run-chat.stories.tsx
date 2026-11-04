@@ -5,7 +5,7 @@
 
 import type { Meta, StoryObj } from '@storybook/react';
 import { useState } from 'react';
-import type { IconName } from '@orbit/hades';
+import type { IconName } from '@runkora/hades';
 import {
   Badge,
   Button,
@@ -26,7 +26,7 @@ import {
   Text,
   Textarea,
   TypingIndicator,
-} from '@orbit/hades';
+} from '@runkora/hades';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -496,7 +496,7 @@ const TOOLS = {
     args: { file: 'package.json' },
     status: 'done' as const,
     timing: '0.1s',
-    result: '42 lines: next.js 15, typescript, @orbit/hades',
+    result: '42 lines: next.js 15, typescript, @runkora/hades',
   },
   grep: {
     id: 't3',

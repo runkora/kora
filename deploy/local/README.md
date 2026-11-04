@@ -1,24 +1,26 @@
 # Local Tenant Resources
 
-Local-only tenant resources applied after the platform installation. Platform setup, image redeployment, and Helmfile environment values are documented in [docs/guides/local-development.md](../../docs/guides/local-development.md).
+Local-only tenant resources applied after the platform installation. Platform setup, image redeployment, and Helmfile environment values are documented in [docs/contributing/local-development.md](../../docs/contributing/local-development.md).
 
 ## Directory Structure
 
 ```
 deploy/local/
 ├── connections/   # Connection resources for the example tenant (Kubernetes, GitHub)
+├── declarative/   # One of each declarative resource kind for the example tenant
 ├── fixtures/      # Example tenant workload
+├── observability/ # LGTM stack the platform exports telemetry to
 ├── marketplace/   # SkillMarketplaceSource examples (applied by make cluster-deploy)
-└── tenants/       # OrbitTenant resources
+└── tenants/       # KoraTenant resources
 ```
 
 ## Tenant Registry
 
-The operator derives `orbit-tenants` in `orbit-system` from `OrbitTenant` resources.
+The operator derives `kora-tenants` in `kora-system` from `KoraTenant` resources.
 
 ## Adding or Updating a Tenant
 
-Add or edit an `OrbitTenant` resource in `tenants/`, then apply it:
+Add or edit an `KoraTenant` resource in `tenants/`, then apply it:
 
 ```bash
 kubectl apply -f deploy/local/tenants/example.yaml
@@ -30,14 +32,18 @@ kubectl apply -f deploy/local/tenants/example.yaml
 
 | Connection | Credential |
 |---|---|
-| `github.yaml` | GitHub App private key at `secrets/orbit-github-app.pem` |
-| `kubernetes.yaml` | A `Secret` named `orbit-local-token` in `orbit-tenant-example`, holding a bearer token for the target cluster. `scripts/cluster/register-k8s-connection.sh` creates it, along with the ServiceAccount and the connection itself. |
+| `github.yaml` | GitHub App private key at `secrets/kora-github-app.pem` |
+| `kubernetes.yaml` | A `Secret` named `kora-local-token` in `kora-tenant-example`, holding a bearer token for the target cluster. `scripts/cluster/register-k8s-connection.sh` creates it, along with the ServiceAccount and the connection itself. |
 
 A connection without its credential is skipped, not failed.
 
+## Declarative Resources
+
+`declarative/` holds one example of each declarative kind for the example tenant, applied by hand as described in [declarative/README.md](declarative/README.md).
+
 ## Fixtures
 
-`fixtures/orbit-tenant-example.yaml` is the example tenant's workload: a self-contained `Deployment` and `Service` for local testing.
+`fixtures/kora-tenant-example.yaml` is the example tenant's workload: a self-contained `Deployment` and `Service` for local testing.
 
 ## Skill marketplace sources
 

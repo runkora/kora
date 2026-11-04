@@ -11,7 +11,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 import { MIN_SEARCH_LENGTH } from '../_types';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData } from '../_types';
 import { parseBrowseParams } from '../_utils/browse-params';

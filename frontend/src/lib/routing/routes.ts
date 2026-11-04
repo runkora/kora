@@ -12,7 +12,7 @@
  * nav config array).
  *
  * @example
- *   import { APP_ROUTES, type AppRoute } from '@orbit/lib/routing';
+ *   import { APP_ROUTES, type AppRoute } from '@runkora/lib/routing';
  */
 
 import { ApiRoute } from './api-routes';

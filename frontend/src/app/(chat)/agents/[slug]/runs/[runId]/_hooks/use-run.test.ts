@@ -1,7 +1,7 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { server } from '@orbit/test-utils/msw/server';
+import { server } from '@runkora/test-utils/msw/server';
 import { useRun } from './use-run';
 
 // Minimal controllable EventSource stand-in. jsdom ships no EventSource, and we
@@ -168,6 +168,41 @@ describe('useRun — server event envelope', () => {
       es.emit('run_error', { at: later, payload: { code: 'agent_error', message: 'boom' } });
     });
     expect(result.current.turns.map((t) => t.timestamp)).toEqual([local, laterLocal, laterLocal]);
+  });
+
+  it('adds a message a trigger sent as a turn from that trigger', async () => {
+    const { result } = renderHook(() => useRun('run-1', 'slug'));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      const es = FakeEventSource.instances[0];
+      es.open();
+      es.emit('human_message', { at, payload: { content: 'review this' } });
+      es.emit('trigger_message', {
+        at: later,
+        payload: {
+          content: 'new comment',
+          trigger_id: 'trig-1',
+          trigger_name: 'route-github-work',
+        },
+      });
+      es.emit('trigger_message', {
+        at: later,
+        payload: { content: 'unnamed', trigger_id: 'trig-2' },
+      });
+    });
+    expect(result.current.turns).toMatchObject([
+      { type: 'human', content: 'review this' },
+      {
+        type: 'human',
+        content: 'new comment',
+        fromTrigger: 'route-github-work',
+        timestamp: laterLocal,
+      },
+      { type: 'human', content: 'unnamed', fromTrigger: 'trig-2' },
+    ]);
+    expect(result.current.turns[0]).not.toHaveProperty('fromTrigger');
   });
 
   it('stamps a sent message with the time of its echo, and reads a bare payload', async () => {
@@ -395,7 +430,7 @@ describe('useRun — activity, delivery and stops', () => {
     });
   });
 
-  it('marks a turn the loop guard stopped as stopped by Orbit', async () => {
+  it('marks a turn the loop guard stopped as stopped by kora', async () => {
     const { result, emit } = await start();
     emit('text_delta', { delta: 'Trying again' });
     emit('message_complete', { text: 'Trying again', interrupted: true });
@@ -430,7 +465,7 @@ describe('useRun — activity, delivery and stops', () => {
       {
         kind: 'notice',
         message:
-          'Orbit asked the agent to change approach: Monitor re-armed 6 times with no new output.',
+          'kora asked the agent to change approach: Monitor re-armed 6 times with no new output.',
       },
       expect.objectContaining({ kind: 'notice', tone: 'error' }),
     ]);

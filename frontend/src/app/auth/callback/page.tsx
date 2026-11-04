@@ -32,8 +32,8 @@ import {
   buildUserManager,
   TENANT_CONFIG_STORAGE_KEY,
   type TenantOidcConfig,
-} from '@orbit/lib/oidc-client';
-import { isSafeRedirectPath } from '@orbit/lib/routing';
+} from '@runkora/lib/oidc-client';
+import { isSafeRedirectPath } from '@runkora/lib/routing';
 
 export default function CallbackPage() {
   const router = useRouter();

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import type { AgentInsightsPeriod, AgentOverviewResponse } from '@orbit/shared/api';
+import type { AgentInsightsPeriod, AgentOverviewResponse } from '@runkora/shared/api';
 import { http, HttpResponse } from 'msw';
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 import { useAgentOverview } from './use-agent-overview';
 
 const overview = (period: AgentInsightsPeriod): AgentOverviewResponse => ({

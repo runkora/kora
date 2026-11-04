@@ -28,37 +28,37 @@ Setup, conventions, and the quality gate: [CONTRIBUTING.md](CONTRIBUTING.md#2-de
 
 **Language**: Go 1.26 (control plane)
 
-Local development runs in Kubernetes. There is one environment. For the full walkthrough see **[docs/guides/local-development.md](docs/guides/local-development.md)**.
+Local development runs in Kubernetes. There is one environment. For the full walkthrough see **[docs/contributing/local-development.md](docs/contributing/local-development.md)**.
 
 **First run:**
 
 ```bash
 make setup   # once per machine: generate .env, install tools, git hooks, local DNS, mkcert TLS
-make up      # backing services, k3d cluster, migrations, operator (SPIRE + Istio + Orbit), tenants, workloads. Idempotent.
-make auth    # Device Authorization Grant → dev@orbit.local.clearroute.io / password. Token → /tmp/orbit_credentials.json
+make up      # backing services, k3d cluster, migrations, operator (SPIRE + Istio + kora), tenants, workloads. Idempotent.
+make auth    # Device Authorization Grant → dev@local.runkora.io / password. Token → /tmp/kora_credentials.json
 ```
 
 `make up` is idempotent: re-run it whenever the cluster drifts. `make down` tears it down. The inner loop is `make redeploy` (`SERVICE=<name>` narrows it to one service).
 
 **Calling authenticated kora APIs (curl):**
 
-Read the token inline from `/tmp/orbit_credentials.json`; `$ORBIT_TOKEN` is not available in subprocess shells. Use `curl -sk` against the cluster ingress.
+Read the token inline from `/tmp/kora_credentials.json`; `$KORA_TOKEN` is not available in subprocess shells. Use `curl -sk` against the cluster ingress.
 
 ```bash
 # Standard pattern for any authenticated API call
-TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk \
+TOKEN=$(jq -r '.access_token' /tmp/kora_credentials.json) && curl -sk \
   -H "Authorization: Bearer $TOKEN" \
-  https://api.orbit.local.clearroute.io/v1/models
+  https://api.local.runkora.io/v1/models
 
 # POST example (inference gateway)
-TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk -X POST \
+TOKEN=$(jq -r '.access_token' /tmp/kora_credentials.json) && curl -sk -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"model":"bedrock/claude-sonnet-4-5-20250929-v1","max_tokens":50,"messages":[{"role":"user","content":"Hello"}]}' \
-  https://api.orbit.local.clearroute.io/v1/chat/completions | jq .
+  https://api.local.runkora.io/v1/chat/completions | jq .
 ```
 
-**Endpoints:** dashboard `https://orbit.local.clearroute.io`, backend API `https://api.orbit.local.clearroute.io`.
+**Endpoints:** dashboard `https://local.runkora.io`, backend API `https://api.local.runkora.io`.
 
 **In-cluster ports** (each service binds these inside the mesh):
 
@@ -71,12 +71,12 @@ TOKEN=$(jq -r '.access_token' /tmp/orbit_credentials.json) && curl -sk -X POST \
 | Triggers              | `8097` |
 | Session Manager       | `8090` |
 
-(`orbit-agents` binds `8080` in-cluster; the `operator`, `identity-proxy`, and `sandbox-exec` are not host-facing HTTP. See [code-organization.md](docs/code-organization.md) for the full binary/port map.)
+(`kora-agents` binds `8080` in-cluster; the `operator`, `identity-proxy`, and `sandbox-exec` are not host-facing HTTP. See [code-organization.md](docs/code-organization.md) for the full binary/port map.)
 
 **If a call returns `{"code":"unauthorized","message":"invalid or expired platform token"}` (the token expired):**
 
 ```bash
-make auth-refresh   # rotate the token pair in /tmp/orbit_credentials.json
+make auth-refresh   # rotate the token pair in /tmp/kora_credentials.json
 ```
 
 If the refresh token itself is expired, run `make auth` to start a fresh session. Never refresh with raw `curl`: see `scripts/auth-refresh.sh` for why.
@@ -84,7 +84,7 @@ If the refresh token itself is expired, run `make auth` to start a fresh session
 **Run the full quality gate before committing:**
 
 ```bash
-make check             # tidy + fmt + vet + lint (golangci-lint) + secret scan + docs-check + tests + frontend checks
+make check             # tidy + fmt + vet + lint (golangci-lint) + secret scan + docs-check + Hades manifest check + tests + frontend checks
 ```
 
 `docs-check` (`scripts/docs/check-docs.sh`) guards the docs against drift: broken links, missing ADR/PRD index entries, dead `make` targets, a stale binary table, and hardcoded counts. All PRs must pass `make check` with zero issues.
@@ -114,12 +114,12 @@ An agent **must** follow these conventions when modifying this codebase. Each co
 ### Configuration
 
 - **No secrets in YAML**: Secrets load via `os.Getenv` only; YAML configs use `yaml:"-"` for secret fields.
-- **Config uses `config.LoadService[T]` / `config.Load[T]`**: Binaries load a typed config from `backend/cmd/{service}/config/base.yaml` (+ optional `{env}.yaml`, then the chart-rendered `/etc/orbit/config/{module}.yaml`) via `MustLoadService[T]`; `APP_ENV` selects the environment. No raw viper, no raw yaml library imports outside `platform/config/`.
+- **Config uses `config.LoadService[T]` / `config.Load[T]`**: Binaries load a typed config from `backend/cmd/{service}/config/base.yaml` (+ optional `{env}.yaml`, then the chart-rendered `/etc/kora/config/{module}.yaml`) via `MustLoadService[T]`; `APP_ENV` selects the environment. No raw viper, no raw yaml library imports outside `platform/config/`.
 
 ### Errors & Observability
 
 - **Wrap errors with `%w`**: Always use `fmt.Errorf("context: %w", err)`, never `%s` for error wrapping.
-- **Static span status descriptions**: `span.SetStatus(codes.Error, sentinel.Error())` must use a package-level sentinel error string, never `err.Error()` or `ctx.Err().Error()` inline. Use `span.RecordError(err)` for dynamic context.
+- **Static span status descriptions**: a failed span is recorded with `observability.RecordFailure(span, err, sentinel)`, where `sentinel` is a package-level error that becomes the status description and `error.type`. Never pass `err.Error()` or `ctx.Err().Error()`; `err` carries the dynamic context.
 - **No raw OTel in typed clients**: Platform clients in `internal/platform/clients/` must not import `go.opentelemetry.io/otel/codes` or `go.opentelemetry.io/otel/trace` directly; the `httpclient.Base` handles all span lifecycle.
 
 ### Code Structure
@@ -131,19 +131,22 @@ An agent **must** follow these conventions when modifying this codebase. Each co
 
 All conventions above are mechanically enforced. Do not add inline `//nolint` directives; exceptions are managed centrally via path-scoped exclusions in `.golangci.yml`.
 
-**Tier 1: AST rules** (`rules/orbit_rules.go`, enforced via `gocritic/ruleguard`):
+**Tier 1: AST rules** (`rules/kora_rules.go`, enforced via `gocritic/ruleguard`):
 
 | Rule                     | What it bans                                      |
 | ------------------------ | ------------------------------------------------- |
 | `spanSetStatusLocalErr`  | `span.SetStatus(_, err.Error())`                  |
 | `spanSetStatusCtxErr`    | `span.SetStatus(_, ctx.Err().Error())`            |
+| `spanSetStatusErrorDirect` | `span.SetStatus(<codes pkg alias>.Error, _)` outside `internal/platform/observability` (use `observability.RecordFailure`) |
 | `spanAttrStringLocalErr` | `attribute.String(_, err.Error())`                |
 | `spanAttrStringCtxErr`   | `attribute.String(_, ctx.Err().Error())`          |
+| `spanAttrKeyVocabulary`  | a string literal as a span attribute key (use semconv or `internal/platform/observability`) |
 | `noRawJsonDecodeRequest` | `json.NewDecoder(r.Body).Decode(...)` in handlers |
 | `noFmtErrorfStringErr`   | `fmt.Errorf("...: %s", err)`                      |
 | `noRawHttpClientLiteral` | `http.Client{...}` literal construction           |
 | `noHttpErrorInHandler`   | `http.Error(w, ...)` in handlers                  |
 | `noDirectWriteHeader`    | `w.WriteHeader(code)` in handlers                 |
+| `noProductNameLiteral`   | a prose `kora`/`orbit` literal in a speaking package; the name comes from `internal/platform/brand` |
 
 **Tier 2: Import bans** (`depguard` in `.golangci.yml`):
 
@@ -176,17 +179,17 @@ kora follows a **feature-based architecture** with the repository pattern for da
 | `inference-gateway`                                                                         | `cmd/inference-gateway/` | OpenAI/Anthropic-compatible LLM gateway (port 8081)                                                                           |
 | `policy-service`                                                                            | `cmd/policy-service/`    | Authz data plane (PDP/PAP): grants, roles, OPA bundles (port 8083)                                                            |
 | `policy-gateway`                                                                            | `cmd/policy-gateway/`    | In-app authz API (PEP) (port 8084)                                                                                            |
-| `orbit-agents`                                                                              | `cmd/orbit-agents/`      | Agent control plane: runs, sessions, event streaming, k8s orchestration                                                       |
-| `orbit-triggers`                                                                            | `cmd/orbit-triggers/`    | Triggers: webhook ingestion, trigger API, cron scheduler, manual fire (port 8097)                                             |
+| `kora-agents`                                                                               | `cmd/kora-agents/`       | Agent control plane: runs, sessions, event streaming, k8s orchestration                                                       |
+| `kora-triggers`                                                                             | `cmd/kora-triggers/`     | Triggers: webhook ingestion, trigger API, cron scheduler, manual fire (port 8097)                                             |
 | `skills-service`                                                                            | `cmd/skills-service/`    | Read-only Agent Marketplace: serves skills from GitHub-hosted repositories, cached in Redis (port 8098)                       |
 | `migrate`                                                                                   | `cmd/migrate/`           | Schema migrations: embeds every service's migrations, runs as the chart's pre-install/pre-upgrade hook Job                    |
 | `session-manager`                                                                           | `cmd/session-manager/`   | Per-tenant runner for the agent (Claude Code) subprocess (port 8090)                                                          |
-| `operator`                                                                                  | `cmd/operator/`          | Kubernetes operator: reconciles Tenant/Platform CRDs, injects sidecars                                                        |
+| `operator`                                                                                  | `cmd/operator/`          | Kubernetes operator: reconciles Tenant/Platform CRDs, injects sidecars, projects declared resources                           |
 | `identity-proxy`                                                                            | `cmd/identity-proxy/`    | Envoy ext_proc sidecar: injects platform tokens into agent outbound calls                                                     |
-| `sandbox-exec`, `orbit-runtime-mcp`, `orbit-shell`, `orbit-session-runner`, `sandbox-mount` | `cmd/*/`                 | Agent sandbox/exec stack (gRPC exec, MCP provisioning, shell shim, isolation wrapper, node agent for sandbox working folders) |
+| `sandbox-exec`, `kora-runtime-mcp`, `kora-shell`, `kora-session-runner`, `sandbox-mount`    | `cmd/*/`                 | Agent sandbox/exec stack (gRPC exec, MCP provisioning, shell shim, isolation wrapper, node agent for sandbox working folders) |
 | `example`                                                                                   | `cmd/example/`           | Reference implementation (not production)                                                                                     |
 
-> There is **no `cmd/orbit`** binary; the main API is `cmd/identity`. See [docs/code-organization.md](docs/code-organization.md) for the complete map.
+> There is **no `cmd/kora`** binary; the main API is `cmd/identity`. See [docs/code-organization.md](docs/code-organization.md) for the complete map.
 
 **Feature Ownership**: Each feature package (`internal/identity/`, `internal/agents/`, etc.) owns its complete stack:
 
@@ -245,16 +248,17 @@ This describes what the backend test suite **actually is today**, and (separatel
 **What exists today:**
 
 - **Unit tests**: the bulk of coverage, table-driven, across packages. Run by `make test` (race + coverage) and by `make check`; no cluster or database required.
-- **Postgres-backed repository tests**: named `TestPostgres_*` and gated on `ORBIT_TEST_DB_URL`, so they skip when it is unset and `make check` never needs a database. They live beside the repository they exercise, including:
+- **Postgres-backed repository tests**: named `TestPostgres_*` and gated on `KORA_TEST_DB_URL`, so they skip when it is unset and `make check` never needs a database. They live beside the repository they exercise, including:
 
   | Package                | File                                                                                                                     | Covers                                                                                                                                                                                                                  |
   | ---------------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | `triggers`             | `postgres_test.go`                                                                                                       | the durable queue (claim, reclaim, trim, drain), delivery dedup and lineage, retention, the admission ceiling                                                                                                           |
-  | `agents`               | `drafts_postgres_test.go`, `run_attribution_postgres_test.go`, `run_page_postgres_test.go`, `run_queue_postgres_test.go` | draft CRUD and reap cutoff; run trigger attribution; keyset run pages and run stats; the run scheduling queue (claim, release, reclaim)                                                                                 |
+  | `triggers`             | `postgres_test.go`                                                                                                       | the durable queue (claim, reclaim, trim, drain, coalescing windows), delivery dedup and lineage, retention, the admission ceiling, declared source and trigger rows                                                                         |
+  | `agents`               | `drafts_postgres_test.go`, `run_attribution_postgres_test.go`, `run_page_postgres_test.go`, `run_queue_postgres_test.go`, `agent_soft_delete_postgres_test.go`, `declared_postgres_test.go` | draft CRUD and reap cutoff; run trigger attribution; keyset run pages and run stats; the run scheduling queue (claim, release, reclaim); agent soft delete and claiming a deleted agent's runs; declared source columns |
   | `policyservice/grants` | `postgres_test.go`                                                                                                       | scope purging across grants                                                                                                                                                                                             |
-  | `policyservice/roles`  | `postgres_test.go`                                                                                                       | scope purging across roles                                                                                                                                                                                              |
-  | `inferencegw`          | `postgres_test.go`, `pricing_postgres_test.go`                                                                           | the `agent_slug` backfill and write path, per-agent usage aggregates and their index; price overrides without a synced row, and discovered prices replacing a provider's synced rows atomically while keeping overrides |
-  | `example`              | `postgres_test.go`                                                                                                       | the reference repository; gated on `ORBIT_EXAMPLE_TEST_DB_URL` instead, after applying `backend/cmd/example/migrations/*.sql` by hand. Its tables are outside the product schema                                        |
+  | `policyservice/roles`  | `postgres_test.go`                                                                                                       | scope purging across roles; crd rows: API refusal, rename and conflicts                                                                                                                                                 |
+  | `policyservice/tenantbudget` | `postgres_test.go`                                                                                                       | a crd budget replaces an api budget, the API cannot write it, removing it leaves an api budget                                                                                                                          |
+  | `inferencegw`          | `postgres_test.go`, `pricing_postgres_test.go`, `catalog_postgres_test.go` | the `agent_slug` backfill and write path, per-agent usage aggregates and their index; price overrides without a synced row, and discovered prices replacing a provider's synced rows atomically while keeping overrides; declared virtual model upserts, conflicts and API refusals |
+  | `example`              | `postgres_test.go`                                                                                                       | the reference repository; gated on `KORA_EXAMPLE_TEST_DB_URL` instead, after applying `backend/cmd/example/migrations/*.sql` by hand. Its tables are outside the product schema                                        |
 
   Run them against the local Postgres (`make test-postgres` applies the schema with `cmd/migrate` first):
 
@@ -292,7 +296,7 @@ See [repository-pattern-and-code-organization](docs/adr/2026-02-17-repository-pa
 
 ## Frontend Development
 
-All product JSX must use Hades (`@orbit/hades`). Raw HTML primitives are banned by ESLint with **zero escape hatches**. `eslint-disable` comments targeting any Hades rule are themselves a lint error (`local/no-hades-disable-comment`). Violations fail `pnpm lint`.
+All product JSX must use Hades (`@runkora/hades`). Raw HTML primitives are banned by ESLint with **zero escape hatches**. `eslint-disable` comments targeting any Hades rule are themselves a lint error (`local/no-hades-disable-comment`). Violations fail `pnpm lint`.
 
 | Rule                                | What it bans                                                                                   | Use instead                                                                                                       |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
@@ -303,6 +307,7 @@ All product JSX must use Hades (`@orbit/hades`). Raw HTML primitives are banned 
 | `local/no-hades-classname`          | `className` on any Hades component                                                             | Use the component's own props                                                                                     |
 | `local/no-direct-lucide-import`     | `import { X } from 'lucide-react'` in `src/app/**` or `src/components/**`                      | `<Icon name="…" />`: **no escape hatch**. Add icons to `src/packages/hades/src/components/icon/registry.ts` only. |
 | `local/no-hades-disable-comment`    | Any `eslint-disable` targeting a Hades rule                                                    | There is no escape hatch; use the correct Hades component                                                         |
+| `local/no-product-name-literal`     | The whole word `kora` or `orbit` in a string, template literal or JSX text, unless joined through `-`, `_`, `.` or `/` (`orbit.io`, `kora-base` pass) | `useBrand().productName` (client) or `getBrand()` from `@runkora/server/theme` (server). Mock data, tests and stories are excluded. |
 
 **Common HTML → Hades replacements:**
 
@@ -337,8 +342,8 @@ All product JSX must use Hades (`@orbit/hades`). Raw HTML primitives are banned 
 
 | Tier  | Name             | Filesystem                                   | Import                                  | Storybook prefix                                                        |
 | ----- | ---------------- | -------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
-| **1** | Hades            | `src/packages/hades/src/components/`         | `import { X } from '@orbit/hades'`      | `Hades/Atoms/`, `Hades/Molecules/`, `Hades/Layout/`, `Hades/Organisms/` |
-| **2** | App-level shared | `src/components/`                            | `import { X } from '@orbit/components'` | `App/Atoms/`, `App/Molecules/`, `App/Organisms/`                        |
+| **1** | Hades            | `src/packages/hades/src/components/`         | `import { X } from '@runkora/hades'`    | `Hades/Atoms/`, `Hades/Molecules/`, `Hades/Layout/`, `Hades/Organisms/` |
+| **2** | App-level shared | `src/components/`                            | `import { X } from '@runkora/components'` | `App/Atoms/`, `App/Molecules/`, `App/Organisms/`                        |
 | **3** | Feature-scoped   | `src/app/(dashboard)/[feature]/_components/` | relative import                         | n/a                                                                     |
 
 Apply this decision tree in order, stop at the first match, never pre-generalise:
@@ -351,9 +356,9 @@ Apply this decision tree in order, stop at the first match, never pre-generalise
 Every extracted component file must open with a `@tier` JSDoc comment:
 
 ```ts
-/** @tier 1 — Zero Orbit domain knowledge. Could be extracted to a standalone library. */
+/** @tier 1 — Zero kora domain knowledge. Could be extracted to a standalone library. */
 
-/** @tier 2 — Orbit-domain-aware: uses Orbit status tokens. Used by: dashboard overview, model-gateway. */
+/** @tier 2 — kora-domain-aware: uses kora status tokens. Used by: dashboard overview, model-gateway. */
 
 /** @tier 3 — model-gateway-scoped. Promote to src/components/ if a second feature needs this. */
 ```

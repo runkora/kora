@@ -9,8 +9,8 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/hades';
-import { fmtUsd, fmtTokens, fmtNumCompact } from '@orbit/utils';
+} from '@runkora/hades';
+import { fmtUsd, fmtTokens, fmtNumCompact } from '@runkora/utils';
 import { StatRow } from './stat-row';
 
 // ── Types ─────────────────────────────────────────────────────────────────────

@@ -63,7 +63,7 @@ export interface WidgetRaw {
 ### `_types/index.ts`: feature-local view type
 
 ```typescript
-import type { WidgetRaw } from '@orbit/shared/api';
+import type { WidgetRaw } from '@runkora/shared/api';
 
 /** Possible lifecycle states a Widget can be in. */
 export type WidgetStatus = 'active' | 'inactive' | 'pending';
@@ -101,8 +101,8 @@ src/app/(dashboard)/{your-feature}/_services/widgets-server.ts
 ```typescript
 import 'server-only';
 
-import { config } from '@orbit/server/config';
-import type { WidgetsResponse } from '@orbit/shared/api';
+import { config } from '@runkora/server/config';
+import type { WidgetsResponse } from '@runkora/shared/api';
 import { toWidgetRow } from '../_types';
 import type { WidgetRow } from '../_types';
 
@@ -116,7 +116,7 @@ export type GatewayWidgetsResult =
 export async function fetchWidgetsFromGateway(accessToken: string): Promise<GatewayWidgetsResult> {
   let res: Response;
   try {
-    res = await fetch(`${config.orbitApiUrl}/v1/widgets`, {
+    res = await fetch(`${config.koraApiUrl}/v1/widgets`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: 'no-store',
       signal: AbortSignal.timeout(10_000),
@@ -177,7 +177,7 @@ src/app/api/widgets/route.ts
 import 'server-only';
 
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
+import { withAuth } from '@runkora/server/route-helpers';
 import { fetchWidgetsFromGateway } from '../../(dashboard)/{feature}/_services/widgets-server';
 
 export const GET = withAuth(async (_req: NextRequest, session) => {
@@ -199,7 +199,7 @@ export const GET = withAuth(async (_req: NextRequest, session) => {
 > **Notes:**
 >
 > - `withAuth` handles the session check and returns `401` automatically, with no manual `getSession()` / `isSessionValid()` call needed in the handler body.
-> - `withAuth` lives in `src/server/route-helpers.ts` and is importable as `@orbit/server/route-helpers`.
+> - `withAuth` lives in `src/server/route-helpers.ts` and is importable as `@runkora/server/route-helpers`.
 > - Use `NextResponse.json` (not the web-standard `Response.json`), consistent with the rest of the app.
 > - Error responses use `{ code, message }` shape, not `{ error }`.
 > - The handler delegates all upstream logic to the server service. Keep handlers thin.
@@ -241,7 +241,7 @@ src/app/(dashboard)/{your-feature}/_services/widgets-api.ts
 // Client-side fetch helper. Calls the BFF route at /api/widgets.
 // Never calls the Go backend directly — that is server-only.
 
-import { ApiRoute } from '@orbit/lib/routing/api-routes';
+import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import type { WidgetRow } from '../_types';
 
 export interface FetchWidgetsResult {
@@ -486,7 +486,7 @@ src/app/(dashboard)/{your-feature}/widgets/page.tsx
 // RSC — fetches widgets server-side so the page renders with real data.
 // The co-located loading.tsx shows a skeleton while this fetch completes.
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchWidgetsFromGateway } from '../_services/widgets-server';
 import { WidgetsTabShell } from '../_components/widgets-tab-shell';
 
@@ -692,7 +692,7 @@ Use this checklist before opening a PR. Every item must be true.
 
 - [ ] File starts with `import 'server-only'`.
 - [ ] Uses `NextResponse.json(...)`, not `Response.json(...)`.
-- [ ] Route is wrapped with `withAuth` from `@orbit/server/route-helpers`, with no manual `getSession()` / `isSessionValid()` call in the handler body.
+- [ ] Route is wrapped with `withAuth` from `@runkora/server/route-helpers`, with no manual `getSession()` / `isSessionValid()` call in the handler body.
 - [ ] Error responses use `{ code, message }` shape.
 - [ ] Route is registered in `api-routes.ts` and `ApiRoutePath` union is extended.
 - [ ] Route is **not** added to `PUBLIC_PATHS` in `src/proxy.ts`.

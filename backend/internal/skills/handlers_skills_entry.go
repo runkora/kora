@@ -6,13 +6,13 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 const marketplaceReadScope = "marketplace:read"
@@ -204,7 +204,7 @@ func (c *Controller) tenantID(w http.ResponseWriter, r *http.Request) (string, b
 	}
 
 	claims, ok := token.ClaimsFromContext(r.Context())
-	if !ok || claims == nil || claims.Orbit.TenantID == "" {
+	if !ok || claims == nil || claims.Kora.TenantID == "" {
 		apiErr := api.UnauthorizedError(
 			api.ErrCodeUnauthorized,
 			"tenant-scoped platform token required",
@@ -214,7 +214,7 @@ func (c *Controller) tenantID(w http.ResponseWriter, r *http.Request) (string, b
 		return "", false
 	}
 
-	return claims.Orbit.TenantID, true
+	return claims.Kora.TenantID, true
 }
 
 func (c *Controller) respondError(w http.ResponseWriter, r *http.Request, err error) {

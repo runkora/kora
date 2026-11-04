@@ -1,0 +1,13 @@
+kora CRDs installed: koratenants, connections, oauthclients, mcpservers, inferenceproviders, sandboximages,
+virtualmodels, environments, agents, triggersources, triggers, policyroles,
+skillmarketplacesources (runkora.io).
+
+Install the kora chart next, into the namespace kora will run in:
+
+  helm upgrade --install kora oci://ghcr.io/runkora/charts/kora \
+    --version {{ .Chart.Version }} --namespace {{ .Release.Namespace }}
+
+The CRDs carry helm.sh/resource-policy: keep. Uninstalling this release leaves
+them, and every KoraTenant, Connection, OAuthClient, MCPServer,
+InferenceProvider, SandboxImage, VirtualModel, Environment, Agent,
+TriggerSource, Trigger, PolicyRole and SkillMarketplaceSource, in place.

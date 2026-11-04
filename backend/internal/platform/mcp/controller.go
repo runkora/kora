@@ -3,9 +3,9 @@ package mcp
 import (
 	"net/http"
 
-	api "github.com/clear-route/orbit/internal/platform/api"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	api "github.com/runkora/kora/backend/internal/platform/api"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 )
 
 // Controller mounts an MCP server as a Streamable HTTP endpoint on the platform

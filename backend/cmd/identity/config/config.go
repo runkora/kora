@@ -4,7 +4,8 @@ package identityConfig
 import (
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 )
 
 // Config holds the identity service's own configuration values.
@@ -15,7 +16,7 @@ import (
 //
 //  1. cmd/identity/config/base.yaml        — service defaults
 //  2. cmd/identity/config/{env}.yaml       — service env overrides (optional)
-//  3. /etc/orbit/config/cmd/identity.yaml  — rendered by the chart
+//  3. /etc/kora/config/cmd/identity.yaml  — rendered by the chart
 type Config struct {
 	App struct {
 		Version string `yaml:"version"`
@@ -38,6 +39,8 @@ type Config struct {
 	// PolicyServiceURL is the policy service's in-cluster base URL, for PAT
 	// grant management and the policy bundle.
 	PolicyServiceURL string `yaml:"policyServiceURL"`
+
+	Metrics platformmetrics.Config `yaml:"metrics"`
 }
 
 // ShutdownTimeout returns the server shutdown timeout as a time.Duration.

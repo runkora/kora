@@ -115,7 +115,7 @@ A PVC (rather than `emptyDir`) was chosen so workspace data survives pod restart
 1. session-manager triggers snapshot: archives `/workspaces/{run_id}/` to object storage
 2. Snapshot path: `s3://{bucket}/tenants/{tenant_id}/runs/{run_id}/workspace.tar.gz`
 3. On snapshot success: wipes `/workspaces/{run_id}/`
-4. Signals `orbit-agents` that the run is completing → completed
+4. Signals `kora-agents` that the run is completing → completed
 
 **On snapshot failure:**
 1. Retry with exponential backoff (3 attempts)

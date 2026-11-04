@@ -8,8 +8,8 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -21,14 +21,14 @@ func makeClaims(tenantID, principalID string, pt token.PrincipalType, sessionID 
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject: principalID,
 		},
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			TenantID:      tenantID,
 			PrincipalType: pt,
 			SessionID:     sessionID,
 		},
 	}
 	if pt == token.PrincipalTypePAT {
-		c.Orbit.PatID = sessionID
+		c.Kora.PatID = sessionID
 	}
 	return c
 }

@@ -2,8 +2,8 @@
 
 import type { Meta, StoryObj } from '@storybook/react';
 import { expect, fireEvent, userEvent, within } from 'storybook/test';
-import type { Marketplace, SkillSummary } from '@orbit/shared/api';
-import { mockApi, type MockRequest } from '@orbit/storybook/mock-api';
+import type { Marketplace, SkillSummary } from '@runkora/shared/api';
+import { mockApi, type MockRequest } from '@runkora/storybook/mock-api';
 import { PreferencesProvider } from '../../_preferences/preferences-context';
 import { PREFERENCE_DEFAULTS } from '../../_preferences/preferences.schema';
 import { MarketplaceProvider } from '../_context/marketplace-context';

@@ -4,11 +4,11 @@ import {
   getEnvironmentSizes,
   listEnvironments,
   listSandboxImages,
-} from '@orbit/server/environments-client';
-import { listConnections } from '@orbit/server/connections-client';
+} from '@runkora/server/environments-client';
+import { listConnections } from '@runkora/server/connections-client';
 import { toEnvironmentRow } from '../_types';
 import type { EnvironmentRow } from '../_types';
-import type { ConnectionCatalogEntry, EnvironmentSizes, SandboxImage } from '@orbit/shared/api';
+import type { ConnectionCatalogEntry, EnvironmentSizes, SandboxImage } from '@runkora/shared/api';
 
 export type EnvironmentsResult =
   | {

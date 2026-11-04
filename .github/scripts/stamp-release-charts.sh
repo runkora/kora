@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stamp both charts to the release version and pin every orbit chart image to a
+# Stamp both charts to the release version and pin every kora chart image to a
 # digest. Resolves digests on a working copy and fails on any empty result, so a
 # partial or empty pin never reaches the packaged chart. Writes images.txt: the
 # chart's images plus every image docker-bake.hcl publishes, so a new bake
@@ -12,12 +12,12 @@ set -euo pipefail
 
 .github/scripts/build-chart-deps.sh
 
-for chart in orbit orbit-crds; do
+for chart in kora kora-crds; do
   yq -i ".version = \"${VERSION}\" | .appVersion = \"${TAG}\"" "charts/${chart}/Chart.yaml"
 done
 
 work=$(mktemp)
-cp charts/orbit/values.yaml "${work}"
+cp charts/kora/values.yaml "${work}"
 : > images.txt
 
 components=$(yq -o=json '.' "${work}" \
@@ -40,9 +40,9 @@ for key in ${components}; do
   echo "${reg}/${repo}@${digest}" >> images.txt
 done
 
-# orbit-agents runs the session-manager image in tenant namespaces, so the chart
+# kora-agents runs the session-manager image in tenant namespaces, so the chart
 # references it through agents.config rather than a component image block.
-digest=$(digest_of "${REGISTRY}/${IMAGE_NAMESPACE}/orbit-session-manager:${TAG}")
+digest=$(digest_of "${REGISTRY}/${IMAGE_NAMESPACE}/kora-session-manager:${TAG}")
 yq -i ".agents.config.sessionManagerDigest = \"${digest}\"" "${work}"
 
 published=$(IMAGE_TAG="${TAG}" docker buildx bake --print -f docker-bake.hcl \
@@ -54,4 +54,10 @@ done
 
 sort -u images.txt -o images.txt
 [ -s images.txt ] || { echo "::error::no chart images resolved from values.yaml" >&2; exit 1; }
-mv "${work}" charts/orbit/values.yaml
+mv "${work}" charts/kora/values.yaml
+
+# The committed READMEs carry the placeholder 0.0.0 badges and undigested
+# values. Regenerate them last so the packaged charts (and Artifact Hub) show
+# the release version and the pinned digests the chart actually ships.
+helm_docs_version=$(sed -n 's/^HELM_DOCS_VERSION := //p' Makefile)
+go run "github.com/norwoodj/helm-docs/cmd/helm-docs@${helm_docs_version}" --chart-search-root=charts

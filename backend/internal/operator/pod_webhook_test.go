@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/runkora/kora/backend/internal/platform/probes"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -12,11 +13,11 @@ import (
 
 func testMutator() *PodMutator {
 	return &PodMutator{Config: InjectionConfig{
-		SystemNamespace:         "orbit-system",
+		SystemNamespace:         "kora-system",
 		ImagePullSecrets:        []string{"regcred"},
 		OTLPEndpoint:            "http://otel-collector.observability.svc:4317",
 		SamplingRate:            "1.0",
-		IdentityProxyImage:      "ghcr.io/clear-route/orbit-identity-proxy@sha256:abc",
+		IdentityProxyImage:      "ghcr.io/runkora/kora-identity-proxy@sha256:abc",
 		IdentityProxyPullPolicy: corev1.PullIfNotPresent,
 		OPAImage:                "docker.io/openpolicyagent/opa:1.21.0-envoy-static",
 		OPAPullPolicy:           corev1.PullIfNotPresent,
@@ -27,8 +28,8 @@ func testMutator() *PodMutator {
 func sandboxLikePod() *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "sandbox-1", Namespace: "orbit-tenant-example",
-			Labels: map[string]string{"orbit.io/role": "sandbox"},
+			Name: "sandbox-1", Namespace: "kora-tenant-example",
+			Labels: map[string]string{"runkora.io/role": "sandbox"},
 			Annotations: map[string]string{
 				"proxy.istio.io/config":                        `{"holdApplicationUntilProxyStarts": true}`,
 				"traffic.sidecar.istio.io/excludeInboundPorts": "50051",
@@ -48,7 +49,7 @@ func TestMutate_OTLPEndpointSkippedForSandboxes(t *testing.T) {
 				continue
 			}
 			for _, e := range c.Env {
-				if e.Name == "ORBIT_OTLP_ENDPOINT" {
+				if e.Name == "KORA_OTLP_ENDPOINT" {
 					return e.Value
 				}
 			}
@@ -329,5 +330,57 @@ func TestMutate_PinsSandboxSidecars(t *testing.T) {
 	}
 	if _, ok := agent.Annotations[podAnnotationProxyCPU]; ok {
 		t.Errorf("agent pod carries %s, want no istio-proxy pin", podAnnotationProxyCPU)
+	}
+}
+
+// Each sidecar gets a one-second startup probe so the pod becomes Ready soon
+// after the sidecar is up. The startup probe allows at least as long as the
+// old readiness probe did, so a slow start does not restart the container.
+func TestMutate_SidecarStartupProbes(t *testing.T) {
+	pod := sandboxLikePod()
+	if err := testMutator().mutate(pod, "example", ""); err != nil {
+		t.Fatal(err)
+	}
+	// The default must stay above the worst case of the previous readiness
+	// probes: delay plus period times threshold.
+	if probes.DefaultStartupSeconds < 5+5*10 || probes.DefaultStartupSeconds < 3+5*12 {
+		t.Fatalf("default startup budget %ds is below the old readiness budgets", probes.DefaultStartupSeconds)
+	}
+	seen := 0
+	for _, c := range pod.Spec.InitContainers {
+		if c.Name != containerIdentityProxy && c.Name != containerOPA {
+			continue
+		}
+		seen++
+		sp, rp := c.StartupProbe, c.ReadinessProbe
+		if sp == nil || rp == nil || sp.HTTPGet == nil || rp.HTTPGet == nil {
+			t.Fatalf("%s: startup %+v readiness %+v, want HTTP probes", c.Name, sp, rp)
+		}
+		if sp.HTTPGet.Path != rp.HTTPGet.Path || sp.HTTPGet.Port != rp.HTTPGet.Port {
+			t.Errorf("%s: startup checks %+v, readiness checks %+v, want the same endpoint", c.Name, sp.HTTPGet, rp.HTTPGet)
+		}
+		if sp.PeriodSeconds != 1 || sp.InitialDelaySeconds != 0 || rp.InitialDelaySeconds != 0 {
+			t.Errorf("%s: startup period %d, startup delay %d, readiness delay %d, want 1/0/0", c.Name, sp.PeriodSeconds, sp.InitialDelaySeconds, rp.InitialDelaySeconds)
+		}
+		if got := sp.FailureThreshold * sp.PeriodSeconds; got != probes.DefaultStartupSeconds {
+			t.Errorf("%s: startup allows %ds, want the default %ds", c.Name, got, probes.DefaultStartupSeconds)
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("checked %d sidecars, want 2", seen)
+	}
+
+	m := testMutator()
+	m.Config.StartupProbeSeconds = 300
+	pod = sandboxLikePod()
+	if err := m.mutate(pod, "example", ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range pod.Spec.InitContainers {
+		if c.Name == containerIdentityProxy || c.Name == containerOPA {
+			if got := c.StartupProbe.FailureThreshold * c.StartupProbe.PeriodSeconds; got != 300 {
+				t.Errorf("%s: startup allows %ds with an override of 300s", c.Name, got)
+			}
+		}
 	}
 }

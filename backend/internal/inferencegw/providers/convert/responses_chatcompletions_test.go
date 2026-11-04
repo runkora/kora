@@ -10,7 +10,7 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
 
-	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/convert"
 )
 
 // ─── ResponsesParamsToChatCompletionParams ───────────────────────────────────

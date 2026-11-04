@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/runkora/kora/backend/internal/platform/api"
 )
 
 // A drain cut short by its deadline refuses new sessions and keeps the ones it has.
@@ -119,7 +121,37 @@ func TestHandleHealth_Draining(t *testing.T) {
 	}
 }
 
-// A draining pod answers a new session with 503, which orbit-agents retries on another pod.
+// A pod that cannot confine agents fails readiness and says why.
+func TestHandleHealth_IsolationUnavailable(t *testing.T) {
+	c, _ := sandboxTestController(t)
+	c.cfg.IsolationErr = errors.New("agents.landlock is enforce and this node's kernel has Landlock ABI v0")
+	w := httptest.NewRecorder()
+	c.handleHealth(w, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "agents.landlock") {
+		t.Errorf("status = %d, body = %s; want 503 naming agents.landlock", w.Code, w.Body.String())
+	}
+}
+
+// The served /health route reaches the drain-aware handler, not the platform default.
+func TestServedHealth_Draining(t *testing.T) {
+	c, _ := sandboxTestController(t)
+	server := api.NewAPI(context.Background(), c.logger).Server(context.Background(), 8090, "/", nil, c)
+	for _, tc := range []struct {
+		drain bool
+		want  int
+	}{{false, http.StatusOK}, {true, http.StatusServiceUnavailable}} {
+		if tc.drain {
+			c.registry.Drain(context.Background(), time.Millisecond)
+		}
+		w := httptest.NewRecorder()
+		server.Handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/health", nil))
+		if w.Code != tc.want {
+			t.Errorf("draining=%v: status = %d, want %d", tc.drain, w.Code, tc.want)
+		}
+	}
+}
+
+// A draining pod answers a new session with 503, which kora-agents retries on another pod.
 func TestHandleCreateSession_Draining(t *testing.T) {
 	c, _ := sandboxTestController(t)
 	c.registry.Drain(context.Background(), time.Millisecond)

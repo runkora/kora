@@ -2,7 +2,7 @@ import { mergeConfig } from 'vitest/config';
 import viteConfig from './vite.config';
 
 /**
- * Vitest config for @orbit/hades.
+ * Vitest config for @runkora/hades.
  *
  * Extends the shared Vite config (react plugin + Tailwind CSS v4) so that
  * component tests run with the same transform pipeline used in Storybook.
@@ -22,7 +22,7 @@ export default mergeConfig(viteConfig, {
     environment: 'happy-dom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
-    include: ['src/**/*.test.ts?(x)'],
+    include: ['src/**/*.test.ts?(x)', 'scripts/**/*.test.ts'],
     exclude: ['**/node_modules/**'],
   },
 });

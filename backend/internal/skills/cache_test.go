@@ -3,7 +3,7 @@ package skills_test
 import (
 	"testing"
 
-	"github.com/clear-route/orbit/internal/skills"
+	"github.com/runkora/kora/backend/internal/skills"
 )
 
 func TestMarketplaceCacheKey(t *testing.T) {

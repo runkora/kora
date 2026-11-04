@@ -10,23 +10,24 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
 
-	egressConfig "github.com/clear-route/orbit/cmd/egress-gateway/config"
-	identityConfig "github.com/clear-route/orbit/cmd/identity/config"
-	inferenceConfig "github.com/clear-route/orbit/cmd/inference-gateway/config"
-	operatorConfig "github.com/clear-route/orbit/cmd/operator/config"
-	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
-	mcpConfig "github.com/clear-route/orbit/cmd/orbit-mcp/config"
-	triggersConfig "github.com/clear-route/orbit/cmd/orbit-triggers/config"
-	policyGatewayConfig "github.com/clear-route/orbit/cmd/policy-gateway/config"
-	policyServiceConfig "github.com/clear-route/orbit/cmd/policy-service/config"
-	sandboxMountConfig "github.com/clear-route/orbit/cmd/sandbox-mount/config"
-	skillsServiceConfig "github.com/clear-route/orbit/cmd/skills-service/config"
-	toolGatewayConfig "github.com/clear-route/orbit/cmd/tool-gateway/config"
-	"github.com/clear-route/orbit/internal/identity"
-	"github.com/clear-route/orbit/internal/platform/config"
-	"github.com/clear-route/orbit/internal/platform/observability"
-	"github.com/clear-route/orbit/internal/platform/storage"
-	"github.com/clear-route/orbit/internal/platform/token"
+	egressConfig "github.com/runkora/kora/backend/cmd/egress-gateway/config"
+	identityConfig "github.com/runkora/kora/backend/cmd/identity/config"
+	inferenceConfig "github.com/runkora/kora/backend/cmd/inference-gateway/config"
+	agentsConfig "github.com/runkora/kora/backend/cmd/kora-agents/config"
+	mcpConfig "github.com/runkora/kora/backend/cmd/kora-mcp/config"
+	triggersConfig "github.com/runkora/kora/backend/cmd/kora-triggers/config"
+	operatorConfig "github.com/runkora/kora/backend/cmd/operator/config"
+	policyGatewayConfig "github.com/runkora/kora/backend/cmd/policy-gateway/config"
+	policyServiceConfig "github.com/runkora/kora/backend/cmd/policy-service/config"
+	sandboxMountConfig "github.com/runkora/kora/backend/cmd/sandbox-mount/config"
+	skillsServiceConfig "github.com/runkora/kora/backend/cmd/skills-service/config"
+	toolGatewayConfig "github.com/runkora/kora/backend/cmd/tool-gateway/config"
+	"github.com/runkora/kora/backend/internal/identity"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/storage"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // moduleLoaders loads each config module the chart renders, the way its binary does.
@@ -35,9 +36,9 @@ var moduleLoaders = map[string]func() error{
 	"cmd/identity":          loadService[identityConfig.Config]("cmd/identity"),
 	"cmd/inference-gateway": loadService[inferenceConfig.Config]("cmd/inference-gateway"),
 	"cmd/operator":          loadService[operatorConfig.Config]("cmd/operator"),
-	"cmd/orbit-agents":      loadService[agentsConfig.Config]("cmd/orbit-agents"),
-	"cmd/orbit-mcp":         loadService[mcpConfig.Config]("cmd/orbit-mcp"),
-	"cmd/orbit-triggers":    loadService[triggersConfig.Config]("cmd/orbit-triggers"),
+	"cmd/kora-agents":       loadService[agentsConfig.Config]("cmd/kora-agents"),
+	"cmd/kora-mcp":          loadService[mcpConfig.Config]("cmd/kora-mcp"),
+	"cmd/kora-triggers":     loadService[triggersConfig.Config]("cmd/kora-triggers"),
 	"cmd/policy-gateway":    loadService[policyGatewayConfig.Config]("cmd/policy-gateway"),
 	"cmd/policy-service":    loadService[policyServiceConfig.Config]("cmd/policy-service"),
 	"cmd/sandbox-mount":     loadService[sandboxMountConfig.Config]("cmd/sandbox-mount"),
@@ -49,6 +50,7 @@ var moduleLoaders = map[string]func() error{
 		return err
 	},
 	"internal/platform/token": loadService[token.Config]("internal/platform/token"),
+	"internal/platform/brand": loadService[brand.Config]("internal/platform/brand"),
 
 	"internal/platform/observability": loadService[observability.ObservabilityConfig]("internal/platform/observability"),
 	"internal/platform/storage": func() error {
@@ -64,12 +66,12 @@ func loadService[T any](module string) func() error {
 	}
 }
 
-// TestChartRenderedConfigDecodes renders the orbit chart and loads every config
+// TestChartRenderedConfigDecodes renders the kora chart and loads every config
 // file it mounts through the module's own loader, so a chart key the Go config
 // does not declare fails here rather than at pod startup. Needs helm and the
 // chart's dependencies (make chart-deps).
 func TestChartRenderedConfigDecodes(t *testing.T) {
-	chart := filepath.Join("..", "..", "..", "..", "charts", "orbit")
+	chart := filepath.Join("..", "..", "..", "..", "charts", "kora")
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not installed")
 	}
@@ -84,11 +86,11 @@ func TestChartRenderedConfigDecodes(t *testing.T) {
 	valueSets := map[string][]string{
 		"ci defaults":    {filepath.Join(chart, "ci", "default-values.yaml")},
 		"numeric values": {filepath.Join(chart, "ci", "default-values.yaml"), numeric},
-		"local":          {filepath.Join(chart, "ci", "default-values.yaml"), filepath.Join(chart, "..", "..", "deploy", "reference", "values", "orbit.local.yaml")},
+		"local":          {filepath.Join(chart, "ci", "default-values.yaml"), filepath.Join(chart, "..", "..", "deploy", "reference", "values", "kora.local.yaml")},
 	}
 	for name, files := range valueSets {
 		t.Run(name, func(t *testing.T) {
-			args := []string{"template", "orbit", chart, "-n", "orbit-system"}
+			args := []string{"template", "kora", chart, "-n", "kora-system"}
 			for _, f := range files {
 				args = append(args, "-f", f)
 			}
@@ -117,7 +119,7 @@ func TestChartRenderedConfigDecodes(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			config.SetOverlayRoot("/etc/orbit/config")
+			config.SetOverlayRoot("/etc/kora/config")
 		})
 	}
 }

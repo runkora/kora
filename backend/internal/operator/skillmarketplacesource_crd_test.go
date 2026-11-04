@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	skillMarketplaceSourceCRDPath = "../../../charts/orbit-crds/templates/crd-skillmarketplacesource.yaml"
-	orbitTenantCRDPath            = "../../../charts/orbit-crds/templates/crd-orbittenant.yaml"
+	skillMarketplaceSourceCRDPath = "../../../charts/kora-crds/generated/runkora.io_skillmarketplacesources.yaml"
+	koraTenantCRDPath             = "../../../charts/kora-crds/generated/runkora.io_koratenants.yaml"
 )
 
 type crdNode = map[string]any
@@ -139,8 +139,8 @@ func TestSkillMarketplaceSourceCRD_SpecCarriesOnlyTheRepository(t *testing.T) {
 	}
 }
 
-func TestOrbitTenantCRD_AllowedMarketplaceRepos(t *testing.T) {
-	items := crdChild(crdProp(crdProp(loadCRDSchema(t, orbitTenantCRDPath), "spec"), "allowedMarketplaceRepos"), "items")
+func TestKoraTenantCRD_AllowedMarketplaceRepos(t *testing.T) {
+	items := crdChild(crdProp(crdProp(loadCRDSchema(t, koraTenantCRDPath), "spec"), "allowedMarketplaceRepos"), "items")
 	assertMatches(t, crdPattern(t, items),
 		[]string{"acme-corp/internal-skills", "a/b.c"},
 		[]string{"acme-corp", "acme/internal/skills", "https://github.com/acme/skills", "/skills", "acme/"})
@@ -166,7 +166,7 @@ func assertMaxLength(t *testing.T, n crdNode, want int) {
 }
 
 func allowedMarketplaceReposItems(t *testing.T) crdNode {
-	return crdChild(crdProp(crdProp(loadCRDSchema(t, orbitTenantCRDPath), "spec"), "allowedMarketplaceRepos"), "items")
+	return crdChild(crdProp(crdProp(loadCRDSchema(t, koraTenantCRDPath), "spec"), "allowedMarketplaceRepos"), "items")
 }
 
 func TestSkillMarketplaceSourceCRD_MaxLengths(t *testing.T) {
@@ -183,7 +183,7 @@ func TestSkillMarketplaceSourceCRD_MaxLengths(t *testing.T) {
 	}
 }
 
-func TestOrbitTenantCRD_AllowedMarketplaceReposMaxLength(t *testing.T) {
+func TestKoraTenantCRD_AllowedMarketplaceReposMaxLength(t *testing.T) {
 	assertMaxLength(t, allowedMarketplaceReposItems(t), 140)
 }
 

@@ -3,7 +3,7 @@
 // Client-side fetch helpers. Call BFF route handlers at /api/policy/* — never
 // the Go backend directly. Used by client components for mutations and refresh.
 
-import { ApiRoute } from '@orbit/lib/routing/api-routes';
+import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import type {
   StatsResponse,
   GrantsListResponse,

@@ -1,4 +1,4 @@
-// Converts GitHub's webhook schemas from its OpenAPI description into the Orbit
+// Converts GitHub's webhook schemas from its OpenAPI description into the kora
 // trigger schema format: {events: {<X-GitHub-Event>: schema}, definitions}.
 //
 // Usage: node github.mjs <path-to-api.github.com.json>

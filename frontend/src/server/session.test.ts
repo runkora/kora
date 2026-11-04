@@ -10,7 +10,7 @@ vi.mock('iron-session', () => ({
   getIronSession: vi.fn(),
 }));
 
-vi.mock('@orbit/server/auth-config', () => ({
+vi.mock('@runkora/server/auth-config', () => ({
   getSessionOptions: vi.fn().mockReturnValue({}),
 }));
 
@@ -22,7 +22,7 @@ const BASE_EPOCH = 1_700_000_000; // arbitrary fixed epoch (seconds)
 
 function makeSession(overrides: Record<string, unknown> = {}) {
   return {
-    user: { sub: 'test-sub', email: 'test@orbit.local', name: 'Test' },
+    user: { sub: 'test-sub', email: 'test@runkora.test', name: 'Test' },
     accessToken: 'test-access-token',
     refreshToken: 'test-refresh',
     expiresAt: BASE_EPOCH + 3600,

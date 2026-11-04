@@ -5,8 +5,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Badge, Modal, ModalBody, ModalHeader, Separator, Stack, Text } from '@orbit/hades';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { Badge, Modal, ModalBody, ModalHeader, Separator, Stack, Text } from '@runkora/hades';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import { adapterLabel } from '../_types';
 import type { ConnectionRow } from '../_types';
 

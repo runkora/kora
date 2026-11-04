@@ -1,8 +1,8 @@
 /** @tier 3 — marketplace-scoped. Interactive preview of the client boundary and its overview. */
 
 import type { Meta, StoryObj } from '@storybook/react';
-import type { SkillSummary } from '@orbit/shared/api';
-import { mockApi, type MockRequest } from '@orbit/storybook/mock-api';
+import type { SkillSummary } from '@runkora/shared/api';
+import { mockApi, type MockRequest } from '@runkora/storybook/mock-api';
 import { PreferencesProvider } from '../../_preferences/preferences-context';
 import { PREFERENCE_DEFAULTS } from '../../_preferences/preferences.schema';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData } from '../_types';

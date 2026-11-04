@@ -19,7 +19,7 @@ import {
   Text,
   ConfirmDialog,
   EmptyState,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import { TriggerWizard } from '../../../triggers/_components/trigger-wizard';
 import type {
   TriggerCreateResult,
@@ -30,6 +30,7 @@ import { TriggerDrawer } from '../../../triggers/_components/trigger-drawer';
 import { RunTriggerModal } from '../../../triggers/_components/run-trigger-modal';
 import { DeliveryGrid } from '../../../triggers/_components/delivery-grid';
 import { DeliveryDetailPanel } from '../../../triggers/_components/delivery-detail-panel';
+import type { RoutingAgentName } from '../../../triggers/_components/delivery-routing';
 import { useTriggerActions } from '../../../triggers/_components/use-trigger-actions';
 import type { TriggerNotice } from '../../../triggers/_components/use-trigger-actions';
 import { createFromWizardDraft } from '../../../triggers/_services/create-from-wizard';
@@ -38,10 +39,14 @@ import {
   listSources,
   listTriggers,
 } from '../../../triggers/_services/triggers-api';
-import { toDeliveryRow, toSourceRow, toTriggerRow } from '../../../triggers/_types';
+import { runTargets, toDeliveryRow, toSourceRow, toTriggerRow } from '../../../triggers/_types';
 import type { DeliveryRow, SourceRow, TriggerRow } from '../../../triggers/_types';
 import { ingestHostFromWindow } from '../../../triggers/_lib/endpoints';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
+import { useHasScope, useTenantLocked } from '../../../_components/permissions-provider';
+import { ManagedInGitCallout, PermissionHint } from '@runkora/components';
+import { fetchAgentTypes } from '../../_services/agents-api';
+import type { AgentTypeRow } from '../../_types';
 
 export function AgentTriggersTab() {
   const { agent } = useAgentDetailContext();
@@ -50,10 +55,14 @@ export function AgentTriggersTab() {
   const [sources, setSources] = useState<SourceRow[]>([]);
   const [triggers, setTriggers] = useState<TriggerRow[]>([]);
   const [deliveries, setDeliveries] = useState<DeliveryRow[]>([]);
+  // Every tenant agent, so a routed trigger's other candidates show by name.
+  const [tenantAgents, setTenantAgents] = useState<AgentTypeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [wizardOpen, setWizardOpen] = useState(false);
+  const canWrite = useHasScope('triggers:write');
+  const locked = useTenantLocked();
   const [notice, setNotice] = useState<TriggerNotice | null>(null);
   const [drawerTrigger, setDrawerTrigger] = useState<TriggerRow | null>(null);
   const [detailDelivery, setDetailDelivery] = useState<DeliveryRow | null>(null);
@@ -64,17 +73,21 @@ export function AgentTriggersTab() {
   // a silent refresh of lists already on screen, not a page-level spinner.
   const load = useCallback(() => {
     if (!agentId) return;
-    void Promise.all([listSources(), listTriggers(agentId), listDeliveries()]).then(
-      ([src, trg, del]) => {
-        setSources(src.sources.map(toSourceRow));
-        setTriggers(trg.triggers.map(toTriggerRow));
-        setDeliveries(del.deliveries.map(toDeliveryRow));
-        // The triggers list is what this tab is for; the other two only
-        // decorate it, so their failures do not block the page.
-        setLoadError(trg.error);
-        setLoading(false);
-      },
-    );
+    void Promise.all([
+      listSources(),
+      listTriggers(agentId),
+      listDeliveries(),
+      fetchAgentTypes(),
+    ]).then(([src, trg, del, types]) => {
+      setSources(src.sources.map(toSourceRow));
+      setTriggers(trg.triggers.map(toTriggerRow));
+      setDeliveries(del.deliveries.map(toDeliveryRow));
+      setTenantAgents(types.data);
+      // The triggers list is what this tab is for; the others only
+      // decorate it, so their failures do not block the page.
+      setLoadError(trg.error);
+      setLoading(false);
+    });
   }, [agentId]);
 
   useEffect(() => {
@@ -121,6 +134,16 @@ export function AgentTriggersTab() {
     return (id: string) => map.get(id) ?? id;
   }, [sources]);
 
+  const sourceCategory = useMemo(() => {
+    const map = new Map(sources.map((s) => [s.id, s.category]));
+    return (id: string) => map.get(id);
+  }, [sources]);
+
+  const sourceWaiting = useMemo(() => {
+    const waiting = new Set(sources.filter((s) => !s.signingSecretSet).map((s) => s.id));
+    return (id: string) => waiting.has(id);
+  }, [sources]);
+
   /**
    * Creates from the wizard's draft, then reloads this page's lists.
    *
@@ -130,7 +153,7 @@ export function AgentTriggersTab() {
   const createTriggerForAgent = useCallback(
     async (draft: TriggerDraft): Promise<TriggerCreateResult> => {
       const result = await createFromWizardDraft(draft, { ingestHost });
-      if (result.ok) load();
+      if (result.ok || result.createdSource) load();
       return result;
     },
     [ingestHost, load],
@@ -145,6 +168,14 @@ export function AgentTriggersTab() {
       : (triggers.find((t) => t.id === drawerTrigger.id) ?? drawerTrigger);
 
   if (!agent) return null;
+
+  // This agent still names itself when the tenant list failed to load.
+  const agentNames: RoutingAgentName[] = tenantAgents.length > 0 ? tenantAgents : [agent];
+  // A routed trigger needs run authority on every candidate, not only this agent.
+  const canRunAgent = (id: string) =>
+    id === agent.id ? agent.canRun : tenantAgents.some((a) => a.id === id && a.canRun);
+  const canRunTrigger = (t: TriggerRow | null | undefined) =>
+    t != null && runTargets(t).every(canRunAgent);
 
   // Delegated agents cannot be bound to automated sources at all — explain the
   // constraint here instead of offering a form that would be refused on submit.
@@ -166,6 +197,15 @@ export function AgentTriggersTab() {
     );
   }
 
+  const createButton = locked ? undefined : (
+    <PermissionHint allowed={canWrite} action="create triggers">
+      <Button size="sm" disabled={!canWrite} onClick={() => setWizardOpen(true)}>
+        <Icon name="plus" size="xs" />
+        New trigger
+      </Button>
+    </PermissionHint>
+  );
+
   return (
     <Stack gap="comfortable">
       <Stack direction="horizontal" align="start" justify="between" gap="comfortable">
@@ -176,36 +216,32 @@ export function AgentTriggersTab() {
             Managed by platform admins.
           </Text>
         </Stack>
-        <Button size="sm" onClick={() => setWizardOpen(true)}>
-          <Icon name="plus" size="xs" />
-          New trigger
-        </Button>
+        {createButton}
       </Stack>
 
+      {locked && <ManagedInGitCallout subject="Triggers in this tenant" />}
       {loadError && <Alert variant="error">{loadError}</Alert>}
       {notice && <Alert variant={notice.ok ? 'info' : 'error'}>{notice.message}</Alert>}
 
       {loading ? (
         <TriggerListSkeleton />
-      ) : triggers.length === 0 ? (
+      ) : loadError ? null : triggers.length === 0 ? (
         <EmptyState
           icon="zap"
           title="No triggers for this agent"
           description="Create a trigger to run this agent automatically from a webhook event, a schedule, or a manual fire."
-          action={
-            <Button size="sm" onClick={() => setWizardOpen(true)}>
-              <Icon name="plus" size="xs" />
-              New trigger
-            </Button>
-          }
+          action={createButton}
         />
       ) : (
         <TriggerList
           triggers={triggers}
           deliveries={agentDeliveries}
           sourceName={sourceName}
+          sourceCategory={sourceCategory}
+          sourceWaiting={sourceWaiting}
           onOpen={setDrawerTrigger}
           onToggle={(t) => void toggleTrigger(t)}
+          canRunAgent={canRunAgent}
           emptyMessage="No triggers for this agent."
         />
       )}
@@ -226,6 +262,7 @@ export function AgentTriggersTab() {
           same surface, byte for byte, as configuring it there. */}
       <TriggerDrawer
         trigger={drawerRow}
+        canRunAgent={canRunTrigger(drawerRow)}
         sources={sources}
         deliveries={agentDeliveries}
         ingestHost={ingestHost}
@@ -246,6 +283,7 @@ export function AgentTriggersTab() {
         // Scoped to the trigger on screen: firing one trigger must not make
         // another one's panel claim it is queueing.
         firing={firingId === drawerRow?.id}
+        agents={agentNames}
       />
 
       {detailDelivery !== null && (
@@ -253,6 +291,8 @@ export function AgentTriggersTab() {
           delivery={detailDelivery}
           onClose={() => setDetailDelivery(null)}
           onRedeliver={redeliver}
+          redeliverAllowed={canRunTrigger(triggers.find((t) => t.id === detailDelivery.triggerId))}
+          agents={agentNames}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);
@@ -264,9 +304,21 @@ export function AgentTriggersTab() {
       {wizardOpen && (
         <TriggerWizard
           agents={[
-            { id: agent.id, slug: agent.slug, name: agent.name, identityMode: agent.identityMode },
+            {
+              id: agent.id,
+              slug: agent.slug,
+              name: agent.name,
+              identityMode: agent.identityMode,
+              canRun: agent.canRun,
+            },
           ]}
-          sources={sources.map((src) => ({ id: src.id, name: src.name, provider: src.provider }))}
+          sources={sources.map((src) => ({
+            id: src.id,
+            name: src.name,
+            provider: src.provider,
+            category: src.category,
+            config: src.config,
+          }))}
           ingestHost={ingestHost}
           onCreate={createTriggerForAgent}
           onClose={() => {

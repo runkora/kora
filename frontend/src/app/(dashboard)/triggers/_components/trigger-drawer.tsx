@@ -10,15 +10,17 @@
  * Everything about one trigger, in one place.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useId, useMemo, useState } from 'react';
 import {
   CopyButton,
   Alert,
+  Badge,
   Button,
   Card,
   CardContent,
   DangerZone,
   FieldRow,
+  FormField,
   Grid,
   Icon,
   IconTile,
@@ -40,14 +42,23 @@ import {
   ToggleRow,
   SegmentedControl,
   EmptyState,
-} from '@orbit/hades';
-import { KIND_ICON, LIMITS } from '../_types';
-import type { DeliveryRow, Senders, SourceRow, TriggerRow } from '../_types';
-import { recentFailures } from '../_types/fleet';
+} from '@runkora/hades';
+import { consoleKindOf, KIND_ICON, LIMITS, triggerToggleOpen } from '../_types';
+import type { DeliveryRow, Senders, SourceRow, TriggerCoalesce, TriggerRow } from '../_types';
+import { isStartedOutcome, recentFailures } from '../_types/fleet';
 import { endpointFor } from '../_lib/endpoints';
+import { SLACK_PROVIDER } from '../_lib/slack-app-manifest';
+import { chatConversationKey, chatEventLabel } from '../_lib/chat';
+import { providerName, SENDER_ID_EXAMPLE } from '../_lib/providers';
+import { takesPastedSecret, verificationMethodOf, verificationNote } from '../_lib/generic-source';
+import { ChatEventPicker } from './chat-event-picker';
 import { CatalogPicker } from './catalog-picker';
+import { CoalesceEditor } from './coalesce-editor';
+import type { CoalesceDraft } from './coalesce-editor';
 import { DataBlockPreview } from './data-block-preview';
 import { DeliveryList } from './delivery-list';
+import type { RoutingAgentName } from './delivery-routing';
+import { RoutedTarget } from './routed-target';
 import { FilterRowsEditor } from './filter-rows-editor';
 import type { FilterRow } from './filter-rows-editor';
 import { SenderRestrictionEditor } from './sender-restriction-editor';
@@ -62,8 +73,10 @@ import {
 import {
   describeMatchCondition,
   matchConditionFrom,
+  coalesceFrom,
   matchContainsFrom,
-  splitLogins,
+  splitIds,
+  validateCoalesce,
   validateFilters,
 } from './trigger-wizard/wizard-state';
 import {
@@ -74,6 +87,14 @@ import {
 } from './trigger-wizard/cron';
 import { filtersFromMatchCondition, manualInputsCatalog, sameFilters } from './trigger-edit';
 import { useEditableSection } from './use-editable-section';
+import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
+import {
+  ManagedInGitBadge,
+  ManagedInGitNotice,
+  PermissionHint,
+  permissionHintText,
+} from '@runkora/components';
+import { managedInGit } from '@runkora/lib/declarative';
 
 /**
  * A correction to a stored trigger. Every field is optional: a section saves
@@ -87,8 +108,17 @@ export interface TriggerEditPatch {
   matchContains?: Record<string, string[]>;
   /** Replaces the restriction; both lists empty removes it. */
   senderRestriction?: Senders;
+  /** Replaces the setting; null removes it. */
+  coalesce?: TriggerCoalesce | null;
   scheduleConfig?: { cronExpression: string; timezone: string; catchUp: boolean };
 }
+
+/** Overflow choices in the drawer. Wait is first: it is the only one coalescing allows. */
+const OVERFLOW_OPTIONS = [
+  { value: 'wait', label: 'Wait' },
+  { value: 'replace', label: 'Replace' },
+  { value: 'refuse', label: 'Refuse' },
+];
 
 interface TriggerDrawerProps {
   trigger: TriggerRow | null;
@@ -114,19 +144,35 @@ interface TriggerDrawerProps {
   onEdit?: (t: TriggerRow, patch: TriggerEditPatch) => Promise<string | null>;
   /**
    * Replays a delivery, resolving with the new delivery's id or an error.
-   * Absent for read-only callers, where no Redeliver is offered.
+   * Shown disabled with the reason when the caller may not replay.
    */
   onRedeliver?: (
     delivery: DeliveryRow,
   ) => Promise<{ deliveryId: string | null; error: string | null }>;
   /**
    * Rotates the webhook source's signing secret and resolves with the new one,
-   * which is shown once here and never again. Absent for read-only callers.
+   * which is shown once here and never again, or null on failure. For a
+   * provider that issues the secret, it stores `signingSecret` and resolves
+   * with an empty string. `firstSecret` sets the first secret of a source that
+   * is waiting for one, without rotating. Absent for read-only callers.
    */
-  onRotateSecret?: (t: TriggerRow) => Promise<string | null>;
+  onRotateSecret?: (
+    t: TriggerRow,
+    signingSecret?: string,
+    firstSecret?: boolean,
+  ) => Promise<string | null>;
   /** Fire a manual trigger now. Absent for kinds that fire on their own. */
   onFire?: (t: TriggerRow) => void;
   firing?: boolean;
+  /**
+   * Whether the caller may run the bound agent, or every candidate of a
+   * routed trigger. Changing what a trigger runs or when (prompt, filters,
+   * senders, schedule, routing, on or off, redeliver, secret rotation) needs it
+   * on top of triggers:write.
+   */
+  canRunAgent: boolean;
+  /** Names a routed trigger's candidates and the agents its decisions mention. */
+  agents?: RoutingAgentName[];
 }
 
 /** How many deliveries the tab shows before it stops. */
@@ -237,6 +283,87 @@ function EditActions({
   );
 }
 
+/**
+ * The secret row for a source whose provider issues the signing secret. The
+ * admin regenerates it in the provider's app and pastes the new value here;
+ * nothing is shown back.
+ */
+function IssuedSecretRow({
+  providerName,
+  waiting = false,
+  hint,
+  onReplace,
+}: {
+  /** The provider's display name, e.g. "Slack". */
+  providerName: string;
+  /** The source has no secret yet: the first one is set, not replaced. */
+  waiting?: boolean;
+  /** Replaces the provider-app wording, for a sender with no app to regenerate it in. */
+  hint?: string;
+  onReplace?: (secret: string) => Promise<boolean>;
+}) {
+  const id = useId();
+  const [value, setValue] = useState('');
+  const [pending, setPending] = useState(false);
+  // What the last save did, fixed at save time: the source stops waiting once it is saved.
+  const [saved, setSaved] = useState<'first' | 'replaced' | null>(null);
+
+  const save = () => {
+    if (onReplace === undefined) return;
+    setPending(true);
+    void onReplace(value.trim()).then((ok) => {
+      setPending(false);
+      if (!ok) return;
+      setValue('');
+      setSaved(waiting ? 'first' : 'replaced');
+    });
+  };
+
+  return (
+    <Stack gap="snug">
+      <FormField
+        label="Signing secret"
+        id={id}
+        hint={
+          hint ??
+          (waiting
+            ? `Waiting for the signing secret. Copy it from your ${providerName} app's Basic Information page and paste it here.`
+            : `Regenerate it in your ${providerName} app, then paste the new secret here.`)
+        }
+      >
+        <Input
+          id={id}
+          type="password"
+          autoComplete="off"
+          mono
+          value={value}
+          disabled={onReplace === undefined || pending}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={
+            waiting ? 'Paste the signing secret' : 'Stored. Paste a new secret to replace it.'
+          }
+          maxLength={256}
+        />
+      </FormField>
+      {saved !== null && (
+        <Text size="caption" color="subtle">
+          {saved === 'first'
+            ? 'The signing secret is stored. The source now accepts events.'
+            : 'The new secret is stored. Requests signed with the old one are rejected.'}
+        </Text>
+      )}
+      <EditActions
+        dirty={value.trim() !== ''}
+        pending={pending}
+        error={null}
+        saveLabel={waiting ? 'Set secret' : 'Replace secret'}
+        onSave={save}
+        onDiscard={() => setValue('')}
+      />
+    </Stack>
+  );
+}
+
 /** A small figure in the drawer's stat trio. */
 function DrawerStat({
   label,
@@ -290,13 +417,33 @@ export function TriggerDrawer({
   onClose,
   onToggleEnabled,
   onDelete,
-  onUpdateSafety,
-  onEdit,
-  onRedeliver,
-  onRotateSecret,
-  onFire,
+  onUpdateSafety: updateSafetyAction,
+  onEdit: editAction,
+  onRedeliver: redeliverAction,
+  onRotateSecret: rotateSecretAction,
+  onFire: fireAction,
   firing = false,
+  canRunAgent,
+  agents = [],
 }: TriggerDrawerProps) {
+  // Without triggers:write every write handler is dropped, which disables its
+  // control. Run-shaping edits also need run authority on the bound agent.
+  // Firing has its own per-trigger answer from the API.
+  const canWrite = useHasScope('triggers:write');
+  const canShapeRuns = canWrite && canRunAgent;
+  // A trigger whose source was deleted takes no edits; it can only be turned off or deleted.
+  const sourceMissing = trigger?.sourceMissing ?? false;
+  // A trigger managed in git keeps manual fire and re-enabling after an auto-pause, and nothing else.
+  const tenantLocked = useTenantLocked();
+  const managed = trigger !== null && managedInGit(trigger.declared, tenantLocked);
+  // A non-webhook trigger has no source id, so it finds no source.
+  const source = trigger === null ? undefined : sources.find((s) => s.id === trigger.sourceId);
+  // Secret rotation stays available on an API source, even in a locked tenant.
+  const sourceDeclared = source?.declared ?? false;
+  const onUpdateSafety = canWrite && !sourceMissing && !managed ? updateSafetyAction : undefined;
+  const onEdit = canWrite && !sourceMissing && !managed ? editAction : undefined;
+  const onRotateSecret = canShapeRuns && !sourceDeclared ? rotateSecretAction : undefined;
+  const canFire = !!trigger?.canFire;
   const [expanded, setExpanded] = useState<string | null>(null);
   // Rotation is destructive (the provider's configured secret stops working the
   // moment it lands), so the button asks once before doing it.
@@ -319,6 +466,7 @@ export function TriggerDrawer({
   // trigger cannot inherit half-typed edits from the last one.
   const editKey = trigger?.id ?? '';
   const editable = onEdit !== undefined && trigger !== null;
+  const runEditable = editable && canRunAgent;
 
   const savePatch = useCallback(
     async (patch: TriggerEditPatch): Promise<string | null> => {
@@ -351,7 +499,7 @@ export function TriggerDrawer({
       // Sent together: the event narrows which fields exist, so a filter and
       // the event it belongs to must never land as two separate states.
       savePatch({
-        eventType: value.eventType,
+        eventType: value.eventType.trim(),
         matchCondition: matchConditionFrom(value.filters) ?? {},
         matchContains: matchContainsFrom(value.filters) ?? {},
       }),
@@ -367,27 +515,44 @@ export function TriggerDrawer({
 
   const storedSenders = useMemo(
     () => ({
-      logins: (trigger?.senderRestriction.logins ?? []).join(', '),
-      associations: trigger?.senderRestriction.associations ?? [],
+      ids: (trigger?.senderRestriction.ids ?? []).join(', '),
+      roles: trigger?.senderRestriction.roles ?? [],
     }),
     [trigger?.senderRestriction],
   );
   const saveSenders = useCallback(
     (value: SenderRestrictionDraft) =>
       savePatch({
-        senderRestriction: { logins: splitLogins(value.logins), associations: value.associations },
+        senderRestriction: { ids: splitIds(value.ids), roles: value.roles },
       }),
     [savePatch],
   );
   const senders = useEditableSection(storedSenders, editKey, saveSenders, {
+    isEqual: (a, b) => a.ids === b.ids && [...a.roles].sort().join() === [...b.roles].sort().join(),
+  });
+
+  const storedCoalesce = useMemo<CoalesceDraft>(
+    () => ({
+      enabled: trigger?.coalesce != null,
+      key: trigger?.coalesce?.key ?? '',
+      window: trigger?.coalesce ? String(trigger.coalesce.windowSeconds) : '',
+    }),
+    [trigger?.coalesce],
+  );
+  const saveCoalesce = useCallback(
+    // Off clears the setting; on was validated before save is offered.
+    (value: CoalesceDraft) => savePatch({ coalesce: coalesceFrom(value) ?? null }),
+    [savePatch],
+  );
+  const coalesce = useEditableSection(storedCoalesce, editKey, saveCoalesce, {
     isEqual: (a, b) =>
-      a.logins === b.logins &&
-      [...a.associations].sort().join() === [...b.associations].sort().join(),
+      a.enabled === b.enabled &&
+      (!a.enabled || (a.key.trim() === b.key.trim() && a.window.trim() === b.window.trim())),
+    validate: (value) => validateCoalesce(value),
   });
 
   // The catalogue follows the event being edited.
-  const webhookSource =
-    trigger?.kind === 'webhook' ? sources.find((s) => s.id === trigger.sourceId) : undefined;
+  const webhookSource = trigger?.kind === 'webhook' ? source : undefined;
   const sourceCatalog = useSourceCatalog(
     webhookSource?.provider ?? '',
     webhookSource?.id ?? '',
@@ -439,17 +604,27 @@ export function TriggerDrawer({
 
   if (trigger === null) return null;
 
-  const source = sources.find((s) => s.id === trigger.sourceId);
+  // A chat command is stored as a webhook trigger; its source's category tells them apart.
+  const kind = consoleKindOf(trigger, (id) => sources.find((s) => s.id === id)?.category);
+  const eventName =
+    kind === 'chat' ? chatEventLabel(filters.value.eventType) : filters.value.eventType;
   const failures = recentFailures(trigger.id, deliveries);
   const succeeded = mine.reduce(
     (n, d) =>
-      n + d.runs.filter((r) => r.triggerId === trigger.id && r.status === 'dispatched').length,
+      n + d.runs.filter((r) => r.triggerId === trigger.id && isStartedOutcome(r.status)).length,
     0,
   );
   const shown = mine.slice(0, DELIVERY_SAMPLE);
   const endpoint = endpointFor(ingestHost, trigger.sourceId);
 
   const webhookFields = schemaCatalog(sourceCatalog.fields);
+  // A generic source has no schema: its event type and filter fields are typed.
+  const schemaless = kind !== 'chat' && sourceCatalog.schemaless;
+  // A typed event type can be emptied; a picked one cannot.
+  const filtersBlocker =
+    schemaless && !filters.value.eventType.trim() ? 'Needs an event type' : filters.blocker;
+  const genericMethod =
+    source === undefined ? undefined : verificationMethodOf(source.provider, source.config);
   const promptCatalog =
     trigger.kind === 'webhook'
       ? webhookFields
@@ -460,9 +635,14 @@ export function TriggerDrawer({
   const setFilterRows = (rows: FilterRow[]) =>
     filters.setValue({ ...filters.value, filters: rows });
 
+  const firesOn = trigger.eventType
+    ? kind === 'chat'
+      ? chatEventLabel(trigger.eventType)
+      : trigger.eventType
+    : 'no event type (never fires)';
   const subtitle =
     trigger.kind === 'webhook'
-      ? `Webhook · ${source?.name ?? trigger.sourceId} · ${trigger.eventType || 'no event type (never fires)'}`
+      ? `${kind === 'chat' ? 'Chat command' : 'Webhook'} · ${source?.name ?? (trigger.sourceMissing ? 'no source' : trigger.sourceId)} · ${firesOn}`
       : trigger.kind === 'scheduled'
         ? `Schedule · ${trigger.scheduleConfig?.cronExpression ?? ''}`
         : 'Manual · run on demand';
@@ -473,7 +653,7 @@ export function TriggerDrawer({
         density="compact"
         leading={
           <IconTile size="lg" tone={trigger.autoPausedAt !== null ? 'accent' : 'muted'}>
-            <Icon name={KIND_ICON[trigger.kind]} size="xs" />
+            <Icon name={KIND_ICON[kind]} size="xs" />
           </IconTile>
         }
         title={trigger.name}
@@ -482,6 +662,7 @@ export function TriggerDrawer({
           <Toggle
             checked={trigger.enabled}
             onChange={(next) => onToggleEnabled(trigger, next)}
+            disabled={!canShapeRuns || !triggerToggleOpen(trigger, tenantLocked)}
             aria-label={`${trigger.enabled ? 'Disable' : 'Enable'} ${trigger.name}`}
           />
         }
@@ -497,6 +678,29 @@ export function TriggerDrawer({
         </TabsList>
 
         <SidePanelBody padding="compact">
+          {/* One notice covers every disabled edit control in the drawer. */}
+          {managed ? (
+            <Stack gap="snug">
+              {trigger.declared && (
+                <Stack direction="horizontal">
+                  <ManagedInGitBadge repository={trigger.repository} />
+                </Stack>
+              )}
+              <ManagedInGitNotice declared={trigger.declared} repository={trigger.repository}>
+                {trigger.autoPausedAt !== null &&
+                  ' You can still re-enable this trigger after its auto-pause.'}
+              </ManagedInGitNotice>
+            </Stack>
+          ) : !canWrite ? (
+            <Alert variant="info">{permissionHintText('edit triggers')}</Alert>
+          ) : (
+            !canRunAgent && (
+              <Alert variant="info">
+                {permissionHintText("run this trigger's agent")} Its prompt, filters, schedule and
+                on or off state are read only.
+              </Alert>
+            )
+          )}
           {/* ── Overview: what this is and how it fires ─────────────────── */}
           <TabsContent value="overview">
             <Stack gap="comfortable">
@@ -507,11 +711,26 @@ export function TriggerDrawer({
                 </Alert>
               )}
 
+              {trigger.sourceMissing && (
+                <Alert variant="error">
+                  The source of this trigger was deleted. It no longer fires and can only be turned
+                  off or deleted.
+                </Alert>
+              )}
+
               {/* Webhook: the address to paste into a provider, and the secret
                   that proves deliveries came from it. */}
-              {trigger.kind === 'webhook' && (
+              {trigger.kind === 'webhook' && !trigger.sourceMissing && (
                 <Stack gap="snug">
-                  <SectionLabel>Endpoint</SectionLabel>
+                  <Stack direction="horizontal" gap="snug" align="center">
+                    <SectionLabel>{kind === 'chat' ? 'Request URL' : 'Endpoint'}</SectionLabel>
+                    {source?.declared && <ManagedInGitBadge repository={source.repository} />}
+                    {source !== undefined && !source.signingSecretSet && (
+                      <Badge variant="degraded" size="sm" shape="pill">
+                        Waiting for signing secret
+                      </Badge>
+                    )}
+                  </Stack>
                   <FieldRow
                     leading={<Icon name="lock" size="2xs" color="status-healthy" />}
                     actions={<CopyButton value={endpoint} label="Copy" />}
@@ -521,53 +740,91 @@ export function TriggerDrawer({
                     </Text>
                   </FieldRow>
 
-                  <FieldRow
-                    leading={
-                      <Text mono size="micro" color="subtle">
-                        secret
-                      </Text>
-                    }
-                    actions={
-                      rotatedSecret !== null ? (
-                        <CopyButton value={rotatedSecret} label="Copy" />
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          disabled={onRotateSecret === undefined || rotating}
-                          onClick={() => {
-                            if (!rotateArmed) {
-                              setRotateArmed(true);
-                              return;
-                            }
-                            setRotating(true);
-                            void onRotateSecret?.(trigger).then((secret) => {
-                              setRotating(false);
-                              setRotateArmed(false);
-                              if (secret !== null) setRotatedSecret(secret);
-                            });
-                          }}
-                        >
-                          {rotating
-                            ? 'Rotating…'
-                            : rotateArmed
-                              ? 'Break the old secret?'
-                              : 'Rotate'}
-                        </Button>
-                      )
-                    }
-                  >
-                    <Text mono size="caption" color={rotatedSecret !== null ? undefined : 'muted'}>
-                      {/* The stored secret is write-once and never returned on
+                  {source?.provider === SLACK_PROVIDER ? (
+                    <IssuedSecretRow
+                      key={trigger.id}
+                      providerName={providerName(source.provider)}
+                      waiting={!source.signingSecretSet}
+                      onReplace={
+                        onRotateSecret &&
+                        ((secret) =>
+                          onRotateSecret(trigger, secret, !source.signingSecretSet).then(
+                            (r) => r !== null,
+                          ))
+                      }
+                    />
+                  ) : (
+                    <FieldRow
+                      leading={
+                        <Text mono size="micro" color="subtle">
+                          secret
+                        </Text>
+                      }
+                      actions={
+                        rotatedSecret !== null ? (
+                          <CopyButton value={rotatedSecret} label="Copy" />
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            disabled={onRotateSecret === undefined || rotating}
+                            onClick={() => {
+                              if (!rotateArmed) {
+                                setRotateArmed(true);
+                                return;
+                              }
+                              setRotating(true);
+                              void onRotateSecret?.(trigger).then((secret) => {
+                                setRotating(false);
+                                setRotateArmed(false);
+                                if (secret !== null) setRotatedSecret(secret);
+                              });
+                            }}
+                          >
+                            {rotating
+                              ? 'Rotating…'
+                              : rotateArmed
+                                ? 'Break the old secret?'
+                                : 'Rotate'}
+                          </Button>
+                        )
+                      }
+                    >
+                      <Text
+                        mono
+                        size="caption"
+                        color={rotatedSecret !== null ? undefined : 'muted'}
+                      >
+                        {/* The stored secret is write-once and never returned on
                           reads; only a rotation mints something to show. */}
-                      {rotatedSecret ?? 'shown once at creation'}
-                    </Text>
-                  </FieldRow>
+                        {rotatedSecret ?? 'shown once at creation'}
+                      </Text>
+                    </FieldRow>
+                  )}
                   {rotatedSecret !== null && (
                     <Text size="caption" color="subtle">
                       Update your provider with this secret now. It is shown once and cannot be
                       recovered.
                     </Text>
+                  )}
+                  {/* A generic HMAC or Standard Webhooks sender may issue its own secret. */}
+                  {takesPastedSecret(genericMethod ?? '') && source !== undefined && (
+                    <IssuedSecretRow
+                      key={trigger.id}
+                      providerName={providerName(source.provider)}
+                      hint="Or paste a secret your sender issued. It replaces the stored one and is never shown back."
+                      onReplace={
+                        onRotateSecret &&
+                        ((secret) =>
+                          onRotateSecret(trigger, secret).then((r) => {
+                            if (r === null) return false;
+                            // A generated secret shown earlier stopped working when this one landed.
+                            setRotatedSecret(null);
+                            setRotateArmed(false);
+                            return true;
+                          }))
+                      }
+                    />
                   )}
                   {/* Requests that fail authentication never become deliveries;
                       this counter is the only place a wrong secret shows up. */}
@@ -579,9 +836,9 @@ export function TriggerDrawer({
                   )}
 
                   <Text size="caption" color="subtle">
-                    Deliveries are verified with an HMAC signature over the raw body. Unsigned or
-                    stale requests are rejected before any run starts, and are counted on the source
-                    rather than recorded as deliveries.
+                    {genericMethod !== undefined
+                      ? verificationNote(genericMethod)
+                      : 'Deliveries are verified with an HMAC signature over the raw body. Unsigned or stale requests are rejected before any run starts, and are counted on the source rather than recorded as deliveries.'}
                   </Text>
                 </Stack>
               )}
@@ -652,8 +909,13 @@ export function TriggerDrawer({
                           <Text mono size="micro" color="subtle">
                             {trigger.scheduleConfig.timezone}
                           </Text>
-                          {editable && (
-                            <Button variant="ghost" size="xs" onClick={() => setScheduleOpen(true)}>
+                          {editAction !== undefined && (
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              disabled={!runEditable}
+                              onClick={() => setScheduleOpen(true)}
+                            >
                               Edit
                             </Button>
                           )}
@@ -712,16 +974,18 @@ export function TriggerDrawer({
                     ))}
                     <Stack direction="horizontal" justify="between" align="center" padding="cozy">
                       <Text mono size="micro" color="accent" truncate>
-                        POST /api/v1/triggers/{trigger.id}/fire
+                        POST /api/v1/trigger-fires/{trigger.id}
                       </Text>
-                      {onFire !== undefined && (
-                        <Button
-                          size="sm"
-                          disabled={!trigger.enabled || firing}
-                          onClick={() => onFire(trigger)}
-                        >
-                          {firing ? 'Queueing…' : 'Run now'}
-                        </Button>
+                      {fireAction !== undefined && (
+                        <PermissionHint allowed={canFire} action="fire this trigger">
+                          <Button
+                            size="sm"
+                            disabled={!canFire || !trigger.enabled || firing}
+                            onClick={() => fireAction(trigger)}
+                          >
+                            {firing ? 'Queueing…' : 'Run now'}
+                          </Button>
+                        </PermissionHint>
                       )}
                     </Stack>
                   </Card>
@@ -732,33 +996,46 @@ export function TriggerDrawer({
               {trigger.kind === 'webhook' && (
                 <Stack gap="snug">
                   <SectionLabel>Event filters</SectionLabel>
-                  <CatalogPicker
-                    aria-label="Event type"
-                    value={filters.value.eventType}
-                    placeholder="Choose an event"
-                    catalog={eventTypeCatalog(sourceCatalog.declared, sourceCatalog.observed)}
-                    searchPlaceholder="Search events…"
-                    disabled={!editable}
-                    onSelect={(eventType) => filters.setValue({ ...filters.value, eventType })}
-                  />
+                  {kind === 'chat' ? (
+                    <ChatEventPicker
+                      events={sourceCatalog.declared}
+                      value={filters.value.eventType}
+                      disabled={!runEditable}
+                      onChange={(eventType) => filters.setValue({ ...filters.value, eventType })}
+                    />
+                  ) : (
+                    <CatalogPicker
+                      aria-label="Event type"
+                      value={filters.value.eventType}
+                      placeholder="Choose an event"
+                      catalog={eventTypeCatalog(sourceCatalog.declared, sourceCatalog.observed)}
+                      searchPlaceholder="Search events…"
+                      disabled={!runEditable}
+                      freeText={schemaless}
+                      onSelect={(eventType) => filters.setValue({ ...filters.value, eventType })}
+                    />
+                  )}
 
                   <FilterRowsEditor
                     rows={filters.value.filters}
                     fields={webhookFields}
                     onChange={setFilterRows}
-                    canAdd={editable}
+                    disabled={!runEditable}
+                    freeText={schemaless}
                   />
 
                   <Text size="caption" color="subtle">
                     {describeMatchCondition(filters.value.filters) ??
-                      'Every delivery of this event starts a run.'}
+                      (kind === 'chat'
+                        ? 'Every message of this kind starts a run.'
+                        : 'Every delivery of this event starts a run.')}
                   </Text>
 
                   <EditActions
                     dirty={filters.dirty}
                     pending={filters.pending}
                     error={filters.error}
-                    blocker={filters.blocker}
+                    blocker={filtersBlocker}
                     saveLabel="Save filters"
                     onSave={filters.save}
                     onDiscard={filters.discard}
@@ -769,10 +1046,12 @@ export function TriggerDrawer({
               {/* Senders: who may fire it, when the provider says who caused an event. */}
               {trigger.kind === 'webhook' && (
                 <SenderRestrictionEditor
-                  available={sourceCatalog.associations}
+                  identifiesSenders={sourceCatalog.identifiesSenders}
+                  roles={sourceCatalog.roles}
+                  idPlaceholder={SENDER_ID_EXAMPLE[kind === 'chat' ? 'chat' : 'webhook']}
                   value={senders.value}
                   onChange={senders.setValue}
-                  disabled={!editable}
+                  disabled={!runEditable}
                   actions={
                     <EditActions
                       dirty={senders.dirty}
@@ -786,6 +1065,30 @@ export function TriggerDrawer({
                 />
               )}
 
+              {/* Coalescing: collapse a burst of similar fires into one run. */}
+              {trigger.kind === 'webhook' && (
+                <CoalesceEditor
+                  value={coalesce.value}
+                  onChange={coalesce.setValue}
+                  keyPlaceholder={
+                    kind === 'chat' ? chatConversationKey(filters.value.eventType) : undefined
+                  }
+                  disabled={!editable || trigger.overflow !== 'wait'}
+                  note={trigger.overflow !== 'wait' ? 'Requires overflow set to wait.' : undefined}
+                  actions={
+                    <EditActions
+                      dirty={coalesce.dirty}
+                      pending={coalesce.pending}
+                      error={coalesce.error}
+                      blocker={coalesce.blocker}
+                      saveLabel="Save coalescing"
+                      onSave={coalesce.save}
+                      onDiscard={coalesce.discard}
+                    />
+                  }
+                />
+              )}
+
               {/* Prompt: what the run is actually asked to do. */}
               <Stack gap="snug">
                 <SectionLabel>Prompt</SectionLabel>
@@ -794,11 +1097,11 @@ export function TriggerDrawer({
                   value={prompt.value}
                   onChange={prompt.setValue}
                   catalog={promptCatalog}
-                  disabled={!editable}
+                  disabled={!runEditable}
                   placeholder="What this trigger asks the agent to do."
                   catalogLabel={
                     trigger.kind === 'webhook' && filters.value.eventType
-                      ? `Fields for ${filters.value.eventType} deliveries`
+                      ? `Fields for ${eventName} ${kind === 'chat' ? 'messages' : 'deliveries'}`
                       : undefined
                   }
                 />
@@ -816,29 +1119,37 @@ export function TriggerDrawer({
               {/* Target: what gets started, and how many at once. */}
               <Stack gap="snug">
                 <SectionLabel>Target</SectionLabel>
-                <FieldRow
-                  leading={
-                    <IconTile tone="accent">
-                      <Text mono size="caption" weight="heavy">
-                        {trigger.agentSlug.charAt(0).toUpperCase()}
+                {trigger.routing !== null ? (
+                  <RoutedTarget
+                    routing={trigger.routing}
+                    agents={agents}
+                    limits={`${trigger.maxParallel} parallel · ${trigger.overflow}`}
+                  />
+                ) : (
+                  <FieldRow
+                    leading={
+                      <IconTile tone="accent">
+                        <Text mono size="caption" weight="heavy">
+                          {trigger.agentSlug.charAt(0).toUpperCase()}
+                        </Text>
+                      </IconTile>
+                    }
+                    actions={
+                      <Text size="micro" color="subtle">
+                        {trigger.maxParallel} parallel · {trigger.overflow}
                       </Text>
-                    </IconTile>
-                  }
-                  actions={
-                    <Text size="micro" color="subtle">
-                      {trigger.maxParallel} parallel · {trigger.overflow}
-                    </Text>
-                  }
-                >
-                  <Stack gap="none">
-                    <Text size="supporting" weight="emphasis">
-                      {trigger.agentSlug}
-                    </Text>
-                    <Text mono size="micro" color="subtle">
-                      agt/{trigger.agentSlug}
-                    </Text>
-                  </Stack>
-                </FieldRow>
+                    }
+                  >
+                    <Stack gap="none">
+                      <Text size="supporting" weight="emphasis">
+                        {trigger.agentSlug}
+                      </Text>
+                      <Text mono size="micro" color="subtle">
+                        agt/{trigger.agentSlug}
+                      </Text>
+                    </Stack>
+                  </FieldRow>
+                )}
               </Stack>
 
               <Grid cols={3} gap="snug">
@@ -882,7 +1193,9 @@ export function TriggerDrawer({
                     triggerId={trigger.id}
                     expandedId={expanded}
                     onToggleExpanded={setExpanded}
-                    onRedeliver={onRedeliver}
+                    onRedeliver={redeliverAction}
+                    redeliverAllowed={canShapeRuns}
+                    agents={agents}
                   />
                 </>
               )}
@@ -941,7 +1254,11 @@ export function TriggerDrawer({
                   />
                   <SettingRow
                     label="At the limit"
-                    description="What happens to an arrival that cannot start yet."
+                    description={
+                      trigger.coalesce
+                        ? 'Coalescing requires Wait. Turn coalescing off to change this.'
+                        : 'What happens to an arrival that cannot start yet.'
+                    }
                     value={
                       <SegmentedControl
                         aria-label="Overflow behaviour"
@@ -949,11 +1266,7 @@ export function TriggerDrawer({
                         onChange={(v) =>
                           onUpdateSafety?.(trigger, { overflow: v as TriggerRow['overflow'] })
                         }
-                        options={[
-                          { value: 'wait', label: 'Wait' },
-                          { value: 'replace', label: 'Replace' },
-                          { value: 'refuse', label: 'Refuse' },
-                        ]}
+                        options={trigger.coalesce ? OVERFLOW_OPTIONS.slice(0, 1) : OVERFLOW_OPTIONS}
                       />
                     }
                   />
@@ -1032,15 +1345,22 @@ export function TriggerDrawer({
                 </Stack>
               </Stack>
 
-              <DangerZone
-                title="Delete trigger"
-                description="Stops all future deliveries. Anything still waiting is recorded as dropped, and history is retained."
-                action={
-                  <Button variant="destructive" size="sm" onClick={() => onDelete(trigger)}>
-                    Delete
-                  </Button>
-                }
-              />
+              {!managed && (
+                <DangerZone
+                  title="Delete trigger"
+                  description="Stops all future deliveries. Anything still waiting is recorded as dropped, and history is retained."
+                  action={
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={!canWrite}
+                      onClick={() => onDelete(trigger)}
+                    >
+                      Delete
+                    </Button>
+                  }
+                />
+              )}
             </Stack>
           </TabsContent>
         </SidePanelBody>

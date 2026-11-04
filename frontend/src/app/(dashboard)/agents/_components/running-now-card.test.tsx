@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { screen } from '@testing-library/react';
-import { renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@runkora/test-utils';
 import { RUNNING_ROWS } from '../_lib/spend';
 import { LIVE_RUN_STATES } from '../_types';
 import { RunningNowCard } from './running-now-card';

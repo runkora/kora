@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, within } from 'storybook/test';
-import { dashboardPage } from '@orbit/storybook/dashboard-frame';
+import { dashboardPage } from '@runkora/storybook/dashboard-frame';
 import { ModelsTabShell } from './models-tab-shell';
 import { MANY_MODEL_ROWS, MODEL_OBJECTS, MODEL_ROWS } from './model-mock-data';
 

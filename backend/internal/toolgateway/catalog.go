@@ -5,7 +5,7 @@
 // DERIVED state: the policy scope vocabulary remains the source of truth for
 // authorisation; this table is rebuilt on each introspection.
 //
-// It lives with the tool-gateway (NOT orbit-agents): the catalog is an MCP
+// It lives with the tool-gateway (NOT kora-agents): the catalog is an MCP
 // governance concern, and the tool-gateway is a plain-HTTP mesh service the BFF
 // can reach directly — unlike the egress gateway (a CONNECT broker), which is
 // why that one's catalog was offloaded. See the 2026-07-01 amendment to

@@ -3,17 +3,18 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Callout, DataTable, Icon, PageSectionHeader, Stack, Text } from '@orbit/hades';
-import type { DataTableColumn } from '@orbit/hades';
-import { PrincipalBadge } from '@orbit/components';
-import { usePermissions } from '../../../_components/permissions-provider';
-import { hasScope } from '@orbit/lib/permissions';
-import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
+import { Button, Callout, DataTable, Icon, PageSectionHeader, Stack, Text } from '@runkora/hades';
+import type { DataTableColumn } from '@runkora/hades';
+import { PrincipalBadge, principalLabel } from '@runkora/components';
+import { useHasScope } from '../../../_components/permissions-provider';
+import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { updateGrantBudgetAction } from '../../../policy/_actions/grants';
+import { isGrantEditable } from '../../../policy/_utils/grant-owner';
 import type { Grant } from '../../../policy/_types/api';
 import type { PrincipalIdentity } from '../../_types';
 import { BudgetEditModal } from './budget-edit-modal';
 import { principalDisplay } from './principal-display';
+import { PermissionHint } from '@runkora/components';
 
 interface BudgetGrantsTabProps {
   grants: Grant[];
@@ -22,8 +23,7 @@ interface BudgetGrantsTabProps {
 
 export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
   const router = useRouter();
-  const { scopes: sessionScopes } = usePermissions();
-  const canWrite = hasScope(sessionScopes, 'platform:budgets:write');
+  const canWrite = useHasScope('platform:budgets:write');
   const [editing, setEditing] = useState<Grant | null>(null);
 
   const columns = useMemo<DataTableColumn<Grant>[]>(
@@ -121,22 +121,25 @@ export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
         pinEnd: true,
         locked: true,
         gridWidth: '4rem',
-        cell: (g) => {
-          if (!canWrite) return null;
-          return (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setEditing(g);
-              }}
-              aria-label={`Edit budget for ${g.principal_id}`}
-            >
-              <Icon name="edit" size="2xs" />
-            </Button>
-          );
-        },
+        // Only a person's grant can be re-budgeted here; the agent, trigger or token that owns
+        // any other grant sets its budget.
+        cell: (g) =>
+          isGrantEditable(g) ? (
+            <PermissionHint allowed={canWrite} action="change grant budgets">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!canWrite}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditing(g);
+                }}
+                aria-label={`Edit budget for ${g.principal_id}`}
+              >
+                <Icon name="edit" size="2xs" />
+              </Button>
+            </PermissionHint>
+          ) : null,
       },
     ],
     [canWrite, identities],
@@ -146,13 +149,15 @@ export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
     <Stack gap="comfortable">
       <PageSectionHeader
         title="Grant Budgets"
-        description="Window and per-run limits carried by individual grants: humans, agents, and services."
+        description="Window and per-run limits carried by individual grants: humans, agents, triggers, and tokens."
       />
 
       <Callout>
         <Text size="caption" color="muted">
           Editing a budget here keeps the grant (and its spend attribution) intact. Grant scopes are
-          immutable. Manage grants on the Policy → Grants page.
+          immutable. Budgets can be edited on human grants only; agent, trigger and token grants are
+          managed by the agent, trigger or token they belong to. Manage grants on the Policy →
+          Grants page.
         </Text>
       </Callout>
 
@@ -171,7 +176,8 @@ export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
           return (
             g.principal_id.toLowerCase().includes(q) ||
             display.primary.toLowerCase().includes(q) ||
-            g.principal_type.toLowerCase().includes(q)
+            g.principal_type.toLowerCase().includes(q) ||
+            principalLabel(g.principal_type).toLowerCase().includes(q)
           );
         }}
         defaultSortId="budget"

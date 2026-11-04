@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 
 	"io"
 )
@@ -19,16 +19,16 @@ import (
 // receives the delegator so budget.rego can apply their ceilings.
 
 // delegatedAgentCtx returns a context carrying AGENT claims plus verified
-// delegation claims — the shape DelegationMiddleware produces after
+// delegation claims — the shape DelegationMiddlewareWithBlocklist produces after
 // signature/blocklist checks.
 func delegatedAgentCtx(delegatorID string) context.Context {
 	claims := &token.PlatformClaims{
-		Orbit: token.OrbitClaims{
+		Kora: token.KoraClaims{
 			TenantID:      "tenant-1",
 			PrincipalType: token.PrincipalTypeAgent,
 		},
 	}
-	claims.Subject = "spiffe://orbit.test/tenant/tenant-1/agent/reviewer"
+	claims.Subject = "spiffe://runkora.test/tenant/tenant-1/agent/reviewer"
 	ctx := token.WithClaims(context.Background(), claims)
 	return policy.WithDelegation(ctx, &policy.DelegationClaims{
 		Sub:                    delegatorID,
@@ -93,9 +93,9 @@ func TestCheckBudget_DelegationThreadedIntoBudgetInput(t *testing.T) {
 	}}
 	svc := newBudgetService(eval, counter)
 
-	if _, err := svc.checkBudget(delegatedAgentCtx("user-1"), principal{
+	if err := svc.checkBudget(delegatedAgentCtx("user-1"), principal{
 		TenantID:      "tenant-1",
-		PrincipalID:   "spiffe://orbit.test/tenant/tenant-1/agent/reviewer",
+		PrincipalID:   "spiffe://runkora.test/tenant/tenant-1/agent/reviewer",
 		PrincipalType: "AGENT",
 	}); err != nil {
 		t.Fatalf("checkBudget: %v", err)
@@ -123,7 +123,7 @@ func TestCheckBudget_NoDelegation_NoDelegatorInput(t *testing.T) {
 	counter := &mockSpendCounter{}
 	svc := newBudgetService(eval, counter)
 
-	if _, err := svc.checkBudget(ctxWithClaims(t), principal{
+	if err := svc.checkBudget(ctxWithClaims(t), principal{
 		TenantID: "tenant-1", PrincipalID: "user-1", PrincipalType: "HUMAN",
 	}); err != nil {
 		t.Fatalf("checkBudget: %v", err)
@@ -146,7 +146,7 @@ func TestIncrementSpend_DelegatorCountersThreaded(t *testing.T) {
 	counter := &mockSpendCounter{}
 	svc := newBudgetService(eval, counter)
 
-	svc.incrementSpend(delegatedAgentCtx("user-1"), "tenant-1", "spiffe://orbit.test/tenant/tenant-1/agent/reviewer", 1.25)
+	svc.incrementSpend(delegatedAgentCtx("user-1"), "tenant-1", "spiffe://runkora.test/tenant/tenant-1/agent/reviewer", 1.25)
 
 	if counter.lastIncrScopes.DelegatorID != "user-1" {
 		t.Errorf("IncrementSpends DelegatorID = %q, want user-1", counter.lastIncrScopes.DelegatorID)

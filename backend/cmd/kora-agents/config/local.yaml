@@ -1,0 +1,12 @@
+kubernetes:
+  inCluster: false # use KUBECONFIG / k3d for local development
+
+# Leave policyServiceURL empty so grant management is skipped when running locally
+# outside the cluster (no policy service reachable).
+platform:
+  trustDomain: "runkora.test"
+  policyServiceURL: ""
+
+agents:
+  sessionManagerImage: kora-registry:5001/kora-session-manager:latest
+  sandboxImage: kora-registry:5001/kora-sandbox-base:latest

@@ -13,12 +13,15 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
-	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
-	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
-	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/execauth"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
+	execpb "github.com/runkora/kora/backend/internal/agents/sandbox/proto"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/propagation"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -65,6 +68,8 @@ func main() {
 	}
 
 	srv := grpc.NewServer(
+		// Propagation only: sandbox-exec exports no spans.
+		grpc.StatsHandler(otelgrpc.NewServerHandler(otelgrpc.WithPropagators(propagation.TraceContext{}))),
 		grpc.StreamInterceptor(requireExecTokenStream(execToken)),
 		grpc.UnaryInterceptor(requireExecTokenUnary(execToken)),
 	)
@@ -146,12 +151,13 @@ func (s *execServer) Execute(req *execpb.ExecuteRequest, stream grpc.ServerStrea
 		return fmt.Errorf("start: %w", err)
 	}
 
-	// stream stdout and stderr concurrently into the response stream
+	// gRPC forbids concurrent Send on one stream, so both pipes share a lock
+	out := &lockedSender{send: stream.Send}
 	done := make(chan error, 2)
-	go streamPipe(stream, stdout, func(b []byte) *execpb.ExecuteResponse {
+	go streamPipe(out, stdout, func(b []byte) *execpb.ExecuteResponse {
 		return &execpb.ExecuteResponse{Output: &execpb.ExecuteResponse_Stdout{Stdout: b}}
 	}, done)
-	go streamPipe(stream, stderr, func(b []byte) *execpb.ExecuteResponse {
+	go streamPipe(out, stderr, func(b []byte) *execpb.ExecuteResponse {
 		return &execpb.ExecuteResponse{Output: &execpb.ExecuteResponse_Stderr{Stderr: b}}
 	}, done)
 
@@ -172,7 +178,7 @@ func (s *execServer) Execute(req *execpb.ExecuteRequest, stream grpc.ServerStrea
 		}
 	}
 
-	return stream.Send(&execpb.ExecuteResponse{
+	return out.Send(&execpb.ExecuteResponse{
 		Output: &execpb.ExecuteResponse_ExitCode{ExitCode: int32(exitCode)},
 	})
 }
@@ -211,7 +217,7 @@ func commandEnv(env []string) []string {
 // filterEnv drops entries from req.Env that would let a caller hijack the
 // subprocess (e.g. LD_PRELOAD, PATH, SHELL) rather than merely configure it,
 // while still allowing arbitrary safe additions (e.g. WORKSPACE, ANTHROPIC_*).
-// See https://github.com/clear-route/orbit/issues/231.
+// See https://github.com/runkora/kora/issues/231.
 func filterEnv(env []string) []string {
 	filtered := make([]string, 0, len(env))
 	for _, e := range env {
@@ -238,7 +244,20 @@ func filterEnv(env []string) []string {
 	return filtered
 }
 
-func streamPipe(stream grpc.ServerStreamingServer[execpb.ExecuteResponse], r interface{ Read([]byte) (int, error) }, wrap func([]byte) *execpb.ExecuteResponse, done chan<- error) {
+// lockedSender serializes Send calls. Concurrent Send on a gRPC stream races on
+// the response headers and fails with "SendHeader called multiple times".
+type lockedSender struct {
+	mu   sync.Mutex
+	send func(*execpb.ExecuteResponse) error
+}
+
+func (l *lockedSender) Send(r *execpb.ExecuteResponse) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.send(r)
+}
+
+func streamPipe(stream *lockedSender, r interface{ Read([]byte) (int, error) }, wrap func([]byte) *execpb.ExecuteResponse, done chan<- error) {
 	buf := make([]byte, 4096)
 	for {
 		n, err := r.Read(buf)
@@ -287,7 +306,7 @@ func setRunHome() error {
 const kubeconfigPath = ".kube/config"
 
 // writeKubeconfig renders the credential-less kubeconfig for the Kubernetes
-// connections named in ORBIT_KUBE_CLUSTERS. It is a no-op when the agent holds
+// connections named in KORA_KUBE_CLUSTERS. It is a no-op when the agent holds
 // no Kubernetes connection.
 func writeKubeconfig() error {
 	clusters, err := kubeconfig.Decode(os.Getenv(kubeconfig.ClustersEnvVar))

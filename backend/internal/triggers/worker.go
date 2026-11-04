@@ -2,9 +2,22 @@ package triggers
 
 import (
 	"context"
+	"errors"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+)
+
+var triggersTracer = otel.Tracer("github.com/runkora/kora/backend/internal/triggers")
+
+// Static span statuses for a failed fire and for failed claim upkeep around it.
+var (
+	errDispatchFailed   = errors.New("trigger dispatch failed")
+	errClaimMaintenance = errors.New("pending claim maintenance failed")
 )
 
 // Worker drains the pending-delivery queue.
@@ -186,17 +199,35 @@ func (w *Worker) drain(ctx context.Context) {
 		for j := i; j < len(claimed); j++ {
 			remaining[j-i] = claimed[j].ID
 		}
-		if err := w.repo.TouchPendingClaims(dctx, remaining); err != nil {
-			w.logger.Error(dctx, "failed to re-stamp claims before dispatch",
-				logging.Field{Key: "pending_id", Value: p.ID},
-				logging.Field{Key: "error", Value: err.Error()})
-		}
-		w.svc.DispatchPending(dctx, p)
-		if err := w.repo.ReleasePending(dctx, p.ID); err != nil {
-			w.logger.Error(dctx, "failed to release claimed delivery",
-				logging.Field{Key: "pending_id", Value: p.ID},
-				logging.Field{Key: "error", Value: err.Error()})
-		}
+		w.dispatch(dctx, p, remaining)
+	}
+}
+
+// dispatch runs one claimed fire in the trace of the fire that queued it. The
+// poll that claimed it records no span.
+func (w *Worker) dispatch(ctx context.Context, p PendingDelivery, remaining []string) {
+	ctx = observability.ContextWithTraceParent(ctx, p.TraceParent)
+	ctx, span := triggersTracer.Start(observability.WithTenant(ctx, p.TenantID), "triggers.Worker.dispatch", trace.WithAttributes(
+		observability.TriggerIDKey.String(p.TriggerID),
+		observability.TriggerDeliveryIDKey.String(p.DeliveryID),
+	))
+	defer span.End()
+
+	if err := w.repo.TouchPendingClaims(ctx, remaining); err != nil {
+		observability.RecordFailure(span, err, errClaimMaintenance)
+		w.logger.Error(ctx, "failed to re-stamp claims before dispatch",
+			logging.Field{Key: "pending_id", Value: p.ID},
+			logging.Field{Key: "error", Value: err.Error()})
+	}
+	if held := w.svc.DispatchPending(ctx, p); held {
+		// Back in the queue to wait for a starting run; it is not released.
+		return
+	}
+	if err := w.repo.ReleasePending(ctx, p.ID); err != nil {
+		observability.RecordFailure(span, err, errClaimMaintenance)
+		w.logger.Error(ctx, "failed to release claimed delivery",
+			logging.Field{Key: "pending_id", Value: p.ID},
+			logging.Field{Key: "error", Value: err.Error()})
 	}
 }
 

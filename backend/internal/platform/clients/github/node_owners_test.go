@@ -1,0 +1,79 @@
+package github
+
+import (
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/runkora/kora/backend/internal/platform/logging"
+)
+
+func TestClient_NodeOwners(t *testing.T) {
+	tests := []struct {
+		name    string
+		reply   string
+		want    map[string]string
+		wantErr error
+	}{
+		{
+			name:  "repository shapes, a user and an unseen id",
+			reply: `{"data":{"n0":{"owner":{"login":"Fabrikam"}},"n1":{"repository":{"owner":{"login":"contoso"}}},"n2":{"login":"octocat"},"n3":null},"errors":[{"message":"Could not resolve to a node"}]}`,
+			want:  map[string]string{"R_1": "fabrikam", "PR_1": "contoso"},
+		},
+		{name: "errors without data fail", reply: `{"data":null,"errors":[{"type":"RATE_LIMITED"}]}`, wantErr: ErrGraphQLQuery},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var body struct {
+				Query     string         `json:"query"`
+				Variables map[string]any `json:"variables"`
+			}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewDecoder(r.Body).Decode(&body)
+				_, _ = io.WriteString(w, tc.reply)
+			}))
+			defer srv.Close()
+			got, err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).NodeOwners(t.Context(), "tok", []string{"R_1", "PR_1", "U_1", "nope"})
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("err = %v, want %v", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil || len(got) != len(tc.want) {
+				t.Fatalf("got %v, err %v, want %v", got, err, tc.want)
+			}
+			for id, owner := range tc.want {
+				if got[id] != owner {
+					t.Errorf("owner of %s = %q, want %q", id, got[id], owner)
+				}
+			}
+			if body.Variables["i3"] != "nope" || !strings.Contains(body.Query, "n3: node(id: $i3)") {
+				t.Errorf("ids are not passed as variables: %s %v", body.Query, body.Variables)
+			}
+		})
+	}
+}
+
+func TestClient_RepoOwners(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			t.Errorf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		switch r.URL.Path {
+		case "/repositories/522":
+			_, _ = io.WriteString(w, `{"owner":{"login":"Fabrikam"}}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	got, err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).RepoOwners(t.Context(), "tok", []string{"522", "9"})
+	if err != nil || len(got) != 1 || got["522"] != "fabrikam" {
+		t.Errorf("got %v, err %v, want 522=fabrikam", got, err)
+	}
+}

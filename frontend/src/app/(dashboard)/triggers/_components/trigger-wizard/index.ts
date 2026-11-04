@@ -28,6 +28,7 @@ export type {
   StepComponentProps,
   StepValidation,
   DoneContentProps,
+  RoutingAgent,
   WizardContext,
   WizardState,
 } from './types';

@@ -1,13 +1,13 @@
 // OAuthClient aggregator for the identity authorization server (GitOps
 // hosted-app registration).
 //
-// The identity service runs in orbit-system but needs every tenant's
+// The identity service runs in kora-system but needs every tenant's
 // pre-registered OAuth clients to serve the authorize endpoint. Pods can only
 // mount ConfigMaps from their own namespace, so the operator aggregates each
-// tenant's OAuthClient CRs (in the tenant namespace) into one orbit-system
+// tenant's OAuthClient CRs (in the tenant namespace) into one kora-system
 // ConfigMap the identity service mounts:
 //
-//   - ConfigMap orbit-tenant-oauth-clients — one data key, oauth-clients.json,
+//   - ConfigMap kora-tenant-oauth-clients — one data key, oauth-clients.json,
 //     a JSON array of registry entries (tenant, client_id, client_name,
 //     redirect_uris). All non-secret: OAuth clients are public (PKCE only).
 //
@@ -31,15 +31,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 const (
-	// aggregatedOAuthClientsConfigMapName is the ConfigMap in orbit-system that
+	// aggregatedOAuthClientsConfigMapName is the ConfigMap in kora-system that
 	// collects every tenant's OAuth client registrations. Its single data key
 	// is oauth-clients.json — the JSON array the identity service's mounted
 	// static-client source parses.
-	aggregatedOAuthClientsConfigMapName = "orbit-tenant-oauth-clients"
+	aggregatedOAuthClientsConfigMapName = "kora-tenant-oauth-clients"
 
 	// aggregatedOAuthClientsConfigMapKey is the data key within the ConfigMap.
 	aggregatedOAuthClientsConfigMapKey = "oauth-clients.json"
@@ -57,8 +57,8 @@ type oauthClientRegistryEntry struct {
 }
 
 // OAuthClientAggregator reads each active tenant's OAuthClient CRs from its
-// namespace and renders the aggregated orbit-tenant-oauth-clients ConfigMap in
-// orbit-system. Re-run on every reconcile (and on any OAuthClient change) so a
+// namespace and renders the aggregated kora-tenant-oauth-clients ConfigMap in
+// kora-system. Re-run on every reconcile (and on any OAuthClient change) so a
 // newly-applied client appears in the identity service's mount within a
 // kubelet projection-update cycle.
 type OAuthClientAggregator struct {
@@ -96,20 +96,14 @@ func (a *OAuthClientAggregator) Sync(ctx context.Context) error {
 	return a.upsertConfigMap(ctx, string(registryJSON), len(entries))
 }
 
-// listActiveTenants returns all OrbitTenant resources whose Spec.Active is true,
+// listActiveTenants returns the active tenants that hold their namespace,
 // mirroring the connection aggregator: suspended tenants' clients are not served.
-func (a *OAuthClientAggregator) listActiveTenants(ctx context.Context) ([]OrbitTenant, error) {
-	list := &OrbitTenantList{}
+func (a *OAuthClientAggregator) listActiveTenants(ctx context.Context) ([]KoraTenant, error) {
+	list := &KoraTenantList{}
 	if err := a.client.List(ctx, list); err != nil {
-		return nil, fmt.Errorf("list OrbitTenants: %w", err)
+		return nil, fmt.Errorf("list KoraTenants: %w", err)
 	}
-	out := make([]OrbitTenant, 0, len(list.Items))
-	for _, t := range list.Items {
-		if t.Spec.Active {
-			out = append(out, t)
-		}
-	}
-	return out, nil
+	return servedTenants(list.Items), nil
 }
 
 // collect walks every active tenant's OAuthClient CRs and returns the registry
@@ -117,8 +111,8 @@ func (a *OAuthClientAggregator) listActiveTenants(ctx context.Context) ([]OrbitT
 // visited in name order so the dedup winner for a duplicated client_id is stable
 // across reconciles — the Kubernetes list order is not guaranteed, and an
 // unstable winner would churn the ConfigMap.
-func (a *OAuthClientAggregator) collect(ctx context.Context, tenants []OrbitTenant) ([]oauthClientRegistryEntry, error) {
-	sorted := append([]OrbitTenant(nil), tenants...)
+func (a *OAuthClientAggregator) collect(ctx context.Context, tenants []KoraTenant) ([]oauthClientRegistryEntry, error) {
+	sorted := append([]KoraTenant(nil), tenants...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
 
 	var entries []oauthClientRegistryEntry
@@ -143,7 +137,7 @@ func (a *OAuthClientAggregator) collect(ctx context.Context, tenants []OrbitTena
 
 // tenantClients lists a tenant's OAuthClient CRs, name-sorted so dedup ordering
 // is deterministic.
-func (a *OAuthClientAggregator) tenantClients(ctx context.Context, t *OrbitTenant) ([]OAuthClient, error) {
+func (a *OAuthClientAggregator) tenantClients(ctx context.Context, t *KoraTenant) ([]OAuthClient, error) {
 	ns := tenantNamespace(t)
 	list := &OAuthClientList{}
 	if err := a.client.List(ctx, list, client.InNamespace(ns)); err != nil {
@@ -158,7 +152,7 @@ func (a *OAuthClientAggregator) tenantClients(ctx context.Context, t *OrbitTenan
 // invalid redirect URI, or a client_id already claimed by an earlier tenant.
 // Every skip is logged and never fatal; a kept entry records its client_id ->
 // tenant ownership in seen.
-func (a *OAuthClientAggregator) entryFor(ctx context.Context, t *OrbitTenant, oc *OAuthClient, seen map[string]string) (oauthClientRegistryEntry, bool) {
+func (a *OAuthClientAggregator) entryFor(ctx context.Context, t *KoraTenant, oc *OAuthClient, seen map[string]string) (oauthClientRegistryEntry, bool) {
 	id := oc.Spec.ClientID
 	cr := []logging.Field{
 		{Key: "oauthclient", Value: oc.Name},
@@ -240,8 +234,8 @@ func (a *OAuthClientAggregator) upsertConfigMap(ctx context.Context, registryJSO
 				Name:      aggregatedOAuthClientsConfigMapName,
 				Namespace: systemNamespace,
 				Labels: map[string]string{
-					"app.kubernetes.io/managed-by": "orbit-operator",
-					"orbit.io/component":           "tenant-oauth-clients",
+					"app.kubernetes.io/managed-by": "kora-operator",
+					"runkora.io/component":         "tenant-oauth-clients",
 				},
 			},
 			Data: map[string]string{aggregatedOAuthClientsConfigMapKey: registryJSON},

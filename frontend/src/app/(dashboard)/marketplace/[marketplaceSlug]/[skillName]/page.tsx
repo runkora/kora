@@ -1,9 +1,9 @@
 // RSC: loads the requested Marketplace and Skill from the detail path.
 
 import Link from 'next/link';
-import { Alert, Button, EmptyState, Icon, Stack, Text } from '@orbit/hades';
-import { APP_ROUTES } from '@orbit/lib/routing';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { Alert, Button, EmptyState, Icon, Stack, Text } from '@runkora/hades';
+import { APP_ROUTES } from '@runkora/lib/routing';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { loadSkillPage } from '../../_services/marketplace-server';
 import { MarketplaceSkillDetail } from './_components/marketplace-skill-detail';
 import { MarketplaceSkillLoadError } from './_components/marketplace-skill-load-error';

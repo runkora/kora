@@ -4,10 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"sync"
 	"testing"
 	"time"
 
-	agentsclient "github.com/clear-route/orbit/internal/platform/clients/agents"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 // errTriggerSideFailure stands for a dispatch failure that says something about
@@ -34,11 +40,16 @@ func TestAdmission_Replace_SupersedesWaitingFires(t *testing.T) {
 		t.Errorf("waiting fire = %s, want the newest (%s)", pending[0].DeliveryID, ids[2])
 	}
 
-	// The two it displaced are recorded, not lost.
-	for _, id := range ids[:2] {
+	// The two it displaced are recorded, not lost, and each names the fire that
+	// replaced it.
+	for i, id := range ids[:2] {
 		runs := deps.repo.deliveryRunsFor(id)
 		if len(runs) != 1 || runs[0].Status != RunStatusSuperseded {
 			t.Errorf("delivery %s outcomes = %+v, want one superseded", id, runs)
+			continue
+		}
+		if by := runs[0].SupersededBy; by == nil || *by != ids[i+1] {
+			t.Errorf("delivery %s is not superseded by %s: %+v", id, ids[i+1], runs[0])
 		}
 	}
 }
@@ -176,7 +187,7 @@ func TestAutoPause_SuccessResetsTheCount(t *testing.T) {
 }
 
 // A platform fault is not the trigger's fault, and none of its forms may move a
-// trigger toward auto-pause: orbit-agents erroring (5xx) or unreachable (a raw
+// trigger toward auto-pause: kora-agents erroring (5xx) or unreachable (a raw
 // transport error), a dispatch that timed out, shutdown cancelling the call, or
 // a token the identity service could not mint. Each fails every trigger in the
 // tenant at once, so counting any of them would turn a transient blip into an
@@ -358,7 +369,7 @@ func TestWorker_CollectsFiresWhoseTriggerCanNoLongerRunThem(t *testing.T) {
 	ids := enqueue(t, svc, deps, trig, 1)
 	disabled := trig
 	disabled.Enabled = false
-	if err := deps.repo.UpdateTrigger(ctx, &disabled, true); err != nil {
+	if err := deps.repo.UpdateTrigger(ctx, &disabled, true, false); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 
@@ -415,5 +426,121 @@ func TestWorker_ReStampsTheRemainingBatchBeforeEachDispatch(t *testing.T) {
 	if len(batches[0]) != 3 || len(batches[1]) != 2 || len(batches[2]) != 1 {
 		t.Errorf("re-stamp batch sizes = %d/%d/%d, want 3/2/1 (the shrinking remainder)",
 			len(batches[0]), len(batches[1]), len(batches[2]))
+	}
+}
+
+type warnCapture struct {
+	logging.Logger
+	mu    sync.Mutex
+	warns []map[string]any
+}
+
+func (l *warnCapture) Warn(_ context.Context, _ string, fields ...logging.Field) {
+	m := map[string]any{}
+	for _, f := range fields {
+		m[f.Key] = f.Value
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.warns = append(l.warns, m)
+}
+
+// Every eviction is logged with the trigger and delivery, so a dropped fire is
+// visible outside the outcome table.
+func TestAdmission_Wait_LogsEviction(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 1, 2)
+	lg := &warnCapture{Logger: silentLogger()}
+	svc.admission = NewAdmission(deps.repo, lg)
+
+	ids := enqueue(t, svc, deps, trig, 4)
+
+	evicted := map[any]bool{}
+	for _, w := range lg.warns {
+		if w["trigger_id"] != trig.ID {
+			t.Errorf("warn missing trigger_id: %v", w)
+		}
+		evicted[w["delivery_id"]] = true
+	}
+	for _, id := range ids {
+		for _, r := range deps.repo.deliveryRunsFor(id) {
+			if r.Status == RunStatusDropped && !evicted[id] {
+				t.Errorf("delivery %s was dropped without a warning", id)
+			}
+		}
+	}
+	if len(evicted) == 0 {
+		t.Fatal("no eviction was logged")
+	}
+}
+
+// ─── Token mint retry ────────────────────────────────────────────────────────
+
+// A mint call that times out once is a mesh blip, not a failed fire.
+func TestDispatchPending_MintTimeoutOnce_StillStartsRun(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
+	ids := enqueue(t, svc, deps, trig, 1)
+	deps.minter.reset()
+	deps.minter.err = context.DeadlineExceeded
+	deps.minter.failFirst = 1
+
+	svc.DispatchPending(context.Background(), PendingDelivery{
+		ID: "p-1", TenantID: testTenant, TriggerID: trig.ID, DeliveryID: ids[0],
+	})
+
+	runs := deps.repo.deliveryRunsFor(ids[0])
+	if len(runs) != 1 || runs[0].Status != RunStatusDispatched {
+		t.Fatalf("outcomes = %+v, want one dispatched", runs)
+	}
+	if deps.agents.callCount() != 1 {
+		t.Errorf("run starts = %d, want 1", deps.agents.callCount())
+	}
+}
+
+// When the retries are used up, the outcome carries the mint error.
+func TestDispatchPending_MintKeepsFailing_OutcomeShowsMintError(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
+	ids := enqueue(t, svc, deps, trig, 1)
+	deps.minter.err = errors.New("mint call: context deadline exceeded")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	svc.DispatchPending(ctx, PendingDelivery{
+		ID: "p-1", TenantID: testTenant, TriggerID: trig.ID, DeliveryID: ids[0],
+	})
+
+	runs := deps.repo.deliveryRunsFor(ids[0])
+	if len(runs) != 1 || runs[0].Error == nil {
+		t.Fatalf("outcomes = %+v, want one failure", runs)
+	}
+	if want := "mint trigger token: mint call: context deadline exceeded"; *runs[0].Error != want {
+		t.Errorf("error = %q, want %q", *runs[0].Error, want)
+	}
+	if n := deps.minter.callCount(); n < 2 {
+		t.Errorf("mint calls = %d, want a retry", n)
+	}
+}
+
+func TestDispatchPending_FailedStartMarksTheSpan(t *testing.T) {
+	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")
+	deps.agents.status = http.StatusInternalServerError
+	adapter, _ := mustRegistry().Get(ProviderGitHub)
+	svc.dispatch(context.Background(), src, adapter, arrival{deliveryID: delID, eventType: "pull_request", body: prBody("opened", "main")})
+
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	ctx, span := provider.Tracer("test").Start(context.Background(), "dispatch")
+	claimed, err := deps.repo.ClaimPending(ctx, 1)
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("ClaimPending = %d, %v; want one fire", len(claimed), err)
+	}
+	svc.DispatchPending(ctx, claimed[0])
+	span.End()
+
+	got := recorder.Ended()[0].Status()
+	if got.Code != codes.Error || got.Description != errDispatchFailed.Error() {
+		t.Errorf("span status = %+v, want error %q", got, errDispatchFailed)
 	}
 }

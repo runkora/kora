@@ -3,9 +3,9 @@
 /** @tier 3 — marketplace-scoped. Card view of Skill results; each card links to its detail route. */
 
 import Link from 'next/link';
-import { Card, CardContent, CardFooter, CardHeader, Grid, Icon, Stack, Text } from '@orbit/hades';
-import { APP_ROUTES } from '@orbit/lib/routing';
-import type { SkillSummary } from '@orbit/shared/api';
+import { Card, CardContent, CardFooter, CardHeader, Grid, Icon, Stack, Text } from '@runkora/hades';
+import { APP_ROUTES } from '@runkora/lib/routing';
+import type { SkillSummary } from '@runkora/shared/api';
 import { useMarketplaceContext } from '../_context/marketplace-context';
 
 export function MarketplaceSkillGrid() {

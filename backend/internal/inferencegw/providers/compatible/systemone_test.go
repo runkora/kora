@@ -16,10 +16,10 @@ import (
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // sysOneUpstream answers /v1/systemone with a fixed status and body and records the request.
@@ -164,16 +164,17 @@ func TestSystemOneUpstreamErrors(t *testing.T) {
 		wantCode      string
 		wantRetryable bool
 		wantMessage   string
+		wantRejected  bool
 	}{
-		{"422 keeps the message", 422, `{"error":{"message":"question q1: choice needs 2 options"}}`, "INVALID_REQUEST", false, "question q1: choice needs 2 options"},
-		{"400 detail", 400, `{"detail":"state is required"}`, "INVALID_REQUEST", false, "state is required"},
-		{"429 throttled", 429, `{"error":"slow down"}`, "THROTTLED", true, "slow down"},
-		{"529 overloaded", 529, `{"message":"overloaded"}`, "PROVIDER_ERROR", true, "overloaded"},
-		{"500", 500, `boom`, "PROVIDER_ERROR", true, "boom"},
-		{"503", 503, ``, "PROVIDER_ERROR", true, ""},
-		{"401 is the gateway's credential", 401, `{"error":{"message":"bad key"}}`, "PROVIDER_ERROR", false, "bad key"},
-		{"403 is the gateway's credential", 403, `{}`, "PROVIDER_ERROR", false, "{}"},
-		{"404", 404, `not found`, "PROVIDER_ERROR", false, "not found"},
+		{"422 keeps the message", 422, `{"error":{"message":"question q1: choice needs 2 options"}}`, "INVALID_REQUEST", false, "question q1: choice needs 2 options", true},
+		{"400 detail", 400, `{"detail":"state is required"}`, "INVALID_REQUEST", false, "state is required", true},
+		{"429 throttled", 429, `{"error":"slow down"}`, "THROTTLED", true, "slow down", false},
+		{"529 overloaded", 529, `{"message":"overloaded"}`, "PROVIDER_ERROR", true, "overloaded", false},
+		{"500", 500, `boom`, "PROVIDER_ERROR", true, "boom", false},
+		{"503", 503, ``, "PROVIDER_ERROR", true, "", false},
+		{"401 is the gateway's credential", 401, `{"error":{"message":"bad key"}}`, "PROVIDER_ERROR", false, "bad key", false},
+		{"403 is the gateway's credential", 403, `{}`, "PROVIDER_ERROR", false, "{}", false},
+		{"404", 404, `not found`, "PROVIDER_ERROR", false, "not found", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -184,8 +185,8 @@ func TestSystemOneUpstreamErrors(t *testing.T) {
 			if res != nil || !errors.As(err, &ce) {
 				t.Fatalf("res = %v, err = %v", res, err)
 			}
-			if ce.Code != tc.wantCode || ce.Retryable != tc.wantRetryable || ce.HTTPStatus != tc.status || ce.ProviderMessage != tc.wantMessage {
-				t.Errorf("error = %+v, want %s retryable=%v message %q", ce, tc.wantCode, tc.wantRetryable, tc.wantMessage)
+			if ce.Code != tc.wantCode || ce.Retryable != tc.wantRetryable || ce.HTTPStatus != tc.status || ce.ProviderMessage != tc.wantMessage || ce.RequestRejected != tc.wantRejected {
+				t.Errorf("error = %+v, want %s retryable=%v message %q rejected=%v", ce, tc.wantCode, tc.wantRetryable, tc.wantMessage, tc.wantRejected)
 			}
 			if ce.Provider != "compatible:ts" {
 				t.Errorf("provider = %q", ce.Provider)
@@ -272,7 +273,7 @@ func TestSystemOneTimeouts(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			c := newSysOne(t, slow.URL+"/v1", "", ip.APISystemOne)
-			c.decide = httpclient.New("orbit.compatible", logging.NewLoggerWithOutput(io.Discard), 100*time.Millisecond)
+			c.decide = httpclient.New("kora.compatible", logging.NewLoggerWithOutput(io.Discard), 100*time.Millisecond)
 			ctx, cancel := tc.ctx()
 			defer cancel()
 			start := time.Now()
@@ -327,7 +328,10 @@ func TestSystemOneClientSpanStatus(t *testing.T) {
 
 			up := &sysOneUpstream{status: tc.status, body: tc.body}
 			c := newSysOne(t, up.serve(t), "k", ip.APISystemOne)
-			res, err := c.SystemOne(context.Background(), inferencegw.SystemOneRequest{Body: []byte(`{"model":"m"}`), Model: "m"})
+			// Client spans need a parent, as under a gateway request.
+			ctx, parent := tp.Tracer("test").Start(context.Background(), "request")
+			defer parent.End()
+			res, err := c.SystemOne(ctx, inferencegw.SystemOneRequest{Body: []byte(`{"model":"m"}`), Model: "m"})
 
 			spans := exporter.GetSpans()
 			if len(spans) != 1 {

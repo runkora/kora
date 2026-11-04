@@ -4,20 +4,18 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	platformtoken "github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	platformtoken "github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ConnectionsReadController serves the read-only connection catalog for the
 // caller's tenant.
 //
-// GET /connections is the gateway's only HTTP route, and the policy service
-// rejects a scope registration whose routes list is empty. The route therefore
-// has to exist for the connection vocabulary to publish at all, even though the
-// frontend picker reads its catalog from orbit-agents rather than from here.
+// GET /connections is the gateway's only HTTP route. The frontend picker reads
+// its catalog from kora-agents rather than from here.
 //
 // The response carries only a connection's name, adapter type, and grantable
 // actions, so the route is auth-only with no scope enforcement. The list is
@@ -78,12 +76,12 @@ func (c *ConnectionsReadController) handleListConnectionResources(w http.Respons
 	ctx := r.Context()
 
 	claims, ok := platformtoken.ClaimsFromContext(ctx)
-	if !ok || claims.Orbit.TenantID == "" {
+	if !ok || claims.Kora.TenantID == "" {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.UnauthorizedError(api.ErrCodeUnauthorized, "missing tenant in token", nil), nil)
 		return
 	}
-	tenantID := claims.Orbit.TenantID
+	tenantID := claims.Kora.TenantID
 
 	name := r.PathValue("name")
 	conns, err := c.connRegistry.ListByTenant(ctx, tenantID)
@@ -146,18 +144,18 @@ type connectionJSON struct {
 }
 
 // handleListConnections returns the caller's tenant's connections. The result
-// is scoped to claims.Orbit.TenantID read from the verified token; a request
+// is scoped to claims.Kora.TenantID read from the verified token; a request
 // without a tenant is rejected 401.
 func (c *ConnectionsReadController) handleListConnections(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	claims, ok := platformtoken.ClaimsFromContext(ctx)
-	if !ok || claims.Orbit.TenantID == "" {
+	if !ok || claims.Kora.TenantID == "" {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.UnauthorizedError(api.ErrCodeUnauthorized, "missing tenant in token", nil), nil)
 		return
 	}
-	tenantID := claims.Orbit.TenantID
+	tenantID := claims.Kora.TenantID
 
 	conns, err := c.connRegistry.ListByTenant(ctx, tenantID)
 	if err != nil {

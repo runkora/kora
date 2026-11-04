@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, within } from 'storybook/test';
-import { dashboardPage } from '@orbit/storybook/dashboard-frame';
+import { dashboardPage } from '@runkora/storybook/dashboard-frame';
 import { SetupTab } from './setup-tab';
 
 /** Setup guide: provision a key, then point Claude Code, Codex, OpenCode or VS Code at the gateway. */

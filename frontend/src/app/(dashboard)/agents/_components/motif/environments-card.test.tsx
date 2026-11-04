@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { Environment } from '@orbit/shared/api';
+import type { Environment } from '@runkora/shared/api';
 import { EnvironmentsCard } from './environments-card';
 
 const env = (id: string, name: string, sandboxImage = 'kora-base'): Environment => ({
@@ -32,6 +32,14 @@ describe('EnvironmentsCard', () => {
     render(<EnvironmentsCard environments={ENVIRONMENTS} value={[]} onChange={onChange} />);
     fireEvent.click(screen.getByLabelText('Go services'));
     expect(onChange).toHaveBeenCalledWith([{ environment_id: 'go', is_default: true }]);
+  });
+
+  it('changes nothing when read only', () => {
+    const onChange = vi.fn();
+    render(
+      <EnvironmentsCard environments={ENVIRONMENTS} value={[]} onChange={onChange} disabled />,
+    );
+    for (const box of screen.getAllByRole('checkbox')) expect(box).toBeDisabled();
   });
 
   it('marks the default', () => {

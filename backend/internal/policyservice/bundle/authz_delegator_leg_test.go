@@ -4,11 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/roles"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/roles"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -256,8 +256,8 @@ func TestAuthz_Egress_Delegated_AllowedWithoutDelegatorEgressGrant(t *testing.T)
 	delegationToken := signDelegationJWT(t, testDelegateID, nil)
 
 	allow, reason := evalLayer1Connect(t, pq, "api.github.com:443", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": delegationToken,
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": delegationToken,
 	})
 	if !allow {
 		t.Errorf("expected delegated egress allow, got deny (reason: %s)", reason)
@@ -284,8 +284,8 @@ func TestAuthz_Egress_Delegated_AgentPostureStillBounds(t *testing.T) {
 	delegationToken := signDelegationJWT(t, testDelegateID, nil)
 
 	allow, _ := evalLayer1Connect(t, pq, "evil.example.com:443", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": delegationToken,
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": delegationToken,
 	})
 	if allow {
 		t.Error("expected deny: the delegator's egress grants must never widen the agent's posture")
@@ -298,7 +298,7 @@ func TestAuthz_Egress_Delegated_AgentPostureStillBounds(t *testing.T) {
 
 func TestGateway_DelegatorLeg_RoleDerivedAllow(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/role-leg-agent"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/role-leg-agent"
 	delegatorID := "user-role-only"
 
 	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
@@ -326,8 +326,8 @@ func TestGateway_DelegatorLeg_RoleDerivedAllow(t *testing.T) {
 	delegationToken := signDelegationJWT(t, delegatorID, nil)
 
 	allow, reason := evalGateway(t, pq, "POST", "/v1/chat/completions", map[string]string{
-		"authorization":            "Bearer " + mainJWT,
-		"x-orbit-delegation-token": delegationToken,
+		"authorization":           "Bearer " + mainJWT,
+		"x-kora-delegation-token": delegationToken,
 	})
 	if !allow {
 		t.Errorf("expected allow via the delegator's role at the gateway, got deny (reason: %s)", reason)
@@ -339,7 +339,7 @@ func TestGateway_DelegatorLeg_RoleDerivedAllow(t *testing.T) {
 
 func TestGateway_DelegatorLeg_RequiresProjection(t *testing.T) {
 	jwksSrv := startJWKSServer(t)
-	agentID := "spiffe://orbit.test/tenant/" + testTenantID + "/agent/projection-agent"
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/projection-agent"
 
 	vocab := []*vocabulary.ScopeEntry{
 		{
@@ -382,8 +382,8 @@ func TestGateway_DelegatorLeg_RequiresProjection(t *testing.T) {
 			delegationToken := signDelegationJWT(t, delegatorID, nil)
 
 			allow, reason := evalGateway(t, pq, "POST", "/v1/mcp-proxy/github/create_issue", map[string]string{
-				"authorization":            "Bearer " + mainJWT,
-				"x-orbit-delegation-token": delegationToken,
+				"authorization":           "Bearer " + mainJWT,
+				"x-kora-delegation-token": delegationToken,
 			})
 			if allow != tc.wantAllow {
 				t.Errorf("allow = %v, want %v (reason: %s)", allow, tc.wantAllow, reason)

@@ -201,11 +201,11 @@ This is the abstraction boundary that makes unified policy evaluation possible. 
 {
   "iss": "https://orbit.{instance}",
   "sub": "{principal-id}",
-  "aud": "orbit-platform",
+  "aud": "kora-platform",
   "exp": 1234567890,
   "iat": 1234567000,
   "jti": "{unique-token-id}",
-  "orbit": {
+  "kora": {
     "principal_type": "AGENT",
     "tenant_id": "platform-team",
     "identity_source": "ATTESTED",

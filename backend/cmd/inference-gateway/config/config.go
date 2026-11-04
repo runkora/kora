@@ -3,7 +3,8 @@ package config
 import (
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 )
 
 // Config is the root configuration for the inference-gateway service.
@@ -16,14 +17,21 @@ type Config struct {
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
-	Pricing   PricingConfig   `yaml:"pricing"`
-	Policy    PolicyConfig    `yaml:"policy"`
-	Providers ProvidersConfig `yaml:"providers"`
+	Metrics   platformmetrics.Config `yaml:"metrics"`
+	Pricing   PricingConfig          `yaml:"pricing"`
+	Policy    PolicyConfig           `yaml:"policy"`
+	Providers ProvidersConfig        `yaml:"providers"`
+	Catalog   CatalogConfig          `yaml:"catalog"`
 	Identity  struct {
 		// InternalURL is the in-cluster base URL for identity. The gateway
 		// exchanges its SVID there for the platform token it registers routes with.
 		InternalURL string `yaml:"internalURL"`
 	} `yaml:"identity"`
+	Agents struct {
+		// InternalURL is the in-cluster base URL for kora-agents. The run usage
+		// meter asks it whether the caller may read the run.
+		InternalURL string `yaml:"internalURL"`
+	} `yaml:"agents"`
 }
 
 // ProvidersConfig is where the gateway watches InferenceProvider resources.
@@ -31,15 +39,22 @@ type ProvidersConfig struct {
 	Namespace string `yaml:"namespace"`
 }
 
+// CatalogConfig holds the platform switches for the virtual model catalog.
+type CatalogConfig struct {
+	// APIAuthoring false makes every virtual model read-only through the API.
+	// VirtualModel resources still project.
+	APIAuthoring bool `yaml:"apiAuthoring"`
+}
+
 // PolicyConfig configures the in-process OPA policy evaluator.
 type PolicyConfig struct {
 	// BundleEndpoint is the base URL for the policy-service bundle API.
-	// e.g. http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles
+	// e.g. http://kora-policy-service.kora-system.svc/api/v1/policy/bundles
 	BundleEndpoint         string `yaml:"bundleEndpoint"`
 	BundlePollIntervalSecs int    `yaml:"bundlePollIntervalSecs"`
 	// PolicyServiceURL is the base URL of the policy service.
 	// Used for route registration at startup.
-	// e.g. http://orbit-policy-service.orbit-system.svc
+	// e.g. http://kora-policy-service.kora-system.svc
 	PolicyServiceURL string `yaml:"policyServiceURL"`
 }
 

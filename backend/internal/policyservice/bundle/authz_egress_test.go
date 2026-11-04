@@ -5,11 +5,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/policyservice/bundle"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
 	opabundle "github.com/open-policy-agent/opa/v1/bundle"
 	"github.com/open-policy-agent/opa/v1/rego"
+	"github.com/runkora/kora/backend/internal/policyservice/bundle"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -31,8 +31,8 @@ func prepareAuthzFuncQuery(t *testing.T, query string) rego.PreparedEvalQuery {
 
 	cfg := bundle.Config{
 		JWKSURL:  "http://127.0.0.1:1/jwks",
-		Issuer:   "orbit",
-		Audience: "orbit-platform",
+		Issuer:   "kora",
+		Audience: "kora-platform",
 	}
 	compiler := bundle.NewCompiler(cfg, routes.NewStore())
 	cached, err := compiler.Compile(testTenantID, nil, nil, nil, nil, nil)
@@ -71,7 +71,7 @@ func evalHostMatch(t *testing.T, pq rego.PreparedEvalQuery, pattern, host string
 }
 
 func TestEgress_HostMatches(t *testing.T) {
-	pq := prepareAuthzFuncQuery(t, `x := data.orbit.authz._host_matches(input.pattern, input.host)`)
+	pq := prepareAuthzFuncQuery(t, `x := data.kora.authz._host_matches(input.pattern, input.host)`)
 
 	cases := []struct {
 		name    string
@@ -129,7 +129,7 @@ func evalEgressPattern(t *testing.T, pq rego.PreparedEvalQuery, scope string) (s
 }
 
 func TestEgress_HostPatternExtraction(t *testing.T) {
-	pq := prepareAuthzFuncQuery(t, `x := data.orbit.authz._egress_host_pattern(input.scope)`)
+	pq := prepareAuthzFuncQuery(t, `x := data.kora.authz._egress_host_pattern(input.scope)`)
 
 	cases := []struct {
 		name    string
@@ -187,6 +187,87 @@ func TestEgress_OwnPostureLayer2(t *testing.T) {
 			allow, reason := evalLayer2(t, pq, agentClaims(testAgentID), nil, "egress", []string{tc.host}, "connect")
 			if allow != tc.want || reason != tc.reason {
 				t.Errorf("egress %s with %v = (%v, %q), want (%v, %q)", tc.host, tc.scopes, allow, reason, tc.want, tc.reason)
+			}
+		})
+	}
+}
+
+// TestEgress_OwnPostureLayer2_Delegated locks the gateway's fallback check under
+// delegation: the agent's own posture answers it and the delegator is never
+// intersected on egress (delegated-agent-identity ADR, Decision 5).
+func TestEgress_OwnPostureLayer2_Delegated(t *testing.T) {
+	cases := []struct {
+		name     string
+		agent    []string
+		delegate []string
+		host     string
+		want     bool
+		reason   string
+	}{
+		{"open", []string{"egress:connect"}, nil, "github.com", true, "egress_delegated:github.com"},
+		{"exact whitelist", []string{"egress:github.com:connect"}, nil, "github.com", true, "egress_delegated:github.com"},
+		{"wildcard whitelist", []string{"egress:*.githubusercontent.com:connect"}, nil, "objects.githubusercontent.com", true, "egress_delegated:objects.githubusercontent.com"},
+		{"delegator also holds egress", []string{"egress:github.com:connect"}, []string{"egress:github.com:connect"}, "github.com", true, "egress_delegated:github.com"},
+		{"connector only", []string{"egress:github.com:connector"}, nil, "github.com", false, "deny:no_matching_grant"},
+		{"delegator egress never widens", nil, []string{"egress:github.com:connect"}, "github.com", false, "deny:no_agent_grant"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gs := []*grants.Grant{delegatedAgentGrant(testAgentID, tc.agent...)}
+			if tc.delegate != nil {
+				gs = append(gs, humanGrant(testDelegateID, tc.delegate...))
+			}
+			pq := compileAndPrepare(t, bundleOpts{grants: gs})
+			allow, reason := evalLayer2(t, pq, agentClaims(testAgentID), humanDelegation(testDelegateID), "egress", []string{tc.host}, "connect")
+			if allow != tc.want || reason != tc.reason {
+				t.Errorf("delegated egress %s with %v = (%v, %q), want (%v, %q)", tc.host, tc.agent, allow, reason, tc.want, tc.reason)
+			}
+		})
+	}
+}
+
+// The CONNECT host must parse the same way in OPA and the gateway. A sandbox
+// controls the SNI that becomes the authority, so only a plain DNS name or
+// IPv4 address with one port yields a host; anything else leaves it undefined
+// and the CONNECT is denied.
+func TestEgress_ConnectHost(t *testing.T) {
+	pq := prepareAuthzFuncQuery(t, `x := data.kora.authz._connect_host`)
+
+	cases := []struct {
+		authority string
+		want      string
+		ok        bool
+	}{
+		{"api.github.com:443", "api.github.com", true},
+		{"K3D-Server-0:6443", "k3d-server-0", true},
+		{"172.21.0.3:6443", "172.21.0.3", true},
+		{"github.com:x@evil.com:6443", "", false},
+		{"github.com@evil.com:443", "", false},
+		{"github.com:443:6443", "", false},
+		{"github.com/evil:443", "", false},
+		{"github.com evil:443", "", false},
+		{":443", "", false},
+		{"github.com", "", false},
+		{"[::1]:443", "", false},
+		{"-bad.example.com:443", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.authority, func(t *testing.T) {
+			rs, err := pq.Eval(context.Background(), rego.EvalInput(map[string]any{
+				"attributes": map[string]any{"request": map[string]any{"http": map[string]any{
+					"method": "CONNECT",
+					"host":   tc.authority,
+				}}},
+			}))
+			if err != nil {
+				t.Fatalf("eval: %v", err)
+			}
+			got, ok := "", false
+			if len(rs) > 0 && len(rs[0].Bindings) > 0 {
+				got, ok = rs[0].Bindings["x"].(string)
+			}
+			if ok != tc.ok || got != tc.want {
+				t.Errorf("_connect_host(%q) = %q (defined %v), want %q (defined %v)", tc.authority, got, ok, tc.want, tc.ok)
 			}
 		})
 	}

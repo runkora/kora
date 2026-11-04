@@ -1,7 +1,7 @@
 // Browser browse requests go through /api/marketplace/skills. Skill details
 // load in the [marketplaceSlug]/[skillName] Server Component through marketplace-server instead.
 
-import { ApiRoute } from '@orbit/lib/routing/api-routes';
+import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData } from '../_types';
 
 export interface FetchMarketplaceOverviewResult {

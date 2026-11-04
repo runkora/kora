@@ -1,0 +1,17 @@
+app:
+  version: "0.1.0"
+
+server:
+  httpPort: 8095
+  basePath: ""
+  shutdownTimeoutSecs: 30
+
+# The chart renders the backends' service URLs.
+
+observability:
+  serviceName: "kora-mcp"
+
+metrics:
+  enabled: true
+  port: 9464
+  shutdownTimeoutSecs: 5

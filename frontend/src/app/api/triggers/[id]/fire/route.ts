@@ -1,8 +1,8 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
-import { fireTrigger } from '@orbit/server/triggers-client';
-import type { TriggerFireRequest } from '@orbit/shared/api';
+import { withAuth } from '@runkora/server/route-helpers';
+import { fireTrigger } from '@runkora/server/triggers-client';
+import type { TriggerFireRequest } from '@runkora/shared/api';
 
 type Params = { id: string };
 

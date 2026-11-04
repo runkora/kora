@@ -12,17 +12,15 @@ import {
   PageSectionHeader,
   Stack,
   Text,
-} from '@orbit/hades';
-import type { DataTableColumn } from '@orbit/hades';
-import { usePermissions } from '../../../_components/permissions-provider';
-import { hasScope } from '@orbit/lib/permissions';
-import { fmtUsd, fmtWindowSuffix } from '@orbit/utils';
-import { upsertRoleAction } from '../../../policy/_actions/roles';
+} from '@runkora/hades';
+import type { DataTableColumn } from '@runkora/hades';
+import { useHasScope, useTenantLocked } from '../../../_components/permissions-provider';
+import { isDeclared, managedInGit } from '@runkora/lib/declarative';
+import { fmtUsd, fmtWindowSuffix } from '@runkora/utils';
+import { updateRoleBudgetAction } from '../../../policy/_actions/roles';
 import type { RoleEntry } from '../../../policy/_types/api';
 import { BudgetEditModal } from './budget-edit-modal';
-
-// Reserved roles cannot carry budgets — the bundle compiler skips them.
-const RESERVED_ROLES = new Set(['platform-admin']);
+import { ManagedInGitBadge, PermissionHint } from '@runkora/components';
 
 interface BudgetRolesTabProps {
   roles: RoleEntry[];
@@ -30,8 +28,9 @@ interface BudgetRolesTabProps {
 
 export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
   const router = useRouter();
-  const { scopes: sessionScopes } = usePermissions();
-  const canWrite = hasScope(sessionScopes, 'platform:budgets:write');
+  const canWrite = useHasScope('platform:budgets:write');
+  // Role budgets of a declared role, or of any role in a locked tenant, change in the configuration repository.
+  const locked = useTenantLocked();
   const [editing, setEditing] = useState<RoleEntry | null>(null);
 
   const columns = useMemo<DataTableColumn<RoleEntry>[]>(
@@ -49,11 +48,12 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
             <Text size="caption" mono weight="emphasis">
               {r.role}
             </Text>
-            {RESERVED_ROLES.has(r.role) && (
+            {r.reserved && (
               <Badge variant="secondary" size="sm">
                 not budgetable
               </Badge>
             )}
+            {isDeclared(r) && <ManagedInGitBadge repository={r.repository} />}
           </Stack>
         ),
       },
@@ -101,24 +101,28 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
         locked: true,
         gridWidth: '4rem',
         cell: (r) => {
-          if (!canWrite || RESERVED_ROLES.has(r.role)) return null;
+          // Reserved roles cannot carry budgets: the bundle compiler skips them.
+          if (r.reserved || managedInGit(isDeclared(r), locked)) return null;
           return (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setEditing(r);
-              }}
-              aria-label={`Edit budget for ${r.role}`}
-            >
-              <Icon name="edit" size="2xs" />
-            </Button>
+            <PermissionHint allowed={canWrite} action="change role budgets">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!canWrite}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditing(r);
+                }}
+                aria-label={`Edit budget for ${r.role}`}
+              >
+                <Icon name="edit" size="2xs" />
+              </Button>
+            </PermissionHint>
           );
         },
       },
     ],
-    [canWrite],
+    [canWrite, locked],
   );
 
   return (
@@ -157,12 +161,7 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
           initialBudget={editing.budget}
           onClose={() => setEditing(null)}
           onSave={async (budget) => {
-            // Budget-only edit: pass the existing scopes back unchanged.
-            const result = await upsertRoleAction({
-              role: editing.role,
-              scopes: editing.scopes ?? [],
-              budget,
-            });
+            const result = await updateRoleBudgetAction(editing.role, budget);
             if (result.ok) {
               setEditing(null);
               router.refresh();

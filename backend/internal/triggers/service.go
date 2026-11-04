@@ -8,14 +8,16 @@ import (
 
 	"github.com/google/uuid"
 
-	agentsclient "github.com/clear-route/orbit/internal/platform/clients/agents"
-	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	inferenceclient "github.com/runkora/kora/backend/internal/platform/clients/inference"
+	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 const (
 	// sourceTokenTTL bounds the JIT SERVICE token minted to start a run. It only
-	// needs to outlive a single StartRun call to orbit-agents.
+	// needs to outlive a single StartRun call to kora-agents.
 	sourceTokenTTL = 2 * time.Minute
 	// dispatchTimeout bounds the detached background dispatch of a delivery.
 	dispatchTimeout = 60 * time.Second
@@ -24,18 +26,17 @@ const (
 )
 
 // sourceRunScopes are granted to every source/trigger principal at provisioning
-// time, before any agent is bound. It is deliberately only the agent-type read:
-// CreateTrigger looks the agent type up under the principal's own
-// (tenant-scoped) identity to derive its canonical slug, and nothing else here
-// happens before a binding exists.
+// time, before any agent is bound. It is deliberately only the agent-type read.
+// CreateTrigger now reads the agent type as the caller, so nothing in this
+// package uses this grant.
 //
 // The broad agents:runs:read/write pair is NOT granted. Scope hierarchy is by
 // prefix, so agents:runs:write covers every agents:runs:<slug>:write — granting
 // it would have made the per-agent narrowing in triggerRunScopes decorative, and
 // a leaked source token could start any agent in the tenant. The route scope on
 // POST /api/v1/runs is authenticated-only for exactly this reason (see
-// cmd/orbit-agents/main.go agentRoutes); the authoritative check is
-// orbit-agents' own per-slug Authz.checkRun.
+// cmd/kora-agents/main.go agentRoutes); the authoritative check is
+// kora-agents' own per-slug Authz.checkRun.
 var sourceRunScopes = []string{"agents:types:read"}
 
 // triggerRunScopes are the per-agent run scopes a source/trigger principal needs
@@ -61,7 +62,15 @@ const (
 	IngestAccepted IngestOutcome = iota
 	// IngestDuplicate means the delivery id was already processed (redelivery).
 	IngestDuplicate
+	// IngestHandshake means the request was a provider handshake and recorded nothing.
+	IngestHandshake
 )
+
+// IngestResult is what Ingest returns: the outcome, and for a handshake the reply.
+type IngestResult struct {
+	Outcome IngestOutcome
+	Reply   map[string]string
+}
 
 // pipelineStore is the storage a delivery passes through from arrival to
 // dispatch: recording it, finding the triggers that match, and the counters
@@ -69,8 +78,12 @@ const (
 type pipelineStore interface {
 	// Recording an outcome and re-deriving the delivery, through outcomeRecorder.
 	outcomeStore
+	// The key-first lookup and the decision record of a routed trigger.
+	RoutingStore
 
 	AutoPause(ctx context.Context, triggerID string) error
+	HoldPending(ctx context.Context, pendingID, deliveryID string, delay time.Duration, reason string) error
+	ClearDeliveryReason(ctx context.Context, deliveryID string) error
 	BumpConsecutiveFailures(ctx context.Context, triggerID string) (int, error)
 	ClaimReplayKey(ctx context.Context, sourceID string, bodyHash []byte, providerDeliveryID string, window time.Duration) (fresh bool, err error)
 	CountRedeliveries(ctx context.Context, originalID string) (int, error)
@@ -84,6 +97,7 @@ type pipelineStore interface {
 	InsertScheduledDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
 	ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error)
 	ListDeliveryRunsForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error)
+	ListDeliveryKeysForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryKey, error)
 	ListMatchableTriggersForSource(ctx context.Context, sourceID string) ([]Trigger, error)
 	RecordAccepted(ctx context.Context, sourceID string) error
 	RecordSourceRejection(ctx context.Context, sourceID, reason string) error
@@ -99,11 +113,19 @@ type Service struct {
 	cipher    *secretCipher
 	policy    *policyclient.Client
 	agents    *agentsclient.Client
+	decisions decisionModel
 	minter    TokenMinter
 	admission *Admission
+	brand     brand.Brand
 	outcomes  outcomeRecorder
 	logger    logging.Logger
 	metrics   *Metrics // nil records nothing
+}
+
+// decisionModel asks the inference gateway's decision model which agent or run
+// a routed delivery goes to (trigger routing ADR, Decision 3).
+type decisionModel interface {
+	SystemOne(ctx context.Context, bearer string, req inferenceclient.SystemOneRequest) (inferenceclient.SystemOneResponse, error)
 }
 
 // NewService constructs the delivery pipeline: verifying an inbound webhook,
@@ -118,8 +140,10 @@ func NewService(
 	cipher *secretCipher,
 	policy *policyclient.Client,
 	agents *agentsclient.Client,
+	decisions decisionModel,
 	minter TokenMinter,
 	admission *Admission,
+	b brand.Brand,
 	logger logging.Logger,
 	metrics *Metrics,
 ) *Service {
@@ -130,8 +154,10 @@ func NewService(
 		cipher:    cipher,
 		policy:    policy,
 		agents:    agents,
+		decisions: decisions,
 		minter:    minter,
 		admission: admission,
+		brand:     b,
 		outcomes:  outcomeRecorder{repo: repo, logger: logger},
 		logger:    logger,
 	}
@@ -219,9 +245,9 @@ const (
 const (
 	maxNameLen           = 128
 	maxPromptTemplateLen = 8 << 10 // 8 KiB
-	// Every delivery scans a restriction's logins, so the list stays short.
-	maxSenderLogins   = 100
-	maxSenderLoginLen = 100
+	// Every delivery scans a restriction's ids, so the list stays short.
+	maxSenderIDs   = 100
+	maxSenderIDLen = 100
 	// Every delivery searches a field for each substring.
 	maxContainsValues   = 20
 	maxContainsValueLen = 256
@@ -374,7 +400,9 @@ func validateCommonTriggerCreate(req CreateTriggerRequest) error {
 	switch {
 	case strings.TrimSpace(req.Name) == "":
 		return fmt.Errorf("%w: name is required", ErrValidation)
-	case req.AgentTypeID == "":
+	case req.TargetKind == TargetKindRouted && req.AgentTypeID != "":
+		return fmt.Errorf("%w: a routed trigger names its agents in routing.candidates, not agent_type_id", ErrValidation)
+	case req.TargetKind != TargetKindRouted && req.AgentTypeID == "":
 		return fmt.Errorf("%w: agent_type_id is required", ErrValidation)
 	case strings.TrimSpace(req.PromptTemplate) == "":
 		return fmt.Errorf("%w: prompt_template is required", ErrValidation)
@@ -383,8 +411,16 @@ func validateCommonTriggerCreate(req CreateTriggerRequest) error {
 }
 
 func validateWebhookTriggerCreate(req CreateTriggerRequest) error {
+	if err := validateTargetKind(req.TargetKind, req.Routing); err != nil {
+		return err
+	}
 	if err := validateCommonTriggerCreate(req); err != nil {
 		return err
+	}
+	if req.TargetKind == TargetKindRouted {
+		if _, err := normalizeRouting(req.Routing); err != nil {
+			return err
+		}
 	}
 	if req.SourceID == "" {
 		return fmt.Errorf("%w: source_id is required for webhook triggers", ErrValidation)
@@ -395,31 +431,83 @@ func validateWebhookTriggerCreate(req CreateTriggerRequest) error {
 	if err := validateFieldKeys(req.PromptTemplate, req.MatchCondition); err != nil {
 		return err
 	}
-	return validateContains(req.MatchContains)
+	if err := validateContains(req.MatchContains); err != nil {
+		return err
+	}
+	_, err := coalesceForCreate(req)
+	return err
+}
+
+// coalesceForCreate validates a create request's coalesce setting against the
+// overflow the trigger will be stored with, and returns what to store.
+func coalesceForCreate(req CreateTriggerRequest) (*CoalesceConfig, error) {
+	coalesce, err := normalizeCoalesce(req.Coalesce)
+	if err != nil {
+		return nil, err
+	}
+	overflow := DefaultOverflowForKind(KindWebhook)
+	if req.Overflow != nil {
+		overflow = *req.Overflow
+	}
+	if err := validateCoalesceOverflow(coalesce, overflow); err != nil {
+		return nil, err
+	}
+	return coalesce, nil
+}
+
+// validateTargetKind checks a webhook trigger's target kind and that routing
+// is set exactly when it is routed.
+func validateTargetKind(targetKind string, routing *RoutingConfig) error {
+	switch targetKind {
+	case "", TargetKindAgent:
+		if routing != nil {
+			return fmt.Errorf("%w: routing applies only when target_kind is %q", ErrValidation, TargetKindRouted)
+		}
+	case TargetKindRouted:
+	default:
+		return fmt.Errorf("%w: target_kind must be %q or %q", ErrValidation, TargetKindAgent, TargetKindRouted)
+	}
+	return nil
 }
 
 // Scheduled and manual triggers have no delivery to read a sender or field from.
 var (
 	errSenderRestrictionWebhookOnly = fmt.Errorf("%w: sender_restriction applies to webhook triggers only", ErrValidation)
 	errMatchContainsWebhookOnly     = fmt.Errorf("%w: match_contains applies to webhook triggers only", ErrValidation)
+	errCoalesceWebhookOnly          = fmt.Errorf("%w: coalesce applies to webhook triggers only", ErrValidation)
+	errRoutingWebhookOnly           = fmt.Errorf("%w: routing applies to webhook triggers only", ErrValidation)
 )
 
+// refuseRouting rejects routing on a scheduled or manual trigger (ADR Decision 1).
+func refuseRouting(targetKind string, routing *RoutingConfig) error {
+	if routing != nil || (targetKind != "" && targetKind != TargetKindAgent) {
+		return errRoutingWebhookOnly
+	}
+	return nil
+}
+
 // refuseWebhookOnly rejects the webhook-only fields on another kind of trigger.
-func refuseWebhookOnly(restriction *SenderRestriction, contains map[string][]string) error {
+func refuseWebhookOnly(restriction *SenderRestriction, contains map[string][]string, coalesce *CoalesceConfig) error {
 	if restriction != nil {
 		return errSenderRestrictionWebhookOnly
 	}
 	if contains != nil {
 		return errMatchContainsWebhookOnly
 	}
+	if coalesce != nil {
+		return errCoalesceWebhookOnly
+	}
 	return nil
 }
 
 func validateScheduledTriggerCreate(req CreateTriggerRequest) error {
+	if err := refuseRouting(req.TargetKind, req.Routing); err != nil {
+		return err
+	}
 	if err := validateCommonTriggerCreate(req); err != nil {
 		return err
 	}
-	if err := refuseWebhookOnly(req.SenderRestriction, req.MatchContains); err != nil {
+	if err := refuseWebhookOnly(req.SenderRestriction, req.MatchContains, req.Coalesce); err != nil {
 		return err
 	}
 	if req.ScheduleConfig == nil {
@@ -429,10 +517,13 @@ func validateScheduledTriggerCreate(req CreateTriggerRequest) error {
 }
 
 func validateManualTriggerCreate(req CreateTriggerRequest) error {
+	if err := refuseRouting(req.TargetKind, req.Routing); err != nil {
+		return err
+	}
 	if err := validateCommonTriggerCreate(req); err != nil {
 		return err
 	}
-	if err := refuseWebhookOnly(req.SenderRestriction, req.MatchContains); err != nil {
+	if err := refuseWebhookOnly(req.SenderRestriction, req.MatchContains, req.Coalesce); err != nil {
 		return err
 	}
 	return validateManualInputs(req.ManualConfig)
@@ -478,17 +569,14 @@ func validateScheduleConfig(sc *ScheduleConfig) error {
 	return nil
 }
 
-func redactSecret(s *WebhookSource) *WebhookSource {
-	cp := *s
-	cp.SecretCiphertext = ""
-	return &cp
+// truncate cuts b to at most n bytes of text a Postgres TEXT column accepts.
+func truncate(b []byte, n int) string {
+	return cleanText(string(b[:min(len(b), n)]))
 }
 
-func truncate(b []byte, n int) string {
-	if len(b) <= n {
-		return string(b)
-	}
-	return strings.ToValidUTF8(string(b[:n]), "")
+// cleanText drops the invalid UTF-8 and NUL bytes a Postgres TEXT column refuses.
+func cleanText(s string) string {
+	return strings.ReplaceAll(strings.ToValidUTF8(s, ""), "\x00", "")
 }
 
 // maxPayloadBytes caps what is stored per delivery. An oversized payload is

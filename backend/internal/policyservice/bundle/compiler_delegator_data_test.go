@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/policyservice/routes"
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
 // Delegator-leg bundle data (delegated-agent-identity ADR, Decision 5): the
@@ -68,7 +68,7 @@ func assertVocabRequires(t *testing.T, raw []byte) {
 }
 
 func TestCompile_EmitsPrincipalRolesAndVocabRequires(t *testing.T) {
-	cfg := Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "orbit", Audience: "orbit-platform"}
+	cfg := Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "kora", Audience: "kora-platform"}
 	compiler := NewCompiler(cfg, routes.NewStore())
 
 	cached, err := compiler.Compile("acme", nil, delegatorDataVocab(), nil, nil,
@@ -82,7 +82,7 @@ func TestCompile_EmitsPrincipalRolesAndVocabRequires(t *testing.T) {
 }
 
 func TestCompileGateway_EmitsPrincipalRolesAndVocabulary(t *testing.T) {
-	cfg := Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "orbit", Audience: "orbit-platform", FrontendHost: "orbit.example.com"}
+	cfg := Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "kora", Audience: "kora-platform", FrontendHost: "example.com"}
 	compiler := NewCompiler(cfg, routes.NewStore())
 
 	cached, err := compiler.CompileGateway(
@@ -103,7 +103,7 @@ func TestCompileGateway_EmitsPrincipalRolesAndVocabulary(t *testing.T) {
 // A tenant with no user carrying roles still gets a well-formed (empty)
 // principal_roles document, keeping rego lookups undefined-safe.
 func TestCompile_EmptyPrincipalRoles(t *testing.T) {
-	cfg := Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "orbit", Audience: "orbit-platform"}
+	cfg := Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "kora", Audience: "kora-platform"}
 	compiler := NewCompiler(cfg, routes.NewStore())
 
 	cached, err := compiler.Compile("acme", nil, nil, nil, nil, nil)

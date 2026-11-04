@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Grant } from '../_types';
 import { resolveGrantIdentity } from './grant-identity';
 
-const agentId = 'spiffe://orbit.test/tenant/orbit-tenant-example/agent/ci-failure-investigator';
+const agentId = 'spiffe://runkora.test/tenant/kora-tenant-example/agent/ci-failure-investigator';
 
 function grant(overrides: Partial<Grant>): Grant {
   return {
@@ -53,6 +53,15 @@ describe('resolveGrantIdentity for humans', () => {
     const user = { id: humanId, email: 'dev@example.com', display_name: '' };
     expect(resolveGrantIdentity(human, {}, { [humanId]: user })).toEqual({
       primary: 'dev@example.com',
+      email: undefined,
+      rawId: humanId,
+    });
+  });
+
+  it('shows no email line when only the name is known', () => {
+    const user = { id: humanId, email: '', display_name: 'Dev' };
+    expect(resolveGrantIdentity(human, {}, { [humanId]: user })).toEqual({
+      primary: 'Dev',
       email: undefined,
       rawId: humanId,
     });

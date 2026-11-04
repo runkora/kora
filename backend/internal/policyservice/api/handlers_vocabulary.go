@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
 )
 
 // handleGetScope handles GET /policy/vocabulary/{scope}.

@@ -3,17 +3,17 @@ package token
 import (
 	"fmt"
 
-	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
 const (
 	// DefaultIssuer is the "iss" claim value stamped into every platform JWT.
 	// The identity service signs with this value; all consumers verify against it.
-	DefaultIssuer = "orbit"
+	DefaultIssuer = "kora"
 
 	// DefaultAudience is the "aud" claim value stamped into every platform JWT.
 	// The identity service signs with this value; all consumers verify against it.
-	DefaultAudience = "orbit-platform"
+	DefaultAudience = "kora-platform"
 )
 
 // Config holds the parameters needed to construct a Verifier.

@@ -1,5 +1,5 @@
 import type { RoutingStrategy } from '../_types/catalog';
-import type { badgeVariants } from '@orbit/hades';
+import type { badgeVariants } from '@runkora/hades';
 import type { VariantProps } from 'class-variance-authority';
 
 type BadgeVariant = NonNullable<VariantProps<typeof badgeVariants>['variant']>;

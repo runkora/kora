@@ -12,29 +12,29 @@ import (
 	"path/filepath"
 	"text/template"
 
-	identityMigrations "github.com/clear-route/orbit/cmd/identity/migrations"
-	inferenceMigrations "github.com/clear-route/orbit/cmd/inference-gateway/migrations"
-	agentsMigrations "github.com/clear-route/orbit/cmd/orbit-agents/migrations"
-	triggersMigrations "github.com/clear-route/orbit/cmd/orbit-triggers/migrations"
-	policyMigrations "github.com/clear-route/orbit/cmd/policy-service/migrations"
-	toolGatewayMigrations "github.com/clear-route/orbit/cmd/tool-gateway/migrations"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/observability"
-	"github.com/clear-route/orbit/internal/platform/storage"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	identityMigrations "github.com/runkora/kora/backend/cmd/identity/migrations"
+	inferenceMigrations "github.com/runkora/kora/backend/cmd/inference-gateway/migrations"
+	agentsMigrations "github.com/runkora/kora/backend/cmd/kora-agents/migrations"
+	triggersMigrations "github.com/runkora/kora/backend/cmd/kora-triggers/migrations"
+	policyMigrations "github.com/runkora/kora/backend/cmd/policy-service/migrations"
+	toolGatewayMigrations "github.com/runkora/kora/backend/cmd/tool-gateway/migrations"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // allowDownEnv guards down. The chart never sets it.
-const allowDownEnv = "ORBIT_MIGRATE_ALLOW_DOWN"
+const allowDownEnv = "KORA_MIGRATE_ALLOW_DOWN"
 
 // sources maps each table-owning service to its embedded migrations.
 // cmd/example is the reference implementation and is left out.
 var sources = map[string]fs.FS{
 	"identity":          identityMigrations.FS,
 	"inference-gateway": inferenceMigrations.FS,
-	"orbit-agents":      agentsMigrations.FS,
-	"orbit-triggers":    triggersMigrations.FS,
+	"kora-agents":       agentsMigrations.FS,
+	"kora-triggers":     triggersMigrations.FS,
 	"policy-service":    policyMigrations.FS,
 	"tool-gateway":      toolGatewayMigrations.FS,
 }

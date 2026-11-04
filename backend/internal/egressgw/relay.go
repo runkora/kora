@@ -2,19 +2,21 @@ package egressgw
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // relayDialTimeout bounds the upstream TCP connect on the raw-relay path.
@@ -30,13 +32,15 @@ const relayIdleTimeout = 10 * time.Minute
 // tunnel to the upstream and shuttles bytes both ways, with no TLS termination,
 // no HTTP parsing and no credential injection. Open and close are audit-logged.
 func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, claims *token.PlatformClaims, host, port string) {
-	ctx, span := tracer.Start(ctx, "egress.relay "+host,
+	// parseConnectAuthority has already checked port is numeric.
+	portNum, _ := strconv.Atoi(port)
+	ctx, span := tracer.Start(ctx, "egressgw.ConnectHandler.serveRelay",
 		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithLinks(h.traces.Links(ctx, observability.RunFromContext(ctx))...),
 		trace.WithAttributes(
-			attribute.String("server.address", host),
-			attribute.String("server.port", port),
-			attribute.String("orbit.tenant_id", claims.Orbit.TenantID),
-			attribute.String("orbit.principal_id", claims.Subject),
+			semconv.ServerAddressKey.String(host),
+			semconv.ServerPortKey.Int(portNum),
+			observability.PrincipalIDKey.String(claims.Subject),
 		))
 	defer span.End()
 
@@ -44,19 +48,20 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 
 	// Dial the upstream BEFORE hijack so a failure surfaces as a clean HTTP
 	// error to the tool rather than a silently-closed tunnel.
-	dialer := &net.Dialer{Timeout: relayDialTimeout}
+	dialer := &net.Dialer{Timeout: relayDialTimeout, Control: RefuseLocalTarget}
 	upstream, dialErr := dialer.DialContext(ctx, "tcp", target)
 	if dialErr != nil {
-		span.RecordError(dialErr)
-		span.SetStatus(codes.Error, errRelayDial.Error())
+		observability.RecordFailure(span, dialErr, errRelayDial)
 		h.logger.Warn(ctx, "egress relay upstream dial failed",
 			logging.Field{Key: "host", Value: host},
 			logging.Field{Key: "port", Value: port},
 			logging.Field{Key: "error", Value: dialErr.Error()},
 		)
-		platformapi.ErrorResponse(ctx, w, h.logger,
-			platformapi.InternalError(platformapi.ErrCodeInternalError, "upstream unreachable", nil),
-			dialErr)
+		apiErr := platformapi.InternalError(platformapi.ErrCodeInternalError, "upstream unreachable", nil)
+		if errors.Is(dialErr, ErrLocalTarget) {
+			apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, "egress target not allowed", nil)
+		}
+		platformapi.ErrorResponse(ctx, w, h.logger, apiErr, dialErr)
 		return
 	}
 	defer func() { _ = upstream.Close() }()
@@ -86,7 +91,7 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 		logging.Field{Key: "host", Value: host},
 		logging.Field{Key: "port", Value: port},
 		logging.Field{Key: "principal_id", Value: claims.Subject},
-		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
 	)
 
 	// Forward any bytes the tool pipelined after CONNECT. Clients normally wait
@@ -104,14 +109,14 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 	sent, recv := relayTCP(clientConn, upstream, relayIdleTimeout)
 
 	span.SetAttributes(
-		attribute.Int64("orbit.relay.bytes_sent", sent),
-		attribute.Int64("orbit.relay.bytes_received", recv),
+		observability.RelayBytesSentKey.Int64(sent),
+		observability.RelayBytesReceivedKey.Int64(recv),
 	)
 	h.logger.Info(ctx, "egress relay closed",
 		logging.Field{Key: "host", Value: host},
 		logging.Field{Key: "port", Value: port},
 		logging.Field{Key: "principal_id", Value: claims.Subject},
-		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
 		logging.Field{Key: "bytes_sent", Value: sent},
 		logging.Field{Key: "bytes_recv", Value: recv},
 		logging.Field{Key: "duration_ms", Value: time.Since(start).Milliseconds()},

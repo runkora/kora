@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // deleteGrantsBestEffort deletes policy grants, tolerating grants that are

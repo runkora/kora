@@ -36,7 +36,7 @@ const GITHUB_CATALOG: TemplateCatalogEntry[] = [
   {
     token: 'repo.full_name',
     description: 'Owner and repository name',
-    example: 'orbital/orbit',
+    example: 'runkora/kora',
     group: 'Repository',
   },
   {

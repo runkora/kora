@@ -1,0 +1,244 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.23.0
+  name: mcpservers.runkora.io
+spec:
+  group: runkora.io
+  names:
+    kind: MCPServer
+    listKind: MCPServerList
+    plural: mcpservers
+    shortNames:
+    - kmcp
+    singular: mcpserver
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.endpoint
+      name: Endpoint
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          MCPServer declares one MCP server kora governs. Apply it in kora-system for a
+          platform-global server or in a tenant namespace for a tenant's own server.
+          The operator aggregates every MCPServer into the kora-mcp-servers ConfigMap
+          the tool-gateway mounts. The gateway introspects each server's tools and
+          registers them as mcp:<server>:<tool>:use scopes. The CR name
+          (metadata.name) is the stable server slug used in the scope path.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: MCPServerSpec is the declared intent for one MCP server.
+            properties:
+              auth:
+                description: |-
+                  Auth declares static credentials the tool-gateway sends to the server.
+                  See docs/adr/2026-10-22-mcp-server-static-credentials.md.
+                properties:
+                  headers:
+                    description: Headers are the request headers, each set to the
+                      prefix followed by a Secret value.
+                    items:
+                      description: MCPServerAuthHeader is one header set to Prefix
+                        followed by a Secret value.
+                      properties:
+                        name:
+                          description: Name is the header name, e.g. Authorization
+                            or x-api-key. Letters, digits and hyphens only.
+                          maxLength: 64
+                          pattern: ^[A-Za-z0-9-]+$
+                          type: string
+                        prefix:
+                          description: Prefix is sent before the value, e.g. "Bearer
+                            ".
+                          maxLength: 256
+                          type: string
+                        secretRef:
+                          description: SecretRef is the Secret and key holding the
+                            value, in the CR's namespace.
+                          properties:
+                            key:
+                              maxLength: 253
+                              pattern: ^[-._a-zA-Z0-9]+$
+                              type: string
+                            name:
+                              maxLength: 253
+                              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                      required:
+                      - name
+                      - secretRef
+                      type: object
+                    maxItems: 8
+                    minItems: 1
+                    type: array
+                required:
+                - headers
+                type: object
+              callerIdentity:
+                description: |-
+                  CallerIdentity controls whether the gateway conveys the CALLER's identity
+                  to this upstream. Default "none". "forward" is ENFORCED GLOBAL-ONLY: a
+                  tenant-namespaced CR that sets it is rejected at reconcile (Invalid).
+                enum:
+                - none
+                - forward
+                type: string
+              description:
+                description: |-
+                  Description is a one-line summary of what the server does, shown in the
+                  catalog UI.
+                type: string
+              displayName:
+                description: DisplayName for the catalog UI.
+                type: string
+              endpoint:
+                description: Endpoint is the URL of the MCP server (Streamable HTTP).
+                minLength: 1
+                type: string
+              reintrospectIntervalSeconds:
+                description: |-
+                  ReintrospectIntervalSeconds is read by the gateway's introspection worker
+                  to re-sync the tool surface on a timer (besides on registry reload).
+                  0 = on-reload only.
+                minimum: 0
+                type: integer
+              transport:
+                description: |-
+                  Transport selects the MCP transport. MVP: "streamable-http" (the default
+                  when empty).
+                enum:
+                - streamable-http
+                type: string
+              workload:
+                description: |-
+                  Workload names the pods in this CR's namespace that serve Endpoint. It
+                  classifies them as MCP workloads: the pod webhook skips the identity-proxy
+                  and OPA injection an agent pod requires, and the operator generates the
+                  policies that let the tool-gateway reach them.
+
+                  Omit it for a global server or one reached at an external URL; neither has
+                  pods in this namespace to classify.
+                  See docs/adr/2026-09-17-mcp-workload-class.md.
+                properties:
+                  selector:
+                    additionalProperties:
+                      type: string
+                    description: Selector matches the serving pods by label, in the
+                      CR's own namespace.
+                    type: object
+                type: object
+            required:
+            - endpoint
+            type: object
+          status:
+            description: |-
+              MCPServerStatus is reconciliation state owned by the operator — whether the
+              CR was accepted and aggregated into the registry. Introspection health
+              (reachability, tool count, last sync) is gateway runtime state, surfaced via
+              metrics + the catalog UI, NOT here.
+            properties:
+              conditions:
+                description: Conditions carries the Aggregated condition.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastReconciledAt:
+                description: LastReconciledAt is when the operator last reconciled
+                  this CR.
+                format: date-time
+                type: string
+              phase:
+                description: Phase is one of Pending|Aggregated|Invalid.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

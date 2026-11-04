@@ -15,8 +15,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // OpenCodeRunnerConfig holds settings for the OpenCode ACP subprocess.
@@ -24,32 +25,35 @@ type OpenCodeRunnerConfig struct {
 	// BinaryPath is the path to the opencode binary. Defaults to "opencode".
 	BinaryPath string
 
-	// WrapperPath is the path to orbit-session-runner. When set, opencode is
+	// WrapperPath is the path to kora-session-runner. When set, opencode is
 	// invoked as: WrapperPath <workDir> <BinaryPath> [args...] so Landlock is
 	// applied first. Empty invokes opencode directly, with no filesystem
 	// restriction (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 	WrapperPath string
 
 	// ShellPath is written into the OpenCode config as the "shell" key, so tool
-	// commands run through orbit-shell in the run's sandbox rather than in this
+	// commands run through kora-shell in the run's sandbox rather than in this
 	// container. Empty leaves OpenCode on the container's own shell.
 	ShellPath string
 
 	// ExtraEnv is appended to the subprocess environment (WORKSPACE and the
-	// orbit-shell callback variables).
+	// kora-shell callback variables).
 	ExtraEnv []string
 
 	// SystemPrompt, when non-empty, reaches OpenCode as an instructions file
 	// named in the OpenCode config. ACP has no field for it.
 	SystemPrompt string
 
-	// SessionManagerURL is where orbit-runtime-mcp calls back to provision a
+	// SessionManagerURL is where kora-runtime-mcp calls back to provision a
 	// sandbox. Always http://localhost:{port}, since it runs in this pod.
 	SessionManagerURL string
 
 	// ToolGatewayURL is the in-mesh base URL of the MCP tool-gateway. Empty
 	// disables the governed entries.
 	ToolGatewayURL string
+
+	// Brand names the product as the provider OpenCode shows the agent.
+	Brand brand.Brand
 
 	// MCPServers are the governed MCP servers this agent holds tool grants on,
 	// one remote entry each.
@@ -182,7 +186,7 @@ func (r *OpenCodeRunner) Start(ctx context.Context, workDir string) error {
 	initResult, err := r.sendRPCRequest(ctx, "initialize", map[string]any{
 		"protocolVersion":    1,
 		"clientCapabilities": map[string]any{},
-		"clientInfo":         map[string]string{"name": "orbit-session-manager", "version": "1.0"},
+		"clientInfo":         map[string]string{"name": "kora-session-manager", "version": "1.0"},
 	})
 	if err != nil {
 		cleanupProc()
@@ -368,6 +372,10 @@ var openCodeOfflineEnv = []string{
 	"OPENCODE_DISABLE_LSP_DOWNLOAD=1",
 }
 
+// openCodeWorkspaceEnv stops OpenCode loading config, plugins and tools from the
+// workspace. Their commands and code would run in the agent pod.
+var openCodeWorkspaceEnv = []string{"OPENCODE_DISABLE_PROJECT_CONFIG=1"}
+
 // prepare validates the config, writes the run's OpenCode files and returns the
 // subprocess environment.
 func (r *OpenCodeRunner) prepare(workDir string) ([]string, error) {
@@ -382,36 +390,43 @@ func (r *OpenCodeRunner) prepare(workDir string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build config: %w", err)
 	}
-	if err = lockOpenCodeGlobalConfig(workDir); err != nil {
+	if _, err = runHomeDirs(workDir); err != nil {
 		return nil, err
 	}
-	homeEnv, err := runHomeDirs(workDir)
+	homeEnv, err := openCodeHomeEnv(workDir)
 	if err != nil {
 		return nil, err
 	}
-	// The platform's values last, so ExtraEnv cannot override them. HOME and
-	// TMPDIR keep the agent on the only directory Landlock makes writable.
-	env := append(append([]string{}, r.cfg.ExtraEnv...), openCodeOfflineEnv...)
+	// The platform's values last, so ExtraEnv cannot override them.
+	env := append(append(append([]string{}, r.cfg.ExtraEnv...), openCodeOfflineEnv...), openCodeWorkspaceEnv...)
 	env = append(env, "OPENCODE_CONFIG_CONTENT="+string(config))
 	return withRunEnv(os.Environ(), append(env, homeEnv...)), nil
 }
 
-// lockOpenCodeGlobalConfig makes OpenCode's global config directory read-only.
-// At start OpenCode installs @opencode-ai/plugin from npm into every config
-// directory it can write, and skips one it cannot.
-func lockOpenCodeGlobalConfig(workDir string) error {
-	dir := filepath.Join(runfs.HomeDir(workDir), ".config", "opencode")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create global config dir: %w", err)
+// openCodeHomeEnv puts OpenCode's HOME and config home in the run's config dir.
+// OpenCode loads config, plugins and custom tools from both and runs their code.
+// The agent can only read that dir and its sandbox does not mount it. Data, state,
+// cache and TMPDIR stay in the run's writable dirs.
+func openCodeHomeEnv(workDir string) ([]string, error) {
+	configDir := runfs.ConfigDir(workDir)
+	// OpenCode creates its global config dir at start and exits when it cannot.
+	if err := os.MkdirAll(filepath.Join(configDir, "opencode"), 0o700); err != nil {
+		return nil, fmt.Errorf("create opencode config home: %w", err)
 	}
-	if err := os.Chmod(dir, 0o500); err != nil {
-		return fmt.Errorf("lock global config dir: %w", err)
-	}
-	return nil
+	home := runfs.HomeDir(workDir)
+	return []string{
+		"HOME=" + configDir,
+		"XDG_CONFIG_HOME=" + configDir,
+		"XDG_DATA_HOME=" + filepath.Join(home, ".local", "share"),
+		"XDG_STATE_HOME=" + filepath.Join(home, ".local", "state"),
+		"XDG_CACHE_HOME=" + filepath.Join(home, ".cache"),
+		"TMPDIR=" + runfs.TmpDir(workDir),
+	}, nil
 }
 
 // openCodeProvider is the only provider OpenCode may load: the inference gateway.
-const openCodeProvider = "orbit"
+// It is the provider's table key and the model id prefix, not the product name.
+const openCodeProvider = "kora"
 
 // openCodeConfig is the run's OpenCode config. The agent type's model is the
 // only model on offer, served by the inference gateway, and every other provider
@@ -427,13 +442,13 @@ func (r *OpenCodeRunner) openCodeConfig(workDir string) ([]byte, error) {
 		"small_model":       model,
 		"provider": map[string]any{
 			openCodeProvider: map[string]any{
-				"name": "kora",
+				"name": r.cfg.Brand.ProductName(),
 				// Chat completions serves every gateway model; /messages serves only Anthropic's.
 				"npm": "@ai-sdk/openai-compatible",
 				"options": map[string]string{
 					"baseURL": fmt.Sprintf("%s/run/%s/v1", gatewayURL, r.cfg.RunID),
 					// Placeholder: the identity-proxy sidecar replaces the Authorization header.
-					"apiKey": "orbit-managed",
+					"apiKey": "kora-managed",
 				},
 				"models": map[string]any{r.cfg.Model: map[string]any{}},
 			},
@@ -444,6 +459,9 @@ func (r *OpenCodeRunner) openCodeConfig(workDir string) ([]byte, error) {
 		"permission": map[string]string{"webfetch": "deny", "websearch": "deny"},
 		"mcp":        r.mcpConfig(),
 	}
+	// Project config is off, which also drops the workspace AGENTS.md. Read as
+	// instructions it is text only. A missing file is skipped.
+	instructions := []string{filepath.Join(workDir, "AGENTS.md")}
 	if r.cfg.SystemPrompt != "" {
 		// In the run's config dir, which the agent can read but not change.
 		path := filepath.Join(runfs.ConfigDir(workDir), "instructions.md")
@@ -453,10 +471,11 @@ func (r *OpenCodeRunner) openCodeConfig(workDir string) ([]byte, error) {
 		if err := os.WriteFile(path, []byte(r.cfg.SystemPrompt), 0o600); err != nil {
 			return nil, err
 		}
-		cfg["instructions"] = []string{path}
+		instructions = append([]string{path}, instructions...)
 	}
+	cfg["instructions"] = instructions
 	// "shell" is the binary OpenCode's shell tool runs commands with. Pointing it
-	// at orbit-shell routes them to the run's sandbox.
+	// at kora-shell routes them to the run's sandbox.
 	if r.cfg.ShellPath != "" {
 		cfg["shell"] = r.cfg.ShellPath
 	}
@@ -473,11 +492,11 @@ func (r *OpenCodeRunner) mcpConfig() map[string]any {
 	mcp := map[string]any{
 		"runtime": map[string]any{
 			"type":    "local",
-			"command": []string{"orbit-runtime-mcp"},
+			"command": []string{"kora-runtime-mcp"},
 			"enabled": true,
 			"environment": map[string]string{
-				"ORBIT_SESSION_MANAGER_URL": r.cfg.SessionManagerURL,
-				"ORBIT_RUN_ID":              r.cfg.RunID,
+				"KORA_SESSION_MANAGER_URL": r.cfg.SessionManagerURL,
+				"KORA_RUN_ID":              r.cfg.RunID,
 			},
 		},
 	}

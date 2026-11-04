@@ -195,5 +195,5 @@ jobs:
         with:
           files: ./backend/coverage.out
           flags: unittests
-          name: codecov-orbit
+          name: codecov-kora
           fail_ci_if_error: false

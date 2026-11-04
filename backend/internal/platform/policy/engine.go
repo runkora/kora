@@ -3,6 +3,7 @@ package policy
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,22 +13,27 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/open-policy-agent/opa/v1/bundle"
 	"github.com/open-policy-agent/opa/v1/rego"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ErrBundleUnexpectedStatus is returned when the bundle endpoint responds
 // with a non-200 status code.
 var ErrBundleUnexpectedStatus = errors.New("bundle endpoint returned unexpected status")
 
-const decisionQuery = "x := {\"allow\": data.orbit.authz.allow, \"reason\": data.orbit.authz.reason}"
-const scopesQuery = "x := data.orbit.authz.principal_all_scopes"
-const grantDetailQuery = "x := data.orbit.authz.principal_grant_detail"
-const roleDetailQuery = "x := data.orbit.authz.principal_role_detail"
-const budgetQuery = "x := {\"allow\": data.orbit.budget.budget_allow, \"spend_limit_reached\": data.orbit.budget.spend_limit_reached, \"has_limit\": data.orbit.budget.has_limit, \"ceilings\": data.orbit.budget.ceilings}"
+// errBundleRefresh is the static span status for a periodic refresh that failed.
+var errBundleRefresh = errors.New("bundle refresh failed")
+
+const loadBundleSpan = "policy.engine.refresh"
+
+const decisionQuery = "x := {\"allow\": data.kora.authz.allow, \"reason\": data.kora.authz.reason}"
+const scopesQuery = "x := data.kora.authz.principal_all_scopes"
+const grantDetailQuery = "x := data.kora.authz.principal_grant_detail"
+const roleDetailQuery = "x := data.kora.authz.principal_role_detail"
+const budgetQuery = "x := {\"allow\": data.kora.budget.budget_allow, \"spend_limit_reached\": data.kora.budget.spend_limit_reached, \"has_limit\": data.kora.budget.has_limit, \"ceilings\": data.kora.budget.ceilings}"
 const budgetCategoriesQuery = "x := data.budgets[input.principal_id].categories"
 const roleBudgetsQuery = "x := data.role_budgets.role_budgets"
 const allBudgetsQuery = "x := data.budgets"
@@ -52,6 +58,7 @@ type tenantBundle struct {
 	tenantBudgetQuery rego.PreparedEvalQuery
 	loadedAt          time.Time
 	revision          string
+	digest            [sha256.Size]byte
 }
 
 // engine manages per-tenant OPA bundle loading and policy evaluation.
@@ -67,7 +74,7 @@ type engine struct {
 
 func newEngine(bundleEndpoint string, pollInterval time.Duration, logger logging.Logger) *engine {
 	return &engine{
-		Base:           httpclient.New("orbit.policy-engine-bundle-client", logger, 10*time.Second),
+		Base:           httpclient.New("github.com/runkora/kora/backend/internal/platform/policy", logger, 10*time.Second),
 		bundles:        make(map[string]*tenantBundle),
 		bundleEndpoint: bundleEndpoint,
 		pollInterval:   pollInterval,
@@ -99,27 +106,35 @@ func (e *engine) refreshAll(ctx context.Context) {
 	e.mu.RUnlock()
 
 	for _, tenantID := range tenants {
-		if err := e.loadBundle(ctx, tenantID); err != nil {
-			e.Logger().Error(ctx, "bundle poll failed",
-				logging.Field{Key: "tenant_id", Value: tenantID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
+		e.refresh(ctx, tenantID)
 	}
 }
 
-func (e *engine) loadBundle(ctx context.Context, tenantID string) error {
-	url := e.bundleEndpoint + "/" + tenantID
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return fmt.Errorf("create bundle request: %w", err)
+// refresh records a summary span only for a changed bundle or a failed poll.
+func (e *engine) refresh(ctx context.Context, tenantID string) {
+	start := time.Now()
+	changed, err := e.loadBundle(ctx, tenantID)
+	if !changed && err == nil {
+		return
 	}
+	e.SpanSince(ctx, loadBundleSpan, start, err, errBundleRefresh)
+	if err != nil {
+		e.Logger().Error(ctx, "bundle poll failed",
+			logging.Field{Key: "tenant_id", Value: tenantID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+}
 
-	_, span, resp, err := e.Do(ctx, "policy-engine.Engine.LoadBundle", req)
+// loadBundle fetches and compiles a tenant's bundle. It reports whether the
+// cached bundle changed: an identical bundle is not recompiled.
+func (e *engine) loadBundle(ctx context.Context, tenantID string) (bool, error) {
+	_, span, resp, err := e.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: e.bundleEndpoint, Path: "/{tenant_id}", Params: []string{tenantID},
+	})
 	defer span.End()
 	if err != nil {
-		return fmt.Errorf("fetch bundle for tenant %s: %w", tenantID, err)
+		return false, fmt.Errorf("fetch bundle for tenant %s: %w", tenantID, err)
 	}
 	defer resp.Body.Close()
 
@@ -130,29 +145,36 @@ func (e *engine) loadBundle(ctx context.Context, tenantID string) error {
 		e.Logger().Info(ctx, "bundle evicted for tenant (no grants configured)",
 			logging.Field{Key: "tenant_id", Value: tenantID},
 		)
-		return nil
+		return true, nil
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return e.HandleErrorResponse(span, resp, ErrBundleUnexpectedStatus)
+		return false, e.HandleErrorResponse(span, resp, ErrBundleUnexpectedStatus)
 	}
 
 	bundleBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("read bundle for tenant %s: %w", tenantID, err)
+		return false, fmt.Errorf("read bundle for tenant %s: %w", tenantID, err)
+	}
+
+	e.mu.RLock()
+	cached := e.bundles[tenantID]
+	e.mu.RUnlock()
+	if cached != nil && cached.digest == sha256.Sum256(bundleBytes) {
+		return false, nil
 	}
 
 	revision := resp.Header.Get("ETag")
 
 	if err := e.compileBundle(ctx, tenantID, bundleBytes, revision); err != nil {
-		return fmt.Errorf("compile bundle for tenant %s: %w", tenantID, err)
+		return false, fmt.Errorf("compile bundle for tenant %s: %w", tenantID, err)
 	}
 
 	e.Logger().Info(ctx, "bundle loaded",
 		logging.Field{Key: "tenant_id", Value: tenantID},
 		logging.Field{Key: "revision", Value: revision},
 	)
-	return nil
+	return true, nil
 }
 
 func (e *engine) compileBundle(ctx context.Context, tenantID string, bundleBytes []byte, revision string) error {
@@ -256,6 +278,7 @@ func (e *engine) compileBundle(ctx context.Context, tenantID string, bundleBytes
 		tenantBudgetQuery: tbq,
 		loadedAt:          time.Now().UTC(),
 		revision:          revision,
+		digest:            sha256.Sum256(bundleBytes),
 	}
 	e.mu.Unlock()
 
@@ -300,7 +323,7 @@ func checkDelegationBinding(input CheckInput) string {
 		return ReasonDelegationRunUnbound
 	}
 	// Sandbox mode: the platform token carries the per-run SVID's run_id claim.
-	if tokenRunID := input.Claims.Orbit.Claims["run_id"]; tokenRunID != "" && tokenRunID != d.RunID {
+	if tokenRunID := input.Claims.Kora.Claims["run_id"]; tokenRunID != "" && tokenRunID != d.RunID {
 		return ReasonDelegationRunMismatch
 	}
 	// Path mode: the request asserted a /run/{run_id} prefix.
@@ -318,7 +341,7 @@ func (e *engine) Check(ctx context.Context, input CheckInput) (Result, error) {
 	if reason := checkDelegationBinding(input); reason != "" {
 		return Result{Reason: reason}, nil
 	}
-	tenantID := input.Claims.Orbit.TenantID
+	tenantID := input.Claims.Kora.TenantID
 
 	tb, err := e.bundleForTenant(ctx, tenantID)
 	if err != nil {
@@ -343,7 +366,7 @@ func (e *engine) Query(ctx context.Context, input QueryInput) ([]string, error) 
 	if input.Claims == nil {
 		return nil, nil
 	}
-	tenantID := input.Claims.Orbit.TenantID
+	tenantID := input.Claims.Kora.TenantID
 
 	tb, err := e.bundleForTenant(ctx, tenantID)
 	if err != nil {
@@ -396,7 +419,7 @@ func (e *engine) Scopes(ctx context.Context, input ScopesInput) ([]string, error
 	if input.Claims == nil {
 		return nil, nil
 	}
-	tenantID := input.Claims.Orbit.TenantID
+	tenantID := input.Claims.Kora.TenantID
 
 	tb, err := e.bundleForTenant(ctx, tenantID)
 	if err != nil {
@@ -407,8 +430,8 @@ func (e *engine) Scopes(ctx context.Context, input ScopesInput) ([]string, error
 	}
 
 	opaInput := principalInput{
-		Type:     string(input.Claims.Orbit.PrincipalType),
-		TenantID: input.Claims.Orbit.TenantID,
+		Type:     string(input.Claims.Kora.PrincipalType),
+		TenantID: input.Claims.Kora.TenantID,
 		ID:       principalID(input.Claims),
 		Roles:    extractRoles(input.Claims),
 	}
@@ -428,7 +451,7 @@ func (e *engine) ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesE
 	if input.Claims == nil {
 		return &ScopesExplainResult{}, nil
 	}
-	tenantID := input.Claims.Orbit.TenantID
+	tenantID := input.Claims.Kora.TenantID
 
 	tb, err := e.bundleForTenant(ctx, tenantID)
 	if err != nil {
@@ -440,8 +463,8 @@ func (e *engine) ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesE
 
 	opaInput := map[string]any{
 		"principal": principalInput{
-			Type:     string(input.Claims.Orbit.PrincipalType),
-			TenantID: input.Claims.Orbit.TenantID,
+			Type:     string(input.Claims.Kora.PrincipalType),
+			TenantID: input.Claims.Kora.TenantID,
 			ID:       principalID(input.Claims),
 			Roles:    extractRoles(input.Claims),
 		},
@@ -478,7 +501,7 @@ func (e *engine) ScopesExplain(ctx context.Context, input ScopesInput) (*ScopesE
 	}, nil
 }
 
-// buildBudgetCheckInput assembles the OPA input for the orbit.budget module,
+// buildBudgetCheckInput assembles the OPA input for the kora.budget module,
 // normalising nil maps to empty ones so rego sees JSON objects, never null.
 // The delegation block is attached only when a verified delegation is present
 // (delegated-agent-identity ADR, Decision 5).
@@ -516,7 +539,7 @@ func buildBudgetCheckInput(tenantID string, req BudgetCheckRequest) BudgetCheckI
 	return input
 }
 
-// CheckBudget evaluates the orbit.budget hierarchical ceiling rules.
+// CheckBudget evaluates the kora.budget hierarchical ceiling rules.
 // Implements Evaluator. Fails open (allow=true, hasLimit=false) when the
 // tenant bundle is unavailable or evaluation fails.
 func (e *engine) CheckBudget(ctx context.Context, tenantID string, req BudgetCheckRequest) (BudgetResult, error) {
@@ -884,7 +907,7 @@ func (e *engine) bundleForTenant(ctx context.Context, tenantID string) (*tenantB
 	}
 
 	// Lazy load on first request for this tenant.
-	if err := e.loadBundle(ctx, tenantID); err != nil {
+	if _, err := e.loadBundle(ctx, tenantID); err != nil {
 		return nil, fmt.Errorf("no bundle loaded for tenant %s: %w", tenantID, err)
 	}
 	e.mu.RLock()
@@ -949,8 +972,8 @@ func buildOPAInput(
 
 	input := opaInput{
 		Principal: principalInput{
-			Type:     string(claims.Orbit.PrincipalType),
-			TenantID: claims.Orbit.TenantID,
+			Type:     string(claims.Kora.PrincipalType),
+			TenantID: claims.Kora.TenantID,
 			ID:       principalID(claims),
 			Roles:    extractRoles(claims),
 		},
@@ -980,17 +1003,17 @@ func buildOPAInput(
 // For PAT principals, sub holds the issuing user's OIDC subject for attribution;
 // the grant is keyed on the PAT UUID stored in PatID instead.
 func principalID(claims *token.PlatformClaims) string {
-	if claims.Orbit.PrincipalType == token.PrincipalTypePAT && claims.Orbit.PatID != "" {
-		return claims.Orbit.PatID
+	if claims.Kora.PrincipalType == token.PrincipalTypePAT && claims.Kora.PatID != "" {
+		return claims.Kora.PatID
 	}
 	return claims.Subject
 }
 
 func extractRoles(claims *token.PlatformClaims) []string {
-	if claims.Orbit.Claims == nil {
+	if claims.Kora.Claims == nil {
 		return []string{}
 	}
-	raw, ok := claims.Orbit.Claims["roles"]
+	raw, ok := claims.Kora.Claims["roles"]
 	if !ok || raw == "" {
 		return []string{}
 	}

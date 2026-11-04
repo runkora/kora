@@ -6,7 +6,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // silentLogger returns a logger that discards output, so tests stay quiet.

@@ -27,9 +27,9 @@ import (
 	"path"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	platformconns "github.com/clear-route/orbit/internal/platform/connections"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/credentials"
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Action constants returned by Classify. Sourced from the shared
@@ -86,6 +86,9 @@ var resourceCategories = map[string]string{
 	// VerticalPodAutoscalers are deliberately absent: they are a CRD
 	// (autoscaling.k8s.io), and this map covers built-in resources only.
 	"horizontalpodautoscalers": "workloads",
+	// ControllerRevisions hold the rollout history of DaemonSets and
+	// StatefulSets, which kubectl rollout history reads.
+	"controllerrevisions": "workloads",
 
 	// config
 	"configmaps": "config",

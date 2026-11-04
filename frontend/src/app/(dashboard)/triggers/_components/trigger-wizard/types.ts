@@ -9,19 +9,31 @@
  */
 
 import type * as React from 'react';
-import type { IconName } from '@orbit/hades';
-import type { TriggerKind, TriggerOverflow } from '@orbit/shared/api';
+import type { IconName } from '@runkora/hades';
+import type {
+  TriggerKind,
+  TriggerOverflow,
+  TriggerRoutingConfidence,
+  TriggerTargetKind,
+} from '@runkora/shared/api';
 import type { Frequency } from './cron';
 import type { FilterRow } from '../filter-rows-editor';
 import type { SenderRestrictionDraft } from '../sender-restriction-editor';
-import type { Senders } from '../../_types';
+import type { GenericSourceDraft } from '../../_lib/generic-source';
+import type {
+  ConsoleKind,
+  Senders,
+  SourceCategory,
+  TriggerCoalesce,
+  TriggerRoutingRow,
+} from '../../_types';
 
-export type { TriggerKind, TriggerOverflow };
+export type { ConsoleKind, TriggerKind, TriggerOverflow };
 
 /** Field types a manual trigger may declare. Mirrors `InputFieldType`. */
 export type WizardFieldType = 'text' | 'number' | 'choice' | 'boolean';
 
-/** Sentinel for the "New source" option in the webhook source picker. */
+/** Sentinel for the "New source" option in the webhook and chat source pickers. */
 export const NEW_SOURCE = '__new__';
 
 export interface TriggerWizardAgent {
@@ -34,20 +46,83 @@ export interface TriggerWizardAgent {
    * than hiding them, so the list matches the agents page.
    */
   identityMode?: 'autonomous' | 'delegated';
+  /** False when the caller may not run the agent, which binding a trigger needs. Absent reads as allowed. */
+  canRun?: boolean;
+}
+
+/**
+ * An agent as the routing step lists it. The description is what kora routes
+ * on; `reason` says why an agent that is not runnable cannot be a candidate.
+ */
+export interface RoutingAgent extends TriggerWizardAgent {
+  description: string;
+  runnable: boolean;
+  reason?: string;
+}
+
+/** A model the decision model picker offers. */
+export interface DecisionModel {
+  id: string;
+  name: string;
+}
+
+/** A list the wizard loads while it is open. */
+export type LoadedList<T> =
+  { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; items: T[] };
+
+/** What "Let kora choose" needs: the candidate agents and the decision models. */
+export interface RoutingOptions {
+  candidates: LoadedList<RoutingAgent>;
+  models: LoadedList<DecisionModel>;
+}
+
+/** Route every delivery to one agent, or let kora choose the agent per delivery. */
+export type RoutingMode = 'one' | 'choose';
+
+/** What happens to a delivery kora is unsure about. */
+export type UnsureAction = 'fallback' | 'none';
+
+/** The routing settings as the Target step edits them. */
+export interface RoutingDraft {
+  mode: RoutingMode;
+  candidateIds: string[];
+  modelId: string;
+  confidence: TriggerRoutingConfidence;
+  unsure: UnsureAction;
+  fallbackId: string;
+  joinOpenRuns: boolean;
+  /** Template rendered per delivery; a match joins that open run with no model call. */
+  joinKey: string;
 }
 
 export interface TriggerWizardSource {
   id: string;
   name: string;
   provider: string;
+  /** Read from the API; a kind lists only the sources of its own category. */
+  category: SourceCategory;
+  /** False for a source still waiting for the signing secret its provider issues. */
+  signingSecretSet?: boolean;
+  /** The provider's settings for this source; only a generic source has any. */
+  config?: Record<string, unknown>;
 }
 
 /** What the parent needs in order to create the source and the trigger. */
 export interface TriggerDraft {
+  /** The stored kind: a chat command trigger is a `webhook` trigger on a chat source. */
   kind: TriggerKind;
   name: string;
   promptTemplate: string;
-  source?: { existingId: string } | { newName: string; provider: string };
+  source?:
+    | { existingId: string }
+    | {
+        newName: string;
+        provider: string;
+        /** A generic source's verification and event type settings. */
+        config?: Record<string, unknown>;
+        /** A secret the sender issued; omitted to have the platform generate one. */
+        signingSecret?: string;
+      };
   /** Webhook only. */
   eventType?: string;
   /**
@@ -60,6 +135,8 @@ export interface TriggerDraft {
   matchContains?: Record<string, string[]>;
   /** Webhook only. Omitted when anyone may fire the trigger. */
   senderRestriction?: Senders;
+  /** Webhook only. Omitted unless both fields are set and overflow is `wait`. */
+  coalesce?: TriggerCoalesce;
   schedule?: { cronExpression: string; timezone: string; catchUp: boolean };
   manualInputs?: {
     name: string;
@@ -68,7 +145,11 @@ export interface TriggerDraft {
     required: boolean;
     choices?: string[];
   }[];
+  /** "routed" sends `routing` and leaves `agentTypeId` empty. */
+  targetKind: TriggerTargetKind;
   agentTypeId: string;
+  /** Set when `targetKind` is "routed". */
+  routing?: TriggerRoutingRow;
   maxParallel: number;
   overflow: TriggerOverflow;
   maxQueueDepth: number;
@@ -80,18 +161,36 @@ export interface TriggerDraft {
 /** What the parent reports back once creation has been attempted. */
 export type TriggerCreateResult =
   | { ok: true; triggerId: string; endpoint?: string; secret?: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; createdSource?: CreatedSource };
+
+/**
+ * A source created by an attempt whose trigger then failed. The retry reuses
+ * it, and the secret is shown once the trigger exists.
+ */
+export interface CreatedSource {
+  id: string;
+  name: string;
+  provider: string;
+  secret?: string;
+}
 
 export interface TriggerWizardProps {
   /**
    * Opens straight into this kind's steps. Omit to open on the kind picker,
    * which is the first phase of the same modal.
    */
-  initialKind?: TriggerKind;
+  initialKind?: ConsoleKind;
   agents: TriggerWizardAgent[];
+  /** Why the agents could not be read; the target step says so instead of offering none. */
+  agentsError?: string | null;
   sources: TriggerWizardSource[];
-  /** Public base for webhook endpoints, e.g. "api.orbit.local.clearroute.io:8443". */
+  /** Public base for webhook endpoints, e.g. "api.local.runkora.io:8443". */
   ingestHost: string;
+  /**
+   * Offers "Let kora choose" on a webhook trigger's Target step. Off on a
+   * surface that creates triggers for one agent.
+   */
+  allowRouting?: boolean;
   /**
    * Executes creation. The parent creates the source first when requested and
    * then the trigger; resolves with what the done screen needs.
@@ -119,7 +218,26 @@ export interface WizardState {
   sourceChoice: string;
   newSourceName: string;
   newSourceProvider: string;
+  /** The signing secret typed for the created source, until it is saved. */
+  newSourceSecret: string;
+  /**
+   * The new source once the source step has created it. A provider that
+   * issues its own secret, e.g. Slack, creates the source before the secret
+   * exists so its request URL can be set in the provider's app.
+   */
+  newSourceCreated: { id: string; name: string; provider: string } | null;
+  /** Whether the created source holds its signing secret. */
+  newSourceSecretSaved: boolean;
+  /** A new generic source's verification and event type settings. */
+  newSourceGeneric: GenericSourceDraft;
   eventType: string;
+  /**
+   * The chosen event's field paths, for a kind that checks placeholders
+   * before create. Null until they load, and for every other kind.
+   */
+  eventFields: string[] | null;
+  /** Whether the chosen event's field paths failed to load. */
+  eventFieldsFailed: boolean;
   /** Match-condition rows. Empty means every delivery of the event qualifies. */
   filters: FilterRow[];
   senders: SenderRestrictionDraft;
@@ -141,6 +259,7 @@ export interface WizardState {
 
   // ── Target ──
   agentTypeId: string;
+  routing: RoutingDraft;
   maxParallel: number;
   overflow: TriggerOverflow;
   maxQueueDepth: number;
@@ -149,13 +268,23 @@ export interface WizardState {
   timeoutSeconds: number;
   dedupeEnabled: boolean;
   autopauseEnabled: boolean;
+
+  // ── Coalescing (webhook, overflow `wait`) ──
+  coalesceEnabled: boolean;
+  /** Key template, raw while typed. */
+  coalesceKey: string;
+  /** Window in seconds, raw while typed. */
+  coalesceWindow: string;
 }
 
 /** The tenant-scoped data a step needs but does not own. */
 export interface WizardContext {
   agents: TriggerWizardAgent[];
+  agentsError?: string | null;
   sources: TriggerWizardSource[];
   ingestHost: string;
+  /** Present when the Target step offers "Let kora choose". */
+  routing?: RoutingOptions;
 }
 
 /** Whether a step is complete enough to move on, and what is missing if not. */
@@ -180,13 +309,23 @@ export interface StepComponentProps {
   onGoTo?: (stepId: string) => void;
 }
 
+/**
+ * Copy that may name the product: a string, or a function of the product name.
+ * The registry is module-level, so the rendering component supplies the name.
+ */
+export type BrandedCopy = string | ((productName: string) => string);
+
+export function brandedCopy(copy: BrandedCopy, productName: string): string {
+  return typeof copy === 'function' ? copy(productName) : copy;
+}
+
 /** One step in the wizard: a rail entry and the pane it shows. */
 export interface KindStep {
   id: string;
   railTitle: string;
   railSub: string;
   /** The sentence under the step heading. */
-  description: string;
+  description: BrandedCopy;
   Component: React.ComponentType<StepComponentProps>;
   validate: (state: WizardState, context: WizardContext) => StepValidation;
 }
@@ -226,10 +365,18 @@ export interface FieldCatalogEntry {
  * wizard reads only this; it never branches on `id`.
  */
 export interface TriggerKindDefinition {
-  id: TriggerKind;
+  /** The console's id for the kind; `chat` exists only in the console. */
+  id: ConsoleKind;
+  /**
+   * The kind the API stores. Every webhook-only gate tests this, so the chat
+   * command kind gets everything a webhook trigger gets.
+   */
+  apiKind: TriggerKind;
+  /** Set when the kind's triggers listen on sources: only sources of this category are listed. */
+  sourceCategory?: SourceCategory;
   icon: IconName;
   title: string;
-  description: string;
+  description: BrandedCopy;
   /** The mono usage hint under the picker card, e.g. "GitHub · Alertmanager". */
   example: string;
   /** State this kind starts from, merged over the shared defaults. */
@@ -248,6 +395,10 @@ export interface TriggerKindDefinition {
   fieldCatalog?: (state: WizardState, context: WizardContext) => FieldCatalogEntry[];
   /** The kind-specific block on the success screen. */
   doneContent: React.ComponentType<DoneContentProps>;
+  /** An example coalesce or join key for the chosen event, in the kind's own fields. */
+  coalesceKeyExample?: (eventType: string) => string;
+  /** Starts on a new source when no source of the kind's category exists. */
+  newSourceWhenNone?: boolean;
 }
 
 /**
@@ -261,5 +412,5 @@ export interface TriggerKindDefinition {
 export interface PlannedKind {
   icon: IconName;
   title: string;
-  description: string;
+  description: BrandedCopy;
 }

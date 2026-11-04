@@ -16,11 +16,11 @@ import (
 // unless RenderResources is updated to match.
 func TestRenderResources_ParityWithBuilders(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage:    "orbit-session-manager:render",
+		SessionManagerImage:    "kora-session-manager:render",
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
-		SystemNamespace:        "orbit-system",
+		SystemNamespace:        "kora-system",
 	}
 	at := AgentType{ID: "render-coder", Slug: "coder", TenantID: "example"}
 	objs, err := RenderResources(cfg, at, "tenant-example", true)
@@ -58,8 +58,8 @@ func TestRenderResources_ParityWithBuilders(t *testing.T) {
 	if pod.Name != "sandbox-sample-run" {
 		t.Errorf("sandbox Pod.Name: got %q, want %q", pod.Name, "sandbox-sample-run")
 	}
-	if pod.Labels["orbit.io/role"] != "sandbox" {
-		t.Errorf("sandbox Pod missing orbit.io/role=sandbox label: %v", pod.Labels)
+	if pod.Labels["runkora.io/role"] != "sandbox" {
+		t.Errorf("sandbox Pod missing runkora.io/role=sandbox label: %v", pod.Labels)
 	}
 }
 
@@ -67,11 +67,11 @@ func TestRenderResources_ParityWithBuilders(t *testing.T) {
 // flavours and leaves the sandbox identity labels in place.
 func TestRenderResources_AppliesPatches(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage:    "orbit-session-manager:render",
+		SessionManagerImage:    "kora-session-manager:render",
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
-		SystemNamespace:        "orbit-system",
+		SystemNamespace:        "kora-system",
 		Patches: loadTestPatches(t, map[string]string{
 			"10-sts.yaml": `target: {kind: StatefulSet}
 patch: |
@@ -83,7 +83,7 @@ patch: |
       spec:
         nodeSelector: {disktype: ssd}
 `,
-			"20-sandbox.yaml": `target: {kind: Pod, labelSelector: orbit.io/role=sandbox}
+			"20-sandbox.yaml": `target: {kind: Pod, labelSelector: runkora.io/role=sandbox}
 patch: |
   - {op: add, path: /spec/tolerations, value: [{key: dedicated, operator: Exists}]}
 `,
@@ -110,7 +110,7 @@ patch: |
 	if len(pod.Spec.Tolerations) != 1 || pod.Spec.Tolerations[0].Key != "dedicated" {
 		t.Errorf("sandbox Pod tolerations: got %v", pod.Spec.Tolerations)
 	}
-	for k, want := range map[string]string{"orbit.io/role": "sandbox", "orbit.io/run-id": "sample-run", "orbit.io/agent-slug": "coder"} {
+	for k, want := range map[string]string{"runkora.io/role": "sandbox", "runkora.io/run-id": "sample-run", "runkora.io/agent-slug": "coder"} {
 		if pod.Labels[k] != want {
 			t.Errorf("sandbox Pod label %s: got %q, want %q", k, pod.Labels[k], want)
 		}
@@ -122,7 +122,7 @@ patch: |
 // patch under test.
 func splitPoolPatches(workspace string) map[string]string {
 	return map[string]string{
-		"10-agent-placement.yaml": `target: {kind: StatefulSet, labelSelector: orbit.io/agent-type}
+		"10-agent-placement.yaml": `target: {kind: StatefulSet, labelSelector: runkora.io/agent-type}
 patch: |
   apiVersion: apps/v1
   kind: StatefulSet
@@ -130,15 +130,15 @@ patch: |
   spec:
     template:
       spec:
-        nodeSelector: {workload-tier: orbit}
+        nodeSelector: {workload-tier: kora}
 `,
-		"11-sandbox-placement.yaml": `target: {kind: Pod, labelSelector: orbit.io/role=sandbox}
+		"11-sandbox-placement.yaml": `target: {kind: Pod, labelSelector: runkora.io/role=sandbox}
 patch: |
   apiVersion: v1
   kind: Pod
   metadata: {name: any}
   spec:
-    nodeSelector: {workload-tier: orbit-sandbox}
+    nodeSelector: {workload-tier: kora-sandbox}
 `,
 		"20-workspace.yaml": workspace,
 	}
@@ -149,11 +149,11 @@ patch: |
 // error on the first run into a startup failure.
 func TestRenderResources_SplitPoolRejectsReadWriteOnceWorkspace(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage:    "orbit-session-manager:render",
+		SessionManagerImage:    "kora-session-manager:render",
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
-		SystemNamespace:        "orbit-system",
+		SystemNamespace:        "kora-system",
 		Patches: loadTestPatches(t, splitPoolPatches(`target: {kind: PersistentVolumeClaim}
 patch: |
   apiVersion: v1
@@ -176,11 +176,11 @@ patch: |
 
 func TestRenderResources_SplitPoolAcceptsReadWriteManyWorkspace(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage:    "orbit-session-manager:render",
+		SessionManagerImage:    "kora-session-manager:render",
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
-		SystemNamespace:        "orbit-system",
+		SystemNamespace:        "kora-system",
 		Patches: loadTestPatches(t, splitPoolPatches(`target: {kind: PersistentVolumeClaim}
 patch: |
   apiVersion: v1
@@ -202,8 +202,8 @@ patch: |
 	if !ok {
 		t.Fatalf("objs[1] not *appsv1.StatefulSet: %T", objs[1])
 	}
-	if got := ss.Spec.Template.Spec.NodeSelector["workload-tier"]; got != "orbit" {
-		t.Errorf("StatefulSet workload-tier: got %q, want orbit", got)
+	if got := ss.Spec.Template.Spec.NodeSelector["workload-tier"]; got != "kora" {
+		t.Errorf("StatefulSet workload-tier: got %q, want kora", got)
 	}
 	claim := ss.Spec.VolumeClaimTemplates[0]
 	if !slices.Contains(claim.Spec.AccessModes, corev1.ReadWriteMany) {
@@ -214,8 +214,8 @@ patch: |
 	if !ok {
 		t.Fatalf("objs[5] not *corev1.Pod: %T", objs[5])
 	}
-	if got := pod.Spec.NodeSelector["workload-tier"]; got != "orbit-sandbox" {
-		t.Errorf("sandbox Pod workload-tier: got %q, want orbit-sandbox", got)
+	if got := pod.Spec.NodeSelector["workload-tier"]; got != "kora-sandbox" {
+		t.Errorf("sandbox Pod workload-tier: got %q, want kora-sandbox", got)
 	}
 }
 
@@ -233,11 +233,11 @@ func TestRenderResources_SplitByNodeAffinityRejectsReadWriteOnceWorkspace(t *tes
 `
 	}
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage:    "orbit-session-manager:render",
+		SessionManagerImage:    "kora-session-manager:render",
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
-		SystemNamespace:        "orbit-system",
+		SystemNamespace:        "kora-system",
 		Patches: loadTestPatches(t, map[string]string{
 			"10-agent.yaml": `target: {kind: StatefulSet}
 patch: |
@@ -245,13 +245,13 @@ patch: |
   kind: StatefulSet
   metadata: {name: any}
   spec:
-    template:` + strings.ReplaceAll(nodeAffinity("orbit"), "\n  ", "\n      ") + `
+    template:` + strings.ReplaceAll(nodeAffinity("kora"), "\n  ", "\n      ") + `
 `,
-			"11-sandbox.yaml": `target: {kind: Pod, labelSelector: orbit.io/role=sandbox}
+			"11-sandbox.yaml": `target: {kind: Pod, labelSelector: runkora.io/role=sandbox}
 patch: |
   apiVersion: v1
   kind: Pod
-  metadata: {name: any}` + nodeAffinity("orbit-sandbox"),
+  metadata: {name: any}` + nodeAffinity("kora-sandbox"),
 		}),
 	}
 	at := AgentType{ID: "render-coder", Slug: "coder", TenantID: "example"}
@@ -270,13 +270,13 @@ patch: |
 // type at provisioning time.
 func TestCheckSandboxPlacement_CatchesPatchesScopedToOneAgentType(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage:    "orbit-session-manager:render",
+		SessionManagerImage:    "kora-session-manager:render",
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
-		SystemNamespace:        "orbit-system",
+		SystemNamespace:        "kora-system",
 		Patches: loadTestPatches(t, map[string]string{
-			"10-agent.yaml": `target: {kind: StatefulSet, labelSelector: "orbit.io/agent-type=render-coder"}
+			"10-agent.yaml": `target: {kind: StatefulSet, labelSelector: "runkora.io/agent-type=render-coder"}
 patch: |
   apiVersion: apps/v1
   kind: StatefulSet
@@ -284,15 +284,15 @@ patch: |
   spec:
     template:
       spec:
-        nodeSelector: {workload-tier: orbit}
+        nodeSelector: {workload-tier: kora}
 `,
-			"11-sandbox.yaml": `target: {kind: Pod, labelSelector: "orbit.io/agent-slug=coder"}
+			"11-sandbox.yaml": `target: {kind: Pod, labelSelector: "runkora.io/agent-slug=coder"}
 patch: |
   apiVersion: v1
   kind: Pod
   metadata: {name: any}
   spec:
-    nodeSelector: {workload-tier: orbit-sandbox}
+    nodeSelector: {workload-tier: kora-sandbox}
 `,
 		}),
 	}
@@ -318,11 +318,11 @@ patch: |
 // the pods, so a ReadWriteOnce workspace stays valid.
 func TestRenderResources_OneSidedPlacementKeepsReadWriteOnce(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage:    "orbit-session-manager:render",
+		SessionManagerImage:    "kora-session-manager:render",
 		SandboxImage:           "kora-sandbox-base:render",
 		DefaultEnvironmentSize: testSizes.Default,
 		SandboxGRPCPort:        50051,
-		SystemNamespace:        "orbit-system",
+		SystemNamespace:        "kora-system",
 		Patches: loadTestPatches(t, map[string]string{
 			"10-sts.yaml": `target: {kind: StatefulSet}
 patch: |
@@ -332,7 +332,7 @@ patch: |
   spec:
     template:
       spec:
-        nodeSelector: {workload-tier: orbit}
+        nodeSelector: {workload-tier: kora}
 `,
 		}),
 	}

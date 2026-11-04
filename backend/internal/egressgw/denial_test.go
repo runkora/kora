@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 type denialBody struct {
@@ -139,11 +139,11 @@ func TestProxy_DenialBodyPerReason(t *testing.T) {
 // The upstream refusing a credential is not fixable by a grant, so the body
 // points at the upstream permission and carries no credential material.
 func TestHandleBrokerError_CredentialRefused(t *testing.T) {
-	p := &ProxyHandler{logger: logging.NewLoggerWithOutput(io.Discard)}
+	p := &ProxyHandler{brand: testBrand, logger: logging.NewLoggerWithOutput(io.Discard)}
 	cause := errors.New("installation permissions rejected; token ghs_secret")
 	err := deny(DenialCredentialRefused, "api.github.com",
 		&credentials.Connection{Name: "github"},
-		credentials.Classification{Action: "issues:write", Qualifier: "orbit"},
+		credentials.Classification{Action: "issues:write", Qualifier: "kora"},
 		errors.Join(credentials.ErrCredentialScopeRejected, cause))
 
 	rec := httptest.NewRecorder()
@@ -153,7 +153,7 @@ func TestHandleBrokerError_CredentialRefused(t *testing.T) {
 	if body.Details["reason"] != string(DenialCredentialRefused) {
 		t.Errorf("reason = %v, want credential_refused", body.Details["reason"])
 	}
-	for _, want := range []string{"issues:write for orbit", "connection github", "App installation"} {
+	for _, want := range []string{"issues:write for kora", "connection github", "App installation"} {
 		if !strings.Contains(body.Message, want) {
 			t.Errorf("message %q does not contain %q", body.Message, want)
 		}
@@ -175,13 +175,13 @@ func TestDenial_Unwraps(t *testing.T) {
 // A qualified action names its resource and the qualified scope a grant needs.
 func TestDeny_NotGrantedQualified(t *testing.T) {
 	d := deny(DenialNotGranted, "api.github.com", &credentials.Connection{Name: "github"},
-		credentials.Classification{Action: "pulls:read", Qualifier: "orbit"}, nil)
-	if d.RequiredScope != "connection:github:pulls:orbit:read" {
-		t.Errorf("RequiredScope = %q, want connection:github:pulls:orbit:read", d.RequiredScope)
+		credentials.Classification{Action: "pulls:read", Qualifier: "kora"}, nil)
+	if d.RequiredScope != "connection:github:pulls:kora:read" {
+		t.Errorf("RequiredScope = %q, want connection:github:pulls:kora:read", d.RequiredScope)
 	}
-	want := "kora egress policy denied api.github.com: this agent is not granted pulls:read for orbit on connection github. To allow it, grant connection:github:pulls:orbit:read."
-	if d.Message() != want {
-		t.Errorf("Message() = %q, want %q", d.Message(), want)
+	want := "Acme egress policy denied api.github.com: this agent is not granted pulls:read for kora on connection github. To allow it, grant connection:github:pulls:kora:read."
+	if d.Message("Acme") != want {
+		t.Errorf("Message() = %q, want %q", d.Message("Acme"), want)
 	}
 }
 
@@ -189,9 +189,9 @@ func TestDeny_NotGrantedQualified(t *testing.T) {
 // narrowest grant that allows the call.
 func TestDeny_ScopeNamesClassifiedActionNotAlternate(t *testing.T) {
 	d := deny(DenialNotGranted, "api.github.com", &credentials.Connection{Name: "github"},
-		credentials.Classification{Action: "issues:read", Qualifier: "orbit", Alternates: []string{"pulls:read"}}, nil)
-	if d.RequiredScope != "connection:github:issues:orbit:read" {
-		t.Errorf("RequiredScope = %q, want connection:github:issues:orbit:read", d.RequiredScope)
+		credentials.Classification{Action: "issues:read", Qualifier: "kora", Alternates: []string{"pulls:read"}}, nil)
+	if d.RequiredScope != "connection:github:issues:kora:read" {
+		t.Errorf("RequiredScope = %q, want connection:github:issues:kora:read", d.RequiredScope)
 	}
 }
 
@@ -217,8 +217,9 @@ func TestPolicyDenialReason(t *testing.T) {
 	}
 }
 
-// Deny logs carry the method and path so a denial can be diagnosed, but never
-// the query string or headers, which can carry tokens.
+// Deny logs carry the method, path and principal so a denial can be diagnosed
+// and attributed to an agent, but never the query string or headers, which can
+// carry tokens.
 func TestAuthorize_DenyLogsMethodAndPathOnly(t *testing.T) {
 	tests := []struct {
 		name, method, path, wantLog string
@@ -245,7 +246,7 @@ func TestAuthorize_DenyLogsMethodAndPathOnly(t *testing.T) {
 			}
 
 			out := logs.String()
-			for _, want := range []string{tc.wantLog, tc.method, tc.path} {
+			for _, want := range []string{tc.wantLog, tc.method, tc.path, `"principal_id":"agent"`} {
 				if !strings.Contains(out, want) {
 					t.Errorf("deny log missing %q:\n%s", want, out)
 				}
@@ -256,5 +257,48 @@ func TestAuthorize_DenyLogsMethodAndPathOnly(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// refusingAdapter classifies every request and fails Mint with the sentinel the
+// GitHub App adapter returns when the installation lacks the permission.
+type refusingAdapter struct{}
+
+func (refusingAdapter) Type() credentials.AdapterType { return credentials.AdapterGitHubApp }
+func (refusingAdapter) Actions() []credentials.ActionDeclaration {
+	return []credentials.ActionDeclaration{{Action: "repo:read"}}
+}
+func (refusingAdapter) Open(credentials.Connection) (credentials.Connector, error) {
+	return refusingConnector{}, nil
+}
+
+type refusingConnector struct{}
+
+func (refusingConnector) Classify(*http.Request) (credentials.Classification, error) {
+	return credentials.Classification{Action: "repo:read"}, nil
+}
+func (refusingConnector) Mint(context.Context, credentials.CallerIdentity) (credentials.Credential, error) {
+	return credentials.Credential{}, credentials.ErrCredentialScopeRejected
+}
+func (refusingConnector) QualifierCeiling() []string { return nil }
+
+// A credential refusal at mint time is attributed to the agent in the log.
+func TestAuthorize_CredentialRefusedLogsPrincipal(t *testing.T) {
+	f := newFixture(t)
+	registry := NewAdapterRegistry()
+	registry.Register(refusingAdapter{})
+	var logs bytes.Buffer
+	broker := NewBroker(f.eval, f.repo, registry, passthrough.New(), logging.NewLoggerWithOutput(&logs))
+
+	r := httptest.NewRequest(http.MethodGet, "https://"+f.connectionHost+"/anything", nil)
+	_, err := broker.Authorize(context.Background(), claimsFor("acme", "agent", "run-1"), FromHTTP(r))
+	if !errors.Is(err, ErrForbidden) || !errors.Is(err, credentials.ErrCredentialScopeRejected) {
+		t.Fatalf("err = %v, want forbidden credential refusal", err)
+	}
+	out := logs.String()
+	for _, want := range []string{"upstream refused credential scope", `"principal_id":"agent"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log missing %q:\n%s", want, out)
+		}
 	}
 }

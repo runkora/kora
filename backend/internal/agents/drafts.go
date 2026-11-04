@@ -7,13 +7,12 @@ import (
 	"fmt"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
-	"github.com/google/uuid"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ── Agent type drafts ─────────────────────────────────────────────────────────
@@ -104,10 +103,10 @@ func NewDraftService(repo DraftRepository, authz *Authz, cfg DraftServiceConfig,
 // token, never from the request body.
 func callerFromContext(ctx context.Context) (tenantID, createdBy string, err error) {
 	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims.Orbit.TenantID == "" || claims.Subject == "" {
+	if !ok || claims.Kora.TenantID == "" || claims.Subject == "" {
 		return "", "", errNoVerifiedClaims
 	}
-	return claims.Orbit.TenantID, claims.Subject, nil
+	return claims.Kora.TenantID, claims.Subject, nil
 }
 
 // normalizeDraftPayload validates a draft payload: valid JSON, at most
@@ -135,7 +134,7 @@ func (s *DraftService) CreateDraft(ctx context.Context, req CreateDraftRequest) 
 
 	tenantID, createdBy, err := callerFromContext(ctx)
 	if err != nil {
-		span.SetStatus(codes.Error, errNoVerifiedClaims.Error())
+		observability.RecordFailure(span, errNoVerifiedClaims, errNoVerifiedClaims)
 		return nil, err
 	}
 	// Drafting requires create authority for at least one identity mode. The
@@ -159,8 +158,7 @@ func (s *DraftService) CreateDraft(ctx context.Context, req CreateDraftRequest) 
 		UpdatedAt: now,
 	}
 	if err := s.repo.CreateDraft(ctx, draft); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "create draft")
+		observability.RecordFailure(span, err, errSpanCreateDraft)
 		return nil, fmt.Errorf("create draft: %w", err)
 	}
 	return &draft, nil
@@ -190,7 +188,7 @@ func (s *DraftService) ListDrafts(ctx context.Context) ([]AgentTypeDraft, error)
 // caller; anyone else's draft surfaces as ErrDraftNotFound.
 func (s *DraftService) UpdateDraft(ctx context.Context, id string, req UpdateDraftRequest) (*AgentTypeDraft, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.UpdateDraft",
-		trace.WithAttributes(attribute.String("draft_id", id)))
+		trace.WithAttributes(observability.DraftIDKey.String(id)))
 	defer span.End()
 
 	if err := s.authz.checkAnyAgentTypeWrite(ctx); err != nil {
@@ -208,8 +206,7 @@ func (s *DraftService) UpdateDraft(ctx context.Context, id string, req UpdateDra
 		if errors.Is(err, ErrDraftNotFound) {
 			return nil, ErrDraftNotFound
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "update draft")
+		observability.RecordFailure(span, err, errSpanUpdateDraft)
 		return nil, fmt.Errorf("update draft: %w", err)
 	}
 	draft.Payload = payload
@@ -221,7 +218,7 @@ func (s *DraftService) UpdateDraft(ctx context.Context, id string, req UpdateDra
 // else's draft surfaces as ErrDraftNotFound.
 func (s *DraftService) DeleteDraft(ctx context.Context, id string) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.DeleteDraft",
-		trace.WithAttributes(attribute.String("draft_id", id)))
+		trace.WithAttributes(observability.DraftIDKey.String(id)))
 	defer span.End()
 
 	if err := s.authz.checkAnyAgentTypeWrite(ctx); err != nil {
@@ -234,8 +231,7 @@ func (s *DraftService) DeleteDraft(ctx context.Context, id string) error {
 		if errors.Is(err, ErrDraftNotFound) {
 			return ErrDraftNotFound
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "delete draft")
+		observability.RecordFailure(span, err, errSpanDeleteDraft)
 		return fmt.Errorf("delete draft: %w", err)
 	}
 	return nil

@@ -25,7 +25,7 @@ func patch(t *testing.T, file, entryYAML string) Patch {
 func statefulSet() appsv1.StatefulSet {
 	nonRoot := true
 	return appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: "coder", Namespace: "tenant-example", Labels: map[string]string{"app": "coder", "orbit.io/tenant": "example"}},
+		ObjectMeta: metav1.ObjectMeta{Name: "coder", Namespace: "tenant-example", Labels: map[string]string{"app": "coder", "runkora.io/tenant": "example"}},
 		Spec: appsv1.StatefulSetSpec{
 			ServiceName: "coder",
 			Selector:    &metav1.LabelSelector{MatchLabels: map[string]string{"app": "coder"}},
@@ -48,7 +48,7 @@ func statefulSet() appsv1.StatefulSet {
 
 func sandboxPod() corev1.Pod {
 	return corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: "sandbox-r1", Namespace: "tenant-example", Labels: map[string]string{"orbit.io/role": "sandbox", "orbit.io/run-id": "r1"}},
+		ObjectMeta: metav1.ObjectMeta{Name: "sandbox-r1", Namespace: "tenant-example", Labels: map[string]string{"runkora.io/role": "sandbox", "runkora.io/run-id": "r1"}},
 		Spec: corev1.PodSpec{
 			AutomountServiceAccountToken: new(false),
 			EnableServiceLinks:           new(false),
@@ -99,7 +99,7 @@ patch: |
 		},
 		{
 			name: "json6902 with a matching label selector",
-			patches: []string{`target: {kind: StatefulSet, labelSelector: orbit.io/tenant=example}
+			patches: []string{`target: {kind: StatefulSet, labelSelector: runkora.io/tenant=example}
 patch: |
   - op: add
     path: /spec/template/spec/containers/0/resources
@@ -113,7 +113,7 @@ patch: |
 		},
 		{
 			name: "non-matching label selector is a no-op",
-			patches: []string{`target: {kind: StatefulSet, labelSelector: orbit.io/tenant=other}
+			patches: []string{`target: {kind: StatefulSet, labelSelector: runkora.io/tenant=other}
 patch: |
   - {op: add, path: /spec/template/spec/nodeSelector, value: {disktype: ssd}}
 `},
@@ -191,7 +191,7 @@ patch: |
 func TestApply_RejectsProtectedFieldChanges(t *testing.T) {
 	cases := []struct{ name, kind, ops, wantPath string }{
 		{"rename", "StatefulSet", "- {op: replace, path: /metadata/name, value: evil}", "metadata.name"},
-		{"remove all labels", "StatefulSet", "- {op: remove, path: /metadata/labels}", "metadata.labels.orbit.io/tenant"},
+		{"remove all labels", "StatefulSet", "- {op: remove, path: /metadata/labels}", "metadata.labels.runkora.io/tenant"},
 		{"change pod identity label", "StatefulSet", "- {op: replace, path: /spec/template/metadata/labels/spiffe.io~1agent, value: other}", "spec.template.metadata.labels.spiffe.io/agent"},
 		{"change service account", "StatefulSet", "- {op: replace, path: /spec/template/spec/serviceAccountName, value: default}", "spec.template.spec.serviceAccountName"},
 		{"mount the service account token", "StatefulSet", "- {op: replace, path: /spec/template/spec/automountServiceAccountToken, value: true}", "spec.template.spec.automountServiceAccountToken"},
@@ -205,7 +205,7 @@ func TestApply_RejectsProtectedFieldChanges(t *testing.T) {
 		{"add an unscoped workspace mount", "Pod", "- {op: add, path: /spec/containers/0/volumeMounts/-, value: {name: workspaces, mountPath: /all}}", "spec.containers.*.volumeMounts"},
 		{"point at another claim", "Pod", "- {op: replace, path: /spec/volumes/0/persistentVolumeClaim/claimName, value: other}", "spec.volumes.*.persistentVolumeClaim.claimName"},
 		{"init container mounting the workspace", "Pod", "- {op: add, path: /spec/initContainers, value: [{name: x, image: x, volumeMounts: [{name: workspaces, mountPath: /w}]}]}", "spec.initContainers.*.volumeMounts"},
-		{"change run id label", "Pod", "- {op: replace, path: /metadata/labels/orbit.io~1run-id, value: r2}", "metadata.labels.orbit.io/run-id"},
+		{"change run id label", "Pod", "- {op: replace, path: /metadata/labels/runkora.io~1run-id, value: r2}", "metadata.labels.runkora.io/run-id"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -225,7 +225,7 @@ func TestApply_RejectsProtectedFieldChanges(t *testing.T) {
 }
 
 func TestApply_AllowsUnprotectedPodChanges(t *testing.T) {
-	p := patch(t, "40-ok.yaml", `target: {kind: Pod, labelSelector: orbit.io/role=sandbox}
+	p := patch(t, "40-ok.yaml", `target: {kind: Pod, labelSelector: runkora.io/role=sandbox}
 patch: |
   - op: add
     path: /spec/volumes/-

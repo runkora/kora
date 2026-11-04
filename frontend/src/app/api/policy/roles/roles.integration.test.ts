@@ -2,22 +2,22 @@
  * Integration tests for GET /api/policy/roles and PUT /api/policy/roles
  *
  * Strategy:
- * - `@orbit/server/config` is vi.mock'd to set `policyServiceUrl`.
- * - `@orbit/server/session` is vi.mock'd to control session state.
+ * - `@runkora/server/config` is vi.mock'd to set `policyServiceUrl`.
+ * - `@runkora/server/session` is vi.mock'd to control session state.
  * - MSW intercepts calls to `http://test-policy-svc/policy/roles`.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { NextRequest } from 'next/server';
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
-vi.mock('@orbit/server/config', () => ({
+vi.mock('@runkora/server/config', () => ({
   config: { policyServiceUrl: 'http://test-policy-svc' },
 }));
 
-vi.mock('@orbit/server/session', () => ({
+vi.mock('@runkora/server/session', () => ({
   getSession: vi.fn(),
   isSessionValid: vi.fn().mockReturnValue(true),
 }));
@@ -25,7 +25,7 @@ vi.mock('@orbit/server/session', () => ({
 // ── Import under test ─────────────────────────────────────────────────────────
 
 import { GET, PUT } from './route';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -33,7 +33,7 @@ const ROLES_URL = 'http://test-policy-svc/policy/roles';
 
 function makeSession(overrides: Record<string, unknown> = {}) {
   return {
-    user: { sub: 'test-sub', email: 'test@orbit.local', name: 'Test' },
+    user: { sub: 'test-sub', email: 'test@runkora.test', name: 'Test' },
     accessToken: 'test-access-token',
     refreshToken: 'test-refresh',
     expiresAt: Math.floor(Date.now() / 1000) + 3600,

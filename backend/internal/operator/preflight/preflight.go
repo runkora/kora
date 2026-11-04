@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	sigsyaml "sigs.k8s.io/yaml"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Config is the contract to verify against.
@@ -296,28 +296,28 @@ func (r *Runner) clusterSPIFFEIDs(ctx context.Context) Check {
 		}
 		return Check{Name: name, OK: false, Message: err.Error()}
 	}
-	orbitOwned := 0
+	koraOwned := 0
 	for _, item := range list.Items {
 		spec, _ := item.Object["spec"].(map[string]any)
 		className, _ := spec["className"].(string)
-		if item.GetLabels()["app.kubernetes.io/part-of"] == "orbit" {
+		if item.GetLabels()["app.kubernetes.io/part-of"] == "kora" {
 			if className != r.Config.SPIREClassName {
 				return Check{Name: name, OK: false, Message: fmt.Sprintf("kora registration %s uses className %q but spire.className is %q", item.GetName(), className, r.Config.SPIREClassName)}
 			}
 			if failures := statFailures(item.Object); failures != "" {
 				return Check{Name: name, OK: false, Message: fmt.Sprintf("kora registration %s: %s; spire-controller-manager is not reconciling it", item.GetName(), failures)}
 			}
-			orbitOwned++
+			koraOwned++
 			continue
 		}
 		if claimsAllManagedPods(spec) {
 			return Check{Name: name, OK: false, Message: fmt.Sprintf("ClusterSPIFFEID %s selects every spiffe.io/spire-managed-identity pod without fallback; disable the SPIRE chart's default registration or set fallback: true", item.GetName())}
 		}
 	}
-	if orbitOwned == 0 {
-		return Check{Name: name, OK: false, Message: "no kora ClusterSPIFFEIDs found; is the orbit chart installed"}
+	if koraOwned == 0 {
+		return Check{Name: name, OK: false, Message: "no kora ClusterSPIFFEIDs found; is the kora chart installed"}
 	}
-	return Check{Name: name, OK: true, Message: fmt.Sprintf("%d kora registrations for class %s", orbitOwned, r.Config.SPIREClassName)}
+	return Check{Name: name, OK: true, Message: fmt.Sprintf("%d kora registrations for class %s", koraOwned, r.Config.SPIREClassName)}
 }
 
 // statFailures reads status.stats.entryFailures and podEntryRenderFailures
@@ -375,7 +375,7 @@ func claimsAllManagedPods(spec map[string]any) bool {
 }
 
 func (r *Runner) webhooks(ctx context.Context) Check {
-	const name = "orbit-webhooks"
+	const name = "kora-webhooks"
 	for _, hook := range r.Config.WebhookNames {
 		var bundle []byte
 		var policy *admissionv1.FailurePolicyType

@@ -11,8 +11,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/marketplace"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/marketplace"
 )
 
 func newTestMarketplaceReconciler(c client.Client) *SkillMarketplaceSourceReconciler {
@@ -22,7 +22,7 @@ func newTestMarketplaceReconciler(c client.Client) *SkillMarketplaceSourceReconc
 
 func TestSkillMarketplaceSourceReconciler_SetsStatus(t *testing.T) {
 	tenant := marketTenant("acme", true, "acme-corp/internal-skills")
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
 	c := newMarketplaceClient(t, &tenant, &src)
 	r := newTestMarketplaceReconciler(c)
 
@@ -60,7 +60,7 @@ func TestSkillMarketplaceSourceReconciler_GlobalSourceGetsStatus(t *testing.T) {
 func TestSkillMarketplaceSourceReconciler_DeletedSourceStillSyncs(t *testing.T) {
 	ctx := context.Background()
 	tenant := marketTenant("acme", true, "acme-corp/internal-skills")
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
 	c := newMarketplaceClient(t, &tenant, &src)
 	r := newTestMarketplaceReconciler(c)
 
@@ -85,7 +85,7 @@ func TestSkillMarketplaceSourceReconciler_DeletedSourceStillSyncs(t *testing.T) 
 func TestSkillMarketplaceSourceReconciler_SourceEditRevokesUnapprovedRepository(t *testing.T) {
 	ctx := context.Background()
 	tenant := marketTenant("acme", true, "acme-corp/internal-skills")
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
 	c := newMarketplaceClient(t, &tenant, &src)
 	r := newTestMarketplaceReconciler(c)
 	req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(&src)}
@@ -111,7 +111,7 @@ func TestSkillMarketplaceSourceReconciler_SourceEditRevokesUnapprovedRepository(
 
 func TestSkillMarketplaceSourceReconciler_SyncFailureReturnsError(t *testing.T) {
 	tenant := marketTenant("acme", true, "acme-corp/internal-skills")
-	src := marketSrc("orbit-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
+	src := marketSrc("kora-tenant-acme", "acme-internal", "acme-corp", "internal-skills", marketplaceT0)
 	c := failingConfigMapWrites{Client: newMarketplaceClient(t, &tenant, &src)}
 	r := newTestMarketplaceReconciler(c)
 	key := client.ObjectKeyFromObject(&src)

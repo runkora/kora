@@ -6,7 +6,7 @@
  * manually retry. Renders nothing when the connection is healthy.
  */
 
-import { Button, Stack, Text } from '@orbit/hades';
+import { Button, Stack, Text } from '@runkora/hades';
 import { useRunContext } from '../_context/run-context';
 
 export function ConnectionBanner() {

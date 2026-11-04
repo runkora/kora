@@ -5,19 +5,20 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ScopeEnforcementMiddleware enforces route → required-scope bindings declared
-// by the service. Behavior mirrors the OPA `_required_scope` rule in
-// bundle/authz.rego:
+// by the service. Behavior mirrors `_route_match` in bundle/authz.rego and
+// bundle/authz_gateway.rego:
 //
-//  1. Find routes whose PathPrefix matches the request path (prefix match).
+//  1. Find routes whose PathPrefix covers the request path on a segment boundary.
 //  2. Prefer a matching route whose Method equals the request method exactly.
 //  3. Otherwise fall through to a matching route whose Method is "*".
+//     Within either kind the longest PathPrefix wins.
 //  4. If no route matches, deny — mirrors OPA's `deny:no_route_match`.
 //  5. If a route matches with a non-empty RequiredScope, call
 //     policy.Evaluator.Check with the resolved scope and deny on a non-allow
@@ -32,7 +33,7 @@ import (
 // OPA enforcement. Pass "" for services that mount controllers at the root.
 //
 // This middleware MUST run after AuthMiddleware (which puts the verified
-// platform claims in context) and DelegationMiddleware (which puts parsed
+// platform claims in context) and DelegationMiddlewareWithBlocklist (which puts parsed
 // delegation claims in context). See docs/adr/2026-06-04-platform-scope-enforcement-middleware.md for the design rationale.
 func ScopeEnforcementMiddleware(eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, logger logging.Logger) Middleware {
 	return NewMiddleware(func(next http.Handler) http.Handler {
@@ -64,7 +65,7 @@ func ScopeEnforcementMiddleware(eval policy.Evaluator, routes []routescopes.Rout
 
 			claims, _ := token.ClaimsFromContext(ctx)
 
-			// SYSTEM principals are platform services (orbit-agents, identity,
+			// SYSTEM principals are platform services (kora-agents, identity,
 			// etc.) authenticated by SPIFFE/mTLS at the Istio layer. Their
 			// platform tokens carry empty tenant_id since they are infrastructure
 			// rather than tenant-scoped actors, so the per-tenant policy bundle
@@ -72,7 +73,7 @@ func ScopeEnforcementMiddleware(eval policy.Evaluator, routes []routescopes.Rout
 			// tenant". The Istio AuthorizationPolicy + mTLS already restrict
 			// which SPIFFE identities can reach each endpoint; in-process scope
 			// enforcement is for human/agent/PAT principals, not platform infra.
-			if claims != nil && claims.Orbit.PrincipalType == token.PrincipalTypeSystem {
+			if claims != nil && claims.Kora.PrincipalType == token.PrincipalTypeSystem {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -148,7 +149,7 @@ func pathMatchesPrefix(path, prefix string) bool {
 	return path[len(prefix)] == '/'
 }
 
-// ResolveRequiredScope mirrors authz.rego's _required_scope derivation.
+// ResolveRequiredScope mirrors _route_match in authz.rego and authz_gateway.rego.
 // Exact-method matches beat wildcard ("*") matches, and among matches of the same
 // kind the longest (most specific) PathPrefix wins — so resolution does not depend
 // on route-table ordering. Returns the matched scope and true; returns "", false

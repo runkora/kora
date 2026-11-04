@@ -2,16 +2,16 @@
 
 <!-- Filename: 2026-09-18-agent-runtime-trace-propagation.md  (decision date + slug; no sequential number) -->
 
-**Status:** Accepted
+**Status:** Accepted (Amended 2026-10-31 by [One Trace per Agent Run](2026-10-31-one-trace-per-run.md))
 **Date:** 2026-09-18
 **Deciders:** Justin Wilkin
-**Technical Story:** Show a run as one trace, from the run start in `orbit-agents` through the Claude Code subprocess to the inference and tool gateway calls it makes. Builds on [2026-03-21: OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md).
+**Technical Story:** Show a run as one trace, from the run start in `kora-agents` through the Claude Code subprocess to the inference and tool gateway calls it makes. Builds on [2026-03-21: OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md).
 
 ---
 
 ## Context
 
-A run's trace stops at the session-manager. `orbit-agents` starts a run by calling the session-manager's create-session and send-message endpoints on the same context, and both carry W3C `traceparent`. The session-manager then spawns Claude Code as a long-lived subprocess (`claude --print --input-format stream-json`) and nothing crosses that process boundary. The inference gateway and tool gateway extract `traceparent` on every request, but Claude Code sends none, so each model call and governed MCP call starts a new root trace with no link to the run.
+A run's trace stops at the session-manager. `kora-agents` starts a run by calling the session-manager's create-session and send-message endpoints on the same context, and both carry W3C `traceparent`. The session-manager then spawns Claude Code as a long-lived subprocess (`claude --print --input-format stream-json`) and nothing crosses that process boundary. The inference gateway and tool gateway extract `traceparent` on every request, but Claude Code sends none, so each model call and governed MCP call starts a new root trace with no link to the run.
 
 This touches *How does it connect?*: it changes what the agent runtime sends on its outbound calls and where its telemetry goes. Identity and policy enforcement are unchanged.
 
@@ -55,7 +55,7 @@ Each send-message request becomes the parent of the turn it starts. Claude Code 
 
 **Chosen Option:** Option 1, parent every turn to the create-session span.
 
-When the platform OTLP endpoint (`ORBIT_OTLP_ENDPOINT`) is set, the session-manager adds to the Claude Code subprocess environment:
+When the platform OTLP endpoint (`KORA_OTLP_ENDPOINT`) is set, the session-manager adds to the Claude Code subprocess environment:
 
 | Variable | Value | Purpose |
 |---|---|---|
@@ -64,9 +64,9 @@ When the platform OTLP endpoint (`ORBIT_OTLP_ENDPOINT`) is set, the session-mana
 | `CLAUDE_CODE_ENHANCED_TELEMETRY_BETA` | `1` | Turns on span export |
 | `OTEL_TRACES_EXPORTER`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER` | `otlp` | Exports traces, metrics and events |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | Matches the platform endpoint, which is a gRPC URL |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `ORBIT_OTLP_ENDPOINT` | Same collector as the platform services |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `KORA_OTLP_ENDPOINT` | Same collector as the platform services |
 | `CLAUDE_CODE_PROPAGATE_TRACEPARENT` | `1` | Sends `traceparent` to the inference and tool gateways |
-| `OTEL_RESOURCE_ATTRIBUTES` | `orbit.run_id`, `orbit.tenant_id` | Finds a run's telemetry without the trace |
+| `OTEL_RESOURCE_ATTRIBUTES` | `kora.run.id`, `kora.tenant.id` | Finds a run's telemetry without the trace |
 
 With no endpoint set, none of these are added and Claude Code exports nothing, matching the platform services.
 
@@ -84,7 +84,7 @@ Content capture keeps Claude Code's defaults: prompt text, tool inputs and tool 
 
 ### Negative
 
-- Enhanced telemetry is a beta. Span names and attributes may change between Claude Code releases, and the session-manager image installs the latest `@anthropic-ai/claude-code@2`.
+- Enhanced telemetry is a beta. Span names and attributes may change between Claude Code releases, and Dependabot moves the session-manager image's `@anthropic-ai/claude-code` pin through 2.x releases.
 - Metrics, events and background model call spans are not sampled. Every run exports them whatever the trace sampling rate.
 - A collector without metrics or logs pipelines rejects those exports.
 - Agent pods deliver no telemetry until [2026-09-18: Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) is implemented. The tenant OPA sidecar denies the export today.
@@ -92,7 +92,7 @@ Content capture keeps Claude Code's defaults: prompt text, tool inputs and tool 
 
 ### Neutral
 
-- `orbit.run_id` and `orbit.tenant_id` add no metric cardinality beyond Claude Code's own `session.id`, which is already one per run.
+- `kora.run.id` and `kora.tenant.id` add no metric cardinality beyond Claude Code's own `session.id`, which is already one per run.
 - Claude Code reports under its own `service.name`, `claude-code`.
 
 ---
@@ -110,7 +110,7 @@ Content capture keeps Claude Code's defaults: prompt text, tool inputs and tool 
 On a cluster with a collector:
 
 - A single run shows one trace containing `agents.StartRun`, the session-manager create-session span, `claude_code.interaction` spans, and inference gateway and tool gateway server spans under the matching `claude_code.llm_request` and `claude_code.tool` spans.
-- Claude Code exports over gRPC to the `ORBIT_OTLP_ENDPOINT` URL as given.
+- Claude Code exports over gRPC to the `KORA_OTLP_ENDPOINT` URL as given.
 - With a sampling rate of `0`, the run exports no turn spans.
 
 ---

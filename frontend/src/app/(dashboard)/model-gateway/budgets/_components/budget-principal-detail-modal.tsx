@@ -12,9 +12,9 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/hades';
-import { StatusBadge } from '@orbit/components';
-import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
+} from '@runkora/hades';
+import { StatusBadge } from '@runkora/components';
+import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import type { BudgetCategoryStatus, BudgetPrincipalRow } from '../../_types';
 import { principalDisplay } from './principal-display';
 import { principalStatus } from './budget-principal-format';

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 )
 
 // scopedEvaluator is a policy.Evaluator stub whose Check answers from a fixed
@@ -39,13 +39,14 @@ func newModeTestService(t *testing.T, granted ...string) (*AgentTypeService, *mo
 	k8s := &mockK8s{}
 	authz := NewAuthz(&scopedEvaluator{granted: granted})
 	svc := NewAgentTypeService(
-		repo, repo, k8s, authz,
+		repo, repo, k8s, authz, nil, lockedTenants{},
 		AgentTypeServiceConfig{
 			MaxConcurrentRunsPerPod: 5,
-			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
+			TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },
 		},
 		logging.NewLoggerWithOutput(io.Discard),
 	)
+	svc.SetCallerScopes(broadScopes)
 	return svc, repo
 }
 

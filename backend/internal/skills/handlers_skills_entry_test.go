@@ -18,11 +18,11 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 var handlerSource = MarketplaceSource{
@@ -160,7 +160,7 @@ func newHandlerController(cached bool) *handlerFixture {
 
 func handlerRequest(fix *handlerFixture, target, tenantID string) *httptest.ResponseRecorder {
 	ctx := token.WithClaims(context.Background(), &token.PlatformClaims{
-		Orbit: token.OrbitClaims{TenantID: tenantID, PrincipalType: token.PrincipalTypeHuman},
+		Kora: token.KoraClaims{TenantID: tenantID, PrincipalType: token.PrincipalTypeHuman},
 	})
 	mux := api.NewMux(ctx, fix.logger)
 	fix.Boot(mux)
@@ -562,7 +562,7 @@ func TestControllerAuthorization(t *testing.T) {
 			Subject: "caller", ExpiresAt: jwt.NewNumericDate(time.Now().Add(5 * time.Minute)),
 			ID: "platform-1",
 		},
-		Orbit: token.OrbitClaims{TenantID: "tenant-a", PrincipalType: token.PrincipalTypeHuman},
+		Kora: token.KoraClaims{TenantID: "tenant-a", PrincipalType: token.PrincipalTypeHuman},
 	}
 	signed := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
 	signed.Header["kid"] = "skills-test"
@@ -626,7 +626,7 @@ func TestControllerAuthorization(t *testing.T) {
 					r.Header.Set("Authorization", "Bearer "+tc.auth)
 				}
 				if tc.delegation != "" {
-					r.Header.Set("X-Orbit-Delegation-Token", tc.delegation)
+					r.Header.Set("X-Kora-Delegation-Token", tc.delegation)
 				}
 				rr := httptest.NewRecorder()
 				server.Handler.ServeHTTP(rr, r)
@@ -641,7 +641,7 @@ func TestControllerAuthorization(t *testing.T) {
 				}
 				if tc.checks == 1 {
 					input := eval.inputs[0]
-					if input.Claims.Orbit.TenantID != "tenant-a" || input.ResourceType != "marketplace" || input.Action != "read" {
+					if input.Claims.Kora.TenantID != "tenant-a" || input.ResourceType != "marketplace" || input.Action != "read" {
 						t.Fatalf("wrong policy input: %+v", input)
 					}
 					if tc.delegation != "" {
