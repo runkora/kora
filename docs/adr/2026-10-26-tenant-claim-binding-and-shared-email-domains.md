@@ -1,6 +1,6 @@
 # Tenant Claim Binding and Shared Email Domains
 
-**Status:** Proposed
+**Status:** Accepted (Amended 2026-11-04 by [Tenant Switching](2026-11-04-tenant-switching.md))
 **Date:** 2026-10-26
 **Deciders:** Platform maintainers
 **Technical Story:** [#786](https://github.com/runkora/kora/issues/786)
