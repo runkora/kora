@@ -203,7 +203,46 @@ The API is under `/v1` and requires the `skills:read` scope. The tenant comes fr
 
 ## Implementation
 
-None at this time.
+### Resource and Operator
+
+- `SkillMarketplace` Go types with kubebuilder markers live in `backend/internal/operator/` and register in `internal/operator/scheme.go`. controller-gen generates their deepcopy functions and `charts/kora-crds/generated/runkora.io_skillmarketplaces.yaml`.
+- A `SkillMarketplace` reconciler and `SkillMarketplaceAggregator` in `internal/operator/` follow `mcpserver_controller.go` and `mcpserver_aggregator.go`. The tenant reconciler runs the aggregator on every tenant change.
+- Like `MCPServerAggregator`, the aggregator reads referenced Secrets uncached through the operator's API reader. A Marketplace with a credential requeues every five minutes.
+- The operator `ClusterRole` in `charts/kora/templates/operator/clusterrole.yaml` gains `get/list/watch` on `skillmarketplaces` and `get/patch` on their status.
+- `internal/platform/marketplace` holds the ConfigMap and Secret names and the Go type of the sources file. The operator writes the file and skills-service reads it through the same type.
+
+### skills-service
+
+- `backend/cmd/skills-service/` holds `main.go` and `config/base.yaml`. Config keys cover `cacheTTL`, the failure TTL, the crawl limits and the mounted file paths. Secrets load through `os.Getenv` only.
+- `backend/internal/skills/` holds the feature:
+    - The registry reads the sources file and the keys directory and reloads them on change.
+    - The token provider mints and caches one installation token per Marketplace.
+    - The crawler resolves the ref, reads the tree and fetches files.
+    - The cache wraps the platform Redis client.
+    - The service runs search and paging over the cached list.
+    - The handlers implement `api.Controller` and use `api.JSON` and `api.ErrorResponse`.
+- GitHub calls go through the `httpclient.Base` client in `internal/platform/clients/github/`. The client gains calls to resolve a ref to a commit and to read a tree and a file at that commit.
+- skills-service registers the `skills:read` scope and its route scopes with policy-service through `internal/platform/clients/routescopes`.
+
+### Chart
+
+- `charts/kora/templates/skills-service/` renders the Deployment, Service, ServiceAccount, config ConfigMap and client-mTLS DestinationRule.
+- The Deployment mounts `kora-skill-marketplaces` and `kora-skill-marketplace-secrets` read-only.
+- `charts/kora/templates/api/virtualservice.yaml` routes `/v1/marketplaces` to skills-service. `charts/kora/templates/platform/netpols.yaml` opens the skills-service port to mesh callers.
+- The frontend deployment receives `SKILLS_SERVICE_URL`.
+
+### Dashboard
+
+- The pages live under `frontend/src/app/(dashboard)/skills/` with feature-scoped (Tier 3) components.
+- `frontend/src/server/` holds the only upstream calls to skills-service. `frontend/src/app/api/skills/route.ts` is the BFF route, registered in `frontend/src/lib/routing/api-routes.ts`.
+- `frontend/src/shared/api.ts` holds the response types that mirror the skills-service JSON.
+- The Control Plane navigation entry reads the user's scopes and shows Skills only with `skills:read`.
+
+### Local Development and Docs
+
+- `scripts/cluster/redeploy.sh` and `REDEPLOY_PLATFORM_SERVICES` in the `Makefile` list `skills-service`.
+- `make cluster-deploy` applies `deploy/local/marketplace/`.
+- `docs/guides/skill-marketplace-sources.md` explains how a tenant administrator creates the GitHub App, the Secret and the `SkillMarketplace`. `docs/code-organization.md` lists the `skills-service` binary and the `skills` package.
 
 ### Migration Path
 
@@ -219,11 +258,15 @@ None at this time.
 
 ### Success Metrics
 
-None at this time.
+- Tenant members with `skills:read` can find a given skill and identify its source repository without leaving Kora.
+- A token minted for one Marketplace cannot read another repository on the same installation.
+- A user without `skills:read` sees no Skills entry, and the API refuses the call.
 
 ### Monitoring
 
-None at this time.
+- `kubectl get kskm` lists every Marketplace with its phase and reason.
+- skills-service logs each skipped skill or file with the Marketplace, the path and the limit it exceeded.
+- skills-service logs each failed crawl with the Marketplace and the error, and the GitHub client records a span per call.
 
 ---
 
