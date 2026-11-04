@@ -15,11 +15,14 @@ var (
 	// ErrSkillNotFound means the Marketplace has no skill at this path (404).
 	ErrSkillNotFound = errors.New("skill not found")
 
+	// ErrFileNotFound means the skill lists no file at this path (404).
+	ErrFileNotFound = errors.New("skill file not found")
+
 	// ErrCredentialUnavailable means the Marketplace's App key is missing,
 	// invalid, or rejected by GitHub (502).
 	ErrCredentialUnavailable = errors.New("github app credential unavailable")
 
-	// ErrGitHubFailure means GitHub could not serve the crawl (502).
+	// ErrGitHubFailure means GitHub could not serve the request (502).
 	ErrGitHubFailure = errors.New("github failure")
 
 	// ErrInvalidPage means offset or limit is not a valid number (400).

@@ -12,6 +12,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -22,6 +23,8 @@ const (
 	codeInvalidRequest         = "invalid_request"
 	codeNotFound               = "not_found"
 	codeMarketplaceUnavailable = "marketplace_unavailable"
+	codeUnavailable            = "unavailable"
+	codeTimeout                = "timeout"
 )
 
 // skillReader is the service surface the handlers use.
@@ -175,6 +178,11 @@ func (c *Controller) tenantID(w http.ResponseWriter, r *http.Request) (string, b
 }
 
 func (c *Controller) respondError(w http.ResponseWriter, r *http.Request, err error) {
+	// A caller that went away gets no response.
+	if r.Context().Err() != nil {
+		c.logger.Debug(r.Context(), "skills request cancelled", logging.Field{Key: "error", Value: err.Error()})
+		return
+	}
 	var apiErr *api.APIError
 	switch {
 	case errors.Is(err, ErrInvalidPage):
@@ -182,21 +190,25 @@ func (c *Controller) respondError(w http.ResponseWriter, r *http.Request, err er
 	case errors.Is(err, ErrMarketplaceNotFound):
 		apiErr = api.NotFoundError(codeNotFound, "Marketplace not found.", nil)
 	case errors.Is(err, ErrRepositoryNotFound):
-		apiErr = api.NotFoundError(codeNotFound, "The repository or ref of this Marketplace was not found on GitHub.", nil)
+		apiErr = api.NotFoundError(codeNotFound, "The repository or ref of this Marketplace was not found.", nil)
 	case errors.Is(err, ErrSkillNotFound):
 		apiErr = api.NotFoundError(codeNotFound, "Skill not found.", nil)
+	case errors.Is(err, ErrFileNotFound):
+		apiErr = api.NotFoundError(codeNotFound, "File not found.", nil)
 	case errors.Is(err, ErrCredentialUnavailable):
-		apiErr = badGateway("The GitHub App credential for this Marketplace is unavailable.")
+		apiErr = statusError(http.StatusBadGateway, codeMarketplaceUnavailable, "The credential for this Marketplace is unavailable.")
 	case errors.Is(err, ErrGitHubFailure):
-		apiErr = badGateway("GitHub could not serve this Marketplace. Try again later.")
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		apiErr = api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "The request ended before the Marketplace was read.", nil)
+		apiErr = statusError(http.StatusBadGateway, codeMarketplaceUnavailable, "This Marketplace could not be loaded. Try again later.")
+	case errors.Is(err, storage.ErrRedisUnavailable):
+		apiErr = statusError(http.StatusServiceUnavailable, codeUnavailable, "Skills are unavailable right now. Try again later.")
+	case errors.Is(err, context.DeadlineExceeded):
+		apiErr = statusError(http.StatusGatewayTimeout, codeTimeout, "Loading this Marketplace took too long. Try again later.")
 	default:
 		apiErr = api.InternalError(api.ErrCodeInternalError, "Failed to read the Marketplace.", nil)
 	}
 	api.ErrorResponse(r.Context(), w, c.logger, apiErr, err)
 }
 
-func badGateway(message string) *api.APIError {
-	return &api.APIError{Code: codeMarketplaceUnavailable, Message: message, StatusCode: http.StatusBadGateway}
+func statusError(status int, code, message string) *api.APIError {
+	return &api.APIError{Code: code, Message: message, StatusCode: status}
 }

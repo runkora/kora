@@ -2,6 +2,7 @@ package skills
 
 import (
 	"context"
+	"fmt"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -207,5 +210,43 @@ func TestAPI_DeniedScope(t *testing.T) {
 	f.handler.ServeHTTP(rr, r)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("no token = %d, want 401", rr.Code)
+	}
+}
+
+func TestRespondError(t *testing.T) {
+	c := &Controller{logger: discard()}
+	for _, tc := range []struct {
+		err  error
+		code int
+		body string
+	}{
+		{fmt.Errorf("cache get: %w", storage.ErrRedisUnavailable), http.StatusServiceUnavailable, codeUnavailable},
+		{fmt.Errorf("crawl: %w", context.DeadlineExceeded), http.StatusGatewayTimeout, codeTimeout},
+		{ErrGitHubFailure, http.StatusBadGateway, codeMarketplaceUnavailable},
+		{ErrCredentialUnavailable, http.StatusBadGateway, codeMarketplaceUnavailable},
+		{ErrRepositoryNotFound, http.StatusNotFound, codeNotFound},
+		{ErrFileNotFound, http.StatusNotFound, codeNotFound},
+	} {
+		rr := httptest.NewRecorder()
+		c.respondError(rr, httptest.NewRequest(http.MethodGet, "/", nil), tc.err)
+		var body api.APIError
+		_ = json.Unmarshal(rr.Body.Bytes(), &body)
+		if rr.Code != tc.code || body.Code != tc.body {
+			t.Errorf("%v = %d %s, want %d %s", tc.err, rr.Code, body.Code, tc.code, tc.body)
+		}
+		if strings.Contains(body.Message, "GitHub") {
+			t.Errorf("%v message %q names the provider", tc.err, body.Message)
+		}
+	}
+}
+
+// A caller that went away gets no response.
+func TestRespondError_CancelledWritesNothing(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rr := httptest.NewRecorder()
+	(&Controller{logger: discard()}).respondError(rr, httptest.NewRequestWithContext(ctx, http.MethodGet, "/", nil), context.Canceled)
+	if rr.Body.Len() != 0 || rr.Result().Header.Get("Content-Type") != "" {
+		t.Errorf("cancelled request wrote %d %q", rr.Code, rr.Body.String())
 	}
 }
