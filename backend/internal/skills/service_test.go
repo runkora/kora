@@ -122,10 +122,12 @@ func TestListSkills_FailureIsCached(t *testing.T) {
 		name   string
 		setup  func(*fakeGitHub, *Marketplace)
 		target error
+		crawls int
 	}{
-		{"missing repository", func(g *fakeGitHub, _ *Marketplace) { g.refErr = ghclient.ErrNotFound }, ErrRepositoryNotFound},
-		{"GitHub outage", func(g *fakeGitHub, _ *Marketplace) { g.refErr = ghclient.ErrUnavailable }, ErrGitHubFailure},
-		{"no key", func(_ *fakeGitHub, m *Marketplace) { m.tokens = nil }, ErrCredentialUnavailable},
+		{"missing repository", func(g *fakeGitHub, _ *Marketplace) { g.refErr = ghclient.ErrNotFound }, ErrRepositoryNotFound, 1},
+		{"GitHub outage", func(g *fakeGitHub, _ *Marketplace) { g.refErr = ghclient.ErrUnavailable }, ErrGitHubFailure, 1},
+		{"key rejected by GitHub", func(_ *fakeGitHub, m *Marketplace) { m.tokens.client = &fakeMinter{err: ghclient.ErrUnexpectedStatus} }, ErrCredentialUnavailable, 1},
+		{"no key", func(_ *fakeGitHub, m *Marketplace) { m.tokens = nil }, ErrCredentialUnavailable, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			g := sampleRepo()
@@ -137,8 +139,8 @@ func TestListSkills_FailureIsCached(t *testing.T) {
 					t.Fatalf("ListSkills = %v, want %v", err, tc.target)
 				}
 			}
-			if crawler.crawls != 1 {
-				t.Errorf("crawls = %d, want 1", crawler.crawls)
+			if crawler.crawls != tc.crawls {
+				t.Errorf("crawls = %d, want %d", crawler.crawls, tc.crawls)
 			}
 		})
 	}
@@ -181,5 +183,22 @@ func TestGetSkill(t *testing.T) {
 	}
 	if _, err := svc.GetSkill(ctx, "example", "team-skills", "skills/missing"); !errors.Is(err, ErrSkillNotFound) {
 		t.Errorf("missing skill = %v, want ErrSkillNotFound", err)
+	}
+}
+
+// Removing the key fails browsing closed even while the list is cached.
+func TestListSkills_RemovedKeyFailsClosed(t *testing.T) {
+	m := testMarketplace(t, "example", "team-skills")
+	svc, _, _ := newTestService(t, sampleRepo(), m)
+	ctx := context.Background()
+	if _, err := svc.ListSkills(ctx, "example", "team-skills", "", 0, 25); err != nil {
+		t.Fatal(err)
+	}
+	m.tokens = nil
+	if _, err := svc.ListSkills(ctx, "example", "team-skills", "", 0, 25); !errors.Is(err, ErrCredentialUnavailable) {
+		t.Errorf("ListSkills = %v, want ErrCredentialUnavailable", err)
+	}
+	if _, err := svc.GetSkill(ctx, "example", "team-skills", "skills/pdf"); !errors.Is(err, ErrCredentialUnavailable) {
+		t.Errorf("GetSkill = %v, want ErrCredentialUnavailable", err)
 	}
 }

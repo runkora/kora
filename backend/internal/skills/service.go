@@ -135,6 +135,10 @@ func (s *Service) GetSkill(ctx context.Context, tenantID, slug, path string) (Sk
 // list returns the cached crawl of m, a cached failure, or a new crawl.
 // Concurrent callers for one Marketplace share one crawl.
 func (s *Service) list(ctx context.Context, m *Marketplace) (skillList, error) {
+	// A Marketplace without a usable key fails closed, cached content included.
+	if m.tokens == nil {
+		return skillList{}, ErrCredentialUnavailable
+	}
 	if list, ok, err := s.cache.GetList(ctx, m); err != nil || (ok && list.Source == m.source()) {
 		return list, err
 	}
