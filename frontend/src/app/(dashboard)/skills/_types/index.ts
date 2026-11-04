@@ -24,6 +24,15 @@ export interface SkillsLoadError {
   message: string;
 }
 
+/** Next hands dynamic params over still percent-encoded. A malformed escape reads as not found. */
+export function decodeParam(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return '';
+  }
+}
+
 /** Search text as the API applies it: trimmed, and empty below MIN_SEARCH_LENGTH. */
 export function toSearch(text: unknown): string {
   const trimmed = typeof text === 'string' ? text.trim() : '';

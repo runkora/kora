@@ -5,7 +5,7 @@ import { getSession, isSessionValid } from '@runkora/server/session';
 import { getPreferences } from '../../_preferences/preferences-server';
 import { loadMarketplaces, loadSkillsPage } from '../_services/skills-server';
 import { SkillsShell } from '../_components/skills-shell';
-import { toBrowse } from '../_types';
+import { decodeParam, toBrowse } from '../_types';
 
 interface SkillsMarketplacePageProps {
   params: Promise<{ marketplace: string }>;
@@ -17,7 +17,7 @@ export default async function SkillsMarketplacePage({
   searchParams,
 }: SkillsMarketplacePageProps) {
   const [{ marketplace }, query] = await Promise.all([params, searchParams]);
-  const browse = toBrowse(marketplace, query.search, query.page);
+  const browse = toBrowse(decodeParam(marketplace), query.search, query.page);
   const session = await getSession();
 
   if (!isSessionValid(session)) {
@@ -34,7 +34,9 @@ export default async function SkillsMarketplacePage({
     loadMarketplaces(session.accessToken),
     loadSkillsPage(session.accessToken, browse, tables.defaultPageSize),
   ]);
-  const failed = !marketplaces.ok ? marketplaces : !page.ok ? page : null;
+  // With no Marketplaces the page shows that, not the skills request's 404.
+  const listed = marketplaces.ok && marketplaces.data.length > 0;
+  const failed = !marketplaces.ok ? marketplaces : listed && !page.ok ? page : null;
 
   return (
     <SkillsShell

@@ -113,6 +113,7 @@ export function useSkills(
       window.history.replaceState(null, '', browseUrl(next));
       setBrowse(next);
       setStatus('loading');
+      setError(null);
       fetchPage(next);
     },
     [fetchPage],

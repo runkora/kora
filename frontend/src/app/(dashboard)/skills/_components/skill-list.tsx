@@ -3,7 +3,7 @@
 /** @tier 3 — skills-scoped. List view of the skills on this page; each row opens its skill. */
 
 import { useRouter } from 'next/navigation';
-import { DataTable, Text, type DataTableColumn } from '@runkora/hades';
+import { DataTable, Stack, Text, type DataTableColumn } from '@runkora/hades';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import type { SkillSummary } from '@runkora/shared/api';
 import { useSkillsContext } from '../_context/skills-context';
@@ -15,7 +15,15 @@ const COLUMNS: DataTableColumn<SkillSummary>[] = [
     gridWidth: '16rem',
     minWidth: '10rem',
     locked: true,
-    cell: (skill) => <Text weight="strong">{skill.name}</Text>,
+    // The path is the skill's identity; two folders can share a name.
+    cell: (skill) => (
+      <Stack gap="none">
+        <Text weight="strong">{skill.name}</Text>
+        <Text size="caption" color="muted" mono>
+          {skill.path}
+        </Text>
+      </Stack>
+    ),
   },
   {
     id: 'description',

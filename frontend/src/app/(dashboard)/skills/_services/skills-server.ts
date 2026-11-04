@@ -27,7 +27,7 @@ export async function loadSkillsPage(
     });
     return { ok: true, data };
   } catch (err) {
-    return failure('[loadSkillsPage]', err, 'the skills');
+    return failure('[loadSkillsPage]', err, 'the skills', true);
   }
 }
 
@@ -43,11 +43,16 @@ export async function loadSkill(
   }
 }
 
-/** skills-service words a 502 for the user, so its reason reaches the page as is. */
-function failure(caller: string, err: unknown, subject: string): Loaded<never> {
+/**
+ * A 502 means the Marketplace is unavailable, with skills-service's reason for the user. A listed
+ * Marketplace's 404 is a missing repository or ref, so the skills page reads it the same way.
+ */
+function failure(caller: string, err: unknown, subject: string, listed = false): Loaded<never> {
   console.error(`${caller} failed:`, err);
-  if (err instanceof ApiError && err.code === 'marketplace_unavailable') {
-    return { ok: false, status: 502, message: err.message };
-  }
-  return loadFailure(err, subject);
+  const unavailable =
+    err instanceof ApiError &&
+    (err.code === 'marketplace_unavailable' || (listed && err.status === 404));
+  if (unavailable) return { ok: false, status: 502, message: err.message };
+  const failed = loadFailure(err, subject);
+  return !failed.ok && failed.status >= 500 ? { ...failed, status: 500 } : failed;
 }

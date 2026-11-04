@@ -13,7 +13,7 @@ export function SkillsPagination() {
   const { page } = browse;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const first = skills.length === 0 ? 0 : (page - 1) * pageSize + 1;
-  const last = skills.length === 0 ? 0 : first + skills.length - 1;
+  const last = skills.length === 0 ? 0 : Math.min(total, first + skills.length - 1);
   const loading = status === 'loading';
 
   return (
@@ -68,7 +68,8 @@ export function SkillsPagination() {
 }
 
 /** The first, last and nearby pages, with null for each run of hidden pages: 1 … 5 6 7 8 9 … 20. */
-function pageItems(page: number, pageCount: number): (number | null)[] {
+function pageItems(requested: number, pageCount: number): (number | null)[] {
+  const page = Math.min(requested, pageCount);
   const start = Math.max(2, page - PAGE_WINDOW);
   const end = Math.min(pageCount - 1, page + PAGE_WINDOW);
   const items: (number | null)[] = [1];

@@ -53,8 +53,8 @@ test('choosing a Marketplace changes the path and resets the page', async ({ pag
   await page.getByRole('radio', { name: new RegExp(PARTNER.name) }).click();
 
   await expect(page).toHaveURL(`/skills/${PARTNER.slug}`);
-  await expect(rows(page)).toHaveCount(1);
-  await expect(rows(page).first()).toHaveAccessibleName('Open linter');
+  await expect(rows(page)).toHaveCount(2);
+  await expect(rows(page).last()).toHaveAccessibleName('Open linter');
 });
 
 test('an unavailable Marketplace says so and offers a retry', async ({ page }) => {
@@ -80,8 +80,11 @@ test('a skill page shows SKILL.md first, its other files and the repository', as
   await expect(page).toHaveURL(`/skills/${TEAM.slug}`);
 });
 
-test('a missing skill shows a not-found message', async ({ page }) => {
-  await page.goto(`/skills/${TEAM.slug}/skills/missing`);
+test('a skill whose folder needs encoding opens from its row', async ({ page }) => {
+  await page.goto(`/skills/${PARTNER.slug}`);
 
-  await expect(page.getByText('Skill not found')).toBeVisible();
+  await rows(page).filter({ hasText: 'café notes' }).click();
+
+  await expect(page).toHaveURL(`/skills/${PARTNER.slug}/tools/caf%C3%A9%20notes`);
+  await expect(page.getByRole('figure')).toContainText('# café notes');
 });

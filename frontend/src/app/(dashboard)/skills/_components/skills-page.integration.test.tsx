@@ -38,7 +38,7 @@ describe('SkillsPage', () => {
     );
   });
 
-  it('shows an unavailable Marketplace with its reason, and Try again reloads the page', async () => {
+  it('shows an unavailable Marketplace with its reason, and Try again fetches the page again', async () => {
     server.use(http.get('/api/skills', () => HttpResponse.json({ data: storyPage() })));
     renderWithProviders(
       <SkillsShell

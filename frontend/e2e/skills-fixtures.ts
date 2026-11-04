@@ -51,5 +51,8 @@ export const SKILLS: Record<string, Skill[]> = {
       ),
     ),
   ],
-  [PARTNER.slug]: [skill(PARTNER.repository, 'tools/linter', 'Lints configuration files.')],
+  [PARTNER.slug]: [
+    skill(PARTNER.repository, 'tools/linter', 'Lints configuration files.'),
+    skill(PARTNER.repository, 'tools/café notes', 'Keeps notes.'),
+  ],
 };

@@ -6,6 +6,7 @@ import { APP_ROUTES } from '@runkora/lib/routing';
 import { loadErrorMessage } from '@runkora/lib/load-error';
 import { getSession, isSessionValid } from '@runkora/server/session';
 import { loadSkill } from '../../_services/skills-server';
+import { decodeParam } from '../../_types';
 import { SkillDetail } from './_components/skill-detail';
 import { SkillLoadError } from './_components/skill-load-error';
 
@@ -14,10 +15,11 @@ interface SkillPageProps {
 }
 
 export default async function SkillPage({ params }: SkillPageProps) {
-  const { marketplace, path } = await params;
+  const route = await params;
+  const marketplace = decodeParam(route.marketplace);
   const session = await getSession();
   const result = isSessionValid(session)
-    ? await loadSkill(session.accessToken, marketplace, path.join('/'))
+    ? await loadSkill(session.accessToken, marketplace, route.path.map(decodeParam).join('/'))
     : { ok: false as const, status: 401, message: loadErrorMessage(401, 'this skill') };
   const overview = APP_ROUTES.skills.marketplace(marketplace);
 

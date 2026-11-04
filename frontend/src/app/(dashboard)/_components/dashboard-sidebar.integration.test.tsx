@@ -254,10 +254,7 @@ describe('DashboardSidebar', () => {
         loaded: true,
       });
       renderSidebar();
-      expect(screen.getByRole('link', { name: 'Skills' })).toHaveAttribute(
-        'aria-current',
-        'page',
-      );
+      expect(screen.getByRole('link', { name: 'Skills' })).toHaveAttribute('aria-current', 'page');
       expect(screen.getByRole('link', { name: 'Agents' })).not.toHaveAttribute('aria-current');
     });
 

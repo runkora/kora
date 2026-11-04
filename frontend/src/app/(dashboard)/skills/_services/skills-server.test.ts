@@ -41,11 +41,15 @@ describe('loadSkillsPage', () => {
       { status: 403, message: 'You do not have access to the skills.' },
     ],
     [
-      new ApiError(404, 'not_found', 'raw'),
-      { status: 404, message: 'Could not load the skills. Try again.' },
+      new ApiError(404, 'not_found', 'Repository not found.'),
+      { status: 502, message: 'Repository not found.' },
     ],
     [
       new TypeError('fetch failed'),
+      { status: 500, message: 'Could not load the skills. Try again.' },
+    ],
+    [
+      new ApiError(502, 'UNKNOWN', 'Bad Gateway'),
       { status: 500, message: 'Could not load the skills. Try again.' },
     ],
   ])('maps %s to a page message', async (err, expected) => {
