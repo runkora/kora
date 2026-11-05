@@ -116,7 +116,7 @@ func newTestCache(t *testing.T, ttl, failureTTL time.Duration) (*Cache, *respSer
 
 func newCacheAt(t *testing.T, port int, ttl, failureTTL time.Duration) *Cache {
 	t.Helper()
-	cfg := &storage.RedisConfig{Host: "127.0.0.1", Port: port, DialTimeoutSeconds: 1, ReadTimeoutSeconds: 1, WriteTimeoutSeconds: 1, PoolSize: 2}
+	cfg := &storage.RedisConfig{Host: "127.0.0.1", Port: port, MaxRetries: -1, DialTimeoutSeconds: 1, ReadTimeoutSeconds: 1, WriteTimeoutSeconds: 1, PoolSize: 2}
 	rc, err := storage.NewRedis(context.Background(), cfg, discard())
 	if err != nil {
 		t.Fatal(err)

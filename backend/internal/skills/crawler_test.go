@@ -212,6 +212,24 @@ func TestCrawl_SkippedNestedSkillKeepsItsFiles(t *testing.T) {
 	}
 }
 
+// Content that is not text is the same on every crawl, so it does not make
+// the list partial. A failed download does.
+func TestCrawl_PartialOnlyForDownloadsThatMayPass(t *testing.T) {
+	g := repo(map[string]string{
+		"a/SKILL.md": skillMD("a", "A.", ""),
+		"b/SKILL.md": "---\nname: b\n\x00",
+	})
+	list, err := NewCrawler(g, testLimits, discard()).Crawl(context.Background(), testMarketplace(t, "example", "m"))
+	if err != nil || list.Partial {
+		t.Errorf("binary SKILL.md = partial %v, %v, want a complete list", list.Partial, err)
+	}
+	g = repo(map[string]string{"a/SKILL.md": skillMD("a", "A.", ""), "b/SKILL.md": skillMD("b", "B.", "")})
+	g.failOnce = map[string]error{"b/SKILL.md": ghclient.ErrNotFound}
+	if list, err = NewCrawler(g, testLimits, discard()).Crawl(context.Background(), testMarketplace(t, "example", "m")); err != nil || !list.Partial {
+		t.Errorf("failed download = partial %v, %v, want partial", list.Partial, err)
+	}
+}
+
 // An outage aborts the crawl; a broken skill is only skipped.
 func TestCrawl_Errors(t *testing.T) {
 	m := testMarketplace(t, "example", "m")

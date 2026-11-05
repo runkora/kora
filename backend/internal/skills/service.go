@@ -359,8 +359,8 @@ func (s *Service) list(ctx context.Context, m *Marketplace) (skillList, error) {
 // The check reads the commit with an installation token, a pinned commit
 // included, so a revoked App, key or repository stops the list being served.
 // A changed commit, a partial list or a list read with other limits crawls
-// again. Through an outage, timeout or rate limit,
-// during the check or the new crawl, the stale list stays served.
+// again. Through an outage, timeout or rate limit during the check or the new
+// crawl, the stale list stays served.
 func (s *Service) revalidate(ctx context.Context, m *Marketplace, stale skillList) (skillList, error) {
 	sha, err := s.crawler.ResolveCommit(ctx, m)
 	if err != nil {

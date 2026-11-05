@@ -120,7 +120,8 @@ func (c *Crawler) Reusable(list skillList) bool {
 
 // readSkills fetches and parses every folder's SKILL.md and returns the
 // skills in path order. A skill that cannot be read is skipped and logged, and
-// unread reports a SKILL.md that failed to download. An outage aborts.
+// unread reports a SKILL.md whose download failed in a way that may pass. An
+// outage aborts.
 func (c *Crawler) readSkills(ctx context.Context, token string, m *Marketplace, sha string, folders []skillFolder) (skills []skillRecord, unread bool, err error) {
 	var failed atomic.Bool
 	records := make([]skillRecord, len(folders))
@@ -135,7 +136,10 @@ func (c *Crawler) readSkills(ctx context.Context, token string, m *Marketplace, 
 				if errors.Is(err, ghclient.ErrUnavailable) || errors.Is(err, ghclient.ErrUnauthorized) || gctx.Err() != nil {
 					return err
 				}
-				failed.Store(true)
+				// Non-text or oversized content is the same on every crawl.
+				if !errors.Is(err, errNotText) && !errors.Is(err, ghclient.ErrTooLarge) {
+					failed.Store(true)
+				}
 				c.skip(gctx, m, f.path, err.Error())
 				return nil
 			}
