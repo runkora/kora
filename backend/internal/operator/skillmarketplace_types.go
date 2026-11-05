@@ -45,6 +45,7 @@ const (
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=kskm
 // +kubebuilder:validation:XValidation:rule="size(self.metadata.name) <= 63",message="metadata.name must be at most 63 characters"
+// +kubebuilder:printcolumn:name="Origin",type=string,JSONPath=`.spec.origin`
 // +kubebuilder:printcolumn:name="Owner",type=string,JSONPath=`.spec.github.owner`
 // +kubebuilder:printcolumn:name="Repo",type=string,JSONPath=`.spec.github.repo`
 // +kubebuilder:printcolumn:name="Ref",type=string,JSONPath=`.spec.github.ref`

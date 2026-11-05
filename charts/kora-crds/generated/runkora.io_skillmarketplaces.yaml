@@ -17,6 +17,9 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
+    - jsonPath: .spec.origin
+      name: Origin
+      type: string
     - jsonPath: .spec.github.owner
       name: Owner
       type: string
