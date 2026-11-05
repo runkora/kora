@@ -29,7 +29,7 @@ func staticToken(t *testing.T) *tokenProvider {
 func testMarketplace(t *testing.T, tenant, slug string) *Marketplace {
 	return &Marketplace{
 		TenantID:    tenant,
-		Marketplace: marketplace.Marketplace{Slug: slug, Owner: "example-org", Repo: "skills", AppID: "1", InstallationID: 2},
+		Marketplace: marketplace.Marketplace{Slug: slug, Origin: originExternal, Owner: "example-org", Repo: "skills", AppID: "1", InstallationID: 2},
 		tokens:      staticToken(t),
 	}
 }

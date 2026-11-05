@@ -19,6 +19,12 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/marketplace"
 )
 
+// Marketplace origins.
+const (
+	originInternal = "internal"
+	originExternal = "external"
+)
+
 // registryReloadDebounce coalesces a burst of fsnotify events into one reload.
 const registryReloadDebounce = 200 * time.Millisecond
 
@@ -122,6 +128,15 @@ func (r *Registry) reload(ctx context.Context) error {
 	total := 0
 	for _, tenant := range file.Tenants {
 		for _, spec := range tenant.Marketplaces {
+			// The CRD requires origin, so an entry without a known one is invalid.
+			if spec.Origin != originInternal && spec.Origin != originExternal {
+				r.logger.Warn(ctx, "skipping skill marketplace without a valid origin",
+					logging.Field{Key: "tenant", Value: tenant.ID},
+					logging.Field{Key: "marketplace", Value: spec.Slug},
+					logging.Field{Key: "origin", Value: spec.Origin},
+				)
+				continue
+			}
 			next[tenant.ID] = append(next[tenant.ID], r.build(ctx, tenant.ID, spec, previous))
 			total++
 		}

@@ -135,14 +135,14 @@ func TestAPI_Contract(t *testing.T) {
 		t.Fatalf("GET /marketplaces = %d", code)
 	}
 	after := raw["marketplaces"].([]any)[0].(map[string]any)
-	if after["commit"] != testSHA || after["skillCount"] != float64(6) || after["syncedAt"] == nil || after["ref"] != "" {
+	if after["commit"] != testSHA || after["skillCount"] != float64(6) || after["syncedAt"] == nil || after["ref"] != "" || after["origin"] != "external" {
 		t.Errorf("GET /marketplaces after a crawl = %+v", after)
 	}
 
 	var skill map[string]any
 	if code := f.get("/marketplaces/team-skills/skills/skills/pdf", &skill); code != http.StatusOK || skill["path"] != "skills/pdf" || skill["content"] == "" ||
 		skill["marketplace"] != "team-skills" || skill["title"] != "pdf" || skill["commit"] != testSHA || skill["ref"] != "" ||
-		skill["version"] != nil || !reflect.DeepEqual(skill["tags"], []any{}) || !reflect.DeepEqual(skill["tools"], []any{}) || skill["manualOnly"] != false {
+		skill["origin"] != "external" || skill["version"] != nil || !reflect.DeepEqual(skill["tags"], []any{}) || !reflect.DeepEqual(skill["tools"], []any{}) || skill["manualOnly"] != false {
 		t.Errorf("GET skill = %d %+v", code, skill)
 	}
 	if files, _ := skill["files"].([]any); len(files) != 1 || !reflect.DeepEqual(files[0], map[string]any{"path": "forms.md", "size": float64(5)}) {

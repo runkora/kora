@@ -77,7 +77,7 @@ func (s *Service) ListMarketplaces(ctx context.Context, tenantID string) ([]Mark
 	ms := s.registry.Marketplaces(tenantID)
 	out := make([]MarketplaceSummary, 0, len(ms))
 	for _, m := range ms {
-		summary := MarketplaceSummary{Slug: m.Slug, Name: m.Repo, Repository: m.Repository(), Ref: m.Ref}
+		summary := MarketplaceSummary{Slug: m.Slug, Origin: m.Origin, Name: m.Repo, Repository: m.Repository(), Ref: m.Ref}
 		list, ok, err := s.cache.GetList(ctx, m)
 		if err != nil {
 			return nil, err
@@ -253,6 +253,7 @@ func (s *Service) GetSkill(ctx context.Context, tenantID, slug, path string) (Sk
 	}
 	return SkillDetail{
 		SkillSummary: summarize(m.Slug, skill),
+		Origin:       m.Origin,
 		Repository:   m.Repository(),
 		Ref:          m.Ref,
 		Commit:       sha,

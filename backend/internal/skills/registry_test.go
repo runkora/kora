@@ -41,7 +41,7 @@ func registryFile(slugs ...string) marketplace.File {
 	tenant := marketplace.Tenant{ID: "example"}
 	for _, s := range slugs {
 		tenant.Marketplaces = append(tenant.Marketplaces, marketplace.Marketplace{
-			Slug: s, Owner: "example-org", Repo: s, AppID: "1", InstallationID: 2,
+			Slug: s, Origin: originInternal, Owner: "example-org", Repo: s, AppID: "1", InstallationID: 2,
 			PrivateKeySecretKey: marketplace.SecretKey("kora-tenant-example", s),
 		})
 	}
@@ -143,5 +143,20 @@ func TestIsRelevantEvent(t *testing.T) {
 		if got := isRelevantEvent(tc.event, "marketplaces.json", "/keys"); got != tc.want {
 			t.Errorf("%v = %v, want %v", tc.event, got, tc.want)
 		}
+	}
+}
+
+// An entry without a known origin is skipped: the CRD requires one.
+func TestRegistry_SkipsAnEntryWithoutOrigin(t *testing.T) {
+	file := registryFile("ok", "none", "bad")
+	file.Tenants[0].Marketplaces[1].Origin = ""
+	file.Tenants[0].Marketplaces[2].Origin = "partner"
+	sources, keysDir := writeRegistryFiles(t, t.TempDir(), file, nil)
+	r, err := NewRegistry(context.Background(), sources, keysDir, &fakeMinter{}, discard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Marketplaces("example"); len(got) != 1 || got[0].Slug != "ok" || got[0].Origin != originInternal {
+		t.Errorf("Marketplaces = %+v, want only ok", got)
 	}
 }

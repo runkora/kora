@@ -6,6 +6,7 @@ import "time"
 // and SkillCount are nil until the Marketplace has been crawled.
 type MarketplaceSummary struct {
 	Slug       string     `json:"slug"`
+	Origin     string     `json:"origin"`
 	Name       string     `json:"name"`
 	Repository string     `json:"repository"`
 	Ref        string     `json:"ref"`
@@ -53,6 +54,7 @@ type SkillPage struct {
 type SkillDetail struct {
 	// SkillSummary carries the same fields as the skill's list item.
 	SkillSummary
+	Origin     string          `json:"origin"`
 	Repository string          `json:"repository"`
 	Ref        string          `json:"ref"`
 	Commit     string          `json:"commit"`
