@@ -22,7 +22,7 @@ import {
  * sections where the fixtures differ, the Danger zone last.
  */
 const meta: Meta<typeof TriggersShell> = {
-  title: 'Pages/Trigger detail modal',
+  title: 'Pages/Triggers/Detail modal',
   component: TriggersShell,
   parameters: {
     layout: 'fullscreen',

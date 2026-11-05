@@ -9,7 +9,7 @@ import type { SchemaCatalogEntry } from './trigger-wizard/field-catalog';
 
 /** The sentence-style filter rows, in the states of the event filters redesign. */
 const meta: Meta<typeof FilterRowsEditor> = {
-  title: 'Pages/Trigger filter rows',
+  title: 'Pages/Triggers/Filter rows',
   component: FilterRowsEditor,
   parameters: { layout: 'padded' },
 };

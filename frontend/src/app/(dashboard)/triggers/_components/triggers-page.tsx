@@ -23,7 +23,7 @@ import {
 import { createFromWizardDraft } from '../_services/create-from-wizard';
 import { useTriggerActions } from './use-trigger-actions';
 import type { TriggerNotice } from './use-trigger-actions';
-import { DeliveryDetailPanel } from './delivery-detail-panel';
+import { DeliveryDetailPanel, runHrefFor } from './delivery-detail-panel';
 import { RunTriggerModal } from './run-trigger-modal';
 import { TriggerWizard } from './trigger-wizard';
 import type { TriggerCreateResult, TriggerDraft } from './trigger-wizard';
@@ -343,6 +343,7 @@ export function TriggersPage({
           onRedeliver={redeliver}
           redeliverAllowed={canRunOwner(detailDelivery.triggerId)}
           agents={agents}
+          runHref={runHrefFor(triggers.find((t) => t.id === detailDelivery.triggerId))}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);

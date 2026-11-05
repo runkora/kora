@@ -23,6 +23,7 @@ import type { DataTableColumn } from '@runkora/hades';
 import { deliveryDotStatus, dispatchDuration } from '../_types';
 import type { DeliveryRow } from '../_types';
 import { DeliveryDetail } from './delivery-detail';
+import type { RedeliverAction } from './delivery-detail';
 import type { RoutingAgentName } from './delivery-routing';
 
 type Filter = 'all' | 'dispatched' | 'failed' | 'skipped' | 'superseded' | 'duplicate';
@@ -65,9 +66,7 @@ interface DeliveryListProps {
   expandedId: string | null;
   onToggleExpanded: (id: string | null) => void;
   /** Replays a delivery. */
-  onRedeliver?: (
-    delivery: DeliveryRow,
-  ) => Promise<{ deliveryId: string | null; error: string | null }>;
+  onRedeliver?: RedeliverAction;
   /** False when the caller may not replay; Redeliver shows disabled with the reason. */
   redeliverAllowed?: boolean;
   /** Names the agents a routing decision mentions. */

@@ -29,7 +29,10 @@ import { TriggerList } from '../../../triggers/_components/trigger-list';
 import { TriggerDetailModal } from '../../../triggers/_components/trigger-detail-modal';
 import { RunTriggerModal } from '../../../triggers/_components/run-trigger-modal';
 import { DeliveryGrid } from '../../../triggers/_components/delivery-grid';
-import { DeliveryDetailPanel } from '../../../triggers/_components/delivery-detail-panel';
+import {
+  DeliveryDetailPanel,
+  runHrefFor,
+} from '../../../triggers/_components/delivery-detail-panel';
 import type { RoutingAgentName } from '../../../triggers/_components/delivery-routing';
 import { useTriggerActions } from '../../../triggers/_components/use-trigger-actions';
 import type { TriggerNotice } from '../../../triggers/_components/use-trigger-actions';
@@ -289,6 +292,7 @@ export function AgentTriggersTab() {
           onRedeliver={redeliver}
           redeliverAllowed={canRunTrigger(triggers.find((t) => t.id === detailDelivery.triggerId))}
           agents={agentNames}
+          runHref={runHrefFor(triggers.find((t) => t.id === detailDelivery.triggerId))}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);
