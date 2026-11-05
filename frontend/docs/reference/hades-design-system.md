@@ -468,7 +468,7 @@ import { Button } from '@runkora/hades';
 </Button>
 ```
 
-**Button variants:** `default` (accent fill), `secondary` (surface + border), `outline` (transparent + border), `ghost` (no fill), `muted` (dimmed ghost), `destructive` (error intent).
+**Button variants:** `default` (accent fill), `secondary` (surface + border), `outline` (transparent + border), `ghost` (no fill), `muted` (dimmed ghost), `destructive` (error intent), `warning` (degraded intent).
 
 **Button sizes:** `xs`, `sm`, `md` (default), `lg`, `icon` (square 36px), `icon-sm` (square 28px).
 

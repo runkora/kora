@@ -27,6 +27,11 @@ export interface RadioCardProps {
    * option keeps its place in the group.
    */
   disabled?: boolean;
+  /**
+   * Draws the card with no fill when it is not selected, so it takes the colour of the
+   * surface it sits on. For a group placed inside a filled section.
+   */
+  transparent?: boolean | undefined;
 }
 
 /**
@@ -60,13 +65,14 @@ export interface RadioCardProps {
  * ```
  */
 const RadioCard = React.forwardRef<HTMLDivElement, RadioCardProps>(
-  ({ value, selected, onSelect, icon, title, description, disabled }, ref) => (
+  ({ value, selected, onSelect, icon, title, description, disabled, transparent }, ref) => (
     // h-full: the card fills its container (a Grid cell), so radio cards in a
     // group are structurally equal height regardless of description length.
     <Card
       ref={ref}
       interactive={!disabled}
       selected={selected}
+      transparent={transparent}
       onClick={disabled ? undefined : () => onSelect(value)}
       column
       className="h-full"
