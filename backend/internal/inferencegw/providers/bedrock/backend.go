@@ -12,7 +12,7 @@ const (
 	backendOpenAICompat   backendID = iota // Bedrock /openai/v1 endpoint (Titan, Nova, Llama, Mistral, …)
 	backendAnthropic                       // Anthropic Messages API on Bedrock (Claude models)
 	backendMantle                          // Bedrock Mantle endpoint /v1 — OpenAI-hosted models (chat/completions + responses)
-	backendMantleOpenAIV1                  // Bedrock Mantle endpoint /openai/v1 — GPT-5.x and xAI Grok (responses only)
+	backendMantleOpenAIV1                  // Bedrock Mantle endpoint /openai/v1 — every openai.gpt-* model except gpt-oss, plus xAI Grok (responses only)
 	backendTitanEmbed                      // native InvokeModel, Amazon Titan embed format
 	backendCohereEmbed                     // native InvokeModel, Cohere embed format
 )

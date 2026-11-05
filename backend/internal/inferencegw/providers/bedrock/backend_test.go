@@ -2,7 +2,7 @@ package bedrock
 
 import "testing"
 
-// TestInferBackendID_MantleOpenAIV1Models verifies that every GPT-5.x and xAI Grok model ID
+// TestInferBackendID_MantleOpenAIV1Models verifies that every openai.gpt-* model ID except gpt-oss, and every xAI Grok model ID,
 // is routed to backendMantleOpenAIV1 by both the cold-start heuristic (inferBackendID) and
 // the warm-registry path (dispatchBackend).
 func TestInferBackendID_MantleOpenAIV1Models(t *testing.T) {
@@ -110,7 +110,7 @@ func TestDispatchBackend_MantleOpenAIV1_ColdStart(t *testing.T) {
 // TestDispatchBackend_MantleOpenAIV1_RegistryMiss_FallsBackToInfer verifies the case
 // where the registry exists but does not contain the model (e.g. a new model
 // added after the last ListModels sweep).  The fallback to inferBackendID
-// must still route GPT-5.x and xAI Grok correctly.
+// must still route openai.gpt-* (except gpt-oss) and xAI Grok correctly.
 func TestDispatchBackend_MantleOpenAIV1_RegistryMiss_FallsBackToInfer(t *testing.T) {
 	t.Parallel()
 	// Registry is non-nil but empty — every lookup misses and falls through.
