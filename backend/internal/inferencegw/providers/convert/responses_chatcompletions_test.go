@@ -217,6 +217,30 @@ func TestChatCompletionsStreaming_ToolCallEmittedInTerminalEvent(t *testing.T) {
 	if !gotCall {
 		t.Errorf("function_call not found in completed output: %+v", completed.Response.Output)
 	}
+
+	// Codex collects calls from output_item.done, so the call must also stream as its own
+	// item at output index 1, after the message, and before response.completed.
+	var added, done bool
+	for _, ev := range out {
+		if ev.Item.Type != "function_call" || ev.Item.CallID != "call_y" {
+			continue
+		}
+		if ev.OutputIndex != 1 {
+			t.Errorf("%s OutputIndex = %d, want 1", ev.Type, ev.OutputIndex)
+		}
+		switch ev.Type {
+		case "response.output_item.added":
+			added = true
+		case "response.output_item.done":
+			done = true
+			if ev.Item.Arguments.OfString != `{"city":"Berlin"}` {
+				t.Errorf("output_item.done Arguments = %q, want accumulated JSON", ev.Item.Arguments.OfString)
+			}
+		}
+	}
+	if !added || !done {
+		t.Errorf("function_call streamed as an item: added=%v done=%v, want both", added, done)
+	}
 }
 
 // ─── Multiple tool calls (parallel) ──────────────────────────────────────────

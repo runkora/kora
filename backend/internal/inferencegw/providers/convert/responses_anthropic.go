@@ -329,14 +329,11 @@ func convertResponsesItems(items []responses.ResponseInputItemUnionParam) ([]ant
 		case item.OfFunctionCallOutput != nil:
 			flushPendingTool()
 			fco := item.OfFunctionCallOutput
-			// Output is a string|[]content union in v3. kora only produces string
-			// outputs; reject the content-array variant explicitly to avoid silently
-			// forwarding an empty string to the model.
-			// TODO: handle array variant (images/files) if a future client sends content-array outputs.
-			if !fco.Output.OfString.Valid() {
-				return nil, nil, fmt.Errorf("responses: function_call_output item %q has unsupported content-array output; only string outputs are supported", fco.CallID)
+			text, ok := functionCallOutputText(fco.Output)
+			if !ok {
+				return nil, nil, fmt.Errorf("responses: function_call_output item %q has no text output; image and file outputs are not supported", fco.CallID)
 			}
-			pendingResults = append(pendingResults, anthropic.NewToolResultBlock(fco.CallID.Value, fco.Output.OfString.Value, false))
+			pendingResults = append(pendingResults, anthropic.NewToolResultBlock(fco.CallID.Value, text, false))
 		}
 	}
 	flushPendingTool()
@@ -482,6 +479,24 @@ func extractContentListText(parts responses.ResponseInputMessageContentListParam
 		}
 	}
 	return sb.String()
+}
+
+// functionCallOutputText is the text of a function_call_output: the string, or the
+// input_text parts of a content list joined. Codex sends MCP tool results as a list.
+// ok is false for a list with no text part, such as an image alone, which would
+// otherwise reach the model as an empty result.
+func functionCallOutputText(out responses.ResponseInputItemFunctionCallOutputOutputUnionParam) (text string, ok bool) {
+	if out.OfString.Valid() {
+		return out.OfString.Value, true
+	}
+	var sb strings.Builder
+	for _, part := range out.OfResponseFunctionCallOutputItemArray {
+		if part.OfInputText != nil {
+			sb.WriteString(part.OfInputText.Text)
+			ok = true
+		}
+	}
+	return sb.String(), ok
 }
 
 // convertResponsesToolsToAnthropic translates Responses API function tools to

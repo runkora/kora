@@ -160,14 +160,12 @@ func convertResponsesItemsToChatMessages(items []responses.ResponseInputItemUnio
 		case item.OfFunctionCallOutput != nil:
 			flushPendingTool()
 			fco := item.OfFunctionCallOutput
-			// Output is a string|[]content union in v3. kora only produces string
-			// outputs; skip the content-array variant to avoid silently forwarding
-			// an empty string to the model.
-			// TODO: handle array variant (images/files) if a future client sends content-array outputs.
-			if !fco.Output.OfString.Valid() {
+			// A list with no text part is skipped rather than sent as an empty result.
+			text, ok := functionCallOutputText(fco.Output)
+			if !ok {
 				continue
 			}
-			msgs = append(msgs, openai.ToolMessage(fco.Output.OfString.Value, fco.CallID.Value))
+			msgs = append(msgs, openai.ToolMessage(text, fco.CallID.Value))
 		}
 	}
 	flushPendingTool()
@@ -382,7 +380,7 @@ func (s *ChatCompletionsStreamState) finishEvents(finishReason string) []respons
 		Status: status,
 		Output: output,
 	}
-	return []responses.ResponseStreamEventUnion{
+	events := []responses.ResponseStreamEventUnion{
 		{
 			Type:           "response.output_text.done",
 			SequenceNumber: s.nextSeq(),
@@ -405,14 +403,27 @@ func (s *ChatCompletionsStreamState) finishEvents(finishReason string) []respons
 			Item:           completedMsg,
 		},
 	}
+	// Each tool call is announced as its own output item. Clients such as Codex
+	// collect calls from output_item.done and ignore the output of response.completed.
+	for i, item := range toolItems {
+		idx := int64(i + 1)
+		call := item.AsFunctionCall()
+		events = append(events,
+			responses.ResponseStreamEventUnion{Type: "response.output_item.added", SequenceNumber: s.nextSeq(), OutputIndex: idx, Item: item},
+			responses.ResponseStreamEventUnion{Type: "response.function_call_arguments.done", SequenceNumber: s.nextSeq(), ItemID: call.ID, OutputIndex: idx, Arguments: call.Arguments},
+			responses.ResponseStreamEventUnion{Type: "response.output_item.done", SequenceNumber: s.nextSeq(), OutputIndex: idx, Item: item},
+		)
+	}
+	return events
 }
 
 // ChatCompletionChunkToResponsesEvents translates one OpenAI ChatCompletionChunk
 // into zero or more Responses API stream events. The caller must process chunks
 // in order; state carries context across chunks within the same stream.
 //
-// Tool-call deltas are accumulated and emitted in the terminal response.completed
-// event, matching the non-streaming bridge's output shape.
+// Tool-call deltas are accumulated. At the finish each call is emitted as its own
+// output item, and again in the terminal response.completed event, matching the
+// non-streaming bridge's output shape.
 func ChatCompletionChunkToResponsesEvents(chunk openai.ChatCompletionChunk, s *ChatCompletionsStreamState) []responses.ResponseStreamEventUnion {
 	var events []responses.ResponseStreamEventUnion
 
