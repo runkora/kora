@@ -201,15 +201,23 @@ type skillFolder struct {
 // skipped and logged.
 func (c *Crawler) skillFolders(ctx context.Context, m *Marketplace, tree []ghclient.TreeEntry) ([]skillFolder, bool) {
 	folders, limited := c.findSkills(ctx, m, tree)
-	byPath := make(map[string]*skillFolder, len(folders))
+	kept := make(map[string]*skillFolder, len(folders))
 	for _, f := range folders {
-		byPath[f.path] = f
+		kept[f.path] = f
+	}
+	// Every folder with a SKILL.md owns the files below it, kept or not, so a
+	// skipped nested skill's files never reach its parent.
+	skillDirs := map[string]bool{}
+	for _, e := range tree {
+		if e.Type == "blob" && path.Base(e.Path) == skillFileName {
+			skillDirs[path.Dir(e.Path)] = true
+		}
 	}
 	for _, e := range tree {
 		if e.Type != "blob" || e.Mode == ghclient.SymlinkMode || path.Base(e.Path) == skillFileName || !isTextPath(e.Path) {
 			continue
 		}
-		owner := deepestSkill(e.Path, byPath)
+		owner := kept[deepestSkill(e.Path, skillDirs)]
 		switch {
 		case owner == nil:
 		case over(e.Size, c.limits.BytesPerFile):
@@ -275,14 +283,15 @@ func (c *Crawler) findSkills(ctx context.Context, m *Marketplace, tree []ghclien
 	return folders, limited
 }
 
-// deepestSkill returns the nearest skill folder above p, or nil.
-func deepestSkill(p string, byPath map[string]*skillFolder) *skillFolder {
+// deepestSkill returns the nearest folder above p that holds a SKILL.md, or
+// "".
+func deepestSkill(p string, skillDirs map[string]bool) string {
 	for dir := path.Dir(p); dir != "."; dir = path.Dir(dir) {
-		if f, ok := byPath[dir]; ok {
-			return f
+		if skillDirs[dir] {
+			return dir
 		}
 	}
-	return nil
+	return ""
 }
 
 // FetchFile fetches one supporting file of skill at sha. A file that turns

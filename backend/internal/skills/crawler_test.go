@@ -190,6 +190,28 @@ func TestCrawl_RetriesAFailedFetchOnce(t *testing.T) {
 	}
 }
 
+// A file below a skipped nested skill is dropped, never given to the parent.
+func TestCrawl_SkippedNestedSkillKeepsItsFiles(t *testing.T) {
+	g := repo(map[string]string{
+		"skills/a/SKILL.md":   skillMD("a", "A.", ""),
+		"skills/a/notes.md":   "a notes",
+		"skills/a/b/SKILL.md": skillMD("b", "B.", ""),
+		"skills/a/b/extra.md": "b extra",
+	})
+	limits := testLimits
+	limits.SkillsPerMarketplace = 1
+	list, err := NewCrawler(g, limits, discard()).Crawl(context.Background(), testMarketplace(t, "example", "m"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"skills/a=a"}; !slices.Equal(crawlNames(list), want) {
+		t.Fatalf("skills = %v, want %v", crawlNames(list), want)
+	}
+	if want := []SkillFileInfo{{Path: "notes.md", Size: 7}}; !slices.Equal(list.Skills[0].Files, want) {
+		t.Errorf("files = %v, want %v: b's file must not reach a", list.Skills[0].Files, want)
+	}
+}
+
 // An outage aborts the crawl; a broken skill is only skipped.
 func TestCrawl_Errors(t *testing.T) {
 	m := testMarketplace(t, "example", "m")
