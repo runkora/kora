@@ -120,7 +120,13 @@ func TestAPI_Contract(t *testing.T) {
 	if code := f.get("/marketplaces/skills", &page); page.Limit != defaultLimit || page.Offset != 0 || code != http.StatusOK || page.Total != 6 {
 		t.Errorf("defaults = %d %+v", code, page)
 	}
-	if code := f.get("/marketplaces/skills?keys=team-skills:skills/pdf,team-skills:skills/missing,other:skills/pdf", &page); code != http.StatusOK || page.Total != 1 || page.Skills[0].Path != "skills/pdf" {
+	if code := f.get("/marketplaces/skills?keys=team-skills:skills/pdf&keys=team-skills:skills/docx&keys=team-skills:skills/missing&keys=other:skills/pdf&keys=", &page); code != http.StatusOK || page.Total != 2 || page.Skills[0].Path != "skills/docx" || page.Skills[1].Path != "skills/pdf" {
+		t.Errorf("repeated keys = %d %+v, want docx and pdf", code, page)
+	}
+	if code := f.get("/marketplaces/skills?keys=team-skills:skills/pdf,team-skills:skills/docx", &page); code != http.StatusOK || page.Total != 0 {
+		t.Errorf("a comma-joined value = %d total %d, want it read as one unknown key", code, page.Total)
+	}
+	if code := f.get("/marketplaces/skills?keys=team-skills:skills/pdf", &page); code != http.StatusOK || page.Total != 1 || page.Skills[0].Path != "skills/pdf" {
 		t.Errorf("keys = %d %+v, want only the known key", code, page)
 	}
 
@@ -312,7 +318,7 @@ func TestAPI_KeysAreCapped(t *testing.T) {
 	}
 	keys = append(keys, "team-skills:skills/pdf")
 	var page SkillPage
-	if code := f.get("/marketplaces/skills?keys="+strings.Join(keys, ","), &page); code != http.StatusOK || page.Total != 0 {
+	if code := f.get("/marketplaces/skills?keys="+strings.Join(keys, "&keys="), &page); code != http.StatusOK || page.Total != 0 {
 		t.Errorf("GET /marketplaces/skills with %d keys = %d total %d, want 200 and the key past the cap ignored", len(keys), code, page.Total)
 	}
 }

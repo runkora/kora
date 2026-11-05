@@ -129,9 +129,11 @@ func (c *Controller) handleListSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := SkillQuery{Marketplace: query.Get("marketplace"), Search: query.Get("search"), Offset: offset, Limit: min(limit, maxLimit)}
-	if query.Has("keys") {
+	// One keys parameter per skill key. A key may hold a comma, so values are
+	// never split.
+	if values, ok := query["keys"]; ok {
 		q.Keys = []string{}
-		for k := range strings.SplitSeq(query.Get("keys"), ",") {
+		for _, k := range values {
 			if k = strings.TrimSpace(k); k != "" && len(q.Keys) < maxKeys {
 				q.Keys = append(q.Keys, k)
 			}
