@@ -36,6 +36,11 @@ func main() {
 	}
 
 	logger.Info(ctx, "skills-service starting", logging.Field{Key: "version", Value: sc.Current.App.Version})
+	if err = sc.Current.Validate(); err != nil {
+		logger.Error(ctx, "invalid config", logging.Field{Key: "error", Value: err.Error()})
+		shutdownObservability()
+		os.Exit(1)
+	}
 
 	metrics, err := platformmetrics.Setup(ctx, sc.Current.Metrics, observability.Config{
 		ServiceName:    sc.Current.Observability.ServiceName,

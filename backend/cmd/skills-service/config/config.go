@@ -2,6 +2,7 @@
 package skillsconfig
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/config"
@@ -91,6 +92,17 @@ func (c *Config) CacheTTL() time.Duration {
 // FailureTTL returns how long a failed crawl stays cached.
 func (c *Config) FailureTTL() time.Duration {
 	return time.Duration(c.Marketplace.FailureTTLSecs) * time.Second
+}
+
+// Validate rejects settings the service cannot run with.
+func (c *Config) Validate() error {
+	if c.Marketplace.CacheTTLSecs <= 0 {
+		return fmt.Errorf("marketplace.cacheTTLSecs must be positive, got %d", c.Marketplace.CacheTTLSecs)
+	}
+	if c.Marketplace.FailureTTLSecs <= 0 {
+		return fmt.Errorf("marketplace.failureTTLSecs must be positive, got %d", c.Marketplace.FailureTTLSecs)
+	}
+	return nil
 }
 
 // Current holds the skills-service configuration.
