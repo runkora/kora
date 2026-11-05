@@ -112,7 +112,7 @@ func TestChartSkillsServiceLimits(t *testing.T) {
 		}
 		return module.Marketplace.Limits
 	}
-	want := map[string]int64{"skillsPerMarketplace": 500, "filesPerSkill": 500, "bytesPerFile": 131072, "skillMdBytesPerMarketplace": 8388608}
+	want := map[string]int64{"skillsPerMarketplace": 500, "filesPerSkill": 500, "bytesPerFile": 131072, "skillMdBytesPerMarketplace": 8388608, "fileCacheBytesPerMarketplace": 33554432}
 	if got := render("{}\n"); !maps.Equal(got, want) {
 		t.Errorf("default limits = %v, want %v", got, want)
 	}

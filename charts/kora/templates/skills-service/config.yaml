@@ -17,6 +17,7 @@ cmd/skills-service:
       filesPerSkill: {{ $limits.filesPerSkill | default 0 | int64 }}
       bytesPerFile: {{ $limits.bytesPerFile | default 0 | int64 }}
       skillMdBytesPerMarketplace: {{ $limits.skillMdBytesPerMarketplace | default 0 | int64 }}
+      fileCacheBytesPerMarketplace: {{ $limits.fileCacheBytesPerMarketplace | default 0 | int64 }}
 {{ include "kora.observabilityConfigModule" . }}
 {{ include "kora.storageConfigModule" (dict "root" . "redisClient" true) }}
 {{ include "kora.tokenConfigModule" . }}

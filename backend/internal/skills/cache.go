@@ -22,12 +22,15 @@ type Cache struct {
 	redis      *storage.RedisClient
 	ttl        time.Duration
 	failureTTL time.Duration
+	// fileBudget caps the bytes of supporting files cached per Marketplace and commit. Zero is no cap.
+	fileBudget int64
 }
 
-// NewCache returns a Cache whose entries expire after ttl, and failed crawls
-// after failureTTL.
-func NewCache(redis *storage.RedisClient, ttl, failureTTL time.Duration) *Cache {
-	return &Cache{redis: redis, ttl: ttl, failureTTL: failureTTL}
+// NewCache returns a Cache whose entries expire after ttl, failed crawls after
+// failureTTL, and that caches at most fileBudget bytes of supporting files per
+// Marketplace and commit.
+func NewCache(redis *storage.RedisClient, ttl, failureTTL time.Duration, fileBudget int64) *Cache {
+	return &Cache{redis: redis, ttl: ttl, failureTTL: failureTTL, fileBudget: fileBudget}
 }
 
 func cacheKey(m *Marketplace, parts ...string) string {
@@ -75,8 +78,24 @@ func (c *Cache) GetFile(ctx context.Context, m *Marketplace, sha, path string) (
 	return content, ok, err
 }
 
-// SetFile caches the content of one skill file at sha.
+// SetFile caches the content of one skill file at sha. A file that would take
+// the Marketplace past fileBudget is not cached, so one Marketplace cannot fill
+// the shared Redis. The budget counter expires with the first file it counts.
 func (c *Cache) SetFile(ctx context.Context, m *Marketplace, sha, path, content string) error {
+	if c.fileBudget > 0 {
+		key, size := cacheKey(m, "filebytes", sha), int64(len(content))
+		used, err := c.redis.Client().IncrBy(ctx, key, size).Result()
+		if err != nil {
+			return fmt.Errorf("cache budget %q: %w: %w", key, storage.ErrRedisUnavailable, err)
+		}
+		if used == size {
+			c.redis.Client().Expire(ctx, key, c.ttl)
+		}
+		if used > c.fileBudget {
+			c.redis.Client().DecrBy(ctx, key, size)
+			return nil
+		}
+	}
 	return c.set(ctx, cacheKey(m, "file", sha, path), content, c.ttl)
 }
 

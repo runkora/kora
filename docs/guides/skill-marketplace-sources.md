@@ -115,6 +115,7 @@ The platform sets the crawl limits in the chart's `skillsService.limits` values:
 *   **`filesPerSkill`:** 500 files listed per skill.
 *   **`bytesPerFile`:** 128 KiB per file.
 *   **`skillMdBytesPerMarketplace`:** 8 MiB of `SKILL.md` files per Marketplace.
+*   **`fileCacheBytesPerMarketplace`:** 32 MiB of cached supporting files per Marketplace. A file over it is served without caching.
 
 An empty or zero value removes that limit. Skills and files over a limit are skipped and logged. skills-service reads only files with a text extension (e.g., `.md`, `.py`, `.json`) and never downloads binary files.
 

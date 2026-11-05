@@ -487,6 +487,7 @@ Kubernetes: `>=1.34.0-0`
 | skillsService.image.repository | string | `"kora-skills-service"` |  |
 | skillsService.image.tag | string | `""` |  |
 | skillsService.limits.bytesPerFile | int | `131072` | Bytes of one file. |
+| skillsService.limits.fileCacheBytesPerMarketplace | int | `33554432` | Bytes of supporting files cached for one Marketplace. Files over it are served uncached. |
 | skillsService.limits.filesPerSkill | int | `500` | Supporting files listed for one skill. |
 | skillsService.limits.skillMdBytesPerMarketplace | int | `8388608` | Bytes of all SKILL.md files of one Marketplace. |
 | skillsService.limits.skillsPerMarketplace | int | `500` | Skills read from one Marketplace. |

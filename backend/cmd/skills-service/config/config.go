@@ -70,6 +70,8 @@ type Config struct {
 			FilesPerSkill              int   `yaml:"filesPerSkill"`
 			BytesPerFile               int64 `yaml:"bytesPerFile"`
 			SkillMdBytesPerMarketplace int64 `yaml:"skillMdBytesPerMarketplace"`
+			// FileCacheBytesPerMarketplace caps the supporting files cached per Marketplace and commit.
+			FileCacheBytesPerMarketplace int64 `yaml:"fileCacheBytesPerMarketplace"`
 		} `yaml:"limits"`
 	} `yaml:"marketplace"`
 

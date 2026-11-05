@@ -145,7 +145,7 @@ func initControllers(ctx context.Context, logger logging.Logger, redis *storage.
 		BytesPerFile:               limits.BytesPerFile,
 		SkillMdBytesPerMarketplace: limits.SkillMdBytesPerMarketplace,
 	}, logger)
-	cache := skills.NewCache(redis, sc.Current.CacheTTL(), sc.Current.FailureTTL())
+	cache := skills.NewCache(redis, sc.Current.CacheTTL(), sc.Current.FailureTTL(), limits.FileCacheBytesPerMarketplace)
 
 	pol := policy.NewEvaluator(
 		sc.Current.Policy.BundleEndpoint,

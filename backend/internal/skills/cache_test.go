@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/runkora/kora/backend/internal/platform/marketplace"
 	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
@@ -71,6 +72,18 @@ func (f *respServer) reply(args []string) string {
 			}
 		}
 		return "+OK\r\n"
+	case "INCRBY", "DECRBY":
+		n, _ := strconv.Atoi(args[2])
+		if strings.EqualFold(args[0], "DECRBY") {
+			n = -n
+		}
+		v, _ := strconv.Atoi(f.vals[args[1]])
+		f.vals[args[1]] = strconv.Itoa(v + n)
+		return fmt.Sprintf(":%d\r\n", v+n)
+	case "EXPIRE":
+		n, _ := strconv.Atoi(args[2])
+		f.ttls[args[1]] = time.Duration(n) * time.Second
+		return ":1\r\n"
 	default:
 		return "+OK\r\n"
 	}
@@ -102,7 +115,7 @@ func readRESP(rd *bufio.Reader) ([]string, error) {
 }
 
 // newTestCache returns a Cache on a fake Redis, and the fake.
-func newTestCache(t *testing.T, ttl, failureTTL time.Duration) (*Cache, *respServer) {
+func newTestCache(t *testing.T, ttl, failureTTL time.Duration, fileBudget ...int64) (*Cache, *respServer) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -111,7 +124,11 @@ func newTestCache(t *testing.T, ttl, failureTTL time.Duration) (*Cache, *respSer
 	t.Cleanup(func() { _ = ln.Close() })
 	fake := &respServer{vals: map[string]string{}, ttls: map[string]time.Duration{}}
 	go fake.serve(ln)
-	return newCacheAt(t, ln.Addr().(*net.TCPAddr).Port, ttl, failureTTL), fake
+	c := newCacheAt(t, ln.Addr().(*net.TCPAddr).Port, ttl, failureTTL)
+	if len(fileBudget) > 0 {
+		c.fileBudget = fileBudget[0]
+	}
+	return c, fake
 }
 
 func newCacheAt(t *testing.T, port int, ttl, failureTTL time.Duration) *Cache {
@@ -122,7 +139,7 @@ func newCacheAt(t *testing.T, port int, ttl, failureTTL time.Duration) *Cache {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = rc.Close() })
-	return NewCache(rc, ttl, failureTTL)
+	return NewCache(rc, ttl, failureTTL, 0)
 }
 
 func TestCache_KeysAndTTLs(t *testing.T) {
@@ -202,5 +219,28 @@ func TestCache_RedisErrorIsWrapped(t *testing.T) {
 	}
 	if err := cache.SetList(context.Background(), m, skillList{}); !errors.Is(err, storage.ErrRedisUnavailable) {
 		t.Errorf("SetList with Redis down = %v, want ErrRedisUnavailable", err)
+	}
+}
+
+func TestCache_FileBudget(t *testing.T) {
+	ctx := context.Background()
+	c, fake := newTestCache(t, time.Hour, time.Minute, 10)
+	m := &Marketplace{TenantID: "example", Marketplace: marketplace.Marketplace{Slug: "team-skills"}}
+
+	for _, f := range []struct{ path, content string }{{"a.md", "123456"}, {"b.md", "12345"}, {"c.md", "1234"}} {
+		if err := c.SetFile(ctx, m, "sha", f.path, f.content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, want := range map[string]bool{"a.md": true, "b.md": false, "c.md": true} {
+		if _, ok, _ := c.GetFile(ctx, m, "sha", path); ok != want {
+			t.Errorf("%s cached = %v, want %v", path, ok, want)
+		}
+	}
+	if got := fake.vals[cacheKey(m, "filebytes", "sha")]; got != "10" {
+		t.Errorf("budget used = %s, want 10", got)
+	}
+	if got := fake.ttls[cacheKey(m, "filebytes", "sha")]; got != time.Hour {
+		t.Errorf("budget TTL = %v, want the cache TTL", got)
 	}
 }

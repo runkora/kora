@@ -35,6 +35,7 @@ marketplace:
     filesPerSkill: 500
     bytesPerFile: 131072 # 128 KiB
     skillMdBytesPerMarketplace: 8388608 # 8 MiB
+    fileCacheBytesPerMarketplace: 33554432 # 32 MiB
 
 github:
   apiBaseURL: https://api.github.com

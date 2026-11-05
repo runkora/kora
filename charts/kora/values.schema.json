@@ -219,6 +219,13 @@
                 "null"
               ],
               "minimum": 0
+            },
+            "fileCacheBytesPerMarketplace": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
             }
           }
         }

@@ -951,6 +951,8 @@ skillsService:
     bytesPerFile: 131072
     # -- Bytes of all SKILL.md files of one Marketplace.
     skillMdBytesPerMarketplace: 8388608
+    # -- Bytes of supporting files cached for one Marketplace. Files over it are served uncached.
+    fileCacheBytesPerMarketplace: 33554432
 
 triggers:
   image:
