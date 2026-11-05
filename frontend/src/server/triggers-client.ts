@@ -248,7 +248,7 @@ export async function schedulePreview(
 ): Promise<SchedulePreviewResponse | undefined> {
   return request<SchedulePreviewResponse>('/triggers/schedule-preview', accessToken, {
     method: 'POST',
-    body: payload,
+    body: { schedule_config: payload },
   });
 }
 

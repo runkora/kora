@@ -209,11 +209,12 @@ describe('describeCron', () => {
     expect(describeCron('15 * * * *')).toBe('Every hour at 15 minutes past');
     expect(describeCron('0 2 * * *')).toBe('Every day at 02:00');
     expect(describeCron('30 9 * * 1,2,3,4,5')).toBe('Every week on weekdays at 09:30');
+    expect(describeCron('15 9 * * 1-5')).toBe('Every week on weekdays at 09:15');
     expect(describeCron('0 3 1 * *')).toBe('Monthly on the 1st at 03:00');
   });
 
   it('falls back to Custom schedule for shapes the builder cannot produce', () => {
-    expect(describeCron('0 9 * * 1-5')).toBe('Custom schedule');
+    expect(describeCron('0 9 * * */2')).toBe('Custom schedule');
     expect(describeCron('0 2 1 6 *')).toBe('Custom schedule');
     expect(describeCron('not a cron')).toBe('Custom schedule');
     expect(describeCron('')).toBe('Custom schedule');
@@ -283,6 +284,20 @@ describe('specFromCron ranges', () => {
     expect(specFromCron('0 25 * * 1')).toBeNull();
     expect(specFromCron('61 * * * *')).toBeNull();
     expect(specFromCron('0 6 32 * *')).toBeNull();
+  });
+
+  it('reads day-of-week ranges as ticked weekdays', () => {
+    expect(specFromCron('15 9 * * 1-5')?.weekdays).toEqual([1, 2, 3, 4, 5]);
+    expect(specFromCron('0 9 * * 0,3-4')?.weekdays).toEqual([0, 3, 4]);
+    expect(specFromCron('0 9 * * 5,1')?.weekdays).toEqual([1, 5]);
+  });
+
+  it('leaves day-of-week shapes it cannot tick as a raw expression', () => {
+    expect(specFromCron('0 9 * * 5-1')).toBeNull();
+    expect(specFromCron('0 9 * * 1-7')).toBeNull();
+    expect(specFromCron('0 9 * * 1-2-3')).toBeNull();
+    expect(specFromCron('0 9 * * MON-FRI')).toBeNull();
+    expect(specFromCron('0 9 * * */2')).toBeNull();
   });
 });
 

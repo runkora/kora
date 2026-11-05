@@ -26,7 +26,7 @@ import { DeliveryDetail } from './delivery-detail';
 import type { RedeliverAction } from './delivery-detail';
 import type { RoutingAgentName } from './delivery-routing';
 
-type Filter = 'all' | 'dispatched' | 'failed' | 'skipped' | 'superseded' | 'duplicate';
+type Filter = 'all' | 'dispatched' | 'failed' | 'skipped' | 'superseded' | 'duplicate' | 'missed';
 
 const FILTERS: { value: Filter; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -35,6 +35,7 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: 'skipped', label: 'Skipped' },
   { value: 'superseded', label: 'Superseded' },
   { value: 'duplicate', label: 'Duplicate' },
+  { value: 'missed', label: 'Missed' },
 ];
 
 /** Whether a delivery's status (this trigger's outcome, else the delivery's own) is in a filter. */

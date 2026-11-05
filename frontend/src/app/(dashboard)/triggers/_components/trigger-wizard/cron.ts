@@ -172,9 +172,27 @@ export function isValidCron(expr: string): boolean {
 const NUMERIC = /^\d+$/;
 
 /**
+ * The days a day-of-week field names, as sorted numbers 0 to 6. Accepts single days and
+ * ascending ranges (`1-5`, `0,3-4`), the ones the builder can show as ticked weekdays.
+ * Returns null for anything else, such as steps or day names.
+ */
+function weekdaysFrom(dow: string): number[] | null {
+  const days = new Set<number>();
+  for (const part of dow.split(',')) {
+    const match = /^(\d+)(?:-(\d+))?$/.exec(part);
+    if (match === null) return null;
+    const start = Number(match[1]);
+    const end = Number(match[2] ?? match[1]);
+    if (start > end || end > 6) return null;
+    for (let d = start; d <= end; d++) days.add(d);
+  }
+  return [...days].sort((a, b) => a - b);
+}
+
+/**
  * Parses a 5-field expression back into the builder's vocabulary, when it fits
  * one of the shapes the builder can produce. Returns null for anything else —
- * a range, a month restriction, a raw expression someone typed — which the
+ * a month restriction, a step, a raw expression someone typed — which the
  * caller renders as 'Custom schedule' rather than guessing at.
  */
 export function specFromCron(expr: string): CronSpec | null {
@@ -213,9 +231,9 @@ export function specFromCron(expr: string): CronSpec | null {
     return { ...base, freq: 'daily', time: time() };
   }
   if (dom === '*' && dow !== '*') {
-    const days = dow.split(',');
-    if (!days.every((d) => NUMERIC.test(d) && Number(d) >= 0 && Number(d) <= 6)) return null;
-    return { ...base, freq: 'weekly', time: time(), weekdays: days.map(Number) };
+    const weekdays = weekdaysFrom(dow);
+    if (weekdays === null) return null;
+    return { ...base, freq: 'weekly', time: time(), weekdays };
   }
   if (dow === '*' && NUMERIC.test(dom) && Number(dom) >= 1 && Number(dom) <= 31) {
     return { ...base, freq: 'monthly', time: time(), dom };

@@ -1,5 +1,6 @@
 /**
- * Integration tests for POST /api/triggers.
+ * Integration tests for POST /api/triggers, PATCH /api/triggers/[id] and POST
+ * /api/triggers/schedule-preview.
  *
  * The route copies an explicit list of fields to kora-triggers. Each field the
  * backend accepts needs a test that the route forwards it.
@@ -20,6 +21,7 @@ vi.mock('@runkora/server/session', () => ({
 
 import { POST } from './route';
 import { PATCH } from './[id]/route';
+import { POST as PREVIEW } from './schedule-preview/route';
 import { getSession } from '@runkora/server/session';
 
 const TRIGGERS_URL = 'http://test-triggers-svc/triggers';
@@ -246,5 +248,40 @@ describe('PATCH /api/triggers/[id]', () => {
 
     expect(res.status).toBe(200);
     expect(received).toEqual({ sender_restriction: { ids: ['U012AB3CD'], roles: [] } });
+  });
+});
+
+describe('POST /api/triggers/schedule-preview', () => {
+  beforeEach(() => {
+    vi.mocked(getSession).mockResolvedValue(makeSession() as never);
+  });
+
+  it('sends the schedule as schedule_config and returns the upstream fires', async () => {
+    let received: Record<string, unknown> | undefined;
+    const fires = {
+      timezone: 'Australia/Sydney',
+      next_fires: [{ at: '2026-11-09T09:15:00+11:00', label: 'Mon 9 Nov 2026, 09:15' }],
+    };
+    server.use(
+      http.post(`${TRIGGERS_URL}/schedule-preview`, async ({ request }) => {
+        received = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(fires);
+      }),
+    );
+
+    const res = await PREVIEW(
+      new NextRequest('http://localhost/api/triggers/schedule-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cron_expression: '15 9 * * 1-5', timezone: 'Australia/Sydney' }),
+      }),
+      {} as never,
+    );
+
+    expect(res.status).toBe(200);
+    expect(received).toEqual({
+      schedule_config: { cron_expression: '15 9 * * 1-5', timezone: 'Australia/Sydney' },
+    });
+    expect(await res.json()).toEqual({ data: fires });
   });
 });

@@ -70,7 +70,7 @@ export function storedFromDraft(draft: ScheduleDraft): StoredSchedule {
 
 /**
  * The builder's view of a stored schedule. An expression the builder cannot
- * produce (a range, a month restriction) opens as `custom`, on its raw text.
+ * produce (an hour range, a month restriction) opens as `custom`, on its raw text.
  */
 export function draftFromStored(stored: StoredSchedule): ScheduleDraft {
   const spec = specFromCron(stored.cronExpression);
