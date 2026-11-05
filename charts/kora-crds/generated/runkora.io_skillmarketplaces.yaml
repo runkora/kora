@@ -131,8 +131,17 @@ spec:
                 - owner
                 - repo
                 type: object
+              origin:
+                description: |-
+                  Origin states whether the content is the organization's own (internal)
+                  or third-party (external), whatever the repository's visibility.
+                enum:
+                - internal
+                - external
+                type: string
             required:
             - github
+            - origin
             type: object
           status:
             description: |-

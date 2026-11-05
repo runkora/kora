@@ -63,6 +63,11 @@ type SkillMarketplace struct {
 // SkillMarketplaceSpec is the declared Marketplace.
 // +kubebuilder:object:generate=true
 type SkillMarketplaceSpec struct {
+	// Origin states whether the content is the organization's own (internal)
+	// or third-party (external), whatever the repository's visibility.
+	// +kubebuilder:validation:Enum=internal;external
+	Origin string `json:"origin"`
+
 	// GitHub is the repository to read skills from and the App that reads it.
 	GitHub SkillMarketplaceGitHub `json:"github"`
 }

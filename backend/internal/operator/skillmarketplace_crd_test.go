@@ -119,6 +119,16 @@ func TestSkillMarketplaceCRD_Repo(t *testing.T) {
 	assertRuleDeclared(t, repo, "self != '.' && self != '..'")
 }
 
+func TestSkillMarketplaceCRD_Origin(t *testing.T) {
+	spec := crdProp(loadCRDSchema(t, skillMarketplaceCRDPath), "spec")
+	if got := crdProp(spec, "origin")["enum"]; !reflect.DeepEqual(got, []any{"internal", "external"}) {
+		t.Errorf("origin enum = %v, want internal and external", got)
+	}
+	if got := spec["required"]; !reflect.DeepEqual(got, []any{"github", "origin"}) {
+		t.Errorf("spec required = %v, want github and origin", got)
+	}
+}
+
 func TestSkillMarketplaceCRD_Ref(t *testing.T) {
 	assertMatches(t, crdPattern(t, crdProp(marketplaceGitHubSchema(t), "ref")),
 		[]string{"main", "release/1.2", "0123456789abcdef0123456789abcdef01234567"},
