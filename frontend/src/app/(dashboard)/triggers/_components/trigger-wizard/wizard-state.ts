@@ -507,7 +507,7 @@ export function admissionSummary(
     return [
       ...(n === 1
         ? [count, { text: ' run at a time. Up to ' }]
-        : [{ text: 'Up to ' }, count, { text: ' run at once. Up to ' }]),
+        : [{ text: 'Up to ' }, count, { text: ' runs at once. Up to ' }]),
       { text: String(state.maxQueueDepth), strong: true },
       { text: ' more wait in order, and each has ' },
       timeout,
@@ -521,7 +521,7 @@ export function admissionSummary(
         : [
             { text: 'Up to ' },
             count,
-            { text: " run at once. While they're busy, one event waits and " },
+            { text: " runs at once. While they're busy, one event waits and " },
           ]),
       { text: 'a newer one replaces it', strong: true },
       { text: '. Each admitted event has ' },

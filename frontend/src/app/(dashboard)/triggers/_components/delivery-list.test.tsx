@@ -19,6 +19,7 @@ const DELIVERIES = [
   makeDelivery({ id: 'd-skip', status: 'skipped', runs: [run('skipped')] }),
   makeDelivery({ id: 'd-old', status: 'dispatched', runs: [run('superseded')] }),
   makeDelivery({ id: 'd-dup', status: 'duplicate' }),
+  makeDelivery({ id: 'd-miss', status: 'missed' }),
 ];
 
 function renderList(props: Partial<React.ComponentProps<typeof DeliveryList>> = {}) {
@@ -66,6 +67,15 @@ describe('DeliveryList', () => {
     expect(within(group).getByRole('button', { name: /Duplicate/ })).toHaveTextContent('1');
     fireEvent.click(within(group).getByRole('button', { name: /Duplicate/ }));
     expect(screen.getByText('d-dup')).toBeInTheDocument();
+    expect(screen.queryByText('d-ok')).toBeNull();
+  });
+
+  it('filters to scheduled fires that were missed while the platform was down', () => {
+    renderList();
+    const group = screen.getByRole('group', { name: 'Filter deliveries by outcome' });
+    expect(within(group).getByRole('button', { name: /Missed/ })).toHaveTextContent('1');
+    fireEvent.click(within(group).getByRole('button', { name: /Missed/ }));
+    expect(screen.getByText('d-miss')).toBeInTheDocument();
     expect(screen.queryByText('d-ok')).toBeNull();
   });
 

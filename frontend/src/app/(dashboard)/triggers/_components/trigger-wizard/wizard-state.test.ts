@@ -397,7 +397,7 @@ describe('admissionSummary', () => {
         'webhook',
       ),
     ).toBe(
-      'Up to 6 run at once. Up to 64 more wait in order, and each has 120 seconds to start once admitted.',
+      'Up to 6 runs at once. Up to 64 more wait in order, and each has 120 seconds to start once admitted.',
     );
   });
 
@@ -417,7 +417,7 @@ describe('admissionSummary', () => {
       'webhook',
     );
     expect(sentence).toBe(
-      "Up to 6 run at once. While they're busy, one event waits and a newer one replaces it. Each admitted event has 120 seconds to start.",
+      "Up to 6 runs at once. While they're busy, one event waits and a newer one replaces it. Each admitted event has 120 seconds to start.",
     );
     expect(sentence).not.toContain('32');
   });

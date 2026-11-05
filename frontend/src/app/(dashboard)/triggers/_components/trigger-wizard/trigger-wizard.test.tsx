@@ -866,7 +866,7 @@ describe('shared steps', () => {
     render(<StepDelivery {...shared} />);
     const summary = screen.getByText(/more wait in order/);
     expect(summary.textContent).toBe(
-      'Up to 4 run at once. Up to 32 more wait in order, and each has 30 seconds to start once admitted.',
+      'Up to 4 runs at once. Up to 32 more wait in order, and each has 30 seconds to start once admitted.',
     );
   });
 
