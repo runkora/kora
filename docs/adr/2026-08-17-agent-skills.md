@@ -251,7 +251,7 @@ The API is under `/v1` and requires the `skills:read` scope. The tenant comes fr
 
 - `scripts/cluster/redeploy.sh` and `REDEPLOY_PLATFORM_SERVICES` in the `Makefile` list `skills-service`.
 - `make cluster-deploy` applies `deploy/local/marketplace/`.
-- `docs/guides/skill-marketplace-sources.md` explains how a tenant administrator creates the GitHub App, the Secret and the `SkillMarketplace`. `docs/code-organization.md` lists the `skills-service` binary and the `skills` package.
+- `docs/guides/register-skill-marketplace.md` explains how a tenant administrator creates the GitHub App, the Secret and the `SkillMarketplace`. `docs/code-organization.md` lists the `skills-service` binary and the `skills` package.
 
 ### Migration Path
 
@@ -289,7 +289,7 @@ None at this time.
 ## References
 
 - [Agent Skills PRD](../prd/agent-skills.md)
-- [Skill marketplace sources guide](../guides/skill-marketplace-sources.md)
+- [Skill marketplace sources guide](../guides/register-skill-marketplace.md)
 
 ---
 

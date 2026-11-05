@@ -265,7 +265,7 @@ None at this time.
 ### Related Documents
 
 *   **[Agent Skills](../adr/2026-08-17-agent-skills.md):** Architecture decision record.
-*   **[Skill marketplace sources](../guides/skill-marketplace-sources.md):** How to register a Marketplace.
+*   **[Skill marketplace sources](../guides/register-skill-marketplace.md):** How to register a Marketplace.
 
 ### Glossary
 

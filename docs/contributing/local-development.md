@@ -193,7 +193,7 @@ There are no migration `Down` triggers in kora, a rollback via `helm rollback` w
 
 The signing key is a file rather than an env var. `secrets/signing.key` holds a 4096-bit RSA private key, generated on first `make up`. Regenerate it with `make gen-signing-key`.
 
-The example skill Marketplace in `deploy/local/marketplace/` reads its repository with the local GitHub App from `deploy/local/connections/github.yaml`. When `secrets/kora-github-app.pem` exists, `create-secrets.sh` copies it into the `skills-github-app` Secret in `kora-tenant-example`. Without the file, `make up` still succeeds and the Marketplace reports `CredentialUnavailable`.
+The example skill marketplace in `deploy/local/marketplace/` uses the local GitHub App key at `secrets/kora-github-app.pem`. When the file exists, `create-secrets.sh` copies it into the `skills-github-app` Secret. Without it, `make up` still succeeds. The marketplace then reports `CredentialUnavailable`.
 
 ## Running tests
 

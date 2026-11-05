@@ -106,13 +106,9 @@ policyService:
 
 A service with an unknown or mistyped key fails at startup and logs the key. Use a component's `extraEnv` for secrets only.
 
-### Skill Marketplaces
+### Skill marketplaces
 
-Tenant administrators register [skill Marketplaces](skill-marketplace-sources.md) with `SkillMarketplace` resources that each carry a GitHub App. The chart sets only the crawl limits through `skillsService.limits`.
-
-The operator renders the `kora-skill-marketplaces` ConfigMap and the `kora-skill-marketplace-secrets` Secret in `kora-system`. skills-service mounts both and reloads them on change.
-
-With `istio.outboundTrafficPolicy: REGISTRY_ONLY`, the chart registers `api.github.com` with a `ServiceEntry` in `kora-system` for skills-service.
+Tenant admins register their own [skill marketplaces](register-skill-marketplace.md) from their namespace. You can set how much of each repository kora reads with `skillsService.limits`. If your mesh runs with `istio.outboundTrafficPolicy: REGISTRY_ONLY`, the chart registers `api.github.com` for you.
 
 ## Run behind an existing gateway
 
