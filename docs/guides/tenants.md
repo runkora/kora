@@ -10,7 +10,7 @@ A tenant is isolated on several axes:
 - **Identity:** workloads get SPIFFE identities scoped to the tenant, backed by a per-tenant CA. Humans are governed by tenant-scoped `Principal`s.
 - **Network:** a default-deny policy and a per-tenant egress policy bind what the tenant's agents and services can reach.
 - **Policy:** grants and roles are scoped to the tenant.
-- **Configuration:** a tenant's connections, MCP servers, and OAuth clients live in its namespace and apply only to it. 
+- **Configuration:** a tenant's connections, MCP servers, skill marketplaces, and OAuth clients live in its namespace and apply only to it. 
 
 Users reach their tenant by email domain. When someone signs in, kora routes them to the tenant whose `emailDomains` claim their address, and authenticates them through that tenant's OIDC client.
 

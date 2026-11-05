@@ -40,12 +40,13 @@ vi.mock('next/link', () => ({
     href,
     onClick,
     children,
+    ...props
   }: {
     href: string;
     onClick?: () => void;
     children: React.ReactNode;
-  }) => (
-    <a href={href} onClick={onClick} data-testid="next-link">
+  } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <a href={href} onClick={onClick} data-testid="next-link" {...props}>
       {children}
     </a>
   ),
@@ -244,6 +245,19 @@ describe('DashboardSidebar', () => {
   });
 
   describe('active state', () => {
+    it('keeps Skills active on a skill page', () => {
+      vi.mocked(usePathname).mockReturnValue(APP_ROUTES.skills.skill('team-skills', 'skills/pdf'));
+      // Both entries are scope-gated: grant them so the test can check which is active.
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['agents:read', 'skills:read'],
+        user: null,
+        loaded: true,
+      });
+      renderSidebar();
+      expect(screen.getByRole('link', { name: 'Skills' })).toHaveAttribute('aria-current', 'page');
+      expect(screen.getByRole('link', { name: 'Agents' })).not.toHaveAttribute('aria-current');
+    });
+
     it('Dashboard link has the correct href when pathname is /', () => {
       vi.mocked(usePathname).mockReturnValue(APP_ROUTES.home);
       renderSidebar();

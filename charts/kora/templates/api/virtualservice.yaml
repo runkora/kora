@@ -164,6 +164,18 @@ spec:
             host: kora-triggers.{{ include "kora.systemNamespace" . }}.svc.cluster.local
             port:
               number: 80
+    # ── Skills service: marketplace listing and skill browsing ─────────────────
+    - match:
+        - uri:
+            exact: /v1/marketplaces
+        - uri:
+            prefix: /v1/marketplaces/
+      {{- include "kora.edgeHeaders" . | nindent 6 }}
+      route:
+        - destination:
+            host: kora-skills-service.{{ include "kora.systemNamespace" . }}.svc.cluster.local
+            port:
+              number: 8098
     # ── Inference gateway (OpenAI-compatible API), the API-host default ────────
     - timeout: 3600s # Long timeout; inference streams can run for many minutes.
       {{- include "kora.edgeHeaders" . | nindent 6 }}

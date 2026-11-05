@@ -87,3 +87,6 @@ export type { TenantListProps } from './tenant-list';
 
 /** The sign-in card: brand panel, title, content and footer. */
 export { AuthCardShell } from './auth-card-shell';
+
+/** Markdown instructions in Hades text, and the line height its code blocks share with a Raw view. */
+export { CODE_LINE_HEIGHT, InstructionsMarkdown } from './instructions-markdown';

@@ -66,6 +66,7 @@ ARG POLICY_SERVICE_URL=http://kora-policy-service.kora-system/api/v1
 ARG KORA_AGENTS_URL=http://kora-agents.kora-system
 ARG KORA_TRIGGERS_URL=http://kora-triggers.kora-system/api/v1
 ARG TOOL_GATEWAY_URL=http://kora-tool-gateway.kora-system
+ARG SKILLS_SERVICE_URL=http://kora-skills-service.kora-system:8098/v1
 # hadolint ignore=DL3025
 # BFF_SESSION_SECRET is a placeholder value only — Next.js evaluates server
 # modules at build time to collect page data, so the variable must be present
@@ -79,6 +80,7 @@ ENV KORA_API_URL=${KORA_API_URL} \
     KORA_AGENTS_URL=${KORA_AGENTS_URL} \
     KORA_TRIGGERS_URL=${KORA_TRIGGERS_URL} \
     TOOL_GATEWAY_URL=${TOOL_GATEWAY_URL} \
+    SKILLS_SERVICE_URL=${SKILLS_SERVICE_URL} \
     BFF_SESSION_SECRET=${BFF_SESSION_SECRET}
 
 # Standalone output traces all runtime dependencies and produces a self-contained

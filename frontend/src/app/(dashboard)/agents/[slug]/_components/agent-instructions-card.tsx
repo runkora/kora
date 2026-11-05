@@ -13,7 +13,7 @@ import {
   Stack,
   Text,
 } from '@runkora/hades';
-import { CODE_LINE_HEIGHT, InstructionsMarkdown } from './instructions-markdown';
+import { CODE_LINE_HEIGHT, InstructionsMarkdown } from '@runkora/components';
 
 type PromptView = 'rendered' | 'raw';
 

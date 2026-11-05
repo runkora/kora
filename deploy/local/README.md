@@ -9,6 +9,7 @@ deploy/local/
 ├── connections/   # Connection resources for the example tenant (Kubernetes, GitHub)
 ├── declarative/   # One of each declarative resource kind for the example tenant
 ├── fixtures/      # Example tenant workload
+├── marketplace/   # SkillMarketplace for the example tenant
 ├── observability/ # LGTM stack the platform exports telemetry to
 └── tenants/       # KoraTenant resources
 ```
@@ -43,3 +44,7 @@ A connection without its credential is skipped, not failed.
 ## Fixtures
 
 `fixtures/kora-tenant-example.yaml` is the example tenant's workload: a self-contained `Deployment` and `Service` for local testing.
+
+## Skill Marketplaces
+
+`marketplace/team-skills.yaml` registers `anthropics/skills` as a skill marketplace for the example tenant. It reads the repository with the GitHub App key at `secrets/kora-github-app.pem`. Without that file, it reports `CredentialUnavailable`. See [Register a skill marketplace](../../docs/guides/register-skill-marketplace.md).

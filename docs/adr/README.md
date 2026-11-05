@@ -133,6 +133,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md) — `Accepted (curated fields and sub-decision 3 superseded in part 2026-09-29)` · 2026-07-21
 - [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) — `Accepted` · 2026-07-23
 - [Hades Wizard Component](2026-08-03-terra-wizard-component.md) — `Proposed` · 2026-08-03
+- [Agent Skills](2026-08-17-agent-skills.md) — `Accepted` · 2026-08-17
 - [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) — `Proposed` · 2026-09-06
 - [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) — `Accepted (Amended 2026-10-31: Amendment 1 Accepted)` · 2026-09-18
 - [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) — `Accepted` · 2026-09-28
@@ -282,6 +283,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-23 | [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) | Accepted | — |
 | 2026-07-28 | [OAuth2 Web-Redirect Clients: GitOps Pre-Registration via an OAuthClient CRD](2026-07-28-oauth2-web-redirect-clients.md) | Accepted | — |
 | 2026-08-03 | [Hades Wizard Component](2026-08-03-terra-wizard-component.md) | Proposed | — |
+| 2026-08-17 | [Agent Skills](2026-08-17-agent-skills.md) | Accepted | — |
 | 2026-09-06 | [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) | Proposed | — |
 | 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted (Amended 2026-10-22) | — |
 | 2026-07-24 | [Non-Token Model Pricing: Full Cost Dimension Pipeline](2026-07-24-non-token-model-pricing.md) | Accepted | — |

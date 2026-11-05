@@ -542,6 +542,7 @@ frontend:
     policyServiceUrl: ""
     koraAgentsUrl: ""
     toolGatewayUrl: ""
+    skillsServiceUrl: ""
     nextPublicAppUrl: ""
   # Holds BFF_SESSION_SECRET.
   existingSecret: kora-frontend-secrets
@@ -910,6 +911,48 @@ policyGateway:
   # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
   # the Go config structs; an unknown key fails startup.
   configOverrides: {}
+
+skillsService:
+  image:
+    registry: ""
+    repository: kora-skills-service
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  serviceAccount:
+    annotations: {}
+  configOverrides: {}
+  # Crawl limits per Marketplace. Skills and files over a limit are skipped and
+  # logged. An empty or zero value is no cap.
+  limits:
+    # -- Skills read from one Marketplace.
+    skillsPerMarketplace: 500
+    # -- Supporting files listed for one skill.
+    filesPerSkill: 500
+    # -- Bytes of one file.
+    bytesPerFile: 131072
+    # -- Bytes of all SKILL.md files of one Marketplace.
+    skillMdBytesPerMarketplace: 8388608
+    # -- Bytes of supporting files cached for one Marketplace. Files over it are served uncached.
+    fileCacheBytesPerMarketplace: 33554432
 
 triggers:
   image:

@@ -488,6 +488,40 @@ export const ApiRoute = {
     ): `${typeof API_BASE}/catalog/pricing/${string}/${string}/override` =>
       `${API_BASE}/catalog/pricing/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/override`,
   },
+
+  /**
+   * `/api/skills`
+   *
+   * GET: one page of the Skills overview, in title order.
+   */
+  skills: {
+    GET: (params: {
+      marketplace: string;
+      favourites: boolean;
+      search: string;
+      page: number;
+    }): `${typeof API_BASE}/skills?${string}` => {
+      const qs = new URLSearchParams({ page: String(params.page) });
+      if (params.favourites) qs.set('favourites', '1');
+      else if (params.marketplace) qs.set('marketplace', params.marketplace);
+      if (params.search) qs.set('search', params.search);
+      return `${API_BASE}/skills?${qs.toString()}`;
+    },
+  },
+
+  /**
+   * `/api/skills/file`
+   *
+   * GET: one supporting file of a skill, loaded when the user selects it.
+   */
+  skillFile: {
+    GET: (params: {
+      marketplace: string;
+      path: string;
+      file: string;
+    }): `${typeof API_BASE}/skills/file?${string}` =>
+      `${API_BASE}/skills/file?${new URLSearchParams(params).toString()}`,
+  },
 } as const;
 
 /**
@@ -518,6 +552,8 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['policyExplain']['GET']>
   | ReturnType<(typeof ApiRoute)['policySimulate']['POST']>
   | ReturnType<(typeof ApiRoute)['usage']['GET']>
+  | ReturnType<(typeof ApiRoute)['skills']['GET']>
+  | ReturnType<(typeof ApiRoute)['skillFile']['GET']>
   | ReturnType<(typeof ApiRoute)['usageBudget']['GET']>
   | ReturnType<(typeof ApiRoute)['catalogPricing']['GET']>
   | ReturnType<(typeof ApiRoute)['catalogPricingOverride']['PUT']>

@@ -19,6 +19,7 @@ const SECTIONS: Record<string, SectionHeader> = {
   'model-gateway': { title: 'Model Gateway' },
   'mcp-gateway': { title: 'MCP Servers' },
   chat: { title: 'Chat' },
+  skills: { title: 'Skills' },
 };
 
 export function DashboardHeader() {

@@ -41,6 +41,7 @@ const MAIN_NAV: NavEntry[] = [
     icon: 'layers',
     requiredScope: 'agents:environments:read',
   },
+  { label: 'Skills', href: APP_ROUTES.skills.root, icon: 'box', requiredScope: 'skills:read' },
   {
     label: 'Triggers',
     href: APP_ROUTES.triggers,

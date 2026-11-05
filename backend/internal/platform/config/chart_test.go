@@ -20,6 +20,7 @@ import (
 	policyGatewayConfig "github.com/runkora/kora/backend/cmd/policy-gateway/config"
 	policyServiceConfig "github.com/runkora/kora/backend/cmd/policy-service/config"
 	sandboxMountConfig "github.com/runkora/kora/backend/cmd/sandbox-mount/config"
+	skillsServiceConfig "github.com/runkora/kora/backend/cmd/skills-service/config"
 	toolGatewayConfig "github.com/runkora/kora/backend/cmd/tool-gateway/config"
 	"github.com/runkora/kora/backend/internal/identity"
 	"github.com/runkora/kora/backend/internal/platform/brand"
@@ -41,6 +42,7 @@ var moduleLoaders = map[string]func() error{
 	"cmd/policy-gateway":    loadService[policyGatewayConfig.Config]("cmd/policy-gateway"),
 	"cmd/policy-service":    loadService[policyServiceConfig.Config]("cmd/policy-service"),
 	"cmd/sandbox-mount":     loadService[sandboxMountConfig.Config]("cmd/sandbox-mount"),
+	"cmd/skills-service":    loadService[skillsServiceConfig.Config]("cmd/skills-service"),
 	"cmd/tool-gateway":      loadService[toolGatewayConfig.Config]("cmd/tool-gateway"),
 
 	"internal/identity": func() error {

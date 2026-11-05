@@ -754,3 +754,12 @@ Startup probe budget in seconds for the sandbox containers, shared by kora-agent
 {{- if lt $s 1 }}{{ fail "agents.sandboxStartupSeconds must be at least 1" }}{{ end -}}
 {{- $s -}}
 {{- end }}
+
+{{- define "kora.skillsService.labels" -}}
+{{ include "kora.labels" . }}
+app.kubernetes.io/name: kora-skills-service
+app.kubernetes.io/component: skills-service
+{{- end }}
+{{- define "kora.skillsService.selectorLabels" -}}
+app: kora-skills-service
+{{- end }}

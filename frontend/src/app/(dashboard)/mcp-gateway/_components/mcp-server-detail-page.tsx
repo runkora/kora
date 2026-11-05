@@ -15,7 +15,8 @@ import {
   type McpClient,
 } from '@runkora/lib/mcp';
 import type { DomainGroup, McpServer } from '../_types';
-import { buildDomainGroups, relativeTime, serverRollupScope, statusColor } from '../_types';
+import { relativeTime } from '@runkora/lib/relative-time';
+import { buildDomainGroups, serverRollupScope, statusColor } from '../_types';
 import { ServerAvatar } from './server-avatar';
 import { ConfigBlock } from './config-block';
 

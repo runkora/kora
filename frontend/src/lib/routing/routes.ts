@@ -45,6 +45,12 @@ export const APP_ROUTES = {
     servers: '/mcp-gateway',
     server: (slug: string) => `/mcp-gateway/${slug}` as const,
   },
+  skills: {
+    root: '/skills',
+    /** A skill is addressed by its folder path; each segment is encoded on its own. */
+    skill: (slug: string, path: string) =>
+      `/skills/${encodeURIComponent(slug)}/${path.split('/').map(encodeURIComponent).join('/')}` as const,
+  },
 
   // ── Policy ───────────────────────────────────────────────────────────────
   policy: {

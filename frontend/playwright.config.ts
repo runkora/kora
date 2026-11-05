@@ -1,11 +1,18 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3000';
+const port = new URL(baseURL).port || '3000';
+const skillsPort = process.env.PLAYWRIGHT_SKILLS_PORT ?? '3101';
+const skillsURL = `http://127.0.0.1:${skillsPort}`;
+
 /**
  * Playwright E2E configuration.
  *
  * Category A constraint (docs/adr/2026-04-01-browser-auth-flow-and-bff-session-architecture.md): E2E tests in frontend/e2e/ must NEVER
  * require a live Go backend, Postgres, or Redis instance.  All Go API calls
- * are intercepted at the network level using page.route() inside each test.
+ * are intercepted at the network level using page.route() inside each test,
+ * except skills-service, which a test-only HTTP fixture stands in for because
+ * the Skills pages call it from the server.
  *
  * The Next.js dev server is started automatically by the webServer block so
  * tests can run with a single `pnpm test:e2e` command.
@@ -29,7 +36,7 @@ export default defineConfig({
   // ── Shared test settings ─────────────────────────────────────────────────
   use: {
     /** All E2E tests target the local Next.js dev server. */
-    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3000',
+    baseURL,
 
     /** Capture a trace on first retry to aid CI debugging. */
     trace: 'on-first-retry',
@@ -47,29 +54,40 @@ export default defineConfig({
   ],
 
   // ── Dev server ───────────────────────────────────────────────────────────
-  webServer: {
-    command: 'pnpm run dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-    env: {
-      // Always use the fixed test secret so that injectSessionCookie() in
-      // fixtures.ts produces a cookie the dev server can unseal, regardless
-      // of whether BFF_SESSION_SECRET is set in the host environment (e.g.
-      // when invoked via `make` which exports the root .env).
-      BFF_SESSION_SECRET: 'playwright-test-session-secret-32ch',
-      KORA_API_URL: process.env.KORA_API_URL ?? 'http://localhost:8080',
-      // These URLs are not called during E2E tests (all BFF fetches are
-      // intercepted by page.route()), but config.ts requires them at boot.
-      // A new requireEnv() in config.ts must be added here too: without it the
-      // dev server never starts and every test fails on a missing element,
-      // which reads as a UI regression rather than a missing variable.
-      INFERENCE_GATEWAY_URL: process.env.INFERENCE_GATEWAY_URL ?? 'http://localhost:8081/v1',
-      POLICY_SERVICE_URL: process.env.POLICY_SERVICE_URL ?? 'http://localhost:8083/api/v1',
-      POLICY_GATEWAY_URL: process.env.POLICY_GATEWAY_URL ?? 'http://localhost:8084/v1',
-      KORA_AGENTS_URL: process.env.KORA_AGENTS_URL ?? 'http://localhost:8080',
-      KORA_TRIGGERS_URL: process.env.KORA_TRIGGERS_URL ?? 'http://localhost:8097',
-      TOOL_GATEWAY_URL: process.env.TOOL_GATEWAY_URL ?? 'http://localhost:8096',
+  webServer: [
+    {
+      command: 'node e2e/skills-upstream.mjs',
+      url: `${skillsURL}/health`,
+      timeout: 10_000,
+      env: { PLAYWRIGHT_SKILLS_PORT: skillsPort },
     },
-  },
+    {
+      command: `pnpm run dev --port ${port}`,
+      url: baseURL,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+      env: {
+        // Always use the fixed test secret so that injectSessionCookie() in
+        // fixtures.ts produces a cookie the dev server can unseal, regardless
+        // of whether BFF_SESSION_SECRET is set in the host environment (e.g.
+        // when invoked via `make` which exports the root .env).
+        BFF_SESSION_SECRET: 'playwright-test-session-secret-32ch',
+        // The stand-in answers the identity preferences; every other identity call fails as before.
+        KORA_API_URL: process.env.KORA_API_URL ?? skillsURL,
+        // These URLs are not called during E2E tests, but config.ts requires
+        // them at boot.
+        // A new requireEnv() in config.ts must be added here too: without it the
+        // dev server never starts and every test fails on a missing element,
+        // which reads as a UI regression rather than a missing variable.
+        INFERENCE_GATEWAY_URL: process.env.INFERENCE_GATEWAY_URL ?? 'http://localhost:8081/v1',
+        POLICY_SERVICE_URL: process.env.POLICY_SERVICE_URL ?? 'http://localhost:8083/api/v1',
+        POLICY_GATEWAY_URL: process.env.POLICY_GATEWAY_URL ?? 'http://localhost:8084/v1',
+        KORA_AGENTS_URL: process.env.KORA_AGENTS_URL ?? 'http://localhost:8080',
+        KORA_TRIGGERS_URL: process.env.KORA_TRIGGERS_URL ?? 'http://localhost:8097',
+        TOOL_GATEWAY_URL: process.env.TOOL_GATEWAY_URL ?? 'http://localhost:8096',
+        // The skills-upstream.mjs fixture, called by the Skills RSC pages and BFF route.
+        SKILLS_SERVICE_URL: `${skillsURL}/v1`,
+      },
+    },
+  ],
 });

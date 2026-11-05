@@ -31,7 +31,8 @@ import type { DataTableColumn, ViewMode } from '@runkora/components';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { PLATFORM_MCP_SERVER } from '@runkora/lib/mcp';
 import type { McpServer } from '../_types';
-import { relativeTime, serverRollupScope } from '../_types';
+import { relativeTime } from '@runkora/lib/relative-time';
+import { serverRollupScope } from '../_types';
 import { ServerAvatar } from './server-avatar';
 import { BuildConfigPanel } from './build-config-panel';
 

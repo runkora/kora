@@ -70,6 +70,7 @@ TOKEN=$(jq -r '.access_token' /tmp/kora_credentials.json) && curl -sk -X POST \
 | Policy Gateway        | `8084` |
 | Triggers              | `8097` |
 | Session Manager       | `8090` |
+| Skills Service        | `8098` |
 
 (`kora-agents` binds `8080` in-cluster; the `operator`, `identity-proxy`, and `sandbox-exec` are not host-facing HTTP. See [code-organization.md](docs/code-organization.md) for the full binary/port map.)
 
@@ -181,6 +182,7 @@ kora follows a **feature-based architecture** with the repository pattern for da
 | `policy-gateway`                                                                            | `cmd/policy-gateway/`    | In-app authz API (PEP) (port 8084)                                                                                            |
 | `kora-agents`                                                                               | `cmd/kora-agents/`       | Agent control plane: runs, sessions, event streaming, k8s orchestration                                                       |
 | `kora-triggers`                                                                             | `cmd/kora-triggers/`     | Triggers: webhook ingestion, trigger API, cron scheduler, manual fire (port 8097)                                             |
+| `skills-service`                                                                            | `cmd/skills-service/`    | Agent Skills: serves skill Marketplaces from GitHub repositories, cached in Redis (port 8098)                                 |
 | `migrate`                                                                                   | `cmd/migrate/`           | Schema migrations: embeds every service's migrations, runs as the chart's pre-install/pre-upgrade hook Job                    |
 | `session-manager`                                                                           | `cmd/session-manager/`   | Per-tenant runner for the agent (Claude Code) subprocess (port 8090)                                                          |
 | `operator`                                                                                  | `cmd/operator/`          | Kubernetes operator: reconciles Tenant/Platform CRDs, injects sidecars, projects declared resources                           |

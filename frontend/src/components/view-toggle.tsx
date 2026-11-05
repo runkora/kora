@@ -1,6 +1,6 @@
 /**
  * @tier 2 — App-level shared layout control (no kora domain knowledge). Used by: policy (roles,
- * grants), agents, mcp-gateway.
+ * grants), agents, mcp-gateway, skills.
  *
  * Switches a collection page between its card and table/list layouts.
  *

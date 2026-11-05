@@ -1,0 +1,228 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.23.0
+  name: skillmarketplaces.runkora.io
+spec:
+  group: runkora.io
+  names:
+    kind: SkillMarketplace
+    listKind: SkillMarketplaceList
+    plural: skillmarketplaces
+    shortNames:
+    - kskm
+    singular: skillmarketplace
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.origin
+      name: Origin
+      type: string
+    - jsonPath: .spec.github.owner
+      name: Owner
+      type: string
+    - jsonPath: .spec.github.repo
+      name: Repo
+      type: string
+    - jsonPath: .spec.github.ref
+      name: Ref
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Aggregated")].reason
+      name: Reason
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          SkillMarketplace registers a GitHub repository as a skill Marketplace for
+          the tenant that owns its namespace.
+
+          The name is the Marketplace slug and part of the aggregated Secret's data
+          key, which Kubernetes caps at 253 characters.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SkillMarketplaceSpec is the declared Marketplace.
+            properties:
+              github:
+                description: GitHub is the repository to read skills from and the
+                  App that reads it.
+                properties:
+                  app:
+                    description: App is the GitHub App installation that reads the
+                      repository.
+                    properties:
+                      appID:
+                        description: AppID is the GitHub App ID.
+                        maxLength: 20
+                        pattern: ^[0-9]+$
+                        type: string
+                      installationID:
+                        description: InstallationID is the App's installation on the
+                          repository owner.
+                        format: int64
+                        minimum: 1
+                        type: integer
+                      privateKeySecretRef:
+                        description: PrivateKeySecretRef is the App private key in
+                          a Secret in this namespace.
+                        properties:
+                          key:
+                            maxLength: 253
+                            minLength: 1
+                            pattern: ^[-._a-zA-Z0-9]+$
+                            type: string
+                          name:
+                            maxLength: 253
+                            minLength: 1
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    required:
+                    - appID
+                    - installationID
+                    - privateKeySecretRef
+                    type: object
+                  owner:
+                    description: Owner is the organization or user account that owns
+                      the repository.
+                    maxLength: 39
+                    pattern: ^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$
+                    type: string
+                  ref:
+                    description: |-
+                      Ref selects what is served. A 40-character hex value pins a commit SHA,
+                      any other value tracks a branch, and no value tracks the default branch.
+                    maxLength: 255
+                    pattern: ^[A-Za-z0-9][A-Za-z0-9._/-]*$
+                    type: string
+                  repo:
+                    description: Repo is the repository name.
+                    maxLength: 100
+                    pattern: ^[A-Za-z0-9._-]+$
+                    type: string
+                    x-kubernetes-validations:
+                    - rule: self != '.' && self != '..'
+                required:
+                - app
+                - owner
+                - repo
+                type: object
+              origin:
+                description: |-
+                  Origin states whether the content is the organization's own (internal)
+                  or third-party (external), whatever the repository's visibility.
+                enum:
+                - internal
+                - external
+                type: string
+            required:
+            - github
+            - origin
+            type: object
+          status:
+            description: |-
+              SkillMarketplaceStatus is the operator's verdict on the Marketplace. Whether
+              GitHub accepts the credential shows on the Skills page, not here.
+            properties:
+              conditions:
+                description: Conditions carries the Aggregated condition, whose reason
+                  explains Phase.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastReconciledAt:
+                description: LastReconciledAt is when the operator last changed this
+                  status.
+                format: date-time
+                type: string
+              phase:
+                description: Phase is one of Pending|Aggregated|Invalid.
+                type: string
+            type: object
+        type: object
+        x-kubernetes-validations:
+        - message: metadata.name must be at most 63 characters
+          rule: size(self.metadata.name) <= 63
+    served: true
+    storage: true
+    subresources:
+      status: {}

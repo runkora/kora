@@ -199,6 +199,18 @@ workload=deployment/kora-triggers
 restart=true
 EOF
       ;;
+    skills-service)
+      cat <<'EOF'
+dockerfile=backend/Dockerfile
+context=backend
+build_arg=SERVICE=skills-service
+image=kora-skills-service
+values_key=skillsService
+namespace=kora-system
+workload=deployment/kora-skills-service
+restart=true
+EOF
+      ;;
     tool-gateway)
       # The publisher runs the same kora-tool-gateway image in a different mode,
       # so it must be rolled with the gateway or it keeps serving the old build.
@@ -310,6 +322,7 @@ frontend            (deployment, kora-system)
 kora-mcp            (deployment, kora-system)
 tool-gateway        (deployment, kora-system; also rolls the publisher)
 kora-triggers       (deployment, kora-system)
+skills-service      (deployment, kora-system)
 migrate             (hook Job; re-applies the kora release so the schema migration runs)
 operator            (deployment, kora-system)
 example             (deployment, kora-tenant-<TENANT>)

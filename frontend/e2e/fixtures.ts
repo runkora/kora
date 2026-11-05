@@ -15,6 +15,7 @@ import type { BrowserContext } from '@playwright/test';
 
 const TEST_SESSION_SECRET = 'playwright-test-session-secret-32ch';
 const SESSION_COOKIE_NAME = 'kora_session';
+const TEST_BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3000';
 // Match the server's default maxAge (30 days). sealData takes ttl in seconds, not ms.
 const TTL_S = 30 * 24 * 60 * 60;
 
@@ -31,17 +32,24 @@ const TEST_SESSION_PAYLOAD = {
  * Seals a test session payload and injects it as the iron-session cookie into
  * the given browser context.  Call before page.goto() on any protected route.
  */
-export async function injectSessionCookie(context: BrowserContext): Promise<void> {
-  const sealedSession = await sealData(TEST_SESSION_PAYLOAD, {
-    password: TEST_SESSION_SECRET,
-    ttl: TTL_S,
-  });
+export async function injectSessionCookie(
+  context: BrowserContext,
+  /** A test that needs its own user data on the server gives its session its own token. */
+  accessToken = TEST_SESSION_PAYLOAD.accessToken,
+): Promise<void> {
+  const sealedSession = await sealData(
+    { ...TEST_SESSION_PAYLOAD, accessToken },
+    {
+      password: TEST_SESSION_SECRET,
+      ttl: TTL_S,
+    },
+  );
 
   await context.addCookies([
     {
       name: SESSION_COOKIE_NAME,
       value: sealedSession,
-      url: 'http://localhost:3000',
+      url: TEST_BASE_URL,
       httpOnly: true,
       sameSite: 'Strict',
     },
