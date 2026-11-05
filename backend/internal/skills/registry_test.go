@@ -160,3 +160,24 @@ func TestRegistry_SkipsAnEntryWithoutOrigin(t *testing.T) {
 		t.Errorf("Marketplaces = %+v, want only ok", got)
 	}
 }
+
+// An origin change on reload is served at once.
+func TestRegistry_ReloadPicksUpOrigin(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	keys := map[string][]byte{"kora-tenant-example.a": testKeyPEM(t)}
+	sources, keysDir := writeRegistryFiles(t, dir, registryFile("a"), keys)
+	r, err := NewRegistry(ctx, sources, keysDir, &fakeMinter{}, discard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := registryFile("a")
+	file.Tenants[0].Marketplaces[0].Origin = originExternal
+	writeRegistryFiles(t, dir, file, keys)
+	if err := r.reload(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := r.Find("example", "a"); m.Origin != originExternal {
+		t.Errorf("origin after reload = %q, want external", m.Origin)
+	}
+}
