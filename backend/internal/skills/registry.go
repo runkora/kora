@@ -74,6 +74,8 @@ type Registry struct {
 	minter  installationTokenMinter
 	logger  logging.Logger
 
+	// reloadMu runs reloads one at a time, so the newest file read is the one served.
+	reloadMu sync.Mutex
 	mu       sync.RWMutex
 	byTenant map[string][]*Marketplace
 }
@@ -108,6 +110,8 @@ func (r *Registry) Find(tenantID, slug string) (*Marketplace, bool) {
 // reload swaps in the current file and keys. A file that cannot be read or
 // parsed keeps the previous Marketplaces.
 func (r *Registry) reload(ctx context.Context) error {
+	r.reloadMu.Lock()
+	defer r.reloadMu.Unlock()
 	var file marketplace.File
 	data, err := os.ReadFile(r.path)
 	switch {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/fsnotify/fsnotify"
@@ -117,6 +118,34 @@ func TestRegistry_Reload(t *testing.T) {
 	}
 	if len(r.Marketplaces("example")) != 2 {
 		t.Error("a broken file dropped the previous Marketplaces")
+	}
+}
+
+func TestRegistry_ConcurrentReloadsServeTheNewestFile(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	keys := map[string][]byte{"kora-tenant-example.a": testKeyPEM(t), "kora-tenant-example.b": testKeyPEM(t)}
+	sources, keysDir := writeRegistryFiles(t, dir, registryFile("a"), keys)
+	r, err := NewRegistry(ctx, sources, keysDir, &fakeMinter{}, discard())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			if err := r.reload(ctx); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	writeRegistryFiles(t, dir, registryFile("a", "b"), keys)
+	wg.Wait()
+	if err := r.reload(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(r.Marketplaces("example")); got != 2 {
+		t.Errorf("Marketplaces after concurrent reloads = %d, want 2", got)
 	}
 }
 
