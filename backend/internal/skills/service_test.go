@@ -22,6 +22,8 @@ type countingCrawler struct {
 	fileFetches int
 }
 
+func (c *countingCrawler) Reusable(list skillList) bool { return c.inner.Reusable(list) }
+
 func (c *countingCrawler) ResolveCommit(ctx context.Context, m *Marketplace) (string, error) {
 	c.mu.Lock()
 	c.resolves++
@@ -627,5 +629,46 @@ func TestList_ChangedCommitOutageAndSyncState(t *testing.T) {
 	got, err := svc.ListMarketplaces(ctx, "example")
 	if err != nil || got[0].Commit != nil || got[0].SkillCount != nil {
 		t.Errorf("ListMarketplaces after a closed failure = %+v, %v, want null sync state", got, err)
+	}
+}
+
+// On an unchanged commit a partial list, or one read with other limits, is
+// crawled again.
+func TestList_PartialOrOtherLimitsCrawlAgain(t *testing.T) {
+	ctx := context.Background()
+	expire := func(store *memStore, m *Marketplace, edit func(*skillList)) {
+		l := store.lists[cacheKey(m, "list")]
+		l.SyncedAt = l.SyncedAt.Add(-time.Hour)
+		edit(&l)
+		store.lists[cacheKey(m, "list")] = l
+	}
+
+	// A SKILL.md whose download fails once makes the first list partial.
+	g := sampleRepo()
+	g.failOnce = map[string]error{"skills/pdf/SKILL.md": ghclient.ErrNotFound}
+	m := testMarketplace(t, "example", "team-skills")
+	crawler := &countingCrawler{inner: NewCrawler(g, testLimits, discard())}
+	store := newMemStore()
+	svc := NewService(fakeRegistry{"example": {m}}, store, crawler, time.Minute, discard())
+	page, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10)
+	if err != nil || page.Total != 5 || !store.lists[cacheKey(m, "list")].Partial {
+		t.Fatalf("first crawl = %d, %v, want a partial list of 5", page.Total, err)
+	}
+	expire(store, m, func(*skillList) {})
+	page, err = listOne(ctx, svc, "example", "team-skills", "", 0, 10)
+	if err != nil || page.Total != 6 || crawler.crawls != 2 || store.lists[cacheKey(m, "list")].Partial {
+		t.Errorf("partial list on an unchanged commit = %d after %d crawls, %v, want a complete crawl", page.Total, crawler.crawls, err)
+	}
+
+	// A complete list read with other limits is crawled again.
+	expire(store, m, func(l *skillList) { l.Limits.FilesPerSkill = 1 })
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil || crawler.crawls != 3 {
+		t.Errorf("other limits = %d crawls, %v, want a new crawl", crawler.crawls, err)
+	}
+
+	// A complete list with the same limits is kept.
+	expire(store, m, func(*skillList) {})
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil || crawler.crawls != 3 {
+		t.Errorf("complete list = %d crawls, %v, want it kept", crawler.crawls, err)
 	}
 }

@@ -50,7 +50,7 @@ func (m *Marketplace) source() string {
 
 // listShape marks the cached list shape. Bump it on any change to skillList
 // or skillRecord, so older cached lists are crawled again.
-const listShape = "v3"
+const listShape = "v4"
 
 // Token returns an installation token that reads only this repository.
 func (m *Marketplace) Token(ctx context.Context) (string, error) {

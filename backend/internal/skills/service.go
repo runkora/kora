@@ -51,6 +51,7 @@ type skillStore interface {
 type skillCrawler interface {
 	Crawl(ctx context.Context, m *Marketplace) (skillList, error)
 	ResolveCommit(ctx context.Context, m *Marketplace) (string, error)
+	Reusable(list skillList) bool
 	FetchFile(ctx context.Context, m *Marketplace, sha string, skill skillRecord, file SkillFileInfo) (string, error)
 }
 
@@ -357,14 +358,15 @@ func (s *Service) list(ctx context.Context, m *Marketplace) (skillList, error) {
 // revalidate keeps a stale list when the ref still resolves to its commit.
 // The check reads the commit with an installation token, a pinned commit
 // included, so a revoked App, key or repository stops the list being served.
-// A changed commit crawls again. Through an outage, timeout or rate limit,
+// A changed commit, a partial list or a list read with other limits crawls
+// again. Through an outage, timeout or rate limit,
 // during the check or the new crawl, the stale list stays served.
 func (s *Service) revalidate(ctx context.Context, m *Marketplace, stale skillList) (skillList, error) {
 	sha, err := s.crawler.ResolveCommit(ctx, m)
 	if err != nil {
 		return s.keepOnOutage(ctx, m, stale, err)
 	}
-	if sha != stale.SHA {
+	if sha != stale.SHA || !s.crawler.Reusable(stale) {
 		list, err := s.crawler.Crawl(ctx, m)
 		if err != nil {
 			return s.keepOnOutage(ctx, m, stale, err)

@@ -70,10 +70,14 @@ type SkillFileContent struct {
 // the repository and ref it was read from, so an edited Marketplace is crawled
 // again instead of serving the old repository.
 type skillList struct {
-	Source   string        `json:"source"`
-	SHA      string        `json:"sha"`
-	SyncedAt time.Time     `json:"syncedAt"`
-	Skills   []skillRecord `json:"skills"`
+	Source   string    `json:"source"`
+	SHA      string    `json:"sha"`
+	SyncedAt time.Time `json:"syncedAt"`
+	// Limits are the crawl limits the list was read with. Partial marks a
+	// SKILL.md left out by a limit or a failed download.
+	Limits  Limits        `json:"limits"`
+	Partial bool          `json:"partial,omitempty"`
+	Skills  []skillRecord `json:"skills"`
 }
 
 // SkillFileInfo is one supporting file of a skill, its path relative to the
