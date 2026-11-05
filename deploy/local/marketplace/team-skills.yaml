@@ -11,6 +11,7 @@ metadata:
   name: team-skills
   namespace: kora-tenant-example
 spec:
+  origin: external
   github:
     owner: anthropics
     repo: skills

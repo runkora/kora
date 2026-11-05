@@ -34,6 +34,7 @@ A public repository works through any App, including one that is not installed o
       name: team-skills
       namespace: kora-tenant-example
     spec:
+      origin: internal
       github:
         owner: example-org
         repo: skills
@@ -51,6 +52,7 @@ A public repository works through any App, including one that is not installed o
 The fields are:
 
 *   **`metadata.name`:** The Marketplace slug in API paths and dashboard URLs, at most 63 characters. The Skills page shows the repository name.
+*   **`spec.origin`:** Required. `internal` for the organization's own skills and `external` for third-party skills, whatever the repository's visibility. The Skills page badges each Marketplace with it.
 *   **`spec.github.owner` and `spec.github.repo`:** The repository that holds the skills.
 *   **`spec.github.ref`:** Optional. A 40-character hex value pins a commit SHA, any other value tracks a branch, and no value tracks the default branch.
 *   **`spec.github.app.appID` and `spec.github.app.installationID`:** The App and its installation on the repository owner.
