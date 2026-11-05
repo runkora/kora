@@ -167,7 +167,9 @@ spec:
     # ── Skills service: marketplace listing and skill browsing ─────────────────
     - match:
         - uri:
-            prefix: /v1/marketplaces
+            exact: /v1/marketplaces
+        - uri:
+            prefix: /v1/marketplaces/
       {{- include "kora.edgeHeaders" . | nindent 6 }}
       route:
         - destination:

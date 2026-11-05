@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -188,5 +189,44 @@ func TestChartSkillsServiceMetrics(t *testing.T) {
 		"--show-only", "templates/platform/servicemonitors.yaml", "--api-versions", "monitoring.coreos.com/v1")
 	if !strings.Contains(monitors, "name: kora-skills-service") || !strings.Contains(monitors, "app.kubernetes.io/name: kora-skills-service") {
 		t.Errorf("no skills-service ServiceMonitor:\n%s", monitors)
+	}
+}
+
+// The API VirtualService sends /v1/marketplaces and paths below it to
+// skills-service, and nothing that only starts with the same letters.
+func TestChartSkillsServiceRoute(t *testing.T) {
+	out := renderChart(t, "{}\n", "--show-only", "templates/api/virtualservice.yaml")
+	var matches []string
+	for doc := range strings.SplitSeq(out, "\n---\n") {
+		var vs struct {
+			Spec struct {
+				HTTP []struct {
+					Match []struct {
+						URI map[string]string `json:"uri"`
+					} `json:"match"`
+					Route []struct {
+						Destination struct {
+							Host string `json:"host"`
+						} `json:"destination"`
+					} `json:"route"`
+				} `json:"http"`
+			} `json:"spec"`
+		}
+		if yaml.Unmarshal([]byte(doc), &vs) != nil {
+			continue
+		}
+		for _, h := range vs.Spec.HTTP {
+			if len(h.Route) == 1 && strings.HasPrefix(h.Route[0].Destination.Host, "kora-skills-service.") {
+				for _, m := range h.Match {
+					for kind, v := range m.URI {
+						matches = append(matches, kind+" "+v)
+					}
+				}
+			}
+		}
+	}
+	slices.Sort(matches)
+	if want := []string{"exact /v1/marketplaces", "prefix /v1/marketplaces/"}; !slices.Equal(matches, want) {
+		t.Errorf("skills-service matches = %v, want %v", matches, want)
 	}
 }
