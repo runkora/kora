@@ -16,11 +16,13 @@ import {
 import { APP_ROUTES } from '@runkora/lib/routing';
 import type { MarketplaceOrigin } from '@runkora/shared/api';
 
-/** The folder between the skills root and the skill, as `engineering` in `skills/engineering/tdd`, in sentence case. */
+/** The folder between the skills root and the skill, as `engineering` in `skills/engineering/tdd`, in sentence case. A folder named `skills`, as in the plugin layout `plugins/<plugin>/skills/<skill>`, gives no label. */
 function folderLabel(path: string): string | null {
   const parts = path.split('/');
   if (parts.length < 3) return null;
-  const words = parts[parts.length - 2].replace(/[-_]/g, ' ');
+  const parent = parts[parts.length - 2];
+  if (parent.toLowerCase() === 'skills') return null;
+  const words = parent.replace(/[-_]/g, ' ');
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 

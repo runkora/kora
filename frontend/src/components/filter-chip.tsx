@@ -15,11 +15,9 @@ export interface FilterChipProps {
   onClick: () => void;
   /** Render the label in a monospace typeface — use for resource/type identifiers. */
   mono?: boolean;
-  /** Shown after the label and before the count, such as a Marketplace's origin. */
-  badge?: React.ReactNode;
 }
 
-export function FilterChip({ label, count, active, onClick, mono, badge }: FilterChipProps) {
+export function FilterChip({ label, count, active, onClick, mono }: FilterChipProps) {
   return (
     <Button
       variant={active ? 'accent-outline' : 'outline-muted'}
@@ -34,7 +32,6 @@ export function FilterChip({ label, count, active, onClick, mono, badge }: Filte
       ) : (
         label
       )}
-      {badge}
       {count !== null && (
         <Text as="span" size="micro" color={active ? 'accent' : 'subtle'}>
           {count}

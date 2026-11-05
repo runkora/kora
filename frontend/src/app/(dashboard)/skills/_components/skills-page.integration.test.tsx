@@ -38,10 +38,8 @@ describe('SkillsPage', () => {
       marketplaces: [MARKETPLACE_FIXTURES[0], MARKETPLACE_FIXTURES[1], unread],
     });
 
-    expect(
-      screen.getByRole('button', { name: /^anthropics\/skills\s*External\s*12$/ }),
-    ).toBeVisible();
-    expect(screen.getByRole('button', { name: /^mattpocock\/skills\s*Internal$/ })).toBeVisible();
+    expect(screen.getByRole('button', { name: /^anthropics\/skills\s*12$/ })).toBeVisible();
+    expect(screen.getByRole('button', { name: /^mattpocock\/skills$/ })).toBeVisible();
     expect(screen.getByRole('button', { name: /^All$/ })).toBeVisible();
     expect(screen.getByText('3 Marketplaces')).toBeVisible();
   });
