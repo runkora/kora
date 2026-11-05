@@ -70,6 +70,31 @@ function buildTree(servers: McpServer[], catalog: McpCatalogTool[]): ServerRow[]
   return rows.sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
+/**
+ * The catalogue plus a row for every granted scope it does not list, so a
+ * read-only view shows everything the agent holds even when the viewer cannot
+ * read the catalogue, or the grant is server-wide (`mcp:<server>:use`).
+ */
+export function withGrantedScopes(catalog: McpCatalogTool[], granted: string[]): McpCatalogTool[] {
+  const known = new Set(catalog.map((t) => t.scope));
+  const extra: McpCatalogTool[] = [];
+  for (const scope of new Set(granted)) {
+    if (known.has(scope)) continue;
+    const body = scope.replace(/^mcp:/, '').replace(/:use$/, '');
+    const colon = body.indexOf(':');
+    const server = colon < 0 ? body : body.slice(0, colon);
+    const tool = colon < 0 ? '' : body.slice(colon + 1);
+    extra.push({
+      tenant_id: '',
+      server_slug: server,
+      tool_name: tool || 'All tools',
+      scope,
+      description: tool ? '' : 'Every tool on this server',
+    });
+  }
+  return [...catalog, ...extra];
+}
+
 /** How many servers have at least one granted scope — for callers' summary lines. */
 export function countGrantedServers(
   servers: McpServer[],

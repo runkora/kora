@@ -93,11 +93,14 @@ export function GuardrailsFields({
   values,
   onChange,
   disabled = false,
+  capacityAlwaysOn = false,
 }: {
   values: GuardrailValues;
   onChange: <K extends keyof GuardrailValues>(key: K, value: GuardrailValues[K]) => void;
   /** Read-only, for callers who may not change the agent. */
   disabled?: boolean;
+  /** Capacity always has a stored value, so it cannot be switched off: the toggle is locked on. */
+  capacityAlwaysOn?: boolean;
 }) {
   const loopErrors = loopGuardrailErrors(values);
   return (
@@ -171,12 +174,16 @@ export function GuardrailsFields({
       </GuardrailRow>
 
       <GuardrailRow
-        disabled={disabled}
-        on={values.capacityOn}
+        disabled={disabled || capacityAlwaysOn}
+        on={capacityAlwaysOn || values.capacityOn}
         onToggle={(on) => onChange('capacityOn', on)}
         icon="layers"
         title="Capacity"
-        desc="Max concurrent runs per pod (service default when off)"
+        desc={
+          capacityAlwaysOn
+            ? 'Max concurrent runs per pod'
+            : 'Max concurrent runs per pod (service default when off)'
+        }
       >
         <Stack direction="horizontal" align="center" gap="snug" shrink={false}>
           <Stack maxWidth="form-field-sm">
