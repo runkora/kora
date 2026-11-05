@@ -8,7 +8,7 @@ import { Button, EmptyState, Input, PageSectionHeader, Stack, Text } from '@runk
 import { FilterChip, ViewToggle, type ViewMode } from '@runkora/components';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { useSkillsContext } from '../_context/skills-context';
-import { MIN_SEARCH_LENGTH } from '../_types';
+import { MIN_SEARCH_LENGTH, searchLength } from '../_types';
 import { SkillGrid } from './skill-grid';
 import { SkillList } from './skill-list';
 import { SkillsPagination } from './skills-pagination';
@@ -162,7 +162,7 @@ function Browse({ allSkills }: { allSkills: number | null }) {
 
 function SearchRow({ toggle }: { toggle: React.ReactNode }) {
   const { searchText, setSearchText } = useSkillsContext();
-  const searchLength = searchText.trim().length;
+  const typed = searchLength(searchText);
 
   return (
     <Stack gap="tight">
@@ -177,7 +177,7 @@ function SearchRow({ toggle }: { toggle: React.ReactNode }) {
         </Stack>
         {toggle}
       </Stack>
-      {searchLength > 0 && searchLength < MIN_SEARCH_LENGTH && (
+      {typed > 0 && typed < MIN_SEARCH_LENGTH && (
         <Text size="caption" color="subtle">
           Type at least {MIN_SEARCH_LENGTH} characters to search.
         </Text>

@@ -44,6 +44,14 @@ describe('SkillsPage', () => {
     expect(screen.getByText('3 Marketplaces')).toBeVisible();
   });
 
+  it('asks for three characters, counted in code points, before it searches', async () => {
+    renderPage(storyOverview());
+
+    await userEvent.type(screen.getByRole('textbox', { name: 'Search skills' }), '👍👍');
+
+    expect(screen.getByText('Type at least 3 characters to search.')).toBeVisible();
+  });
+
   it('opens cards on a phone, ten a page, each linking to its skill with the way back', () => {
     renderPage(storyOverview({ search: 'ing' }));
 
