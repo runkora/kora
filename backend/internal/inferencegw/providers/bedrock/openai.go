@@ -14,7 +14,7 @@ import (
 )
 
 // errMantleOpenAIV1NoChatCompletions is returned when a model on Mantle's /openai/v1
-// path (GPT-5.x, xAI Grok) is dispatched to the Chat Completions path. These models
+// path (GPT, xAI Grok) is dispatched to the Chat Completions path. These models
 // only support the Responses API on Bedrock (use POST /v1/responses).
 var errMantleOpenAIV1NoChatCompletions = errors.New("this model does not support chat completions on Bedrock; use the Responses API (POST /v1/responses)")
 
@@ -200,6 +200,7 @@ func (c *Connector) mantleChatCompletion(ctx context.Context, params openai.Chat
 		logging.Field{Key: "msg_count", Value: fmt.Sprintf("%d", len(params.Messages))},
 	)
 
+	params.Model = mantleModelID(params.Model)
 	resp, err := c.mantleClient.Chat.Completions.New(ctx, params)
 	if err != nil {
 		c.logger.Error(ctx, "bedrock: mantleChatCompletion error",
@@ -223,6 +224,7 @@ func (c *Connector) mantleChatCompletionStream(ctx context.Context, params opena
 		logging.Field{Key: "msg_count", Value: fmt.Sprintf("%d", len(params.Messages))},
 	)
 
+	params.Model = mantleModelID(params.Model)
 	stream := c.mantleClient.Chat.Completions.NewStreaming(ctx, params)
 
 	ch := make(chan inferencegw.OpenAIStreamResult, 32)

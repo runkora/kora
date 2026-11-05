@@ -109,8 +109,8 @@ func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewP
 
 	switch c.dispatchBackend(params.Model) {
 	case backendMantleOpenAIV1:
-		// GPT-5.x and xAI Grok use /openai/v1/responses — a separate client with a different base path.
-		resp, err := c.mantleOpenAIV1Client.Responses.New(ctx, stripMantleUnsupportedInputItems(params))
+		// GPT and xAI Grok models use /openai/v1/responses — a separate client with a different base path.
+		resp, err := c.mantleOpenAIV1Client.Responses.New(ctx, stripMantleUnsupportedInputItems(withMantleModelID(params)))
 		if err != nil {
 			c.logger.Error(ctx, "bedrock: responses error",
 				logging.Field{Key: "error", Value: err.Error()},
@@ -119,7 +119,7 @@ func (c *Connector) Responses(ctx context.Context, params responses.ResponseNewP
 		}
 		return &inferencegw.ResponsesResult{Response: resp}, nil
 	case backendMantle:
-		resp, err := c.mantleClient.Responses.New(ctx, stripMantleUnsupportedInputItems(params))
+		resp, err := c.mantleClient.Responses.New(ctx, stripMantleUnsupportedInputItems(withMantleModelID(params)))
 		if err != nil {
 			c.logger.Error(ctx, "bedrock: responses error",
 				logging.Field{Key: "error", Value: err.Error()},
@@ -148,8 +148,8 @@ func (c *Connector) ResponsesStream(ctx context.Context, params responses.Respon
 
 	switch c.dispatchBackend(params.Model) {
 	case backendMantleOpenAIV1:
-		// GPT-5.x and xAI Grok use /openai/v1/responses — a separate client with a different base path.
-		stream := c.mantleOpenAIV1Client.Responses.NewStreaming(ctx, stripMantleUnsupportedInputItems(params))
+		// GPT and xAI Grok models use /openai/v1/responses — a separate client with a different base path.
+		stream := c.mantleOpenAIV1Client.Responses.NewStreaming(ctx, stripMantleUnsupportedInputItems(withMantleModelID(params)))
 		ch := make(chan inferencegw.ResponsesStreamResult, 32)
 		go func() {
 			defer close(ch)
@@ -166,7 +166,7 @@ func (c *Connector) ResponsesStream(ctx context.Context, params responses.Respon
 		}()
 		return ch, nil
 	case backendMantle:
-		stream := c.mantleClient.Responses.NewStreaming(ctx, stripMantleUnsupportedInputItems(params))
+		stream := c.mantleClient.Responses.NewStreaming(ctx, stripMantleUnsupportedInputItems(withMantleModelID(params)))
 		ch := make(chan inferencegw.ResponsesStreamResult, 32)
 		go func() {
 			defer close(ch)
@@ -193,4 +193,10 @@ func (c *Connector) ResponsesStream(ctx context.Context, params responses.Respon
 		)
 		return c.openAIBridge.ExecuteStream(ctx, params)
 	}
+}
+
+// withMantleModelID returns params with the model rewritten to Mantle's bare ID.
+func withMantleModelID(params responses.ResponseNewParams) responses.ResponseNewParams {
+	params.Model = mantleModelID(params.Model)
+	return params
 }
