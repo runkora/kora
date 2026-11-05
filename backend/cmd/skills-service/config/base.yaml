@@ -9,6 +9,11 @@ server:
 observability:
   serviceName: orbit-skills-service
 
+metrics:
+  enabled: true
+  port: 9464
+  shutdownTimeoutSecs: 5
+
 identity:
   internalURL: "http://orbit-identity.orbit-system.svc.cluster.local"
 

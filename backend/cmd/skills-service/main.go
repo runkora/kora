@@ -9,19 +9,20 @@ import (
 	"os/signal"
 	"syscall"
 
-	sc "github.com/clear-route/orbit/cmd/skills-service/config"
-	"github.com/clear-route/orbit/internal/platform/api"
-	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
-	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/config"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/observability"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/storage"
-	"github.com/clear-route/orbit/internal/platform/token"
-	"github.com/clear-route/orbit/internal/skills"
+	sc "github.com/runkora/kora/backend/cmd/skills-service/config"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
+	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/storage"
+	"github.com/runkora/kora/backend/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/skills"
 )
 
 func main() {
@@ -35,6 +36,17 @@ func main() {
 	}
 
 	logger.Info(ctx, "skills-service starting", logging.Field{Key: "version", Value: sc.Current.App.Version})
+
+	metrics, err := platformmetrics.Setup(ctx, sc.Current.Metrics, observability.Config{
+		ServiceName:    sc.Current.Observability.ServiceName,
+		ServiceVersion: sc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, sc.Current.Observability.ServiceName, logger)
+	if err != nil {
+		logger.Error(ctx, "failed to setup metrics", logging.Field{Key: "error", Value: err.Error()})
+		shutdownObservability()
+		os.Exit(1)
+	}
 
 	redis, err := initStorage(ctx, logger)
 	if err != nil {
@@ -58,10 +70,14 @@ func main() {
 
 	go registry.Watch(backgroundCtx)
 
-	server, register := initServer(backgroundCtx, logger, redis, registry, gh)
+	server, register := initServer(backgroundCtx, logger, redis, registry, gh, metrics)
 
-	exitCode := run(ctx, logger, server, register)
+	exitCode := run(ctx, logger, server, register, metrics)
 	stopBackground()
+
+	metricsCtx, cancelMetrics := context.WithTimeout(context.Background(), sc.Current.Metrics.ShutdownTimeout())
+	metrics.Shutdown(metricsCtx, logger)
+	cancelMetrics()
 
 	if err := redis.Close(); err != nil {
 		logger.Error(ctx, "failed to close redis", logging.Field{Key: "error", Value: err.Error()})
@@ -181,8 +197,11 @@ func initServer(
 	redis *storage.RedisClient,
 	registry *skills.Registry,
 	gh *ghclient.Client,
+	metrics *platformmetrics.Bootstrap,
 ) (*http.Server, func(context.Context) error) {
 	apiServer := api.NewAPI(ctx, logger)
+	// Per route, after RoutePattern has set the route on the request context.
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
 	controllers := initControllers(ctx, logger, redis, registry, gh)
 
 	var register func(context.Context) error
@@ -210,6 +229,7 @@ func run(
 	logger logging.Logger,
 	server *http.Server,
 	register func(context.Context) error,
+	metrics *platformmetrics.Bootstrap,
 ) int {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -231,6 +251,8 @@ func run(
 
 		serverErr <- nil
 	}()
+
+	metrics.Start(ctx, logger)
 
 	if register != nil {
 		// Register now and keep the vocabulary alive across policy-service restarts.
@@ -261,6 +283,7 @@ func run(
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "skills-service shutdown complete")
 	return 0

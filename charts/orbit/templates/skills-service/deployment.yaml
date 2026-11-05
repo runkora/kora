@@ -54,6 +54,11 @@ spec:
             - name: skills-http
               containerPort: 8098
               protocol: TCP
+            {{- if .Values.global.metrics.enabled }}
+            - name: http-metrics
+              containerPort: {{ .Values.global.metrics.port | default 9464 }}
+              protocol: TCP
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /health

@@ -4,7 +4,8 @@ package skillsconfig
 import (
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 )
 
 // PolicyConfig configures the in-process OPA evaluator and the policy-service
@@ -50,6 +51,8 @@ type Config struct {
 	} `yaml:"identity"`
 
 	Policy PolicyConfig `yaml:"policy"`
+
+	Metrics platformmetrics.Config `yaml:"metrics"`
 
 	Marketplace struct {
 		// SourcesPath is the mounted kora-skill-marketplaces file.

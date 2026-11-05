@@ -40,7 +40,7 @@ func TestChartSkillsServiceWiring(t *testing.T) {
 	}
 	container := deploy.Spec.Template.Spec.Containers[0]
 	port := int32(cfg.Server.Port)
-	if len(container.Ports) != 1 || container.Ports[0].ContainerPort != port {
+	if len(container.Ports) == 0 || container.Ports[0].ContainerPort != port {
 		t.Errorf("container ports = %v, want backend port %d", container.Ports, port)
 	}
 	for name, probe := range map[string]*corev1.Probe{
@@ -81,7 +81,7 @@ func TestChartSkillsServiceWiring(t *testing.T) {
 	}
 	var service corev1.Service
 	decode("templates/skills-service/service.yaml", &service)
-	if len(service.Spec.Ports) != 1 || service.Spec.Ports[0].Port != port || service.Spec.Ports[0].TargetPort.IntVal != port {
+	if len(service.Spec.Ports) == 0 || service.Spec.Ports[0].Port != port || service.Spec.Ports[0].TargetPort.IntVal != port {
 		t.Errorf("service ports = %v, want backend port %d", service.Spec.Ports, port)
 	}
 	var frontend corev1.ConfigMap
@@ -154,5 +154,39 @@ func TestChartGitHubServiceEntry(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("no kora-github-api ServiceEntry under REGISTRY_ONLY:\n%s", out)
+	}
+}
+
+// skills-service exposes its metrics port on the pod and the Service, and the
+// ServiceMonitor list scrapes it.
+func TestChartSkillsServiceMetrics(t *testing.T) {
+	var deploy appsv1.Deployment
+	if err := yaml.Unmarshal([]byte(renderChart(t, "{}\n", "--show-only", "templates/skills-service/deployment.yaml")), &deploy); err != nil {
+		t.Fatal(err)
+	}
+	var podPort int32
+	for _, p := range deploy.Spec.Template.Spec.Containers[0].Ports {
+		if p.Name == "http-metrics" {
+			podPort = p.ContainerPort
+		}
+	}
+	var service corev1.Service
+	if err := yaml.Unmarshal([]byte(renderChart(t, "{}\n", "--show-only", "templates/skills-service/service.yaml")), &service); err != nil {
+		t.Fatal(err)
+	}
+	var servicePort int32
+	for _, p := range service.Spec.Ports {
+		if p.Name == "http-metrics" && p.TargetPort.StrVal == "http-metrics" {
+			servicePort = p.Port
+		}
+	}
+	if podPort != 9464 || servicePort != 9464 || service.Labels["app.kubernetes.io/name"] != "kora-skills-service" {
+		t.Errorf("metrics ports pod %d service %d, labels %v, want 9464 and the ServiceMonitor label", podPort, servicePort, service.Labels)
+	}
+
+	monitors := renderChart(t, "global:\n  metrics:\n    serviceMonitor:\n      enabled: true\n",
+		"--show-only", "templates/platform/servicemonitors.yaml", "--api-versions", "monitoring.coreos.com/v1")
+	if !strings.Contains(monitors, "name: kora-skills-service") || !strings.Contains(monitors, "app.kubernetes.io/name: kora-skills-service") {
+		t.Errorf("no skills-service ServiceMonitor:\n%s", monitors)
 	}
 }

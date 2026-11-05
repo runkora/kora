@@ -3,6 +3,9 @@ Skills Service configuration files.
 */}}
 {{- define "kora.skillsService.configModules" -}}
 cmd/skills-service:
+  metrics:
+    enabled: {{ .Values.global.metrics.enabled }}
+    port: {{ .Values.global.metrics.port | default 9464 }}
   identity:
     internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-identity") | toJson }}
   policy:
