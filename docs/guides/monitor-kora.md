@@ -56,7 +56,7 @@ The kora operator has no ServiceMonitor. It serves controller metrics on port 80
 | `kora_triggers_auto_pauses_total` | Triggers paused after repeated failures |
 | `kora_redis_available` | Whether each service can reach Redis |
 
-Run outcomes, model spend and policy decisions are not metrics yet. They are in the logs, traces and the console.
+Model spend and policy decisions are not metrics yet. They are in the logs, traces and the console.
 
 ## Read the logs
 
