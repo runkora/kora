@@ -69,7 +69,6 @@ import {
   LayoutList,
   Library,
   LineChart,
-  Link,
   List,
   Loader2,
   Lock,
@@ -97,6 +96,7 @@ import {
   Server,
   Settings,
   Settings2,
+  Share2,
   Shield,
   ShieldCheck,
   ShieldOff,
@@ -181,7 +181,6 @@ export type IconName =
   | 'layout-list'
   | 'library'
   | 'line-chart'
-  | 'link'
   | 'list'
   | 'loader'
   | 'lock'
@@ -208,6 +207,7 @@ export type IconName =
   | 'server'
   | 'settings'
   | 'settings-2'
+  | 'share-2'
   | 'shield'
   | 'shield-check'
   | 'shield-off'
@@ -289,7 +289,6 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   'layout-list': LayoutList,
   library: Library,
   'line-chart': LineChart,
-  link: Link,
   list: List,
   loader: Loader2,
   lock: Lock,
@@ -316,6 +315,7 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   server: Server,
   settings: Settings,
   'settings-2': Settings2,
+  'share-2': Share2,
   shield: Shield,
   'shield-check': ShieldCheck,
   'shield-off': ShieldOff,

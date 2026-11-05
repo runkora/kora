@@ -101,14 +101,14 @@ describe('SkillDetail', () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     renderDetail();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Copy link' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Share' }));
 
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith(
         `${window.location.origin}/skills/anthropic-skills/skills/pdf`,
       ),
     );
-    expect(await screen.findByRole('button', { name: 'Copied' })).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Link copied' })).toBeVisible();
   });
 
   it('adds the skill to the favourites', async () => {

@@ -19,7 +19,7 @@ import { useSkillsContext } from '../_context/skills-context';
 import { skillHref, skillKey } from '../_types';
 import {
   clampLines,
-  CopyLinkButton,
+  ShareButton,
   FavouriteButton,
   nameLine,
   OriginBadge,
@@ -84,7 +84,7 @@ export function SkillGrid() {
                   </Text>
                 </Stack>
                 <Stack direction="horizontal" align="center" gap="tight" shrink>
-                  <CopyLinkButton skill={skill} />
+                  <ShareButton skill={skill} />
                   <Button asChild variant="ghost" size="sm">
                     <Link href={href} onClick={(event) => event.stopPropagation()}>
                       View details

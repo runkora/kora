@@ -73,7 +73,7 @@ describe('SkillsPage', () => {
     renderPage(storyOverview({ marketplace: 'anthropic-skills' }));
     const card = screen.getByText('PDF Processing Guide').closest('[data-interactive]');
 
-    fireEvent.click(within(card as HTMLElement).getByRole('button', { name: 'Copy link' }));
+    fireEvent.click(within(card as HTMLElement).getByRole('button', { name: 'Share' }));
 
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith(

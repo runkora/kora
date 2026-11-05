@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — skills-scoped. The favourite heart, the copy-link button, the origin badge, the name and version line and the frontmatter chips that cards, rows and the skill page share. */
+/** @tier 3 — skills-scoped. The favourite heart, the Share button, the origin badge, the name and version line and the frontmatter chips that cards, rows and the skill page share. */
 
 import {
   Badge,
@@ -80,8 +80,8 @@ export function skillUrl(skill: { marketplace: string; path: string }): string {
   return typeof window === 'undefined' ? route : `${window.location.origin}${route}`;
 }
 
-/** An icon-only button, sized like the heart, that copies the skill page's address. */
-export function CopyLinkButton({ skill }: { skill: { marketplace: string; path: string } }) {
+/** An icon-only Share button, sized like the heart, that copies the skill page's address. */
+export function ShareButton({ skill }: { skill: { marketplace: string; path: string } }) {
   const { status, copy } = useCopy(skillUrl(skill));
   return (
     <Tooltip>
@@ -89,7 +89,7 @@ export function CopyLinkButton({ skill }: { skill: { marketplace: string; path: 
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label="Copy link"
+          aria-label="Share"
           onClick={(event) => {
             // The card opens the skill on click; copying must not.
             event.stopPropagation();
@@ -97,13 +97,13 @@ export function CopyLinkButton({ skill }: { skill: { marketplace: string; path: 
           }}
         >
           <Icon
-            name={status === 'copied' ? 'check' : 'link'}
+            name={status === 'copied' ? 'check' : 'share-2'}
             size="2xs"
             color={status === 'copied' ? 'status-healthy' : 'muted'}
           />
         </Button>
       </TooltipTrigger>
-      <TooltipContent>{status === 'copied' ? 'Copied' : 'Copy link'}</TooltipContent>
+      <TooltipContent>{status === 'copied' ? 'Link copied' : 'Share'}</TooltipContent>
     </Tooltip>
   );
 }

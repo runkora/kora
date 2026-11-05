@@ -90,7 +90,12 @@ export function SkillHeader({ skill }: { skill: Skill }) {
             View source
           </a>
         </Button>
-        <CopyTextButton value={skillUrl(skill)} label="Copy link" icon="link" />
+        <CopyTextButton
+          value={skillUrl(skill)}
+          label="Share"
+          copiedLabel="Link copied"
+          icon="share-2"
+        />
         <CopyTextButton value={skill.content} label="Copy SKILL.md" icon="copy" />
       </Stack>
     </Stack>
@@ -100,11 +105,13 @@ export function SkillHeader({ skill }: { skill: Skill }) {
 function CopyTextButton({
   value,
   label,
+  copiedLabel = 'Copied',
   icon,
 }: {
   value: string;
   label: string;
-  icon: 'copy' | 'link';
+  copiedLabel?: string;
+  icon: 'copy' | 'share-2';
 }) {
   const { status, copy } = useCopy(value);
   return (
@@ -114,7 +121,7 @@ function CopyTextButton({
         size="xs"
         color={status === 'copied' ? 'status-healthy' : undefined}
       />
-      {status === 'copied' ? 'Copied' : label}
+      {status === 'copied' ? copiedLabel : label}
     </Button>
   );
 }
