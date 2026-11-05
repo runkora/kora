@@ -22,13 +22,9 @@ Tasks for platform teams running kora.
 - [Skill Marketplaces](guides/skill-marketplace-sources.md): register a GitHub repository of skills for your tenant's Skills page.
 - [Register a connection](guides/register-connection.md): give agents access to an external system without holding its credentials.
 - [OAuth clients](guides/oauth-clients.md): configure clients that authenticate users against kora.
-- [MCP servers](guides/mcp-servers.md): give agents and humans governed access to a set of tools.
-- [Skill marketplace sources](guides/skill-marketplace-sources.md): register a GitHub repository of skills for your tenant's marketplace.
-- [Local development](guides/local-development.md): set up the development environment and work against the local cluster.
-- [Troubleshooting](guides/troubleshooting.md): diagnose common failures in the local environment.
-- [Backend golden path](guides/backend-golden-path.md): add a backend feature from storage through to its HTTP API.
-- [Policy and roles](guides/policy-and-roles.md): configure roles, grants, and route access.
-- [Frontend testing](guides/frontend-testing.md): run and write frontend tests.
+- [Policy and roles](guides/policy-and-roles.md): configure roles, grants and route access.
+- [Declarative resources](guides/declarative-resources.md): define virtual models, environments, agents, triggers and roles as Kubernetes resources in Git.
+- [Advanced customisations](guides/advanced-customisations.md): patch the Kubernetes resources kora provisions for your agents.
 
 ## Architecture
 

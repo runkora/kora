@@ -98,23 +98,7 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	tenant := &KoraTenant{}
 	if err := r.Get(ctx, req.NamespacedName, tenant); err != nil {
 		if apierrors.IsNotFound(err) {
-			// CR deleted: re-run every aggregator so the removed tenant is no
-			// longer served (registry, OIDC secrets, CAs, connections, MCP
-			// servers, OAuth clients, skill marketplace sources).
-			for _, sync := range []func(context.Context) error{
-				r.Registry.Sync,
-				r.Aggregator.Sync,
-				r.CAAggregator.Sync,
-				r.ConnAggregator.Sync,
-				r.MCPAggregator.Sync,
-				r.OAuthAggregator.Sync,
-				r.MarketplaceAggregator.Sync,
-			} {
-				if syncErr := sync(ctx); syncErr != nil {
-					return ctrl.Result{}, syncErr
-				}
-			}
-			return ctrl.Result{}, nil
+			return ctrl.Result{}, r.syncDeleted(ctx)
 		}
 		return ctrl.Result{}, fmt.Errorf("get KoraTenant %q: %w", req.Name, err)
 	}
@@ -324,6 +308,7 @@ func (r *TenantReconciler) syncDeleted(ctx context.Context) error {
 		r.ConnAggregator.Sync,
 		r.MCPAggregator.Sync,
 		r.OAuthAggregator.Sync,
+		r.MarketplaceAggregator.Sync,
 	} {
 		if err := sync(ctx); err != nil {
 			return err

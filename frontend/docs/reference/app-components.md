@@ -114,7 +114,7 @@ interface ViewToggleProps {
 `RUN_STATE_DISPLAY` maps a run state to the status dot and label every run surface shows. A `pending` run reads Queued, `starting` reads Starting and `active` reads Running.
 
 ```tsx
-import { RUN_STATE_DISPLAY } from '@orbit/components';
+import { RUN_STATE_DISPLAY } from '@runkora/components';
 
 const dot = RUN_STATE_DISPLAY[run.state];
 <StatusDot status={dot.status} role="img" aria-label={dot.label} />;

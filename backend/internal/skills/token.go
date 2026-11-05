@@ -10,7 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
+	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
 )
 
 // appJWTTTL is the App JWT lifetime. GitHub caps it at 10 minutes.

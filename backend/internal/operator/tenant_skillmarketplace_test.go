@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Tenant changes must re-evaluate sources even without a source event.
@@ -52,7 +52,7 @@ func TestTenantReconciler_MarketplacesFollowTenantChanges(t *testing.T) {
 	}
 	for _, step := range steps {
 		if !t.Run(step.name, func(t *testing.T) {
-			current := &OrbitTenant{}
+			current := &KoraTenant{}
 			if err := c.Get(ctx, key, current); err != nil {
 				t.Fatal(err)
 			}

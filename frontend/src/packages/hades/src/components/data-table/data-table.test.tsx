@@ -151,7 +151,7 @@ describe('headerTooltip on a sortable column', () => {
 });
 
 describe('DataTable overflow handling', () => {
-  const tracks = () => (screen.getAllByRole('row')[0] as HTMLElement).style.gridTemplateColumns;
+  const tracks = () => screen.getAllByRole('row')[0]!.style.gridTemplateColumns;
 
   it('floors flexible columns so they cannot collapse', () => {
     renderTable([
@@ -289,7 +289,7 @@ describe('DataTable horizontal scrolling', () => {
     renderTable(columns());
     const scroller = screen.getByRole('table').closest('.overflow-x-auto') as HTMLElement;
     expect(scroller).not.toBeNull();
-    expect(scroller).toContainElement(screen.getAllByRole('row')[0] as HTMLElement);
+    expect(scroller).toContainElement(screen.getAllByRole('row')[0]!);
     expect(scroller).toContainElement(screen.getByRole('cell', { name: 'apollo' }));
     expect((scroller.firstElementChild as HTMLElement).style.minWidth).toBe(
       'calc(8rem + 6rem + 48px + 60px)',

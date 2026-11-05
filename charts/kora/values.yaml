@@ -542,6 +542,7 @@ frontend:
     policyServiceUrl: ""
     koraAgentsUrl: ""
     toolGatewayUrl: ""
+    skillsServiceUrl: ""
     nextPublicAppUrl: ""
   # Holds BFF_SESSION_SECRET.
   existingSecret: kora-frontend-secrets

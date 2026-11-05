@@ -1,7 +1,7 @@
 /** Integration tests for the /api/skills BFF route over a stubbed skills-service client. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
-import { ApiError } from '@orbit/server/api-error';
+import { ApiError } from '@runkora/server/api-error';
 
 const mocks = vi.hoisted(() => ({ fetchSkills: vi.fn(), getPreferences: vi.fn() }));
 vi.mock('../../(dashboard)/_preferences/preferences-server', () => ({

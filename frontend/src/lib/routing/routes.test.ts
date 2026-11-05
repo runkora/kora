@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath, skillSlugFromPath } from './routes';
+import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath } from './routes';
 import { ApiRoute } from './api-routes';
 
 /**

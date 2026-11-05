@@ -87,7 +87,7 @@ func TestChartSkillsServiceWiring(t *testing.T) {
 	}
 	var frontend corev1.ConfigMap
 	decode("templates/frontend/configmap.yaml", &frontend)
-	want := fmt.Sprintf("http://orbit-skills-service.orbit-system.svc.cluster.local:%d/v1", port)
+	want := fmt.Sprintf("http://kora-skills-service.kora-system.svc.cluster.local:%d/v1", port)
 	if got := frontend.Data["SKILLS_SERVICE_URL"]; got != want {
 		t.Errorf("frontend Skills URL = %q, want %q", got, want)
 	}

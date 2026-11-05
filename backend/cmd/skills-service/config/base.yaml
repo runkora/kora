@@ -7,7 +7,7 @@ server:
   shutdownTimeoutSecs: 10
 
 observability:
-  serviceName: orbit-skills-service
+  serviceName: kora-skills-service
 
 metrics:
   enabled: true
@@ -15,12 +15,12 @@ metrics:
   shutdownTimeoutSecs: 5
 
 identity:
-  internalURL: "http://orbit-identity.orbit-system.svc.cluster.local"
+  internalURL: "http://kora-identity.kora-system.svc.cluster.local"
 
 policy:
-  bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
+  bundleEndpoint: "http://kora-policy-service.kora-system.svc/api/v1/policy/bundles"
   bundlePollIntervalSecs: 30
-  policyServiceURL: "http://orbit-policy-service.orbit-system.svc"
+  policyServiceURL: "http://kora-policy-service.kora-system.svc"
   registerRoutes: true
 
 marketplace:

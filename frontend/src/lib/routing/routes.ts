@@ -87,16 +87,6 @@ export const APP_ROUTES = {
 } as const;
 
 /**
- * The full skillSlug for the Skill segment of a detail path. The path leaves
- * out the `<marketplaceSlug>__` prefix (see `APP_ROUTES.marketplace.detail`);
- * a segment that still carries it, from an older link, is returned as is.
- */
-export function skillSlugFromPath(marketplaceSlug: string, segment: string): string {
-  const prefix = `${marketplaceSlug}__`;
-  return segment.startsWith(prefix) ? segment : `${prefix}${segment}`;
-}
-
-/**
  * Recursively extracts every leaf string value from a nested const object.
  * Used so that `AppRoute` covers both flat and grouped route entries.
  */

@@ -173,7 +173,7 @@ spec:
       {{- include "kora.edgeHeaders" . | nindent 6 }}
       route:
         - destination:
-            host: orbit-skills-service.{{ include "orbit.systemNamespace" . }}.svc.cluster.local
+            host: kora-skills-service.{{ include "kora.systemNamespace" . }}.svc.cluster.local
             port:
               number: 8098
     # ── Inference gateway (OpenAI-compatible API), the API-host default ────────

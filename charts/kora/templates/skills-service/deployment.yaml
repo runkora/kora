@@ -1,32 +1,32 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orbit-skills-service
-  namespace: {{ include "orbit.systemNamespace" . }}
+  name: kora-skills-service
+  namespace: {{ include "kora.systemNamespace" . }}
   labels:
-    {{- include "orbit.skillsService.labels" . | nindent 4 }}
+    {{- include "kora.skillsService.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.skillsService.replicas }}
   selector:
     matchLabels:
-      {{- include "orbit.skillsService.selectorLabels" . | nindent 6 }}
+      {{- include "kora.skillsService.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "orbit.skillsService.selectorLabels" . | nindent 8 }}
-        {{- include "orbit.skillsService.labels" . | nindent 8 }}
+        {{- include "kora.skillsService.selectorLabels" . | nindent 8 }}
+        {{- include "kora.skillsService.labels" . | nindent 8 }}
         spiffe.io/component: skills-service
-        {{- include "orbit.podLabels" (dict "root" $ "name" "skillsService") | nindent 8 }}
+        {{- include "kora.podLabels" (dict "root" $ "name" "skillsService") | nindent 8 }}
       annotations:
-        {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
+        {{- include "kora.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         checksum/config: {{ include (print $.Template.BasePath "/skills-service/config.yaml") . | sha256sum }}
         {{- include "kora.podAnnotations" (dict "root" $ "name" "skillsService") | nindent 8 }}
     spec:
-      serviceAccountName: orbit-skills-service
-      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
-      {{- include "orbit.scheduling" (dict "root" $ "name" "skillsService") | nindent 6 }}
+      serviceAccountName: kora-skills-service
+      {{- include "kora.imagePullSecrets" . | nindent 6 }}
+      {{- include "kora.scheduling" (dict "root" $ "name" "skillsService") | nindent 6 }}
       securityContext:
-        {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
+        {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
         {{- include "kora.spireVolumes" . | nindent 8 }}
         {{- include "kora.configVolume" (dict "root" $ "name" "skillsService" "configMap" "kora-skills-service-config" "modules" (include "kora.skillsService.configModules" . | fromYaml)) | nindent 8 }}
@@ -41,11 +41,11 @@ spec:
             optional: true
         {{- include "kora.extraVolumes" (dict "root" $ "name" "skillsService") | nindent 8 }}
       containers:
-        - name: orbit-skills-service
-          image: {{ include "orbit.image" (dict "root" $ "name" "skillsService") | quote }}
-          imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "skillsService") }}
+        - name: kora-skills-service
+          image: {{ include "kora.image" (dict "root" $ "name" "skillsService") | quote }}
+          imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "skillsService") }}
           securityContext:
-            {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
+            {{- include "kora.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"

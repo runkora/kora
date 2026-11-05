@@ -161,7 +161,11 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [kora Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) — `Superseded` · 2026-03-31
 - [Frontend Cluster Deployment and Ingress Routing](2026-04-06-frontend-cluster-deployment-and-ingress-routing.md) — `Accepted` · 2026-04-06
 - [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md) — `Accepted` · 2026-07-04
-- [Skills Marketplace: GitOps Source Registration and Reconciliation](2026-08-19-marketplace-gitops.md) — `Proposed` · 2026-08-19
+- [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) — `Proposed (Amended 2026-10-24: Amendment 1 Accepted)` · 2026-09-04
+- [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) — `Accepted (Amended 2026-10-02, 2026-10-12)` · 2026-09-04
+- [Database Migrations](2026-09-10-database-migrations.md) — `Proposed` · 2026-09-10
+- [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) — `Accepted` · 2026-09-30
+- [Declarative Resources](2026-10-24-declarative-resources.md) — `Accepted` · 2026-10-24
 
 ### Frontend & Design System
 
@@ -281,7 +285,8 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-08-03 | [Hades Wizard Component](2026-08-03-terra-wizard-component.md) | Proposed | — |
 | 2026-08-17 | [Agent Skills](2026-08-17-agent-skills.md) | Accepted | — |
 | 2026-09-06 | [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) | Proposed | — |
-| 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted | — |
+| 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted (Amended 2026-10-22) | — |
+| 2026-07-24 | [Non-Token Model Pricing: Full Cost Dimension Pipeline](2026-07-24-non-token-model-pricing.md) | Accepted | — |
 | 2026-06-29 | [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) | Accepted | — |
 | 2026-06-29 | [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) | Accepted | — |
 | 2026-06-30 | [kora MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) | Accepted | — |
@@ -329,5 +334,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-26 | [Release Asset Downloads Without Connection Selection](2026-10-26-release-asset-downloads-without-connection-selection.md) | Proposed | — |
 | 2026-10-27 | [Generic Webhook Source](2026-10-27-generic-webhook-source.md) | Accepted | — |
 | 2026-10-31 | [One Trace per Agent Run](2026-10-31-one-trace-per-run.md) | Accepted (Amended 2026-11-01) | — |
+| 2026-11-03 | [Run Outcome and Duration Metrics](2026-11-03-run-outcome-and-duration-metrics.md) | Accepted | — |
+| 2026-11-03 | [Agent Attribution on Model and Harness Spans](2026-11-03-agent-attribution-on-spans.md) | Accepted | — |
 | 2026-11-04 | [Tenant Switching](2026-11-04-tenant-switching.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

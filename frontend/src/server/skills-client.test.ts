@@ -1,7 +1,7 @@
 /** Unit tests for the requests the BFF sends to skills-service. */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@orbit/server/config', () => ({
+vi.mock('@runkora/server/config', () => ({
   config: { skillsServiceUrl: 'http://skills-service.test/v1' },
 }));
 

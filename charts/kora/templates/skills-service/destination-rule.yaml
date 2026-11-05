@@ -1,0 +1,22 @@
+
+{{- if .Values.platform.spiffe.enabled }}
+# DestinationRule for kora-skills-service mTLS.
+#
+# Explicitly configures SPIFFE-backed mutual TLS for traffic to
+# the Skills Service, including traffic from the Istio ingress gateway.
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: kora-skills-service-client-policy
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.skillsService.labels" . | nindent 4 }}
+spec:
+  host: kora-skills-service.{{ include "kora.systemNamespace" . }}.svc.cluster.local
+  exportTo: ["*"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+      subjectAltNames:
+        - "spiffe://{{ include "kora.trustDomain" . }}/system/skills-service"
+{{- end }}

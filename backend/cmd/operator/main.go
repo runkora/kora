@@ -390,7 +390,44 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 		Aggregator: marketplaceAggregator,
 		Logger:     logger,
 	}
-	return marketplaceReconciler.SetupWithManager(mgr)
+	if err := marketplaceReconciler.SetupWithManager(mgr); err != nil {
+		return err
+	}
+	return initDeclared(mgr, logger)
+}
+
+// initDeclared registers the controllers that project declarative resources
+// into their owning services, and the sweep that deletes items whose resource
+// is gone. Every call carries the operator's own platform token.
+func initDeclared(mgr ctrl.Manager, logger logging.Logger) error {
+	cfg := oc.Current.Declared
+	if cfg.IdentityURL == "" {
+		logger.Info(context.Background(), "declared resource projection is off: declared.identityURL is not set")
+		return nil
+	}
+	token := identityclient.NewClient(cfg.IdentityURL, logger).SelfTokenSource()
+	reconcilers := operator.NewDeclaredReconcilers(mgr.GetClient(), mgr.GetAPIReader(), declaredClients(cfg, token, logger), logger)
+	for _, r := range reconcilers {
+		if err := r.SetupWithManager(mgr); err != nil {
+			return err
+		}
+	}
+	return mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		if !mgr.GetCache().WaitForCacheSync(ctx) {
+			return nil
+		}
+		return operator.SweepAll(ctx, reconcilers, oc.Current.SyncPeriod(), logger)
+	}))
+}
+
+// declaredClients builds one client per owning service, all sharing token.
+func declaredClients(cfg oc.Declared, token declared.TokenSource, logger logging.Logger) operator.DeclaredClients {
+	return operator.DeclaredClients{
+		Agents:           declared.NewClient(cfg.AgentsURL, token, logger),
+		Triggers:         declared.NewClient(cfg.TriggersURL, token, logger),
+		PolicyService:    declared.NewClient(cfg.PolicyServiceURL, token, logger),
+		InferenceGateway: declared.NewClient(cfg.InferenceGatewayURL, token, logger),
+	}
 }
 
 // preflightSource adapts the runner to the reconciler's narrow interface.

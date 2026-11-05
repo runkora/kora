@@ -58,15 +58,15 @@ ENV NEXT_PUBLIC_KORA_VERSION=${KORA_VERSION}
 # evaluates server modules during `next build` to collect page data, so they
 # must be present at build time to pass validation. These placeholder values
 # are never used at runtime — the real values are injected via the
-# orbit-frontend-config ConfigMap and orbit-frontend-secrets Secret.
-ARG ORBIT_API_URL=http://orbit-identity.orbit-system/api/v1
-ARG INFERENCE_GATEWAY_URL=http://orbit-inference-gateway.orbit-system/v1
-ARG POLICY_GATEWAY_URL=http://orbit-policy-gateway.orbit-system/v1
-ARG POLICY_SERVICE_URL=http://orbit-policy-service.orbit-system/api/v1
-ARG ORBIT_AGENTS_URL=http://orbit-agents.orbit-system
-ARG ORBIT_TRIGGERS_URL=http://orbit-triggers.orbit-system/api/v1
-ARG TOOL_GATEWAY_URL=http://orbit-tool-gateway.orbit-system
-ARG SKILLS_SERVICE_URL=http://orbit-skills-service.orbit-system:8089/v1
+# kora-frontend-config ConfigMap and kora-frontend-secrets Secret.
+ARG KORA_API_URL=http://kora-identity.kora-system/api/v1
+ARG INFERENCE_GATEWAY_URL=http://kora-inference-gateway.kora-system/v1
+ARG POLICY_GATEWAY_URL=http://kora-policy-gateway.kora-system/v1
+ARG POLICY_SERVICE_URL=http://kora-policy-service.kora-system/api/v1
+ARG KORA_AGENTS_URL=http://kora-agents.kora-system
+ARG KORA_TRIGGERS_URL=http://kora-triggers.kora-system/api/v1
+ARG TOOL_GATEWAY_URL=http://kora-tool-gateway.kora-system
+ARG SKILLS_SERVICE_URL=http://kora-skills-service.kora-system:8098/v1
 # hadolint ignore=DL3025
 # BFF_SESSION_SECRET is a placeholder value only — Next.js evaluates server
 # modules at build time to collect page data, so the variable must be present

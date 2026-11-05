@@ -3,9 +3,9 @@
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 
-import { Icon, NavItem, Navigation, Stack, Text } from '@orbit/hades';
-import { hasScope } from '@orbit/lib/permissions';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { Icon, NavItem, Navigation, Stack, Text } from '@runkora/hades';
+import { hasScopeCovering, hasScopeWithin } from '@runkora/lib/permissions';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import { NAV_GROUPS } from '../_utils';
 import { useSession } from './permissions-provider';
 

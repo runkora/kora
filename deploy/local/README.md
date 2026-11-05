@@ -43,7 +43,7 @@ A connection without its credential is skipped, not failed.
 
 ## Fixtures
 
-`fixtures/orbit-tenant-example.yaml` is the example tenant's workload: a self-contained `Deployment` and `Service` for local testing.
+`fixtures/kora-tenant-example.yaml` is the example tenant's workload: a self-contained `Deployment` and `Service` for local testing.
 
 ## Skill Marketplaces
 

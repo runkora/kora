@@ -6,8 +6,6 @@
 package operator
 
 import (
-	"slices"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
@@ -184,83 +182,5 @@ const (
 type KoraTenantList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []OrbitTenant `json:"items"`
-}
-
-// DeepCopyObject implements runtime.Object.
-func (t *OrbitTenant) DeepCopyObject() runtime.Object {
-	if t == nil {
-		return nil
-	}
-	out := new(OrbitTenant)
-	t.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies all fields into out.
-func (t *OrbitTenant) DeepCopyInto(out *OrbitTenant) {
-	*out = *t
-	out.TypeMeta = t.TypeMeta
-	t.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
-	t.Spec.DeepCopyInto(&out.Spec)
-	t.Status.DeepCopyInto(&out.Status)
-}
-
-// DeepCopy returns a deep copy.
-func (t *OrbitTenant) DeepCopy() *OrbitTenant {
-	if t == nil {
-		return nil
-	}
-	out := new(OrbitTenant)
-	t.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyObject implements runtime.Object for OrbitTenantList.
-func (l *OrbitTenantList) DeepCopyObject() runtime.Object {
-	if l == nil {
-		return nil
-	}
-	out := new(OrbitTenantList)
-	l.DeepCopyInto(out)
-	return out
-}
-
-// DeepCopyInto copies all fields into out.
-func (l *OrbitTenantList) DeepCopyInto(out *OrbitTenantList) {
-	*out = *l
-	out.TypeMeta = l.TypeMeta
-	l.ListMeta.DeepCopyInto(&out.ListMeta)
-	if l.Items != nil {
-		out.Items = make([]OrbitTenant, len(l.Items))
-		for i := range l.Items {
-			l.Items[i].DeepCopyInto(&out.Items[i])
-		}
-	}
-}
-
-// DeepCopyInto for OrbitTenantSpec.
-func (s *OrbitTenantSpec) DeepCopyInto(out *OrbitTenantSpec) {
-	*out = *s
-	out.OIDC = s.OIDC
-	if s.OIDC.ClientSecretRef != nil {
-		ref := *s.OIDC.ClientSecretRef
-		out.OIDC.ClientSecretRef = &ref
-	}
-	out.OIDC.Scopes = slices.Clone(s.OIDC.Scopes)
-	out.OIDC.EmailDomains = slices.Clone(s.OIDC.EmailDomains)
-	out.AllowedMarketplaceRepos = slices.Clone(s.AllowedMarketplaceRepos)
-}
-
-// DeepCopyInto for OrbitTenantStatus.
-func (s *OrbitTenantStatus) DeepCopyInto(out *OrbitTenantStatus) {
-	*out = *s
-	if s.LastReconciledAt != nil {
-		t := *s.LastReconciledAt
-		out.LastReconciledAt = &t
-	}
-	if s.Conditions != nil {
-		out.Conditions = make([]metav1.Condition, len(s.Conditions))
-		copy(out.Conditions, s.Conditions)
-	}
+	Items           []KoraTenant `json:"items"`
 }

@@ -179,10 +179,8 @@ func initScopeRegistration(logger logging.Logger) func(context.Context) error {
 	)
 
 	return func(registerCtx context.Context) error {
-		scopedRoutes := routescopes.FilterScopedRoutes(
-			skills.MarketplaceRoutes(sc.Current.Server.BasePath),
-		)
-
+		// Empty-scope routes are published too: the policy service registers
+		// them as authenticated-only.
 		if err := client.Register(
 			registerCtx,
 			"skills-service",
@@ -220,7 +218,7 @@ func initServer(
 		sc.Current.Server.Port,
 		sc.Current.Server.BasePath,
 		mw.MiddlewareChain(
-			mw.TracingMiddleware(sc.Current.Observability.ServiceName),
+			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
 		),
 		controllers...,

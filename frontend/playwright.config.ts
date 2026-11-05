@@ -82,8 +82,8 @@ export default defineConfig({
         INFERENCE_GATEWAY_URL: process.env.INFERENCE_GATEWAY_URL ?? 'http://localhost:8081/v1',
         POLICY_SERVICE_URL: process.env.POLICY_SERVICE_URL ?? 'http://localhost:8083/api/v1',
         POLICY_GATEWAY_URL: process.env.POLICY_GATEWAY_URL ?? 'http://localhost:8084/v1',
-        ORBIT_AGENTS_URL: process.env.ORBIT_AGENTS_URL ?? 'http://localhost:8080',
-        ORBIT_TRIGGERS_URL: process.env.ORBIT_TRIGGERS_URL ?? 'http://localhost:8097',
+        KORA_AGENTS_URL: process.env.KORA_AGENTS_URL ?? 'http://localhost:8080',
+        KORA_TRIGGERS_URL: process.env.KORA_TRIGGERS_URL ?? 'http://localhost:8097',
         TOOL_GATEWAY_URL: process.env.TOOL_GATEWAY_URL ?? 'http://localhost:8096',
         // The skills-upstream.mjs fixture, called by the Skills RSC pages and BFF route.
         SKILLS_SERVICE_URL: `${skillsURL}/v1`,

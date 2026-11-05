@@ -31,8 +31,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/marketplace"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/marketplace"
 )
 
 // ErrMarketplaceCredentialUnavailable is returned when a Marketplace's private
@@ -154,9 +154,9 @@ func NewSkillMarketplaceAggregator(c client.Client, logger logging.Logger) *Skil
 // status never reads Aggregated before skills-service has the Marketplace and
 // its key.
 func (a *SkillMarketplaceAggregator) Sync(ctx context.Context) error {
-	tenants := &OrbitTenantList{}
+	tenants := &KoraTenantList{}
 	if err := a.client.List(ctx, tenants); err != nil {
-		return fmt.Errorf("list OrbitTenants: %w", err)
+		return fmt.Errorf("list KoraTenants: %w", err)
 	}
 	items := &SkillMarketplaceList{}
 	if err := a.client.List(ctx, items); err != nil {
