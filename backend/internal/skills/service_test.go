@@ -672,3 +672,27 @@ func TestList_PartialOrOtherLimitsCrawlAgain(t *testing.T) {
 		t.Errorf("complete list = %d crawls, %v, want it kept", crawler.crawls, err)
 	}
 }
+
+// A list with skills left out by a limit is complete for those limits: on an
+// unchanged commit it is kept after one commit read.
+func TestList_LimitSkippedListIsKept(t *testing.T) {
+	ctx := context.Background()
+	m := testMarketplace(t, "example", "team-skills")
+	limits := testLimits
+	limits.SkillsPerMarketplace = 2
+	crawler := &countingCrawler{inner: NewCrawler(sampleRepo(), limits, discard())}
+	store := newMemStore()
+	svc := NewService(fakeRegistry{"example": {m}}, store, crawler, time.Minute, discard())
+	if page, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil || page.Total != 2 || store.lists[cacheKey(m, "list")].Partial {
+		t.Fatalf("first crawl = %d, %v, partial %v, want 2 skills and a complete list", page.Total, err, store.lists[cacheKey(m, "list")].Partial)
+	}
+	l := store.lists[cacheKey(m, "list")]
+	l.SyncedAt = l.SyncedAt.Add(-time.Hour)
+	store.lists[cacheKey(m, "list")] = l
+	if _, err := listOne(ctx, svc, "example", "team-skills", "", 0, 10); err != nil {
+		t.Fatal(err)
+	}
+	if crawler.crawls != 1 || crawler.resolves != 1 {
+		t.Errorf("crawls %d, resolves %d, want the list kept after one commit read", crawler.crawls, crawler.resolves)
+	}
+}

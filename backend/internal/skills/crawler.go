@@ -96,7 +96,7 @@ func (c *Crawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) 
 		return skillList{}, fmt.Errorf("read tree of %s/%s@%s: %w", m.Owner, m.Repo, sha, err)
 	}
 
-	folders, limited := c.skillFolders(ctx, m, tree)
+	folders := c.skillFolders(ctx, m, tree)
 	skills, unread, err := c.readSkills(ctx, token, m, sha, folders)
 	if err != nil {
 		return skillList{}, fmt.Errorf("fetch skills of %s/%s: %w", m.Owner, m.Repo, err)
@@ -108,7 +108,7 @@ func (c *Crawler) Crawl(ctx context.Context, m *Marketplace) (skillList, error) 
 	}
 	return skillList{
 		Source: m.source(), SHA: sha, SyncedAt: time.Now().UTC().Truncate(time.Second),
-		Limits: c.limits, Partial: limited || unread, Skills: skills,
+		Limits: c.limits, Partial: unread, Skills: skills,
 	}, nil
 }
 
@@ -203,8 +203,8 @@ type skillFolder struct {
 // skillFolders finds every folder with a SKILL.md and assigns each other text
 // blob to its deepest enclosing skill. Skills and files over the limits are
 // skipped and logged.
-func (c *Crawler) skillFolders(ctx context.Context, m *Marketplace, tree []ghclient.TreeEntry) ([]skillFolder, bool) {
-	folders, limited := c.findSkills(ctx, m, tree)
+func (c *Crawler) skillFolders(ctx context.Context, m *Marketplace, tree []ghclient.TreeEntry) []skillFolder {
+	folders := c.findSkills(ctx, m, tree)
 	kept := make(map[string]*skillFolder, len(folders))
 	for _, f := range folders {
 		kept[f.path] = f
@@ -242,13 +242,12 @@ func (c *Crawler) skillFolders(ctx context.Context, m *Marketplace, tree []ghcli
 		}
 		out[i] = *f
 	}
-	return out, limited
+	return out
 }
 
 // findSkills returns the folders holding a SKILL.md in path order, up to
-// skillsPerMarketplace and skillMdBytesPerMarketplace. limited reports a
-// SKILL.md left out by a limit.
-func (c *Crawler) findSkills(ctx context.Context, m *Marketplace, tree []ghclient.TreeEntry) (folders []*skillFolder, limited bool) {
+// skillsPerMarketplace and skillMdBytesPerMarketplace.
+func (c *Crawler) findSkills(ctx context.Context, m *Marketplace, tree []ghclient.TreeEntry) []*skillFolder {
 	var found []*skillFolder
 	for _, e := range tree {
 		if e.Type != "blob" || path.Base(e.Path) != skillFileName {
@@ -261,7 +260,6 @@ func (c *Crawler) findSkills(ctx context.Context, m *Marketplace, tree []ghclien
 		case dir == ".":
 			c.skip(ctx, m, e.Path, "a SKILL.md at the repository root is not in a skill folder")
 		case over(e.Size, c.limits.BytesPerFile):
-			limited = true
 			c.skip(ctx, m, dir, fmt.Sprintf("SKILL.md is over bytesPerFile (%d)", c.limits.BytesPerFile))
 		default:
 			found = append(found, &skillFolder{path: dir, size: e.Size})
@@ -269,22 +267,20 @@ func (c *Crawler) findSkills(ctx context.Context, m *Marketplace, tree []ghclien
 	}
 	slices.SortFunc(found, func(a, b *skillFolder) int { return strings.Compare(a.path, b.path) })
 
-	folders = make([]*skillFolder, 0, len(found))
+	folders := make([]*skillFolder, 0, len(found))
 	var budget int64
 	for _, f := range found {
 		switch {
 		case over(len(folders)+1, c.limits.SkillsPerMarketplace):
-			limited = true
 			c.skip(ctx, m, f.path, fmt.Sprintf("over skillsPerMarketplace (%d)", c.limits.SkillsPerMarketplace))
 		case over(budget+f.size, c.limits.SkillMdBytesPerMarketplace):
-			limited = true
 			c.skip(ctx, m, f.path, fmt.Sprintf("over skillMdBytesPerMarketplace (%d)", c.limits.SkillMdBytesPerMarketplace))
 		default:
 			budget += f.size
 			folders = append(folders, f)
 		}
 	}
-	return folders, limited
+	return folders
 }
 
 // deepestSkill returns the nearest folder above p that holds a SKILL.md, or

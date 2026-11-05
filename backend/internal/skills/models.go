@@ -74,7 +74,8 @@ type skillList struct {
 	SHA      string    `json:"sha"`
 	SyncedAt time.Time `json:"syncedAt"`
 	// Limits are the crawl limits the list was read with. Partial marks a
-	// SKILL.md left out by a limit or a failed download.
+	// SKILL.md whose download failed; a limit skip is not partial, since other
+	// limits already force a crawl.
 	Limits  Limits        `json:"limits"`
 	Partial bool          `json:"partial,omitempty"`
 	Skills  []skillRecord `json:"skills"`
