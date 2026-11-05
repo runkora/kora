@@ -66,6 +66,7 @@ The first release does not:
 *   [ ] Results are shown one numbered page at a time with the total count.
 *   [ ] The address holds the Marketplace or Favourites view, the search and the page, and refresh, Back and shared links restore them.
 *   [ ] I can mark a skill as a favourite and see my favourites together.
+*   [ ] I can see whether each skill comes from an internal or an external Marketplace.
 
 **As a** tenant member,  
 **I want to** open a skill page,  
@@ -85,6 +86,7 @@ The first release does not:
 **Acceptance Criteria:**
 
 *   [ ] I declare each Marketplace as a resource in my tenant's namespace, with its repository and the GitHub App that reads it.
+*   [ ] I declare whether each Marketplace holds my organisation's own skills or third-party skills.
 *   [ ] I can register several Marketplaces from different GitHub organizations, each with its own GitHub App.
 *   [ ] I can pin a Marketplace to one commit or have it follow a branch.
 *   [ ] The resource status shows whether the Marketplace is served and whether its credential is available.

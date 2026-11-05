@@ -115,6 +115,7 @@ metadata:
   name: team-skills
   namespace: kora-tenant-example
 spec:
+  origin: internal
   github:
     owner: example-org
     repo: skills
@@ -128,6 +129,7 @@ spec:
 ```
 
 - `metadata.name` is the Marketplace slug in API paths and dashboard URLs. The display name is the repository name.
+- `spec.origin` is required and is `internal` or `external`. It states whether the content is the organisation's own or third-party, independent of the repository's visibility.
 - `spec.github.ref` is optional. A 40-character hex value pins a commit SHA, any other value tracks a branch, and no value tracks the default branch.
 - `privateKeySecretRef` references a Secret in the same namespace.
 - A tenant can declare several Marketplaces from different GitHub organizations, each with its own GitHub App.
@@ -137,7 +139,7 @@ spec:
 `SkillMarketplaceAggregator` runs on every Marketplace reconcile and every tenant reconcile:
 
 - It resolves the owning tenant with `servedTenants`.
-- It renders `kora-skill-marketplaces` in `kora-system`. Each tenant entry lists its Marketplaces with owner, repo, ref, App ID, installation ID and the data key of the private key.
+- It renders `kora-skill-marketplaces` in `kora-system`. Each tenant entry lists its Marketplaces with origin, owner, repo, ref, App ID, installation ID and the data key of the private key.
 - It copies each referenced private key into `kora-skill-marketplace-secrets` in `kora-system`. The data key derives from the namespace and the Marketplace name.
 - `internal/platform/marketplace` defines the file shape for the operator and skills-service.
 
@@ -157,14 +159,14 @@ skills-service mounts the Marketplaces ConfigMap and the keys Secret and reloads
 - **Crawl:** A crawl resolves the ref to one commit, reads the tree at that commit and fetches each `SKILL.md`. A skill page loads its `SKILL.md` and the list of its other files. Each other file is fetched when it is selected and then cached. A `SKILL.md` at the repository root is skipped.
 - **Skill identity:** A skill is identified by its folder path. The frontmatter `name` is the display name.
 - **Limits:** The chart sets `skillsService.limits` for skills per Marketplace (500), listed files per skill (500), bytes per file (128 KiB) and total `SKILL.md` bytes per Marketplace (8 MiB). An empty value removes that cap. Skills and files over a limit are skipped and logged. Binary files are never fetched.
-- **Cache:** Redis holds the skill list per tenant and Marketplace, each skill's files, and failed crawls. Every key carries the tenant ID. After `cacheTTL` (12 hours) the service reads the Marketplace's commit from GitHub. An unchanged commit keeps the list, and a new commit starts a crawl. Lists are kept for two `cacheTTL` periods and served stale only through a GitHub outage, timeout or rate limit. A refused credential or a missing repository fails closed. Failed crawls expire after a shorter TTL.
+- **Cache:** Redis holds the skill list per tenant and Marketplace, each skill's files, and failed crawls. Every key carries the tenant ID. After `cacheTTL` (12 hours) the service reads the Marketplace's commit from GitHub. An unchanged commit keeps the list unless a skill could not be read or the crawl limits changed. A new commit starts a crawl. Lists are kept for two `cacheTTL` periods and served stale only through a GitHub outage, timeout or rate limit. A refused credential or a missing repository fails closed. Failed crawls expire after a shorter TTL.
 - **Search:** skills-service filters the cached list in memory and needs no Redis module. A skill matches when the query appears in its title, name, description or `SKILL.md` body.
 - **Errors:** A missing repository, ref or skill returns 404. An unavailable credential or an upstream failure returns 502 with a message that cites no provider. An unavailable Redis returns 503, a server timeout returns 504, and a cancelled request gets no response.
 
 The API is under `/v1` and requires the `skills:read` scope. The tenant comes from the verified platform token.
 
-- `GET /v1/marketplaces` returns the tenant's Marketplaces. Each has its slug, repository, ref, the commit and time of its last crawl, and its skill count. The commit, time and count are empty until the Marketplace has been crawled.
-- `GET /v1/marketplaces/skills?marketplace=&keys=&search=&offset=&limit=` returns one page of skills across the tenant's Marketplaces, in title order, with `total`. `marketplace` narrows it to one Marketplace, and `keys` narrows it to a list of `marketplace:path` keys. Each skill carries its Marketplace, path, name, title (the first `SKILL.md` heading), description, and the frontmatter version, tags, allowed tools and manual-only flag.
+- `GET /v1/marketplaces` returns the tenant's Marketplaces. Each has its slug, origin, repository, ref, the commit and time of its last crawl, and its skill count. The commit, time and count are empty until the Marketplace has been crawled.
+- `GET /v1/marketplaces/skills?marketplace=&keys=&search=&offset=&limit=` returns one page of skills across the tenant's Marketplaces, in title order, with `total`. `marketplace` narrows it to one Marketplace, and `keys`, repeated once per key, narrows it to those `marketplace:path` keys. Each skill carries its Marketplace, path, name, title (the first `SKILL.md` heading), description, and the frontmatter version, tags, allowed tools and manual-only flag.
 - `GET /v1/marketplaces/{marketplace}/skills/{path...}` returns one skill's title, `SKILL.md`, file list, the commit it was read at and the same frontmatter fields as the list.
 - `GET /v1/marketplaces/{marketplace}/skills/{path...}?file={path}` returns one listed file.
 
@@ -176,7 +178,7 @@ The API is under `/v1` and requires the `skills:read` scope. The tenant comes fr
 - **State:** The URL holds `marketplace` (or `favourites`), `search` and `page`. Both the card and the list view show results in title order, ten per page.
 - **Favourites:** Each user's favourites are a `skills.favouriteSkills` list of `marketplace:path` keys in the preferences document, like the Models page favourites. The BFF sends them as `keys` for the Favourites view.
 - **Failure:** A Marketplace that returns 502 shows as unavailable with the API message and a retry action.
-- **Components:** The overview follows the MCP servers page. Marketplace and Favourites filter chips with a count sit above both views. The card and list toggle sits in the search row for cards and in `toolbarActions` for the table. Each skill shows the `file` icon. The detail page has a header, the open file and a rail with Files and Source, and "View source" links to the skill folder at the served commit. The file explorer uses the Hades icons `file`, `file-code`, `folder` and `folder-open`.
+- **Components:** The overview follows the MCP servers page. Marketplace and Favourites filter chips with a count sit above both views. Each Marketplace chip, card footer and Source card shows an Internal or External badge from the Marketplace's origin. The card and list toggle sits in the search row for cards and in `toolbarActions` for the table. Each skill shows the `file` icon. The detail page has a header, the open file and a rail with Files and Source, and "View source" links to the skill folder at the served commit. The file explorer uses the Hades icons `file`, `file-code`, `folder` and `folder-open`.
 - **Content:** `SKILL.md` renders as markdown with a Raw view. Other files render as plain text through Hades `CodeBlock`.
 
 ### Local Development
