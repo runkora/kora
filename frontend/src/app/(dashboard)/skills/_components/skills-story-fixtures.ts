@@ -87,7 +87,8 @@ const ANTHROPIC_SKILLS = [
   A(
     'claude-api',
     'Building LLM-Powered Applications with Claude',
-    'Builds applications on the Claude API and the Anthropic SDKs: messages, tool use, streaming, prompt caching and batch requests.',
+    // As long as the real description, which runs to about fifteen lines.
+    'Builds applications on the Claude API and the Anthropic SDKs. Use it when the code imports an Anthropic SDK, calls the Messages API, or the user asks for an agent, a tool-using assistant or a batch job built on Claude. It covers choosing between the Messages API, the Agent SDK and managed agents; detecting the project language and reading the matching SDK guide; messages with system prompts, images and documents; tool use with client and server tools; streaming with server-sent events; extended thinking; prompt caching with breakpoints and cache-aware ordering; the Batches API for large offline jobs; the Files API; token counting; rate limits and retries with backoff; error handling for overloaded and invalid requests; and moving an application from an older model to a newer one without changing its behaviour.',
     { version: '0.9.2', tags: ['api', 'sdk'] },
   ),
   A(

@@ -9,15 +9,7 @@ import { SmartTable, type DataTableColumn } from '@runkora/components';
 import type { SkillSummary } from '@runkora/shared/api';
 import { useSkillsContext } from '../_context/skills-context';
 import { skillHref, skillKey } from '../_types';
-import { FavouriteButton, nameLine, SkillChips } from './skill-chips';
-
-/** Hades Text has no line clamp; the agent card's inline style is the precedent. */
-const TWO_LINES = {
-  display: '-webkit-box',
-  WebkitLineClamp: 2,
-  WebkitBoxOrient: 'vertical',
-  overflow: 'hidden',
-} as const;
+import { clampLines, FavouriteButton, nameLine, SkillChips } from './skill-chips';
 
 /** skills-service has already searched the page; the table keeps every row it gets. */
 const keepRow = () => true;
@@ -57,7 +49,7 @@ export function SkillList({ toolbarActions }: { toolbarActions: React.ReactNode 
         minWidth: '12rem',
         wrap: true,
         cell: (skill) => (
-          <Text size="supporting" color="muted" style={TWO_LINES}>
+          <Text size="supporting" color="muted" style={clampLines(2)}>
             {skill.description}
           </Text>
         ),

@@ -69,6 +69,7 @@ import {
   LayoutList,
   Library,
   LineChart,
+  Link,
   List,
   Loader2,
   Lock,
@@ -180,6 +181,7 @@ export type IconName =
   | 'layout-list'
   | 'library'
   | 'line-chart'
+  | 'link'
   | 'list'
   | 'loader'
   | 'lock'
@@ -287,6 +289,7 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   'layout-list': LayoutList,
   library: Library,
   'line-chart': LineChart,
+  link: Link,
   list: List,
   loader: Loader2,
   lock: Lock,

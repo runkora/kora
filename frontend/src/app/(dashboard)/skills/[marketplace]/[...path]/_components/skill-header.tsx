@@ -17,7 +17,7 @@ import {
 import type { Marketplace, Skill } from '@runkora/shared/api';
 import { useSyncExternalStore } from 'react';
 import { usePreferences } from '../../../../_preferences/preferences-context';
-import { FavouriteButton, nameLine, SkillChips } from '../../../_components/skill-chips';
+import { FavouriteButton, nameLine, SkillChips, skillUrl } from '../../../_components/skill-chips';
 import { skillKey, toggleFavouriteKey } from '../../../_types';
 import { relativeTime } from '@runkora/lib/relative-time';
 
@@ -84,22 +84,31 @@ export function SkillHeader({ skill }: { skill: Skill }) {
             View source
           </a>
         </Button>
-        <CopySkillMd content={skill.content} />
+        <CopyTextButton value={skillUrl(skill)} label="Copy link" icon="link" />
+        <CopyTextButton value={skill.content} label="Copy SKILL.md" icon="copy" />
       </Stack>
     </Stack>
   );
 }
 
-function CopySkillMd({ content }: { content: string }) {
-  const { status, copy } = useCopy(content);
+function CopyTextButton({
+  value,
+  label,
+  icon,
+}: {
+  value: string;
+  label: string;
+  icon: 'copy' | 'link';
+}) {
+  const { status, copy } = useCopy(value);
   return (
     <Button variant="outline" size="sm" onClick={copy}>
       <Icon
-        name={status === 'copied' ? 'check' : 'copy'}
+        name={status === 'copied' ? 'check' : icon}
         size="xs"
         color={status === 'copied' ? 'status-healthy' : undefined}
       />
-      {status === 'copied' ? 'Copied' : 'Copy SKILL.md'}
+      {status === 'copied' ? 'Copied' : label}
     </Button>
   );
 }

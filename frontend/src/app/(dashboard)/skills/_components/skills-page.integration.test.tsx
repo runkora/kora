@@ -1,6 +1,6 @@
 /** Integration tests for the Skills overview states, rendered through SkillsShell with MSW. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@runkora/test-utils';
 import { SkillsShell } from './skills-shell';
@@ -58,10 +58,26 @@ describe('SkillsPage', () => {
     expect(screen.queryByRole('button', { name: 'List view' })).not.toBeInTheDocument();
     expect(screen.getByText(/^1–\d+ of \d+$/)).toBeVisible();
     const card = screen.getByText('PDF Processing Guide').closest('[data-interactive]');
-    expect(within(card as HTMLElement).getByRole('link', { name: /Details/ })).toHaveAttribute(
+    expect(within(card as HTMLElement).getByRole('link', { name: /View details/ })).toHaveAttribute(
       'href',
       '/skills/anthropic-skills/skills/pdf?search=ing',
     );
+  });
+
+  it("copies a card's skill address without opening the skill", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    renderPage(storyOverview({ marketplace: 'anthropic-skills' }));
+    const card = screen.getByText('PDF Processing Guide').closest('[data-interactive]');
+
+    fireEvent.click(within(card as HTMLElement).getByRole('button', { name: 'Copy link' }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        `${window.location.origin}/skills/anthropic-skills/skills/pdf`,
+      ),
+    );
+    expect(push).not.toHaveBeenCalled();
   });
 
   it('opens a table row on a desktop after switching to the list view', async () => {

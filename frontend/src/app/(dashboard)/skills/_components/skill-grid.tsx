@@ -17,7 +17,7 @@ import {
 } from '@runkora/hades';
 import { useSkillsContext } from '../_context/skills-context';
 import { skillHref, skillKey } from '../_types';
-import { FavouriteButton, nameLine, SkillChips } from './skill-chips';
+import { clampLines, CopyLinkButton, FavouriteButton, nameLine, SkillChips } from './skill-chips';
 
 export function SkillGrid() {
   const { skills, browse, marketplaces, favourites, toggleFavourite } = useSkillsContext();
@@ -54,7 +54,12 @@ export function SkillGrid() {
                     />
                   </Stack>
                 </Stack>
-                <Text size="supporting" color="muted">
+                <Text
+                  size="supporting"
+                  color="muted"
+                  style={clampLines(3)}
+                  title={skill.description}
+                >
                   {skill.description}
                 </Text>
                 <SkillChips skill={skill} />
@@ -66,12 +71,15 @@ export function SkillGrid() {
                 <Text size="caption" color="muted" mono truncate>
                   {repositories.get(skill.marketplace) ?? skill.marketplace}
                 </Text>
-                <Button asChild variant="ghost" size="sm">
-                  <Link href={href} onClick={(event) => event.stopPropagation()}>
-                    Details
-                    <Icon name="chevron-right" size="2xs" />
-                  </Link>
-                </Button>
+                <Stack direction="horizontal" align="center" gap="tight" shrink>
+                  <CopyLinkButton skill={skill} />
+                  <Button asChild variant="ghost" size="sm">
+                    <Link href={href} onClick={(event) => event.stopPropagation()}>
+                      View details
+                      <Icon name="chevron-right" size="2xs" />
+                    </Link>
+                  </Button>
+                </Stack>
               </Stack>
             </CardContent>
           </Card>

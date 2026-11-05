@@ -1,6 +1,6 @@
 /** Integration tests for the skill page: SKILL.md on open, other files on selection, the header actions. */
 import { describe, expect, it, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { renderWithProviders, server } from '@runkora/test-utils';
@@ -86,6 +86,21 @@ describe('SkillDetail', () => {
     fail = false;
     await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(await screen.findByText('All rights reserved.')).toBeVisible();
+  });
+
+  it("copies the skill page's address", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    renderDetail();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy link' }));
+
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        `${window.location.origin}/skills/anthropic-skills/skills/pdf`,
+      ),
+    );
+    expect(await screen.findByRole('button', { name: 'Copied' })).toBeVisible();
   });
 
   it('adds the skill to the favourites', async () => {

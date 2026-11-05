@@ -1,8 +1,19 @@
 'use client';
 
-/** @tier 3 — skills-scoped. The favourite heart, the name and version line and the frontmatter chips that cards, rows and the skill page share. */
+/** @tier 3 — skills-scoped. The favourite heart, the copy-link button, the name and version line and the frontmatter chips that cards, rows and the skill page share. */
 
-import { Badge, Button, Icon, Stack, type IconName } from '@runkora/hades';
+import {
+  Badge,
+  Button,
+  Icon,
+  Stack,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  useCopy,
+  type IconName,
+} from '@runkora/hades';
+import { APP_ROUTES } from '@runkora/lib/routing';
 
 /** The folder between the skills root and the skill, as `engineering` in `skills/engineering/tdd`, in sentence case. */
 function folderLabel(path: string): string | null {
@@ -39,6 +50,51 @@ export function FavouriteButton({
     >
       <Icon name="heart" size="2xs" color={favourite ? 'rose' : 'muted'} filled={favourite} />
     </Button>
+  );
+}
+
+/** Hades Text has no line clamp; the agent card's inline style is the precedent. */
+export function clampLines(lines: number) {
+  return {
+    display: '-webkit-box',
+    WebkitLineClamp: lines,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
+  } as const;
+}
+
+/** The skill page's absolute address, without browse values, for sharing. */
+export function skillUrl(skill: { marketplace: string; path: string }): string {
+  const route = APP_ROUTES.skills.skill(skill.marketplace, skill.path);
+  // Only read on click; the server render never copies.
+  return typeof window === 'undefined' ? route : `${window.location.origin}${route}`;
+}
+
+/** An icon-only button, sized like the heart, that copies the skill page's address. */
+export function CopyLinkButton({ skill }: { skill: { marketplace: string; path: string } }) {
+  const { status, copy } = useCopy(skillUrl(skill));
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Copy link"
+          onClick={(event) => {
+            // The card opens the skill on click; copying must not.
+            event.stopPropagation();
+            void copy();
+          }}
+        >
+          <Icon
+            name={status === 'copied' ? 'check' : 'link'}
+            size="2xs"
+            color={status === 'copied' ? 'status-healthy' : 'muted'}
+          />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{status === 'copied' ? 'Copied' : 'Copy link'}</TooltipContent>
+    </Tooltip>
   );
 }
 
