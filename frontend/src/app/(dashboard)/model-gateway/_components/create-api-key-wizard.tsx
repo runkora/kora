@@ -9,17 +9,18 @@ import {
   Button,
   CopyField,
   FormField,
-  Heading,
   Icon,
   Input,
   SectionHeading,
   Stack,
   Text,
   Wizard,
+  useWizardSteps,
 } from '@runkora/hades';
 import { ScopeChipList, ScopePicker } from '@runkora/components';
 import type { ScopeOption } from '@runkora/components';
 import type { CreatePATResponse } from '@runkora/shared/api';
+import { plural } from '@runkora/utils';
 import { createToken } from '../_actions/tokens';
 
 interface CreateApiKeyWizardProps {
@@ -46,8 +47,6 @@ const MAX_NAME = 128;
 const MAX_EXPIRY_DAYS = 365;
 const DEFAULT_EXPIRY_DAYS = '90';
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-
 const fmtLongDate = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -67,8 +66,6 @@ export function CreateApiKeyWizard({
   onClose,
   onCreated,
 }: CreateApiKeyWizardProps) {
-  const [step, setStep] = useState(DETAILS);
-  const [maxVisited, setMaxVisited] = useState(DETAILS);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [created, setCreated] = useState<CreatePATResponse | null>(null);
@@ -87,18 +84,13 @@ export function CreateApiKeyWizard({
     scopes.length === 0 ? 'Choose at least one permission before you continue.' : undefined,
     undefined,
   ];
-  // Review stands for every step before it, so it cannot be reached with one of them invalid.
-  const hint = step === REVIEW ? (hints.find((h) => h !== undefined) ?? undefined) : hints[step];
-
-  const goTo = useCallback(
-    (target: number) => {
-      if (submitting) return;
-      setStep(target);
-      setMaxVisited((m) => Math.max(m, target));
-      setSubmitError(null);
-    },
-    [submitting],
-  );
+  const steps = useWizardSteps({
+    stepCount: STEPS.length,
+    hints,
+    locked: submitting,
+    reviewStep: REVIEW,
+    onNavigate: () => setSubmitError(null),
+  });
 
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);
@@ -124,8 +116,7 @@ export function CreateApiKeyWizard({
   }, [trimmedName, expiresInDays, scopes, onCreated]);
 
   const createAnother = () => {
-    setStep(DETAILS);
-    setMaxVisited(DETAILS);
+    steps.reset();
     setName('');
     setExpiresInDays(DEFAULT_EXPIRY_DAYS);
     setScopes([]);
@@ -137,7 +128,7 @@ export function CreateApiKeyWizard({
     expiresInDays.trim() === '' ? 'Server default' : plural(Number(expiresInDays), 'day', 'days');
 
   const body = (() => {
-    switch (step) {
+    switch (steps.step) {
       case DETAILS:
         return (
           <SectionHeading
@@ -209,7 +200,7 @@ export function CreateApiKeyWizard({
               <Wizard.ReviewCard
                 icon="key"
                 title="Details"
-                onEdit={() => goTo(DETAILS)}
+                onEdit={() => steps.goTo(DETAILS)}
                 rows={[
                   { label: 'Name', value: trimmedName || 'Not set' },
                   { label: 'Expires in', value: expiryLabel },
@@ -218,7 +209,7 @@ export function CreateApiKeyWizard({
               <Wizard.ReviewCard
                 icon="shield-check"
                 title="Permissions"
-                onEdit={() => goTo(SCOPES)}
+                onEdit={() => steps.goTo(SCOPES)}
                 rows={[{ label: 'Selected', value: plural(scopes.length, 'scope', 'scopes') }]}
               >
                 <Stack paddingBlock="snug">
@@ -239,95 +230,76 @@ export function CreateApiKeyWizard({
       onClose={submitting || created ? () => undefined : onClose}
       icon="key"
       title="Create API key"
-      hint={created ? undefined : hint}
+      hint={created ? undefined : steps.hint}
       rail={
         <Wizard.Rail
           label="Create API key"
           steps={STEPS}
-          current={step}
-          maxVisited={maxVisited}
-          onGoTo={goTo}
+          current={steps.step}
+          maxVisited={steps.maxVisited}
+          onGoTo={steps.goTo}
         />
       }
       footer={
         <Wizard.Footer
-          step={step}
+          step={steps.step}
           totalSteps={STEPS.length}
-          onBack={step > DETAILS ? () => goTo(step - 1) : undefined}
-          onNext={() => goTo(step + 1)}
-          nextDisabled={hint !== undefined}
-          onSubmit={step === REVIEW ? () => void handleSubmit() : undefined}
+          onBack={steps.isFirst ? undefined : steps.back}
+          onNext={steps.next}
+          nextDisabled={steps.nextDisabled}
+          onSubmit={steps.isLast ? () => void handleSubmit() : undefined}
           submitLabel="Create key"
           pending={submitting}
         />
       }
     >
       {created ? (
-        <Wizard.Step fullPage>
-          <Stack
-            grow
-            align="center"
-            justify="center"
-            gap="comfortable"
-            padding="loose"
-            overflowY="auto"
-          >
-            <Stack align="center" gap="snug">
-              <Icon
-                name="check-circle"
-                size="xl"
-                color="accent"
-                container
-                containerVariant="accent"
-                circle
-                label=""
-              />
-              <Heading variant="subsection">API key created</Heading>
-              <Text size="supporting" color="muted" align="center">
-                {created.name}
-              </Text>
-            </Stack>
-            {/* The token is a ~1,000 character JWT. Without a bound, its unbreakable text sets the
-                width of this centred column instead of truncating inside the copy field. */}
-            <Stack gap="cozy" maxWidth={{ base: 'full', sm: 'document' }}>
-              <Alert variant="warning">
-                <Icon name="triangle-alert" color="status-degraded" />
-                <Stack gap="tight">
-                  <Text size="supporting" color="foreground" weight="heavy">
-                    Copy this key now.
-                  </Text>
-                  <Text size="supporting" color="foreground">
-                    It will not be shown again. If you lose it, you will need to revoke it and
-                    create a new one.
-                  </Text>
-                </Stack>
-              </Alert>
-              <Stack gap="tight">
-                <Text size="caption" color="subtle" weight="emphasis">
-                  Your API key
-                </Text>
-                <CopyField
-                  key={created.token}
-                  value={created.token}
-                  ariaLabel="Copy API key to clipboard"
-                  mono
-                />
-                <Text size="caption" color="subtle">
-                  {created.expires_at
-                    ? `Expires ${fmtLongDate(created.expires_at)}`
-                    : 'Never expires'}
-                </Text>
-              </Stack>
-            </Stack>
-            <Stack direction="horizontal" gap="cozy" wrap justify="center">
+        <Wizard.Success
+          title="API key created"
+          description={created.name}
+          actions={
+            <>
               <Button variant="secondary" onClick={createAnother}>
                 Create another
                 <Icon name="plus" />
               </Button>
               <Button onClick={onClose}>Done, I&apos;ve copied it</Button>
+            </>
+          }
+        >
+          {/* The token is a ~1,000 character JWT. Without a bound, its unbreakable text sets the
+              width of this centred column instead of truncating inside the copy field. */}
+          <Stack gap="cozy" maxWidth={{ base: 'full', sm: 'document' }}>
+            <Alert variant="warning">
+              <Icon name="triangle-alert" color="status-degraded" />
+              <Stack gap="tight">
+                <Text size="supporting" color="foreground" weight="heavy">
+                  Copy this key now.
+                </Text>
+                <Text size="supporting" color="foreground">
+                  It will not be shown again. If you lose it, you will need to revoke it and create
+                  a new one.
+                </Text>
+              </Stack>
+            </Alert>
+            <Stack gap="tight">
+              <Text size="caption" color="subtle" weight="emphasis">
+                Your API key
+              </Text>
+              <CopyField
+                key={created.token}
+                value={created.token}
+                ariaLabel="Copy API key to clipboard"
+                mono
+              />
+              <Text size="caption" color="subtle">
+                {created.expires_at
+                  ? `Expires ${fmtLongDate(created.expires_at)}`
+                  : 'Never expires'}
+              </Text>
             </Stack>
           </Stack>
-        </Wizard.Step>
+        </Wizard.Success>
       ) : (
         <Stack grow overflowY="auto" padding="loose" gap="relaxed">
           {body}

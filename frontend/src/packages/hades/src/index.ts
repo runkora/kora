@@ -316,6 +316,7 @@ export type {
   WizardRailProps,
   WizardRailStep,
   WizardStepProps,
+  WizardSuccessProps,
   WizardFooterProps,
   WizardReviewCardProps,
 } from './components/wizard';
@@ -406,4 +407,6 @@ export type {
 
 export { useDialog } from './hooks/use-dialog';
 export { useCopy } from './hooks/use-copy';
+export { useWizardSteps } from './hooks/use-wizard-steps';
+export type { UseWizardStepsOptions, UseWizardStepsReturn } from './hooks/use-wizard-steps';
 export type { CopyStatus } from './hooks/use-copy';
