@@ -108,12 +108,22 @@ func firstHeading(lines []string) string {
 			continue
 		}
 		if heading, ok := strings.CutPrefix(line, "# "); ok && !fenced {
-			if heading = strings.TrimSpace(strings.TrimRight(strings.TrimSpace(heading), "#")); heading != "" {
+			if heading = closingHashes(strings.TrimSpace(heading)); heading != "" {
 				return heading
 			}
 		}
 	}
 	return ""
+}
+
+// closingHashes drops an ATX closing sequence: trailing "#" characters that
+// follow whitespace. "Learning C#" keeps its "#".
+func closingHashes(heading string) string {
+	trimmed := strings.TrimRight(heading, "#")
+	if trimmed == heading || (trimmed != "" && !strings.HasSuffix(trimmed, " ") && !strings.HasSuffix(trimmed, "\t")) {
+		return heading
+	}
+	return strings.TrimSpace(trimmed)
 }
 
 // firstString returns the first value that is a non-empty string.

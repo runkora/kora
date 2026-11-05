@@ -197,3 +197,18 @@ func deref(s *string) string {
 	}
 	return *s
 }
+
+func TestFirstHeading_ClosingSequence(t *testing.T) {
+	for in, want := range map[string]string{
+		"# Learning C#":  "Learning C#",
+		"# Title ##":     "Title",
+		"# Title #":      "Title",
+		"# F# and C# ##": "F# and C#",
+		"# #":            "",
+		"# Plain":        "Plain",
+	} {
+		if got := firstHeading([]string{in}); got != want {
+			t.Errorf("firstHeading(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
