@@ -18,6 +18,8 @@ import {
   Input,
   Modal,
   ModalAccessibleTitle,
+  ModalBody,
+  ModalFooter,
   NativeSelect,
   Stack,
   Text,
@@ -85,7 +87,7 @@ export function RunTriggerModal({ trigger, onClose, onFire }: RunTriggerModalPro
   return (
     <Modal open onClose={onClose} size="sm">
       <ModalAccessibleTitle>Run {trigger.name}</ModalAccessibleTitle>
-      <Stack gap="comfortable" padding="relaxed">
+      <ModalBody>
         <Stack gap="tight">
           <Text size="supporting" weight="heavy">
             Run {trigger.name}
@@ -144,16 +146,16 @@ export function RunTriggerModal({ trigger, onClose, onFire }: RunTriggerModalPro
             </FormField>
           );
         })}
+      </ModalBody>
 
-        <Stack direction="horizontal" justify="end" gap="snug">
-          <Button variant="secondary" onClick={onClose} disabled={pending}>
-            Cancel
-          </Button>
-          <Button onClick={() => void submit()} disabled={pending}>
-            {pending ? 'Queueing…' : 'Run agent'}
-          </Button>
-        </Stack>
-      </Stack>
+      <ModalFooter>
+        <Button variant="secondary" onClick={onClose} disabled={pending}>
+          Cancel
+        </Button>
+        <Button onClick={() => void submit()} disabled={pending}>
+          {pending ? 'Queueing…' : 'Run agent'}
+        </Button>
+      </ModalFooter>
     </Modal>
   );
 }
