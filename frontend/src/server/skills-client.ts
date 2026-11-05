@@ -51,7 +51,8 @@ export interface SkillsQuery {
 export async function fetchSkills(accessToken: string, page: SkillsQuery): Promise<SkillsPage> {
   const query = new URLSearchParams({ offset: String(page.offset), limit: String(page.limit) });
   if (page.marketplace) query.set('marketplace', page.marketplace);
-  if (page.keys.length > 0) query.set('keys', page.keys.join(','));
+  // One parameter per key: a path may hold a comma.
+  page.keys.forEach((key) => query.append('keys', key));
   if (page.search) query.set('search', page.search);
   return request<SkillsPage>(`/marketplaces/skills?${query.toString()}`, accessToken);
 }

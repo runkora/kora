@@ -19,12 +19,12 @@ function stubFetch(response: Response) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('skills-client', () => {
-  it('asks for one page with its Marketplace, keys, search and the bearer token', async () => {
+  it('asks for one page with its Marketplace, one keys parameter per key, search and the bearer token', async () => {
     const fetchMock = stubFetch(Response.json({ skills: [], total: 0 }));
 
     await fetchSkills('token-a', {
       marketplace: 'team-skills',
-      keys: ['team-skills:skills/pdf', 'team-skills:skills/docx'],
+      keys: ['team-skills:skills/pdf', 'team-skills:skills/a,b'],
       search: 'pdf',
       offset: 10,
       limit: 10,
@@ -32,7 +32,7 @@ describe('skills-client', () => {
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe(
-      'http://skills-service.test/v1/marketplaces/skills?offset=10&limit=10&marketplace=team-skills&keys=team-skills%3Askills%2Fpdf%2Cteam-skills%3Askills%2Fdocx&search=pdf',
+      'http://skills-service.test/v1/marketplaces/skills?offset=10&limit=10&marketplace=team-skills&keys=team-skills%3Askills%2Fpdf&keys=team-skills%3Askills%2Fa%2Cb&search=pdf',
     );
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer token-a');
   });

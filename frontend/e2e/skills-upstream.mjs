@@ -35,7 +35,7 @@ createServer((req, res) => {
 
   if (url.pathname === '/v1/marketplaces/skills') {
     const slug = url.searchParams.get('marketplace') ?? '';
-    const keys = (url.searchParams.get('keys') ?? '').split(',').filter(Boolean);
+    const keys = url.searchParams.getAll('keys');
     const search = (url.searchParams.get('search') ?? '').toLowerCase();
     const offset = Number(url.searchParams.get('offset') ?? '0');
     const limit = Number(url.searchParams.get('limit') ?? '10');

@@ -75,7 +75,8 @@ export function decodeParam(value: string): string {
 /** Search text as the API applies it: trimmed, and empty below MIN_SEARCH_LENGTH. */
 export function toSearch(text: unknown): string {
   const trimmed = typeof text === 'string' ? text.trim() : '';
-  return trimmed.length < MIN_SEARCH_LENGTH ? '' : trimmed;
+  // Counted in code points, as skills-service counts runes.
+  return [...trimmed].length < MIN_SEARCH_LENGTH ? '' : trimmed;
 }
 
 /** Reads browse values from a URL or request query. A missing or invalid page is page 1. */
