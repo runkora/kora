@@ -112,6 +112,7 @@ func buildMarketplaces(items []SkillMarketplace, tenants []KoraTenant) (marketpl
 		gh := m.Spec.GitHub
 		rendered[tenant] = append(rendered[tenant], marketplace.Marketplace{
 			Slug:                m.Name,
+			Origin:              m.Spec.Origin,
 			Owner:               gh.Owner,
 			Repo:                gh.Repo,
 			Ref:                 gh.Ref,

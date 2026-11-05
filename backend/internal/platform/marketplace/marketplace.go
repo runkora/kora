@@ -31,9 +31,11 @@ type Tenant struct {
 // Marketplace is one SkillMarketplace as skills-service needs it.
 type Marketplace struct {
 	// Slug is the SkillMarketplace metadata.name.
-	Slug  string `json:"slug"`
-	Owner string `json:"owner"`
-	Repo  string `json:"repo"`
+	Slug string `json:"slug"`
+	// Origin is "internal" or "external".
+	Origin string `json:"origin"`
+	Owner  string `json:"owner"`
+	Repo   string `json:"repo"`
 	// Ref is a branch or commit SHA. Empty means the default branch.
 	Ref            string `json:"ref,omitempty"`
 	AppID          string `json:"appID"`

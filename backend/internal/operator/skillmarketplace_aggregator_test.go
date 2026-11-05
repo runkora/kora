@@ -40,7 +40,7 @@ func laterBy(t metav1.Time, seconds int) metav1.Time {
 func marketSrc(namespace, name, owner, repo string, created metav1.Time) SkillMarketplace {
 	return SkillMarketplace{
 		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name, CreationTimestamp: created},
-		Spec: SkillMarketplaceSpec{GitHub: SkillMarketplaceGitHub{
+		Spec: SkillMarketplaceSpec{Origin: "internal", GitHub: SkillMarketplaceGitHub{
 			Owner: owner, Repo: repo,
 			App: SkillMarketplaceApp{
 				AppID: "4015347", InstallationID: 139299720,
@@ -248,9 +248,10 @@ func TestBuildMarketplaces(t *testing.T) {
 func TestBuildMarketplaces_RendersTheSpec(t *testing.T) {
 	m := marketSrc(exampleNS, "team-skills", "example-org", "skills", marketplaceT0)
 	m.Spec.GitHub.Ref = "main"
+	m.Spec.Origin = "external"
 	file, _ := buildMarketplaces([]SkillMarketplace{m}, []KoraTenant{marketTenant("example", true)})
 	want := marketplace.File{Tenants: []marketplace.Tenant{{ID: "example", Marketplaces: []marketplace.Marketplace{{
-		Slug: "team-skills", Owner: "example-org", Repo: "skills", Ref: "main",
+		Slug: "team-skills", Origin: "external", Owner: "example-org", Repo: "skills", Ref: "main",
 		AppID: "4015347", InstallationID: 139299720,
 		PrivateKeySecretKey: "kora-tenant-example.team-skills",
 	}}}}}
