@@ -80,10 +80,16 @@ func (f *respServer) reply(args []string) string {
 		v, _ := strconv.Atoi(f.vals[args[1]])
 		f.vals[args[1]] = strconv.Itoa(v + n)
 		return fmt.Sprintf(":%d\r\n", v+n)
-	case "EXPIRE":
+	case "PEXPIRE":
 		n, _ := strconv.Atoi(args[2])
-		f.ttls[args[1]] = time.Duration(n) * time.Second
+		f.ttls[args[1]] = time.Duration(n) * time.Millisecond
 		return ":1\r\n"
+	case "PTTL":
+		ttl, ok := f.ttls[args[1]]
+		if !ok || ttl == 0 {
+			return ":-1\r\n"
+		}
+		return fmt.Sprintf(":%d\r\n", ttl.Milliseconds())
 	default:
 		return "+OK\r\n"
 	}
@@ -224,7 +230,8 @@ func TestCache_RedisErrorIsWrapped(t *testing.T) {
 
 func TestCache_FileBudget(t *testing.T) {
 	ctx := context.Background()
-	c, fake := newTestCache(t, time.Hour, time.Minute, 10)
+	// Stored sizes are 8, 7 and 6 bytes with the JSON quotes.
+	c, fake := newTestCache(t, time.Hour, time.Minute, 14)
 	m := &Marketplace{TenantID: "example", Marketplace: marketplace.Marketplace{Slug: "team-skills"}}
 
 	for _, f := range []struct{ path, content string }{{"a.md", "123456"}, {"b.md", "12345"}, {"c.md", "1234"}} {
@@ -237,10 +244,33 @@ func TestCache_FileBudget(t *testing.T) {
 			t.Errorf("%s cached = %v, want %v", path, ok, want)
 		}
 	}
-	if got := fake.vals[cacheKey(m, "filebytes", "sha")]; got != "10" {
-		t.Errorf("budget used = %s, want 10", got)
+	if got := fake.vals[cacheKey(m, "filebytes", "sha")]; got != "14" {
+		t.Errorf("budget used = %s, want 14", got)
 	}
 	if got := fake.ttls[cacheKey(m, "filebytes", "sha")]; got != time.Hour {
 		t.Errorf("budget TTL = %v, want the cache TTL", got)
+	}
+}
+
+func TestCache_FileBudgetCountsStoredBytesAndSharesTheCounterTTL(t *testing.T) {
+	ctx := context.Background()
+	c, fake := newTestCache(t, time.Hour, time.Minute, 20)
+	m := &Marketplace{TenantID: "example", Marketplace: marketplace.Marketplace{Slug: "team-skills"}}
+
+	// Three control characters are 3 bytes of content and 20 stored bytes once JSON-escaped.
+	if err := c.SetFile(ctx, m, "sha", "ctl.md", "\x01\x02\x03"); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.vals[cacheKey(m, "filebytes", "sha")]; got != "20" {
+		t.Errorf("budget used = %s, want the 20 stored bytes", got)
+	}
+
+	fake.ttls[cacheKey(m, "filebytes", "sha")] = 10 * time.Minute
+	c.fileBudget = 100
+	if err := c.SetFile(ctx, m, "sha", "late.md", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if got := fake.ttls[cacheKey(m, "file", "sha", "late.md")]; got != 10*time.Minute {
+		t.Errorf("file TTL = %v, want the counter's remaining 10m", got)
 	}
 }

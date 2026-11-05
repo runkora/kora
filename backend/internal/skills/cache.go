@@ -79,24 +79,52 @@ func (c *Cache) GetFile(ctx context.Context, m *Marketplace, sha, path string) (
 }
 
 // SetFile caches the content of one skill file at sha. A file that would take
-// the Marketplace past fileBudget is not cached, so one Marketplace cannot fill
-// the shared Redis. The budget counter expires with the first file it counts.
+// the Marketplace past fileBudget, counted in stored bytes, is not cached, so one
+// Marketplace cannot fill the shared Redis. Files expire with the budget counter.
 func (c *Cache) SetFile(ctx context.Context, m *Marketplace, sha, path, content string) error {
+	key := cacheKey(m, "file", sha, path)
+	data, err := json.Marshal(content)
+	if err != nil {
+		return fmt.Errorf("cache encode %q: %w", key, err)
+	}
+	ttl := c.ttl
 	if c.fileBudget > 0 {
-		key, size := cacheKey(m, "filebytes", sha), int64(len(content))
-		used, err := c.redis.Client().IncrBy(ctx, key, size).Result()
-		if err != nil {
-			return fmt.Errorf("cache budget %q: %w: %w", key, storage.ErrRedisUnavailable, err)
-		}
-		if used == size {
-			c.redis.Client().Expire(ctx, key, c.ttl)
-		}
-		if used > c.fileBudget {
-			c.redis.Client().DecrBy(ctx, key, size)
-			return nil
+		var ok bool
+		if ttl, ok, err = c.chargeFileBudget(ctx, cacheKey(m, "filebytes", sha), int64(len(data))); err != nil || !ok {
+			return err
 		}
 	}
-	return c.set(ctx, cacheKey(m, "file", sha, path), content, c.ttl)
+	if err := c.redis.Set(ctx, key, data, ttl); err != nil {
+		return fmt.Errorf("cache set %q: %w: %w", key, storage.ErrRedisUnavailable, err)
+	}
+	return nil
+}
+
+// chargeFileBudget adds size to the budget counter at key and reports whether it
+// fits, with the counter's remaining lifetime for the file entry.
+func (c *Cache) chargeFileBudget(ctx context.Context, key string, size int64) (time.Duration, bool, error) {
+	rc := c.redis.Client()
+	used, err := rc.IncrBy(ctx, key, size).Result()
+	if err != nil {
+		return 0, false, fmt.Errorf("cache budget %q: %w: %w", key, storage.ErrRedisUnavailable, err)
+	}
+	if used > c.fileBudget {
+		if err = rc.DecrBy(ctx, key, size).Err(); err != nil {
+			return 0, false, fmt.Errorf("cache budget %q: %w: %w", key, storage.ErrRedisUnavailable, err)
+		}
+		return 0, false, nil
+	}
+	ttl, err := rc.PTTL(ctx, key).Result()
+	if err != nil {
+		return 0, false, fmt.Errorf("cache budget %q: %w: %w", key, storage.ErrRedisUnavailable, err)
+	}
+	if ttl <= 0 {
+		if err = rc.PExpire(ctx, key, c.ttl).Err(); err != nil {
+			return 0, false, fmt.Errorf("cache budget %q: %w: %w", key, storage.ErrRedisUnavailable, err)
+		}
+		ttl = c.ttl
+	}
+	return ttl, true, nil
 }
 
 func (c *Cache) get(ctx context.Context, key string, dest any) (bool, error) {
