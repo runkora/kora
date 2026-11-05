@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  builderPatchFor,
+  cronBreakdown,
   cronFor,
   describeCron,
   humanFor,
   isValidCron,
+  minuteMarks,
+  monthDayNote,
   ordinal,
+  specFromCron,
   timezoneOptions,
   toggleWeekday,
+  utcLabel,
+  zoneClockName,
   type CronSpec,
 } from './cron';
 
@@ -210,5 +217,81 @@ describe('describeCron', () => {
     expect(describeCron('0 2 1 6 *')).toBe('Custom schedule');
     expect(describeCron('not a cron')).toBe('Custom schedule');
     expect(describeCron('')).toBe('Custom schedule');
+  });
+});
+
+describe('cronBreakdown', () => {
+  it('names the field that is out of range', () => {
+    const b = cronBreakdown('0 25 * * 1');
+    expect(b.problem).toBe('Hour must be between 0 and 23.');
+    expect(b.fields.map((f) => f.problem !== undefined)).toEqual([
+      false,
+      true,
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  it('asks for five fields when there are not five', () => {
+    expect(cronBreakdown('0 2 * *').problem).toBe('Needs five fields separated by spaces.');
+  });
+
+  it('leaves ranges, steps, lists and names to the scheduler', () => {
+    expect(cronBreakdown('*/30 9-17 * * 1-5').problem).toBeUndefined();
+    expect(cronBreakdown('0 9 * * MON,FRI').problem).toBeUndefined();
+    expect(cronBreakdown('0 9 1,15 * *').problem).toBeUndefined();
+  });
+});
+
+describe('builderPatchFor', () => {
+  const current = spec();
+  it('fills the builder from an expression it can show', () => {
+    expect(builderPatchFor('0 6 * * 1,4', current)).toMatchObject({
+      freq: 'weekly',
+      time: '06:00',
+      weekdays: [1, 4],
+    });
+  });
+  it('replaces one it cannot show with a daily run at the fallback time', () => {
+    expect(builderPatchFor('*/30 9-17 * * 1-5', current)).toEqual({
+      freq: 'daily',
+      time: '09:00',
+    });
+  });
+});
+
+describe('schedule display helpers', () => {
+  it('lists the minutes an interval lands on', () => {
+    expect(minuteMarks(15)).toBe(':00, :15, :30 and :45');
+    expect(minuteMarks(30)).toBe(':00 and :30');
+    expect(minuteMarks(5)).toBe(':00, :05, :10, :15 and so on');
+  });
+  it('names a zone by its clock', () => {
+    expect(zoneClockName('Australia/Sydney')).toBe('Sydney time');
+    expect(zoneClockName('America/New_York')).toBe('New York time');
+    expect(zoneClockName('UTC')).toBe('UTC');
+  });
+  it('reads an instant in UTC', () => {
+    expect(utcLabel('2026-11-01T19:00:00Z')).toBe('Sun 1 Nov, 19:00 UTC');
+    expect(utcLabel('nope')).toBeNull();
+  });
+});
+
+describe('specFromCron ranges', () => {
+  it('leaves a time that does not exist as a raw expression', () => {
+    expect(specFromCron('0 25 * * 1')).toBeNull();
+    expect(specFromCron('61 * * * *')).toBeNull();
+    expect(specFromCron('0 6 32 * *')).toBeNull();
+  });
+});
+
+describe('monthDayNote', () => {
+  it('says nothing up to the 28th and notes the months skipped after it', () => {
+    expect(monthDayNote('28')).toBeUndefined();
+    expect(monthDayNote('')).toBeUndefined();
+    expect(monthDayNote('29')).toMatch(/leap/);
+    expect(monthDayNote('30')).toMatch(/11 times/);
+    expect(monthDayNote('31')).toMatch(/7 times/);
   });
 });

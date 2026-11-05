@@ -27,7 +27,7 @@ import {
   resolvedFields,
   validateNamedPromptStep,
 } from '../wizard-state';
-import { PromptField, TriggerNameField } from '../shared-fields';
+import { PromptField, TriggerNameField } from '../../trigger-fields';
 import { manualCatalog, toTemplateCatalog } from '../field-catalog';
 import type {
   DoneContentProps,

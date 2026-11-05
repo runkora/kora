@@ -113,6 +113,19 @@ export async function listDeliveries(): Promise<{
   return { deliveries: res.data ?? [], error: res.error };
 }
 
+/** A page of deliveries, newest first. `before` is the oldest `receivedAt` already held. */
+export async function listDeliveryPage(opts: {
+  sourceId?: string;
+  triggerId?: string;
+  limit: number;
+  before?: string;
+}): Promise<{ deliveries: TriggerDelivery[]; error: string | null }> {
+  const res = await send<TriggerDelivery[]>(ApiRoute.triggerDeliveries.page(opts), {
+    cache: 'no-store',
+  });
+  return { deliveries: res.data ?? [], error: res.error };
+}
+
 /** The agent types a routed trigger may name, each marked runnable for the caller. */
 export async function listRoutingCandidates(): Promise<{
   candidates: TriggerRoutingCandidate[];

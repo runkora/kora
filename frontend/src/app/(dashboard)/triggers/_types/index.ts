@@ -102,7 +102,7 @@ export function consoleKindOf(
 // ── Shared vocabulary ─────────────────────────────────────────────────────────
 //
 // Constants both the create surface (wizard) and the read/edit surfaces (list,
-// drawer) need. They live here rather than in either one, so a bound or an icon
+// modal) need. They live here rather than in either one, so a bound or an icon
 // cannot mean two things depending on which screen you are looking at.
 
 /**
@@ -586,7 +586,7 @@ export function relativeTime(iso: string | null): string {
 /**
  * The absolute time for hover titles, the delivery panel, and the agent page:
  * one formatter, so those surfaces spell the same instant the same way. The
- * drawer's delivery history deliberately uses a different-grain formatter.
+ * modal's delivery history deliberately uses a different-grain formatter.
  */
 export function formatTimestampUtc(iso: string): string {
   if (!iso) return '—';
@@ -717,7 +717,7 @@ export function coalesceKeyText(entry: DeliveryCoalesceKeyRow): string {
 
 /**
  * The coalescing keys to show for a delivery. Scoped to one trigger when the
- * surface is, so a trigger's drawer never shows another trigger's key.
+ * surface is, so a trigger's modal never shows another trigger's key.
  */
 export function coalesceKeysFor(d: DeliveryRow, triggerId?: string): DeliveryCoalesceKeyRow[] {
   return triggerId === undefined

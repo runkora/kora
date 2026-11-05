@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — agents/[slug]-scoped. The Triggers page's own list, drawer,
+/** @tier 3 — agents/[slug]-scoped. The Triggers page's own list, modal,
  * deliveries and wizard, scoped to THIS agent. This file owns the scoping and
  * nothing else: every row, cell, tone, action and API call is the Triggers
  * feature's, imported rather than reimplemented, so the two surfaces cannot
@@ -26,7 +26,7 @@ import type {
   TriggerDraft,
 } from '../../../triggers/_components/trigger-wizard';
 import { TriggerList } from '../../../triggers/_components/trigger-list';
-import { TriggerDrawer } from '../../../triggers/_components/trigger-drawer';
+import { TriggerDetailModal } from '../../../triggers/_components/trigger-detail-modal';
 import { RunTriggerModal } from '../../../triggers/_components/run-trigger-modal';
 import { DeliveryGrid } from '../../../triggers/_components/delivery-grid';
 import { DeliveryDetailPanel } from '../../../triggers/_components/delivery-detail-panel';
@@ -64,7 +64,7 @@ export function AgentTriggersTab() {
   const canWrite = useHasScope('triggers:write');
   const locked = useTenantLocked();
   const [notice, setNotice] = useState<TriggerNotice | null>(null);
-  const [drawerTrigger, setDrawerTrigger] = useState<TriggerRow | null>(null);
+  const [modalTrigger, setModalTrigger] = useState<TriggerRow | null>(null);
   const [detailDelivery, setDetailDelivery] = useState<DeliveryRow | null>(null);
 
   const agentId = agent?.id ?? '';
@@ -100,7 +100,6 @@ export function AgentTriggersTab() {
     startManualRun,
     rotateSecret,
     toggleTrigger,
-    updateSafety,
     saveTriggerEdit,
     redeliver,
     firingId,
@@ -160,12 +159,10 @@ export function AgentTriggersTab() {
   );
 
   // Read the open trigger back out of the live list rather than trusting the
-  // row captured when the drawer opened: saving a setting inside the panel
+  // row captured when the modal opened: saving a setting inside the panel
   // reloads the lists, and a snapshot would show the value it had before.
-  const drawerRow =
-    drawerTrigger === null
-      ? null
-      : (triggers.find((t) => t.id === drawerTrigger.id) ?? drawerTrigger);
+  const modalRow =
+    modalTrigger === null ? null : (triggers.find((t) => t.id === modalTrigger.id) ?? modalTrigger);
 
   if (!agent) return null;
 
@@ -239,7 +236,7 @@ export function AgentTriggersTab() {
           sourceName={sourceName}
           sourceCategory={sourceCategory}
           sourceWaiting={sourceWaiting}
-          onOpen={setDrawerTrigger}
+          onOpen={setModalTrigger}
           onToggle={(t) => void toggleTrigger(t)}
           canRunAgent={canRunAgent}
           emptyMessage="No triggers for this agent."
@@ -258,31 +255,30 @@ export function AgentTriggersTab() {
         </Stack>
       )}
 
-      {/* The Triggers page's own drawer, so configuring a trigger here is the
+      {/* The Triggers page's own modal, so configuring a trigger here is the
           same surface, byte for byte, as configuring it there. */}
-      <TriggerDrawer
-        trigger={drawerRow}
-        canRunAgent={canRunTrigger(drawerRow)}
+      <TriggerDetailModal
+        trigger={modalRow}
+        canRunAgent={canRunTrigger(modalRow)}
         sources={sources}
         deliveries={agentDeliveries}
         ingestHost={ingestHost}
-        onClose={() => setDrawerTrigger(null)}
+        onClose={() => setModalTrigger(null)}
         onToggleEnabled={(t) => {
-          setDrawerTrigger(null);
+          setModalTrigger(null);
           void toggleTrigger(t);
         }}
         onDelete={(t) => {
-          setDrawerTrigger(null);
+          setModalTrigger(null);
           setDeleteCandidate(t);
         }}
-        onUpdateSafety={(t, patch) => void updateSafety(t, patch)}
         onEdit={saveTriggerEdit}
         onRedeliver={redeliver}
         onRotateSecret={rotateSecret}
         onFire={startManualRun}
         // Scoped to the trigger on screen: firing one trigger must not make
         // another one's panel claim it is queueing.
-        firing={firingId === drawerRow?.id}
+        firing={firingId === modalRow?.id}
         agents={agentNames}
       />
 
@@ -296,7 +292,7 @@ export function AgentTriggersTab() {
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);
-            if (owner !== undefined) setDrawerTrigger(owner);
+            if (owner !== undefined) setModalTrigger(owner);
           }}
         />
       )}

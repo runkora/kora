@@ -492,7 +492,7 @@ describe('LIMITS', () => {
     expect(LIMITS.parallel.max).toBe(16);
   });
 
-  it('is one object, so the wizard and the drawer cannot bound differently', () => {
+  it('is one object, so the wizard and the modal cannot bound differently', () => {
     expect(LIMITS.queueDepth).toEqual({ min: 1, max: 500 });
     expect(LIMITS.timeout).toEqual({ min: 5, max: 600 });
     expect(LIMITS.coalesce).toEqual({ window: { min: 1, max: 300 }, keyBytes: 256 });

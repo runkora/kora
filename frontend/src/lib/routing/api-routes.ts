@@ -424,6 +424,23 @@ export const ApiRoute = {
       sourceId
         ? `${API_BASE}/trigger-deliveries?source_id=${encodeURIComponent(sourceId)}`
         : `${API_BASE}/trigger-deliveries`,
+    /**
+     * A page of deliveries, newest first, for a source or a trigger; `before` (RFC 3339) pages
+     * back from the oldest one held. `triggerId` matches the delivery's own trigger only, which
+     * is every delivery of a scheduled or manual trigger but not a webhook's fan-out.
+     */
+    page: (opts: {
+      sourceId?: string;
+      triggerId?: string;
+      limit: number;
+      before?: string;
+    }): string => {
+      const qs = new URLSearchParams({ limit: String(opts.limit) });
+      if (opts.sourceId !== undefined) qs.set('source_id', opts.sourceId);
+      if (opts.triggerId !== undefined) qs.set('trigger_id', opts.triggerId);
+      if (opts.before !== undefined) qs.set('received_before', opts.before);
+      return `${API_BASE}/trigger-deliveries?${qs.toString()}`;
+    },
     /** Replay a delivery. Answers with the NEW delivery's id. */
     redeliver: (id: string): `${typeof API_BASE}/trigger-deliveries/${string}/redeliver` =>
       `${API_BASE}/trigger-deliveries/${id}/redeliver`,

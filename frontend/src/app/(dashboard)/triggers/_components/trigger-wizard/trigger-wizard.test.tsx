@@ -235,11 +235,12 @@ describe('filters and prompt fields', () => {
     expect(screen.getByLabelText('Filter 1 field')).toBeTruthy();
     expect(screen.getByLabelText('Filter 1 values')).toBeTruthy();
 
+    fireEvent.mouseEnter(screen.getByLabelText('Filter 1 values'));
     fireEvent.click(screen.getByRole('button', { name: 'Remove filter 1' }));
     expect(screen.queryByLabelText('Filter 1 field')).toBeNull();
   });
 
-  it('picks a filter field, hints its allowed values, and blocks a half-written filter', async () => {
+  it('picks a filter field and blocks a half-written filter', async () => {
     renderWizard('webhook');
     fillNameAndPrompt();
     await chooseEvent('issue_comment');
@@ -248,10 +249,6 @@ describe('filters and prompt fields', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Filter 1 field' }));
     fireEvent.click(await screen.findByText('What happened'));
 
-    expect(screen.getByLabelText('Filter 1 values')).toHaveAttribute(
-      'placeholder',
-      'created | edited',
-    );
     expect(screen.getByRole('button', { name: /Continue/ }).hasAttribute('disabled')).toBe(true);
     expect(screen.getByText('Finish or remove the empty filter')).toBeTruthy();
 
@@ -294,21 +291,28 @@ describe('filters and prompt fields', () => {
         onClose={vi.fn()}
       />,
     );
-    fireEvent.change(await screen.findByLabelText('Allowed senders'), {
+    fireEvent.click(await screen.findByRole('radio', { name: 'Specific senders' }));
+    fireEvent.change(await screen.findByLabelText('Additional senders'), {
       target: { value: 'octocat' },
     });
     fireEvent.click(screen.getByText('Member'));
 
     fireEvent.click(screen.getByText('prod alerts'));
     fireEvent.click(screen.getByText('acme/widgets'));
-    expect(((await screen.findByLabelText('Allowed senders')) as HTMLInputElement).value).toBe('');
+    // Back on a provider that identifies senders, the restriction starts over as anyone.
+    expect(await screen.findByRole('radio', { name: 'Anyone' })).toBeChecked();
+    fireEvent.click(screen.getByRole('radio', { name: 'Specific senders' }));
+    expect(
+      ((await screen.findByLabelText('Additional senders')) as HTMLTextAreaElement).value,
+    ).toBe('');
     expect(screen.getByRole('checkbox', { name: 'Member' })).not.toBeChecked();
   });
 
   it('offers a sender restriction only when the provider identifies senders', async () => {
     const view = renderWizard('webhook');
     expect(await screen.findByText('Senders')).toBeTruthy();
-    expect(screen.getByLabelText('Allowed senders')).toBeTruthy();
+    fireEvent.click(screen.getByRole('radio', { name: 'Specific senders' }));
+    expect(screen.getByLabelText('Additional senders')).toBeTruthy();
     expect(screen.getByText('Member')).toBeTruthy();
     view.unmount();
 
@@ -364,6 +368,7 @@ describe('webhook kind beside chat sources', () => {
 
   it('shows the role cards from the labels the provider declares', async () => {
     renderWizard('webhook');
+    fireEvent.click(await screen.findByRole('radio', { name: 'Specific senders' }));
     expect(await screen.findByText('Owns the repository')).toBeTruthy();
     expect(screen.getByRole('checkbox', { name: 'Owner' })).toBeTruthy();
   });
@@ -566,6 +571,7 @@ describe('chat command kind', () => {
   it('offers the chat fields to the prompt and no role cards', async () => {
     renderWizard('chat', [SLACK]);
     fireEvent.click(await screen.findByRole('radio', { name: /Mention/ }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Specific senders' }));
     fireEvent.click(screen.getByRole('button', { name: /Insert field/ }));
     expect(await screen.findByText('conversation.id')).toBeTruthy();
     expect(screen.getByLabelText('Allowed senders')).toHaveAttribute(
@@ -844,25 +850,24 @@ describe('shared steps', () => {
     // Capacity is a rule about the queue, so it lives on Delivery with the
     // other two bounds rather than beside the agent picker.
     expect(screen.queryByText('Max parallel runs')).toBeNull();
-    expect(screen.queryByText('Overlapping runs')).toBeNull();
+    expect(screen.queryByText('Capacity')).toBeNull();
   });
 
   it('gathers all three queue bounds on the delivery step, capacity first', () => {
     render(<StepDelivery {...shared} />);
-    expect(screen.getByText('Overlapping runs')).toBeTruthy();
+    expect(screen.getByText('Capacity')).toBeTruthy();
     expect(screen.getByText('Max parallel runs')).toBeTruthy();
-    expect(screen.getByText('Max queued deliveries')).toBeTruthy();
-    expect(screen.getByText('Timeout')).toBeTruthy();
+    expect(screen.getByText('Queue size')).toBeTruthy();
+    expect(screen.getByText('Time to start')).toBeTruthy();
     expect(screen.getByText('Suppress duplicates')).toBeTruthy();
   });
 
   it('summarises the three bounds as one sentence', () => {
     render(<StepDelivery {...shared} />);
-    expect(
-      screen.getByText(
-        'Up to 4 at once. Further deliveries wait in order, up to 32 of them, and each has up to 30s to start once it is admitted.',
-      ),
-    ).toBeTruthy();
+    const summary = screen.getByText(/more wait in order/);
+    expect(summary.textContent).toBe(
+      'Up to 4 run at once. Up to 32 more wait in order, and each has 30 seconds to start once admitted.',
+    );
   });
 
   it('offers coalescing to a webhook that waits', () => {

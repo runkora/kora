@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { filtersFromMatchCondition, manualInputsCatalog, sameFilters } from './trigger-edit';
+import {
+  filtersFromMatchCondition,
+  manualInputsCatalog,
+  normalizeFilters,
+  sameFilters,
+} from './trigger-edit';
 
 describe('filtersFromMatchCondition', () => {
   it('turns a stored condition back into editable rows', () => {
@@ -102,5 +107,27 @@ describe('sameFilters', () => {
         [{ field: 'a', operator: 'contains', values: 'x' }],
       ),
     ).toBe(false);
+  });
+});
+
+describe('normalizeFilters', () => {
+  it('folds rows for one field into one and drops repeated values', () => {
+    expect(
+      normalizeFilters({
+        eventType: 'pull_request',
+        filters: [
+          { field: 'action', values: 'opened' },
+          { field: 'title', operator: 'contains', values: 'fix' },
+          { field: 'action', values: 'closed | opened' },
+          { field: '', values: '' },
+        ],
+      }),
+    ).toEqual({
+      eventType: 'pull_request',
+      filters: [
+        { field: 'action', operator: 'is', values: 'opened | closed' },
+        { field: 'title', operator: 'contains', values: 'fix' },
+      ],
+    });
   });
 });
