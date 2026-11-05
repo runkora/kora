@@ -17,18 +17,27 @@ import {
 } from '@runkora/hades';
 import { useSkillsContext } from '../_context/skills-context';
 import { skillHref, skillKey } from '../_types';
-import { clampLines, CopyLinkButton, FavouriteButton, nameLine, SkillChips } from './skill-chips';
+import {
+  clampLines,
+  CopyLinkButton,
+  FavouriteButton,
+  nameLine,
+  OriginBadge,
+  SkillChips,
+} from './skill-chips';
 
 export function SkillGrid() {
   const { skills, browse, marketplaces, favourites, toggleFavourite } = useSkillsContext();
   const router = useRouter();
-  const repositories = new Map(marketplaces.map((m) => [m.slug, m.repository]));
+  // The chips' Marketplace list gives each card its repository and origin.
+  const sources = new Map(marketplaces.map((m) => [m.slug, m]));
 
   return (
     <Grid cols={{ base: 1, sm: 2 }} gap="comfortable">
       {skills.map((skill) => {
         const key = skillKey(skill);
         const href = skillHref(skill, browse);
+        const source = sources.get(skill.marketplace);
         return (
           <Card key={key} column interactive onClick={() => router.push(href)}>
             <CardContent padded compact grow>
@@ -68,9 +77,12 @@ export function SkillGrid() {
             <Separator />
             <CardContent padded compact>
               <Stack direction="horizontal" align="center" justify="between" gap="cozy">
-                <Text size="caption" color="muted" mono truncate>
-                  {repositories.get(skill.marketplace) ?? skill.marketplace}
-                </Text>
+                <Stack direction="horizontal" align="center" gap="snug" minWidth="none">
+                  {source && <OriginBadge origin={source.origin} />}
+                  <Text size="caption" color="muted" mono truncate>
+                    {source?.repository ?? skill.marketplace}
+                  </Text>
+                </Stack>
                 <Stack direction="horizontal" align="center" gap="tight" shrink>
                   <CopyLinkButton skill={skill} />
                   <Button asChild variant="ghost" size="sm">

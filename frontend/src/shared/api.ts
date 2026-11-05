@@ -1239,9 +1239,13 @@ export interface AgentTypeGuardrails {
 // Mirrors the skills-service JSON (backend/internal/skills): GET /v1/marketplaces, /v1/marketplaces/skills,
 // /v1/marketplaces/{slug}/skills/{path} and its ?file= form.
 
+/** Whether a Marketplace's content is the organisation's own or third-party, not repository visibility. */
+export type MarketplaceOrigin = 'internal' | 'external';
+
 export interface Marketplace {
   /** The SkillMarketplace resource name. */
   slug: string;
+  origin: MarketplaceOrigin;
   /** The repository name. Not unique across owners. */
   name: string;
   /** `owner/repo`. */
@@ -1298,6 +1302,7 @@ export interface Skill {
   name: string;
   title: string;
   description: string;
+  origin: MarketplaceOrigin;
   repository: string;
   ref: string;
   commit: string;

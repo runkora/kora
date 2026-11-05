@@ -17,7 +17,13 @@ import {
 import type { Marketplace, Skill } from '@runkora/shared/api';
 import { useSyncExternalStore } from 'react';
 import { usePreferences } from '../../../../_preferences/preferences-context';
-import { FavouriteButton, nameLine, SkillChips, skillUrl } from '../../../_components/skill-chips';
+import {
+  FavouriteButton,
+  nameLine,
+  OriginBadge,
+  SkillChips,
+  skillUrl,
+} from '../../../_components/skill-chips';
 import { skillKey, toggleFavouriteKey } from '../../../_types';
 import { relativeTime } from '@runkora/lib/relative-time';
 
@@ -129,6 +135,7 @@ export function SourceCard({ skill, marketplace }: { skill: Skill; marketplace?:
   );
   const rows: { label: string; value: React.ReactNode }[] = [
     { label: 'Marketplace', value: skill.marketplace },
+    { label: 'Origin', value: <OriginBadge origin={skill.origin} /> },
     {
       label: 'Repository',
       value: link(repoUrl(skill), skill.repository),

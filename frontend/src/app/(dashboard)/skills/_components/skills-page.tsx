@@ -14,6 +14,7 @@ import { SkillList } from './skill-list';
 import { SkillsPagination } from './skills-pagination';
 import { SkillsResultsSkeleton } from './skills-results-skeleton';
 import { LoadErrorAlert } from './load-error-alert';
+import { OriginBadge } from './skill-chips';
 import { plural } from './skill-format';
 
 // As on the MCP servers page: phones always get cards and no toggle. The first paint, from the
@@ -96,6 +97,7 @@ function Browse({ allSkills }: { allSkills: number | null }) {
     ...marketplaces.map((m) => ({
       key: m.slug,
       label: m.repository,
+      badge: <OriginBadge origin={m.origin} />,
       count: m.skillCount,
       active: !browse.favourites && browse.marketplace === m.slug,
       select: () => selectChip(m.slug),
@@ -119,15 +121,18 @@ function Browse({ allSkills }: { allSkills: number | null }) {
             <FilterChip
               key={chip.key}
               label={chip.label}
+              badge={'badge' in chip ? chip.badge : undefined}
               count={chip.count}
               active={chip.active}
               onClick={chip.select}
             />
           ))}
         </Stack>
-        <Text size="caption" color="subtle">
-          {plural(total, 'skill')}
-        </Text>
+        <Stack shrink noWrap>
+          <Text size="caption" color="subtle">
+            {plural(total, 'skill')}
+          </Text>
+        </Stack>
       </Stack>
 
       <Failures />

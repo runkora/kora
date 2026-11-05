@@ -88,6 +88,14 @@ describe('SkillDetail', () => {
     expect(await screen.findByText('All rights reserved.')).toBeVisible();
   });
 
+  it("shows the Marketplace's origin in the Source card", () => {
+    renderDetail();
+
+    // The rail renders twice, beside the file on wide screens and above it on narrow ones.
+    const row = screen.getAllByText('Origin')[0].parentElement?.parentElement;
+    expect(row).toHaveTextContent(/^Origin\s*External$/);
+  });
+
   it("copies the skill page's address", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });

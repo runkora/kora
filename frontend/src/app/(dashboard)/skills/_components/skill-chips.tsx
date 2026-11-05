@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — skills-scoped. The favourite heart, the copy-link button, the name and version line and the frontmatter chips that cards, rows and the skill page share. */
+/** @tier 3 — skills-scoped. The favourite heart, the copy-link button, the origin badge, the name and version line and the frontmatter chips that cards, rows and the skill page share. */
 
 import {
   Badge,
@@ -14,6 +14,7 @@ import {
   type IconName,
 } from '@runkora/hades';
 import { APP_ROUTES } from '@runkora/lib/routing';
+import type { MarketplaceOrigin } from '@runkora/shared/api';
 
 /** The folder between the skills root and the skill, as `engineering` in `skills/engineering/tdd`, in sentence case. */
 function folderLabel(path: string): string | null {
@@ -50,6 +51,15 @@ export function FavouriteButton({
     >
       <Icon name="heart" size="2xs" color={favourite ? 'rose' : 'muted'} filled={favourite} />
     </Button>
+  );
+}
+
+/** Internal for the organisation's own content, External for third-party. */
+export function OriginBadge({ origin }: { origin: MarketplaceOrigin }) {
+  return (
+    <Badge variant={origin === 'internal' ? 'secondary' : 'outline'} size="sm">
+      {origin === 'internal' ? 'Internal' : 'External'}
+    </Badge>
   );
 }
 

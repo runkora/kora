@@ -6,9 +6,15 @@ import type { Marketplace, Skill, SkillSummary } from '@runkora/shared/api';
 
 const COMMIT = '3f2a9c1e0b7d4f5a6c8e9d0f1a2b3c4d5e6f7a8b';
 
-function marketplace(slug: string, repository: string, skillCount: number | null): Marketplace {
+function marketplace(
+  slug: string,
+  repository: string,
+  skillCount: number | null,
+  origin: Marketplace['origin'] = 'external',
+): Marketplace {
   return {
     slug,
+    origin,
     name: repository.split('/')[1] ?? repository,
     repository,
     ref: 'main',
@@ -18,7 +24,7 @@ function marketplace(slug: string, repository: string, skillCount: number | null
   };
 }
 
-export const TEAM = marketplace('team-skills', 'example-org/skills', 30);
+export const TEAM = marketplace('team-skills', 'example-org/skills', 30, 'internal');
 export const PARTNER = marketplace('partner-skills', 'partner-org/reference-skills', 2);
 /** skills-service answers 502 for this Marketplace, as for an unavailable credential. */
 export const BROKEN = marketplace('broken-skills', 'example-org/broken-skills', null);
@@ -55,6 +61,7 @@ function skill(source: Marketplace, path: string, title: string): FixtureSkill {
       name,
       title,
       description,
+      origin: source.origin,
       repository: source.repository,
       ref: source.ref,
       commit: COMMIT,

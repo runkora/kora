@@ -6,6 +6,7 @@ import type {
   SkillFileEntry,
   SkillSummary,
   SkillsPage,
+  MarketplaceOrigin,
 } from '@runkora/shared/api';
 import { PAGE_SIZE, skillKey, type SkillsBrowse, type SkillsOverview } from '../_types';
 
@@ -37,9 +38,15 @@ function skill(
   };
 }
 
-function marketplace(slug: string, repository: string, skills: SkillSummary[]): Marketplace {
+function marketplace(
+  slug: string,
+  repository: string,
+  skills: SkillSummary[],
+  origin: MarketplaceOrigin = 'external',
+): Marketplace {
   return {
     slug,
+    origin,
     name: repository.split('/')[1] ?? repository,
     repository,
     ref: 'main',
@@ -181,7 +188,8 @@ const SKILL_FIXTURES = [...ANTHROPIC_SKILLS, ...SUPERPOWERS_SKILLS, ...MATTPOCOC
 export const MARKETPLACE_FIXTURES = [
   marketplace('anthropic-skills', 'anthropics/skills', ANTHROPIC_SKILLS),
   marketplace('partner-skills', 'obra/superpowers', SUPERPOWERS_SKILLS),
-  marketplace('mattpocock-skills', 'mattpocock/skills', MATTPOCOCK_SKILLS),
+  // Stands in for the organisation's own repository, the internal case.
+  marketplace('mattpocock-skills', 'mattpocock/skills', MATTPOCOCK_SKILLS, 'internal'),
 ];
 
 /** What skills-service answers for one overview page; the stories' BFF mock and tests use it. */
@@ -369,6 +377,7 @@ export function pdfSkill(overrides: Partial<Skill> = {}): Skill {
     name: PDF.name,
     title: PDF.title,
     description: PDF.description,
+    origin: 'external',
     repository: 'anthropics/skills',
     ref: 'main',
     commit: COMMIT,

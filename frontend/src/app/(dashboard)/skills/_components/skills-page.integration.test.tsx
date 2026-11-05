@@ -31,15 +31,17 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('SkillsPage', () => {
-  it('shows a chip per Marketplace with its count, and none while a count is unknown', () => {
+  it('shows a chip per Marketplace with its origin and count, and no count while it is unknown', () => {
     const unread = { ...MARKETPLACE_FIXTURES[2], skillCount: null };
     renderPage({
       ...storyOverview(),
       marketplaces: [MARKETPLACE_FIXTURES[0], MARKETPLACE_FIXTURES[1], unread],
     });
 
-    expect(screen.getByRole('button', { name: /^anthropics\/skills\s*12$/ })).toBeVisible();
-    expect(screen.getByRole('button', { name: /^mattpocock\/skills$/ })).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: /^anthropics\/skills\s*External\s*12$/ }),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: /^mattpocock\/skills\s*Internal$/ })).toBeVisible();
     expect(screen.getByRole('button', { name: /^All$/ })).toBeVisible();
     expect(screen.getByText('3 Marketplaces')).toBeVisible();
   });
@@ -58,6 +60,7 @@ describe('SkillsPage', () => {
     expect(screen.queryByRole('button', { name: 'List view' })).not.toBeInTheDocument();
     expect(screen.getByText(/^1–\d+ of \d+$/)).toBeVisible();
     const card = screen.getByText('PDF Processing Guide').closest('[data-interactive]');
+    expect(within(card as HTMLElement).getByText('External')).toBeVisible();
     expect(within(card as HTMLElement).getByRole('link', { name: /View details/ })).toHaveAttribute(
       'href',
       '/skills/anthropic-skills/skills/pdf?search=ing',
