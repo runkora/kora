@@ -28,6 +28,10 @@ const api = vi.hoisted(() => ({
   fetchEventTypes: vi.fn(),
   fetchProviderEventTypes: vi.fn(),
   fetchProviderFields: vi.fn(),
+  fetchPlatformEventTypes: vi.fn(async () => ({
+    eventTypes: ['agents.run.failed.v1'],
+    error: null,
+  })),
   createSource: vi.fn(),
   updateSource: vi.fn(),
 }));
@@ -164,6 +168,7 @@ describe('TriggerWizard step phase', () => {
     chat: 'Source',
     scheduled: 'Schedule',
     manual: 'Inputs',
+    event: 'Event',
   };
 
   it.each(KIND_ORDER)('opens %s on the step that defines the kind', (kind) => {

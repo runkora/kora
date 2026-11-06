@@ -347,6 +347,8 @@ func (s *Service) Redeliver(ctx context.Context, tenantID, deliveryID, callerPri
 		return s.redeliverWebhook(ctx, tenantID, original, rootID, callerPrincipalID)
 	case KindManual:
 		return s.redeliverManual(ctx, tenantID, original, rootID, callerPrincipalID)
+	case KindEvent:
+		return s.redeliverEvent(ctx, tenantID, original, rootID, callerPrincipalID)
 	default:
 		// A scheduled tick is defined by the minute it was due. Replaying one
 		// would either collide with that minute's row or invent a fire that was

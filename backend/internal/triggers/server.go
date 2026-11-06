@@ -14,6 +14,7 @@ import (
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
@@ -156,6 +157,9 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// The routing step of the trigger wizard lists agent types with whether the
 	// caller may make each a candidate (trigger routing ADR, Console).
 	mux.HandleWithMiddleware("GET /triggers/routing/candidates", auth, c.handleRoutingCandidates)
+
+	// The platform event types an event trigger can listen for.
+	mux.HandleWithMiddleware("GET /triggers/event-types", auth, c.handleEventTypes)
 
 	mux.HandleWithMiddleware("GET /trigger-deliveries", auth, c.handleListDeliveries)
 
@@ -427,6 +431,10 @@ func (c *Controller) authorizeFire(ctx context.Context, triggerID string) error 
 		return fmt.Errorf("%w: trigger:%s:fire", ErrFireForbidden, triggerID)
 	}
 	return nil
+}
+
+func (c *Controller) handleEventTypes(w http.ResponseWriter, r *http.Request) {
+	api.JSON(r.Context(), w, c.logger, http.StatusOK, EventCatalogResponse{EventTypes: events.Types()})
 }
 
 // handleRoutingCandidates lists the agent types the caller may read, with

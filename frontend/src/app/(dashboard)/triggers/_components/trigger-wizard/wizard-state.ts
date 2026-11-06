@@ -96,6 +96,7 @@ export function baseState(sources: readonly { id: string }[]): WizardState {
     eventFieldsFailed: false,
     filters: [],
     senders: { ids: '', roles: [] },
+    ignoreOwnRuns: true,
 
     freq: 'daily',
     interval: '15',

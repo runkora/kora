@@ -8,12 +8,13 @@ A trigger can only start [autonomous agents](../concepts/identity.md#autonomous-
 
 ## Choose a kind
 
-| Kind         | Starts a run when                                                                |
-| ------------ | -------------------------------------------------------------------------------- |
-| Webhook      | GitHub, Alertmanager or any other system posts a signed event to kora            |
-| Chat command | Someone mentions the bot in a Slack channel or sends it a direct message         |
-| Schedule     | A recurring time arrives, in a timezone you choose                               |
-| Manual       | Someone fills in a form in the console, or calls the same schema through the API |
+| Kind           | Starts a run when                                                                |
+| -------------- | -------------------------------------------------------------------------------- |
+| Webhook        | GitHub, Alertmanager or any other system posts a signed event to kora            |
+| Chat command   | Someone mentions the bot in a Slack channel or sends it a direct message         |
+| Schedule       | A recurring time arrives, in a timezone you choose                               |
+| Manual         | Someone fills in a form in the console, or calls the same schema through the API |
+| Platform event | Something happens in kora, such as a run failing                                 |
 
 ## Set up the event
 
@@ -24,6 +25,8 @@ Then narrow which events start a run:
 - **Event:** the event type to listen for, such as `issue_comment` on GitHub.
 - **Filters:** only deliveries that match every filter start a run. A filter checks that a field `is` one of a set of values, or `contains` one of them. For example, a trigger can run only for comments that mention `@kora-agent`.
 - **Senders:** leave this empty to accept events from anyone. Otherwise a sender must be listed by name or hold a role you tick. On GitHub, the roles are owner, member and collaborator.
+
+A platform event trigger listens for one event type in your tenant, such as `agents.run.failed.v1`. Its filters read dotted paths in the event, such as `data.entity.state` or `koraagent`. **Ignore its own runs** is on by default and skips events about runs the trigger started or messaged. No trigger fires on an event five or more steps down a chain of trigger-caused events. Its delivery records the trigger as filtered.
 
 A schedule takes a cadence, from every few minutes to monthly, or a cron expression. kora shows the next times it will fire, and can catch up on runs missed while the platform was unavailable. A manual trigger takes the input fields its form asks for.
 
@@ -37,7 +40,7 @@ Use **Generic webhook** for a system with no built-in provider. Set:
 
 ## Write the prompt
 
-The prompt is what the run starts with. Insert event fields with `{{ field }}`, such as `{{ comment.body }}`. For webhook and chat triggers, kora keeps the prompt as written and appends the event's values in a block marked as untrusted data. The block tells the agent not to follow instructions found inside it. Schedules and manual triggers substitute their variables inline, such as `{{ var.date }}`.
+The prompt is what the run starts with. Insert event fields with `{{ field }}`, such as `{{ comment.body }}`. For webhook and chat triggers, kora keeps the prompt as written and appends the event's values in a block marked as untrusted data. A platform event trigger appends the whole event in the same block. The block tells the agent not to follow instructions found inside it. Schedules and manual triggers substitute their variables inline, such as `{{ var.date }}`.
 
 ## Choose the agent
 

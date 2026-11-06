@@ -12,6 +12,7 @@ import (
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	inferenceclient "github.com/runkora/kora/backend/internal/platform/clients/inference"
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -96,6 +97,8 @@ type pipelineStore interface {
 	GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error)
 	InsertDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
 	InsertScheduledDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
+	InsertEventDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
+	ListMatchableEventTriggers(ctx context.Context, tenantID, eventType string) ([]Trigger, error)
 	ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, bool, error)
 	ListDeliveryRunsForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error)
 	ListDeliveryKeysForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryKey, error)
@@ -429,6 +432,9 @@ func validateWebhookTriggerCreate(req CreateTriggerRequest) error {
 	if strings.TrimSpace(req.EventType) == "" {
 		return fmt.Errorf("%w: event_type is required for webhook triggers", ErrValidation)
 	}
+	if req.IgnoreOwnRuns != nil {
+		return errIgnoreOwnRunsEventOnly
+	}
 	if err := validateFieldKeys(req.PromptTemplate, req.MatchCondition); err != nil {
 		return err
 	}
@@ -438,6 +444,50 @@ func validateWebhookTriggerCreate(req CreateTriggerRequest) error {
 	_, err := coalesceForCreate(req)
 	return err
 }
+
+// validateEventTriggerCreate checks an event trigger: a webhook trigger's
+// matching, coalescing and routing on a catalog event type, with no source.
+func validateEventTriggerCreate(req CreateTriggerRequest) error {
+	if err := validateTargetKind(req.TargetKind, req.Routing); err != nil {
+		return err
+	}
+	if err := validateCommonTriggerCreate(req); err != nil {
+		return err
+	}
+	if req.TargetKind == TargetKindRouted {
+		if _, err := normalizeRouting(req.Routing); err != nil {
+			return err
+		}
+	}
+	switch {
+	case req.SourceID != "":
+		return fmt.Errorf("%w: source_id applies to webhook triggers only", ErrValidation)
+	case req.SenderRestriction != nil:
+		return errSenderRestrictionWebhookOnly
+	}
+	if err := validateEventType(req.EventType); err != nil {
+		return err
+	}
+	if err := validateFieldKeys(req.PromptTemplate, req.MatchCondition); err != nil {
+		return err
+	}
+	if err := validateContains(req.MatchContains); err != nil {
+		return err
+	}
+	_, err := coalesceForCreate(req)
+	return err
+}
+
+// validateEventType requires an event type from the event catalog.
+func validateEventType(eventType string) error {
+	if !events.Type(strings.TrimSpace(eventType)).Known() {
+		return fmt.Errorf("%w: event_type %q is not a platform event type", ErrValidation, eventType)
+	}
+	return nil
+}
+
+// errIgnoreOwnRunsEventOnly refuses ignore_own_runs on a trigger that is not an event trigger.
+var errIgnoreOwnRunsEventOnly = fmt.Errorf("%w: ignore_own_runs applies to event triggers only", ErrValidation)
 
 // coalesceForCreate validates a create request's coalesce setting against the
 // overflow the trigger will be stored with, and returns what to store.
@@ -471,12 +521,13 @@ func validateTargetKind(targetKind string, routing *RoutingConfig) error {
 	return nil
 }
 
-// Scheduled and manual triggers have no delivery to read a sender or field from.
+// Scheduled and manual triggers have no delivery to read a sender or field
+// from. Only a webhook delivery has a sender.
 var (
 	errSenderRestrictionWebhookOnly = fmt.Errorf("%w: sender_restriction applies to webhook triggers only", ErrValidation)
-	errMatchContainsWebhookOnly     = fmt.Errorf("%w: match_contains applies to webhook triggers only", ErrValidation)
-	errCoalesceWebhookOnly          = fmt.Errorf("%w: coalesce applies to webhook triggers only", ErrValidation)
-	errRoutingWebhookOnly           = fmt.Errorf("%w: routing applies to webhook triggers only", ErrValidation)
+	errMatchContainsWebhookOnly     = fmt.Errorf("%w: match_contains applies to webhook and event triggers only", ErrValidation)
+	errCoalesceWebhookOnly          = fmt.Errorf("%w: coalesce applies to webhook and event triggers only", ErrValidation)
+	errRoutingWebhookOnly           = fmt.Errorf("%w: routing applies to webhook and event triggers only", ErrValidation)
 )
 
 // refuseRouting rejects routing on a scheduled or manual trigger (ADR Decision 1).
@@ -505,6 +556,9 @@ func validateScheduledTriggerCreate(req CreateTriggerRequest) error {
 	if err := refuseRouting(req.TargetKind, req.Routing); err != nil {
 		return err
 	}
+	if req.IgnoreOwnRuns != nil {
+		return errIgnoreOwnRunsEventOnly
+	}
 	if err := validateCommonTriggerCreate(req); err != nil {
 		return err
 	}
@@ -520,6 +574,9 @@ func validateScheduledTriggerCreate(req CreateTriggerRequest) error {
 func validateManualTriggerCreate(req CreateTriggerRequest) error {
 	if err := refuseRouting(req.TargetKind, req.Routing); err != nil {
 		return err
+	}
+	if req.IgnoreOwnRuns != nil {
+		return errIgnoreOwnRunsEventOnly
 	}
 	if err := validateCommonTriggerCreate(req); err != nil {
 		return err

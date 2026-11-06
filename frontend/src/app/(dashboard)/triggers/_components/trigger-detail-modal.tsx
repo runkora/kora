@@ -74,7 +74,12 @@ import { SenderRestrictionEditor } from './sender-restriction-editor';
 import type { SenderRestrictionDraft } from './sender-restriction-editor';
 import { useSourceCatalog } from './use-source-catalog';
 import type { StatsRange } from '../_types/stats';
-import { schemaCatalog, scheduledCatalog, toTemplateCatalog } from './trigger-wizard/field-catalog';
+import {
+  eventCatalog,
+  schemaCatalog,
+  scheduledCatalog,
+  toTemplateCatalog,
+} from './trigger-wizard/field-catalog';
 import {
   matchConditionFrom,
   coalesceFrom,
@@ -624,7 +629,9 @@ function TriggerDetailModalBody({
       ? webhookFields
       : trigger.kind === 'scheduled'
         ? toTemplateCatalog(scheduledCatalog())
-        : toTemplateCatalog(manualInputsCatalog(trigger.manualInputs));
+        : trigger.kind === 'event'
+          ? toTemplateCatalog(eventCatalog())
+          : toTemplateCatalog(manualInputsCatalog(trigger.manualInputs));
 
   const setFilterRows = (rows: FilterRow[]) =>
     filters.setValue({ ...filters.value, filters: rows });
@@ -639,7 +646,9 @@ function TriggerDetailModalBody({
       ? `${kind === 'chat' ? 'Chat command' : 'Webhook'} · ${source?.name ?? (trigger.sourceMissing ? 'no source' : trigger.sourceId)} · ${firesOn}`
       : trigger.kind === 'scheduled'
         ? `Schedule · ${describeCron(trigger.scheduleConfig?.cronExpression ?? '')}`
-        : 'Manual · run on demand';
+        : trigger.kind === 'event'
+          ? `Platform event · ${firesOn}`
+          : 'Manual · run on demand';
 
   const managedMessage = managedFooterMessage(trigger.declared, trigger.repository);
   // One notice covers every disabled edit control in the modal.

@@ -129,6 +129,7 @@ export const KIND_ICON: Record<ConsoleKind, IconName> = {
   chat: 'send',
   scheduled: 'clock',
   manual: 'play',
+  event: 'activity',
 };
 
 export interface SourceRow {

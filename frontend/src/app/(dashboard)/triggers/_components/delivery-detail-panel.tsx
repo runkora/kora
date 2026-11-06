@@ -168,7 +168,9 @@ export function DeliveryDetailPanel({
       ? 'Schedule'
       : delivery.kind === 'manual'
         ? 'Manual fire'
-        : 'Webhook';
+        : delivery.kind === 'event'
+          ? 'Platform event'
+          : 'Webhook';
   return (
     <Modal open onClose={onClose} size="lg">
       <ModalHeader
