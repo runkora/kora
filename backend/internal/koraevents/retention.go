@@ -52,14 +52,22 @@ func (r *Retention) Sweep(ctx context.Context) error {
 	}
 	overrides := r.tenants.EventRetentionDays()
 	except := make([]string, 0, len(overrides))
-	for tenant, days := range overrides {
+	for tenant := range overrides {
 		except = append(except, tenant)
-		if done, err := r.sweep(ctx, SweepScope{Tenant: tenant}, days); err != nil || !done {
+	}
+	// Dead-letter rows follow their tenant's retention. A row of an unknown or
+	// empty tenant falls under the default.
+	for _, dead := range []bool{false, true} {
+		for tenant, days := range overrides {
+			if done, err := r.sweep(ctx, SweepScope{Tenant: tenant, Dead: dead}, days); err != nil || !done {
+				return err
+			}
+		}
+		if done, err := r.sweep(ctx, SweepScope{Except: except, Dead: dead}, r.defaultDays); err != nil || !done {
 			return err
 		}
 	}
-	_, err := r.sweep(ctx, SweepScope{Except: except}, r.defaultDays)
-	return err
+	return nil
 }
 
 // sweep deletes one scope's expired events and reports false when it lost the lock.

@@ -225,11 +225,13 @@ func (p *Postgres) LatestSeq(ctx context.Context) (int64, error) {
 	return seq, nil
 }
 
-// SweepScope selects the events one retention batch may delete: one tenant's,
-// or every tenant's except those listed.
+// SweepScope selects the rows one retention batch may delete: one tenant's,
+// or every tenant's except those listed. Dead selects event_outbox_dead by
+// dead_at in place of events by recorded_at.
 type SweepScope struct {
 	Tenant string
 	Except []string
+	Dead   bool
 }
 
 // SweepBatch deletes up to sweepBatchSize events recorded before cutoff and
@@ -250,10 +252,13 @@ func (p *Postgres) SweepBatch(ctx context.Context, scope SweepScope, cutoff time
 			// A nil slice encodes as NULL, and tenant_id <> ALL(NULL) matches no row.
 			match, arg = `tenant_id <> ALL($3::text[])`, append([]string{}, scope.Except...)
 		}
-		tag, err := tx.Exec(ctx, `
-			DELETE FROM events WHERE seq IN (
-				SELECT seq FROM events WHERE recorded_at < $1 AND `+match+` ORDER BY seq LIMIT $2
-			)`, cutoff, sweepBatchSize, arg)
+		sql := `DELETE FROM events WHERE seq IN (
+			SELECT seq FROM events WHERE recorded_at < $1 AND ` + match + ` ORDER BY seq LIMIT $2)`
+		if scope.Dead {
+			sql = `DELETE FROM event_outbox_dead WHERE id IN (
+				SELECT id FROM event_outbox_dead WHERE dead_at < $1 AND ` + match + ` LIMIT $2)`
+		}
+		tag, err := tx.Exec(ctx, sql, cutoff, sweepBatchSize, arg)
 		if err != nil {
 			return fmt.Errorf("delete expired events: %w", err)
 		}
