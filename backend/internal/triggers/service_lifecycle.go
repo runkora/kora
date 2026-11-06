@@ -105,6 +105,12 @@ func (s *TriggerService) CreateTrigger(ctx context.Context, tenantID string, cla
 	if err != nil {
 		return nil, err
 	}
+	// An event trigger's runs and deliveries carry the events it matches.
+	if t.Kind == KindEvent {
+		if err := s.authorizeCaller(ctx, claims, eventsReadScopes); err != nil {
+			return nil, err
+		}
+	}
 	// Each candidate passed can_run as it resolved; the caller must also hold the decision model's scopes (ADR Decision 17).
 	if t.Routing != nil {
 		if err := s.authorizeCaller(ctx, claims, routedCallerScopes(t.Routing)); err != nil {
@@ -498,6 +504,9 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 	if err = refuseRetarget(t, req); err != nil {
 		return nil, err
 	}
+	if err = s.authorizeEventChoice(ctx, t, claims, req); err != nil {
+		return nil, err
+	}
 	changesRun := changesRunBehaviour(t, req)
 	// A routing replacement checks the current candidates here and the new ones as it resolves them.
 	if changesRun {
@@ -539,6 +548,14 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 	// write was built from — same reasoning as after create, and the same
 	// helper, so the update path cannot drift from it.
 	return s.readBackTrigger(ctx, t), nil
+}
+
+// authorizeEventChoice requires events:read for an edit that changes which events an event trigger reads.
+func (s *TriggerService) authorizeEventChoice(ctx context.Context, t *Trigger, claims *token.PlatformClaims, req UpdateTriggerRequest) error {
+	if t.Kind != KindEvent || (req.EventType == nil && req.MatchCondition == nil && req.MatchContains == nil) {
+		return nil
+	}
+	return s.authorizeCaller(ctx, claims, eventsReadScopes)
 }
 
 // changesRunBehaviour reports whether a PATCH changes what runs, what the agent is told or when it runs.

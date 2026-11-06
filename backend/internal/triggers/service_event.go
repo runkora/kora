@@ -14,6 +14,10 @@ import (
 
 // ─── Event triggers (docs/adr/2026-11-06-event-spine.md, section 7) ─────────
 
+// eventsReadScopes is what a caller holds to choose which events a trigger
+// reads, and to read the events stored on its deliveries.
+var eventsReadScopes = []string{"events:read"}
+
 // maxChainDepth is the event depth at which no trigger fires.
 const maxChainDepth = 5
 

@@ -508,7 +508,31 @@ func (c *Controller) handleListDeliveries(w http.ResponseWriter, r *http.Request
 		c.writeServiceError(w, r, err)
 		return
 	}
+	if !c.canReadEvents(ctx) {
+		withoutEvents(deliveries)
+	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, listDeliveriesResponse{Deliveries: deliveries, NextCursor: nextCursor})
+}
+
+// canReadEvents reports whether the caller holds events:read. An evaluator error reads as false.
+func (c *Controller) canReadEvents(ctx context.Context) bool {
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil || c.eval == nil {
+		return false
+	}
+	in := scopeCheckInput(eventsReadScopes[0])
+	in.Claims, in.Delegation = claims, policy.DelegationFromContext(ctx)
+	result, err := c.eval.Check(ctx, in)
+	return err == nil && result.Allow
+}
+
+// withoutEvents drops the stored event from event deliveries. Redelivery still reads it.
+func withoutEvents(deliveries []Delivery) {
+	for i := range deliveries {
+		if deliveries[i].Kind == KindEvent {
+			deliveries[i].Payload, deliveries[i].PayloadExcerpt = nil, ""
+		}
+	}
 }
 
 // deliveryScope resolves ?trigger_id= or ?agent_type_id= to the triggers whose

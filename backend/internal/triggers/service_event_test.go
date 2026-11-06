@@ -34,7 +34,7 @@ func eventReq(name string) CreateTriggerRequest {
 
 func mustEventTrigger(t *testing.T, deps *testDeps, req CreateTriggerRequest) *Trigger {
 	t.Helper()
-	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req)
+	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, routingClaims, req)
 	if err != nil {
 		t.Fatalf("create event trigger: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestCreateEventTrigger_Validation(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			req := eventReq("bad")
 			mutate(&req)
-			if _, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req); !errors.Is(err, ErrValidation) {
+			if _, err := deps.triggers.CreateTrigger(context.Background(), testTenant, routingClaims, req); !errors.Is(err, ErrValidation) {
 				t.Errorf("err = %v, want ErrValidation", err)
 			}
 		})
@@ -253,14 +253,14 @@ func TestCreateEventTrigger_Validation(t *testing.T) {
 func TestUpdateEventTrigger_IgnoreOwnRuns(t *testing.T) {
 	_, deps := newTestService(t)
 	tr := mustEventTrigger(t, deps, eventReq("on-failure"))
-	got, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, nil, UpdateTriggerRequest{IgnoreOwnRuns: new(false)})
+	got, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, routingClaims, UpdateTriggerRequest{IgnoreOwnRuns: new(false)})
 	if err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 	if got.IgnoreOwnRuns == nil || *got.IgnoreOwnRuns {
 		t.Errorf("ignore_own_runs = %v, want off", got.IgnoreOwnRuns)
 	}
-	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, nil, UpdateTriggerRequest{EventType: new("nope.v1")}); !errors.Is(err, ErrValidation) {
+	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, routingClaims, UpdateTriggerRequest{EventType: new("nope.v1")}); !errors.Is(err, ErrValidation) {
 		t.Errorf("unknown event type: err = %v, want ErrValidation", err)
 	}
 }
@@ -292,5 +292,30 @@ func TestUpdateRoutedEventTrigger(t *testing.T) {
 		if principal != tr.PrincipalID {
 			t.Errorf("grant %s for %q, want the trigger's own principal %q", id, principal, tr.PrincipalID)
 		}
+	}
+}
+
+// Choosing the events a trigger reads takes events:read. Other edits do not.
+func TestEventTrigger_NeedsEventsRead(t *testing.T) {
+	_, deps := newTestService(t)
+	tr := mustEventTrigger(t, deps, eventReq("on-failure"))
+	deps.eval.deny = map[string]bool{"events:read": true}
+	ctx := context.Background()
+
+	var mse *MissingScopesError
+	if _, err := deps.triggers.CreateTrigger(ctx, testTenant, routingClaims, eventReq("second")); !errors.As(err, &mse) || mse.Scopes[0] != "events:read" {
+		t.Errorf("create: err = %v, want events:read missing", err)
+	}
+	for name, upd := range map[string]UpdateTriggerRequest{
+		"event type":     {EventType: new("agents.run.completed.v1")},
+		"match":          {MatchCondition: map[string][]string{"koraagent": {"x"}}},
+		"match contains": {MatchContains: map[string][]string{"koraagent": {"x"}}},
+	} {
+		if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, upd); !errors.As(err, &mse) {
+			t.Errorf("%s: err = %v, want events:read missing", name, err)
+		}
+	}
+	if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, UpdateTriggerRequest{Name: new("renamed")}); err != nil {
+		t.Errorf("rename: %v", err)
 	}
 }
