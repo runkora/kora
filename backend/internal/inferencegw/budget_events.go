@@ -66,6 +66,7 @@ func (s *Service) recordThresholds(ctx context.Context, p principal, roles []str
 		RunID: scopes.RunID, DelegatorID: scopes.DelegatorID, Spends: after,
 	})
 	if err != nil {
+		s.logger.Warn(ctx, "budget.threshold_check_failed", logging.Field{Key: "error", Value: err.Error()})
 		return
 	}
 	now := time.Now().UTC()
