@@ -75,72 +75,6 @@ async function send<T>(
   return { data: body?.data ?? null, error: null };
 }
 
-/**
- * send for a paginated list: the same envelope and the same error-as-value
- * contract, plus the cursor that belongs to the page.
- *
- * send<T> deliberately returns only `data`, because every other list here is
- * whole. A page is not: `next_cursor` describes the request, not any row in it,
- * so it needs its own way out.
- */
-async function sendPage<T>(
-  url: string,
-  init?: RequestInit,
-): Promise<
-  | { data: T | null; nextCursor: string | null; error: null }
-  | { data: null; nextCursor: null; error: string }
-> {
-  let res: Response;
-  try {
-    res = await fetch(url, init);
-  } catch {
-    return { data: null, nextCursor: null, error: 'Network error: could not reach the server.' };
-  }
-  if (!res.ok) return { data: null, nextCursor: null, error: await errorMessage(res) };
-
-  // An unreadable 200 is an error, not an empty page: empty is
-  // indistinguishable from the end of history, so Load more would disappear
-  // and truncate the list silently. The read is guarded because this function
-  // must not throw (see the file header) and res.text() rejects on a body that
-  // fails after the headers arrive.
-  const text = await res.text().catch(() => null);
-  const unreadable = {
-    data: null,
-    nextCursor: null,
-    error: 'The server returned a response that could not be read.',
-  } as const;
-  if (text === null) return unreadable;
-  let body: { data?: T; next_cursor?: string | null } | null;
-  try {
-    body = JSON.parse(text) as { data?: T; next_cursor?: string | null };
-  } catch {
-    return unreadable;
-  }
-  // A parseable body is not automatically a valid page. The route always writes
-  // both keys (NextResponse.json({ data, next_cursor })), so `{}` or `null` is
-  // a gateway artefact, not an empty result. Accepting it reports "no
-  // deliveries" and hides Load more, silently truncating the list: the same
-  // failure the unparseable-body check above exists to prevent.
-  if (body === null || typeof body !== 'object' || !Array.isArray(body.data)) {
-    return unreadable;
-  }
-  // next_cursor must be PRESENT, not merely absent-and-coerced. The route
-  // always writes it, so a body without it is malformed, and `?? null` would
-  // read that as "last page": Load more disappears and the list is silently
-  // truncated, which is the whole failure this guard exists to stop.
-  // An empty string is refused with the absent case rather than accepted as a
-  // cursor. It is not null, so the grid offers Load more; but the request
-  // builder only serializes a truthy cursor, so the click omits it, the
-  // backend answers page one, and those rows are appended to the ones already
-  // on screen with Load more still showing. That is an unbounded duplicate
-  // loop, not a page walk. The contract is null or a non-empty opaque string.
-  const cursor = (body as { next_cursor?: unknown }).next_cursor;
-  if (cursor !== null && (typeof cursor !== 'string' || cursor === '')) {
-    return unreadable;
-  }
-  return { data: body.data as T, nextCursor: cursor, error: null };
-}
-
 /** A JSON request body, with the header that says so. */
 function json(method: string, payload: unknown): RequestInit {
   return {
@@ -169,36 +103,14 @@ export async function listTriggers(
   return { triggers: res.data ?? [], error: res.error };
 }
 
-/**
- * One page of deliveries. `cursor` is the value returned as `nextCursor` by the
- * previous call; omit it for the first page. `nextCursor` is null once there is
- * nothing more to load, which is what hides the "Load more" control.
- */
-export async function listDeliveries(
-  opts: {
-    status?: string[];
-    outcome?: string[];
-    limit?: number;
-    cursor?: string | null;
-    omitPayload?: boolean;
-  } = {},
-): Promise<{
+export async function listDeliveries(): Promise<{
   deliveries: TriggerDelivery[];
-  nextCursor: string | null;
   error: string | null;
 }> {
-  const qs = new URLSearchParams();
-  for (const s of opts.status ?? []) qs.append('status', s);
-  for (const o of opts.outcome ?? []) qs.append('outcome', o);
-  if (opts.limit) qs.set('limit', String(opts.limit));
-  if (opts.cursor) qs.set('cursor', opts.cursor);
-  if (opts.omitPayload) qs.set('omit_payload', 'true');
-  const q = qs.toString();
-  const res = await sendPage<TriggerDelivery[]>(
-    `${ApiRoute.triggerDeliveries.list()}${q ? `?${q}` : ''}`,
-    { cache: 'no-store' },
-  );
-  return { deliveries: res.data ?? [], nextCursor: res.nextCursor, error: res.error };
+  const res = await send<TriggerDelivery[]>(ApiRoute.triggerDeliveries.list(), {
+    cache: 'no-store',
+  });
+  return { deliveries: res.data ?? [], error: res.error };
 }
 
 /** A page of deliveries, newest first. `before` is the oldest `receivedAt` already held. */

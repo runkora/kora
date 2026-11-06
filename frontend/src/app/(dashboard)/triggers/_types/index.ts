@@ -46,14 +46,6 @@ export interface TriggerCoalesce {
   key: string;
   windowSeconds: number;
 }
-/**
- * Deliveries requested per page, by the server render and by every Load more.
- *
- * One constant so every page is the same size. The cursor encodes the last row
- * returned, not an offset, so a different size would be correct either way - it
- * would just make the grid grow in uneven steps.
- */
-export const DELIVERY_PAGE_SIZE = 100;
 
 /** Who may fire a webhook or chat command trigger; both lists empty means anyone. */
 export type Senders = Required<SenderRestriction>;
@@ -831,4 +823,14 @@ export function deliverySummary(row: DeliveryRow): DeliverySummary {
     default:
       return { kind: detail.kind, text: clip(detail.text) };
   }
+}
+
+/**
+ * Client-side Deliveries status-filter predicate. A row passes when its status
+ * is in the selected set (OR semantics across multiple selections). An empty
+ * selection matches nothing, so a caller that means "no filter" skips the
+ * predicate rather than passing an empty set.
+ */
+export function matchesStatusFilter(row: DeliveryRow, selected: ReadonlySet<string>): boolean {
+  return selected.has(row.status);
 }
