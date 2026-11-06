@@ -468,6 +468,32 @@ func TestHandleListDeliveries_Status(t *testing.T) {
 	}
 }
 
+// agent_type_id lists the deliveries of the agent's triggers; an agent with none
+// gets an empty page, and it does not combine with trigger_id.
+func TestHandleListDeliveries_AgentScope(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	src := mustSource(t, deps.sources)
+	mine := mustTrigger(t, deps.triggers, src.ID, nil, "mine")
+	for id, trig := range map[string]string{"d-mine": mine.ID, "d-other": "trg-other"} {
+		_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{ID: id, TenantID: testTenant, TriggerID: &trig, Status: StatusDispatched})
+	}
+	list := func(query string) (int, []Delivery) {
+		w := call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?"+query, nil, nil)
+		return w.Code, decode[struct {
+			Deliveries []Delivery `json:"deliveries"`
+		}](t, w).Deliveries
+	}
+	if code, got := list("agent_type_id=" + mine.AgentTypeID); code != http.StatusOK || len(got) != 1 || got[0].ID != "d-mine" {
+		t.Errorf("agent scope = %d %+v, want only d-mine", code, got)
+	}
+	if code, got := list("agent_type_id=at-none"); code != http.StatusOK || len(got) != 0 {
+		t.Errorf("agent with no triggers = %d %+v, want an empty page", code, got)
+	}
+	if code, _ := list("agent_type_id=" + mine.AgentTypeID + "&trigger_id=" + mine.ID); code != http.StatusBadRequest {
+		t.Errorf("agent and trigger together: status %d, want 400", code)
+	}
+}
+
 // Every listed trigger carries stats, zero-filled when it has no activity, and
 // the tenant's stats sit beside the list.
 func TestHandleListTriggers_Stats(t *testing.T) {

@@ -89,6 +89,17 @@ var DeliveryStatusFilters = map[string][]string{
 // StartedRunStatuses are the per-trigger outcomes where a run took the delivery.
 var StartedRunStatuses = []string{RunStatusDispatched, RunStatusJoined}
 
+// attemptedStatuses are the outcomes that count towards a trigger's last fire.
+var attemptedStatuses = []string{RunStatusDispatched, RunStatusJoined, RunStatusFailed, RunStatusDenied}
+
+// recordedStatuses are the delivery statuses that stand in for a trigger's
+// outcome on a delivery recorded against it: pending, missed or a repeat.
+var recordedStatuses = []string{StatusVerified, StatusMissed, StatusDuplicate}
+
+// recordedStatusesSQL is recordedStatuses as the literal list
+// idx_trigger_deliveries_recorded is defined over.
+const recordedStatusesSQL = "('verified', 'missed', 'duplicate')"
+
 // FailureRunStatuses are the per-trigger outcomes that mean something went wrong,
 // as opposed to the trigger declining on purpose (filtered, superseded, unrouted).
 var FailureRunStatuses = []string{RunStatusFailed, RunStatusDenied, RunStatusDropped}

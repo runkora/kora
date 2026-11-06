@@ -94,9 +94,9 @@ type TriggerStore interface {
 	// ListTriggers returns triggers for a tenant, optionally filtered by
 	// agentTypeID (empty = all) — the agentTypeID filter backs the per-agent tab.
 	ListTriggers(ctx context.Context, tenantID, agentTypeID string) ([]Trigger, error)
-	// TriggerStats returns each active trigger's stats, keyed by trigger id, and
-	// the tenant's, as of now.
-	TriggerStats(ctx context.Context, tenantID string, now time.Time) (map[string]TriggerStats, TenantTriggerStats, error)
+	// TriggerStats returns the stats of each trigger with activity, keyed by
+	// trigger id, the last fire of each of triggerIDs, and the tenant's stats.
+	TriggerStats(ctx context.Context, tenantID string, triggerIDs []string, now time.Time) (map[string]TriggerStats, TenantTriggerStats, error)
 	// ListMatchableTriggersForSource returns the webhook triggers a delivery for
 	// this source is matched against: the enabled ones, plus the ones the
 	// platform auto-paused.
@@ -346,16 +346,17 @@ func parseDeliveryCursor(raw string) (*deliveryCursor, error) {
 // DeliveryFilter narrows a delivery listing. Empty/zero fields are ignored.
 type DeliveryFilter struct {
 	SourceID string
-	// TriggerID matches deliveries that reached the trigger: recorded against it
-	// or carrying one of its fan-out outcomes.
-	TriggerID string
-	Kind      string
+	// TriggerIDs matches deliveries that reached any of the triggers: carrying
+	// one of their outcomes, or recorded against one with a status in
+	// recordedStatuses. It does not combine with SourceID or Kind.
+	TriggerIDs []string
+	Kind       string
 	// ReceivedAfter bounds received_at, inclusive. Zero means unbounded.
 	ReceivedAfter time.Time
 	// OmitPayload leaves the full payload out of each delivery. The excerpt,
 	// outcomes and runs stay.
 	OmitPayload bool
-	// Status is one of DeliveryStatusFilters. With TriggerID set it matches the
+	// Status is one of DeliveryStatusFilters. With TriggerIDs set it matches the
 	// trigger's own outcome, else the delivery's status.
 	Status string
 	Limit  int

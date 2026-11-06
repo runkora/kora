@@ -9,7 +9,7 @@ import (
 
 func TestPostgres_TriggerStats(t *testing.T) {
 	r, tenant := testRepo(t)
-	// The current bucket starts at 12:00; the first at 14:00 the day before.
+	// Thirteen buckets: 12:00 the day before, holding now-24h, to 12:00 today.
 	now := time.Date(2026, 11, 5, 13, 30, 0, 0, time.UTC)
 	ms := func(n int) time.Duration { return time.Duration(n) * time.Millisecond }
 
@@ -22,8 +22,8 @@ func TestPostgres_TriggerStats(t *testing.T) {
 	// t1: a denial one second before the current bucket.
 	insertTestDelivery(t, r, tenant, "t1-denied", StatusFailed, "", now.Add(-90*time.Minute-time.Second))
 	insertTestRun(t, r, tenant, "t1-denied", "t1", RunStatusDenied, now.Add(-90*time.Minute))
-	// t1: exactly 24h old is in the window but before the first bucket; one
-	// second older is outside it.
+	// t1: a missed fire exactly 24h old is in the window and the first bucket;
+	// one second older is outside both.
 	insertTestDelivery(t, r, tenant, "t1-edge", StatusMissed, "t1", now.Add(-24*time.Hour))
 	insertTestDelivery(t, r, tenant, "t1-outside", StatusMissed, "t1", now.Add(-24*time.Hour-time.Second))
 
@@ -42,7 +42,7 @@ func TestPostgres_TriggerStats(t *testing.T) {
 	// Reached no trigger.
 	insertTestDelivery(t, r, tenant, "none", StatusSkipped, "", now.Add(-time.Hour))
 
-	byTrigger, tenantStats, err := r.TriggerStats(context.Background(), tenant, now)
+	byTrigger, tenantStats, err := r.TriggerStats(context.Background(), tenant, []string{"t1", "t2", "t3"}, now)
 	if err != nil {
 		t.Fatalf("TriggerStats: %v", err)
 	}
@@ -57,21 +57,21 @@ func TestPostgres_TriggerStats(t *testing.T) {
 	if len(t1.Buckets) != statsBucketCount {
 		t.Fatalf("t1 has %d buckets, want %d", len(t1.Buckets), statsBucketCount)
 	}
-	if first, last := t1.Buckets[0].Start, t1.Buckets[11].Start; !first.Equal(now.Add(-23*time.Hour-30*time.Minute)) || !last.Equal(now.Add(-90*time.Minute)) {
-		t.Errorf("buckets span %s to %s, want 14:00 the day before to 12:00", first, last)
+	if first, last := t1.Buckets[0].Start, t1.Buckets[12].Start; !first.Equal(now.Add(-25*time.Hour-30*time.Minute)) || !last.Equal(now.Add(-90*time.Minute)) {
+		t.Errorf("buckets span %s to %s, want 12:00 the day before to 12:00", first, last)
 	}
-	if b := t1.Buckets[11]; b.Started != 5 || b.Failed != 0 {
+	if b := t1.Buckets[12]; b.Started != 5 || b.Failed != 0 {
 		t.Errorf("current bucket = %+v, want the five 12:00 starts", b)
 	}
-	if b := t1.Buckets[10]; b.Failed != 1 || b.Started != 0 {
+	if b := t1.Buckets[11]; b.Failed != 1 || b.Started != 0 {
 		t.Errorf("previous bucket = %+v, want the 11:59:59 denial", b)
 	}
 	var bucketed int
 	for _, b := range t1.Buckets {
 		bucketed += b.Started + b.Failed + b.Other
 	}
-	if bucketed != 6 {
-		t.Errorf("t1 bucketed %d outcomes, want 6: the 24h edge row precedes the first bucket", bucketed)
+	if bucketed != t1.Deliveries24h || t1.Buckets[0].Other != 1 {
+		t.Errorf("t1 bucketed %d, first bucket %+v; want every one of %d in a bucket, the 24h edge row in the first", bucketed, t1.Buckets[0], t1.Deliveries24h)
 	}
 	if t1.LastFiredAt == nil || !t1.LastFiredAt.Equal(now.Add(-90*time.Minute)) {
 		t.Errorf("t1 last fired = %v, want 12:00", t1.LastFiredAt)
@@ -82,7 +82,7 @@ func TestPostgres_TriggerStats(t *testing.T) {
 		t.Errorf("t2 last fired = %v, want the dispatch three days ago, not the declined fires", t2.LastFiredAt)
 	}
 	if t2.Status24h[RunStatusSuperseded] != 1 || t2.Buckets[11].Other != 1 {
-		t.Errorf("t2 superseded = %d, current bucket = %+v", t2.Status24h[RunStatusSuperseded], t2.Buckets[11])
+		t.Errorf("t2 superseded = %d, 10:00 bucket = %+v", t2.Status24h[RunStatusSuperseded], t2.Buckets[11])
 	}
 	if byTrigger["t3"].LastFiredAt != nil {
 		t.Errorf("t3 last fired = %v, want nil for a trigger that only declined", byTrigger["t3"].LastFiredAt)

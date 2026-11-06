@@ -5,16 +5,16 @@ import (
 	"time"
 )
 
-// Trigger stats windows. Buckets align to UTC two-hour boundaries, so the last
-// bucket is the partial one holding now.
+// Trigger stats windows. Buckets align to UTC two-hour boundaries from the one
+// holding now-24h to the one holding now, so the first and last can be partial.
 const (
 	statsWindow      = 24 * time.Hour
 	statsBucketWidth = 2 * time.Hour
-	statsBucketCount = 12
+	statsBucketCount = 13
 )
 
-// TriggerStats is one trigger's activity, counted per delivery that reached it
-// by the trigger's own outcome, or the delivery's status when it has none.
+// TriggerStats is one trigger's activity: its outcome rows, plus deliveries
+// recorded against it with no outcome of their own (recordedStatuses).
 type TriggerStats struct {
 	// LastFiredAt is the newest delivery this trigger attempted a run for, over
 	// all history. Declined outcomes (filtered, superseded, unrouted, paused) do
@@ -52,7 +52,7 @@ type TenantTriggerStats struct {
 // emptyTriggerStats is a trigger with no activity in the window: every count
 // present and zero, every bucket present.
 func emptyTriggerStats(now time.Time) TriggerStats {
-	first := now.UTC().Truncate(statsBucketWidth).Add(-(statsBucketCount - 1) * statsBucketWidth)
+	first := now.UTC().Add(-statsWindow).Truncate(statsBucketWidth)
 	st := TriggerStats{Status24h: map[string]int{}, Buckets: make([]StatsBucket, statsBucketCount)}
 	for i := range st.Buckets {
 		st.Buckets[i].Start = first.Add(time.Duration(i) * statsBucketWidth)
@@ -63,8 +63,7 @@ func emptyTriggerStats(now time.Time) TriggerStats {
 	return st
 }
 
-// count adds n outcomes of status to the 24h counts and, when bucket is not -1,
-// to that bucket.
+// count adds n outcomes of status to the 24h counts and to the bucket.
 func (st *TriggerStats) count(status string, bucket, n int) {
 	started, failed := slices.Contains(StartedRunStatuses, status), slices.Contains(FailureRunStatuses, status)
 	st.Deliveries24h += n

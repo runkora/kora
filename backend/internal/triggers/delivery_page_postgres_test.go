@@ -22,12 +22,14 @@ func insertTestDelivery(t *testing.T, r *postgresRepository, tenant, id, status,
 	}
 }
 
-// insertTestRun writes one per-trigger outcome for a delivery.
+// insertTestRun writes one per-trigger outcome for a delivery, carrying the
+// delivery's received_at as InsertDeliveryRun does.
 func insertTestRun(t *testing.T, r *postgresRepository, tenant, deliveryID, triggerID, status string, createdAt time.Time) {
 	t.Helper()
 	_, err := r.pool.Exec(context.Background(), `
-		INSERT INTO trigger_delivery_runs (id, tenant_id, delivery_id, trigger_id, status, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6)`, newID(), tenant, tenant+"/"+deliveryID, triggerID, status, createdAt)
+		INSERT INTO trigger_delivery_runs (id, tenant_id, delivery_id, trigger_id, status, created_at, received_at)
+		SELECT $1, $2, d.id, $4, $5, $6, d.received_at FROM trigger_deliveries d WHERE d.id = $3`,
+		newID(), tenant, tenant+"/"+deliveryID, triggerID, status, createdAt)
 	if err != nil {
 		t.Fatalf("insert run %s/%s: %v", deliveryID, triggerID, err)
 	}
@@ -84,7 +86,8 @@ func TestPostgres_DeliveryCursorAcrossTimestampBurst(t *testing.T) {
 }
 
 // The status filter applies before the page boundary, tenant-wide by delivery
-// status and trigger-scoped by the trigger's own outcome.
+// status and trigger-scoped by the trigger's own outcome; a scope of several
+// triggers merges their pages.
 func TestPostgres_DeliveryStatusFilterWithPaging(t *testing.T) {
 	r, tenant := testRepo(t)
 	base := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
@@ -99,8 +102,10 @@ func TestPostgres_DeliveryStatusFilterWithPaging(t *testing.T) {
 	insertTestDelivery(t, r, tenant, "other-failed", StatusFailed, "", at(2))
 	insertTestRun(t, r, tenant, "other-failed", "t1", RunStatusFiltered, at(2))
 	insertTestRun(t, r, tenant, "other-failed", "t2", RunStatusFailed, at(2))
-	// Recorded against t1 with no outcome row: the delivery status stands.
-	insertTestDelivery(t, r, tenant, "recorded-failed", StatusFailed, "t1", at(3))
+	// Recorded against t1 with no outcome row: a missed fire stands in for an
+	// outcome, a failed status does not.
+	insertTestDelivery(t, r, tenant, "recorded-missed", StatusMissed, "t1", at(3))
+	insertTestDelivery(t, r, tenant, "recorded-failed", StatusFailed, "t1", at(3).Add(-time.Second))
 	insertTestDelivery(t, r, tenant, "own-dropped", StatusFailed, "", at(4))
 	insertTestRun(t, r, tenant, "own-dropped", "t1", RunStatusDropped, at(4))
 	insertTestDelivery(t, r, tenant, "own-dispatched", StatusDispatched, "t1", at(5))
@@ -116,14 +121,18 @@ func TestPostgres_DeliveryStatusFilterWithPaging(t *testing.T) {
 		{"tenant failed", DeliveryFilter{Status: StatusFailed, Limit: 2},
 			[]string{"own-failed", "own-denied", "other-failed", "recorded-failed", "own-dropped"}},
 		{"tenant skipped", DeliveryFilter{Status: StatusSkipped, Limit: 2}, []string{"skipped"}},
-		{"trigger all", DeliveryFilter{TriggerID: "t1", Limit: 2},
-			[]string{"own-failed", "own-denied", "other-failed", "recorded-failed", "own-dropped", "own-dispatched"}},
-		{"trigger failed", DeliveryFilter{TriggerID: "t1", Status: StatusFailed, Limit: 2},
-			[]string{"own-failed", "own-denied", "recorded-failed", "own-dropped"}},
-		{"trigger dispatched", DeliveryFilter{TriggerID: "t1", Status: StatusDispatched, Limit: 2},
+		{"trigger all", DeliveryFilter{TriggerIDs: []string{"t1"}, Limit: 2},
+			[]string{"own-failed", "own-denied", "other-failed", "recorded-missed", "own-dropped", "own-dispatched"}},
+		{"trigger failed", DeliveryFilter{TriggerIDs: []string{"t1"}, Status: StatusFailed, Limit: 2},
+			[]string{"own-failed", "own-denied", "own-dropped"}},
+		{"trigger missed", DeliveryFilter{TriggerIDs: []string{"t1"}, Status: StatusMissed, Limit: 2},
+			[]string{"recorded-missed"}},
+		{"trigger dispatched", DeliveryFilter{TriggerIDs: []string{"t1"}, Status: StatusDispatched, Limit: 2},
 			[]string{"own-dispatched"}},
-		{"other trigger failed", DeliveryFilter{TriggerID: "t2", Status: StatusFailed, Limit: 2},
+		{"other trigger failed", DeliveryFilter{TriggerIDs: []string{"t2"}, Status: StatusFailed, Limit: 2},
 			[]string{"other-failed"}},
+		{"several triggers", DeliveryFilter{TriggerIDs: []string{"t2", "t1"}, Limit: 2},
+			[]string{"own-failed", "own-denied", "other-failed", "recorded-missed", "own-dropped", "own-dispatched"}},
 	} {
 		if got := walkDeliveries(t, r, tenant, tc.filter); !slices.Equal(got, tc.want) {
 			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)

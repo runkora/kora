@@ -27,7 +27,7 @@ type triggerStore interface {
 	CreateTrigger(ctx context.Context, t *Trigger) error
 	GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error)
 	ListTriggers(ctx context.Context, tenantID, agentTypeID string) ([]Trigger, error)
-	TriggerStats(ctx context.Context, tenantID string, now time.Time) (map[string]TriggerStats, TenantTriggerStats, error)
+	TriggerStats(ctx context.Context, tenantID string, triggerIDs []string, now time.Time) (map[string]TriggerStats, TenantTriggerStats, error)
 	UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement, writeRouting bool) error
 	UpdateTriggerGrant(ctx context.Context, t *Trigger, writeEnablement bool, oldGrantID *string) error
 	DeleteTrigger(ctx context.Context, tenantID, id string) error
@@ -440,7 +440,11 @@ func (s *TriggerService) ListTriggersWithStats(ctx context.Context, tenantID, ag
 		return nil, TenantTriggerStats{}, err
 	}
 	now := time.Now()
-	byTrigger, tenant, err := s.repo.TriggerStats(ctx, tenantID, now)
+	ids := make([]string, len(triggers))
+	for i := range triggers {
+		ids[i] = triggers[i].ID
+	}
+	byTrigger, tenant, err := s.repo.TriggerStats(ctx, tenantID, ids, now)
 	if err != nil {
 		return nil, TenantTriggerStats{}, err
 	}

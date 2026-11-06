@@ -276,15 +276,19 @@ func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter De
 	return deliveries, nextCursor, nil
 }
 
-// validateDeliveryFilter rejects a ?status= value the list cannot match.
+// validateDeliveryFilter rejects a ?status= value the list cannot match, and a
+// trigger scope combined with filters only the tenant-wide list applies.
 func validateDeliveryFilter(filter DeliveryFilter) error {
+	if len(filter.TriggerIDs) > 0 && (filter.SourceID != "" || filter.Kind != "") {
+		return fmt.Errorf("%w: trigger_id and agent_type_id do not combine with source_id or kind", ErrValidation)
+	}
 	if filter.Status == "" {
 		return nil
 	}
 	if _, ok := DeliveryStatusFilters[filter.Status]; !ok {
 		return fmt.Errorf("%w: unknown delivery status %q", ErrValidation, filter.Status)
 	}
-	if filter.Status == RunStatusSuperseded && filter.TriggerID == "" {
+	if filter.Status == RunStatusSuperseded && len(filter.TriggerIDs) == 0 {
 		return fmt.Errorf("%w: status %q needs a trigger_id", ErrValidation, filter.Status)
 	}
 	return nil

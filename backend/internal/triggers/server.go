@@ -93,7 +93,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	PATCH  /api/v1/triggers/{id}              Edit a trigger.
 //	DELETE /api/v1/triggers/{id}              Delete a trigger.
 //	GET    /api/v1/trigger-deliveries         List deliveries, newest first, keyset-paginated.
-//	                                          Filter: ?source_id= ?trigger_id= ?kind= ?status= ?received_after=
+//	                                          Filter: ?source_id= ?trigger_id= ?agent_type_id= ?kind= ?status= ?received_after=
 //	                                          Page:   ?limit= ?cursor= (echo back next_cursor).
 //	POST   /api/v1/trigger-deliveries/{id}/redeliver  Replay a delivery.
 //	GET    /api/v1/trigger-sources/{id}/event-types   Event catalog for a source.
@@ -455,9 +455,18 @@ func (c *Controller) handleListDeliveries(w http.ResponseWriter, r *http.Request
 			api.BadRequestError(api.ErrCodeInvalidField, "cursor is not a value this API issued", map[string]any{"field": "cursor"}), err)
 		return
 	}
+	triggerIDs, err := c.deliveryScope(ctx, q.Get("trigger_id"), q.Get("agent_type_id"))
+	if err != nil {
+		c.writeServiceError(w, r, err)
+		return
+	}
+	if triggerIDs != nil && len(triggerIDs) == 0 {
+		api.JSON(ctx, w, c.logger, http.StatusOK, listDeliveriesResponse{Deliveries: []Delivery{}})
+		return
+	}
 	filter := DeliveryFilter{
 		SourceID:    q.Get("source_id"),
-		TriggerID:   q.Get("trigger_id"),
+		TriggerIDs:  triggerIDs,
 		Kind:        q.Get("kind"),
 		OmitPayload: q.Get("omit_payload") == "true",
 		Status:      q.Get("status"),
@@ -479,6 +488,28 @@ func (c *Controller) handleListDeliveries(w http.ResponseWriter, r *http.Request
 		return
 	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, listDeliveriesResponse{Deliveries: deliveries, NextCursor: nextCursor})
+}
+
+// deliveryScope resolves ?trigger_id= or ?agent_type_id= to the triggers whose
+// deliveries to list: nil for the whole tenant, empty for an agent with no triggers.
+func (c *Controller) deliveryScope(ctx context.Context, triggerID, agentTypeID string) ([]string, error) {
+	switch {
+	case triggerID != "" && agentTypeID != "":
+		return nil, fmt.Errorf("%w: use one of trigger_id and agent_type_id", ErrValidation)
+	case triggerID != "":
+		return []string{triggerID}, nil
+	case agentTypeID == "":
+		return nil, nil
+	}
+	triggers, err := c.triggers.ListTriggers(ctx, tenantFromCtx(ctx), agentTypeID, "")
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(triggers))
+	for i := range triggers {
+		ids[i] = triggers[i].ID
+	}
+	return ids, nil
 }
 
 // handleRedeliver handles POST /api/v1/trigger-deliveries/{id}/redeliver.

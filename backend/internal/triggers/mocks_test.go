@@ -526,6 +526,9 @@ func (m *mockRepository) ListDeliveries(_ context.Context, tenantID string, filt
 		if filter.Status != "" && d.Status != filter.Status {
 			continue
 		}
+		if len(filter.TriggerIDs) > 0 && (d.TriggerID == nil || !slices.Contains(filter.TriggerIDs, *d.TriggerID)) {
+			continue
+		}
 		if !filter.ReceivedAfter.IsZero() && d.ReceivedAt.Before(filter.ReceivedAfter) {
 			continue
 		}
@@ -542,7 +545,7 @@ func (m *mockRepository) ListDeliveries(_ context.Context, tenantID string, filt
 }
 
 // TriggerStats returns the canned stats a test set.
-func (m *mockRepository) TriggerStats(context.Context, string, time.Time) (map[string]TriggerStats, TenantTriggerStats, error) {
+func (m *mockRepository) TriggerStats(context.Context, string, []string, time.Time) (map[string]TriggerStats, TenantTriggerStats, error) {
 	return m.triggerStats, m.tenantStats, nil
 }
 
