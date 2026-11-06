@@ -133,13 +133,13 @@ func (c *Controller) GroupedBy() string { return "" }
 //     the token belongs to kora-agents, the sole intended caller.
 //
 // There is no unauthenticated mode. The token check and the caller check are
-// one decision, not two switches: requireExpectedCaller reads the identity the
+// one decision, not two switches: the caller check reads the identity the
 // token check establishes, so it can never run without it.
 func (c *Controller) Middleware() mw.MiddlewareHandler {
 	return func(next http.Handler) http.Handler {
 		authed := mw.MiddlewareChain(
 			mw.AuthMiddleware(c.verifier, c.logger),
-			mw.NewMiddleware(c.requireExpectedCaller),
+			mw.RequireSystemCaller(expectedCaller, c.logger),
 		)(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch {
@@ -162,38 +162,6 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 			}
 		})
 	}
-}
-
-// requireExpectedCaller rejects any authenticated principal that is not the
-// kora-agents control plane.
-//
-// AuthMiddleware alone is not enough. Every in-mesh component can obtain a
-// platform token, and the platform-wide convention is that a SYSTEM principal
-// is unrestricted by scope enforcement
-// (internal/platform/middleware/scope_enforce.go). Without a caller check, any
-// component's token would unlock every session route on every agent pod in
-// every tenant. The same reasoning drives the kora-triggers
-// AuthorizationPolicy (charts/kora/templates/triggers/authorizationpolicy.yaml).
-func (c *Controller) requireExpectedCaller(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		claims, ok := token.ClaimsFromContext(ctx)
-		if !ok || claims.Kora.PrincipalType != token.PrincipalTypeSystem || claims.Kora.DisplayName != expectedCaller {
-			principalType, displayName := "", ""
-			if claims != nil {
-				principalType, displayName = string(claims.Kora.PrincipalType), claims.Kora.DisplayName
-			}
-			c.logger.Warn(ctx, "Rejected session-manager call from unexpected principal",
-				logging.Field{Key: "path", Value: r.URL.Path},
-				logging.Field{Key: "principal_type", Value: principalType},
-				logging.Field{Key: "display_name", Value: displayName},
-			)
-			apiErr := api.ForbiddenError(api.ErrCodeForbidden, "session-manager accepts requests only from the kora-agents control plane", nil)
-			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 // isLoopbackRequest reports whether the request originated on this pod's

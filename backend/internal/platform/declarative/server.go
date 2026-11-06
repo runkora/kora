@@ -38,7 +38,7 @@ func (c *Controller) GroupedBy() string { return "" }
 
 // Middleware verifies the platform token and admits only the operator.
 func (c *Controller) Middleware() mw.MiddlewareHandler {
-	return mw.MiddlewareChain(c.auth, mw.NewMiddleware(c.operatorOnly))
+	return mw.MiddlewareChain(c.auth, mw.RequireSystemCaller(OperatorComponent, c.logger))
 }
 
 // Boot implements api.Controller.
@@ -46,22 +46,6 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /internal/declared/{kind}", c.handleApply)
 	mux.Handle("DELETE /internal/declared/{kind}/{tenant}/{name}", c.handleDelete)
 	mux.Handle("GET /internal/declared/{kind}/{tenant}", c.handleList)
-}
-
-// operatorOnly refuses every principal but the operator. Any in-mesh
-// component can hold a SYSTEM token. The type alone is not enough.
-func (c *Controller) operatorOnly(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		claims, ok := token.ClaimsFromContext(ctx)
-		if !ok || claims.Kora.PrincipalType != token.PrincipalTypeSystem || claims.Kora.DisplayName != OperatorComponent {
-			c.logger.Warn(ctx, "rejected declared-item call from a principal other than the operator",
-				logging.Field{Key: "path", Value: r.URL.Path})
-			api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, "only the operator may call declared-item endpoints", nil), nil)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }
 
 // applier returns the Applier for the request's kind, or writes a 404.

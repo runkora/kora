@@ -94,9 +94,9 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /v1/events/{id}", c.handleGet)
 }
 
-// TriggersComponent is the SYSTEM principal name of kora-triggers, from its
+// triggersComponent is the SYSTEM principal name of kora-triggers, from its
 // SPIFFE ID /system/kora-triggers.
-const TriggersComponent = "kora-triggers"
+const triggersComponent = "kora-triggers"
 
 // InternalController serves every tenant's stream to kora-triggers. The mesh
 // AuthorizationPolicy and the controller both admit only kora-triggers.
@@ -118,20 +118,7 @@ func (c *InternalController) GroupedBy() string { return "" }
 
 // Middleware verifies the platform token and admits only kora-triggers.
 func (c *InternalController) Middleware() mw.MiddlewareHandler {
-	return mw.MiddlewareChain(c.auth, mw.NewMiddleware(c.triggersOnly))
-}
-
-// triggersOnly refuses every principal but kora-triggers. Any in-mesh
-// component can hold a SYSTEM token, so the type alone is not enough.
-func (c *InternalController) triggersOnly(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims, ok := token.ClaimsFromContext(r.Context())
-		if !ok || claims == nil || claims.Kora.PrincipalType != token.PrincipalTypeSystem || claims.Kora.DisplayName != TriggersComponent {
-			api.ErrorResponse(r.Context(), w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, "Only kora-triggers may read the internal event stream.", nil), nil)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+	return mw.MiddlewareChain(c.auth, mw.RequireSystemCaller(triggersComponent, c.logger))
 }
 
 // Boot registers the internal stream.
