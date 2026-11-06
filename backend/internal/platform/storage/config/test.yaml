@@ -1,0 +1,35 @@
+# Storage for `make test-postgres`: the compose Postgres, on a database the cluster never uses.
+
+postgres:
+  host: localhost
+  port: 5432
+  database: kora_test
+  user: kora
+  sslMode: disable  # No TLS for local development
+
+  # Connection pool
+  maxConnections: 10
+  minConnections: 2
+  maxConnLifetimeMinutes: 30
+  maxConnIdleTimeMinutes: 10
+  healthCheckPeriodSeconds: 30
+  connectTimeoutSeconds: 5
+  captureQueryText: true  # Capture SQL in traces for local debugging
+
+redis:
+  host: localhost
+  port: 6379
+  db: 0
+
+  # Retry and timeout configuration
+  maxRetries: 3
+  dialTimeoutSeconds: 5
+  readTimeoutSeconds: 3
+  writeTimeoutSeconds: 3
+
+  # Connection pool
+  poolSize: 10
+  minIdleConns: 2
+  connMaxIdleTimeMinutes: 30
+
+  tlsEnabled: false  # No TLS for local development
