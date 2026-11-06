@@ -357,3 +357,47 @@ func TestPostgres_RelayDeadLettersMalformedRows(t *testing.T) {
 		t.Errorf("log holds %d events of the tenant, want only the good one", len(seqs))
 	}
 }
+
+func TestPostgres_SweepDeadLetters(t *testing.T) {
+	store, _, raw, tenant := testStore(t)
+	ctx := context.Background()
+	t.Cleanup(func() {
+		_, _ = raw.Exec(ctx, `DELETE FROM event_outbox_dead WHERE tenant_id = ANY($1)`, []string{tenant, ""})
+	})
+	unknown := ""
+	ids := map[string]string{uuid.NewString(): tenant, uuid.NewString(): tenant, uuid.NewString(): unknown}
+	old := ""
+	for id, owner := range ids {
+		if old == "" && owner == tenant {
+			old = id
+		}
+		if _, err := raw.Exec(ctx, `
+			INSERT INTO event_outbox_dead (id, position, tenant_id, type, envelope, created_at, reason, dead_at)
+			VALUES ($1, 0, $2, 'agents.run.failed.v1', '{}', now(), 'test', '1999-01-01')`, id, owner); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// One of the tenant's rows is recent and stays.
+	if _, err := raw.Exec(ctx, `UPDATE event_outbox_dead SET dead_at = now() WHERE id = $1`, old); err != nil {
+		t.Fatal(err)
+	}
+	cutoff := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	if deleted, _, err := store.SweepBatch(ctx, SweepScope{Tenant: tenant, Dead: true}, cutoff); err != nil || deleted != 1 {
+		t.Errorf("tenant dead-letter sweep deleted %d (%v), want 1", deleted, err)
+	}
+	if deleted, _, err := store.SweepBatch(ctx, SweepScope{Except: []string{tenant}, Dead: true}, cutoff); err != nil || deleted != 1 {
+		t.Errorf("default dead-letter sweep deleted %d (%v), want the row with no tenant", deleted, err)
+	}
+	var left int
+	if err := raw.QueryRow(ctx, `SELECT count(*) FROM event_outbox_dead WHERE id = ANY($1::uuid[])`, keys(ids)).Scan(&left); err != nil || left != 1 {
+		t.Errorf("%d dead-letter rows left (%v), want the recent one", left, err)
+	}
+}
+
+func keys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}

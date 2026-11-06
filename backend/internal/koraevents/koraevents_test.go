@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -306,9 +307,9 @@ func TestRetention_Sweep(t *testing.T) {
 	if err := r.Sweep(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(store.scopes) != 2 || store.scopes[0].Tenant != "t1" || store.days[0] != 7 ||
-		!slices.Equal(store.scopes[1].Except, []string{"t1"}) || store.days[1] != 30 {
-		t.Errorf("sweeps = %+v days %v, want t1 at 7 days then the rest at 30", store.scopes, store.days)
+	want := []SweepScope{{Tenant: "t1"}, {Except: []string{"t1"}}, {Tenant: "t1", Dead: true}, {Except: []string{"t1"}, Dead: true}}
+	if !reflect.DeepEqual(store.scopes, want) || !slices.Equal(store.days, []int{7, 30, 7, 30}) {
+		t.Errorf("sweeps = %+v days %v, want events then dead-letter rows, t1 at 7 days and the rest at 30", store.scopes, store.days)
 	}
 
 	unread := &fakeSweeps{locked: true}

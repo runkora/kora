@@ -350,7 +350,8 @@ These producers call `PublishOnce`. Its dedup lasts as long as the earlier event
 *   The chart value `koraEvents.retention.defaultDays` sets the default. The default is 30.
 *   `KoraTenant` gains `spec.events.retentionDays`. The operator adds it to the tenant's entry in the `kora-tenants` registry, and `kora-events` mounts the registry.
 *   A sweep every hour deletes events older than the tenant's retention in batches of 5,000. It runs under `pg_try_advisory_xact_lock`.
-*   Retention applies to `events` only, and `run_events` rows live as long as their run.
+*   The sweep also deletes `event_outbox_dead` rows whose `dead_at` is past their tenant's retention. A row with an unknown or empty tenant uses the chart default.
+*   Retention applies to `events` and `event_outbox_dead` only, and `run_events` rows live as long as their run.
 
 ### 12. kora MCP Tools
 
