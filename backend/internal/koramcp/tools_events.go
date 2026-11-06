@@ -43,7 +43,7 @@ type eventIDArgs struct {
 }
 
 type listEventsArgs struct {
-	Category   string   `json:"category,omitempty" jsonschema:"only events of this category, the <domain>.<entity> prefix of the type, e.g. agents.run"`
+	Categories []string `json:"category,omitempty" jsonschema:"only events of these categories, the <domain>.<entity> prefix of the type, e.g. agents.run"`
 	Types      []string `json:"type,omitempty" jsonschema:"only events of these types, e.g. agents.run.failed.v1"`
 	Agents     []string `json:"agent,omitempty" jsonschema:"only events about these agents, by slug"`
 	Principals []string `json:"principal,omitempty" jsonschema:"only events caused by these principals, by the subject recorded as koraprincipal"`
@@ -60,18 +60,17 @@ type listEventsArgs struct {
 func listEventsQuery(a listEventsArgs) url.Values {
 	q := url.Values{}
 	for key, value := range map[string]string{
-		"category": a.Category,
-		"run_id":   a.RunID,
-		"before":   a.Before,
-		"after":    a.After,
-		"q":        a.Q,
-		"cursor":   a.Cursor,
+		"run_id": a.RunID,
+		"before": a.Before,
+		"after":  a.After,
+		"q":      a.Q,
+		"cursor": a.Cursor,
 	} {
 		if value != "" {
 			q.Set(key, value)
 		}
 	}
-	for key, values := range map[string][]string{"type": a.Types, "agent": a.Agents, "principal": a.Principals} {
+	for key, values := range map[string][]string{"category": a.Categories, "type": a.Types, "agent": a.Agents, "principal": a.Principals} {
 		for _, v := range values {
 			q.Add(key, v)
 		}

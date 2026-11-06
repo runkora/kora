@@ -1202,13 +1202,13 @@ func TestEventToolsForwardFiltersAndPath(t *testing.T) {
 	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
 
 	call("tools/call", map[string]any{"name": "events.list", "arguments": map[string]any{
-		"category": "agents.run", "type": []string{"agents.run.failed.v1", "agents.run.completed.v1"},
+		"category": []string{"agents.run", "policy.grant"}, "type": []string{"agents.run.failed.v1", "agents.run.completed.v1"},
 		"agent": []string{"triage", "reviewer"}, "principal": []string{"user-1"},
 		"run_id": "7d0f0d7e-2a8e-4f7c-9d55-0a4b8e0c1f00", "before": "90", "after": "2026-11-01T00:00:00Z",
 		"q": "triage", "cursor": "next-page", "limit": 20,
 	}})
 	want := url.Values{
-		"category": {"agents.run"}, "type": {"agents.run.failed.v1", "agents.run.completed.v1"},
+		"category": {"agents.run", "policy.grant"}, "type": {"agents.run.failed.v1", "agents.run.completed.v1"},
 		"agent": {"triage", "reviewer"}, "principal": {"user-1"},
 		"run_id": {"7d0f0d7e-2a8e-4f7c-9d55-0a4b8e0c1f00"}, "before": {"90"}, "after": {"2026-11-01T00:00:00Z"},
 		"q": {"triage"}, "cursor": {"next-page"}, "limit": {"20"},
