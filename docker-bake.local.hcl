@@ -94,6 +94,12 @@ target "kora-triggers" {
     "localhost:5001/kora-triggers:${GIT_SHA}",
   ]
 }
+target "kora-events" {
+  tags = [
+    "localhost:5001/kora-events:latest",
+    "localhost:5001/kora-events:${GIT_SHA}",
+  ]
+}
 target "kora-shell" {
   tags = [
     "localhost:5001/kora-shell:latest",
@@ -182,6 +188,7 @@ group "local-platform" {
     "kora-egress-gateway",
     "kora-agents",
     "kora-triggers",
+    "kora-events",
     "kora-frontend",
     "kora-mcp",
     "kora-tool-gateway",

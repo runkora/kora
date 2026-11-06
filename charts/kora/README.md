@@ -313,6 +313,30 @@ Kubernetes: `>=1.34.0-0`
 | istio.namespace | string | `"istio-system"` |  |
 | istio.outboundTrafficPolicy | string | `"ALLOW_ANY"` |  |
 | istio.revision | string | `""` |  |
+| koraEvents.affinity | object | `{}` |  |
+| koraEvents.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
+| koraEvents.extraEnv | list | `[]` |  |
+| koraEvents.extraVolumeMounts | list | `[]` |  |
+| koraEvents.extraVolumes | list | `[]` |  |
+| koraEvents.image.digest | string | `""` |  |
+| koraEvents.image.pullPolicy | string | `""` |  |
+| koraEvents.image.registry | string | `""` |  |
+| koraEvents.image.repository | string | `"kora-events"` |  |
+| koraEvents.image.tag | string | `""` |  |
+| koraEvents.nodeSelector | object | `{}` |  |
+| koraEvents.podAnnotations | object | `{}` |  |
+| koraEvents.podLabels | object | `{}` |  |
+| koraEvents.priorityClassName | string | `""` |  |
+| koraEvents.replicas | int | `2` |  |
+| koraEvents.resources.limits.cpu | string | `"500m"` |  |
+| koraEvents.resources.limits.memory | string | `"256Mi"` |  |
+| koraEvents.resources.requests.cpu | string | `"100m"` |  |
+| koraEvents.resources.requests.memory | string | `"64Mi"` |  |
+| koraEvents.retention.defaultDays | int | `30` | Days events are kept. A tenant's KoraTenant spec.events.retentionDays overrides it. |
+| koraEvents.serviceAccount.annotations | object | `{}` |  |
+| koraEvents.tenantsConfigMap | string | `"kora-tenants"` | Operator-owned tenant registry ConfigMap; the service reads each tenant's event retention from it. |
+| koraEvents.tolerations | list | `[]` |  |
+| koraEvents.topologySpreadConstraints | list | `[]` |  |
 | koraMcp.affinity | object | `{}` |  |
 | koraMcp.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | koraMcp.extraEnv | list | `[]` |  |

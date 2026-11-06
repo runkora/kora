@@ -17,6 +17,7 @@ import (
 	identityMigrations "github.com/runkora/kora/backend/cmd/identity/migrations"
 	inferenceMigrations "github.com/runkora/kora/backend/cmd/inference-gateway/migrations"
 	agentsMigrations "github.com/runkora/kora/backend/cmd/kora-agents/migrations"
+	eventsMigrations "github.com/runkora/kora/backend/cmd/kora-events/migrations"
 	triggersMigrations "github.com/runkora/kora/backend/cmd/kora-triggers/migrations"
 	policyMigrations "github.com/runkora/kora/backend/cmd/policy-service/migrations"
 	toolGatewayMigrations "github.com/runkora/kora/backend/cmd/tool-gateway/migrations"
@@ -34,6 +35,7 @@ var sources = map[string]fs.FS{
 	"identity":          identityMigrations.FS,
 	"inference-gateway": inferenceMigrations.FS,
 	"kora-agents":       agentsMigrations.FS,
+	"kora-events":       eventsMigrations.FS,
 	"kora-triggers":     triggersMigrations.FS,
 	"policy-service":    policyMigrations.FS,
 	"tool-gateway":      toolGatewayMigrations.FS,

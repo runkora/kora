@@ -1,0 +1,24 @@
+{{- if .Values.platform.spiffe.enabled }}
+# The internal stream carries every tenant's events. Only kora-triggers may
+# read it. Istio adds the spiffe:// prefix to principals.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: kora-events-internal-stream
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.koraEvents.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "kora.koraEvents.selectorLabels" . | nindent 6 }}
+  action: DENY
+  rules:
+    - to:
+        - operation:
+            paths: ["/internal/*"]
+      from:
+        - source:
+            notPrincipals:
+              - "{{ include "kora.trustDomain" . }}/system/kora-triggers"
+{{- end }}

@@ -1015,6 +1015,44 @@ triggers:
     # scraper's address range. See docs/adr/2026-10-06-prometheus-metrics-endpoints.md.
     metricsScraperIPBlocks: []
 
+koraEvents:
+  image:
+    registry: ""
+    repository: kora-events
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  # -- Operator-owned tenant registry ConfigMap; the service reads each tenant's event retention from it.
+  tenantsConfigMap: kora-tenants
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  serviceAccount:
+    annotations: {}
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
+  retention:
+    # -- Days events are kept. A tenant's KoraTenant spec.events.retentionDays overrides it.
+    defaultDays: 30
+
 egressGateway:
   # Extra outbound TCP ports the gateway may dial when brokering a connection.
   # It reaches 443 already; anything else has to be opened deliberately, since

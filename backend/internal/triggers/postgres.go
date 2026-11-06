@@ -308,7 +308,7 @@ func (r *postgresRepository) CreateTrigger(ctx context.Context, t *Trigger) erro
 		sourceID = &t.SourceID
 	}
 
-	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
 		if err := claimTriggerName(ctx, tx, t); err != nil {
 			return err
 		}
@@ -520,7 +520,7 @@ func (r *postgresRepository) UpdateDeclaredTrigger(ctx context.Context, t *Trigg
 	if err != nil {
 		return err
 	}
-	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE triggers
 			SET    source_id = $1, agent_type_id = $2, agent_slug = $3, event_type = $4, match_condition = $5,
@@ -612,7 +612,7 @@ func (r *postgresRepository) updateTrigger(ctx context.Context, t *Trigger, writ
 	// not replace the grant cannot overwrite one a concurrent update swapped in.
 	// The routing rows are replaced in the same transaction, and only when the
 	// edit changed routing, so a stale copy cannot revert a concurrent change.
-	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
 		if err := claimTriggerName(ctx, tx, t); err != nil {
 			return err
 		}
@@ -1391,7 +1391,7 @@ func (r *postgresRepository) EnqueueWithinCeiling(ctx context.Context, p *Pendin
 	}
 
 	admitted := false
-	txErr := storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+	txErr := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
 		var lockedID string
 		if err := tx.QueryRow(ctx,
 			`SELECT id FROM triggers WHERE id = $1 FOR UPDATE`, p.TriggerID).Scan(&lockedID); err != nil {
@@ -1633,7 +1633,7 @@ func (r *postgresRepository) SupersedeAndEnqueue(ctx context.Context, p *Pending
 	}
 
 	var superseded []PendingDelivery
-	txErr := storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+	txErr := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
 		var lockedID string
 		if err := tx.QueryRow(ctx,
 			`SELECT id FROM triggers WHERE id = $1 FOR UPDATE`, p.TriggerID).Scan(&lockedID); err != nil {
@@ -1691,7 +1691,7 @@ func (r *postgresRepository) EnqueueCoalescing(ctx context.Context, p *PendingDe
 	}
 
 	var replaced string
-	txErr := storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+	txErr := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
 		var lockedID string
 		if err := tx.QueryRow(ctx,
 			`SELECT id FROM triggers WHERE id = $1 FOR UPDATE`, p.TriggerID).Scan(&lockedID); err != nil {
@@ -2151,7 +2151,7 @@ func (r *postgresRepository) StartFieldsByDelivery(ctx context.Context, tenantID
 // HoldPending returns a claimed fire to the queue until delay has passed and
 // counts the hold, and records reason on the delivery, in one transaction.
 func (r *postgresRepository) HoldPending(ctx context.Context, pendingID, deliveryID string, delay time.Duration, reason string) error {
-	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE trigger_pending_deliveries
 			SET    claimed_at = NULL, dispatch_after = now() + make_interval(secs => $2), hold_count = hold_count + 1

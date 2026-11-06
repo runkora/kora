@@ -23,6 +23,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`); metrics `9464` | ✅ |
 | `kora-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster); metrics `9464` | ✅ |
 | `kora-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097`; metrics `9464` | ✅ |
+| `kora-events` | Event spine: relays `event_outbox` into the event log, serves the event read API and streams, and deletes expired events, backed by `internal/koraevents` | `8099`; metrics `9464` | ✅ |
 | `skills-service` | Agent Skills: serves each tenant's skill Marketplaces from GitHub repositories with a Redis cache, backed by `internal/skills` | `8098` (`/v1`); metrics `9464` | none |
 | `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090`; metrics `9464` (Go-side only, no chart wiring: there is no `charts/kora/templates/session-manager/`, so no Service port, scrape annotation, or NetworkPolicy allowance) | none |
 | `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar), projects declared resources into their owning services | health `8081`, webhook `9443` | none |
@@ -51,6 +52,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `example` | Reference implementation, not production. Full feature layout (`models`, `repository`, `postgres`, `service`, `handlers`) with tests, demonstrating the pattern |
 | `credentials` | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, and the non-registrable `passthrough`) + `resolvers/` ([jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) |
 | `toolgateway` | Governed MCP/tool gateway behind `tool-gateway`: server catalog, MCP controller, OAuth controller, introspector ([MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway)) |
+| `koraevents` | The event log behind `kora-events`: outbox relay, read API, public and internal streams, retention sweep ([event spine ADR](adr/2026-11-06-event-spine.md)) |
 | `skills` | Agent Skills behind `skills-service`: Marketplace registry, per-Marketplace GitHub App tokens, crawler, Redis cache, in-memory search and the Marketplace API ([agent skills ADR](adr/2026-08-17-agent-skills.md)) |
 | `errors` | Nothing yet: an empty placeholder directory. |
 
@@ -76,6 +78,7 @@ kora/
 │   │   ├── tool-gateway/             # governed MCP/tool gateway; owns tables (migrations/)
 │   │   ├── kora-agents/              # ... owns tables (migrations/)
 │   │   ├── kora-triggers/            # ... owns tables (migrations/)
+│   │   ├── kora-events/              # event log; owns tables (migrations/)
 │   │   ├── skills-service/           # Agent Skills (no DB; Redis cache)
 │   │   ├── session-manager/          # config only
 │   │   ├── operator/                 # K8s operator (controller-runtime)
@@ -93,6 +96,7 @@ kora/
 │   │   │   ├── brand/                # Product name for every string people or agents read
 │   │   │   ├── clients/              # Typed service-to-service HTTP clients (embed httpclient.Base)
 │   │   │   ├── config/               # Generic + per-service YAML loaders
+│   │   │   ├── events/               # Event envelope, type catalog and Publish into event_outbox
 │   │   │   ├── logging/              # Logger interface + implementation (injected, never global)
 │   │   │   ├── middleware/           # Request logging, tracing, scope enforcement
 │   │   │   ├── observability/        # OTel TracerProvider + MeterProvider setup
@@ -110,6 +114,7 @@ kora/
 │   │   ├── credentials/              # ✅ feature: JIT credential broker (egress-gateway)
 │   │   ├── toolgateway/              # ✅ feature: governed MCP/tool gateway (tool-gateway)
 │   │   ├── skills/                   # ✅ feature: Agent Skills (skills-service)
+│   │   ├── koraevents/               # ✅ feature: event log (kora-events)
 │   │   ├── example/                  # reference feature
 │   │   └── errors/                   # empty placeholder
 │   │
@@ -228,7 +233,7 @@ func (r *postgresSessionRepository) Create(ctx context.Context, s *Session) erro
 }
 ```
 
-Use `errors.Is(err, pgx.ErrNoRows)` for not-found checks. `storage.WithTransaction(ctx, db, fn)` wraps a transaction.
+Use `errors.Is(err, pgx.ErrNoRows)` for not-found checks. `storage.WithTransaction(ctx, db, fn)` wraps a transaction and carries it in the context. A nested call joins the open transaction. A repository that holds a `*storage.Pool` runs its queries on the context transaction when one is open ([event spine ADR](adr/2026-11-06-event-spine.md)).
 
 ### 4. Redis access via `storage.RedisClient`
 
