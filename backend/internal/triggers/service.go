@@ -417,39 +417,36 @@ func validateCommonTriggerCreate(req CreateTriggerRequest) error {
 }
 
 func validateWebhookTriggerCreate(req CreateTriggerRequest) error {
-	if err := validateTargetKind(req.TargetKind, req.Routing); err != nil {
-		return err
-	}
-	if err := validateCommonTriggerCreate(req); err != nil {
-		return err
-	}
-	if req.TargetKind == TargetKindRouted {
-		if _, err := normalizeRouting(req.Routing); err != nil {
-			return err
+	return validateMatchingTriggerCreate(req, func() error {
+		switch {
+		case req.SourceID == "":
+			return fmt.Errorf("%w: source_id is required for webhook triggers", ErrValidation)
+		case strings.TrimSpace(req.EventType) == "":
+			return fmt.Errorf("%w: event_type is required for webhook triggers", ErrValidation)
+		case req.IgnoreOwnRuns != nil:
+			return errIgnoreOwnRunsEventOnly
 		}
-	}
-	if req.SourceID == "" {
-		return fmt.Errorf("%w: source_id is required for webhook triggers", ErrValidation)
-	}
-	if strings.TrimSpace(req.EventType) == "" {
-		return fmt.Errorf("%w: event_type is required for webhook triggers", ErrValidation)
-	}
-	if req.IgnoreOwnRuns != nil {
-		return errIgnoreOwnRunsEventOnly
-	}
-	if err := validateFieldKeys(req.PromptTemplate, req.MatchCondition); err != nil {
-		return err
-	}
-	if err := validateContains(req.MatchContains); err != nil {
-		return err
-	}
-	_, err := coalesceForCreate(req)
-	return err
+		return nil
+	})
 }
 
 // validateEventTriggerCreate checks an event trigger: a webhook trigger's
 // matching, coalescing and routing on a catalog event type, with no source.
 func validateEventTriggerCreate(req CreateTriggerRequest) error {
+	return validateMatchingTriggerCreate(req, func() error {
+		switch {
+		case req.SourceID != "":
+			return fmt.Errorf("%w: source_id applies to webhook triggers only", ErrValidation)
+		case req.SenderRestriction != nil:
+			return errSenderRestrictionWebhookOnly
+		}
+		return validateEventType(req.EventType)
+	})
+}
+
+// validateMatchingTriggerCreate runs the checks webhook and event triggers
+// share around kindChecks, which checks what the kind matches on.
+func validateMatchingTriggerCreate(req CreateTriggerRequest, kindChecks func() error) error {
 	if err := validateTargetKind(req.TargetKind, req.Routing); err != nil {
 		return err
 	}
@@ -461,13 +458,7 @@ func validateEventTriggerCreate(req CreateTriggerRequest) error {
 			return err
 		}
 	}
-	switch {
-	case req.SourceID != "":
-		return fmt.Errorf("%w: source_id applies to webhook triggers only", ErrValidation)
-	case req.SenderRestriction != nil:
-		return errSenderRestrictionWebhookOnly
-	}
-	if err := validateEventType(req.EventType); err != nil {
+	if err := kindChecks(); err != nil {
 		return err
 	}
 	if err := validateFieldKeys(req.PromptTemplate, req.MatchCondition); err != nil {
