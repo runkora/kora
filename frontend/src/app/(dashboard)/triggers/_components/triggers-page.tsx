@@ -154,7 +154,7 @@ export function TriggersPage({
 
   // ── Deliveries: status filter ─────────────────────────────────────────────────
   const [deliveryStatus, setDeliveryStatus] = useState('all');
-  const feed = useTriggerDeliveries(deliveryStatus === 'all' ? {} : { status: deliveryStatus });
+  const feed = useTriggerDeliveries({ status: deliveryStatus });
 
   const [fireResult, setFireResult] = useState<TriggerNotice | null>(null);
 
@@ -305,54 +305,32 @@ export function TriggersPage({
 
         {/* Deliveries */}
         <TabsContent value="deliveries">
-          <Stack gap="snug">
-            <DeliveryGrid
-              quickFilters={
-                <NativeSelect
-                  aria-label="Filter deliveries by status"
-                  value={deliveryStatus}
-                  onChange={(e) => setDeliveryStatus(e.target.value)}
-                >
-                  <option value="all">All statuses</option>
-                  {DELIVERY_STATUS_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </NativeSelect>
-              }
-              resetKey={deliveryStatus}
-              deliveries={feed.deliveries}
-              sourceName={sourceName}
-              onOpen={setDetailDelivery}
-              emptyMessage={
-                feed.loading
-                  ? 'Loading deliveries…'
-                  : feed.error !== null
-                    ? `Could not load deliveries: ${feed.error}`
-                    : deliveryStatus === 'all'
-                      ? 'No deliveries yet. Arrivals and their outcomes appear here once a source receives events, a schedule ticks, or a trigger is fired.'
-                      : `No ${deliveryStatus} deliveries.`
-              }
-            />
-            {feed.hasMore && (
-              <Stack direction="horizontal" align="center" gap="cozy">
-                <Button
-                  size="xs"
-                  variant="secondary"
-                  disabled={feed.loadingMore}
-                  onClick={feed.loadOlder}
-                >
-                  {feed.loadingMore ? 'Loading…' : 'Load older'}
-                </Button>
-                {feed.error !== null && (
-                  <Text size="caption" color="status-error">
-                    Could not load older deliveries: {feed.error}
-                  </Text>
-                )}
-              </Stack>
-            )}
-          </Stack>
+          <DeliveryGrid
+            quickFilters={
+              <NativeSelect
+                aria-label="Filter deliveries by status"
+                value={deliveryStatus}
+                onChange={(e) => setDeliveryStatus(e.target.value)}
+              >
+                <option value="all">All statuses</option>
+                {DELIVERY_STATUS_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </NativeSelect>
+            }
+            resetKey={deliveryStatus}
+            deliveries={feed.deliveries}
+            paging={feed}
+            sourceName={sourceName}
+            onOpen={setDetailDelivery}
+            emptyMessage={
+              deliveryStatus === 'all'
+                ? 'No deliveries yet. Arrivals and their outcomes appear here once a source receives events, a schedule ticks, or a trigger is fired.'
+                : `No ${deliveryStatus} deliveries.`
+            }
+          />
         </TabsContent>
       </Tabs>
 

@@ -11,7 +11,6 @@ import {
   Button,
   DataTable,
   EmptyState,
-  Icon,
   SectionLabel,
   SegmentedControl,
   Skeleton,
@@ -24,6 +23,7 @@ import { deliveryDotStatus, dispatchDuration } from '../_types';
 import type { DeliveryRow } from '../_types';
 import type { TriggerStatsRow } from '../_types/stats';
 import { DeliveryDetail } from './delivery-detail';
+import { LoadOlder } from './load-older';
 import type { RedeliverAction } from './delivery-detail';
 import type { RoutingAgentName } from './delivery-routing';
 
@@ -97,6 +97,13 @@ function shortAgo(iso: string): string {
   if (mins < 60) return `${mins}m`;
   const hours = Math.floor(mins / 60);
   return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+}
+
+/** What the empty state says deliveries come from. */
+function emptyDescription(sourceName?: string, eventType?: string): string {
+  return sourceName !== undefined && eventType !== undefined && eventType !== ''
+    ? `Deliveries appear here when ${sourceName} sends a ${eventType} event.`
+    : 'Deliveries appear here the moment this trigger fires.';
 }
 
 export function DeliveryList({
@@ -254,11 +261,7 @@ export function DeliveryList({
         <EmptyState
           icon="clock"
           title="No deliveries yet"
-          description={
-            sourceName !== undefined && eventType !== undefined && eventType !== ''
-              ? `Deliveries appear here when ${sourceName} sends a ${eventType} event.`
-              : 'Deliveries appear here the moment this trigger fires.'
-          }
+          description={emptyDescription(sourceName, eventType)}
         />
       </Stack>
     );
@@ -310,27 +313,7 @@ export function DeliveryList({
         )}
         pagination={{ pageSizeOptions: [10, 25, 50], defaultPageSize: 10 }}
       />
-      {(hasMore || error !== null) && (
-        <Stack direction="horizontal" align="center" gap="cozy">
-          {hasMore && (
-            <Button size="xs" variant="secondary" disabled={loadingMore} onClick={onLoadOlder}>
-              {loadingMore ? (
-                <>
-                  <Icon name="loader" size="2xs" />
-                  Loading…
-                </>
-              ) : (
-                'Load older'
-              )}
-            </Button>
-          )}
-          {error !== null && (
-            <Text size="caption" color="status-error">
-              Could not load older deliveries: {error}
-            </Text>
-          )}
-        </Stack>
-      )}
+      {hasMore && <LoadOlder loadingMore={loadingMore} error={error} onLoadOlder={onLoadOlder} />}
     </Stack>
   );
 }

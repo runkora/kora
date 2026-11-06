@@ -416,9 +416,7 @@ function TriggerDetailModalBody({
   // again whenever the filter changes.
   const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>('all');
   const history = useTriggerDeliveries(
-    trigger === null
-      ? null
-      : { triggerId: trigger.id, ...(deliveryFilter !== 'all' && { status: deliveryFilter }) },
+    trigger === null ? null : { triggerId: trigger.id, status: deliveryFilter },
   );
   // Rotation is destructive (the provider's configured secret stops working the
   // moment it lands), so the button opens a confirmation before doing it.

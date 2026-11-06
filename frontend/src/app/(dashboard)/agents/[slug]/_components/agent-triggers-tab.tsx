@@ -90,7 +90,7 @@ export function AgentTriggersTab() {
   }, [load]);
 
   // The deliveries that reached this agent's triggers, paged from the server.
-  const feed = useTriggerDeliveries(agentId === '' ? null : { agentTypeId: agentId });
+  const feed = useTriggerDeliveries({ agentTypeId: agentId });
   const { retry: reloadFeed } = feed;
   const refresh = useCallback(() => {
     load();
@@ -236,27 +236,11 @@ export function AgentTriggersTab() {
           <Heading variant="section">Recent deliveries</Heading>
           <DeliveryGrid
             deliveries={feed.deliveries}
+            paging={feed}
             sourceName={sourceName}
             onOpen={setDetailDelivery}
             emptyMessage="No deliveries for this agent yet."
           />
-          {feed.hasMore && (
-            <Stack direction="horizontal" align="center" gap="cozy">
-              <Button
-                size="xs"
-                variant="secondary"
-                disabled={feed.loadingMore}
-                onClick={feed.loadOlder}
-              >
-                {feed.loadingMore ? 'Loading…' : 'Load older'}
-              </Button>
-              {feed.error !== null && (
-                <Text size="caption" color="status-error">
-                  Could not load older deliveries: {feed.error}
-                </Text>
-              )}
-            </Stack>
-          )}
         </Stack>
       )}
 

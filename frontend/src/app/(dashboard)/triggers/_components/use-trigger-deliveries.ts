@@ -18,7 +18,7 @@ export const DELIVERY_PAGE_SIZE = 50;
 export interface DeliveryQuery {
   triggerId?: string;
   agentTypeId?: string;
-  /** A `status` filter value; omitted for every status. */
+  /** A `status` filter value; omitted or `all` for every status. */
   status?: string;
 }
 
@@ -48,12 +48,26 @@ interface State {
 
 const EMPTY = { rows: [], cursor: null, loading: true, loadingMore: false, error: null };
 
-/** `query` null means nothing is open: nothing is fetched. */
+/** `all` is no status filter. */
+function normalize(query: DeliveryQuery | null): DeliveryQuery {
+  return { ...query, status: query?.status === 'all' ? undefined : query?.status };
+}
+
+/** What the rows answer; empty when nothing is open, which fetches nothing. */
+function queryKey(
+  query: DeliveryQuery | null,
+  triggerId?: string,
+  agentTypeId?: string,
+  status?: string,
+): string {
+  if (query === null || triggerId === '' || agentTypeId === '') return '';
+  return `${triggerId ?? ''}/${agentTypeId ?? ''}/${status ?? ''}`;
+}
+
+/** `query` null, or naming an empty trigger or agent id, fetches nothing. */
 export function useTriggerDeliveries(query: DeliveryQuery | null): TriggerDeliveries {
-  const triggerId = query?.triggerId;
-  const agentTypeId = query?.agentTypeId;
-  const status = query?.status;
-  const key = query === null ? '' : `${triggerId ?? ''}/${agentTypeId ?? ''}/${status ?? ''}`;
+  const { triggerId, agentTypeId, status } = normalize(query);
+  const key = queryKey(query, triggerId, agentTypeId, status);
   const [state, setState] = useState<State>({ key, ...EMPTY });
   const [attempt, setAttempt] = useState(0);
   // Bumped whenever the list starts over, so a response already on its way is dropped. `busy`

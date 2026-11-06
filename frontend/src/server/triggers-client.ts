@@ -275,13 +275,18 @@ export async function listDeliveries(
     limit?: number;
   } = {},
 ): Promise<TriggerDeliveryPage> {
+  const params: Record<string, string | number | undefined> = {
+    source_id: opts.sourceId,
+    trigger_id: opts.triggerId,
+    agent_type_id: opts.agentTypeId,
+    status: opts.status,
+    cursor: opts.cursor,
+    limit: opts.limit,
+  };
   const qs = new URLSearchParams();
-  if (opts.sourceId) qs.set('source_id', opts.sourceId);
-  if (opts.triggerId) qs.set('trigger_id', opts.triggerId);
-  if (opts.agentTypeId) qs.set('agent_type_id', opts.agentTypeId);
-  if (opts.status) qs.set('status', opts.status);
-  if (opts.cursor) qs.set('cursor', opts.cursor);
-  if (opts.limit) qs.set('limit', String(opts.limit));
+  for (const [key, value] of Object.entries(params)) {
+    if (value) qs.set(key, String(value));
+  }
   const q = qs.toString();
   const body = await request<{ deliveries?: TriggerDelivery[]; next_cursor?: string }>(
     `/trigger-deliveries${q ? `?${q}` : ''}`,
