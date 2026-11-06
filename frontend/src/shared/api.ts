@@ -988,6 +988,43 @@ export interface Trigger {
   auto_paused_at?: string;
   /** Deliveries admitted and queued for this trigger, not yet started. */
   pending_count?: number;
+  /** Recent activity. Set on the list read only. */
+  stats?: TriggerStats;
+}
+
+/**
+ * One trigger's activity, counted by its own outcome for each delivery that
+ * reached it. Mirrors Go: triggers.TriggerStats.
+ */
+export interface TriggerStats {
+  /** Newest delivery this trigger attempted a run for; declined outcomes do not count. */
+  last_fired_at: string | null;
+  deliveries_24h: number;
+  started_24h: number;
+  /** Failed, denied or dropped. */
+  failed_24h: number;
+  /** Last 24h by the value `status=` filters on: dispatched, failed, skipped, superseded, duplicate, missed, verified. */
+  status_24h: Record<string, number>;
+  /** Thirteen two-hour buckets aligned to UTC, oldest first, from the one holding now-24h to the one holding now. */
+  buckets: TriggerStatsBucket[];
+}
+
+/** Mirrors Go: triggers.StatsBucket. */
+export interface TriggerStatsBucket {
+  start: string;
+  started: number;
+  failed: number;
+  other: number;
+}
+
+/** The tenant's trigger activity over the last 24h. Mirrors Go: triggers.TenantTriggerStats. */
+export interface TenantTriggerStats {
+  deliveries_24h: number;
+  started_24h: number;
+  failed_24h: number;
+  /** Delivery arrival to run start, over started outcomes; null when nothing started. */
+  dispatch_p50_ms: number | null;
+  dispatch_p95_ms: number | null;
 }
 
 /** What a trigger starts. Mirrors Go: triggers.TargetKindAgent, TargetKindRouted. */
@@ -1139,6 +1176,12 @@ export interface TriggerFireRequest {
 export interface TriggerFireResponse {
   delivery_id: string;
   run_id: string;
+}
+
+/** One page of deliveries, newest first. `next_cursor` is null on the last page. */
+export interface TriggerDeliveryPage {
+  deliveries: TriggerDelivery[];
+  next_cursor: string | null;
 }
 
 /** A durable record of a trigger delivery and its outcome. Mirrors Go: triggers.Delivery. */

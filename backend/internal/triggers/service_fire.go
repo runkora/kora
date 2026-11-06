@@ -14,8 +14,8 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Delivery listing bounds. An out-of-range ask gets the default page rather
-// than an error: the limit shapes a read, it does not change what exists.
+// Delivery listing bounds. An out-of-range limit is shaped rather than refused:
+// absent or non-positive gets the default, above the ceiling gets the ceiling.
 const (
 	defaultDeliveryPageSize = 100
 	maxDeliveryPageSize     = 500
@@ -232,40 +232,75 @@ func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 	)
 }
 
-// ListDeliveries returns recent deliveries for a tenant, each with its full
-// per-trigger run fan-out and coalescing keys attached (one batched query each,
-// no N+1).
-func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error) {
-	// The page-size bounds are business policy, so they live here rather than
-	// in the storage layer: an unset limit gets the default page, and a caller
-	// cannot ask for more than the ceiling.
-	if filter.Limit <= 0 || filter.Limit > maxDeliveryPageSize {
+// ListDeliveries returns one page of a tenant's deliveries, newest first, each
+// with its per-trigger run fan-out and coalescing keys attached (one batched
+// query each, no N+1). nextCursor is empty on the last page.
+func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, string, error) {
+	switch {
+	case filter.Limit <= 0:
 		filter.Limit = defaultDeliveryPageSize
+	case filter.Limit > maxDeliveryPageSize:
+		filter.Limit = maxDeliveryPageSize
 	}
-	deliveries, err := s.repo.ListDeliveries(ctx, tenantID, filter)
+	if err := validateDeliveryFilter(filter); err != nil {
+		return nil, "", err
+	}
+	deliveries, hasNext, err := s.repo.ListDeliveries(ctx, tenantID, filter)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if len(deliveries) == 0 {
-		return deliveries, nil
+		return deliveries, "", nil
 	}
+	if err := s.attachRunsAndKeys(ctx, tenantID, deliveries); err != nil {
+		return nil, "", err
+	}
+	var nextCursor string
+	if hasNext {
+		last := deliveries[len(deliveries)-1]
+		nextCursor = deliveryCursor{ReceivedAt: last.ReceivedAt, ID: last.ID}.encode()
+	}
+	return deliveries, nextCursor, nil
+}
+
+// attachRunsAndKeys sets each delivery's run fan-out and coalescing keys, one
+// batched query each.
+func (s *Service) attachRunsAndKeys(ctx context.Context, tenantID string, deliveries []Delivery) error {
 	ids := make([]string, len(deliveries))
 	for i := range deliveries {
 		ids[i] = deliveries[i].ID
 	}
 	runs, err := s.repo.ListDeliveryRunsForDeliveries(ctx, tenantID, ids)
 	if err != nil {
-		return nil, fmt.Errorf("attach delivery runs: %w", err)
+		return fmt.Errorf("attach delivery runs: %w", err)
 	}
 	keys, err := s.repo.ListDeliveryKeysForDeliveries(ctx, tenantID, ids)
 	if err != nil {
-		return nil, fmt.Errorf("attach delivery keys: %w", err)
+		return fmt.Errorf("attach delivery keys: %w", err)
 	}
 	for i := range deliveries {
 		deliveries[i].Runs = runs[deliveries[i].ID]
 		deliveries[i].CoalesceKeys = keys[deliveries[i].ID]
 	}
-	return deliveries, nil
+	return nil
+}
+
+// validateDeliveryFilter rejects a ?status= value the list cannot match, and a
+// trigger scope combined with filters only the tenant-wide list applies.
+func validateDeliveryFilter(filter DeliveryFilter) error {
+	if len(filter.TriggerIDs) > 0 && (filter.SourceID != "" || filter.Kind != "") {
+		return fmt.Errorf("%w: trigger_id and agent_type_id do not combine with source_id or kind", ErrValidation)
+	}
+	if filter.Status == "" {
+		return nil
+	}
+	if _, ok := DeliveryStatusFilters[filter.Status]; !ok {
+		return fmt.Errorf("%w: unknown delivery status %q", ErrValidation, filter.Status)
+	}
+	if filter.Status == RunStatusSuperseded && len(filter.TriggerIDs) == 0 {
+		return fmt.Errorf("%w: status %q needs a trigger_id", ErrValidation, filter.Status)
+	}
+	return nil
 }
 
 // Redeliver replays a delivery: it records a NEW delivery naming the original

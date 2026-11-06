@@ -4,7 +4,7 @@
  * @tier 3 — triggers-owned, with two feature-area consumers: the Triggers page
  * and the agent detail page (`agents/[slug]/_components/agent-triggers-tab.tsx`).
  * Stays Tier 3 deliberately: every column renders the Triggers vocabulary
- * (kinds, fleet stats, admission state) that promotion would drag into
+ * (kinds, trigger stats, admission state) that promotion would drag into
  * `src/components/`.
  *
  * The trigger list: one row per way work starts.
@@ -14,9 +14,8 @@ import { useMemo } from 'react';
 import { Badge, DataTable, Icon, IconTile, Sparkline, Stack, Text, Toggle } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
 import { consoleKindOf, KIND_ICON, relativeTime, runTargets, triggerToggleOpen } from '../_types';
-import type { ConsoleKind, DeliveryRow, SourceCategory, TriggerRow } from '../_types';
+import type { ConsoleKind, SourceCategory, TriggerRow } from '../_types';
 import { chatEventLabel } from '../_lib/chat';
-import { lastFired, recentFailures, sparkline } from '../_types/fleet';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../_types/pagination';
 import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
 import { ManagedInGitBadge, PermissionHint } from '@runkora/components';
@@ -29,13 +28,13 @@ import { ManagedInGitBadge, PermissionHint } from '@runkora/components';
  * view model ensures they are computed once, not once per cell.
  */
 interface TriggerDisplayRow extends TriggerRow {
-  /** Recent failure count from the delivery window. */
+  /** Failures in the last 24 hours. */
   failures: number;
   /** Per-bucket activity volumes for the sparkline. */
   activity: number[];
   /** Whether any activity exists (sparkline vs. dash). */
   hasActivity: boolean;
-  /** ISO timestamp of the last fired delivery, or null. */
+  /** ISO timestamp of the newest delivery the trigger attempted a run for, or null. */
   lastFiredAt: string | null;
   /** Fires-on label (schedule expression, "on demand", event type, etc). */
   firesOnLabel: string;
@@ -243,7 +242,6 @@ const notWaiting = (): boolean => false;
 
 interface TriggerListProps {
   triggers: TriggerRow[];
-  deliveries: DeliveryRow[];
   /** Resolves a webhook source id to its name for the row subtitle. */
   sourceName: (id: string) => string;
   /** Resolves a source id to its category, so a trigger on a chat source shows as a chat command. */
@@ -269,7 +267,6 @@ interface TriggerListProps {
 
 export function TriggerList({
   triggers,
-  deliveries,
   sourceName,
   sourceCategory = noCategory,
   sourceWaiting = notWaiting,
@@ -287,21 +284,20 @@ export function TriggerList({
   const rows = useMemo<TriggerDisplayRow[]>(
     () =>
       triggers.map((t) => {
-        const buckets = sparkline(t.id, deliveries);
-        const activity = buckets.map((b) => b.started + b.failed + b.other);
-        const failures = recentFailures(t.id, deliveries);
+        const activity = t.stats.buckets.map((b) => b.started + b.failed + b.other);
+        const failures = t.stats.failed24h;
         const consoleKind = consoleKindOf(t, sourceCategory);
         return {
           ...t,
           failures,
           activity,
           hasActivity: activity.some((v) => v > 0),
-          lastFiredAt: lastFired(t.id, deliveries),
+          lastFiredAt: t.stats.lastFiredAt,
           firesOnLabel: firesOn(t, consoleKind),
           consoleKind,
         };
       }),
-    [triggers, deliveries, sourceCategory],
+    [triggers, sourceCategory],
   );
 
   const canWrite = useHasScope('triggers:write');

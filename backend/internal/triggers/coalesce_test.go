@@ -300,7 +300,7 @@ func TestFanOut_Coalesce_RecordsTheKeyOnEveryDelivery(t *testing.T) {
 	first := f.fire(t, coalesceBody(7, "first", "main"))
 	second := f.fire(t, coalesceBody(7, "second", "next"))
 
-	listed, err := f.svc.ListDeliveries(context.Background(), testTenant, DeliveryFilter{SourceID: f.src.ID})
+	listed, _, err := f.svc.ListDeliveries(context.Background(), testTenant, DeliveryFilter{SourceID: f.src.ID})
 	if err != nil {
 		t.Fatalf("ListDeliveries: %v", err)
 	}

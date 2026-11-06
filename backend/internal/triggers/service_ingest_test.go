@@ -254,7 +254,7 @@ func TestDispatch_MultipleTriggers_RecordsAllRuns(t *testing.T) {
 	}
 
 	// Delivery summary points at the first dispatch; ListDeliveries attaches all runs.
-	list, err := svc.ListDeliveries(context.Background(), testTenant, DeliveryFilter{SourceID: src.ID})
+	list, _, err := svc.ListDeliveries(context.Background(), testTenant, DeliveryFilter{SourceID: src.ID})
 	if err != nil {
 		t.Fatalf("ListDeliveries: %v", err)
 	}

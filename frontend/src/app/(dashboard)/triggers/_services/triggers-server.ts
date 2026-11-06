@@ -1,19 +1,22 @@
 import 'server-only';
 
-import { listSources, listTriggers, listDeliveries } from '@runkora/server/triggers-client';
+import { listSources, listTriggers } from '@runkora/server/triggers-client';
 import { agentsClient } from '@runkora/server/agents-client';
 import { ApiError } from '@runkora/server/client';
 import { loadErrorMessage } from '@runkora/lib/load-error';
 import type { AgentType } from '@runkora/shared/api';
-import { toSourceRow, toTriggerRow, toDeliveryRow } from '../_types';
-import type { AgentOption, DeliveryRow, SourceRow, TriggerRow } from '../_types';
+import { toSourceRow, toTriggerRow } from '../_types';
+import type { AgentOption, SourceRow, TriggerRow } from '../_types';
+import { toTenantStatsRow } from '../_types/stats';
+import type { TenantStatsRow } from '../_types/stats';
 
 export type TriggersResult =
   | {
       ok: true;
       sources: SourceRow[];
       triggers: TriggerRow[];
-      deliveries: DeliveryRow[];
+      /** Null when the API answered without tenant stats. */
+      stats: TenantStatsRow | null;
       agents: AgentOption[];
       /** Why the agent picker is empty, when the agents could not be read. */
       agentsError: string | null;
@@ -31,23 +34,22 @@ export const SESSION_EXPIRED_MESSAGE = 'Session expired. Sign in again.';
 
 /**
  * Loads everything the platform Triggers page needs in one server pass: webhook
- * sources, triggers, recent deliveries, and the tenant's agent types (for the
+ * sources, triggers with their stats, and the tenant's agent types (for the
  * trigger form's agent picker). A failed agent read leaves the picker empty with
  * a reason rather than failing the whole page.
  */
 export async function fetchTriggersPage(accessToken: string): Promise<TriggersResult> {
   try {
-    const [sources, triggers, deliveries] = await Promise.all([
+    const [sources, triggers] = await Promise.all([
       listSources(accessToken),
       listTriggers(accessToken),
-      listDeliveries(accessToken, { limit: 100 }),
     ]);
     const agents = await loadAgents(accessToken);
     return {
       ok: true,
       sources: sources.map(toSourceRow),
-      triggers: triggers.map(toTriggerRow),
-      deliveries: deliveries.map(toDeliveryRow),
+      triggers: triggers.triggers.map(toTriggerRow),
+      stats: triggers.stats === null ? null : toTenantStatsRow(triggers.stats),
       agents: agents.ok ? agents.data : [],
       agentsError: agents.ok ? null : agents.message,
     };

@@ -3,7 +3,7 @@ import { userEvent, waitFor, within } from 'storybook/test';
 import type { TriggerRoutingCandidate } from '@runkora/shared/api';
 import { dashboardPage } from '@runkora/storybook/dashboard-frame';
 import type { MockRoutes } from '@runkora/storybook/mock-api';
-import { catalogRoutes } from './triggers-story-routes';
+import { catalogRoutes, deliveryRoutes } from './triggers-story-routes';
 import { TriggersShell } from './triggers-shell';
 import {
   AGENTS,
@@ -13,6 +13,7 @@ import {
   MANY_TRIGGERS,
   ROUTED_TRIGGER,
   SOURCES,
+  TENANT_STATS,
   TRIGGERS,
   modelCatalog,
   routedDelivery,
@@ -31,7 +32,7 @@ const meta: Meta<typeof TriggersShell> = {
   args: {
     sources: SOURCES,
     triggers: TRIGGERS,
-    deliveries: DELIVERIES,
+    stats: TENANT_STATS,
     agents: AGENTS,
     initialError: null,
   },
@@ -43,6 +44,11 @@ type Story = StoryObj<typeof TriggersShell>;
 // Decorators stack across meta and story, so each story installs its own frame once.
 const frame = [dashboardPage(catalogRoutes)];
 
+/** A frame whose Deliveries tab lists these deliveries. */
+const frameWith = (rows: typeof DELIVERIES) => [
+  dashboardPage({ ...catalogRoutes, ...deliveryRoutes(rows) }),
+];
+
 /** The mock fleet with its Slack source still waiting for the signing secret. */
 const WAITING_SOURCES = SOURCES.map((s) =>
   s.provider === 'slack' ? { ...s, signingSecretSet: false } : s,
@@ -53,17 +59,17 @@ export const Default: Story = { decorators: frame };
 
 /** A new workspace with nothing configured. */
 export const Empty: Story = {
-  decorators: frame,
-  args: { sources: [], triggers: [], deliveries: [] },
+  decorators: frameWith([]),
+  args: { sources: [], triggers: [], stats: null },
 };
 
 /** The server could not load triggers; the page shows the error over empty lists. */
 export const LoadError: Story = {
-  decorators: frame,
+  decorators: frameWith([]),
   args: {
     sources: [],
     triggers: [],
-    deliveries: [],
+    stats: null,
     agents: [],
     initialError: 'Failed to load triggers (503). The triggers service is not reachable.',
   },
@@ -71,8 +77,8 @@ export const LoadError: Story = {
 
 /** Thirty-odd triggers and sixty deliveries, to check pagination and density. */
 export const ManyTriggers: Story = {
-  decorators: frame,
-  args: { triggers: MANY_TRIGGERS, deliveries: MANY_DELIVERIES },
+  decorators: frameWith(MANY_DELIVERIES),
+  args: { triggers: MANY_TRIGGERS },
 };
 
 /** The Deliveries tab, where the feed of arrivals and outcomes lives. */
@@ -356,11 +362,8 @@ export const WizardMissingScopes: Story = {
 /** The delivery panel for one routing outcome, opened from the Deliveries tab. */
 function deliveryStory(c: RoutingCase): Story {
   return {
-    decorators: frame,
-    args: {
-      triggers: [ROUTED_TRIGGER, ...TRIGGERS],
-      deliveries: [routedDelivery(c), ...DELIVERIES],
-    },
+    decorators: frameWith([routedDelivery(c), ...DELIVERIES]),
+    args: { triggers: [ROUTED_TRIGGER, ...TRIGGERS] },
     play: async ({ canvasElement }) => {
       const canvas = within(canvasElement);
       await userEvent.click(await canvas.findByRole('tab', { name: 'Deliveries' }));

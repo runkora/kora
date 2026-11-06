@@ -1,6 +1,6 @@
 # Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt
 
-**Status:** Accepted  
+**Status:** Superseded by [trigger-deliveries-keyset-pagination](2026-10-07-trigger-deliveries-keyset-pagination.md)  
 **Date:** 2026-06-20  
 **Deciders:** Platform Team  
 **Technical Story:** docs/prd/trigger-deliveries-filter.md

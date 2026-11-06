@@ -24,6 +24,8 @@ import {
 } from '../_types';
 import type { DeliveryRow } from '../_types';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../_types/pagination';
+import { LoadOlder } from './load-older';
+import type { TriggerDeliveries } from './use-trigger-deliveries';
 
 // ── View-model type ───────────────────────────────────────────────────────────
 
@@ -200,6 +202,15 @@ interface DeliveryGridProps {
    * DataTable, resetting all internal state including the current page.
    */
   resetKey?: string;
+  /** The server feed the rows come from; adds its loading and error states and "Load older". */
+  paging?: Pick<TriggerDeliveries, 'loading' | 'loadingMore' | 'hasMore' | 'error' | 'loadOlder'>;
+}
+
+/** The empty message, or why there are no rows yet. */
+function feedMessage(emptyMessage: string, paging: DeliveryGridProps['paging']): string {
+  if (paging?.loading) return 'Loading deliveries…';
+  if (paging?.error != null) return `Could not load deliveries: ${paging.error}`;
+  return emptyMessage;
 }
 
 export function DeliveryGrid({
@@ -209,6 +220,7 @@ export function DeliveryGrid({
   emptyMessage,
   quickFilters,
   resetKey = '',
+  paging,
 }: DeliveryGridProps) {
   // Pre-compute per-row derived values once. Multiple cells reference the same
   // computed fields — the view model ensures one computation, not one per cell.
@@ -227,19 +239,28 @@ export function DeliveryGrid({
   const columns = useMemo(() => makeColumns(sourceName), [sourceName]);
 
   return (
-    <DataTable
-      key={resetKey}
-      data={rows}
-      columns={columns}
-      getRowKey={(row) => row.id}
-      noun="deliveries"
-      emptyMessage={emptyMessage}
-      onRowClick={onOpen}
-      rowLabel={(row) => `View payload and outcome for delivery ${shortId(row.id)}`}
-      searchFn={deliveryMatchesSearch}
-      searchPlaceholder="Search deliveries…"
-      quickFilters={quickFilters}
-      pagination={{ pageSizeOptions: PAGE_SIZES, defaultPageSize: DEFAULT_PAGE_SIZE }}
-    />
+    <Stack gap="snug">
+      <DataTable
+        key={resetKey}
+        data={rows}
+        columns={columns}
+        getRowKey={(row) => row.id}
+        noun="deliveries"
+        emptyMessage={feedMessage(emptyMessage, paging)}
+        onRowClick={onOpen}
+        rowLabel={(row) => `View payload and outcome for delivery ${shortId(row.id)}`}
+        searchFn={deliveryMatchesSearch}
+        searchPlaceholder="Search deliveries…"
+        quickFilters={quickFilters}
+        pagination={{ pageSizeOptions: PAGE_SIZES, defaultPageSize: DEFAULT_PAGE_SIZE }}
+      />
+      {paging?.hasMore && (
+        <LoadOlder
+          loadingMore={paging.loadingMore}
+          error={paging.error}
+          onLoadOlder={paging.loadOlder}
+        />
+      )}
+    </Stack>
   );
 }

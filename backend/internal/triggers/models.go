@@ -73,6 +73,37 @@ const (
 	RunStatusPaused     = "paused"     // the trigger was auto-paused when this fire arrived
 )
 
+// DeliveryStatusFilters are the values ?status= accepts on the deliveries list.
+// Each maps to the per-trigger outcomes it matches when the list is scoped to one
+// trigger; "failed" covers every outcome the console shows as a failure.
+var DeliveryStatusFilters = map[string][]string{
+	StatusDispatched:    {RunStatusDispatched},
+	StatusVerified:      {},
+	StatusSkipped:       {},
+	StatusFailed:        FailureRunStatuses,
+	RunStatusSuperseded: {RunStatusSuperseded},
+	StatusDuplicate:     {},
+	StatusMissed:        {},
+}
+
+// StartedRunStatuses are the per-trigger outcomes where a run took the delivery.
+var StartedRunStatuses = []string{RunStatusDispatched, RunStatusJoined}
+
+// attemptedStatuses are the outcomes that count towards a trigger's last fire.
+var attemptedStatuses = []string{RunStatusDispatched, RunStatusJoined, RunStatusFailed, RunStatusDenied}
+
+// recordedStatuses are the delivery statuses that stand in for a trigger's
+// outcome on a delivery recorded against it: pending, missed or a repeat.
+var recordedStatuses = []string{StatusVerified, StatusMissed, StatusDuplicate}
+
+// recordedStatusesSQL is recordedStatuses as the literal list
+// idx_trigger_deliveries_recorded is defined over.
+const recordedStatusesSQL = "('verified', 'missed', 'duplicate')"
+
+// FailureRunStatuses are the per-trigger outcomes that mean something went wrong,
+// as opposed to the trigger declining on purpose (filtered, superseded, unrouted).
+var FailureRunStatuses = []string{RunStatusFailed, RunStatusDenied, RunStatusDropped}
+
 // TerminalRunStatuses are the per-trigger outcomes that mean no run will ever
 // start for this trigger and delivery. The console must show them as settled
 // rather than pending.
@@ -129,6 +160,8 @@ var (
 	ErrProviderNotFound = errors.New("webhook provider not found")
 	// ErrValidation indicates a malformed create/update request.
 	ErrValidation = errors.New("validation failed")
+	// ErrInvalidCursor is returned for a deliveries cursor the API did not issue.
+	ErrInvalidCursor = errors.New("invalid pagination cursor")
 	// ErrTriggerDisabled is returned when trying to fire a disabled trigger.
 	// Reserved for the manual case: a person turned this trigger off, and the
 	// fix is a person turning it back on.
@@ -448,6 +481,8 @@ type Trigger struct {
 	// CanFire reports whether the caller may fire this trigger, set per read so
 	// the UI can disable Run now. Absent means no or not computed. Never stored.
 	CanFire bool `json:"can_fire,omitempty"`
+	// Stats is the trigger's recent activity, set on the list read only.
+	Stats *TriggerStats `json:"stats,omitempty"`
 }
 
 // DisabledByPerson reports whether a person turned this trigger off, as
