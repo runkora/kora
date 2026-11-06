@@ -95,6 +95,20 @@ type Config struct {
 // grantsDocument is the JSON structure of data/grants/data.json.
 type grantsDocument struct {
 	Grants []grantEntry `json:"grants"`
+	// ByPrincipal maps principal type, then principal id, to the positions of
+	// that principal's grants in Grants. The rego reads a principal's grants through it.
+	ByPrincipal map[string]map[string][]int `json:"by_principal"`
+}
+
+// add appends a grant and indexes it under its principal.
+func (d *grantsDocument) add(e grantEntry) {
+	ids := d.ByPrincipal[e.PrincipalType]
+	if ids == nil {
+		ids = map[string][]int{}
+		d.ByPrincipal[e.PrincipalType] = ids
+	}
+	ids[e.PrincipalID] = append(ids[e.PrincipalID], len(d.Grants))
+	d.Grants = append(d.Grants, e)
 }
 
 type grantEntry struct {
@@ -573,9 +587,9 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 	// transitive requires (from the vocabulary) so both the edge OPA and upstream
 	// services authorize on the effective set.
 	requiresMap := requiresFromVocab(vocabEntries)
-	grantDoc := grantsDocument{Grants: make([]grantEntry, 0, len(tenantGrants))}
+	grantDoc := grantsDocument{Grants: make([]grantEntry, 0, len(tenantGrants)), ByPrincipal: map[string]map[string][]int{}}
 	for _, g := range tenantGrants {
-		grantDoc.Grants = append(grantDoc.Grants, grantEntry{
+		grantDoc.add(grantEntry{
 			ID:                 g.ID,
 			PrincipalType:      string(g.PrincipalType),
 			PrincipalID:        g.PrincipalID,
@@ -756,9 +770,9 @@ func buildGatewayBundle(
 	requiresMap := requiresFromVocab(vocabEntries)
 	reservedRoles := ReservedRoles(vocabEntries)
 	for _, tenantID := range tenantIDs {
-		grantDoc := grantsDocument{Grants: make([]grantEntry, 0)}
+		grantDoc := grantsDocument{Grants: make([]grantEntry, 0), ByPrincipal: map[string]map[string][]int{}}
 		for _, g := range allGrants[tenantID] {
-			grantDoc.Grants = append(grantDoc.Grants, grantEntry{
+			grantDoc.add(grantEntry{
 				ID:                 g.ID,
 				PrincipalType:      string(g.PrincipalType),
 				PrincipalID:        g.PrincipalID,
