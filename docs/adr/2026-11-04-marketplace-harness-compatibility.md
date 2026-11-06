@@ -25,7 +25,7 @@ The current source configuration path already separates approval from content ac
 - The service currently uses Redis for catalogue storage and has no PostgreSQL repository. This decision adds durable compatibility results in PostgreSQL.
 - The status `SkillMarketplaceSource.status.phase: Aggregated` means that the operator gave the source to the service. It does not mean that the service fetched the repository or checked its content.
 
-The [source aggregator](../../backend/internal/operator/skillmarketplace_aggregator.go), [registry](../../backend/internal/skills/registry.go), [crawler](../../backend/internal/skills/crawler.go), [GitHub client](../../backend/internal/platform/clients/github/client.go) and [frontmatter parser](../../backend/internal/skills/formatter.go) show these boundaries. The [source guide](../guides/skill-marketplace-sources.md) describes the current approval and cache behavior.
+The [source aggregator](../../backend/internal/operator/skillmarketplace_aggregator.go), [registry](../../backend/internal/skills/registry.go), [crawler](../../backend/internal/skills/crawler.go), [GitHub client](../../backend/internal/platform/clients/github/client.go) and [frontmatter parser](../../backend/internal/skills/formatter.go) show these boundaries. The [source guide](../guides/register-skill-marketplace.md) describes the current approval and cache behavior.
 
 ### Problem Statement
 
@@ -265,7 +265,7 @@ The decision has these costs:
 The decision also causes these changes:
 
 - Compatibility tags are assigned to individual skills. Plugin compatibility remains outside this decision.
-- The [existing backend design](2026-08-28-marketplace-adr-backend.md) fetches repository content when a request needs it. This decision adds an automatic fetch and compatibility check when an approved repository is registered.
+- The [existing backend design](2026-08-17-agent-skills.md#skills-service) fetches repository content when a request needs it. This decision adds an automatic fetch and compatibility check when an approved repository is registered.
 - PostgreSQL stores the compatibility results. Redis caches both skill content and the saved results.
 - The service reads repository files without changing or executing them. If fetching or reading the files fails, it records a failed scan.
 
@@ -331,8 +331,8 @@ Use scan lifecycle events and source scan status to monitor these signals:
 
 ## Related Decisions
 
-- [agent-marketplace-frontend-architecture](2026-08-17-agent-marketplace-frontend-architecture.md) - Marketplace frontend architecture. The dashboard shows the compatible harnesses from this ADR without explanation text and does not calculate compatibility.
-- [marketplace-adr-backend](2026-08-28-marketplace-adr-backend.md) - Marketplace backend and its cache-aside model. If accepted, this ADR adds eager skill compatibility scanning and PostgreSQL persistence for checked results. GitHub remains the source of skill content.
+- [Agent Skills dashboard](2026-08-17-agent-skills.md#dashboard) - Marketplace frontend architecture. The dashboard shows the compatible harnesses from this ADR without explanation text and does not calculate compatibility.
+- [Agent Skills service](2026-08-17-agent-skills.md#skills-service) - Marketplace backend and its cache-aside model. If accepted, this ADR adds eager skill compatibility scanning and PostgreSQL persistence for checked results. GitHub remains the source of skill content.
 - [database-migrations](2026-09-10-database-migrations.md) - Feature-owned migrations, deployment hooks and rollback rules for the added compatibility tables.
 - [codex-agent-runner](2026-06-04-codex-agent-runner.md) - Managed Codex execution mode. Runtime operation remains separate from repository-time tagging.
 - [opencode-agent-runner](2026-06-04-opencode-agent-runner.md) - Managed OpenCode execution mode. Runtime operation remains separate from repository-time tagging.
@@ -343,7 +343,7 @@ Use scan lifecycle events and source scan status to monitor these signals:
 ## References
 
 - [Agent Marketplace: Iteration Two PRD](../prd/agent-marketplace-iteration-two.md)
-- [Skill Marketplace sources guide](../guides/skill-marketplace-sources.md)
+- [Skill Marketplace sources guide](../guides/register-skill-marketplace.md)
 - [Agent Skills specification](https://agentskills.io/specification)
 - [Claude Code skills reference](https://code.claude.com/docs/en/skills#frontmatter-reference)
 - [Official OpenAI skills documentation](https://learn.chatgpt.com/docs/build-skills#optional-metadata)
