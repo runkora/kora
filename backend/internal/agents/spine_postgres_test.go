@@ -48,6 +48,11 @@ func eventTypes(envs []events.Envelope) []events.Type {
 	return out
 }
 
+// runEvents keeps the agents.run events. Seeding an agent records agents.agent.created.v1.
+func runEvents(envs []events.Envelope) []events.Envelope {
+	return slices.DeleteFunc(envs, func(e events.Envelope) bool { return e.Type.Category() != "agents.run" })
+}
+
 func TestPostgres_TerminateRun(t *testing.T) {
 	r, tenant := testRunRepo(t)
 	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
@@ -123,7 +128,7 @@ func TestPostgres_RunEventCommitsWithItsStateChange(t *testing.T) {
 	if !errors.Is(err, rollback) {
 		t.Fatal(err)
 	}
-	if got := eventTypes(recorded(t, r, tenant)); !slices.Equal(got, []events.Type{events.RunCreated}) {
+	if got := eventTypes(runEvents(recorded(t, r, tenant))); !slices.Equal(got, []events.Type{events.RunCreated}) {
 		t.Fatalf("after rollback events = %v, want only created", got)
 	}
 	if run, _ := r.GetRun(ctx, id); run.State != RunStatePending {
@@ -133,7 +138,7 @@ func TestPostgres_RunEventCommitsWithItsStateChange(t *testing.T) {
 	if err := r.SetRunState(ctx, id, RunStatePending, RunStateFailed); err != nil {
 		t.Fatal(err)
 	}
-	if got := eventTypes(recorded(t, r, tenant)); !slices.Equal(got, []events.Type{events.RunCreated, events.RunFailed}) {
+	if got := eventTypes(runEvents(recorded(t, r, tenant))); !slices.Equal(got, []events.Type{events.RunCreated, events.RunFailed}) {
 		t.Errorf("events = %v, want created and failed", got)
 	}
 }
@@ -166,7 +171,7 @@ func TestPostgres_BulkRunUpdatesRecordAnEventPerRun(t *testing.T) {
 
 	want := map[string]events.Type{idle: events.RunCompleted, pending: events.RunFailed, reapedID: events.RunFailed}
 	agent := map[string]string{idle: at.Slug, pending: at.Slug, reapedID: stale.Slug}
-	for _, e := range recorded(t, r, tenant) {
+	for _, e := range runEvents(recorded(t, r, tenant)) {
 		if e.Type == events.RunCreated {
 			continue
 		}
@@ -202,7 +207,7 @@ func TestPostgres_TriggerMessageExtendsTheChain(t *testing.T) {
 	if got.CausedBy != deeper || got.ChainDepth != 3 || !slices.Equal(got.TriggerIDs, []string{"trg-a", "trg-b"}) {
 		t.Errorf("chain = %s %d %v, want %s 3 [trg-a trg-b]", got.CausedBy, got.ChainDepth, got.TriggerIDs, deeper)
 	}
-	envs := recorded(t, r, tenant)
+	envs := runEvents(recorded(t, r, tenant))
 	if got := eventTypes(envs); !slices.Equal(got, []events.Type{events.RunCreated, events.RunMessageReceived, events.RunMessageReceived, events.RunMessageReceived}) {
 		t.Fatalf("events = %v", got)
 	}
