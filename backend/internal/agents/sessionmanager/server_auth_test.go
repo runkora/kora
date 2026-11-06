@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -183,7 +184,7 @@ func TestRequireExpectedCaller(t *testing.T) {
 			ctrl := newAuthController(t, nil)
 
 			var reached bool
-			h := ctrl.requireExpectedCaller(okHandler(&reached))
+			h := mw.MiddlewareChain(mw.RequireSystemCaller(expectedCaller, ctrl.logger))(okHandler(&reached))
 
 			req := httptest.NewRequest(http.MethodPost, "/session", http.NoBody)
 			if tc.claims != nil {
