@@ -9,7 +9,7 @@
 
 ## Context
 
-The tenant bundle carries the tenant's grants as one list in `data.grants.grants`. `authz.rego` and `authz_gateway.rego` find a principal's grants by scanning that list for a matching `principal_type` and `principal_id`. One Layer 2 decision scans it about six times. The cost of a decision grows with the tenant's grant count: `BenchmarkLayer2Decision` in `internal/policyservice/bundle/authz_bench_test.go` measures 91 µs at 10 grants and 9.24 ms at 5,000 grants.
+The tenant bundle carries the tenant's grants as one list in `data.grants.grants`. `authz.rego` and `authz_gateway.rego` find a principal's grants by scanning that list for a matching `principal_type` and `principal_id`. One Layer 2 decision scans it about six times. The cost of a decision grows with the tenant's grant count: `BenchmarkLayer2Decision` in `internal/policyservice/bundle/authz_bench_test.go` measures 9.24 ms at 5,000 grants.
 
 `GET /api/v1/triggers` runs one `Check` per trigger to set `can_fire`. In production the list takes 231 ms at p50 for 25 triggers and 41 ms for 5 triggers, about 9.5 ms per trigger.
 
@@ -31,7 +31,7 @@ The bundles carry a per-principal grants index, and `authz.rego` and `authz_gate
 
 ### Positive
 
-- A Layer 2 decision costs the same at any tenant grant count. `BenchmarkLayer2Decision` measures 65 µs to 71 µs from 10 to 5,000 grants.
+- A Layer 2 decision stays under 0.3 ms from 10 to 5,000 grants.
 - `GET /api/v1/triggers` no longer grows by about 9.5 ms per trigger.
 
 ### Negative
