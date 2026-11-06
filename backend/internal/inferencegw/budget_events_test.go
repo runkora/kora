@@ -25,10 +25,12 @@ func TestCrossedLevels(t *testing.T) {
 	}{
 		{4, 4.9, nil},
 		{4, 5, []int{50}},
-		{5, 6, nil},
+		{5.5, 6, nil},
 		{7, 8, []int{80}},
 		{4, 12, []int{50, 80, 100}},
-		{10, 11, nil},
+		{10.5, 11, nil},
+		// A before that rounding put just past the mark still counts the crossing.
+		{5 + 1e-12, 6, []int{50}},
 	}
 	for _, c := range cases {
 		if got := crossedLevels(c.before, c.after, 10); !slices.Equal(got, c.want) {

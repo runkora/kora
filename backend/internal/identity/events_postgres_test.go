@@ -130,3 +130,42 @@ func TestPostgres_IdentityEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPostgres_PATRefusedOrUnchangedWriteRecordsNothing(t *testing.T) {
+	raw, _, _, principal := testSwitchRepos(t)
+	pool := storage.NewPool(raw)
+	pats := NewPostgresPATRepository(pool)
+	tenant := "test-" + uuid.NewString()
+	ctx := context.Background()
+	t.Cleanup(func() {
+		_, _ = raw.Exec(ctx, `DELETE FROM user_pat_tokens WHERE tenant_id = $1`, tenant)
+		_, _ = raw.Exec(ctx, `DELETE FROM event_outbox WHERE tenant_id = $1`, tenant)
+		_, _ = raw.Exec(ctx, `DELETE FROM events WHERE tenant_id = $1`, tenant)
+	})
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	pat := &PAT{
+		ID: uuid.NewString(), TenantID: tenant, UserID: principal, Name: "ci", JTI: uuid.NewString(),
+		Scopes: []string{"agents:read"}, GrantID: new("grant-1"), ExpiresAt: now.Add(time.Hour), CreatedAt: now,
+	}
+	if err := pats.CreatePAT(ctx, pat, "hash-"+uuid.NewString()); err != nil {
+		t.Fatalf("CreatePAT: %v", err)
+	}
+	if _, err := raw.Exec(ctx, `DELETE FROM event_outbox WHERE tenant_id = $1`, tenant); err != nil {
+		t.Fatal(err)
+	}
+	// The same id violates the primary key, and the refused write leaves no event.
+	if err := pats.CreatePAT(ctx, pat, "hash-"+uuid.NewString()); err == nil {
+		t.Fatal("CreatePAT with a taken id succeeded")
+	}
+	// The same scopes and grant change nothing and record nothing.
+	if err := pats.UpdateScopes(ctx, tenant, principal, pat.ID, pat.Scopes, *pat.GrantID); err != nil {
+		t.Fatalf("UpdateScopes: %v", err)
+	}
+	var n int
+	if err := raw.QueryRow(ctx, `SELECT count(*) FROM event_outbox WHERE tenant_id = $1`, tenant).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("a refused or unchanged write recorded %d events", n)
+	}
+}

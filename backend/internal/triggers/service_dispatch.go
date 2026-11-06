@@ -153,6 +153,8 @@ func (s *Service) recordDispatchFailure(ctx context.Context, t Trigger, delivery
 			logging.Field{Key: "trigger_id", Value: t.ID},
 			logging.Field{Key: "error", Value: recErr.Error()},
 		)
+		// The delivery must not read as in progress when the transaction failed.
+		s.recordFailure(ctx, deliveryID, err.Error())
 	}
 	s.noteFailure(ctx, t, err)
 }
