@@ -67,14 +67,30 @@ function toWireDelivery(d: DeliveryRow): TriggerDelivery {
   };
 }
 
-/** Whether a status (a trigger's own outcome, else the delivery's) passes a `status` filter. */
-function inStatus(filter: string, status: string): boolean {
-  return filter === 'failed' ? deliveryDotStatus(status) === 'error' : status === filter;
+/** The trigger status each outcome counts under, as the API groups them. */
+const TRIGGER_STATUS: Record<string, string> = {
+  dispatched: 'started',
+  joined: 'started',
+  denied: 'failed',
+  dropped: 'failed',
+  unrouted: 'skipped',
+  paused: 'skipped',
+};
+
+/**
+ * Whether a status (a trigger's own outcome, else the delivery's) passes a `status` filter: a
+ * trigger status when scoped to a trigger, else a delivery status.
+ */
+function inStatus(filter: string, status: string, scoped: boolean): boolean {
+  if (!scoped)
+    return filter === 'failed' ? deliveryDotStatus(status) === 'error' : status === filter;
+  return (TRIGGER_STATUS[status] ?? status) === filter;
 }
 
 /**
  * `GET /api/trigger-deliveries` over some deliveries, the way the API answers it: newest first,
- * narrowed by `trigger_id` (every delivery that reached it) and `status`, paged by `cursor`.
+ * narrowed by `trigger_id` (every delivery that reached it), `status` and `received_after`, paged
+ * by `cursor`.
  */
 export function deliveryRoutes(rows: DeliveryRow[]): MockRoutes {
   return {
@@ -82,6 +98,7 @@ export function deliveryRoutes(rows: DeliveryRow[]): MockRoutes {
       const q = req.url.searchParams;
       const triggerId = q.get('trigger_id');
       const status = q.get('status');
+      const after = Date.parse(q.get('received_after') ?? '');
       const offset = Number(q.get('cursor') ?? 0);
       const limit = Number(q.get('limit')) || 100;
       const matching = rows
@@ -91,10 +108,11 @@ export function deliveryRoutes(rows: DeliveryRow[]): MockRoutes {
             d.triggerId === triggerId ||
             d.runs.some((r) => r.triggerId === triggerId),
         )
+        .filter((d) => Number.isNaN(after) || Date.parse(d.receivedAt) >= after)
         .filter((d) => {
           if (status === null) return true;
           const own = d.runs.find((r) => r.triggerId === triggerId)?.status;
-          return inStatus(status, own ?? d.status);
+          return inStatus(status, own ?? d.status, triggerId !== null);
         })
         .sort((a, b) => Date.parse(b.receivedAt) - Date.parse(a.receivedAt));
       const next = offset + limit < matching.length ? String(offset + limit) : undefined;

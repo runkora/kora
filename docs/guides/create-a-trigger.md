@@ -59,6 +59,6 @@ Webhook and chat triggers can also coalesce events. Events with the same key wit
 
 Nothing fires until you review the trigger and choose **Create**.
 
-Runs a trigger starts are attributed to the trigger and its source, and close after five minutes idle unless a person messages them. Every delivery is listed on the trigger's **Deliveries** tab. A failed, denied or dropped delivery can be replayed.
+Runs a trigger starts are attributed to the trigger and its source, and close after five minutes idle unless a person messages them. The trigger's **Deliveries** tab lists its deliveries over the last 24 hours, the last 7 days or all history. A failed, denied or dropped delivery can be replayed.
 
 You can also create triggers through the API with `POST /api/v1/triggers` and `POST /api/v1/trigger-sources`, or with the `triggers_create` and `triggers_sources_create` tools in the kora MCP server.

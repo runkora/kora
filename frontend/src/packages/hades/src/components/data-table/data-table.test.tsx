@@ -1,4 +1,5 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
+import * as React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { DataTable, tableMinWidth, type DataTableColumn } from './data-table';
@@ -636,5 +637,72 @@ describe('DataTable columnToggle and maxHeight', () => {
     expect(scroller.style.maxHeight).toBe('20rem');
     expect(scroller.style.overflowY).toBe('auto');
     expect(screen.getAllByRole('row')[0]).toHaveClass('sticky', 'top-0');
+  });
+});
+
+describe('DataTable rows loaded on demand', () => {
+  const columns: DataTableColumn<{ name: string }>[] = [
+    { id: 'name', header: 'Name', cell: (r) => r.name },
+  ];
+  const rowsOf = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `row-${i}` }));
+
+  /**
+   * A caller's feed: asking for more sets loadingMore in the same event, and a new `landed`
+   * value means the request finished with `rows` loaded.
+   */
+  function Feed({
+    rows,
+    landed,
+    onLoadMore,
+  }: {
+    rows: number;
+    landed: number;
+    onLoadMore: () => void;
+  }) {
+    const [askedAt, setAskedAt] = React.useState<number | null>(null);
+    return (
+      <DataTable
+        data={rowsOf(rows)}
+        columns={columns}
+        getRowKey={(r) => r.name}
+        pagination={{
+          pageSizeOptions: [2],
+          defaultPageSize: 2,
+          hasMore: rows < 3,
+          loadingMore: askedAt === landed,
+          onLoadMore: () => {
+            setAskedAt(landed);
+            onLoadMore();
+          },
+        }}
+      />
+    );
+  }
+  const next = () => screen.getByRole('button', { name: 'Next page' });
+
+  it('reads N+ while more rows exist and turns the page once they arrive', () => {
+    const onLoadMore = vi.fn();
+    const { rerender } = render(<Feed rows={2} landed={0} onLoadMore={onLoadMore} />);
+    expect(screen.getByText(/1–2 of 2\+/)).toBeInTheDocument();
+
+    fireEvent.click(next());
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
+    expect(next()).toBeDisabled();
+
+    rerender(<Feed rows={3} landed={1} onLoadMore={onLoadMore} />);
+    expect(screen.getByText('row-2')).toBeInTheDocument();
+    expect(screen.getByText(/3–3 of 3$/)).toBeInTheDocument();
+    expect(next()).toBeDisabled();
+  });
+
+  it('re-enables Next after a failed load, and asks again', () => {
+    const onLoadMore = vi.fn();
+    const { rerender } = render(<Feed rows={2} landed={0} onLoadMore={onLoadMore} />);
+    fireEvent.click(next());
+    rerender(<Feed rows={2} landed={1} onLoadMore={onLoadMore} />);
+    expect(next()).toBeEnabled();
+    expect(screen.getByText('row-0')).toBeInTheDocument();
+    fireEvent.click(next());
+    expect(onLoadMore).toHaveBeenCalledTimes(2);
   });
 });

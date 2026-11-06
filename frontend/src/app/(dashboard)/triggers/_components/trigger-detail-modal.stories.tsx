@@ -32,6 +32,7 @@ const meta: Meta<typeof TriggersShell> = {
     sources: SOURCES,
     triggers: PERMUTATION_TRIGGERS,
     stats: null,
+    range: '24h',
     agents: AGENTS,
     initialError: null,
   },

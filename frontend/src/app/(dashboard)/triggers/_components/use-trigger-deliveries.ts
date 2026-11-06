@@ -3,13 +3,15 @@
 /**
  * @tier 3 — triggers-scoped. A delivery history paged from the API: the first page on mount
  * and whenever the query changes, older pages on request. Filtering happens on the server, so a
- * status filter covers the whole history rather than the rows already loaded.
+ * status filter covers the whole window rather than the rows already loaded.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listDeliveryPage } from '../_services/triggers-api';
 import { toDeliveryRow } from '../_types';
 import type { DeliveryRow } from '../_types';
+import { rangeStart } from '../_types/stats';
+import type { StatsRange } from '../_types/stats';
 
 /** Deliveries asked for on each page. */
 export const DELIVERY_PAGE_SIZE = 50;
@@ -20,6 +22,8 @@ export interface DeliveryQuery {
   agentTypeId?: string;
   /** A `status` filter value; omitted or `all` for every status. */
   status?: string;
+  /** Bounds every page to deliveries received in this range. */
+  window?: StatsRange;
 }
 
 export interface TriggerDeliveries {
@@ -54,26 +58,24 @@ function normalize(query: DeliveryQuery | null): DeliveryQuery {
 }
 
 /** What the rows answer; empty when nothing is open, which fetches nothing. */
-function queryKey(
-  query: DeliveryQuery | null,
-  triggerId?: string,
-  agentTypeId?: string,
-  status?: string,
-): string {
-  if (query === null || triggerId === '' || agentTypeId === '') return '';
-  return `${triggerId ?? ''}/${agentTypeId ?? ''}/${status ?? ''}`;
+function queryKey(query: DeliveryQuery | null, q: DeliveryQuery): string {
+  if (query === null || q.triggerId === '' || q.agentTypeId === '') return '';
+  return `${q.triggerId ?? ''}/${q.agentTypeId ?? ''}/${q.status ?? ''}/${q.window ?? ''}`;
 }
 
 /** `query` null, or naming an empty trigger or agent id, fetches nothing. */
 export function useTriggerDeliveries(query: DeliveryQuery | null): TriggerDeliveries {
-  const { triggerId, agentTypeId, status } = normalize(query);
-  const key = queryKey(query, triggerId, agentTypeId, status);
+  const normalized = normalize(query);
+  const { triggerId, agentTypeId, status, window: range } = normalized;
+  const key = queryKey(query, normalized);
   const [state, setState] = useState<State>({ key, ...EMPTY });
   const [attempt, setAttempt] = useState(0);
   // Bumped whenever the list starts over, so a response already on its way is dropped. `busy`
-  // keeps a second "Load older" from starting before the first has landed.
+  // keeps a second next-page request from starting before the first has landed.
   const epoch = useRef(0);
   const busy = useRef(false);
+  // The range's start, shared by every page of one query.
+  const after = useRef<string | undefined>(undefined);
   const current = useMemo<State>(
     () => (state.key === key ? state : { key, ...EMPTY }),
     [state, key],
@@ -85,6 +87,7 @@ export function useTriggerDeliveries(query: DeliveryQuery | null): TriggerDelive
         ...(triggerId !== undefined && { triggerId }),
         ...(agentTypeId !== undefined && { agentTypeId }),
         ...(status !== undefined && { status }),
+        ...(after.current !== undefined && { receivedAfter: after.current }),
         limit: DELIVERY_PAGE_SIZE,
         ...(cursor !== undefined && { cursor }),
       }),
@@ -95,6 +98,7 @@ export function useTriggerDeliveries(query: DeliveryQuery | null): TriggerDelive
     if (key === '') return;
     const mine = ++epoch.current;
     busy.current = false;
+    after.current = range === undefined ? undefined : rangeStart(range);
     void fetchPage().then(({ deliveries, nextCursor, error }) => {
       if (epoch.current !== mine) return;
       setState({
@@ -109,7 +113,7 @@ export function useTriggerDeliveries(query: DeliveryQuery | null): TriggerDelive
     return () => {
       epoch.current += 1;
     };
-  }, [key, attempt, fetchPage]);
+  }, [key, attempt, fetchPage, range]);
 
   const loadOlder = useCallback(() => {
     if (busy.current || current.loading || current.cursor === null) return;
@@ -125,7 +129,7 @@ export function useTriggerDeliveries(query: DeliveryQuery | null): TriggerDelive
           : {
               ...prev,
               rows: [...prev.rows, ...deliveries.map(toDeliveryRow)],
-              // A failed page keeps the cursor, so "Load older" doubles as the retry.
+              // A failed page keeps its cursor for the retry.
               cursor: error === null ? nextCursor : prev.cursor,
               loadingMore: false,
               error,

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -294,11 +296,17 @@ func validateDeliveryFilter(filter DeliveryFilter) error {
 	if filter.Status == "" {
 		return nil
 	}
-	if _, ok := DeliveryStatusFilters[filter.Status]; !ok {
-		return fmt.Errorf("%w: unknown delivery status %q", ErrValidation, filter.Status)
+	// A trigger scope filters by trigger status, the tenant-wide list by the delivery's own status.
+	if len(filter.TriggerIDs) > 0 {
+		if !slices.Contains(TriggerStatuses, filter.Status) {
+			return fmt.Errorf("%w: status %q is not one of %s with a trigger_id or agent_type_id",
+				ErrValidation, filter.Status, strings.Join(TriggerStatuses, ", "))
+		}
+		return nil
 	}
-	if filter.Status == RunStatusSuperseded && len(filter.TriggerIDs) == 0 {
-		return fmt.Errorf("%w: status %q needs a trigger_id", ErrValidation, filter.Status)
+	if !slices.Contains(TenantDeliveryStatuses, filter.Status) {
+		return fmt.Errorf("%w: status %q is not one of %s without a trigger_id or agent_type_id",
+			ErrValidation, filter.Status, strings.Join(TenantDeliveryStatuses, ", "))
 	}
 	return nil
 }

@@ -88,7 +88,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	PATCH  /api/v1/trigger-sources/{id}       Enable/disable or rotate secret.
 //	DELETE /api/v1/trigger-sources/{id}       Delete a webhook source.
 //	POST   /api/v1/triggers                   Create a trigger (any kind).
-//	GET    /api/v1/triggers                   List triggers with their stats (filter ?agent_type_id= ?kind=).
+//	GET    /api/v1/triggers                   List triggers with their stats over ?window=24h|7d (filter ?agent_type_id= ?kind=).
 //	GET    /api/v1/triggers/{id}              Get a trigger.
 //	PATCH  /api/v1/triggers/{id}              Edit a trigger.
 //	DELETE /api/v1/triggers/{id}              Delete a trigger.
@@ -294,8 +294,14 @@ func (c *Controller) handleCreateTrigger(w http.ResponseWriter, r *http.Request)
 
 func (c *Controller) handleListTriggers(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	triggers, stats, err := c.triggers.ListTriggersWithStats(ctx, tenantFromCtx(ctx),
-		r.URL.Query().Get("agent_type_id"), r.URL.Query().Get("kind"))
+	q := r.URL.Query()
+	window, ok := ParseStatsWindow(q.Get("window"))
+	if !ok {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.BadRequestError(api.ErrCodeInvalidField, "window must be 24h or 7d", map[string]any{"field": "window"}), nil)
+		return
+	}
+	triggers, stats, err := c.triggers.ListTriggersWithStats(ctx, tenantFromCtx(ctx), q.Get("agent_type_id"), q.Get("kind"), window)
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return

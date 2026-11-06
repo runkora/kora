@@ -56,7 +56,7 @@ describe('useTriggerDeliveries', () => {
     expect(result.current.hasMore).toBe(false);
   });
 
-  it('keeps "Load older" after an older page fails, so it can be retried', async () => {
+  it('keeps the next page available after an older page fails, so it can be retried', async () => {
     api.listDeliveryPage
       .mockResolvedValueOnce(page(['d1'], 'c1'))
       .mockResolvedValueOnce(page([], null, 'boom'));
@@ -65,6 +65,42 @@ describe('useTriggerDeliveries', () => {
     act(() => result.current.loadOlder());
     await waitFor(() => expect(result.current.error).toBe('boom'));
     expect(result.current.hasMore).toBe(true);
+  });
+
+  it('bounds every page of a window to the start it opened with, and starts over on a new window', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-06T12:00:00Z'));
+    api.listDeliveryPage
+      .mockResolvedValueOnce(page(['d1'], 'c1'))
+      .mockResolvedValueOnce(page(['d2'], null))
+      .mockResolvedValueOnce(page(['w1'], null));
+    const { result, rerender } = renderHook((q: DeliveryQuery) => useTriggerDeliveries(q), {
+      initialProps: { triggerId: 'trg-1', window: '24h' } as DeliveryQuery,
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(api.listDeliveryPage).toHaveBeenLastCalledWith({
+      triggerId: 'trg-1',
+      receivedAfter: '2026-11-05T12:00:00.000Z',
+      limit: DELIVERY_PAGE_SIZE,
+    });
+
+    now.mockReturnValue(Date.parse('2026-11-06T13:00:00Z'));
+    act(() => result.current.loadOlder());
+    await waitFor(() => expect(result.current.deliveries.map((d) => d.id)).toEqual(['d1', 'd2']));
+    expect(api.listDeliveryPage).toHaveBeenLastCalledWith({
+      triggerId: 'trg-1',
+      receivedAfter: '2026-11-05T12:00:00.000Z',
+      limit: DELIVERY_PAGE_SIZE,
+      cursor: 'c1',
+    });
+
+    rerender({ triggerId: 'trg-1', window: '7d' });
+    await waitFor(() => expect(result.current.deliveries.map((d) => d.id)).toEqual(['w1']));
+    expect(api.listDeliveryPage).toHaveBeenLastCalledWith({
+      triggerId: 'trg-1',
+      receivedAfter: '2026-10-30T13:00:00.000Z',
+      limit: DELIVERY_PAGE_SIZE,
+    });
+    now.mockRestore();
   });
 
   it('fetches nothing with no query', () => {

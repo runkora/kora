@@ -32,8 +32,10 @@ import { TriggerDetailModal } from './trigger-detail-modal';
 import { TriggerList } from './trigger-list';
 import { DeliveryGrid } from './delivery-grid';
 import { consoleKindOf, runTargets } from '../_types';
-import type { TenantStatsRow } from '../_types/stats';
+import { STATS_RANGE_OPTIONS, rangeSuffix, statsWindowOf } from '../_types/stats';
+import type { StatsRange, TenantStatsRow } from '../_types/stats';
 import { useTriggerDeliveries } from './use-trigger-deliveries';
+import { useStatsRange } from './use-stats-range';
 import { ingestHostFromWindow } from '../_lib/endpoints';
 import type {
   AgentOption,
@@ -51,6 +53,8 @@ interface TriggersPageProps {
   triggers: TriggerRow[];
   /** Null when the API answered without tenant stats. */
   stats: TenantStatsRow | null;
+  /** The `?window=` range the server loaded the stats for. */
+  range: StatsRange;
   agents: AgentOption[];
   agentsError?: string | null;
   error: string | null;
@@ -79,11 +83,14 @@ export function TriggersPage({
   sources,
   triggers,
   stats,
+  range,
   agents,
   agentsError = null,
   error,
 }: TriggersPageProps) {
   const router = useRouter();
+  // One range for the cards, the list's activity column, the Deliveries tab and the open modal.
+  const { setRange } = useStatsRange();
   const canWrite = useHasScope('triggers:write');
   // A locked tenant takes its triggers and sources from the configuration repository.
   const locked = useTenantLocked();
@@ -154,7 +161,7 @@ export function TriggersPage({
 
   // ── Deliveries: status filter ─────────────────────────────────────────────────
   const [deliveryStatus, setDeliveryStatus] = useState('all');
-  const feed = useTriggerDeliveries({ status: deliveryStatus });
+  const feed = useTriggerDeliveries({ status: deliveryStatus, window: range });
 
   const [fireResult, setFireResult] = useState<TriggerNotice | null>(null);
 
@@ -216,6 +223,12 @@ export function TriggersPage({
               Every delivery is recorded.
             </Text>
           </Stack>
+          <SegmentedControl
+            aria-label="Period"
+            value={range}
+            onChange={setRange}
+            options={STATS_RANGE_OPTIONS}
+          />
         </Stack>
       </Stack>
 
@@ -223,7 +236,7 @@ export function TriggersPage({
       {error && <Alert variant="error">{error}</Alert>}
       {fireResult && <Alert variant={fireResult.ok ? 'info' : 'error'}>{fireResult.message}</Alert>}
 
-      <TriggerStatsKpis triggers={triggers} stats={stats} />
+      <TriggerStatsKpis triggers={triggers} stats={stats} window={range} />
 
       {/* Sources are not a headline surface: a webhook source is created
           inside the New Trigger flow and managed from its trigger's modal,
@@ -287,6 +300,7 @@ export function TriggersPage({
                 )
               }
               resetKey={kindFilter}
+              window={statsWindowOf(range)}
               triggers={visibleTriggers}
               sourceName={sourceName}
               sourceCategory={sourceCategory}
@@ -320,15 +334,15 @@ export function TriggersPage({
                 ))}
               </NativeSelect>
             }
-            resetKey={deliveryStatus}
+            resetKey={`${deliveryStatus}/${range}`}
             deliveries={feed.deliveries}
             paging={feed}
             sourceName={sourceName}
             onOpen={setDetailDelivery}
             emptyMessage={
               deliveryStatus === 'all'
-                ? 'No deliveries yet. Arrivals and their outcomes appear here once a source receives events, a schedule ticks, or a trigger is fired.'
-                : `No ${deliveryStatus} deliveries.`
+                ? `No deliveries${rangeSuffix(range)}. Arrivals and their outcomes appear here once a source receives events, a schedule ticks, or a trigger is fired.`
+                : `No ${deliveryStatus} deliveries${rangeSuffix(range)}.`
             }
           />
         </TabsContent>
@@ -375,6 +389,7 @@ export function TriggersPage({
         // another one's panel claim it is queueing.
         firing={firingId === modalRow?.id}
         agents={agents}
+        window={range}
       />
 
       {/* One modal owns the whole creation flow: kind picker, the kind's own

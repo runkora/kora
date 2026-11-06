@@ -123,16 +123,56 @@ func TestPostgres_DeliveryStatusFilterWithPaging(t *testing.T) {
 		{"tenant skipped", DeliveryFilter{Status: StatusSkipped, Limit: 2}, []string{"skipped"}},
 		{"trigger all", DeliveryFilter{TriggerIDs: []string{"t1"}, Limit: 2},
 			[]string{"own-failed", "own-denied", "other-failed", "recorded-missed", "own-dropped", "own-dispatched"}},
-		{"trigger failed", DeliveryFilter{TriggerIDs: []string{"t1"}, Status: StatusFailed, Limit: 2},
+		{"trigger failed", DeliveryFilter{TriggerIDs: []string{"t1"}, Status: TriggerStatusFailed, Limit: 2},
 			[]string{"own-failed", "own-denied", "own-dropped"}},
-		{"trigger missed", DeliveryFilter{TriggerIDs: []string{"t1"}, Status: StatusMissed, Limit: 2},
+		{"trigger missed", DeliveryFilter{TriggerIDs: []string{"t1"}, Status: TriggerStatusMissed, Limit: 2},
 			[]string{"recorded-missed"}},
-		{"trigger dispatched", DeliveryFilter{TriggerIDs: []string{"t1"}, Status: StatusDispatched, Limit: 2},
+		{"trigger started", DeliveryFilter{TriggerIDs: []string{"t1"}, Status: TriggerStatusStarted, Limit: 2},
 			[]string{"own-dispatched"}},
-		{"other trigger failed", DeliveryFilter{TriggerIDs: []string{"t2"}, Status: StatusFailed, Limit: 2},
+		{"trigger filtered", DeliveryFilter{TriggerIDs: []string{"t1"}, Status: TriggerStatusFiltered, Limit: 2},
+			[]string{"other-failed"}},
+		{"other trigger failed", DeliveryFilter{TriggerIDs: []string{"t2"}, Status: TriggerStatusFailed, Limit: 2},
 			[]string{"other-failed"}},
 		{"several triggers", DeliveryFilter{TriggerIDs: []string{"t2", "t1"}, Limit: 2},
 			[]string{"own-failed", "own-denied", "other-failed", "recorded-missed", "own-dropped", "own-dispatched"}},
+	} {
+		if got := walkDeliveries(t, r, tenant, tc.filter); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// received_after bounds every page of a trigger-scoped cursor walk, with and without a status.
+func TestPostgres_DeliveryReceivedAfterWithCursor(t *testing.T) {
+	r, tenant := testRepo(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	after := now.Add(-7 * 24 * time.Hour)
+	var all, failed []string
+	for i := range 9 {
+		id := fmt.Sprintf("in-%d", i)
+		status := RunStatusDispatched
+		if i%3 == 0 {
+			status = RunStatusFailed
+			failed = append(failed, id)
+		}
+		insertTestDelivery(t, r, tenant, id, StatusDispatched, "", now.Add(-time.Duration(i)*time.Hour))
+		insertTestRun(t, r, tenant, id, "t1", status, now.Add(-time.Duration(i)*time.Hour))
+		all = append(all, id)
+	}
+	// Exactly on the bound is in; a second older is out.
+	insertTestDelivery(t, r, tenant, "edge", StatusDispatched, "", after)
+	insertTestRun(t, r, tenant, "edge", "t1", RunStatusDispatched, after)
+	all = append(all, "edge")
+	insertTestDelivery(t, r, tenant, "old", StatusDispatched, "", after.Add(-time.Second))
+	insertTestRun(t, r, tenant, "old", "t1", RunStatusFailed, after.Add(-time.Second))
+
+	for _, tc := range []struct {
+		name   string
+		filter DeliveryFilter
+		want   []string
+	}{
+		{"trigger", DeliveryFilter{TriggerIDs: []string{"t1"}, ReceivedAfter: after, Limit: 3}, all},
+		{"trigger failed", DeliveryFilter{TriggerIDs: []string{"t1"}, ReceivedAfter: after, Status: TriggerStatusFailed, Limit: 2}, failed},
 	} {
 		if got := walkDeliveries(t, r, tenant, tc.filter); !slices.Equal(got, tc.want) {
 			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)

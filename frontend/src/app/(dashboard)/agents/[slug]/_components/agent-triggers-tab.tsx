@@ -6,7 +6,7 @@
  * feature's, imported rather than reimplemented, so the two surfaces cannot
  * drift. */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -14,6 +14,7 @@ import {
   CardContent,
   Heading,
   Icon,
+  SegmentedControl,
   Skeleton,
   Stack,
   Text,
@@ -41,6 +42,9 @@ import { listSources, listTriggers } from '../../../triggers/_services/triggers-
 import { useTriggerDeliveries } from '../../../triggers/_components/use-trigger-deliveries';
 import { runTargets, toSourceRow, toTriggerRow } from '../../../triggers/_types';
 import type { DeliveryRow, SourceRow, TriggerRow } from '../../../triggers/_types';
+import { STATS_RANGE_OPTIONS, statsWindowOf } from '../../../triggers/_types/stats';
+import type { TriggerStatsWindow } from '@runkora/shared/api';
+import { useStatsRange } from '../../../triggers/_components/use-stats-range';
 import { ingestHostFromWindow } from '../../../triggers/_lib/endpoints';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { useHasScope, useTenantLocked } from '../../../_components/permissions-provider';
@@ -56,7 +60,8 @@ export function AgentTriggersTab() {
   const [triggers, setTriggers] = useState<TriggerRow[]>([]);
   // Every tenant agent, so a routed trigger's other candidates show by name.
   const [tenantAgents, setTenantAgents] = useState<AgentTypeRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  // The window the listed triggers' stats cover; null until the first list lands.
+  const [loadedWindow, setLoadedWindow] = useState<TriggerStatsWindow | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -67,30 +72,45 @@ export function AgentTriggersTab() {
   const [detailDelivery, setDetailDelivery] = useState<DeliveryRow | null>(null);
 
   const agentId = agent?.id ?? '';
+  // One range for the list's activity column, the deliveries and the open modal.
+  const { range, setRange } = useStatsRange();
+  const statsWindow = statsWindowOf(range);
+  // The list shows a placeholder until the range's stats land. A reload after an
+  // action keeps the lists on screen.
+  const loading = loadedWindow !== statsWindow;
 
-  // Loading starts true and is only ever lowered: a reload after an action is
-  // a silent refresh of lists already on screen, not a page-level spinner.
-  const load = useCallback(() => {
+  // Sources and agent types only name what the triggers list shows. Their
+  // failures do not block the tab.
+  const loadContext = useCallback(() => {
     if (!agentId) return;
-    void Promise.all([listSources(), listTriggers(agentId), fetchAgentTypes()]).then(
-      ([src, trg, types]) => {
-        setSources(src.sources.map(toSourceRow));
-        setTriggers(trg.triggers.map(toTriggerRow));
-        setTenantAgents(types.data);
-        // The triggers list is what this tab is for; the others only
-        // decorate it, so their failures do not block the page.
-        setLoadError(trg.error);
-        setLoading(false);
-      },
-    );
+    void Promise.all([listSources(), fetchAgentTypes()]).then(([src, types]) => {
+      setSources(src.sources.map(toSourceRow));
+      setTenantAgents(types.data);
+    });
   }, [agentId]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  // Only the newest request lands.
+  const latest = useRef(0);
+  const loadTriggers = useCallback(() => {
+    if (!agentId) return;
+    const mine = ++latest.current;
+    void listTriggers({ agentTypeId: agentId, window: statsWindow }).then((trg) => {
+      if (mine !== latest.current) return;
+      setTriggers(trg.triggers.map(toTriggerRow));
+      setLoadError(trg.error);
+      setLoadedWindow(statsWindow);
+    });
+  }, [agentId, statsWindow]);
 
-  // The deliveries that reached this agent's triggers, paged from the server.
-  const feed = useTriggerDeliveries({ agentTypeId: agentId });
+  useEffect(() => loadContext(), [loadContext]);
+  useEffect(() => loadTriggers(), [loadTriggers]);
+  const load = useCallback(() => {
+    loadContext();
+    loadTriggers();
+  }, [loadContext, loadTriggers]);
+
+  // The deliveries in the range that reached this agent's triggers, paged from the server.
+  const feed = useTriggerDeliveries({ agentTypeId: agentId, window: range });
   const { retry: reloadFeed } = feed;
   const refresh = useCallback(() => {
     load();
@@ -202,7 +222,15 @@ export function AgentTriggersTab() {
             Managed by platform admins.
           </Text>
         </Stack>
-        {createButton}
+        <Stack direction="horizontal" align="center" gap="snug">
+          <SegmentedControl
+            aria-label="Period"
+            value={range}
+            onChange={setRange}
+            options={STATS_RANGE_OPTIONS}
+          />
+          {createButton}
+        </Stack>
       </Stack>
 
       {locked && <ManagedInGitCallout subject="Triggers in this tenant" />}
@@ -228,6 +256,7 @@ export function AgentTriggersTab() {
           onToggle={(t) => void toggleTrigger(t)}
           canRunAgent={canRunAgent}
           emptyMessage="No triggers for this agent."
+          window={statsWindow}
         />
       )}
 
@@ -235,6 +264,7 @@ export function AgentTriggersTab() {
         <Stack gap="snug">
           <Heading variant="section">Recent deliveries</Heading>
           <DeliveryGrid
+            resetKey={range}
             deliveries={feed.deliveries}
             paging={feed}
             sourceName={sourceName}
@@ -268,6 +298,7 @@ export function AgentTriggersTab() {
         // another one's panel claim it is queueing.
         firing={firingId === modalRow?.id}
         agents={agentNames}
+        window={range}
       />
 
       {detailDelivery !== null && (

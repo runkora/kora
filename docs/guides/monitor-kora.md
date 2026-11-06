@@ -88,4 +88,4 @@ The resources platform teams register report whether kora accepted them:
 
 A run that stops early records why. `budget_exhausted` is its own state. Errors such as `sandbox_lost` or `loop_detected` appear in the run's events on its page, or through `GET /api/v1/runs/{id}/events`. kora closes a run that has made no progress for 30 minutes.
 
-In the console, **Model Gateway** shows requests, spend, latency and error rates, with a log of every model call. **Triggers** shows every delivery and its outcome. **Policy** → **Evaluate** explains why a principal can or cannot reach something.
+In the console, **Model Gateway** shows requests, spend, latency and error rates, with a log of every model call. **Triggers** shows each delivery and its outcome over the last 24 hours, the last 7 days or all history. **Policy** → **Evaluate** explains why a principal can or cannot reach something.

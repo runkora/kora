@@ -1,12 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import { renderWithProviders } from '@runkora/test-utils';
 
-vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+const nav = vi.hoisted(() => ({ replace: vi.fn() }));
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: vi.fn(), replace: nav.replace }),
+  usePathname: () => '/triggers',
+  useSearchParams: () => new URLSearchParams(),
+}));
+const api = vi.hoisted(() => ({ listDeliveryPage: vi.fn() }));
 vi.mock('../_services/triggers-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../_services/triggers-api')>()),
-  listDeliveryPage: vi.fn().mockResolvedValue({ deliveries: [], nextCursor: null, error: null }),
+  ...api,
 }));
+api.listDeliveryPage.mockResolvedValue({ deliveries: [], nextCursor: null, error: null });
 
 import { TriggersPage } from './triggers-page';
 import type { SourceRow } from '../_types';
@@ -33,7 +40,14 @@ const TRIGGERS = [
 
 function renderPage() {
   return renderWithProviders(
-    <TriggersPage sources={SOURCES} triggers={TRIGGERS} stats={null} agents={[]} error={null} />,
+    <TriggersPage
+      sources={SOURCES}
+      triggers={TRIGGERS}
+      stats={null}
+      range="24h"
+      agents={[]}
+      error={null}
+    />,
   );
 }
 
@@ -65,7 +79,14 @@ describe('a chat source waiting for its signing secret', () => {
   it('marks its triggers and no others', () => {
     const waiting = SOURCES.map((s) => (s.id === 'sl' ? { ...s, signingSecretSet: false } : s));
     renderWithProviders(
-      <TriggersPage sources={waiting} triggers={TRIGGERS} stats={null} agents={[]} error={null} />,
+      <TriggersPage
+        sources={waiting}
+        triggers={TRIGGERS}
+        stats={null}
+        range="24h"
+        agents={[]}
+        error={null}
+      />,
     );
     expect(screen.getAllByText('Waiting for signing secret')).toHaveLength(2);
   });
@@ -79,7 +100,14 @@ describe('a chat source waiting for its signing secret', () => {
 describe('a locked tenant', () => {
   it('explains the lock and offers no new trigger', () => {
     renderWithProviders(
-      <TriggersPage sources={SOURCES} triggers={TRIGGERS} stats={null} agents={[]} error={null} />,
+      <TriggersPage
+        sources={SOURCES}
+        triggers={TRIGGERS}
+        stats={null}
+        range="24h"
+        agents={[]}
+        error={null}
+      />,
       { apiAuthoring: false },
     );
     expect(screen.getByText(/Triggers and sources in this tenant are managed in git/)).toBeTruthy();
@@ -90,5 +118,50 @@ describe('a locked tenant', () => {
     renderPage();
     expect(screen.queryByText(/are managed in git/)).toBeNull();
     expect(screen.getByRole('button', { name: /New trigger/ })).toBeTruthy();
+  });
+});
+
+describe('the range selector', () => {
+  const stats = {
+    deliveries: 1234,
+    started: 30,
+    failed: 10,
+    dispatchP50Ms: null,
+    dispatchP95Ms: null,
+  };
+  const renderRange = (range: '7d' | 'all') =>
+    renderWithProviders(
+      <TriggersPage
+        sources={SOURCES}
+        triggers={TRIGGERS}
+        stats={stats}
+        range={range}
+        agents={[]}
+        error={null}
+      />,
+    );
+
+  it('labels the stats and bounds the deliveries with the range the server loaded', () => {
+    renderRange('7d');
+    expect(screen.getByText('DELIVERIES · 7D')).toBeInTheDocument();
+    expect(screen.getByText('1,234')).toBeInTheDocument();
+    expect(api.listDeliveryPage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ receivedAfter: expect.any(String) }),
+    );
+  });
+
+  it('shows no window counts and lists all history for All', () => {
+    renderRange('all');
+    expect(screen.queryByText('1,234')).toBeNull();
+    expect(screen.getByText('ACTIVE TRIGGERS')).toBeInTheDocument();
+    expect(api.listDeliveryPage.mock.lastCall?.[0]).not.toHaveProperty('receivedAfter');
+  });
+
+  it('navigates to the chosen range', () => {
+    renderRange('7d');
+    fireEvent.click(
+      within(screen.getByRole('group', { name: 'Period' })).getByRole('button', { name: 'All' }),
+    );
+    expect(nav.replace).toHaveBeenCalledWith('/triggers?window=all', { scroll: false });
   });
 });

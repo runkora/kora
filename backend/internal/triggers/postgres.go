@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -887,13 +886,9 @@ const reachDeliveriesSQL = `
 // An absent cursor or received_after binds to infinity to keep the text fixed.
 func reachDeliveriesQuery(tenantID string, filter DeliveryFilter, limit int) (string, []any) {
 	every := filter.Status == ""
-	outcomes := DeliveryStatusFilters[filter.Status]
-	recorded := recordedStatuses
-	if !every {
-		recorded = nil
-		if slices.Contains(recordedStatuses, filter.Status) {
-			recorded = []string{filter.Status}
-		}
+	outcomes, recorded := triggerStatusMembers(filter.Status)
+	if every {
+		recorded = recordedStatuses
 	}
 	after := pgtype.Timestamptz{InfinityModifier: pgtype.NegativeInfinity, Valid: true}
 	if !filter.ReceivedAfter.IsZero() {
@@ -922,10 +917,10 @@ const reachedSQL = `
 		  AND  received_at >= $2 AND received_at <= $3
 	)`
 
-func (r *postgresRepository) TriggerStats(ctx context.Context, tenantID string, triggerIDs []string, now time.Time) (map[string]TriggerStats, TenantTriggerStats, error) {
+func (r *postgresRepository) TriggerStats(ctx context.Context, tenantID string, triggerIDs []string, now time.Time, w StatsWindow) (map[string]TriggerStats, TenantTriggerStats, error) {
 	now = now.UTC()
 	out := map[string]TriggerStats{}
-	tenant, err := r.windowedTriggerStats(ctx, tenantID, now, out)
+	tenant, err := r.windowedTriggerStats(ctx, tenantID, now, w, out)
 	if err != nil {
 		return nil, tenant, err
 	}
@@ -936,27 +931,26 @@ func (r *postgresRepository) TriggerStats(ctx context.Context, tenantID string, 
 		       percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM created_at - received_at) * 1000)
 		FROM   trigger_delivery_runs
 		WHERE  tenant_id = $1 AND received_at >= $2 AND received_at <= $3
-		  AND  status IN `+sqlList(StartedRunStatuses)+` AND created_at >= received_at`,
-		tenantID, now.Add(-statsWindow), now,
-	).Scan(&tenant.Deliveries24h, &tenant.DispatchP50Ms, &tenant.DispatchP95Ms); err != nil {
+		  AND  status IN `+sqlList(startedOutcomes)+` AND created_at >= received_at`,
+		tenantID, now.Add(-w.Span), now,
+	).Scan(&tenant.Deliveries, &tenant.DispatchP50Ms, &tenant.DispatchP95Ms); err != nil {
 		return nil, tenant, fmt.Errorf("tenant trigger stats: %w", err)
 	}
-	if err := r.triggerLastFired(ctx, tenantID, triggerIDs, now, out); err != nil {
+	if err := r.triggerLastFired(ctx, tenantID, triggerIDs, now, w, out); err != nil {
 		return nil, tenant, err
 	}
 	return out, tenant, nil
 }
 
-// windowedTriggerStats fills out with each trigger's 24h counts and buckets, and
-// returns the tenant's started and failed totals.
-func (r *postgresRepository) windowedTriggerStats(ctx context.Context, tenantID string, now time.Time, out map[string]TriggerStats) (TenantTriggerStats, error) {
+// windowedTriggerStats fills out with each trigger's counts and buckets over the
+// window, and returns the tenant's started and failed totals.
+func (r *postgresRepository) windowedTriggerStats(ctx context.Context, tenantID string, now time.Time, w StatsWindow, out map[string]TriggerStats) (TenantTriggerStats, error) {
 	var tenant TenantTriggerStats
-	since := now.Add(-statsWindow)
-	firstBucket := since.Truncate(statsBucketWidth)
+	firstBucket := w.firstBucket(now)
 	rows, err := r.pool.Query(ctx, reachedSQL+`
-		SELECT trigger_id, status, date_bin('2 hours', received_at, TIMESTAMPTZ '2000-01-01 00:00:00+00'), count(*)
+		SELECT trigger_id, status, date_bin($4::interval, received_at, TIMESTAMPTZ '2000-01-01 00:00:00+00'), count(*)
 		FROM   reached
-		GROUP  BY 1, 2, 3`, tenantID, since, now)
+		GROUP  BY 1, 2, 3`, tenantID, now.Add(-w.Span), now, w.BucketWidth)
 	if err != nil {
 		return tenant, fmt.Errorf("trigger stats: %w", err)
 	}
@@ -970,26 +964,24 @@ func (r *postgresRepository) windowedTriggerStats(ctx context.Context, tenantID 
 		}
 		st, ok := out[id]
 		if !ok {
-			st = emptyTriggerStats(now)
+			st = emptyTriggerStats(now, w)
 		}
-		st.count(status, int(bucket.Sub(firstBucket)/statsBucketWidth), n)
+		st.count(status, int(bucket.Sub(firstBucket)/w.BucketWidth), n)
 		out[id] = st
-		switch {
-		case slices.Contains(StartedRunStatuses, status):
-			tenant.Started24h += n
-		case slices.Contains(FailureRunStatuses, status):
-			tenant.Failed24h += n
-		}
 	}
 	if err := rows.Err(); err != nil {
 		return tenant, fmt.Errorf("iterate trigger stats: %w", err)
+	}
+	for _, st := range out {
+		tenant.Started += st.Started
+		tenant.Failed += st.Failed
 	}
 	return tenant, nil
 }
 
 // triggerLastFired sets each trigger's newest attempted delivery with one
 // idx_trigger_delivery_runs_last_fired probe per trigger.
-func (r *postgresRepository) triggerLastFired(ctx context.Context, tenantID string, triggerIDs []string, now time.Time, out map[string]TriggerStats) error {
+func (r *postgresRepository) triggerLastFired(ctx context.Context, tenantID string, triggerIDs []string, now time.Time, w StatsWindow, out map[string]TriggerStats) error {
 	rows, err := r.pool.Query(ctx, `
 		SELECT t.id, fired.received_at
 		FROM   unnest($2::text[]) AS t(id)
@@ -1011,7 +1003,7 @@ func (r *postgresRepository) triggerLastFired(ctx context.Context, tenantID stri
 		}
 		st, ok := out[id]
 		if !ok {
-			st = emptyTriggerStats(now)
+			st = emptyTriggerStats(now, w)
 		}
 		st.LastFiredAt = &at
 		out[id] = st

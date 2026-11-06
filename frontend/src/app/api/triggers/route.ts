@@ -32,11 +32,15 @@ function validateCreateRequest(body: TriggerCreateRequest): string | null {
   }
 }
 
-// GET /api/triggers?agent_type_id= — triggers for the tenant, optionally filtered.
+// GET /api/triggers?agent_type_id=&window=24h|7d: triggers for the tenant, optionally one
+// agent's, with their stats and the tenant's over the window.
 export const GET = withAuth(async (req: NextRequest, session) => {
-  const agentTypeId = req.nextUrl.searchParams.get('agent_type_id') ?? undefined;
-  const { triggers } = await listTriggers(session.accessToken, agentTypeId);
-  return NextResponse.json({ data: triggers });
+  const q = req.nextUrl.searchParams;
+  const list = await listTriggers(session.accessToken, {
+    agentTypeId: q.get('agent_type_id') ?? undefined,
+    window: q.get('window') ?? undefined,
+  });
+  return NextResponse.json({ data: list });
 });
 
 // POST /api/triggers — create a trigger (201). Required fields depend on
