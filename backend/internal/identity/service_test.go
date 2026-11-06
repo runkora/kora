@@ -133,10 +133,13 @@ func TestExchangeSVID_Success(t *testing.T) {
 
 	// Session must be persisted.
 	sessions.mu.Lock()
-	count := len(sessions.sessions)
+	count, started := len(sessions.sessions), len(sessions.started)
 	sessions.mu.Unlock()
 	if count != 1 {
 		t.Errorf("expected 1 persisted session, got %d", count)
+	}
+	if started != 1 {
+		t.Errorf("an agent session records a session start, got %d", started)
 	}
 }
 
@@ -234,6 +237,9 @@ func TestRefreshSession_Success(t *testing.T) {
 	}
 	if resp.RefreshToken == rawRefresh {
 		t.Error("rotated refresh token must differ from the original")
+	}
+	if len(sessions.started) != 0 {
+		t.Errorf("a refresh records no session start, got %d", len(sessions.started))
 	}
 }
 

@@ -12,25 +12,25 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 type postgresRepository struct {
-	pool *pgxpool.Pool
+	pool *storage.Pool
 }
 
 // NewPostgresRepository creates a Repository backed by PostgreSQL.
-func NewPostgresRepository(pool *pgxpool.Pool) Repository {
+func NewPostgresRepository(pool *storage.Pool) Repository {
 	return &postgresRepository{pool: pool}
 }
 
 // getOne runs a single-row query, mapping pgx.ErrNoRows to notFound and
 // wrapping anything else as "get {what}". One implementation of the
 // QueryRow→scan→sentinel dance the getters otherwise each hand-copy.
-func getOne[T any](ctx context.Context, pool *pgxpool.Pool, what string, notFound error, scan func(pgx.Row) (*T, error), sql string, args ...any) (*T, error) {
+func getOne[T any](ctx context.Context, pool *storage.Pool, what string, notFound error, scan func(pgx.Row) (*T, error), sql string, args ...any) (*T, error) {
 	v, err := scan(pool.QueryRow(ctx, sql, args...))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -46,7 +46,7 @@ func getOne[T any](ctx context.Context, pool *pgxpool.Pool, what string, notFoun
 // queries otherwise each hand-copy; `what` names the rows once for all three
 // wraps. The SQL stays at each call site — this is a scan helper, not a
 // query builder.
-func queryList[T any](ctx context.Context, pool *pgxpool.Pool, what string, scan func(pgx.Row) (*T, error), sql string, args ...any) ([]T, error) {
+func queryList[T any](ctx context.Context, pool *storage.Pool, what string, scan func(pgx.Row) (*T, error), sql string, args ...any) ([]T, error) {
 	rows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list %s: %w", what, err)
@@ -85,21 +85,27 @@ func (r *postgresRepository) CreateSource(ctx context.Context, s *WebhookSource)
 	if err != nil {
 		return fmt.Errorf("marshal source config: %w", err)
 	}
-	// secret_rotated_at is stamped at creation: the secret a source starts with
-	// was issued now, and dating it is what lets a later replay tell whether the
-	// payload it wants to re-run predates the secret currently in force.
-	_, err = r.pool.Exec(ctx, `
-		INSERT INTO webhook_sources
-			(id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, secret_rotated_at,
-			 source, resource_uid, repository)
-		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10, $11, $12)
-	`, s.ID, s.TenantID, s.Name, s.Provider, s.PrincipalID, s.GrantID, s.SecretCiphertext, configJSON, s.Enabled,
-		cmp.Or(s.Source, declarative.SourceAPI), storage.NullIfZero(s.ResourceUID), storage.NullIfZero(s.Repository))
-	if err != nil {
-		return sourceWriteError("create webhook source", err)
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		// secret_rotated_at is stamped at creation: the secret a source starts with
+		// was issued now, and dating it is what lets a later replay tell whether the
+		// payload it wants to re-run predates the secret currently in force.
+		_, err := r.pool.Exec(ctx, `
+			INSERT INTO webhook_sources
+				(id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, secret_rotated_at,
+				 source, resource_uid, repository)
+			VALUES
+				($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10, $11, $12)
+		`, s.ID, s.TenantID, s.Name, s.Provider, s.PrincipalID, s.GrantID, s.SecretCiphertext, configJSON, s.Enabled,
+			cmp.Or(s.Source, declarative.SourceAPI), storage.NullIfZero(s.ResourceUID), storage.NullIfZero(s.Repository))
+		if err != nil {
+			return sourceWriteError("create webhook source", err)
+		}
+		created, err := r.GetSource(ctx, s.TenantID, s.ID)
+		if err != nil {
+			return err
+		}
+		return publishSource(ctx, r.pool, events.SourceCreated, created)
+	})
 }
 
 // sourceNameKey is the unique constraint on a source's name within its tenant.
@@ -177,32 +183,46 @@ func (r *postgresRepository) UpdateSource(ctx context.Context, s *WebhookSource)
 	// comparison reads the old secret. Deriving it here rather than passing a
 	// flag means an ordinary enable/disable can never accidentally date the
 	// secret forward and invalidate every replay of an older payload.
-	tag, err := r.pool.Exec(ctx, `
-		UPDATE webhook_sources
-		SET    name = $1, secret_ciphertext = $2, grant_id = $3, config = $4, enabled = $5, repository = $8,
-		       secret_rotated_at = CASE WHEN secret_ciphertext IS DISTINCT FROM $2
-		                                THEN now() ELSE secret_rotated_at END,
-		       updated_at = now()
-		WHERE  id = $6 AND tenant_id = $7
-	`, s.Name, s.SecretCiphertext, s.GrantID, configJSON, s.Enabled, s.ID, s.TenantID, storage.NullIfZero(s.Repository))
-	if err != nil {
-		return sourceWriteError("update webhook source", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrSourceNotFound
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		before, err := getOne(ctx, r.pool, "webhook source", ErrSourceNotFound, scanSource,
+			`SELECT `+sourceColumns+` FROM webhook_sources WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, s.ID, s.TenantID)
+		if err != nil {
+			return err
+		}
+		if _, err = r.pool.Exec(ctx, `
+			UPDATE webhook_sources
+			SET    name = $1, secret_ciphertext = $2, grant_id = $3, config = $4, enabled = $5, repository = $8,
+			       secret_rotated_at = CASE WHEN secret_ciphertext IS DISTINCT FROM $2
+			                                THEN now() ELSE secret_rotated_at END,
+			       updated_at = now()
+			WHERE  id = $6 AND tenant_id = $7
+		`, s.Name, s.SecretCiphertext, s.GrantID, configJSON, s.Enabled, s.ID, s.TenantID, storage.NullIfZero(s.Repository)); err != nil {
+			return sourceWriteError("update webhook source", err)
+		}
+		after, err := r.GetSource(ctx, s.TenantID, s.ID)
+		if err != nil {
+			return err
+		}
+		entity := newSourceEntity(after)
+		changed := events.Changed(sourceFields{newSourceEntity(before), before.Config}, sourceFields{entity, after.Config})
+		if len(changed) == 0 {
+			return nil
+		}
+		return events.Publish(ctx, r.pool, events.Event{
+			Type: events.SourceUpdated, Tenant: after.TenantID, Subject: "sources/" + after.ID, Entity: entity, Changed: changed,
+		})
+	})
 }
 
 func (r *postgresRepository) DeleteSource(ctx context.Context, tenantID, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM webhook_sources WHERE id = $1 AND tenant_id = $2`, id, tenantID)
-	if err != nil {
-		return fmt.Errorf("delete webhook source: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrSourceNotFound
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		deleted, err := getOne(ctx, r.pool, "deleted webhook source", ErrSourceNotFound, scanSource,
+			`DELETE FROM webhook_sources WHERE id = $1 AND tenant_id = $2 RETURNING `+sourceColumns, id, tenantID)
+		if err != nil {
+			return err
+		}
+		return publishSource(ctx, r.pool, events.SourceDeleted, deleted)
+	})
 }
 
 // ─── Triggers ─────────────────────────────────────────────────────────────────
@@ -327,8 +347,37 @@ func (r *postgresRepository) CreateTrigger(ctx context.Context, t *Trigger) erro
 			t.DedupeEnabled, t.AutopauseEnabled, cmp.Or(t.Source, declarative.SourceAPI), storage.NullIfZero(t.ResourceUID), storage.NullIfZero(t.Repository)); err != nil {
 			return fmt.Errorf("create trigger: %w", err)
 		}
-		return writeRoute(ctx, tx, t)
+		if err := writeRoute(ctx, tx, t); err != nil {
+			return err
+		}
+		created, err := r.lockTrigger(ctx, t.TenantID, t.ID)
+		if err != nil {
+			return err
+		}
+		return publishTrigger(ctx, r.pool, events.TriggerCreated, created)
 	})
+}
+
+// lockTrigger reads a trigger and locks its row until the transaction ends.
+func (r *postgresRepository) lockTrigger(ctx context.Context, tenantID, id string) (*Trigger, error) {
+	t, err := getOne(ctx, r.pool, "trigger", ErrTriggerNotFound, scanTrigger,
+		`SELECT `+triggerColumns+` FROM triggers WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.attachRoutes(ctx, []*Trigger{t}); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// publishUpdated reads the trigger back after an update and records what changed.
+func (r *postgresRepository) publishUpdated(ctx context.Context, before *Trigger) error {
+	after, err := r.lockTrigger(ctx, before.TenantID, before.ID)
+	if err != nil {
+		return err
+	}
+	return publishTriggerUpdate(ctx, r.pool, before, after)
 }
 
 // claimTriggerName serializes writes of one trigger name in a tenant and
@@ -521,6 +570,10 @@ func (r *postgresRepository) UpdateDeclaredTrigger(ctx context.Context, t *Trigg
 		return err
 	}
 	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
+		before, err := r.lockTrigger(ctx, t.TenantID, t.ID)
+		if err != nil {
+			return err
+		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE triggers
 			SET    source_id = $1, agent_type_id = $2, agent_slug = $3, event_type = $4, match_condition = $5,
@@ -539,7 +592,10 @@ func (r *postgresRepository) UpdateDeclaredTrigger(ctx context.Context, t *Trigg
 		if tag.RowsAffected() == 0 {
 			return ErrTriggerNotFound
 		}
-		return writeRoute(ctx, tx, t)
+		if err := writeRoute(ctx, tx, t); err != nil {
+			return err
+		}
+		return r.publishUpdated(ctx, before)
 	})
 }
 
@@ -616,6 +672,10 @@ func (r *postgresRepository) updateTrigger(ctx context.Context, t *Trigger, writ
 		if err := claimTriggerName(ctx, tx, t); err != nil {
 			return err
 		}
+		before, err := r.lockTrigger(ctx, t.TenantID, t.ID)
+		if err != nil {
+			return err
+		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE triggers
 			SET    name = $1, event_type = $2, match_condition = $3, prompt_template = $4,
@@ -640,10 +700,12 @@ func (r *postgresRepository) updateTrigger(ctx context.Context, t *Trigger, writ
 			}
 			return ErrTriggerNotFound
 		}
-		if !writeRouting {
-			return nil
+		if writeRouting {
+			if err := writeRoute(ctx, tx, t); err != nil {
+				return err
+			}
 		}
-		return writeRoute(ctx, tx, t)
+		return r.publishUpdated(ctx, before)
 	})
 }
 
@@ -662,14 +724,16 @@ func grantGuardMiss(ctx context.Context, tx pgx.Tx, t *Trigger) error {
 }
 
 func (r *postgresRepository) DeleteTrigger(ctx context.Context, tenantID, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM triggers WHERE id = $1 AND tenant_id = $2`, id, tenantID)
-	if err != nil {
-		return fmt.Errorf("delete trigger: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrTriggerNotFound
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		deleted, err := r.lockTrigger(ctx, tenantID, id)
+		if err != nil {
+			return err
+		}
+		if _, err := r.pool.Exec(ctx, `DELETE FROM triggers WHERE id = $1 AND tenant_id = $2`, id, tenantID); err != nil {
+			return fmt.Errorf("delete trigger: %w", err)
+		}
+		return publishTrigger(ctx, r.pool, events.TriggerDeleted, deleted)
+	})
 }
 
 // ─── Deliveries ───────────────────────────────────────────────────────────────
@@ -1031,6 +1095,37 @@ func (r *postgresRepository) InsertDeliveryRun(ctx context.Context, dr *Delivery
 		return fmt.Errorf("insert delivery run: %w", err)
 	}
 	return nil
+}
+
+// RecordDispatchFailure records a fire that could not start its run in one
+// transaction: the outcome, the delivery's reason and status, and the event.
+func (r *postgresRepository) RecordDispatchFailure(ctx context.Context, dr *DeliveryRun, reason string) error {
+	typ := events.DeliveryFailed
+	if dr.Status == RunStatusDenied {
+		typ = events.DeliveryDenied
+	}
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		if err := r.InsertDeliveryRun(ctx, dr); err != nil {
+			return err
+		}
+		if err := r.UpdateDeliveryOutcome(ctx, dr.DeliveryID, StatusFailed, nil, nil, dr.Error); err != nil {
+			return err
+		}
+		if err := r.DeriveDeliveryStatus(ctx, dr.DeliveryID); err != nil {
+			return err
+		}
+		var agent *string
+		if err := r.pool.QueryRow(ctx, `SELECT agent_slug FROM triggers WHERE id = $1`, dr.TriggerID).Scan(&agent); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("read trigger agent: %w", err)
+		}
+		return events.Publish(ctx, r.pool, events.Event{
+			Type: typ, Tenant: dr.TenantID, Subject: "deliveries/" + dr.DeliveryID, Agent: deref(agent),
+			Entity: deliveryFailureEntity{
+				ID: dr.ID, DeliveryID: dr.DeliveryID, TriggerID: dr.TriggerID, TriggerName: dr.TriggerName,
+				Status: dr.Status, Reason: reason,
+			},
+		})
+	})
 }
 
 func (r *postgresRepository) ListDeliveryRunsForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error) {
@@ -1948,13 +2043,23 @@ func (r *postgresRepository) ResetConsecutiveFailures(ctx context.Context, trigg
 }
 
 func (r *postgresRepository) AutoPause(ctx context.Context, triggerID string) error {
-	_, err := r.pool.Exec(ctx, `
-		UPDATE triggers SET enabled = false, auto_paused_at = now() WHERE id = $1
-	`, triggerID)
-	if err != nil {
-		return fmt.Errorf("auto-pause trigger: %w", err)
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		var tenantID string
+		err := r.pool.QueryRow(ctx, `
+			UPDATE triggers SET enabled = false, auto_paused_at = now() WHERE id = $1 AND auto_paused_at IS NULL RETURNING tenant_id
+		`, triggerID).Scan(&tenantID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("auto-pause trigger: %w", err)
+		}
+		paused, err := r.lockTrigger(ctx, tenantID, triggerID)
+		if err != nil {
+			return err
+		}
+		return publishTrigger(ctx, r.pool, events.TriggerAutopaused, paused)
+	})
 }
 
 // GetRetention reads a tenant's chosen retention window.

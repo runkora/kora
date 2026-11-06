@@ -2,11 +2,14 @@ package declarative
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -25,12 +28,21 @@ type Controller struct {
 	appliers map[string]Applier
 	auth     mw.Middleware
 	logger   logging.Logger
+	// events records an apply that was not projected. Nil records nothing.
+	events *storage.Pool
 }
 
 // NewController returns a Controller serving one Applier per kind, keyed by
 // the Kind constants.
 func NewController(verifier *token.Verifier, logger logging.Logger, appliers map[string]Applier) *Controller {
 	return &Controller{appliers: appliers, auth: mw.AuthMiddleware(verifier, logger), logger: logger}
+}
+
+// WithEvents records declarative.resource.failed.v1 for every apply whose
+// result is not Projected.
+func (c *Controller) WithEvents(pool *storage.Pool) *Controller {
+	c.events = pool
+	return c
 }
 
 // GroupedBy implements api.Controller.
@@ -76,7 +88,44 @@ func (c *Controller) handleApply(w http.ResponseWriter, r *http.Request) {
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "apply declared item", nil), err)
 		return
 	}
+	c.recordFailure(r, item, res)
 	api.JSON(ctx, w, c.logger, http.StatusOK, res)
+}
+
+// failedEntity is the declared resource a failure event carries. The outcome
+// is the bounded reason. The free-text message stays on the resource status.
+type failedEntity struct {
+	Kind       string `json:"kind"`
+	Namespace  string `json:"namespace"`
+	Name       string `json:"name"`
+	UID        string `json:"uid"`
+	Generation int64  `json:"generation"`
+	Outcome    string `json:"outcome"`
+}
+
+// recordFailure records an apply that was not projected, once per resource
+// generation and outcome. Platform-wide kinds record nothing.
+func (c *Controller) recordFailure(r *http.Request, item Item, res Result) {
+	if c.events == nil || res.Outcome == OutcomeProjected || item.TenantID == PlatformTenant {
+		return
+	}
+	ctx := r.Context()
+	kind := r.PathValue("kind")
+	key := fmt.Sprintf("%s/%d/%s", item.UID, item.Generation, res.Outcome)
+	err := events.PublishOnce(ctx, c.events, key, events.Event{
+		Type: events.DeclaredResourceFailed, Tenant: item.TenantID, Subject: "declared/" + kind + "/" + item.Name,
+		Entity: failedEntity{
+			Kind: kind, Namespace: item.Namespace, Name: item.Name, UID: item.UID,
+			Generation: item.Generation, Outcome: res.Outcome,
+		},
+	})
+	if err != nil {
+		c.logger.Error(ctx, "failed to record declared resource failure",
+			logging.Field{Key: "kind", Value: kind},
+			logging.Field{Key: "name", Value: item.Name},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
 }
 
 func (c *Controller) handleDelete(w http.ResponseWriter, r *http.Request) {

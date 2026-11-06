@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // ─── Refresh token repository interface ──────────────────────────────────────
@@ -32,11 +33,11 @@ type RefreshTokenRepository interface {
 // ─── PostgreSQL implementation ────────────────────────────────────────────────
 
 type postgresRefreshTokenRepository struct {
-	pool *pgxpool.Pool
+	pool *storage.Pool
 }
 
 // NewPostgresRefreshTokenRepository creates a RefreshTokenRepository backed by PostgreSQL.
-func NewPostgresRefreshTokenRepository(pool *pgxpool.Pool) RefreshTokenRepository {
+func NewPostgresRefreshTokenRepository(pool *storage.Pool) RefreshTokenRepository {
 	return &postgresRefreshTokenRepository{pool: pool}
 }
 

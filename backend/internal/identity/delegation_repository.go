@@ -8,7 +8,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/events"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // ─── Delegation repository interface ─────────────────────────────────────────
@@ -50,11 +52,11 @@ type DelegationRepository interface {
 // ─── PostgreSQL implementation ────────────────────────────────────────────────
 
 type postgresDelegationRepository struct {
-	pool *pgxpool.Pool
+	pool *storage.Pool
 }
 
 // NewPostgresDelegationRepository creates a DelegationRepository backed by PostgreSQL.
-func NewPostgresDelegationRepository(pool *pgxpool.Pool) DelegationRepository {
+func NewPostgresDelegationRepository(pool *storage.Pool) DelegationRepository {
 	return &postgresDelegationRepository{pool: pool}
 }
 
@@ -62,6 +64,15 @@ const delegationIssuanceColumns = `jti, run_id, tenant_id, delegator_principal_i
 	delegator_principal_type, delegator_pat_id, agent_principal_id, created_at, revoked_at`
 
 func (r *postgresDelegationRepository) CreateIssuance(ctx context.Context, d *DelegationIssuance) error {
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		if err := r.insertIssuance(ctx, d); err != nil {
+			return err
+		}
+		return events.Publish(attributedTo(ctx, d.DelegatorPrincipalID, d.DelegatorPrincipalType, d.TenantID), r.pool, delegationEvent(d))
+	})
+}
+
+func (r *postgresDelegationRepository) insertIssuance(ctx context.Context, d *DelegationIssuance) error {
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO delegation_issuances
 			(jti, run_id, tenant_id, delegator_principal_id, delegator_principal_type,

@@ -9,8 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
@@ -22,6 +22,11 @@ import (
 type SessionRepository interface {
 	// CreateSession persists a new session record.
 	CreateSession(ctx context.Context, s *Session) error
+
+	// StartSession persists the session a sign-in or an agent start created,
+	// with its refresh token when rt is non-nil, and records
+	// identity.session.created.v1 in the same transaction.
+	StartSession(ctx context.Context, s *Session, rt *RefreshToken) error
 
 	// GetSessionByID retrieves a session by its primary ID.
 	GetSessionByID(ctx context.Context, id string) (*Session, error)
@@ -46,16 +51,36 @@ type SessionRepository interface {
 // ─── PostgreSQL implementation ────────────────────────────────────────────────
 
 type postgresSessionRepository struct {
-	pool *pgxpool.Pool
+	pool *storage.Pool
 }
 
 // NewPostgresSessionRepository creates a SessionRepository backed by PostgreSQL.
-func NewPostgresSessionRepository(pool *pgxpool.Pool) SessionRepository {
+func NewPostgresSessionRepository(pool *storage.Pool) SessionRepository {
 	return &postgresSessionRepository{pool: pool}
 }
 
 func (r *postgresSessionRepository) CreateSession(ctx context.Context, s *Session) error {
 	return insertSession(ctx, r.pool, s)
+}
+
+func (r *postgresSessionRepository) StartSession(ctx context.Context, s *Session, rt *RefreshToken) error {
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
+		if err := insertSession(ctx, tx, s); err != nil {
+			return err
+		}
+		if rt != nil {
+			if err := insertRefreshToken(ctx, tx, rt); err != nil {
+				return err
+			}
+		}
+		// A platform component's session belongs to no tenant, and v1 records no tenantless event.
+		if s.TenantID == "" {
+			return nil
+		}
+		return events.Publish(actingAs(ctx, s), r.pool, events.Event{
+			Type: events.SessionCreated, Tenant: s.TenantID, Subject: "sessions/" + s.ID, Entity: newSessionEntity(s),
+		})
+	})
 }
 
 func (r *postgresSessionRepository) SwitchSession(ctx context.Context, next *Session, nextRefresh *RefreshToken, replaced *RefreshToken, at time.Time) error {
@@ -72,7 +97,17 @@ func (r *postgresSessionRepository) SwitchSession(ctx context.Context, next *Ses
 		if err := insertSession(ctx, tx, next); err != nil {
 			return err
 		}
-		return insertRefreshToken(ctx, tx, nextRefresh)
+		if err := insertRefreshToken(ctx, tx, nextRefresh); err != nil {
+			return err
+		}
+		var from string
+		if err := tx.QueryRow(ctx, `SELECT tenant_id FROM identity_sessions WHERE id = $1`, replaced.SessionID).Scan(&from); err != nil {
+			return fmt.Errorf("read replaced session tenant: %w", err)
+		}
+		return events.Publish(actingAs(ctx, next), r.pool, events.Event{
+			Type: events.TenantSwitched, Tenant: next.TenantID, Subject: "sessions/" + next.ID,
+			Entity: tenantSwitchEntity{SessionID: next.ID, PrincipalID: next.PrincipalID, FromTenant: from, ToTenant: next.TenantID},
+		})
 	})
 }
 

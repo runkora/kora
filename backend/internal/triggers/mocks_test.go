@@ -585,6 +585,13 @@ func (m *mockRepository) InsertDeliveryRun(_ context.Context, r *DeliveryRun) er
 	return nil
 }
 
+// RecordDispatchFailure makes the three writes the Postgres transaction makes.
+func (m *mockRepository) RecordDispatchFailure(ctx context.Context, r *DeliveryRun, _ string) error {
+	_ = m.InsertDeliveryRun(ctx, r)
+	_ = m.UpdateDeliveryOutcome(ctx, r.DeliveryID, StatusFailed, nil, nil, r.Error)
+	return m.DeriveDeliveryStatus(ctx, r.DeliveryID)
+}
+
 func (m *mockRepository) ListDeliveryRunsForDeliveries(_ context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

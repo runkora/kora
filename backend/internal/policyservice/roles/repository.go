@@ -17,9 +17,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/events"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // BudgetAssignment is the inline budget configuration on a role.
@@ -105,11 +106,11 @@ type Repository interface {
 }
 
 type postgresRepository struct {
-	pool *pgxpool.Pool
+	pool *storage.Pool
 }
 
 // NewPostgresRepository creates a Repository backed by PostgreSQL.
-func NewPostgresRepository(pool *pgxpool.Pool) Repository {
+func NewPostgresRepository(pool *storage.Pool) Repository {
 	return &postgresRepository{pool: pool}
 }
 
@@ -130,28 +131,33 @@ func (r *postgresRepository) Upsert(ctx context.Context, entry *RoleEntry) error
 		}
 	}
 
-	// RETURNING ensures we get the actual stored id and created_at — on conflict
-	// the original row's id and created_at are preserved, not the new values.
-	row := r.pool.QueryRow(ctx, `
-		INSERT INTO policy_role_scopes (id, tenant_id, role, scopes, budget, created_at)
-		VALUES ($1, $2, $3, $4, $5, now())
-		ON CONFLICT (tenant_id, role)
-		DO UPDATE SET
-			scopes = EXCLUDED.scopes,
-			budget = COALESCE(EXCLUDED.budget, policy_role_scopes.budget)
-		WHERE policy_role_scopes.source = 'api'
-		RETURNING id, created_at
-	`, entry.ID, entry.TenantID, entry.Role, scopesJSON, budgetJSON)
-
-	err = row.Scan(&entry.ID, &entry.CreatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return declarative.ErrManagedByResource
-	}
-	if err != nil {
-		return fmt.Errorf("upsert role: %w", err)
-	}
-	entry.Source = declarative.SourceAPI
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		before, err := r.existing(ctx, entry.TenantID, entry.Role)
+		if err != nil {
+			return err
+		}
+		// RETURNING ensures we get the actual stored id and created_at — on conflict
+		// the original row's id and created_at are preserved, not the new values.
+		row := r.pool.QueryRow(ctx, `
+			INSERT INTO policy_role_scopes (id, tenant_id, role, scopes, budget, created_at)
+			VALUES ($1, $2, $3, $4, $5, now())
+			ON CONFLICT (tenant_id, role)
+			DO UPDATE SET
+				scopes = EXCLUDED.scopes,
+				budget = COALESCE(EXCLUDED.budget, policy_role_scopes.budget)
+			WHERE policy_role_scopes.source = 'api'
+			RETURNING `+entryColumns+`
+		`, entry.ID, entry.TenantID, entry.Role, scopesJSON, budgetJSON)
+		after, err := r.scanEntry(row)
+		if errors.Is(err, ErrRoleNotFound) {
+			return declarative.ErrManagedByResource
+		}
+		if err != nil {
+			return fmt.Errorf("upsert role: %w", err)
+		}
+		entry.ID, entry.CreatedAt, entry.Source = after.ID, after.CreatedAt, after.Source
+		return publishWrite(ctx, r.pool, before, after)
+	})
 }
 
 func (r *postgresRepository) UpsertDeclared(ctx context.Context, entry *RoleEntry) error {
@@ -169,46 +175,65 @@ func (r *postgresRepository) UpsertDeclared(ctx context.Context, entry *RoleEntr
 		}
 	}
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("begin declared role upsert: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		if _, err := r.deleteWhere(ctx, `tenant_id = $1 AND source = 'crd' AND resource_name = $2 AND role <> $3`,
+			entry.TenantID, entry.ResourceName, entry.Role); err != nil {
+			return fmt.Errorf("drop renamed declared role: %w", err)
+		}
+		before, err := r.existing(ctx, entry.TenantID, entry.Role)
+		if err != nil {
+			return err
+		}
+		// A resource recreated under the same name takes its old row back with its new UID.
+		after, err := r.scanEntry(r.pool.QueryRow(ctx, `
+			INSERT INTO policy_role_scopes (id, tenant_id, role, scopes, budget, created_at, source, resource_uid, resource_name, repository)
+			VALUES ($1, $2, $3, $4, $5, now(), 'crd', $6, $7, NULLIF($8, ''))
+			ON CONFLICT (tenant_id, role)
+			DO UPDATE SET
+				scopes = EXCLUDED.scopes,
+				budget = EXCLUDED.budget,
+				resource_uid = EXCLUDED.resource_uid,
+				repository = EXCLUDED.repository
+			WHERE policy_role_scopes.source = 'crd'
+			  AND (policy_role_scopes.resource_uid = EXCLUDED.resource_uid OR policy_role_scopes.resource_name = EXCLUDED.resource_name)
+			RETURNING `+entryColumns+`
+		`, entry.ID, entry.TenantID, entry.Role, scopesJSON, budgetJSON, entry.ResourceUID, entry.ResourceName, entry.Repository))
+		// No row back means another holder kept the role. A unique violation means a
+		// concurrent write took the role or the resource's row first.
+		var pgErr *pgconn.PgError
+		if errors.Is(err, ErrRoleNotFound) || (errors.As(err, &pgErr) && pgErr.Code == "23505") {
+			return ErrRoleTaken
+		}
+		if err != nil {
+			return fmt.Errorf("upsert declared role: %w", err)
+		}
+		entry.ID, entry.CreatedAt, entry.Source = after.ID, after.CreatedAt, after.Source
+		return publishWrite(ctx, r.pool, before, after)
+	})
+}
 
-	if _, err = tx.Exec(ctx, `
-		DELETE FROM policy_role_scopes
-		WHERE tenant_id = $1 AND source = 'crd' AND resource_name = $2 AND role <> $3
-	`, entry.TenantID, entry.ResourceName, entry.Role); err != nil {
-		return fmt.Errorf("drop renamed declared role: %w", err)
-	}
-	// A resource recreated under the same name takes its old row back with its new UID.
-	err = tx.QueryRow(ctx, `
-		INSERT INTO policy_role_scopes (id, tenant_id, role, scopes, budget, created_at, source, resource_uid, resource_name, repository)
-		VALUES ($1, $2, $3, $4, $5, now(), 'crd', $6, $7, NULLIF($8, ''))
-		ON CONFLICT (tenant_id, role)
-		DO UPDATE SET
-			scopes = EXCLUDED.scopes,
-			budget = EXCLUDED.budget,
-			resource_uid = EXCLUDED.resource_uid,
-			repository = EXCLUDED.repository
-		WHERE policy_role_scopes.source = 'crd'
-		  AND (policy_role_scopes.resource_uid = EXCLUDED.resource_uid OR policy_role_scopes.resource_name = EXCLUDED.resource_name)
-		RETURNING id, created_at
-	`, entry.ID, entry.TenantID, entry.Role, scopesJSON, budgetJSON, entry.ResourceUID, entry.ResourceName, entry.Repository).Scan(&entry.ID, &entry.CreatedAt)
-	// No row back means another holder kept the role. A unique violation means a
-	// concurrent write took the role or the resource's row first.
-	var pgErr *pgconn.PgError
-	if errors.Is(err, pgx.ErrNoRows) || (errors.As(err, &pgErr) && pgErr.Code == "23505") {
-		return ErrRoleTaken
-	}
+// writeWhere runs a statement that returns entryColumns for each role it
+// changes and records each change as typ in the context transaction.
+func (r *postgresRepository) writeWhere(ctx context.Context, typ events.Type, changed []string, sql string, args ...any) (int, error) {
+	rows, err := r.pool.Query(ctx, sql, args...)
 	if err != nil {
-		return fmt.Errorf("upsert declared role: %w", err)
+		return 0, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit declared role upsert: %w", err)
+	written, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*RoleEntry, error) { return r.scanEntry(row) })
+	if err != nil {
+		return 0, err
 	}
-	entry.Source = declarative.SourceCRD
-	return nil
+	for _, e := range written {
+		if err := publish(ctx, r.pool, typ, e, changed); err != nil {
+			return 0, err
+		}
+	}
+	return len(written), nil
+}
+
+// deleteWhere deletes the roles that match where and records each deletion.
+func (r *postgresRepository) deleteWhere(ctx context.Context, where string, args ...any) (int, error) {
+	return r.writeWhere(ctx, events.RoleDeleted, nil, `DELETE FROM policy_role_scopes WHERE `+where+` RETURNING `+entryColumns, args...)
 }
 
 func (r *postgresRepository) ListDeclared(ctx context.Context, tenantID string) ([]declarative.Declared, error) {
@@ -225,13 +250,16 @@ func (r *postgresRepository) ListDeclared(ctx context.Context, tenantID string) 
 }
 
 func (r *postgresRepository) DeleteDeclared(ctx context.Context, tenantID, resourceName string) (bool, error) {
-	tag, err := r.pool.Exec(ctx, `
-		DELETE FROM policy_role_scopes WHERE tenant_id = $1 AND source = 'crd' AND resource_name = $2
-	`, tenantID, resourceName)
+	var n int
+	err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		var err error
+		n, err = r.deleteWhere(ctx, `tenant_id = $1 AND source = 'crd' AND resource_name = $2`, tenantID, resourceName)
+		return err
+	})
 	if err != nil {
 		return false, fmt.Errorf("delete declared role: %w", err)
 	}
-	return tag.RowsAffected() > 0, nil
+	return n > 0, nil
 }
 
 func (r *postgresRepository) UpdateBudget(ctx context.Context, tenantID, role string, budget *BudgetAssignment) (*RoleEntry, error) {
@@ -243,11 +271,26 @@ func (r *postgresRepository) UpdateBudget(ctx context.Context, tenantID, role st
 			return nil, fmt.Errorf("marshal budget: %w", err)
 		}
 	}
-	row := r.pool.QueryRow(ctx, `
-		UPDATE policy_role_scopes SET budget = $3 WHERE tenant_id = $1 AND role = $2 AND source = 'api'
-		RETURNING `+entryColumns+`
-	`, tenantID, role, budgetJSON)
-	return r.scanEntry(row)
+	var after *RoleEntry
+	err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		before, err := r.scanEntry(r.pool.QueryRow(ctx, `
+			SELECT `+entryColumns+` FROM policy_role_scopes WHERE tenant_id = $1 AND role = $2 AND source = 'api' FOR UPDATE
+		`, tenantID, role))
+		if err != nil {
+			return err
+		}
+		if after, err = r.scanEntry(r.pool.QueryRow(ctx, `
+			UPDATE policy_role_scopes SET budget = $3 WHERE tenant_id = $1 AND role = $2
+			RETURNING `+entryColumns+`
+		`, tenantID, role, budgetJSON)); err != nil {
+			return err
+		}
+		return publishWrite(ctx, r.pool, before, after)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return after, nil
 }
 
 func (r *postgresRepository) GetByRole(ctx context.Context, tenantID, role string) (*RoleEntry, error) {
@@ -282,28 +325,34 @@ func (r *postgresRepository) ListByTenant(ctx context.Context, tenantID string, 
 }
 
 func (r *postgresRepository) Delete(ctx context.Context, tenantID, role string) error {
-	tag, err := r.pool.Exec(ctx, `
-		DELETE FROM policy_role_scopes WHERE tenant_id = $1 AND role = $2 AND source = 'api'
-	`, tenantID, role)
+	var n int
+	err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		var err error
+		n, err = r.deleteWhere(ctx, `tenant_id = $1 AND role = $2 AND source = 'api'`, tenantID, role)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("delete role: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if n == 0 {
 		return ErrRoleNotFound
 	}
 	return nil
 }
 
 func (r *postgresRepository) PurgeScopeFromAll(ctx context.Context, scope string) error {
-	_, err := r.pool.Exec(ctx, `
-		UPDATE policy_role_scopes
-		SET scopes = (
-			SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
-			FROM jsonb_array_elements_text(scopes) AS elem
-			WHERE elem != $1
-		)
-		WHERE scopes @> jsonb_build_array($1::text) AND source = 'api'
-	`, scope)
+	err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		_, err := r.writeWhere(ctx, events.RoleUpdated, []string{"scopes"}, `
+			UPDATE policy_role_scopes
+			SET scopes = (
+				SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+				FROM jsonb_array_elements_text(scopes) AS elem
+				WHERE elem != $1
+			)
+			WHERE scopes @> jsonb_build_array($1::text) AND source = 'api'
+			RETURNING `+entryColumns, scope)
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("purge scope from roles: %w", err)
 	}

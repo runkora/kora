@@ -62,8 +62,8 @@ type SpendCounter interface {
 
 	// IncrementSpends adds amount to every applicable canonical counter
 	// (principal windows, tenant, pools, run) and to each per-category
-	// attribution counter.
-	IncrementSpends(ctx context.Context, scopes SpendScopes, categories []policy.BudgetCategory, amount float64) error
+	// attribution counter, and returns the canonical counters after it.
+	IncrementSpends(ctx context.Context, scopes SpendScopes, categories []policy.BudgetCategory, amount float64) (policy.BudgetSpends, error)
 
 	// GetCategorySpends returns the attributed spend per category, aligned to
 	// the input slice. Missing counters read as 0.
@@ -339,15 +339,16 @@ func (c *RedisBudgetCounter) GetCategorySpends(ctx context.Context, principalID 
 // ── writes ───────────────────────────────────────────────────────────────────
 
 // IncrementSpends adds amount to every applicable canonical counter and the
-// attribution counters, ensuring every key carries a TTL. The monthly
-// principal counter is always written so reporting and late-added budgets
-// have a warm baseline.
+// attribution counters, ensuring every key carries a TTL, and returns the
+// canonical counters after the increment. The monthly principal counter is
+// always written so reporting and late-added budgets have a warm baseline.
 //
 // While Redis is unreachable it returns storage.ErrRedisUnavailable without a
 // network call. The spend still lands in the usage records.
-func (c *RedisBudgetCounter) IncrementSpends(ctx context.Context, scopes SpendScopes, categories []policy.BudgetCategory, amount float64) error {
+func (c *RedisBudgetCounter) IncrementSpends(ctx context.Context, scopes SpendScopes, categories []policy.BudgetCategory, amount float64) (policy.BudgetSpends, error) {
+	after := policy.BudgetSpends{Principal: map[string]float64{}, RolePools: map[string]float64{}, Tenant: map[string]float64{}}
 	if c.available != nil && !c.available() {
-		return fmt.Errorf("increment spends: %w", storage.ErrRedisUnavailable)
+		return after, fmt.Errorf("increment spends: %w", storage.ErrRedisUnavailable)
 	}
 	now := time.Now().UTC()
 
@@ -356,39 +357,49 @@ func (c *RedisBudgetCounter) IncrementSpends(ctx context.Context, scopes SpendSc
 		windows[w] = struct{}{}
 	}
 	for w := range windows {
-		if err := c.incrementKey(ctx, principalKey(scopes.PrincipalID, w, now), amount, budgetKeyTTL); err != nil {
-			return err
+		v, err := c.incrementKey(ctx, principalKey(scopes.PrincipalID, w, now), amount, budgetKeyTTL)
+		if err != nil {
+			return after, err
 		}
+		after.Principal[w] = v
 	}
 
-	if err := c.incrementDelegatorSpends(ctx, scopes, amount, now); err != nil {
-		return err
+	delegator, err := c.incrementDelegatorSpends(ctx, scopes, amount, now)
+	if err != nil {
+		return after, err
 	}
+	after.Delegator = delegator
 
 	if scopes.TenantWindow != "" {
-		if err := c.incrementKey(ctx, tenantKey(scopes.TenantID, scopes.TenantWindow, now), amount, budgetKeyTTL); err != nil {
-			return err
+		v, err := c.incrementKey(ctx, tenantKey(scopes.TenantID, scopes.TenantWindow, now), amount, budgetKeyTTL)
+		if err != nil {
+			return after, err
 		}
+		after.Tenant[scopes.TenantWindow] = v
 	}
 
 	for role, w := range scopes.PoolWindows {
-		if err := c.incrementKey(ctx, poolKey(scopes.TenantID, role, w, now), amount, budgetKeyTTL); err != nil {
-			return err
+		v, err := c.incrementKey(ctx, poolKey(scopes.TenantID, role, w, now), amount, budgetKeyTTL)
+		if err != nil {
+			return after, err
 		}
+		after.RolePools[role] = v
 	}
 
 	if scopes.RunID != "" {
-		if err := c.incrementKey(ctx, runKey(scopes.RunID), amount, runKeyTTL); err != nil {
-			return err
+		v, err := c.incrementKey(ctx, runKey(scopes.RunID), amount, runKeyTTL)
+		if err != nil {
+			return after, err
 		}
+		after.Run = v
 	}
 
 	for _, cat := range categories {
-		if err := c.incrementKey(ctx, categoryKey(scopes.PrincipalID, cat, now), amount, budgetKeyTTL); err != nil {
-			return err
+		if _, err := c.incrementKey(ctx, categoryKey(scopes.PrincipalID, cat, now), amount, budgetKeyTTL); err != nil {
+			return after, err
 		}
 	}
-	return nil
+	return after, nil
 }
 
 // incrementDelegatorSpends accumulates delegated spend against the DELEGATOR's
@@ -396,25 +407,30 @@ func (c *RedisBudgetCounter) IncrementSpends(ctx context.Context, scopes SpendSc
 // the person's ceilings and personal budget view include their delegated runs
 // (delegated-agent-identity ADR, Decision 5). Monthly is always written,
 // mirroring the principal path. No-op for non-delegated traffic.
-func (c *RedisBudgetCounter) incrementDelegatorSpends(ctx context.Context, scopes SpendScopes, amount float64, now time.Time) error {
+func (c *RedisBudgetCounter) incrementDelegatorSpends(ctx context.Context, scopes SpendScopes, amount float64, now time.Time) (map[string]float64, error) {
 	if scopes.DelegatorID == "" {
-		return nil
+		return nil, nil
 	}
 	windows := map[string]struct{}{"monthly": {}}
 	for _, w := range scopes.DelegatorWindows {
 		windows[w] = struct{}{}
 	}
+	after := map[string]float64{}
 	for w := range windows {
-		if err := c.incrementKey(ctx, principalKey(scopes.DelegatorID, w, now), amount, budgetKeyTTL); err != nil {
-			return err
+		v, err := c.incrementKey(ctx, principalKey(scopes.DelegatorID, w, now), amount, budgetKeyTTL)
+		if err != nil {
+			return nil, err
 		}
+		after[w] = v
 	}
-	return nil
+	return after, nil
 }
 
-func (c *RedisBudgetCounter) incrementKey(ctx context.Context, key string, amount float64, ttl time.Duration) error {
-	if _, err := c.rdb.IncrByFloat(ctx, key, amount).Result(); err != nil {
-		return fmt.Errorf("budget counter incr %q: %w", key, err)
+// incrementKey adds amount to key and returns the counter after the increment.
+func (c *RedisBudgetCounter) incrementKey(ctx context.Context, key string, amount float64, ttl time.Duration) (float64, error) {
+	v, err := c.rdb.IncrByFloat(ctx, key, amount).Result()
+	if err != nil {
+		return 0, fmt.Errorf("budget counter incr %q: %w", key, err)
 	}
 
 	// Refresh TTL on every write (per ADR).
@@ -424,5 +440,5 @@ func (c *RedisBudgetCounter) incrementKey(ctx context.Context, key string, amoun
 			logging.Field{Key: "error", Value: expErr.Error()},
 		)
 	}
-	return nil
+	return v, nil
 }

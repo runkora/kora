@@ -384,7 +384,7 @@ func noProductNameLiteral(m dsl.Matcher) {
 
 // eventProducerPackages are the event spine producers (docs/adr/2026-11-06-event-spine.md, section 3).
 // Add a package to the alternation when its repositories move to storage.Pool.
-const eventProducerPackages = `^github\.com/runkora/kora/backend/internal/(agents)$`
+const eventProducerPackages = `^github\.com/runkora/kora/backend/internal/(agents|triggers|identity|policyservice/(grants|roles|tenantbudget))$`
 
 // noPgxpoolInEventProducers bans *pgxpool.Pool in the event producer packages.
 // A query on the raw pool runs outside the context transaction. Its state change
