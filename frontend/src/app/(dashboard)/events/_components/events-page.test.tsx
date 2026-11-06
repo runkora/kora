@@ -35,13 +35,18 @@ function feed(over: Partial<EventFeed> = {}): EventFeed {
   };
 }
 
-function renderPage(f: EventFeed, filters: EventFilters = NO_FILTERS, onChange = vi.fn()) {
+function renderPage(
+  f: EventFeed,
+  filters: EventFilters = NO_FILTERS,
+  onChange = vi.fn(),
+  eventTypes = [...new Set(EVENTS.map((e) => e.type))],
+) {
   renderWithProviders(
     <EventsPage
       feed={f}
       filters={filters}
       onFiltersChange={onChange}
-      eventTypes={[...new Set(EVENTS.map((e) => e.type))]}
+      eventTypes={eventTypes}
       traceUrlTemplate={TRACE_URL_TEMPLATE}
     />,
   );
@@ -120,5 +125,29 @@ describe('EventsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Older event' }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: eventSummary(EVENTS[1]!) })).toBeInTheDocument();
+  });
+
+  it('offers the types the feed has shown until the catalog arrives', () => {
+    renderPage(feed({ types: ['agents.run.failed.v1'] }), NO_FILTERS, vi.fn(), []);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Filter' })[0] as HTMLElement);
+    const options = screen.getByLabelText('Filter options');
+    expect(
+      within(options)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['agents.run.failed.v1']);
+  });
+
+  it('adds the catalog to the types the feed has shown', () => {
+    renderPage(feed({ types: ['agents.run.failed.v1'] }), NO_FILTERS, vi.fn(), [
+      'policy.grant.created.v1',
+    ]);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Filter' })[0] as HTMLElement);
+    const options = screen.getByLabelText('Filter options');
+    expect(
+      within(options)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['agents.run.failed.v1', 'policy.grant.created.v1']);
   });
 });

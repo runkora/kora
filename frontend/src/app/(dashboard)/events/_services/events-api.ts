@@ -28,6 +28,18 @@ export async function fetchEventPage(params: URLSearchParams): Promise<FetchEven
   }
 }
 
+/** The platform event types from kora-triggers, or none when the caller cannot read them. */
+export async function fetchEventTypes(): Promise<string[]> {
+  try {
+    const res = await fetch(ApiRoute.triggers.eventTypes(), { cache: 'no-store' });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { data?: string[] };
+    return body.data ?? [];
+  } catch {
+    return [];
+  }
+}
+
 /** Opens the live stream. `after` in the params replays every event past that seq first. */
 export function openEventStream(params: URLSearchParams): EventSource {
   return new EventSource(ApiRoute.events.stream(params));
