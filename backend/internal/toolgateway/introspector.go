@@ -135,9 +135,18 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 	snap.LastIntrospectedAt = time.Now()
 
 	if err != nil {
+		// An outage logs one Error, then a Warn per retry.
+		logAt := i.logger.Error
+		if snap.State == StateDegraded {
+			logAt = i.logger.Warn
+		}
 		snap.State = StateDegraded
 		snap.LastErr = err.Error()
-		i.logger.Error(ctx, "MCP server introspection failed — retaining prior tools",
+		msg := "MCP server introspection failed"
+		if len(snap.Tools) > 0 {
+			msg += " — retaining prior tools"
+		}
+		logAt(ctx, msg,
 			logging.Field{Key: "server", Value: srv.Name},
 			logging.Field{Key: "tenant_id", Value: srv.TenantID},
 			logging.Field{Key: "endpoint", Value: srv.Endpoint},
@@ -263,17 +272,35 @@ func (i *Introspector) Snapshot() []ServerSnapshot {
 	return out
 }
 
-// AllSeenOrRetained reports whether every server in the list has either been
-// successfully introspected this lifetime (StateOK) or is Degraded with prior
-// tools to retain. A server that has NEVER been reachable since boot (Pending,
-// or Degraded with no tools) returns false — the prune-guard then defers the
-// destructive prune so a cold/partial start cannot revoke live scopes.
-func (i *Introspector) AllSeenOrRetained(servers []Server) bool {
+// Unreached counts the listed servers never introspected successfully.
+func (i *Introspector) Unreached(servers []Server) int {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
+	n := 0
 	for _, srv := range servers {
-		snap := i.snapshots[serverKey(srv.TenantID, srv.Name)]
-		if snap == nil {
+		if snap := i.snapshots[serverKey(srv.TenantID, srv.Name)]; snap == nil || !snap.Reached {
+			n++
+		}
+	}
+	return n
+}
+
+// AllSeenOrRetained reports whether every server in the list has either been
+// successfully introspected this lifetime (StateOK) or is Degraded with prior
+// tools to retain. A server that has NEVER been reachable since boot (absent,
+// Pending, or Degraded with no tools) returns false. The prune-guard then
+// defers the destructive prune so a cold/partial start cannot revoke live
+// scopes.
+//
+// It reads the snapshots the keep-list was built from, never live state.
+func AllSeenOrRetained(servers []Server, snapshots []ServerSnapshot) bool {
+	byKey := make(map[string]ServerSnapshot, len(snapshots))
+	for _, snap := range snapshots {
+		byKey[serverKey(snap.Server.TenantID, snap.Server.Name)] = snap
+	}
+	for _, srv := range servers {
+		snap, ok := byKey[serverKey(srv.TenantID, srv.Name)]
+		if !ok {
 			return false
 		}
 		if snap.State == StateOK {

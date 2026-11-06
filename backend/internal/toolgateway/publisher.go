@@ -48,7 +48,8 @@ func NewPublisher(registry *Registry, introspector *Introspector, client *routes
 // publish that fails is re-attempted on the next cycle rather than blocking
 // this one.
 func (p *Publisher) Publish(ctx context.Context) error {
-	servers := p.registry.Servers()
+	// One read of each source: see Registry.ServersAndLoaded.
+	servers, loaded := p.registry.ServersAndLoaded()
 	snapshots := p.introspector.Snapshot()
 
 	decls, collisions := BuildScopes(snapshots)
@@ -63,7 +64,7 @@ func (p *Publisher) Publish(ctx context.Context) error {
 			fmt.Sprintf("tool %q scope shadows sibling %q", c.Tool, c.ShadowedBy))
 	}
 
-	prune := p.registry.Loaded() && p.introspector.AllSeenOrRetained(servers)
+	prune := loaded && AllSeenOrRetained(servers, snapshots)
 	if err := p.client.RegisterWithPrune(ctx, ServiceName, CoarseRoutes(), decls, prune); err != nil {
 		return fmt.Errorf("register mcp scopes: %w", err)
 	}

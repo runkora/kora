@@ -147,7 +147,7 @@ kora records every significant technical decision as an ADR. This index is the c
 
 Build order: **Registration** is the foundation; the **Gateway** depends on it, and on **OAuth** (which can be built in parallel with the Gateway).
 
-- [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) — `Accepted (Amended 2026-10-22)` · 2026-06-29
+- [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) — `Accepted (Amended 2026-11-02)` · 2026-06-29
 - [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) — `Accepted` · 2026-06-29
 - [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) — `Accepted` · 2026-06-29
 - [kora MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) — `Accepted` · 2026-06-30
@@ -285,7 +285,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-08-03 | [Hades Wizard Component](2026-08-03-terra-wizard-component.md) | Proposed | — |
 | 2026-08-17 | [Agent Skills](2026-08-17-agent-skills.md) | Accepted | — |
 | 2026-09-06 | [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) | Proposed | — |
-| 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted (Amended 2026-10-22) | — |
+| 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted (Amended 2026-11-02) | — |
 | 2026-07-24 | [Non-Token Model Pricing: Full Cost Dimension Pipeline](2026-07-24-non-token-model-pricing.md) | Accepted | — |
 | 2026-06-29 | [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) | Accepted | — |
 | 2026-06-29 | [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) | Accepted | — |

@@ -200,3 +200,27 @@ func TestToolRequires(t *testing.T) {
 		})
 	}
 }
+
+// TestIntrospectorUnreached counts a server until its first successful
+// introspection, and a later failure does not count it again.
+func TestIntrospectorUnreached(t *testing.T) {
+	ctx := context.Background()
+	endpoint, _ := newFakeMCPServer(t)
+	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
+	up := Server{Name: "up", Endpoint: endpoint, ReintrospectIntervalSeconds: 3600}
+	down := Server{Name: "down", Endpoint: "http://127.0.0.1:1/mcp", ReintrospectIntervalSeconds: 3600}
+
+	if got := i.Unreached([]Server{up, down}); got != 2 {
+		t.Fatalf("before any sync: Unreached = %d, want 2", got)
+	}
+	i.Sync(ctx, []Server{up, down}, true)
+	if got := i.Unreached([]Server{up, down}); got != 1 {
+		t.Fatalf("after sync: Unreached = %d, want 1 (only the server that failed)", got)
+	}
+
+	up.Endpoint = "http://127.0.0.1:1/mcp"
+	i.Sync(ctx, []Server{up, down}, true)
+	if got := i.Unreached([]Server{up, down}); got != 1 {
+		t.Errorf("a reached server that later fails: Unreached = %d, want 1", got)
+	}
+}

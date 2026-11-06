@@ -74,7 +74,8 @@ type Config struct {
 		// polling granularity, not a per-server cadence: on each tick, a
 		// server is only actually re-introspected once its own
 		// reintrospectIntervalSeconds has elapsed since its last introspection
-		// (0 = reload-only, never due on the timer).
+		// (0 = reload-only, never due on the timer). A server never reached is
+		// retried on a short backoff between ticks, whatever its interval.
 		ReintrospectIntervalSecs int `yaml:"reintrospectIntervalSecs"`
 	} `yaml:"introspection"`
 

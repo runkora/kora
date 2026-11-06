@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-06-29-mcp-server-registration-and-introspection.md -->
 
-**Status:** Accepted (Amended 2026-10-22)
+**Status:** Accepted (Amended 2026-11-02)
 **Date:** 2026-06-29
 **Deciders:** Justin Wilkin, kora Core Team
 **Technical Story:** [MCP / Tool Gateway PRD](../prd/mcp-tool-gateway.md)
@@ -211,7 +211,8 @@ Purely Kubernetes-facing: no MCP calls, no policy-service calls, no new identity
 
 ```
 on registry reload / timer:
-  for each server in the mounted registry (subject to its reintrospectInterval):
+  for each server in the mounted registry (subject to its reintrospectInterval;
+      a server never reached retries on its own backoff between ticks):
     open MCP session to endpoint → initialize, tools/list
       └─ on error (unreachable / malformed): record server Degraded in
          metrics + catalog; RETAIN its prior tools in the keep-list; continue
@@ -223,6 +224,8 @@ on registry reload / timer:
   if registry fully mounted AND every listed server seen-or-retained:
      run global DeleteOrphans(keep)                 // prune-guard: else Upsert-only
 ```
+
+> **Amendment (2026-11-02): retry servers never reached.** From [#880](https://github.com/runkora/kora/issues/880), where the publisher and an MCP server restarted together and the gateway served no tools for a full interval. A server that has never been reached has no tools to serve, so the loop retries it between timer ticks on a backoff of 2s doubling to 60s, whatever its `reintrospectIntervalSeconds`. A retry publishes scopes and rewrites the catalog only when it reaches a server for the first time. Timer ticks and reloads publish as before, and the prune guard reads the registry and the snapshots once per publish.
 
 Publication is global with a union keep-list, so `DeleteOrphans` (which runs for `tenantID == ""`) prunes a scope only when no server in any tenant still exposes it — exactly the connection `ScopePublisher` behaviour. A tenant's `github` and another tenant's `github` share the `mcp:github` names; that is fine, because the gateway resolves the *caller's* tenant's server and authorisation is on tenant-scoped grants. A server that is unreachable at introspection time keeps its prior tools in the keep-list (no silent prune) and is flagged `Degraded` in the gateway's metrics and the catalog — not on the CR.
 

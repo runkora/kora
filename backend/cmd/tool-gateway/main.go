@@ -142,10 +142,7 @@ func realMain() error {
 		// introspects only servers due per their own ReintrospectIntervalSeconds
 		// (0 = reload-only, honored by Introspector.Sync).
 		var cycleMu sync.Mutex
-		cycle := func(ctx context.Context, force bool) {
-			cycleMu.Lock()
-			defer cycleMu.Unlock()
-			introspector.Sync(ctx, registry.Servers(), force)
+		publishAndRebuild := func(ctx context.Context) {
 			if pubErr := publisher.Publish(ctx); pubErr != nil {
 				logger.Error(ctx, "MCP scope publish failed", logging.Field{Key: "error", Value: pubErr.Error()})
 			}
@@ -153,9 +150,34 @@ func realMain() error {
 				logger.Error(ctx, "MCP catalog rebuild failed", logging.Field{Key: "error", Value: replaceErr.Error()})
 			}
 		}
-		registry.OnReload(func(ctx context.Context) { cycle(ctx, true) })
+		cycle := func(ctx context.Context, force bool) {
+			cycleMu.Lock()
+			defer cycleMu.Unlock()
+			introspector.Sync(ctx, registry.Servers(), force)
+			publishAndRebuild(ctx)
+		}
+		// A retry publishes only when it first reaches a server, never after a failed attempt.
+		retry := func(ctx context.Context) {
+			cycleMu.Lock()
+			defer cycleMu.Unlock()
+			servers := registry.Servers()
+			before := introspector.Unreached(servers)
+			introspector.Sync(ctx, servers, false)
+			if introspector.Unreached(servers) < before {
+				publishAndRebuild(ctx)
+			}
+		}
+		unreached := func() bool { return introspector.Unreached(registry.Servers()) > 0 }
+		reloaded := make(chan struct{}, 1)
+		registry.OnReload(func(ctx context.Context) {
+			cycle(ctx, true)
+			select {
+			case reloaded <- struct{}{}:
+			default:
+			}
+		})
 		go registry.Watch(ctx)
-		go runIntrospectionLoop(ctx, cycle, tgc.Current.ReintrospectInterval(), logger)
+		go runIntrospectionLoop(ctx, cycle, retry, unreached, reloaded, tgc.Current.ReintrospectInterval(), logger)
 	}
 
 	// ── HTTP server (health + catalog [+ MCP proxy in proxy mode]) ───────────
@@ -202,20 +224,45 @@ func realMain() error {
 
 // runIntrospectionLoop runs the introspection cycle once (forced) at startup
 // and then on a timer (unforced — each server's own reintrospect interval
-// applies) until ctx is canceled.
-func runIntrospectionLoop(ctx context.Context, cycle func(context.Context, bool), interval time.Duration, logger logging.Logger) {
+// applies) until ctx is canceled. Between ticks, retry runs on a backoff while
+// any server has never been reached. A reload re-checks that.
+func runIntrospectionLoop(
+	ctx context.Context,
+	cycle func(context.Context, bool),
+	retry func(context.Context),
+	unreached func() bool,
+	reloaded <-chan struct{},
+	interval time.Duration,
+	logger logging.Logger,
+) {
 	cycle(ctx, true)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	failures := 0
 	for {
+		var retryC <-chan time.Time
+		if unreached() {
+			failures++
+			retryC = time.After(retryDelay(failures))
+		} else {
+			failures = 0
+		}
 		select {
 		case <-ctx.Done():
 			return
+		case <-reloaded:
 		case <-ticker.C:
 			logger.Debug(ctx, "periodic re-introspection tick")
 			cycle(ctx, false)
+		case <-retryC:
+			retry(ctx)
 		}
 	}
+}
+
+// retryDelay is 2s doubling per attempt, capped at a minute.
+func retryDelay(attempt int) time.Duration {
+	return min(time.Minute, 2*time.Second<<min(attempt-1, 5))
 }
 
 func initRedis(ctx context.Context, logger logging.Logger) (*storage.RedisClient, error) {

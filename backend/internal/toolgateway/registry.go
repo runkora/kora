@@ -76,6 +76,16 @@ func (r *Registry) Servers() []Server {
 	return out
 }
 
+// ServersAndLoaded returns the servers and whether the registry has mounted, in
+// one read. Read apart, an unmounted empty list and a later Loaded() would prune every mcp scope.
+func (r *Registry) ServersAndLoaded() ([]Server, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]Server, len(r.servers))
+	copy(out, r.servers)
+	return out, r.loaded
+}
+
 // lookup returns the server with the given name that the tenant may reach: a
 // global server if one exists, otherwise the tenant's own. Another tenant's
 // same-named server is never returned, so it cannot shadow the caller's.
