@@ -949,7 +949,7 @@ func TestPlatformForbiddenNamesTheResource(t *testing.T) {
 		_, _ = w.Write([]byte(`{"code":"forbidden","message":"deny:no_matching_grant"}`))
 	}))
 	defer backend.Close()
-	b := Backends{Agents: backend.URL, Triggers: backend.URL, Policy: backend.URL, Identity: backend.URL, Inference: backend.URL}
+	b := Backends{Agents: backend.URL, Triggers: backend.URL, Policy: backend.URL, Identity: backend.URL, Inference: backend.URL, Events: backend.URL}
 	srv := NewServer(b, korajson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
 	defer gw.Close()
@@ -962,6 +962,7 @@ func TestPlatformForbiddenNamesTheResource(t *testing.T) {
 		{"budgets.tenant.get", "You do not have access to budgets."},
 		{"policy.roles.list", "You do not have access to policy roles."},
 		{"identity.users.list", "You do not have access to the user directory."},
+		{"events.list", "You do not have access to platform events."},
 	}
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {
@@ -1179,5 +1180,63 @@ func TestVirtualModelWriteRefusalsSurfaceTheMessage(t *testing.T) {
 				t.Errorf("text = %q, want it to contain %q", text, tc.want)
 			}
 		})
+	}
+}
+
+// TestEventToolsForwardFiltersAndPath checks events.list forwards every filter,
+// with type, agent and principal repeated, and events.get reads one event by id.
+func TestEventToolsForwardFiltersAndPath(t *testing.T) {
+	var gotPath, gotAuth string
+	var gotQuery url.Values
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery, gotAuth = r.URL.Path, r.URL.Query(), r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"events":[],"next_cursor":null}`))
+	}))
+	defer backend.Close()
+
+	srv := NewServer(Backends{Events: backend.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	call("tools/call", map[string]any{"name": "events.list", "arguments": map[string]any{
+		"category": "agents.run", "type": []string{"agents.run.failed.v1", "agents.run.completed.v1"},
+		"agent": []string{"triage", "reviewer"}, "principal": []string{"user-1"},
+		"run_id": "7d0f0d7e-2a8e-4f7c-9d55-0a4b8e0c1f00", "before": "90", "after": "2026-11-01T00:00:00Z",
+		"q": "triage", "cursor": "next-page", "limit": 20,
+	}})
+	want := url.Values{
+		"category": {"agents.run"}, "type": {"agents.run.failed.v1", "agents.run.completed.v1"},
+		"agent": {"triage", "reviewer"}, "principal": {"user-1"},
+		"run_id": {"7d0f0d7e-2a8e-4f7c-9d55-0a4b8e0c1f00"}, "before": {"90"}, "after": {"2026-11-01T00:00:00Z"},
+		"q": {"triage"}, "cursor": {"next-page"}, "limit": {"20"},
+	}
+	if gotPath != "/v1/events" || !reflect.DeepEqual(gotQuery, want) {
+		t.Errorf("events.list hit %q?%v, want /v1/events?%v", gotPath, gotQuery, want)
+	}
+	if gotAuth != "Bearer caller-abc" {
+		t.Errorf("events.list did not forward the caller token; got %q", gotAuth)
+	}
+
+	call("tools/call", map[string]any{"name": "events.list", "arguments": map[string]any{}})
+	if len(gotQuery) != 0 {
+		t.Errorf("unset filters were forwarded: %v", gotQuery)
+	}
+
+	const id = "0b6f8a52-3c1e-4d7a-9f2b-5e8c1d4a7b90"
+	call("tools/call", map[string]any{"name": "events.get", "arguments": map[string]any{"id": id}})
+	if gotPath != "/v1/events/"+id {
+		t.Errorf("events.get hit %q, want /v1/events/%s", gotPath, id)
+	}
+
+	// A non-UUID id never reaches the backend, where "stream" would open the event stream.
+	for _, bad := range []string{"", "stream"} {
+		gotPath = ""
+		resp := call("tools/call", map[string]any{"name": "events.get", "arguments": map[string]any{"id": bad}})
+		if result, _ := resp["result"].(map[string]any); result["isError"] != true || gotPath != "" {
+			t.Errorf("events.get(%q) = %v and hit %q, want an error result and no backend call", bad, result, gotPath)
+		}
 	}
 }
