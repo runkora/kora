@@ -31,7 +31,7 @@ The deliveries list pages with a keyset cursor and filters by status in SQL, and
 
 ### Trigger Scope
 
-- `trigger_id=` lists the deliveries that reached the trigger: those with one of its outcome rows in `trigger_delivery_runs`, and those recorded against it with a `verified`, `missed` or `duplicate` status and no outcome of their own.
+- `trigger_id=` lists the deliveries that reached the trigger: those with one of its outcome rows in `trigger_delivery_runs`, and those recorded against it with a `verified` or `missed` status and no outcome of their own. A duplicate delivery carries no `trigger_id` and reaches no trigger.
 - `agent_type_id=` applies the same scope to every trigger `GET /api/v1/triggers?agent_type_id=` lists for the agent. It does not combine with `trigger_id`, and neither combines with `source_id` or `kind`.
 - `trigger_delivery_runs` carries the delivery's `received_at`, copied on insert and backfilled by the migration. The column defaults to `now()` for rows written by older pods during a rollout.
 - The query reads one index-ordered page per trigger and outcome from `idx_trigger_delivery_runs_reach` or `idx_trigger_delivery_runs_reach_status`, and one per trigger from the partial `idx_trigger_deliveries_recorded`. It merges the pages and keeps the newest. A page costs the same at any history depth.
@@ -44,13 +44,13 @@ The deliveries list pages with a keyset cursor and filters by status in SQL, and
   - `filtered`: `filtered`.
   - `skipped`: `unrouted` and `paused`.
   - `superseded`: `superseded`.
-  - `duplicate`, `missed` and `verified`: a recorded delivery with that status.
+  - `missed` and `verified`: a recorded delivery with that status.
 - Without a trigger scope, `status=` takes one of `dispatched`, `verified`, `skipped`, `failed`, `duplicate` or `missed`. It matches the delivery's status with scalar equality to use `idx_trigger_deliveries_tenant_status`.
 - A value outside the scope's set is a 400.
 
 ### Trigger Stats
 
-Each trigger in `GET /api/v1/triggers` carries `stats`, and the envelope carries the tenant's `stats` and the `window` they cover. A trigger's stats count its outcome rows and the deliveries recorded against it, as the trigger scope defines them. `window=` takes `24h` or `7d`, defaults to `24h` and runs to the time of the request. Any other value is a 400. `idx_trigger_delivery_runs_window` on `(tenant_id, received_at)` limits those reads to the window's rows on every supported Postgres version.
+Each trigger in `GET /api/v1/triggers` carries `stats`, and the envelope carries the tenant's `stats`. A trigger's stats count its outcome rows and the deliveries recorded against it, as the trigger scope defines them. `window=` takes `24h` or `7d`, defaults to `24h` and runs to the time of the request. Any other value is a 400. `idx_trigger_delivery_runs_window` on `(tenant_id, received_at)` limits those reads to the window's rows on every supported Postgres version.
 
 The per-trigger stats are:
 
@@ -61,7 +61,7 @@ The per-trigger stats are:
 
 The tenant stats cover the same window. They are `deliveries` (every arrival), `started`, `failed`, and `dispatch_p50_ms` and `dispatch_p95_ms`. The percentiles use `percentile_cont` over started outcomes, measured from delivery arrival to the outcome row. The console derives the success rate as started over started plus failed.
 
-The console bounds a delivery list to the selected window with `received_after`, and its activity sparkline draws `started` and `failed` only.
+The console's range is the page's `?window=` parameter: `24h`, `7d` or `all`. With `24h` or `7d` the console reads the stats for that window and bounds every delivery list with `received_after`. With `all` the delivery lists are unbounded and the console shows no window counts. The trigger list's activity column shows `24h` and draws `started` and `failed` only.
 
 ## Consequences
 
