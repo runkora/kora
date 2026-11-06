@@ -92,11 +92,11 @@ func TestActivityEvent_Entities(t *testing.T) {
 
 func TestMessageEvent(t *testing.T) {
 	run := Run{ID: uuid.NewString(), TenantID: "t1"}
-	if e := messageEvent(run, nil).Entity.(runEntity); e.Sender != "person" {
-		t.Errorf("sender = %q, want person", e.Sender)
+	if e := messageEvent(run, nil).Entity.(runEntity); e.SenderTriggerID != "" {
+		t.Errorf("sender_trigger_id = %q, want empty", e.SenderTriggerID)
 	}
-	if e := messageEvent(run, &StartedByTrigger{TriggerID: "trg"}).Entity.(runEntity); e.Sender != "trigger" || e.SenderTriggerID != "trg" {
-		t.Errorf("sender = %q %q, want trigger trg", e.Sender, e.SenderTriggerID)
+	if e := messageEvent(run, &StartedByTrigger{TriggerID: "trg"}).Entity.(runEntity); e.SenderTriggerID != "trg" {
+		t.Errorf("sender_trigger_id = %q, want trg", e.SenderTriggerID)
 	}
 }
 

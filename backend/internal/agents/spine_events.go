@@ -30,8 +30,7 @@ type runEntity struct {
 	Error string `json:"error,omitempty"`
 	// Guardrail is the loop guard finding of a warning.
 	Guardrail *guardrailFinding `json:"guardrail,omitempty"`
-	// Sender is "person" or "trigger" for a message. SenderTriggerID names the trigger when it is known.
-	Sender          string `json:"sender,omitempty"`
+	// SenderTriggerID is the trigger that sent a message, when it is known.
 	SenderTriggerID string `json:"sender_trigger_id,omitempty"`
 }
 
@@ -270,12 +269,12 @@ func activityEvent(r Run, e RunEvent) (events.Event, bool) {
 	return events.Event{}, false
 }
 
-// messageEvent records a message sent to run r. from is the sending trigger, nil for a person.
+// messageEvent records a message sent to run r. from is the sending trigger, or
+// nil. The envelope's koraprincipaltype says who sent it.
 func messageEvent(r Run, from *StartedByTrigger) events.Event {
 	entity := newRunEntity(r)
-	entity.Sender = "person"
 	if from != nil {
-		entity.Sender, entity.SenderTriggerID = "trigger", from.TriggerID
+		entity.SenderTriggerID = from.TriggerID
 	}
 	return runEvent(events.RunMessageReceived, r, entity)
 }
