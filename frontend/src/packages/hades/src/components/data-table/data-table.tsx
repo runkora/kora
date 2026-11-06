@@ -229,6 +229,7 @@ export interface DataTableProps<TData> {
 
   // Search
   searchPlaceholder?: string;
+  /** Filters the rows by the search text. Leave it out when the server does the search. */
   searchFn?: (row: TData, query: string) => boolean;
   /**
    * Controlled search text. Provide it, with `onSearchChange`, to own the query outside the
@@ -238,7 +239,10 @@ export interface DataTableProps<TData> {
    * string to `undefined` falls back to the table's own stale text.
    */
   searchQuery?: string;
-  /** Called with the new text whenever the search box changes. */
+  /**
+   * Called with the new text whenever the search box changes. Given without `searchFn`, the
+   * table shows the box and leaves every row in, for a page that searches on the server.
+   */
   onSearchChange?: (query: string) => void;
 
   // Sort
@@ -265,6 +269,11 @@ export interface DataTableProps<TData> {
   emptyMessage?: string;
   filteredEmptyMessage?: string;
   error?: React.ReactNode;
+  /**
+   * Shown in the body in place of the rows, such as a loading, empty or error state of the
+   * page's own. The toolbar and the column headers stay, so their filters can still change.
+   */
+  bodyState?: React.ReactNode;
 
   /**
    * Whether the toolbar offers the Columns menu. Defaults to true. Turn it off for a table
@@ -472,6 +481,7 @@ export function DataTable<TData>({
   emptyMessage = 'No records found.',
   filteredEmptyMessage = 'No records match your filters.',
   error,
+  bodyState,
   noun = 'records',
   columnToggle = true,
   maxHeight,
@@ -732,7 +742,7 @@ export function DataTable<TData>({
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           searchPlaceholder={searchPlaceholder}
-          hasSearch={!!searchFn}
+          hasSearch={searchFn !== undefined || onSearchChange !== undefined}
           columnItems={columnToggle ? toolbarColumnItems : []}
           onColumnToggle={(id) => {
             const col = table.getColumn(id);
@@ -776,10 +786,10 @@ export function DataTable<TData>({
 
               {/* Body */}
               <div role="rowgroup">
-                {error ? (
+                {error || bodyState ? (
                   <div role="row">
                     <div role="cell" className="px-4 py-8">
-                      {error}
+                      {error || bodyState}
                     </div>
                   </div>
                 ) : paginatedRows.length === 0 ? (

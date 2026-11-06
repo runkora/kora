@@ -38,7 +38,7 @@ describe('ModalHeader titleAccessory', () => {
 });
 
 describe('Modal positioning', () => {
-  function panel(size: 'sm' | 'md' | 'lg' | 'builder') {
+  function panel(size: 'sm' | 'md' | 'lg' | 'xl' | 'builder') {
     render(
       <Modal open size={size} onClose={() => undefined}>
         <ModalHeader title="Title" />
@@ -47,7 +47,7 @@ describe('Modal positioning', () => {
     return screen.getByRole('dialog');
   }
 
-  it.each(['sm', 'md', 'lg'] as const)(
+  it.each(['sm', 'md', 'lg', 'xl'] as const)(
     'centres the %s size at every width instead of pinning it to the left edge',
     (size) => {
       const el = panel(size);
@@ -62,7 +62,7 @@ describe('Modal positioning', () => {
 });
 
 describe('Modal overflow', () => {
-  function renderTall(size: 'sm' | 'md' | 'lg') {
+  function renderTall(size: 'sm' | 'md' | 'lg' | 'xl') {
     render(
       <Modal open size={size} onClose={() => undefined}>
         <ModalHeader title="Title" />
@@ -79,7 +79,7 @@ describe('Modal overflow', () => {
   // jsdom does no layout, so these pin the classes that make it work. Real
   // layout (scrollHeight vs clientHeight, footer on screen) is checked in a
   // browser against the Overflow story in modal.stories.tsx.
-  it.each(['sm', 'md', 'lg'] as const)(
+  it.each(['sm', 'md', 'lg', 'xl'] as const)(
     'caps the %s panel to the viewport and clips it, so the body is what scrolls',
     (size) => {
       renderTall(size);

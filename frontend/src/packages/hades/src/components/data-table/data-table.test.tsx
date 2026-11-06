@@ -535,6 +535,62 @@ describe('DataTable search', () => {
   });
 });
 
+describe('DataTable server search', () => {
+  const rows: Row[] = [
+    { name: 'apollo', rank: 1, status: 'healthy' },
+    { name: 'borealis', rank: 2, status: 'stale' },
+  ];
+  const columns: DataTableColumn<Row>[] = [{ id: 'name', header: 'Name', cell: (r) => r.name }];
+
+  it('shows the box for onSearchChange alone and keeps every row the server returned', async () => {
+    const onSearchChange = vi.fn();
+    render(
+      <DataTable
+        data={rows}
+        columns={columns}
+        getRowKey={(r) => r.name}
+        searchQuery="zzz"
+        onSearchChange={onSearchChange}
+      />,
+    );
+    expect(screen.getByRole('textbox')).toHaveValue('zzz');
+    expect(screen.getByRole('cell', { name: 'apollo' })).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: 'borealis' })).toBeInTheDocument();
+    await userEvent.type(screen.getByRole('textbox'), 'a');
+    expect(onSearchChange).toHaveBeenLastCalledWith('zzza');
+  });
+
+  it('has no search box without searchFn or onSearchChange', () => {
+    render(<DataTable data={rows} columns={columns} getRowKey={(r) => r.name} />);
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+  });
+});
+
+describe('DataTable bodyState', () => {
+  const columns: DataTableColumn<Row>[] = [{ id: 'name', header: 'Name', cell: (r) => r.name }];
+
+  it('replaces the rows and the empty message and keeps the header', () => {
+    render(
+      <DataTable
+        data={data}
+        columns={columns}
+        getRowKey={(r) => r.name}
+        emptyMessage="Nothing here."
+        bodyState={<p>Loading agents</p>}
+      />,
+    );
+    expect(screen.getByText('Loading agents')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Name' })).toBeInTheDocument();
+    expect(screen.queryByRole('cell', { name: 'apollo' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Nothing here.')).not.toBeInTheDocument();
+  });
+
+  it('shows the rows when it is left out', () => {
+    render(<DataTable data={data} columns={columns} getRowKey={(r) => r.name} />);
+    expect(screen.getByRole('cell', { name: 'apollo' })).toBeInTheDocument();
+  });
+});
+
 describe('DataTable expandable rows', () => {
   const rows: Row[] = [
     { name: 'apollo', rank: 1, status: 'healthy' },
