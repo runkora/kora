@@ -267,7 +267,7 @@ CREATE TABLE event_relay_state (
 );
 ```
 
-`category` is the `<domain>.<entity>` prefix of `type`. The indexed columns copy envelope attributes for filtering.
+`category` is the `<domain>.<entity>` prefix of `type`. The indexed columns copy envelope attributes for filtering. The `q` search adds no index and reads `events_tenant_seq_idx` newest first up to the page limit.
 
 ### 5. Relay
 
@@ -286,10 +286,12 @@ Only the lock holder assigns `seq`, inside the batch transaction. An outbox row 
 
 `kora-events` serves on port 8099. The edge routes `/v1/events` to it with a 3600-second timeout for streams.
 
-*   `GET /v1/events` returns events for the caller's tenant, newest first. Filters: `category`, `type`, `agent`, `principal`, `run_id`, `before` and `after` (seq or time), `limit` up to 200. The response carries an opaque `next_cursor`.
+*   `GET /v1/events` returns events for the caller's tenant, newest first. Filters: `category`, `type`, `agent`, `principal`, `run_id`, `q`, `before` and `after` (seq or time), `limit` up to 200. The response carries an opaque `next_cursor`.
+*   `type`, `agent` and `principal` take several values. A filter matches any of its values, and an event matches every filter.
+*   `q` matches a substring of the type, subject, principal, agent or run id with `ILIKE`. It does not search the payload.
 *   `GET /v1/events/{id}` returns one event in the caller's tenant, or 404.
-*   `GET /v1/events/stream` is an SSE stream of the caller's tenant with the same filters. Each SSE message has `id: <seq>`. A `Last-Event-ID` replays every matching event after that seq and then streams live events.
-*   `GET /internal/v1/events/stream?after=<seq>` streams every tenant's events in seq order. An AuthorizationPolicy allows only the `kora-triggers` SPIFFE identity.
+*   `GET /v1/events/stream` is an SSE stream of the caller's tenant with the `category`, `type`, `agent`, `principal` and `run_id` filters and no `q`. Each SSE message carries its seq as `id`, and a `Last-Event-ID` replays every matching event after that seq before the live events. A stream ends when the caller's token expires.
+*   `GET /internal/v1/events/stream?after=<seq>` streams every tenant's events in seq order. An AuthorizationPolicy and `kora-events` itself allow only the `kora-triggers` identity.
 
 The public routes register `events:read` through `routescopes` and are enforced by `ScopeEnforcementMiddleware` ([Platform Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md)). The built-in tenant admin role gains `events:read`. Each replica holds one `LISTEN kora_events` connection and fans live events out to its open streams in memory.
 

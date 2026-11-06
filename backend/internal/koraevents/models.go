@@ -7,6 +7,7 @@ package koraevents
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 )
 
@@ -30,24 +31,29 @@ type Record struct {
 	runID     string
 }
 
-// Filter selects events. An empty field matches every event. An empty
-// tenant matches every tenant and is used only by the internal stream.
+// Filter selects events. An empty field matches every event, and a list
+// matches any of its values. An empty tenant matches every tenant and is used
+// only by the internal stream.
 type Filter struct {
-	Tenant    string
-	Category  string
-	Type      string
-	Agent     string
-	Principal string
-	RunID     string
+	Tenant     string
+	Category   string
+	Types      []string
+	Agents     []string
+	Principals []string
+	RunID      string
 }
 
 func (f Filter) matches(r Record) bool {
 	return (f.Tenant == "" || f.Tenant == r.tenant) &&
 		(f.Category == "" || f.Category == r.category) &&
-		(f.Type == "" || f.Type == r.eventType) &&
-		(f.Agent == "" || f.Agent == r.agent) &&
-		(f.Principal == "" || f.Principal == r.principal) &&
+		anyOf(f.Types, r.eventType) &&
+		anyOf(f.Agents, r.agent) &&
+		anyOf(f.Principals, r.principal) &&
 		(f.RunID == "" || f.RunID == r.runID)
+}
+
+func anyOf(values []string, v string) bool {
+	return len(values) == 0 || slices.Contains(values, v)
 }
 
 // Bound limits a page by seq or by occurred time. Zero values are unset.
@@ -59,6 +65,8 @@ type Bound struct {
 // ListQuery is one page of the list API, newest first.
 type ListQuery struct {
 	Filter Filter
+	// Q matches a substring of the type, subject, principal, agent or run id, ignoring case.
+	Q      string
 	Before Bound
 	After  Bound
 	Limit  int

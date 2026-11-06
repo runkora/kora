@@ -131,8 +131,9 @@ func TestList(t *testing.T) {
 		t.Errorf("second page = %v, want only seq 1 and no cursor", body)
 	}
 
-	_, _ = get(t, ts, "/v1/events?category=agents.run&agent=triage&run_id=2b4e8c1d-0000-4000-8000-000000000000&before=2026-11-06T00:00:00Z", "t1")
-	if f := store.listed.Filter; f.Tenant != "t1" || f.Category != "agents.run" || f.Agent != "triage" || f.RunID == "" || store.listed.Before.Time.IsZero() {
+	_, _ = get(t, ts, "/v1/events?category=agents.run&agent=triage&type=a&type=b&type=&q=+fail+&run_id=2b4e8c1d-0000-4000-8000-000000000000&before=2026-11-06T00:00:00Z", "t1")
+	if f := store.listed.Filter; f.Tenant != "t1" || f.Category != "agents.run" || !slices.Equal(f.Agents, []string{"triage"}) ||
+		!slices.Equal(f.Types, []string{"a", "b"}) || store.listed.Q != "fail" || f.RunID == "" || store.listed.Before.Time.IsZero() {
 		t.Errorf("list query = %+v", store.listed)
 	}
 
