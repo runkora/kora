@@ -838,27 +838,9 @@ func (r *postgresRepository) InTransaction(ctx context.Context, fn func(ctx cont
 	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error { return fn(ctx) })
 }
 
-// InSavepoint runs fn in a savepoint, or plainly outside a transaction. It
-// manages the savepoint itself: the pgx nested transaction cannot roll back
-// once its release has failed on an aborted savepoint.
+// InSavepoint runs fn in a savepoint, or plainly outside a transaction.
 func (r *postgresRepository) InSavepoint(ctx context.Context, fn func(ctx context.Context) error) error {
-	tx, ok := storage.TxFromContext(ctx)
-	if !ok {
-		return fn(ctx)
-	}
-	if _, err := tx.Exec(ctx, `SAVEPOINT trigger_fire`); err != nil {
-		return fmt.Errorf("savepoint: %w", err)
-	}
-	err := fn(ctx)
-	if err == nil {
-		if _, err = tx.Exec(ctx, `RELEASE SAVEPOINT trigger_fire`); err == nil {
-			return nil
-		}
-	}
-	if _, rbErr := tx.Exec(context.WithoutCancel(ctx), `ROLLBACK TO SAVEPOINT trigger_fire`); rbErr != nil {
-		return errors.Join(err, fmt.Errorf("roll back savepoint: %w", rbErr))
-	}
-	return err
+	return storage.WithSavepoint(ctx, fn)
 }
 
 // UpdateDeliveryOutcome records the run a delivery produced.
