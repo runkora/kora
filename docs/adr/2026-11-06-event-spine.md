@@ -312,7 +312,7 @@ The public routes register `events:read` through `routescopes` and are enforced 
 
 *   An event trigger stores `event_type` and the existing `match_condition` and `match_contains` maps. Matching runs over the envelope flattened to dotted fields (`data.entity.state`, `koraagent`) with the existing `matchesCondition` and `matchesContains`.
 *   A trigger matches only events of its own tenant.
-*   `ignore_own_runs` defaults to true. When it is set, an event does not fire if its `koratriggers` list holds this trigger. `kora-agents` keeps the list on the run with every trigger that started the run or sent it a message, and copies it onto every event about the run.
+*   `ignore_own_runs` defaults to true. When it is set, an event does not fire if its `koratriggers` list holds this trigger. `kora-agents` keeps the list on the run with every trigger that started the run or sent it a message, and copies it onto every event about the run. The delivery records outcome `filtered` with reason `own_run`.
 *   A trigger does not fire on an event with `korachaindepth` 5 or more. The delivery records outcome `filtered` with reason `chain_depth`.
 *   An event that matches at least one trigger records one delivery with `event_id`. A unique index on `trigger_deliveries (event_id) WHERE redelivery_of IS NULL` dedups a replayed event and leaves redelivery working. Per-trigger outcomes go in `trigger_delivery_runs` as for a webhook fan-out.
 *   Each fire goes through the existing admission, coalescing, routing and auto-pause.
