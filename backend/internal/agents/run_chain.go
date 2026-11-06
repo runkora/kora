@@ -52,8 +52,8 @@ func requestChain(ctx context.Context, runs runGetter, from *StartedByTrigger, c
 
 // inheritedChain is the chain of the attested run the caller acts for, one step
 // deeper, so a run an agent starts or messages stays in its loop guards. It is
-// empty for any other caller, for the target run itself, and for a run that is
-// not the calling agent's in its tenant.
+// empty for any other caller, for the target run itself, for a run that is not
+// the calling agent's in its tenant, and for a run in no trigger chain.
 func inheritedChain(ctx context.Context, runs runGetter, targetRunID string) (runChain, error) {
 	id := attestedRunID(ctx)
 	if id == "" || id == targetRunID {
@@ -67,7 +67,9 @@ func inheritedChain(ctx context.Context, runs runGetter, targetRunID string) (ru
 		return runChain{}, fmt.Errorf("read the calling run: %w", err)
 	}
 	claims, _ := token.ClaimsFromContext(ctx)
-	if parent.TenantID != tenantFromContext(ctx) || parent.AgentSlug != agentSlugFromClaims(claims) {
+	// A run outside a trigger chain passes no chain on.
+	if parent.TenantID != tenantFromContext(ctx) || parent.AgentSlug != agentSlugFromClaims(claims) ||
+		(parent.ChainDepth == 0 && len(parent.TriggerIDs) == 0) {
 		return runChain{}, nil
 	}
 	return runChain{causedBy: parent.CausedBy, depth: parent.ChainDepth + 1, triggers: parent.TriggerIDs}, nil

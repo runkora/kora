@@ -37,6 +37,8 @@ func sandboxAgentCtx(tenantID, slug, runID string) context.Context {
 func TestInheritedChain(t *testing.T) {
 	runs := runsByID{
 		"parent": {ID: "parent", TenantID: "t-1", AgentSlug: "triage", CausedBy: "ev-1", ChainDepth: 2, TriggerIDs: []string{"trg-a"}},
+		"plain":  {ID: "plain", TenantID: "t-1", AgentSlug: "triage"},
+		"manual": {ID: "manual", TenantID: "t-1", AgentSlug: "triage", TriggerIDs: []string{"trg-m"}},
 	}
 	inherited := runChain{causedBy: "ev-1", depth: 3, triggers: []string{"trg-a"}}
 	tests := []struct {
@@ -47,6 +49,8 @@ func TestInheritedChain(t *testing.T) {
 	}{
 		{name: "sandbox run", ctx: sandboxAgentCtx("t-1", "triage", "parent"), want: inherited},
 		{name: "delegated run", ctx: policy.WithDelegation(withAgentCtx(context.Background(), "t-1", "triage"), &policy.DelegationClaims{RunID: "parent"}), want: inherited},
+		{name: "a run in no trigger chain", ctx: sandboxAgentCtx("t-1", "triage", "plain")},
+		{name: "a run a trigger started at depth 0", ctx: sandboxAgentCtx("t-1", "triage", "manual"), want: runChain{depth: 1, triggers: []string{"trg-m"}}},
 		{name: "shared pod agent", ctx: withAgentCtx(context.Background(), "t-1", "triage")},
 		{name: "another agent's run", ctx: sandboxAgentCtx("t-1", "coder", "parent")},
 		{name: "another tenant's run", ctx: sandboxAgentCtx("t-2", "triage", "parent")},
