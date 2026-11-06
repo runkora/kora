@@ -73,17 +73,63 @@ const (
 	RunStatusPaused     = "paused"     // the trigger was auto-paused when this fire arrived
 )
 
-// DeliveryStatusFilters are the values ?status= accepts on the deliveries list.
-// Each maps to the per-trigger outcomes it matches when the list is scoped to one
-// trigger; "failed" covers every outcome the console shows as a failure.
-var DeliveryStatusFilters = map[string][]string{
-	StatusDispatched:    {RunStatusDispatched},
-	StatusVerified:      {},
-	StatusSkipped:       {},
-	StatusFailed:        FailureRunStatuses,
-	RunStatusSuperseded: {RunStatusSuperseded},
-	StatusDuplicate:     {},
-	StatusMissed:        {},
+// TenantDeliveryStatuses are the values ?status= accepts on the tenant-wide
+// deliveries list: the delivery's own status, matched with scalar equality.
+var TenantDeliveryStatuses = []string{StatusDispatched, StatusVerified, StatusSkipped, StatusFailed, StatusDuplicate, StatusMissed}
+
+// Trigger statuses group what happened to a delivery for one trigger. They are
+// the values ?status= accepts on a trigger-scoped list and the keys of
+// TriggerStats.StatusCounts.
+const (
+	TriggerStatusStarted    = "started"
+	TriggerStatusFailed     = "failed"
+	TriggerStatusFiltered   = "filtered"
+	TriggerStatusSkipped    = "skipped"
+	TriggerStatusSuperseded = "superseded"
+	TriggerStatusDuplicate  = "duplicate"
+	TriggerStatusMissed     = "missed"
+	TriggerStatusVerified   = "verified"
+)
+
+// TriggerStatuses lists every trigger status, in the order the console shows them.
+var TriggerStatuses = []string{
+	TriggerStatusStarted, TriggerStatusFailed, TriggerStatusFiltered, TriggerStatusSkipped,
+	TriggerStatusSuperseded, TriggerStatusDuplicate, TriggerStatusMissed, TriggerStatusVerified,
+}
+
+// triggerStatusOf maps every outcome status trigger_delivery_runs permits, and
+// every recorded delivery status, to the one trigger status it counts under, so
+// the status counts of a trigger sum to its deliveries.
+var triggerStatusOf = map[string]string{
+	RunStatusDispatched: TriggerStatusStarted,
+	RunStatusJoined:     TriggerStatusStarted,
+	RunStatusFailed:     TriggerStatusFailed,
+	RunStatusDenied:     TriggerStatusFailed,
+	RunStatusDropped:    TriggerStatusFailed,
+	RunStatusFiltered:   TriggerStatusFiltered,
+	RunStatusUnrouted:   TriggerStatusSkipped,
+	RunStatusPaused:     TriggerStatusSkipped,
+	RunStatusSuperseded: TriggerStatusSuperseded,
+	StatusDuplicate:     TriggerStatusDuplicate,
+	StatusMissed:        TriggerStatusMissed,
+	StatusVerified:      TriggerStatusVerified,
+}
+
+// triggerStatusMembers returns the outcome statuses and the recorded delivery
+// statuses a trigger status matches.
+func triggerStatusMembers(status string) (outcomes, recorded []string) {
+	for raw, ts := range triggerStatusOf {
+		switch {
+		case ts != status:
+		case slices.Contains(recordedStatuses, raw):
+			recorded = append(recorded, raw)
+		default:
+			outcomes = append(outcomes, raw)
+		}
+	}
+	slices.Sort(outcomes)
+	slices.Sort(recorded)
+	return outcomes, recorded
 }
 
 // StartedRunStatuses are the per-trigger outcomes where a run took the delivery.

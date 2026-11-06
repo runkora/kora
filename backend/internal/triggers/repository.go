@@ -94,9 +94,9 @@ type TriggerStore interface {
 	// ListTriggers returns triggers for a tenant, optionally filtered by
 	// agentTypeID (empty = all) — the agentTypeID filter backs the per-agent tab.
 	ListTriggers(ctx context.Context, tenantID, agentTypeID string) ([]Trigger, error)
-	// TriggerStats returns the stats of each trigger with activity, keyed by
-	// trigger id, the last fire of each of triggerIDs, and the tenant's stats.
-	TriggerStats(ctx context.Context, tenantID string, triggerIDs []string, now time.Time) (map[string]TriggerStats, TenantTriggerStats, error)
+	// TriggerStats returns the stats over w of each trigger with activity, keyed
+	// by trigger id, the last fire of each of triggerIDs, and the tenant's stats.
+	TriggerStats(ctx context.Context, tenantID string, triggerIDs []string, now time.Time, w StatsWindow) (map[string]TriggerStats, TenantTriggerStats, error)
 	// ListMatchableTriggersForSource returns the webhook triggers a delivery for
 	// this source is matched against: the enabled ones, plus the ones the
 	// platform auto-paused.

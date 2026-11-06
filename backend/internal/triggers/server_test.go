@@ -449,7 +449,8 @@ func TestHandleListDeliveries_Cursor(t *testing.T) {
 	}
 }
 
-// status= narrows the page; a value the list cannot match is a 400.
+// status= narrows the page. The tenant-wide list takes delivery statuses and a
+// trigger scope takes trigger statuses; anything else is a 400.
 func TestHandleListDeliveries_Status(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	for id, status := range map[string]string{"d-failed": StatusFailed, "d-skipped": StatusSkipped} {
@@ -461,13 +462,20 @@ func TestHandleListDeliveries_Status(t *testing.T) {
 	if len(body.Deliveries) != 1 || body.Deliveries[0].ID != "d-failed" {
 		t.Errorf("status=failed = %+v, want only d-failed", body.Deliveries)
 	}
-	for _, q := range []string{"status=bogus", "status=superseded"} {
+	for _, q := range []string{"status=bogus", "status=superseded", "status=started", "status=filtered"} {
 		if w := call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?"+q, nil, nil); w.Code != http.StatusBadRequest {
-			t.Errorf("%s: status %d, want 400", q, w.Code)
+			t.Errorf("tenant-wide %s: status %d, want 400", q, w.Code)
 		}
 	}
-	if w := call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?trigger_id=t1&status=superseded", nil, nil); w.Code != http.StatusOK {
-		t.Errorf("trigger-scoped superseded: status %d, want 200", w.Code)
+	for _, status := range TriggerStatuses {
+		if w := call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?trigger_id=t1&status="+status, nil, nil); w.Code != http.StatusOK {
+			t.Errorf("trigger-scoped %s: status %d, want 200", status, w.Code)
+		}
+	}
+	for _, status := range []string{"dispatched", "joined", "bogus"} {
+		if w := call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?trigger_id=t1&status="+status, nil, nil); w.Code != http.StatusBadRequest {
+			t.Errorf("trigger-scoped %s: status %d, want 400", status, w.Code)
+		}
 	}
 }
 
@@ -498,32 +506,51 @@ func TestHandleListDeliveries_AgentScope(t *testing.T) {
 }
 
 // Every listed trigger carries stats, zero-filled when it has no activity, and
-// the tenant's stats sit beside the list.
+// the tenant's stats and the window sit beside the list.
 func TestHandleListTriggers_Stats(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	src := mustSource(t, deps.sources)
 	busy := mustTrigger(t, deps.triggers, src.ID, nil, "busy")
 	quiet := mustTrigger(t, deps.triggers, src.ID, nil, "quiet")
 	p50 := 120.0
-	deps.repo.triggerStats = map[string]TriggerStats{busy.ID: {Deliveries24h: 3, Started24h: 2}}
-	deps.repo.tenantStats = TenantTriggerStats{Deliveries24h: 4, Started24h: 2, DispatchP50Ms: &p50}
+	deps.repo.triggerStats = map[string]TriggerStats{busy.ID: {Deliveries: 3, Started: 2}}
+	deps.repo.tenantStats = TenantTriggerStats{Deliveries: 4, Started: 2, DispatchP50Ms: &p50}
 
-	body := decode[struct {
-		Triggers []Trigger          `json:"triggers"`
-		Stats    TenantTriggerStats `json:"stats"`
-	}](t, call(t, c.handleListTriggers, http.MethodGet, "/triggers", nil, nil))
-	got := map[string]*TriggerStats{}
-	for _, tr := range body.Triggers {
-		got[tr.ID] = tr.Stats
+	for _, tc := range []struct {
+		query   string
+		window  StatsWindow
+		buckets int
+	}{
+		{"", StatsWindow24h, 13},
+		{"?window=24h", StatsWindow24h, 13},
+		{"?window=7d", StatsWindow7d, 15},
+	} {
+		body := decode[struct {
+			Triggers []Trigger          `json:"triggers"`
+			Stats    TenantTriggerStats `json:"stats"`
+			Window   string             `json:"window"`
+		}](t, call(t, c.handleListTriggers, http.MethodGet, "/triggers"+tc.query, nil, nil))
+		got := map[string]*TriggerStats{}
+		for _, tr := range body.Triggers {
+			got[tr.ID] = tr.Stats
+		}
+		if st := got[busy.ID]; st == nil || st.Deliveries != 3 || st.Started != 2 {
+			t.Errorf("%q busy stats = %+v, want the repository's", tc.query, st)
+		}
+		if st := got[quiet.ID]; st == nil || st.Deliveries != 0 || len(st.Buckets) != tc.buckets || st.LastFiredAt != nil {
+			t.Errorf("%q quiet stats = %+v, want zeros and %d empty buckets", tc.query, st, tc.buckets)
+		}
+		if body.Stats.Deliveries != 4 || body.Stats.DispatchP50Ms == nil || *body.Stats.DispatchP50Ms != p50 {
+			t.Errorf("%q tenant stats = %+v", tc.query, body.Stats)
+		}
+		if body.Window != tc.window.Name || deps.repo.statsWindow != tc.window {
+			t.Errorf("%q window = %q, repository read %+v; want %s", tc.query, body.Window, deps.repo.statsWindow, tc.window.Name)
+		}
 	}
-	if st := got[busy.ID]; st == nil || st.Deliveries24h != 3 || st.Started24h != 2 {
-		t.Errorf("busy stats = %+v, want the repository's", st)
-	}
-	if st := got[quiet.ID]; st == nil || st.Deliveries24h != 0 || len(st.Buckets) != statsBucketCount || st.LastFiredAt != nil {
-		t.Errorf("quiet stats = %+v, want zeros and %d empty buckets", st, statsBucketCount)
-	}
-	if body.Stats.Deliveries24h != 4 || body.Stats.DispatchP50Ms == nil || *body.Stats.DispatchP50Ms != p50 {
-		t.Errorf("tenant stats = %+v", body.Stats)
+	for _, bad := range []string{"30d", "1h", "24H"} {
+		if w := call(t, c.handleListTriggers, http.MethodGet, "/triggers?window="+bad, nil, nil); w.Code != http.StatusBadRequest {
+			t.Errorf("window=%s: status %d, want 400", bad, w.Code)
+		}
 	}
 }
 

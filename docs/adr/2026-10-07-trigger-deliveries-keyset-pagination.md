@@ -38,23 +38,30 @@ The deliveries list pages with a keyset cursor and filters by status in SQL, and
 
 ### Status Filter
 
-- `status=` takes one of `dispatched`, `verified`, `skipped`, `failed`, `superseded`, `duplicate` or `missed`. An unknown value is a 400.
-- With a trigger scope, `status` matches the trigger's outcome rows, and the delivery's status for a recorded delivery.
-- Without a trigger scope, `status` matches the delivery's status with scalar equality to use `idx_trigger_deliveries_tenant_status`. `superseded` needs a `trigger_id`.
-- `failed` matches the `failed`, `denied` and `dropped` outcomes.
+- With a trigger scope, `status=` takes a trigger status. Every outcome status `trigger_delivery_runs` permits and every recorded delivery status counts under exactly one:
+  - `started`: `dispatched` and `joined`.
+  - `failed`: `failed`, `denied` and `dropped`.
+  - `filtered`: `filtered`.
+  - `skipped`: `unrouted` and `paused`.
+  - `superseded`: `superseded`.
+  - `duplicate`, `missed` and `verified`: a recorded delivery with that status.
+- Without a trigger scope, `status=` takes one of `dispatched`, `verified`, `skipped`, `failed`, `duplicate` or `missed`. It matches the delivery's status with scalar equality to use `idx_trigger_deliveries_tenant_status`.
+- A value outside the scope's set is a 400.
 
 ### Trigger Stats
 
-Each trigger in `GET /api/v1/triggers` carries `stats`, and the envelope carries the tenant's `stats`. A trigger's stats count its outcome rows and the deliveries recorded against it, as the trigger scope defines them. Windows run over the 24 hours before the request. `idx_trigger_delivery_runs_window` on `(tenant_id, received_at)` limits those reads to the window's rows on every supported Postgres version.
+Each trigger in `GET /api/v1/triggers` carries `stats`, and the envelope carries the tenant's `stats` and the `window` they cover. A trigger's stats count its outcome rows and the deliveries recorded against it, as the trigger scope defines them. `window=` takes `24h` or `7d`, defaults to `24h` and runs to the time of the request. Any other value is a 400. `idx_trigger_delivery_runs_window` on `(tenant_id, received_at)` limits those reads to the window's rows on every supported Postgres version.
 
 The per-trigger stats are:
 
 - `last_fired_at`: the `received_at` of the newest outcome row with a `dispatched`, `joined`, `failed` or `denied` status, over all history. Each trigger reads it with one probe of `idx_trigger_delivery_runs_last_fired`, a partial index over those statuses.
-- `deliveries_24h`, `started_24h` (`dispatched`, `joined`) and `failed_24h` (`failed`, `denied`, `dropped`).
-- `status_24h`: counts by `status=` value, with the same match the trigger-scoped filter applies.
-- `buckets`: thirteen buckets of `started`, `failed` and `other`, aligned to UTC two-hour boundaries with `date_bin`, from the bucket holding now minus 24 hours to the bucket holding now. The first and last buckets are partial, and the bucket counts sum to `deliveries_24h`.
+- `deliveries`, `started` and `failed`: the window's deliveries and its `started` and `failed` trigger statuses.
+- `status_counts`: the window's deliveries per trigger status. The counts of all trigger statuses sum to `deliveries`.
+- `buckets`: buckets of `started`, `failed` and `other`, aligned to UTC with `date_bin`, from the bucket holding the window's start to the bucket holding now. `24h` has thirteen two-hour buckets and `7d` has fifteen twelve-hour buckets. The first and last buckets are partial, and the bucket counts sum to `deliveries`.
 
-The tenant stats are `deliveries_24h` (every arrival), `started_24h`, `failed_24h`, and `dispatch_p50_ms` and `dispatch_p95_ms`. The percentiles use `percentile_cont` over started outcomes, measured from delivery arrival to the outcome row. The console derives the success rate as started over started plus failed.
+The tenant stats cover the same window. They are `deliveries` (every arrival), `started`, `failed`, and `dispatch_p50_ms` and `dispatch_p95_ms`. The percentiles use `percentile_cont` over started outcomes, measured from delivery arrival to the outcome row. The console derives the success rate as started over started plus failed.
+
+The console bounds a delivery list to the selected window with `received_after`, and its activity sparkline draws `started` and `failed` only.
 
 ## Consequences
 
@@ -68,7 +75,7 @@ The tenant stats are `deliveries_24h` (every arrival), `started_24h`, `failed_24
 ### Negative
 
 - Every arrival maintains `idx_trigger_deliveries_tenant_status`, and every outcome row maintains four more indexes on `trigger_delivery_runs`.
-- The 24-hour stats aggregate every outcome row in the window on each trigger list read. The cost grows with 24-hour volume and does not grow with history.
+- The stats aggregate every outcome row in the window on each trigger list read. The cost grows with the window's volume and does not grow with history. A `7d` read aggregates about seven times the rows of a `24h` read.
 - A delivery recorded against a trigger with a `dispatched`, `failed` or `skipped` status and no outcome row for that trigger is absent from the trigger's list and stats.
 - The cursor encoding is a compatibility surface for any client that parses it.
 

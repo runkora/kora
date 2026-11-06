@@ -69,6 +69,7 @@ type mockRepository struct {
 
 	triggerStats map[string]TriggerStats
 	tenantStats  TenantTriggerStats
+	statsWindow  StatsWindow
 
 	decisions []*RoutingDecision
 	// holds records HoldPending calls; holdErr fails them.
@@ -545,7 +546,8 @@ func (m *mockRepository) ListDeliveries(_ context.Context, tenantID string, filt
 }
 
 // TriggerStats returns the canned stats a test set.
-func (m *mockRepository) TriggerStats(context.Context, string, []string, time.Time) (map[string]TriggerStats, TenantTriggerStats, error) {
+func (m *mockRepository) TriggerStats(_ context.Context, _ string, _ []string, _ time.Time, w StatsWindow) (map[string]TriggerStats, TenantTriggerStats, error) {
+	m.statsWindow = w
 	return m.triggerStats, m.tenantStats, nil
 }
 
