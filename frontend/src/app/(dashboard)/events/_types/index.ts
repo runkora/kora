@@ -91,6 +91,9 @@ export const EVENT_CATALOG: string[] = [
   ...verbs('declarative.resource', ['failed']),
 ];
 
+/** Events asked for on each page. Here, not in the hook, so the server page can read it. */
+export const EVENT_PAGE_SIZE = 50;
+
 /** What the page asks the API for. Every list matches any of its values. */
 export interface EventFilters {
   tab: EventTab;

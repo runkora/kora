@@ -8,11 +8,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchEventPage, openEventStream } from '../_services/events-api';
-import { filterParams } from '../_types';
+import { EVENT_PAGE_SIZE, filterParams } from '../_types';
 import type { EventFilters, EventPage, EventRecord, KoraEvent, SeenPrincipal } from '../_types';
-
-/** Events asked for on each page. */
-export const EVENT_PAGE_SIZE = 50;
 
 /** How long to wait before reopening a stream the server closed. */
 const REOPEN_MS = 5_000;

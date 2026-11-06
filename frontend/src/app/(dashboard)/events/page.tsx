@@ -2,8 +2,7 @@
 // opens in the browser.
 
 import { getSession, isSessionValid } from '@runkora/server/session';
-import { NO_FILTERS, filterParams } from './_types';
-import { EVENT_PAGE_SIZE } from './_hooks/use-event-feed';
+import { EVENT_PAGE_SIZE, NO_FILTERS, filterParams } from './_types';
 import { loadEventPage } from './_services/events-server';
 import { EventsShell } from './_components/events-shell';
 
