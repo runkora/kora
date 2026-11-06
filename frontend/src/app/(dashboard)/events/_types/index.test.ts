@@ -63,6 +63,16 @@ describe('event display', () => {
     expect(eventSummary(event())).toBe('Run failed: sandbox_failed');
   });
 
+  it('names the side of a tenant switch without the other tenant', () => {
+    const e = (direction: string) =>
+      event({
+        type: 'identity.tenant.switched.v1',
+        data: { entity: { session_id: 's', principal_id: 'p', direction }, occurred_at: '' },
+      });
+    expect(eventSummary(e('in'))).toBe('Switched into this tenant');
+    expect(eventSummary(e('out'))).toBe('Switched to another tenant');
+  });
+
   it('reads a run sandbox subject as the sandbox', () => {
     const e = event({ subject: 'runs/2b4e8c1d-5f7a-4c2e-9b1d-0e6f3a8c7d21/sandbox' });
     expect(resourceOf(e)).toEqual({ kind: 'Sandbox', label: '2b4e8c1d' });

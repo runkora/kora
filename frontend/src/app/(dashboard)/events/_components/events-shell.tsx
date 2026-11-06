@@ -14,10 +14,11 @@ const SEARCH_DEBOUNCE_MS = 300;
 
 interface EventsShellProps {
   initial: InitialEvents;
+  eventTypes: string[];
   traceUrlTemplate: string;
 }
 
-export function EventsShell({ initial, traceUrlTemplate }: EventsShellProps) {
+export function EventsShell({ initial, eventTypes, traceUrlTemplate }: EventsShellProps) {
   const [filters, setFilters] = useState<EventFilters>(NO_FILTERS);
   const [query, setQuery] = useState('');
   useEffect(() => {
@@ -35,6 +36,7 @@ export function EventsShell({ initial, traceUrlTemplate }: EventsShellProps) {
       feed={feed}
       filters={filters}
       onFiltersChange={setFilters}
+      eventTypes={eventTypes}
       traceUrlTemplate={traceUrlTemplate}
     />
   );

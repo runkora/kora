@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@runkora/server/events-client', () => ({ fetchEventPage: vi.fn() }));
+vi.mock('@runkora/server/triggers-client', () => ({ listPlatformEventTypes: vi.fn() }));
 
 import { STREAM_PARAMS, pickParams } from './events-server';
 

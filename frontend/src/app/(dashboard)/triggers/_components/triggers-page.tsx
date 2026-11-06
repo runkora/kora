@@ -47,7 +47,7 @@ import type {
 } from '../_types';
 import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
 import { ManagedInGitCallout, PermissionHint } from '@runkora/components';
-import { APP_ROUTES } from '@runkora/lib/routing';
+import { APP_ROUTES, TRIGGER_LINK } from '@runkora/lib/routing';
 
 interface TriggersPageProps {
   sources: SourceRow[];
@@ -99,11 +99,14 @@ export function TriggersPage({
   // `?trigger=<id>` opens a trigger's modal, and `?tab=deliveries&delivery=<id>` a delivery's.
   const searchParams = useSearchParams();
   const [initialTab] = useState(() =>
-    searchParams.get('tab') === 'deliveries' || searchParams.has('delivery')
+    searchParams.get(TRIGGER_LINK.tab) === TRIGGER_LINK.deliveriesTab ||
+    searchParams.has(TRIGGER_LINK.delivery)
       ? 'deliveries'
       : 'triggers',
   );
-  const [linkedDelivery, setLinkedDelivery] = useState(() => searchParams.get('delivery'));
+  const [linkedDelivery, setLinkedDelivery] = useState(() =>
+    searchParams.get(TRIGGER_LINK.delivery),
+  );
   const canWrite = useHasScope('triggers:write');
   // A locked tenant takes its triggers and sources from the configuration repository.
   const locked = useTenantLocked();
@@ -151,7 +154,7 @@ export function TriggersPage({
   // ── Modal + dialog state ─────────────────────────────────────────────────────
   const [wizardOpen, setWizardOpen] = useState(false);
   const [modalTrigger, setModalTrigger] = useState<TriggerRow | null>(
-    () => triggers.find((t) => t.id === searchParams.get('trigger')) ?? null,
+    () => triggers.find((t) => t.id === searchParams.get(TRIGGER_LINK.trigger)) ?? null,
   );
   // The platform Deliveries tab is not scoped to one trigger, so a row opens
   // its own panel rather than the owning trigger's modal: the question being
@@ -198,6 +201,14 @@ export function TriggersPage({
     loadOlder,
   ]);
   const shownDelivery = detailDelivery ?? linkedRow ?? null;
+  // The search ended without finding the linked delivery.
+  const linkedMissing =
+    linkedDelivery !== null &&
+    linkedRow === undefined &&
+    !loading &&
+    !loadingMore &&
+    pageError === null &&
+    (!hasMore || deliveries.length >= LINKED_DELIVERY_SEARCH);
 
   /** Drops the link from the address once its modal closes, so a reload does not reopen it. */
   const forgetLink = useCallback(() => {
@@ -276,6 +287,11 @@ export function TriggersPage({
 
       {locked && <ManagedInGitCallout subject="Triggers and sources in this tenant" />}
       {error && <Alert variant="error">{error}</Alert>}
+      {linkedMissing && (
+        <Alert variant="info">
+          The linked delivery is not among the latest {LINKED_DELIVERY_SEARCH} deliveries.
+        </Alert>
+      )}
       {fireResult && <Alert variant={fireResult.ok ? 'info' : 'error'}>{fireResult.message}</Alert>}
 
       <TriggerStatsKpis triggers={triggers} stats={stats} window={range} />
