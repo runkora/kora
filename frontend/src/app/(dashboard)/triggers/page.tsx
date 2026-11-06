@@ -1,4 +1,4 @@
-// RSC — loads webhook sources, triggers, recent deliveries, and the tenant's
+// RSC — loads webhook sources, triggers with their stats, and the tenant's
 // agent types (for the trigger form) server-side so the page renders with real
 // data immediately.
 
@@ -19,7 +19,7 @@ export default async function TriggersPageRoute() {
     <TriggersShell
       sources={result.ok ? result.sources : []}
       triggers={result.ok ? result.triggers : []}
-      deliveries={result.ok ? result.deliveries : []}
+      stats={result.ok ? result.stats : null}
       agents={result.ok ? result.agents : []}
       agentsError={result.ok ? result.agentsError : null}
       initialError={result.ok ? null : result.message}

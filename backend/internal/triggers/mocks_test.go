@@ -67,6 +67,9 @@ type mockRepository struct {
 	insertDeliveryErr error
 	listTriggersErr   error
 
+	triggerStats map[string]TriggerStats
+	tenantStats  TenantTriggerStats
+
 	decisions []*RoutingDecision
 	// holds records HoldPending calls; holdErr fails them.
 	holds   []holdCall
@@ -512,7 +515,7 @@ func (m *mockRepository) UpdateDeliveryOutcome(_ context.Context, id, status str
 	return nil
 }
 
-func (m *mockRepository) ListDeliveries(_ context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error) {
+func (m *mockRepository) ListDeliveries(_ context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var out []Delivery
@@ -520,10 +523,13 @@ func (m *mockRepository) ListDeliveries(_ context.Context, tenantID string, filt
 		if d.TenantID != tenantID || (filter.SourceID != "" && d.SourceID != filter.SourceID) {
 			continue
 		}
-		if !filter.ReceivedAfter.IsZero() && d.ReceivedAt.Before(filter.ReceivedAfter) {
+		if filter.Status != "" && d.Status != filter.Status {
 			continue
 		}
-		if !filter.ReceivedBefore.IsZero() && !d.ReceivedAt.Before(filter.ReceivedBefore) {
+		if len(filter.TriggerIDs) > 0 && (d.TriggerID == nil || !slices.Contains(filter.TriggerIDs, *d.TriggerID)) {
+			continue
+		}
+		if !filter.ReceivedAfter.IsZero() && d.ReceivedAt.Before(filter.ReceivedAfter) {
 			continue
 		}
 		cp := *d
@@ -532,7 +538,15 @@ func (m *mockRepository) ListDeliveries(_ context.Context, tenantID string, filt
 		}
 		out = append(out, cp)
 	}
-	return out, nil
+	if limit := max(filter.Limit, 1); len(out) > limit {
+		return out[:limit], true, nil
+	}
+	return out, false, nil
+}
+
+// TriggerStats returns the canned stats a test set.
+func (m *mockRepository) TriggerStats(context.Context, string, []string, time.Time) (map[string]TriggerStats, TenantTriggerStats, error) {
+	return m.triggerStats, m.tenantStats, nil
 }
 
 func (m *mockRepository) GetDelivery(_ context.Context, tenantID, id string) (*Delivery, error) {

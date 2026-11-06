@@ -1,5 +1,6 @@
 import type { MockRequest, MockRoutes } from '@runkora/storybook/mock-api';
 import type { TriggerDelivery } from '@runkora/shared/api';
+import { deliveryDotStatus } from '../_types';
 import type { DeliveryRow } from '../_types';
 import {
   CHAT_FIELDS,
@@ -66,26 +67,43 @@ function toWireDelivery(d: DeliveryRow): TriggerDelivery {
   };
 }
 
+/** Whether a status (a trigger's own outcome, else the delivery's) passes a `status` filter. */
+function inStatus(filter: string, status: string): boolean {
+  return filter === 'failed' ? deliveryDotStatus(status) === 'error' : status === filter;
+}
+
 /**
  * `GET /api/trigger-deliveries` over some deliveries, the way the API answers it: newest first,
- * narrowed by `source_id` and `trigger_id`, paged back with `received_before`, cut at `limit`.
+ * narrowed by `trigger_id` (every delivery that reached it) and `status`, paged by `cursor`.
  */
 export function deliveryRoutes(rows: DeliveryRow[]): MockRoutes {
   return {
     'GET /api/trigger-deliveries': (req: MockRequest) => {
       const q = req.url.searchParams;
-      const sourceId = q.get('source_id');
       const triggerId = q.get('trigger_id');
-      const before = q.get('received_before');
+      const status = q.get('status');
+      const offset = Number(q.get('cursor') ?? 0);
       const limit = Number(q.get('limit')) || 100;
-      const data = rows
-        .filter((d) => sourceId === null || d.sourceId === sourceId)
-        .filter((d) => triggerId === null || d.triggerId === triggerId)
-        .filter((d) => before === null || Date.parse(d.receivedAt) < Date.parse(before))
-        .sort((a, b) => Date.parse(b.receivedAt) - Date.parse(a.receivedAt))
-        .slice(0, limit)
-        .map(toWireDelivery);
-      return { data };
+      const matching = rows
+        .filter(
+          (d) =>
+            triggerId === null ||
+            d.triggerId === triggerId ||
+            d.runs.some((r) => r.triggerId === triggerId),
+        )
+        .filter((d) => {
+          if (status === null) return true;
+          const own = d.runs.find((r) => r.triggerId === triggerId)?.status;
+          return inStatus(status, own ?? d.status);
+        })
+        .sort((a, b) => Date.parse(b.receivedAt) - Date.parse(a.receivedAt));
+      const next = offset + limit < matching.length ? String(offset + limit) : undefined;
+      return {
+        data: {
+          deliveries: matching.slice(offset, offset + limit).map(toWireDelivery),
+          ...(next !== undefined && { next_cursor: next }),
+        },
+      };
     },
   };
 }

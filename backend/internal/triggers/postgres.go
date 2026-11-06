@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/runkora/kora/backend/internal/platform/declarative"
@@ -793,56 +796,244 @@ func (r *postgresRepository) GetDeliveryByProviderID(ctx context.Context, source
 	`, sourceID, providerDeliveryID)
 }
 
-func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error) {
-	columns := deliveryColumns
+func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, bool, error) {
+	// One row past the page says whether another follows, without a COUNT.
+	limit := max(filter.Limit, 1)
+	var query string
+	var args []any
+	if len(filter.TriggerIDs) > 0 {
+		query, args = reachDeliveriesQuery(tenantID, filter, limit+1)
+	} else {
+		query, args = tenantDeliveriesQuery(tenantID, filter, limit+1)
+	}
+	rows, err := queryList(ctx, r.pool, "deliveries", scanDelivery, query, args...)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(rows) > limit {
+		return rows[:limit], true, nil
+	}
+	return rows, false, nil
+}
+
+// deliveryProjection is the column list a listing reads.
+func deliveryProjection(filter DeliveryFilter) string {
 	if filter.OmitPayload {
-		columns = deliveryColumnsNoPayload
+		return deliveryColumnsNoPayload
 	}
-	query := `
-		SELECT ` + columns + `
-		FROM   trigger_deliveries
-		WHERE  tenant_id = $1`
+	return deliveryColumns
+}
+
+// tenantDeliveriesQuery is one page of the tenant's deliveries.
+func tenantDeliveriesQuery(tenantID string, filter DeliveryFilter, limit int) (string, []any) {
 	args := []any{tenantID}
-	idx := 2
-	if filter.SourceID != "" {
-		query += fmt.Sprintf(` AND source_id = $%d`, idx)
-		args = append(args, filter.SourceID)
-		idx++
+	arg := func(v any) string {
+		args = append(args, v)
+		return fmt.Sprintf("$%d", len(args))
 	}
-	if filter.TriggerID != "" {
-		query += fmt.Sprintf(` AND trigger_id = $%d`, idx)
-		args = append(args, filter.TriggerID)
-		idx++
+	query := `SELECT ` + deliveryProjection(filter) + ` FROM trigger_deliveries d WHERE d.tenant_id = $1`
+	if filter.SourceID != "" {
+		query += ` AND d.source_id = ` + arg(filter.SourceID)
 	}
 	if filter.Kind != "" {
-		query += fmt.Sprintf(` AND kind = $%d`, idx)
-		args = append(args, filter.Kind)
-		idx++
+		query += ` AND d.kind = ` + arg(filter.Kind)
 	}
 	if !filter.ReceivedAfter.IsZero() {
-		query += fmt.Sprintf(` AND received_at >= $%d`, idx)
-		args = append(args, filter.ReceivedAfter)
-		idx++
+		query += ` AND d.received_at >= ` + arg(filter.ReceivedAfter)
 	}
-	if !filter.ReceivedBefore.IsZero() {
-		query += fmt.Sprintf(` AND received_at < $%d`, idx)
-		args = append(args, filter.ReceivedBefore)
+	if filter.Status != "" {
+		// Scalar equality so idx_trigger_deliveries_tenant_status serves the
+		// filter; ANY over a parameter cannot be an index condition there.
+		query += ` AND d.status = ` + arg(filter.Status)
 	}
-	query += ` ORDER BY received_at DESC`
-	// filter.Limit is already clamped by the service; the storage layer trusts
-	// its caller on business bounds and only refuses the nonsensical.
-	limit := max(filter.Limit, 1)
-	query += fmt.Sprintf(` LIMIT %d`, limit)
+	if c := filter.Cursor; c != nil {
+		query += fmt.Sprintf(` AND (d.received_at, d.id) < (%s::timestamptz, %s)`, arg(c.ReceivedAt), arg(c.ID))
+	}
+	return query + ` ORDER BY d.received_at DESC, d.id DESC LIMIT ` + arg(limit), args
+}
 
-	return queryList(ctx, r.pool, "deliveries", scanDelivery, query, args...)
+// reachDeliveriesSQL is one page of the deliveries that reached any trigger in
+// $2, with one index-ordered LATERAL page per trigger and outcome. $3 reads every
+// outcome, $4 the listed outcomes, $5 the listed recorded statuses; $6 is
+// received_after, ($7, $8) the cursor and $9 the page size.
+const reachDeliveriesSQL = `
+	WITH t AS (SELECT unnest($2::text[]) AS id),
+	reach AS (
+		SELECT p.rid, p.rat FROM t CROSS JOIN LATERAL (
+			SELECT dr.delivery_id AS rid, dr.received_at AS rat FROM trigger_delivery_runs dr
+			WHERE  $3::boolean AND dr.tenant_id = $1 AND dr.trigger_id = t.id AND dr.received_at >= $6
+			  AND  (dr.received_at, dr.delivery_id) < ($7, $8)
+			ORDER  BY dr.received_at DESC, dr.delivery_id DESC LIMIT $9) p
+		UNION
+		SELECT p.rid, p.rat FROM t CROSS JOIN unnest($4::text[]) AS o(status) CROSS JOIN LATERAL (
+			SELECT dr.delivery_id AS rid, dr.received_at AS rat FROM trigger_delivery_runs dr
+			WHERE  dr.tenant_id = $1 AND dr.trigger_id = t.id AND dr.status = o.status AND dr.received_at >= $6
+			  AND  (dr.received_at, dr.delivery_id) < ($7, $8)
+			ORDER  BY dr.received_at DESC, dr.delivery_id DESC LIMIT $9) p
+		UNION
+		SELECT p.rid, p.rat FROM t CROSS JOIN unnest($5::text[]) AS s(status) CROSS JOIN LATERAL (
+			SELECT rd.id AS rid, rd.received_at AS rat FROM trigger_deliveries rd
+			WHERE  rd.tenant_id = $1 AND rd.trigger_id = t.id AND rd.status IN ` + recordedStatusesSQL + `
+			  AND  rd.status = s.status AND rd.received_at >= $6 AND (rd.received_at, rd.id) < ($7, $8)
+			ORDER  BY rd.received_at DESC, rd.id DESC LIMIT $9) p
+	)
+	SELECT %s
+	FROM   (SELECT rid, rat FROM reach ORDER BY rat DESC, rid DESC LIMIT $9) r
+	JOIN   trigger_deliveries d ON d.id = r.rid
+	WHERE  d.tenant_id = $1
+	ORDER  BY d.received_at DESC, d.id DESC`
+
+// reachDeliveriesQuery binds reachDeliveriesSQL for a trigger-scoped filter.
+// An absent cursor or received_after binds to infinity to keep the text fixed.
+func reachDeliveriesQuery(tenantID string, filter DeliveryFilter, limit int) (string, []any) {
+	every := filter.Status == ""
+	outcomes := DeliveryStatusFilters[filter.Status]
+	recorded := recordedStatuses
+	if !every {
+		recorded = nil
+		if slices.Contains(recordedStatuses, filter.Status) {
+			recorded = []string{filter.Status}
+		}
+	}
+	after := pgtype.Timestamptz{InfinityModifier: pgtype.NegativeInfinity, Valid: true}
+	if !filter.ReceivedAfter.IsZero() {
+		after = pgtype.Timestamptz{Time: filter.ReceivedAfter, Valid: true}
+	}
+	before, beforeID := pgtype.Timestamptz{InfinityModifier: pgtype.Infinity, Valid: true}, ""
+	if c := filter.Cursor; c != nil {
+		before, beforeID = pgtype.Timestamptz{Time: c.ReceivedAt, Valid: true}, c.ID
+	}
+	query := fmt.Sprintf(reachDeliveriesSQL, deliveryProjection(filter))
+	return query, []any{tenantID, filter.TriggerIDs, every, outcomes, recorded, after, before, beforeID, limit}
+}
+
+// reachedSQL yields one row per outcome a trigger recorded for a delivery that
+// arrived in [$2, $3], plus each delivery recorded against a trigger with no
+// outcome of its own.
+const reachedSQL = `
+	WITH reached AS (
+		SELECT trigger_id, received_at, status, created_at AS run_at
+		FROM   trigger_delivery_runs
+		WHERE  tenant_id = $1 AND received_at >= $2 AND received_at <= $3
+		UNION ALL
+		SELECT trigger_id, received_at, status, NULL
+		FROM   trigger_deliveries
+		WHERE  tenant_id = $1 AND trigger_id IS NOT NULL AND status IN ` + recordedStatusesSQL + `
+		  AND  received_at >= $2 AND received_at <= $3
+	)`
+
+func (r *postgresRepository) TriggerStats(ctx context.Context, tenantID string, triggerIDs []string, now time.Time) (map[string]TriggerStats, TenantTriggerStats, error) {
+	now = now.UTC()
+	out := map[string]TriggerStats{}
+	tenant, err := r.windowedTriggerStats(ctx, tenantID, now, out)
+	if err != nil {
+		return nil, tenant, err
+	}
+	if err := r.pool.QueryRow(ctx, `
+		SELECT (SELECT count(*) FROM trigger_deliveries
+		        WHERE tenant_id = $1 AND received_at >= $2 AND received_at <= $3),
+		       percentile_cont(0.5)  WITHIN GROUP (ORDER BY extract(epoch FROM created_at - received_at) * 1000),
+		       percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM created_at - received_at) * 1000)
+		FROM   trigger_delivery_runs
+		WHERE  tenant_id = $1 AND received_at >= $2 AND received_at <= $3
+		  AND  status IN `+sqlList(StartedRunStatuses)+` AND created_at >= received_at`,
+		tenantID, now.Add(-statsWindow), now,
+	).Scan(&tenant.Deliveries24h, &tenant.DispatchP50Ms, &tenant.DispatchP95Ms); err != nil {
+		return nil, tenant, fmt.Errorf("tenant trigger stats: %w", err)
+	}
+	if err := r.triggerLastFired(ctx, tenantID, triggerIDs, now, out); err != nil {
+		return nil, tenant, err
+	}
+	return out, tenant, nil
+}
+
+// windowedTriggerStats fills out with each trigger's 24h counts and buckets, and
+// returns the tenant's started and failed totals.
+func (r *postgresRepository) windowedTriggerStats(ctx context.Context, tenantID string, now time.Time, out map[string]TriggerStats) (TenantTriggerStats, error) {
+	var tenant TenantTriggerStats
+	since := now.Add(-statsWindow)
+	firstBucket := since.Truncate(statsBucketWidth)
+	rows, err := r.pool.Query(ctx, reachedSQL+`
+		SELECT trigger_id, status, date_bin('2 hours', received_at, TIMESTAMPTZ '2000-01-01 00:00:00+00'), count(*)
+		FROM   reached
+		GROUP  BY 1, 2, 3`, tenantID, since, now)
+	if err != nil {
+		return tenant, fmt.Errorf("trigger stats: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, status string
+		var bucket time.Time
+		var n int
+		if scanErr := rows.Scan(&id, &status, &bucket, &n); scanErr != nil {
+			return tenant, fmt.Errorf("scan trigger stats: %w", scanErr)
+		}
+		st, ok := out[id]
+		if !ok {
+			st = emptyTriggerStats(now)
+		}
+		st.count(status, int(bucket.Sub(firstBucket)/statsBucketWidth), n)
+		out[id] = st
+		switch {
+		case slices.Contains(StartedRunStatuses, status):
+			tenant.Started24h += n
+		case slices.Contains(FailureRunStatuses, status):
+			tenant.Failed24h += n
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return tenant, fmt.Errorf("iterate trigger stats: %w", err)
+	}
+	return tenant, nil
+}
+
+// triggerLastFired sets each trigger's newest attempted delivery with one
+// idx_trigger_delivery_runs_last_fired probe per trigger.
+func (r *postgresRepository) triggerLastFired(ctx context.Context, tenantID string, triggerIDs []string, now time.Time, out map[string]TriggerStats) error {
+	rows, err := r.pool.Query(ctx, `
+		SELECT t.id, fired.received_at
+		FROM   unnest($2::text[]) AS t(id)
+		CROSS  JOIN LATERAL (
+			SELECT dr.received_at FROM trigger_delivery_runs dr
+			WHERE  dr.tenant_id = $1 AND dr.trigger_id = t.id AND dr.status IN `+sqlList(attemptedStatuses)+`
+			ORDER  BY dr.received_at DESC
+			LIMIT  1
+		) fired`, tenantID, triggerIDs)
+	if err != nil {
+		return fmt.Errorf("trigger last fired: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var at time.Time
+		if scanErr := rows.Scan(&id, &at); scanErr != nil {
+			return fmt.Errorf("scan trigger last fired: %w", scanErr)
+		}
+		st, ok := out[id]
+		if !ok {
+			st = emptyTriggerStats(now)
+		}
+		st.LastFiredAt = &at
+		out[id] = st
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate trigger last fired: %w", err)
+	}
+	return nil
+}
+
+// sqlList renders constant statuses as a SQL list. Partial indexes match only a
+// literal list, never a bound array.
+func sqlList(values []string) string {
+	return "('" + strings.Join(values, "', '") + "')"
 }
 
 func (r *postgresRepository) InsertDeliveryRun(ctx context.Context, dr *DeliveryRun) error {
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO trigger_delivery_runs
-			(id, tenant_id, delivery_id, trigger_id, trigger_name, run_id, status, error, superseded_by)
+			(id, tenant_id, delivery_id, trigger_id, trigger_name, run_id, status, error, superseded_by, received_at)
 			VALUES
-				($1, $2, $3, $4, $5, $6, $7, $8, $9)
+				($1, $2, $3, $4, $5, $6, $7, $8, $9, (SELECT received_at FROM trigger_deliveries WHERE id = $3))
 		`, dr.ID, dr.TenantID, dr.DeliveryID, dr.TriggerID, storage.NullIfZero(dr.TriggerName), dr.RunID, dr.Status, dr.Error, dr.SupersededBy)
 	if err != nil {
 		return fmt.Errorf("insert delivery run: %w", err)

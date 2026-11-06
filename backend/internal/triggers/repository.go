@@ -2,6 +2,9 @@ package triggers
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/declarative"
@@ -91,6 +94,9 @@ type TriggerStore interface {
 	// ListTriggers returns triggers for a tenant, optionally filtered by
 	// agentTypeID (empty = all) — the agentTypeID filter backs the per-agent tab.
 	ListTriggers(ctx context.Context, tenantID, agentTypeID string) ([]Trigger, error)
+	// TriggerStats returns the stats of each trigger with activity, keyed by
+	// trigger id, the last fire of each of triggerIDs, and the tenant's stats.
+	TriggerStats(ctx context.Context, tenantID string, triggerIDs []string, now time.Time) (map[string]TriggerStats, TenantTriggerStats, error)
 	// ListMatchableTriggersForSource returns the webhook triggers a delivery for
 	// this source is matched against: the enabled ones, plus the ones the
 	// platform auto-paused.
@@ -145,7 +151,9 @@ type DeliveryStore interface {
 	// the repeat is the entire point of writing it.
 	InsertDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
 	UpdateDeliveryOutcome(ctx context.Context, id, status string, triggerID, runID, errMsg *string) error
-	ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error)
+	// ListDeliveries returns one keyset page, newest first, and whether another
+	// follows.
+	ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, bool, error)
 	// GetDelivery returns one delivery, scoped to the tenant that owns it.
 	GetDelivery(ctx context.Context, tenantID, id string) (*Delivery, error)
 	// GetDeliveryByProviderID returns the original delivery for a provider's
@@ -302,19 +310,58 @@ type RetentionStore interface {
 	SetRetention(ctx context.Context, tenantID string, days int) error
 }
 
+// deliveryCursor is the keyset position of a deliveries page: the next page is
+// every row strictly older than (ReceivedAt, ID). The id breaks received_at ties.
+type deliveryCursor struct {
+	ReceivedAt time.Time
+	ID         string
+}
+
+// encode renders the cursor as the opaque value a client echoes back as ?cursor=.
+func (c deliveryCursor) encode() string {
+	raw := c.ReceivedAt.UTC().Format(time.RFC3339Nano) + "|" + c.ID
+	return base64.RawURLEncoding.EncodeToString([]byte(raw))
+}
+
+// parseDeliveryCursor reads the value a client echoed back. Empty is the first page.
+func parseDeliveryCursor(raw string) (*deliveryCursor, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidCursor, err)
+	}
+	receivedAt, id, ok := strings.Cut(string(decoded), "|")
+	if !ok || id == "" {
+		return nil, ErrInvalidCursor
+	}
+	t, err := time.Parse(time.RFC3339Nano, receivedAt)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidCursor, err)
+	}
+	return &deliveryCursor{ReceivedAt: t, ID: id}, nil
+}
+
 // DeliveryFilter narrows a delivery listing. Empty/zero fields are ignored.
 type DeliveryFilter struct {
-	SourceID  string
-	TriggerID string
-	Kind      string
-	// ReceivedAfter and ReceivedBefore bound received_at: at or after, and
-	// before. Zero means unbounded.
-	ReceivedAfter  time.Time
-	ReceivedBefore time.Time
+	SourceID string
+	// TriggerIDs matches deliveries that reached any of the triggers: carrying
+	// one of their outcomes, or recorded against one with a status in
+	// recordedStatuses. It does not combine with SourceID or Kind.
+	TriggerIDs []string
+	Kind       string
+	// ReceivedAfter bounds received_at, inclusive. Zero means unbounded.
+	ReceivedAfter time.Time
 	// OmitPayload leaves the full payload out of each delivery. The excerpt,
 	// outcomes and runs stay.
 	OmitPayload bool
-	Limit       int
+	// Status is one of DeliveryStatusFilters. With TriggerIDs set it matches the
+	// trigger's own outcome, else the delivery's status.
+	Status string
+	Limit  int
+	// Cursor is the keyset position to read from; nil is the first page.
+	Cursor *deliveryCursor
 }
 
 // PendingStats is a point-in-time view of the delivery queue.

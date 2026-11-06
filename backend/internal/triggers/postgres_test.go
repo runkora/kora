@@ -376,7 +376,7 @@ func TestPostgres_DeliveryDedupAndOutcome(t *testing.T) {
 		t.Fatalf("UpdateDeliveryOutcome: %v", err)
 	}
 
-	list, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{SourceID: s.ID, Limit: 10})
+	list, _, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{SourceID: s.ID, Limit: 10})
 	if err != nil {
 		t.Fatalf("ListDeliveries: %v", err)
 	}
@@ -1872,7 +1872,7 @@ func TestPostgres_ListDeliveriesTimeAndPayload(t *testing.T) {
 	}
 	idsOf := func(f DeliveryFilter) []string {
 		f.SourceID, f.Limit = s.ID, 10
-		list, err := r.ListDeliveries(ctx, tenant, f)
+		list, _, err := r.ListDeliveries(ctx, tenant, f)
 		if err != nil {
 			t.Fatalf("ListDeliveries: %v", err)
 		}
@@ -1882,22 +1882,16 @@ func TestPostgres_ListDeliveriesTimeAndPayload(t *testing.T) {
 		}
 		return out
 	}
-	// ids[0] is newest. received_after is inclusive and received_before is exclusive.
+	// ids[0] is newest. received_after is inclusive.
 	if got := idsOf(DeliveryFilter{ReceivedAfter: base.Add(-2 * time.Minute)}); !slices.Equal(got, ids[:3]) {
 		t.Errorf("received_after = %v, want %v", got, ids[:3])
 	}
-	if got := idsOf(DeliveryFilter{ReceivedBefore: base}); !slices.Equal(got, ids[1:]) {
-		t.Errorf("received_before = %v, want %v", got, ids[1:])
-	}
-	if got := idsOf(DeliveryFilter{ReceivedAfter: base.Add(-2 * time.Minute), ReceivedBefore: base}); !slices.Equal(got, ids[1:3]) {
-		t.Errorf("window = %v, want %v", got, ids[1:3])
-	}
 
-	full, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{SourceID: s.ID, Limit: 1})
+	full, _, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{SourceID: s.ID, Limit: 1})
 	if err != nil || len(full) != 1 || len(full[0].Payload) == 0 {
 		t.Fatalf("default listing = %+v, %v; want the payload", full, err)
 	}
-	slim, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{SourceID: s.ID, Limit: 1, OmitPayload: true})
+	slim, _, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{SourceID: s.ID, Limit: 1, OmitPayload: true})
 	if err != nil || len(slim) != 1 {
 		t.Fatalf("OmitPayload listing = %+v, %v", slim, err)
 	}

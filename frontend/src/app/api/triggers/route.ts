@@ -35,7 +35,7 @@ function validateCreateRequest(body: TriggerCreateRequest): string | null {
 // GET /api/triggers?agent_type_id= — triggers for the tenant, optionally filtered.
 export const GET = withAuth(async (req: NextRequest, session) => {
   const agentTypeId = req.nextUrl.searchParams.get('agent_type_id') ?? undefined;
-  const triggers = await listTriggers(session.accessToken, agentTypeId);
+  const { triggers } = await listTriggers(session.accessToken, agentTypeId);
   return NextResponse.json({ data: triggers });
 });
 

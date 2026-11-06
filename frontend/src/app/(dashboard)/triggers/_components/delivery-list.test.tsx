@@ -3,6 +3,7 @@ import { fireEvent, screen, within } from '@testing-library/react';
 import { renderWithProviders } from '@runkora/test-utils';
 import { DeliveryList } from './delivery-list';
 import { makeDelivery } from '../_types/fixtures';
+import { EMPTY_TRIGGER_STATS } from '../_types/stats';
 
 const run = (status: string) => ({
   triggerId: 'trg-1',
@@ -22,11 +23,20 @@ const DELIVERIES = [
   makeDelivery({ id: 'd-miss', status: 'missed' }),
 ];
 
+const STATS = {
+  ...EMPTY_TRIGGER_STATS,
+  deliveries24h: 9,
+  status24h: { dispatched: 4, failed: 2, superseded: 1 },
+};
+
 function renderList(props: Partial<React.ComponentProps<typeof DeliveryList>> = {}) {
   const onToggleExpanded = vi.fn();
   renderWithProviders(
     <DeliveryList
       deliveries={DELIVERIES}
+      filter="all"
+      onFilterChange={vi.fn()}
+      stats={STATS}
       triggerId="trg-1"
       expandedId={null}
       onToggleExpanded={onToggleExpanded}
@@ -50,33 +60,22 @@ describe('DeliveryList', () => {
     expect(onRetry).toHaveBeenCalled();
   });
 
-  it("counts each outcome from this trigger's own row, and filters to it", () => {
-    renderList();
-    const group = screen.getByRole('group', { name: 'Filter deliveries by outcome' });
-    expect(within(group).getByRole('button', { name: /Dispatched/ })).toHaveTextContent('1');
-    expect(within(group).getByRole('button', { name: /Failed/ })).toHaveTextContent('1');
-    expect(within(group).getByRole('button', { name: /Superseded/ })).toHaveTextContent('1');
-    fireEvent.click(within(group).getByRole('button', { name: /Superseded/ }));
-    expect(screen.getByText('d-old')).toBeInTheDocument();
-    expect(screen.queryByText('d-ok')).toBeNull();
+  it("shows the trigger's 24h counts and asks for the chosen status", () => {
+    const onFilterChange = vi.fn();
+    renderList({ onFilterChange });
+    const group = screen.getByRole('group', { name: /Filter deliveries by outcome/ });
+    expect(within(group).getByRole('button', { name: /All/ })).toHaveTextContent('9');
+    expect(within(group).getByRole('button', { name: /Failed/ })).toHaveTextContent('2');
+    expect(within(group).getByRole('button', { name: /Missed/ })).toHaveTextContent('0');
+    expect(screen.getByText('Counts: last 24h')).toBeInTheDocument();
+    fireEvent.click(within(group).getByRole('button', { name: /Failed/ }));
+    expect(onFilterChange).toHaveBeenCalledWith('failed');
   });
 
-  it("filters to duplicates, which carry no outcome of this trigger's own", () => {
-    renderList();
-    const group = screen.getByRole('group', { name: 'Filter deliveries by outcome' });
-    expect(within(group).getByRole('button', { name: /Duplicate/ })).toHaveTextContent('1');
-    fireEvent.click(within(group).getByRole('button', { name: /Duplicate/ }));
-    expect(screen.getByText('d-dup')).toBeInTheDocument();
-    expect(screen.queryByText('d-ok')).toBeNull();
-  });
-
-  it('filters to scheduled fires that were missed while the platform was down', () => {
-    renderList();
-    const group = screen.getByRole('group', { name: 'Filter deliveries by outcome' });
-    expect(within(group).getByRole('button', { name: /Missed/ })).toHaveTextContent('1');
-    fireEvent.click(within(group).getByRole('button', { name: /Missed/ }));
-    expect(screen.getByText('d-miss')).toBeInTheDocument();
-    expect(screen.queryByText('d-ok')).toBeNull();
+  it('keeps the filter on screen when a filtered page is empty', () => {
+    renderList({ deliveries: [], filter: 'missed' });
+    expect(screen.getByRole('group', { name: /Filter deliveries by outcome/ })).toBeInTheDocument();
+    expect(screen.getByText('No missed deliveries.')).toBeInTheDocument();
   });
 
   it('opens a row in place and reports it', () => {
@@ -96,6 +95,9 @@ describe('DeliveryList', () => {
     const { unmount } = renderWithProviders(
       <DeliveryList
         deliveries={DELIVERIES}
+        filter="all"
+        onFilterChange={vi.fn()}
+        stats={STATS}
         triggerId="trg-1"
         expandedId={null}
         onToggleExpanded={vi.fn()}
@@ -108,10 +110,5 @@ describe('DeliveryList', () => {
     unmount();
     renderList({ hasMore: true, loadingMore: true });
     expect(screen.getByRole('button', { name: /Loading/ })).toBeDisabled();
-  });
-
-  it('says why a first page with nothing for this trigger is empty, when there is more', () => {
-    renderList({ deliveries: [], hasMore: true });
-    expect(screen.getByText(/Load older to keep looking/)).toBeInTheDocument();
   });
 });

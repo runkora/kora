@@ -12,6 +12,8 @@
  */
 
 import { isDeclared, managedInGit } from '@runkora/lib/declarative';
+import { toTriggerStatsRow } from './stats';
+import type { TriggerStatsRow } from './stats';
 import type { IconName } from '@runkora/hades';
 import type {
   InputField,
@@ -213,6 +215,8 @@ export interface TriggerRow {
   pendingCount: number;
   /** Whether the caller may fire this trigger. */
   canFire: boolean;
+  /** Recent activity, from the list read; empty when the read carried none. */
+  stats: TriggerStatsRow;
 }
 
 export interface DeliveryRow {
@@ -383,6 +387,7 @@ export function toTriggerRow(t: Trigger): TriggerRow {
     // API shows nothing rather than a wrong number.
     pendingCount: t.pending_count ?? 0,
     canFire: t.can_fire ?? false,
+    stats: toTriggerStatsRow(t.stats),
   };
 }
 
@@ -823,14 +828,4 @@ export function deliverySummary(row: DeliveryRow): DeliverySummary {
     default:
       return { kind: detail.kind, text: clip(detail.text) };
   }
-}
-
-/**
- * Client-side Deliveries status-filter predicate. A row passes when its status
- * is in the selected set (OR semantics across multiple selections). An empty
- * selection matches nothing, so a caller that means "no filter" skips the
- * predicate rather than passing an empty set.
- */
-export function matchesStatusFilter(row: DeliveryRow, selected: ReadonlySet<string>): boolean {
-  return selected.has(row.status);
 }

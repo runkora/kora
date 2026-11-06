@@ -6,6 +6,8 @@ import type {
   Trigger,
   TriggerCreateRequest,
   TriggerDelivery,
+  TriggerDeliveryPage,
+  TenantTriggerStats,
   TriggerEventTypes,
   TriggerField,
   TriggerFireRequest,
@@ -158,10 +160,18 @@ export async function providerFields(
 // Triggers
 // ---------------------------------------------------------------------------
 
-export async function listTriggers(accessToken: string, agentTypeId?: string): Promise<Trigger[]> {
+// GET /api/v1/triggers: each trigger carries its stats, and the tenant's stats
+// sit beside the list.
+export async function listTriggers(
+  accessToken: string,
+  agentTypeId?: string,
+): Promise<{ triggers: Trigger[]; stats: TenantTriggerStats | null }> {
   const q = agentTypeId ? `?agent_type_id=${encodeURIComponent(agentTypeId)}` : '';
-  const body = await request<{ triggers?: Trigger[] }>(`/triggers${q}`, accessToken);
-  return body?.triggers ?? [];
+  const body = await request<{ triggers?: Trigger[]; stats?: TenantTriggerStats }>(
+    `/triggers${q}`,
+    accessToken,
+  );
+  return { triggers: body?.triggers ?? [], stats: body?.stats ?? null };
 }
 
 export async function createTrigger(
@@ -252,19 +262,35 @@ export async function schedulePreview(
   });
 }
 
+// GET /api/v1/trigger-deliveries: one page, newest first. Pass the returned
+// nextCursor back as cursor for the next page; null means the last page.
 export async function listDeliveries(
   accessToken: string,
-  opts: { sourceId?: string; triggerId?: string; receivedBefore?: string; limit?: number } = {},
-): Promise<TriggerDelivery[]> {
+  opts: {
+    sourceId?: string;
+    triggerId?: string;
+    agentTypeId?: string;
+    status?: string;
+    cursor?: string;
+    limit?: number;
+  } = {},
+): Promise<TriggerDeliveryPage> {
+  const params: Record<string, string | number | undefined> = {
+    source_id: opts.sourceId,
+    trigger_id: opts.triggerId,
+    agent_type_id: opts.agentTypeId,
+    status: opts.status,
+    cursor: opts.cursor,
+    limit: opts.limit,
+  };
   const qs = new URLSearchParams();
-  if (opts.sourceId) qs.set('source_id', opts.sourceId);
-  if (opts.triggerId) qs.set('trigger_id', opts.triggerId);
-  if (opts.receivedBefore) qs.set('received_before', opts.receivedBefore);
-  if (opts.limit) qs.set('limit', String(opts.limit));
+  for (const [key, value] of Object.entries(params)) {
+    if (value) qs.set(key, String(value));
+  }
   const q = qs.toString();
-  const body = await request<{ deliveries?: TriggerDelivery[] }>(
+  const body = await request<{ deliveries?: TriggerDelivery[]; next_cursor?: string }>(
     `/trigger-deliveries${q ? `?${q}` : ''}`,
     accessToken,
   );
-  return body?.deliveries ?? [];
+  return { deliveries: body?.deliveries ?? [], next_cursor: body?.next_cursor ?? null };
 }

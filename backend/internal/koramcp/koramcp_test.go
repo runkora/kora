@@ -1045,10 +1045,10 @@ func TestListToolsMapTimeWindowAndPayloadParams(t *testing.T) {
 	}
 
 	call("tools/call", map[string]any{"name": "triggers.deliveries.list", "arguments": map[string]any{
-		"received_after": "2026-01-01T00:00:00Z", "received_before": "2026-01-02T00:00:00Z", "omit_payload": true,
+		"received_after": "2026-01-01T00:00:00Z", "cursor": "next-page", "omit_payload": true,
 	}})
 	if gotPath != "/api/v1/trigger-deliveries" || gotQuery.Get("received_after") != "2026-01-01T00:00:00Z" ||
-		gotQuery.Get("received_before") != "2026-01-02T00:00:00Z" || gotQuery.Get("omit_payload") != "true" {
+		gotQuery.Get("cursor") != "next-page" || gotQuery.Get("omit_payload") != "true" {
 		t.Errorf("triggers.deliveries.list hit %q?%v", gotPath, gotQuery)
 	}
 

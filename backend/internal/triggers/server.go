@@ -88,11 +88,13 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	PATCH  /api/v1/trigger-sources/{id}       Enable/disable or rotate secret.
 //	DELETE /api/v1/trigger-sources/{id}       Delete a webhook source.
 //	POST   /api/v1/triggers                   Create a trigger (any kind).
-//	GET    /api/v1/triggers                   List triggers (filter ?agent_type_id= ?kind=).
+//	GET    /api/v1/triggers                   List triggers with their stats (filter ?agent_type_id= ?kind=).
 //	GET    /api/v1/triggers/{id}              Get a trigger.
 //	PATCH  /api/v1/triggers/{id}              Edit a trigger.
 //	DELETE /api/v1/triggers/{id}              Delete a trigger.
-//	GET    /api/v1/trigger-deliveries         List recent deliveries (filter ?source_id= ?trigger_id= ?kind=).
+//	GET    /api/v1/trigger-deliveries         List deliveries, newest first, keyset-paginated.
+//	                                          Filter: ?source_id= ?trigger_id= ?agent_type_id= ?kind= ?status= ?received_after=
+//	                                          Page:   ?limit= ?cursor= (echo back next_cursor).
 //	POST   /api/v1/trigger-deliveries/{id}/redeliver  Replay a delivery.
 //	GET    /api/v1/trigger-sources/{id}/event-types   Event catalog for a source.
 //	GET    /api/v1/trigger-providers/{provider}/event-types  Event catalog for a provider.
@@ -292,7 +294,7 @@ func (c *Controller) handleCreateTrigger(w http.ResponseWriter, r *http.Request)
 
 func (c *Controller) handleListTriggers(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	triggers, err := c.triggers.ListTriggers(ctx, tenantFromCtx(ctx),
+	triggers, stats, err := c.triggers.ListTriggersWithStats(ctx, tenantFromCtx(ctx),
 		r.URL.Query().Get("agent_type_id"), r.URL.Query().Get("kind"))
 	if err != nil {
 		c.writeServiceError(w, r, err)
@@ -301,7 +303,7 @@ func (c *Controller) handleListTriggers(w http.ResponseWriter, r *http.Request) 
 	for i := range triggers {
 		c.setCanFire(ctx, &triggers[i])
 	}
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"triggers": triggers})
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"triggers": triggers, "stats": stats})
 }
 
 // setCanFire records whether the caller passes authorizeFire for t. Any refusal
@@ -436,39 +438,85 @@ func (c *Controller) handleRoutingCandidates(w http.ResponseWriter, r *http.Requ
 
 // ─── Deliveries ───────────────────────────────────────────────────────────────
 
+// listDeliveriesResponse is GET /trigger-deliveries: one page, newest first.
+// NextCursor is absent on the last page.
+type listDeliveriesResponse struct {
+	Deliveries []Delivery `json:"deliveries"`
+	NextCursor string     `json:"next_cursor,omitempty"`
+}
+
 func (c *Controller) handleListDeliveries(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
-	filter := DeliveryFilter{
-		SourceID:    q.Get("source_id"),
-		TriggerID:   q.Get("trigger_id"),
-		Kind:        q.Get("kind"),
-		OmitPayload: q.Get("omit_payload") == "true",
-		Limit:       limit,
+	// A removed parameter is refused so a caller still sending it does not take
+	// an unbounded page for the window it asked for.
+	if q.Has("received_before") {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.BadRequestError(api.ErrCodeInvalidField, "received_before was removed; page with cursor", map[string]any{"field": "received_before"}), nil)
+		return
 	}
-	for _, b := range []struct {
-		field string
-		dst   *time.Time
-	}{{"received_after", &filter.ReceivedAfter}, {"received_before", &filter.ReceivedBefore}} {
-		raw := q.Get(b.field)
-		if raw == "" {
-			continue
-		}
-		t, err := time.Parse(time.RFC3339, raw)
-		if err != nil {
-			apiErr := api.BadRequestError(api.ErrCodeInvalidField, b.field+" must be an RFC 3339 timestamp", map[string]any{"field": b.field})
-			api.ErrorResponse(ctx, w, c.logger, apiErr, err)
-			return
-		}
-		*b.dst = t
+	cursor, err := parseDeliveryCursor(q.Get("cursor"))
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.BadRequestError(api.ErrCodeInvalidField, "cursor is not a value this API issued", map[string]any{"field": "cursor"}), err)
+		return
 	}
-	deliveries, err := c.svc.ListDeliveries(ctx, tenantFromCtx(ctx), filter)
+	triggerIDs, err := c.deliveryScope(ctx, q.Get("trigger_id"), q.Get("agent_type_id"))
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
 	}
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"deliveries": deliveries})
+	if triggerIDs != nil && len(triggerIDs) == 0 {
+		api.JSON(ctx, w, c.logger, http.StatusOK, listDeliveriesResponse{Deliveries: []Delivery{}})
+		return
+	}
+	filter := DeliveryFilter{
+		SourceID:    q.Get("source_id"),
+		TriggerIDs:  triggerIDs,
+		Kind:        q.Get("kind"),
+		OmitPayload: q.Get("omit_payload") == "true",
+		Status:      q.Get("status"),
+		Limit:       limit,
+		Cursor:      cursor,
+	}
+	if raw := q.Get("received_after"); raw != "" {
+		after, parseErr := time.Parse(time.RFC3339, raw)
+		if parseErr != nil {
+			apiErr := api.BadRequestError(api.ErrCodeInvalidField, "received_after must be an RFC 3339 timestamp", map[string]any{"field": "received_after"})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, parseErr)
+			return
+		}
+		filter.ReceivedAfter = after
+	}
+	deliveries, nextCursor, err := c.svc.ListDeliveries(ctx, tenantFromCtx(ctx), filter)
+	if err != nil {
+		c.writeServiceError(w, r, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, listDeliveriesResponse{Deliveries: deliveries, NextCursor: nextCursor})
+}
+
+// deliveryScope resolves ?trigger_id= or ?agent_type_id= to the triggers whose
+// deliveries to list: nil for the whole tenant, empty for an agent with no triggers.
+func (c *Controller) deliveryScope(ctx context.Context, triggerID, agentTypeID string) ([]string, error) {
+	switch {
+	case triggerID != "" && agentTypeID != "":
+		return nil, fmt.Errorf("%w: use one of trigger_id and agent_type_id", ErrValidation)
+	case triggerID != "":
+		return []string{triggerID}, nil
+	case agentTypeID == "":
+		return nil, nil
+	}
+	triggers, err := c.triggers.ListTriggers(ctx, tenantFromCtx(ctx), agentTypeID, "")
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(triggers))
+	for i := range triggers {
+		ids[i] = triggers[i].ID
+	}
+	return ids, nil
 }
 
 // handleRedeliver handles POST /api/v1/trigger-deliveries/{id}/redeliver.

@@ -35,6 +35,26 @@ describe('ApiRoute', () => {
       });
     });
   });
+  describe('triggerDeliveries.page', () => {
+    it('sends each scope and the cursor it is given', () => {
+      const q = new URL(
+        ApiRoute.triggerDeliveries.page({
+          agentTypeId: 'at-1',
+          status: 'failed',
+          limit: 50,
+          cursor: 'c1',
+        }),
+        'http://localhost',
+      ).searchParams;
+      expect(Object.fromEntries(q)).toEqual({
+        limit: '50',
+        agent_type_id: 'at-1',
+        status: 'failed',
+        cursor: 'c1',
+      });
+    });
+  });
+
   describe('discover', () => {
     it('PATH returns a path with no query string', () => {
       // PUBLIC_PATHS uses PATH() because the Edge middleware matches pathname
