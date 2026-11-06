@@ -56,10 +56,13 @@ export function EventsPage({
       )}
 
       <Stack gap="cozy">
-        <Stack direction="horizontal" align="center" justify="end" gap="cozy">
-          <NewEventsButton feed={feed} />
-          <LiveControl feed={feed} />
-        </Stack>
+        {/* With no first page there is no stream to describe. */}
+        {feed.error === null && (
+          <Stack direction="horizontal" align="center" justify="end" gap="cozy">
+            <NewEventsButton feed={feed} />
+            <LiveControl feed={feed} />
+          </Stack>
+        )}
         <EventsTable
           feed={feed}
           filters={filters}
