@@ -29,24 +29,30 @@ The deliveries list pages with a keyset cursor and filters by status in SQL, and
 - The query orders by `received_at DESC, id DESC` and reads `limit + 1` rows to decide whether another page follows.
 - `received_before` is removed. The kora MCP tool `triggers.deliveries.list` keeps `received_after` and takes `cursor`.
 
+### Trigger Scope
+
+- `trigger_id=` lists the deliveries that reached the trigger: those with one of its outcome rows in `trigger_delivery_runs`, and those recorded against it with a `verified`, `missed` or `duplicate` status and no outcome of their own.
+- `agent_type_id=` applies the same scope to every trigger `GET /api/v1/triggers?agent_type_id=` lists for the agent. It does not combine with `trigger_id`, and neither combines with `source_id` or `kind`.
+- `trigger_delivery_runs` carries the delivery's `received_at`, copied on insert and backfilled by the migration. The column defaults to `now()` for rows written by older pods during a rollout.
+- The query reads one index-ordered page per trigger and outcome from `idx_trigger_delivery_runs_reach` or `idx_trigger_delivery_runs_reach_status`, and one per trigger from the partial `idx_trigger_deliveries_recorded`. It merges the pages and keeps the newest. A page costs the same at any history depth.
+
 ### Status Filter
 
 - `status=` takes one of `dispatched`, `verified`, `skipped`, `failed`, `superseded`, `duplicate` or `missed`. An unknown value is a 400.
-- With `trigger_id` set, the list holds every delivery that reached the trigger: recorded against it or carrying one of its outcome rows. `status` then matches the trigger's own outcome, or the delivery's status when the trigger has no outcome row.
-- Without `trigger_id`, `status` matches the delivery's status with scalar equality to use `idx_trigger_deliveries_tenant_status`. `superseded` needs a `trigger_id`.
+- With a trigger scope, `status` matches the trigger's outcome rows, and the delivery's status for a recorded delivery.
+- Without a trigger scope, `status` matches the delivery's status with scalar equality to use `idx_trigger_deliveries_tenant_status`. `superseded` needs a `trigger_id`.
 - `failed` matches the `failed`, `denied` and `dropped` outcomes.
-- Outcome matches use `EXISTS` over `trigger_delivery_runs`. A join would return a delivery once per matching run and break the page size and the cursor.
 
 ### Trigger Stats
 
-Each trigger in `GET /api/v1/triggers` carries `stats`, and the envelope carries the tenant's `stats`. Each delivery that reached a trigger counts once, by the trigger's first outcome row or by the delivery's status when it has none. Windows run over the 24 hours before the request.
+Each trigger in `GET /api/v1/triggers` carries `stats`, and the envelope carries the tenant's `stats`. A trigger's stats count its outcome rows and the deliveries recorded against it, as the trigger scope defines them. Windows run over the 24 hours before the request and read `trigger_delivery_runs` by `received_at`.
 
 The per-trigger stats are:
 
-- `last_fired_at`: the newest delivery with a `dispatched`, `joined`, `failed` or `denied` outcome, over all history. `filtered`, `superseded`, `unrouted`, `paused`, `dropped`, `duplicate` and `missed` do not count.
+- `last_fired_at`: the `received_at` of the newest outcome row with a `dispatched`, `joined`, `failed` or `denied` status, over all history. Each trigger reads it with one probe of `idx_trigger_delivery_runs_last_fired`, a partial index over those statuses.
 - `deliveries_24h`, `started_24h` (`dispatched`, `joined`) and `failed_24h` (`failed`, `denied`, `dropped`).
 - `status_24h`: counts by `status=` value, with the same match the trigger-scoped filter applies.
-- `buckets`: twelve buckets of `started`, `failed` and `other`, aligned to UTC two-hour boundaries with `date_bin`. The last bucket holds the current time and is partial.
+- `buckets`: thirteen buckets of `started`, `failed` and `other`, aligned to UTC two-hour boundaries with `date_bin`, from the bucket holding now minus 24 hours to the bucket holding now. The first and last buckets are partial, and the bucket counts sum to `deliveries_24h`.
 
 The tenant stats are `deliveries_24h` (every arrival), `started_24h`, `failed_24h`, and `dispatch_p50_ms` and `dispatch_p95_ms`. The percentiles use `percentile_cont` over started outcomes, measured from delivery arrival to the outcome row. The console derives the success rate as started over started plus failed.
 
@@ -56,12 +62,14 @@ The tenant stats are `deliveries_24h` (every arrival), `started_24h`, `failed_24
 
 - A status filter and every count mean the same thing at any tenant size.
 - Paging is stable while deliveries arrive.
-- The Triggers page no longer fetches 100 deliveries to compute its numbers.
+- The Triggers page and the agent page no longer fetch 100 deliveries to compute their numbers.
+- A trigger's last fire and any trigger-scoped page cost the same at any history depth.
 
 ### Negative
 
-- `idx_trigger_deliveries_tenant_status` on `(tenant_id, status, received_at DESC)` adds one index to the write path of every arrival.
-- `last_fired_at` scans the tenant's attempted outcomes on every trigger list read.
+- Every arrival maintains `idx_trigger_deliveries_tenant_status`, and every outcome row maintains three more indexes on `trigger_delivery_runs`.
+- The 24-hour stats aggregate every outcome row in the window on each trigger list read. The cost grows with 24-hour volume and does not grow with history.
+- A delivery recorded against a trigger with a `dispatched`, `failed` or `skipped` status and no outcome row for that trigger is absent from the trigger's list and stats.
 - The cursor encoding is a compatibility surface for any client that parses it.
 
 ### Neutral
@@ -73,3 +81,4 @@ The tenant stats are `deliveries_24h` (every arrival), `started_24h`, `failed_24
 - `backend/internal/triggers/postgres.go`
 - `backend/internal/triggers/stats.go`
 - `backend/cmd/kora-triggers/migrations/20261106005343_add_delivery_status_index.sql`
+- `backend/cmd/kora-triggers/migrations/20261106014701_add_delivery_run_received_at.sql`
