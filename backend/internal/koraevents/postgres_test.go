@@ -58,11 +58,11 @@ func publish(t *testing.T, pool *storage.Pool, e events.Event) {
 func drain(t *testing.T, store *Postgres) {
 	t.Helper()
 	for {
-		n, err := store.RelayBatch(context.Background())
+		result, err := store.RelayBatch(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
-		if n < relayBatchSize {
+		if result.Taken < relayBatchSize {
 			return
 		}
 	}
@@ -310,5 +310,43 @@ func TestPostgres_Search(t *testing.T) {
 		if err != nil || len(got) != tc.want {
 			t.Errorf("q %q = %d events (%v), want %d", tc.q, len(got), err, tc.want)
 		}
+	}
+}
+
+func TestPostgres_RelayDropsMalformedRows(t *testing.T) {
+	store, pool, raw, tenant := testStore(t)
+	ctx := context.Background()
+	bad := map[string]string{
+		uuid.NewString(): `"not an envelope"`,
+		uuid.NewString(): `{"koratenant":"other","time":"2026-11-06T00:00:00Z","subject":"s","koraprincipal":"p","koraprincipaltype":"SYSTEM"}`,
+		uuid.NewString(): `{"koratenant":"` + tenant + `","time":"2026-11-06T00:00:00Z","subject":"s","koraprincipal":"p","koraprincipaltype":"SYSTEM","korarun":"run-1"}`,
+	}
+	for id, env := range bad {
+		if _, err := raw.Exec(ctx, `INSERT INTO event_outbox (id, tenant_id, type, envelope) VALUES ($1, $2, 'agents.run.failed.v1', $3::text::jsonb)`, id, tenant, env); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publish(t, pool, event(tenant, events.RunFailed, "good"))
+
+	dropped := map[string]bool{}
+	for {
+		result, err := store.RelayBatch(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for id := range result.Dropped {
+			dropped[id] = true
+		}
+		if result.Taken < relayBatchSize {
+			break
+		}
+	}
+	for id := range bad {
+		if !dropped[id] {
+			t.Errorf("malformed row %s was not dropped", id)
+		}
+	}
+	if seqs := tenantSeqs(t, raw, tenant); len(seqs) != 1 {
+		t.Errorf("log holds %d events of the tenant, want only the good one", len(seqs))
 	}
 }

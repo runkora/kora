@@ -41,6 +41,8 @@ func TestNewEnvelope_Principal(t *testing.T) {
 		{"pat", withPrincipal("alice", token.PrincipalTypePAT), "alice", PrincipalUser},
 		{"agent", withPrincipal("spiffe://td/agent", token.PrincipalTypeAgent), "spiffe://td/agent", PrincipalAgent},
 		{"trigger", withPrincipal("trigger:1", token.PrincipalTypeService), "trigger:1", PrincipalTrigger},
+		{"webhook source", withPrincipal("trigger-source:gh", token.PrincipalTypeService), "trigger-source:gh", PrincipalTrigger},
+		{"tenant service", withPrincipal("spiffe://td/tenant/t/service/s", token.PrincipalTypeService), "spiffe://td/tenant/t/service/s", PrincipalSystem},
 		{"platform", withPrincipal("kora-agents", token.PrincipalTypeSystem), "kora-agents", PrincipalSystem},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -86,7 +86,7 @@ func wake(ch chan struct{}) {
 
 // relayStore is the store surface the relay uses.
 type relayStore interface {
-	RelayBatch(ctx context.Context) (int, error)
+	RelayBatch(ctx context.Context) (RelayResult, error)
 }
 
 // RunRelay moves outbox rows into the log on each outbox notification and
@@ -95,14 +95,18 @@ type relayStore interface {
 func RunRelay(ctx context.Context, store relayStore, l *Listener, logger logging.Logger) {
 	every(ctx, l.outbox, tick, func() {
 		for {
-			n, err := store.RelayBatch(ctx)
+			result, err := store.RelayBatch(ctx)
 			if err != nil {
 				if ctx.Err() == nil {
 					logger.Error(ctx, "event relay batch failed", logging.Field{Key: "error", Value: err.Error()})
 				}
 				return
 			}
-			if n < relayBatchSize {
+			for id, reason := range result.Dropped {
+				logger.Error(ctx, "dropped an outbox row the event log cannot hold",
+					logging.Field{Key: "outbox_id", Value: id}, logging.Field{Key: "error", Value: reason.Error()})
+			}
+			if result.Taken < relayBatchSize {
 				return
 			}
 		}

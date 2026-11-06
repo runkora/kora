@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -46,11 +47,19 @@ func (p *Postgres) EnsureRelayState(ctx context.Context) error {
 	return nil
 }
 
+// RelayResult reports one relay batch.
+type RelayResult struct {
+	// Taken is how many rows the batch removed from the outbox.
+	Taken int
+	// Dropped lists the rows removed without an event, and why.
+	Dropped map[string]error
+}
+
 // RelayBatch moves up to relayBatchSize outbox rows into the log in one
-// transaction and returns how many rows it took from the outbox. Only the
-// holder of the relay lock assigns seq, which keeps seq gapless.
-func (p *Postgres) RelayBatch(ctx context.Context) (int, error) {
-	taken := 0
+// transaction. Only the holder of the relay lock assigns seq, which keeps seq
+// gapless. A row the log cannot hold is dropped so it cannot stall the relay.
+func (p *Postgres) RelayBatch(ctx context.Context) (RelayResult, error) {
+	var result RelayResult
 	err := storage.WithTransaction(ctx, p.pool, func(ctx context.Context, tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('kora_events_relay'))`); err != nil {
 			return fmt.Errorf("take relay lock: %w", err)
@@ -60,21 +69,16 @@ func (p *Postgres) RelayBatch(ctx context.Context) (int, error) {
 			return fmt.Errorf("read relay state: %w", err)
 		}
 		rows, err := tx.Query(ctx, `
-			SELECT o.id::text, o.envelope, EXISTS (SELECT 1 FROM events e WHERE e.id = o.id)
+			SELECT o.id::text, o.tenant_id, o.envelope, EXISTS (SELECT 1 FROM events e WHERE e.id = o.id)
 			FROM   event_outbox o
 			ORDER  BY o.position
 			LIMIT  $1`, relayBatchSize)
 		if err != nil {
 			return fmt.Errorf("read outbox: %w", err)
 		}
-		type outboxRow struct {
-			id       string
-			envelope []byte
-			recorded bool
-		}
 		outbox, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (outboxRow, error) {
 			var r outboxRow
-			return r, row.Scan(&r.id, &r.envelope, &r.recorded)
+			return r, row.Scan(&r.id, &r.tenant, &r.envelope, &r.recorded)
 		})
 		if err != nil {
 			return fmt.Errorf("scan outbox: %w", err)
@@ -90,20 +94,20 @@ func (p *Postgres) RelayBatch(ctx context.Context) (int, error) {
 			if r.recorded {
 				continue
 			}
-			var env events.Envelope
-			if err := json.Unmarshal(r.envelope, &env); err != nil {
-				return fmt.Errorf("decode outbox row %s: %w", r.id, err)
-			}
-			occurred, err := time.Parse(time.RFC3339Nano, env.Time)
+			env, occurred, err := r.decode()
 			if err != nil {
-				return fmt.Errorf("outbox row %s time: %w", r.id, err)
+				if result.Dropped == nil {
+					result.Dropped = map[string]error{}
+				}
+				result.Dropped[r.id] = err
+				continue
 			}
 			last++
 			batch.Queue(`
 				INSERT INTO events (seq, id, tenant_id, type, category, subject, principal, principal_type,
 				                    run_id, agent, caused_by, chain_depth, occurred_at, envelope)
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-				last, r.id, env.Tenant, string(env.Type), env.Type.Category(), env.Subject, env.Principal, env.PrincipalType,
+				last, r.id, r.tenant, string(env.Type), env.Type.Category(), env.Subject, env.Principal, env.PrincipalType,
 				storage.NullIfZero(env.Run), storage.NullIfZero(env.Agent), storage.NullIfZero(env.CausedBy),
 				env.ChainDepth, occurred, r.envelope)
 		}
@@ -119,10 +123,45 @@ func (p *Postgres) RelayBatch(ctx context.Context) (int, error) {
 		if _, err := tx.Exec(ctx, `SELECT pg_notify($1, $2)`, LogChannel, strconv.FormatInt(last, 10)); err != nil {
 			return fmt.Errorf("notify %s: %w", LogChannel, err)
 		}
-		taken = len(outbox)
+		result.Taken = len(outbox)
 		return nil
 	})
-	return taken, err
+	return result, err
+}
+
+// errMalformedRow reports an outbox row the log cannot hold.
+var errMalformedRow = errors.New("malformed outbox row")
+
+type outboxRow struct {
+	id       string
+	tenant   string
+	envelope []byte
+	recorded bool
+}
+
+// decode returns the envelope and occurred time of a row the log can hold.
+// The row's tenant column must match the envelope.
+func (r outboxRow) decode() (events.Envelope, time.Time, error) {
+	var env events.Envelope
+	if err := json.Unmarshal(r.envelope, &env); err != nil {
+		return env, time.Time{}, fmt.Errorf("%w: %w", errMalformedRow, err)
+	}
+	occurred, err := time.Parse(time.RFC3339Nano, env.Time)
+	if err != nil {
+		return env, time.Time{}, fmt.Errorf("%w: time: %w", errMalformedRow, err)
+	}
+	switch {
+	case env.Tenant != r.tenant:
+		return env, occurred, fmt.Errorf("%w: envelope tenant %q, row tenant %q", errMalformedRow, env.Tenant, r.tenant)
+	case env.Subject == "" || env.Principal == "" || env.PrincipalType == "":
+		return env, occurred, fmt.Errorf("%w: missing subject or principal", errMalformedRow)
+	}
+	for _, id := range []string{env.Run, env.CausedBy} {
+		if _, err := uuid.Parse(id); id != "" && err != nil {
+			return env, occurred, fmt.Errorf("%w: %q is not a UUID", errMalformedRow, id)
+		}
+	}
+	return env, occurred, nil
 }
 
 // List returns one page of the filtered events, newest first.
