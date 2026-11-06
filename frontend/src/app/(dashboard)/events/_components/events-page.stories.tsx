@@ -73,6 +73,7 @@ function EventsStory({
     events: shown,
     loading: feed.loading ?? false,
     error: feed.error ?? null,
+    olderError: null,
     retry: noop,
     hasMore: feed.hasMore ?? shown.length > 0,
     loadingMore: feed.loadingMore ?? false,

@@ -513,11 +513,6 @@ export const ApiRoute = {
       `${API_BASE}/catalog/pricing/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/override`,
   },
 
-  /**
-   * `/api/skills`
-   *
-   * GET: one page of the Skills overview, in title order.
-   */
   /** The event history and its live stream, served by kora-events. Filters repeat. */
   events: {
     page: (params: URLSearchParams): `${typeof API_BASE}/events?${string}` =>
@@ -525,6 +520,12 @@ export const ApiRoute = {
     stream: (params: URLSearchParams): `${typeof API_BASE}/events/stream?${string}` =>
       `${API_BASE}/events/stream?${params.toString()}`,
   },
+
+  /**
+   * `/api/skills`
+   *
+   * GET: one page of the Skills overview, in title order.
+   */
 
   skills: {
     GET: (params: {

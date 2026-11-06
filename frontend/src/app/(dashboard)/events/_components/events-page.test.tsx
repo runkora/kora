@@ -14,6 +14,7 @@ function feed(over: Partial<EventFeed> = {}): EventFeed {
     events: EVENTS,
     loading: false,
     error: null,
+    olderError: null,
     retry: vi.fn(),
     hasMore: true,
     loadingMore: false,

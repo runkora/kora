@@ -129,15 +129,15 @@ export function NewEventsButton({ feed }: { feed: Pick<EventFeed, 'pending' | 's
 export function HistoryFooter({
   feed,
 }: {
-  feed: Pick<EventFeed, 'hasMore' | 'loadingMore' | 'loadOlder' | 'events' | 'error'>;
+  feed: Pick<EventFeed, 'hasMore' | 'loadingMore' | 'loadOlder' | 'events' | 'olderError'>;
 }) {
   if (feed.events.length === 0) return null;
   if (feed.hasMore)
     return (
       <Stack gap="snug" align="center">
-        {feed.error !== null && (
+        {feed.olderError !== null && (
           <Text size="caption" color="status-error">
-            Could not load older events: {feed.error}
+            Could not load older events: {feed.olderError}
           </Text>
         )}
         <Button size="xs" variant="secondary" disabled={feed.loadingMore} onClick={feed.loadOlder}>

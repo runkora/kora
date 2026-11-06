@@ -181,11 +181,22 @@ export function TriggersPage({
   // A linked delivery opens once its page has loaded, paging back while it is not found yet.
   const linkedRow =
     linkedDelivery === null ? undefined : feed.deliveries.find((d) => d.id === linkedDelivery);
-  const { loading, loadingMore, hasMore, loadOlder, deliveries } = feed;
+  // A failed page stops the search, so a failing API is not asked again and again.
+  const { loading, loadingMore, hasMore, loadOlder, deliveries, error: pageError } = feed;
   useEffect(() => {
     if (linkedDelivery === null || linkedRow !== undefined || loading || loadingMore) return;
+    if (pageError !== null) return;
     if (hasMore && deliveries.length < LINKED_DELIVERY_SEARCH) loadOlder();
-  }, [linkedDelivery, linkedRow, loading, loadingMore, hasMore, deliveries.length, loadOlder]);
+  }, [
+    linkedDelivery,
+    linkedRow,
+    loading,
+    loadingMore,
+    pageError,
+    hasMore,
+    deliveries.length,
+    loadOlder,
+  ]);
   const shownDelivery = detailDelivery ?? linkedRow ?? null;
 
   /** Drops the link from the address once its modal closes, so a reload does not reopen it. */
