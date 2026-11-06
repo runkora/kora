@@ -16,6 +16,7 @@ spec:
   rules:
     - to:
         - operation:
+            ports: ["8099"]
             paths: ["/internal/*"]
       from:
         - source:
