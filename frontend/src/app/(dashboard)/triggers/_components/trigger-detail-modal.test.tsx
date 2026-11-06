@@ -7,6 +7,7 @@ const api = vi.hoisted(() => ({
   fetchEventTypes: vi.fn(),
   fetchProviderEventTypes: vi.fn(),
   fetchProviderFields: vi.fn(),
+  fetchPlatformEventTypes: vi.fn(),
   listDeliveryPage: vi.fn(),
 }));
 vi.mock('../_services/triggers-api', () => api);
@@ -599,6 +600,21 @@ describe('permissions', () => {
     );
   }
   const manual = (canFire: boolean) => trigger({ kind: 'manual', canFire });
+  const eventTrigger = trigger({ kind: 'event', sourceId: '', eventType: 'agents.run.failed.v1' });
+
+  it('disables the event filters without events:read', async () => {
+    api.fetchPlatformEventTypes.mockResolvedValue({ eventTypes: [], error: null });
+    renderWith(['triggers:read', 'triggers:write'], eventTrigger);
+    await openSection('Event filters');
+    expect(screen.getByRole('switch', { name: /Ignore its own runs/ })).toBeDisabled();
+  });
+
+  it('keeps the event filters editable with events:read', async () => {
+    api.fetchPlatformEventTypes.mockResolvedValue({ eventTypes: [], error: null });
+    renderWith(['triggers:read', 'triggers:write', 'events:read'], eventTrigger);
+    await openSection('Event filters');
+    expect(screen.getByRole('switch', { name: /Ignore its own runs/ })).not.toBeDisabled();
+  });
   const scheduled = trigger({
     kind: 'scheduled',
     scheduleConfig: { cronExpression: '0 2 * * *', timezone: 'UTC', catchUp: false },

@@ -42,6 +42,7 @@ vi.mock('./use-routing-options', () => routingOptions);
 const refresh = vi.hoisted(() => vi.fn());
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
 
+import { StaticPermissionsProvider } from '../../../_components/permissions-provider';
 import { TriggerWizard } from './trigger-wizard';
 import { StepDelivery } from './step-delivery';
 import { StepReview } from './step-review';
@@ -123,16 +124,23 @@ beforeEach(() => {
   }));
 });
 
-function renderWizard(initialKind?: ConsoleKind, sources = CONTEXT.sources, onCreate = vi.fn()) {
+function renderWizard(
+  initialKind?: ConsoleKind,
+  sources = CONTEXT.sources,
+  onCreate = vi.fn(),
+  scopes = ['events:read'],
+) {
   return render(
-    <TriggerWizard
-      initialKind={initialKind}
-      agents={CONTEXT.agents}
-      sources={sources}
-      ingestHost={CONTEXT.ingestHost}
-      onCreate={onCreate}
-      onClose={vi.fn()}
-    />,
+    <StaticPermissionsProvider scopes={scopes}>
+      <TriggerWizard
+        initialKind={initialKind}
+        agents={CONTEXT.agents}
+        sources={sources}
+        ingestHost={CONTEXT.ingestHost}
+        onCreate={onCreate}
+        onClose={vi.fn()}
+      />
+    </StaticPermissionsProvider>,
   );
 }
 
@@ -152,6 +160,12 @@ describe('TriggerWizard picker phase', () => {
     for (const planned of PLANNED_KINDS) {
       expect(screen.getByText(planned.title)).toBeTruthy();
     }
+  });
+
+  it('hides the event kind without events:read', () => {
+    renderWizard(undefined, CONTEXT.sources, vi.fn(), []);
+    expect(screen.queryByText(TRIGGER_KINDS.event.title)).toBeNull();
+    expect(screen.getByText(TRIGGER_KINDS.webhook.title)).toBeTruthy();
   });
 
   it('offers Chat command as a kind that can be picked, not a planned one', () => {

@@ -409,6 +409,8 @@ function TriggerDetailModalBody({
   // control. Run-shaping edits also need run authority on the bound agent.
   // Firing has its own per-trigger answer from the API.
   const canWrite = useHasScope('triggers:write');
+  // Without events:read, kora-triggers refuses every edit of an event trigger but its name, enablement and admission.
+  const canReadEvents = useHasScope('events:read');
   const canShapeRuns = canWrite && canRunAgent;
   // A trigger whose source was deleted takes no edits; it can only be turned off or deleted.
   const sourceMissing = trigger?.sourceMissing ?? false;
@@ -928,7 +930,7 @@ function TriggerDetailModalBody({
                       onIgnoreOwnRunsChange={(ignoreOwnRuns) =>
                         filters.setValue({ ...filters.value, ignoreOwnRuns })
                       }
-                      disabled={!runEditable}
+                      disabled={!runEditable || !canReadEvents}
                     />
                     <EditActions
                       dirty={filters.dirty}
