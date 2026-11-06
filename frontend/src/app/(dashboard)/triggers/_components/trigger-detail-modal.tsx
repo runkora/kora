@@ -48,7 +48,6 @@ import {
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { consoleKindOf, triggerToggleOpen } from '../_types';
 import type { DeliveryRow, Senders, SourceRow, TriggerCoalesce, TriggerRow } from '../_types';
-import { isStartedOutcome, recentFailures } from '../_types/fleet';
 import { endpointFor } from '../_lib/endpoints';
 import { SLACK_PROVIDER } from '../_lib/slack-app-manifest';
 import { chatConversationKey, chatEventLabel } from '../_lib/chat';
@@ -59,6 +58,7 @@ import type { ConfigurationSection } from './configuration-rail';
 import type { CoalesceDraft } from './coalesce-editor';
 import { DataBlockPreview } from './data-block-preview';
 import { DeliveryList } from './delivery-list';
+import type { DeliveryFilter } from './delivery-list';
 import { useTriggerDeliveries } from './use-trigger-deliveries';
 import type { RoutingAgentName } from './delivery-routing';
 import { PlainRow } from './plain-row';
@@ -130,7 +130,6 @@ export interface TriggerEditPatch {
 interface TriggerDetailModalProps {
   trigger: TriggerRow | null;
   sources: SourceRow[];
-  deliveries: DeliveryRow[];
   /** Public base URL webhook senders post to. */
   ingestHost: string;
   onClose: () => void;
@@ -383,7 +382,6 @@ function DetailStat({
 function TriggerDetailModalBody({
   trigger,
   sources,
-  deliveries,
   ingestHost,
   onClose,
   onToggleEnabled,
@@ -414,24 +412,20 @@ function TriggerDetailModalBody({
   const onRotateSecret = canShapeRuns && !sourceDeclared ? rotateSecretAction : undefined;
   const canFire = !!trigger?.canFire;
   const [expanded, setExpanded] = useState<string | null>(null);
-  // This trigger's history, fetched in the background when the modal opens.
-  const history = useTriggerDeliveries(trigger?.id ?? '', trigger?.sourceId ?? '');
+  // This trigger's history, fetched in the background when the modal opens and
+  // again whenever the filter changes.
+  const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>('all');
+  const history = useTriggerDeliveries(
+    trigger === null
+      ? null
+      : { triggerId: trigger.id, ...(deliveryFilter !== 'all' && { status: deliveryFilter }) },
+  );
   // Rotation is destructive (the provider's configured secret stops working the
   // moment it lands), so the button opens a confirmation before doing it.
   const [rotateOpen, setRotateOpen] = useState(false);
   const [rotateError, setRotateError] = useState<string | null>(null);
   const [rotating, setRotating] = useState(false);
   const [rotatedSecret, setRotatedSecret] = useState<string | null>(null);
-
-  const mine = useMemo(
-    () =>
-      trigger === null
-        ? []
-        : deliveries.filter(
-            (d) => d.triggerId === trigger.id || d.runs.some((r) => r.triggerId === trigger.id),
-          ),
-    [trigger, deliveries],
-  );
 
   // ── Editing ───────────────────────────────────────────────────────────────
   // Every section keys its draft on the trigger's id, so opening a different
@@ -617,12 +611,7 @@ function TriggerDetailModalBody({
   const kind = consoleKindOf(trigger, (id) => sources.find((s) => s.id === id)?.category);
   const eventName =
     kind === 'chat' ? chatEventLabel(filters.value.eventType) : filters.value.eventType;
-  const failures = recentFailures(trigger.id, deliveries);
-  const succeeded = mine.reduce(
-    (n, d) =>
-      n + d.runs.filter((r) => r.triggerId === trigger.id && isStartedOutcome(r.status)).length,
-    0,
-  );
+  const { deliveries24h, started24h, failed24h } = trigger.stats;
   const endpoint = endpointFor(ingestHost, trigger.sourceId);
   // A webhook or chat trigger on a live source has a secret to rotate.
   const hasSigningSecret = trigger.kind === 'webhook' && !trigger.sourceMissing;
@@ -1156,16 +1145,16 @@ function TriggerDetailModalBody({
                   cols={trigger.pendingCount > 0 ? { base: 2, sm: 3, md: 5 } : { base: 2, md: 4 }}
                   gap="snug"
                 >
-                  <DetailStat label="Deliveries 24h" value={String(mine.length)} />
+                  <DetailStat label="Deliveries 24h" value={String(deliveries24h)} />
                   <DetailStat
-                    label="Succeeded"
-                    value={String(succeeded)}
-                    tone={succeeded > 0 ? 'healthy' : undefined}
+                    label="Succeeded 24h"
+                    value={String(started24h)}
+                    tone={started24h > 0 ? 'healthy' : undefined}
                   />
                   <DetailStat
-                    label="Failed"
-                    value={String(failures)}
-                    tone={failures > 0 ? 'error' : undefined}
+                    label="Failed 24h"
+                    value={String(failed24h)}
+                    tone={failed24h > 0 ? 'error' : undefined}
                   />
                   <DetailStat
                     label="Consecutive failures"
@@ -1304,6 +1293,9 @@ function TriggerDetailModalBody({
                 {/* Deliveries: what it has actually done, newest first, older on request. */}
                 <DeliveryList
                   deliveries={history.deliveries}
+                  filter={deliveryFilter}
+                  onFilterChange={setDeliveryFilter}
+                  stats={trigger.stats}
                   loading={history.loading}
                   loadingMore={history.loadingMore}
                   hasMore={history.hasMore}

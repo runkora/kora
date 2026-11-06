@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, within } from 'storybook/test';
 import { dashboardPage, sessionRoutes } from '@runkora/storybook/dashboard-frame';
 import { TriggersShell } from './triggers-shell';
-import { catalogRoutes } from './triggers-story-routes';
+import { catalogRoutes, deliveryRoutes } from './triggers-story-routes';
 import {
   AGENTS,
   PERMUTATION_DELIVERIES,
@@ -31,11 +31,11 @@ const meta: Meta<typeof TriggersShell> = {
   args: {
     sources: SOURCES,
     triggers: PERMUTATION_TRIGGERS,
-    deliveries: PERMUTATION_DELIVERIES,
+    stats: null,
     agents: AGENTS,
     initialError: null,
   },
-  decorators: [dashboardPage(catalogRoutes)],
+  decorators: [dashboardPage({ ...catalogRoutes, ...deliveryRoutes(PERMUTATION_DELIVERIES) })],
 };
 
 export default meta;

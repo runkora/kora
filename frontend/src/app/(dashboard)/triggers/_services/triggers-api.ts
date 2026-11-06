@@ -19,6 +19,7 @@ import type {
   Trigger,
   TriggerCreateRequest,
   TriggerDelivery,
+  TriggerDeliveryPage,
   TriggerEventTypes,
   TriggerField,
   TriggerRoutingCandidate,
@@ -103,27 +104,33 @@ export async function listTriggers(
   return { triggers: res.data ?? [], error: res.error };
 }
 
+/** The newest page of the tenant's deliveries. */
 export async function listDeliveries(): Promise<{
   deliveries: TriggerDelivery[];
   error: string | null;
 }> {
-  const res = await send<TriggerDelivery[]>(ApiRoute.triggerDeliveries.list(), {
-    cache: 'no-store',
-  });
-  return { deliveries: res.data ?? [], error: res.error };
+  const { deliveries, error } = await listDeliveryPage({ limit: 100 });
+  return { deliveries, error };
 }
 
-/** A page of deliveries, newest first. `before` is the oldest `receivedAt` already held. */
+/**
+ * A page of deliveries, newest first. `cursor` is the previous page's `nextCursor`;
+ * `nextCursor` is null on the last page.
+ */
 export async function listDeliveryPage(opts: {
-  sourceId?: string;
   triggerId?: string;
+  status?: string;
   limit: number;
-  before?: string;
-}): Promise<{ deliveries: TriggerDelivery[]; error: string | null }> {
-  const res = await send<TriggerDelivery[]>(ApiRoute.triggerDeliveries.page(opts), {
+  cursor?: string;
+}): Promise<{ deliveries: TriggerDelivery[]; nextCursor: string | null; error: string | null }> {
+  const res = await send<TriggerDeliveryPage>(ApiRoute.triggerDeliveries.page(opts), {
     cache: 'no-store',
   });
-  return { deliveries: res.data ?? [], error: res.error };
+  return {
+    deliveries: res.data?.deliveries ?? [],
+    nextCursor: res.data?.next_cursor ?? null,
+    error: res.error,
+  };
 }
 
 /** The agent types a routed trigger may name, each marked runnable for the caller. */

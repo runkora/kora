@@ -1,14 +1,16 @@
 'use client';
 
-/** @tier 3 — triggers-scoped. Fleet health at a glance, above the trigger list. */
+/** @tier 3 — triggers-scoped. The tenant's trigger stats at a glance, above the trigger list. */
 
 import { Grid, Icon, StatCard } from '@runkora/hades';
-import type { DeliveryRow, TriggerRow } from '../_types';
-import { fleetStats } from '../_types/fleet';
+import type { TriggerRow } from '../_types';
+import { needsAttention, successRate } from '../_types/stats';
+import type { TenantStatsRow } from '../_types/stats';
 
-interface FleetKpisProps {
+interface TriggerStatsKpisProps {
   triggers: TriggerRow[];
-  deliveries: DeliveryRow[];
+  /** Null when the API answered without tenant stats. */
+  stats: TenantStatsRow | null;
 }
 
 /** Latency in the unit that reads best at the value's magnitude. */
@@ -17,15 +19,18 @@ function formatMs(ms: number | null): string {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
-/**
- * FleetKpis summarises the whole trigger fleet.
- *
- * Every figure is computed from the same rows the list below renders, so a KPI
- * can never disagree with the detail it sits above. A number that contradicts
- * the rows beneath it is worse than no number, because it gets believed.
- */
-export function FleetKpis({ triggers, deliveries }: FleetKpisProps) {
-  const s = fleetStats(triggers, deliveries);
+const NO_STATS: TenantStatsRow = {
+  deliveries24h: 0,
+  started24h: 0,
+  failed24h: 0,
+  dispatchP50Ms: null,
+  dispatchP95Ms: null,
+};
+
+export function TriggerStatsKpis({ triggers, stats }: TriggerStatsKpisProps) {
+  const s = stats ?? NO_STATS;
+  const rate = successRate(s);
+  const attention = triggers.filter(needsAttention).length;
   // A routed trigger reaches each of its candidates.
   const agents = new Set(
     triggers.flatMap((t) => (t.routing !== null ? t.routing.candidates : [t.agentTypeId])),
@@ -35,7 +40,7 @@ export function FleetKpis({ triggers, deliveries }: FleetKpisProps) {
     <Grid cols={5} gap="comfortable">
       <StatCard
         label="ACTIVE TRIGGERS"
-        value={String(s.activeTriggers)}
+        value={String(triggers.filter((t) => t.enabled).length)}
         detail={`across ${agents} ${agents === 1 ? 'agent' : 'agents'}`}
         icon={<Icon name="webhook" size="2xs" />}
       />
@@ -47,11 +52,9 @@ export function FleetKpis({ triggers, deliveries }: FleetKpisProps) {
       />
       <StatCard
         label="SUCCESS RATE"
-        // Null rather than 0% when nothing arrived: 0% reads as total failure
-        // where in fact there was silence.
-        value={s.successRate === null ? '—' : `${s.successRate}%`}
+        value={rate === null ? '—' : `${rate}%`}
         detail={
-          s.successRate === null
+          rate === null
             ? 'no deliveries yet'
             : `${s.started24h.toLocaleString('en-GB')} ok · ${s.failed24h} failed`
         }
@@ -59,15 +62,15 @@ export function FleetKpis({ triggers, deliveries }: FleetKpisProps) {
       />
       <StatCard
         label="NEEDS ATTENTION"
-        value={String(s.needsAttention)}
-        detail={s.needsAttention === 0 ? 'nothing failing' : 'triggers with failures'}
-        tone={s.needsAttention > 0 ? 'error' : 'default'}
-        detailTone={s.needsAttention > 0 ? 'error' : 'default'}
+        value={String(attention)}
+        detail={attention === 0 ? 'nothing failing' : 'triggers with failures'}
+        tone={attention > 0 ? 'error' : 'default'}
+        detailTone={attention > 0 ? 'error' : 'default'}
         icon={<Icon name="circle-x" size="2xs" />}
       />
       <StatCard
         label="AVG DISPATCH"
-        value={formatMs(s.dispatchMs)}
+        value={formatMs(s.dispatchP50Ms)}
         detail={s.dispatchP95Ms === null ? 'no dispatches yet' : `p95 ${formatMs(s.dispatchP95Ms)}`}
         icon={<Icon name="gauge" size="2xs" />}
       />

@@ -18,7 +18,6 @@ function list(overrides: Partial<ComponentProps<typeof TriggerList>> = {}) {
   return (
     <TriggerList
       triggers={[]}
-      deliveries={[]}
       sourceName={(id) => id}
       onOpen={vi.fn()}
       onToggle={vi.fn()}

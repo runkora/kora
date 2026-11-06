@@ -27,11 +27,13 @@ import { DeliveryDetailPanel, runHrefFor } from './delivery-detail-panel';
 import { RunTriggerModal } from './run-trigger-modal';
 import { TriggerWizard } from './trigger-wizard';
 import type { TriggerCreateResult, TriggerDraft } from './trigger-wizard';
-import { FleetKpis } from './fleet-kpis';
+import { TriggerStatsKpis } from './trigger-stats-kpis';
 import { TriggerDetailModal } from './trigger-detail-modal';
 import { TriggerList } from './trigger-list';
 import { DeliveryGrid } from './delivery-grid';
-import { consoleKindOf, matchesStatusFilter, runTargets } from '../_types';
+import { consoleKindOf, runTargets } from '../_types';
+import type { TenantStatsRow } from '../_types/stats';
+import { useTriggerDeliveries } from './use-trigger-deliveries';
 import { ingestHostFromWindow } from '../_lib/endpoints';
 import type {
   AgentOption,
@@ -47,7 +49,8 @@ import { ManagedInGitCallout, PermissionHint } from '@runkora/components';
 interface TriggersPageProps {
   sources: SourceRow[];
   triggers: TriggerRow[];
-  deliveries: DeliveryRow[];
+  /** Null when the API answered without tenant stats. */
+  stats: TenantStatsRow | null;
   agents: AgentOption[];
   agentsError?: string | null;
   error: string | null;
@@ -75,7 +78,7 @@ const KIND_FILTER_NOUN: Record<ConsoleKind, string> = {
 export function TriggersPage({
   sources,
   triggers,
-  deliveries,
+  stats,
   agents,
   agentsError = null,
   error,
@@ -151,20 +154,17 @@ export function TriggersPage({
 
   // ── Deliveries: status filter ─────────────────────────────────────────────────
   const [deliveryStatus, setDeliveryStatus] = useState('all');
-
-  const visibleDeliveries = useMemo(
-    () =>
-      deliveryStatus === 'all'
-        ? deliveries
-        : deliveries.filter((d) => matchesStatusFilter(d, new Set([deliveryStatus]))),
-    [deliveries, deliveryStatus],
-  );
+  const feed = useTriggerDeliveries(deliveryStatus === 'all' ? {} : { status: deliveryStatus });
 
   const [fireResult, setFireResult] = useState<TriggerNotice | null>(null);
 
   // Every mutation this page can perform, shared with the agent page's
   // Triggers tab so the two surfaces drive the same modal identically.
-  const refresh = useCallback(() => router.refresh(), [router]);
+  const { retry: reloadFeed } = feed;
+  const refresh = useCallback(() => {
+    router.refresh();
+    reloadFeed();
+  }, [router, reloadFeed]);
   const {
     fireManualTrigger,
     startManualRun,
@@ -223,7 +223,7 @@ export function TriggersPage({
       {error && <Alert variant="error">{error}</Alert>}
       {fireResult && <Alert variant={fireResult.ok ? 'info' : 'error'}>{fireResult.message}</Alert>}
 
-      <FleetKpis triggers={triggers} deliveries={deliveries} />
+      <TriggerStatsKpis triggers={triggers} stats={stats} />
 
       {/* Sources are not a headline surface: a webhook source is created
           inside the New Trigger flow and managed from its trigger's modal,
@@ -288,7 +288,6 @@ export function TriggersPage({
               }
               resetKey={kindFilter}
               triggers={visibleTriggers}
-              deliveries={deliveries}
               sourceName={sourceName}
               sourceCategory={sourceCategory}
               sourceWaiting={sourceWaiting}
@@ -306,31 +305,54 @@ export function TriggersPage({
 
         {/* Deliveries */}
         <TabsContent value="deliveries">
-          <DeliveryGrid
-            quickFilters={
-              <NativeSelect
-                aria-label="Filter deliveries by status"
-                value={deliveryStatus}
-                onChange={(e) => setDeliveryStatus(e.target.value)}
-              >
-                <option value="all">All statuses</option>
-                {DELIVERY_STATUS_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </NativeSelect>
-            }
-            resetKey={deliveryStatus}
-            deliveries={visibleDeliveries}
-            sourceName={sourceName}
-            onOpen={setDetailDelivery}
-            emptyMessage={
-              deliveries.length === 0
-                ? 'No deliveries yet. Arrivals and their outcomes appear here once a source receives events, a schedule ticks, or a trigger is fired.'
-                : `No ${deliveryStatus === 'all' ? '' : deliveryStatus + ' '}deliveries.`
-            }
-          />
+          <Stack gap="snug">
+            <DeliveryGrid
+              quickFilters={
+                <NativeSelect
+                  aria-label="Filter deliveries by status"
+                  value={deliveryStatus}
+                  onChange={(e) => setDeliveryStatus(e.target.value)}
+                >
+                  <option value="all">All statuses</option>
+                  {DELIVERY_STATUS_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </NativeSelect>
+              }
+              resetKey={deliveryStatus}
+              deliveries={feed.deliveries}
+              sourceName={sourceName}
+              onOpen={setDetailDelivery}
+              emptyMessage={
+                feed.loading
+                  ? 'Loading deliveries…'
+                  : feed.error !== null
+                    ? `Could not load deliveries: ${feed.error}`
+                    : deliveryStatus === 'all'
+                      ? 'No deliveries yet. Arrivals and their outcomes appear here once a source receives events, a schedule ticks, or a trigger is fired.'
+                      : `No ${deliveryStatus} deliveries.`
+              }
+            />
+            {feed.hasMore && (
+              <Stack direction="horizontal" align="center" gap="cozy">
+                <Button
+                  size="xs"
+                  variant="secondary"
+                  disabled={feed.loadingMore}
+                  onClick={feed.loadOlder}
+                >
+                  {feed.loadingMore ? 'Loading…' : 'Load older'}
+                </Button>
+                {feed.error !== null && (
+                  <Text size="caption" color="status-error">
+                    Could not load older deliveries: {feed.error}
+                  </Text>
+                )}
+              </Stack>
+            )}
+          </Stack>
         </TabsContent>
       </Tabs>
 
@@ -357,7 +379,6 @@ export function TriggersPage({
         trigger={modalRow}
         canRunAgent={modalRow !== null && canRunTrigger(modalRow)}
         sources={sources}
-        deliveries={deliveries}
         ingestHost={ingestHost}
         onClose={() => setModalTrigger(null)}
         onToggleEnabled={(t) => {

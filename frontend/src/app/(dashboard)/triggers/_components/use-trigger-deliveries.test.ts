@@ -5,130 +5,70 @@ const api = vi.hoisted(() => ({ listDeliveryPage: vi.fn() }));
 vi.mock('../_services/triggers-api', () => api);
 
 import { DELIVERY_PAGE_SIZE, useTriggerDeliveries } from './use-trigger-deliveries';
+import type { DeliveryQuery } from './use-trigger-deliveries';
 
 /** The API's delivery shape, as little of it as the row mapper needs. */
-const raw = (
-  id: string,
-  receivedAt: string,
-  triggerId: string | null,
-  runTriggers: string[] = [],
-) => ({
+const raw = (id: string) => ({
   id,
   kind: 'webhook',
-  status: 'dispatched',
-  trigger_id: triggerId,
-  received_at: receivedAt,
-  runs: runTriggers.map((t) => ({ trigger_id: t, status: 'dispatched' })),
+  status: 'failed',
+  received_at: '2026-07-29T04:00:00Z',
+  runs: [],
+});
+const page = (ids: string[], nextCursor: string | null, error: string | null = null) => ({
+  deliveries: ids.map(raw),
+  nextCursor,
+  error,
 });
 
 beforeEach(() => vi.clearAllMocks());
 
 describe('useTriggerDeliveries', () => {
-  it('asks for a scheduled or manual trigger by trigger, and starts loading', async () => {
-    api.listDeliveryPage.mockResolvedValue({ deliveries: [], error: null });
-    const { result } = renderHook(() => useTriggerDeliveries('trg-1', ''));
-    expect(result.current.loading).toBe(true);
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(api.listDeliveryPage).toHaveBeenCalledWith({
-      triggerId: 'trg-1',
-      limit: DELIVERY_PAGE_SIZE,
-    });
-  });
-
-  it('reads a webhook from its source and keeps only the deliveries that reached it', async () => {
-    api.listDeliveryPage.mockResolvedValue({
-      deliveries: [
-        raw('mine-direct', '2026-07-29T04:00:00Z', 'trg-1'),
-        raw('mine-fanout', '2026-07-29T03:00:00Z', 'trg-2', ['trg-2', 'trg-1']),
-        raw('other', '2026-07-29T02:00:00Z', 'trg-2', ['trg-2']),
-      ],
-      error: null,
-    });
-    const { result } = renderHook(() => useTriggerDeliveries('trg-1', 'src-1'));
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(api.listDeliveryPage).toHaveBeenCalledWith({
-      sourceId: 'src-1',
-      limit: DELIVERY_PAGE_SIZE,
-    });
-    expect(result.current.deliveries.map((d) => d.id)).toEqual(['mine-direct', 'mine-fanout']);
-    expect(result.current.hasMore).toBe(false);
-  });
-
-  it('pages back from the oldest delivery fetched, shown or not', async () => {
-    const full = Array.from({ length: DELIVERY_PAGE_SIZE }, (_, i) =>
-      raw(
-        `d${i}`,
-        `2026-07-29T04:${String(59 - i).padStart(2, '0')}:00Z`,
-        i === 0 ? 'trg-1' : 'trg-2',
-        [i === 0 ? 'trg-1' : 'trg-2'],
-      ),
-    );
+  it('refetches when the status changes and pages older with the cursor', async () => {
     api.listDeliveryPage
-      .mockResolvedValueOnce({ deliveries: full, error: null })
-      .mockResolvedValueOnce({
-        deliveries: [raw('older', '2026-07-28T00:00:00Z', 'trg-1')],
-        error: null,
-      });
-    const { result } = renderHook(() => useTriggerDeliveries('trg-1', 'src-1'));
+      .mockResolvedValueOnce(page(['all-1'], null))
+      .mockResolvedValueOnce(page(['failed-1'], 'c1'))
+      .mockResolvedValueOnce(page(['failed-2'], null));
+    const { result, rerender } = renderHook((q: DeliveryQuery) => useTriggerDeliveries(q), {
+      initialProps: { triggerId: 'trg-1' } as DeliveryQuery,
+    });
     await waitFor(() => expect(result.current.loading).toBe(false));
-    expect(result.current.deliveries.map((d) => d.id)).toEqual(['d0']);
+    expect(result.current.hasMore).toBe(false);
+
+    rerender({ triggerId: 'trg-1', status: 'failed' });
+    await waitFor(() => expect(result.current.deliveries.map((d) => d.id)).toEqual(['failed-1']));
+    expect(api.listDeliveryPage).toHaveBeenLastCalledWith({
+      triggerId: 'trg-1',
+      status: 'failed',
+      limit: DELIVERY_PAGE_SIZE,
+    });
     expect(result.current.hasMore).toBe(true);
 
     act(() => result.current.loadOlder());
     await waitFor(() => expect(result.current.loadingMore).toBe(false));
     expect(api.listDeliveryPage).toHaveBeenLastCalledWith({
-      sourceId: 'src-1',
+      triggerId: 'trg-1',
+      status: 'failed',
       limit: DELIVERY_PAGE_SIZE,
-      before: full[full.length - 1]!.received_at,
+      cursor: 'c1',
     });
-    expect(result.current.deliveries.map((d) => d.id)).toEqual(['d0', 'older']);
+    expect(result.current.deliveries.map((d) => d.id)).toEqual(['failed-1', 'failed-2']);
     expect(result.current.hasMore).toBe(false);
   });
 
-  it('reports a failed first fetch and tries again on retry', async () => {
-    api.listDeliveryPage.mockResolvedValueOnce({ deliveries: [], error: 'boom' });
-    const { result } = renderHook(() => useTriggerDeliveries('trg-1', ''));
-    await waitFor(() => expect(result.current.error).toBe('boom'));
-    api.listDeliveryPage.mockResolvedValueOnce({ deliveries: [], error: null });
-    act(() => result.current.retry());
-    await waitFor(() => expect(result.current.error).toBeNull());
-    expect(api.listDeliveryPage).toHaveBeenCalledTimes(2);
-  });
-
-  it('fetches nothing with no trigger open', () => {
-    renderHook(() => useTriggerDeliveries('', ''));
-    expect(api.listDeliveryPage).not.toHaveBeenCalled();
-  });
-
-  it('keeps "Load older" available after an older page fails, so it can be retried', async () => {
-    const full = Array.from({ length: DELIVERY_PAGE_SIZE }, (_, i) =>
-      raw(`d${i}`, `2026-07-29T04:${String(59 - i).padStart(2, '0')}:00Z`, 'trg-1'),
-    );
+  it('keeps "Load older" after an older page fails, so it can be retried', async () => {
     api.listDeliveryPage
-      .mockResolvedValueOnce({ deliveries: full, error: null })
-      .mockResolvedValueOnce({ deliveries: [], error: 'boom' });
-    const { result } = renderHook(() => useTriggerDeliveries('trg-1', ''));
+      .mockResolvedValueOnce(page(['d1'], 'c1'))
+      .mockResolvedValueOnce(page([], null, 'boom'));
+    const { result } = renderHook(() => useTriggerDeliveries({}));
     await waitFor(() => expect(result.current.loading).toBe(false));
     act(() => result.current.loadOlder());
     await waitFor(() => expect(result.current.error).toBe('boom'));
     expect(result.current.hasMore).toBe(true);
-    expect(result.current.deliveries).toHaveLength(DELIVERY_PAGE_SIZE);
   });
 
-  it('starts only one older fetch however fast it is asked', async () => {
-    const full = Array.from({ length: DELIVERY_PAGE_SIZE }, (_, i) =>
-      raw(`d${i}`, `2026-07-29T04:${String(59 - i).padStart(2, '0')}:00Z`, 'trg-1'),
-    );
-    api.listDeliveryPage
-      .mockResolvedValueOnce({ deliveries: full, error: null })
-      .mockResolvedValue({ deliveries: [], error: null });
-    const { result } = renderHook(() => useTriggerDeliveries('trg-1', ''));
-    await waitFor(() => expect(result.current.loading).toBe(false));
-    act(() => {
-      result.current.loadOlder();
-      result.current.loadOlder();
-    });
-    await waitFor(() => expect(result.current.loadingMore).toBe(false));
-    expect(api.listDeliveryPage).toHaveBeenCalledTimes(2);
+  it('fetches nothing with no query', () => {
+    renderHook(() => useTriggerDeliveries(null));
+    expect(api.listDeliveryPage).not.toHaveBeenCalled();
   });
 });

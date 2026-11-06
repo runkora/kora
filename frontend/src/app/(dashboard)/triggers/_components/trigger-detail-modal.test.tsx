@@ -24,7 +24,7 @@ const GITHUB = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  api.listDeliveryPage.mockResolvedValue({ deliveries: [], error: null });
+  api.listDeliveryPage.mockResolvedValue({ deliveries: [], nextCursor: null, error: null });
   api.fetchProviderEventTypes.mockResolvedValue({
     eventTypes: GITHUB,
     error: null,
@@ -74,7 +74,6 @@ function renderDetailModal(row: TriggerRow, onEdit?: () => Promise<string | null
       canRunAgent
       trigger={row}
       sources={SOURCES}
-      deliveries={[]}
       ingestHost="local.runkora.io:8443"
       onClose={vi.fn()}
       onToggleEnabled={vi.fn()}
@@ -226,7 +225,6 @@ describe('closing the modal', () => {
         canRunAgent
         trigger={trigger()}
         sources={SOURCES}
-        deliveries={[]}
         ingestHost="local.runkora.io:8443"
         onClose={onClose}
         onToggleEnabled={vi.fn()}
@@ -490,7 +488,6 @@ describe('read-only callers', () => {
           scheduleConfig: { cronExpression: '0 2 * * *', timezone: 'UTC', catchUp: false },
         })}
         sources={SOURCES}
-        deliveries={[]}
         ingestHost="local.runkora.io:8443"
         onClose={vi.fn()}
         onToggleEnabled={vi.fn()}
@@ -510,7 +507,6 @@ describe('ephemeral state is scoped to the open trigger', () => {
         canRunAgent
         trigger={trigger({ id: 'trg-A', name: 'trigger-a' })}
         sources={SOURCES}
-        deliveries={[]}
         ingestHost="local.runkora.io:8443"
         onClose={vi.fn()}
         onToggleEnabled={vi.fn()}
@@ -533,7 +529,6 @@ describe('ephemeral state is scoped to the open trigger', () => {
         canRunAgent
         trigger={trigger({ id: 'trg-B', name: 'trigger-b' })}
         sources={SOURCES}
-        deliveries={[]}
         ingestHost="local.runkora.io:8443"
         onClose={vi.fn()}
         onToggleEnabled={vi.fn()}
@@ -586,7 +581,6 @@ describe('permissions', () => {
         canRunAgent={canRunAgent}
         trigger={row}
         sources={SOURCES}
-        deliveries={[]}
         ingestHost="local.runkora.io:8443"
         onClose={vi.fn()}
         onToggleEnabled={vi.fn()}
@@ -659,7 +653,6 @@ describe('managed in git', () => {
         canRunAgent
         trigger={row}
         sources={opts.sources ?? SOURCES}
-        deliveries={[]}
         ingestHost="local.runkora.io:8443"
         onClose={vi.fn()}
         onToggleEnabled={vi.fn()}
@@ -747,7 +740,6 @@ describe('a source whose provider issues the secret', () => {
         canRunAgent
         trigger={trigger()}
         sources={SLACK}
-        deliveries={[]}
         ingestHost="local.runkora.io:8443"
         onClose={vi.fn()}
         onToggleEnabled={vi.fn()}
@@ -785,7 +777,6 @@ describe('a source whose provider issues the secret', () => {
         canRunAgent
         trigger={trigger()}
         sources={[{ ...SLACK[0]!, signingSecretSet: false }]}
-        deliveries={[]}
         ingestHost="local.runkora.io:8443"
         onClose={vi.fn()}
         onToggleEnabled={vi.fn()}
@@ -844,7 +835,6 @@ describe('a chat command trigger', () => {
         canRunAgent
         trigger={row}
         sources={CHAT_SOURCES}
-        deliveries={[]}
         ingestHost="local.runkora.io:8443"
         onClose={vi.fn()}
         onToggleEnabled={vi.fn()}
@@ -1039,7 +1029,6 @@ describe('a generic webhook source', () => {
         canRunAgent
         trigger={trigger({ eventType: 'Issue', matchCondition: { 'data.state': ['open'] } })}
         sources={[generic]}
-        deliveries={[]}
         ingestHost="local.runkora.io:8443"
         onClose={vi.fn()}
         onToggleEnabled={vi.fn()}
@@ -1130,7 +1119,6 @@ describe('closing with unsaved edits', () => {
         canRunAgent
         trigger={row}
         sources={SOURCES}
-        deliveries={[]}
         ingestHost="local.runkora.io:8443"
         onClose={onClose}
         onToggleEnabled={vi.fn()}

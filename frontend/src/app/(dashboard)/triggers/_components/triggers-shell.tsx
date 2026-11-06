@@ -3,12 +3,13 @@
 /** @tier 3 — triggers-scoped. Client boundary holding the server-fetched data. */
 
 import { TriggersPage } from './triggers-page';
-import type { AgentOption, DeliveryRow, SourceRow, TriggerRow } from '../_types';
+import type { AgentOption, SourceRow, TriggerRow } from '../_types';
+import type { TenantStatsRow } from '../_types/stats';
 
 interface TriggersShellProps {
   sources: SourceRow[];
   triggers: TriggerRow[];
-  deliveries: DeliveryRow[];
+  stats: TenantStatsRow | null;
   agents: AgentOption[];
   agentsError?: string | null;
   initialError: string | null;
@@ -17,7 +18,7 @@ interface TriggersShellProps {
 export function TriggersShell({
   sources,
   triggers,
-  deliveries,
+  stats,
   agents,
   agentsError = null,
   initialError,
@@ -26,7 +27,7 @@ export function TriggersShell({
     <TriggersPage
       sources={sources}
       triggers={triggers}
-      deliveries={deliveries}
+      stats={stats}
       agents={agents}
       agentsError={agentsError}
       error={initialError}

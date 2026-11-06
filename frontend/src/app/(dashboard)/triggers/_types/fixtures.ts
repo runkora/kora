@@ -1,4 +1,5 @@
 import type { DeliveryRow, TriggerRow } from './index';
+import { EMPTY_TRIGGER_STATS } from './stats';
 
 /**
  * Test-support row builders, imported only from .test files. Each returns a
@@ -36,6 +37,7 @@ export function makeTrigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
     autoPausedAt: null,
     pendingCount: 0,
     canFire: true,
+    stats: EMPTY_TRIGGER_STATS,
     ...overrides,
   };
 }

@@ -6,7 +6,7 @@
  * The rows scroll inside the table, so a long history does not lengthen the modal.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
   Button,
   DataTable,
@@ -22,13 +22,16 @@ import {
 import type { DataTableColumn } from '@runkora/hades';
 import { deliveryDotStatus, dispatchDuration } from '../_types';
 import type { DeliveryRow } from '../_types';
+import type { TriggerStatsRow } from '../_types/stats';
 import { DeliveryDetail } from './delivery-detail';
 import type { RedeliverAction } from './delivery-detail';
 import type { RoutingAgentName } from './delivery-routing';
 
-type Filter = 'all' | 'dispatched' | 'failed' | 'skipped' | 'superseded' | 'duplicate' | 'missed';
+/** A quick filter: `all`, or the `status` value the API filters this trigger's deliveries on. */
+export type DeliveryFilter =
+  'all' | 'dispatched' | 'failed' | 'skipped' | 'superseded' | 'duplicate' | 'missed';
 
-const FILTERS: { value: Filter; label: string }[] = [
+const FILTERS: { value: DeliveryFilter; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'dispatched', label: 'Dispatched' },
   { value: 'failed', label: 'Failed' },
@@ -38,19 +41,16 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: 'missed', label: 'Missed' },
 ];
 
-/** Whether a delivery's status (this trigger's outcome, else the delivery's own) is in a filter. */
-function inFilter(filter: Filter, status: string): boolean {
-  if (filter === 'all') return true;
-  if (filter === 'failed') return deliveryDotStatus(status) === 'error';
-  return status === filter;
-}
-
 /** How tall the table grows before its rows scroll inside it. */
 const TABLE_MAX_HEIGHT = '26rem';
 
 interface DeliveryListProps {
-  /** Deliveries that reached this trigger, newest first. */
+  /** Deliveries that reached this trigger and pass the filter, newest first. */
   deliveries: DeliveryRow[];
+  filter: DeliveryFilter;
+  onFilterChange: (filter: DeliveryFilter) => void;
+  /** The trigger's last 24h, which the filter counts show. */
+  stats: TriggerStatsRow;
   /** The first page has not landed: a placeholder shows in place of the table. */
   loading?: boolean;
   /** An older page is being fetched. */
@@ -101,6 +101,9 @@ function shortAgo(iso: string): string {
 
 export function DeliveryList({
   deliveries,
+  filter,
+  onFilterChange,
+  stats,
   loading = false,
   loadingMore = false,
   hasMore = false,
@@ -117,8 +120,6 @@ export function DeliveryList({
   sourceName,
   eventType,
 }: DeliveryListProps) {
-  const [filter, setFilter] = useState<Filter>('all');
-
   // The delivery's own status is the arrival-level verdict; this trigger's row
   // in the fan-out is the one that answers "and what happened for me". Prefer
   // the latter and fall back to the former.
@@ -136,14 +137,8 @@ export function DeliveryList({
       }),
     [deliveries, triggerId],
   );
-  const visible = useMemo(() => rows.filter((r) => inFilter(filter, r.status)), [rows, filter]);
-  const counts = useMemo(
-    () =>
-      Object.fromEntries(
-        FILTERS.map((f) => [f.value, rows.filter((r) => inFilter(f.value, r.status)).length]),
-      ),
-    [rows],
-  );
+  const counts = (f: DeliveryFilter) =>
+    f === 'all' ? stats.deliveries24h : (stats.status24h[f] ?? 0);
 
   const columns = useMemo<DataTableColumn<DeliveryTableRow>[]>(
     () => [
@@ -217,7 +212,8 @@ export function DeliveryList({
     [],
   );
 
-  if (loading) {
+  // A filtered list keeps its toolbar while it loads or comes back empty, so the filter can be changed back.
+  if (loading && filter === 'all') {
     return (
       <Stack gap="snug">
         <SectionLabel>Deliveries</SectionLabel>
@@ -251,7 +247,7 @@ export function DeliveryList({
     );
   }
 
-  if (rows.length === 0 && !hasMore) {
+  if (rows.length === 0 && !hasMore && filter === 'all') {
     return (
       <Stack gap="snug">
         <SectionLabel>Deliveries</SectionLabel>
@@ -273,17 +269,13 @@ export function DeliveryList({
       <SectionLabel>Deliveries</SectionLabel>
       <DataTable
         key={filter}
-        data={visible}
+        data={rows}
         columns={columns}
         getRowKey={({ d }) => d.id}
         noun="deliveries"
         columnToggle={false}
         maxHeight={TABLE_MAX_HEIGHT}
-        emptyMessage={
-          hasMore
-            ? 'None of the deliveries loaded so far are for this trigger. Load older to keep looking.'
-            : `No ${filter} deliveries.`
-        }
+        emptyMessage={loading ? 'Loading deliveries…' : `No ${filter} deliveries.`}
         searchPlaceholder="Search deliveries…"
         searchFn={({ d, status }, q) =>
           d.id.toLowerCase().includes(q) ||
@@ -292,12 +284,17 @@ export function DeliveryList({
         }
         rowLabel={({ d }) => `Show payload for delivery ${d.id}`}
         quickFilters={
-          <SegmentedControl
-            aria-label="Filter deliveries by outcome"
-            value={filter}
-            onChange={(v) => setFilter(v as Filter)}
-            options={FILTERS.map((f) => ({ ...f, count: counts[f.value] ?? 0 }))}
-          />
+          <Stack direction="horizontal" align="center" gap="cozy">
+            <SegmentedControl
+              aria-label="Filter deliveries by outcome, with counts for the last 24 hours"
+              value={filter}
+              onChange={(v) => onFilterChange(v as DeliveryFilter)}
+              options={FILTERS.map((f) => ({ ...f, count: counts(f.value) }))}
+            />
+            <Text size="caption" color="muted">
+              Counts: last 24h
+            </Text>
+          </Stack>
         }
         expandedKeys={new Set(expandedId === null ? [] : [expandedId])}
         onExpandedChange={(key, expanded) => onToggleExpanded(expanded ? key : null)}

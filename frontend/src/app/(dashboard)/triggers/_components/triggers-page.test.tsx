@@ -3,6 +3,10 @@ import { fireEvent, screen } from '@testing-library/react';
 import { renderWithProviders } from '@runkora/test-utils';
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+vi.mock('../_services/triggers-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../_services/triggers-api')>()),
+  listDeliveryPage: vi.fn().mockResolvedValue({ deliveries: [], nextCursor: null, error: null }),
+}));
 
 import { TriggersPage } from './triggers-page';
 import type { SourceRow } from '../_types';
@@ -29,7 +33,7 @@ const TRIGGERS = [
 
 function renderPage() {
   return renderWithProviders(
-    <TriggersPage sources={SOURCES} triggers={TRIGGERS} deliveries={[]} agents={[]} error={null} />,
+    <TriggersPage sources={SOURCES} triggers={TRIGGERS} stats={null} agents={[]} error={null} />,
   );
 }
 
@@ -61,13 +65,7 @@ describe('a chat source waiting for its signing secret', () => {
   it('marks its triggers and no others', () => {
     const waiting = SOURCES.map((s) => (s.id === 'sl' ? { ...s, signingSecretSet: false } : s));
     renderWithProviders(
-      <TriggersPage
-        sources={waiting}
-        triggers={TRIGGERS}
-        deliveries={[]}
-        agents={[]}
-        error={null}
-      />,
+      <TriggersPage sources={waiting} triggers={TRIGGERS} stats={null} agents={[]} error={null} />,
     );
     expect(screen.getAllByText('Waiting for signing secret')).toHaveLength(2);
   });
@@ -81,13 +79,7 @@ describe('a chat source waiting for its signing secret', () => {
 describe('a locked tenant', () => {
   it('explains the lock and offers no new trigger', () => {
     renderWithProviders(
-      <TriggersPage
-        sources={SOURCES}
-        triggers={TRIGGERS}
-        deliveries={[]}
-        agents={[]}
-        error={null}
-      />,
+      <TriggersPage sources={SOURCES} triggers={TRIGGERS} stats={null} agents={[]} error={null} />,
       { apiAuthoring: false },
     );
     expect(screen.getByText(/Triggers and sources in this tenant are managed in git/)).toBeTruthy();

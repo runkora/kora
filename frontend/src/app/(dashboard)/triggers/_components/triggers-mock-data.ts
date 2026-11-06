@@ -9,6 +9,7 @@ import type {
 } from '@runkora/shared/api';
 import { toDeliveryRow, toTriggerRow } from '../_types';
 import type { AgentOption, DeliveryRow, DeliveryRunRow, SourceRow, TriggerRow } from '../_types';
+import type { TenantStatsRow, TriggerStatsRow } from '../_types/stats';
 
 /** Mock data for the Triggers page stories. Timestamps are relative to load time so "5m ago" reads right. */
 
@@ -125,6 +126,30 @@ export const SOURCES: SourceRow[] = [
 
 // ── Triggers ─────────────────────────────────────────────────────────────────
 
+/** A day of steady activity with one failure, for triggers whose story is not about stats. */
+const SAMPLE_STATS: TriggerStatsRow = {
+  lastFiredAt: ago(40 * MIN),
+  deliveries24h: 14,
+  started24h: 12,
+  failed24h: 1,
+  status24h: { dispatched: 12, failed: 1, skipped: 1 },
+  buckets: Array.from({ length: 12 }, (_, i) => ({
+    start: ago((24 - i * 2) * HOUR),
+    started: i % 3 === 0 ? 2 : 1,
+    failed: i === 9 ? 1 : 0,
+    other: i === 4 ? 1 : 0,
+  })),
+};
+
+/** The tenant's stats over the mock fleet. */
+export const TENANT_STATS: TenantStatsRow = {
+  deliveries24h: 63,
+  started24h: 54,
+  failed24h: 4,
+  dispatchP50Ms: 840,
+  dispatchP95Ms: 2300,
+};
+
 /** A trigger with the platform defaults, so each entry spells out only what is distinctive. */
 function trigger(
   overrides: Partial<TriggerRow> & Pick<TriggerRow, 'id' | 'name' | 'kind' | 'agentSlug'>,
@@ -155,6 +180,7 @@ function trigger(
     autoPausedAt: null,
     pendingCount: 0,
     canFire: true,
+    stats: SAMPLE_STATS,
     ...overrides,
   };
 }

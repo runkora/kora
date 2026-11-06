@@ -235,7 +235,6 @@ export function AgentTriggersTab() {
       ) : (
         <TriggerList
           triggers={triggers}
-          deliveries={agentDeliveries}
           sourceName={sourceName}
           sourceCategory={sourceCategory}
           sourceWaiting={sourceWaiting}
@@ -264,7 +263,6 @@ export function AgentTriggersTab() {
         trigger={modalRow}
         canRunAgent={canRunTrigger(modalRow)}
         sources={sources}
-        deliveries={agentDeliveries}
         ingestHost={ingestHost}
         onClose={() => setModalTrigger(null)}
         onToggleEnabled={(t) => {
