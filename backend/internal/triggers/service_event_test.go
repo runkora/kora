@@ -243,7 +243,7 @@ func TestRedeliver_Event(t *testing.T) {
 		t.Fatal(err)
 	}
 	original := deps.repo.deliveries[0]
-	resp, err := svc.Redeliver(context.Background(), testTenant, original.ID, "user-1")
+	resp, err := svc.Redeliver(context.Background(), testTenant, original.ID, "user-1", true)
 	if err != nil {
 		t.Fatalf("Redeliver: %v", err)
 	}
