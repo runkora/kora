@@ -13,8 +13,9 @@ import (
 )
 
 // awaitFolderOrFail waits for the sandbox's folder when it has one, and records a
-// failed provision with the node agent's reason, or the timeout.
-func (reg *Registry) awaitFolderOrFail(ctx context.Context, runID, podUID string, started time.Time) error {
+// failed provision with the node agent's reason, or the timeout. tenantID and
+// agentTypeID are metric labels only (docs/adr/2026-10-07-domain-metrics-instrumentation.md).
+func (reg *Registry) awaitFolderOrFail(ctx context.Context, runID, podUID string, started time.Time, tenantID, agentTypeID string) error {
 	if podUID == "" {
 		return nil
 	}
@@ -26,7 +27,7 @@ func (reg *Registry) awaitFolderOrFail(ctx context.Context, runID, podUID string
 	if reason != "" {
 		msg = "the sandbox folder could not be mounted: " + reason
 	}
-	reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, msg)
+	reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, msg, tenantID, agentTypeID)
 	return err
 }
 

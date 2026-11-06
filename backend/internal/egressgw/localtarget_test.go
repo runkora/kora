@@ -141,7 +141,7 @@ func TestConnect_InterceptRefusesLocalTarget(t *testing.T) {
 		t.Fatalf("NewCA: %v", err)
 	}
 	broker := NewBroker(&stubEvaluator{allow: true}, &memConnRepo{items: map[string]*credentials.Connection{}},
-		NewAdapterRegistry(), passthrough.New(), logger)
+		NewAdapterRegistry(), passthrough.New(), logger, nil)
 	forward := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		DialContext:     (&net.Dialer{Timeout: time.Second, Control: RefuseLocalTarget}).DialContext,

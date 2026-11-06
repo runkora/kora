@@ -55,6 +55,7 @@ func newWatcherTestService(t *testing.T) *Service {
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("newWatcherTestService: %v", err)

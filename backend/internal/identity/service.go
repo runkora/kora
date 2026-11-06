@@ -86,6 +86,7 @@ type Service struct {
 	policyEval    policy.Evaluator
 	logger        logging.Logger
 	tracer        trace.Tracer
+	metrics       *Metrics // nil records nothing
 
 	// httpClient is used for all outbound OIDC requests. It is set to a
 	// sensible default in NewService and can be replaced in tests.
@@ -134,6 +135,10 @@ type Service struct {
 // KORA_TOKEN_SIGNING_KEY environment variables (via initSigningKey).
 // In local development, if neither is set, a throwaway key is generated
 // and a prominent warning is logged. Never use auto-generated keys in production.
+//
+// metrics may be nil, in which case nothing is recorded: instrumentation is
+// injected rather than reached for globally, so a caller that has not wired a
+// meter gets exactly the behavior it had before.
 func NewService(
 	ctx context.Context,
 	cfg *Config,
@@ -150,6 +155,7 @@ func NewService(
 	policyEval policy.Evaluator,
 	extractor PrincipalExtractor,
 	logger logging.Logger,
+	metrics *Metrics,
 ) (*Service, error) {
 	if profiles == nil {
 		profiles = noopUserProfileRepository{}
@@ -175,6 +181,7 @@ func NewService(
 		policyEval:    policyEval,
 		extractor:     extractor,
 		logger:        logger,
+		metrics:       metrics,
 		tracer:        otel.Tracer("github.com/runkora/kora/backend/internal/identity"),
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
 		oidcTenants:   make(map[string]*tenantOIDCState),
@@ -609,19 +616,27 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 }
 
 // liveRefreshSession returns a refresh token and its session when both are
-// live. Each way either has ended returns its own sentinel for the caller.
+// live. Each way either has ended returns its own sentinel for the caller, and
+// counts as an auth failure (RefreshSession and SwitchSession both come here).
 func (s *Service) liveRefreshSession(ctx context.Context, raw string) (*RefreshToken, *Session, error) {
 	rt, err := s.refreshTokens.GetRefreshTokenByHash(ctx, hashToken(raw))
 	if errors.Is(err, ErrRefreshTokenNotFound) {
+		// No tenant is resolvable: the hash lookup itself failed, so there is no
+		// refresh-token or session record to read one from.
+		s.metrics.recordAuthFailure(ctx, authFailureReasonRefreshTokenNotFound, "")
 		return nil, nil, ErrRefreshTokenNotFound
 	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("get refresh token: %w", err)
 	}
+	// A RefreshToken carries no tenant_id (only session_id), and the backing
+	// session isn't looked up on these two failing paths.
 	if rt.RevokedAt != nil {
+		s.metrics.recordAuthFailure(ctx, authFailureReasonRefreshTokenRevoked, "")
 		return nil, nil, ErrRefreshTokenRevoked
 	}
 	if time.Now().After(rt.ExpiresAt) {
+		s.metrics.recordAuthFailure(ctx, authFailureReasonRefreshTokenExpired, "")
 		return nil, nil, ErrRefreshTokenExpired
 	}
 
@@ -633,6 +648,7 @@ func (s *Service) liveRefreshSession(ctx context.Context, raw string) (*RefreshT
 		return nil, nil, fmt.Errorf("get session: %w", err)
 	}
 	if session.RevokedAt != nil {
+		s.metrics.recordAuthFailure(ctx, authFailureReasonTokenRevoked, session.TenantID)
 		return nil, nil, ErrTokenRevoked
 	}
 	return rt, session, nil
@@ -745,12 +761,18 @@ func (s *Service) revokeAccessToken(ctx context.Context, token string) error {
 	claims, err := s.parseToken(token)
 	if err != nil {
 		observability.RecordFailure(span, err, errSpanInvalidToken)
+		// Parsing/verification itself failed, so there are no claims to read
+		// a tenant from.
+		s.metrics.recordAuthFailure(ctx, authFailureReasonInvalidToken, "")
 		return ErrInvalidToken
 	}
 
 	jti := claims.ID
 	if jti == "" {
 		observability.RecordFailure(span, ErrInvalidToken, errSpanMissingJti)
+		// claims parsed and verified successfully here, so the tenant is
+		// genuinely in scope even though this request is rejected.
+		s.metrics.recordAuthFailure(ctx, authFailureReasonInvalidToken, claims.Kora.TenantID)
 		return ErrInvalidToken
 	}
 

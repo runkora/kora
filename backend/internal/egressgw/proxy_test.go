@@ -204,7 +204,7 @@ func newFixture(t *testing.T) *fixture {
 	eval := &stubEvaluator{allow: true, reason: "allow"}
 	f.eval = eval
 
-	f.broker = NewBroker(eval, repo, registry, passthrough.New(), logger)
+	f.broker = NewBroker(eval, repo, registry, passthrough.New(), logger, nil)
 
 	// Forward transport must accept the upstream's self-signed test cert.
 	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
@@ -392,7 +392,7 @@ func TestProxy_Unauthenticated(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	repo := &memConnRepo{items: map[string]*credentials.Connection{}}
 	registry := NewAdapterRegistry()
-	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, passthrough.New(), logger)
+	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, passthrough.New(), logger, nil)
 	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 	handler := NewProxyHandler(broker, tr, testBrand, logger)
 

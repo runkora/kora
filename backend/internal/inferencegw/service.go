@@ -53,9 +53,13 @@ type Service struct {
 	budgetCounter SpendCounter
 	roleCache     *roleCache
 	logger        logging.Logger
+	metrics       *Metrics
 }
 
 // NewService constructs a Service with all required dependencies.
+//
+// metrics may be nil (no meter wired, or a test): every Metrics method is
+// nil-safe and simply records nothing.
 func NewService(
 	pol policy.Evaluator,
 	router *RoutingEngine,
@@ -63,6 +67,7 @@ func NewService(
 	usage InferenceUsageRepository,
 	budgetCounter SpendCounter,
 	logger logging.Logger,
+	metrics *Metrics,
 ) *Service {
 	return &Service{
 		policy:        pol,
@@ -72,6 +77,7 @@ func NewService(
 		budgetCounter: budgetCounter,
 		roleCache:     newRoleCache(roleCacheTTL),
 		logger:        logger,
+		metrics:       metrics,
 	}
 }
 
@@ -717,7 +723,11 @@ func (s *Service) writeUsage(ctx context.Context, rec InferenceUsageRecord) erro
 		rec.DelegatorID = &delegatorID
 		rec.DelegatorPrincipalType = &delegatorType
 	}
-	return s.usage.Create(ctx, rec)
+	if err := s.usage.Create(ctx, rec); err != nil {
+		return err
+	}
+	s.metrics.observeUsage(ctx, rec)
+	return nil
 }
 
 // budgetScopesFor derives the caller's applicable ceiling configuration: which
@@ -903,6 +913,8 @@ func (s *Service) checkBudget(ctx context.Context, p principal) error {
 		return nil
 	}
 
+	s.metrics.observeBudgetCeilings(ctx, p.TenantID, result.Ceilings)
+
 	if !result.Allow {
 		fields := []logging.Field{
 			{Key: "principal_id", Value: p.PrincipalID},
@@ -995,6 +1007,8 @@ func (s *Service) GetPersonalBudget(ctx context.Context, tenantID, principalID s
 		)
 		return BudgetStatus{}, nil
 	}
+
+	s.metrics.observeBudgetCeilings(ctx, tenantID, result.Ceilings)
 
 	status := BudgetStatus{
 		HasLimit:          result.HasLimit,

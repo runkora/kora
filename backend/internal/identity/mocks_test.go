@@ -111,6 +111,19 @@ func (m *mockSessionRepository) RevokeSession(_ context.Context, id string, revo
 	return nil
 }
 
+func (m *mockSessionRepository) CountActiveSessions(_ context.Context) (map[string]int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	counts := make(map[string]int64)
+	now := time.Now()
+	for _, s := range m.sessions {
+		if s.RevokedAt == nil && s.ExpiresAt.After(now) {
+			counts[s.TenantID]++
+		}
+	}
+	return counts, nil
+}
+
 // SwitchSession records the call and returns switchErr; the Postgres tests own
 // the transaction itself.
 func (m *mockSessionRepository) SwitchSession(_ context.Context, next *Session, nextRefresh *RefreshToken, replaced *RefreshToken, _ time.Time) error {
@@ -537,6 +550,7 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("newTestService: %v", err)
@@ -614,6 +628,7 @@ tenants:
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("newTestServiceWithOIDC: %v", err)
@@ -684,6 +699,7 @@ func newFullTestServiceWithPolicy(t *testing.T) (
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("newFullTestServiceWithPolicy: %v", err)
@@ -1049,6 +1065,7 @@ func newTestControllerWithProfiles(t *testing.T) (
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("newTestControllerWithProfiles: %v", err)
@@ -1111,6 +1128,7 @@ tenants:
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("newTestServiceWithDomains: %v", err)
@@ -1205,6 +1223,7 @@ func newTestControllerWithPrefs(t *testing.T) (*Controller, *mockUserPreferences
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("newTestControllerWithPrefs: %v", err)

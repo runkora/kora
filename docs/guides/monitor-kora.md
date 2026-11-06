@@ -56,7 +56,7 @@ The kora operator has no ServiceMonitor. It serves controller metrics on port 80
 | `kora_triggers_auto_pauses_total` | Triggers paused after repeated failures |
 | `kora_redis_available` | Whether each service can reach Redis |
 
-Model spend and policy decisions are not metrics yet. They are in the logs, traces and the console.
+Each backend service also exports domain metrics, named `kora_<service>_<metric>`: run outcomes and duration (`kora_agents_runs_total`, `kora_agents_run_duration_seconds`), model usage, tokens and cost (`kora_inference_gateway_*`), and policy checks and denies (`kora_policy_gateway_*`). `docs/adr/2026-10-07-domain-metrics-instrumentation.md` lists them with their labels. The detail behind a single run or decision is in the logs, traces and the console.
 
 ## Read the logs
 

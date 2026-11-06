@@ -56,7 +56,7 @@ func newTestServiceWithRegistryLog(t *testing.T, registry string, out io.Writer)
 		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
 		newMockAuthCodeRepo(), newMockClientRepo(), newMockPATRepo(),
 		nil, nil, nil, &mockPolicyClient{}, &mockPolicyEvaluator{},
-		&XFCCPrincipalExtractor{}, logging.NewLoggerWithOutput(out))
+		&XFCCPrincipalExtractor{}, logging.NewLoggerWithOutput(out), nil)
 }
 
 func issueIDTokenWithClaims(t *testing.T, issuer string, key *rsa.PrivateKey, extra jwt.MapClaims) string {
