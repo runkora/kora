@@ -223,7 +223,7 @@ func (r *PostgresRepository) UpdateAgentType(ctx context.Context, at AgentType) 
 		if err != nil {
 			return err
 		}
-		changed := changedFields(newAgentFields(*before), newAgentFields(*after))
+		changed := events.Changed(newAgentFields(*before), newAgentFields(*after))
 		if len(changed) == 0 {
 			return nil
 		}
