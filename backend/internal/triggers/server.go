@@ -295,10 +295,10 @@ func (c *Controller) handleCreateTrigger(w http.ResponseWriter, r *http.Request)
 func (c *Controller) handleListTriggers(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
-	window, err := ParseStatsWindow(q.Get("window"))
-	if err != nil {
+	window, ok := ParseStatsWindow(q.Get("window"))
+	if !ok {
 		api.ErrorResponse(ctx, w, c.logger,
-			api.BadRequestError(api.ErrCodeInvalidField, "window must be 24h or 7d", map[string]any{"field": "window"}), err)
+			api.BadRequestError(api.ErrCodeInvalidField, "window must be 24h or 7d", map[string]any{"field": "window"}), nil)
 		return
 	}
 	triggers, stats, err := c.triggers.ListTriggersWithStats(ctx, tenantFromCtx(ctx), q.Get("agent_type_id"), q.Get("kind"), window)
@@ -309,7 +309,7 @@ func (c *Controller) handleListTriggers(w http.ResponseWriter, r *http.Request) 
 	for i := range triggers {
 		c.setCanFire(ctx, &triggers[i])
 	}
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"triggers": triggers, "stats": stats, "window": window.Name})
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"triggers": triggers, "stats": stats})
 }
 
 // setCanFire records whether the caller passes authorizeFire for t. Any refusal

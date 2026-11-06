@@ -931,7 +931,7 @@ func (r *postgresRepository) TriggerStats(ctx context.Context, tenantID string, 
 		       percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM created_at - received_at) * 1000)
 		FROM   trigger_delivery_runs
 		WHERE  tenant_id = $1 AND received_at >= $2 AND received_at <= $3
-		  AND  status IN `+sqlList(StartedRunStatuses)+` AND created_at >= received_at`,
+		  AND  status IN `+sqlList(startedOutcomes)+` AND created_at >= received_at`,
 		tenantID, now.Add(-w.Span), now,
 	).Scan(&tenant.Deliveries, &tenant.DispatchP50Ms, &tenant.DispatchP95Ms); err != nil {
 		return nil, tenant, fmt.Errorf("tenant trigger stats: %w", err)
@@ -968,15 +968,13 @@ func (r *postgresRepository) windowedTriggerStats(ctx context.Context, tenantID 
 		}
 		st.count(status, int(bucket.Sub(firstBucket)/w.BucketWidth), n)
 		out[id] = st
-		switch triggerStatusOf[status] {
-		case TriggerStatusStarted:
-			tenant.Started += n
-		case TriggerStatusFailed:
-			tenant.Failed += n
-		}
 	}
 	if err := rows.Err(); err != nil {
 		return tenant, fmt.Errorf("iterate trigger stats: %w", err)
+	}
+	for _, st := range out {
+		tenant.Started += st.Started
+		tenant.Failed += st.Failed
 	}
 	return tenant, nil
 }

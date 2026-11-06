@@ -86,7 +86,6 @@ const (
 	TriggerStatusFiltered   = "filtered"
 	TriggerStatusSkipped    = "skipped"
 	TriggerStatusSuperseded = "superseded"
-	TriggerStatusDuplicate  = "duplicate"
 	TriggerStatusMissed     = "missed"
 	TriggerStatusVerified   = "verified"
 )
@@ -94,12 +93,11 @@ const (
 // TriggerStatuses lists every trigger status, in the order the console shows them.
 var TriggerStatuses = []string{
 	TriggerStatusStarted, TriggerStatusFailed, TriggerStatusFiltered, TriggerStatusSkipped,
-	TriggerStatusSuperseded, TriggerStatusDuplicate, TriggerStatusMissed, TriggerStatusVerified,
+	TriggerStatusSuperseded, TriggerStatusMissed, TriggerStatusVerified,
 }
 
 // triggerStatusOf maps every outcome status trigger_delivery_runs permits, and
-// every recorded delivery status, to the one trigger status it counts under, so
-// the status counts of a trigger sum to its deliveries.
+// every recorded delivery status, to the one trigger status it counts under.
 var triggerStatusOf = map[string]string{
 	RunStatusDispatched: TriggerStatusStarted,
 	RunStatusJoined:     TriggerStatusStarted,
@@ -110,7 +108,6 @@ var triggerStatusOf = map[string]string{
 	RunStatusUnrouted:   TriggerStatusSkipped,
 	RunStatusPaused:     TriggerStatusSkipped,
 	RunStatusSuperseded: TriggerStatusSuperseded,
-	StatusDuplicate:     TriggerStatusDuplicate,
 	StatusMissed:        TriggerStatusMissed,
 	StatusVerified:      TriggerStatusVerified,
 }
@@ -119,11 +116,12 @@ var triggerStatusOf = map[string]string{
 // statuses a trigger status matches.
 func triggerStatusMembers(status string) (outcomes, recorded []string) {
 	for raw, ts := range triggerStatusOf {
-		switch {
-		case ts != status:
-		case slices.Contains(recordedStatuses, raw):
+		if ts != status {
+			continue
+		}
+		if slices.Contains(recordedStatuses, raw) {
 			recorded = append(recorded, raw)
-		default:
+		} else {
 			outcomes = append(outcomes, raw)
 		}
 	}
@@ -132,23 +130,19 @@ func triggerStatusMembers(status string) (outcomes, recorded []string) {
 	return outcomes, recorded
 }
 
-// StartedRunStatuses are the per-trigger outcomes where a run took the delivery.
-var StartedRunStatuses = []string{RunStatusDispatched, RunStatusJoined}
+// startedOutcomes are the outcome statuses where a run took the delivery.
+var startedOutcomes, _ = triggerStatusMembers(TriggerStatusStarted)
 
 // attemptedStatuses are the outcomes that count towards a trigger's last fire.
 var attemptedStatuses = []string{RunStatusDispatched, RunStatusJoined, RunStatusFailed, RunStatusDenied}
 
 // recordedStatuses are the delivery statuses that stand in for a trigger's
-// outcome on a delivery recorded against it: pending, missed or a repeat.
-var recordedStatuses = []string{StatusVerified, StatusMissed, StatusDuplicate}
+// outcome on a delivery recorded against it: pending or missed.
+var recordedStatuses = []string{StatusVerified, StatusMissed}
 
-// recordedStatusesSQL is recordedStatuses as the literal list
-// idx_trigger_deliveries_recorded is defined over.
-const recordedStatusesSQL = "('verified', 'missed', 'duplicate')"
-
-// FailureRunStatuses are the per-trigger outcomes that mean something went wrong,
-// as opposed to the trigger declining on purpose (filtered, superseded, unrouted).
-var FailureRunStatuses = []string{RunStatusFailed, RunStatusDenied, RunStatusDropped}
+// recordedStatusesSQL is recordedStatuses as a literal list. The partial index
+// idx_trigger_deliveries_recorded covers it.
+const recordedStatusesSQL = "('verified', 'missed')"
 
 // TerminalRunStatuses are the per-trigger outcomes that mean no run will ever
 // start for this trigger and delivery. The console must show them as settled

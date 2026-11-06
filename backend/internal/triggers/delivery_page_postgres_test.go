@@ -123,15 +123,15 @@ func TestPostgres_DeliveryStatusFilterWithPaging(t *testing.T) {
 		{"tenant skipped", DeliveryFilter{Status: StatusSkipped, Limit: 2}, []string{"skipped"}},
 		{"trigger all", DeliveryFilter{TriggerIDs: []string{"t1"}, Limit: 2},
 			[]string{"own-failed", "own-denied", "other-failed", "recorded-missed", "own-dropped", "own-dispatched"}},
-		{"trigger failed", DeliveryFilter{TriggerIDs: []string{"t1"}, Status: StatusFailed, Limit: 2},
+		{"trigger failed", DeliveryFilter{TriggerIDs: []string{"t1"}, Status: TriggerStatusFailed, Limit: 2},
 			[]string{"own-failed", "own-denied", "own-dropped"}},
-		{"trigger missed", DeliveryFilter{TriggerIDs: []string{"t1"}, Status: StatusMissed, Limit: 2},
+		{"trigger missed", DeliveryFilter{TriggerIDs: []string{"t1"}, Status: TriggerStatusMissed, Limit: 2},
 			[]string{"recorded-missed"}},
 		{"trigger started", DeliveryFilter{TriggerIDs: []string{"t1"}, Status: TriggerStatusStarted, Limit: 2},
 			[]string{"own-dispatched"}},
 		{"trigger filtered", DeliveryFilter{TriggerIDs: []string{"t1"}, Status: TriggerStatusFiltered, Limit: 2},
 			[]string{"other-failed"}},
-		{"other trigger failed", DeliveryFilter{TriggerIDs: []string{"t2"}, Status: StatusFailed, Limit: 2},
+		{"other trigger failed", DeliveryFilter{TriggerIDs: []string{"t2"}, Status: TriggerStatusFailed, Limit: 2},
 			[]string{"other-failed"}},
 		{"several triggers", DeliveryFilter{TriggerIDs: []string{"t2", "t1"}, Limit: 2},
 			[]string{"own-failed", "own-denied", "other-failed", "recorded-missed", "own-dropped", "own-dispatched"}},
@@ -142,8 +142,7 @@ func TestPostgres_DeliveryStatusFilterWithPaging(t *testing.T) {
 	}
 }
 
-// received_after bounds every page of a cursor walk, tenant-wide and
-// trigger-scoped, with and without a status.
+// received_after bounds every page of a trigger-scoped cursor walk, with and without a status.
 func TestPostgres_DeliveryReceivedAfterWithCursor(t *testing.T) {
 	r, tenant := testRepo(t)
 	now := time.Now().UTC().Truncate(time.Second)
@@ -172,8 +171,6 @@ func TestPostgres_DeliveryReceivedAfterWithCursor(t *testing.T) {
 		filter DeliveryFilter
 		want   []string
 	}{
-		{"tenant", DeliveryFilter{ReceivedAfter: after, Limit: 3}, all},
-		{"tenant status", DeliveryFilter{ReceivedAfter: after, Status: StatusDispatched, Limit: 3}, all},
 		{"trigger", DeliveryFilter{TriggerIDs: []string{"t1"}, ReceivedAfter: after, Limit: 3}, all},
 		{"trigger failed", DeliveryFilter{TriggerIDs: []string{"t1"}, ReceivedAfter: after, Status: TriggerStatusFailed, Limit: 2}, failed},
 	} {

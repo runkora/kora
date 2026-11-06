@@ -1,13 +1,9 @@
 package triggers
 
-import (
-	"fmt"
-	"time"
-)
+import "time"
 
 // StatsWindow is a span of trigger stats. Buckets align to UTC multiples of
-// BucketWidth with date_bin, from the one holding now-Span to the one holding
-// now, so the first and last can be partial.
+// BucketWidth with date_bin, from the one holding now-Span to the one holding now.
 type StatsWindow struct {
 	Name        string
 	Span        time.Duration
@@ -20,15 +16,15 @@ var (
 	StatsWindow7d  = StatsWindow{Name: "7d", Span: 7 * 24 * time.Hour, BucketWidth: 12 * time.Hour}
 )
 
-// ParseStatsWindow reads ?window=. Empty is 24h.
-func ParseStatsWindow(raw string) (StatsWindow, error) {
+// ParseStatsWindow reads ?window=. Empty is 24h; any other value is not a window.
+func ParseStatsWindow(raw string) (StatsWindow, bool) {
 	switch raw {
 	case "", StatsWindow24h.Name:
-		return StatsWindow24h, nil
+		return StatsWindow24h, true
 	case StatsWindow7d.Name:
-		return StatsWindow7d, nil
+		return StatsWindow7d, true
 	}
-	return StatsWindow{}, fmt.Errorf("%w: window must be 24h or 7d", ErrValidation)
+	return StatsWindow{}, false
 }
 
 // bucketCount is the buckets from the one holding now-Span to the one holding now.

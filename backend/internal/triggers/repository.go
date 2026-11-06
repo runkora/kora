@@ -356,8 +356,8 @@ type DeliveryFilter struct {
 	// OmitPayload leaves the full payload out of each delivery. The excerpt,
 	// outcomes and runs stay.
 	OmitPayload bool
-	// Status is one of DeliveryStatusFilters. With TriggerIDs set it matches the
-	// trigger's own outcome, else the delivery's status.
+	// Status is one of TriggerStatuses with TriggerIDs set, else one of
+	// TenantDeliveryStatuses.
 	Status string
 	Limit  int
 	// Cursor is the keyset position to read from; nil is the first page.
