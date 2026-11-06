@@ -48,6 +48,7 @@ const MAIN_NAV: NavEntry[] = [
     icon: 'zap',
     requiredScope: 'triggers:read',
   },
+  { label: 'Events', href: APP_ROUTES.events, icon: 'activity', requiredScope: 'events:read' },
 ];
 
 const POLICY_NAV: NavEntry[] = [

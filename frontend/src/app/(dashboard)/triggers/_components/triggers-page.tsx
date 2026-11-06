@@ -3,8 +3,8 @@
 /** @tier 3 — triggers-scoped. Platform-wide Triggers control surface:
  * Sources / Triggers / Deliveries. */
 
-import { useCallback, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Alert,
   Button,
@@ -47,6 +47,7 @@ import type {
 } from '../_types';
 import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
 import { ManagedInGitCallout, PermissionHint } from '@runkora/components';
+import { APP_ROUTES } from '@runkora/lib/routing';
 
 interface TriggersPageProps {
   sources: SourceRow[];
@@ -71,6 +72,9 @@ const DELIVERY_STATUS_OPTIONS = [
   { value: 'missed', label: 'Missed' },
 ];
 
+/** How far back a linked delivery is looked for before the tab gives up on opening it. */
+const LINKED_DELIVERY_SEARCH = 250;
+
 /** The kind in the empty-list message, e.g. "No chat command triggers." */
 const KIND_FILTER_NOUN: Record<ConsoleKind, string> = {
   webhook: 'webhook',
@@ -92,6 +96,14 @@ export function TriggersPage({
   const router = useRouter();
   // One range for the cards, the list's activity column, the Deliveries tab and the open modal.
   const { setRange } = useStatsRange();
+  // `?trigger=<id>` opens a trigger's modal, and `?tab=deliveries&delivery=<id>` a delivery's.
+  const searchParams = useSearchParams();
+  const [initialTab] = useState(() =>
+    searchParams.get('tab') === 'deliveries' || searchParams.has('delivery')
+      ? 'deliveries'
+      : 'triggers',
+  );
+  const [linkedDelivery, setLinkedDelivery] = useState(() => searchParams.get('delivery'));
   const canWrite = useHasScope('triggers:write');
   // A locked tenant takes its triggers and sources from the configuration repository.
   const locked = useTenantLocked();
@@ -138,7 +150,9 @@ export function TriggersPage({
 
   // ── Modal + dialog state ─────────────────────────────────────────────────────
   const [wizardOpen, setWizardOpen] = useState(false);
-  const [modalTrigger, setModalTrigger] = useState<TriggerRow | null>(null);
+  const [modalTrigger, setModalTrigger] = useState<TriggerRow | null>(
+    () => triggers.find((t) => t.id === searchParams.get('trigger')) ?? null,
+  );
   // The platform Deliveries tab is not scoped to one trigger, so a row opens
   // its own panel rather than the owning trigger's modal: the question being
   // asked is "what did this delivery do", not "how is that trigger set up".
@@ -163,6 +177,22 @@ export function TriggersPage({
   // ── Deliveries: status filter ─────────────────────────────────────────────────
   const [deliveryStatus, setDeliveryStatus] = useState('all');
   const feed = useTriggerDeliveries({ status: deliveryStatus, window: range });
+
+  // A linked delivery opens once its page has loaded, paging back while it is not found yet.
+  const linkedRow =
+    linkedDelivery === null ? undefined : feed.deliveries.find((d) => d.id === linkedDelivery);
+  const { loading, loadingMore, hasMore, loadOlder, deliveries } = feed;
+  useEffect(() => {
+    if (linkedDelivery === null || linkedRow !== undefined || loading || loadingMore) return;
+    if (hasMore && deliveries.length < LINKED_DELIVERY_SEARCH) loadOlder();
+  }, [linkedDelivery, linkedRow, loading, loadingMore, hasMore, deliveries.length, loadOlder]);
+  const shownDelivery = detailDelivery ?? linkedRow ?? null;
+
+  /** Drops the link from the address once its modal closes, so a reload does not reopen it. */
+  const forgetLink = useCallback(() => {
+    setLinkedDelivery(null);
+    if (window.location.search !== '') window.history.replaceState(null, '', APP_ROUTES.triggers);
+  }, []);
 
   const [fireResult, setFireResult] = useState<TriggerNotice | null>(null);
 
@@ -242,7 +272,7 @@ export function TriggersPage({
       {/* Sources are not a headline surface: a webhook source is created
           inside the New Trigger flow and managed from its trigger's modal,
           so the page stays about what starts work. */}
-      <Tabs defaultValue="triggers">
+      <Tabs defaultValue={initialTab}>
         <TabsList>
           <TabsTrigger value="triggers">Triggers</TabsTrigger>
           <TabsTrigger value="deliveries">Deliveries</TabsTrigger>
@@ -351,17 +381,21 @@ export function TriggersPage({
 
       {/* One delivery's payload and outcome. Opening the trigger swaps the
           panel for the owning trigger's modal. */}
-      {detailDelivery !== null && (
+      {shownDelivery !== null && (
         <DeliveryDetailPanel
-          delivery={detailDelivery}
-          onClose={() => setDetailDelivery(null)}
+          delivery={shownDelivery}
+          onClose={() => {
+            setDetailDelivery(null);
+            forgetLink();
+          }}
           onRedeliver={redeliver}
-          redeliverAllowed={canRunOwner(detailDelivery.triggerId)}
+          redeliverAllowed={canRunOwner(shownDelivery.triggerId)}
           agents={agents}
-          runHref={runHrefFor(triggers.find((t) => t.id === detailDelivery.triggerId))}
+          runHref={runHrefFor(triggers.find((t) => t.id === shownDelivery.triggerId))}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);
+            forgetLink();
             if (owner !== undefined) setModalTrigger(owner);
           }}
         />
@@ -373,7 +407,10 @@ export function TriggersPage({
         canRunAgent={modalRow !== null && canRunTrigger(modalRow)}
         sources={sources}
         ingestHost={ingestHost}
-        onClose={() => setModalTrigger(null)}
+        onClose={() => {
+          setModalTrigger(null);
+          forgetLink();
+        }}
         onToggleEnabled={(t) => {
           setModalTrigger(null);
           void toggleTrigger(t);
