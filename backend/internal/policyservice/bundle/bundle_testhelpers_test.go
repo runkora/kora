@@ -12,7 +12,7 @@ const testTenantID = "test-tenant"
 
 // evalPolicy evaluates a prepared OPA query and returns (allow, reason).
 // Shared by authz_test.go and authz_gateway_test.go.
-func evalPolicy(t *testing.T, pq rego.PreparedEvalQuery, input map[string]any) (bool, string) {
+func evalPolicy(t testing.TB, pq rego.PreparedEvalQuery, input map[string]any) (bool, string) {
 	t.Helper()
 	rs, err := pq.Eval(context.Background(), rego.EvalInput(input))
 	if err != nil {

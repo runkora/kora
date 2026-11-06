@@ -177,6 +177,19 @@ _delegation_binding_failed if _delegation_run_unbound
 
 _delegation_binding_failed if _delegation_unverified
 
+# ══ PRINCIPAL GRANTS ══════════════════════════════════════════════════════════
+#
+# Mirrors authz.rego: the tenant's grants for the principal and the delegator,
+# read through the tenant's by_principal index. An undefined principal holds no grants.
+
+_principal_grants contains data.tenants[_tenant_id].grants.grants[i] if {
+	some i in data.tenants[_tenant_id].grants.by_principal[_principal_type][_principal_id]
+}
+
+_delegator_grants contains data.tenants[_tenant_id].grants.grants[i] if {
+	some i in data.tenants[_tenant_id].grants.by_principal[_delegator_principal_type][_delegator_id]
+}
+
 # ══ DELEGATION FAIL-CLOSED MARKER ═════════════════════════════════════════════
 #
 # Mirrors authz.rego (docs/adr/2026-07-23-delegated-agent-identity.md,
@@ -186,9 +199,7 @@ _delegation_binding_failed if _delegation_unverified
 # means NO access rather than the agent's standing access.
 
 _principal_requires_delegation if {
-	some grant in data.tenants[_tenant_id].grants.grants
-	grant.principal_type == _principal_type
-	grant.principal_id == _principal_id
+	some grant in _principal_grants
 	grant.delegation_required == true
 }
 
@@ -320,17 +331,13 @@ _required_scope := _route.required_scope if not _authenticated_route
 # tenant B even though both live in the same cross-tenant bundle.
 
 principal_has_required_scope if {
-	some grant in data.tenants[_tenant_id].grants.grants
-	grant.principal_type == _principal_type
-	grant.principal_id == _principal_id
+	some grant in _principal_grants
 	some granted_scope in grant.scopes
 	scope_covers(granted_scope, _required_scope)
 }
 
 matched_grant_scopes contains granted_scope if {
-	some grant in data.tenants[_tenant_id].grants.grants
-	grant.principal_type == _principal_type
-	grant.principal_id == _principal_id
+	some grant in _principal_grants
 	some granted_scope in grant.scopes
 	scope_covers(granted_scope, _required_scope)
 }
@@ -354,9 +361,7 @@ delegation_covers_required_scope if {
 # delegator_principal_type so two principal types sharing an id string can
 # never satisfy this leg (closes the former TODO(M2)).
 _delegator_holds(scope) if {
-	some grant in data.tenants[_tenant_id].grants.grants
-	grant.principal_type == _delegator_principal_type
-	grant.principal_id == _delegator_id
+	some grant in _delegator_grants
 	some gs in grant.scopes
 	scope_covers(gs, scope)
 }

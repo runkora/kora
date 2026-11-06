@@ -365,19 +365,21 @@ _is_platform_internal_path if {
 	startswith(input.attributes.request.http.path, "/opentelemetry.proto.collector.")
 }
 
-# ══ DELEGATION FAIL-CLOSED MARKER ════════════════════════════════════════════
+# ══ PRINCIPAL GRANTS ═════════════════════════════════════════════════════════
 #
 # The grants the principal and the delegator hold, read through the
-# by_principal index so a decision costs the same at any tenant grant count.
-# An undefined principal or delegator holds no grants.
+# by_principal index. An undefined principal or delegator holds no grants.
+
 _principal_grants contains data.grants.grants[i] if {
-	some i in data.grants.by_principal[concat(":", [_principal_type, _principal_id])]
+	some i in data.grants.by_principal[_principal_type][_principal_id]
 }
 
 _delegator_grants contains data.grants.grants[i] if {
-	some i in data.grants.by_principal[concat(":", [_delegator_principal_type, _delegator_id])]
+	some i in data.grants.by_principal[_delegator_principal_type][_delegator_id]
 }
 
+# ══ DELEGATION FAIL-CLOSED MARKER ════════════════════════════════════════════
+#
 # A grant carrying delegation_required marks its principal as a delegated agent
 # (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 2): the grant is
 # the ceiling half of the delegation intersection, never a standing

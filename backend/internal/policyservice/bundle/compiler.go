@@ -95,19 +95,19 @@ type Config struct {
 // grantsDocument is the JSON structure of data/grants/data.json.
 type grantsDocument struct {
 	Grants []grantEntry `json:"grants"`
-	// ByPrincipal maps "principal_type:principal_id" to the positions of that
-	// principal's grants in Grants. The rego reads a principal's grants through
-	// it, so a decision does not scan every grant in the tenant.
-	ByPrincipal map[string][]int `json:"by_principal"`
+	// ByPrincipal maps principal type, then principal id, to the positions of
+	// that principal's grants in Grants. The rego reads a principal's grants through it.
+	ByPrincipal map[string]map[string][]int `json:"by_principal"`
 }
 
 // add appends a grant and indexes it under its principal.
 func (d *grantsDocument) add(e grantEntry) {
-	if d.ByPrincipal == nil {
-		d.ByPrincipal = map[string][]int{}
+	ids := d.ByPrincipal[e.PrincipalType]
+	if ids == nil {
+		ids = map[string][]int{}
+		d.ByPrincipal[e.PrincipalType] = ids
 	}
-	key := e.PrincipalType + ":" + e.PrincipalID
-	d.ByPrincipal[key] = append(d.ByPrincipal[key], len(d.Grants))
+	ids[e.PrincipalID] = append(ids[e.PrincipalID], len(d.Grants))
 	d.Grants = append(d.Grants, e)
 }
 
@@ -587,7 +587,7 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 	// transitive requires (from the vocabulary) so both the edge OPA and upstream
 	// services authorize on the effective set.
 	requiresMap := requiresFromVocab(vocabEntries)
-	grantDoc := grantsDocument{Grants: make([]grantEntry, 0, len(tenantGrants)), ByPrincipal: map[string][]int{}}
+	grantDoc := grantsDocument{Grants: make([]grantEntry, 0, len(tenantGrants)), ByPrincipal: map[string]map[string][]int{}}
 	for _, g := range tenantGrants {
 		grantDoc.add(grantEntry{
 			ID:                 g.ID,
@@ -770,7 +770,7 @@ func buildGatewayBundle(
 	requiresMap := requiresFromVocab(vocabEntries)
 	reservedRoles := ReservedRoles(vocabEntries)
 	for _, tenantID := range tenantIDs {
-		grantDoc := grantsDocument{Grants: make([]grantEntry, 0), ByPrincipal: map[string][]int{}}
+		grantDoc := grantsDocument{Grants: make([]grantEntry, 0), ByPrincipal: map[string]map[string][]int{}}
 		for _, g := range allGrants[tenantID] {
 			grantDoc.add(grantEntry{
 				ID:                 g.ID,

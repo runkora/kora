@@ -125,3 +125,57 @@ func TestCompileGateway_EmitsDelegationRequiredMarker(t *testing.T) {
 	}
 	assertDelegationMarkers(t, extractBundleFile(t, cached.Data, "tenants/acme/grants/data.json"))
 }
+
+// assertGrantIndex verifies every by_principal entry points at grants of that
+// principal, and every grant is indexed once.
+func assertGrantIndex(t *testing.T, grantsJSON []byte) {
+	t.Helper()
+	var doc grantsDocument
+	if err := json.Unmarshal(grantsJSON, &doc); err != nil {
+		t.Fatalf("unmarshal grants doc: %v", err)
+	}
+	indexed := 0
+	for principalType, ids := range doc.ByPrincipal {
+		for principalID, positions := range ids {
+			for _, i := range positions {
+				g := doc.Grants[i]
+				if g.PrincipalType != principalType || g.PrincipalID != principalID {
+					t.Errorf("by_principal[%s][%s] points at grant %d of %s/%s", principalType, principalID, i, g.PrincipalType, g.PrincipalID)
+				}
+				indexed++
+			}
+		}
+	}
+	if indexed != len(doc.Grants) {
+		t.Errorf("index holds %d positions for %d grants", indexed, len(doc.Grants))
+	}
+}
+
+func indexTestGrants() []*grants.Grant {
+	gs := delegationTestGrants()
+	return append(gs, &grants.Grant{
+		ID: "grant-coder-2", TenantID: "acme", PrincipalType: grants.PrincipalTypeAgent,
+		PrincipalID: "spiffe://runkora.test/tenant/acme/agent/coder", Scopes: []string{"models:read"},
+	}, &grants.Grant{
+		ID: "grant-human", TenantID: "acme", PrincipalType: grants.PrincipalTypeHuman,
+		PrincipalID: "spiffe://runkora.test/tenant/acme/agent/coder", Scopes: []string{"agents:read"},
+	})
+}
+
+func TestCompile_IndexesGrantsByPrincipal(t *testing.T) {
+	compiler := NewCompiler(Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "kora", Audience: "kora-platform"}, routes.NewStore())
+	cached, err := compiler.Compile("acme", indexTestGrants(), nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	assertGrantIndex(t, extractBundleFile(t, cached.Data, "grants/data.json"))
+
+	gateway, err := compiler.CompileGateway([]string{"acme", "other"},
+		map[string][]*grants.Grant{"acme": indexTestGrants(), "other": delegationTestGrants()}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("compile gateway: %v", err)
+	}
+	for _, tenant := range []string{"acme", "other"} {
+		assertGrantIndex(t, extractBundleFile(t, gateway.Data, "tenants/"+tenant+"/grants/data.json"))
+	}
+}

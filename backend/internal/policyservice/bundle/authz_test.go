@@ -53,7 +53,7 @@ type bundleOpts struct {
 // compileAndPrepare compiles a real OPA bundle using the same compiler the
 // policy-service uses, then prepares it for in-process evaluation — identical
 // to how every kora service enforces policy at runtime.
-func compileAndPrepare(t *testing.T, opts bundleOpts) rego.PreparedEvalQuery {
+func compileAndPrepare(t testing.TB, opts bundleOpts) rego.PreparedEvalQuery {
 	t.Helper()
 
 	// Connection-refused URL by default so JWKS http.send fails fast instead
@@ -107,7 +107,7 @@ func compileAndPrepare(t *testing.T, opts bundleOpts) rego.PreparedEvalQuery {
 }
 
 // evalLayer2 evaluates the policy with Layer 2 (Go library) input format.
-func evalLayer2(t *testing.T, pq rego.PreparedEvalQuery, claims *token.PlatformClaims, delegation *policy.DelegationClaims, resourceType string, pathSegments []string, action string) (bool, string) {
+func evalLayer2(t testing.TB, pq rego.PreparedEvalQuery, claims *token.PlatformClaims, delegation *policy.DelegationClaims, resourceType string, pathSegments []string, action string) (bool, string) {
 	t.Helper()
 
 	input := map[string]any{
