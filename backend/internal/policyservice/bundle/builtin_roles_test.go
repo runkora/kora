@@ -29,6 +29,7 @@ func TestBuiltinRoleScopes(t *testing.T) {
 		entry("inference:list"),
 		entry("inference:invoke"),
 		entry("platform:connections:read"),
+		entry("skills:read"),
 		entry("platform:grants:write"),
 	}
 	cases := []struct {
@@ -146,6 +147,12 @@ func TestBuiltinRoles_Tiers(t *testing.T) {
 			if !slices.Contains(tiers[i], sc) {
 				t.Errorf("%s lacks %q from the tier below", ReservedRoleNames[i+1], sc)
 			}
+		}
+	}
+
+	for i, tier := range tiers {
+		if !slices.Contains(tier, "skills:read") {
+			t.Errorf("%s lacks skills:read", ReservedRoleNames[i+1])
 		}
 	}
 

@@ -49,7 +49,7 @@ kora ships six reserved roles. Built-in roles cannot be created, edited, or dele
 
 | Role | Adds | What a person with the role can see and do |
 |---|---|---|
-| `kora-viewer` | `agents:types:read`, `agents:environments:read`, `triggers:read`, `inference:list`, `platform:connections:read` | See every agent definition, environment, trigger, and connection, and the models they can use. See their own runs and the runs of agents they hold per-agent read on. Start nothing. |
+| `kora-viewer` | `agents:types:read`, `agents:environments:read`, `triggers:read`, `inference:list`, `platform:connections:read`, `skills:read` | See every agent definition, environment, trigger, and connection, the models they can use, and the skills in registered marketplaces. See their own runs and the runs of agents they hold per-agent read on. Start nothing. |
 | `kora-user` | `inference:invoke`, `agents:runs:delegated:write`, `mcp:invoke` | Start runs of any delegated agent, and message and stop their own. Each run acts with the person's own access and can reach the MCP tool gateway. |
 | `kora-builder` | `agents:types:delegated:write` | Create and change delegated agents. |
 | `kora-operator` | `agents:types:autonomous:write`, `egress:connect`, `triggers:write`, `trigger:fire`, `agents:usage:read`, `platform:analytics:read`, `platform:budgets:read`, `identity:users:read` | Create autonomous agents within their own access, run them, and put triggers on them. Give those agents general internet access. Fire triggers. Read every agent's usage, tenant analytics, budgets, and the user directory. |
