@@ -6,6 +6,7 @@ import {
   filterParams,
   principalName,
   resourceOf,
+  traceIdOf,
   triggerIdsOf,
 } from './index';
 import type { KoraEvent } from './index';
@@ -45,6 +46,15 @@ describe('filterParams', () => {
 
   it('sends nothing for no filters', () => {
     expect(filterParams(NO_FILTERS).toString()).toBe('');
+  });
+});
+
+describe('traceIdOf', () => {
+  it('reads a W3C trace id and refuses anything else', () => {
+    expect(traceIdOf('00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01')).toBe(
+      '4bf92f3577b34da6a3ce929d0e0e4736',
+    );
+    expect(traceIdOf('00-abc/../x?y-00f067aa0ba902b7-01')).toBeNull();
   });
 });
 

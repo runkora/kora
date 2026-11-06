@@ -20,8 +20,12 @@ export async function fetchEventPage(params: URLSearchParams): Promise<FetchEven
     const body = (await res.json().catch(() => ({}))) as { message?: string };
     return { page: null, error: body.message ?? `Request failed (${res.status})` };
   }
-  const body = (await res.json()) as { data: EventPage };
-  return { page: body.data, error: null };
+  try {
+    const body = (await res.json()) as { data: EventPage };
+    return { page: body.data, error: null };
+  } catch {
+    return { page: null, error: 'The server sent a response the page could not read.' };
+  }
 }
 
 /** Opens the live stream. `after` in the params replays every event past that seq first. */

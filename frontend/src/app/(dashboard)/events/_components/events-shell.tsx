@@ -21,7 +21,9 @@ export function EventsShell({ initial, traceUrlTemplate }: EventsShellProps) {
   const [filters, setFilters] = useState<EventFilters>(NO_FILTERS);
   const [query, setQuery] = useState('');
   useEffect(() => {
-    const timer = setTimeout(() => setQuery(filters.query), SEARCH_DEBOUNCE_MS);
+    // An emptied box settles at once, so text typed right after it is not overtaken by the old query.
+    const wait = filters.query === '' ? 0 : SEARCH_DEBOUNCE_MS;
+    const timer = setTimeout(() => setQuery(filters.query), wait);
     return () => clearTimeout(timer);
   }, [filters.query]);
   // Clearing the search resumes live at once, without the debounce.
