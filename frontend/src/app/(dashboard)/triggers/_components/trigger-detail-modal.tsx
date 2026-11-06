@@ -66,6 +66,7 @@ import { RoutedTarget } from './routed-target';
 import { DeliverySection, deliveryBlocker, sameDelivery } from './delivery-section';
 import type { DeliveryValue } from './delivery-section';
 import { EventFiltersSection } from './event-filters-section';
+import { PlatformEventFields } from './platform-event-fields';
 import { ScheduleBuilder, useScheduleDraft } from './schedule-builder';
 import { SectionField } from './section-mode';
 import { TriggerNameField } from './trigger-fields';
@@ -124,6 +125,7 @@ export interface TriggerEditPatch {
   senderRestriction?: Senders;
   /** Replaces the setting; null removes it. */
   coalesce?: TriggerCoalesce | null;
+  ignoreOwnRuns?: boolean;
   scheduleConfig?: { cronExpression: string; timezone: string; catchUp: boolean };
   maxParallel?: number;
   overflow?: TriggerRow['overflow'];
@@ -460,26 +462,32 @@ function TriggerDetailModalBody({
     validate: (value) => (value.trim() ? undefined : 'Needs a name'),
   });
 
+  const isEvent = trigger?.kind === 'event';
   const storedFilters = useMemo(
     () => ({
       eventType: trigger?.eventType ?? '',
       filters: filtersFromMatchCondition(trigger?.matchCondition, trigger?.matchContains),
+      ignoreOwnRuns: trigger?.ignoreOwnRuns ?? true,
     }),
-    [trigger?.eventType, trigger?.matchCondition, trigger?.matchContains],
+    [trigger?.eventType, trigger?.matchCondition, trigger?.matchContains, trigger?.ignoreOwnRuns],
   );
   const saveFilters = useCallback(
-    (value: { eventType: string; filters: FilterRow[] }) =>
+    (value: { eventType: string; filters: FilterRow[]; ignoreOwnRuns: boolean }) =>
       // Sent together: the event narrows which fields exist, so a filter and
       // the event it belongs to must never land as two separate states.
       savePatch({
         eventType: value.eventType.trim(),
         matchCondition: matchConditionFrom(value.filters) ?? {},
         matchContains: matchContainsFrom(value.filters) ?? {},
+        ...(isEvent && { ignoreOwnRuns: value.ignoreOwnRuns }),
       }),
-    [savePatch],
+    [savePatch, isEvent],
   );
   const filters = useEditableSection(storedFilters, editKey, saveFilters, {
-    isEqual: (a, b) => a.eventType === b.eventType && sameFilters(a.filters, b.filters),
+    isEqual: (a, b) =>
+      a.eventType === b.eventType &&
+      a.ignoreOwnRuns === b.ignoreOwnRuns &&
+      sameFilters(a.filters, b.filters),
     // A half-written filter looks configured but matches nothing, so it is the
     // one edit worth refusing rather than saving as-is. Same rule as the
     // wizard's, from the same function.
@@ -700,6 +708,18 @@ function TriggerDetailModalBody({
           },
         ]
       : []),
+    ...(trigger.kind === 'event'
+      ? [
+          {
+            id: 'filters',
+            icon: 'filter' as const,
+            dirty: filters.dirty,
+            title: 'Event filters',
+            sub: 'What starts a run',
+            description: 'The event this trigger listens for, and which of them start a run.',
+          },
+        ]
+      : []),
     ...(trigger.kind === 'webhook'
       ? [
           {
@@ -894,6 +914,32 @@ function TriggerDetailModalBody({
                       </Stack>
                     )}
                   </>
+                )}
+                {activeSection.id === 'filters' && trigger.kind === 'event' && (
+                  <Stack gap="snug">
+                    <PlatformEventFields
+                      eventType={filters.value.eventType}
+                      filters={filters.value.filters}
+                      ignoreOwnRuns={filters.value.ignoreOwnRuns}
+                      onEventTypeChange={(eventType) =>
+                        filters.setValue({ ...filters.value, eventType })
+                      }
+                      onFiltersChange={setFilterRows}
+                      onIgnoreOwnRunsChange={(ignoreOwnRuns) =>
+                        filters.setValue({ ...filters.value, ignoreOwnRuns })
+                      }
+                      disabled={!runEditable}
+                    />
+                    <EditActions
+                      dirty={filters.dirty}
+                      pending={filters.pending}
+                      error={filters.error}
+                      blocker={filters.blocker}
+                      saveLabel="Save filters"
+                      onSave={filters.save}
+                      onDiscard={filters.discard}
+                    />
+                  </Stack>
                 )}
                 {activeSection.id === 'filters' && trigger.kind === 'webhook' && (
                   <Stack gap="snug">
