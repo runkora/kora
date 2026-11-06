@@ -272,8 +272,7 @@ func (i *Introspector) Snapshot() []ServerSnapshot {
 	return out
 }
 
-// Unreached counts the listed servers that have never been introspected
-// successfully. Such a server has no tools to serve.
+// Unreached counts the listed servers never introspected successfully.
 func (i *Introspector) Unreached(servers []Server) int {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
@@ -293,9 +292,7 @@ func (i *Introspector) Unreached(servers []Server) int {
 // defers the destructive prune so a cold/partial start cannot revoke live
 // scopes.
 //
-// It takes an already-captured snapshot set, like BuildScopes, and deliberately
-// does not read the live introspector, so the prune decision is made against the
-// very snapshots the keep-list was built from.
+// It reads the snapshots the keep-list was built from, never live state.
 func AllSeenOrRetained(servers []Server, snapshots []ServerSnapshot) bool {
 	byKey := make(map[string]ServerSnapshot, len(snapshots))
 	for _, snap := range snapshots {

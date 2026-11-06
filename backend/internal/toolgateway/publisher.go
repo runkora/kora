@@ -48,8 +48,7 @@ func NewPublisher(registry *Registry, introspector *Introspector, client *routes
 // publish that fails is re-attempted on the next cycle rather than blocking
 // this one.
 func (p *Publisher) Publish(ctx context.Context) error {
-	// One read of each source. Every input to the prune decision below has to
-	// come from the same instant: see Registry.ServersAndLoaded.
+	// One read of each source: see Registry.ServersAndLoaded.
 	servers, loaded := p.registry.ServersAndLoaded()
 	snapshots := p.introspector.Snapshot()
 

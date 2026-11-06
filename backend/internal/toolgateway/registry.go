@@ -76,14 +76,8 @@ func (r *Registry) Servers() []Server {
 	return out
 }
 
-// ServersAndLoaded returns the current server list and whether the registry has
-// ever been mounted, read together under one lock.
-//
-// The prune guard needs both from the same read. Servers() returns empty while
-// the registry is unmounted, and the guard treats an empty list as satisfied,
-// so an empty list paired with a later Loaded() would ask to prune against a
-// keep-list holding nothing, and DeleteOrphans would strip every mcp scope out
-// of every grant and role.
+// ServersAndLoaded returns the servers and whether the registry has mounted, in
+// one read. Read apart, an unmounted empty list and a later Loaded() would prune every mcp scope.
 func (r *Registry) ServersAndLoaded() ([]Server, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

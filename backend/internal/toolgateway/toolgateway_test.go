@@ -102,8 +102,7 @@ func TestAllSeenOrRetained(t *testing.T) {
 		t.Error("never-seen server should defer prune")
 	}
 
-	// The prune decision reads the captured set, so a server reached after the
-	// capture must not make an older, incomplete keep-list prunable.
+	// A server reached after the capture must not make the captured keep-list prunable.
 	stale := snaps
 	i.recordResult(ctx, pending, serverKey(pending.TenantID, pending.Name), []Tool{{Name: "t"}}, nil)
 	if AllSeenOrRetained([]Server{ok, pending}, stale) {

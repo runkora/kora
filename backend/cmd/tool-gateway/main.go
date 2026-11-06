@@ -156,9 +156,7 @@ func realMain() error {
 			introspector.Sync(ctx, registry.Servers(), force)
 			publishAndRebuild(ctx)
 		}
-		// A retry introspects like an unforced cycle but publishes only when it
-		// reached a server for the first time, so a server that stays down does
-		// not republish and rewrite the catalog on every retry.
+		// A retry publishes only when it first reaches a server, never after a failed attempt.
 		retry := func(ctx context.Context) {
 			cycleMu.Lock()
 			defer cycleMu.Unlock()
@@ -226,9 +224,8 @@ func realMain() error {
 
 // runIntrospectionLoop runs the introspection cycle once (forced) at startup
 // and then on a timer (unforced — each server's own reintrospect interval
-// applies) until ctx is canceled. While a registered server has never been
-// reached it has no tools to serve, so retry runs on a backoff in between ticks
-// until it is. A reload wakes the loop to check that again.
+// applies) until ctx is canceled. Between ticks, retry runs on a backoff while
+// any server has never been reached. A reload re-checks that.
 func runIntrospectionLoop(
 	ctx context.Context,
 	cycle func(context.Context, bool),

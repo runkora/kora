@@ -18,9 +18,8 @@ func TestRetryDelay(t *testing.T) {
 	}
 }
 
-// TestRunIntrospectionLoop_RetriesBetweenTicks retries an unreached server well
-// before the hour-long tick, and stops retrying once it is reached. It waits out
-// the first 2s retry delay.
+// TestRunIntrospectionLoop_RetriesBetweenTicks retries an unreached server before
+// the hour-long tick and stops once it is reached. It takes the first 2s delay.
 func TestRunIntrospectionLoop_RetriesBetweenTicks(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
