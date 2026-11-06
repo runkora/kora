@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -149,7 +150,7 @@ func (c *Controller) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := r.URL.Query()
-	q := ListQuery{Filter: filter, Limit: defaultLimit}
+	q := ListQuery{Filter: filter, Q: strings.TrimSpace(query.Get("q")), Limit: defaultLimit}
 	var err error
 	if q.Before, err = parseBound(query.Get("before")); err != nil {
 		invalid(w, r, c.logger, "before must be a seq or an RFC 3339 time.")
@@ -237,12 +238,12 @@ func (c *Controller) filter(w http.ResponseWriter, r *http.Request) (Filter, boo
 	}
 	query := r.URL.Query()
 	f := Filter{
-		Tenant:    tenant,
-		Category:  query.Get("category"),
-		Type:      query.Get("type"),
-		Agent:     query.Get("agent"),
-		Principal: query.Get("principal"),
-		RunID:     query.Get("run_id"),
+		Tenant:     tenant,
+		Category:   query.Get("category"),
+		Types:      values(query["type"]),
+		Agents:     values(query["agent"]),
+		Principals: values(query["principal"]),
+		RunID:      query.Get("run_id"),
 	}
 	if _, err := uuid.Parse(f.RunID); f.RunID != "" && err != nil {
 		invalid(w, r, c.logger, "run_id must be a UUID.")
@@ -374,6 +375,17 @@ func logStreamEnd(ctx context.Context, logger logging.Logger, err error) {
 
 func invalid(w http.ResponseWriter, r *http.Request, logger logging.Logger, message string) {
 	api.ErrorResponse(r.Context(), w, logger, api.ValidationError(api.ErrCodeInvalidField, message, nil), nil)
+}
+
+// values drops the empty values of a repeated query parameter.
+func values(raw []string) []string {
+	var out []string
+	for _, v := range raw {
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // parseSeq reads an optional non-negative seq.

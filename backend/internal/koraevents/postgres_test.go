@@ -209,13 +209,18 @@ func TestPostgres_Reads(t *testing.T) {
 	if err != nil || len(all) != 3 || all[0].Seq < all[2].Seq {
 		t.Fatalf("List = %d events (%v), want 3 newest first", len(all), err)
 	}
-	runs, _ := store.List(ctx, ListQuery{Filter: Filter{Tenant: tenant, Category: "agents.run", Agent: "triage"}, Limit: 10})
+	runs, _ := store.List(ctx, ListQuery{Filter: Filter{Tenant: tenant, Category: "agents.run", Agents: []string{"triage"}}, Limit: 10})
 	if len(runs) != 2 {
 		t.Errorf("category and agent filter = %d events, want 2", len(runs))
 	}
 	older, _ := store.List(ctx, ListQuery{Filter: Filter{Tenant: tenant}, Before: Bound{Seq: all[0].Seq}, Limit: 1})
 	if len(older) != 1 || older[0].Seq != all[1].Seq {
 		t.Errorf("before seq %d = %v, want seq %d", all[0].Seq, older, all[1].Seq)
+	}
+
+	either, _ := store.List(ctx, ListQuery{Filter: Filter{Tenant: tenant, Types: []string{string(events.RunFailed), string(events.GrantCreated)}}, Limit: 10})
+	if len(either) != 2 {
+		t.Errorf("two types = %d events, want 2", len(either))
 	}
 
 	after, _ := store.After(ctx, Filter{Tenant: tenant}, all[2].Seq)
@@ -272,5 +277,38 @@ func TestPostgres_SweepBatch(t *testing.T) {
 	}
 	if deleted, _, _ := store.SweepBatch(ctx, SweepScope{Except: []string{}}, cutoff); deleted != 2 {
 		t.Errorf("default sweep deleted %d events, want 2", deleted)
+	}
+}
+
+func TestPostgres_Search(t *testing.T) {
+	store, pool, _, tenant := testStore(t)
+	ctx := context.Background()
+	plain := event(tenant, events.RunFailed, "Triage-Bot")
+	wild := event(tenant, events.RunStarted, "load_100%")
+	other := event(tenant, events.GrantCreated, "")
+	other.Subject = "grants/g1"
+	for _, e := range []events.Event{plain, wild, other} {
+		publish(t, pool, e)
+	}
+	drain(t, store)
+
+	for _, tc := range []struct {
+		q    string
+		want int
+	}{
+		{"triage-bot", 1},
+		{"RUN.", 2},
+		{"grants/", 1},
+		{plain.RunID[:8], 1},
+		{"100%", 1},
+		{"%", 1},
+		{"_", 1},
+		{`\`, 0},
+		{"absent", 0},
+	} {
+		got, err := store.List(ctx, ListQuery{Filter: Filter{Tenant: tenant}, Q: tc.q, Limit: 10})
+		if err != nil || len(got) != tc.want {
+			t.Errorf("q %q = %d events (%v), want %d", tc.q, len(got), err, tc.want)
+		}
 	}
 }

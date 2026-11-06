@@ -144,6 +144,10 @@ func (p *Postgres) List(ctx context.Context, q ListQuery) ([]Record, error) {
 	if !q.After.Time.IsZero() {
 		add("occurred_at > $%d", q.After.Time)
 	}
+	if q.Q != "" {
+		add(`(type ILIKE $%[1]d OR subject ILIKE $%[1]d OR principal ILIKE $%[1]d OR agent ILIKE $%[1]d OR run_id::text ILIKE $%[1]d)`,
+			"%"+likeEscaper.Replace(q.Q)+"%")
+	}
 	args = append(args, q.Limit)
 	return p.query(ctx, fmt.Sprintf(`SELECT %s FROM events WHERE %s ORDER BY seq DESC LIMIT $%d`, recordColumns, where, len(args)), args...)
 }
@@ -230,23 +234,38 @@ func (p *Postgres) query(ctx context.Context, sql string, args ...any) ([]Record
 	return records, nil
 }
 
+// likeEscaper escapes the LIKE wildcards and the escape character in a search term.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
 // filterClause returns the WHERE clause and arguments of f.
 func filterClause(f Filter) (string, []any) {
 	clauses := []string{"TRUE"}
 	var args []any
+	add := func(clause string, v any) {
+		args = append(args, v)
+		clauses = append(clauses, fmt.Sprintf(clause, len(args)))
+	}
 	for _, c := range []struct {
 		clause, value string
 	}{
 		{"tenant_id = $%d", f.Tenant},
 		{"category = $%d", f.Category},
-		{"type = $%d", f.Type},
-		{"agent = $%d", f.Agent},
-		{"principal = $%d", f.Principal},
 		{"run_id = $%d::uuid", f.RunID},
 	} {
 		if c.value != "" {
-			args = append(args, c.value)
-			clauses = append(clauses, fmt.Sprintf(c.clause, len(args)))
+			add(c.clause, c.value)
+		}
+	}
+	for _, c := range []struct {
+		clause string
+		values []string
+	}{
+		{"type = ANY($%d)", f.Types},
+		{"agent = ANY($%d)", f.Agents},
+		{"principal = ANY($%d)", f.Principals},
+	} {
+		if len(c.values) > 0 {
+			add(c.clause, c.values)
 		}
 	}
 	return strings.Join(clauses, " AND "), args
