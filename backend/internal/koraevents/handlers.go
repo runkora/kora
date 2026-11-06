@@ -18,6 +18,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -25,11 +26,13 @@ const (
 	eventsReadScope = "events:read"
 	defaultLimit    = 50
 	maxLimit        = 200
-	// heartbeat keeps a quiet stream open through proxy idle timeouts.
-	heartbeat = 30 * time.Second
 	// fromHub starts a stream at the hub's position, with no replay.
 	fromHub = -1
 )
+
+// heartbeat keeps a quiet stream open through proxy idle timeouts and paces
+// the revocation check of an open stream. Tests shorten it.
+var heartbeat = 30 * time.Second
 
 // errInvalidSeq reports a seq, Last-Event-ID or cursor that does not parse.
 var errInvalidSeq = errors.New("invalid seq")
@@ -66,14 +69,16 @@ func Scopes() []routescopes.ScopeDeclaration {
 type Controller struct {
 	store      readStore
 	hub        subscriber
+	revoked    mw.RevocationChecker
 	logger     logging.Logger
 	middleware mw.MiddlewareHandler
 }
 
 // NewController protects every route with auth. The caller's chain must end
 // with scope enforcement over Routes.
-func NewController(store readStore, hub subscriber, auth mw.MiddlewareHandler, logger logging.Logger) *Controller {
-	return &Controller{store: store, hub: hub, logger: logger, middleware: auth}
+// revoked closes an open stream whose token or delegation is revoked.
+func NewController(store readStore, hub subscriber, auth mw.MiddlewareHandler, revoked mw.RevocationChecker, logger logging.Logger) *Controller {
+	return &Controller{store: store, hub: hub, revoked: revoked, logger: logger, middleware: auth}
 }
 
 // GroupedBy leaves paths explicit in Boot.
@@ -96,15 +101,16 @@ const TriggersComponent = "kora-triggers"
 // InternalController serves every tenant's stream to kora-triggers. The mesh
 // AuthorizationPolicy and the controller both admit only kora-triggers.
 type InternalController struct {
-	store  readStore
-	hub    subscriber
-	auth   mw.Middleware
-	logger logging.Logger
+	store   readStore
+	hub     subscriber
+	auth    mw.Middleware
+	revoked mw.RevocationChecker
+	logger  logging.Logger
 }
 
 // NewInternalController verifies the platform token with auth.
-func NewInternalController(store readStore, hub subscriber, auth mw.Middleware, logger logging.Logger) *InternalController {
-	return &InternalController{store: store, hub: hub, auth: auth, logger: logger}
+func NewInternalController(store readStore, hub subscriber, auth mw.Middleware, revoked mw.RevocationChecker, logger logging.Logger) *InternalController {
+	return &InternalController{store: store, hub: hub, auth: auth, revoked: revoked, logger: logger}
 }
 
 // GroupedBy leaves paths explicit in Boot.
@@ -141,7 +147,7 @@ func (c *InternalController) handleStream(w http.ResponseWriter, r *http.Request
 	}
 	r, cancel := untilTokenExpiry(r)
 	defer cancel()
-	stream(w, r, c.store, c.hub, c.logger, Filter{}, after)
+	stream(w, r, c.store, c.hub, c.revoked, c.logger, Filter{}, after)
 }
 
 func (c *Controller) handleList(w http.ResponseWriter, r *http.Request) {
@@ -227,7 +233,7 @@ func (c *Controller) handleStream(w http.ResponseWriter, r *http.Request) {
 	}
 	r, cancel := untilTokenExpiry(r)
 	defer cancel()
-	stream(w, r, c.store, c.hub, c.logger, filter, after)
+	stream(w, r, c.store, c.hub, c.revoked, c.logger, filter, after)
 }
 
 // filter reads the caller's tenant and the filter query parameters.
@@ -265,7 +271,7 @@ func (c *Controller) tenant(w http.ResponseWriter, r *http.Request) (string, boo
 // stream writes the events after seq that match f, then live events, until
 // the client goes away. A stream that falls behind the hub catches up from
 // the log.
-func stream(w http.ResponseWriter, r *http.Request, store readStore, hub subscriber, logger logging.Logger, f Filter, after int64) {
+func stream(w http.ResponseWriter, r *http.Request, store readStore, hub subscriber, revoked mw.RevocationChecker, logger logging.Logger, f Filter, after int64) {
 	ctx := r.Context()
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -294,6 +300,9 @@ func stream(w http.ResponseWriter, r *http.Request, store readStore, hub subscri
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if revokedSince(ctx, revoked) {
+				return
+			}
 			_, _ = io.WriteString(w, ": keepalive\n\n")
 			flusher.Flush()
 		case batch, open := <-live:
@@ -357,6 +366,25 @@ func untilTokenExpiry(r *http.Request) (*http.Request, context.CancelFunc) {
 	}
 	ctx, cancel := context.WithDeadline(r.Context(), claims.ExpiresAt.Time)
 	return r.WithContext(ctx), cancel
+}
+
+// revokedSince reports whether the caller's token or delegation was revoked
+// after the stream opened. A blocklist error keeps the stream open, as the
+// auth middleware does.
+func revokedSince(ctx context.Context, revoked mw.RevocationChecker) bool {
+	var jtis []string
+	if claims, ok := token.ClaimsFromContext(ctx); ok && claims != nil && claims.ID != "" {
+		jtis = append(jtis, claims.ID)
+	}
+	if d := policy.DelegationFromContext(ctx); d != nil && d.JTI != "" {
+		jtis = append(jtis, d.JTI)
+	}
+	for _, jti := range jtis {
+		if blocked, err := revoked.IsBlocked(ctx, jti); err == nil && blocked {
+			return true
+		}
+	}
+	return false
 }
 
 func writeEvent(w io.Writer, rec Record) {
