@@ -189,6 +189,32 @@ func TestHandleEvent_Guards(t *testing.T) {
 	}
 }
 
+// An event no trigger's filters match records no delivery. A guard that stops a matching trigger does.
+func TestHandleEvent_RecordsOnlyFilterMatches(t *testing.T) {
+	svc, deps := newTestService(t)
+	req := eventReq("on-sandbox-failure")
+	req.MatchCondition = map[string][]string{"data.entity.error": {"sandbox_failed"}}
+	tr := mustEventTrigger(t, deps, req)
+	ctx := context.Background()
+
+	if err := svc.HandleEvent(ctx, envelope(t, testTenant, "agents.run.failed.v1", 0, nil, map[string]any{"error": "timeout"})); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(deps.repo.deliveries); n != 0 {
+		t.Fatalf("deliveries = %d, want none for an event no filter matches", n)
+	}
+
+	if err := svc.HandleEvent(ctx, envelope(t, testTenant, "agents.run.failed.v1", 0, []string{tr.ID}, map[string]any{"error": "sandbox_failed"})); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(deps.repo.deliveries); n != 1 {
+		t.Fatalf("deliveries = %d, want one for a matching event the own-run guard stops", n)
+	}
+	if got := outcomeOf(deps.repo.deliveryRunsFor(deps.repo.deliveries[0].ID), tr.ID); got != reasonOwnRun {
+		t.Errorf("outcome = %q, want %q", got, reasonOwnRun)
+	}
+}
+
 // outcomeOf is the filtered reason recorded for a trigger, or "".
 func outcomeOf(runs []DeliveryRun, triggerID string) string {
 	for _, r := range runs {

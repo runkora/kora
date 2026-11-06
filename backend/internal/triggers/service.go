@@ -98,6 +98,8 @@ type pipelineStore interface {
 	InsertDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
 	InsertScheduledDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
 	InsertEventDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
+	InTransaction(ctx context.Context, fn func(ctx context.Context) error) error
+	InSavepoint(ctx context.Context, fn func(ctx context.Context) error) error
 	ListMatchableEventTriggers(ctx context.Context, tenantID, eventType string) ([]Trigger, error)
 	ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, bool, error)
 	ListDeliveryRunsForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error)

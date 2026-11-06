@@ -81,9 +81,9 @@ func eventFilter(t Trigger, head eventHead, fields map[string]string) string {
 	return ""
 }
 
-// HandleEvent records one delivery for an event that the triggers of its
-// tenant listen for, and fans it out. An event already delivered records
-// nothing. An error means the event must be read again.
+// HandleEvent records one delivery for an event that a trigger of its tenant
+// matches, and fans it out. An event no trigger's filters match, and an event
+// already delivered, record nothing. An error means the event must be read again.
 func (s *Service) HandleEvent(ctx context.Context, envelope []byte) error {
 	var head eventHead
 	if err := json.Unmarshal(envelope, &head); err != nil || head.ID == "" || head.Tenant == "" || head.Type == "" {
@@ -95,7 +95,7 @@ func (s *Service) HandleEvent(ctx context.Context, envelope []byte) error {
 	if err != nil {
 		return fmt.Errorf("list event triggers: %w", err)
 	}
-	if len(triggers) == 0 {
+	if !anyFilterMatches(triggers, head, decodeBody(envelope)) {
 		return nil
 	}
 
@@ -103,17 +103,29 @@ func (s *Service) HandleEvent(ctx context.Context, envelope []byte) error {
 	ctx, span := triggersTracer.Start(observability.WithTenant(ctx, head.Tenant), "triggers.Service.HandleEvent")
 	defer span.End()
 
-	d := eventDelivery(head.Tenant, head, envelope)
-	inserted, err := s.repo.InsertEventDelivery(ctx, d)
-	if err != nil {
-		return fmt.Errorf("record event delivery: %w", err)
-	}
-	if !inserted {
+	// One transaction, so a fan-out that stops half way leaves no delivery and the replay runs it again.
+	return s.repo.InTransaction(ctx, func(ctx context.Context) error {
+		d := eventDelivery(head.Tenant, head, envelope)
+		inserted, err := s.repo.InsertEventDelivery(ctx, d)
+		if err != nil {
+			return fmt.Errorf("record event delivery: %w", err)
+		}
+		if inserted {
+			s.fanOutEvent(ctx, d.ID, head, envelope, triggers)
+		}
 		return nil
+	})
+}
+
+// anyFilterMatches reports whether a trigger's filters match the event. A
+// matching trigger that a loop guard stops still counts, so the stop is recorded.
+func anyFilterMatches(triggers []Trigger, head eventHead, doc any) bool {
+	for _, t := range triggers {
+		if eventFilter(t, head, triggerFields(t, doc, nil)) != reasonCondition {
+			return true
+		}
 	}
-	// A replay drops the event at the insert, so the fan-out must not stop half way.
-	s.fanOutEvent(context.WithoutCancel(ctx), d.ID, head, envelope, triggers)
-	return nil
+	return false
 }
 
 // eventDelivery is the delivery row of an event.
@@ -139,23 +151,43 @@ func (s *Service) fanOutEvent(ctx context.Context, deliveryID string, head event
 	doc := decodeBody(envelope)
 	var queued int
 	for _, t := range triggers {
-		fields := triggerFields(t, doc, nil)
-		if reason := eventFilter(t, head, fields); reason != "" {
+		// Each trigger in its own savepoint, so one trigger's failure costs it a
+		// dropped outcome and leaves the rest of the fan-out to commit.
+		var admitted bool
+		err := s.repo.InSavepoint(ctx, func(ctx context.Context) (err error) {
+			admitted, err = s.fireOnEvent(ctx, t, deliveryID, head, envelope, doc)
+			return err
+		})
+		if err != nil {
+			admitted = false
 			s.outcomes.insert(ctx, &DeliveryRun{
 				TenantID: t.TenantID, DeliveryID: deliveryID,
 				TriggerID: t.ID, TriggerName: t.Name,
-				Status: RunStatusFiltered, Error: new(reason),
+				Status: RunStatusDropped, Error: new(err.Error()),
 			})
-			continue
 		}
-		fields[eventDocField] = string(envelope)
-		if admitted, _ := s.admit(ctx, t, deliveryID, fields); admitted {
+		if admitted {
 			queued++
 		}
 	}
 	if queued == 0 {
 		s.outcomes.derive(ctx, deliveryID)
 	}
+}
+
+// fireOnEvent records why a trigger declines the event, or admits its fire.
+func (s *Service) fireOnEvent(ctx context.Context, t Trigger, deliveryID string, head eventHead, envelope []byte, doc any) (bool, error) {
+	fields := triggerFields(t, doc, nil)
+	if reason := eventFilter(t, head, fields); reason != "" {
+		s.outcomes.insert(ctx, &DeliveryRun{
+			TenantID: t.TenantID, DeliveryID: deliveryID,
+			TriggerID: t.ID, TriggerName: t.Name,
+			Status: RunStatusFiltered, Error: new(reason),
+		})
+		return false, nil
+	}
+	fields[eventDocField] = string(envelope)
+	return s.admit(ctx, t, deliveryID, fields)
 }
 
 // redeliverEvent replays an event against the tenant's event triggers as they are now.

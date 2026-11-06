@@ -165,6 +165,11 @@ type DeliveryStore interface {
 	// InsertEventDelivery persists the delivery of a platform event. It returns
 	// false when an original delivery of the same event exists.
 	InsertEventDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
+	// InTransaction runs fn in one transaction that the repository calls in fn join.
+	InTransaction(ctx context.Context, fn func(ctx context.Context) error) error
+	// InSavepoint runs fn in a savepoint of the context transaction. A failed
+	// statement in fn, or an error from it, rolls back fn's work alone.
+	InSavepoint(ctx context.Context, fn func(ctx context.Context) error) error
 	UpdateDeliveryOutcome(ctx context.Context, id, status string, triggerID, runID, errMsg *string) error
 	// ListDeliveries returns one keyset page, newest first, and whether another
 	// follows.

@@ -418,6 +418,16 @@ func (m *mockRepository) ListMatchableEventTriggers(_ context.Context, tenantID,
 	return out, nil
 }
 
+// InTransaction runs fn with no transaction.
+func (m *mockRepository) InTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
+
+// InSavepoint runs fn with no savepoint.
+func (m *mockRepository) InSavepoint(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
+
 // InsertEventDelivery mirrors the unique index on event_id for original deliveries.
 func (m *mockRepository) InsertEventDelivery(_ context.Context, d *Delivery) (bool, error) {
 	if m.insertDeliveryErr != nil {
