@@ -51,8 +51,13 @@ export const deliveryHref = (id: string) =>
   `${APP_ROUTES.triggers}?tab=deliveries&delivery=${encodeURIComponent(id)}`;
 
 /** A trigger's name from the principals the feed has seen, or its short id. */
-export function triggerName(id: string, principals: SeenPrincipal[]): string {
-  return principals.find((p) => p.subject === `trigger:${id}`)?.name ?? shortId(id);
+export function triggerName(id: string, principals: SeenPrincipal[], event?: KoraEvent): string {
+  const own = event?.data.entity.name;
+  if (event?.subject === `triggers/${id}` && typeof own === 'string' && own !== '') return own;
+  const subject = `trigger:${id}`;
+  const name = principals.find((p) => p.subject === subject)?.name;
+  // A trigger token with no display name records its subject as the name.
+  return name !== undefined && name !== subject ? name : shortId(id);
 }
 
 /** A label on the left, its value on the right, as in the delivery detail. */
@@ -230,7 +235,7 @@ export function EventDetail({
             <Fact label={triggerIds.length === 1 ? 'Trigger' : 'Triggers'}>
               {triggerIds.map((id) => (
                 <InternalLink key={id} href={triggerHref(id)}>
-                  {triggerName(id, principals)}
+                  {triggerName(id, principals, event)}
                 </InternalLink>
               ))}
             </Fact>
