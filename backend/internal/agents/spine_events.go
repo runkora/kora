@@ -50,44 +50,54 @@ type sandboxEntity struct {
 	Image       string `json:"image,omitempty"`
 	// Egress is "passed" or "skipped" on a ready sandbox.
 	Egress string `json:"egress,omitempty"`
-	Error  string `json:"error,omitempty"`
 }
 
-// agentEntity is an agent in an agents.agent event.
+// agentEntity is an agent in an agents.agent event. Every events:read holder sees it, so it
+// names the agent's connections and environments and carries no prompt or configuration.
 type agentEntity struct {
-	ID                      string             `json:"id"`
-	Slug                    string             `json:"slug"`
-	Name                    string             `json:"name"`
-	Description             string             `json:"description"`
-	SystemPrompt            string             `json:"system_prompt"`
-	Framework               AgentFramework     `json:"framework"`
-	ModelID                 *string            `json:"model_id,omitempty"`
-	IdentityMode            IdentityMode       `json:"identity_mode"`
-	State                   AgentTypeState     `json:"state"`
-	GrantScopes             []string           `json:"grant_scopes"`
-	Connectivity            Connectivity       `json:"connectivity"`
-	Connectors              []Connector        `json:"connectors"`
-	MCPTools                []string           `json:"mcp_tools"`
-	Environments            []AgentEnvironment `json:"environments"`
-	Guardrails              Guardrails         `json:"guardrails"`
-	MaxConcurrentRunsPerPod int                `json:"max_concurrent_runs_per_pod"`
-	Source                  string             `json:"source"`
-	Repository              string             `json:"repository,omitempty"`
-	CreatedBy               string             `json:"created_by,omitempty"`
+	ID           string         `json:"id"`
+	Slug         string         `json:"slug"`
+	Name         string         `json:"name"`
+	ModelID      *string        `json:"model_id,omitempty"`
+	State        AgentTypeState `json:"state"`
+	IdentityMode IdentityMode   `json:"identity_mode"`
+	Environments []string       `json:"environment_ids"`
+	Connections  []string       `json:"connections"`
 }
 
-// environmentEntity is an environment in an agents.environment event.
+// agentFields are the agent's settings an update compares. An update lists each changed field,
+// the ones its entity leaves out included.
+type agentFields struct {
+	agentEntity
+	Description             string         `json:"description"`
+	SystemPrompt            string         `json:"system_prompt"`
+	Framework               AgentFramework `json:"framework"`
+	GrantScopes             []string       `json:"grant_scopes"`
+	Connectivity            Connectivity   `json:"connectivity"`
+	Connectors              []Connector    `json:"connectors"`
+	MCPTools                []string       `json:"mcp_tools"`
+	Guardrails              Guardrails     `json:"guardrails"`
+	MaxConcurrentRunsPerPod int            `json:"max_concurrent_runs_per_pod"`
+	Repository              string         `json:"repository"`
+}
+
+// environmentEntity is an environment in an agents.environment event. Like agentEntity it carries no configuration.
 type environmentEntity struct {
 	ID           string          `json:"id"`
 	Slug         string          `json:"slug"`
 	Name         string          `json:"name"`
-	Description  string          `json:"description"`
 	SandboxImage string          `json:"sandbox_image"`
 	Size         EnvironmentSize `json:"size"`
-	EgressHosts  []string        `json:"egress_hosts"`
-	Connectors   []Connector     `json:"connectors"`
-	Source       string          `json:"source"`
-	Repository   string          `json:"repository,omitempty"`
+	Connections  []string        `json:"connections"`
+}
+
+// environmentFields are the environment's settings an update compares.
+type environmentFields struct {
+	environmentEntity
+	Description string      `json:"description"`
+	EgressHosts []string    `json:"egress_hosts"`
+	Connectors  []Connector `json:"connectors"`
+	Repository  string      `json:"repository"`
 }
 
 func newRunEntity(r Run) runEntity {
@@ -105,20 +115,45 @@ func newRunEntity(r Run) runEntity {
 }
 
 func newAgentEntity(at AgentType) agentEntity {
+	envs := make([]string, len(at.Environments))
+	for i, e := range at.Environments {
+		envs[i] = e.EnvironmentID
+	}
 	return agentEntity{
-		ID: at.ID, Slug: at.Slug, Name: at.Name, Description: at.Description, SystemPrompt: at.SystemPrompt,
-		Framework: at.Framework, ModelID: at.ModelID, IdentityMode: at.IdentityMode.OrDefault(), State: at.State,
+		ID: at.ID, Slug: at.Slug, Name: at.Name, ModelID: at.ModelID, State: at.State,
+		IdentityMode: at.IdentityMode.OrDefault(), Environments: envs, Connections: connectionNames(at.Connectors),
+	}
+}
+
+func newAgentFields(at AgentType) agentFields {
+	return agentFields{
+		agentEntity: newAgentEntity(at), Description: at.Description, SystemPrompt: at.SystemPrompt, Framework: at.Framework,
 		GrantScopes: at.GrantScopes, Connectivity: at.Connectivity, Connectors: at.Connectors, MCPTools: at.MCPTools,
-		Environments: at.Environments, Guardrails: at.Guardrails, MaxConcurrentRunsPerPod: at.MaxConcurrentRunsPerPod,
-		Source: at.Source, Repository: at.Repository, CreatedBy: at.CreatedBy,
+		Guardrails: at.Guardrails, MaxConcurrentRunsPerPod: at.MaxConcurrentRunsPerPod, Repository: at.Repository,
 	}
 }
 
 func newEnvironmentEntity(env Environment) environmentEntity {
 	return environmentEntity{
-		ID: env.ID, Slug: env.Slug, Name: env.Name, Description: env.Description, SandboxImage: env.SandboxImage,
-		Size: env.Size, EgressHosts: env.EgressHosts, Connectors: env.Connectors, Source: env.Source, Repository: env.Repository,
+		ID: env.ID, Slug: env.Slug, Name: env.Name, SandboxImage: env.SandboxImage, Size: env.Size,
+		Connections: connectionNames(env.Connectors),
 	}
+}
+
+func newEnvironmentFields(env Environment) environmentFields {
+	return environmentFields{
+		environmentEntity: newEnvironmentEntity(env), Description: env.Description, EgressHosts: env.EgressHosts,
+		Connectors: env.Connectors, Repository: env.Repository,
+	}
+}
+
+// connectionNames names the connections of an attachment list.
+func connectionNames(connectors []Connector) []string {
+	out := make([]string, len(connectors))
+	for i, c := range connectors {
+		out[i] = c.Connection
+	}
+	return out
 }
 
 // runEvent is an event about run r. The tenant, agent and loop guard attributes come from the row.
@@ -188,7 +223,7 @@ var runErrorsWithOwnEvent = []string{"budget_exhausted", "loop_detected", "subpr
 // activityEvent is the spine event that run_events row e of run r records, if any.
 func activityEvent(r Run, e RunEvent) (events.Event, bool) {
 	var p struct {
-		Code, Reason, Phase, Message, Action, Environment, Image string
+		Code, Reason, Phase, Action, Environment, Image string
 	}
 	if json.Unmarshal(e.Payload, &p) != nil {
 		return events.Event{}, false
@@ -224,7 +259,6 @@ func activityEvent(r Run, e RunEvent) (events.Event, bool) {
 			sandbox.Egress = "skipped"
 			return sandboxEvent(events.SandboxReady, r, sandbox), true
 		case "failed":
-			sandbox.Error = p.Message
 			return sandboxEvent(events.SandboxFailed, r, sandbox), true
 		}
 	case eventSandboxEnvironment:

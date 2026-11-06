@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/runkora/kora/backend/internal/platform/events"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 func TestStateEventType(t *testing.T) {
@@ -99,13 +100,62 @@ func TestMessageEvent(t *testing.T) {
 }
 
 func TestChangedFields(t *testing.T) {
-	before := newAgentEntity(AgentType{Name: "Triage", Slug: "triage", GrantScopes: []string{"a"}})
-	after := newAgentEntity(AgentType{Name: "Triage v2", Slug: "triage", GrantScopes: []string{"a", "b"}})
-	if got := changedFields(before, after); !slices.Equal(got, []string{"grant_scopes", "name"}) {
+	before := newAgentFields(AgentType{Name: "Triage", Slug: "triage", GrantScopes: []string{"a"}, SystemPrompt: "old"})
+	after := newAgentFields(AgentType{Name: "Triage v2", Slug: "triage", GrantScopes: []string{"a", "b"}, SystemPrompt: "new"})
+	if got := changedFields(before, after); !slices.Equal(got, []string{"grant_scopes", "name", "system_prompt"}) {
 		t.Errorf("changed = %v", got)
 	}
 	if got := changedFields(before, before); len(got) != 0 {
 		t.Errorf("unchanged entity reports %v", got)
+	}
+}
+
+// Every events:read holder reads the entities. They name connections and carry no prompt or configuration.
+func TestEntitiesCarryNoConfiguration(t *testing.T) {
+	at := AgentType{ID: "a1", Slug: "triage", SystemPrompt: "secret instructions", Guardrails: Guardrails{RepeatedCallWarn: new(int)},
+		Connectors: []Connector{{Connection: "github", Actions: []string{"contents:write"}}}}
+	agent := jsonFields(agentEvent(events.AgentUpdated, at, nil).Entity)
+	for _, k := range []string{"system_prompt", "guardrails", "connectors", "grant_scopes", "connectivity"} {
+		if _, ok := agent[k]; ok {
+			t.Errorf("agent entity carries %s", k)
+		}
+	}
+	if string(agent["connections"]) != `["github"]` {
+		t.Errorf("connections = %s", agent["connections"])
+	}
+	env := jsonFields(environmentEvent(events.EnvironmentUpdated, Environment{Slug: "go", EgressHosts: []string{"x.example.com"},
+		Connectors: []Connector{{Connection: "github", Actions: []string{"contents:read"}}}}, nil).Entity)
+	for _, k := range []string{"egress_hosts", "connectors", "description"} {
+		if _, ok := env[k]; ok {
+			t.Errorf("environment entity carries %s", k)
+		}
+	}
+	failed, _ := activityEvent(Run{ID: uuid.NewString(), TenantID: "t1"}, RunEvent{EventType: "sandbox_status", Payload: []byte(`{"phase":"failed","message":"token=abc"}`)})
+	if _, ok := jsonFields(failed.Entity)["error"]; ok {
+		t.Error("sandbox failed entity carries the failure message")
+	}
+}
+
+// A terminated run takes no agent callbacks, and an ended run gets no sandbox.
+func TestEndedRunRefusesCallbacks(t *testing.T) {
+	svc, repo, k8s, _ := newTestService(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateCompleted})
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", "", false); !errors.Is(err, ErrNotFound) {
+		t.Errorf("provision for an ended run = %v, want ErrNotFound", err)
+	}
+	if k8s.provisionSpec.Image != "" {
+		t.Error("a sandbox was provisioned for an ended run")
+	}
+	if _, err := repo.TerminateRun(context.Background(), "run-1"); err != nil {
+		t.Fatal(err)
+	}
+	ctx := withPrincipalCtx(context.Background(), "t-1", token.PrincipalTypeAgent, "agent")
+	if err := svc.run.AuthorizeAgentCallback(ctx, "run-1"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("callback for a terminated run = %v, want ErrNotFound", err)
+	}
+	if err := svc.run.TransitionRunState(context.Background(), "run-1", RunStateCompleted, RunStateActive); err == nil {
+		t.Error("an ended run moved back to active")
 	}
 }
 

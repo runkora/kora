@@ -410,7 +410,7 @@ func (m *mockRepository) SetRunState(_ context.Context, id string, from, to RunS
 	if !ok {
 		return ErrNotFound
 	}
-	if r.State != from {
+	if r.State != from || r.State.Terminal() || r.DeletedAt != nil {
 		return ErrConflict
 	}
 	r.State = to

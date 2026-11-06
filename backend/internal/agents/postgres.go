@@ -223,7 +223,7 @@ func (r *PostgresRepository) UpdateAgentType(ctx context.Context, at AgentType) 
 		if err != nil {
 			return err
 		}
-		changed := changedFields(newAgentEntity(*before), newAgentEntity(*after))
+		changed := changedFields(newAgentFields(*before), newAgentFields(*after))
 		if len(changed) == 0 {
 			return nil
 		}
@@ -463,13 +463,13 @@ func (r *PostgresRepository) SetRunState(ctx context.Context, id string, from, t
 		if to == RunStateCompleted || to == RunStateFailed {
 			tag, err = r.pool.Exec(ctx, `
 				UPDATE runs SET state=$1, completed_at=$2, updated_at=$2
-				WHERE id=$3 AND state=$4`,
+				WHERE id=$3 AND state=$4 AND deleted_at IS NULL AND state IN (`+podOccupancySQLList()+`)`,
 				string(to), now, id, string(from),
 			)
 		} else {
 			tag, err = r.pool.Exec(ctx, `
 				UPDATE runs SET state=$1, updated_at=$2
-				WHERE id=$3 AND state=$4`,
+				WHERE id=$3 AND state=$4 AND deleted_at IS NULL AND state IN (`+podOccupancySQLList()+`)`,
 				string(to), now, id, string(from),
 			)
 		}
