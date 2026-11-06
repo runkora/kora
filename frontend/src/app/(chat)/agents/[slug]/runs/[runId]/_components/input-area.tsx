@@ -136,7 +136,10 @@ export function InputArea() {
   const [value, setValue] = useState('');
   const [active, setActive] = useState<Set<ContextToolId>>(new Set());
   const isEnded =
-    runState === 'completed' || runState === 'failed' || runState === 'budget_exhausted';
+    runState === 'completed' ||
+    runState === 'failed' ||
+    runState === 'budget_exhausted' ||
+    runState === 'terminated';
   // A starting run takes no messages. The API would answer "run is starting".
   // Typing is never blocked while the agent works: a message sent mid-turn is
   // read at the agent's next tool boundary.

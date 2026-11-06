@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // Postgres integration test for the run→trigger backlink. Runs only when
@@ -32,11 +34,13 @@ func testRunRepo(t *testing.T) (*PostgresRepository, string) {
 	}
 	tenant := "test-" + uuid.NewString()
 	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM event_outbox WHERE tenant_id=$1`, tenant)
+		_, _ = pool.Exec(ctx, `DELETE FROM events WHERE tenant_id=$1`, tenant)
 		_, _ = pool.Exec(ctx, `DELETE FROM runs WHERE tenant_id=$1`, tenant)
 		_, _ = pool.Exec(ctx, `DELETE FROM agent_types WHERE tenant_id=$1`, tenant)
 		pool.Close()
 	})
-	return NewPostgresRepository(pool), tenant
+	return NewPostgresRepository(storage.NewPool(pool)), tenant
 }
 
 func seedRunAgentType(t *testing.T, r *PostgresRepository, tenant string, mode IdentityMode) AgentType {

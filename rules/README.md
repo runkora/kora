@@ -29,6 +29,7 @@ Each function in the file is one rule. The rule name is the function name. Viola
 | `noHttpErrorInHandler` | `http.Error(w, ...)`: plain-text error response bypassing `api.ErrorResponse` | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
 | `noDirectWriteHeader` | `w.WriteHeader(code)`: bare status code bypassing `api.JSON` / `api.ErrorResponse` | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
 | `noProductNameLiteral` | a prose `kora` / `orbit` string literal in a speaking package: the product name must come from `internal/platform/brand` | [[white-labelling-theme](../docs/adr/2026-10-12-white-labelling-theme.md)] |
+| `noPgxpoolInEventProducers` | `*pgxpool.Pool` in an event producer package outside tests: a producer holds a `*storage.Pool` to join the context transaction | [[event-spine](../docs/adr/2026-11-06-event-spine.md)] |
 
 ### [opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md) rules (span telemetry)
 
@@ -57,6 +58,10 @@ The rules target the literal identifier `err` and the `ctx.Err()` chain, which c
 A white-labelled install must never show the kora name in text its people or agents read, so every such string takes the name from `internal/platform/brand`. The rule matches the whole word `kora` or `orbit`, case-insensitively, not adjacent to `-`, `_` or `/`, nor to a `.` followed by a letter or digit: `orbit.io`, `kora-base`, `kora-system` and `KORA_RUN_ID` pass, prose fails, including a sentence ending `kora.`. It is scoped to `internal/agents`, `internal/koramcp`, `internal/egressgw` and `internal/platform/sandboximages` through `m.File().PkgPath`, and skips a literal passed directly to a `logging.Logger` method, since log lines keep the kora name.
 
 Two limits of the bundled ruleguard shape the rule. A bare `$s` pattern never visits a literal, so the rule names each position a literal can occupy (call argument, composite-literal element, const or var initialiser, return, assignment, operand of `+`). And gogrep has no pattern for a struct field's tag, so the rule does not see a `jsonschema:"..."` description. `scripts/check-brand-tags.go`, run by `make brand-tags-check` as part of `make check`, parses the same packages and fails on a struct tag that matches the same word pattern. Keep tag text neutral and put the product-specific sentence in code, as `internal/koramcp/tools_agents.go` does.
+
+### [event-spine](../docs/adr/2026-11-06-event-spine.md) rule (event producers)
+
+An event producer package holds a `*storage.Pool`. The rule matches the `*pgxpool.Pool` type in any non-test file of a package in `eventProducerPackages`. The pattern lists `internal/agents`. Add a package to that pattern when its repositories move to `storage.Pool`.
 
 ### Exclusions
 

@@ -52,7 +52,7 @@ type RunRepository interface {
 	// AssignPod sets pod_ordinal and transitions pending→starting atomically,
 	// only while the run is still held under the claim taken at claimedAt.
 	AssignPod(ctx context.Context, runID string, claimedAt time.Time, podOrdinal int) error
-	// MarkRunFailed unconditionally transitions a run to the failed terminal state
+	// MarkRunFailed transitions a run that has not ended to the failed terminal state
 	// and stamps completed_at. Used to clean up synchronously when a run's start
 	// fails after the row was created, so it never lingers in pending/starting
 	// waiting for the stale-run reaper.
@@ -61,18 +61,21 @@ type RunRepository interface {
 	// run at start (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3),
 	// so terminal-state transitions can revoke it.
 	SetRunDelegationJTI(ctx context.Context, runID, jti string) error
-	DeleteRun(ctx context.Context, id string) error
+	// TerminateRun ends a live run as terminated and marks the run deleted. It returns the run.
+	TerminateRun(ctx context.Context, id string) (*Run, error)
 	// CancelRunsByAgentType moves every unfinished run of an agent type to a terminal state and
 	// returns them. Agent deletion uses the IDs to delete sandbox pods and the JTIs to revoke delegations.
-	CancelRunsByAgentType(ctx context.Context, agentTypeID string) ([]CancelledRun, error)
+	CancelRunsByAgentType(ctx context.Context, agentTypeID string) ([]Run, error)
+	// RecordSandboxDeleted records the removal of the run's sandbox once.
+	RecordSandboxDeleted(ctx context.Context, run Run) error
 	// ActiveRunsPerPod returns active run counts keyed by pod ordinal for an agent type.
 	ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error)
-	// ReapStaleRuns marks runs stuck in transient states for longer than
-	// staleDuration. Returns the IDs partitioned by terminal state:
-	//   - failed:    runs transitioned active|starting → failed
+	// ReapStaleRuns ends runs stuck in transient states for longer than
+	// staleDuration and returns them in their new state:
+	//   - failed:    runs transitioned pending|starting|active → failed
 	//   - completed: runs transitioned idle → completed (idle timeout missed
 	//                due to a session-manager restart)
-	ReapStaleRuns(ctx context.Context, staleDuration time.Duration) (failed, completed []string, err error)
+	ReapStaleRuns(ctx context.Context, staleDuration time.Duration) ([]Run, error)
 
 	// ── Events ────────────────────────────────────────────────────────────────
 

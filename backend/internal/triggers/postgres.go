@@ -1368,7 +1368,7 @@ func (r *postgresRepository) DueScheduledMinutesWithoutDelivery(ctx context.Cont
 // One constant, interpolated into both the claim query and InFlightCount, so the
 // two cannot disagree about what "in flight" means. It is a compile-time literal
 // with no caller input in it.
-const settledRunStatesSQL = `('completed', 'failed', 'budget_exhausted', 'idle')`
+const settledRunStatesSQL = `('completed', 'failed', 'budget_exhausted', 'terminated', 'idle')`
 
 // EnqueueWithinCeiling admits a fire only if the trigger is under its ceiling,
 // deciding and inserting under one lock so the two cannot disagree.

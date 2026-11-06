@@ -870,7 +870,7 @@ func (p *K8sProvisioner) waitForPodGone(ctx context.Context, name, namespace str
 }
 
 // DeleteSandbox removes the sandbox pod for a run. Missing pod is silently ignored.
-func (p *K8sProvisioner) DeleteSandbox(ctx context.Context, runID, namespace string) error {
+func (p *K8sProvisioner) DeleteSandbox(ctx context.Context, runID, namespace string) (bool, error) {
 	ctx, span := agentsTracer.Start(observability.WithRun(ctx, runID), "agents.K8sProvisioner.DeleteSandbox",
 		trace.WithAttributes(semconv.K8SNamespaceNameKey.String(namespace)),
 	)
@@ -883,11 +883,15 @@ func (p *K8sProvisioner) DeleteSandbox(ctx context.Context, runID, namespace str
 		logging.Field{Key: "namespace", Value: namespace},
 	)
 	del := metav1.DeletePropagationForeground
-	if err := ignoreNotFound(p.client.CoreV1().Pods(namespace).Delete(ctx, podName, metav1.DeleteOptions{PropagationPolicy: &del})); err != nil {
-		observability.RecordFailure(span, err, errSpanDeleteSandboxPod)
-		return err
+	err := p.client.CoreV1().Pods(namespace).Delete(ctx, podName, metav1.DeleteOptions{PropagationPolicy: &del})
+	if apierrors.IsNotFound(err) {
+		return false, nil
 	}
-	return nil
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanDeleteSandboxPod)
+		return false, err
+	}
+	return true, nil
 }
 
 // defaultSandboxReadyWait bounds the pod wait when the install sets no provision guardrails.

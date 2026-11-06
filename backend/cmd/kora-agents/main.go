@@ -228,7 +228,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		return nil, nil, nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)
 	}
 
-	repo := agents.NewPostgresRepository(db.Pool())
+	repo := agents.NewPostgresRepository(storage.NewPool(db.Pool()))
 	// The session-manager on each agent pod authenticates its caller and checks
 	// the principal is kora-agents, so the same self-token source that bears
 	// the policy client's calls bears these.

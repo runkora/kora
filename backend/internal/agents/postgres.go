@@ -13,9 +13,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
+	sandboxfolder "github.com/runkora/kora/backend/internal/agents/sandbox/folder"
 	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/storage"
 )
@@ -52,13 +53,13 @@ var ErrRunNotAcceptingMessages = errors.New("run not accepting messages")
 // ErrRunStarting is returned when a message is sent to a run the scheduler has not started yet.
 var ErrRunStarting = errors.New("run is starting")
 
-// PostgresRepository implements Repository against a pgxpool.
+// PostgresRepository implements Repository. Its writes record their spine events in the same transaction.
 type PostgresRepository struct {
-	pool *pgxpool.Pool
+	pool *storage.Pool
 }
 
 // NewPostgresRepository creates a repository backed by the given pool.
-func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
+func NewPostgresRepository(pool *storage.Pool) *PostgresRepository {
 	return &PostgresRepository{pool: pool}
 }
 
@@ -77,7 +78,7 @@ func (r *PostgresRepository) CreateAgentType(ctx context.Context, at AgentType) 
 	if mErr != nil {
 		return fmt.Errorf("marshal connectors: %w", mErr)
 	}
-	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO agent_types
 				(id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, identity_mode, guardrails, created_by, source, resource_uid, resource_generation, repository)
@@ -92,7 +93,14 @@ func (r *PostgresRepository) CreateAgentType(ctx context.Context, at AgentType) 
 			}
 			return fmt.Errorf("insert agent_type: %w", err)
 		}
-		return writeAgentEnvironments(ctx, tx, at.ID, at.Environments)
+		if err = writeAgentEnvironments(ctx, tx, at.ID, at.Environments); err != nil {
+			return err
+		}
+		created, err := r.GetAgentType(ctx, at.ID)
+		if err != nil {
+			return err
+		}
+		return events.Publish(ctx, r.pool, agentEvent(events.AgentCreated, *created, nil))
 	})
 }
 
@@ -124,6 +132,14 @@ func (r *PostgresRepository) GetAgentTypeWithDeleted(ctx context.Context, id str
 	row := r.pool.QueryRow(ctx, `
 		SELECT `+agentTypeColumns+`
 		FROM agent_types WHERE id = $1`, id)
+	return scanAgentType(row)
+}
+
+// lockAgentType reads a live agent type and locks its row until the transaction ends.
+func (r *PostgresRepository) lockAgentType(ctx context.Context, id string) (*AgentType, error) {
+	row := r.pool.QueryRow(ctx, `
+		SELECT `+agentTypeColumns+`
+		FROM agent_types WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, id)
 	return scanAgentType(row)
 }
 
@@ -182,7 +198,11 @@ func (r *PostgresRepository) UpdateAgentType(ctx context.Context, at AgentType) 
 	// identity_mode is deliberately absent from the SET list: it is immutable
 	// after creation (the service layer rejects changes; the storage layer never
 	// writes it on update).
-	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
+		before, err := r.lockAgentType(ctx, at.ID)
+		if err != nil {
+			return err
+		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE agent_types
 			SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, grant_scopes=$6, max_concurrent_runs_per_pod=$7, model_id=$8, updated_at=$9, connectivity=$10::jsonb, connectors=$11::jsonb, mcp_tools=$12, guardrails=$13::jsonb, resource_generation=$15, repository=NULLIF($16, '')
@@ -196,7 +216,18 @@ func (r *PostgresRepository) UpdateAgentType(ctx context.Context, at AgentType) 
 		if tag.RowsAffected() == 0 {
 			return ErrNotFound
 		}
-		return writeAgentEnvironments(ctx, tx, at.ID, at.Environments)
+		if err = writeAgentEnvironments(ctx, tx, at.ID, at.Environments); err != nil {
+			return err
+		}
+		after, err := r.GetAgentType(ctx, at.ID)
+		if err != nil {
+			return err
+		}
+		changed := changedFields(newAgentEntity(*before), newAgentEntity(*after))
+		if len(changed) == 0 {
+			return nil
+		}
+		return events.Publish(ctx, r.pool, agentEvent(events.AgentUpdated, *after, changed))
 	})
 }
 
@@ -257,37 +288,39 @@ func (r *PostgresRepository) ListAllAgentTypeSlugs(ctx context.Context) ([]strin
 
 // DeleteAgentType removes the row. Only a failed first provisioning uses it; agent deletion is SoftDeleteAgentType.
 func (r *PostgresRepository) DeleteAgentType(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM agent_types WHERE id=$1`, id)
-	if err != nil {
-		return fmt.Errorf("delete agent_type: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		at, err := r.GetAgentTypeWithDeleted(ctx, id)
+		if err != nil {
+			return err
+		}
+		if _, err := r.pool.Exec(ctx, `DELETE FROM agent_types WHERE id=$1`, id); err != nil {
+			return fmt.Errorf("delete agent_type: %w", err)
+		}
+		return events.Publish(ctx, r.pool, agentEvent(events.AgentDeleted, *at, nil))
+	})
 }
 
 // SoftDeleteAgentType detaches the agent's environments and marks it deleted. The row stays for its runs.
 func (r *PostgresRepository) SoftDeleteAgentType(ctx context.Context, id string) error {
-	// The row update comes first. Its lock makes a concurrent UpdateAgentType wait and then match no row,
+	// The row lock comes first. A concurrent UpdateAgentType waits and then matches no row,
 	// so it cannot re-attach environments after they are removed.
-	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
-		now := time.Now().UTC()
-		tag, err := tx.Exec(ctx, `
-			UPDATE agent_types SET state=$1, deleted_at=$2, updated_at=$2
-			WHERE id=$3 AND deleted_at IS NULL`,
-			string(AgentTypeStateDeleted), now, id,
-		)
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
+		before, err := r.lockAgentType(ctx, id)
 		if err != nil {
-			return fmt.Errorf("soft delete agent_type: %w", err)
+			return err
 		}
-		if tag.RowsAffected() == 0 {
-			return ErrNotFound
+		now := time.Now().UTC()
+		if _, err := tx.Exec(ctx, `
+			UPDATE agent_types SET state=$1, deleted_at=$2, updated_at=$2
+			WHERE id=$3`,
+			string(AgentTypeStateDeleted), now, id,
+		); err != nil {
+			return fmt.Errorf("soft delete agent_type: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM agent_environments WHERE agent_type_id=$1`, id); err != nil {
 			return fmt.Errorf("delete agent environments: %w", err)
 		}
-		return nil
+		return events.Publish(ctx, r.pool, agentEvent(events.AgentDeleted, *before, nil))
 	})
 }
 
@@ -301,23 +334,34 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 	// Trigger attribution is written at insert and never updated: it records why
 	// the run exists, which cannot change after it starts.
 	var triggerID, triggerName, deliveryID *string
+	triggerIDs := []string{}
 	if run.StartedBy != nil {
 		triggerID = storage.NullIfZero(run.StartedBy.TriggerID)
 		triggerName = storage.NullIfZero(run.StartedBy.TriggerName)
 		deliveryID = storage.NullIfZero(run.StartedBy.DeliveryID)
+		if run.StartedBy.TriggerID != "" {
+			triggerIDs = append(triggerIDs, run.StartedBy.TriggerID)
+		}
 	}
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO runs
-			(id, tenant_id, agent_type_id, state, pod_ordinal, created_by, created_at, updated_at,
-			 trigger_id, trigger_name, delivery_id, initial_message, trace_parent)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		run.ID, run.TenantID, run.AgentTypeID, string(RunStatePending), -1, run.CreatedBy, now, now,
-		triggerID, triggerName, deliveryID, run.InitialMessage, storage.NullIfZero(run.TraceParent),
-	)
-	if err != nil {
-		return fmt.Errorf("insert run: %w", err)
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		_, err := r.pool.Exec(ctx, `
+			INSERT INTO runs
+				(id, tenant_id, agent_type_id, state, pod_ordinal, created_by, created_at, updated_at,
+				 trigger_id, trigger_name, delivery_id, initial_message, trace_parent, caused_by, chain_depth, trigger_ids)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+			run.ID, run.TenantID, run.AgentTypeID, string(RunStatePending), -1, run.CreatedBy, now, now,
+			triggerID, triggerName, deliveryID, run.InitialMessage, storage.NullIfZero(run.TraceParent),
+			storage.NullIfZero(run.CausedBy), run.ChainDepth, triggerIDs,
+		)
+		if err != nil {
+			return fmt.Errorf("insert run: %w", err)
+		}
+		created, err := r.GetRun(ctx, run.ID)
+		if err != nil {
+			return err
+		}
+		return events.Publish(ctx, r.pool, runEvent(events.RunCreated, *created, newRunEntity(*created)))
+	})
 }
 
 // selectRun joins agent_types so every run read carries the agent's identity mode, slug and name.
@@ -326,8 +370,9 @@ const selectRun = `SELECT ` + runColumns + ` FROM runs r JOIN agent_types at ON 
 
 const runColumns = `
 	r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode, at.slug, at.name,
-	r.trigger_id, r.trigger_name, r.delivery_id, r.environment_id, r.trace_parent`
+	r.trigger_id, r.trigger_name, r.delivery_id, r.environment_id, r.trace_parent, r.deleted_at, r.caused_by, r.chain_depth, r.trigger_ids`
 
+// GetRun returns the run, a terminated one included.
 func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error) {
 	row := r.pool.QueryRow(ctx, selectRun+` WHERE r.id=$1`, id)
 	return scanRun(row)
@@ -336,7 +381,7 @@ func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error
 // ListRuns returns up to q.Limit runs in scope, newest first, after q.After.
 // The scope is part of the query, so a page holds only runs the caller may read.
 func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, q RunListQuery) ([]Run, error) {
-	query, args := appendScope(selectRun+` WHERE r.tenant_id=$1`, []any{tenantID}, q.Scope)
+	query, args := appendScope(selectRun+` WHERE r.tenant_id=$1 AND r.deleted_at IS NULL`, []any{tenantID}, q.Scope)
 	if len(q.States) > 0 {
 		args = append(args, stateStrings(q.States))
 		query += fmt.Sprintf(" AND r.state = ANY($%d)", len(args))
@@ -412,28 +457,43 @@ func (r *PostgresRepository) RunUsageTotals(ctx context.Context, tenantID string
 
 func (r *PostgresRepository) SetRunState(ctx context.Context, id string, from, to RunState) error {
 	now := time.Now().UTC()
-	var tag interface{ RowsAffected() int64 }
-	var err error
-	if to == RunStateCompleted || to == RunStateFailed {
-		tag, err = r.pool.Exec(ctx, `
-			UPDATE runs SET state=$1, completed_at=$2, updated_at=$2
-			WHERE id=$3 AND state=$4`,
-			string(to), now, id, string(from),
-		)
-	} else {
-		tag, err = r.pool.Exec(ctx, `
-			UPDATE runs SET state=$1, updated_at=$2
-			WHERE id=$3 AND state=$4`,
-			string(to), now, id, string(from),
-		)
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		var tag interface{ RowsAffected() int64 }
+		var err error
+		if to == RunStateCompleted || to == RunStateFailed {
+			tag, err = r.pool.Exec(ctx, `
+				UPDATE runs SET state=$1, completed_at=$2, updated_at=$2
+				WHERE id=$3 AND state=$4`,
+				string(to), now, id, string(from),
+			)
+		} else {
+			tag, err = r.pool.Exec(ctx, `
+				UPDATE runs SET state=$1, updated_at=$2
+				WHERE id=$3 AND state=$4`,
+				string(to), now, id, string(from),
+			)
+		}
+		if err != nil {
+			return fmt.Errorf("set run state: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrConflict
+		}
+		return r.publishState(ctx, id, from, to)
+	})
+}
+
+// publishState records the event of run id moving from from to to, if that change has one.
+func (r *PostgresRepository) publishState(ctx context.Context, id string, from, to RunState) error {
+	if _, ok := stateEventType(from, to); !ok {
+		return nil
 	}
+	run, err := r.GetRun(ctx, id)
 	if err != nil {
-		return fmt.Errorf("set run state: %w", err)
+		return err
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrConflict
-	}
-	return nil
+	ev, _ := stateEvent(from, *run)
+	return events.Publish(ctx, r.pool, ev)
 }
 
 // AssignPod moves a claimed run to starting on podOrdinal. The claim token stops a
@@ -462,7 +522,7 @@ func (r *PostgresRepository) ClaimPendingRuns(ctx context.Context, limit int, no
 		    UPDATE runs SET claimed_at = $2, updated_at = $2
 		    WHERE id IN (
 		        SELECT id FROM runs
-		        WHERE  state = 'pending' AND claimed_at IS NULL AND not_before <= $2
+		        WHERE  state = 'pending' AND claimed_at IS NULL AND not_before <= $2 AND deleted_at IS NULL
 		        ORDER  BY created_at
 		        LIMIT  $1
 		        FOR UPDATE SKIP LOCKED)
@@ -537,20 +597,26 @@ func (r *PostgresRepository) ReclaimStaleRunClaims(ctx context.Context, cutoff t
 // time read back compares equal to the one written.
 func claimToken(t time.Time) time.Time { return t.UTC().Truncate(time.Microsecond) }
 
-// MarkRunFailed unconditionally transitions a run to the failed terminal state and
-// stamps completed_at. Unlike SetRunState it is not a compare-and-swap — it cleans
+// MarkRunFailed transitions a run to the failed terminal state and stamps
+// completed_at. Unlike SetRunState it is not a compare-and-swap — it cleans
 // up a run whose start failed from whatever non-terminal state it reached. Zero
-// rows affected (run already gone) is not an error.
+// rows affected (run gone or already ended) is not an error.
 func (r *PostgresRepository) MarkRunFailed(ctx context.Context, id string) error {
 	now := time.Now().UTC()
-	_, err := r.pool.Exec(ctx, `
-		UPDATE runs SET state=$1, completed_at=$2, updated_at=$2 WHERE id=$3`,
-		string(RunStateFailed), now, id,
-	)
-	if err != nil {
-		return fmt.Errorf("mark run failed: %w", err)
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		tag, err := r.pool.Exec(ctx, `
+			UPDATE runs SET state=$1, completed_at=$2, updated_at=$2
+			WHERE id=$3 AND state IN (`+podOccupancySQLList()+`)`,
+			string(RunStateFailed), now, id,
+		)
+		if err != nil {
+			return fmt.Errorf("mark run failed: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return nil
+		}
+		return r.publishState(ctx, id, "", RunStateFailed)
+	})
 }
 
 // SetRunSummary writes the task summary set-once: the first summary for a run
@@ -584,43 +650,84 @@ func (r *PostgresRepository) SetRunDelegationJTI(ctx context.Context, runID, jti
 	return nil
 }
 
-func (r *PostgresRepository) DeleteRun(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM runs WHERE id=$1`, id)
-	if err != nil {
-		return fmt.Errorf("delete run: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
+// TerminateRun ends a live run as terminated and marks the run deleted. A run that already ended
+// keeps its state. The row and its run_events stay. Returns ErrNotFound for a run already terminated.
+func (r *PostgresRepository) TerminateRun(ctx context.Context, id string) (*Run, error) {
+	var run *Run
+	err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		live := `state IN (` + podOccupancySQLList() + `)`
+		tag, err := r.pool.Exec(ctx, `
+			UPDATE runs SET state = CASE WHEN `+live+` THEN $2 ELSE state END,
+			       completed_at = CASE WHEN `+live+` THEN $3 ELSE completed_at END,
+			       deleted_at = $3, updated_at = $3
+			WHERE id = $1 AND deleted_at IS NULL`,
+			id, string(RunStateTerminated), time.Now().UTC())
+		if err != nil {
+			return fmt.Errorf("terminate run: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		if run, err = r.GetRun(ctx, id); err != nil {
+			return err
+		}
+		changed := []string{"deleted_at"}
+		if run.State == RunStateTerminated {
+			changed = []string{"state", "completed_at", "deleted_at"}
+		}
+		return events.Publish(ctx, r.pool, runEvent(events.RunTerminated, *run, newRunEntity(*run), changed...))
+	})
+	return run, err
 }
 
 // CancelRunsByAgentType ends every unfinished run of an agent type. A run that finished its
 // turn (idle or completing) completes and any other run fails.
-func (r *PostgresRepository) CancelRunsByAgentType(ctx context.Context, agentTypeID string) ([]CancelledRun, error) {
-	now := time.Now().UTC()
-	rows, err := r.pool.Query(ctx, `
-		UPDATE runs
-		SET state = CASE WHEN state IN ('idle','completing') THEN 'completed' ELSE 'failed' END,
-		    completed_at = $2, updated_at = $2
-		WHERE agent_type_id = $1 AND state IN ('pending','starting','active','idle','completing')
-		RETURNING id, state, delegation_jti`, agentTypeID, now)
+func (r *PostgresRepository) CancelRunsByAgentType(ctx context.Context, agentTypeID string) ([]Run, error) {
+	var cancelled []Run
+	err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		var err error
+		cancelled, err = r.endRuns(ctx, `
+			UPDATE runs
+			SET state = CASE WHEN state IN ('idle','completing') THEN 'completed' ELSE 'failed' END,
+			    completed_at = $2, updated_at = $2
+			WHERE agent_type_id = $1 AND state IN ('pending','starting','active','idle','completing')`,
+			agentTypeID, time.Now().UTC())
+		return err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("cancel runs for agent type: %w", err)
 	}
-	defer rows.Close()
+	return cancelled, nil
+}
 
-	var cancelled []CancelledRun
-	for rows.Next() {
-		var c CancelledRun
-		var state string
-		if scanErr := rows.Scan(&c.ID, &state, &c.DelegationJTI); scanErr != nil {
-			return nil, fmt.Errorf("scan cancelled run: %w", scanErr)
-		}
-		c.State = RunState(state)
-		cancelled = append(cancelled, c)
+// endRuns runs a bulk update that moves runs to a terminal state and records the state event of each.
+// It returns the ended runs, so each event takes its tenant and agent from its own row.
+func (r *PostgresRepository) endRuns(ctx context.Context, update string, args ...any) ([]Run, error) {
+	rows, err := r.pool.Query(ctx, `
+		WITH ended AS (`+update+` RETURNING *)
+		SELECT `+runColumns+` FROM ended r JOIN agent_types at ON at.id = r.agent_type_id`, args...)
+	if err != nil {
+		return nil, err
 	}
-	return cancelled, rows.Err()
+	ended, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Run, error) {
+		run, scanErr := scanRun(row)
+		if scanErr != nil {
+			return Run{}, scanErr
+		}
+		return *run, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	// The rows are read before the events are written, which share the transaction's connection.
+	for _, run := range ended {
+		if ev, ok := stateEvent("", run); ok {
+			if err := events.Publish(ctx, r.pool, ev); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return ended, nil
 }
 
 // podOccupancySQLList renders the pod-occupying run states as a SQL literal
@@ -673,64 +780,70 @@ func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID s
 // most recent run_events row is newer than the cutoff — events act as a liveness
 // heartbeat, so a long-but-active turn (which streams events continuously) is not
 // reaped, while a run whose pod died (no events, no state changes) is. Returns the
-// IDs partitioned by the terminal state each row was moved to, so the caller can
-// emit the correct event type per group.
+// reaped runs in their new terminal state, each with its event recorded.
 //
 //   - active / starting → failed (session-manager died mid-turn)
 //   - pending → failed (never queued, or no scheduler took it)
 //   - idle → completed  (session-manager died after a clean turn; idle timeout
 //     never fired because the pod restarted)
-func (r *PostgresRepository) ReapStaleRuns(ctx context.Context, staleDuration time.Duration) (failed, completed []string, err error) {
+func (r *PostgresRepository) ReapStaleRuns(ctx context.Context, staleDuration time.Duration) ([]Run, error) {
 	now := time.Now().UTC()
-	cutoff := now.Add(-staleDuration)
-	rows, err := r.pool.Query(ctx, `
-		UPDATE runs
-		SET state = CASE
-			WHEN state IN ('active','starting','pending') THEN 'failed'
-			ELSE 'completed'
-		END,
-		completed_at = $1,
-		updated_at   = $1
-		WHERE state IN ('active','starting','pending','idle')
-		  AND updated_at < $2
-		  AND NOT EXISTS (
-		      SELECT 1 FROM run_events e
-		      WHERE e.run_id = runs.id AND e.created_at >= $2
-		  )
-		RETURNING id, state`,
-		now, cutoff,
-	)
+	var reaped []Run
+	err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		var err error
+		reaped, err = r.endRuns(ctx, `
+			UPDATE runs
+			SET state = CASE
+				WHEN state IN ('active','starting','pending') THEN 'failed'
+				ELSE 'completed'
+			END,
+			completed_at = $1,
+			updated_at   = $1
+			WHERE state IN ('active','starting','pending','idle')
+			  AND updated_at < $2
+			  AND NOT EXISTS (
+			      SELECT 1 FROM run_events e
+			      WHERE e.run_id = runs.id AND e.created_at >= $2
+			  )`,
+			now, now.Add(-staleDuration))
+		return err
+	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("reap stale runs: %w", err)
+		return nil, fmt.Errorf("reap stale runs: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var (
-			id    string
-			state string
-		)
-		if scanErr := rows.Scan(&id, &state); scanErr != nil {
-			return nil, nil, scanErr
-		}
-		switch state {
-		case string(RunStateFailed):
-			failed = append(failed, id)
-		case string(RunStateCompleted):
-			completed = append(completed, id)
-		}
-	}
-	return failed, completed, rows.Err()
+	return reaped, nil
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
-// AppendRunEvent records an event. A caller that also publishes the event sets
-// CreatedAt, so the live stream and a later replay carry the same time.
+// AppendRunEvent records an event, and the spine event it stands for in the same transaction.
+// A caller that also publishes the event sets CreatedAt, so the live stream and a later replay carry the same time.
 func (r *PostgresRepository) AppendRunEvent(ctx context.Context, e RunEvent) (int64, error) {
 	if e.CreatedAt.IsZero() {
 		e.CreatedAt = eventTime()
 	}
+	if !recordsActivity[e.EventType] {
+		return r.insertRunEvent(ctx, e)
+	}
+	var seqNo int64
+	err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		var err error
+		if seqNo, err = r.insertRunEvent(ctx, e); err != nil {
+			return err
+		}
+		run, err := r.GetRun(ctx, e.RunID)
+		if err != nil {
+			return err
+		}
+		if ev, ok := activityEvent(*run, e); ok {
+			return events.Publish(ctx, r.pool, ev)
+		}
+		return nil
+	})
+	return seqNo, err
+}
+
+func (r *PostgresRepository) insertRunEvent(ctx context.Context, e RunEvent) (int64, error) {
 	var seqNo int64
 	err := r.pool.QueryRow(ctx, `
 		INSERT INTO run_events (run_id, event_type, payload, created_at)
@@ -767,19 +880,44 @@ func (r *PostgresRepository) ListRunEvents(ctx context.Context, runID string, af
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 
+// AppendRunMessage records a message and its agents.run.message_received event. A trigger's
+// message adds the trigger to the run and keeps the cause with the highest chain depth.
 func (r *PostgresRepository) AppendRunMessage(ctx context.Context, m RunMessage) error {
 	if m.ID == "" {
 		m.ID = uuid.NewString()
 	}
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO run_messages (id, run_id, content, created_at)
-		VALUES ($1,$2,$3,$4)`,
-		m.ID, m.RunID, m.Content, time.Now().UTC(),
-	)
-	if err != nil {
-		return fmt.Errorf("insert run_message: %w", err)
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		_, err := r.pool.Exec(ctx, `
+			INSERT INTO run_messages (id, run_id, content, created_at)
+			VALUES ($1,$2,$3,$4)`,
+			m.ID, m.RunID, m.Content, time.Now().UTC(),
+		)
+		if err != nil {
+			return fmt.Errorf("insert run_message: %w", err)
+		}
+		if m.From != nil {
+			_, err = r.pool.Exec(ctx, `
+				UPDATE runs SET
+				    trigger_ids = CASE WHEN $2 = '' OR $2 = ANY(trigger_ids) THEN trigger_ids ELSE array_append(trigger_ids, $2) END,
+				    caused_by   = CASE WHEN $3::uuid IS NOT NULL AND $4 >= chain_depth THEN $3::uuid ELSE caused_by END,
+				    chain_depth = GREATEST(chain_depth, $4)
+				WHERE id = $1`,
+				m.RunID, m.From.TriggerID, storage.NullIfZero(m.CausedBy), m.ChainDepth)
+			if err != nil {
+				return fmt.Errorf("record message trigger: %w", err)
+			}
+		}
+		run, err := r.GetRun(ctx, m.RunID)
+		if err != nil {
+			return err
+		}
+		return events.Publish(ctx, r.pool, messageEvent(*run, m.From))
+	})
+}
+
+// RecordSandboxDeleted records agents.sandbox.deleted.v1 for run's sandbox once.
+func (r *PostgresRepository) RecordSandboxDeleted(ctx context.Context, run Run) error {
+	return events.PublishOnce(ctx, r.pool, run.ID+"|"+sandboxfolder.SandboxPodName(run.ID), sandboxDeletedEvent(run))
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -844,12 +982,13 @@ func scanAgentType(s scanner) (*AgentType, error) {
 func scanRun(s scanner, extra ...any) (*Run, error) {
 	var r Run
 	var state, identityMode string
-	var triggerID, triggerName, deliveryID, traceParent *string
+	var triggerID, triggerName, deliveryID, traceParent, causedBy *string
 	err := s.Scan(append([]any{
 		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodOrdinal,
 		&r.CreatedBy, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
 		&r.Summary, &r.DelegationJTI, &identityMode, &r.AgentSlug, &r.AgentName,
 		&triggerID, &triggerName, &deliveryID, &r.EnvironmentID, &traceParent,
+		&r.DeletedAt, &causedBy, &r.ChainDepth, &r.TriggerIDs,
 	}, extra...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -860,6 +999,7 @@ func scanRun(s scanner, extra ...any) (*Run, error) {
 	r.State = RunState(state)
 	r.IdentityMode = IdentityMode(identityMode).OrDefault()
 	r.TraceParent = storage.Deref(traceParent)
+	r.CausedBy = storage.Deref(causedBy)
 	r.TraceID = observability.SampledTraceID(r.TraceParent)
 	// The trigger id is what makes the attribution real; a name or delivery
 	// without one would be a run claiming automation without naming what
@@ -903,7 +1043,7 @@ func (r *PostgresRepository) CountRunOutcomes(ctx context.Context, tenantID stri
 		SELECT COUNT(*) FILTER (WHERE r.state = 'completed'),
 		       COUNT(*) FILTER (WHERE r.state = 'failed')
 		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
-		WHERE r.tenant_id = $1
+		WHERE r.tenant_id = $1 AND r.deleted_at IS NULL
 		  AND r.completed_at >= $2 AND r.completed_at < $3
 		  AND r.state IN ('completed', 'failed')`,
 		[]any{tenantID, from, to}, scope)
@@ -920,7 +1060,7 @@ func (r *PostgresRepository) CountRunOutcomes(ctx context.Context, tenantID stri
 const finishedRunsSQL = `
 	SELECT r.state, GREATEST(EXTRACT(EPOCH FROM (r.completed_at - COALESCE(r.started_at, r.created_at))) * 1000, 0) AS ms
 	FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
-	WHERE r.tenant_id = $1
+	WHERE r.tenant_id = $1 AND r.deleted_at IS NULL
 	  AND r.completed_at >= $2 AND r.completed_at < $3
 	  AND r.state IN ('completed', 'failed')`
 
@@ -932,7 +1072,7 @@ func (r *PostgresRepository) RunStats(ctx context.Context, tenantID string, scop
 	query, args := appendScope(`
 		SELECT COUNT(*), COUNT(r.trigger_id)
 		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
-		WHERE r.tenant_id = $1 AND r.created_at >= $2 AND r.created_at < $3`,
+		WHERE r.tenant_id = $1 AND r.deleted_at IS NULL AND r.created_at >= $2 AND r.created_at < $3`,
 		[]any{tenantID, from, to}, scope)
 	if err := r.pool.QueryRow(ctx, query, args...).Scan(&out.Total, &out.Triggered); err != nil {
 		return RunStats{}, fmt.Errorf("count runs: %w", err)
@@ -1000,7 +1140,7 @@ func (r *PostgresRepository) runStateCounts(ctx context.Context, tenantID string
 		SELECT r.agent_type_id, r.state, COUNT(*),
 		       COALESCE(EXTRACT(EPOCH FROM (now() - MIN(r.started_at))) * 1000, 0)
 		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
-		WHERE r.tenant_id = $1`, []any{tenantID}, scope)
+		WHERE r.tenant_id = $1 AND r.deleted_at IS NULL`, []any{tenantID}, scope)
 	rows, err := r.pool.Query(ctx, query+` GROUP BY r.agent_type_id, r.state`, args...)
 	if err != nil {
 		return RunStateCounts{}, fmt.Errorf("count runs by state: %w", err)

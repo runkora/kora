@@ -336,9 +336,7 @@ func TestTerminateRun_RevokesDelegation(t *testing.T) {
 	if got := issuer.revokedJTIs(); len(got) != 1 || got[0] != jti {
 		t.Errorf("revoked = %v, want [%s]", got, jti)
 	}
-	if _, ok := repo.runs["run-term"]; ok {
-		t.Error("run row should be deleted after termination")
-	}
+	assertTerminated(t, repo, "run-term")
 }
 
 func TestTerminateRun_RevocationFailureDoesNotWedgeTermination(t *testing.T) {
@@ -352,9 +350,7 @@ func TestTerminateRun_RevocationFailureDoesNotWedgeTermination(t *testing.T) {
 	if err := f.TerminateRun(context.Background(), "run-term"); err != nil {
 		t.Fatalf("TerminateRun must succeed despite revoke failure, got: %v", err)
 	}
-	if _, ok := repo.runs["run-term"]; ok {
-		t.Error("run row should be deleted even when the revoke fails")
-	}
+	assertTerminated(t, repo, "run-term")
 }
 
 func TestReaper_RevokesDelegationOnReapedRuns(t *testing.T) {

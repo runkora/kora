@@ -23,6 +23,10 @@ stateDiagram-v2
     active --> failed
     idle --> failed
     active --> budget_exhausted
+    pending --> terminated
+    starting --> terminated
+    active --> terminated
+    idle --> terminated
 ```
 
 | State | Meaning | Moves to |
@@ -34,6 +38,7 @@ stateDiagram-v2
 | `completed` | The run ended cleanly | |
 | `failed` | The run hit an error it could not recover from | |
 | `budget_exhausted` | The run reached its budget limit | |
+| `terminated` | A person or the platform terminated the run before it ended | |
 
 An `idle` run is healthy. Its session stays alive waiting for the next message until the idle timeout completes the run, after 20 minutes for a run a person started and 5 minutes for a run a trigger started. A person who messages a triggered run moves it onto the 20 minute timeout. A `budget_exhausted` run has not failed, but has used all the budget it was given.
 
@@ -46,6 +51,8 @@ An `idle` run is healthy. Its session stays alive waiting for the next message u
 | Terminate | Any state before the run ends | Anyone with access to the run. For a delegated agent, the person who started it or someone who can read every delegated run. |
 
 A delegated agent acts with the authority of the person who started the run. Messages from anyone else are refused.
+
+Terminating a live run ends it as `terminated`, and a run that already ended keeps its state. A terminated run keeps its events and stays readable by its ID. It is left out of run lists and run statistics.
 
 ## When a run ends
 
