@@ -3,6 +3,7 @@ package roles
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/events"
@@ -48,6 +49,10 @@ func publishWrite(ctx context.Context, pool *storage.Pool, before, after *RoleEn
 
 // existing locks and returns the stored role, or nil when there is none.
 func (r *postgresRepository) existing(ctx context.Context, tenantID, role string) (*RoleEntry, error) {
+	// FOR UPDATE locks no row on a first write. The lock makes one of two concurrent first writes the creator.
+	if _, err := r.pool.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('policy_role_scopes/' || $1 || '/' || $2))`, tenantID, role); err != nil {
+		return nil, fmt.Errorf("lock role: %w", err)
+	}
 	e, err := r.scanEntry(r.pool.QueryRow(ctx,
 		`SELECT `+entryColumns+` FROM policy_role_scopes WHERE tenant_id = $1 AND role = $2 FOR UPDATE`, tenantID, role))
 	if errors.Is(err, ErrRoleNotFound) {

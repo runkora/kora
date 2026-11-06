@@ -96,6 +96,10 @@ func (r *postgresRepository) UpsertDeclared(ctx context.Context, tb *TenantBudge
 // that writes no row means a resource manages the budget.
 func (r *postgresRepository) write(ctx context.Context, tb *TenantBudget, upsert string) error {
 	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		// FOR UPDATE locks no row on a first write. The lock makes one of two concurrent first writes the creator.
+		if _, err := r.pool.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('policy_tenant_budgets/' || $1))`, tb.TenantID); err != nil {
+			return fmt.Errorf("lock tenant budget: %w", err)
+		}
 		before, err := scanBudget(r.pool.QueryRow(ctx,
 			`SELECT `+budgetColumns+` FROM policy_tenant_budgets WHERE tenant_id = $1 FOR UPDATE`, tb.TenantID))
 		if err != nil && !errors.Is(err, ErrTenantBudgetNotFound) {

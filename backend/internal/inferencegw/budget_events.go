@@ -38,12 +38,16 @@ func eventBudget(c policy.BudgetCeiling) bool {
 	return (c.Scope == "tenant" || c.Scope == "principal") && c.LimitUSD > 0
 }
 
+// crossEpsilon absorbs float rounding in before, which is after minus the
+// amount. A level it counts twice is deduplicated by PublishOnce.
+const crossEpsilon = 1e-9
+
 // crossedLevels lists the levels that spend passed going from before to after.
 func crossedLevels(before, after, limit float64) []int {
 	var out []int
 	for _, level := range budgetLevels {
 		mark := limit * float64(level) / 100
-		if before < mark && after >= mark {
+		if before < mark+crossEpsilon && after >= mark {
 			out = append(out, level)
 		}
 	}
