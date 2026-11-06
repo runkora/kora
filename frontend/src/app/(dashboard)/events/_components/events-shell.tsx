@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { NO_FILTERS } from '../_types';
 import type { EventFilters } from '../_types';
 import { useEventFeed } from '../_hooks/use-event-feed';
+import { fetchEventTypes } from '../_services/events-api';
 import type { InitialEvents } from '../_hooks/use-event-feed';
 import { EventsPage } from './events-page';
 
@@ -14,11 +15,15 @@ const SEARCH_DEBOUNCE_MS = 300;
 
 interface EventsShellProps {
   initial: InitialEvents;
-  eventTypes: string[];
   traceUrlTemplate: string;
 }
 
-export function EventsShell({ initial, eventTypes, traceUrlTemplate }: EventsShellProps) {
+export function EventsShell({ initial, traceUrlTemplate }: EventsShellProps) {
+  // The catalog loads after the page renders. Until then the filter offers the types the feed has shown.
+  const [eventTypes, setEventTypes] = useState<string[]>([]);
+  useEffect(() => {
+    void fetchEventTypes().then(setEventTypes);
+  }, []);
   const [filters, setFilters] = useState<EventFilters>(NO_FILTERS);
   const [query, setQuery] = useState('');
   useEffect(() => {
