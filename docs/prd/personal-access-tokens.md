@@ -140,7 +140,7 @@ PATs carry no refresh token. When a PAT expires or is revoked, the user simply c
 
 ```bash
 # Create a PAT with default 90-day expiry
-curl -X POST https://orbit.example.com/api/v1/identity/tokens \
+curl -X POST https://kora.example.com/api/v1/identity/tokens \
   -H "Authorization: Bearer $KORA_SESSION_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "claude-code-local"}'
@@ -159,12 +159,12 @@ curl -X POST https://orbit.example.com/api/v1/identity/tokens \
 
 ```bash
 # Claude Code — set ANTHROPIC_BASE_URL + API key
-export ANTHROPIC_BASE_URL=https://orbit.example.com/v1
-export ANTHROPIC_AUTH_KEY=orb_...
+export ANTHROPIC_BASE_URL=https://kora.example.com/v1
+export ANTHROPIC_AUTH_TOKEN=kora_...
 
 # OpenAI-dialect agents
-export OPENAI_BASE_URL=https://orbit.example.com/v1
-export OPENAI_API_KEY=orb_...
+export OPENAI_BASE_URL=https://kora.example.com/v1
+export OPENAI_API_KEY=kora_...
 ```
 
 The `x-api-key` middleware in the inference gateway already normalises the key to `Authorization: Bearer` before verification — no special PAT handling needed in the SDKs.
