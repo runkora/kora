@@ -422,16 +422,19 @@ export const ApiRoute = {
   triggerDeliveries: {
     /**
      * A page of deliveries, newest first. `triggerId` matches every delivery that reached the
-     * trigger, and `status` its own outcome there; `cursor` is the previous page's `next_cursor`.
+     * trigger, and `status` its own outcome there; `agentTypeId` every delivery that reached one
+     * of the agent's triggers. `cursor` is the previous page's `next_cursor`.
      */
     page: (opts: {
       triggerId?: string;
+      agentTypeId?: string;
       status?: string;
       limit: number;
       cursor?: string;
     }): string => {
       const qs = new URLSearchParams({ limit: String(opts.limit) });
       if (opts.triggerId !== undefined) qs.set('trigger_id', opts.triggerId);
+      if (opts.agentTypeId !== undefined) qs.set('agent_type_id', opts.agentTypeId);
       if (opts.status !== undefined) qs.set('status', opts.status);
       if (opts.cursor !== undefined) qs.set('cursor', opts.cursor);
       return `${API_BASE}/trigger-deliveries?${qs.toString()}`;

@@ -37,12 +37,9 @@ import type { RoutingAgentName } from '../../../triggers/_components/delivery-ro
 import { useTriggerActions } from '../../../triggers/_components/use-trigger-actions';
 import type { TriggerNotice } from '../../../triggers/_components/use-trigger-actions';
 import { createFromWizardDraft } from '../../../triggers/_services/create-from-wizard';
-import {
-  listDeliveries,
-  listSources,
-  listTriggers,
-} from '../../../triggers/_services/triggers-api';
-import { runTargets, toDeliveryRow, toSourceRow, toTriggerRow } from '../../../triggers/_types';
+import { listSources, listTriggers } from '../../../triggers/_services/triggers-api';
+import { useTriggerDeliveries } from '../../../triggers/_components/use-trigger-deliveries';
+import { runTargets, toSourceRow, toTriggerRow } from '../../../triggers/_types';
 import type { DeliveryRow, SourceRow, TriggerRow } from '../../../triggers/_types';
 import { ingestHostFromWindow } from '../../../triggers/_lib/endpoints';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
@@ -57,7 +54,6 @@ export function AgentTriggersTab() {
 
   const [sources, setSources] = useState<SourceRow[]>([]);
   const [triggers, setTriggers] = useState<TriggerRow[]>([]);
-  const [deliveries, setDeliveries] = useState<DeliveryRow[]>([]);
   // Every tenant agent, so a routed trigger's other candidates show by name.
   const [tenantAgents, setTenantAgents] = useState<AgentTypeRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,26 +72,30 @@ export function AgentTriggersTab() {
   // a silent refresh of lists already on screen, not a page-level spinner.
   const load = useCallback(() => {
     if (!agentId) return;
-    void Promise.all([
-      listSources(),
-      listTriggers(agentId),
-      listDeliveries(),
-      fetchAgentTypes(),
-    ]).then(([src, trg, del, types]) => {
-      setSources(src.sources.map(toSourceRow));
-      setTriggers(trg.triggers.map(toTriggerRow));
-      setDeliveries(del.deliveries.map(toDeliveryRow));
-      setTenantAgents(types.data);
-      // The triggers list is what this tab is for; the others only
-      // decorate it, so their failures do not block the page.
-      setLoadError(trg.error);
-      setLoading(false);
-    });
+    void Promise.all([listSources(), listTriggers(agentId), fetchAgentTypes()]).then(
+      ([src, trg, types]) => {
+        setSources(src.sources.map(toSourceRow));
+        setTriggers(trg.triggers.map(toTriggerRow));
+        setTenantAgents(types.data);
+        // The triggers list is what this tab is for; the others only
+        // decorate it, so their failures do not block the page.
+        setLoadError(trg.error);
+        setLoading(false);
+      },
+    );
   }, [agentId]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // The deliveries that reached this agent's triggers, paged from the server.
+  const feed = useTriggerDeliveries(agentId === '' ? null : { agentTypeId: agentId });
+  const { retry: reloadFeed } = feed;
+  const refresh = useCallback(() => {
+    load();
+    reloadFeed();
+  }, [load, reloadFeed]);
 
   // The same actions the platform Triggers page performs, refreshing this
   // page's lists and raising notices on its own Alert.
@@ -115,21 +115,7 @@ export function AgentTriggersTab() {
     deleteError,
     confirmDelete,
     closeDeleteDialog,
-  } = useTriggerActions({ refresh: load, notify: setNotice });
-
-  // The delivery log is platform-wide; this page shows the arrivals that
-  // reached THIS agent's triggers, whether as the matched trigger or as one
-  // row of a fan-out.
-  const triggerIds = useMemo(() => new Set(triggers.map((t) => t.id)), [triggers]);
-  const agentDeliveries = useMemo(
-    () =>
-      deliveries.filter(
-        (d) =>
-          (d.triggerId !== null && triggerIds.has(d.triggerId)) ||
-          d.runs.some((r) => triggerIds.has(r.triggerId)),
-      ),
-    [deliveries, triggerIds],
-  );
+  } = useTriggerActions({ refresh, notify: setNotice });
 
   const sourceName = useMemo(() => {
     const map = new Map(sources.map((s) => [s.id, s.name]));
@@ -245,15 +231,32 @@ export function AgentTriggersTab() {
         />
       )}
 
-      {agentDeliveries.length > 0 && (
+      {feed.deliveries.length > 0 && (
         <Stack gap="snug">
           <Heading variant="section">Recent deliveries</Heading>
           <DeliveryGrid
-            deliveries={agentDeliveries}
+            deliveries={feed.deliveries}
             sourceName={sourceName}
             onOpen={setDetailDelivery}
             emptyMessage="No deliveries for this agent yet."
           />
+          {feed.hasMore && (
+            <Stack direction="horizontal" align="center" gap="cozy">
+              <Button
+                size="xs"
+                variant="secondary"
+                disabled={feed.loadingMore}
+                onClick={feed.loadOlder}
+              >
+                {feed.loadingMore ? 'Loading…' : 'Load older'}
+              </Button>
+              {feed.error !== null && (
+                <Text size="caption" color="status-error">
+                  Could not load older deliveries: {feed.error}
+                </Text>
+              )}
+            </Stack>
+          )}
         </Stack>
       )}
 

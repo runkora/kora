@@ -1005,7 +1005,7 @@ export interface TriggerStats {
   failed_24h: number;
   /** Last 24h by the value `status=` filters on: dispatched, failed, skipped, superseded, duplicate, missed, verified. */
   status_24h: Record<string, number>;
-  /** Twelve two-hour buckets aligned to UTC, oldest first; the last holds now. */
+  /** Thirteen two-hour buckets aligned to UTC, oldest first, from the one holding now-24h to the one holding now. */
   buckets: TriggerStatsBucket[];
 }
 

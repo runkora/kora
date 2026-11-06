@@ -104,21 +104,13 @@ export async function listTriggers(
   return { triggers: res.data ?? [], error: res.error };
 }
 
-/** The newest page of the tenant's deliveries. */
-export async function listDeliveries(): Promise<{
-  deliveries: TriggerDelivery[];
-  error: string | null;
-}> {
-  const { deliveries, error } = await listDeliveryPage({ limit: 100 });
-  return { deliveries, error };
-}
-
 /**
  * A page of deliveries, newest first. `cursor` is the previous page's `nextCursor`;
  * `nextCursor` is null on the last page.
  */
 export async function listDeliveryPage(opts: {
   triggerId?: string;
+  agentTypeId?: string;
   status?: string;
   limit: number;
   cursor?: string;

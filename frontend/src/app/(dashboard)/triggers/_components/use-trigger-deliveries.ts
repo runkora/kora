@@ -14,9 +14,10 @@ import type { DeliveryRow } from '../_types';
 /** Deliveries asked for on each page. */
 export const DELIVERY_PAGE_SIZE = 50;
 
-/** What to list: one trigger's deliveries or the tenant's, optionally by status. */
+/** What to list: one trigger's, one agent's triggers' or the tenant's deliveries, optionally by status. */
 export interface DeliveryQuery {
   triggerId?: string;
+  agentTypeId?: string;
   /** A `status` filter value; omitted for every status. */
   status?: string;
 }
@@ -50,8 +51,9 @@ const EMPTY = { rows: [], cursor: null, loading: true, loadingMore: false, error
 /** `query` null means nothing is open: nothing is fetched. */
 export function useTriggerDeliveries(query: DeliveryQuery | null): TriggerDeliveries {
   const triggerId = query?.triggerId;
+  const agentTypeId = query?.agentTypeId;
   const status = query?.status;
-  const key = query === null ? '' : `${triggerId ?? ''}/${status ?? ''}`;
+  const key = query === null ? '' : `${triggerId ?? ''}/${agentTypeId ?? ''}/${status ?? ''}`;
   const [state, setState] = useState<State>({ key, ...EMPTY });
   const [attempt, setAttempt] = useState(0);
   // Bumped whenever the list starts over, so a response already on its way is dropped. `busy`
@@ -67,11 +69,12 @@ export function useTriggerDeliveries(query: DeliveryQuery | null): TriggerDelive
     (cursor?: string) =>
       listDeliveryPage({
         ...(triggerId !== undefined && { triggerId }),
+        ...(agentTypeId !== undefined && { agentTypeId }),
         ...(status !== undefined && { status }),
         limit: DELIVERY_PAGE_SIZE,
         ...(cursor !== undefined && { cursor }),
       }),
-    [triggerId, status],
+    [triggerId, agentTypeId, status],
   );
 
   useEffect(() => {

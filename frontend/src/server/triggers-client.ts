@@ -269,6 +269,7 @@ export async function listDeliveries(
   opts: {
     sourceId?: string;
     triggerId?: string;
+    agentTypeId?: string;
     status?: string;
     cursor?: string;
     limit?: number;
@@ -277,6 +278,7 @@ export async function listDeliveries(
   const qs = new URLSearchParams();
   if (opts.sourceId) qs.set('source_id', opts.sourceId);
   if (opts.triggerId) qs.set('trigger_id', opts.triggerId);
+  if (opts.agentTypeId) qs.set('agent_type_id', opts.agentTypeId);
   if (opts.status) qs.set('status', opts.status);
   if (opts.cursor) qs.set('cursor', opts.cursor);
   if (opts.limit) qs.set('limit', String(opts.limit));
