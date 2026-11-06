@@ -31,10 +31,10 @@ stateDiagram-v2
 
 | State | Meaning | Moves to |
 | --- | --- | --- |
-| `pending` | Waiting for the agent to have capacity | `starting` when capacity frees, or `failed` after 180 seconds |
-| `starting` | Starting its session | `active`, or `failed` if it never finishes starting |
-| `active` | The agent is working | `idle` when the agent finishes its turn, `completed` when it exits cleanly, `failed` on an error, or `budget_exhausted` |
-| `idle` | The agent is waiting for the next message | `active` on a new message, `completed` after the idle timeout, or `failed` if the agent exits unexpectedly |
+| `pending` | Waiting for the agent to have capacity | `starting` when capacity frees, `failed` after 180 seconds, or `terminated` |
+| `starting` | Starting its session | `active`, `failed` if it never finishes starting, or `terminated` |
+| `active` | The agent is working | `idle` when the agent finishes its turn, `completed` when it exits cleanly, `failed` on an error, `budget_exhausted`, or `terminated` |
+| `idle` | The agent is waiting for the next message | `active` on a new message, `completed` after the idle timeout, `failed` if the agent exits unexpectedly, or `terminated` |
 | `completed` | The run ended cleanly | |
 | `failed` | The run hit an error it could not recover from | |
 | `budget_exhausted` | The run reached its budget limit | |
