@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -209,7 +210,7 @@ func TestPostgres_Reads(t *testing.T) {
 	if err != nil || len(all) != 3 || all[0].Seq < all[2].Seq {
 		t.Fatalf("List = %d events (%v), want 3 newest first", len(all), err)
 	}
-	runs, _ := store.List(ctx, ListQuery{Filter: Filter{Tenant: tenant, Category: "agents.run", Agents: []string{"triage"}}, Limit: 10})
+	runs, _ := store.List(ctx, ListQuery{Filter: Filter{Tenant: tenant, Categories: []string{"agents.run"}, Agents: []string{"triage"}}, Limit: 10})
 	if len(runs) != 2 {
 		t.Errorf("category and agent filter = %d events, want 2", len(runs))
 	}
@@ -218,6 +219,13 @@ func TestPostgres_Reads(t *testing.T) {
 		t.Errorf("before seq %d = %v, want seq %d", all[0].Seq, older, all[1].Seq)
 	}
 
+	both, _ := store.List(ctx, ListQuery{Filter: Filter{Tenant: tenant, Categories: []string{"agents.run", "policy.grant"}}, Limit: 10})
+	if len(both) != 3 {
+		t.Errorf("two categories = %d events, want 3", len(both))
+	}
+	if all[0].PrincipalName == "" {
+		t.Error("principal_name is empty")
+	}
 	either, _ := store.List(ctx, ListQuery{Filter: Filter{Tenant: tenant, Types: []string{string(events.RunFailed), string(events.GrantCreated)}}, Limit: 10})
 	if len(either) != 2 {
 		t.Errorf("two types = %d events, want 2", len(either))
@@ -313,7 +321,7 @@ func TestPostgres_Search(t *testing.T) {
 	}
 }
 
-func TestPostgres_RelayDropsMalformedRows(t *testing.T) {
+func TestPostgres_RelayDeadLettersMalformedRows(t *testing.T) {
 	store, pool, raw, tenant := testStore(t)
 	ctx := context.Background()
 	bad := map[string]string{
@@ -328,22 +336,21 @@ func TestPostgres_RelayDropsMalformedRows(t *testing.T) {
 	}
 	publish(t, pool, event(tenant, events.RunFailed, "good"))
 
-	dropped := map[string]bool{}
-	for {
-		result, err := store.RelayBatch(ctx)
-		if err != nil {
-			t.Fatal(err)
+	t.Cleanup(func() { _, _ = raw.Exec(ctx, `DELETE FROM event_outbox_dead WHERE tenant_id = $1`, tenant) })
+	// A running kora-events may relay these rows first. The dead-letter table is the record.
+	drain(t, store)
+	for id, env := range bad {
+		var kept, reason string
+		err := raw.QueryRow(ctx, `SELECT envelope::text, reason FROM event_outbox_dead WHERE id = $1`, id).Scan(&kept, &reason)
+		if err != nil || reason == "" {
+			t.Errorf("malformed row %s: dead-letter row %v, reason %q", id, err, reason)
+			continue
 		}
-		for id := range result.Dropped {
-			dropped[id] = true
-		}
-		if result.Taken < relayBatchSize {
-			break
-		}
-	}
-	for id := range bad {
-		if !dropped[id] {
-			t.Errorf("malformed row %s was not dropped", id)
+		var a, b any
+		_ = json.Unmarshal([]byte(kept), &a)
+		_ = json.Unmarshal([]byte(env), &b)
+		if !reflect.DeepEqual(a, b) {
+			t.Errorf("dead-letter row %s holds %s, want the original %s", id, kept, env)
 		}
 	}
 	if seqs := tenantSeqs(t, raw, tenant); len(seqs) != 1 {

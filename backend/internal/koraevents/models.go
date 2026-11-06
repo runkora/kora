@@ -19,9 +19,10 @@ var ErrNotFound = errors.New("event not found")
 
 // Record is one event in the log.
 type Record struct {
-	Seq        int64           `json:"seq"`
-	RecordedAt time.Time       `json:"recorded_at"`
-	Event      json.RawMessage `json:"event"`
+	Seq           int64           `json:"seq"`
+	RecordedAt    time.Time       `json:"recorded_at"`
+	PrincipalName string          `json:"principal_name"`
+	Event         json.RawMessage `json:"event"`
 
 	tenant    string
 	category  string
@@ -36,7 +37,7 @@ type Record struct {
 // only by the internal stream.
 type Filter struct {
 	Tenant     string
-	Category   string
+	Categories []string
 	Types      []string
 	Agents     []string
 	Principals []string
@@ -45,7 +46,7 @@ type Filter struct {
 
 func (f Filter) matches(r Record) bool {
 	return (f.Tenant == "" || f.Tenant == r.tenant) &&
-		(f.Category == "" || f.Category == r.category) &&
+		anyOf(f.Categories, r.category) &&
 		anyOf(f.Types, r.eventType) &&
 		anyOf(f.Agents, r.agent) &&
 		anyOf(f.Principals, r.principal) &&

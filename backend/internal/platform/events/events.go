@@ -77,6 +77,7 @@ type Envelope struct {
 	Tenant          string   `json:"koratenant"`
 	Principal       string   `json:"koraprincipal"`
 	PrincipalType   string   `json:"koraprincipaltype"`
+	PrincipalName   string   `json:"koraprincipalname"`
 	Delegator       string   `json:"koradelegator,omitempty"`
 	Run             string   `json:"korarun,omitempty"`
 	Agent           string   `json:"koraagent,omitempty"`
@@ -145,9 +146,9 @@ func newEnvelope(ctx context.Context, id uuid.UUID, e Event, at time.Time) (Enve
 	if err := validate(e); err != nil {
 		return Envelope{}, err
 	}
-	principal, principalType := source, PrincipalSystem
+	principal, principalType, principalName := source, PrincipalSystem, source
 	if claims, ok := token.ClaimsFromContext(ctx); ok && claims != nil {
-		principal, principalType = claims.Subject, principalTypeOf(claims)
+		principal, principalType, principalName = claims.Subject, principalTypeOf(claims), principalNameOf(claims)
 	}
 	var delegator string
 	if d := policy.DelegationFromContext(ctx); d != nil {
@@ -165,6 +166,7 @@ func newEnvelope(ctx context.Context, id uuid.UUID, e Event, at time.Time) (Enve
 		Tenant:          e.Tenant,
 		Principal:       principal,
 		PrincipalType:   principalType,
+		PrincipalName:   principalName,
 		Delegator:       delegator,
 		Run:             e.RunID,
 		Agent:           e.Agent,
@@ -212,6 +214,20 @@ func principalTypeOf(claims *token.PlatformClaims) string {
 		return PrincipalSystem
 	default:
 		return PrincipalSystem
+	}
+}
+
+// principalNameOf is the display name the token carries: a person's name, an
+// agent's or trigger's slug, or a platform component. A person with no name
+// falls back to their email, and any other principal to its subject.
+func principalNameOf(claims *token.PlatformClaims) string {
+	switch {
+	case claims.Kora.DisplayName != "":
+		return claims.Kora.DisplayName
+	case claims.Kora.Claims["email"] != "":
+		return claims.Kora.Claims["email"]
+	default:
+		return claims.Subject
 	}
 }
 

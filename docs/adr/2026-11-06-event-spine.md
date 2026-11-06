@@ -151,6 +151,7 @@ Events are CloudEvents 1.0 structured JSON. `backend/internal/platform/events` d
   "koratenant": "kora-tenant-example",
   "koraprincipal": "<agent subject>",
   "koraprincipaltype": "AGENT",
+  "koraprincipalname": "triage",
   "koradelegator": "<user subject>",
   "korarun": "2b4e8c1d-...",
   "koraagent": "triage",
@@ -170,6 +171,7 @@ Events are CloudEvents 1.0 structured JSON. `backend/internal/platform/events` d
 *   `id` is a UUIDv7. An event with no Postgres change uses a UUIDv5 over its deterministic key.
 *   `type` has the form `<domain>.<entity>.<event>.v<N>`. The catalog in `platform/events` is the list in the PRD.
 *   `koraprincipaltype` is `USER`, `AGENT`, `TRIGGER` or `SYSTEM`. A context with no claims records `SYSTEM` and the binary as principal.
+*   `koraprincipalname` is the principal's display name from the claims at publish time: the name or email of a person, the slug of an agent or trigger, and the binary for `SYSTEM`.
 *   `koracausedby`, `korachaindepth` and `koratriggers` are set on events about a run that an event trigger started or messaged (section 7). Every other event has depth 0.
 *   `data.entity` is the resource after the change, or the resource before the delete for a delete event.
 *   `data.changed` lists the fields that an update changed.
@@ -223,7 +225,7 @@ err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) 
 
 ### 4. Tables
 
-`kora-events` owns all three tables. `event_outbox` is the one table that other binaries write. The database migrations ADR records it as a cross-binary SQL path, and `make migrate-lint` allows it.
+`kora-events` owns all four tables. `event_outbox` is the one table that other binaries write. The database migrations ADR records it as a cross-binary SQL path, and `make migrate-lint` allows it.
 
 ```sql
 CREATE TABLE event_outbox (
@@ -245,6 +247,7 @@ CREATE TABLE events (
     subject         TEXT NOT NULL,
     principal       TEXT NOT NULL,
     principal_type  TEXT NOT NULL,
+    principal_name  TEXT NOT NULL DEFAULT '',
     run_id          UUID,
     agent           TEXT,
     caused_by       UUID,
@@ -260,6 +263,17 @@ CREATE INDEX events_tenant_principal_seq_idx ON events (tenant_id, principal, se
 CREATE INDEX events_tenant_agent_seq_idx ON events (tenant_id, agent, seq DESC) WHERE agent IS NOT NULL;
 CREATE INDEX events_run_idx ON events (run_id) WHERE run_id IS NOT NULL;
 CREATE INDEX events_recorded_at_idx ON events (recorded_at);
+
+CREATE TABLE event_outbox_dead (
+    id          UUID PRIMARY KEY,
+    position    BIGINT NOT NULL,
+    tenant_id   TEXT NOT NULL,
+    type        TEXT NOT NULL,
+    envelope    JSONB NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL,
+    reason      TEXT NOT NULL,
+    dead_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 CREATE TABLE event_relay_state (
     id        BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
@@ -280,20 +294,20 @@ A relay batch runs in one transaction:
 5.  Delete the selected outbox rows, update `last_seq` and send `NOTIFY kora_events, '<last seq>'`.
 6.  Commit.
 
-Only the lock holder assigns `seq`, inside the batch transaction. A row whose envelope does not decode or does not match its `tenant_id` is deleted and logged with no event. An outbox row that commits after a later `position` was relayed is picked up by the next batch. `Publish` sends `pg_notify('kora_events_outbox', '')` in the producer transaction. The relay runs a batch on each notification and every second.
+Only the lock holder assigns `seq`, inside the batch transaction. A row whose envelope does not decode or does not match its `tenant_id` moves to `event_outbox_dead` with the reason. The relay logs it, counts it in `kora.events.relay.dead_lettered` and relays the rest of the batch. An outbox row that commits after a later `position` was relayed is picked up by the next batch. `Publish` sends `pg_notify('kora_events_outbox', '')` in the producer transaction. The relay runs a batch on each notification and every second.
 
 ### 6. Read API
 
 `kora-events` serves on port 8099. The edge routes `/v1/events` to it with a 3600-second timeout for streams.
 
 *   `GET /v1/events` returns events for the caller's tenant, newest first. Filters: `category`, `type`, `agent`, `principal`, `run_id`, `q`, `before` and `after` (seq or time), `limit` up to 200. The response carries an opaque `next_cursor`.
-*   `type`, `agent` and `principal` take several values. A filter matches any of its values, and an event matches every filter.
+*   `category`, `type`, `agent` and `principal` take several values. A filter matches any of its values, and an event matches every filter.
 *   `q` matches a substring of the type, subject, principal, agent or run id with `ILIKE`. It does not search the payload.
 *   `GET /v1/events/{id}` returns one event in the caller's tenant, or 404.
 *   `GET /v1/events/stream` is an SSE stream of the caller's tenant with the `category`, `type`, `agent`, `principal` and `run_id` filters and no `q`. Each SSE message carries its seq as `id`, and a `Last-Event-ID` replays every matching event after that seq before the live events. A stream ends when the caller's token expires or is revoked.
 *   `GET /internal/v1/events/stream?after=<seq>` streams every tenant's events in seq order. An AuthorizationPolicy and `kora-events` itself allow only the `kora-triggers` identity.
 
-The public routes register `events:read` through `routescopes` and are enforced by `ScopeEnforcementMiddleware` ([Platform Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md)). The built-in tenant admin role gains `events:read`. Each replica holds one `LISTEN kora_events` connection and fans live events out to its open streams in memory.
+The public routes register `events:read` through `routescopes` and are enforced by `ScopeEnforcementMiddleware` ([Platform Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md)). `platform-admin` and `kora-operator` hold `events:read`. Each replica holds one `LISTEN kora_events` connection and fans live events out to its open streams in memory.
 
 ### 7. Event Triggers
 
@@ -340,7 +354,7 @@ These producers call `PublishOnce`. Its dedup lasts as long as the earlier event
 
 ### 12. kora MCP Tools
 
-`kora-mcp` gains `events.list` and `events.get` through a typed client in `backend/internal/platform/clients/events`. Each tool requires `mcp:kora:events.list:use` or `mcp:kora:events.get:use`, and `kora-events` enforces `events:read` on the call ([Scope-Gated Tool Exposure via MCP](2026-03-05-scope-gated-tool-exposure-via-mcp.md)).
+`kora-mcp` gains `events.list` and `events.get` through the shared `korajson` client. Each tool requires `mcp:kora:events:list:use` or `mcp:kora:events:get:use`, and `kora-events` enforces `events:read` on the call ([Scope-Gated Tool Exposure via MCP](2026-03-05-scope-gated-tool-exposure-via-mcp.md)).
 
 ### 13. Deployment
 

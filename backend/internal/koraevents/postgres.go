@@ -27,7 +27,7 @@ const (
 )
 
 // recordColumns are the columns scanRecord reads, in order.
-const recordColumns = `seq, recorded_at, envelope, tenant_id, category, type, COALESCE(agent, ''), principal, COALESCE(run_id::text, '')`
+const recordColumns = `seq, recorded_at, principal_name, envelope, tenant_id, category, type, COALESCE(agent, ''), principal, COALESCE(run_id::text, '')`
 
 // Postgres reads and writes the kora-events tables.
 type Postgres struct {
@@ -51,13 +51,14 @@ func (p *Postgres) EnsureRelayState(ctx context.Context) error {
 type RelayResult struct {
 	// Taken is how many rows the batch removed from the outbox.
 	Taken int
-	// Dropped lists the rows removed without an event, and why.
-	Dropped map[string]error
+	// DeadLettered lists the rows moved to event_outbox_dead, and why.
+	DeadLettered map[string]error
 }
 
 // RelayBatch moves up to relayBatchSize outbox rows into the log in one
 // transaction. Only the holder of the relay lock assigns seq, which keeps seq
-// gapless. A row the log cannot hold is dropped so it cannot stall the relay.
+// gapless. A row the log cannot hold moves to event_outbox_dead so it cannot
+// stall the relay.
 func (p *Postgres) RelayBatch(ctx context.Context) (RelayResult, error) {
 	var result RelayResult
 	err := storage.WithTransaction(ctx, p.pool, func(ctx context.Context, tx pgx.Tx) error {
@@ -96,18 +97,22 @@ func (p *Postgres) RelayBatch(ctx context.Context) (RelayResult, error) {
 			}
 			env, occurred, err := r.decode()
 			if err != nil {
-				if result.Dropped == nil {
-					result.Dropped = map[string]error{}
+				if result.DeadLettered == nil {
+					result.DeadLettered = map[string]error{}
 				}
-				result.Dropped[r.id] = err
+				result.DeadLettered[r.id] = err
+				batch.Queue(`
+					INSERT INTO event_outbox_dead (id, position, tenant_id, type, envelope, created_at, reason)
+					SELECT id, position, tenant_id, type, envelope, created_at, $2 FROM event_outbox WHERE id = $1
+					ON CONFLICT (id) DO NOTHING`, r.id, err.Error())
 				continue
 			}
 			last++
 			batch.Queue(`
-				INSERT INTO events (seq, id, tenant_id, type, category, subject, principal, principal_type,
+				INSERT INTO events (seq, id, tenant_id, type, category, subject, principal, principal_type, principal_name,
 				                    run_id, agent, caused_by, chain_depth, occurred_at, envelope)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-				last, r.id, r.tenant, string(env.Type), env.Type.Category(), env.Subject, env.Principal, env.PrincipalType,
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+				last, r.id, r.tenant, string(env.Type), env.Type.Category(), env.Subject, env.Principal, env.PrincipalType, env.PrincipalName,
 				storage.NullIfZero(env.Run), storage.NullIfZero(env.Agent), storage.NullIfZero(env.CausedBy),
 				env.ChainDepth, occurred, r.envelope)
 		}
@@ -265,7 +270,7 @@ func (p *Postgres) query(ctx context.Context, sql string, args ...any) ([]Record
 	}
 	records, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Record, error) {
 		var r Record
-		return r, row.Scan(&r.Seq, &r.RecordedAt, &r.Event, &r.tenant, &r.category, &r.eventType, &r.agent, &r.principal, &r.runID)
+		return r, row.Scan(&r.Seq, &r.RecordedAt, &r.PrincipalName, &r.Event, &r.tenant, &r.category, &r.eventType, &r.agent, &r.principal, &r.runID)
 	})
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("scan events: %w", err)
@@ -288,7 +293,6 @@ func filterClause(f Filter) (string, []any) {
 		clause, value string
 	}{
 		{"tenant_id = $%d", f.Tenant},
-		{"category = $%d", f.Category},
 		{"run_id = $%d::uuid", f.RunID},
 	} {
 		if c.value != "" {
@@ -299,6 +303,7 @@ func filterClause(f Filter) (string, []any) {
 		clause string
 		values []string
 	}{
+		{"category = ANY($%d)", f.Categories},
 		{"type = ANY($%d)", f.Types},
 		{"agent = ANY($%d)", f.Agents},
 		{"principal = ANY($%d)", f.Principals},

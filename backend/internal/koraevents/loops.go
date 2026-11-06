@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -92,7 +93,8 @@ type relayStore interface {
 // RunRelay moves outbox rows into the log on each outbox notification and
 // every tick, until ctx ends. Every replica runs it. The relay lock
 // serializes them.
-func RunRelay(ctx context.Context, store relayStore, l *Listener, logger logging.Logger) {
+// deadLettered counts the outbox rows moved to event_outbox_dead.
+func RunRelay(ctx context.Context, store relayStore, l *Listener, deadLettered metric.Int64Counter, logger logging.Logger) {
 	every(ctx, l.outbox, tick, func() {
 		for {
 			result, err := store.RelayBatch(ctx)
@@ -102,10 +104,11 @@ func RunRelay(ctx context.Context, store relayStore, l *Listener, logger logging
 				}
 				return
 			}
-			for id, reason := range result.Dropped {
-				logger.Error(ctx, "dropped an outbox row the event log cannot hold",
+			for id, reason := range result.DeadLettered {
+				logger.Error(ctx, "moved an outbox row the event log cannot hold to event_outbox_dead",
 					logging.Field{Key: "outbox_id", Value: id}, logging.Field{Key: "error", Value: reason.Error()})
 			}
+			deadLettered.Add(ctx, int64(len(result.DeadLettered)))
 			if result.Taken < relayBatchSize {
 				return
 			}
