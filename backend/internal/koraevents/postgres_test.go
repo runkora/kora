@@ -223,9 +223,6 @@ func TestPostgres_Reads(t *testing.T) {
 	if len(both) != 3 {
 		t.Errorf("two categories = %d events, want 3", len(both))
 	}
-	if all[0].PrincipalName == "" {
-		t.Error("principal_name is empty")
-	}
 	either, _ := store.List(ctx, ListQuery{Filter: Filter{Tenant: tenant, Types: []string{string(events.RunFailed), string(events.GrantCreated)}}, Limit: 10})
 	if len(either) != 2 {
 		t.Errorf("two types = %d events, want 2", len(either))

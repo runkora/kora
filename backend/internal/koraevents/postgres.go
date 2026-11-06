@@ -27,7 +27,7 @@ const (
 )
 
 // recordColumns are the columns scanRecord reads, in order.
-const recordColumns = `seq, recorded_at, principal_name, envelope, tenant_id, category, type, COALESCE(agent, ''), principal, COALESCE(run_id::text, '')`
+const recordColumns = `seq, recorded_at, envelope, tenant_id, category, type, COALESCE(agent, ''), principal, COALESCE(run_id::text, '')`
 
 // Postgres reads and writes the kora-events tables.
 type Postgres struct {
@@ -109,10 +109,10 @@ func (p *Postgres) RelayBatch(ctx context.Context) (RelayResult, error) {
 			}
 			last++
 			batch.Queue(`
-				INSERT INTO events (seq, id, tenant_id, type, category, subject, principal, principal_type, principal_name,
+				INSERT INTO events (seq, id, tenant_id, type, category, subject, principal, principal_type,
 				                    run_id, agent, caused_by, chain_depth, occurred_at, envelope)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-				last, r.id, r.tenant, string(env.Type), env.Type.Category(), env.Subject, env.Principal, env.PrincipalType, env.PrincipalName,
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+				last, r.id, r.tenant, string(env.Type), env.Type.Category(), env.Subject, env.Principal, env.PrincipalType,
 				storage.NullIfZero(env.Run), storage.NullIfZero(env.Agent), storage.NullIfZero(env.CausedBy),
 				env.ChainDepth, occurred, r.envelope)
 		}
@@ -275,7 +275,7 @@ func (p *Postgres) query(ctx context.Context, sql string, args ...any) ([]Record
 	}
 	records, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Record, error) {
 		var r Record
-		return r, row.Scan(&r.Seq, &r.RecordedAt, &r.PrincipalName, &r.Event, &r.tenant, &r.category, &r.eventType, &r.agent, &r.principal, &r.runID)
+		return r, row.Scan(&r.Seq, &r.RecordedAt, &r.Event, &r.tenant, &r.category, &r.eventType, &r.agent, &r.principal, &r.runID)
 	})
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("scan events: %w", err)
