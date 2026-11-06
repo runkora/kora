@@ -81,7 +81,4 @@ type ServerSnapshot struct {
 	LastIntrospectedAt time.Time
 	// Reached is true once any introspection of this server has succeeded.
 	Reached bool
-	// Failing is true while the last introspection failed. Distinct from
-	// State, which FlagDegraded also writes from outside Sync.
-	Failing bool
 }

@@ -19,26 +19,17 @@ package toolgateway
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Publisher publishes the mcp scope vocabulary from introspection snapshots.
-//
-// Publish serializes against itself: the introspection cycle calls it when a
-// cycle changed something, and KeepRegistered calls it on its own heartbeat, so
-// two callers can reach it at once. Scope publication is single-writer because
-// the prune is destructive (see the package comment), and the replicas=1
-// topology only rules out a second process.
 type Publisher struct {
 	registry     *Registry
 	introspector *Introspector
 	client       *routescopes.Client
 	logger       logging.Logger
-
-	mu sync.Mutex
 }
 
 // NewPublisher constructs a Publisher.
@@ -52,14 +43,11 @@ func NewPublisher(registry *Registry, introspector *Introspector, client *routes
 // Upsert-only.
 //
 // One registration attempt per call: a failure (the identity service or the
-// policy service still starting) is returned to the caller, which owns the
-// retry. Both callers have one — KeepRegistered backs off until its first
-// success and then re-registers on every tick, and the introspection cycle
-// re-publishes on the next cycle — so a failed publish never blocks either.
+// policy service still starting) is returned to the
+// caller. The introspection cycle that drives Publish is itself the retry, so a
+// publish that fails is re-attempted on the next cycle rather than blocking
+// this one.
 func (p *Publisher) Publish(ctx context.Context) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	// One read of each source. Every input to the prune decision below has to
 	// come from the same instant: see Registry.ServersAndLoaded.
 	servers, loaded := p.registry.ServersAndLoaded()
@@ -77,7 +65,6 @@ func (p *Publisher) Publish(ctx context.Context) error {
 			fmt.Sprintf("tool %q scope shadows sibling %q", c.Tool, c.ShadowedBy))
 	}
 
-	// Every half reads what this call already captured, never live state.
 	prune := loaded && AllSeenOrRetained(servers, snapshots)
 	if err := p.client.RegisterWithPrune(ctx, ServiceName, CoarseRoutes(), decls, prune); err != nil {
 		return fmt.Errorf("register mcp scopes: %w", err)

@@ -134,20 +134,6 @@ func realMain() error {
 		scopeClient := routescopes.NewClient(tgc.Current.Policy.PolicyServiceInternalURL, selfToken, logger)
 		publisher := toolgateway.NewPublisher(registry, introspector, scopeClient, logger)
 
-		// The route and scope registration lives in the policy service's
-		// memory, so it has to survive a restart of that pod within a bounded
-		// time, and the introspection cycle cannot promise one. Its interval is
-		// minutes against the platform's 30s answer, and a gateway with an
-		// empty registry, or with every server degraded, runs cycles that
-		// publish nothing at all. So registration goes through KeepRegistered,
-		// like every other binary, on the cadence reregisterInterval documents
-		// as deliberately uniform.
-		//
-		// Note this takes the publish out of what a changed-nothing cycle
-		// saves: that skip now spares the catalog's DELETE and INSERT per tool,
-		// while the heartbeat republishes scopes either way.
-		go routescopes.KeepRegistered(ctx, logger, toolgateway.ServiceName, publisher.Publish)
-
 		// Re-introspect servers, publish scopes (prune-guarded), rebuild the
 		// catalog. Serialized so the reload hook and timer never race.
 		//
@@ -155,14 +141,35 @@ func realMain() error {
 		// every server unconditionally; force=false (a periodic timer tick)
 		// introspects only servers due per their own ReintrospectIntervalSeconds
 		// (0 = reload-only, honored by Introspector.Sync).
-		cycle := newCycle(
-			func(ctx context.Context, force bool) bool { return introspector.Sync(ctx, registry.Servers(), force) },
-			publisher.Publish,
-			func(ctx context.Context) error {
-				return catalogRepo.Replace(ctx, toolgateway.CatalogToolsFromSnapshots(introspector.Snapshot()))
-			},
-			logger,
-		)
+		var cycleMu sync.Mutex
+		publishAndRebuild := func(ctx context.Context) {
+			if pubErr := publisher.Publish(ctx); pubErr != nil {
+				logger.Error(ctx, "MCP scope publish failed", logging.Field{Key: "error", Value: pubErr.Error()})
+			}
+			if replaceErr := catalogRepo.Replace(ctx, toolgateway.CatalogToolsFromSnapshots(introspector.Snapshot())); replaceErr != nil {
+				logger.Error(ctx, "MCP catalog rebuild failed", logging.Field{Key: "error", Value: replaceErr.Error()})
+			}
+		}
+		cycle := func(ctx context.Context, force bool) {
+			cycleMu.Lock()
+			defer cycleMu.Unlock()
+			introspector.Sync(ctx, registry.Servers(), force)
+			publishAndRebuild(ctx)
+		}
+		// A retry introspects like an unforced cycle but publishes only when it
+		// reached a server for the first time, so a server that stays down does
+		// not republish and rewrite the catalog on every retry.
+		retry := func(ctx context.Context) {
+			cycleMu.Lock()
+			defer cycleMu.Unlock()
+			servers := registry.Servers()
+			before := introspector.Unreached(servers)
+			introspector.Sync(ctx, servers, false)
+			if introspector.Unreached(servers) < before {
+				publishAndRebuild(ctx)
+			}
+		}
+		unreached := func() bool { return introspector.Unreached(registry.Servers()) > 0 }
 		reloaded := make(chan struct{}, 1)
 		registry.OnReload(func(ctx context.Context) {
 			cycle(ctx, true)
@@ -172,8 +179,7 @@ func realMain() error {
 			}
 		})
 		go registry.Watch(ctx)
-		nextRetry := func() (time.Duration, bool) { return introspector.NextRetryIn(registry.Servers()) }
-		go runIntrospectionLoop(ctx, cycle, tgc.Current.ReintrospectInterval(), nextRetry, reloaded, logger)
+		go runIntrospectionLoop(ctx, cycle, retry, unreached, reloaded, tgc.Current.ReintrospectInterval(), logger)
 	}
 
 	// ── HTTP server (health + catalog [+ MCP proxy in proxy mode]) ───────────
@@ -218,95 +224,48 @@ func realMain() error {
 	return nil
 }
 
-// newCycle returns the serialized introspect, publish, rebuild cycle. publish
-// and rebuild are skipped when introspect reports no change, and retried when
-// either fails.
-func newCycle(
-	introspect func(ctx context.Context, force bool) bool,
-	publish func(context.Context) error,
-	rebuild func(context.Context) error,
-	logger logging.Logger,
-) func(context.Context, bool) {
-	var mu sync.Mutex
-	republish := true
-	return func(ctx context.Context, force bool) {
-		mu.Lock()
-		defer mu.Unlock()
-		// force means boot or a registry reload. Publish computes prune from
-		// registry.Loaded(), which can flip with no snapshot change, so a forced
-		// cycle must publish even when nothing was introspected.
-		if introspect(ctx, force) || force {
-			republish = true
-		}
-		if !republish {
-			return
-		}
-		republish = false
-		if err := publish(ctx); err != nil {
-			logger.Error(ctx, "MCP scope publish failed", logging.Field{Key: "error", Value: err.Error()})
-			republish = true
-		}
-		if err := rebuild(ctx); err != nil {
-			logger.Error(ctx, "MCP catalog rebuild failed", logging.Field{Key: "error", Value: err.Error()})
-			republish = true
-		}
-	}
-}
-
-// minCycleWait floors the wait so the loop always yields between cycles.
-//
-// An overdue retry reports zero, and a cycle can outrun the backoff cap on its
-// own: Sync introspects servers one at a time, each bounded by the
-// introspection timeout, so a handful of hanging servers takes longer than the
-// cap. Without a floor the loop would then run cycles back to back and never
-// sleep.
-const minCycleWait = time.Second
-
-// cycleWait returns how long the loop waits before its next unforced cycle:
-// the configured interval, or sooner when a server is awaiting its retry. It
-// never returns more than the configured interval, and never less than
-// minCycleWait unless the configured interval is itself shorter than that,
-// which only a test configures.
-func cycleWait(interval time.Duration, nextRetry func() (time.Duration, bool)) time.Duration {
-	d, pending := nextRetry()
-	if !pending || d >= interval {
-		return interval
-	}
-	return min(max(d, minCycleWait), interval)
-}
-
-// runIntrospectionLoop runs the cycle at boot, then waits cycleWait each pass.
-// A reload recomputes that wait.
+// runIntrospectionLoop runs the introspection cycle once (forced) at startup
+// and then on a timer (unforced — each server's own reintrospect interval
+// applies) until ctx is canceled. While a registered server has never been
+// reached it has no tools to serve, so retry runs on a backoff in between ticks
+// until it is. A reload wakes the loop to check that again.
 func runIntrospectionLoop(
 	ctx context.Context,
 	cycle func(context.Context, bool),
-	interval time.Duration,
-	nextRetry func() (time.Duration, bool),
+	retry func(context.Context),
+	unreached func() bool,
 	reloaded <-chan struct{},
+	interval time.Duration,
 	logger logging.Logger,
 ) {
 	cycle(ctx, true)
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	failures := 0
 	for {
-		wait := cycleWait(interval, nextRetry)
-		if wait < interval {
-			logger.Debug(ctx, "an MCP server is awaiting its retry, waking early",
-				logging.Field{Key: "retry_in", Value: wait.String()},
-				logging.Field{Key: "configured_interval", Value: interval.String()})
+		var retryC <-chan time.Time
+		if unreached() {
+			failures++
+			retryC = time.After(retryDelay(failures))
+		} else {
+			failures = 0
 		}
-
-		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return
 		case <-reloaded:
-			timer.Stop()
-			continue
-		case <-timer.C:
+		case <-ticker.C:
+			logger.Debug(ctx, "periodic re-introspection tick")
+			cycle(ctx, false)
+		case <-retryC:
+			retry(ctx)
 		}
-		logger.Debug(ctx, "periodic re-introspection tick")
-		cycle(ctx, false)
 	}
+}
+
+// retryDelay is 2s doubling per attempt, capped at a minute.
+func retryDelay(attempt int) time.Duration {
+	return min(time.Minute, 2*time.Second<<min(attempt-1, 5))
 }
 
 func initRedis(ctx context.Context, logger logging.Logger) (*storage.RedisClient, error) {

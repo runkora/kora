@@ -138,18 +138,12 @@ func TestIntrospectorDue(t *testing.T) {
 	}
 
 	// A reload-only server that was unreachable at startup must be retried on
-	// the timer, gated on its own backoff.
+	// the timer, or it serves no tools until the next registry change.
 	unreached := Server{TenantID: "", Name: "unreached", ReintrospectIntervalSeconds: 0}
 	uKey := serverKey(unreached.TenantID, unreached.Name)
 	i.recordResult(context.Background(), unreached, uKey, nil, errors.New("connect: service unavailable"))
-	if i.due(uKey, unreached) {
-		t.Error("a never-reached server was due inside its backoff; every tick would retry it")
-	}
-	i.mu.Lock()
-	i.retries[uKey].at = time.Now().Add(-time.Second)
-	i.mu.Unlock()
 	if !i.due(uKey, unreached) {
-		t.Error("a server that has never been reached should be due once its backoff elapsed")
+		t.Error("a server that has never been reached should be due")
 	}
 
 	// A reload-only server that once succeeded with no tools and then failed has
@@ -207,100 +201,26 @@ func TestToolRequires(t *testing.T) {
 	}
 }
 
-// The republish rule: a reach is always a change, because the catalog derives
-// healthy/stale from how recently a server's rows were written. A failure is a
-// change only on the way into Degraded, so a server that never comes up does
-// not rewrite the catalog on every retry.
-func TestIntrospector_ReachIsAChangeAndRepeatedFailureIsNot(t *testing.T) {
+// TestIntrospectorUnreached counts a server until its first successful
+// introspection, and a later failure does not count it again.
+func TestIntrospectorUnreached(t *testing.T) {
 	ctx := context.Background()
+	endpoint, _ := newFakeMCPServer(t)
 	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
-	srv := Server{TenantID: "", Name: "s", ReintrospectIntervalSeconds: 60}
-	key := serverKey("", "s")
-	tools := []Tool{{Name: "echo"}}
+	up := Server{Name: "up", Endpoint: endpoint, ReintrospectIntervalSeconds: 3600}
+	down := Server{Name: "down", Endpoint: "http://127.0.0.1:1/mcp", ReintrospectIntervalSeconds: 3600}
 
-	if !i.recordResult(ctx, srv, key, tools, nil) {
-		t.Fatal("the first reach reported no change")
+	if got := i.Unreached([]Server{up, down}); got != 2 {
+		t.Fatalf("before any sync: Unreached = %d, want 2", got)
 	}
-	if !i.recordResult(ctx, srv, key, tools, nil) {
-		t.Error("an identical reach reported no change; the server would report itself stale while healthy")
-	}
-	if !i.recordResult(ctx, srv, key, nil, errors.New("dial tcp 10.0.0.1:8080: connect: refused")) {
-		t.Error("the move to Degraded reported no change")
-	}
-	// A net.OpError carries the resolved ip:port, so the text moves between
-	// otherwise identical failures.
-	if i.recordResult(ctx, srv, key, nil, errors.New("dial tcp 10.0.0.2:8080: connect: refused")) {
-		t.Error("a repeated failure reported a change; a dead server would rewrite the catalog every retry")
-	}
-	// A removed server has to leave the keep-list.
-	if !i.Sync(ctx, nil, true) {
-		t.Error("dropping a server's snapshot reported no change")
-	}
-}
-
-func TestIntrospector_BackoffGrowsAndCaps(t *testing.T) {
-	ctx := context.Background()
-	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
-	srv := Server{TenantID: "", Name: "down", ReintrospectIntervalSeconds: 3600}
-	key := serverKey("", "down")
-	boom := errors.New("connect: service unavailable")
-
-	var delays []time.Duration
-	for range 3 {
-		i.recordResult(ctx, srv, key, nil, boom)
-		delays = append(delays, time.Until(i.retries[key].at))
-	}
-	if !(delays[0] < delays[1] && delays[1] < delays[2]) {
-		t.Errorf("delays = %v, want each retry further out than the last", delays)
-	}
-	if got := backoffFor(1); got != retryBaseDelay {
-		t.Errorf("backoffFor(1) = %v, want %v", got, retryBaseDelay)
-	}
-	if got := backoffFor(99); got != retryMaxDelay {
-		t.Errorf("backoffFor(99) = %v, want the cap %v", got, retryMaxDelay)
-	}
-}
-
-func TestIntrospector_NextRetryInSchedulesOnlyUnreachedServers(t *testing.T) {
-	i := NewIntrospector(NewUpstreamCredentials(""), "test", testLogger())
-
-	// Never introspected at all: due now.
-	unseen := Server{TenantID: "", Name: "unseen"}
-	if d, pending := i.NextRetryIn([]Server{unseen}); !pending || d != 0 {
-		t.Errorf("NextRetryIn for an unseen server = (%v, %v), want (0, true)", d, pending)
+	i.Sync(ctx, []Server{up, down}, true)
+	if got := i.Unreached([]Server{up, down}); got != 1 {
+		t.Fatalf("after sync: Unreached = %d, want 1 (only the server that failed)", got)
 	}
 
-	reached := Server{TenantID: "", Name: "empty", ReintrospectIntervalSeconds: 0}
-	i.snapshots[serverKey("", "empty")] = &ServerSnapshot{Server: reached, State: StateDegraded, Reached: true}
-	i.retries[serverKey("", "empty")] = &retrySchedule{failures: 1, at: time.Now().Add(time.Hour)}
-	if _, pending := i.NextRetryIn([]Server{reached}); pending {
-		t.Error("a server reached once scheduled a retry; the loop would spin on it")
-	}
-
-	soon := Server{TenantID: "", Name: "soon", ReintrospectIntervalSeconds: 3600}
-	late := Server{TenantID: "", Name: "late", ReintrospectIntervalSeconds: 3600}
-	for _, s := range []Server{soon, late} {
-		i.snapshots[serverKey("", s.Name)] = &ServerSnapshot{Server: s, State: StateDegraded, Reached: false}
-	}
-	i.retries[serverKey("", "soon")] = &retrySchedule{failures: 1, at: time.Now().Add(time.Minute)}
-	i.retries[serverKey("", "late")] = &retrySchedule{failures: 1, at: time.Now().Add(time.Hour)}
-	d, pending := i.NextRetryIn([]Server{late, soon})
-	if !pending || d > 2*time.Minute {
-		t.Errorf("NextRetryIn = (%v, %v), want the earliest of the two", d, pending)
-	}
-
-	// A server whose backoff has reached the cap still counts. It has never
-	// been reached, so it has no tools retained, and an earlier version
-	// excluded it here and sent the loop back to the configured interval.
-	// Setting failures is what fails if that exclusion returns.
-	capped := 1
-	for backoffFor(capped) < retryMaxDelay {
-		capped++
-	}
-	for _, n := range []string{"soon", "late"} {
-		i.retries[serverKey("", n)].failures = capped
-	}
-	if _, pending = i.NextRetryIn([]Server{soon, late}); !pending {
-		t.Error("a server at the backoff cap scheduled no retry; the loop would wait out the interval")
+	up.Endpoint = "http://127.0.0.1:1/mcp"
+	i.Sync(ctx, []Server{up, down}, true)
+	if got := i.Unreached([]Server{up, down}); got != 1 {
+		t.Errorf("a reached server that later fails: Unreached = %d, want 1", got)
 	}
 }
