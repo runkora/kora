@@ -419,18 +419,23 @@ type Trigger struct {
 // true in the CRD.
 // +kubebuilder:validation:XValidation:rule="has(self.agent) != has(self.routing)",message="set exactly one of agent and routing."
 // +kubebuilder:validation:XValidation:rule="self.kind != 'webhook' || (has(self.source) && has(self.eventType))",message="a webhook trigger needs source and eventType."
+// +kubebuilder:validation:XValidation:rule="self.kind != 'event' || has(self.eventType)",message="an event trigger needs eventType."
 // +kubebuilder:validation:XValidation:rule="self.kind != 'scheduled' || has(self.schedule)",message="a scheduled trigger needs schedule."
-// +kubebuilder:validation:XValidation:rule="self.kind == 'webhook' || !(has(self.source) || has(self.eventType) || has(self.match) || has(self.matchContains) || has(self.senderRestriction) || has(self.coalesce) || has(self.routing))",message="source, eventType, match, matchContains, senderRestriction, coalesce and routing apply to webhook triggers only."
+// +kubebuilder:validation:XValidation:rule="self.kind == 'webhook' || !(has(self.source) || has(self.senderRestriction))",message="source and senderRestriction apply to webhook triggers only."
+// +kubebuilder:validation:XValidation:rule="self.kind in ['webhook', 'event'] || !(has(self.eventType) || has(self.match) || has(self.matchContains) || has(self.coalesce) || has(self.routing))",message="eventType, match, matchContains, coalesce and routing apply to webhook and event triggers only."
+// +kubebuilder:validation:XValidation:rule="self.kind == 'event' || !has(self.ignoreOwnRuns)",message="ignoreOwnRuns applies to event triggers only."
 // +kubebuilder:validation:XValidation:rule="self.kind == 'scheduled' || !has(self.schedule)",message="schedule applies to scheduled triggers only."
 // +kubebuilder:validation:XValidation:rule="self.kind == 'manual' || !has(self.manual)",message="manual applies to manual triggers only."
 type TriggerSpec struct {
 	// +optional
-	// +kubebuilder:validation:Enum=webhook;scheduled;manual
+	// +kubebuilder:validation:Enum=webhook;scheduled;manual;event
 	// +kubebuilder:default=webhook
 	Kind string `json:"kind"`
 	// Source is a TriggerSource name in this namespace.
 	// +kubebuilder:validation:MinLength=1
 	Source string `json:"source,omitempty"`
+	// EventType is the provider event type of a webhook trigger, or the
+	// platform event type of an event trigger.
 	// +kubebuilder:validation:MinLength=1
 	EventType string `json:"eventType,omitempty"`
 	// Match maps payload paths to the values each must equal, one of.
@@ -439,6 +444,9 @@ type TriggerSpec struct {
 	MatchContains     map[string][]string `json:"matchContains,omitempty"`
 	SenderRestriction *SenderRestriction  `json:"senderRestriction,omitempty"`
 	Coalesce          *Coalesce           `json:"coalesce,omitempty"`
+	// IgnoreOwnRuns skips an event about a run this trigger started or
+	// messaged. Event triggers only. Unset means true.
+	IgnoreOwnRuns *bool `json:"ignoreOwnRuns,omitempty"`
 	// Agent is the Agent name in this namespace whose runs the trigger starts.
 	// +kubebuilder:validation:MinLength=1
 	Agent    string    `json:"agent,omitempty"`

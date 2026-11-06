@@ -270,6 +270,9 @@ func scanTrigger(row pgx.Row) (*Trigger, error) {
 	if err := decodeKindConfig(&t, kindConfigJSON); err != nil {
 		return nil, err
 	}
+	if t.Kind == KindEvent && t.IgnoreOwnRuns == nil {
+		t.IgnoreOwnRuns = new(true)
+	}
 	return &t, nil
 }
 
@@ -309,7 +312,25 @@ func decodeKindConfig(t *Trigger, raw []byte) error {
 		if wc.Coalesce.Enabled() {
 			t.Coalesce = wc.Coalesce
 		}
+	case KindEvent:
+		return decodeEventConfig(t, raw)
 	}
+	return nil
+}
+
+// decodeEventConfig reads an event trigger's kind_config.
+func decodeEventConfig(t *Trigger, raw []byte) error {
+	var ec EventConfig
+	if err := json.Unmarshal(raw, &ec); err != nil {
+		return fmt.Errorf("unmarshal event config: %w", err)
+	}
+	if len(ec.MatchContains) > 0 {
+		t.MatchContains = ec.MatchContains
+	}
+	if ec.Coalesce.Enabled() {
+		t.Coalesce = ec.Coalesce
+	}
+	t.IgnoreOwnRuns = &ec.IgnoreOwnRuns
 	return nil
 }
 
@@ -620,6 +641,16 @@ func (r *postgresRepository) ListMatchableTriggersForSource(ctx context.Context,
 		  AND  `+matchablePredicate, sourceID)
 }
 
+// ListMatchableEventTriggers returns the tenant's event triggers on an event
+// type: enabled, plus auto-paused, as for a source.
+func (r *postgresRepository) ListMatchableEventTriggers(ctx context.Context, tenantID, eventType string) ([]Trigger, error) {
+	return r.listTriggers(ctx, "event triggers", `
+		SELECT `+triggerColumns+`
+		FROM   triggers
+		WHERE  tenant_id = $1 AND kind = 'event' AND event_type = $2
+		  AND  `+matchablePredicate, tenantID, eventType)
+}
+
 // ListMatchableScheduledTriggers returns the scheduled triggers the cron loop
 // evaluates: enabled, plus auto-paused, on the same reasoning as
 // ListMatchableTriggersForSource. A paused schedule records that its fire was
@@ -745,9 +776,9 @@ const deliveryInsertColumns = `
 		INSERT INTO trigger_deliveries
 			(id, tenant_id, source_id, trigger_id, trigger_name, kind, provider_delivery_id, event_type,
 			 status, run_id, error, payload_excerpt, fired_by, scheduled_at,
-			 payload, payload_bytes, reason, redelivery_of)
+			 payload, payload_bytes, reason, redelivery_of, event_id)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 		`
 
 // insertDelivery writes a delivery under the given ON CONFLICT clause, which is
@@ -765,7 +796,7 @@ func (r *postgresRepository) insertDelivery(ctx context.Context, d *Delivery, on
 	tag, err := r.pool.Exec(ctx, deliveryInsertColumns+onConflict,
 		d.ID, d.TenantID, sourceID, d.TriggerID, storage.NullIfZero(d.TriggerName), d.Kind, d.ProviderDeliveryID, d.EventType,
 		d.Status, d.RunID, d.Error, d.PayloadExcerpt, storage.NullIfZero(d.FiredBy), d.ScheduledAt,
-		d.Payload, storage.NullIfZero(d.PayloadBytes), d.Reason, d.RedeliveryOf)
+		d.Payload, storage.NullIfZero(d.PayloadBytes), d.Reason, d.RedeliveryOf, storage.NullIfZero(d.EventID))
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", what, err)
 	}
@@ -795,6 +826,13 @@ func (r *postgresRepository) InsertScheduledDelivery(ctx context.Context, d *Del
 		"insert scheduled delivery")
 }
 
+// InsertEventDelivery inserts the delivery of a platform event, deduplicated on
+// the event id. A redelivery names its original and is outside the index.
+func (r *postgresRepository) InsertEventDelivery(ctx context.Context, d *Delivery) (bool, error) {
+	return r.insertDelivery(ctx, d, `
+		ON CONFLICT (event_id) WHERE redelivery_of IS NULL DO NOTHING`, "insert event delivery")
+}
+
 // UpdateDeliveryOutcome records the run a delivery produced.
 //
 // The arrival-level statuses are preserved, matching DeriveDeliveryStatus: what
@@ -818,24 +856,25 @@ func (r *postgresRepository) UpdateDeliveryOutcome(ctx context.Context, id, stat
 // deliveryColumns is the full read projection for a delivery row.
 const deliveryColumns = `id, tenant_id, source_id, trigger_id, trigger_name, kind, provider_delivery_id, event_type,
 	status, run_id, error, payload_excerpt, fired_by, scheduled_at, received_at,
-	payload, payload_bytes, payload_purged, reason, redelivery_of`
+	payload, payload_bytes, payload_purged, reason, redelivery_of, event_id`
 
 // deliveryColumnsNoPayload is deliveryColumns with the payload body left out.
 const deliveryColumnsNoPayload = `id, tenant_id, source_id, trigger_id, trigger_name, kind, provider_delivery_id, event_type,
 	status, run_id, error, payload_excerpt, fired_by, scheduled_at, received_at,
-	NULL::bytea AS payload, payload_bytes, payload_purged, reason, redelivery_of`
+	NULL::bytea AS payload, payload_bytes, payload_purged, reason, redelivery_of, event_id`
 
 func scanDelivery(row pgx.Row) (*Delivery, error) {
 	var d Delivery
-	var sourceID, firedBy, triggerName *string
+	var sourceID, firedBy, triggerName, eventID *string
 	var payloadBytes *int
 	if err := row.Scan(
 		&d.ID, &d.TenantID, &sourceID, &d.TriggerID, &triggerName, &d.Kind, &d.ProviderDeliveryID, &d.EventType,
 		&d.Status, &d.RunID, &d.Error, &d.PayloadExcerpt, &firedBy, &d.ScheduledAt, &d.ReceivedAt,
-		&d.Payload, &payloadBytes, &d.PayloadPurged, &d.Reason, &d.RedeliveryOf,
+		&d.Payload, &payloadBytes, &d.PayloadPurged, &d.Reason, &d.RedeliveryOf, &eventID,
 	); err != nil {
 		return nil, err
 	}
+	d.EventID = deref(eventID)
 	d.SourceID = deref(sourceID)
 	d.FiredBy = deref(firedBy)
 	d.TriggerName = deref(triggerName)
@@ -1118,8 +1157,19 @@ func (r *postgresRepository) RecordDispatchFailure(ctx context.Context, dr *Deli
 		if err := r.pool.QueryRow(ctx, `SELECT agent_slug FROM triggers WHERE id = $1`, dr.TriggerID).Scan(&agent); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("read trigger agent: %w", err)
 		}
+		// The failure of an event fire joins the event's chain, so the loop guards see it.
+		var envelope []byte
+		if err := r.pool.QueryRow(ctx, `SELECT payload FROM trigger_deliveries WHERE id = $1 AND event_id IS NOT NULL`, dr.DeliveryID).Scan(&envelope); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("read delivery event: %w", err)
+		}
+		chain := chainOfEnvelope(envelope)
+		var triggers []string
+		if chain.causedBy != "" {
+			triggers = []string{dr.TriggerID}
+		}
 		return events.Publish(ctx, r.pool, events.Event{
 			Type: typ, Tenant: dr.TenantID, Subject: "deliveries/" + dr.DeliveryID, Agent: deref(agent),
+			CausedBy: chain.causedBy, ChainDepth: chain.depth, Triggers: triggers,
 			Entity: deliveryFailureEntity{
 				ID: dr.ID, DeliveryID: dr.DeliveryID, TriggerID: dr.TriggerID, TriggerName: dr.TriggerName,
 				Status: dr.Status, Reason: reason,
@@ -1250,8 +1300,23 @@ func marshalKindConfig(t *Trigger) ([]byte, error) {
 			return nil, fmt.Errorf("marshal webhook config: %w", err)
 		}
 		return b, nil
+	case t.Kind == KindEvent:
+		return marshalEventConfig(t)
 	}
 	return []byte("{}"), nil
+}
+
+// marshalEventConfig writes an event trigger's kind_config. It always carries ignore_own_runs.
+func marshalEventConfig(t *Trigger) ([]byte, error) {
+	ec := EventConfig{MatchContains: t.MatchContains, IgnoreOwnRuns: t.ignoresOwnRuns()}
+	if t.Coalesce.Enabled() {
+		ec.Coalesce = t.Coalesce
+	}
+	b, err := json.Marshal(ec)
+	if err != nil {
+		return nil, fmt.Errorf("marshal event config: %w", err)
+	}
+	return b, nil
 }
 
 // defaultTargetKind fills in the only target kind that exists today. Triggers
@@ -2279,6 +2344,30 @@ func (r *postgresRepository) HoldPending(ctx context.Context, pendingID, deliver
 func (r *postgresRepository) ClearDeliveryReason(ctx context.Context, deliveryID string) error {
 	if _, err := r.pool.Exec(ctx, `UPDATE trigger_deliveries SET reason = NULL WHERE id = $1`, deliveryID); err != nil {
 		return fmt.Errorf("clear delivery reason: %w", err)
+	}
+	return nil
+}
+
+// ─── Event consumer cursor ──────────────────────────────────────────────────
+
+func (r *postgresRepository) EventCursor(ctx context.Context) (int64, error) {
+	var seq int64
+	err := r.pool.QueryRow(ctx, `SELECT last_seq FROM trigger_event_cursor`).Scan(&seq)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read event cursor: %w", err)
+	}
+	return seq, nil
+}
+
+func (r *postgresRepository) AdvanceEventCursor(ctx context.Context, seq int64) error {
+	if _, err := r.pool.Exec(ctx, `
+		INSERT INTO trigger_event_cursor (id, last_seq) VALUES (TRUE, $1)
+		ON CONFLICT (id) DO UPDATE SET last_seq = GREATEST(trigger_event_cursor.last_seq, EXCLUDED.last_seq)
+	`, seq); err != nil {
+		return fmt.Errorf("advance event cursor: %w", err)
 	}
 	return nil
 }

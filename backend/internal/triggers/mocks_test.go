@@ -79,6 +79,8 @@ type mockRepository struct {
 	// and UpdateTrigger, so a test can land a concurrent update in between.
 	beforeGrantUpdate func()
 	beforeUpdate      func()
+	// eventCursor is the event consumer's cursor.
+	eventCursor int64
 }
 
 // LatestJoinKeyRun mirrors the SQL: the newest decision of the trigger with the
@@ -401,6 +403,51 @@ func (m *mockRepository) ListMatchableScheduledTriggers(_ context.Context) ([]Tr
 		}
 	}
 	return out, nil
+}
+
+func (m *mockRepository) ListMatchableEventTriggers(_ context.Context, tenantID, eventType string) ([]Trigger, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Trigger
+	for _, t := range m.triggers {
+		if t.Kind == KindEvent && t.TenantID == tenantID && t.EventType == eventType && matchable(t) {
+			out = append(out, *t)
+		}
+	}
+	slices.SortFunc(out, func(a, b Trigger) int { return strings.Compare(a.ID, b.ID) })
+	return out, nil
+}
+
+// InsertEventDelivery mirrors the unique index on event_id for original deliveries.
+func (m *mockRepository) InsertEventDelivery(_ context.Context, d *Delivery) (bool, error) {
+	if m.insertDeliveryErr != nil {
+		return false, m.insertDeliveryErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if d.RedeliveryOf == nil {
+		key := "event|" + d.EventID
+		if m.seenDeliv[key] {
+			return false, nil
+		}
+		m.seenDeliv[key] = true
+	}
+	cp := *d
+	m.deliveries = append(m.deliveries, &cp)
+	return true, nil
+}
+
+func (m *mockRepository) EventCursor(context.Context) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.eventCursor, nil
+}
+
+func (m *mockRepository) AdvanceEventCursor(_ context.Context, seq int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.eventCursor = max(m.eventCursor, seq)
+	return nil
 }
 
 // matchable mirrors the SQL predicate `enabled = true OR auto_paused_at IS NOT NULL`.
@@ -829,6 +876,9 @@ type startCall struct {
 	triggerID   string
 	triggerName string
 	deliveryID  string
+	// The event chain the run was started with.
+	causedBy   string
+	chainDepth int
 }
 
 type agentsStub struct {
@@ -885,6 +935,8 @@ type agentsStub struct {
 
 type messageCall struct {
 	bearer, runID, content, triggerID, deliveryID string
+	causedBy                                      string
+	chainDepth                                    int
 }
 
 // callerReadIDs returns the agent type ids callers have read, and forgets them.
@@ -992,12 +1044,15 @@ func newAgentsStub() *agentsStub {
 			Content    string `json:"content"`
 			TriggerID  string `json:"trigger_id"`
 			DeliveryID string `json:"delivery_id"`
+			CausedBy   string `json:"caused_by"`
+			ChainDepth int    `json:"chain_depth"`
 		}
 		_ = json.Unmarshal(body, &req)
 		as.mu.Lock()
 		as.messages = append(as.messages, messageCall{
 			bearer: r.Header.Get("Authorization"), runID: r.PathValue("id"),
 			content: req.Content, triggerID: req.TriggerID, deliveryID: req.DeliveryID,
+			causedBy: req.CausedBy, chainDepth: req.ChainDepth,
 		})
 		status := as.messageStatus[r.PathValue("id")]
 		starting := as.startingRuns[r.PathValue("id")]
@@ -1022,6 +1077,8 @@ func newAgentsStub() *agentsStub {
 			TriggerID      string `json:"trigger_id"`
 			TriggerName    string `json:"trigger_name"`
 			DeliveryID     string `json:"delivery_id"`
+			CausedBy       string `json:"caused_by"`
+			ChainDepth     int    `json:"chain_depth"`
 		}
 		_ = json.Unmarshal(body, &req)
 		as.mu.Lock()
@@ -1032,6 +1089,8 @@ func newAgentsStub() *agentsStub {
 			triggerID:      req.TriggerID,
 			triggerName:    req.TriggerName,
 			deliveryID:     req.DeliveryID,
+			causedBy:       req.CausedBy,
+			chainDepth:     req.ChainDepth,
 		})
 		status, errBody := as.status, as.runErrBody
 		if as.statusOnce != 0 {

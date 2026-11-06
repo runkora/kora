@@ -190,6 +190,15 @@ export async function fetchProviderEventTypes(
   return { eventTypes: res.data, error: res.error };
 }
 
+/** The platform event types an event trigger can listen for. */
+export async function fetchPlatformEventTypes(): Promise<{
+  eventTypes: string[];
+  error: string | null;
+}> {
+  const res = await send<string[]>(ApiRoute.triggers.eventTypes(), { cache: 'no-store' });
+  return { eventTypes: res.data ?? [], error: res.error };
+}
+
 /** One event type's fields, from the provider's schema. */
 export async function fetchProviderFields(
   provider: string,

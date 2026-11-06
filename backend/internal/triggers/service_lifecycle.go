@@ -123,6 +123,8 @@ func validateTriggerCreate(req CreateTriggerRequest) error {
 		return validateScheduledTriggerCreate(req)
 	case KindManual:
 		return validateManualTriggerCreate(req)
+	case KindEvent:
+		return validateEventTriggerCreate(req)
 	default:
 		return fmt.Errorf("%w: unknown trigger kind %q", ErrValidation, req.Kind)
 	}
@@ -289,6 +291,10 @@ func (s *TriggerService) buildTrigger(ctx context.Context, tenantID string, req 
 		t.ScheduleConfig = req.ScheduleConfig
 	case KindManual:
 		t.ManualConfig = req.ManualConfig
+	case KindEvent:
+		if err = applyEventCreate(t, req); err != nil {
+			return nil, "", nil, err
+		}
 	}
 	if err = applyAdmissionCreate(t, req); err != nil {
 		return nil, "", nil, err
@@ -324,6 +330,14 @@ func (s *TriggerService) buildTrigger(ctx context.Context, tenantID string, req 
 		return nil, "", nil, err
 	}
 	return t, principal, scopes, nil
+}
+
+// applyEventCreate copies an event trigger's matching and loop guard onto t.
+func applyEventCreate(t *Trigger, req CreateTriggerRequest) (err error) {
+	t.EventType, t.MatchCondition, t.MatchContains = strings.TrimSpace(req.EventType), req.MatchCondition, req.MatchContains
+	t.IgnoreOwnRuns = new(req.IgnoreOwnRuns == nil || *req.IgnoreOwnRuns)
+	t.Coalesce, err = coalesceForCreate(req)
+	return err
 }
 
 // provisionTrigger gives a built trigger its id and grants and stores it. A
@@ -417,7 +431,7 @@ func (s *TriggerService) ListTriggers(ctx context.Context, tenantID, agentTypeID
 	if kind == "" {
 		return triggers, nil
 	}
-	if kind != KindWebhook && kind != KindScheduled && kind != KindManual {
+	if kind != KindWebhook && kind != KindScheduled && kind != KindManual && kind != KindEvent {
 		return nil, fmt.Errorf("%w: unknown trigger kind %q", ErrValidation, kind)
 	}
 	// Filtered here rather than in the query: kind is a low-cardinality
@@ -504,11 +518,7 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 	if err = applyKindConfigUpdate(t, req); err != nil {
 		return nil, err
 	}
-	if t.Kind == KindWebhook {
-		if err = s.applyWebhookUpdate(ctx, t, req); err != nil {
-			return nil, err
-		}
-	} else if err = refuseWebhookOnly(req.SenderRestriction, req.MatchContains, req.Coalesce); err != nil {
+	if err = s.applyKindUpdate(ctx, t, req); err != nil {
 		return nil, err
 	}
 	replaced, oldGrant, err := s.applyRoutingUpdate(ctx, t, claims, req.Routing, changesRun)
@@ -537,6 +547,7 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 func changesRunBehaviour(t *Trigger, req UpdateTriggerRequest) bool {
 	return req.PromptTemplate != nil || req.ManualConfig != nil || req.ScheduleConfig != nil ||
 		req.SenderRestriction != nil || req.EventType != nil || req.MatchCondition != nil || req.MatchContains != nil ||
+		req.IgnoreOwnRuns != nil ||
 		req.Routing != nil || (req.Enabled != nil && *req.Enabled != t.Enabled)
 }
 
@@ -702,10 +713,43 @@ func applyKindConfigUpdate(t *Trigger, req UpdateTriggerRequest) error {
 	return nil
 }
 
-// applyWebhookUpdate validates the event type and field keys when the request
-// edits them, and replaces match_contains, coalesce and the sender restriction
-// when the request carries them. A PATCH that edits none of them is not checked.
-func (s *TriggerService) applyWebhookUpdate(ctx context.Context, t *Trigger, req UpdateTriggerRequest) error {
+// applyKindUpdate applies the matching settings of a webhook or event trigger
+// and refuses them on the other kinds.
+func (s *TriggerService) applyKindUpdate(ctx context.Context, t *Trigger, req UpdateTriggerRequest) error {
+	if req.IgnoreOwnRuns != nil && t.Kind != KindEvent {
+		return errIgnoreOwnRunsEventOnly
+	}
+	switch t.Kind {
+	case KindWebhook:
+		if err := applyMatchingUpdate(t, req); err != nil {
+			return err
+		}
+		return s.applySourceRules(ctx, t, req)
+	case KindEvent:
+		if req.SenderRestriction != nil {
+			return errSenderRestrictionWebhookOnly
+		}
+		if err := applyMatchingUpdate(t, req); err != nil {
+			return err
+		}
+		if req.EventType != nil {
+			if err := validateEventType(t.EventType); err != nil {
+				return err
+			}
+		}
+		if req.IgnoreOwnRuns != nil {
+			t.IgnoreOwnRuns = new(*req.IgnoreOwnRuns)
+		}
+		return nil
+	default:
+		return refuseWebhookOnly(req.SenderRestriction, req.MatchContains, req.Coalesce)
+	}
+}
+
+// applyMatchingUpdate validates the event type and field keys when the request
+// edits them, and replaces match_contains and coalesce when the request carries
+// them. A PATCH that edits none of them is not checked.
+func applyMatchingUpdate(t *Trigger, req UpdateTriggerRequest) error {
 	if req.Coalesce != nil {
 		coalesce, err := normalizeCoalesce(req.Coalesce)
 		if err != nil {
@@ -726,13 +770,13 @@ func (s *TriggerService) applyWebhookUpdate(ctx context.Context, t *Trigger, req
 	}
 	if editsMatching(req) {
 		if t.EventType == "" {
-			return fmt.Errorf("%w: event_type is required for webhook triggers", ErrValidation)
+			return fmt.Errorf("%w: event_type is required for %s triggers", ErrValidation, t.Kind)
 		}
 		if err := validateFieldKeys(t.PromptTemplate, t.MatchCondition); err != nil {
 			return err
 		}
 	}
-	return s.applySourceRules(ctx, t, req)
+	return nil
 }
 
 // editsMatching reports whether a PATCH edits a field that reads the payload:

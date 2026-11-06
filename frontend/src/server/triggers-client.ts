@@ -196,6 +196,12 @@ export async function updateTrigger(
   });
 }
 
+// GET /api/v1/triggers/event-types: the platform event types an event trigger can listen for.
+export async function listPlatformEventTypes(accessToken: string): Promise<string[]> {
+  const body = await request<{ event_types?: string[] }>('/triggers/event-types', accessToken);
+  return body?.event_types ?? [];
+}
+
 // GET /api/v1/triggers/routing/candidates: the agent types a routed trigger may
 // name, each marked runnable against the caller's own claims.
 export async function listRoutingCandidates(

@@ -77,6 +77,7 @@ const KIND_FILTER_NOUN: Record<ConsoleKind, string> = {
   chat: 'chat command',
   scheduled: 'scheduled',
   manual: 'manual',
+  event: 'event',
 };
 
 export function TriggersPage({

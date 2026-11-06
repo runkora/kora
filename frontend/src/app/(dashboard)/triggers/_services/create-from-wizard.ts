@@ -60,7 +60,10 @@ export async function createFromWizardDraft(
       : { agent_type_id: draft.agentTypeId }),
     prompt_template: draft.promptTemplate,
     ...(sourceId !== undefined && { source_id: sourceId }),
-    ...(draft.kind === 'webhook' && { event_type: draft.eventType ?? '' }),
+    ...((draft.kind === 'webhook' || draft.kind === 'event') && {
+      event_type: draft.eventType ?? '',
+    }),
+    ...(draft.ignoreOwnRuns !== undefined && { ignore_own_runs: draft.ignoreOwnRuns }),
     ...(draft.matchCondition !== undefined && { match_condition: draft.matchCondition }),
     ...(draft.matchContains !== undefined && { match_contains: draft.matchContains }),
     ...(draft.senderRestriction !== undefined && {

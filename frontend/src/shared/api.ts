@@ -810,7 +810,7 @@ export interface WebhookSourceUpdateRequest {
 }
 
 /** Trigger kind discriminant. */
-export type TriggerKind = 'webhook' | 'scheduled' | 'manual';
+export type TriggerKind = 'webhook' | 'scheduled' | 'manual' | 'event';
 
 /** Cron schedule configuration for scheduled triggers. */
 export interface ScheduleConfig {
@@ -930,7 +930,7 @@ export interface TriggerCoalesce {
 export interface Trigger {
   id: string;
   tenant_id: string;
-  /** "webhook" | "scheduled" | "manual" */
+  /** "webhook" | "scheduled" | "manual" | "event" */
   kind: TriggerKind;
   /** Present for webhook triggers only. */
   source_id?: string;
@@ -966,6 +966,8 @@ export interface Trigger {
   target_kind?: TriggerTargetKind;
   /** Webhook only, set when `target_kind` is "routed". */
   routing?: TriggerRouting;
+  /** Event triggers only: skip events about runs this trigger started or messaged. */
+  ignore_own_runs?: boolean;
   enabled: boolean;
   created_at: string;
   updated_at: string;
@@ -1133,6 +1135,8 @@ export interface TriggerCreateRequest {
   sender_restriction?: SenderRestriction;
   /** Webhook only, and only with overflow `wait`. Both fields are required together. */
   coalesce?: TriggerCoalesce;
+  /** Event triggers only. Omitted, it is on. */
+  ignore_own_runs?: boolean;
   // ── Admission control (all optional; defaults per kind when omitted) ──
   /** Concurrency ceiling, 1..16. */
   max_parallel?: number;
@@ -1206,7 +1210,7 @@ export interface TriggerDeliveryPage {
 export interface TriggerDelivery {
   id: string;
   tenant_id: string;
-  /** "webhook" | "scheduled" | "manual" */
+  /** "webhook" | "scheduled" | "manual" | "event" */
   kind: TriggerKind;
   /** Present for webhook deliveries. */
   source_id?: string;
@@ -1216,6 +1220,8 @@ export interface TriggerDelivery {
   trigger_name?: string;
   provider_delivery_id?: string;
   event_type?: string;
+  /** The platform event an event delivery fired on. */
+  event_id?: string;
   /**
    * What happened to the arrival itself. Derived from the per-trigger outcomes
    * in `runs` once the fan-out completes, never authored independently.

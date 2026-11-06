@@ -36,6 +36,7 @@ import (
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/brand"
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	eventsclient "github.com/runkora/kora/backend/internal/platform/clients/events"
 	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
 	inferenceclient "github.com/runkora/kora/backend/internal/platform/clients/inference"
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
@@ -237,6 +238,12 @@ func initController(
 	// tenant shortens their window, not only for new ones.
 	triggers.NewRetentionJob(repo, logger, triggers.DefaultPayloadRetentionDays, metrics).Start(ctx)
 
+	// Event triggers fire from the kora-events internal stream, read as this
+	// binary's SYSTEM identity. One replica consumes at a time.
+	events := eventsclient.NewClient(tc.Current.Events.InternalURL, selfToken, logger)
+	consumer := triggers.NewEventConsumer(svc, repo, events, storage.NewSessionLocker(db.Pool()), logger)
+	consumer.Start(ctx)
+
 	// The cron scheduler fires time-driven triggers. It is safe to run on every
 	// replica: each tick inserts its delivery under a unique (trigger_id,
 	// scheduled_at) key before dispatching, so a losing replica simply stops.
@@ -250,8 +257,9 @@ func initController(
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(parentCtx), 10*time.Second)
 		defer cancel()
 		scheduler.Stop(shutdownCtx)
-		// Let an in-flight dispatch finish rather than cutting it in half.
+		// Let an in-flight dispatch and event fan-out finish rather than cutting them in half.
 		worker.Wait(shutdownCtx)
+		consumer.Wait(shutdownCtx)
 	}(ctx)
 
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
