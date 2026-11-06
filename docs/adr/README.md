@@ -143,6 +143,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Trigger Routing](2026-10-19-trigger-routing.md) — `Accepted` · 2026-10-19
 - [Chat Command Triggers](2026-10-20-chat-command-triggers.md) — `Accepted` · 2026-10-20
 - [Generic Webhook Source](2026-10-27-generic-webhook-source.md) — `Accepted` · 2026-10-27
+- [Marketplace Skill Harness Compatibility at Source Configuration](2026-11-04-marketplace-harness-compatibility.md) — `Proposed` · 2026-11-04
 
 ### MCP / Tool Gateway
 
@@ -339,4 +340,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-03 | [Run Outcome and Duration Metrics](2026-11-03-run-outcome-and-duration-metrics.md) | Accepted | — |
 | 2026-11-03 | [Agent Attribution on Model and Harness Spans](2026-11-03-agent-attribution-on-spans.md) | Accepted | — |
 | 2026-11-04 | [Tenant Switching](2026-11-04-tenant-switching.md) | Accepted | — |
+| 2026-11-04 | [Marketplace Skill Harness Compatibility at Source Configuration](2026-11-04-marketplace-harness-compatibility.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
