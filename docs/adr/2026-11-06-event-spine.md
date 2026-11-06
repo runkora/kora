@@ -20,13 +20,10 @@ The code that will record events has these properties:
 *   `storage.WithTransaction` passes a `pgx.Tx` to its callback (`backend/internal/platform/storage/transaction.go`). Nothing carries a transaction through `context.Context`.
 *   Repositories call `r.pool.Exec`, `r.pool.Query` and `r.pool.QueryRow` on a `*pgxpool.Pool` directly. Most state changes that need an event are a single `Exec` outside any transaction.
 *   Claims come from `token.ClaimsFromContext`, delegation from `policy.DelegationFromContext`, the run from `mw.RunIDFromContext` and the trace from `observability.TraceParent`. Scheduler, reaper and worker contexts carry no claims.
-*   Terminating a run deletes it and cascades to `run_events` (`DeleteRun` in `backend/internal/agents/postgres.go`).
 *   Budget spend is a Redis counter that inferencegw increments after it writes the usage row.
 *   Declared apply outcomes are returned by `handleApply` in `kora-agents`, `kora-triggers`, `policy-service` and `inference-gateway`. The operator writes them to resource status.
 *   `kora-triggers` and `inference-gateway` serialize writers with `pg_advisory_xact_lock`. No binary outside the operator runs leader election.
 *   Sessions are created on interactive sign-in, on every token refresh (`RefreshSession` calls `createSession`) and for agents (`createAgentSession`).
-
-constellation-core solved the same problem with a transactional outbox (`packages/go/common/events/outbox`) and context-carried transactions (its ADR-0005). Its outbox rows go to NATS. Each constellation app has its own database and its own outbox.
 
 This touches *Who is this agent?* Every event records the principal, the principal type and the delegator that caused it. An event trigger runs as the trigger's own principal like every other trigger kind ([Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md)). It touches *What can it access?* Reading events requires `events:read`, and every read is limited to the caller's tenant. *How does it connect?* is unchanged, and no event leaves the cluster in v1.
 
@@ -198,6 +195,7 @@ type Event struct {
     Agent      string
     CausedBy   string
     ChainDepth int
+    Triggers   []string
     Entity     any
     Changed    []string
     Version    int64
@@ -247,7 +245,6 @@ CREATE TABLE events (
     subject         TEXT NOT NULL,
     principal       TEXT NOT NULL,
     principal_type  TEXT NOT NULL,
-    principal_name  TEXT NOT NULL DEFAULT '',
     run_id          UUID,
     agent           TEXT,
     caused_by       UUID,
@@ -369,14 +366,15 @@ None at this time.
 
 ## Implementation
 
-The work ships as one stack of six pull requests:
+The work ships as one stack of seven pull requests:
 
 1.  **Foundation:** context-carried transactions and `storage.Pool`, `platform/events`, and `kora-events` with the outbox, relay, log, read API, streams, retention, `KoraTenant` field, chart and `events:read`.
 2.  **Run and sandbox producers:** `runs.deleted_at`, run lifecycle and activity events, sandbox events, agent and environment changes.
 3.  **Remaining producers:** triggers, identity, policy-service, inferencegw budgets and declared failures.
 4.  **Event trigger kind:** the consumer, matching, both loop guards, the declarative `Trigger`, the API and the wizard.
 5.  **kora MCP tools:** `events.list` and `events.get`.
-6.  **Events page:** a Storybook iteration first, then the page.
+6.  **Hades:** DataTable `bodyState`, a server search box and an `xl` Modal.
+7.  **Events page:** a Storybook iteration first, then the page.
 
 ---
 
