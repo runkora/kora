@@ -19,10 +19,9 @@ var ErrNotFound = errors.New("event not found")
 
 // Record is one event in the log.
 type Record struct {
-	Seq           int64           `json:"seq"`
-	RecordedAt    time.Time       `json:"recorded_at"`
-	PrincipalName string          `json:"principal_name"`
-	Event         json.RawMessage `json:"event"`
+	Seq        int64           `json:"seq"`
+	RecordedAt time.Time       `json:"recorded_at"`
+	Event      json.RawMessage `json:"event"`
 
 	tenant    string
 	category  string
