@@ -160,7 +160,7 @@ curl -X POST https://orbit.example.com/api/v1/identity/tokens \
 ```bash
 # Claude Code — set ANTHROPIC_BASE_URL + API key
 export ANTHROPIC_BASE_URL=https://orbit.example.com/v1
-export ANTHROPIC_API_KEY=orb_...
+export ANTHROPIC_AUTH_KEY=orb_...
 
 # OpenAI-dialect agents
 export OPENAI_BASE_URL=https://orbit.example.com/v1

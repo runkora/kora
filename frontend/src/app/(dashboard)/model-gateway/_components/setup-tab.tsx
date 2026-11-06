@@ -80,7 +80,7 @@ function ClaudeCodeGuide({ baseUrl }: { baseUrl: string }) {
         </Text>
         <CodeBlock
           text={`export ANTHROPIC_BASE_URL="${baseUrl}"
-export ANTHROPIC_API_KEY="$KORA_API_KEY"`}
+export ANTHROPIC_AUTH_KEY="$KORA_API_KEY"`}
           filename="~/.zshrc"
         />
       </Step>
@@ -233,7 +233,7 @@ function VSCodeGuide({ baseUrl }: { baseUrl: string }) {
         <CodeBlock
           text={`export KORA_API_KEY="kora_xxxxxxxx-xxxxxxxx-xxxxxxxx"
 export ANTHROPIC_BASE_URL="${baseUrl}"
-export ANTHROPIC_API_KEY="$KORA_API_KEY"`}
+export ANTHROPIC_AUTH_KEY="$KORA_API_KEY"`}
           filename="~/.zshrc"
         />
         <Text size="caption" color="subtle">
@@ -263,7 +263,7 @@ export ANTHROPIC_API_KEY="$KORA_API_KEY"`}
             <Heading variant="label">Keep the key out of settings files</Heading>
             <Text size="caption" color="muted">
               <Code>.vscode/settings.json</Code> is commonly committed. Set{' '}
-              <Code>ANTHROPIC_API_KEY</Code> in your shell profile only, never here.
+              <Code>ANTHROPIC_AUTH_KEY</Code> in your shell profile only, never here.
             </Text>
           </Stack>
         </Callout>
