@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, within } from '@testing-library/react';
 import { renderWithProviders } from '@runkora/test-utils';
-import { NO_FILTERS, principalName } from '../_types';
+import { NO_FILTERS, eventSummary, principalName } from '../_types';
 import type { EventFilters } from '../_types';
 import type { EventFeed } from '../_hooks/use-event-feed';
 import { EventsPage } from './events-page';
@@ -114,8 +114,9 @@ describe('EventsPage', () => {
   it('steps to the next older event without closing', () => {
     renderPage(feed());
     fireEvent.click(screen.getAllByRole('row', { name: /^Open event/ })[0] as HTMLElement);
-    const first = screen.getByRole('dialog').querySelector('h2')?.textContent;
+    expect(screen.getByRole('heading', { name: eventSummary(EVENTS[0]!) })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Older event' }));
-    expect(screen.getByRole('dialog').querySelector('h2')?.textContent).not.toBe(first);
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: eventSummary(EVENTS[1]!) })).toBeInTheDocument();
   });
 });

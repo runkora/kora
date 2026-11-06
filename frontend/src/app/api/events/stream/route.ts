@@ -12,9 +12,17 @@ import { withAuth } from '@runkora/server/route-helpers';
 import { openEventStream } from '@runkora/server/events-client';
 import { STREAM_PARAMS, pickParams } from '../../../(dashboard)/events/_services/events-server';
 
+const UPSTREAM_CONNECT_MS = 10_000;
+
 export const GET = withAuth(async (req: NextRequest, session) => {
   const params = req.nextUrl.searchParams;
   const lastEventId = req.headers.get('last-event-id') ?? params.get('after');
+
+  // The browser going away ends the upstream request. An upstream that sends no headers in
+  // time is dropped, while an open stream has no time limit.
+  const controller = new AbortController();
+  req.signal.addEventListener('abort', () => controller.abort());
+  const connect = setTimeout(() => controller.abort(), UPSTREAM_CONNECT_MS);
 
   let upstream: Response;
   try {
@@ -22,12 +30,15 @@ export const GET = withAuth(async (req: NextRequest, session) => {
       session.accessToken,
       pickParams(params, STREAM_PARAMS),
       lastEventId,
+      controller.signal,
     );
   } catch {
     return NextResponse.json(
       { code: 'upstream_error', message: 'Failed to connect to the event stream' },
       { status: 502 },
     );
+  } finally {
+    clearTimeout(connect);
   }
 
   if (!upstream.ok) {

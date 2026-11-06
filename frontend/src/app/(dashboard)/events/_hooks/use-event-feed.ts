@@ -11,8 +11,9 @@ import { fetchEventPage, openEventStream } from '../_services/events-api';
 import { EVENT_PAGE_SIZE, filterParams } from '../_types';
 import type { EventFilters, EventPage, EventRecord, KoraEvent, SeenPrincipal } from '../_types';
 
-/** How long to wait before reopening a stream the server closed. */
+/** The first wait before reopening a stream the server closed. It doubles on each failure. */
 const REOPEN_MS = 5_000;
+const REOPEN_MAX_MS = 60_000;
 
 /**
  * Live shows events as they arrive, paused holds them back, reconnecting has lost the stream,
@@ -184,18 +185,24 @@ export function useEventFeed(filters: EventFilters, initial: InitialEvents): Eve
     if (!ready || searching) return;
     let source: EventSource | null = null;
     let timer: number | undefined;
+    let failures = 0;
     const open = (after: number) => {
       const query = new URLSearchParams(params);
       query.delete('q');
       if (after > 0) query.set('after', String(after));
       source = openEventStream(query);
-      source.onopen = () => setReconnecting(false);
+      source.onopen = () => {
+        failures = 0;
+        setReconnecting(false);
+      };
       source.onerror = () => {
         setReconnecting(true);
         // A closed stream does not retry by itself: the server refused it or the session ended.
         if (source?.readyState === EventSource.CLOSED) {
           source.close();
-          timer = window.setTimeout(() => open(headRef.current), REOPEN_MS);
+          const wait = Math.min(REOPEN_MS * 2 ** failures, REOPEN_MAX_MS);
+          failures += 1;
+          timer = window.setTimeout(() => open(headRef.current), wait);
         }
       };
       source.onmessage = (message: MessageEvent<string>) => {
@@ -280,7 +287,17 @@ export function useEventFeed(filters: EventFilters, initial: InitialEvents): Eve
 function parseRecord(data: string): EventRecord | null {
   try {
     const record = JSON.parse(data) as EventRecord;
-    return typeof record.seq === 'number' && typeof record.event?.id === 'string' ? record : null;
+    const e = record.event;
+    // A record the page cannot draw is dropped rather than breaking the render.
+    const valid =
+      typeof record.seq === 'number' &&
+      typeof e?.id === 'string' &&
+      typeof e.type === 'string' &&
+      typeof e.subject === 'string' &&
+      typeof e.koraprincipal === 'string' &&
+      typeof e.data?.entity === 'object' &&
+      e.data.entity !== null;
+    return valid ? record : null;
   } catch {
     return null;
   }

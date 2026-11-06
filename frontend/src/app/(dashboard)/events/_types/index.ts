@@ -300,14 +300,15 @@ export function formatUtc(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : `${d.toISOString().slice(0, 19).replace('T', ' ')} UTC`;
 }
 
-/** The trace id inside a W3C `traceparent`. */
+/** The trace id inside a W3C `traceparent`, or null when it is not 32 hex digits. */
 export function traceIdOf(traceparent: string | undefined): string | null {
-  return traceparent?.split('-')[1] ?? null;
+  const id = traceparent?.split('-')[1];
+  return id !== undefined && /^[0-9a-f]{32}$/.test(id) ? id : null;
 }
 
 /** Fills the chart's trace URL template, or null when tracing has no UI configured. */
 export function traceHref(template: string, traceId: string): string | null {
-  return template === '' ? null : template.replaceAll('{trace_id}', traceId);
+  return template === '' ? null : template.replaceAll('{trace_id}', () => traceId);
 }
 
 /** A principal or agent seen in the feed, for the column filter menus. */

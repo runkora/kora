@@ -144,4 +144,11 @@ describe('useEventFeed', () => {
     expect(api.sources[0]?.closed).toBe(false);
     expect(result.current.stream).toBe('live');
   });
+
+  it('drops a streamed record it cannot draw', async () => {
+    const { result } = renderHook(() => useEventFeed(NO_FILTERS, initial));
+    await waitFor(() => expect(api.sources).toHaveLength(1));
+    act(() => latest().send({ seq: 9, event: { id: 'bad' } }));
+    expect(result.current.events.map((e) => e.id)).toEqual(['e2', 'e1']);
+  });
 });

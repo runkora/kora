@@ -30,6 +30,7 @@ export function openEventStream(
   accessToken: string,
   params: URLSearchParams,
   lastEventId: string | null,
+  signal: AbortSignal,
 ): Promise<Response> {
   return fetch(`${config.koraEventsUrl}/events/stream?${params.toString()}`, {
     headers: {
@@ -38,5 +39,6 @@ export function openEventStream(
       ...(lastEventId !== null && { 'Last-Event-ID': lastEventId }),
     },
     cache: 'no-store',
+    signal,
   });
 }
