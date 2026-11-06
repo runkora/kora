@@ -252,21 +252,8 @@ func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter De
 	if len(deliveries) == 0 {
 		return deliveries, "", nil
 	}
-	ids := make([]string, len(deliveries))
-	for i := range deliveries {
-		ids[i] = deliveries[i].ID
-	}
-	runs, err := s.repo.ListDeliveryRunsForDeliveries(ctx, tenantID, ids)
-	if err != nil {
-		return nil, "", fmt.Errorf("attach delivery runs: %w", err)
-	}
-	keys, err := s.repo.ListDeliveryKeysForDeliveries(ctx, tenantID, ids)
-	if err != nil {
-		return nil, "", fmt.Errorf("attach delivery keys: %w", err)
-	}
-	for i := range deliveries {
-		deliveries[i].Runs = runs[deliveries[i].ID]
-		deliveries[i].CoalesceKeys = keys[deliveries[i].ID]
+	if err := s.attachRunsAndKeys(ctx, tenantID, deliveries); err != nil {
+		return nil, "", err
 	}
 	var nextCursor string
 	if hasNext {
@@ -274,6 +261,28 @@ func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter De
 		nextCursor = deliveryCursor{ReceivedAt: last.ReceivedAt, ID: last.ID}.encode()
 	}
 	return deliveries, nextCursor, nil
+}
+
+// attachRunsAndKeys sets each delivery's run fan-out and coalescing keys, one
+// batched query each.
+func (s *Service) attachRunsAndKeys(ctx context.Context, tenantID string, deliveries []Delivery) error {
+	ids := make([]string, len(deliveries))
+	for i := range deliveries {
+		ids[i] = deliveries[i].ID
+	}
+	runs, err := s.repo.ListDeliveryRunsForDeliveries(ctx, tenantID, ids)
+	if err != nil {
+		return fmt.Errorf("attach delivery runs: %w", err)
+	}
+	keys, err := s.repo.ListDeliveryKeysForDeliveries(ctx, tenantID, ids)
+	if err != nil {
+		return fmt.Errorf("attach delivery keys: %w", err)
+	}
+	for i := range deliveries {
+		deliveries[i].Runs = runs[deliveries[i].ID]
+		deliveries[i].CoalesceKeys = keys[deliveries[i].ID]
+	}
+	return nil
 }
 
 // validateDeliveryFilter rejects a ?status= value the list cannot match, and a
