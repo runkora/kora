@@ -83,6 +83,7 @@ describe('useEventFeed', () => {
     expect(result.current.events.map((e) => e.id)).toEqual(['e3', 'e2', 'e1']);
     expect(result.current.freshIds.has('e3')).toBe(true);
     expect(result.current.principals.map((p) => p.name)).toContain('Principal 3');
+    expect(result.current.types).toEqual(['agents.run.started.v1']);
   });
 
   it('holds live events while paused and shows them on resume', async () => {

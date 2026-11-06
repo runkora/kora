@@ -231,8 +231,8 @@ export function EventsTable({
   }, [feed.events, feed.freshIds, feed.principals]);
   // The platform's types, and any the feed has shown that the catalog did not list.
   const catalog = useMemo(
-    () => [...new Set([...eventTypes, ...feed.events.map((e) => e.type)])].sort(),
-    [eventTypes, feed.events],
+    () => [...new Set([...eventTypes, ...feed.types])].sort(),
+    [eventTypes, feed.types],
   );
   const cols = useMemo(
     () => columns(filters, onFiltersChange, feed.principals, feed.agents, catalog),

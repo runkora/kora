@@ -40,9 +40,10 @@ export interface EventFeed {
   showPending: () => void;
   /** Events that arrived live since the page opened. */
   freshIds: ReadonlySet<string>;
-  /** Every principal and agent the feed has shown, for the filter menus. */
+  /** Every principal, agent and event type the feed has shown, for the filter menus. */
   principals: SeenPrincipal[];
   agents: string[];
+  types: string[];
 }
 
 interface Page {
@@ -104,6 +105,9 @@ export function useEventFeed(filters: EventFilters, initial: InitialEvents): Eve
   const [seenAgents, setSeenAgents] = useState<Set<string>>(() =>
     rememberAgents(new Set(), initial.page?.events ?? []),
   );
+  const [seenTypes, setSeenTypes] = useState<Set<string>>(() =>
+    rememberTypes(new Set(), initial.page?.events ?? []),
+  );
   const epoch = useRef(0);
   const busy = useRef(false);
   const current = useMemo<Page>(() => (page.key === key ? page : { key, ...EMPTY }), [page, key]);
@@ -112,6 +116,7 @@ export function useEventFeed(filters: EventFilters, initial: InitialEvents): Eve
     if (records.length === 0) return;
     setSeen((m) => remember(new Map(m), records));
     setSeenAgents((s) => rememberAgents(new Set(s), records));
+    setSeenTypes((s) => rememberTypes(new Set(s), records));
   }, []);
 
   // The first page for these filters. The server already loaded the page it opened with.
@@ -266,6 +271,7 @@ export function useEventFeed(filters: EventFilters, initial: InitialEvents): Eve
     [seen],
   );
   const agents = useMemo(() => [...seenAgents].sort(), [seenAgents]);
+  const types = useMemo(() => [...seenTypes].sort(), [seenTypes]);
 
   return {
     events,
@@ -283,6 +289,7 @@ export function useEventFeed(filters: EventFilters, initial: InitialEvents): Eve
     freshIds: fresh,
     principals,
     agents,
+    types,
   };
 }
 
@@ -315,5 +322,10 @@ function remember(map: Map<string, SeenPrincipal>, records: EventRecord[]) {
 
 function rememberAgents(set: Set<string>, records: EventRecord[]) {
   for (const { event: e } of records) if (e.koraagent) set.add(e.koraagent);
+  return set;
+}
+
+function rememberTypes(set: Set<string>, records: EventRecord[]) {
+  for (const { event: e } of records) set.add(e.type);
   return set;
 }

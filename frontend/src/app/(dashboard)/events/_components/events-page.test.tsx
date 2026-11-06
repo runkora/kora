@@ -30,6 +30,7 @@ function feed(over: Partial<EventFeed> = {}): EventFeed {
       type: e.koraprincipaltype,
     })),
     agents: ['triage'],
+    types: [],
     ...over,
   };
 }
