@@ -104,9 +104,15 @@ func (r *postgresSessionRepository) SwitchSession(ctx context.Context, next *Ses
 		if err := tx.QueryRow(ctx, `SELECT tenant_id FROM identity_sessions WHERE id = $1`, replaced.SessionID).Scan(&from); err != nil {
 			return fmt.Errorf("read replaced session tenant: %w", err)
 		}
+		if err := events.Publish(attributedTo(ctx, next.PrincipalID, next.PrincipalType, from), r.pool, events.Event{
+			Type: events.TenantSwitched, Tenant: from, Subject: "sessions/" + replaced.SessionID,
+			Entity: tenantSwitchEntity{SessionID: replaced.SessionID, PrincipalID: next.PrincipalID, Direction: "out"},
+		}); err != nil {
+			return err
+		}
 		return events.Publish(actingAs(ctx, next), r.pool, events.Event{
 			Type: events.TenantSwitched, Tenant: next.TenantID, Subject: "sessions/" + next.ID,
-			Entity: tenantSwitchEntity{SessionID: next.ID, PrincipalID: next.PrincipalID, FromTenant: from, ToTenant: next.TenantID},
+			Entity: tenantSwitchEntity{SessionID: next.ID, PrincipalID: next.PrincipalID, Direction: "in"},
 		})
 	})
 }

@@ -30,12 +30,13 @@ func newSessionEntity(s *Session) sessionEntity {
 	}
 }
 
-// tenantSwitchEntity is the switch an event carries.
+// tenantSwitchEntity is one side of a switch. Each tenant records its own
+// side, and neither names the other tenant.
 type tenantSwitchEntity struct {
 	SessionID   string `json:"session_id"`
 	PrincipalID string `json:"principal_id"`
-	FromTenant  string `json:"from_tenant"`
-	ToTenant    string `json:"to_tenant"`
+	// Direction is "out" in the tenant the person left and "in" in the one they joined.
+	Direction string `json:"direction"`
 }
 
 // patEntity is the personal access token an event carries. It leaves out the

@@ -26,7 +26,8 @@ type identityEvent struct {
 	Principal     string      `json:"koraprincipal"`
 	PrincipalType string      `json:"koraprincipaltype"`
 	Data          struct {
-		Changed []string `json:"changed"`
+		Entity  map[string]any `json:"entity"`
+		Changed []string       `json:"changed"`
 	} `json:"data"`
 }
 
@@ -107,7 +108,8 @@ func TestPostgres_IdentityEvents(t *testing.T) {
 			typesSeen = append(typesSeen, e.Type)
 		}
 		want := []events.Type{
-			events.SessionCreated, events.TenantSwitched, events.PATCreated, events.PATUpdated, events.PATRevoked, events.DelegationIssued,
+			events.SessionCreated, events.TenantSwitched, events.TenantSwitched,
+			events.PATCreated, events.PATUpdated, events.PATRevoked, events.DelegationIssued,
 		}
 		if !slices.Equal(typesSeen, want) {
 			t.Fatalf("events = %v, want %v", typesSeen, want)
@@ -115,14 +117,18 @@ func TestPostgres_IdentityEvents(t *testing.T) {
 		if got[0].PrincipalType != events.PrincipalUser || got[0].Tenant != tenant {
 			t.Errorf("sign-in event = %+v, want the user in their tenant", got[0])
 		}
-		if got[1].Tenant != next.TenantID {
-			t.Errorf("switch event tenant = %q, want %q", got[1].Tenant, next.TenantID)
+		// Each tenant records its own side of the switch, and neither names the other.
+		if got[1].Tenant != tenant || got[1].Data.Entity["direction"] != "out" || strings.Contains(string(bodies[1]), next.TenantID) {
+			t.Errorf("switch-out event = %s", bodies[1])
 		}
-		if got[5].Principal != principal || got[5].PrincipalType != events.PrincipalUser {
-			t.Errorf("delegation event = %+v, want the delegator as principal", got[5])
+		if got[2].Tenant != next.TenantID || got[2].Data.Entity["direction"] != "in" || strings.Contains(string(bodies[2]), `"`+tenant+`"`) {
+			t.Errorf("switch-in event = %s", bodies[2])
 		}
-		if !slices.Equal(got[3].Data.Changed, []string{"grant_id", "scopes"}) {
-			t.Errorf("PAT update changed = %v", got[3].Data.Changed)
+		if got[6].Principal != principal || got[6].PrincipalType != events.PrincipalUser {
+			t.Errorf("delegation event = %+v, want the delegator as principal", got[6])
+		}
+		if !slices.Equal(got[4].Data.Changed, []string{"grant_id", "scopes"}) {
+			t.Errorf("PAT update changed = %v", got[4].Data.Changed)
 		}
 		return errDiscard
 	})
