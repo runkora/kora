@@ -367,6 +367,17 @@ _is_platform_internal_path if {
 
 # ══ DELEGATION FAIL-CLOSED MARKER ════════════════════════════════════════════
 #
+# The grants the principal and the delegator hold, read through the
+# by_principal index so a decision costs the same at any tenant grant count.
+# An undefined principal or delegator holds no grants.
+_principal_grants contains data.grants.grants[i] if {
+	some i in data.grants.by_principal[concat(":", [_principal_type, _principal_id])]
+}
+
+_delegator_grants contains data.grants.grants[i] if {
+	some i in data.grants.by_principal[concat(":", [_delegator_principal_type, _delegator_id])]
+}
+
 # A grant carrying delegation_required marks its principal as a delegated agent
 # (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 2): the grant is
 # the ceiling half of the delegation intersection, never a standing
@@ -375,9 +386,7 @@ _is_platform_internal_path if {
 # agent's standing access — regardless of how the token was meant to travel.
 
 _principal_requires_delegation if {
-	some grant in data.grants.grants
-	grant.principal_type == _principal_type
-	grant.principal_id == _principal_id
+	some grant in _principal_grants
 	grant.delegation_required == true
 }
 
@@ -452,9 +461,7 @@ allow if {
 # ══ GRANT EVALUATION ════════════════════════════════════════════════════════
 
 principal_has_required_scope if {
-	some grant in data.grants.grants
-	grant.principal_type == _principal_type
-	grant.principal_id == _principal_id
+	some grant in _principal_grants
 	some granted_scope in grant.scopes
 	scope_covers(granted_scope, _required_scope)
 }
@@ -463,9 +470,7 @@ principal_has_required_scope if {
 # Using a partial set rule avoids OPA's "complete rules must not produce multiple
 # outputs" error when a principal holds overlapping grants.
 matched_grant_scopes contains granted_scope if {
-	some grant in data.grants.grants
-	grant.principal_type == _principal_type
-	grant.principal_id == _principal_id
+	some grant in _principal_grants
 	some granted_scope in grant.scopes
 	scope_covers(granted_scope, _required_scope)
 }
@@ -483,7 +488,7 @@ delegation_covers_required_scope if {
 # The delegator's side of the intersection is the person's FULL held access —
 # direct grants plus role-derived scopes — resolved offline from bundle data:
 #
-#   data.grants.grants                    direct grants (id AND principal type)
+#   data.grants.by_principal              direct grants (id AND principal type)
 #   data.principal_roles.principal_roles  user→role membership — the bundled
 #                                         user_profiles snapshot, the same
 #                                         source PAT role attribution uses
@@ -498,9 +503,7 @@ delegation_covers_required_scope if {
 # delegator_principal_type so two principal types sharing an id string can
 # never satisfy this leg.
 _delegator_holds(scope) if {
-	some grant in data.grants.grants
-	grant.principal_type == _delegator_principal_type
-	grant.principal_id == _delegator_id
+	some grant in _delegator_grants
 	some gs in grant.scopes
 	scope_covers(gs, scope)
 }
@@ -625,9 +628,7 @@ _egress_host_pattern(scope) := parts[1] if {
 
 # The principal holds an egress grant whose host pattern covers the CONNECT host.
 _principal_egress_allows if {
-	some grant in data.grants.grants
-	grant.principal_type == _principal_type
-	grant.principal_id == _principal_id
+	some grant in _principal_grants
 	some scope in grant.scopes
 	_host_matches(_egress_host_pattern(scope), _connect_host)
 }
@@ -644,9 +645,7 @@ _l2_egress_host := parts[1] if {
 }
 
 _principal_own_egress_allows if {
-	some grant in data.grants.grants
-	grant.principal_type == _principal_type
-	grant.principal_id == _principal_id
+	some grant in _principal_grants
 	some scope in grant.scopes
 	_host_matches(_own_egress_host_pattern(scope), _l2_egress_host)
 }
@@ -880,9 +879,7 @@ reason := "deny:no_route_match" if {
 
 # Scopes from direct grants.
 principal_all_scopes contains scope if {
-	some grant in data.grants.grants
-	grant.principal_type == _principal_type
-	grant.principal_id == _principal_id
+	some grant in _principal_grants
 	some scope in grant.scopes
 }
 
@@ -901,9 +898,7 @@ principal_all_scopes contains scope if {
 
 # Grants: one entry per matching grant with its ID and scopes.
 principal_grant_detail contains {"grant_id": grant.id, "scopes": grant.scopes} if {
-	some grant in data.grants.grants
-	grant.principal_type == _principal_type
-	grant.principal_id == _principal_id
+	some grant in _principal_grants
 }
 
 # Roles: one entry per matching role with the role name and its resolved scopes.
