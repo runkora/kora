@@ -20,7 +20,7 @@ The event spine is a durable, tenant-scoped record of what happens on the platfo
 
 *   kora keeps a durable history in two places only. `run_events` records activity inside one run, and the trigger delivery tables record inbound fires and their outcomes.
 *   Run lifecycle changes are partly recorded. A run entering `pending` or `starting` writes no event, and some failure paths write none.
-*   Terminating a run deletes the run and its event history (`backend/internal/agents/postgres.go`).
+*   Terminating a run deletes the run and its event history.
 *   Changes to grants, roles, budgets, tokens and agents keep the current state only. Nothing records who made a change or what it was before.
 *   Identity activity (sign-ins, token issuance and revocation, delegation, tenant switches) appears only in service logs.
 *   Triggers fire on external webhooks, schedules and manual fires. A trigger cannot fire on something that happened inside kora.
