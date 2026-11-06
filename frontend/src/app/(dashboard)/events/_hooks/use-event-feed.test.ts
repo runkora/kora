@@ -131,4 +131,17 @@ describe('useEventFeed', () => {
     await waitFor(() => expect(result.current.events.map((e) => e.id)).toEqual(['e5']));
     expect(result.current.hasMore).toBe(true);
   });
+
+  it('keeps the stream open when an older page fails', async () => {
+    api.fetchEventPage.mockResolvedValue({ page: null, error: 'Could not load the events.' });
+    const { result } = renderHook(() =>
+      useEventFeed(NO_FILTERS, { ...initial, page: { ...initial.page, next_cursor: 'c' } }),
+    );
+    await waitFor(() => expect(api.sources).toHaveLength(1));
+    act(() => result.current.loadOlder());
+    await waitFor(() => expect(result.current.olderError).toBe('Could not load the events.'));
+    expect(result.current.error).toBeNull();
+    expect(api.sources[0]?.closed).toBe(false);
+    expect(result.current.stream).toBe('live');
+  });
 });

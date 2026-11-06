@@ -27,7 +27,10 @@ export interface EventFeed {
   events: KoraEvent[];
   /** The first page has not landed. */
   loading: boolean;
+  /** The first page failed. */
   error: string | null;
+  /** The last "Load older" failed. Older pages failing leaves the stream open. */
+  olderError: string | null;
   retry: () => void;
   hasMore: boolean;
   loadingMore: boolean;
@@ -52,9 +55,17 @@ interface Page {
   loading: boolean;
   loadingMore: boolean;
   error: string | null;
+  olderError: string | null;
 }
 
-const EMPTY = { records: [], cursor: null, loading: true, loadingMore: false, error: null };
+const EMPTY = {
+  records: [],
+  cursor: null,
+  loading: true,
+  loadingMore: false,
+  error: null,
+  olderError: null,
+};
 
 export interface InitialEvents {
   /** The filters the server loaded for. */
@@ -79,6 +90,7 @@ export function useEventFeed(filters: EventFilters, initial: InitialEvents): Eve
           loading: false,
           loadingMore: false,
           error: initial.error,
+          olderError: null,
         },
   );
   const [attempt, setAttempt] = useState(0);
@@ -125,6 +137,7 @@ export function useEventFeed(filters: EventFilters, initial: InitialEvents): Eve
         loading: false,
         loadingMore: false,
         error,
+        olderError: null,
       });
     });
     return () => {
@@ -136,7 +149,7 @@ export function useEventFeed(filters: EventFilters, initial: InitialEvents): Eve
     if (busy.current || current.loading || current.cursor === null) return;
     busy.current = true;
     const mine = epoch.current;
-    setPage({ ...current, loadingMore: true, error: null });
+    setPage({ ...current, loadingMore: true, olderError: null });
     const query = new URLSearchParams(params);
     query.set('limit', String(EVENT_PAGE_SIZE));
     query.set('cursor', current.cursor);
@@ -153,7 +166,7 @@ export function useEventFeed(filters: EventFilters, initial: InitialEvents): Eve
               // A failed page keeps the cursor, so "Load older" doubles as the retry.
               cursor: error === null ? (data?.next_cursor ?? null) : prev.cursor,
               loadingMore: false,
-              error,
+              olderError: error,
             },
       );
     });
@@ -252,6 +265,7 @@ export function useEventFeed(filters: EventFilters, initial: InitialEvents): Eve
     events,
     loading: current.loading,
     error: current.error,
+    olderError: current.olderError,
     retry,
     hasMore: current.cursor !== null,
     loadingMore: current.loadingMore,

@@ -208,4 +208,15 @@ describe('links from the Events page', () => {
       'true',
     );
   });
+
+  it('stops looking for a linked delivery once a page fails', async () => {
+    nav.search = 'tab=deliveries&delivery=dlv-x';
+    api.listDeliveryPage
+      .mockResolvedValueOnce({ deliveries: [raw('dlv-1')], nextCursor: 'c1', error: null })
+      .mockResolvedValue({ deliveries: [], nextCursor: null, error: 'boom' });
+    renderPage();
+    await waitFor(() => expect(api.listDeliveryPage).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(api.listDeliveryPage).toHaveBeenCalledTimes(2);
+  });
 });
