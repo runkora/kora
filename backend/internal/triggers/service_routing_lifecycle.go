@@ -180,7 +180,7 @@ func (s *TriggerService) grantHolds(ctx context.Context, grantID *string, scopes
 
 // authorizeCaller fails unless the caller holds every given scope, listing the ones missing.
 func (s *TriggerService) authorizeCaller(ctx context.Context, claims *token.PlatformClaims, scopes []string) error {
-	missing, err := s.missingScopes(ctx, claims, scopes)
+	missing, err := missingScopes(ctx, s.eval, claims, scopes)
 	if err != nil {
 		return err
 	}
@@ -194,18 +194,18 @@ func (s *TriggerService) authorizeCaller(ctx context.Context, claims *token.Plat
 // in-process policy evaluator and returns the ones it denies. It fails closed:
 // no claims deny every scope, and a missing evaluator or an evaluation error
 // is an error.
-func (s *TriggerService) missingScopes(ctx context.Context, claims *token.PlatformClaims, scopes []string) ([]string, error) {
+func missingScopes(ctx context.Context, eval scopeChecker, claims *token.PlatformClaims, scopes []string) ([]string, error) {
 	if claims == nil {
 		return scopes, nil
 	}
-	if s.eval == nil {
+	if eval == nil {
 		return nil, fmt.Errorf("%w: no policy evaluator configured", ErrCallerLacksScopes)
 	}
 	var missing []string
 	for _, scope := range scopes {
 		in := scopeCheckInput(scope)
 		in.Claims, in.Delegation = claims, policy.DelegationFromContext(ctx)
-		res, err := s.eval.Check(ctx, in)
+		res, err := eval.Check(ctx, in)
 		if err != nil {
 			return nil, fmt.Errorf("evaluate %s: %w", scope, err)
 		}
