@@ -280,7 +280,7 @@ A relay batch runs in one transaction:
 5.  Delete the selected outbox rows, update `last_seq` and send `NOTIFY kora_events, '<last seq>'`.
 6.  Commit.
 
-Only the lock holder assigns `seq`, inside the batch transaction. An outbox row that commits after a later `position` was relayed is picked up by the next batch. `Publish` sends `pg_notify('kora_events_outbox', '')` in the producer transaction. The relay runs a batch on each notification and every second.
+Only the lock holder assigns `seq`, inside the batch transaction. A row whose envelope does not decode or does not match its `tenant_id` is deleted and logged with no event. An outbox row that commits after a later `position` was relayed is picked up by the next batch. `Publish` sends `pg_notify('kora_events_outbox', '')` in the producer transaction. The relay runs a batch on each notification and every second.
 
 ### 6. Read API
 

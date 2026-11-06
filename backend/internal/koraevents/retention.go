@@ -2,6 +2,7 @@ package koraevents
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -15,6 +16,8 @@ type sweepStore interface {
 // retentionSource returns each tenant's declared retention in days.
 type retentionSource interface {
 	EventRetentionDays() map[string]int
+	Loaded() bool
+	Err() error
 }
 
 // Retention deletes events older than their tenant's retention.
@@ -43,6 +46,10 @@ func (r *Retention) Run(ctx context.Context) {
 // Sweep deletes every expired event, a batch at a time. It stops when another
 // replica holds the retention lock.
 func (r *Retention) Sweep(ctx context.Context) error {
+	// An unreadable registry would apply the default to tenants that keep longer.
+	if err := r.tenants.Err(); err != nil && !r.tenants.Loaded() {
+		return fmt.Errorf("tenant registry unreadable, sweep skipped: %w", err)
+	}
 	overrides := r.tenants.EventRetentionDays()
 	except := make([]string, 0, len(overrides))
 	for tenant, days := range overrides {

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -267,6 +268,13 @@ func (f *fakeSweeps) SweepBatch(_ context.Context, scope SweepScope, cutoff time
 type retentionDays map[string]int
 
 func (r retentionDays) EventRetentionDays() map[string]int { return r }
+func (r retentionDays) Loaded() bool                       { return r != nil }
+func (r retentionDays) Err() error {
+	if r == nil {
+		return errors.New("unreadable")
+	}
+	return nil
+}
 
 func TestRetention_Sweep(t *testing.T) {
 	store := &fakeSweeps{locked: true}
@@ -277,6 +285,11 @@ func TestRetention_Sweep(t *testing.T) {
 	if len(store.scopes) != 2 || store.scopes[0].Tenant != "t1" || store.days[0] != 7 ||
 		!slices.Equal(store.scopes[1].Except, []string{"t1"}) || store.days[1] != 30 {
 		t.Errorf("sweeps = %+v days %v, want t1 at 7 days then the rest at 30", store.scopes, store.days)
+	}
+
+	unread := &fakeSweeps{locked: true}
+	if err := NewRetention(unread, retentionDays(nil), 30, testLogger).Sweep(context.Background()); err == nil || len(unread.scopes) != 0 {
+		t.Errorf("sweep with an unreadable registry ran %d batches (%v), want none and an error", len(unread.scopes), err)
 	}
 
 	lost := &fakeSweeps{}

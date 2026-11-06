@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"path"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -146,7 +147,7 @@ func newEnvelope(ctx context.Context, id uuid.UUID, e Event, at time.Time) (Enve
 	}
 	principal, principalType := source, PrincipalSystem
 	if claims, ok := token.ClaimsFromContext(ctx); ok && claims != nil {
-		principal, principalType = claims.Subject, principalTypeOf(claims.Kora.PrincipalType)
+		principal, principalType = claims.Subject, principalTypeOf(claims)
 	}
 	var delegator string
 	if d := policy.DelegationFromContext(ctx); d != nil {
@@ -195,16 +196,20 @@ func validate(e Event) error {
 	return nil
 }
 
-// principalTypeOf maps a token principal type to the event vocabulary. A PAT
-// acts as its user, and a SERVICE principal is a trigger.
-func principalTypeOf(t token.PrincipalType) string {
-	switch t {
+// principalTypeOf maps a token principal to the event vocabulary. A PAT acts
+// as its user. A SERVICE principal is a trigger when its subject is a trigger
+// or webhook source principal, and the platform otherwise.
+func principalTypeOf(claims *token.PlatformClaims) string {
+	switch claims.Kora.PrincipalType {
 	case token.PrincipalTypeHuman, token.PrincipalTypePAT:
 		return PrincipalUser
 	case token.PrincipalTypeAgent:
 		return PrincipalAgent
 	case token.PrincipalTypeService:
-		return PrincipalTrigger
+		if strings.HasPrefix(claims.Subject, "trigger:") || strings.HasPrefix(claims.Subject, "trigger-source:") {
+			return PrincipalTrigger
+		}
+		return PrincipalSystem
 	default:
 		return PrincipalSystem
 	}
