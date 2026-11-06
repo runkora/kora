@@ -1,6 +1,6 @@
 # Policy Bundle Grants Index
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-11-06  
 **Deciders:** Platform Team  
 **Technical Story:** `GET /api/v1/triggers` latency in v0.12.0-rc.3
