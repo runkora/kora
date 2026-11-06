@@ -21,38 +21,39 @@ import {
 import type { DataTableColumn } from '@runkora/hades';
 import { deliveryDotStatus, dispatchDuration } from '../_types';
 import type { DeliveryRow } from '../_types';
-import type { StatsWindow, TriggerStatsRow } from '../_types/stats';
+import { rangeSuffix } from '../_types/stats';
+import type { StatsRange, TriggerStatsRow } from '../_types/stats';
 import { DeliveryDetail } from './delivery-detail';
 import { NextPageError } from './next-page-error';
 import type { RedeliverAction } from './delivery-detail';
 import type { RoutingAgentName } from './delivery-routing';
 
 /**
- * A quick filter: `all`, or the trigger status the API filters this trigger's deliveries on.
- * Every outcome counts under exactly one, so the counts add up to All.
+ * The quick filters: `all`, or the trigger status the API filters this trigger's deliveries on.
+ * Each outcome counts under one, and the counts sum to All.
  */
-export type DeliveryFilter =
-  | 'all'
-  | 'started'
-  | 'failed'
-  | 'filtered'
-  | 'skipped'
-  | 'superseded'
-  | 'duplicate'
-  | 'missed'
-  | 'verified';
-
-const FILTERS: { value: DeliveryFilter; label: string }[] = [
+const FILTERS = [
   { value: 'all', label: 'All' },
   { value: 'started', label: 'Started' },
   { value: 'failed', label: 'Failed' },
   { value: 'filtered', label: 'Filtered' },
   { value: 'skipped', label: 'Skipped' },
   { value: 'superseded', label: 'Superseded' },
-  { value: 'duplicate', label: 'Duplicate' },
   { value: 'missed', label: 'Missed' },
   { value: 'verified', label: 'Verified' },
-];
+] as const;
+
+export type DeliveryFilter = (typeof FILTERS)[number]['value'];
+
+/** How the range reads in the list's text. All history has no counts. */
+function rangeText(range: StatsRange): { suffix: string; caption: string | null; aria: string } {
+  if (range === 'all') return { suffix: '', caption: null, aria: 'Filter deliveries by outcome' };
+  return {
+    suffix: rangeSuffix(range),
+    caption: `Last ${range}`,
+    aria: `Filter deliveries by outcome, with counts for the last ${range}`,
+  };
+}
 
 /** How tall the table grows before its rows scroll inside it. */
 const TABLE_MAX_HEIGHT = '26rem';
@@ -62,14 +63,16 @@ interface DeliveryListProps {
   deliveries: DeliveryRow[];
   filter: DeliveryFilter;
   onFilterChange: (filter: DeliveryFilter) => void;
-  /** The trigger's stats over the window, which the filter counts show. */
+  /** The trigger's stats over the range, which the filter counts show. */
   stats: TriggerStatsRow;
-  /** The window the counts and the list cover, e.g. `24h`. */
-  window: StatsWindow;
+  /** The range the counts and the list cover. All history shows no counts. */
+  window: StatsRange;
   /** The first page has not landed: a placeholder shows in place of the table. */
   loading?: boolean;
-  /** There are older deliveries in the window; the pager fetches them. */
+  /** There are older deliveries in the range; the pager fetches them. */
   hasMore?: boolean;
+  /** An older page is on its way. */
+  loadingMore?: boolean;
   /** Why the last fetch failed, if it did. */
   error?: string | null;
   onLoadOlder?: () => void;
@@ -127,6 +130,7 @@ export function DeliveryList({
   window: range,
   loading = false,
   hasMore = false,
+  loadingMore,
   error = null,
   onLoadOlder,
   onRetry,
@@ -157,8 +161,12 @@ export function DeliveryList({
       }),
     [deliveries, triggerId],
   );
-  const counts = (f: DeliveryFilter) =>
-    f === 'all' ? stats.deliveries : (stats.statusCounts[f] ?? 0);
+  const text = rangeText(range);
+  const options = FILTERS.map((f) =>
+    range === 'all'
+      ? f
+      : { ...f, count: f.value === 'all' ? stats.deliveries : (stats.statusCounts[f.value] ?? 0) },
+  );
 
   const columns = useMemo<DataTableColumn<DeliveryTableRow>[]>(
     () => [
@@ -273,7 +281,7 @@ export function DeliveryList({
         <SectionLabel>Deliveries</SectionLabel>
         <EmptyState
           icon="clock"
-          title={`No deliveries in the last ${range}`}
+          title={`No deliveries${text.suffix}`}
           description={emptyDescription(sourceName, eventType)}
         />
       </Stack>
@@ -291,9 +299,7 @@ export function DeliveryList({
         noun="deliveries"
         columnToggle={false}
         maxHeight={TABLE_MAX_HEIGHT}
-        emptyMessage={
-          loading ? 'Loading deliveries…' : `No ${filter} deliveries in the last ${range}.`
-        }
+        emptyMessage={loading ? 'Loading deliveries…' : `No ${filter} deliveries${text.suffix}.`}
         searchPlaceholder="Search deliveries…"
         searchFn={({ d, status }, q) =>
           d.id.toLowerCase().includes(q) ||
@@ -304,14 +310,16 @@ export function DeliveryList({
         quickFilters={
           <Stack direction="horizontal" align="center" gap="cozy">
             <SegmentedControl
-              aria-label={`Filter deliveries by outcome, with counts for the last ${range}`}
+              aria-label={text.aria}
               value={filter}
               onChange={(v) => onFilterChange(v as DeliveryFilter)}
-              options={FILTERS.map((f) => ({ ...f, count: counts(f.value) }))}
+              options={options}
             />
-            <Text size="caption" color="muted">
-              Last {range}
-            </Text>
+            {text.caption !== null && (
+              <Text size="caption" color="muted">
+                {text.caption}
+              </Text>
+            )}
           </Stack>
         }
         expandedKeys={new Set(expandedId === null ? [] : [expandedId])}
@@ -330,10 +338,11 @@ export function DeliveryList({
           pageSizeOptions: [10, 25, 50],
           defaultPageSize: 10,
           hasMore,
+          loadingMore,
           onLoadMore: onLoadOlder,
         }}
       />
-      <NextPageError error={error} rows={rows.length} />
+      <NextPageError error={error} hasRows={rows.length > 0} />
     </Stack>
   );
 }

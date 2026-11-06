@@ -1009,7 +1009,7 @@ export interface TriggerStats {
   failed: number;
   /**
    * Counts by the trigger status `status=` filters a trigger's deliveries on: started, failed,
-   * filtered, skipped, superseded, duplicate, missed, verified. They sum to `deliveries`.
+   * filtered, skipped, superseded, missed, verified. They sum to `deliveries`.
    */
   status_counts: Record<string, number>;
   /**
@@ -1188,12 +1188,11 @@ export interface TriggerFireResponse {
   run_id: string;
 }
 
-/** GET /api/v1/triggers: the triggers with their stats, the tenant's stats and the window they cover. */
+/** GET /api/v1/triggers: the triggers with their stats, and the tenant's stats. */
 export interface TriggerList {
   triggers: Trigger[];
   /** Null when the API answered without tenant stats. */
   stats: TenantTriggerStats | null;
-  window: TriggerStatsWindow;
 }
 
 /** One page of deliveries, newest first. `next_cursor` is null on the last page. */

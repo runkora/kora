@@ -71,20 +71,18 @@ describe('DeliveryList', () => {
     expect(count(/Started/)).toBe(4);
     expect(count(/Filtered/)).toBe(5);
     expect(count(/Missed/)).toBe(0);
-    const chips = [
-      /Started/,
-      /Failed/,
-      /Filtered/,
-      /Skipped/,
-      /Superseded/,
-      /Duplicate/,
-      /Missed/,
-      /Verified/,
-    ];
+    const chips = [/Started/, /Failed/, /Filtered/, /Skipped/, /Superseded/, /Missed/, /Verified/];
     expect(chips.reduce((sum, name) => sum + count(name), 0)).toBe(count(/All/));
     expect(screen.getByText('Last 7d')).toBeInTheDocument();
     fireEvent.click(within(group).getByRole('button', { name: /Filtered/ }));
     expect(onFilterChange).toHaveBeenCalledWith('filtered');
+  });
+
+  it('shows the chips without counts for all history', () => {
+    renderList({ window: 'all' });
+    const group = screen.getByRole('group', { name: 'Filter deliveries by outcome' });
+    expect(within(group).getByRole('button', { name: 'Started' })).toHaveTextContent(/^Started$/);
+    expect(screen.queryByText(/^Last /)).toBeNull();
   });
 
   it('keeps the filter on screen when a filtered page is empty', () => {
@@ -109,7 +107,6 @@ describe('DeliveryList', () => {
     const onLoadOlder = vi.fn();
     renderList({ hasMore: true, onLoadOlder });
     expect(screen.getByText(/of 6\+/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Load older' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
     expect(onLoadOlder).toHaveBeenCalledTimes(1);
   });

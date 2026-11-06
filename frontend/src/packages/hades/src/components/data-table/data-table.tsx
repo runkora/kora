@@ -56,10 +56,10 @@
  * **Server-side** — manage page state externally, pass the current page slice
  * as `data`. Render your own pagination controls beneath the table.
  *
- * **Loaded on demand** — pass `hasMore` and `onLoadMore` with `pagination` when
- * `data` is the rows fetched so far. The footer reads "1–25 of 50+", and the
- * next-page button on the last loaded page asks for more rows and turns the page
- * once they arrive.
+ * **Loaded on demand:** pass `hasMore`, `onLoadMore` and `loadingMore` with
+ * `pagination` when `data` is the rows fetched so far. The footer reads
+ * "1–25 of 50+", and the next-page button on the last loaded page asks for more
+ * rows and turns the page once they arrive.
  *
  * **Server-side sort** — provide `onSortChange`; DataTable delegates reordering
  * to the consumer and disables client-side sort.
@@ -293,6 +293,8 @@ export interface DataTableProps<TData> {
     hasMore?: boolean;
     /** Asks for more rows when the next page runs past `data`. */
     onLoadMore?: () => void;
+    /** More rows are on their way. Next is disabled until they land or the request fails. */
+    loadingMore?: boolean;
   };
 }
 
@@ -717,7 +719,6 @@ export function DataTable<TData>({
     }));
 
   // Pagination window
-  const pageCount = safePageCount;
   const from = pagination && allRows.length > 0 ? safePage * pageSize + 1 : 1;
   const to = pagination ? Math.min((safePage + 1) * pageSize, allRows.length) : allRows.length;
 
@@ -876,7 +877,7 @@ export function DataTable<TData>({
         </div>
 
         {/* Pagination footer */}
-        {pagination && (pageCount > 1 || nextPage.more) && (
+        {pagination && nextPage.footer && (
           <DataTablePagination
             from={from}
             to={to}
@@ -1313,11 +1314,7 @@ function FilterButton({
 
 // ─── Internal: Next page, loaded on demand ─────────────────────────────────────
 
-/**
- * The next-page button's behaviour. Within the loaded rows it turns the page.
- * On the last loaded page, with more rows to come, it asks for them and turns
- * the page once they arrive.
- */
+/** Next-page behaviour when rows load on demand. */
 function useNextPage(
   pagination: DataTableProps<unknown>['pagination'],
   rowCount: number,
@@ -1325,26 +1322,38 @@ function useNextPage(
   pageSize: number,
   setPage: (page: number) => void,
 ) {
-  const [awaiting, setAwaiting] = React.useState(false);
+  // The row count when more rows were asked for; the page turns once it grows.
+  const [askedAt, setAskedAt] = React.useState<number | null>(null);
   const more = pagination?.hasMore === true;
+  const loading = pagination?.loadingMore === true;
   const onLastPage = (page + 1) * pageSize >= rowCount;
 
   React.useLayoutEffect(() => {
-    if (!awaiting) return;
-    if (!onLastPage) setPage(page + 1);
-    if (!onLastPage || !more) setAwaiting(false);
-  }, [awaiting, onLastPage, more, page, setPage]);
+    if (askedAt === null) return;
+    if (rowCount > askedAt) {
+      setPage(page + 1);
+      setAskedAt(null);
+    } else if (!loading) {
+      setAskedAt(null);
+    }
+  }, [askedAt, rowCount, loading, page, setPage]);
 
   function go() {
     if (!onLastPage) {
       setPage(page + 1);
       return;
     }
-    setAwaiting(true);
+    setAskedAt(rowCount);
     pagination?.onLoadMore?.();
   }
 
-  return { more, go, disabled: awaiting || (onLastPage && !more) };
+  // The footer shows once there is a second page, loaded or not.
+  return {
+    more,
+    go,
+    disabled: loading || (onLastPage && !more),
+    footer: rowCount > pageSize || more,
+  };
 }
 
 // ─── Internal: Pagination footer ───────────────────────────────────────────────

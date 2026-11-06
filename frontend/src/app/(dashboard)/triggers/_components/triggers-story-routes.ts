@@ -67,7 +67,6 @@ function toWireDelivery(d: DeliveryRow): TriggerDelivery {
   };
 }
 
-/** Whether a status (a trigger's own outcome, else the delivery's) passes a `status` filter. */
 /** The trigger status each outcome counts under, as the API groups them. */
 const TRIGGER_STATUS: Record<string, string> = {
   dispatched: 'started',
@@ -78,6 +77,10 @@ const TRIGGER_STATUS: Record<string, string> = {
   paused: 'skipped',
 };
 
+/**
+ * Whether a status (a trigger's own outcome, else the delivery's) passes a `status` filter: a
+ * trigger status when scoped to a trigger, else a delivery status.
+ */
 function inStatus(filter: string, status: string, scoped: boolean): boolean {
   if (!scoped)
     return filter === 'failed' ? deliveryDotStatus(status) === 'error' : status === filter;
@@ -126,8 +129,6 @@ export function deliveryRoutes(rows: DeliveryRow[]): MockRoutes {
 /** The client-side calls the modal and the wizard make while open. */
 export const catalogRoutes: MockRoutes = {
   ...deliveryRoutes(DELIVERIES),
-  // The 7d range: the mock fleet has no activity a week back beyond what the 24h stats show.
-  'GET /api/triggers': { data: { triggers: [], stats: null, window: '7d' } },
   'GET /api/triggers/routing/candidates': { data: routingCandidates(4) },
   'GET /api/models': { data: modelCatalog(true) },
   'GET /api/trigger-sources/:id/event-types': (req: MockRequest) => {

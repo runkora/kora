@@ -2,7 +2,7 @@ import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@runkora/server/route-helpers';
 import { listTriggers, createTrigger } from '@runkora/server/triggers-client';
-import type { TriggerCreateRequest, TriggerStatsWindow } from '@runkora/shared/api';
+import type { TriggerCreateRequest } from '@runkora/shared/api';
 
 function validateCreateRequest(body: TriggerCreateRequest): string | null {
   if (!body.name?.trim()) return 'name is required';
@@ -36,10 +36,9 @@ function validateCreateRequest(body: TriggerCreateRequest): string | null {
 // agent's, with their stats and the tenant's over the window.
 export const GET = withAuth(async (req: NextRequest, session) => {
   const q = req.nextUrl.searchParams;
-  const statsWindow = q.get('window');
   const list = await listTriggers(session.accessToken, {
     agentTypeId: q.get('agent_type_id') ?? undefined,
-    ...(statsWindow !== null && { window: statsWindow as TriggerStatsWindow }),
+    window: q.get('window') ?? undefined,
   });
   return NextResponse.json({ data: list });
 });

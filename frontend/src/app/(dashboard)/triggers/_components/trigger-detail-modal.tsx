@@ -31,7 +31,6 @@ import {
   SectionLabel,
   Modal,
   ModalHeader,
-  SegmentedControl,
   Stack,
   StatusDot,
   Tabs,
@@ -74,8 +73,7 @@ import type { FilterRow } from './filter-rows-editor';
 import { SenderRestrictionEditor } from './sender-restriction-editor';
 import type { SenderRestrictionDraft } from './sender-restriction-editor';
 import { useSourceCatalog } from './use-source-catalog';
-import { STATS_WINDOW_OPTIONS, isStatsWindow } from '../_types/stats';
-import type { StatsWindow } from '../_types/stats';
+import type { StatsRange } from '../_types/stats';
 import { schemaCatalog, scheduledCatalog, toTemplateCatalog } from './trigger-wizard/field-catalog';
 import {
   matchConditionFrom,
@@ -176,9 +174,8 @@ interface TriggerDetailModalProps {
   canRunAgent: boolean;
   /** Names a routed trigger's candidates and the agents its decisions mention. */
   agents?: RoutingAgentName[];
-  /** The range the stats, the filter counts and the delivery list cover; the page's own. */
-  window: StatsWindow;
-  onWindowChange: (window: StatsWindow) => void;
+  /** The page's range, which the stats, the filter counts and the delivery list cover. */
+  window: StatsRange;
 }
 
 /**
@@ -400,7 +397,6 @@ function TriggerDetailModalBody({
   canRunAgent,
   agents = [],
   window: range,
-  onWindowChange,
 }: TriggerDetailModalProps) {
   // Without triggers:write every write handler is dropped, which disables its
   // control. Run-shaping edits also need run authority on the bound agent.
@@ -1146,30 +1142,27 @@ function TriggerDetailModalBody({
             <TabsContent value="overview">
               <Stack gap="comfortable" padding="relaxed">
                 {notice}
-                <Stack direction="horizontal" justify="end">
-                  <SegmentedControl
-                    aria-label="Range"
-                    value={range}
-                    onChange={(v) => isStatsWindow(v) && onWindowChange(v)}
-                    options={STATS_WINDOW_OPTIONS}
-                  />
-                </Stack>
                 {/* One row once the modal is wide enough; two columns below that. */}
                 <Grid
                   cols={trigger.pendingCount > 0 ? { base: 2, sm: 3, md: 5 } : { base: 2, md: 4 }}
                   gap="snug"
                 >
-                  <DetailStat label={`Deliveries ${range}`} value={String(deliveries)} />
-                  <DetailStat
-                    label={`Succeeded ${range}`}
-                    value={String(started)}
-                    tone={started > 0 ? 'healthy' : undefined}
-                  />
-                  <DetailStat
-                    label={`Failed ${range}`}
-                    value={String(failed)}
-                    tone={failed > 0 ? 'error' : undefined}
-                  />
+                  {/* All history has no window counts. */}
+                  {range !== 'all' && (
+                    <>
+                      <DetailStat label={`Deliveries ${range}`} value={String(deliveries)} />
+                      <DetailStat
+                        label={`Succeeded ${range}`}
+                        value={String(started)}
+                        tone={started > 0 ? 'healthy' : undefined}
+                      />
+                      <DetailStat
+                        label={`Failed ${range}`}
+                        value={String(failed)}
+                        tone={failed > 0 ? 'error' : undefined}
+                      />
+                    </>
+                  )}
                   <DetailStat
                     label="Consecutive failures"
                     value={String(trigger.consecutiveFailures)}
@@ -1313,6 +1306,7 @@ function TriggerDetailModalBody({
                   window={range}
                   loading={history.loading}
                   hasMore={history.hasMore}
+                  loadingMore={history.loadingMore}
                   error={history.error}
                   onLoadOlder={history.loadOlder}
                   onRetry={history.retry}

@@ -32,10 +32,10 @@ import { TriggerDetailModal } from './trigger-detail-modal';
 import { TriggerList } from './trigger-list';
 import { DeliveryGrid } from './delivery-grid';
 import { consoleKindOf, runTargets } from '../_types';
-import { DEFAULT_STATS_WINDOW, STATS_WINDOW_OPTIONS, isStatsWindow } from '../_types/stats';
-import type { StatsWindow, TenantStatsRow } from '../_types/stats';
+import { STATS_RANGE_OPTIONS, rangeSuffix, statsWindowOf } from '../_types/stats';
+import type { StatsRange, TenantStatsRow } from '../_types/stats';
 import { useTriggerDeliveries } from './use-trigger-deliveries';
-import { useWindowedTriggers } from './use-windowed-triggers';
+import { useStatsRange } from './use-stats-range';
 import { ingestHostFromWindow } from '../_lib/endpoints';
 import type {
   AgentOption,
@@ -53,6 +53,8 @@ interface TriggersPageProps {
   triggers: TriggerRow[];
   /** Null when the API answered without tenant stats. */
   stats: TenantStatsRow | null;
+  /** The `?window=` range the server loaded the stats for. */
+  range: StatsRange;
   agents: AgentOption[];
   agentsError?: string | null;
   error: string | null;
@@ -79,21 +81,16 @@ const KIND_FILTER_NOUN: Record<ConsoleKind, string> = {
 
 export function TriggersPage({
   sources,
-  triggers: serverTriggers,
-  stats: serverStats,
+  triggers,
+  stats,
+  range,
   agents,
   agentsError = null,
-  error: loadError,
+  error,
 }: TriggersPageProps) {
   const router = useRouter();
   // One range for the cards, the list's activity column, the Deliveries tab and the open modal.
-  const [range, setRange] = useState<StatsWindow>(DEFAULT_STATS_WINDOW);
-  const { triggers, stats, error } = useWindowedTriggers(
-    serverTriggers,
-    serverStats,
-    range,
-    loadError,
-  );
+  const { setRange } = useStatsRange();
   const canWrite = useHasScope('triggers:write');
   // A locked tenant takes its triggers and sources from the configuration repository.
   const locked = useTenantLocked();
@@ -227,10 +224,10 @@ export function TriggersPage({
             </Text>
           </Stack>
           <SegmentedControl
-            aria-label="Range"
+            aria-label="Period"
             value={range}
-            onChange={(v) => isStatsWindow(v) && setRange(v)}
-            options={STATS_WINDOW_OPTIONS}
+            onChange={setRange}
+            options={STATS_RANGE_OPTIONS}
           />
         </Stack>
       </Stack>
@@ -303,7 +300,7 @@ export function TriggersPage({
                 )
               }
               resetKey={kindFilter}
-              window={range}
+              window={statsWindowOf(range)}
               triggers={visibleTriggers}
               sourceName={sourceName}
               sourceCategory={sourceCategory}
@@ -344,8 +341,8 @@ export function TriggersPage({
             onOpen={setDetailDelivery}
             emptyMessage={
               deliveryStatus === 'all'
-                ? `No deliveries in the last ${range}. Arrivals and their outcomes appear here once a source receives events, a schedule ticks, or a trigger is fired.`
-                : `No ${deliveryStatus} deliveries in the last ${range}.`
+                ? `No deliveries${rangeSuffix(range)}. Arrivals and their outcomes appear here once a source receives events, a schedule ticks, or a trigger is fired.`
+                : `No ${deliveryStatus} deliveries${rangeSuffix(range)}.`
             }
           />
         </TabsContent>
@@ -393,7 +390,6 @@ export function TriggersPage({
         firing={firingId === modalRow?.id}
         agents={agents}
         window={range}
-        onWindowChange={setRange}
       />
 
       {/* One modal owns the whole creation flow: kind picker, the kind's own

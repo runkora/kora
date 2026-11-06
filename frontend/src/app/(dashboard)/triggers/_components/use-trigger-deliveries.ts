@@ -10,8 +10,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listDeliveryPage } from '../_services/triggers-api';
 import { toDeliveryRow } from '../_types';
 import type { DeliveryRow } from '../_types';
-import { windowStart } from '../_types/stats';
-import type { StatsWindow } from '../_types/stats';
+import { rangeStart } from '../_types/stats';
+import type { StatsRange } from '../_types/stats';
 
 /** Deliveries asked for on each page. */
 export const DELIVERY_PAGE_SIZE = 50;
@@ -22,8 +22,8 @@ export interface DeliveryQuery {
   agentTypeId?: string;
   /** A `status` filter value; omitted or `all` for every status. */
   status?: string;
-  /** Lists only the deliveries received in this window, so the list agrees with the stats. */
-  window?: StatsWindow;
+  /** Bounds every page to deliveries received in this range. */
+  window?: StatsRange;
 }
 
 export interface TriggerDeliveries {
@@ -74,7 +74,7 @@ export function useTriggerDeliveries(query: DeliveryQuery | null): TriggerDelive
   // keeps a second next-page request from starting before the first has landed.
   const epoch = useRef(0);
   const busy = useRef(false);
-  // The window's start, fixed when the first page is asked for so every later page shares it.
+  // The range's start, shared by every page of one query.
   const after = useRef<string | undefined>(undefined);
   const current = useMemo<State>(
     () => (state.key === key ? state : { key, ...EMPTY }),
@@ -98,7 +98,7 @@ export function useTriggerDeliveries(query: DeliveryQuery | null): TriggerDelive
     if (key === '') return;
     const mine = ++epoch.current;
     busy.current = false;
-    after.current = range === undefined ? undefined : windowStart(range);
+    after.current = range === undefined ? undefined : rangeStart(range);
     void fetchPage().then(({ deliveries, nextCursor, error }) => {
       if (epoch.current !== mine) return;
       setState({
@@ -129,7 +129,7 @@ export function useTriggerDeliveries(query: DeliveryQuery | null): TriggerDelive
           : {
               ...prev,
               rows: [...prev.rows, ...deliveries.map(toDeliveryRow)],
-              // A failed page keeps the cursor, so asking for the next page again retries it.
+              // A failed page keeps its cursor for the retry.
               cursor: error === null ? nextCursor : prev.cursor,
               loadingMore: false,
               error,

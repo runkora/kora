@@ -10,7 +10,6 @@ import type {
   TenantTriggerStats,
   TriggerEventTypes,
   TriggerList,
-  TriggerStatsWindow,
   TriggerField,
   TriggerFireRequest,
   TriggerFireResponse,
@@ -166,22 +165,17 @@ export async function providerFields(
 // sit beside the list.
 export async function listTriggers(
   accessToken: string,
-  opts: { agentTypeId?: string; window?: TriggerStatsWindow } = {},
+  opts: { agentTypeId?: string; window?: string } = {},
 ): Promise<TriggerList> {
   const qs = new URLSearchParams();
   if (opts.agentTypeId) qs.set('agent_type_id', opts.agentTypeId);
   if (opts.window !== undefined) qs.set('window', opts.window);
   const q = qs.toString();
-  const body = await request<{
-    triggers?: Trigger[];
-    stats?: TenantTriggerStats;
-    window?: TriggerStatsWindow;
-  }>(`/triggers${q ? `?${q}` : ''}`, accessToken);
-  return {
-    triggers: body?.triggers ?? [],
-    stats: body?.stats ?? null,
-    window: body?.window ?? opts.window ?? '24h',
-  };
+  const body = await request<{ triggers?: Trigger[]; stats?: TenantTriggerStats }>(
+    `/triggers${q ? `?${q}` : ''}`,
+    accessToken,
+  );
+  return { triggers: body?.triggers ?? [], stats: body?.stats ?? null };
 }
 
 export async function createTrigger(

@@ -203,7 +203,7 @@ interface DeliveryGridProps {
    */
   resetKey?: string;
   /** The server feed the rows come from; adds its loading and error states, and its next page to the pager. */
-  paging?: Pick<TriggerDeliveries, 'loading' | 'hasMore' | 'error' | 'loadOlder'>;
+  paging?: Pick<TriggerDeliveries, 'loading' | 'loadingMore' | 'hasMore' | 'error' | 'loadOlder'>;
 }
 
 /** The empty message, or why there are no rows yet. */
@@ -256,10 +256,11 @@ export function DeliveryGrid({
           pageSizeOptions: PAGE_SIZES,
           defaultPageSize: DEFAULT_PAGE_SIZE,
           hasMore: paging?.hasMore,
+          loadingMore: paging?.loadingMore,
           onLoadMore: paging?.loadOlder,
         }}
       />
-      <NextPageError error={paging?.error ?? null} rows={rows.length} />
+      <NextPageError error={paging?.error ?? null} hasRows={rows.length > 0} />
     </Stack>
   );
 }

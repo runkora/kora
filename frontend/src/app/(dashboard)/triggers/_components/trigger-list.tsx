@@ -18,7 +18,7 @@ import type { ConsoleKind, SourceCategory, TriggerRow } from '../_types';
 import { chatEventLabel } from '../_lib/chat';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../_types/pagination';
 import { firedPerBucket } from '../_types/stats';
-import type { StatsWindow } from '../_types/stats';
+import type { TriggerStatsWindow } from '@runkora/shared/api';
 import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
 import { ManagedInGitBadge, PermissionHint } from '@runkora/components';
 
@@ -67,7 +67,7 @@ function makeColumns(
   canWrite: boolean,
   canRunAgent: (agentTypeId: string) => boolean,
   tenantLocked: boolean,
-  range: StatsWindow,
+  range: TriggerStatsWindow,
 ): DataTableColumn<TriggerDisplayRow>[] {
   return [
     {
@@ -267,7 +267,7 @@ interface TriggerListProps {
    */
   resetKey?: string;
   /** The window the activity column and failures cover. */
-  window: StatsWindow;
+  window: TriggerStatsWindow;
 }
 
 export function TriggerList({

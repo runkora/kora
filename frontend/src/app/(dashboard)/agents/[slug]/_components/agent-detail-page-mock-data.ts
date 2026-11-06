@@ -135,7 +135,6 @@ function detailRoutes(
       data: {
         triggers: TRIGGERS.filter((t) => t.agent_type_id === agent.id),
         stats: null,
-        window: '24h',
       },
     },
     'GET /api/trigger-sources': { data: SOURCES },

@@ -5,14 +5,14 @@
 import { Grid, Icon, StatCard } from '@runkora/hades';
 import type { TriggerRow } from '../_types';
 import { needsAttention, successRate } from '../_types/stats';
-import type { StatsWindow, TenantStatsRow } from '../_types/stats';
+import type { StatsRange, TenantStatsRow } from '../_types/stats';
 
 interface TriggerStatsKpisProps {
   triggers: TriggerRow[];
   /** Null when the API answered without tenant stats. */
   stats: TenantStatsRow | null;
-  /** The window the stats cover. */
-  window: StatsWindow;
+  /** The range the stats cover. All history has no window stats, so only the trigger cards show. */
+  window: StatsRange;
 }
 
 /** Latency in the unit that reads best at the value's magnitude. */
@@ -38,14 +38,37 @@ export function TriggerStatsKpis({ triggers, stats, window: range }: TriggerStat
     triggers.flatMap((t) => (t.routing !== null ? t.routing.candidates : [t.agentTypeId])),
   ).size;
 
+  const active = (
+    <StatCard
+      label="ACTIVE TRIGGERS"
+      value={String(triggers.filter((t) => t.enabled).length)}
+      detail={`across ${agents} ${agents === 1 ? 'agent' : 'agents'}`}
+      icon={<Icon name="webhook" size="2xs" />}
+    />
+  );
+  const needsAttentionCard = (
+    <StatCard
+      label="NEEDS ATTENTION"
+      value={String(attention)}
+      detail={attention === 0 ? 'nothing failing' : 'triggers with failures'}
+      tone={attention > 0 ? 'error' : 'default'}
+      detailTone={attention > 0 ? 'error' : 'default'}
+      icon={<Icon name="circle-x" size="2xs" />}
+    />
+  );
+
+  if (range === 'all') {
+    return (
+      <Grid cols={2} gap="comfortable">
+        {active}
+        {needsAttentionCard}
+      </Grid>
+    );
+  }
+
   return (
     <Grid cols={5} gap="comfortable">
-      <StatCard
-        label="ACTIVE TRIGGERS"
-        value={String(triggers.filter((t) => t.enabled).length)}
-        detail={`across ${agents} ${agents === 1 ? 'agent' : 'agents'}`}
-        icon={<Icon name="webhook" size="2xs" />}
-      />
+      {active}
       <StatCard
         label={`DELIVERIES · ${range.toUpperCase()}`}
         value={s.deliveries.toLocaleString('en-GB')}
@@ -62,14 +85,7 @@ export function TriggerStatsKpis({ triggers, stats, window: range }: TriggerStat
         }
         icon={<Icon name="circle-check" size="2xs" />}
       />
-      <StatCard
-        label="NEEDS ATTENTION"
-        value={String(attention)}
-        detail={attention === 0 ? 'nothing failing' : 'triggers with failures'}
-        tone={attention > 0 ? 'error' : 'default'}
-        detailTone={attention > 0 ? 'error' : 'default'}
-        icon={<Icon name="circle-x" size="2xs" />}
-      />
+      {needsAttentionCard}
       <StatCard
         label="AVG DISPATCH"
         value={formatMs(s.dispatchP50Ms)}

@@ -4,35 +4,48 @@
 import type { TenantTriggerStats, TriggerStats, TriggerStatsWindow } from '@runkora/shared/api';
 import type { TriggerRow } from './index';
 
-export type StatsWindow = TriggerStatsWindow;
+/** The range a page shows: a stats window, or all history with no window counts. */
+export type StatsRange = TriggerStatsWindow | 'all';
 
-/** The window a page opens on. The server render fetches it, so first paint has data. */
-export const DEFAULT_STATS_WINDOW: StatsWindow = '24h';
+/** The range a page opens on, and the one an absent or unknown `?window=` reads as. */
+export const DEFAULT_STATS_RANGE: StatsRange = '24h';
 
-const WINDOW_MS: Record<StatsWindow, number> = { '24h': 24 * 3600_000, '7d': 7 * 24 * 3600_000 };
+const WINDOW_MS: Record<TriggerStatsWindow, number> = {
+  '24h': 24 * 3600_000,
+  '7d': 7 * 24 * 3600_000,
+};
 
 /** The options the range selector offers, in the Agents page's label style. */
-export const STATS_WINDOW_OPTIONS = (Object.keys(WINDOW_MS) as StatsWindow[]).map((value) => ({
-  value,
-  label: value,
-}));
+export const STATS_RANGE_OPTIONS: { value: StatsRange; label: string }[] = [
+  { value: '24h', label: '24h' },
+  { value: '7d', label: '7d' },
+  { value: 'all', label: 'All' },
+];
 
-export function isStatsWindow(value: string): value is StatsWindow {
-  return Object.hasOwn(WINDOW_MS, value);
+/** Reads a `?window=` value. */
+export function parseStatsRange(raw: string | null | undefined): StatsRange {
+  return STATS_RANGE_OPTIONS.find((o) => o.value === raw)?.value ?? DEFAULT_STATS_RANGE;
 }
 
-/** The start of the window ending now, as the `received_after` a delivery list is bounded by. */
-export function windowStart(w: StatsWindow, now = Date.now()): string {
-  return new Date(now - WINDOW_MS[w]).toISOString();
+/** The window the trigger list's activity column covers: 24h for all history. */
+export function statsWindowOf(range: StatsRange): TriggerStatsWindow {
+  return range === 'all' ? '24h' : range;
+}
+
+/** The `received_after` that bounds a delivery list to the range; none for all history. */
+export function rangeStart(range: StatsRange, now = Date.now()): string | undefined {
+  return range === 'all' ? undefined : new Date(now - WINDOW_MS[range]).toISOString();
+}
+
+/** The range as it ends a sentence, e.g. " in the last 7d"; empty for all history. */
+export function rangeSuffix(range: StatsRange): string {
+  return range === 'all' ? '' : ` in the last ${range}`;
 }
 
 /** One bucket of a trigger's outcomes, oldest first. */
 export interface StatsBucketRow {
-  start: string;
   started: number;
   failed: number;
-  /** Outcomes that were neither: filtered, skipped, superseded, duplicate, missed, verified. */
-  other: number;
 }
 
 /** A trigger's activity, counted by its own outcome for each delivery that reached it. */
@@ -96,10 +109,7 @@ export function successRate(s: { started: number; failed: number }): number | nu
   return decided === 0 ? null : Math.round((s.started / decided) * 100);
 }
 
-/**
- * Activity per bucket for a sparkline: started and failed only, so it agrees
- * with "Last fired". A trigger that only declined draws nothing.
- */
+/** Started and failed per bucket, matching Last fired. */
 export function firedPerBucket(s: TriggerStatsRow): number[] {
   return s.buckets.map((b) => b.started + b.failed);
 }

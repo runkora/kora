@@ -134,10 +134,8 @@ const SAMPLE_STATS: TriggerStatsRow = {
   failed: 1,
   statusCounts: { started: 12, failed: 1, filtered: 1 },
   buckets: Array.from({ length: 13 }, (_, i) => ({
-    start: ago((24 - i * 2) * HOUR),
     started: i % 3 === 0 ? 2 : 1,
     failed: i === 9 ? 1 : 0,
-    other: i === 4 ? 1 : 0,
   })),
 };
 
