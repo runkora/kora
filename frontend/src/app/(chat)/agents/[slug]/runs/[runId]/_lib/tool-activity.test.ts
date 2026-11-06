@@ -191,3 +191,11 @@ describe('describeTool across runtimes', () => {
     expect(outcome(call('read', { filePath: '/x' }, { result: 'a\nb\n' }))).toBe('2 lines');
   });
 });
+
+describe('numeric argument formatting', () => {
+  it('prefixes # only for keys ending in number or id', () => {
+    expect(describeTool('Custom', { issue_number: 7 }).target).toBe('#7');
+    expect(describeTool('Custom', { user_id: 9 }).target).toBe('#9');
+    expect(describeTool('Custom', { number_of_items: 5 }).target).toBe('5');
+  });
+});

@@ -14,7 +14,6 @@ import {
   ModalHeader,
   NativeSelect,
   Stack,
-  Text,
   Textarea,
 } from '@runkora/hades';
 import { DelegatedRunNotice } from './motif/delegated-run-notice';
