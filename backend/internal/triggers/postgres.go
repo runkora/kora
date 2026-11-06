@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/runkora/kora/backend/internal/platform/declarative"
@@ -796,53 +797,15 @@ func (r *postgresRepository) GetDeliveryByProviderID(ctx context.Context, source
 }
 
 func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, bool, error) {
-	columns := deliveryColumns
-	if filter.OmitPayload {
-		columns = deliveryColumnsNoPayload
-	}
-	args := []any{tenantID}
-	arg := func(v any) string {
-		args = append(args, v)
-		return fmt.Sprintf("$%d", len(args))
-	}
 	// One row past the page says whether another follows, without a COUNT.
 	limit := max(filter.Limit, 1)
 	var query string
+	var args []any
 	if len(filter.TriggerIDs) > 0 {
-		reach := reachBranches(filter, arg, arg(limit+1))
-		if len(reach) == 0 {
-			return nil, false, nil
-		}
-		query = `
-			SELECT ` + columns + `
-			FROM   trigger_deliveries d
-			JOIN   (` + strings.Join(reach, "\n UNION ") + `) r ON r.rid = d.id
-			WHERE  d.tenant_id = $1`
+		query, args = reachDeliveriesQuery(tenantID, filter, limit+1)
 	} else {
-		query = `
-			SELECT ` + columns + `
-			FROM   trigger_deliveries d
-			WHERE  d.tenant_id = $1`
-		if filter.SourceID != "" {
-			query += ` AND d.source_id = ` + arg(filter.SourceID)
-		}
-		if filter.Kind != "" {
-			query += ` AND d.kind = ` + arg(filter.Kind)
-		}
-		if !filter.ReceivedAfter.IsZero() {
-			query += ` AND d.received_at >= ` + arg(filter.ReceivedAfter)
-		}
-		if filter.Status != "" {
-			// Scalar equality so idx_trigger_deliveries_tenant_status serves the
-			// filter; ANY over a parameter cannot be an index condition there.
-			query += ` AND d.status = ` + arg(filter.Status)
-		}
-		if c := filter.Cursor; c != nil {
-			query += fmt.Sprintf(` AND (d.received_at, d.id) < (%s::timestamptz, %s)`, arg(c.ReceivedAt), arg(c.ID))
-		}
+		query, args = tenantDeliveriesQuery(tenantID, filter, limit+1)
 	}
-	query += ` ORDER BY d.received_at DESC, d.id DESC LIMIT ` + arg(limit+1)
-
 	rows, err := queryList(ctx, r.pool, "deliveries", scanDelivery, query, args...)
 	if err != nil {
 		return nil, false, err
@@ -853,54 +816,95 @@ func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string
 	return rows, false, nil
 }
 
-// reachBranches builds one index-ordered page of delivery ids per trigger and
-// outcome, so the union reads at most a page from each regardless of history.
-// Outcome rows come from trigger_delivery_runs; deliveries recorded against a
-// trigger with no outcome of their own come from idx_trigger_deliveries_recorded.
-func reachBranches(filter DeliveryFilter, arg func(any) string, limit string) []string {
-	var after, cursorRun, cursorRec string
+// deliveryProjection is the column list a listing reads.
+func deliveryProjection(filter DeliveryFilter) string {
+	if filter.OmitPayload {
+		return deliveryColumnsNoPayload
+	}
+	return deliveryColumns
+}
+
+// tenantDeliveriesQuery is one page of the tenant's deliveries.
+func tenantDeliveriesQuery(tenantID string, filter DeliveryFilter, limit int) (string, []any) {
+	args := []any{tenantID}
+	arg := func(v any) string {
+		args = append(args, v)
+		return fmt.Sprintf("$%d", len(args))
+	}
+	query := `SELECT ` + deliveryProjection(filter) + ` FROM trigger_deliveries d WHERE d.tenant_id = $1`
+	if filter.SourceID != "" {
+		query += ` AND d.source_id = ` + arg(filter.SourceID)
+	}
+	if filter.Kind != "" {
+		query += ` AND d.kind = ` + arg(filter.Kind)
+	}
 	if !filter.ReceivedAfter.IsZero() {
-		after = arg(filter.ReceivedAfter)
+		query += ` AND d.received_at >= ` + arg(filter.ReceivedAfter)
+	}
+	if filter.Status != "" {
+		// Scalar equality so idx_trigger_deliveries_tenant_status serves the
+		// filter; ANY over a parameter cannot be an index condition there.
+		query += ` AND d.status = ` + arg(filter.Status)
 	}
 	if c := filter.Cursor; c != nil {
-		at, id := arg(c.ReceivedAt), arg(c.ID)
-		cursorRun = fmt.Sprintf(` AND (dr.received_at, dr.delivery_id) < (%s::timestamptz, %s)`, at, id)
-		cursorRec = fmt.Sprintf(` AND (d.received_at, d.id) < (%s::timestamptz, %s)`, at, id)
+		query += fmt.Sprintf(` AND (d.received_at, d.id) < (%s::timestamptz, %s)`, arg(c.ReceivedAt), arg(c.ID))
 	}
-	outcomes := []string{""}
-	recorded := true
-	if filter.Status != "" {
-		outcomes = DeliveryStatusFilters[filter.Status]
-		recorded = slices.Contains(recordedStatuses, filter.Status)
+	return query + ` ORDER BY d.received_at DESC, d.id DESC LIMIT ` + arg(limit), args
+}
+
+// reachDeliveriesSQL is one page of the deliveries that reached any trigger in
+// $2, with one index-ordered LATERAL page per trigger and outcome. $3 reads every
+// outcome, $4 the listed outcomes, $5 the listed recorded statuses; $6 is
+// received_after, ($7, $8) the cursor and $9 the page size.
+const reachDeliveriesSQL = `
+	WITH t AS (SELECT unnest($2::text[]) AS id),
+	reach AS (
+		SELECT p.rid, p.rat FROM t CROSS JOIN LATERAL (
+			SELECT dr.delivery_id AS rid, dr.received_at AS rat FROM trigger_delivery_runs dr
+			WHERE  $3::boolean AND dr.tenant_id = $1 AND dr.trigger_id = t.id AND dr.received_at >= $6
+			  AND  (dr.received_at, dr.delivery_id) < ($7, $8)
+			ORDER  BY dr.received_at DESC, dr.delivery_id DESC LIMIT $9) p
+		UNION
+		SELECT p.rid, p.rat FROM t CROSS JOIN unnest($4::text[]) AS o(status) CROSS JOIN LATERAL (
+			SELECT dr.delivery_id AS rid, dr.received_at AS rat FROM trigger_delivery_runs dr
+			WHERE  dr.tenant_id = $1 AND dr.trigger_id = t.id AND dr.status = o.status AND dr.received_at >= $6
+			  AND  (dr.received_at, dr.delivery_id) < ($7, $8)
+			ORDER  BY dr.received_at DESC, dr.delivery_id DESC LIMIT $9) p
+		UNION
+		SELECT p.rid, p.rat FROM t CROSS JOIN unnest($5::text[]) AS s(status) CROSS JOIN LATERAL (
+			SELECT rd.id AS rid, rd.received_at AS rat FROM trigger_deliveries rd
+			WHERE  rd.tenant_id = $1 AND rd.trigger_id = t.id AND rd.status IN ` + recordedStatusesSQL + `
+			  AND  rd.status = s.status AND rd.received_at >= $6 AND (rd.received_at, rd.id) < ($7, $8)
+			ORDER  BY rd.received_at DESC, rd.id DESC LIMIT $9) p
+	)
+	SELECT %s
+	FROM   (SELECT rid, rat FROM reach ORDER BY rat DESC, rid DESC LIMIT $9) r
+	JOIN   trigger_deliveries d ON d.id = r.rid
+	WHERE  d.tenant_id = $1
+	ORDER  BY d.received_at DESC, d.id DESC`
+
+// reachDeliveriesQuery binds reachDeliveriesSQL for a trigger-scoped filter.
+// An absent cursor or received_after binds to infinity to keep the text fixed.
+func reachDeliveriesQuery(tenantID string, filter DeliveryFilter, limit int) (string, []any) {
+	every := filter.Status == ""
+	outcomes := DeliveryStatusFilters[filter.Status]
+	recorded := recordedStatuses
+	if !every {
+		recorded = nil
+		if slices.Contains(recordedStatuses, filter.Status) {
+			recorded = []string{filter.Status}
+		}
 	}
-	var out []string
-	for _, id := range filter.TriggerIDs {
-		trig := arg(id)
-		for _, outcome := range outcomes {
-			q := `(SELECT dr.delivery_id AS rid, dr.received_at AS rat FROM trigger_delivery_runs dr
-				WHERE dr.tenant_id = $1 AND dr.trigger_id = ` + trig
-			if outcome != "" {
-				q += ` AND dr.status = ` + arg(outcome)
-			}
-			if after != "" {
-				q += ` AND dr.received_at >= ` + after
-			}
-			out = append(out, q+cursorRun+` ORDER BY dr.received_at DESC, dr.delivery_id DESC LIMIT `+limit+`)`)
-		}
-		if !recorded {
-			continue
-		}
-		q := `(SELECT d.id AS rid, d.received_at AS rat FROM trigger_deliveries d
-			WHERE d.tenant_id = $1 AND d.trigger_id = ` + trig + ` AND d.status IN ` + recordedStatusesSQL
-		if filter.Status != "" {
-			q += ` AND d.status = ` + arg(filter.Status)
-		}
-		if after != "" {
-			q += ` AND d.received_at >= ` + after
-		}
-		out = append(out, q+cursorRec+` ORDER BY d.received_at DESC, d.id DESC LIMIT `+limit+`)`)
+	after := pgtype.Timestamptz{InfinityModifier: pgtype.NegativeInfinity, Valid: true}
+	if !filter.ReceivedAfter.IsZero() {
+		after = pgtype.Timestamptz{Time: filter.ReceivedAfter, Valid: true}
 	}
-	return out
+	before, beforeID := pgtype.Timestamptz{InfinityModifier: pgtype.Infinity, Valid: true}, ""
+	if c := filter.Cursor; c != nil {
+		before, beforeID = pgtype.Timestamptz{Time: c.ReceivedAt, Valid: true}, c.ID
+	}
+	query := fmt.Sprintf(reachDeliveriesSQL, deliveryProjection(filter))
+	return query, []any{tenantID, filter.TriggerIDs, every, outcomes, recorded, after, before, beforeID, limit}
 }
 
 // reachedSQL yields one row per outcome a trigger recorded for a delivery that

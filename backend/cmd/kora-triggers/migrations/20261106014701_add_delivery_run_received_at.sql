@@ -22,7 +22,7 @@ CREATE INDEX IF NOT EXISTS idx_trigger_delivery_runs_last_fired
 
 -- Deliveries recorded against a trigger that carry no outcome of their own.
 CREATE INDEX IF NOT EXISTS idx_trigger_deliveries_recorded
-    ON trigger_deliveries (tenant_id, trigger_id, received_at DESC, id DESC)
+    ON trigger_deliveries (tenant_id, trigger_id, status, received_at DESC, id DESC)
     WHERE status IN ('verified', 'missed', 'duplicate');
 
 -- +goose Down
