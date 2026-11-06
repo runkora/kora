@@ -209,6 +209,10 @@ export function TriggersPage({
     !loadingMore &&
     pageError === null &&
     (!hasMore || deliveries.length >= LINKED_DELIVERY_SEARCH);
+  // A missed link leaves the address, so a reload does not search again.
+  useEffect(() => {
+    if (linkedMissing) window.history.replaceState(null, '', APP_ROUTES.triggers);
+  }, [linkedMissing]);
 
   /** Drops the link from the address once its modal closes, so a reload does not reopen it. */
   const forgetLink = useCallback(() => {

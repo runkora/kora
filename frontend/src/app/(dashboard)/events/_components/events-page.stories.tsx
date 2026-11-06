@@ -88,6 +88,7 @@ function EventsStory({
     freshIds: new Set(history.slice(0, 1).map((e) => e.id)),
     principals,
     agents,
+    types: EVENT_TYPES,
   };
   const openId = open === undefined ? null : (history.find(PICK[open])?.id ?? null);
   return (
