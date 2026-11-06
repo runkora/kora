@@ -68,7 +68,7 @@ func (r *postgresDelegationRepository) CreateIssuance(ctx context.Context, d *De
 		if err := r.insertIssuance(ctx, d); err != nil {
 			return err
 		}
-		return events.Publish(attributedTo(ctx, d.DelegatorPrincipalID, d.DelegatorPrincipalType, d.TenantID), r.pool, delegationEvent(d))
+		return events.Publish(attributedTo(ctx, d.DelegatorPrincipalID, d.DelegatorPrincipalType, d.TenantID, ""), r.pool, delegationEvent(d))
 	})
 }
 
