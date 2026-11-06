@@ -550,9 +550,15 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 	return s.readBackTrigger(ctx, t), nil
 }
 
-// authorizeEventChoice requires events:read for an edit that changes which events an event trigger reads.
+// authorizeEventChoice requires events:read for any edit of an event trigger
+// but its name, enablement and admission settings.
 func (s *TriggerService) authorizeEventChoice(ctx context.Context, t *Trigger, claims *token.PlatformClaims, req UpdateTriggerRequest) error {
-	if t.Kind != KindEvent || (req.EventType == nil && req.MatchCondition == nil && req.MatchContains == nil) {
+	if t.Kind != KindEvent {
+		return nil
+	}
+	rest := req
+	rest.Name, rest.Enabled, rest.AdmissionSettings = nil, nil, AdmissionSettings{}
+	if reflect.DeepEqual(rest, UpdateTriggerRequest{}) {
 		return nil
 	}
 	return s.authorizeCaller(ctx, claims, eventsReadScopes)

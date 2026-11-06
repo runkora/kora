@@ -526,11 +526,27 @@ func (c *Controller) canReadEvents(ctx context.Context) bool {
 	return err == nil && result.Allow
 }
 
-// withoutEvents drops the stored event from event deliveries. Redelivery still reads it.
+// withoutEvents drops from event deliveries every field that can carry event
+// content: the stored event, rendered keys and upstream error text. Redelivery
+// still reads the stored event.
 func withoutEvents(deliveries []Delivery) {
 	for i := range deliveries {
-		if deliveries[i].Kind == KindEvent {
-			deliveries[i].Payload, deliveries[i].PayloadExcerpt = nil, ""
+		d := &deliveries[i]
+		if d.Kind != KindEvent {
+			continue
+		}
+		d.Payload, d.PayloadExcerpt, d.CoalesceKeys, d.Error = nil, "", nil, nil
+		for j := range d.Runs {
+			run := &d.Runs[j]
+			// A failed or denied start carries the upstream error. Other reasons are the platform's own.
+			if run.Status == RunStatusFailed || run.Status == RunStatusDenied {
+				run.Error = nil
+			}
+			if run.Routing != nil {
+				routing := *run.Routing
+				routing.JoinKey, routing.Error = nil, nil
+				run.Routing = &routing
+			}
 		}
 	}
 }
