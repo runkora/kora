@@ -444,6 +444,9 @@ func TestHandleListDeliveries_Cursor(t *testing.T) {
 			t.Errorf("cursor %q: status %d, want 400", bad, w.Code)
 		}
 	}
+	if w := call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?received_before=2026-11-01T00:00:00Z", nil, nil); w.Code != http.StatusBadRequest {
+		t.Errorf("received_before: status %d, want 400", w.Code)
+	}
 }
 
 // status= narrows the page; a value the list cannot match is a 400.

@@ -449,6 +449,13 @@ func (c *Controller) handleListDeliveries(w http.ResponseWriter, r *http.Request
 	ctx := r.Context()
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
+	// A removed parameter is refused so a caller still sending it does not take
+	// an unbounded page for the window it asked for.
+	if q.Has("received_before") {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.BadRequestError(api.ErrCodeInvalidField, "received_before was removed; page with cursor", map[string]any{"field": "received_before"}), nil)
+		return
+	}
 	cursor, err := parseDeliveryCursor(q.Get("cursor"))
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger,

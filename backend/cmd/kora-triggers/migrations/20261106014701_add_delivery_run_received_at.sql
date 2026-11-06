@@ -15,6 +15,11 @@ CREATE INDEX IF NOT EXISTS idx_trigger_delivery_runs_reach
 CREATE INDEX IF NOT EXISTS idx_trigger_delivery_runs_reach_status
     ON trigger_delivery_runs (tenant_id, trigger_id, status, received_at DESC, delivery_id DESC);
 
+-- The tenant's 24h stats read only the window, on Postgres versions without skip scan too.
+CREATE INDEX IF NOT EXISTS idx_trigger_delivery_runs_window
+    ON trigger_delivery_runs (tenant_id, received_at)
+    INCLUDE (trigger_id, status, created_at);
+
 -- A trigger's last fire skips declined outcomes without reading them.
 CREATE INDEX IF NOT EXISTS idx_trigger_delivery_runs_last_fired
     ON trigger_delivery_runs (tenant_id, trigger_id, received_at DESC)
@@ -28,6 +33,7 @@ CREATE INDEX IF NOT EXISTS idx_trigger_deliveries_recorded
 -- +goose Down
 DROP INDEX IF EXISTS idx_trigger_deliveries_recorded;
 DROP INDEX IF EXISTS idx_trigger_delivery_runs_last_fired;
+DROP INDEX IF EXISTS idx_trigger_delivery_runs_window;
 DROP INDEX IF EXISTS idx_trigger_delivery_runs_reach_status;
 DROP INDEX IF EXISTS idx_trigger_delivery_runs_reach;
 ALTER TABLE trigger_delivery_runs DROP COLUMN IF EXISTS received_at;

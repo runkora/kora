@@ -45,7 +45,7 @@ The deliveries list pages with a keyset cursor and filters by status in SQL, and
 
 ### Trigger Stats
 
-Each trigger in `GET /api/v1/triggers` carries `stats`, and the envelope carries the tenant's `stats`. A trigger's stats count its outcome rows and the deliveries recorded against it, as the trigger scope defines them. Windows run over the 24 hours before the request and read `trigger_delivery_runs` by `received_at`.
+Each trigger in `GET /api/v1/triggers` carries `stats`, and the envelope carries the tenant's `stats`. A trigger's stats count its outcome rows and the deliveries recorded against it, as the trigger scope defines them. Windows run over the 24 hours before the request. `idx_trigger_delivery_runs_window` on `(tenant_id, received_at)` limits those reads to the window's rows on every supported Postgres version.
 
 The per-trigger stats are:
 
@@ -67,7 +67,7 @@ The tenant stats are `deliveries_24h` (every arrival), `started_24h`, `failed_24
 
 ### Negative
 
-- Every arrival maintains `idx_trigger_deliveries_tenant_status`, and every outcome row maintains three more indexes on `trigger_delivery_runs`.
+- Every arrival maintains `idx_trigger_deliveries_tenant_status`, and every outcome row maintains four more indexes on `trigger_delivery_runs`.
 - The 24-hour stats aggregate every outcome row in the window on each trigger list read. The cost grows with 24-hour volume and does not grow with history.
 - A delivery recorded against a trigger with a `dispatched`, `failed` or `skipped` status and no outcome row for that trigger is absent from the trigger's list and stats.
 - The cursor encoding is a compatibility surface for any client that parses it.
