@@ -606,7 +606,8 @@ type Run struct {
 	// ChainDepth the highest depth of those events plus one.
 	CausedBy   string `json:"caused_by,omitempty"`
 	ChainDepth int    `json:"chain_depth,omitempty"`
-	// TriggerIDs lists every trigger that started or messaged the run.
+	// TriggerIDs lists every trigger that started or messaged the run, or the
+	// run of an agent that started or messaged it.
 	TriggerIDs []string `json:"-"`
 	// Usage is the run's inference total so far. It is read from
 	// inference_usage when the run is served and is not a runs column. A run
@@ -671,8 +672,10 @@ type RunMessage struct {
 	Content    string
 	CreatedAt  time.Time
 	// From is the trigger that sent the message, nil for a person. CausedBy and
-	// ChainDepth are the event chain it reports.
+	// ChainDepth are the event chain it reports, and Triggers the triggers of
+	// the run an agent sent it from.
 	From       *StartedByTrigger
 	CausedBy   string
 	ChainDepth int
+	Triggers   []string
 }
