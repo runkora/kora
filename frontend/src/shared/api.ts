@@ -1167,6 +1167,8 @@ export interface TriggerUpdateRequest {
   coalesce?: TriggerCoalesce | Record<string, never>;
   /** Routed triggers only. Replaces the stored routing object. */
   routing?: TriggerRouting;
+  /** Event triggers only. */
+  ignore_own_runs?: boolean;
   /**
    * Suppress a repeat of a delivery already seen. Omit to leave unchanged: a
    * PATCH that only renames a trigger must not re-arm its safety settings.
