@@ -1057,8 +1057,25 @@ func TestHandleListDeliveries_EventPayloadNeedsEventsRead(t *testing.T) {
 		}
 		return body.Deliveries[0]
 	}
-	if d := list(c); d.Payload != nil || d.PayloadExcerpt != "" || d.EventID != "e-1" {
+	_ = deps.repo.InsertDeliveryKey(context.Background(), &DeliveryKey{DeliveryID: "d-ev", TenantID: testTenant, TriggerID: "t-1", Key: "Ada"})
+	_ = deps.repo.InsertDeliveryRun(context.Background(), &DeliveryRun{ID: "r-1", TenantID: testTenant, DeliveryID: "d-ev", TriggerID: "t-1",
+		Status: RunStatusFailed, Error: new("upstream said Ada")})
+	_ = deps.repo.InsertDeliveryRun(context.Background(), &DeliveryRun{ID: "r-2", TenantID: testTenant, DeliveryID: "d-ev", TriggerID: "t-2",
+		Status: RunStatusFiltered, Error: new(reasonChainDepth)})
+	d := list(c)
+	if d.Payload != nil || d.PayloadExcerpt != "" || d.EventID != "e-1" || len(d.CoalesceKeys) != 0 {
 		t.Errorf("without events:read: %+v, want the delivery without its event", d)
+	}
+	if len(d.Runs) != 2 {
+		t.Fatalf("runs = %d, want both outcomes listed", len(d.Runs))
+	}
+	for _, run := range d.Runs {
+		if run.Status == RunStatusFailed && run.Error != nil {
+			t.Errorf("failed outcome kept its upstream error %q", *run.Error)
+		}
+		if run.Status == RunStatusFiltered && (run.Error == nil || *run.Error != reasonChainDepth) {
+			t.Errorf("filtered outcome lost its reason: %v", run.Error)
+		}
 	}
 	c.eval = &mockEvaluator{allow: true}
 	if d := list(c); len(d.Payload) == 0 || d.PayloadExcerpt == "" {

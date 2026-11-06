@@ -315,7 +315,22 @@ func TestEventTrigger_NeedsEventsRead(t *testing.T) {
 			t.Errorf("%s: err = %v, want events:read missing", name, err)
 		}
 	}
-	if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, UpdateTriggerRequest{Name: new("renamed")}); err != nil {
-		t.Errorf("rename: %v", err)
+	for name, upd := range map[string]UpdateTriggerRequest{
+		"prompt":          {PromptTemplate: new("p {{ koraagent }}")},
+		"ignore own runs": {IgnoreOwnRuns: new(false)},
+		"coalesce":        {Coalesce: &CoalesceConfig{Key: "{{ korarun }}", WindowSeconds: 5}},
+	} {
+		if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, upd); !errors.As(err, &mse) {
+			t.Errorf("%s: err = %v, want events:read missing", name, err)
+		}
+	}
+	for name, upd := range map[string]UpdateTriggerRequest{
+		"rename":    {Name: new("renamed")},
+		"disable":   {Enabled: new(false)},
+		"admission": {AdmissionSettings: AdmissionSettings{MaxParallel: new(int16(2))}},
+	} {
+		if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, upd); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }
