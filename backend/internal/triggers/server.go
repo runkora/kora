@@ -516,14 +516,13 @@ func (c *Controller) handleListDeliveries(w http.ResponseWriter, r *http.Request
 
 // canReadEvents reports whether the caller holds events:read. An evaluator error reads as false.
 func (c *Controller) canReadEvents(ctx context.Context) bool {
-	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims == nil || c.eval == nil {
+	claims, _ := token.ClaimsFromContext(ctx)
+	missing, err := missingScopes(ctx, c.eval, claims, eventsReadScopes)
+	if err != nil {
+		c.logger.Warn(ctx, "events:read check failed", logging.Field{Key: "error", Value: err.Error()})
 		return false
 	}
-	in := scopeCheckInput(eventsReadScopes[0])
-	in.Claims, in.Delegation = claims, policy.DelegationFromContext(ctx)
-	result, err := c.eval.Check(ctx, in)
-	return err == nil && result.Allow
+	return len(missing) == 0
 }
 
 // withoutEvents drops from event deliveries every field that can carry event
