@@ -638,3 +638,42 @@ describe('DataTable columnToggle and maxHeight', () => {
     expect(screen.getAllByRole('row')[0]).toHaveClass('sticky', 'top-0');
   });
 });
+
+describe('DataTable rows loaded on demand', () => {
+  const columns: DataTableColumn<{ name: string }>[] = [
+    { id: 'name', header: 'Name', cell: (r) => r.name },
+  ];
+  const rowsOf = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `row-${i}` }));
+
+  it('reads N+ while more rows exist and turns the page once they arrive', () => {
+    const onLoadMore = vi.fn();
+    const pagination = { pageSizeOptions: [2], defaultPageSize: 2, hasMore: true, onLoadMore };
+    const { rerender } = render(
+      <DataTable
+        data={rowsOf(2)}
+        columns={columns}
+        getRowKey={(r) => r.name}
+        pagination={pagination}
+      />,
+    );
+    expect(screen.getByText(/1–2 of 2\+/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('row-0')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+
+    rerender(
+      <DataTable
+        data={rowsOf(3)}
+        columns={columns}
+        getRowKey={(r) => r.name}
+        pagination={{ ...pagination, hasMore: false }}
+      />,
+    );
+    expect(screen.getByText('row-2')).toBeInTheDocument();
+    expect(screen.queryByText('row-0')).not.toBeInTheDocument();
+    expect(screen.getByText(/3–3 of 3$/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+  });
+});

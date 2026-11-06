@@ -71,6 +71,8 @@ const SOURCES: SourceRow[] = [
 function renderDetailModal(row: TriggerRow, onEdit?: () => Promise<string | null>) {
   return renderWithProviders(
     <TriggerDetailModal
+      window="24h"
+      onWindowChange={vi.fn()}
       canRunAgent
       trigger={row}
       sources={SOURCES}
@@ -222,6 +224,8 @@ describe('closing the modal', () => {
     const onClose = vi.fn();
     renderWithProviders(
       <TriggerDetailModal
+        window="24h"
+        onWindowChange={vi.fn()}
         canRunAgent
         trigger={trigger()}
         sources={SOURCES}
@@ -482,6 +486,8 @@ describe('read-only callers', () => {
   it('offers no edit affordances without onEdit', () => {
     renderWithProviders(
       <TriggerDetailModal
+        window="24h"
+        onWindowChange={vi.fn()}
         canRunAgent
         trigger={trigger({
           kind: 'scheduled',
@@ -504,6 +510,8 @@ describe('ephemeral state is scoped to the open trigger', () => {
     const onRotateSecret = vi.fn().mockResolvedValue('secret-for-A');
     const { rerender } = renderWithProviders(
       <TriggerDetailModal
+        window="24h"
+        onWindowChange={vi.fn()}
         canRunAgent
         trigger={trigger({ id: 'trg-A', name: 'trigger-a' })}
         sources={SOURCES}
@@ -526,6 +534,8 @@ describe('ephemeral state is scoped to the open trigger', () => {
     // shows the Rotate button and no revealed secret, never A's live secret.
     rerender(
       <TriggerDetailModal
+        window="24h"
+        onWindowChange={vi.fn()}
         canRunAgent
         trigger={trigger({ id: 'trg-B', name: 'trigger-b' })}
         sources={SOURCES}
@@ -550,6 +560,8 @@ describe('ephemeral state is scoped to the open trigger', () => {
       canRunAgent: true,
       sources: SOURCES,
       deliveries: [],
+      window: '24h' as const,
+      onWindowChange: vi.fn(),
       ingestHost: 'local.runkora.io:8443',
       onClose: vi.fn(),
       onToggleEnabled: vi.fn(),
@@ -578,6 +590,8 @@ describe('permissions', () => {
   function renderWith(scopes: string[], row: TriggerRow, canRunAgent = true) {
     return renderWithProviders(
       <TriggerDetailModal
+        window="24h"
+        onWindowChange={vi.fn()}
         canRunAgent={canRunAgent}
         trigger={row}
         sources={SOURCES}
@@ -650,6 +664,8 @@ describe('managed in git', () => {
   ) {
     return renderWithProviders(
       <TriggerDetailModal
+        window="24h"
+        onWindowChange={vi.fn()}
         canRunAgent
         trigger={row}
         sources={opts.sources ?? SOURCES}
@@ -737,6 +753,8 @@ describe('a source whose provider issues the secret', () => {
   ) {
     renderWithProviders(
       <TriggerDetailModal
+        window="24h"
+        onWindowChange={vi.fn()}
         canRunAgent
         trigger={trigger()}
         sources={SLACK}
@@ -774,6 +792,8 @@ describe('a source whose provider issues the secret', () => {
     const onRotateSecret = vi.fn().mockResolvedValue('');
     renderWithProviders(
       <TriggerDetailModal
+        window="24h"
+        onWindowChange={vi.fn()}
         canRunAgent
         trigger={trigger()}
         sources={[{ ...SLACK[0]!, signingSecretSet: false }]}
@@ -832,6 +852,8 @@ describe('a chat command trigger', () => {
   function renderChat(row: TriggerRow, onEdit = vi.fn().mockResolvedValue(null)) {
     renderWithProviders(
       <TriggerDetailModal
+        window="24h"
+        onWindowChange={vi.fn()}
         canRunAgent
         trigger={row}
         sources={CHAT_SOURCES}
@@ -1026,6 +1048,8 @@ describe('a generic webhook source', () => {
     };
     renderWithProviders(
       <TriggerDetailModal
+        window="24h"
+        onWindowChange={vi.fn()}
         canRunAgent
         trigger={trigger({ eventType: 'Issue', matchCondition: { 'data.state': ['open'] } })}
         sources={[generic]}
@@ -1116,6 +1140,8 @@ describe('closing with unsaved edits', () => {
     const onClose = vi.fn();
     renderWithProviders(
       <TriggerDetailModal
+        window="24h"
+        onWindowChange={vi.fn()}
         canRunAgent
         trigger={row}
         sources={SOURCES}

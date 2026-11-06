@@ -9,6 +9,8 @@ import type {
   TriggerDeliveryPage,
   TenantTriggerStats,
   TriggerEventTypes,
+  TriggerList,
+  TriggerStatsWindow,
   TriggerField,
   TriggerFireRequest,
   TriggerFireResponse,
@@ -164,14 +166,22 @@ export async function providerFields(
 // sit beside the list.
 export async function listTriggers(
   accessToken: string,
-  agentTypeId?: string,
-): Promise<{ triggers: Trigger[]; stats: TenantTriggerStats | null }> {
-  const q = agentTypeId ? `?agent_type_id=${encodeURIComponent(agentTypeId)}` : '';
-  const body = await request<{ triggers?: Trigger[]; stats?: TenantTriggerStats }>(
-    `/triggers${q}`,
-    accessToken,
-  );
-  return { triggers: body?.triggers ?? [], stats: body?.stats ?? null };
+  opts: { agentTypeId?: string; window?: TriggerStatsWindow } = {},
+): Promise<TriggerList> {
+  const qs = new URLSearchParams();
+  if (opts.agentTypeId) qs.set('agent_type_id', opts.agentTypeId);
+  if (opts.window !== undefined) qs.set('window', opts.window);
+  const q = qs.toString();
+  const body = await request<{
+    triggers?: Trigger[];
+    stats?: TenantTriggerStats;
+    window?: TriggerStatsWindow;
+  }>(`/triggers${q ? `?${q}` : ''}`, accessToken);
+  return {
+    triggers: body?.triggers ?? [],
+    stats: body?.stats ?? null,
+    window: body?.window ?? opts.window ?? '24h',
+  };
 }
 
 export async function createTrigger(
@@ -271,17 +281,22 @@ export async function listDeliveries(
     triggerId?: string;
     agentTypeId?: string;
     status?: string;
+    receivedAfter?: string;
     cursor?: string;
     limit?: number;
   } = {},
 ): Promise<TriggerDeliveryPage> {
+  // The console never reads the full payload from a list row: the excerpt and
+  // outcomes come back without it, and the body is most of a page's bytes.
   const params: Record<string, string | number | undefined> = {
     source_id: opts.sourceId,
     trigger_id: opts.triggerId,
     agent_type_id: opts.agentTypeId,
     status: opts.status,
+    received_after: opts.receivedAfter,
     cursor: opts.cursor,
     limit: opts.limit,
+    omit_payload: 'true',
   };
   const qs = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {

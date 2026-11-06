@@ -1,15 +1,37 @@
 // Trigger stats as the console shows them. The API counts them in Postgres
-// over the last 24 hours; this module only reshapes them for display.
+// over the selected window; this module only reshapes them for display.
 
-import type { TenantTriggerStats, TriggerStats } from '@runkora/shared/api';
+import type { TenantTriggerStats, TriggerStats, TriggerStatsWindow } from '@runkora/shared/api';
 import type { TriggerRow } from './index';
 
-/** One two-hour bucket of a trigger's outcomes, oldest first. */
+export type StatsWindow = TriggerStatsWindow;
+
+/** The window a page opens on. The server render fetches it, so first paint has data. */
+export const DEFAULT_STATS_WINDOW: StatsWindow = '24h';
+
+const WINDOW_MS: Record<StatsWindow, number> = { '24h': 24 * 3600_000, '7d': 7 * 24 * 3600_000 };
+
+/** The options the range selector offers, in the Agents page's label style. */
+export const STATS_WINDOW_OPTIONS = (Object.keys(WINDOW_MS) as StatsWindow[]).map((value) => ({
+  value,
+  label: value,
+}));
+
+export function isStatsWindow(value: string): value is StatsWindow {
+  return Object.hasOwn(WINDOW_MS, value);
+}
+
+/** The start of the window ending now, as the `received_after` a delivery list is bounded by. */
+export function windowStart(w: StatsWindow, now = Date.now()): string {
+  return new Date(now - WINDOW_MS[w]).toISOString();
+}
+
+/** One bucket of a trigger's outcomes, oldest first. */
 export interface StatsBucketRow {
   start: string;
   started: number;
   failed: number;
-  /** Outcomes that were neither: filtered, superseded, paused, unrouted, missed. */
+  /** Outcomes that were neither: filtered, skipped, superseded, duplicate, missed, verified. */
   other: number;
 }
 
@@ -17,29 +39,29 @@ export interface StatsBucketRow {
 export interface TriggerStatsRow {
   /** Newest delivery the trigger attempted a run for, or null if it never has. */
   lastFiredAt: string | null;
-  deliveries24h: number;
-  started24h: number;
-  failed24h: number;
-  /** Last 24h by the `status` filter value; a missing value is zero. */
-  status24h: Record<string, number>;
+  deliveries: number;
+  started: number;
+  failed: number;
+  /** The window by trigger status, the `status` filter value; a missing value is zero. */
+  statusCounts: Record<string, number>;
   buckets: StatsBucketRow[];
 }
 
-/** The tenant's trigger activity over the last 24 hours. */
+/** The tenant's trigger activity over the window. */
 export interface TenantStatsRow {
-  deliveries24h: number;
-  started24h: number;
-  failed24h: number;
+  deliveries: number;
+  started: number;
+  failed: number;
   dispatchP50Ms: number | null;
   dispatchP95Ms: number | null;
 }
 
 export const EMPTY_TRIGGER_STATS: TriggerStatsRow = {
   lastFiredAt: null,
-  deliveries24h: 0,
-  started24h: 0,
-  failed24h: 0,
-  status24h: {},
+  deliveries: 0,
+  started: 0,
+  failed: 0,
+  statusCounts: {},
   buckets: [],
 };
 
@@ -47,19 +69,19 @@ export function toTriggerStatsRow(s: TriggerStats | undefined): TriggerStatsRow 
   if (s === undefined) return EMPTY_TRIGGER_STATS;
   return {
     lastFiredAt: s.last_fired_at,
-    deliveries24h: s.deliveries_24h,
-    started24h: s.started_24h,
-    failed24h: s.failed_24h,
-    status24h: s.status_24h,
+    deliveries: s.deliveries,
+    started: s.started,
+    failed: s.failed,
+    statusCounts: s.status_counts,
     buckets: s.buckets,
   };
 }
 
 export function toTenantStatsRow(s: TenantTriggerStats): TenantStatsRow {
   return {
-    deliveries24h: s.deliveries_24h,
-    started24h: s.started_24h,
-    failed24h: s.failed_24h,
+    deliveries: s.deliveries,
+    started: s.started,
+    failed: s.failed,
     dispatchP50Ms: s.dispatch_p50_ms === null ? null : Math.round(s.dispatch_p50_ms),
     dispatchP95Ms: s.dispatch_p95_ms === null ? null : Math.round(s.dispatch_p95_ms),
   };
@@ -69,9 +91,17 @@ export function toTenantStatsRow(s: TenantTriggerStats): TenantStatsRow {
  * Share of started outcomes among started and failed, as a whole percentage.
  * Null when neither happened: 0% would read as failure where there was silence.
  */
-export function successRate(s: { started24h: number; failed24h: number }): number | null {
-  const decided = s.started24h + s.failed24h;
-  return decided === 0 ? null : Math.round((s.started24h / decided) * 100);
+export function successRate(s: { started: number; failed: number }): number | null {
+  const decided = s.started + s.failed;
+  return decided === 0 ? null : Math.round((s.started / decided) * 100);
+}
+
+/**
+ * Activity per bucket for a sparkline: started and failed only, so it agrees
+ * with "Last fired". A trigger that only declined draws nothing.
+ */
+export function firedPerBucket(s: TriggerStatsRow): number[] {
+  return s.buckets.map((b) => b.started + b.failed);
 }
 
 /**

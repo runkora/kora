@@ -16,13 +16,16 @@ import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import type {
   ModelObject,
   SchedulePreviewResponse,
+  TenantTriggerStats,
   Trigger,
   TriggerCreateRequest,
   TriggerDelivery,
   TriggerDeliveryPage,
   TriggerEventTypes,
   TriggerField,
+  TriggerList,
   TriggerRoutingCandidate,
+  TriggerStatsWindow,
   TriggerUpdateRequest,
   WebhookSource,
   WebhookSourceCreateRequest,
@@ -97,11 +100,12 @@ export async function listSources(): Promise<{ sources: WebhookSource[]; error: 
   return { sources: res.data ?? [], error: res.error };
 }
 
+/** Triggers with their stats over `window`, optionally one agent's, and the tenant's stats. */
 export async function listTriggers(
-  agentTypeId?: string,
-): Promise<{ triggers: Trigger[]; error: string | null }> {
-  const res = await send<Trigger[]>(ApiRoute.triggers.list(agentTypeId), { cache: 'no-store' });
-  return { triggers: res.data ?? [], error: res.error };
+  opts: { agentTypeId?: string; window?: TriggerStatsWindow } = {},
+): Promise<{ triggers: Trigger[]; stats: TenantTriggerStats | null; error: string | null }> {
+  const res = await send<TriggerList>(ApiRoute.triggers.list(opts), { cache: 'no-store' });
+  return { triggers: res.data?.triggers ?? [], stats: res.data?.stats ?? null, error: res.error };
 }
 
 /**
@@ -112,6 +116,7 @@ export async function listDeliveryPage(opts: {
   triggerId?: string;
   agentTypeId?: string;
   status?: string;
+  receivedAfter?: string;
   limit: number;
   cursor?: string;
 }): Promise<{ deliveries: TriggerDelivery[]; nextCursor: string | null; error: string | null }> {

@@ -25,8 +25,8 @@ const DELIVERIES = [
 
 const STATS = {
   ...EMPTY_TRIGGER_STATS,
-  deliveries24h: 9,
-  status24h: { dispatched: 4, failed: 2, superseded: 1 },
+  deliveries: 12,
+  statusCounts: { started: 4, failed: 2, filtered: 5, superseded: 1 },
 };
 
 function renderList(props: Partial<React.ComponentProps<typeof DeliveryList>> = {}) {
@@ -37,6 +37,7 @@ function renderList(props: Partial<React.ComponentProps<typeof DeliveryList>> = 
       filter="all"
       onFilterChange={vi.fn()}
       stats={STATS}
+      window="24h"
       triggerId="trg-1"
       expandedId={null}
       onToggleExpanded={onToggleExpanded}
@@ -60,22 +61,36 @@ describe('DeliveryList', () => {
     expect(onRetry).toHaveBeenCalled();
   });
 
-  it("shows the trigger's 24h counts and asks for the chosen status", () => {
+  it("shows the trigger's counts for the window, which add up to All, and asks for the chosen status", () => {
     const onFilterChange = vi.fn();
-    renderList({ onFilterChange });
-    const group = screen.getByRole('group', { name: /Filter deliveries by outcome/ });
-    expect(within(group).getByRole('button', { name: /All/ })).toHaveTextContent('9');
-    expect(within(group).getByRole('button', { name: /Failed/ })).toHaveTextContent('2');
-    expect(within(group).getByRole('button', { name: /Missed/ })).toHaveTextContent('0');
-    expect(screen.getByText('Counts: last 24h')).toBeInTheDocument();
-    fireEvent.click(within(group).getByRole('button', { name: /Failed/ }));
-    expect(onFilterChange).toHaveBeenCalledWith('failed');
+    renderList({ onFilterChange, window: '7d' });
+    const group = screen.getByRole('group', { name: /Filter deliveries by outcome.*last 7d/ });
+    const count = (name: RegExp) =>
+      Number(within(group).getByRole('button', { name }).textContent?.replace(/\D/g, ''));
+    expect(count(/All/)).toBe(12);
+    expect(count(/Started/)).toBe(4);
+    expect(count(/Filtered/)).toBe(5);
+    expect(count(/Missed/)).toBe(0);
+    const chips = [
+      /Started/,
+      /Failed/,
+      /Filtered/,
+      /Skipped/,
+      /Superseded/,
+      /Duplicate/,
+      /Missed/,
+      /Verified/,
+    ];
+    expect(chips.reduce((sum, name) => sum + count(name), 0)).toBe(count(/All/));
+    expect(screen.getByText('Last 7d')).toBeInTheDocument();
+    fireEvent.click(within(group).getByRole('button', { name: /Filtered/ }));
+    expect(onFilterChange).toHaveBeenCalledWith('filtered');
   });
 
   it('keeps the filter on screen when a filtered page is empty', () => {
     renderList({ deliveries: [], filter: 'missed' });
     expect(screen.getByRole('group', { name: /Filter deliveries by outcome/ })).toBeInTheDocument();
-    expect(screen.getByText('No missed deliveries.')).toBeInTheDocument();
+    expect(screen.getByText('No missed deliveries in the last 24h.')).toBeInTheDocument();
   });
 
   it('opens a row in place and reports it', () => {
@@ -90,25 +105,17 @@ describe('DeliveryList', () => {
     expect(onToggleExpanded).toHaveBeenCalledWith(null);
   });
 
-  it('loads older deliveries on request, and says so while it does', () => {
+  it('pages past the loaded rows from the server with the one pager, counting N+ until the end', () => {
     const onLoadOlder = vi.fn();
-    const { unmount } = renderWithProviders(
-      <DeliveryList
-        deliveries={DELIVERIES}
-        filter="all"
-        onFilterChange={vi.fn()}
-        stats={STATS}
-        triggerId="trg-1"
-        expandedId={null}
-        onToggleExpanded={vi.fn()}
-        hasMore
-        onLoadOlder={onLoadOlder}
-      />,
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Load older' }));
-    expect(onLoadOlder).toHaveBeenCalled();
-    unmount();
-    renderList({ hasMore: true, loadingMore: true });
-    expect(screen.getByRole('button', { name: /Loading/ })).toBeDisabled();
+    renderList({ hasMore: true, onLoadOlder });
+    expect(screen.getByText(/of 6\+/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Load older' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+  });
+
+  it('says why the next page failed under the rows already shown', () => {
+    renderList({ hasMore: true, error: 'boom' });
+    expect(screen.getByText('Could not load more deliveries: boom')).toBeInTheDocument();
   });
 });

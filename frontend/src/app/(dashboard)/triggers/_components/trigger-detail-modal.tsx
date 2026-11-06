@@ -31,6 +31,7 @@ import {
   SectionLabel,
   Modal,
   ModalHeader,
+  SegmentedControl,
   Stack,
   StatusDot,
   Tabs,
@@ -73,6 +74,8 @@ import type { FilterRow } from './filter-rows-editor';
 import { SenderRestrictionEditor } from './sender-restriction-editor';
 import type { SenderRestrictionDraft } from './sender-restriction-editor';
 import { useSourceCatalog } from './use-source-catalog';
+import { STATS_WINDOW_OPTIONS, isStatsWindow } from '../_types/stats';
+import type { StatsWindow } from '../_types/stats';
 import { schemaCatalog, scheduledCatalog, toTemplateCatalog } from './trigger-wizard/field-catalog';
 import {
   matchConditionFrom,
@@ -173,6 +176,9 @@ interface TriggerDetailModalProps {
   canRunAgent: boolean;
   /** Names a routed trigger's candidates and the agents its decisions mention. */
   agents?: RoutingAgentName[];
+  /** The range the stats, the filter counts and the delivery list cover; the page's own. */
+  window: StatsWindow;
+  onWindowChange: (window: StatsWindow) => void;
 }
 
 /**
@@ -393,6 +399,8 @@ function TriggerDetailModalBody({
   firing = false,
   canRunAgent,
   agents = [],
+  window: range,
+  onWindowChange,
 }: TriggerDetailModalProps) {
   // Without triggers:write every write handler is dropped, which disables its
   // control. Run-shaping edits also need run authority on the bound agent.
@@ -416,7 +424,7 @@ function TriggerDetailModalBody({
   // again whenever the filter changes.
   const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>('all');
   const history = useTriggerDeliveries(
-    trigger === null ? null : { triggerId: trigger.id, status: deliveryFilter },
+    trigger === null ? null : { triggerId: trigger.id, status: deliveryFilter, window: range },
   );
   // Rotation is destructive (the provider's configured secret stops working the
   // moment it lands), so the button opens a confirmation before doing it.
@@ -609,7 +617,7 @@ function TriggerDetailModalBody({
   const kind = consoleKindOf(trigger, (id) => sources.find((s) => s.id === id)?.category);
   const eventName =
     kind === 'chat' ? chatEventLabel(filters.value.eventType) : filters.value.eventType;
-  const { deliveries24h, started24h, failed24h } = trigger.stats;
+  const { deliveries, started, failed } = trigger.stats;
   const endpoint = endpointFor(ingestHost, trigger.sourceId);
   // A webhook or chat trigger on a live source has a secret to rotate.
   const hasSigningSecret = trigger.kind === 'webhook' && !trigger.sourceMissing;
@@ -1138,21 +1146,29 @@ function TriggerDetailModalBody({
             <TabsContent value="overview">
               <Stack gap="comfortable" padding="relaxed">
                 {notice}
+                <Stack direction="horizontal" justify="end">
+                  <SegmentedControl
+                    aria-label="Range"
+                    value={range}
+                    onChange={(v) => isStatsWindow(v) && onWindowChange(v)}
+                    options={STATS_WINDOW_OPTIONS}
+                  />
+                </Stack>
                 {/* One row once the modal is wide enough; two columns below that. */}
                 <Grid
                   cols={trigger.pendingCount > 0 ? { base: 2, sm: 3, md: 5 } : { base: 2, md: 4 }}
                   gap="snug"
                 >
-                  <DetailStat label="Deliveries 24h" value={String(deliveries24h)} />
+                  <DetailStat label={`Deliveries ${range}`} value={String(deliveries)} />
                   <DetailStat
-                    label="Succeeded 24h"
-                    value={String(started24h)}
-                    tone={started24h > 0 ? 'healthy' : undefined}
+                    label={`Succeeded ${range}`}
+                    value={String(started)}
+                    tone={started > 0 ? 'healthy' : undefined}
                   />
                   <DetailStat
-                    label="Failed 24h"
-                    value={String(failed24h)}
-                    tone={failed24h > 0 ? 'error' : undefined}
+                    label={`Failed ${range}`}
+                    value={String(failed)}
+                    tone={failed > 0 ? 'error' : undefined}
                   />
                   <DetailStat
                     label="Consecutive failures"
@@ -1294,8 +1310,8 @@ function TriggerDetailModalBody({
                   filter={deliveryFilter}
                   onFilterChange={setDeliveryFilter}
                   stats={trigger.stats}
+                  window={range}
                   loading={history.loading}
-                  loadingMore={history.loadingMore}
                   hasMore={history.hasMore}
                   error={history.error}
                   onLoadOlder={history.loadOlder}

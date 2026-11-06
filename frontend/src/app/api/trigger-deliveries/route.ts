@@ -3,8 +3,9 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@runkora/server/route-helpers';
 import { listDeliveries } from '@runkora/server/triggers-client';
 
-// GET /api/trigger-deliveries?source_id=&trigger_id=&agent_type_id=&status=&cursor=&limit=: one page of the
-// tenant's deliveries, newest first. Echo `next_cursor` back as `cursor` for the next page.
+// GET /api/trigger-deliveries?source_id=&trigger_id=&agent_type_id=&status=&received_after=&cursor=&limit=:
+// one page of the tenant's deliveries, newest first, without the full payload. Echo `next_cursor` back
+// as `cursor` for the next page.
 export const GET = withAuth(async (req: NextRequest, session) => {
   const q = req.nextUrl.searchParams;
   const limitRaw = q.get('limit');
@@ -13,6 +14,7 @@ export const GET = withAuth(async (req: NextRequest, session) => {
     triggerId: q.get('trigger_id') ?? undefined,
     agentTypeId: q.get('agent_type_id') ?? undefined,
     status: q.get('status') ?? undefined,
+    receivedAfter: q.get('received_after') ?? undefined,
     cursor: q.get('cursor') ?? undefined,
     limit: limitRaw ? Number(limitRaw) : undefined,
   });

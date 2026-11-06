@@ -56,6 +56,11 @@
  * **Server-side** — manage page state externally, pass the current page slice
  * as `data`. Render your own pagination controls beneath the table.
  *
+ * **Loaded on demand** — pass `hasMore` and `onLoadMore` with `pagination` when
+ * `data` is the rows fetched so far. The footer reads "1–25 of 50+", and the
+ * next-page button on the last loaded page asks for more rows and turns the page
+ * once they arrive.
+ *
  * **Server-side sort** — provide `onSortChange`; DataTable delegates reordering
  * to the consumer and disables client-side sort.
  */
@@ -284,6 +289,10 @@ export interface DataTableProps<TData> {
   pagination?: {
     pageSizeOptions: readonly number[];
     defaultPageSize?: number;
+    /** More rows exist than `data` holds. The total reads "N+" until they are loaded. */
+    hasMore?: boolean;
+    /** Asks for more rows when the next page runs past `data`. */
+    onLoadMore?: () => void;
   };
 }
 
@@ -642,6 +651,8 @@ export function DataTable<TData>({
     if (safePage !== page) setPage(safePage);
   }, [safePage, page]);
 
+  const nextPage = useNextPage(pagination, allRows.length, safePage, pageSize, setPage);
+
   const paginatedRows = React.useMemo(() => {
     if (!pagination) return allRows;
     const start = safePage * pageSize;
@@ -865,16 +876,18 @@ export function DataTable<TData>({
         </div>
 
         {/* Pagination footer */}
-        {pagination && pageCount > 1 && (
+        {pagination && (pageCount > 1 || nextPage.more) && (
           <DataTablePagination
             from={from}
             to={to}
             total={allRows.length}
+            more={nextPage.more}
             page={safePage}
-            pageCount={pageCount}
             pageSize={pageSize}
             pageSizeOptions={pagination.pageSizeOptions}
             onPageChange={handlePageChange}
+            onNextPage={nextPage.go}
+            nextDisabled={nextPage.disabled}
             onPageSizeChange={handlePageSizeChange}
             noun={noun}
           />
@@ -1298,17 +1311,56 @@ function FilterButton({
   );
 }
 
+// ─── Internal: Next page, loaded on demand ─────────────────────────────────────
+
+/**
+ * The next-page button's behaviour. Within the loaded rows it turns the page.
+ * On the last loaded page, with more rows to come, it asks for them and turns
+ * the page once they arrive.
+ */
+function useNextPage(
+  pagination: DataTableProps<unknown>['pagination'],
+  rowCount: number,
+  page: number,
+  pageSize: number,
+  setPage: (page: number) => void,
+) {
+  const [awaiting, setAwaiting] = React.useState(false);
+  const more = pagination?.hasMore === true;
+  const onLastPage = (page + 1) * pageSize >= rowCount;
+
+  React.useLayoutEffect(() => {
+    if (!awaiting) return;
+    if (!onLastPage) setPage(page + 1);
+    if (!onLastPage || !more) setAwaiting(false);
+  }, [awaiting, onLastPage, more, page, setPage]);
+
+  function go() {
+    if (!onLastPage) {
+      setPage(page + 1);
+      return;
+    }
+    setAwaiting(true);
+    pagination?.onLoadMore?.();
+  }
+
+  return { more, go, disabled: awaiting || (onLastPage && !more) };
+}
+
 // ─── Internal: Pagination footer ───────────────────────────────────────────────
 
 interface PaginationProps {
   from: number;
   to: number;
   total: number;
+  /** More rows exist past `total`. */
+  more: boolean;
   page: number;
-  pageCount: number;
   pageSize: number;
   pageSizeOptions: readonly number[];
   onPageChange: (page: number) => void;
+  onNextPage: () => void;
+  nextDisabled: boolean;
   onPageSizeChange: (size: number) => void;
   noun?: string;
 }
@@ -1317,11 +1369,13 @@ function DataTablePagination({
   from,
   to,
   total,
+  more,
   page,
-  pageCount,
   pageSize,
   pageSizeOptions,
   onPageChange,
+  onNextPage,
+  nextDisabled,
   onPageSizeChange,
   noun = 'rows',
 }: PaginationProps) {
@@ -1329,6 +1383,7 @@ function DataTablePagination({
     <div className="flex items-center gap-3 border-t border-border-subtle px-4 py-[11px]">
       <span className="text-xs whitespace-nowrap text-subtle">
         {from}–{to} of {total}
+        {more ? '+' : ''}
       </span>
       <span className="grow" />
       <span className="text-xs whitespace-nowrap text-subtle">Rows per page</span>
@@ -1356,9 +1411,9 @@ function DataTablePagination({
       <Button
         variant="ghost"
         size="icon-sm"
-        disabled={page >= pageCount - 1}
+        disabled={nextDisabled}
         aria-label="Next page"
-        onClick={() => onPageChange(page + 1)}
+        onClick={onNextPage}
       >
         <Icon name="chevron-right" size="2xs" />
       </Button>

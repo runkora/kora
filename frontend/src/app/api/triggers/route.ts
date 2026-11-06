@@ -2,7 +2,7 @@ import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@runkora/server/route-helpers';
 import { listTriggers, createTrigger } from '@runkora/server/triggers-client';
-import type { TriggerCreateRequest } from '@runkora/shared/api';
+import type { TriggerCreateRequest, TriggerStatsWindow } from '@runkora/shared/api';
 
 function validateCreateRequest(body: TriggerCreateRequest): string | null {
   if (!body.name?.trim()) return 'name is required';
@@ -32,11 +32,16 @@ function validateCreateRequest(body: TriggerCreateRequest): string | null {
   }
 }
 
-// GET /api/triggers?agent_type_id= — triggers for the tenant, optionally filtered.
+// GET /api/triggers?agent_type_id=&window=24h|7d: triggers for the tenant, optionally one
+// agent's, with their stats and the tenant's over the window.
 export const GET = withAuth(async (req: NextRequest, session) => {
-  const agentTypeId = req.nextUrl.searchParams.get('agent_type_id') ?? undefined;
-  const { triggers } = await listTriggers(session.accessToken, agentTypeId);
-  return NextResponse.json({ data: triggers });
+  const q = req.nextUrl.searchParams;
+  const statsWindow = q.get('window');
+  const list = await listTriggers(session.accessToken, {
+    agentTypeId: q.get('agent_type_id') ?? undefined,
+    ...(statsWindow !== null && { window: statsWindow as TriggerStatsWindow }),
+  });
+  return NextResponse.json({ data: list });
 });
 
 // POST /api/triggers — create a trigger (201). Required fields depend on

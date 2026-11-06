@@ -5,12 +5,14 @@
 import { Grid, Icon, StatCard } from '@runkora/hades';
 import type { TriggerRow } from '../_types';
 import { needsAttention, successRate } from '../_types/stats';
-import type { TenantStatsRow } from '../_types/stats';
+import type { StatsWindow, TenantStatsRow } from '../_types/stats';
 
 interface TriggerStatsKpisProps {
   triggers: TriggerRow[];
   /** Null when the API answered without tenant stats. */
   stats: TenantStatsRow | null;
+  /** The window the stats cover. */
+  window: StatsWindow;
 }
 
 /** Latency in the unit that reads best at the value's magnitude. */
@@ -20,14 +22,14 @@ function formatMs(ms: number | null): string {
 }
 
 const NO_STATS: TenantStatsRow = {
-  deliveries24h: 0,
-  started24h: 0,
-  failed24h: 0,
+  deliveries: 0,
+  started: 0,
+  failed: 0,
   dispatchP50Ms: null,
   dispatchP95Ms: null,
 };
 
-export function TriggerStatsKpis({ triggers, stats }: TriggerStatsKpisProps) {
+export function TriggerStatsKpis({ triggers, stats, window: range }: TriggerStatsKpisProps) {
   const s = stats ?? NO_STATS;
   const rate = successRate(s);
   const attention = triggers.filter(needsAttention).length;
@@ -45,8 +47,8 @@ export function TriggerStatsKpis({ triggers, stats }: TriggerStatsKpisProps) {
         icon={<Icon name="webhook" size="2xs" />}
       />
       <StatCard
-        label="DELIVERIES · 24H"
-        value={s.deliveries24h.toLocaleString('en-GB')}
+        label={`DELIVERIES · ${range.toUpperCase()}`}
+        value={s.deliveries.toLocaleString('en-GB')}
         detail="arrivals that authenticated"
         icon={<Icon name="activity" size="2xs" />}
       />
@@ -56,7 +58,7 @@ export function TriggerStatsKpis({ triggers, stats }: TriggerStatsKpisProps) {
         detail={
           rate === null
             ? 'no deliveries yet'
-            : `${s.started24h.toLocaleString('en-GB')} ok · ${s.failed24h} failed`
+            : `${s.started.toLocaleString('en-GB')} ok · ${s.failed} failed`
         }
         icon={<Icon name="circle-check" size="2xs" />}
       />

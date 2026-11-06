@@ -17,6 +17,8 @@ import { consoleKindOf, KIND_ICON, relativeTime, runTargets, triggerToggleOpen }
 import type { ConsoleKind, SourceCategory, TriggerRow } from '../_types';
 import { chatEventLabel } from '../_lib/chat';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../_types/pagination';
+import { firedPerBucket } from '../_types/stats';
+import type { StatsWindow } from '../_types/stats';
 import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
 import { ManagedInGitBadge, PermissionHint } from '@runkora/components';
 
@@ -28,9 +30,9 @@ import { ManagedInGitBadge, PermissionHint } from '@runkora/components';
  * view model ensures they are computed once, not once per cell.
  */
 interface TriggerDisplayRow extends TriggerRow {
-  /** Failures in the last 24 hours. */
+  /** Failures in the window. */
   failures: number;
-  /** Per-bucket activity volumes for the sparkline. */
+  /** Started and failed per bucket for the sparkline; declined deliveries are not drawn. */
   activity: number[];
   /** Whether any activity exists (sparkline vs. dash). */
   hasActivity: boolean;
@@ -65,6 +67,7 @@ function makeColumns(
   canWrite: boolean,
   canRunAgent: (agentTypeId: string) => boolean,
   tenantLocked: boolean,
+  range: StatsWindow,
 ): DataTableColumn<TriggerDisplayRow>[] {
   return [
     {
@@ -161,7 +164,7 @@ function makeColumns(
     },
     {
       id: 'activity',
-      header: '24h',
+      header: range,
       gridWidth: '96px',
       minWidth: '5rem',
       cell: (row) =>
@@ -169,7 +172,7 @@ function makeColumns(
           <Sparkline
             values={row.activity}
             tone={!row.enabled ? 'muted' : row.failures > 0 ? 'error' : 'accent'}
-            label={`${row.name}: activity over the last 24 hours`}
+            label={`${row.name}: runs started and failed over the last ${range}`}
           />
         ) : (
           <Text size="caption" color="subtle">
@@ -263,6 +266,8 @@ interface TriggerListProps {
    * DataTable, resetting all internal state including the current page.
    */
   resetKey?: string;
+  /** The window the activity column and failures cover. */
+  window: StatsWindow;
 }
 
 export function TriggerList({
@@ -277,6 +282,7 @@ export function TriggerList({
   quickFilters,
   toolbarActions,
   resetKey = '',
+  window: range,
 }: TriggerListProps) {
   // Pre-compute per-row derived values once. Multiple cells reference the same
   // values (failures, activity) — the view model ensures one computation, not
@@ -284,8 +290,8 @@ export function TriggerList({
   const rows = useMemo<TriggerDisplayRow[]>(
     () =>
       triggers.map((t) => {
-        const activity = t.stats.buckets.map((b) => b.started + b.failed + b.other);
-        const failures = t.stats.failed24h;
+        const activity = firedPerBucket(t.stats);
+        const failures = t.stats.failed;
         const consoleKind = consoleKindOf(t, sourceCategory);
         return {
           ...t,
@@ -303,8 +309,9 @@ export function TriggerList({
   const canWrite = useHasScope('triggers:write');
   const tenantLocked = useTenantLocked();
   const columns = useMemo(
-    () => makeColumns(sourceName, sourceWaiting, onToggle, canWrite, canRunAgent, tenantLocked),
-    [sourceName, sourceWaiting, onToggle, canWrite, canRunAgent, tenantLocked],
+    () =>
+      makeColumns(sourceName, sourceWaiting, onToggle, canWrite, canRunAgent, tenantLocked, range),
+    [sourceName, sourceWaiting, onToggle, canWrite, canRunAgent, tenantLocked, range],
   );
 
   return (

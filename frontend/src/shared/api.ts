@@ -992,20 +992,30 @@ export interface Trigger {
   stats?: TriggerStats;
 }
 
+/** The windows `GET /api/v1/triggers?window=` counts stats over. Mirrors Go: triggers.StatsWindow. */
+export type TriggerStatsWindow = '24h' | '7d';
+
 /**
- * One trigger's activity, counted by its own outcome for each delivery that
- * reached it. Mirrors Go: triggers.TriggerStats.
+ * One trigger's activity over the window, counted by its own outcome for each
+ * delivery that reached it. Mirrors Go: triggers.TriggerStats.
  */
 export interface TriggerStats {
-  /** Newest delivery this trigger attempted a run for; declined outcomes do not count. */
+  /** Newest delivery this trigger attempted a run for, over all history; declined outcomes do not count. */
   last_fired_at: string | null;
-  deliveries_24h: number;
-  started_24h: number;
+  deliveries: number;
+  /** Dispatched or joined. */
+  started: number;
   /** Failed, denied or dropped. */
-  failed_24h: number;
-  /** Last 24h by the value `status=` filters on: dispatched, failed, skipped, superseded, duplicate, missed, verified. */
-  status_24h: Record<string, number>;
-  /** Thirteen two-hour buckets aligned to UTC, oldest first, from the one holding now-24h to the one holding now. */
+  failed: number;
+  /**
+   * Counts by the trigger status `status=` filters a trigger's deliveries on: started, failed,
+   * filtered, skipped, superseded, duplicate, missed, verified. They sum to `deliveries`.
+   */
+  status_counts: Record<string, number>;
+  /**
+   * Buckets aligned to UTC, oldest first, from the one holding the window's start to the one
+   * holding now: thirteen of two hours for 24h, fifteen of twelve hours for 7d.
+   */
   buckets: TriggerStatsBucket[];
 }
 
@@ -1017,11 +1027,11 @@ export interface TriggerStatsBucket {
   other: number;
 }
 
-/** The tenant's trigger activity over the last 24h. Mirrors Go: triggers.TenantTriggerStats. */
+/** The tenant's trigger activity over the window. Mirrors Go: triggers.TenantTriggerStats. */
 export interface TenantTriggerStats {
-  deliveries_24h: number;
-  started_24h: number;
-  failed_24h: number;
+  deliveries: number;
+  started: number;
+  failed: number;
   /** Delivery arrival to run start, over started outcomes; null when nothing started. */
   dispatch_p50_ms: number | null;
   dispatch_p95_ms: number | null;
@@ -1176,6 +1186,14 @@ export interface TriggerFireRequest {
 export interface TriggerFireResponse {
   delivery_id: string;
   run_id: string;
+}
+
+/** GET /api/v1/triggers: the triggers with their stats, the tenant's stats and the window they cover. */
+export interface TriggerList {
+  triggers: Trigger[];
+  /** Null when the API answered without tenant stats. */
+  stats: TenantTriggerStats | null;
+  window: TriggerStatsWindow;
 }
 
 /** One page of deliveries, newest first. `next_cursor` is null on the last page. */

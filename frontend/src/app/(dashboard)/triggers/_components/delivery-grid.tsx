@@ -24,7 +24,7 @@ import {
 } from '../_types';
 import type { DeliveryRow } from '../_types';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../_types/pagination';
-import { LoadOlder } from './load-older';
+import { NextPageError } from './next-page-error';
 import type { TriggerDeliveries } from './use-trigger-deliveries';
 
 // ── View-model type ───────────────────────────────────────────────────────────
@@ -202,8 +202,8 @@ interface DeliveryGridProps {
    * DataTable, resetting all internal state including the current page.
    */
   resetKey?: string;
-  /** The server feed the rows come from; adds its loading and error states and "Load older". */
-  paging?: Pick<TriggerDeliveries, 'loading' | 'loadingMore' | 'hasMore' | 'error' | 'loadOlder'>;
+  /** The server feed the rows come from; adds its loading and error states, and its next page to the pager. */
+  paging?: Pick<TriggerDeliveries, 'loading' | 'hasMore' | 'error' | 'loadOlder'>;
 }
 
 /** The empty message, or why there are no rows yet. */
@@ -252,15 +252,14 @@ export function DeliveryGrid({
         searchFn={deliveryMatchesSearch}
         searchPlaceholder="Search deliveries…"
         quickFilters={quickFilters}
-        pagination={{ pageSizeOptions: PAGE_SIZES, defaultPageSize: DEFAULT_PAGE_SIZE }}
+        pagination={{
+          pageSizeOptions: PAGE_SIZES,
+          defaultPageSize: DEFAULT_PAGE_SIZE,
+          hasMore: paging?.hasMore,
+          onLoadMore: paging?.loadOlder,
+        }}
       />
-      {paging?.hasMore && (
-        <LoadOlder
-          loadingMore={paging.loadingMore}
-          error={paging.error}
-          onLoadOlder={paging.loadOlder}
-        />
-      )}
+      <NextPageError error={paging?.error ?? null} rows={rows.length} />
     </Stack>
   );
 }

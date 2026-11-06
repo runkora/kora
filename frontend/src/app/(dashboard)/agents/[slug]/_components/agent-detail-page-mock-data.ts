@@ -131,7 +131,13 @@ function detailRoutes(
     'GET /api/agents/connectors': { data: CONNECTIONS },
     'GET /api/agents/mcp-tools': { servers: MCP_SERVERS, catalog: MCP_CATALOG },
     'GET /api/agents/environments': { data: ENVIRONMENTS },
-    'GET /api/triggers': { data: TRIGGERS.filter((t) => t.agent_type_id === agent.id) },
+    'GET /api/triggers': {
+      data: {
+        triggers: TRIGGERS.filter((t) => t.agent_type_id === agent.id),
+        stats: null,
+        window: '24h',
+      },
+    },
     'GET /api/trigger-sources': { data: SOURCES },
     'GET /api/trigger-deliveries': { data: DELIVERIES },
   };

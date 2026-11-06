@@ -129,10 +129,10 @@ export const SOURCES: SourceRow[] = [
 /** A day of steady activity with one failure, for triggers whose story is not about stats. */
 const SAMPLE_STATS: TriggerStatsRow = {
   lastFiredAt: ago(40 * MIN),
-  deliveries24h: 14,
-  started24h: 12,
-  failed24h: 1,
-  status24h: { dispatched: 12, failed: 1, skipped: 1 },
+  deliveries: 14,
+  started: 12,
+  failed: 1,
+  statusCounts: { started: 12, failed: 1, filtered: 1 },
   buckets: Array.from({ length: 13 }, (_, i) => ({
     start: ago((24 - i * 2) * HOUR),
     started: i % 3 === 0 ? 2 : 1,
@@ -143,9 +143,9 @@ const SAMPLE_STATS: TriggerStatsRow = {
 
 /** The tenant's stats over the mock fleet. */
 export const TENANT_STATS: TenantStatsRow = {
-  deliveries24h: 63,
-  started24h: 54,
-  failed24h: 4,
+  deliveries: 63,
+  started: 54,
+  failed: 4,
   dispatchP50Ms: 840,
   dispatchP95Ms: 2300,
 };

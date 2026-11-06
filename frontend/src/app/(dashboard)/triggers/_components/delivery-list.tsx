@@ -21,24 +21,37 @@ import {
 import type { DataTableColumn } from '@runkora/hades';
 import { deliveryDotStatus, dispatchDuration } from '../_types';
 import type { DeliveryRow } from '../_types';
-import type { TriggerStatsRow } from '../_types/stats';
+import type { StatsWindow, TriggerStatsRow } from '../_types/stats';
 import { DeliveryDetail } from './delivery-detail';
-import { LoadOlder } from './load-older';
+import { NextPageError } from './next-page-error';
 import type { RedeliverAction } from './delivery-detail';
 import type { RoutingAgentName } from './delivery-routing';
 
-/** A quick filter: `all`, or the `status` value the API filters this trigger's deliveries on. */
+/**
+ * A quick filter: `all`, or the trigger status the API filters this trigger's deliveries on.
+ * Every outcome counts under exactly one, so the counts add up to All.
+ */
 export type DeliveryFilter =
-  'all' | 'dispatched' | 'failed' | 'skipped' | 'superseded' | 'duplicate' | 'missed';
+  | 'all'
+  | 'started'
+  | 'failed'
+  | 'filtered'
+  | 'skipped'
+  | 'superseded'
+  | 'duplicate'
+  | 'missed'
+  | 'verified';
 
 const FILTERS: { value: DeliveryFilter; label: string }[] = [
   { value: 'all', label: 'All' },
-  { value: 'dispatched', label: 'Dispatched' },
+  { value: 'started', label: 'Started' },
   { value: 'failed', label: 'Failed' },
+  { value: 'filtered', label: 'Filtered' },
   { value: 'skipped', label: 'Skipped' },
   { value: 'superseded', label: 'Superseded' },
   { value: 'duplicate', label: 'Duplicate' },
   { value: 'missed', label: 'Missed' },
+  { value: 'verified', label: 'Verified' },
 ];
 
 /** How tall the table grows before its rows scroll inside it. */
@@ -49,13 +62,13 @@ interface DeliveryListProps {
   deliveries: DeliveryRow[];
   filter: DeliveryFilter;
   onFilterChange: (filter: DeliveryFilter) => void;
-  /** The trigger's last 24h, which the filter counts show. */
+  /** The trigger's stats over the window, which the filter counts show. */
   stats: TriggerStatsRow;
+  /** The window the counts and the list cover, e.g. `24h`. */
+  window: StatsWindow;
   /** The first page has not landed: a placeholder shows in place of the table. */
   loading?: boolean;
-  /** An older page is being fetched. */
-  loadingMore?: boolean;
-  /** There may be older deliveries; "Load older" shows. */
+  /** There are older deliveries in the window; the pager fetches them. */
   hasMore?: boolean;
   /** Why the last fetch failed, if it did. */
   error?: string | null;
@@ -111,8 +124,8 @@ export function DeliveryList({
   filter,
   onFilterChange,
   stats,
+  window: range,
   loading = false,
-  loadingMore = false,
   hasMore = false,
   error = null,
   onLoadOlder,
@@ -145,7 +158,7 @@ export function DeliveryList({
     [deliveries, triggerId],
   );
   const counts = (f: DeliveryFilter) =>
-    f === 'all' ? stats.deliveries24h : (stats.status24h[f] ?? 0);
+    f === 'all' ? stats.deliveries : (stats.statusCounts[f] ?? 0);
 
   const columns = useMemo<DataTableColumn<DeliveryTableRow>[]>(
     () => [
@@ -260,7 +273,7 @@ export function DeliveryList({
         <SectionLabel>Deliveries</SectionLabel>
         <EmptyState
           icon="clock"
-          title="No deliveries yet"
+          title={`No deliveries in the last ${range}`}
           description={emptyDescription(sourceName, eventType)}
         />
       </Stack>
@@ -278,7 +291,9 @@ export function DeliveryList({
         noun="deliveries"
         columnToggle={false}
         maxHeight={TABLE_MAX_HEIGHT}
-        emptyMessage={loading ? 'Loading deliveries…' : `No ${filter} deliveries.`}
+        emptyMessage={
+          loading ? 'Loading deliveries…' : `No ${filter} deliveries in the last ${range}.`
+        }
         searchPlaceholder="Search deliveries…"
         searchFn={({ d, status }, q) =>
           d.id.toLowerCase().includes(q) ||
@@ -289,13 +304,13 @@ export function DeliveryList({
         quickFilters={
           <Stack direction="horizontal" align="center" gap="cozy">
             <SegmentedControl
-              aria-label="Filter deliveries by outcome, with counts for the last 24 hours"
+              aria-label={`Filter deliveries by outcome, with counts for the last ${range}`}
               value={filter}
               onChange={(v) => onFilterChange(v as DeliveryFilter)}
               options={FILTERS.map((f) => ({ ...f, count: counts(f.value) }))}
             />
             <Text size="caption" color="muted">
-              Counts: last 24h
+              Last {range}
             </Text>
           </Stack>
         }
@@ -311,9 +326,14 @@ export function DeliveryList({
             runHref={runHref}
           />
         )}
-        pagination={{ pageSizeOptions: [10, 25, 50], defaultPageSize: 10 }}
+        pagination={{
+          pageSizeOptions: [10, 25, 50],
+          defaultPageSize: 10,
+          hasMore,
+          onLoadMore: onLoadOlder,
+        }}
       />
-      {hasMore && <LoadOlder loadingMore={loadingMore} error={error} onLoadOlder={onLoadOlder} />}
+      <NextPageError error={error} rows={rows.length} />
     </Stack>
   );
 }

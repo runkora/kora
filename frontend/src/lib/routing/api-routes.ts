@@ -402,10 +402,14 @@ export const ApiRoute = {
       `${API_BASE}/trigger-providers/${encodeURIComponent(provider)}/fields?event_type=${encodeURIComponent(eventType)}`,
   },
   triggers: {
-    list: (agentTypeId?: string): string =>
-      agentTypeId
-        ? `${API_BASE}/triggers?agent_type_id=${encodeURIComponent(agentTypeId)}`
-        : `${API_BASE}/triggers`,
+    /** Triggers with their stats over `window`, optionally one agent's. */
+    list: (opts: { agentTypeId?: string; window?: string } = {}): string => {
+      const qs = new URLSearchParams();
+      if (opts.agentTypeId) qs.set('agent_type_id', opts.agentTypeId);
+      if (opts.window !== undefined) qs.set('window', opts.window);
+      const q = qs.toString();
+      return q === '' ? `${API_BASE}/triggers` : `${API_BASE}/triggers?${q}`;
+    },
     create: (): `${typeof API_BASE}/triggers` => `${API_BASE}/triggers`,
     detail: (id: string): `${typeof API_BASE}/triggers/${string}` => `${API_BASE}/triggers/${id}`,
     delete: (id: string): `${typeof API_BASE}/triggers/${string}` => `${API_BASE}/triggers/${id}`,
@@ -423,12 +427,14 @@ export const ApiRoute = {
     /**
      * A page of deliveries, newest first. `triggerId` matches every delivery that reached the
      * trigger, and `status` its own outcome there; `agentTypeId` every delivery that reached one
-     * of the agent's triggers. `cursor` is the previous page's `next_cursor`.
+     * of the agent's triggers. `receivedAfter` bounds every page to the same range. `cursor` is
+     * the previous page's `next_cursor`.
      */
     page: (opts: {
       triggerId?: string;
       agentTypeId?: string;
       status?: string;
+      receivedAfter?: string;
       limit: number;
       cursor?: string;
     }): string => {
@@ -436,6 +442,7 @@ export const ApiRoute = {
       if (opts.triggerId !== undefined) qs.set('trigger_id', opts.triggerId);
       if (opts.agentTypeId !== undefined) qs.set('agent_type_id', opts.agentTypeId);
       if (opts.status !== undefined) qs.set('status', opts.status);
+      if (opts.receivedAfter !== undefined) qs.set('received_after', opts.receivedAfter);
       if (opts.cursor !== undefined) qs.set('cursor', opts.cursor);
       return `${API_BASE}/trigger-deliveries?${qs.toString()}`;
     },
