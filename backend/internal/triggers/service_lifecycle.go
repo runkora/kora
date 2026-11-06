@@ -27,6 +27,7 @@ type triggerStore interface {
 	CreateTrigger(ctx context.Context, t *Trigger) error
 	GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error)
 	ListTriggers(ctx context.Context, tenantID, agentTypeID string) ([]Trigger, error)
+	TriggerStats(ctx context.Context, tenantID string, now time.Time) (map[string]TriggerStats, TenantTriggerStats, error)
 	UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement, writeRouting bool) error
 	UpdateTriggerGrant(ctx context.Context, t *Trigger, writeEnablement bool, oldGrantID *string) error
 	DeleteTrigger(ctx context.Context, tenantID, id string) error
@@ -429,6 +430,28 @@ func (s *TriggerService) ListTriggers(ctx context.Context, tenantID, agentTypeID
 		}
 	}
 	return filtered, nil
+}
+
+// ListTriggersWithStats is ListTriggers with each trigger's stats attached, and
+// the tenant's stats beside them.
+func (s *TriggerService) ListTriggersWithStats(ctx context.Context, tenantID, agentTypeID, kind string) ([]Trigger, TenantTriggerStats, error) {
+	triggers, err := s.ListTriggers(ctx, tenantID, agentTypeID, kind)
+	if err != nil {
+		return nil, TenantTriggerStats{}, err
+	}
+	now := time.Now()
+	byTrigger, tenant, err := s.repo.TriggerStats(ctx, tenantID, now)
+	if err != nil {
+		return nil, TenantTriggerStats{}, err
+	}
+	for i := range triggers {
+		st, ok := byTrigger[triggers[i].ID]
+		if !ok {
+			st = emptyTriggerStats(now)
+		}
+		triggers[i].Stats = &st
+	}
+	return triggers, tenant, nil
 }
 
 // GetTrigger returns a single trigger.

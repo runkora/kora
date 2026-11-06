@@ -204,8 +204,9 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers, agentTypes str
 
 	addTool(srv, "triggers.deliveries.list",
 		"List recorded trigger deliveries — the history of received source events and the runs they started. "+
-			"Optionally filter by source_id, cap with limit, and bound the time window with received_after (inclusive) "+
-			"and received_before (exclusive), both RFC 3339 timestamps. Set omit_payload to leave the full payload out of "+
+			"Newest first, one page at a time: pass the response's next_cursor as cursor for the next page; no next_cursor "+
+			"means the last page. Optionally filter by source_id, cap the page with limit, and bound the window with "+
+			"received_after (inclusive, RFC 3339). Set omit_payload to leave the full payload out of "+
 			"each delivery; payload_excerpt, trigger outcomes and runs are kept. Use it for wide listings, since payloads "+
 			"dominate the response size. A coalescing trigger records the key it rendered in coalesce_keys, and a fire a newer "+
 			"one replaced has a superseded run whose superseded_by names the delivery that replaced it.",
@@ -217,8 +218,8 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers, agentTypes str
 			if a.ReceivedAfter != "" {
 				q.Set("received_after", a.ReceivedAfter)
 			}
-			if a.ReceivedBefore != "" {
-				q.Set("received_before", a.ReceivedBefore)
+			if a.Cursor != "" {
+				q.Set("cursor", a.Cursor)
 			}
 			if a.OmitPayload {
 				q.Set("omit_payload", "true")
@@ -437,9 +438,9 @@ type providerFieldsArgs struct {
 }
 
 type listDeliveriesArgs struct {
-	SourceID       string `json:"source_id,omitempty" jsonschema:"filter deliveries by source id"`
-	Limit          int    `json:"limit,omitempty" jsonschema:"max number of deliveries to return"`
-	ReceivedAfter  string `json:"received_after,omitempty" jsonschema:"only deliveries received at or after this RFC 3339 timestamp (optional)"`
-	ReceivedBefore string `json:"received_before,omitempty" jsonschema:"only deliveries received before this RFC 3339 timestamp (optional)"`
-	OmitPayload    bool   `json:"omit_payload,omitempty" jsonschema:"leave the full payload out of each delivery (optional); payload_excerpt is kept"`
+	SourceID      string `json:"source_id,omitempty" jsonschema:"filter deliveries by source id"`
+	Limit         int    `json:"limit,omitempty" jsonschema:"max number of deliveries to return"`
+	ReceivedAfter string `json:"received_after,omitempty" jsonschema:"only deliveries received at or after this RFC 3339 timestamp (optional)"`
+	Cursor        string `json:"cursor,omitempty" jsonschema:"the next_cursor from the previous page (optional); omit for the newest page"`
+	OmitPayload   bool   `json:"omit_payload,omitempty" jsonschema:"leave the full payload out of each delivery (optional); payload_excerpt is kept"`
 }

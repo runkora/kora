@@ -88,13 +88,12 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	PATCH  /api/v1/trigger-sources/{id}       Enable/disable or rotate secret.
 //	DELETE /api/v1/trigger-sources/{id}       Delete a webhook source.
 //	POST   /api/v1/triggers                   Create a trigger (any kind).
-//	GET    /api/v1/triggers                   List triggers (filter ?agent_type_id= ?kind=).
+//	GET    /api/v1/triggers                   List triggers with their stats (filter ?agent_type_id= ?kind=).
 //	GET    /api/v1/triggers/{id}              Get a trigger.
 //	PATCH  /api/v1/triggers/{id}              Edit a trigger.
 //	DELETE /api/v1/triggers/{id}              Delete a trigger.
 //	GET    /api/v1/trigger-deliveries         List deliveries, newest first, keyset-paginated.
-//	                                          Filter: ?source_id= ?trigger_id= ?kind= ?status= ?outcome=
-//	                                          (status and outcome repeat to OR several values).
+//	                                          Filter: ?source_id= ?trigger_id= ?kind= ?status= ?received_after=
 //	                                          Page:   ?limit= ?cursor= (echo back next_cursor).
 //	POST   /api/v1/trigger-deliveries/{id}/redeliver  Replay a delivery.
 //	GET    /api/v1/trigger-sources/{id}/event-types   Event catalog for a source.
@@ -295,7 +294,7 @@ func (c *Controller) handleCreateTrigger(w http.ResponseWriter, r *http.Request)
 
 func (c *Controller) handleListTriggers(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	triggers, err := c.triggers.ListTriggers(ctx, tenantFromCtx(ctx),
+	triggers, stats, err := c.triggers.ListTriggersWithStats(ctx, tenantFromCtx(ctx),
 		r.URL.Query().Get("agent_type_id"), r.URL.Query().Get("kind"))
 	if err != nil {
 		c.writeServiceError(w, r, err)
@@ -304,7 +303,7 @@ func (c *Controller) handleListTriggers(w http.ResponseWriter, r *http.Request) 
 	for i := range triggers {
 		c.setCanFire(ctx, &triggers[i])
 	}
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"triggers": triggers})
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"triggers": triggers, "stats": stats})
 }
 
 // setCanFire records whether the caller passes authorizeFire for t. Any refusal
@@ -439,31 +438,11 @@ func (c *Controller) handleRoutingCandidates(w http.ResponseWriter, r *http.Requ
 
 // ─── Deliveries ───────────────────────────────────────────────────────────────
 
-// nonEmpty drops blank values from a repeated query parameter.
-//
-// A client that serializes its filters unconditionally sends ?status= for "no
-// filter", and url.Values reports that as []string{""} rather than nil. Passed
-// through, it would fail validation as an unknown status and 400 a request whose
-// plain meaning is "everything".
-func nonEmpty(values []string) []string {
-	out := values[:0:0]
-	for _, v := range values {
-		if v != "" {
-			out = append(out, v)
-		}
-	}
-	return out
-}
-
-// listDeliveriesResponse is the envelope returned by GET /trigger-deliveries,
-// shaped like inferencegw's listUsageResponse so the two paginated endpoints
-// read the same way. NextCursor is a pointer because it is null on the last
-// page; HasNextPage saves the caller comparing it against empty to decide
-// whether to offer "load more".
+// listDeliveriesResponse is GET /trigger-deliveries: one page, newest first.
+// NextCursor is absent on the last page.
 type listDeliveriesResponse struct {
-	Deliveries  []Delivery `json:"deliveries"`
-	HasNextPage bool       `json:"has_next_page"`
-	NextCursor  *string    `json:"next_cursor"`
+	Deliveries []Delivery `json:"deliveries"`
+	NextCursor string     `json:"next_cursor,omitempty"`
 }
 
 func (c *Controller) handleListDeliveries(w http.ResponseWriter, r *http.Request) {
@@ -473,50 +452,33 @@ func (c *Controller) handleListDeliveries(w http.ResponseWriter, r *http.Request
 	cursor, err := parseDeliveryCursor(q.Get("cursor"))
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger,
-			api.ValidationError(api.ErrCodeValidationFailed, "'cursor' is not a valid pagination cursor", nil), err)
+			api.BadRequestError(api.ErrCodeInvalidField, "cursor is not a value this API issued", map[string]any{"field": "cursor"}), err)
 		return
 	}
-	// status and outcome repeat rather than taking a comma list: ?status=failed
-	// &status=missed is what a multi-select filter sends, and a value can never
-	// contain a comma.
 	filter := DeliveryFilter{
 		SourceID:    q.Get("source_id"),
 		TriggerID:   q.Get("trigger_id"),
 		Kind:        q.Get("kind"),
 		OmitPayload: q.Get("omit_payload") == "true",
-		Status:      nonEmpty(q["status"]),
-		Outcome:     nonEmpty(q["outcome"]),
+		Status:      q.Get("status"),
 		Limit:       limit,
 		Cursor:      cursor,
 	}
-	for _, b := range []struct {
-		field string
-		dst   *time.Time
-	}{{"received_after", &filter.ReceivedAfter}, {"received_before", &filter.ReceivedBefore}} {
-		raw := q.Get(b.field)
-		if raw == "" {
-			continue
-		}
-		// parseErr, not err: the cursor parse above already owns err in this
-		// scope, and shadowing it here would hide a future use of it.
-		t, parseErr := time.Parse(time.RFC3339, raw)
+	if raw := q.Get("received_after"); raw != "" {
+		after, parseErr := time.Parse(time.RFC3339, raw)
 		if parseErr != nil {
-			apiErr := api.BadRequestError(api.ErrCodeInvalidField, b.field+" must be an RFC 3339 timestamp", map[string]any{"field": b.field})
+			apiErr := api.BadRequestError(api.ErrCodeInvalidField, "received_after must be an RFC 3339 timestamp", map[string]any{"field": "received_after"})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, parseErr)
 			return
 		}
-		*b.dst = t
+		filter.ReceivedAfter = after
 	}
 	deliveries, nextCursor, err := c.svc.ListDeliveries(ctx, tenantFromCtx(ctx), filter)
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
 	}
-	body := listDeliveriesResponse{Deliveries: deliveries, HasNextPage: nextCursor != ""}
-	if nextCursor != "" {
-		body.NextCursor = &nextCursor
-	}
-	api.JSON(ctx, w, c.logger, http.StatusOK, body)
+	api.JSON(ctx, w, c.logger, http.StatusOK, listDeliveriesResponse{Deliveries: deliveries, NextCursor: nextCursor})
 }
 
 // handleRedeliver handles POST /api/v1/trigger-deliveries/{id}/redeliver.

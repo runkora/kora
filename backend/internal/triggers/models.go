@@ -73,41 +73,25 @@ const (
 	RunStatusPaused     = "paused"     // the trigger was auto-paused when this fire arrived
 )
 
-// AllDeliveryStatuses lists every arrival-level status a delivery can hold.
-//
-// Written next to the constants rather than re-listed elsewhere, so the filter's
-// allow-list has one home. It guarantees less than that sounds: this is a
-// hand-maintained slice, so dropping a value here drops it from the filter too
-// and no Go test notices. The trigger_deliveries_status_check constraint is the
-// authority on what the pipeline can actually write, and
-// TestPostgres_FilterableStatusesMatchTheDatabase compares the two. That test
-// needs ORBIT_TEST_DB_URL, which CI does not set, so it guards locally only.
-func AllDeliveryStatuses() []string {
-	return []string{
-		StatusVerified,
-		StatusDispatched,
-		StatusSkipped,
-		StatusFailed,
-		StatusDuplicate,
-		StatusMissed,
-	}
+// DeliveryStatusFilters are the values ?status= accepts on the deliveries list.
+// Each maps to the per-trigger outcomes it matches when the list is scoped to one
+// trigger; "failed" covers every outcome the console shows as a failure.
+var DeliveryStatusFilters = map[string][]string{
+	StatusDispatched:    {RunStatusDispatched},
+	StatusVerified:      {},
+	StatusSkipped:       {},
+	StatusFailed:        FailureRunStatuses,
+	RunStatusSuperseded: {RunStatusSuperseded},
+	StatusDuplicate:     {},
+	StatusMissed:        {},
 }
 
-// AllRunStatuses lists every per-trigger outcome a delivery's fan-out can
-// record. Derived from the constants above for the same reason as
-// AllDeliveryStatuses; the trigger_delivery_runs_status_check constraint holds
-// the same seven values.
-func AllRunStatuses() []string {
-	return []string{
-		RunStatusDispatched,
-		RunStatusFailed,
-		RunStatusFiltered,
-		RunStatusDenied,
-		RunStatusSuperseded,
-		RunStatusDropped,
-		RunStatusPaused,
-	}
-}
+// StartedRunStatuses are the per-trigger outcomes where a run took the delivery.
+var StartedRunStatuses = []string{RunStatusDispatched, RunStatusJoined}
+
+// FailureRunStatuses are the per-trigger outcomes that mean something went wrong,
+// as opposed to the trigger declining on purpose (filtered, superseded, unrouted).
+var FailureRunStatuses = []string{RunStatusFailed, RunStatusDenied, RunStatusDropped}
 
 // TerminalRunStatuses are the per-trigger outcomes that mean no run will ever
 // start for this trigger and delivery. The console must show them as settled
@@ -165,6 +149,8 @@ var (
 	ErrProviderNotFound = errors.New("webhook provider not found")
 	// ErrValidation indicates a malformed create/update request.
 	ErrValidation = errors.New("validation failed")
+	// ErrInvalidCursor is returned for a deliveries cursor the API did not issue.
+	ErrInvalidCursor = errors.New("invalid pagination cursor")
 	// ErrTriggerDisabled is returned when trying to fire a disabled trigger.
 	// Reserved for the manual case: a person turned this trigger off, and the
 	// fix is a person turning it back on.
@@ -484,6 +470,8 @@ type Trigger struct {
 	// CanFire reports whether the caller may fire this trigger, set per read so
 	// the UI can disable Run now. Absent means no or not computed. Never stored.
 	CanFire bool `json:"can_fire,omitempty"`
+	// Stats is the trigger's recent activity, set on the list read only.
+	Stats *TriggerStats `json:"stats,omitempty"`
 }
 
 // DisabledByPerson reports whether a person turned this trigger off, as

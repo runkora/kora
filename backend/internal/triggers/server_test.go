@@ -416,6 +416,88 @@ func TestHandleListDeliveries(t *testing.T) {
 	}
 }
 
+// A full page carries a next_cursor the handler accepts back; a value it did not
+// issue is a 400.
+func TestHandleListDeliveries_Cursor(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	for _, id := range []string{"d1", "d2"} {
+		_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{ID: id, TenantID: testTenant, Status: StatusSkipped})
+	}
+	type page struct {
+		Deliveries []Delivery `json:"deliveries"`
+		NextCursor *string    `json:"next_cursor"`
+	}
+
+	first := decode[page](t, call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?limit=1", nil, nil))
+	if len(first.Deliveries) != 1 || first.NextCursor == nil {
+		t.Fatalf("first page = %+v, want one delivery and a next_cursor", first)
+	}
+	if w := call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?limit=1&cursor="+url.QueryEscape(*first.NextCursor), nil, nil); w.Code != http.StatusOK {
+		t.Errorf("issued cursor: status %d, want 200", w.Code)
+	}
+	last := decode[page](t, call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?limit=5", nil, nil))
+	if last.NextCursor != nil {
+		t.Errorf("last page next_cursor = %q, want absent", *last.NextCursor)
+	}
+	for _, bad := range []string{"not-base64!", "bm8tc2VwYXJhdG9y"} {
+		if w := call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?cursor="+bad, nil, nil); w.Code != http.StatusBadRequest {
+			t.Errorf("cursor %q: status %d, want 400", bad, w.Code)
+		}
+	}
+}
+
+// status= narrows the page; a value the list cannot match is a 400.
+func TestHandleListDeliveries_Status(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	for id, status := range map[string]string{"d-failed": StatusFailed, "d-skipped": StatusSkipped} {
+		_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{ID: id, TenantID: testTenant, Status: status})
+	}
+	body := decode[struct {
+		Deliveries []Delivery `json:"deliveries"`
+	}](t, call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?status=failed", nil, nil))
+	if len(body.Deliveries) != 1 || body.Deliveries[0].ID != "d-failed" {
+		t.Errorf("status=failed = %+v, want only d-failed", body.Deliveries)
+	}
+	for _, q := range []string{"status=bogus", "status=superseded"} {
+		if w := call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?"+q, nil, nil); w.Code != http.StatusBadRequest {
+			t.Errorf("%s: status %d, want 400", q, w.Code)
+		}
+	}
+	if w := call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?trigger_id=t1&status=superseded", nil, nil); w.Code != http.StatusOK {
+		t.Errorf("trigger-scoped superseded: status %d, want 200", w.Code)
+	}
+}
+
+// Every listed trigger carries stats, zero-filled when it has no activity, and
+// the tenant's stats sit beside the list.
+func TestHandleListTriggers_Stats(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	src := mustSource(t, deps.sources)
+	busy := mustTrigger(t, deps.triggers, src.ID, nil, "busy")
+	quiet := mustTrigger(t, deps.triggers, src.ID, nil, "quiet")
+	p50 := 120.0
+	deps.repo.triggerStats = map[string]TriggerStats{busy.ID: {Deliveries24h: 3, Started24h: 2}}
+	deps.repo.tenantStats = TenantTriggerStats{Deliveries24h: 4, Started24h: 2, DispatchP50Ms: &p50}
+
+	body := decode[struct {
+		Triggers []Trigger          `json:"triggers"`
+		Stats    TenantTriggerStats `json:"stats"`
+	}](t, call(t, c.handleListTriggers, http.MethodGet, "/triggers", nil, nil))
+	got := map[string]*TriggerStats{}
+	for _, tr := range body.Triggers {
+		got[tr.ID] = tr.Stats
+	}
+	if st := got[busy.ID]; st == nil || st.Deliveries24h != 3 || st.Started24h != 2 {
+		t.Errorf("busy stats = %+v, want the repository's", st)
+	}
+	if st := got[quiet.ID]; st == nil || st.Deliveries24h != 0 || len(st.Buckets) != statsBucketCount || st.LastFiredAt != nil {
+		t.Errorf("quiet stats = %+v, want zeros and %d empty buckets", st, statsBucketCount)
+	}
+	if body.Stats.Deliveries24h != 4 || body.Stats.DispatchP50Ms == nil || *body.Stats.DispatchP50Ms != p50 {
+		t.Errorf("tenant stats = %+v", body.Stats)
+	}
+}
+
 // A replay answers 202 with the NEW delivery id: the original is never touched,
 // and the caller follows the new one to see what it did.
 func TestHandleRedeliver(t *testing.T) {
@@ -807,16 +889,13 @@ func TestHandleListDeliveries_TimeAndPayload(t *testing.T) {
 	if code, got := list("received_after=" + cut); code != 200 || len(got) != 1 || got[0].ID != "new" {
 		t.Errorf("received_after: %d %+v, want only new", code, got)
 	}
-	if code, got := list("received_before=" + cut); code != 200 || len(got) != 1 || got[0].ID != "old" {
-		t.Errorf("received_before: %d %+v, want only old", code, got)
-	}
 	if _, got := list(""); len(got) != 2 || len(got[0].Payload) == 0 {
 		t.Errorf("default listing = %+v, want payloads", got)
 	}
 	if _, got := list("omit_payload=true"); len(got) != 2 || len(got[0].Payload) != 0 || got[0].PayloadExcerpt != "x" {
 		t.Errorf("omit_payload listing = %+v, want excerpt without payload", got)
 	}
-	for _, q := range []string{"received_after=yesterday", "received_before=2026-13-01T00:00:00Z"} {
+	for _, q := range []string{"received_after=yesterday", "received_after=2026-13-01T00:00:00Z"} {
 		if code, _ := list(q); code != http.StatusBadRequest {
 			t.Errorf("%s: status %d, want 400", q, code)
 		}
