@@ -181,7 +181,7 @@ func TestRedeliver_TruncatedPayloadResolvesNoFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
-	if _, err := f.svc.Redeliver(context.Background(), testTenant, original.ID, "user:1"); err != nil {
+	if _, err := f.svc.Redeliver(context.Background(), testTenant, original.ID, "user:1", true); err != nil {
 		t.Fatalf("Redeliver: %v", err)
 	}
 	waitFor(t, func() bool { return len(f.deps.repo.pendingFor(tr.ID)) == 1 })

@@ -584,6 +584,30 @@ func TestHandleRedeliver(t *testing.T) {
 	}
 }
 
+// Replaying an event delivery needs events:read: the replay puts the event in a run.
+func TestHandleRedeliver_EventNeedsEventsRead(t *testing.T) {
+	c, deps, svc := newTestController(t)
+	mustEventTrigger(t, deps, eventReq("on-failure"))
+	if err := svc.HandleEvent(context.Background(), envelope(t, testTenant, "agents.run.failed.v1", 0, nil, nil)); err != nil {
+		t.Fatal(err)
+	}
+	id := deps.repo.deliveries[0].ID
+	redeliver := func() *httptest.ResponseRecorder {
+		return call(t, c.handleRedeliver, http.MethodPost, "/trigger-deliveries/"+id+"/redeliver", map[string]string{"id": id}, nil)
+	}
+	c.eval = &mockEvaluator{allow: false}
+	if w := redeliver(); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "events:read") {
+		t.Fatalf("without events:read: status = %d (%s), want 403 naming events:read", w.Code, w.Body.String())
+	}
+	if n := len(deps.repo.deliveries); n != 1 {
+		t.Errorf("deliveries = %d, want the refused replay to record nothing", n)
+	}
+	c.eval = &mockEvaluator{allow: true}
+	if w := redeliver(); w.Code != http.StatusAccepted {
+		t.Errorf("with events:read: status = %d (%s), want 202", w.Code, w.Body.String())
+	}
+}
+
 // A delivery that cannot be replayed is a 400 that says why, not a 500.
 func TestHandleRedeliver_NotRedeliverable(t *testing.T) {
 	c, deps, _ := newTestController(t)

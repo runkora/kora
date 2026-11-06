@@ -580,7 +580,7 @@ func (c *Controller) deliveryScope(ctx context.Context, triggerID, agentTypeID s
 // never touched.
 func (c *Controller) handleRedeliver(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	resp, err := c.svc.Redeliver(ctx, tenantFromCtx(ctx), r.PathValue("id"), principalFromCtx(ctx))
+	resp, err := c.svc.Redeliver(ctx, tenantFromCtx(ctx), r.PathValue("id"), principalFromCtx(ctx), c.canReadEvents(ctx))
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return

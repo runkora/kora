@@ -982,7 +982,7 @@ func TestRedeliver_RoutedTriggerChecksEveryCandidate(t *testing.T) {
 			}
 			deps.agents.callerReadIDs()
 
-			_, err := svc.Redeliver(context.Background(), testTenant, originalID, "user:2")
+			_, err := svc.Redeliver(context.Background(), testTenant, originalID, "user:2", true)
 
 			reads := deps.agents.callerReadIDs()
 			if allow {
