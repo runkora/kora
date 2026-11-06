@@ -94,14 +94,14 @@ func actingAs(ctx context.Context, s *Session) context.Context {
 	if claims, ok := token.ClaimsFromContext(ctx); ok && claims != nil {
 		return ctx
 	}
-	return attributedTo(ctx, s.PrincipalID, s.PrincipalType, s.TenantID)
+	return attributedTo(ctx, s.PrincipalID, s.PrincipalType, s.TenantID, s.DisplayName)
 }
 
 // attributedTo records an event as caused by the principal. A delegation is
 // the delegator's act even when a platform service brokers the mint.
-func attributedTo(ctx context.Context, principalID string, typ PrincipalType, tenantID string) context.Context {
+func attributedTo(ctx context.Context, principalID string, typ PrincipalType, tenantID, displayName string) context.Context {
 	return token.WithClaims(ctx, &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: principalID},
-		Kora:             token.KoraClaims{PrincipalType: typ, TenantID: tenantID},
+		Kora:             token.KoraClaims{PrincipalType: typ, TenantID: tenantID, DisplayName: displayName},
 	})
 }

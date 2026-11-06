@@ -25,6 +25,7 @@ type identityEvent struct {
 	Tenant        string      `json:"koratenant"`
 	Principal     string      `json:"koraprincipal"`
 	PrincipalType string      `json:"koraprincipaltype"`
+	PrincipalName string      `json:"koraprincipalname"`
 	Data          struct {
 		Entity  map[string]any `json:"entity"`
 		Changed []string       `json:"changed"`
@@ -114,7 +115,7 @@ func TestPostgres_IdentityEvents(t *testing.T) {
 		if !slices.Equal(typesSeen, want) {
 			t.Fatalf("events = %v, want %v", typesSeen, want)
 		}
-		if got[0].PrincipalType != events.PrincipalUser || got[0].Tenant != tenant {
+		if got[0].PrincipalType != events.PrincipalUser || got[0].Tenant != tenant || got[0].PrincipalName != signIn.DisplayName {
 			t.Errorf("sign-in event = %+v, want the user in their tenant", got[0])
 		}
 		// Each tenant records its own side of the switch, and neither names the other.
