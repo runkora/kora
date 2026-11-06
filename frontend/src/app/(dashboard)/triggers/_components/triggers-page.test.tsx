@@ -1,12 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@runkora/test-utils';
 
-const nav = vi.hoisted(() => ({ replace: vi.fn() }));
+const nav = vi.hoisted(() => ({ replace: vi.fn(), search: '' }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn(), replace: nav.replace }),
   usePathname: () => '/triggers',
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(nav.search),
 }));
 const api = vi.hoisted(() => ({ listDeliveryPage: vi.fn() }));
 vi.mock('../_services/triggers-api', async (importOriginal) => ({
@@ -37,6 +37,12 @@ const TRIGGERS = [
   makeTrigger({ id: 'c1', name: 'answer-mentions', sourceId: 'sl', eventType: 'mention' }),
   makeTrigger({ id: 'c2', name: 'dm-helper', sourceId: 'sl', eventType: 'direct_message' }),
 ];
+
+beforeEach(() => {
+  nav.search = '';
+  api.listDeliveryPage.mockReset();
+  api.listDeliveryPage.mockResolvedValue({ deliveries: [], nextCursor: null, error: null });
+});
 
 function renderPage() {
   return renderWithProviders(
@@ -163,5 +169,43 @@ describe('the range selector', () => {
       within(screen.getByRole('group', { name: 'Period' })).getByRole('button', { name: 'All' }),
     );
     expect(nav.replace).toHaveBeenCalledWith('/triggers?window=all', { scroll: false });
+  });
+});
+
+describe('links from the Events page', () => {
+  /** The API's delivery shape, as little of it as the row mapper needs. */
+  const raw = (id: string) => ({
+    id,
+    kind: 'webhook',
+    status: 'failed',
+    event_type: 'push',
+    received_at: '2026-07-29T04:00:00Z',
+    runs: [],
+  });
+
+  it('opens the trigger named by ?trigger=', () => {
+    nav.search = 'trigger=c1';
+    renderPage();
+    expect(screen.getByRole('dialog')).toHaveTextContent('answer-mentions');
+  });
+
+  it('opens nothing for a trigger it does not know', () => {
+    nav.search = 'trigger=gone';
+    renderPage();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('opens the delivery named by ?delivery=, paging back until it is found', async () => {
+    nav.search = 'tab=deliveries&delivery=dlv-2';
+    api.listDeliveryPage
+      .mockResolvedValueOnce({ deliveries: [raw('dlv-1')], nextCursor: 'c1', error: null })
+      .mockResolvedValueOnce({ deliveries: [raw('dlv-2')], nextCursor: null, error: null });
+    renderPage();
+    await waitFor(() => expect(screen.getByRole('dialog')).toHaveTextContent('Delivery dlv-2'));
+    expect(api.listDeliveryPage).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('tab', { name: 'Deliveries', hidden: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
   });
 });

@@ -523,6 +523,14 @@ export const ApiRoute = {
    *
    * GET: one page of the Skills overview, in title order.
    */
+  /** The event history and its live stream, served by kora-events. Filters repeat. */
+  events: {
+    page: (params: URLSearchParams): `${typeof API_BASE}/events?${string}` =>
+      `${API_BASE}/events?${params.toString()}`,
+    stream: (params: URLSearchParams): `${typeof API_BASE}/events/stream?${string}` =>
+      `${API_BASE}/events/stream?${params.toString()}`,
+  },
+
   skills: {
     GET: (params: {
       marketplace: string;
@@ -581,6 +589,8 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['policyExplain']['GET']>
   | ReturnType<(typeof ApiRoute)['policySimulate']['POST']>
   | ReturnType<(typeof ApiRoute)['usage']['GET']>
+  | ReturnType<(typeof ApiRoute)['events']['page']>
+  | ReturnType<(typeof ApiRoute)['events']['stream']>
   | ReturnType<(typeof ApiRoute)['skills']['GET']>
   | ReturnType<(typeof ApiRoute)['skillFile']['GET']>
   | ReturnType<(typeof ApiRoute)['usageBudget']['GET']>

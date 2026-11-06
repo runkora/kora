@@ -1391,3 +1391,51 @@ export interface SkillFile {
   path: string;
   content: string;
 }
+
+// ---------------------------------------------------------------------------
+// Events domain  (kora-events, docs/adr/2026-11-06-event-spine.md)
+// ---------------------------------------------------------------------------
+
+export type EventPrincipalType = 'USER' | 'AGENT' | 'TRIGGER' | 'SYSTEM';
+
+/** One CloudEvents 1.0 event with the kora extension attributes. */
+export interface KoraEvent {
+  specversion: string;
+  id: string;
+  source: string;
+  type: string;
+  subject: string;
+  time: string;
+  datacontenttype: string;
+  koratenant: string;
+  koraprincipal: string;
+  koraprincipaltype: EventPrincipalType;
+  /** The principal's display name at publish time; empty when the claims had none. */
+  koraprincipalname?: string;
+  koradelegator?: string;
+  korarun?: string;
+  koraagent?: string;
+  koracausedby?: string;
+  korachaindepth: number;
+  koratriggers?: string[];
+  traceparent?: string;
+  data: {
+    entity: Record<string, unknown>;
+    changed?: string[];
+    entity_version?: number;
+    occurred_at: string;
+  };
+}
+
+/** One event in the log, as `GET /v1/events` and the stream return it. */
+export interface EventRecord {
+  seq: number;
+  recorded_at: string;
+  event: KoraEvent;
+}
+
+/** GET /v1/events: a page of events, newest first. */
+export interface EventPage {
+  events: EventRecord[];
+  next_cursor: string | null;
+}
