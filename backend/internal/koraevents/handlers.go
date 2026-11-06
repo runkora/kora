@@ -245,7 +245,7 @@ func (c *Controller) filter(w http.ResponseWriter, r *http.Request) (Filter, boo
 	query := r.URL.Query()
 	f := Filter{
 		Tenant:     tenant,
-		Category:   query.Get("category"),
+		Categories: values(query["category"]),
 		Types:      values(query["type"]),
 		Agents:     values(query["agent"]),
 		Principals: values(query["principal"]),

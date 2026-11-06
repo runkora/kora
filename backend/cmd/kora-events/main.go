@@ -14,6 +14,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"go.opentelemetry.io/otel/metric"
+
 	ec "github.com/runkora/kora/backend/cmd/kora-events/config"
 	"github.com/runkora/kora/backend/internal/koraevents"
 	"github.com/runkora/kora/backend/internal/platform/api"
@@ -95,21 +97,10 @@ func realMain() error {
 	defer func() { _ = redis.Close() }()
 
 	store := koraevents.NewPostgres(db.Pool())
-	if err := store.EnsureRelayState(ctx); err != nil {
+	hub, err := startLoops(ctx, db, store, metrics.Meter(), logger)
+	if err != nil {
 		return err
 	}
-
-	// Every replica relays, fans out and sweeps. Advisory locks serialize the
-	// relay and the sweep across replicas.
-	listener := koraevents.NewListener(db.Pool(), logger)
-	go listener.Run(ctx)
-	go koraevents.RunRelay(ctx, store, listener, logger)
-	hub := koraevents.NewHub(store, logger)
-	if err := hub.Run(ctx, listener); err != nil {
-		return fmt.Errorf("start event hub: %w", err)
-	}
-	tenants := declarative.NewRegistry(ec.Current.Kubernetes.TenantsPath)
-	go koraevents.NewRetention(store, tenants, ec.Current.Retention.DefaultDays, logger).Run(ctx)
 
 	eval := policy.NewEvaluator(ec.Current.Policy.BundleEndpoint, ec.Current.BundlePollInterval(), logger)
 	eval.Start(ctx)
@@ -160,4 +151,29 @@ func realMain() error {
 	}
 	metrics.StopServer(shutdownCtx, logger)
 	return nil
+}
+
+// startLoops starts the relay, the stream fan-out and the retention sweep.
+// Every replica runs them. Advisory locks serialize the relay and the sweep
+// across replicas.
+func startLoops(ctx context.Context, db *storage.DB, store *koraevents.Postgres, meter metric.Meter, logger logging.Logger) (*koraevents.Hub, error) {
+	if err := store.EnsureRelayState(ctx); err != nil {
+		return nil, err
+	}
+	deadLettered, err := meter.Int64Counter("kora.events.relay.dead_lettered",
+		metric.WithDescription("Outbox rows moved to event_outbox_dead because the event log cannot hold them"),
+		metric.WithUnit("{row}"))
+	if err != nil {
+		return nil, fmt.Errorf("register relay metrics: %w", err)
+	}
+	listener := koraevents.NewListener(db.Pool(), logger)
+	go listener.Run(ctx)
+	go koraevents.RunRelay(ctx, store, listener, deadLettered, logger)
+	hub := koraevents.NewHub(store, logger)
+	if err := hub.Run(ctx, listener); err != nil {
+		return nil, fmt.Errorf("start event hub: %w", err)
+	}
+	tenants := declarative.NewRegistry(ec.Current.Kubernetes.TenantsPath)
+	go koraevents.NewRetention(store, tenants, ec.Current.Retention.DefaultDays, logger).Run(ctx)
+	return hub, nil
 }

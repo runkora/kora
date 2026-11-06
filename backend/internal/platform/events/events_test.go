@@ -69,7 +69,7 @@ func TestNewEnvelope_Attributes(t *testing.T) {
 	want := Envelope{
 		SpecVersion: "1.0", ID: id.String(), Source: source, Type: RunFailed, Subject: "runs/1",
 		Time: "2026-11-06T03:14:07Z", DataContentType: "application/json", Tenant: "t1",
-		Principal: "agent", PrincipalType: PrincipalAgent, Delegator: "alice", Run: e.RunID, Agent: "triage",
+		Principal: "agent", PrincipalType: PrincipalAgent, PrincipalName: "agent", Delegator: "alice", Run: e.RunID, Agent: "triage",
 		ChainDepth: 2, Triggers: []string{"trg"},
 		Data: Data{Entity: e.Entity, Changed: []string{"state"}, EntityVersion: 7, OccurredAt: "2026-11-06T03:14:07Z"},
 	}
@@ -195,4 +195,25 @@ func TestPostgres_PublishOnceRecordsOnce(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+func TestNewEnvelope_PrincipalName(t *testing.T) {
+	named := &token.PlatformClaims{}
+	named.Subject, named.Kora.PrincipalType, named.Kora.DisplayName = "sub-1", token.PrincipalTypeHuman, "Alice"
+	emailed := &token.PlatformClaims{}
+	emailed.Subject, emailed.Kora.PrincipalType = "sub-2", token.PrincipalTypeHuman
+	emailed.Kora.Claims = map[string]string{"email": "bob@example.org"}
+	agent := &token.PlatformClaims{}
+	agent.Subject, agent.Kora.PrincipalType, agent.Kora.DisplayName = "spiffe://td/tenant/t/agent/triage", token.PrincipalTypeAgent, "triage"
+	for want, ctx := range map[string]context.Context{
+		"Alice":           token.WithClaims(context.Background(), named),
+		"bob@example.org": token.WithClaims(context.Background(), emailed),
+		"triage":          token.WithClaims(context.Background(), agent),
+		source:            context.Background(),
+	} {
+		env, err := newEnvelope(ctx, uuid.New(), runFailed("t1"), time.Now())
+		if err != nil || env.PrincipalName != want {
+			t.Errorf("principal name = %q (%v), want %q", env.PrincipalName, err, want)
+		}
+	}
 }
