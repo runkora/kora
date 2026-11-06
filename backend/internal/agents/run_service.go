@@ -509,10 +509,11 @@ func (s *RunService) TerminateRun(ctx context.Context, id string) error {
 		observability.RecordFailure(span, err, errSpanTerminateRun)
 		return err
 	}
+	// A live run placed on a pod may hold a session, whatever state it was read in.
 	// An idle run still holds its session, and a draining pod waits for it.
-	if run.State == RunStateActive || run.State == RunStateStarting || run.State == RunStateIdle {
+	if terminated.State == RunStateTerminated && terminated.PodOrdinal >= 0 {
 		namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-		podURL := sessionmanager.PodURL(at.Slug, run.PodOrdinal, namespace)
+		podURL := sessionmanager.PodURL(at.Slug, terminated.PodOrdinal, namespace)
 		if err = s.sm.CloseSession(ctx, podURL, id); err != nil && !errors.Is(err, sessionmanager.ErrSessionNotFound) {
 			// Pod may be gone (agent type deleted, pod crashed); log and proceed with cleanup.
 			s.logger.Warn(ctx, "session-manager unreachable during termination, proceeding with cleanup",

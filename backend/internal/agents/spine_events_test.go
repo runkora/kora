@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"errors"
+	"math"
 	"slices"
 	"testing"
 
@@ -173,6 +174,7 @@ func TestAuthorizeChain(t *testing.T) {
 		{"person reports a chain", nil, uuid.NewString(), 1, ErrTriggerAttributionRefused},
 		{"cause is not an event id", trigger, "evt-1", 1, ErrInvalidChain},
 		{"negative depth", trigger, "", -1, ErrInvalidChain},
+		{"depth past the column", trigger, "", math.MaxInt32 + 1, ErrInvalidChain},
 	} {
 		if err := authorizeChain(tc.from, tc.cause, tc.depth); !errors.Is(err, tc.want) || (tc.want == nil && err != nil) {
 			t.Errorf("%s: err = %v, want %v", tc.name, err, tc.want)
@@ -207,4 +209,20 @@ func TestTerminateRun_ClosingSessionDoesNotCompleteTheRun(t *testing.T) {
 		t.Errorf("completion report = %v, want ErrConflict", reportErr)
 	}
 	assertTerminated(t, repo, run.ID)
+}
+
+// Terminate closes the session of any live run placed on a pod, and skips a run still queued.
+func TestTerminateRun_ClosesSessionOfPlacedRun(t *testing.T) {
+	svc, repo, _, sm := newTestService(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	seedRun(t, repo, Run{ID: "queued", TenantID: "t-1", AgentTypeID: "at-1", State: RunStatePending, PodOrdinal: -1})
+	seedRun(t, repo, Run{ID: "placed", TenantID: "t-1", AgentTypeID: "at-1", State: RunStatePending, PodOrdinal: 0})
+	for _, id := range []string{"queued", "placed"} {
+		if err := svc.TerminateRun(context.Background(), id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !slices.Equal(sm.closedSessions, []string{"placed"}) {
+		t.Errorf("closed sessions = %v, want [placed]", sm.closedSessions)
+	}
 }

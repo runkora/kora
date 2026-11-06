@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/google/uuid"
@@ -183,7 +184,7 @@ func authorizeChain(from *StartedByTrigger, causedBy string, depth int) error {
 		return nil
 	case from == nil:
 		return fmt.Errorf("%w (event chain)", ErrTriggerAttributionRefused)
-	case depth < 0:
+	case depth < 0 || depth > math.MaxInt32:
 		return fmt.Errorf("%w: chain_depth %d", ErrInvalidChain, depth)
 	}
 	// Postgres reads only the canonical form, and kora-events writes event ids in it.
