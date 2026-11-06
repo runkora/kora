@@ -126,7 +126,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Run Task Summarization](2026-06-19-run-task-summarization.md) — `Accepted` · 2026-06-19
 - [Extended Trigger Types and an Operable Delivery Pipeline](2026-06-20-extended-trigger-types.md) — `Accepted (field map, empty event_type rule and declared event types superseded 2026-09-29)` · 2026-06-20
 - [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md) — `Superseded by [trigger-deliveries-keyset-pagination](2026-10-07-trigger-deliveries-keyset-pagination.md)` · 2026-06-20
-- [Trigger Deliveries: Keyset Pagination and Server-Side Filtering](2026-10-07-trigger-deliveries-keyset-pagination.md) — `Accepted` · 2026-10-07
+- [Trigger Deliveries: Keyset Pagination, Server Status Filter and Trigger Stats](2026-10-07-trigger-deliveries-keyset-pagination.md) — `Accepted` · 2026-10-07
 - [Agent Token Breakdown and Spend Card](2026-06-23-agent-token-breakdown-and-spend-card.md) — `Accepted (Amended 2026-10-06)` · 2026-06-23
 - [Agent Builder](2026-07-17-agent-builder.md) — `Accepted` · 2026-07-17
 - [Agent Detail Configuration and the Shared Builder Motif](2026-07-17-agent-detail-configuration.md) — `Accepted` · 2026-07-17
@@ -314,7 +314,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-03 | [Sandbox Environments](2026-10-03-sandbox-environments.md) | Accepted (Amended 2026-10-08) | — |
 | 2026-10-06 | [Rendered Service Config Files](2026-10-06-rendered-service-config-files.md) | Accepted | — |
 | 2026-10-07 | [Bundled Sandbox Images](2026-10-07-bundled-sandbox-images.md) | Accepted | — |
-| 2026-10-07 | [Trigger Deliveries: Keyset Pagination and Server-Side Filtering](2026-10-07-trigger-deliveries-keyset-pagination.md) | Accepted | — |
+| 2026-10-07 | [Trigger Deliveries: Keyset Pagination, Server Status Filter and Trigger Stats](2026-10-07-trigger-deliveries-keyset-pagination.md) | Accepted | — |
 | 2026-10-08 | [Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md) | Accepted | — |
 | 2026-10-10 | [Decision Models and the System One API](2026-10-10-systemone-decision-models.md) | Accepted | — |
 | 2026-10-11 | [Hades Versioning and Theme Surface Manifest](2026-10-11-hades-versioning-and-theme-surface-manifest.md) | Accepted | — |

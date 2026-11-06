@@ -1,96 +1,75 @@
-# Trigger Deliveries: Keyset Pagination and Server-Side Filtering
+# Trigger Deliveries: Keyset Pagination, Server Status Filter and Trigger Stats
 
-**Status:** Accepted
-**Date:** 2026-10-07
-**Deciders:** Platform Team
-**Supersedes:** [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md)
-**Technical Story:** [#412](https://github.com/clear-route/orbit/issues/412)
+**Status:** Accepted  
+**Date:** 2026-10-07  
+**Deciders:** Platform Team  
+**Supersedes:** [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md)  
+**Technical Story:** [#412](https://github.com/runkora/kora/issues/412), [#410](https://github.com/runkora/kora/issues/410)
 
 ---
 
 ## Context
 
-[2026-06-20-trigger-deliveries-filter](2026-06-20-trigger-deliveries-filter.md) chose a client-side status filter for the Deliveries tab and recorded a Non-Goal: "Server-side or URL-driven filter, delivery volume does not yet justify API round-trips on filter changes." That was the right call for the volume at the time.
-
-The premise has expired. `GET /api/v1/trigger-deliveries` returns the newest 100 arrivals and the console requests exactly that, so the filter runs over a 100-row window and there is no way to ask for row 101. A tenant whose deliveries exceed that window gets an answer to a question nobody asked: "show me every failed delivery" returns "every failed one among the last 100", and the two agree only while the tenant is small.
-
-This is not a filter problem. A filter over a capped window is wrong at any window size, because the cap is applied before the predicate. Fixing it means the predicate and the page boundary have to move to the same place, which is the database.
-
-## Decision Drivers
-
-- The filter must apply to the full history, not to a page already chosen.
-- Paging must be stable while new webhooks arrive, which they do continuously.
-- Changing a filter is an interactive act and must not flash a loading skeleton over the whole page.
-- `trigger_deliveries` is write-hot. Read-path indexes are not free.
-- The platform already paginates one endpoint. A second convention would be a worse outcome than either convention alone.
+`GET /api/v1/trigger-deliveries` paged on `received_at` alone, and the console filtered statuses and computed "Last fired", recent failures, the 24-hour sparkline and the KPI cards in the browser from the tenant's 100 newest deliveries. A filter or a count applied after a row cap is wrong at any cap. A cursor on `received_at` alone drops or repeats rows that share a timestamp.
 
 ## Considered Options
 
-### Option A: Keep client-side filtering, raise the cap
-
-Raise `defaultDeliveryPageSize` and filter in the browser as today.
-
-Rejected. It moves the boundary without removing it, and it is the option that degrades worst: every reader pays the full transfer so that a minority can filter deeply. The cap is also what protects a write-hot table from unbounded scans.
-
-### Option B: Option C from the superseded ADR, URL search params plus RSC re-render
-
-Navigate to `?status=failed`, re-render the server component, pass the filter to the BFF.
-
-Rejected for the reason the original ADR gave, which still holds: an RSC round trip on every filter toggle flashes a skeleton over the page during interactive exploration. The original ADR's other objection, that this is "significantly more code for a feature whose delivery volume does not yet justify server-side pagination", no longer applies, because the volume is now the problem.
-
-### Option C: Offset pagination (`LIMIT`/`OFFSET`) with a server-side filter
-
-Rejected. Deliveries arrive continuously and the list is newest-first, so rows shift into the window between requests. `OFFSET 100` after a burst re-shows rows the reader already saw and skips others. `OFFSET` also makes the database count and discard every skipped row on each page.
-
-### Option D (chosen): Keyset pagination with the filter in SQL, driven by a client-side fetch
-
-`ListDeliveries` takes a `(received_at, id)` cursor and filters on `status` and `outcome` in the query. The console fetches from the existing BFF route handler on filter change and on Load more, rather than navigating.
+- **Option A (rejected):** Raise the row cap and keep filtering and counting in the browser. A larger cap moves the boundary and does not remove it.
+- **Option B (rejected):** Drive the filter through URL search params and a server component re-render. Every filter change re-renders the page behind a loading skeleton.
+- **Option C (rejected):** Use `LIMIT`/`OFFSET` with a server filter. Deliveries arrive continuously, and an offset page repeats or skips rows after a burst.
+- **Option D (chosen):** Use a keyset cursor and a status filter in SQL, fetched from the console without navigation, and compute trigger stats in Postgres on the trigger list.
 
 ## Decision
 
-**Option D.**
+The deliveries list pages with a keyset cursor and filters by status in SQL, and `GET /api/v1/triggers` returns trigger stats computed by grouped queries.
 
-The filter and the page boundary both live in the query, so paging applies to the filtered set. The console keeps its interactive feel because the fetch is a client-side call to `/api/trigger-deliveries`, not a navigation: there is no RSC re-render and no skeleton flash, which is what the superseded ADR was protecting and what Option B gives up.
+### Deliveries Paging
 
-Three details carry the decision:
+- The cursor is an opaque, base64url-encoded `(received_at, id)` pair that the request takes as `cursor=` and every page but the last returns as `next_cursor`.
+- The query orders by `received_at DESC, id DESC` and reads `limit + 1` rows to decide whether another page follows.
+- `received_before` is removed. The kora MCP tool `triggers.deliveries.list` keeps `received_after` and takes `cursor`.
 
-**The cursor is `(received_at, id)`, not `received_at`.** `received_at` is not unique and a webhook burst lands many rows on one timestamp, where a single-column cursor drops or repeats rows at the page boundary. The id breaks the tie.
+### Status Filter
 
-**The outcome filter is an `EXISTS` over `trigger_delivery_runs`, not a join.** One delivery can fan out to several triggers, each with its own run. A join returns that delivery once per matching run, which corrupts both the page size and the cursor.
+- `status=` takes one of `dispatched`, `verified`, `skipped`, `failed`, `superseded`, `duplicate` or `missed`. An unknown value is a 400.
+- With `trigger_id` set, the list holds every delivery that reached the trigger: recorded against it or carrying one of its outcome rows. `status` then matches the trigger's own outcome, or the delivery's status when the trigger has no outcome row.
+- Without `trigger_id`, `status` matches the delivery's status with scalar equality to use `idx_trigger_deliveries_tenant_status`. `superseded` needs a `trigger_id`.
+- `failed` matches the `failed`, `denied` and `dropped` outcomes.
+- Outcome matches use `EXISTS` over `trigger_delivery_runs`. A join would return a delivery once per matching run and break the page size and the cursor.
 
-**`limit + 1` answers "is there more".** One extra row is exact and costs nothing, where `COUNT(*)` over the filtered set is a second pass on every page.
+### Trigger Stats
 
-The envelope follows the convention `inferencegw` established for `GET /v1/usage`: `has_next_page` plus a nullable `next_cursor`, with the enum values derived from the status constants rather than re-listed, so what a caller may filter on cannot drift from what the pipeline writes. The cursor is opaque to clients and carries no tenant; every query is scoped by `tenant_id` from verified claims.
+Each trigger in `GET /api/v1/triggers` carries `stats`, and the envelope carries the tenant's `stats`. Each delivery that reached a trigger counts once, by the trigger's first outcome row or by the delivery's status when it has none. Windows run over the 24 hours before the request.
+
+The per-trigger stats are:
+
+- `last_fired_at`: the newest delivery with a `dispatched`, `joined`, `failed` or `denied` outcome, over all history. `filtered`, `superseded`, `unrouted`, `paused`, `dropped`, `duplicate` and `missed` do not count.
+- `deliveries_24h`, `started_24h` (`dispatched`, `joined`) and `failed_24h` (`failed`, `denied`, `dropped`).
+- `status_24h`: counts by `status=` value, with the same match the trigger-scoped filter applies.
+- `buckets`: twelve buckets of `started`, `failed` and `other`, aligned to UTC two-hour boundaries with `date_bin`. The last bucket holds the current time and is partial.
+
+The tenant stats are `deliveries_24h` (every arrival), `started_24h`, `failed_24h`, and `dispatch_p50_ms` and `dispatch_p95_ms`. The percentiles use `percentile_cont` over started outcomes, measured from delivery arrival to the outcome row. The console derives the success rate as started over started plus failed.
 
 ## Consequences
 
 ### Positive
 
-- A status filter means the same thing at any tenant size.
-- Paging is stable under concurrent arrivals, which offset pagination is not.
+- A status filter and every count mean the same thing at any tenant size.
+- Paging is stable while deliveries arrive.
+- The Triggers page no longer fetches 100 deliveries to compute its numbers.
 
 ### Negative
 
-- Two more indexes on write-hot tables, one per filter:
-  - `trigger_deliveries (tenant_id, status, received_at DESC)` for the status filter. `received_at DESC` matches the keyset `ORDER BY`, so one index serves both the filter and the page walk. `id` is excluded: it only breaks exact ties the existing index already locates cheaply.
-  - `trigger_delivery_runs (tenant_id, status, delivery_id)` for the outcome filter, which is an `EXISTS` over that table. `delivery_id` is third so the selective side satisfies the semi-join from the index alone.
-
-  Both tables are on the webhook ingestion path, so every arrival now maintains one more index than before, and a fan-out arrival maintains one per run it writes.
-- A single status is emitted as scalar equality rather than `= ANY($n)`. A ScalarArrayOp cannot serve as an index condition on the leading columns, so the planner costs this index worse than the tenant index plus a filter and abandons it. Measured on 300k rows under the default `plan_cache_mode`: the scalar form read 102 rows under an index condition using 106 buffers, the `ANY` form discarded 101,898 rows by filter using 2,266, and the `ANY` plan varied between indexes across sessions where the scalar one did not. This is not a generic-plan effect; `pg_prepared_statements` reported `generic_plans = 0` throughout, so it holds for the plans pgx actually gets. The multi-value case keeps `ANY` and keeps the scan; a covering answer for multi-select would need a different index and is not justified by current usage.
-- The cursor encoding is now a compatibility surface. It is documented as opaque and is ours to change, but a client that parses it will break.
-- The keyset cursor now exists in three packages (`triggers`, `inferencegw` and `agents`), each with its own envelope. Lifting one into `internal/platform/` is the right follow-up and is not done here.
+- `idx_trigger_deliveries_tenant_status` on `(tenant_id, status, received_at DESC)` adds one index to the write path of every arrival.
+- `last_fired_at` scans the tenant's attempted outcomes on every trigger list read.
+- The cursor encoding is a compatibility surface for any client that parses it.
 
 ### Neutral
 
-- `matchesStatusFilter` and the client-side filtering the superseded ADR introduced are removed. The payload excerpt that ADR also introduced is unaffected and stays.
-- The `outcome` parameter is implemented server-side per #412 but has no console consumer yet.
-
-## Related Decisions
-
-- Follows the cursor envelope `inferencegw` uses for `GET /v1/usage` (`internal/inferencegw/handlers_usage.go`). No ADR records that convention; this is the first to write it down.
+- The payload excerpt from the superseded ADR is unchanged.
 
 ## References
 
-- [#412](https://github.com/clear-route/orbit/issues/412)
-- `backend/internal/triggers/postgres.go`, `repository.go`, `service_fire.go`
-- `backend/cmd/orbit-triggers/migrations/20261007064253_add_delivery_status_index.sql`
+- `backend/internal/triggers/postgres.go`
+- `backend/internal/triggers/stats.go`
+- `backend/cmd/kora-triggers/migrations/20261106005343_add_delivery_status_index.sql`
