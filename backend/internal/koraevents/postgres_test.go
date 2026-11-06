@@ -1,0 +1,276 @@
+package koraevents
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/events"
+	"github.com/runkora/kora/backend/internal/platform/storage"
+)
+
+// Postgres tests for the relay, the read queries and the retention sweep.
+// They run when KORA_TEST_DB_URL points at a migrated database. Each test
+// writes under its own tenant and deletes its rows.
+func testStore(t *testing.T) (*Postgres, *storage.Pool, *pgxpool.Pool, string) {
+	t.Helper()
+	dsn := os.Getenv("KORA_TEST_DB_URL")
+	if dsn == "" {
+		t.Skip("set KORA_TEST_DB_URL to run kora-events Postgres tests")
+	}
+	ctx := context.Background()
+	raw, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	tenant := "test-" + uuid.NewString()
+	t.Cleanup(func() {
+		_, _ = raw.Exec(ctx, `DELETE FROM event_outbox WHERE tenant_id = $1`, tenant)
+		_, _ = raw.Exec(ctx, `DELETE FROM events WHERE tenant_id = $1`, tenant)
+		raw.Close()
+	})
+	store := NewPostgres(raw)
+	if err := store.EnsureRelayState(ctx); err != nil {
+		t.Fatal(err)
+	}
+	return store, storage.NewPool(raw), raw, tenant
+}
+
+func event(tenant string, typ events.Type, agent string) events.Event {
+	return events.Event{Type: typ, Tenant: tenant, Subject: "runs/" + uuid.NewString(), RunID: uuid.NewString(), Agent: agent, Entity: map[string]string{"state": "x"}}
+}
+
+func publish(t *testing.T, pool *storage.Pool, e events.Event) {
+	t.Helper()
+	if err := events.Publish(context.Background(), pool, e); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func drain(t *testing.T, store *Postgres) {
+	t.Helper()
+	for {
+		n, err := store.RelayBatch(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if n < relayBatchSize {
+			return
+		}
+	}
+}
+
+func tenantSeqs(t *testing.T, raw *pgxpool.Pool, tenant string) []int64 {
+	t.Helper()
+	rows, err := raw.Query(context.Background(), `SELECT seq FROM events WHERE tenant_id = $1 ORDER BY seq`, tenant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seqs, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return seqs
+}
+
+func TestPostgres_RelayGaplessUnderConcurrency(t *testing.T) {
+	store, pool, raw, tenant := testStore(t)
+	ctx := context.Background()
+	var start int64
+	if err := raw.QueryRow(ctx, `SELECT last_seq FROM event_relay_state`).Scan(&start); err != nil {
+		t.Fatal(err)
+	}
+
+	const producers, perProducer = 8, 25
+	stop := make(chan struct{})
+	var relays sync.WaitGroup
+	for range 2 {
+		relays.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				if _, err := store.RelayBatch(ctx); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		})
+	}
+	var writers sync.WaitGroup
+	for range producers {
+		writers.Go(func() {
+			for range perProducer {
+				err := storage.WithTransaction(ctx, pool, func(ctx context.Context, _ pgx.Tx) error {
+					return events.Publish(ctx, pool, event(tenant, events.RunFailed, "a"))
+				})
+				if err != nil {
+					t.Error(err)
+				}
+			}
+		})
+	}
+	writers.Wait()
+	close(stop)
+	relays.Wait()
+	drain(t, store)
+
+	if seqs := tenantSeqs(t, raw, tenant); len(seqs) != producers*perProducer {
+		t.Fatalf("relayed %d events, want %d", len(seqs), producers*perProducer)
+	}
+	var lowest, highest, count int64
+	if err := raw.QueryRow(ctx, `SELECT min(seq), max(seq), count(*) FROM events WHERE seq > $1`, start).Scan(&lowest, &highest, &count); err != nil {
+		t.Fatal(err)
+	}
+	if lowest != start+1 || count != highest-lowest+1 {
+		t.Errorf("seq after %d runs %d..%d with %d events, want no gap", start, lowest, highest, count)
+	}
+}
+
+func TestPostgres_RelayLateCommit(t *testing.T) {
+	store, pool, raw, tenant := testStore(t)
+	ctx := context.Background()
+
+	published, release, done := make(chan struct{}), make(chan struct{}), make(chan error)
+	go func() {
+		done <- storage.WithTransaction(ctx, pool, func(ctx context.Context, _ pgx.Tx) error {
+			if err := events.Publish(ctx, pool, event(tenant, events.RunStarted, "late")); err != nil {
+				return err
+			}
+			close(published)
+			<-release
+			return nil
+		})
+	}()
+	<-published
+	publish(t, pool, event(tenant, events.RunFailed, "early"))
+	drain(t, store)
+	if seqs := tenantSeqs(t, raw, tenant); len(seqs) != 1 {
+		t.Fatalf("before the late commit the log holds %d events, want 1", len(seqs))
+	}
+
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	drain(t, store)
+	var early, late int64
+	err := raw.QueryRow(ctx, `
+		SELECT max(seq) FILTER (WHERE agent = 'early'), max(seq) FILTER (WHERE agent = 'late')
+		FROM events WHERE tenant_id = $1`, tenant).Scan(&early, &late)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if late <= early {
+		t.Errorf("late row seq %d, early row seq %d: want the late row relayed after", late, early)
+	}
+}
+
+func TestPostgres_RelayDropsRepeatedID(t *testing.T) {
+	store, pool, raw, tenant := testStore(t)
+	ctx := context.Background()
+	e := event(tenant, events.BudgetExceeded, "")
+	for range 2 {
+		if err := events.PublishOnce(ctx, pool, "budget|2026-11", e); err != nil {
+			t.Fatal(err)
+		}
+		drain(t, store)
+	}
+	if seqs := tenantSeqs(t, raw, tenant); len(seqs) != 1 {
+		t.Errorf("repeated id recorded %d events, want 1", len(seqs))
+	}
+	var left int
+	if err := raw.QueryRow(ctx, `SELECT count(*) FROM event_outbox WHERE tenant_id = $1`, tenant).Scan(&left); err != nil || left != 0 {
+		t.Errorf("outbox keeps %d rows (%v), want 0", left, err)
+	}
+}
+
+func TestPostgres_Reads(t *testing.T) {
+	store, pool, _, tenant := testStore(t)
+	ctx := context.Background()
+	publish(t, pool, event(tenant, events.RunFailed, "triage"))
+	publish(t, pool, event(tenant, events.RunStarted, "triage"))
+	publish(t, pool, event(tenant, events.GrantCreated, ""))
+	publish(t, pool, event("other-"+tenant, events.RunFailed, "triage"))
+	drain(t, store)
+	t.Cleanup(func() { _, _ = store.pool.Exec(ctx, `DELETE FROM events WHERE tenant_id = $1`, "other-"+tenant) })
+
+	all, err := store.List(ctx, ListQuery{Filter: Filter{Tenant: tenant}, Limit: 10})
+	if err != nil || len(all) != 3 || all[0].Seq < all[2].Seq {
+		t.Fatalf("List = %d events (%v), want 3 newest first", len(all), err)
+	}
+	runs, _ := store.List(ctx, ListQuery{Filter: Filter{Tenant: tenant, Category: "agents.run", Agent: "triage"}, Limit: 10})
+	if len(runs) != 2 {
+		t.Errorf("category and agent filter = %d events, want 2", len(runs))
+	}
+	older, _ := store.List(ctx, ListQuery{Filter: Filter{Tenant: tenant}, Before: Bound{Seq: all[0].Seq}, Limit: 1})
+	if len(older) != 1 || older[0].Seq != all[1].Seq {
+		t.Errorf("before seq %d = %v, want seq %d", all[0].Seq, older, all[1].Seq)
+	}
+
+	after, _ := store.After(ctx, Filter{Tenant: tenant}, all[2].Seq)
+	if len(after) != 2 || after[0].Seq != all[1].Seq {
+		t.Errorf("After = %v, want the two newer events oldest first", after)
+	}
+
+	var env events.Envelope
+	got, err := store.Get(ctx, tenant, eventID(t, all[0], &env))
+	if err != nil || got.Seq != all[0].Seq {
+		t.Errorf("Get = %v %v", got.Seq, err)
+	}
+	if _, err := store.Get(ctx, "other-"+tenant, env.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Get from another tenant = %v, want ErrNotFound", err)
+	}
+}
+
+func eventID(t *testing.T, r Record, env *events.Envelope) string {
+	t.Helper()
+	if err := json.Unmarshal(r.Event, env); err != nil {
+		t.Fatal(err)
+	}
+	return env.ID
+}
+
+func TestPostgres_SweepBatch(t *testing.T) {
+	store, pool, raw, tenant := testStore(t)
+	ctx := context.Background()
+	for range 3 {
+		publish(t, pool, event(tenant, events.RunFailed, ""))
+	}
+	drain(t, store)
+	seqs := tenantSeqs(t, raw, tenant)
+	// One event inside the window, one outside it, one before 2000 for the default scope.
+	if _, err := raw.Exec(ctx, `UPDATE events SET recorded_at = now() - interval '40 days' WHERE seq = $1`, seqs[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(ctx, `UPDATE events SET recorded_at = '1999-01-01' WHERE seq = $1`, seqs[1]); err != nil {
+		t.Fatal(err)
+	}
+
+	deleted, locked, err := store.SweepBatch(ctx, SweepScope{Tenant: tenant}, time.Now().AddDate(0, 0, -30))
+	if err != nil || !locked || deleted != 2 {
+		t.Fatalf("tenant sweep deleted %d (locked %v, %v), want 2", deleted, locked, err)
+	}
+	publish(t, pool, event(tenant, events.RunFailed, ""))
+	drain(t, store)
+	if _, err := raw.Exec(ctx, `UPDATE events SET recorded_at = '1999-01-01' WHERE tenant_id = $1`, tenant); err != nil {
+		t.Fatal(err)
+	}
+	cutoff := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	if deleted, _, _ := store.SweepBatch(ctx, SweepScope{Except: []string{tenant}}, cutoff); deleted != 0 {
+		t.Errorf("default sweep deleted %d events of an excepted tenant", deleted)
+	}
+	if deleted, _, _ := store.SweepBatch(ctx, SweepScope{Except: []string{}}, cutoff); deleted != 2 {
+		t.Errorf("default sweep deleted %d events, want 2", deleted)
+	}
+}

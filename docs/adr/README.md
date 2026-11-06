@@ -24,6 +24,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) — `Accepted` · 2026-07-10
 - [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) — `Proposed` · 2026-07-21
 - [Rendered Service Config Files](2026-10-06-rendered-service-config-files.md) — `Accepted` · 2026-10-06
+- [Event Spine](2026-11-06-event-spine.md) — `Accepted` · 2026-11-06
 
 ### Identity, Auth & Tokens
 
@@ -341,4 +342,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-03 | [Agent Attribution on Model and Harness Spans](2026-11-03-agent-attribution-on-spans.md) | Accepted | — |
 | 2026-11-04 | [Tenant Switching](2026-11-04-tenant-switching.md) | Accepted | — |
 | 2026-11-06 | [Policy Bundle Grants Index](2026-11-06-policy-bundle-grants-index.md) | Accepted | — |
+| 2026-11-06 | [Event Spine](2026-11-06-event-spine.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

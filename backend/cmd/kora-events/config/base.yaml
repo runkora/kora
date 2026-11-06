@@ -1,0 +1,31 @@
+app:
+  version: "0.1.0"
+
+server:
+  port: 8099
+  basePath: /
+  shutdownTimeoutSecs: 10
+
+observability:
+  serviceName: kora-events
+
+metrics:
+  enabled: true
+  port: 9464
+  shutdownTimeoutSecs: 5
+
+identity:
+  internalURL: "http://kora-identity.kora-system.svc.cluster.local"
+
+policy:
+  bundleEndpoint: "http://kora-policy-service.kora-system.svc/api/v1/policy/bundles"
+  bundlePollIntervalSecs: 30
+  policyServiceURL: "http://kora-policy-service.kora-system.svc"
+
+kubernetes:
+  # Where the chart mounts the kora-tenants ConfigMap.
+  tenantsPath: /etc/kora/tenants.yaml
+
+retention:
+  # The chart sets it from koraEvents.retention.defaultDays.
+  defaultDays: 30

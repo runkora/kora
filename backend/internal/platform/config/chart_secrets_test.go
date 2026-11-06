@@ -18,6 +18,7 @@ func TestChartPlatformSecretKeysPerService(t *testing.T) {
 		"kora-identity":               {"DB_PASSWORD", "KORA_TOKEN_SIGNING_KEY", "REDIS_PASSWORD"},
 		"kora-triggers":               {"DB_PASSWORD", "KORA_TRIGGERS_ENCRYPTION_KEY", "REDIS_PASSWORD"},
 		"kora-agents":                 {"DB_PASSWORD", "REDIS_PASSWORD"},
+		"kora-events":                 {"DB_PASSWORD", "REDIS_PASSWORD"},
 		"kora-inference-gateway":      {"DB_PASSWORD", "REDIS_PASSWORD"},
 		"kora-policy-service":         {"DB_PASSWORD", "REDIS_PASSWORD"},
 		"kora-tool-gateway":           {"DB_PASSWORD", "REDIS_PASSWORD"},

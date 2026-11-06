@@ -1,0 +1,19 @@
+{{- if .Values.platform.spiffe.enabled }}
+# SPIFFE-backed mutual TLS for traffic to kora-events, from the ingress
+# gateway and from kora-triggers.
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: kora-events-client-policy
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.koraEvents.labels" . | nindent 4 }}
+spec:
+  host: kora-events.{{ include "kora.systemNamespace" . }}.svc.cluster.local
+  exportTo: ["*"]
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+      subjectAltNames:
+        - "spiffe://{{ include "kora.trustDomain" . }}/system/kora-events"
+{{- end }}
