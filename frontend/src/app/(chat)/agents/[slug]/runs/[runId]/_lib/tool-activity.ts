@@ -43,7 +43,7 @@ function serviceName(server: string): string {
 
 /** A value in a few words: never "[object Object]". */
 function compact(key: string, v: unknown): string {
-  if (typeof v === 'number') return /number|id$/.test(key) ? `#${v}` : String(v);
+  if (typeof v === 'number') return /(?:number|id)$/.test(key) ? `#${v}` : String(v);
   if (typeof v === 'string') return v.length <= 60 ? v : `${v.slice(0, 59)}…`;
   if (typeof v === 'boolean') return `${key}: ${v}`;
   if (Array.isArray(v)) return `${key}: ${v.length} ${v.length === 1 ? 'item' : 'items'}`;
