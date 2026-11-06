@@ -17,7 +17,8 @@ ALTER TABLE runs DROP COLUMN trigger_ids;
 ALTER TABLE runs DROP COLUMN chain_depth;
 ALTER TABLE runs DROP COLUMN caused_by;
 ALTER TABLE runs DROP CONSTRAINT runs_state_check;
+-- NOT VALID leaves terminated rows in place and checks new writes.
 ALTER TABLE runs ADD CONSTRAINT runs_state_check
-  CHECK (state IN ('pending', 'starting', 'active', 'idle', 'completing', 'completed', 'failed', 'budget_exhausted'));
+  CHECK (state IN ('pending', 'starting', 'active', 'idle', 'completing', 'completed', 'failed', 'budget_exhausted')) NOT VALID;
 ALTER TABLE runs DROP COLUMN deleted_at;
 -- +goose StatementEnd
