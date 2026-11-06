@@ -215,6 +215,33 @@ func TestPostgres_TriggerMessageExtendsTheChain(t *testing.T) {
 	}
 }
 
+// An ended or terminated run cannot move back to a live state.
+func TestPostgres_EndedRunKeepsItsState(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+	ended := queueRun(t, r, tenant, at.ID, time.Now(), nil)
+	if err := r.SetRunState(ctx, ended, RunStatePending, RunStateCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SetRunState(ctx, ended, RunStateCompleted, RunStateActive); !errors.Is(err, ErrConflict) {
+		t.Errorf("completed to active = %v, want ErrConflict", err)
+	}
+	live := queueRun(t, r, tenant, at.ID, time.Now(), nil)
+	if _, err := r.TerminateRun(ctx, live); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.SetRunState(ctx, live, RunStateTerminated, RunStateActive); !errors.Is(err, ErrConflict) {
+		t.Errorf("terminated to active = %v, want ErrConflict", err)
+	}
+	if err := r.MarkRunFailed(ctx, live); err != nil {
+		t.Fatal(err)
+	}
+	if run, _ := r.GetRun(ctx, live); run.State != RunStateTerminated {
+		t.Errorf("terminated run state = %s after MarkRunFailed", run.State)
+	}
+}
+
 func TestPostgres_AgentAndEnvironmentChangesRecordEvents(t *testing.T) {
 	r, tenant := testEnvironmentRepo(t)
 	ctx := context.Background()
@@ -251,7 +278,12 @@ func TestPostgres_AgentAndEnvironmentChangesRecordEvents(t *testing.T) {
 	if !slices.Equal(changed[events.EnvironmentUpdated], []string{"description"}) {
 		t.Errorf("environment changed = %v", changed[events.EnvironmentUpdated])
 	}
-	if !slices.Equal(changed[events.AgentUpdated], []string{"environments", "name"}) {
+	for _, e := range envs {
+		if entity, _ := e.Data.Entity.(map[string]any); entity["system_prompt"] != nil || entity["connectors"] != nil {
+			t.Errorf("%s entity carries configuration: %v", e.Type, entity)
+		}
+	}
+	if !slices.Equal(changed[events.AgentUpdated], []string{"environment_ids", "name"}) {
 		t.Errorf("agent changed = %v", changed[events.AgentUpdated])
 	}
 }

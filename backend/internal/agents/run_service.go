@@ -891,6 +891,10 @@ func (s *RunService) AuthorizeAgentCallback(ctx context.Context, runID string) e
 	if err != nil {
 		return err
 	}
+	// A terminated run takes no callbacks from the session it left behind.
+	if run.DeletedAt != nil {
+		return ErrNotFound
+	}
 	if run.TenantID != claims.Kora.TenantID {
 		return ErrForbidden
 	}
@@ -967,6 +971,10 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, environ
 	run, at, err := s.runAndAgent(ctx, runID)
 	if err != nil {
 		return Sandbox{}, failSpan(span, errLoadRun, err)
+	}
+	// A run that ended has no sandbox to come back to.
+	if run.State.Terminal() || run.DeletedAt != nil {
+		return Sandbox{}, failSpan(span, errLoadRun, fmt.Errorf("%w: run %s", ErrNotFound, run.State))
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
