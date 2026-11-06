@@ -125,8 +125,8 @@ func realMain() error {
 	apiServer.SetMetricsMiddleware(metrics.Middleware())
 	server := apiServer.Server(ctx, ec.Current.Server.Port, ec.Current.Server.BasePath,
 		mw.MiddlewareChain(mw.TracingMiddleware(), mw.LoggingMiddleware(logger)),
-		koraevents.NewController(store, hub, auth, logger),
-		koraevents.NewInternalController(store, hub, mw.AuthMiddleware(verifier, logger), logger),
+		koraevents.NewController(store, hub, auth, blocklist, logger),
+		koraevents.NewInternalController(store, hub, mw.AuthMiddlewareWithRevocation(verifier, blocklist, logger), blocklist, logger),
 	)
 
 	// Publish events:read so the policy service accepts grants of it and the

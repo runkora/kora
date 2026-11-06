@@ -82,6 +82,7 @@ var asCaller = mw.NewMiddleware(func(next http.Handler) http.Handler {
 		claims.Kora.TenantID = r.Header.Get("X-Tenant")
 		typ, name, _ := strings.Cut(r.Header.Get("X-Principal"), "/")
 		claims.Kora.PrincipalType, claims.Kora.DisplayName = token.PrincipalType(typ), name
+		claims.ID = r.Header.Get("X-JTI")
 		if exp, err := strconv.ParseInt(r.Header.Get("X-Expires"), 10, 64); err == nil {
 			claims.ExpiresAt = jwt.NewNumericDate(time.Unix(exp, 0))
 		}
@@ -89,14 +90,37 @@ var asCaller = mw.NewMiddleware(func(next http.Handler) http.Handler {
 	})
 })
 
+// blocklist is a revocation checker safe to change while streams read it.
+type blocklist struct {
+	mu      sync.Mutex
+	revoked map[string]bool
+}
+
+func (b *blocklist) IsBlocked(_ context.Context, jti string) (bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.revoked[jti], nil
+}
+
+func (b *blocklist) revoke(jti string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.revoked[jti] = true
+}
+
 // server serves the controllers with asCaller in place of token verification.
 func server(t *testing.T, store *fakeStore, hub *Hub) *httptest.Server {
+	t.Helper()
+	return serverWith(t, store, hub, &blocklist{revoked: map[string]bool{}})
+}
+
+func serverWith(t *testing.T, store *fakeStore, hub *Hub, revoked *blocklist) *httptest.Server {
 	t.Helper()
 	logger := testLogger
 	ctx := context.Background()
 	srv := api.NewAPI(ctx, logger).Server(ctx, 0, "/", nil,
-		NewController(store, hub, mw.MiddlewareChain(asCaller), logger),
-		NewInternalController(store, hub, asCaller, logger))
+		NewController(store, hub, mw.MiddlewareChain(asCaller), revoked, logger),
+		NewInternalController(store, hub, asCaller, revoked, logger))
 	ts := httptest.NewServer(srv.Handler)
 	t.Cleanup(ts.Close)
 	return ts
@@ -346,7 +370,7 @@ func TestInternalStream_WithoutTokenIsUnauthorized(t *testing.T) {
 	logger := testLogger
 	verifier := token.NewVerifier(context.Background(), "http://127.0.0.1:1/jwks", "kora", "kora-platform")
 	store := &fakeStore{}
-	c := NewInternalController(store, NewHub(store, logger), mw.AuthMiddleware(verifier, logger), logger)
+	c := NewInternalController(store, NewHub(store, logger), mw.AuthMiddleware(verifier, logger), &blocklist{}, logger)
 	ts := httptest.NewServer(api.NewAPI(context.Background(), logger).Server(context.Background(), 0, "/", nil, c).Handler)
 	t.Cleanup(ts.Close)
 	resp, err := http.Get(ts.URL + "/internal/v1/events/stream")
@@ -379,5 +403,41 @@ func TestStream_EndsWhenTheTokenExpires(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Error("the stream outlived the token")
+	}
+}
+
+func TestStream_EndsWhenTheTokenIsRevoked(t *testing.T) {
+	defer func(old time.Duration) { heartbeat = old }(heartbeat)
+	heartbeat = 20 * time.Millisecond
+	store := &fakeStore{}
+	revoked := &blocklist{revoked: map[string]bool{}}
+	ts := serverWith(t, store, NewHub(store, testLogger), revoked)
+
+	for _, path := range []string{"/v1/events/stream", "/internal/v1/events/stream"} {
+		req, _ := http.NewRequest(http.MethodGet, ts.URL+path, nil)
+		req.Header.Set("X-Tenant", "t1")
+		req.Header.Set("X-Principal", "SYSTEM/kora-triggers")
+		req.Header.Set("X-JTI", "jti-"+path)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan struct{})
+		go func() {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			close(done)
+		}()
+		select {
+		case <-done:
+			t.Fatalf("%s ended before the token was revoked", path)
+		case <-time.After(100 * time.Millisecond):
+		}
+		revoked.revoke("jti-" + path)
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Errorf("%s outlived the revoked token", path)
+		}
+		_ = resp.Body.Close()
 	}
 }
