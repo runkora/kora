@@ -87,22 +87,27 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) (held 
 		)
 		// No name to record: the trigger could not be read at all, which is the
 		// one case where the id is genuinely all there is.
-		s.outcomes.record(ctx, &DeliveryRun{
+		//
+		// recordSettling, not record: this fire's own pending-queue row (p.ID)
+		// is still present — the worker releases it only after DispatchPending
+		// returns — so the finality check must discount it as the thing
+		// settling right now, not as a sibling trigger still outstanding.
+		s.outcomes.recordSettling(ctx, &DeliveryRun{
 			TenantID: p.TenantID, DeliveryID: p.DeliveryID, TriggerID: p.TriggerID,
 			Status: RunStatusDropped, Error: new("trigger no longer available"),
-		})
-		return false
+		}, p.ID)
+		return
 	}
 	// The worker's dispatch span only knows the id; the name comes with the read.
 	trace.SpanFromContext(ctx).SetAttributes(observability.TriggerNameKey.String(t.Name))
 	if !t.Enabled {
-		s.outcomes.record(ctx, &DeliveryRun{
+		s.outcomes.recordSettling(ctx, &DeliveryRun{
 			TenantID: p.TenantID, DeliveryID: p.DeliveryID,
 			TriggerID: p.TriggerID, TriggerName: t.Name,
 			Status: RunStatusDropped,
 			Error:  new("trigger was disabled while this fire was waiting"),
-		})
-		return false
+		}, p.ID)
+		return
 	}
 	if t.SourceMissing {
 		s.outcomes.record(ctx, &DeliveryRun{
@@ -124,16 +129,17 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) (held 
 	}
 	runID, err := s.startRunForTriggerWithFields(dispatchCtx, *t, p.DeliveryID, p.Fields)
 	if err != nil {
-		s.recordDispatchFailure(ctx, *t, p.DeliveryID, err)
-		return false
+		s.recordDispatchFailure(ctx, *t, p.DeliveryID, p.ID, err)
+		return
 	}
-	s.recordStarted(ctx, *t, p.DeliveryID, RunStatusDispatched, runID)
+	s.recordStarted(ctx, *t, p.DeliveryID, RunStatusDispatched, runID, p.ID)
 	return false
 }
 
 // recordDispatchFailure records a start or join that failed, and counts it
-// toward auto-pause when the failure is the trigger's own.
-func (s *Service) recordDispatchFailure(ctx context.Context, t Trigger, deliveryID string, err error) {
+// toward auto-pause when the failure is the trigger's own. ownPendingID is the
+// fire's own pending-queue row, not yet released: see recordStarted.
+func (s *Service) recordDispatchFailure(ctx context.Context, t Trigger, deliveryID, ownPendingID string, err error) {
 	span := trace.SpanFromContext(ctx)
 	observability.RecordFailure(span, err, errDispatchFailed)
 	s.logger.Error(ctx, "pending dispatch failed",
@@ -150,12 +156,17 @@ func (s *Service) recordDispatchFailure(ctx context.Context, t Trigger, delivery
 	// single line; the per-trigger detail is the fan-out.
 	s.recordFailure(ctx, deliveryID, err.Error())
 	s.noteFailure(ctx, t, err)
-	s.outcomes.derive(ctx, deliveryID)
+	s.outcomes.deriveSettling(ctx, deliveryID, t.TenantID, ownPendingID)
 }
 
 // recordStarted records a delivery that started or joined runID. status is
 // RunStatusDispatched for a new run and RunStatusJoined for a joined one.
-func (s *Service) recordStarted(ctx context.Context, t Trigger, deliveryID, status, runID string) {
+// ownPendingID is the fire's own pending-queue row: the worker releases it
+// only after the caller returns, so the finality check must discount it as
+// the thing settling right now, not as a sibling trigger still outstanding
+// (same reasoning as the recordSettling/deriveSettling calls in
+// DispatchPending's error paths).
+func (s *Service) recordStarted(ctx context.Context, t Trigger, deliveryID, status, runID, ownPendingID string) {
 	ctx = observability.WithRun(ctx, runID)
 	s.outcomes.insert(ctx, &DeliveryRun{
 		TenantID: t.TenantID, DeliveryID: deliveryID,
@@ -164,7 +175,7 @@ func (s *Service) recordStarted(ctx context.Context, t Trigger, deliveryID, stat
 	})
 	_ = s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusDispatched, &t.ID, &runID, nil)
 	s.noteSuccess(ctx, t)
-	s.outcomes.derive(ctx, deliveryID)
+	s.outcomes.deriveSettling(ctx, deliveryID, t.TenantID, ownPendingID)
 
 	s.logger.Info(ctx, "trigger dispatched delivery",
 		logging.Field{Key: "trigger_id", Value: t.ID},

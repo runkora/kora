@@ -180,6 +180,7 @@ func TestCheckModelPolicy_UnknownModel_ReturnsModelNotFound(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 	ctx := ctxWithClaims(t)
 	err := svc.checkModelPolicy(ctx, "totally-unknown-model")
@@ -205,6 +206,7 @@ func TestCheckModelPolicy_VirtualModelAllowed(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 	ctx := ctxWithClaims(t)
 	err := svc.checkModelPolicy(ctx, "anthropic/claude-sonnet-4-6")
@@ -223,6 +225,7 @@ func TestCheckModelPolicy_VirtualModelDenied(t *testing.T) {
 		&stubEvaluator{checkAllow: &deny},
 		buildTestRouter(vms),
 		NewNopPricingCache(),
+		nil,
 		nil,
 		nil,
 		nil,
@@ -303,6 +306,7 @@ func TestFilterTargetsByPolicy_FiltersCorrectly(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 	)
 	ctx := ctxWithClaims(t)
 	targets := []RouteTarget{
@@ -340,6 +344,7 @@ func TestFilterTargetsByPolicy_DeniesWhenAllFiltered(t *testing.T) {
 		&stubEvaluator{allowedCandidateIDs: map[string]bool{}}, // nothing allowed
 		buildTestRouter(vms),
 		NewNopPricingCache(),
+		nil,
 		nil,
 		nil,
 		nil,
@@ -430,7 +435,7 @@ func TestExtractFailureDetails_EmptyConnectorError(t *testing.T) {
 // ─── GetPersonalBudget — service-level ──────────────────────────────────────
 
 func newBudgetService(eval *stubEvaluator, counter SpendCounter) *Service {
-	return NewService(eval, buildTestRouter(nil), NewNopPricingCache(), nil, counter, logging.NewLoggerWithOutput(io.Discard))
+	return NewService(eval, buildTestRouter(nil), NewNopPricingCache(), nil, counter, logging.NewLoggerWithOutput(io.Discard), nil)
 }
 
 func monthlySpends(usd float64) policy.BudgetSpends {
@@ -530,7 +535,7 @@ func TestGetPersonalBudget_ResolvesRolesFromSnapshotWhenCredentialHasNone(t *tes
 	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 50}
 	counter := &mockSpendCounter{spends: monthlySpends(30)}
 	usage := &mockInferenceUsageRepository{principalRoles: map[string][]string{"tenant-1\x00user-1": {"engineering"}}}
-	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard), nil)
 
 	if _, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "user-1"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -551,7 +556,7 @@ func TestGetPersonalBudget_DeduplicatesResolvedRoles(t *testing.T) {
 	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 50}
 	counter := &mockSpendCounter{spends: monthlySpends(30)}
 	usage := &mockInferenceUsageRepository{principalRoles: map[string][]string{"tenant-1\x00user-1": {"engineering", "engineering", "users"}}}
-	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard), nil)
 
 	if _, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "user-1"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -572,7 +577,7 @@ func TestGetPersonalBudget_SkipsRoleLookupForAgentPrincipals(t *testing.T) {
 	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 50}
 	counter := &mockSpendCounter{spends: monthlySpends(30)}
 	usage := &mockInferenceUsageRepository{principalRoles: map[string][]string{"tenant-1\x00spiffe://td/agent/x": {"should-not-be-read"}}}
-	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard), nil)
 
 	if _, err := svc.GetPersonalBudget(ctxWithClaims(t), "tenant-1", "spiffe://td/agent/x"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -592,7 +597,7 @@ func TestGetPersonalBudget_LiveJWTRolesWinOverSnapshot(t *testing.T) {
 	eval := &stubEvaluator{budgetHasLimit: true, budgetEffectiveUSD: 50}
 	counter := &mockSpendCounter{spends: monthlySpends(30)}
 	usage := &mockInferenceUsageRepository{principalRoles: map[string][]string{"tenant-1\x00user-1": {"stale-snapshot-role"}}}
-	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard), nil)
 
 	if _, err := svc.GetPersonalBudget(ctxWithRoles(t, "live-role"), "tenant-1", "user-1"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -690,7 +695,7 @@ func TestListBudgetPrincipals_MergesSourcesAndSorts(t *testing.T) {
 		},
 		activeRoleHolders: map[string][]string{"pid-role": {"engineer"}},
 	}
-	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard), nil)
 
 	resp, err := svc.ListBudgetPrincipals(context.Background(), "tenant-1")
 	if err != nil {
@@ -740,7 +745,7 @@ func TestListBudgetPrincipals_WeeklyBlockedReportedAndTypeInferred(t *testing.T)
 	usage := &mockInferenceUsageRepository{
 		windowSpends: map[string]float64{pid: 20}, // true ISO-week spend
 	}
-	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard), nil)
 
 	resp, err := svc.ListBudgetPrincipals(context.Background(), "tenant-1")
 	if err != nil {
@@ -779,7 +784,7 @@ func TestListBudgetPrincipals_RoleCounterForRemovedBudgetIgnored(t *testing.T) {
 	usage := &mockInferenceUsageRepository{
 		activeRoleHolders: map[string][]string{"pid-1": {"engineer"}},
 	}
-	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard), nil)
 
 	resp, err := svc.ListBudgetPrincipals(context.Background(), "tenant-1")
 	if err != nil {

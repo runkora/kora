@@ -379,7 +379,7 @@ linters:
       # spanAttrKeyVocabulary governs span attribute keys. Metric labels
       # (method, route, status, state) are a public interface that dashboards
       # query, and they keep their names.
-      - path: "internal/(platform/middleware|triggers)/metrics\\.go"
+      - path: "internal/.*/metrics\\.go"
         linters:
           - gocritic
         text: "is a literal\\. Use a semconv constant"

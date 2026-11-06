@@ -9,13 +9,9 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
-)
 
-// secondsBuckets are Prometheus client_golang's conventional DefBuckets,
-// explicit because the OTel SDK's default histogram boundaries are tuned for
-// millisecond-scale values and would collapse almost every sub-5-second HTTP
-// request into a single bucket otherwise.
-var secondsBuckets = []float64{.005, .01, .025, .05, .075, .1, .25, .5, .75, 1, 2.5, 5, 7.5, 10}
+	"github.com/runkora/kora/backend/internal/platform/metrics/buckets"
+)
 
 // instrumentServiceName strips a leading "kora-" from the configured
 // observability service name before it's used to build an instrument name.
@@ -54,7 +50,7 @@ func MetricsMiddleware(meter metric.Meter, serviceName string) (Middleware, erro
 		fmt.Sprintf("kora.%s.http.request.duration", name),
 		metric.WithDescription("HTTP request wall time"),
 		metric.WithUnit("s"),
-		metric.WithExplicitBucketBoundaries(secondsBuckets...),
+		metric.WithExplicitBucketBoundaries(buckets.Default...),
 	)
 	if err != nil {
 		return Middleware{}, fmt.Errorf("create http request duration histogram: %w", err)

@@ -42,7 +42,7 @@ func TestHandleCheck_DelegationBlocklist(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			eval := &checkRecorder{}
-			c := NewController(NewService(eval, logging.NewLogger()), s.Verifier, tokentest.Blocklist{"jti-revoked": true}, logging.NewLogger())
+			c := NewController(NewService(eval, logging.NewLogger(), nil), s.Verifier, tokentest.Blocklist{"jti-revoked": true}, logging.NewLogger())
 			body, _ := json.Marshal(CheckRequest{Token: bearer, DelegationToken: tc.delegation, Resource: CheckResource{Type: "agents", PathSegments: []string{"types"}}, Action: "read"})
 			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/policy/check", strings.NewReader(string(body)))
 			req.Header.Set("Content-Type", "application/json")

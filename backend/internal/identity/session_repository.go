@@ -35,6 +35,10 @@ type SessionRepository interface {
 	// RefreshTokenRepository.RevokeAllForSession before or after.
 	RevokeSession(ctx context.Context, id string, revokedAt time.Time) error
 
+	// CountActiveSessions returns the number of sessions that are neither
+	// revoked nor expired, grouped by tenant. Backs the
+	// kora_identity_sessions_active{tenant_id} gauge.
+	CountActiveSessions(ctx context.Context) (map[string]int64, error)
 	// SwitchSession commits a tenant switch in one transaction: it consumes the
 	// replaced refresh token, revokes its session and that session's other
 	// refresh tokens, and inserts the next session and refresh token. A replaced
@@ -96,6 +100,34 @@ func (r *postgresSessionRepository) GetSessionByJTI(ctx context.Context, jti str
 
 func (r *postgresSessionRepository) RevokeSession(ctx context.Context, id string, revokedAt time.Time) error {
 	return revokeSession(ctx, r.pool, id, revokedAt)
+}
+
+func (r *postgresSessionRepository) CountActiveSessions(ctx context.Context) (map[string]int64, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT tenant_id, COUNT(*)
+		FROM   identity_sessions
+		WHERE  revoked_at IS NULL
+		  AND  expires_at > now()
+		GROUP BY tenant_id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("count active sessions: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int64)
+	for rows.Next() {
+		var tenantID string
+		var count int64
+		if err := rows.Scan(&tenantID, &count); err != nil {
+			return nil, fmt.Errorf("scan active session count: %w", err)
+		}
+		counts[tenantID] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("count active sessions: %w", err)
+	}
+	return counts, nil
 }
 
 // scanSession executes query with a single string argument and hydrates a Session.
