@@ -149,6 +149,7 @@ All conventions above are mechanically enforced. Do not add inline `//nolint` di
 | `noHttpErrorInHandler`   | `http.Error(w, ...)` in handlers                  |
 | `noDirectWriteHeader`    | `w.WriteHeader(code)` in handlers                 |
 | `noProductNameLiteral`   | a prose `kora`/`orbit` literal in a speaking package; the name comes from `internal/platform/brand` |
+| `noPgxpoolInEventProducers` | `*pgxpool.Pool` in an event producer package (use `*storage.Pool`) |
 
 **Tier 2: Import bans** (`depguard` in `.golangci.yml`):
 

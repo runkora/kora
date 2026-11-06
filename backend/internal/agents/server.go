@@ -437,6 +437,9 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 			apiErr := api.ValidationError(api.ErrCodeMissingField,
 				"trigger_id is required when attributing a run to a trigger", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		case errors.Is(err, ErrInvalidChain):
+			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		case errors.Is(err, ErrDelegationUnavailable):
 			apiErr := api.InternalError(api.ErrCodeInternalError,
 				"this agent uses the delegated identity model and no delegation could be minted; the run was not started", nil)
@@ -664,6 +667,11 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, ErrTriggerAttributionIncomplete) {
 			apiErr := api.ValidationError(api.ErrCodeMissingField,
 				"trigger_id is required when attributing a message to a trigger", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrInvalidChain) {
+			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}

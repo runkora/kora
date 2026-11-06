@@ -11,7 +11,8 @@ export type RunState =
   | 'completing'
   | 'completed'
   | 'failed'
-  | 'budget_exhausted';
+  | 'budget_exhausted'
+  | 'terminated';
 
 // ── Turn types ────────────────────────────────────────────────────────────────
 

@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // Postgres integration tests for the draft repository. They run only when
@@ -40,7 +42,7 @@ func testDraftRepo(t *testing.T) (*PostgresRepository, string) {
 		_, _ = pool.Exec(ctx, `DELETE FROM agent_type_drafts WHERE tenant_id=$1`, tenant)
 		pool.Close()
 	})
-	return NewPostgresRepository(pool), tenant
+	return NewPostgresRepository(storage.NewPool(pool)), tenant
 }
 
 func TestPostgres_DraftCRUD(t *testing.T) {
