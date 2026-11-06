@@ -248,14 +248,14 @@ func (m *mockSpendCounter) GetSpends(_ context.Context, scopes SpendScopes) (pol
 	return m.spends, nil
 }
 
-func (m *mockSpendCounter) IncrementSpends(_ context.Context, scopes SpendScopes, categories []policy.BudgetCategory, amount float64) error {
+func (m *mockSpendCounter) IncrementSpends(_ context.Context, scopes SpendScopes, categories []policy.BudgetCategory, amount float64) (policy.BudgetSpends, error) {
 	if m.incrErr != nil {
-		return m.incrErr
+		return policy.BudgetSpends{}, m.incrErr
 	}
 	m.lastIncrScopes = scopes
 	m.lastCategories = categories
 	m.incremented += amount
-	return nil
+	return m.spends, nil
 }
 
 func (m *mockSpendCounter) GetCategorySpends(_ context.Context, _ string, categories []policy.BudgetCategory) ([]float64, error) {

@@ -423,7 +423,7 @@ func (s *Service) PollDeviceAuth(ctx context.Context, req SessionRequest) (*Sess
 
 	principal := claims.principal(tenantID, idToken.Issuer)
 
-	session, err := s.createSession(ctx, principal, nil)
+	session, err := s.createSession(ctx, principal, nil, true)
 	if err != nil {
 		return nil, err
 	}
@@ -545,7 +545,7 @@ func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*Ses
 
 	principal := claims.principal(tenantID, idToken.Issuer)
 
-	resp, err := s.createSession(ctx, principal, replacedRefresh)
+	resp, err := s.createSession(ctx, principal, replacedRefresh, true)
 	if refreshNotLive(err) {
 		return nil, denySwitch(span, eligible)
 	}
@@ -605,7 +605,7 @@ func (s *Service) RefreshSession(ctx context.Context, req SessionRequest) (*Sess
 		Claims:         session.Claims,
 	}
 
-	return s.createSession(ctx, principal, nil)
+	return s.createSession(ctx, principal, nil, false)
 }
 
 // liveRefreshSession returns a refresh token and its session when both are
@@ -865,9 +865,10 @@ func (s *Service) buildSession(principal *Principal) (*Session, string, error) {
 }
 
 // createSession issues a human session with a refresh token. A non-nil replaced
-// commits it as a tenant switch through SwitchSession. For federated principals
-// it also upserts the user profile, logging rather than returning a failure.
-func (s *Service) createSession(ctx context.Context, principal *Principal, replaced *RefreshToken) (*SessionResponse, error) {
+// commits it as a tenant switch through SwitchSession. signIn records the
+// session as a sign-in, which a refresh does not. For federated principals it
+// also upserts the user profile, logging rather than returning a failure.
+func (s *Service) createSession(ctx context.Context, principal *Principal, replaced *RefreshToken, signIn bool) (*SessionResponse, error) {
 	ctx, span := s.tracer.Start(observability.WithTenant(ctx, principal.TenantID), "identity.createSession",
 		trace.WithAttributes(
 			observability.PrincipalIDKey.String(principal.ID),
@@ -909,6 +910,11 @@ func (s *Service) createSession(ctx context.Context, principal *Principal, repla
 		if err := s.sessions.SwitchSession(ctx, session, rt, replaced, session.CreatedAt); err != nil {
 			observability.RecordFailure(span, err, errSpanSessionPersistenceFailed)
 			return nil, fmt.Errorf("persist switched session: %w", err)
+		}
+	} else if signIn {
+		if err := s.sessions.StartSession(ctx, session, rt); err != nil {
+			observability.RecordFailure(span, err, errSpanSessionPersistenceFailed)
+			return nil, fmt.Errorf("persist session: %w", err)
 		}
 	} else {
 		if err := s.sessions.CreateSession(ctx, session); err != nil {
@@ -957,7 +963,7 @@ func (s *Service) createAgentSession(ctx context.Context, principal *Principal) 
 
 	session, accessToken, err := s.buildSession(principal)
 	if err == nil {
-		err = s.sessions.CreateSession(ctx, session)
+		err = s.sessions.StartSession(ctx, session, nil)
 	}
 	if err != nil {
 		observability.RecordFailure(span, err, errSpanAgentSessionCreationFailed)

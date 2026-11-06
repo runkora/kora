@@ -141,16 +141,20 @@ func (s *Service) recordDispatchFailure(ctx context.Context, t Trigger, delivery
 		logging.Field{Key: "delivery_id", Value: deliveryID},
 		logging.Field{Key: "error", Value: err.Error()},
 	)
-	s.outcomes.insert(ctx, &DeliveryRun{
-		TenantID: t.TenantID, DeliveryID: deliveryID,
+	// The outcome, the delivery's one-line reason and its derived status commit
+	// with the failure event. The auto-pause count is its own write.
+	if recErr := s.repo.RecordDispatchFailure(ctx, &DeliveryRun{
+		ID: newID(), TenantID: t.TenantID, DeliveryID: deliveryID,
 		TriggerID: t.ID, TriggerName: t.Name,
 		Status: runStatusForDispatchError(err), Error: new(err.Error()),
-	})
-	// Carry one reason up to the delivery so the feed can say why in a
-	// single line; the per-trigger detail is the fan-out.
-	s.recordFailure(ctx, deliveryID, err.Error())
+	}, dispatchFailureReason(err)); recErr != nil {
+		s.logger.Error(ctx, "failed to record dispatch failure",
+			logging.Field{Key: "delivery_id", Value: deliveryID},
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "error", Value: recErr.Error()},
+		)
+	}
 	s.noteFailure(ctx, t, err)
-	s.outcomes.derive(ctx, deliveryID)
 }
 
 // recordStarted records a delivery that started or joined runID. status is

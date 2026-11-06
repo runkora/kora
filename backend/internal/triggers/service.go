@@ -82,6 +82,7 @@ type pipelineStore interface {
 	RoutingStore
 
 	AutoPause(ctx context.Context, triggerID string) error
+	RecordDispatchFailure(ctx context.Context, dr *DeliveryRun, reason string) error
 	HoldPending(ctx context.Context, pendingID, deliveryID string, delay time.Duration, reason string) error
 	ClearDeliveryReason(ctx context.Context, deliveryID string) error
 	BumpConsecutiveFailures(ctx context.Context, triggerID string) (int, error)

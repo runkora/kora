@@ -211,7 +211,7 @@ func (s *Service) ExchangeAuthCode(ctx context.Context, req TokenRequest) (*Toke
 	}
 	// The refresh token createSession mints lets the MCP client renew silently
 	// instead of re-running the consent flow when the access token expires.
-	sess, err := s.createSession(ctx, principal, nil)
+	sess, err := s.createSession(ctx, principal, nil, true)
 	if err != nil {
 		return nil, fmt.Errorf("mint token: %w", err)
 	}

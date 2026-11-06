@@ -77,10 +77,11 @@ func realMain() error {
 	}
 	defer db.Close()
 
-	grantRepo := grants.NewPostgresRepository(db.Pool())
+	pool := storage.NewPool(db.Pool())
+	grantRepo := grants.NewPostgresRepository(pool)
 	vocabRepo := vocabulary.NewPostgresRepository(db.Pool())
-	roleRepo := roles.NewPostgresRepository(db.Pool())
-	tenantBudgetRepo := tenantbudget.NewPostgresRepository(db.Pool())
+	roleRepo := roles.NewPostgresRepository(pool)
+	tenantBudgetRepo := tenantbudget.NewPostgresRepository(pool)
 	principalRolesRepo := principalroles.NewPostgresRepository(db.Pool())
 	routeStore := routes.NewStore()
 
@@ -149,7 +150,7 @@ func realMain() error {
 	// The operator applies PolicyRole resources through /api/v1/internal/declared/policyroles.
 	declaredController := declarative.NewController(verifier, logger, map[string]declarative.Applier{
 		declarative.KindPolicyRoles: api.NewRoleApplier(svc),
-	})
+	}).WithEvents(pool)
 	server := initServer(ctx, logger, metrics, controller, declaredController)
 
 	run(ctx, logger, server, metrics)

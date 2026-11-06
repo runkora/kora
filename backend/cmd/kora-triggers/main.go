@@ -153,7 +153,8 @@ func initController(
 	)
 	policyEval.Start(ctx)
 
-	repo := triggers.NewPostgresRepository(db.Pool())
+	pool := storage.NewPool(db.Pool())
+	repo := triggers.NewPostgresRepository(pool)
 	agentsClient := agentsclient.NewClient(tc.Current.Agents.InternalURL, logger)
 	inferenceClient := inferenceclient.NewClient(tc.Current.Inference.InternalURL, logger)
 
@@ -260,7 +261,7 @@ func initController(
 	declared := declarative.NewController(verifier, logger, map[string]declarative.Applier{
 		declarative.KindTriggerSources: sources,
 		declarative.KindTriggers:       lifecycle,
-	})
+	}).WithEvents(pool)
 	return []platformapi.Controller{
 		triggers.NewController(svc, sources, lifecycle, auth, policyEval, routeScopes(), tc.Current.Server.BasePath, logger),
 		declared,
