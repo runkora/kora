@@ -11,7 +11,6 @@ import { DataTable, Icon, Stack, StatusDot, Text } from '@runkora/hades';
 import type { DataTableColumn, DataTableFilterOption, DataTableServerFilter } from '@runkora/hades';
 import { relativeTime } from '@runkora/lib/relative-time';
 import {
-  EVENT_CATALOG,
   categoryOf,
   eventSummary,
   eventTone,
@@ -69,9 +68,10 @@ function columns(
   onChange: (next: EventFilters) => void,
   principals: SeenPrincipal[],
   agents: string[],
+  catalog: string[],
 ): DataTableColumn<Row>[] {
   const categories = tabCategories(filters.tab);
-  const types = EVENT_CATALOG.filter(
+  const types = catalog.filter(
     (t) => categories.length === 0 || categories.includes(categoryOf(t)),
   );
   return [
@@ -202,6 +202,7 @@ export interface EventsTableProps {
   feed: EventFeed;
   filters: EventFilters;
   onFiltersChange: (next: EventFilters) => void;
+  eventTypes: string[];
   filtered: boolean;
   onClearFilters: () => void;
   onOpen: (id: string) => void;
@@ -211,6 +212,7 @@ export function EventsTable({
   feed,
   filters,
   onFiltersChange,
+  eventTypes,
   filtered,
   onClearFilters,
   onOpen,
@@ -227,9 +229,14 @@ export function EventsTable({
       fresh: feed.freshIds.has(e.id),
     }));
   }, [feed.events, feed.freshIds, feed.principals]);
+  // The platform's types, and any the feed has shown that the catalog did not list.
+  const catalog = useMemo(
+    () => [...new Set([...eventTypes, ...feed.events.map((e) => e.type)])].sort(),
+    [eventTypes, feed.events],
+  );
   const cols = useMemo(
-    () => columns(filters, onFiltersChange, feed.principals, feed.agents),
-    [filters, onFiltersChange, feed.principals, feed.agents],
+    () => columns(filters, onFiltersChange, feed.principals, feed.agents, catalog),
+    [filters, onFiltersChange, feed.principals, feed.agents, catalog],
   );
 
   // Loading, failure and no rows render inside the table body, so the header and its filters

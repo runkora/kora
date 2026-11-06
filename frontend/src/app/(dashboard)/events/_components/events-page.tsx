@@ -19,6 +19,8 @@ export interface EventsPageProps {
   feed: EventFeed;
   filters: EventFilters;
   onFiltersChange: (next: EventFilters) => void;
+  /** The platform event types for the Event filter. */
+  eventTypes: string[];
   /** The chart's trace URL template; empty when tracing has no UI. */
   traceUrlTemplate: string;
   /** The event whose detail opens with the page, for stories. */
@@ -29,6 +31,7 @@ export function EventsPage({
   feed,
   filters,
   onFiltersChange,
+  eventTypes,
   traceUrlTemplate,
   initialOpenId = null,
 }: EventsPageProps) {
@@ -67,6 +70,7 @@ export function EventsPage({
           feed={feed}
           filters={filters}
           onFiltersChange={onFiltersChange}
+          eventTypes={eventTypes}
           filtered={isFiltered(filters)}
           onClearFilters={() => onFiltersChange(NO_FILTERS)}
           onOpen={setOpenId}

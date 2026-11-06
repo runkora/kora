@@ -151,4 +151,53 @@ describe('useEventFeed', () => {
     act(() => latest().send({ seq: 9, event: { id: 'bad' } }));
     expect(result.current.events.map((e) => e.id)).toEqual(['e2', 'e1']);
   });
+
+  it('reopens a closed stream from the head, waiting longer after each failure', async () => {
+    const { result } = renderHook(() => useEventFeed(NO_FILTERS, initial));
+    await waitFor(() => expect(api.sources).toHaveLength(1));
+    vi.useFakeTimers();
+    try {
+      const fail = () =>
+        act(() => {
+          latest().readyState = FakeSource.CLOSED;
+          latest().onerror?.();
+        });
+      fail();
+      expect(result.current.stream).toBe('reconnecting');
+      act(() => vi.advanceTimersByTime(5_000));
+      expect(api.sources).toHaveLength(2);
+      expect(latest().url).toBe('/api/events/stream?after=2');
+
+      fail();
+      act(() => vi.advanceTimersByTime(5_000));
+      expect(api.sources).toHaveLength(2);
+      act(() => vi.advanceTimersByTime(5_000));
+      expect(api.sources).toHaveLength(3);
+
+      act(() => latest().onopen?.());
+      expect(result.current.stream).toBe('live');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('forgets held events once a new first page has loaded', async () => {
+    api.fetchEventPage.mockResolvedValue({
+      page: { events: [record(3), record(2), record(1)], next_cursor: null },
+      error: null,
+    });
+    const { result, rerender } = renderHook((f: EventFilters) => useEventFeed(f, initial), {
+      initialProps: NO_FILTERS,
+    });
+    await waitFor(() => expect(api.sources).toHaveLength(1));
+    act(() => result.current.setPaused(true));
+    act(() => latest().send(record(3)));
+    expect(result.current.pending).toBe(1);
+
+    rerender({ ...NO_FILTERS, query: 'x' });
+    await waitFor(() => expect(result.current.stream).toBe('search'));
+    rerender(NO_FILTERS);
+    await waitFor(() => expect(result.current.events).toHaveLength(3));
+    expect(result.current.pending).toBe(0);
+  });
 });

@@ -42,14 +42,6 @@ import {
 import type { EventPrincipalType, KoraEvent, SeenPrincipal } from '../_types';
 import { EventPrincipalBadge } from './event-parts';
 
-/** Where the Triggers page opens one trigger's modal. */
-export const triggerHref = (id: string) =>
-  `${APP_ROUTES.triggers}?trigger=${encodeURIComponent(id)}`;
-
-/** Where the Triggers page opens one delivery's modal. */
-export const deliveryHref = (id: string) =>
-  `${APP_ROUTES.triggers}?tab=deliveries&delivery=${encodeURIComponent(id)}`;
-
 /** A trigger's name from the principals the feed has seen, or its short id. */
 export function triggerName(id: string, principals: SeenPrincipal[], event?: KoraEvent): string {
   const own = event?.data.entity.name;
@@ -234,7 +226,7 @@ export function EventDetail({
           {triggerIds.length > 0 && (
             <Fact label={triggerIds.length === 1 ? 'Trigger' : 'Triggers'}>
               {triggerIds.map((id) => (
-                <InternalLink key={id} href={triggerHref(id)}>
+                <InternalLink key={id} href={APP_ROUTES.trigger(id)}>
                   {triggerName(id, principals, event)}
                 </InternalLink>
               ))}
@@ -242,7 +234,7 @@ export function EventDetail({
           )}
           {deliveryId !== undefined && (
             <Fact label="Delivery">
-              <InternalLink href={deliveryHref(deliveryId)} mono>
+              <InternalLink href={APP_ROUTES.triggerDelivery(deliveryId)} mono>
                 {shortId(deliveryId)}
               </InternalLink>
             </Fact>

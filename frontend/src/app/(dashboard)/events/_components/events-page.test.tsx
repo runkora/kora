@@ -40,6 +40,7 @@ function renderPage(f: EventFeed, filters: EventFilters = NO_FILTERS, onChange =
       feed={f}
       filters={filters}
       onFiltersChange={onChange}
+      eventTypes={[...new Set(EVENTS.map((e) => e.type))]}
       traceUrlTemplate={TRACE_URL_TEMPLATE}
     />,
   );

@@ -219,4 +219,18 @@ describe('links from the Events page', () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(api.listDeliveryPage).toHaveBeenCalledTimes(2);
   });
+
+  it('says so when the linked delivery is not among the loaded deliveries', async () => {
+    nav.search = 'tab=deliveries&delivery=dlv-gone';
+    api.listDeliveryPage.mockResolvedValueOnce({
+      deliveries: [raw('dlv-1')],
+      nextCursor: null,
+      error: null,
+    });
+    renderPage();
+    expect(
+      await screen.findByText('The linked delivery is not among the latest 250 deliveries.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
 });

@@ -10,6 +10,9 @@ import type { EventFeed, StreamState } from '../_hooks/use-event-feed';
 import { EventsPage } from './events-page';
 import { TRACE_URL_TEMPLATE, buildEvents } from './events-story-data';
 
+/** The catalog as kora-triggers serves it: here, every type in the fixture. */
+const EVENT_TYPES = [...new Set(buildEvents().map((e) => e.type))];
+
 /** Which fixture event a detail story opens. */
 type OpenEvent = 'changed-fields' | 'run-failed' | 'chained';
 
@@ -92,6 +95,7 @@ function EventsStory({
       feed={value}
       filters={filters}
       onFiltersChange={setFilters}
+      eventTypes={EVENT_TYPES}
       traceUrlTemplate={TRACE_URL_TEMPLATE}
       initialOpenId={openId}
     />

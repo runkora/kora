@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { EventPage } from '@runkora/shared/api';
 import { fetchEventPage } from '@runkora/server/events-client';
+import { listPlatformEventTypes } from '@runkora/server/triggers-client';
 import { loadFailure, type Loaded } from '@runkora/server/load-failure';
 
 /** The list filters the BFF passes on; anything else in the request is dropped. */
@@ -15,6 +16,19 @@ export function pickParams(source: URLSearchParams, allowed: string[]): URLSearc
   const params = new URLSearchParams();
   for (const [key, value] of source) if (allowed.includes(key)) params.append(key, value);
   return params;
+}
+
+/**
+ * The platform event types for the Event filter, from kora-triggers. A caller without access
+ * gets none, and the filter offers the types the feed has shown.
+ */
+export async function loadEventTypes(accessToken: string): Promise<string[]> {
+  try {
+    return await listPlatformEventTypes(accessToken);
+  } catch (err) {
+    console.error('[loadEventTypes] failed:', err);
+    return [];
+  }
 }
 
 export async function loadEventPage(

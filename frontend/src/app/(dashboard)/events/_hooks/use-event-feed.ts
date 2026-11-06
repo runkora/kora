@@ -128,6 +128,8 @@ export function useEventFeed(filters: EventFilters, initial: InitialEvents): Eve
     void fetchEventPage(query).then(({ page: data, error }) => {
       if (epoch.current !== mine) return;
       learn(data?.events ?? []);
+      // The new page already holds anything held back under these filters before.
+      setHeld({ key, records: [] });
       setPage({
         key,
         records: data?.events ?? [],

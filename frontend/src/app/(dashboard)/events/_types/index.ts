@@ -56,41 +56,6 @@ export function tabLabelOf(type: string): string {
   return TABS.find((t) => t.categories.includes(category))?.label ?? category;
 }
 
-const verbs = (entity: string, list: string[]) => list.map((v) => `${entity}.${v}.v1`);
-
-/** The v1 catalog (docs/prd/event-spine.md), for the Event column filter. */
-export const EVENT_CATALOG: string[] = [
-  ...verbs('agents.run', [
-    'created',
-    'started',
-    'completed',
-    'failed',
-    'budget_exhausted',
-    'terminated',
-    'idle',
-    'interrupted',
-    'errored',
-    'guardrail_warned',
-    'guardrail_paused',
-    'message_received',
-  ]),
-  ...verbs('agents.sandbox', ['created', 'replaced', 'ready', 'failed', 'deleted']),
-  ...verbs('agents.agent', ['created', 'updated', 'deleted']),
-  ...verbs('agents.environment', ['created', 'updated', 'deleted']),
-  ...verbs('triggers.delivery', ['failed', 'denied']),
-  ...verbs('triggers.trigger', ['autopaused', 'created', 'updated', 'deleted']),
-  ...verbs('triggers.source', ['created', 'updated', 'deleted']),
-  ...verbs('inference.budget', ['threshold_crossed', 'exceeded']),
-  ...verbs('identity.session', ['created']),
-  ...verbs('identity.pat', ['created', 'revoked', 'updated']),
-  ...verbs('identity.delegation', ['issued']),
-  ...verbs('identity.tenant', ['switched']),
-  ...verbs('policy.grant', ['created', 'updated', 'deleted']),
-  ...verbs('policy.role', ['created', 'updated', 'deleted']),
-  ...verbs('policy.tenant_budget', ['created', 'updated', 'deleted']),
-  ...verbs('declarative.resource', ['failed']),
-];
-
 /** Events asked for on each page. Here, not in the hook, so the server page can read it. */
 export const EVENT_PAGE_SIZE = 50;
 
@@ -229,7 +194,10 @@ export function eventSummary(e: KoraEvent): string {
     case 'identity.delegation.issued':
       return `Delegated to ${e.koraagent ?? 'an agent'}`;
     case 'identity.tenant.switched':
-      return `Switched to ${str(entity.to_tenant) ?? 'another tenant'}`;
+      // Each tenant records its own side of a switch, and neither names the other.
+      return str(entity.direction) === 'in'
+        ? 'Switched into this tenant'
+        : 'Switched to another tenant';
     case 'declarative.resource.failed':
       return `Declared ${str(entity.kind) ?? 'resource'} not applied${name ? `: ${name}` : ''}`;
   }
