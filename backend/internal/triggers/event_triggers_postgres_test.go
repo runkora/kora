@@ -2,6 +2,7 @@ package triggers
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -69,6 +70,65 @@ func TestPostgres_EventDeliveryDedupAndRedelivery(t *testing.T) {
 	got, err := r.GetDelivery(ctx, tenant, original.ID)
 	if err != nil || got.EventID != eventID || got.Kind != KindEvent {
 		t.Errorf("stored = %+v, %v", got, err)
+	}
+}
+
+// A fan-out that fails rolls its delivery back, so the replay of the event records it.
+func TestPostgres_EventDeliveryRollsBackWithItsFanOut(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	d := &Delivery{ID: uuid.NewString(), TenantID: tenant, Kind: KindEvent, EventType: "agents.run.failed.v1", EventID: uuid.NewString(), Status: StatusVerified, Payload: []byte(`{}`)}
+	stopped := errors.New("stopped mid fan-out")
+	err := r.InTransaction(ctx, func(ctx context.Context) error {
+		if ok, err := r.InsertEventDelivery(ctx, d); err != nil || !ok {
+			t.Fatalf("insert = %v, %v", ok, err)
+		}
+		return stopped
+	})
+	if !errors.Is(err, stopped) {
+		t.Fatalf("InTransaction = %v, want the fan-out error", err)
+	}
+	replay := *d
+	replay.ID = uuid.NewString()
+	if ok, err := r.InsertEventDelivery(ctx, &replay); err != nil || !ok {
+		t.Errorf("replay insert = %v, %v, want recorded after the rollback", ok, err)
+	}
+}
+
+// A failed statement or an error in a savepoint undoes that savepoint alone, and the transaction still commits.
+func TestPostgres_EventFireSavepoint(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	d := &Delivery{ID: uuid.NewString(), TenantID: tenant, Kind: KindEvent, EventType: "agents.run.failed.v1", EventID: uuid.NewString(), Status: StatusVerified, Payload: []byte(`{}`)}
+	undone := &Delivery{ID: uuid.NewString(), TenantID: tenant, Kind: KindEvent, EventType: "agents.run.failed.v1", EventID: uuid.NewString(), Status: StatusVerified, Payload: []byte(`{}`)}
+	err := r.InTransaction(ctx, func(ctx context.Context) error {
+		if _, err := r.InsertEventDelivery(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.InSavepoint(ctx, func(ctx context.Context) error {
+			_, _ = r.pool.Exec(ctx, `SELECT 1/0`)
+			return nil
+		}); err == nil {
+			t.Error("a savepoint whose statement failed should report it")
+		}
+		if err := r.InSavepoint(ctx, func(ctx context.Context) error {
+			if _, err := r.InsertEventDelivery(ctx, undone); err != nil {
+				t.Fatal(err)
+			}
+			return errors.New("admission failed")
+		}); err == nil {
+			t.Error("a savepoint whose fn failed should report it")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("InTransaction = %v, want a commit after the savepoints rolled back", err)
+	}
+	if _, err := r.GetDelivery(ctx, tenant, d.ID); err != nil {
+		t.Errorf("delivery outside the savepoints = %v, want committed", err)
+	}
+	if _, err := r.GetDelivery(ctx, tenant, undone.ID); err == nil {
+		t.Error("the write in the failed savepoint was committed")
 	}
 }
 
