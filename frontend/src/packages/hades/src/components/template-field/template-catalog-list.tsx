@@ -157,7 +157,7 @@ export const TemplateCatalogList = React.forwardRef<HTMLDivElement, TemplateCata
         )}
 
         <div
-          className="max-h-64 overflow-y-auto overflow-x-hidden"
+          className="max-h-[min(16rem,calc(var(--radix-popover-content-available-height,16rem)-6rem))] min-h-16 overflow-y-auto overflow-x-hidden"
           data-slot="template-catalog-results"
         >
           {groups.length === 0 ? (

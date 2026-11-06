@@ -1,8 +1,6 @@
 package convert
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -331,14 +329,11 @@ func convertResponsesItems(items []responses.ResponseInputItemUnionParam) ([]ant
 		case item.OfFunctionCallOutput != nil:
 			flushPendingTool()
 			fco := item.OfFunctionCallOutput
-			// Output is a string|[]content union in v3. kora only produces string
-			// outputs; reject the content-array variant explicitly to avoid silently
-			// forwarding an empty string to the model.
-			// TODO: handle array variant (images/files) if a future client sends content-array outputs.
-			if !fco.Output.OfString.Valid() {
-				return nil, nil, fmt.Errorf("responses: function_call_output item %q has unsupported content-array output; only string outputs are supported", fco.CallID)
+			text, ok := functionCallOutputText(fco.Output)
+			if !ok {
+				return nil, nil, fmt.Errorf("responses: function_call_output item %q has no text output; image and file outputs are not supported", fco.CallID)
 			}
-			pendingResults = append(pendingResults, anthropic.NewToolResultBlock(fco.CallID.Value, fco.Output.OfString.Value, false))
+			pendingResults = append(pendingResults, anthropic.NewToolResultBlock(fco.CallID.Value, text, false))
 		}
 	}
 	flushPendingTool()
@@ -486,6 +481,24 @@ func extractContentListText(parts responses.ResponseInputMessageContentListParam
 	return sb.String()
 }
 
+// functionCallOutputText is the text of a function_call_output: the string, or the
+// input_text parts of a content list joined. Codex sends MCP tool results as a list.
+// ok is false for a list with no text part, such as an image alone, which would
+// otherwise reach the model as an empty result.
+func functionCallOutputText(out responses.ResponseInputItemFunctionCallOutputOutputUnionParam) (text string, ok bool) {
+	if out.OfString.Valid() {
+		return out.OfString.Value, true
+	}
+	var sb strings.Builder
+	for _, part := range out.OfResponseFunctionCallOutputItemArray {
+		if part.OfInputText != nil {
+			sb.WriteString(part.OfInputText.Text)
+			ok = true
+		}
+	}
+	return sb.String(), ok
+}
+
 // convertResponsesToolsToAnthropic translates Responses API function tools to
 // Anthropic ToolUnionParams. A namespace tool's functions become tools named
 // joinToolName(namespace, name): Anthropic has no namespaces, and Codex puts
@@ -518,52 +531,6 @@ func anthropicTool(name string, description param.Opt[string], parameters map[st
 			InputSchema: openAISchemaToAnthropic(parameters),
 		},
 	}
-}
-
-// joinToolName is the Anthropic tool name for a function in a Responses
-// namespace, or the function's own name outside one.
-func joinToolName(namespace, name string) string {
-	if namespace == "" {
-		return name
-	}
-	joined := namespace + "__" + name
-	// Anthropic caps tool names at 64 characters. A longer name keeps its start
-	// and a hash of the whole, and ToolNames maps it back.
-	if len(joined) > maxAnthropicToolName {
-		sum := sha256.Sum256([]byte(joined))
-		joined = joined[:maxAnthropicToolName-9] + "_" + hex.EncodeToString(sum[:4])
-	}
-	return joined
-}
-
-const maxAnthropicToolName = 64
-
-// ToolNames maps the Anthropic name of each namespaced function back to its
-// Responses namespace and name, which a function_call must carry.
-type ToolNames map[string][2]string
-
-// ResponsesToolNames builds the ToolNames for a request's tools.
-func ResponsesToolNames(tools []responses.ToolUnionParam) ToolNames {
-	names := ToolNames{}
-	for _, t := range tools {
-		if t.OfNamespace == nil {
-			continue
-		}
-		for _, inner := range t.OfNamespace.Tools {
-			if fn := inner.OfFunction; fn != nil {
-				names[joinToolName(t.OfNamespace.Name, fn.Name)] = [2]string{t.OfNamespace.Name, fn.Name}
-			}
-		}
-	}
-	return names
-}
-
-// split returns the namespace and name for an Anthropic tool name.
-func (n ToolNames) split(anthropicName string) (namespace, name string) {
-	if v, ok := n[anthropicName]; ok {
-		return v[0], v[1]
-	}
-	return "", anthropicName
 }
 
 // responsesUsage builds Responses usage from Anthropic's counts. Anthropic

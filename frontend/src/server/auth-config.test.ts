@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { getSessionOptions, SESSION_COOKIE_NAME } from './auth-config';
+import { getSessionOptions, parseTenants, SESSION_COOKIE_NAME } from './auth-config';
 
 describe('getSessionOptions', () => {
   const originalEnv = process.env;
@@ -93,5 +93,25 @@ describe('getSessionOptions', () => {
     it('stays non-Secure outside production', () => {
       expect(secureFor('development', 'https://example.com')).toBe(false);
     });
+  });
+});
+
+describe('parseTenants', () => {
+  it('maps id and display_name, falling back to the id for a missing name', () => {
+    expect(
+      parseTenants([
+        { id: 'kora-tenant-example', display_name: 'Example Platform' },
+        { id: 'kora-tenant-example-data' },
+      ]),
+    ).toEqual([
+      { id: 'kora-tenant-example', displayName: 'Example Platform' },
+      { id: 'kora-tenant-example-data', displayName: 'kora-tenant-example-data' },
+    ]);
+  });
+
+  it('drops entries without an id and rejects a non-list', () => {
+    expect(parseTenants([{ display_name: 'x' }, null, 'y'])).toEqual([]);
+    expect(parseTenants(undefined)).toBeUndefined();
+    expect(parseTenants({ id: 'a' })).toBeUndefined();
   });
 });

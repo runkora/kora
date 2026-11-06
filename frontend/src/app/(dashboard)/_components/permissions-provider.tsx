@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 
 import { hasScopeCovering } from '@runkora/lib/permissions';
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
+import type { TenantOption } from '@runkora/server/auth-config';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,10 @@ interface SessionContextValue {
   loaded: boolean;
   /** False when the tenant takes its changes from its configuration repository. */
   apiAuthoring?: boolean;
+  /** The eligible set from the last sign-in or switch. Empty for older sessions. */
+  tenants?: TenantOption[];
+  /** The session's tenant; names it when a refused switch left it out of the eligible set. */
+  tenantId?: string;
 }
 
 // ── Context ──────────────────────────────────────────────────────────────────
@@ -64,6 +69,8 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
         user: data?.user ?? null,
         loaded: true,
         apiAuthoring: data?.apiAuthoring,
+        tenants: data?.tenants ?? [],
+        tenantId: data?.tenantId,
       });
 
       // Schedule a proactive re-fetch 4 minutes before the token expires so

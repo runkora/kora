@@ -32,6 +32,11 @@ export interface SessionPayload {
   refreshToken: string;
   /** UTC Unix seconds when the access token expires. */
   expiresAt: number;
+  /**
+   * UTC Unix seconds when the refresh token and the cookie expire. A later save without a
+   * new token keeps this lifetime. Absent on sessions sealed before the field existed.
+   */
+  refreshExpiresAt?: number;
   /** Tenant ID the session was created against (used for token refresh). */
   tenantId: string;
   /**
@@ -39,6 +44,27 @@ export interface SessionPayload {
    * Absent on sessions sealed before the field existed, which read as true.
    */
   apiAuthoring?: boolean;
+  /**
+   * Tenants the last sign-in or switch matched, for the tenant switcher. Display
+   * data only: a switch is authorised by a fresh sign-in, never by this list.
+   */
+  tenants?: SessionTenant[];
+}
+
+/** A tenant the person's verified claims matched. */
+export interface SessionTenant {
+  id: string;
+  displayName: string;
+}
+
+/** A tenant in the switcher; `active` marks the session's tenant. */
+export type TenantOption = SessionTenant & { active: boolean };
+
+/** The session's eligible set with its tenant marked active. */
+export function tenantOptions(
+  session: Pick<SessionPayload, 'tenants' | 'tenantId'>,
+): TenantOption[] {
+  return (session.tenants ?? []).map((t) => ({ ...t, active: t.id === session.tenantId }));
 }
 
 // ── Backend API response shapes ──────────────────────────────────────────────
@@ -59,6 +85,24 @@ export interface BackendSessionResponse {
   refresh_token_expires_in?: number;
   /** False when the caller's tenant takes its changes from its configuration repository. */
   api_authoring?: boolean;
+  /** The eligible set of a federated sign-in. */
+  tenants?: unknown;
+}
+
+/**
+ * Reads an identity `tenants: [{id, display_name}]` list, from a session
+ * response or an error's details. Returns undefined when it is not a list.
+ */
+export function parseTenants(value: unknown): SessionTenant[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  return value.flatMap((t: unknown) => {
+    if (!t || typeof t !== 'object') return [];
+    const { id, display_name } = t as Record<string, unknown>;
+    if (typeof id !== 'string' || !id) return [];
+    return [
+      { id, displayName: typeof display_name === 'string' && display_name ? display_name : id },
+    ];
+  });
 }
 
 /**
@@ -87,6 +131,9 @@ export function tenantIdFromAccessToken(token: string): string | undefined {
 /** Name of the sealed iron-session cookie. */
 export const SESSION_COOKIE_NAME = 'kora_session';
 
+/** Holds the tenant of the last sign-in or switch, sent as the next sign-in's tenant hint. */
+export const LAST_TENANT_COOKIE_NAME = 'kora_last_tenant';
+
 /**
  * True when the console's public URL is http:// on localhost or *.localhost.
  * Safari drops Secure cookies on that origin even though it is a secure context.
@@ -103,7 +150,30 @@ function isInsecureLoopbackUrl(appUrl: string | undefined): boolean {
   }
 }
 
+function secureCookies(): boolean {
+  return process.env.NODE_ENV === 'production' && !isInsecureLoopbackUrl(process.env.KORA_APP_URL);
+}
+
+/** Options for the last-used tenant cookie. It outlives the session, and the next sign-in reads it. */
+export function lastTenantCookieOptions() {
+  return {
+    secure: secureCookies(),
+    httpOnly: true,
+    sameSite: 'lax' as const,
+    path: '/',
+    maxAge: 60 * 60 * 24 * 365,
+  };
+}
+
 // ── Session options factory ───────────────────────────────────────────────────
+
+/** 30 days, the Go backend's default RefreshTokenTTLDays. */
+const DEFAULT_SESSION_MAX_AGE = 60 * 60 * 24 * 30;
+
+/** The refresh token's expiry in Unix seconds, using the same default as the cookie. */
+export function refreshExpiresAt(issuedAt: number, refreshTokenExpiresIn?: number): number {
+  return issuedAt + (refreshTokenExpiresIn || DEFAULT_SESSION_MAX_AGE);
+}
 
 /**
  * Returns iron-session options, reading `BFF_SESSION_SECRET` at call time.
@@ -123,16 +193,14 @@ export function getSessionOptions(refreshTokenExpiresIn?: number): SessionOption
     );
   }
 
-  // Default to 30 days — matches the Go backend's default RefreshTokenTTLDays.
   // Use || not ?? so that 0 (misconfigured backend) also falls back to the default.
-  const maxAge = refreshTokenExpiresIn || 60 * 60 * 24 * 30;
+  const maxAge = refreshTokenExpiresIn || DEFAULT_SESSION_MAX_AGE;
 
   return {
     cookieName: SESSION_COOKIE_NAME,
     password,
     cookieOptions: {
-      secure:
-        process.env.NODE_ENV === 'production' && !isInsecureLoopbackUrl(process.env.KORA_APP_URL),
+      secure: secureCookies(),
       httpOnly: true,
       // lax (not strict) so the cookie is sent after the cross-origin OIDC
       // redirect back from the IdP (strict blocks that first same-site navigation

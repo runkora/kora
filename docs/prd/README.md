@@ -6,6 +6,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 |-----|--------|----------------|
 | [Agent Control Plane](agent-control-plane.md) | Implemented | [orbit-agents-service-architecture](../adr/2026-05-11-orbit-agents-service-architecture.md), [run-and-session-lifecycle](../adr/2026-05-11-run-and-session-lifecycle.md), [agent-registry-and-definition-model](../adr/2026-05-11-agent-registry-and-definition-model.md) |
 | [Agent Builder](agent-builder.md) | Implemented | [agent-builder](../adr/2026-07-17-agent-builder.md) |
+| [Agent Skills](agent-skills.md) | Approved | [agent-skills](../adr/2026-08-17-agent-skills.md) |
 | [Delegated Agent Identity](delegated-agent-identity.md) | Draft | TBD |
 | [Install and Distribution](install-and-distribution.md) | In Review | [install-and-distribution-model](../adr/2026-09-04-install-and-distribution-model.md), [enforcement-sidecar-injection-and-preflight](../adr/2026-09-04-enforcement-sidecar-injection-and-preflight.md) |
 | [OAuth2 Web-Redirect Clients](oauth2-web-redirect-clients.md) | Approved | [oauth2-web-redirect-clients](../adr/2026-07-28-oauth2-web-redirect-clients.md) |
@@ -25,6 +26,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Policy Gateway](policy-gateway.md) | Implemented | [policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md), [dynamic-route-scope-registration](../adr/2026-04-14-dynamic-route-scope-registration.md) |
 | [Personal Access Tokens](personal-access-tokens.md) | Implemented | [personal-access-tokens](../adr/2026-04-02-personal-access-tokens.md), [pat-scope-assignment-via-explicit-grants](../adr/2026-04-19-pat-scope-assignment-via-explicit-grants.md) |
 | [Browser Authentication Flow](browser-auth-flow.md) | Implemented | [browser-auth-flow-and-bff-session-architecture](../adr/2026-04-01-browser-auth-flow-and-bff-session-architecture.md), [home-realm-discovery-and-email-based-tenant-routing](../adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md) |
+| [Tenant Switching](tenant-switching.md) | Approved | [tenant-switching](../adr/2026-11-04-tenant-switching.md) |
 | [Embeddings & Responses API](embeddings-and-responses-api.md) | Implemented | [embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md) |
 | [Decision Models and the System One API](systemone-decision-models.md) | Approved | [systemone-decision-models](../adr/2026-10-10-systemone-decision-models.md) |
 | [Inference Logs](inference-logs.md) | Implemented | [inference-usage-logs](../adr/2026-04-17-inference-usage-logs.md) |

@@ -1,0 +1,41 @@
+app:
+  version: "0.1.0"
+
+server:
+  port: 8098
+  basePath: /v1
+  shutdownTimeoutSecs: 10
+
+observability:
+  serviceName: kora-skills-service
+
+metrics:
+  enabled: true
+  port: 9464
+  shutdownTimeoutSecs: 5
+
+identity:
+  internalURL: "http://kora-identity.kora-system.svc.cluster.local"
+
+policy:
+  bundleEndpoint: "http://kora-policy-service.kora-system.svc/api/v1/policy/bundles"
+  bundlePollIntervalSecs: 30
+  policyServiceURL: "http://kora-policy-service.kora-system.svc"
+  registerRoutes: true
+
+marketplace:
+  sourcesPath: /etc/kora/skill-marketplaces/marketplaces.json
+  keysDir: /etc/kora/skill-marketplace-secrets
+  cacheTTLSecs: 43200 # 12 hours
+  failureTTLSecs: 60
+  # A crawl skips, and logs, skills and files over these limits. Zero is no
+  # cap. The chart sets them from skillsService.limits.
+  limits:
+    skillsPerMarketplace: 500
+    filesPerSkill: 500
+    bytesPerFile: 131072 # 128 KiB
+    skillMdBytesPerMarketplace: 8388608 # 8 MiB
+    fileCacheBytesPerMarketplace: 33554432 # 32 MiB
+
+github:
+  apiBaseURL: https://api.github.com

@@ -60,8 +60,7 @@ func (s *Service) CreatePAT(ctx context.Context, tenantID, userID string, userCl
 
 	rawJWT, err := s.signToken(principal, jti, "", id, now, ttl)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPATSigningFailed.Error())
+		observability.RecordFailure(span, err, ErrPATSigningFailed)
 		return nil, fmt.Errorf("sign PAT: %w", err)
 	}
 
@@ -76,8 +75,7 @@ func (s *Service) CreatePAT(ctx context.Context, tenantID, userID string, userCl
 	// entry until the next cleanup cycle.
 	grantID, err := s.policyClient.CreateGrant(ctx, tenantID, string(token.PrincipalTypePAT), id, req.Scopes, nil, false)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "grant creation failed")
+		observability.RecordFailure(span, err, errSpanGrantCreationFailed)
 		return nil, fmt.Errorf("create PAT grant: %w", err)
 	}
 
@@ -102,8 +100,7 @@ func (s *Service) CreatePAT(ctx context.Context, tenantID, userID string, userCl
 				logging.Field{Key: "error", Value: delErr.Error()},
 			)
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPATPersistFailed.Error())
+		observability.RecordFailure(span, err, ErrPATPersistFailed)
 		return nil, fmt.Errorf("persist PAT: %w", err)
 	}
 
@@ -141,8 +138,7 @@ func (s *Service) ListPATs(ctx context.Context, tenantID, userID string) (*ListP
 
 	pats, err := s.pats.ListByUser(ctx, tenantID, userID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPATListFailed.Error())
+		observability.RecordFailure(span, err, ErrPATListFailed)
 		return nil, fmt.Errorf("list PATs: %w", err)
 	}
 
@@ -191,8 +187,7 @@ func (s *Service) UpdatePATScopes(ctx context.Context, tenantID, userID, patID s
 
 	pat, err := s.pats.GetByID(ctx, tenantID, userID, patID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPATNotFound.Error())
+		observability.RecordFailure(span, err, ErrPATNotFound)
 		return fmt.Errorf("get PAT: %w", err)
 	}
 
@@ -209,8 +204,7 @@ func (s *Service) UpdatePATScopes(ctx context.Context, tenantID, userID, patID s
 	//     references the new grant so no live token can exercise the old grant.
 	newGrantID, err := s.policyClient.CreateGrant(ctx, tenantID, string(token.PrincipalTypePAT), patID, req.Scopes, nil, false)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "create new grant failed")
+		observability.RecordFailure(span, err, errSpanCreateNewGrantFailed)
 		return fmt.Errorf("create new PAT grant: %w", err)
 	}
 
@@ -226,8 +220,7 @@ func (s *Service) UpdatePATScopes(ctx context.Context, tenantID, userID, patID s
 				logging.Field{Key: "error", Value: delErr.Error()},
 			)
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPATUpdateFailed.Error())
+		observability.RecordFailure(span, err, ErrPATUpdateFailed)
 		return fmt.Errorf("update PAT scopes: %w", err)
 	}
 
@@ -266,15 +259,13 @@ func (s *Service) RevokePAT(ctx context.Context, tenantID, userID, patID string)
 
 	pat, err := s.pats.GetByID(ctx, tenantID, userID, patID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPATNotFound.Error())
+		observability.RecordFailure(span, err, ErrPATNotFound)
 		return fmt.Errorf("get PAT for revocation: %w", err)
 	}
 
 	now := time.Now().UTC()
 	if err := s.pats.Revoke(ctx, tenantID, userID, patID, now); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrPATRevokeFailed.Error())
+		observability.RecordFailure(span, err, ErrPATRevokeFailed)
 		return fmt.Errorf("revoke PAT: %w", err)
 	}
 

@@ -112,6 +112,9 @@ export interface TextareaProps
    */
   hasError?: boolean;
 
+  /** Renders the text in a monospace font, for ids and other technical values. */
+  mono?: boolean;
+
   /**
    * When true the textarea grows vertically as the user types, up to
    * `maxRows`. The height is controlled via an inline style — do NOT
@@ -175,6 +178,7 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
       className,
       variant = 'default',
       hasError = false,
+      mono = false,
       resize = 'none',
       autoResize = false,
       maxRows = 8,
@@ -238,6 +242,7 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
         }
         className={cn(
           textareaVariants({ variant, error: hasError, resize: autoResize ? 'none' : resize }),
+          mono && 'font-mono',
           className,
         )}
         {...props}

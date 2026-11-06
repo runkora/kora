@@ -8,15 +8,15 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/runkora/kora/backend/internal/platform/declarative"
-	"github.com/runkora/kora/backend/internal/platform/logging"
-	"github.com/runkora/kora/backend/internal/platform/observability"
-	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
+
+	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
 // ── Environments ────────────────────────────────────────────────────────────
@@ -285,8 +285,7 @@ func (s *EnvironmentService) CreateEnvironment(ctx context.Context, req Environm
 		if errors.Is(err, ErrEnvironmentSlugTaken) {
 			return nil, ErrEnvironmentSlugTaken
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "create environment")
+		observability.RecordFailure(span, err, errSpanCreateEnvironment)
 		return nil, fmt.Errorf("create environment: %w", err)
 	}
 	return &env, nil
@@ -349,8 +348,7 @@ func (s *EnvironmentService) UpdateEnvironment(ctx context.Context, req Environm
 		}
 	}
 	if err = s.repo.UpdateEnvironment(ctx, env); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "update environment")
+		observability.RecordFailure(span, err, errSpanUpdateEnvironment)
 		return nil, fmt.Errorf("update environment: %w", err)
 	}
 	s.reReconcileAgents(ctx, tenantID, affected)
@@ -378,8 +376,7 @@ func (s *EnvironmentService) DeleteEnvironment(ctx context.Context, id string) e
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrEnvironmentInUse):
 		return err
 	default:
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "delete environment")
+		observability.RecordFailure(span, err, errSpanDeleteEnvironment)
 		return fmt.Errorf("delete environment: %w", err)
 	}
 }

@@ -210,6 +210,18 @@ export interface DataTableProps<TData> {
    */
   rowLabel?: (row: TData) => string;
 
+  /**
+   * Rows that open in place. Controlled: pass the keys (from `getRowKey`) of the
+   * rows that are open, and `onExpandedChange` is called when a row is clicked or
+   * activated from the keyboard. A caller that wants one open row at a time closes
+   * the others itself; one that wants several leaves them. When `renderExpanded` is
+   * given, activating a row toggles it instead of calling `onRowClick`.
+   */
+  expandedKeys?: ReadonlySet<string>;
+  onExpandedChange?: (key: string, expanded: boolean) => void;
+  /** The content under an open row, spanning every column. */
+  renderExpanded?: (row: TData) => React.ReactNode;
+
   // Search
   searchPlaceholder?: string;
   searchFn?: (row: TData, query: string) => boolean;
@@ -248,6 +260,18 @@ export interface DataTableProps<TData> {
   emptyMessage?: string;
   filteredEmptyMessage?: string;
   error?: React.ReactNode;
+
+  /**
+   * Whether the toolbar offers the Columns menu. Defaults to true. Turn it off for a table
+   * with few columns, or one in a space too narrow to spare the button.
+   */
+  columnToggle?: boolean;
+
+  /**
+   * A CSS height past which the rows scroll inside the table, with the header kept in view,
+   * e.g. `'24rem'`. Without it the table is as tall as its rows and the page scrolls.
+   */
+  maxHeight?: string;
 
   // Pagination noun (shown in footer)
   noun?: string;
@@ -419,6 +443,9 @@ export function DataTable<TData>({
   getRowKey,
   onRowClick,
   rowLabel,
+  expandedKeys,
+  onExpandedChange,
+  renderExpanded,
   searchPlaceholder,
   searchFn,
   searchQuery: controlledSearchQuery,
@@ -435,9 +462,12 @@ export function DataTable<TData>({
   filteredEmptyMessage = 'No records match your filters.',
   error,
   noun = 'records',
+  columnToggle = true,
+  maxHeight,
   pagination,
 }: DataTableProps<TData>) {
   // ── State ───────────────────────────────────────────────────────────────────
+  const tableId = React.useId();
 
   const [uncontrolledSearchQuery, setUncontrolledSearchQuery] = React.useState('');
   const searchQuery = controlledSearchQuery ?? uncontrolledSearchQuery;
@@ -691,7 +721,7 @@ export function DataTable<TData>({
           onSearchChange={setSearchQuery}
           searchPlaceholder={searchPlaceholder}
           hasSearch={!!searchFn}
-          columnItems={toolbarColumnItems}
+          columnItems={columnToggle ? toolbarColumnItems : []}
           onColumnToggle={(id) => {
             const col = table.getColumn(id);
             if (!col) return;
@@ -712,6 +742,7 @@ export function DataTable<TData>({
             user the table scrolls. */}
         <div
           ref={scrollRef}
+          style={maxHeight !== undefined ? { maxHeight, overflowY: 'auto' } : undefined}
           className="overflow-x-auto [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb:hover]:bg-subtle [&::-webkit-scrollbar-track]:bg-surface-elevated"
         >
           <div style={{ minWidth: tableMinWidth(visibleColDefs) }}>
@@ -751,61 +782,80 @@ export function DataTable<TData>({
                     </div>
                   </div>
                 ) : (
-                  paginatedRows.map((row) => {
+                  paginatedRows.map((row, rowIndex) => {
                     const label = rowLabel ? rowLabel(row.original) : undefined;
-                    const clickable = !!onRowClick;
+                    const rowKey = getRowKey(row.original);
+                    const expandable = renderExpanded !== undefined;
+                    const expanded = expandable && expandedKeys?.has(rowKey) === true;
+                    const clickable = expandable || !!onRowClick;
+                    const activate = () => {
+                      if (expandable) onExpandedChange?.(rowKey, !expanded);
+                      else onRowClick?.(row.original);
+                    };
                     return (
-                      <div
-                        key={getRowKey(row.original)}
-                        role="row"
-                        aria-label={label}
-                        tabIndex={clickable ? 0 : undefined}
-                        onClick={clickable ? () => onRowClick(row.original) : undefined}
-                        onKeyDown={
-                          clickable
-                            ? (e) => {
-                                if (
-                                  (e.key === 'Enter' || e.key === ' ') &&
-                                  e.target === e.currentTarget
-                                ) {
-                                  e.preventDefault();
-                                  onRowClick(row.original);
+                      <React.Fragment key={rowKey}>
+                        <div
+                          role="row"
+                          aria-label={label}
+                          aria-expanded={expandable ? expanded : undefined}
+                          aria-controls={expanded ? `${tableId}-expanded-${rowIndex}` : undefined}
+                          tabIndex={clickable ? 0 : undefined}
+                          onClick={clickable ? activate : undefined}
+                          onKeyDown={
+                            clickable
+                              ? (e) => {
+                                  if (
+                                    (e.key === 'Enter' || e.key === ' ') &&
+                                    e.target === e.currentTarget
+                                  ) {
+                                    e.preventDefault();
+                                    activate();
+                                  }
                                 }
-                              }
-                            : undefined
-                        }
-                        className={cn(
-                          'group grid items-center border-b border-border-subtle px-4 py-3',
-                          // Remove bottom border from the last row (same CSS trick as DataGrid)
-                          '[&:not(:has(~[role=row]))]:border-b-0',
-                          clickable &&
-                            'cursor-pointer transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
+                              : undefined
+                          }
+                          className={cn(
+                            'group grid items-center border-b border-border-subtle px-4 py-3',
+                            // Remove bottom border from the last row (same CSS trick as DataGrid)
+                            '[&:not(:has(~[role=row]))]:border-b-0',
+                            clickable &&
+                              'cursor-pointer transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
+                          )}
+                          style={{ gridTemplateColumns, columnGap: '14px' }}
+                        >
+                          {visibleColDefs.map((colDef) => {
+                            const isPinned = colDef.id === pinnedColId;
+                            const isPinnedEnd = colDef.id === pinnedEndColId;
+                            return (
+                              <DataTableCell
+                                key={colDef.id}
+                                wrap={colDef.wrap}
+                                className={cn(
+                                  colDef.align === 'right' && 'text-right',
+                                  colDef.align === 'center' && 'text-center',
+                                  isPinned &&
+                                    `${PINNED_FILL_BODY} -ml-4 pl-4 sticky left-0 ${pinnedEdge('start', overlap.start)}`,
+                                  isPinned && clickable && 'group-hover:bg-surface-elevated',
+                                  isPinnedEnd &&
+                                    `${PINNED_FILL_BODY} -mr-4 justify-center pl-2 pr-2 sticky right-0 ${pinnedEdge('end', overlap.end)}`,
+                                  isPinnedEnd && clickable && 'group-hover:bg-surface-elevated',
+                                )}
+                              >
+                                {colDef.cell(row.original)}
+                              </DataTableCell>
+                            );
+                          })}
+                        </div>
+                        {expanded && (
+                          <div
+                            role="row"
+                            id={`${tableId}-expanded-${rowIndex}`}
+                            className="border-b border-border-subtle bg-surface-elevated px-4 py-3 [&:not(:has(~[role=row]))]:border-b-0"
+                          >
+                            <div role="cell">{renderExpanded(row.original)}</div>
+                          </div>
                         )}
-                        style={{ gridTemplateColumns, columnGap: '14px' }}
-                      >
-                        {visibleColDefs.map((colDef) => {
-                          const isPinned = colDef.id === pinnedColId;
-                          const isPinnedEnd = colDef.id === pinnedEndColId;
-                          return (
-                            <DataTableCell
-                              key={colDef.id}
-                              wrap={colDef.wrap}
-                              className={cn(
-                                colDef.align === 'right' && 'text-right',
-                                colDef.align === 'center' && 'text-center',
-                                isPinned &&
-                                  `${PINNED_FILL_BODY} -ml-4 pl-4 sticky left-0 ${pinnedEdge('start', overlap.start)}`,
-                                isPinned && clickable && 'group-hover:bg-surface-elevated',
-                                isPinnedEnd &&
-                                  `${PINNED_FILL_BODY} -mr-4 justify-center pl-2 pr-2 sticky right-0 ${pinnedEdge('end', overlap.end)}`,
-                                isPinnedEnd && clickable && 'group-hover:bg-surface-elevated',
-                              )}
-                            >
-                              {colDef.cell(row.original)}
-                            </DataTableCell>
-                          );
-                        })}
-                      </div>
+                      </React.Fragment>
                     );
                   })
                 )}
@@ -1004,7 +1054,7 @@ function DataTableHeader<TData>({
     <div
       role="row"
       className={cn(
-        'relative grid items-center border-b border-border-subtle px-4 py-[9px]',
+        'sticky top-0 z-20 grid items-center border-b border-border-subtle bg-surface px-4 py-[9px]',
         sectionLabelVariants(),
       )}
       style={{ gridTemplateColumns, columnGap: '14px' }}

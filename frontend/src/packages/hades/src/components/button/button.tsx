@@ -55,6 +55,10 @@ const buttonVariants = cva(
         /** Destructive — error intent */
         destructive:
           'bg-status-error/15 text-status-error border border-status-error/30 hover:bg-status-error/25',
+
+        /** Warning — degraded intent, for a consequential action that is not irreversible */
+        warning:
+          'bg-status-degraded/15 text-status-degraded border border-status-degraded/30 hover:bg-status-degraded/25',
       },
 
       size: {
@@ -204,7 +208,7 @@ export interface ButtonProps
  *
  * The primary interactive element of the Hades design system. Supports eight
  * visual variants (`default`, `secondary`, `outline`, `outline-muted`, `ghost`,
- * `muted`, `accent-outline`, `destructive`), eight sizes (`xs`, `sm`, `md`,
+ * `muted`, `accent-outline`, `destructive`, `warning`), eight sizes (`xs`, `sm`, `md`,
  * `lg`, `xl`, `icon`, `icon-sm`, `tile`), and three shapes (`default`, `pill`,
  * `square`).
  *

@@ -76,14 +76,13 @@ import "github.com/quasilyte/go-ruleguard/dsl"
 //
 // Good:
 //
-//	span.RecordError(err)
-//	span.SetStatus(codes.Error, errMyThing.Error())
+//	observability.RecordFailure(span, err, errMyThing)
 func spanSetStatusLocalErr(m dsl.Matcher) {
 	m.Match(`$_.SetStatus($_, err.Error())`).
 		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: do not pass err.Error() as the span status description — ` +
 			`it leaks dynamic runtime context into telemetry aggregations. ` +
-			`Use span.RecordError(err) for the full error event and a package-level ` +
-			`sentinel error string for SetStatus (e.g. errMyThing.Error()). ` +
+			`Use observability.RecordFailure(span, err, errMyThing) for the full error event and a package-level ` +
+			`sentinel status. ` +
 			`See docs/adr/2026-03-21-opentelemetry-observability-discipline.md`)
 }
 
@@ -98,14 +97,30 @@ func spanSetStatusLocalErr(m dsl.Matcher) {
 //
 // Good:
 //
-//	span.RecordError(ctx.Err())
-//	span.SetStatus(codes.Error, errContextCanceled.Error())
+//	observability.RecordFailure(span, ctx.Err(), errContextCanceled)
 func spanSetStatusCtxErr(m dsl.Matcher) {
 	m.Match(`$_.SetStatus($_, $x.Err().Error())`).
 		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: do not pass ctx.Err().Error() as the span status description — ` +
 			`it leaks dynamic runtime context into telemetry aggregations. ` +
-			`Use span.RecordError(ctx.Err()) and a package-level sentinel string for SetStatus. ` +
+			`Use observability.RecordFailure(span, ctx.Err(), sentinel) with a package-level sentinel. ` +
 			`See docs/adr/2026-03-21-opentelemetry-observability-discipline.md`)
+}
+
+// spanSetStatusErrorDirect flags a failed-span status set outside the observability helper, which also sets error.type.
+//
+// Enforces: docs/adr/2026-03-21-opentelemetry-observability-discipline.md, Amendment 1.
+//
+// Bad:
+//
+//	span.SetStatus(codes.Error, errMyThing.Error())
+//
+// Good:
+//
+//	observability.RecordFailure(span, err, errMyThing)
+func spanSetStatusErrorDirect(m dsl.Matcher) {
+	m.Match(`$span.SetStatus($code, $_)`).
+		Where(m["code"].Text.Matches(`\.Error$`) && !m.File().PkgPath.Matches(`/internal/platform/observability$`)).
+		Report(`docs/adr/2026-03-21-opentelemetry-observability-discipline.md: use observability.RecordFailure(span, err, sentinel) instead of SetStatus with an Error code. RecordFailure also sets error.type.`)
 }
 
 // spanAttrStringLocalErr flags attribute.String calls that embed a local error

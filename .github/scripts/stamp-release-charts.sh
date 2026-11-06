@@ -55,3 +55,9 @@ done
 sort -u images.txt -o images.txt
 [ -s images.txt ] || { echo "::error::no chart images resolved from values.yaml" >&2; exit 1; }
 mv "${work}" charts/kora/values.yaml
+
+# The committed READMEs carry the placeholder 0.0.0 badges and undigested
+# values. Regenerate them last so the packaged charts (and Artifact Hub) show
+# the release version and the pinned digests the chart actually ships.
+helm_docs_version=$(sed -n 's/^HELM_DOCS_VERSION := //p' Makefile)
+go run "github.com/norwoodj/helm-docs/cmd/helm-docs@${helm_docs_version}" --chart-search-root=charts

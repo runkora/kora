@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 
@@ -37,6 +36,7 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 	portNum, _ := strconv.Atoi(port)
 	ctx, span := tracer.Start(ctx, "egressgw.ConnectHandler.serveRelay",
 		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithLinks(h.traces.Links(ctx, observability.RunFromContext(ctx))...),
 		trace.WithAttributes(
 			semconv.ServerAddressKey.String(host),
 			semconv.ServerPortKey.Int(portNum),
@@ -51,8 +51,7 @@ func (h *ConnectHandler) serveRelay(ctx context.Context, w http.ResponseWriter, 
 	dialer := &net.Dialer{Timeout: relayDialTimeout, Control: RefuseLocalTarget}
 	upstream, dialErr := dialer.DialContext(ctx, "tcp", target)
 	if dialErr != nil {
-		span.RecordError(dialErr)
-		span.SetStatus(codes.Error, errRelayDial.Error())
+		observability.RecordFailure(span, dialErr, errRelayDial)
 		h.logger.Warn(ctx, "egress relay upstream dial failed",
 			logging.Field{Key: "host", Value: host},
 			logging.Field{Key: "port", Value: port},

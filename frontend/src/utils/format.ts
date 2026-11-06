@@ -10,6 +10,15 @@
  *   import { fmtDate, fmtCost } from '@runkora/utils';
  */
 
+// ── Counts ────────────────────────────────────────────────────────────────────
+
+/**
+ * Count with its noun, e.g. `plural(1, 'scope', 'scopes')` → "1 scope", `plural(3, ...)` → "3 scopes".
+ */
+export function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
 // ── Numbers ───────────────────────────────────────────────────────────────────
 
 /**

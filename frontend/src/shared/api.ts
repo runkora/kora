@@ -1234,3 +1234,91 @@ export interface AgentTypeGuardrails {
   wait_rearm_warn?: number;
   wait_rearm_pause?: number;
 }
+
+// ── Skills ──────────────────────────────────────────────────────────────
+// Mirrors the skills-service JSON (backend/internal/skills): GET /v1/marketplaces, /v1/marketplaces/skills,
+// /v1/marketplaces/{slug}/skills/{path} and its ?file= form.
+
+/** Whether a Marketplace's content is the organisation's own or third-party, not repository visibility. */
+export type MarketplaceOrigin = 'internal' | 'external';
+
+export interface Marketplace {
+  /** The SkillMarketplace resource name. */
+  slug: string;
+  origin: MarketplaceOrigin;
+  /** The repository name. Not unique across owners. */
+  name: string;
+  /** `owner/repo`. */
+  repository: string;
+  /** The ref the resource names, or `""` for the default branch. */
+  ref: string;
+  /** Null until the Marketplace's list has been read into the cache, as are syncedAt and skillCount. */
+  commit: string | null;
+  syncedAt: string | null;
+  skillCount: number | null;
+}
+
+export interface MarketplaceList {
+  marketplaces: Marketplace[];
+}
+
+export interface SkillSummary {
+  /** The Marketplace slug. With `path`, the skill's identity. */
+  marketplace: string;
+  /** The skill's folder path in the repository. */
+  path: string;
+  name: string;
+  /** The first `# ` heading of SKILL.md, or `name`. */
+  title: string;
+  description: string;
+  version: string | null;
+  tags: string[];
+  tools: string[];
+  /** `disable-model-invocation: true`: only a user can start the skill. */
+  manualOnly: boolean;
+}
+
+/** GET /v1/marketplaces/skills: one page across the tenant's Marketplaces, one Marketplace or a set of keys. */
+export interface SkillsPage {
+  skills: SkillSummary[];
+  total: number;
+  offset: number;
+  limit: number;
+  /** Marketplaces left out of an all-Marketplaces page because they could not be read. */
+  failures?: { marketplace: string; message: string }[];
+}
+
+/** A supporting file in a skill folder, listed without its content. */
+export interface SkillFileEntry {
+  /** Relative to the skill folder. */
+  path: string;
+  /** Bytes. */
+  size: number;
+}
+
+export interface Skill {
+  marketplace: string;
+  path: string;
+  name: string;
+  title: string;
+  description: string;
+  origin: MarketplaceOrigin;
+  repository: string;
+  ref: string;
+  commit: string;
+  /** The same frontmatter values as the skill's list item. */
+  version: string | null;
+  tags: string[];
+  tools: string[];
+  manualOnly: boolean;
+  /** The full SKILL.md, frontmatter included. */
+  content: string;
+  /** The other text files, in path order. */
+  files: SkillFileEntry[];
+}
+
+/** GET /v1/marketplaces/{slug}/skills/{path}?file={path}: one supporting file. */
+export interface SkillFile {
+  path: string;
+  content: string;
+}

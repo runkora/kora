@@ -8,6 +8,16 @@ import { ApiRoute } from './api-routes';
  * Pure functions — no DOM, no network, no MSW required.
  */
 describe('APP_ROUTES', () => {
+  it('encodes each segment of a skill path and keeps its slashes', () => {
+    const url = new URL(
+      APP_ROUTES.skills.skill('team/repo ?#', 'skills/50% ?#'),
+      'http://localhost',
+    );
+    expect(url.pathname).toBe('/skills/team%2Frepo%20%3F%23/skills/50%25%20%3F%23');
+    expect(url.search).toBe('');
+    expect(url.hash).toBe('');
+  });
+
   // APP_ROUTES is `as const` — TypeScript enforces value types at every call
   // site, so asserting individual string values against themselves adds no
   // signal. The only structural invariant the type system cannot enforce is

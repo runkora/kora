@@ -14,12 +14,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/runkora/kora/backend/internal/platform/brand"
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/token"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
 	"github.com/runkora/kora/backend/internal/platform/observability"
@@ -78,6 +78,7 @@ type RunService struct {
 	images     sandboxImageLookup
 	missing    missingProvisioner
 	queue      runQueue
+	metrics    *Metrics // run outcome and duration; nil = not recorded
 	// attempts and schedulerDone track the scheduler started by StartScheduler.
 	attempts      sync.WaitGroup
 	schedulerDone chan struct{}
@@ -98,6 +99,10 @@ func (s *RunService) SetScopeResolver(r *ScopeResolver) { s.resolver = r }
 // (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3). When unset,
 // starting a run of a delegated agent fails closed with ErrDelegationUnavailable.
 func (s *RunService) SetDelegationBroker(b *DelegationBroker) { s.delegation = b }
+
+// SetMetrics installs the instruments that record a run's outcome and duration
+// when it reaches a terminal state. When unset, nothing is recorded.
+func (s *RunService) SetMetrics(m *Metrics) { s.metrics = m }
 
 // systemPromptWithBrief returns the agent's system prompt with the runtime-
 // environment brief appended (governed network + injected credentials), so the
@@ -170,8 +175,7 @@ func NewRunService(
 func (s *RunService) authorizeStart(ctx context.Context, span trace.Span, req StartRunRequest, tenantID string) (*AgentType, error) {
 	at, err := s.atRepo.GetAgentType(ctx, req.AgentTypeID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type")
+		observability.RecordFailure(span, err, errSpanGetAgentType)
 		return nil, fmt.Errorf("get agent type: %w", err)
 	}
 	if at.TenantID != tenantID {
@@ -253,15 +257,17 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		TraceParent:    observability.TraceParent(ctx),
 	}
 	run.TraceID = observability.SampledTraceID(run.TraceParent)
-	span.SetAttributes(observability.RunIDKey.String(run.ID))
+	span.SetAttributes(observability.RunIDKey.String(run.ID), observability.AgentSlugKey.String(at.Slug))
 	ctx = observability.WithRun(ctx, run.ID)
 	if startedBy != nil {
 		span.SetAttributes(observability.TriggerIDKey.String(startedBy.TriggerID))
+		if startedBy.TriggerName != "" {
+			span.SetAttributes(observability.TriggerNameKey.String(startedBy.TriggerName))
+		}
 	}
 
 	if err := s.repo.CreateRun(ctx, run); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "create run")
+		observability.RecordFailure(span, err, errSpanCreateRun)
 		return nil, fmt.Errorf("create run: %w", err)
 	}
 	createdRunID = run.ID
@@ -282,8 +288,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 
 	// Queued last, so the scheduler never claims a run whose delegation is not yet stored.
 	if err := s.queue.QueueRun(ctx, run.ID, time.Now().UTC()); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "queue run")
+		observability.RecordFailure(span, err, errSpanQueueRun)
 		return nil, fmt.Errorf("queue run: %w", err)
 	}
 
@@ -309,8 +314,7 @@ func (s *RunService) loadRunForAction(ctx context.Context, runID, action string)
 	run, err := s.repo.GetRun(ctx, runID)
 	if err != nil {
 		if !errors.Is(err, ErrNotFound) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "get run")
+			observability.RecordFailure(span, err, errSpanGetRun)
 		}
 		return nil, nil, err
 	}
@@ -324,8 +328,7 @@ func (s *RunService) loadRunForAction(ctx context.Context, runID, action string)
 	}
 	at, err := getAgentType(ctx, run.AgentTypeID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type")
+		observability.RecordFailure(span, err, errSpanGetAgentType)
 		return nil, nil, fmt.Errorf("get agent type: %w", err)
 	}
 	if action != "read" || !readsOwnRuns(ctx) || !isRunStarter(ctx, run) {
@@ -399,8 +402,7 @@ func (s *RunService) ListRuns(ctx context.Context, agentTypeIDs []string, p RunL
 	defer span.End()
 	page, err := s.listRuns(ctx, tenantID, agentTypeIDs, p)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "list runs")
+		observability.RecordFailure(span, err, errSpanListRuns)
 	}
 	return page, err
 }
@@ -468,14 +470,12 @@ func (s *RunService) RunOutcomes(ctx context.Context, from, to time.Time) (RunOu
 	defer span.End()
 	scope, err := s.readableRunScope(ctx, tenantID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "run scope")
+		observability.RecordFailure(span, err, errSpanRunScope)
 		return RunOutcomes{}, err
 	}
 	out, err := s.repo.CountRunOutcomes(ctx, tenantID, scope, from, to)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "count run outcomes")
+		observability.RecordFailure(span, err, errSpanCountRunOutcomes)
 	}
 	return out, err
 }
@@ -510,8 +510,7 @@ func (s *RunService) TerminateRun(ctx context.Context, id string) error {
 	s.revokeRunDelegation(ctx, run)
 	s.deprovisionSandbox(ctx, run)
 	if err := s.repo.DeleteRun(ctx, id); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "delete run")
+		observability.RecordFailure(span, err, errSpanDeleteRun)
 		return err
 	}
 	return nil
@@ -535,8 +534,7 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 	if err := s.repo.SetRunState(ctx, runID, from, to); err != nil {
 		// A CAS conflict is an expected race and leaves the span unset.
 		if !errors.Is(err, ErrConflict) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, errSetRunState.Error())
+			observability.RecordFailure(span, err, errSetRunState)
 		}
 		return fmt.Errorf("transition run state %s→%s: %w", from, to, err)
 	}
@@ -567,8 +565,11 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 				logging.Field{Key: "run_id", Value: runID},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
+			// The outcome is still known; only the starter and age are not.
+			s.metrics.recordRunTerminal(ctx, nil, to, time.Now())
 			return nil
 		}
+		s.metrics.recordRunTerminal(ctx, run, to, time.Now())
 		// The delegation ends with the run (delegated-agent-identity ADR,
 		// Decision 3): tombstone the issuance so no access survives terminal state.
 		s.revokeRunDelegation(ctx, run)
@@ -658,8 +659,7 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 	content := req.Content
 	from, err := messageTrigger(ctx, req)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "authorize trigger attribution")
+		observability.RecordFailure(span, err, errSpanAuthorizeTriggerAttribution)
 		return err
 	}
 	run, at, err := s.loadRunToAct(ctx, runID)
@@ -680,8 +680,7 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 	}
 
 	if err = s.repo.AppendRunMessage(ctx, RunMessage{RunID: runID, Content: content}); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "append run message")
+		observability.RecordFailure(span, err, errSpanAppendRunMessage)
 		return fmt.Errorf("append run message: %w", err)
 	}
 
@@ -707,8 +706,7 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 		idleTimeout, fromPerson = s.cfg.IdleTimeouts.ForPersonMessage(run.StartedBy), true
 	}
 	if err := s.sm.SendMessage(ctx, podURL, runID, content, idleTimeout, fromPerson); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "forward message to session-manager")
+		observability.RecordFailure(span, err, errSpanForwardMessageToSessionManager)
 		return fmt.Errorf("forward message to pod %d: %w", run.PodOrdinal, err)
 	}
 
@@ -816,8 +814,7 @@ func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
 	podURL := sessionmanager.PodURL(at.Slug, run.PodOrdinal, namespace)
 	if err := s.sm.InterruptSession(ctx, podURL, runID); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "interrupt session")
+		observability.RecordFailure(span, err, errSpanInterruptSession)
 		return fmt.Errorf("interrupt session on pod %d: %w", run.PodOrdinal, err)
 	}
 	return nil
@@ -860,6 +857,16 @@ func (s *RunService) AuthorizeAgentCallback(ctx context.Context, runID string) e
 	return nil
 }
 
+// TraceParent returns the run's stored traceparent, empty when it has none. The caller is
+// authorized by the handler: the lookup is by run ID alone.
+func (s *RunService) TraceParent(ctx context.Context, runID string) (string, error) {
+	run, err := s.repo.GetRun(ctx, runID)
+	if err != nil {
+		return "", err
+	}
+	return run.TraceParent, nil
+}
+
 // ErrNoSandbox reports that a run has no sandbox. Distinct from a lookup
 // failure: the caller routes work locally for the former and refuses for the
 // latter.
@@ -875,15 +882,13 @@ func (s *RunService) GetSandbox(ctx context.Context, runID string) (Sandbox, err
 
 	run, err := s.repo.GetRun(ctx, runID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get run")
+		observability.RecordFailure(span, err, errSpanGetRun)
 		return Sandbox{}, err
 	}
 
 	sandbox, ok, err := s.k8s.LookupSandbox(ctx, runID, s.cfg.TenantNamespaceFn(run.TenantID))
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "lookup sandbox")
+		observability.RecordFailure(span, err, errSpanLookupSandbox)
 		return Sandbox{}, err
 	}
 	if !ok {

@@ -1,6 +1,6 @@
 // Package github provides a typed HTTP client for the GitHub REST API, limited
-// to the operations the kora credential broker needs — currently minting
-// GitHub App installation access tokens.
+// to the operations the credential broker and skills-service need: minting
+// installation tokens and reading repository trees and files.
 //
 // It embeds httpclient.Base so every call gets a named OTel client span, W3C
 // trace propagation, and structured logging without per-call boilerplate.
@@ -12,8 +12,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -36,8 +38,8 @@ const (
 // Sentinel errors. Callers may test for these with errors.Is to branch on
 // failure category without string matching.
 var (
-	// ErrUnexpectedStatus is returned when GitHub responds with any status other
-	// than 201 Created to an installation-token request.
+	// ErrUnexpectedStatus is returned when GitHub responds with a status the
+	// call does not expect.
 	ErrUnexpectedStatus = errors.New("unexpected status from github")
 
 	// ErrMissingToken is returned when GitHub's response decodes successfully but
@@ -51,6 +53,36 @@ var (
 	// a client-facing forbidden rather than a 500. See
 	// docs/adr/2026-07-22-github-connection-category-scoped-actions.md.
 	ErrInstallationPermissions = errors.New("github installation lacks the requested permission level")
+
+	// ErrTreeTruncated is returned when GitHub marks a Trees API response
+	// truncated, or the response is over maxTreeBytes. A partial tree cannot
+	// be filtered safely.
+	ErrTreeTruncated = errors.New("github tree response was truncated")
+
+	// ErrUnavailable is returned by CreateInstallationToken, ResolveRef, GetTree
+	// and GetRawContent when GitHub cannot serve the call for now: a timeout or
+	// network failure, a 5xx status, or a rate limit. For a status failure, the
+	// error also matches ErrUnexpectedStatus.
+	ErrUnavailable = errors.New("github is unavailable or rate-limited")
+
+	// ErrUnauthorized is returned for a 401, or a 403 that is not a rate limit:
+	// GitHub refuses the token.
+	ErrUnauthorized = errors.New("github refused the credential")
+
+	// ErrRateLimited is returned, together with ErrUnavailable, when GitHub
+	// rate-limits the call. Retrying at once does not help.
+	ErrRateLimited = errors.New("github rate limit")
+
+	// ErrNotFound is returned by ResolveRef, GetTree and GetRawContent when the
+	// repository, ref or file does not exist or the token cannot see it.
+	ErrNotFound = errors.New("github repository, ref or file not found")
+
+	// ErrTooLarge is returned by GetRawContent for a file over its byte limit.
+	ErrTooLarge = errors.New("github file is over the size limit")
+
+	// ErrBadCommit is returned when GitHub resolves a ref to something that is
+	// not a commit SHA.
+	ErrBadCommit = errors.New("github ref did not resolve to a commit SHA")
 )
 
 // InstallationTokenRequest optionally scopes an installation token to a subset
@@ -69,6 +101,29 @@ type InstallationToken struct {
 	ExpiresAt           time.Time         `json:"expires_at"`
 	Permissions         map[string]string `json:"permissions"`
 	RepositorySelection string            `json:"repository_selection"`
+}
+
+// TreeEntry is one node of a recursive Git Trees API response. Type is "blob"
+// for a file or symbolic link and "tree" for a directory. Size is set for
+// blobs.
+type TreeEntry struct {
+	Path string `json:"path"`
+	Mode string `json:"mode"`
+	Type string `json:"type"`
+	Size int64  `json:"size"`
+}
+
+// SymlinkMode is the tree mode of a symbolic link. Its size is the length of
+// the link path and the contents API returns the target.
+const SymlinkMode = "120000"
+
+// maxTreeBytes bounds a tree response. A larger tree returns ErrTreeTruncated.
+const maxTreeBytes = 16 << 20
+
+// treeResponse is the wire shape of GET /repos/{org}/{repo}/git/trees/{ref}?recursive=1.
+type treeResponse struct {
+	Tree      []TreeEntry `json:"tree"`
+	Truncated bool        `json:"truncated"`
 }
 
 // Client is a typed GitHub REST API client.
@@ -93,6 +148,8 @@ func NewClient(baseURL string, logger logging.Logger) *Client {
 // installation access token, optionally scoped by body. appJWT must be a
 // freshly-signed App JWT (RS256, at most 10 minutes TTL). GitHub returns 201
 // Created on success.
+// Returns an error that matches ErrUnavailable when GitHub is down or
+// rate-limits the call.
 func (c *Client) CreateInstallationToken(
 	ctx context.Context,
 	appJWT string,
@@ -114,7 +171,7 @@ func (c *Client) CreateInstallationToken(
 	})
 	defer span.End()
 	if err != nil {
-		return InstallationToken{}, fmt.Errorf("installation token call: %w", err)
+		return InstallationToken{}, transportError(ctx, fmt.Errorf("installation token call: %w", err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -127,7 +184,7 @@ func (c *Client) CreateInstallationToken(
 		if resp.StatusCode == http.StatusUnprocessableEntity {
 			sentinel = ErrInstallationPermissions
 		}
-		return InstallationToken{}, c.HandleErrorResponse(span, resp, sentinel)
+		return InstallationToken{}, statusError(resp, c.HandleErrorResponse(span, resp, sentinel))
 	}
 
 	var tok InstallationToken
@@ -229,6 +286,7 @@ func (c *Client) GetInstallationPermissions(ctx context.Context, appJWT string, 
 	if err != nil {
 		return nil, fmt.Errorf("get installation call: %w", err)
 	}
+
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
@@ -240,4 +298,169 @@ func (c *Client) GetInstallationPermissions(ctx context.Context, appJWT string, 
 		return nil, err
 	}
 	return body.Permissions, nil
+}
+
+// ResolveRef returns the commit SHA that ref (a branch, tag or commit SHA)
+// points at. Pass "HEAD" for the default branch.
+func (c *Client) ResolveRef(ctx context.Context, token, owner, repo, ref string) (string, error) {
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	header.Set("Accept", "application/vnd.github.sha")
+
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/repos/{owner}/{repo}/commits/{ref}",
+		Params: []string{owner, repo, ref}, Header: header,
+	})
+	defer span.End()
+	if err != nil {
+		return "", transportError(ctx, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// GitHub answers an unknown ref with 422 and an unknown repository with 404.
+	if resp.StatusCode != http.StatusOK {
+		return "", statusError(resp, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus), http.StatusNotFound, http.StatusUnprocessableEntity)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+	if err != nil {
+		return "", transportError(ctx, fmt.Errorf("read response body: %w", err))
+	}
+	sha := strings.TrimSpace(string(body))
+	if !isCommitSHA(sha) {
+		return "", c.RecordError(span, ErrBadCommit)
+	}
+	return sha, nil
+}
+
+// isCommitSHA reports whether s is a 40-character lowercase hex SHA.
+func isCommitSHA(s string) bool {
+	if len(s) != 40 {
+		return false
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// GetTree returns the recursive file tree at sha. It returns ErrTreeTruncated
+// when GitHub marks the response truncated.
+func (c *Client) GetTree(ctx context.Context, token, owner, repo, sha string) ([]TreeEntry, error) {
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	header.Set("Accept", acceptHeader)
+
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/repos/{owner}/{repo}/git/trees/{sha}",
+		Params: []string{owner, repo, sha}, Query: url.Values{"recursive": {"1"}}, Header: header,
+	})
+	defer span.End()
+	if err != nil {
+		return nil, transportError(ctx, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, statusError(resp, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus), http.StatusNotFound)
+	}
+	limited := &io.LimitedReader{R: resp.Body, N: maxTreeBytes}
+	resp.Body = struct {
+		io.Reader
+		io.Closer
+	}{limited, resp.Body}
+	var body treeResponse
+	if err := c.DecodeJSON(span, resp, &body); err != nil {
+		if limited.N == 0 {
+			return nil, c.RecordError(span, ErrTreeTruncated)
+		}
+		return nil, err
+	}
+	if body.Truncated {
+		return nil, c.RecordError(span, ErrTreeTruncated)
+	}
+	return body.Tree, nil
+}
+
+// GetRawContent returns the content of the file at path and ref, reading at
+// most maxBytes. A longer file returns ErrTooLarge.
+func (c *Client) GetRawContent(ctx context.Context, token, owner, repo, ref, path string, maxBytes int64) ([]byte, error) {
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	header.Set("Accept", "application/vnd.github.raw+json")
+
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/repos/{owner}/{repo}/contents/{path}",
+		Params: []string{owner, repo, path}, Query: url.Values{"ref": {ref}}, Header: header,
+	})
+	defer span.End()
+	if err != nil {
+		return nil, transportError(ctx, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, statusError(resp, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus), http.StatusNotFound)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		return nil, transportError(ctx, fmt.Errorf("read response body: %w", err))
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, c.RecordError(span, ErrTooLarge)
+	}
+	return data, nil
+}
+
+// transportError wraps err in ErrUnavailable: the call got no complete
+// response, so a later retry can succeed. A call that the caller canceled,
+// or whose deadline passed, is not a GitHub outage and stays unwrapped.
+func transportError(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		// The caller stopped the call.
+		return err
+	}
+	// A timeout or a network failure.
+	return fmt.Errorf("%w: %w", ErrUnavailable, err)
+}
+
+// statusError wraps err, the error of a non-2xx response, in ErrUnavailable
+// when the status shows an outage or a rate limit (a rate limit also wraps
+// ErrRateLimited), in ErrUnauthorized for any other 401 or 403, and in
+// ErrNotFound when the status is one of notFound. Any other status stays
+// unwrapped.
+func statusError(resp *http.Response, err error, notFound ...int) error {
+	switch {
+	case isRateLimited(resp, err):
+		return fmt.Errorf("%w: %w: %w", ErrUnavailable, ErrRateLimited, err)
+	case resp.StatusCode >= http.StatusInternalServerError:
+		return fmt.Errorf("%w: %w", ErrUnavailable, err)
+	case resp.StatusCode == http.StatusUnauthorized, resp.StatusCode == http.StatusForbidden:
+		return fmt.Errorf("%w: %w", ErrUnauthorized, err)
+	case slices.Contains(notFound, resp.StatusCode):
+		return fmt.Errorf("%w: %w", ErrNotFound, err)
+	}
+	return err
+}
+
+// isRateLimited reports whether a non-2xx response shows a GitHub rate limit:
+// a 429, or a 403 with GitHub's signal (x-ratelimit-remaining 0, a
+// retry-after header, or a "secondary rate limit" message). Any other 403 is,
+// for example, lost access. err is the error of
+// that response, its text holds the start of GitHub's error body. See
+// https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#exceeding-the-rate-limit
+func isRateLimited(resp *http.Response, err error) bool {
+	switch resp.StatusCode {
+	case http.StatusTooManyRequests:
+		// A primary or secondary rate limit.
+		return true
+	case http.StatusForbidden:
+		// A 403 is a rate limit only with GitHub's signal.
+		return resp.Header.Get("X-RateLimit-Remaining") == "0" ||
+			resp.Header.Get("Retry-After") != "" ||
+			strings.Contains(strings.ToLower(err.Error()), "secondary rate limit")
+	default:
+		return false
+	}
 }

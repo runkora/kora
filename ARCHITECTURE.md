@@ -19,6 +19,8 @@ Governed agents run inside the control-plane, each run given its own sandbox.
 Inbound work reaches an agent through the Backend API, and its outbound calls are
 captured by in-platform egress brokers that perform token exchange and credential
 injection. Identity and Policy govern both humans and agents.
+The skills service reads each tenant's skill Marketplaces from GitHub and serves
+them through the Backend API.
 
 ![kora system context](docs/diagrams/system-context.svg)
 

@@ -24,7 +24,7 @@ export const authHandlers = [
   }),
 
   /**
-   * POST /api/auth/session — accepts { id_token, tenant_id } and returns {}.
+   * POST /api/auth/session: accepts the callback page's exchange body and returns {}.
    * The real handler seals an iron-session cookie; in tests we just 200 OK.
    */
   http.post(ApiRoute.session.POST(), () => {

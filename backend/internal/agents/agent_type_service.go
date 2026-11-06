@@ -8,13 +8,13 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
+	"k8s.io/apimachinery/pkg/util/validation"
+
 	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/policy"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
-	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 // ErrInvalidSlug is returned when an agent type slug cannot name the
@@ -157,8 +157,7 @@ func (s *AgentTypeService) GetEffectiveAccess(ctx context.Context, id string) (*
 	at, err := s.repo.GetAgentType(ctx, id)
 	if err != nil {
 		if !errors.Is(err, ErrNotFound) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "get agent type")
+			observability.RecordFailure(span, err, errSpanGetAgentType)
 		}
 		return nil, err
 	}
@@ -416,8 +415,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		if errors.Is(err, ErrSlugTaken) {
 			return nil, ErrSlugTaken
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "create agent type")
+		observability.RecordFailure(span, err, errSpanCreateAgentType)
 		return nil, fmt.Errorf("create agent type: %w", err)
 	}
 	span.SetAttributes(observability.AgentIDKey.String(at.ID))
@@ -510,13 +508,11 @@ func (s *AgentTypeService) provisionAgentTypeAsync(detachedCtx context.Context, 
 				logging.Field{Key: "error", Value: delErr.Error()},
 			)
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "provision k8s resources")
+		observability.RecordFailure(span, err, errSpanProvisionK8sResources)
 		return
 	}
 	if err := s.k8s.WaitForStatefulSetReady(ctx, at.Slug, namespace); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "wait for statefulset ready")
+		observability.RecordFailure(span, err, errSpanWaitForStatefulsetReady)
 		s.logger.Warn(ctx, "StatefulSet did not become ready within timeout; agent type left in provisioning state",
 			logging.Field{Key: "agent_type_id", Value: at.ID},
 			logging.Field{Key: "slug", Value: at.Slug},
@@ -525,8 +521,7 @@ func (s *AgentTypeService) provisionAgentTypeAsync(detachedCtx context.Context, 
 		return
 	}
 	if err := s.repo.SetAgentTypeState(ctx, at.ID, AgentTypeStateProvisioning, AgentTypeStateActive); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "set agent type active")
+		observability.RecordFailure(span, err, errSpanSetAgentTypeActive)
 		return
 	}
 	s.logger.Info(ctx, "Agent type provisioned and active",
@@ -549,8 +544,7 @@ func (s *AgentTypeService) GetAgentType(ctx context.Context, id string) (*AgentT
 	at, err := s.repo.GetAgentType(ctx, id)
 	if err != nil {
 		if !errors.Is(err, ErrNotFound) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "get agent type")
+			observability.RecordFailure(span, err, errSpanGetAgentType)
 		}
 		return nil, err
 	}
@@ -591,8 +585,7 @@ func (s *AgentTypeService) ListAgentTypes(ctx context.Context) ([]AgentType, err
 	defer span.End()
 	types, err := s.repo.ListAgentTypes(ctx, tenantID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "list agent types")
+		observability.RecordFailure(span, err, errSpanListAgentTypes)
 		return nil, err
 	}
 	types, err = s.authz.filterAgentTypes(ctx, types)
@@ -614,8 +607,7 @@ func (s *AgentTypeService) ListAgentTypesByIDs(ctx context.Context, ids []string
 	defer span.End()
 	all, err := s.repo.ListAgentTypes(ctx, tenantID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "list agent types")
+		observability.RecordFailure(span, err, errSpanListAgentTypes)
 		return nil, err
 	}
 	var types []AgentType
@@ -633,8 +625,7 @@ func (s *AgentTypeService) ListAgentTypesByIDs(ctx context.Context, ids []string
 	}
 	connectors, err := s.scopeResolver().EffectiveConnectors(ctx, types)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "resolve effective connectors")
+		observability.RecordFailure(span, err, errSpanResolveEffectiveConnectors)
 		return nil, err
 	}
 	for i := range types {
@@ -750,15 +741,13 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 	_, declared := declaredFromContext(ctx)
 	if declared && grantAffected(req) {
 		if err := s.k8s.EnsureAgentGrant(ctx, *at, namespace); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "reconcile agent grant")
+			observability.RecordFailure(span, err, errSpanReconcileAgentGrant)
 			return nil, fmt.Errorf("reconcile agent grant: %w", err)
 		}
 	}
 
 	if err := s.repo.UpdateAgentType(ctx, *at); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "update agent type")
+		observability.RecordFailure(span, err, errSpanUpdateAgentType)
 		return nil, fmt.Errorf("update agent type: %w", err)
 	}
 
@@ -829,8 +818,7 @@ func (s *AgentTypeService) loadAgentTypeForWrite(ctx context.Context, id string,
 		if errors.Is(err, ErrNotFound) {
 			return nil, ErrNotFound
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type")
+		observability.RecordFailure(span, err, errSpanGetAgentType)
 		return nil, fmt.Errorf("get agent type: %w", err)
 	}
 	if at.TenantID != tenantFromContext(ctx) {
@@ -898,8 +886,7 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 
 	at, err := s.repo.GetAgentType(ctx, id)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type")
+		observability.RecordFailure(span, err, errSpanGetAgentType)
 		return fmt.Errorf("get agent type: %w", err)
 	}
 	if at.TenantID != tenantFromContext(ctx) {
@@ -924,24 +911,21 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 			fromState = AgentTypeStateProvisioning
 		}
 		if err = s.repo.SetAgentTypeState(ctx, id, fromState, AgentTypeStateDeleting); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "set agent type deleting")
+			observability.RecordFailure(span, err, errSpanSetAgentTypeDeleting)
 			return fmt.Errorf("set agent type deleting: %w", err)
 		}
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 	if err = s.k8s.DeprovisionAgentType(ctx, *at, namespace); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "deprovision k8s resources")
+		observability.RecordFailure(span, err, errSpanDeprovisionK8sResources)
 		return fmt.Errorf("deprovision agent type k8s resources: %w", err)
 	}
 
 	// Runs and their history stay. Unfinished runs end here.
 	cancelled, err := s.runRepo.CancelRunsByAgentType(ctx, id)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "cancel runs for agent type")
+		observability.RecordFailure(span, err, errSpanCancelRunsForAgentType)
 		return fmt.Errorf("cancel runs for agent type: %w", err)
 	}
 	for _, run := range cancelled {
@@ -949,8 +933,7 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 	}
 
 	if err = s.repo.SoftDeleteAgentType(ctx, id); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "soft delete agent type")
+		observability.RecordFailure(span, err, errSpanSoftDeleteAgentType)
 		return fmt.Errorf("soft delete agent type: %w", err)
 	}
 	if s.hook != nil {

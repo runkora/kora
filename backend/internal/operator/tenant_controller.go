@@ -32,7 +32,9 @@ type TenantReconciler struct {
 	ConnAggregator  *ConnectionAggregator
 	MCPAggregator   *MCPServerAggregator
 	OAuthAggregator *OAuthClientAggregator
-	Logger          logging.Logger
+	// MarketplaceAggregator renders tenants' SkillMarketplaces.
+	MarketplaceAggregator *SkillMarketplaceAggregator
+	Logger                logging.Logger
 
 	// BundlePollingMinDelay is the minimum OPA bundle polling interval in seconds.
 	BundlePollingMinDelay int
@@ -255,6 +257,14 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			name: "aggregated OAuth clients",
 			run:  func(ctx context.Context) error { return r.OAuthAggregator.Sync(ctx) },
 		},
+		{
+			// Each tenant's SkillMarketplaces are rendered into the
+			// kora-skill-marketplaces ConfigMap skills-service mounts.
+			// Re-aggregated here because a suspend and a reactivation
+			// change which sources are served.
+			name: "aggregated skill marketplaces",
+			run:  func(ctx context.Context) error { return r.MarketplaceAggregator.Sync(ctx) },
+		},
 	}
 	for _, step := range steps {
 		if err := step.run(ctx); err != nil {
@@ -298,6 +308,7 @@ func (r *TenantReconciler) syncDeleted(ctx context.Context) error {
 		r.ConnAggregator.Sync,
 		r.MCPAggregator.Sync,
 		r.OAuthAggregator.Sync,
+		r.MarketplaceAggregator.Sync,
 	} {
 		if err := sync(ctx); err != nil {
 			return err
@@ -497,6 +508,10 @@ func (r *TenantReconciler) reconcileSuspended(ctx context.Context, tenant *KoraT
 	if err := r.OAuthAggregator.Sync(ctx); err != nil {
 		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, fmt.Errorf("sync aggregated OAuth clients for suspended tenant: %w", err)
+	}
+	if err := r.MarketplaceAggregator.Sync(ctx); err != nil {
+		_ = r.setTenantPhase(ctx, tenant, TenantPhaseDegraded)
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, fmt.Errorf("sync skill marketplaces for suspended tenant: %w", err)
 	}
 	_ = r.setTenantPhase(ctx, tenant, TenantPhaseSuspended)
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil

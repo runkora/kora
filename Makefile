@@ -485,7 +485,7 @@ dev-cluster-down: ## Tear down the local k3d cluster
 # Adding a new service is a one-line edit here plus an entry in redeploy.sh.
 REDEPLOY_PLATFORM_SERVICES := \
 	identity identity-proxy inference-gateway policy-service policy-gateway \
-	egress-gateway agents frontend kora-mcp tool-gateway kora-triggers migrate operator \
+	egress-gateway agents frontend kora-mcp tool-gateway kora-triggers skills-service migrate operator \
 	session-manager sandbox-mount sandbox-base
 REDEPLOY_TENANT_SERVICES := example
 
@@ -784,6 +784,8 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 	fi
 	@echo "$(COLOR_YELLOW)Applying tenant workload fixtures...$(COLOR_RESET)"
 	@kubectl apply -f deploy/local/fixtures/
+	@echo "$(COLOR_YELLOW)Registering skill Marketplaces...$(COLOR_RESET)"
+	@kubectl apply -f deploy/local/marketplace/
 	@echo "$(COLOR_YELLOW)Waiting for example workload to be ready...$(COLOR_RESET)"
 	@until kubectl get deployment kora-example -n kora-tenant-example &>/dev/null; do sleep 3; done
 	@kubectl rollout status deployment/kora-example -n kora-tenant-example --timeout=180s

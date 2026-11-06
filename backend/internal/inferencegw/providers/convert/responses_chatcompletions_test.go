@@ -106,7 +106,7 @@ func TestChatCompletionToResponsesResponse_WithToolCalls(t *testing.T) {
 			},
 		},
 	}
-	got := convert.ChatCompletionToResponsesResponse(completion)
+	got := convert.ChatCompletionToResponsesResponse(completion, nil)
 	if len(got.Output) != 2 {
 		t.Fatalf("len(Output) = %d, want 2 (message + function_call)", len(got.Output))
 	}
@@ -128,7 +128,7 @@ func TestChatCompletionToResponsesResponse_WithToolCalls(t *testing.T) {
 // event so the streaming and non-streaming bridge outputs agree on shape.
 func TestChatCompletionsStreaming_ToolCallEmittedInTerminalEvent(t *testing.T) {
 	t.Parallel()
-	state := convert.NewChatCompletionsStreamState()
+	state := convert.NewChatCompletionsStreamState(nil)
 
 	chunks := []openai.ChatCompletionChunk{
 		{
@@ -217,6 +217,30 @@ func TestChatCompletionsStreaming_ToolCallEmittedInTerminalEvent(t *testing.T) {
 	if !gotCall {
 		t.Errorf("function_call not found in completed output: %+v", completed.Response.Output)
 	}
+
+	// Codex collects calls from output_item.done, so the call must also stream as its own
+	// item at output index 1, after the message, and before response.completed.
+	var added, done bool
+	for _, ev := range out {
+		if ev.Item.Type != "function_call" || ev.Item.CallID != "call_y" {
+			continue
+		}
+		if ev.OutputIndex != 1 {
+			t.Errorf("%s OutputIndex = %d, want 1", ev.Type, ev.OutputIndex)
+		}
+		switch ev.Type {
+		case "response.output_item.added":
+			added = true
+		case "response.output_item.done":
+			done = true
+			if ev.Item.Arguments.OfString != `{"city":"Berlin"}` {
+				t.Errorf("output_item.done Arguments = %q, want accumulated JSON", ev.Item.Arguments.OfString)
+			}
+		}
+	}
+	if !added || !done {
+		t.Errorf("function_call streamed as an item: added=%v done=%v, want both", added, done)
+	}
 }
 
 // ─── Multiple tool calls (parallel) ──────────────────────────────────────────
@@ -239,7 +263,7 @@ func TestChatCompletionToResponsesResponse_MultipleToolCalls(t *testing.T) {
 			},
 		},
 	}
-	got := convert.ChatCompletionToResponsesResponse(completion)
+	got := convert.ChatCompletionToResponsesResponse(completion, nil)
 	if len(got.Output) != 3 {
 		t.Fatalf("len(Output) = %d, want 3 (message + 2 function_calls)", len(got.Output))
 	}
@@ -262,7 +286,7 @@ func TestChatCompletionToResponsesResponse_LengthIncomplete(t *testing.T) {
 			{FinishReason: "length", Message: openai.ChatCompletionMessage{Role: "assistant", Content: "Truncated..."}},
 		},
 	}
-	got := convert.ChatCompletionToResponsesResponse(completion)
+	got := convert.ChatCompletionToResponsesResponse(completion, nil)
 	if got.Status != "incomplete" {
 		t.Errorf("Status = %q, want incomplete for finish_reason=length", got.Status)
 	}
@@ -270,7 +294,7 @@ func TestChatCompletionToResponsesResponse_LengthIncomplete(t *testing.T) {
 
 func TestChatCompletionsStreaming_LengthIncomplete(t *testing.T) {
 	t.Parallel()
-	state := convert.NewChatCompletionsStreamState()
+	state := convert.NewChatCompletionsStreamState(nil)
 
 	chunks := []openai.ChatCompletionChunk{
 		{
@@ -580,7 +604,7 @@ func TestChatCompletionToResponsesResponse_FunctionCallWireFormat(t *testing.T) 
 			},
 		},
 	}
-	got := convert.ChatCompletionToResponsesResponse(completion)
+	got := convert.ChatCompletionToResponsesResponse(completion, nil)
 	if len(got.Output) < 2 {
 		t.Fatalf("expected at least 2 output items, got %d", len(got.Output))
 	}
@@ -624,7 +648,7 @@ func TestChatCompletionToResponsesResponse_FunctionCallWireFormat(t *testing.T) 
 // bridge function_call items have RawJSON populated correctly.
 func TestChatCompletionsStreamState_FunctionCallWireFormat(t *testing.T) {
 	t.Parallel()
-	state := convert.NewChatCompletionsStreamState()
+	state := convert.NewChatCompletionsStreamState(nil)
 
 	chunks := []openai.ChatCompletionChunk{
 		{ID: "chatcmpl_ws", Model: "gpt-4o", Choices: []openai.ChatCompletionChunkChoice{
@@ -676,7 +700,7 @@ func TestChatCompletionsStreamState_FunctionCallWireFormat(t *testing.T) {
 // Codex drops an output_item.added message without a content array and then
 // rejects every text delta for it.
 func TestChatCompletionChunkToResponsesEvents_AddedItemCarriesEmptyContent(t *testing.T) {
-	s := convert.NewChatCompletionsStreamState()
+	s := convert.NewChatCompletionsStreamState(nil)
 	var chunk openai.ChatCompletionChunk
 	if err := json.Unmarshal([]byte(`{"id":"c1","model":"m","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"pong"}}]}`), &chunk); err != nil {
 		t.Fatal(err)

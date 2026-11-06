@@ -25,6 +25,7 @@ import { Alert, Button, Field, FieldError, Form, Input, Label, Text } from '@run
 import {
   buildUserManager,
   TENANT_CONFIG_STORAGE_KEY,
+  type DiscoverResponse,
   type TenantOidcConfig,
 } from '@runkora/lib/oidc-client';
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
@@ -34,14 +35,6 @@ import { ApiRoute } from '@runkora/lib/routing/api-routes';
 interface EmailSignInFormProps {
   /** Validated relative path to redirect to after sign-in. Defaults to '/'. */
   next?: string;
-}
-
-/** Shape returned by `GET /api/auth/discover`. Mirrors `TenantDiscovery` in the Go service. */
-interface DiscoverResponse {
-  tenant_id: string;
-  issuer_url: string;
-  client_id: string;
-  scopes: string[];
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────

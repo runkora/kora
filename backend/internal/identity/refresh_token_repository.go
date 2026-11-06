@@ -41,22 +41,7 @@ func NewPostgresRefreshTokenRepository(pool *pgxpool.Pool) RefreshTokenRepositor
 }
 
 func (r *postgresRefreshTokenRepository) CreateRefreshToken(ctx context.Context, rt *RefreshToken) error {
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO identity_refresh_tokens
-			(id, session_id, token_hash, created_at, expires_at)
-		VALUES
-			($1, $2, $3, $4, $5)
-	`,
-		rt.ID,
-		rt.SessionID,
-		rt.TokenHash,
-		rt.CreatedAt,
-		rt.ExpiresAt,
-	)
-	if err != nil {
-		return fmt.Errorf("create refresh token: %w", err)
-	}
-	return nil
+	return insertRefreshToken(ctx, r.pool, rt)
 }
 
 func (r *postgresRefreshTokenRepository) GetRefreshTokenByHash(ctx context.Context, hash string) (*RefreshToken, error) {
@@ -85,7 +70,36 @@ func (r *postgresRefreshTokenRepository) GetRefreshTokenByHash(ctx context.Conte
 }
 
 func (r *postgresRefreshTokenRepository) RevokeRefreshToken(ctx context.Context, id string, revokedAt time.Time) error {
-	tag, err := r.pool.Exec(ctx, `
+	return revokeRefreshToken(ctx, r.pool, id, revokedAt)
+}
+
+func (r *postgresRefreshTokenRepository) RevokeAllForSession(ctx context.Context, sessionID string, revokedAt time.Time) error {
+	return revokeAllForSession(ctx, r.pool, sessionID, revokedAt)
+}
+
+// ─── Statements shared with the switch transaction ───────────────────────────
+
+func insertRefreshToken(ctx context.Context, db execer, rt *RefreshToken) error {
+	_, err := db.Exec(ctx, `
+		INSERT INTO identity_refresh_tokens
+			(id, session_id, token_hash, created_at, expires_at)
+		VALUES
+			($1, $2, $3, $4, $5)
+	`,
+		rt.ID,
+		rt.SessionID,
+		rt.TokenHash,
+		rt.CreatedAt,
+		rt.ExpiresAt,
+	)
+	if err != nil {
+		return fmt.Errorf("create refresh token: %w", err)
+	}
+	return nil
+}
+
+func revokeRefreshToken(ctx context.Context, db execer, id string, revokedAt time.Time) error {
+	tag, err := db.Exec(ctx, `
 		UPDATE identity_refresh_tokens
 		SET    revoked_at = $1
 		WHERE  id = $2
@@ -100,8 +114,8 @@ func (r *postgresRefreshTokenRepository) RevokeRefreshToken(ctx context.Context,
 	return nil
 }
 
-func (r *postgresRefreshTokenRepository) RevokeAllForSession(ctx context.Context, sessionID string, revokedAt time.Time) error {
-	_, err := r.pool.Exec(ctx, `
+func revokeAllForSession(ctx context.Context, db execer, sessionID string, revokedAt time.Time) error {
+	_, err := db.Exec(ctx, `
 		UPDATE identity_refresh_tokens
 		SET    revoked_at = $1
 		WHERE  session_id = $2

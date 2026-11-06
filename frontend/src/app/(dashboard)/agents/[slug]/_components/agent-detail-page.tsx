@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 · agents/[slug]-scoped. Detail page: identity header + four tabs
+/** @tier 3 · agents/[slug]-scoped. Detail page: identity header + three tabs and the Configure modal
  * (docs/adr/2026-07-17-agent-detail-configuration.md §1). */
 
 import { useState } from 'react';
@@ -30,7 +30,7 @@ import { useAgentOverview } from '../_hooks/use-agent-overview';
 import { DEFAULT_PERIOD, PERIOD_OPTIONS, isPeriod } from '../../_lib/spend';
 import type { Period } from '../../_lib/spend';
 import { AgentRunsTab } from './agent-runs-tab';
-import { AgentConfigurationTab } from './agent-configuration-tab';
+import { AgentConfigureModal } from './agent-configure-modal';
 import { AgentTriggersTab } from './agent-triggers-tab';
 import { StartRunModal } from '../../_components/start-run-modal';
 import { useHasScope } from '../../../_components/permissions-provider';
@@ -47,8 +47,9 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
   const [startRunOpen, setStartRunOpen] = useState(false);
   const [tab, setTab] = useState('overview');
   const canReadTriggers = useHasScope('triggers:read');
-  // Set when another tab sends the reader to a Configuration step; any tab click clears it.
-  const [configSection, setConfigSection] = useState<string | undefined>();
+  // The Configure modal, and the rail step it opens on.
+  const [configureOpen, setConfigureOpen] = useState(false);
+  const [configureSection, setConfigureSection] = useState<string | undefined>();
   const [period, setPeriod] = useState<Period>(DEFAULT_PERIOD);
   const { overview, status: overviewStatus } = useAgentOverview(
     agent?.slug,
@@ -195,6 +196,17 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
               options={PERIOD_OPTIONS}
             />
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setConfigureSection(undefined);
+              setConfigureOpen(true);
+            }}
+          >
+            <Icon name="sliders-horizontal" size="xs" />
+            Configure
+          </Button>
           <PermissionHint allowed={agent.canRun} action="start runs of this agent">
             <Button
               variant="default"
@@ -210,22 +222,13 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
       </Stack>
 
       {/* Tabs */}
-      <Tabs
-        value={tab}
-        onValueChange={(value) => {
-          setTab(value);
-          setConfigSection(undefined);
-        }}
-      >
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="overview" icon="activity">
             Overview
           </TabsTrigger>
           <TabsTrigger value="runs" icon="play">
             Runs
-          </TabsTrigger>
-          <TabsTrigger value="configuration" icon="edit">
-            Configuration
           </TabsTrigger>
           {canReadTriggers && (
             <TabsTrigger value="triggers" icon="zap">
@@ -238,16 +241,13 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
             overview={overview}
             status={overviewStatus}
             onEditInstructions={() => {
-              setConfigSection('behaviour');
-              setTab('configuration');
+              setConfigureSection('behaviour');
+              setConfigureOpen(true);
             }}
           />
         </TabsContent>
         <TabsContent value="runs">
           <AgentRunsTab onStartRun={() => setStartRunOpen(true)} />
-        </TabsContent>
-        <TabsContent value="configuration">
-          <AgentConfigurationTab initialSection={configSection} />
         </TabsContent>
         {canReadTriggers && (
           <TabsContent value="triggers">
@@ -255,6 +255,12 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
           </TabsContent>
         )}
       </Tabs>
+
+      <AgentConfigureModal
+        open={configureOpen}
+        initialSection={configureSection}
+        onClose={() => setConfigureOpen(false)}
+      />
 
       {/* Start run modal */}
       <StartRunModal

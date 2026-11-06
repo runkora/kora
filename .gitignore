@@ -116,3 +116,4 @@ infrastructure/overlays/*/charts
 /backend/identity
 /backend/kora-agents
 /backend/kora-triggers
+/backend/skills-service

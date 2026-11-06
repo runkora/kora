@@ -1,12 +1,15 @@
 'use client';
 
-/** @tier 3 — triggers-scoped. The Target of a routed trigger in its drawer: the
+/** @tier 3 — triggers-scoped. The Target of a routed trigger in its modal: the
  * candidate agents kora chooses between, and the settings it routes by. */
 
-import { FieldRow, Icon, IconTile, Stack, Text } from '@runkora/hades';
+import Link from 'next/link';
+import { Icon, IconTile, Stack, Text } from '@runkora/hades';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import { useBrand } from '@runkora/theme/brand-provider';
 import type { TriggerRoutingRow } from '../_types';
 import type { RoutingAgentName } from './delivery-routing';
+import { PlainRow } from './plain-row';
 
 const CONFIDENCE_LABEL: Record<TriggerRoutingRow['confidence'], string> = {
   strict: 'Strict',
@@ -14,7 +17,7 @@ const CONFIDENCE_LABEL: Record<TriggerRoutingRow['confidence'], string> = {
   loose: 'Loose',
 };
 
-/** One line on how a routed trigger decides, for the drawer and the list. */
+/** One line on how a routed trigger decides, for the modal and the list. */
 export function routingSummary(routing: TriggerRoutingRow): string {
   const joins = routing.joinRuns ? 'joins open runs' : 'never joins runs';
   return `${routing.model} · ${CONFIDENCE_LABEL[routing.confidence]} · ${joins}`;
@@ -37,7 +40,7 @@ export function RoutedTarget({
   };
   return (
     <Stack gap="snug">
-      <FieldRow
+      <PlainRow
         leading={
           <IconTile tone="accent">
             <Icon name="route" size="xs" label="" />
@@ -57,13 +60,12 @@ export function RoutedTarget({
             {routingSummary(routing)}
           </Text>
         </Stack>
-      </FieldRow>
+      </PlainRow>
       {routing.candidates.map((id) => {
         const a = agents.find((x) => x.id === id);
         const label = a?.name?.trim() || a?.slug || id;
-        return (
-          <FieldRow
-            key={id}
+        const row = (
+          <PlainRow
             leading={
               <IconTile tone="muted">
                 <Text mono size="caption" weight="heavy">
@@ -89,7 +91,20 @@ export function RoutedTarget({
                 </Text>
               )}
             </Stack>
-          </FieldRow>
+          </PlainRow>
+        );
+        // A candidate no longer in the agent list has no page to open.
+        return a === undefined ? (
+          <Stack key={id}>{row}</Stack>
+        ) : (
+          <Link
+            key={id}
+            href={APP_ROUTES.agents.detail(a.slug)}
+            aria-label={`Open agent ${label}`}
+            className="block rounded-lg transition-opacity hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            {row}
+          </Link>
         );
       })}
       <Text size="caption" color="subtle">

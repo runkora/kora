@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-10-31-one-trace-per-run.md  (decision date + slug; no sequential number) -->
 
-**Status:** Accepted
+**Status:** Accepted (Amended 2026-11-01)
 **Date:** 2026-10-31
 **Deciders:** Justin Wilkin
 **Technical Story:** [Run Tracing PRD](../prd/run-tracing.md). Amends [2026-09-18: Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md).
@@ -131,7 +131,6 @@ This decision touches none of the three questions. No service reads `traceparent
   - Query frontend `search.max_duration`: 168 h, and `metrics.max_duration`: 24 h.
   - Compaction `block_retention`: 336 h.
 - A run that stays open longer than the 336 h block retention loses its earliest spans, and a search window of 168 h cannot cover a longer run.
-- A caller-supplied `traceparent` at the edge decides the trace ID and the sampling decision of the whole run. An unsampled flag at the run start suppresses the run's entire trace.
 - kora-runtime-mcp and kora-shell receive `TRACEPARENT` by inheriting Claude Code's environment. Their calls become children of the create-session span, and the `claude_code.tool` span that caused them is not their parent.
 - Egress spans stay roots. `git` and `curl` egress spans are found by `kora.run.id`.
 - sandbox-exec spans are not exported. [2026-09-18: Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) lists sandbox pods as a non-goal.
@@ -140,6 +139,59 @@ This decision touches none of the three questions. No service reads `traceparent
 ### Neutral
 
 - `trace_id` on the run resource is visible to every principal that can read the run.
+
+---
+
+## Amendment 1 (2026-11-01): Untrusted trace context at the edge
+
+**Status:** Accepted
+
+Touches none of the three questions. No service reads `traceparent` or `tracestate` for an identity, authorization or credential decision.
+
+**Context:** The north-south edge forwarded a client-supplied `traceparent` unchanged. A kora service took its trace ID from that header. Every service uses a `ParentBased` sampler, and a `traceparent` with flags `00` suppressed tracing for the request. The run stores the start request's trace context. An unsampled start left the whole run untraced and its `trace_id` null.
+
+**Decision:** The edge drops `traceparent` and `tracestate` from every request it receives from outside the mesh. The first kora service span starts a new root under the configured sampler. Trace context set by a client never reaches a kora service.
+
+The `kora-api` and `kora-frontend` VirtualServices remove both headers on every route. The optional frontend Ingress forwards them to the frontend, which records no spans and forwards no inbound headers. Mesh callers reach services by their in-mesh names and keep their `traceparent`.
+
+**Consequences:**
+
+- Kora always makes the trace ID and sampling decision of a run.
+- A client cannot join its own trace to a kora trace through the edge.
+- A new external route must remove both headers. The `kora.edgeHeaders` chart helper does this for the API host.
+- Envoy tracing at the ingress gateway reads `traceparent` before route header removal. Enabling it requires removing the headers with `early_header_mutation_extensions`.
+
+## Amendment 2 (2026-11-01): Egress spans link to the run trace
+
+**Status:** Accepted
+
+### Context
+
+The egress gateway starts a `CONNECT` span for each tunnel. The CONNECT listener has no tracing middleware, and the sandbox tool that opens the tunnel sends no `traceparent`. Each span is a root, so `git`, `curl` and `npm` traffic from a sandbox is not in the run's trace.
+
+The spans already carry `kora.run.id` and `kora.tenant.id` from the verified token claims. The run stores its trace context in `runs.trace_parent`. A tunnel can stay open for minutes.
+
+### Options considered
+
+**Parent the span to the run trace.** The egress span joins the run trace and appears in the run waterfall. A long-lived tunnel stretches the trace. A busy run adds a span for every connection and grows the trace toward the limits named under Negative consequences.
+
+**Link the span to the run trace.** The egress span is the root of its own trace and carries a span link to the run's stored trace context. The run trace does not grow, and the egress span is sampled on its own, the pattern the run already uses for follow-up messages and terminate.
+
+### Decision
+
+Each egress `CONNECT` span stays the root of its own trace and carries a span link to the run's stored trace context. The span is not a child of the run trace.
+
+The gateway reads the stored `traceparent` for the run ID in the verified claims from kora-agents. The link is set when the span starts. This covers the TLS-intercepted path and the non-intercepted relay path.
+
+A failed lookup or a run without a `traceparent` starts the span with no link. It never fails the connection, and the lookup is bounded to a few seconds.
+
+### Consequences
+
+- Egress spans are found from the run trace through the link, or by `kora.run.id`. They are not in the run waterfall.
+- The run trace does not grow with egress traffic, whatever the tunnel lifetime.
+- A span that started while the lookup was failing has no link. `kora.run.id` still finds it.
+- The egress gateway depends on kora-agents for a trace lookup. The lookup is cached per run. A busy run costs one lookup per interval.
+- No identity, authorization or credential decision reads the link.
 
 ---
 
@@ -182,4 +234,4 @@ On the local cluster at 100% sampling:
 - [OpenTelemetry span links](https://opentelemetry.io/docs/concepts/signals/traces/#span-links)
 - [Grafana Tempo configuration: ingester limits](https://grafana.com/docs/tempo/latest/configuration/)
 
-**Last Updated:** 2026-10-31
+**Last Updated:** 2026-11-01 (Amendments 1 and 2: untrusted trace context at the edge; egress spans link to the run trace)

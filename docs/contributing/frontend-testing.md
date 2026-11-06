@@ -193,6 +193,8 @@ Every file in `frontend/e2e/` must satisfy:
 - **No database or Redis**: no infrastructure dependencies whatsoever
 - **No real OIDC IdP**: mock OIDC discovery and authorization endpoints with `page.route()`
 
+The Skills pages call skills-service from the Next.js server. `page.route()` cannot intercept these calls. Playwright starts `frontend/e2e/skills-upstream.mjs` instead, a test-only stand-in for skills-service and the identity preferences API. `SKILLS_SERVICE_URL` and `KORA_API_URL` point at it.
+
 If a test needs the real backend, it is a **system-level** concern and does not belong in `frontend/e2e/`. It requires a separate test harness with Docker Compose (see [frontend-test-strategy-and-toolchain](../adr/2026-05-08-frontend-test-strategy-and-toolchain.md) Category B).
 
 This boundary keeps `make check` infrastructure-free and executable on every PR.

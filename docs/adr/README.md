@@ -35,7 +35,8 @@ kora records every significant technical decision as an ADR. This index is the c
 - [OIDC Client Secret Projection for Confidential Tenants](2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md) — `Accepted` · 2026-03-31
 - [Browser-Based Authentication Flow and BFF Session Architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) — `Accepted` · 2026-04-01
 - [Home Realm Discovery and Email-Based Tenant Routing](2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md) — `Accepted` · 2026-04-01
-- [Tenant Claim Binding and Shared Email Domains](2026-10-26-tenant-claim-binding-and-shared-email-domains.md) — `Proposed` · 2026-10-26
+- [Tenant Claim Binding and Shared Email Domains](2026-10-26-tenant-claim-binding-and-shared-email-domains.md) — `Accepted (Amended 2026-11-04)` · 2026-10-26
+- [Tenant Switching](2026-11-04-tenant-switching.md) — `Accepted` · 2026-11-04
 - [Personal Access Tokens for Inference](2026-04-02-personal-access-tokens.md) — `Accepted` · 2026-04-02
 - [User Profiles Table for Principal Attribution](2026-04-19-user-profiles-table-for-principal-attribution.md) — `Accepted` · 2026-04-19
 - [User App Preferences](2026-05-08-user-app-preferences.md) — `Proposed` · 2026-05-08
@@ -110,7 +111,8 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Sandbox Provisioning and Shell Proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) — `Accepted` · 2026-05-11
 - [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) — `Accepted (Amended 2026-10-31)` · 2026-09-18
 - [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) — `Accepted` · 2026-09-18
-- [One Trace per Agent Run](2026-10-31-one-trace-per-run.md) — `Accepted` · 2026-10-31
+- [One Trace per Agent Run](2026-10-31-one-trace-per-run.md) — `Accepted (Amended 2026-11-01)` · 2026-10-31
+- [Agent Attribution on Model and Harness Spans](2026-11-03-agent-attribution-on-spans.md) — `Accepted` · 2026-11-03
 - [Run Activity Events](2026-09-29-run-activity-events.md) — `Accepted` · 2026-09-29
 - [kora-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) — `Accepted` · 2026-05-11
 - [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) — `Accepted` · 2026-06-04
@@ -131,6 +133,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md) — `Accepted (curated fields and sub-decision 3 superseded in part 2026-09-29)` · 2026-07-21
 - [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) — `Accepted` · 2026-07-23
 - [Hades Wizard Component](2026-08-03-terra-wizard-component.md) — `Proposed` · 2026-08-03
+- [Agent Skills](2026-08-17-agent-skills.md) — `Accepted` · 2026-08-17
 - [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) — `Proposed` · 2026-09-06
 - [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) — `Accepted (Amended 2026-10-31: Amendment 1 Accepted)` · 2026-09-18
 - [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) — `Accepted` · 2026-09-28
@@ -144,7 +147,7 @@ kora records every significant technical decision as an ADR. This index is the c
 
 Build order: **Registration** is the foundation; the **Gateway** depends on it, and on **OAuth** (which can be built in parallel with the Gateway).
 
-- [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) — `Accepted (Amended 2026-10-22)` · 2026-06-29
+- [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) — `Accepted (Amended 2026-11-02)` · 2026-06-29
 - [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) — `Accepted` · 2026-06-29
 - [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) — `Accepted` · 2026-06-29
 - [kora MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) — `Accepted` · 2026-06-30
@@ -280,8 +283,9 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-23 | [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) | Accepted | — |
 | 2026-07-28 | [OAuth2 Web-Redirect Clients: GitOps Pre-Registration via an OAuthClient CRD](2026-07-28-oauth2-web-redirect-clients.md) | Accepted | — |
 | 2026-08-03 | [Hades Wizard Component](2026-08-03-terra-wizard-component.md) | Proposed | — |
+| 2026-08-17 | [Agent Skills](2026-08-17-agent-skills.md) | Accepted | — |
 | 2026-09-06 | [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) | Proposed | — |
-| 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted (Amended 2026-10-22) | — |
+| 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted (Amended 2026-11-02) | — |
 | 2026-07-24 | [Non-Token Model Pricing: Full Cost Dimension Pipeline](2026-07-24-non-token-model-pricing.md) | Accepted | — |
 | 2026-06-29 | [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) | Accepted | — |
 | 2026-06-29 | [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) | Accepted | — |
@@ -326,8 +330,11 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-20 | [Actions Results Receiver Classification](2026-10-20-actions-results-receiver-classification.md) | Accepted | — |
 | 2026-10-22 | [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md) | Accepted | — |
 | 2026-10-24 | [Declarative Resources](2026-10-24-declarative-resources.md) | Accepted | — |
-| 2026-10-26 | [Tenant Claim Binding and Shared Email Domains](2026-10-26-tenant-claim-binding-and-shared-email-domains.md) | Proposed | — |
+| 2026-10-26 | [Tenant Claim Binding and Shared Email Domains](2026-10-26-tenant-claim-binding-and-shared-email-domains.md) | Accepted (Amended 2026-11-04) | — |
 | 2026-10-26 | [Release Asset Downloads Without Connection Selection](2026-10-26-release-asset-downloads-without-connection-selection.md) | Proposed | — |
 | 2026-10-27 | [Generic Webhook Source](2026-10-27-generic-webhook-source.md) | Accepted | — |
-| 2026-10-31 | [One Trace per Agent Run](2026-10-31-one-trace-per-run.md) | Accepted | — |
+| 2026-10-31 | [One Trace per Agent Run](2026-10-31-one-trace-per-run.md) | Accepted (Amended 2026-11-01) | — |
+| 2026-11-03 | [Run Outcome and Duration Metrics](2026-11-03-run-outcome-and-duration-metrics.md) | Accepted | — |
+| 2026-11-03 | [Agent Attribution on Model and Harness Spans](2026-11-03-agent-attribution-on-spans.md) | Accepted | — |
+| 2026-11-04 | [Tenant Switching](2026-11-04-tenant-switching.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

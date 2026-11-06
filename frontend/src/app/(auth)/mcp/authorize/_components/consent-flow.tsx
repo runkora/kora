@@ -1,8 +1,12 @@
 /** @tier 3 — mcp-authorize-scoped. The OAuth consent screen + its result states. */
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, Icon, Stack, Text } from '@runkora/hades';
+import { onTenantSwitch, startTenantSwitch } from '@runkora/lib/tenant-switch';
+import type { TenantOption } from '@runkora/server/auth-config';
+
+import { ConsentTenantSwitch } from './consent-tenant-switch';
 import { useBrand } from '@runkora/theme/brand-provider';
 
 // ── Props (all fetched server-side, passed as serialisable data) ──────────────
@@ -25,6 +29,11 @@ export interface ConsentServer {
 export interface ConsentFlowProps {
   clientName: string;
   userEmail: string;
+  /** The session's tenant, which the client will act in. */
+  tenantName: string;
+  tenants: TenantOption[];
+  /** This consent request; a tenant switch returns here. */
+  consentPath: string;
   server: ConsentServer | null;
   domains: ConsentDomain[];
   grantedCount: number;
@@ -44,6 +53,9 @@ export function ConsentFlow(props: ConsentFlowProps) {
   const [techOpen, setTechOpen] = useState(false);
   const [redirect, setRedirect] = useState('');
   const [error, setError] = useState('');
+
+  // Another tab moved the session to another tenant; reload so consent shows and binds the new one.
+  useEffect(() => onTenantSwitch(() => window.location.reload()), []);
 
   async function decide(decision: 'approve' | 'deny') {
     if (decision === 'deny') {
@@ -149,7 +161,7 @@ function ConsentCard(
           </Text>
         ) : null}
 
-        {/* Signed in as */}
+        {/* Signed in as, and the tenant the client will act in */}
         <Stack
           direction="horizontal"
           align="center"
@@ -162,14 +174,25 @@ function ConsentCard(
           }}
         >
           <IconBadge name="user" size={32} radius="var(--radius-full)" iconSize="sm" />
-          <Stack style={{ flex: 1, minWidth: 0, gap: 0 }}>
-            <Text as="span" style={{ fontSize: 12.5, fontWeight: 600 }}>
+          <Stack gap="none" grow minWidth="none">
+            <Text as="span" size="caption" weight="strong" truncate>
               {p.userEmail}
             </Text>
-            <Text as="span" style={{ fontSize: 11.5, color: 'var(--color-subtle)' }}>
-              Signed in · acting as delegated identity
-            </Text>
+            <Stack direction="horizontal" align="center" gap="tight" minWidth="none">
+              <Icon name="building" size="2xs" color="subtle" />
+              <Text as="span" size="micro" color="subtle" truncate title={p.tenantName}>
+                {p.tenantName}
+              </Text>
+            </Stack>
           </Stack>
+          {p.tenants.length > 1 ? (
+            <ConsentTenantSwitch
+              tenants={p.tenants}
+              onSelect={(tenantId) =>
+                startTenantSwitch({ email: p.userEmail, tenantId, returnPath: p.consentPath })
+              }
+            />
+          ) : null}
         </Stack>
 
         {/* Tool surface */}

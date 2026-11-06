@@ -13,7 +13,7 @@ import { useRouter } from 'next/navigation';
 
 import { AppLink } from '@runkora/components/links';
 
-import { AuthCardShell } from './auth-card-shell';
+import { AuthCardShell } from '@runkora/components';
 
 const REDIRECT_DELAY_MS = 3_000;
 

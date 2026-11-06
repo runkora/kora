@@ -187,7 +187,7 @@ Trigger create and update on a generic source keep the existing webhook checks: 
 - The source step asks for the verification method and, for `hmac_sha256`, the header, prefix and encoding.
 - For `hmac_sha256` and `standard_webhooks`, the source step asks up front whether kora generates the secret or the admin pastes one.
 - The source step offers an optional event type location: none, a header or a payload path.
-- The trigger step and the trigger drawer take a free text event type with the source's observed types as suggestions. The event type and filter field pickers (`CatalogPicker` in `trigger-wizard/kinds/webhook.tsx`, `filter-rows-editor.tsx` and `trigger-drawer.tsx`) accept a typed value when the source has no declared events.
+- The trigger step and the trigger detail modal take a free text event type with the source's observed types as suggestions. The event type and filter field pickers (`CatalogPicker` in `trigger-wizard/kinds/webhook.tsx`, `filter-rows-editor.tsx` and `event-filters-section.tsx`) accept a typed value when the source has no declared events.
 - The sender restriction is hidden for generic sources.
 - The provider list in `_lib/providers.ts` gains `generic`.
 

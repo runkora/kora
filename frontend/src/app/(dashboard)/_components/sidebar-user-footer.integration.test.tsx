@@ -39,7 +39,13 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
 }));
 
+vi.mock('@runkora/lib/tenant-switch', () => ({
+  startTenantSwitch: vi.fn(),
+  onTenantSwitch: () => () => {},
+}));
+
 import { useSession } from './permissions-provider';
+import { startTenantSwitch } from '@runkora/lib/tenant-switch';
 
 afterEach(() => {
   vi.mocked(useSession).mockReturnValue(DEFAULT_SESSION);
@@ -116,15 +122,17 @@ describe('SidebarUserFooter', () => {
       await user.click(screen.getByRole('button', { name: /Dev User/ }));
 
       expect(screen.getByText('Signed in as')).toBeInTheDocument();
-      expect(screen.getByRole('menuitem', { name: /View profile/ })).toBeInTheDocument();
-      expect(screen.getByRole('menuitem', { name: /Log out/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /View profile/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Log out/ })).toBeInTheDocument();
+      // The sheet is a dialog without a menu: its rows are plain buttons.
+      expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
     });
 
     it('navigates to the profile page and closes when View profile is selected', async () => {
       const user = userEvent.setup();
       renderFooter();
       await user.click(screen.getByRole('button', { name: /Dev User/ }));
-      await user.click(screen.getByRole('menuitem', { name: /View profile/ }));
+      await user.click(screen.getByRole('button', { name: /View profile/ }));
 
       expect(pushMock).toHaveBeenCalledWith(APP_ROUTES.profile);
       await waitFor(() => {
@@ -136,14 +144,14 @@ describe('SidebarUserFooter', () => {
       const user = userEvent.setup();
       renderFooter();
       await user.click(screen.getByRole('button', { name: /Dev User/ }));
-      await user.click(screen.getByRole('menuitem', { name: /^Log out$/ }));
+      await user.click(screen.getByRole('button', { name: /^Log out$/ }));
 
       expect(screen.getByText('Log out of kora?')).toBeInTheDocument();
       const dialog = screen.getByRole('dialog');
       await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
 
       expect(screen.queryByText('Log out of kora?')).not.toBeInTheDocument();
-      expect(screen.getByRole('menuitem', { name: /View profile/ })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /View profile/ })).toBeInTheDocument();
     });
   });
 
@@ -200,5 +208,125 @@ describe('SidebarUserFooter', () => {
       await waitFor(() => expect(cancelButton).toHaveFocus());
       restore();
     });
+  });
+});
+
+describe('SidebarUserFooter tenants', () => {
+  const TWO = {
+    ...DEFAULT_SESSION,
+    tenants: [
+      { id: 'example', displayName: 'Example Platform', active: true },
+      { id: 'example-data', displayName: 'Example Data', active: false },
+    ],
+  };
+
+  async function openMenu() {
+    const user = userEvent.setup();
+    renderFooter();
+    await user.click(screen.getByRole('button', { name: /dev@runkora\.test/ }));
+    return user;
+  }
+
+  it('shows no tenant section for a single tenant', async () => {
+    vi.mocked(useSession).mockReturnValue({
+      ...DEFAULT_SESSION,
+      tenants: [TWO.tenants[0]!],
+    });
+    await openMenu();
+    expect(screen.queryByText('Tenant')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Example Platform' })).not.toBeInTheDocument();
+  });
+
+  it('names the active tenant under the email and lists every tenant in the menu', async () => {
+    vi.mocked(useSession).mockReturnValue(TWO);
+    await openMenu();
+
+    // The open sheet hides the trigger from the accessibility tree; it still names the tenant.
+    const trigger = screen.getByRole('button', { name: /dev@runkora\.test/, hidden: true });
+    expect(within(trigger).getByText('Example Platform')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Example Platform' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: 'Example Data' })).not.toHaveAttribute(
+      'aria-current',
+    );
+  });
+
+  it('names the session tenant on the trigger when the eligible set leaves it out', async () => {
+    vi.mocked(useSession).mockReturnValue({
+      ...TWO,
+      tenantId: 'kora-tenant-example-old',
+      tenants: TWO.tenants.map((t) => ({ ...t, active: false })),
+    });
+    renderFooter();
+
+    const trigger = screen.getByRole('button', { name: /dev@runkora\.test/ });
+    expect(within(trigger).getByText('kora-tenant-example-old')).toBeInTheDocument();
+  });
+
+  it('describes the desktop menu by the identity block, not the tenant list', async () => {
+    vi.mocked(useSession).mockReturnValue(TWO);
+    const restore = installDesktopMatchMedia();
+    try {
+      await openMenu();
+      const menu = screen.getByRole('menu', { name: 'Account' });
+      const description = document.getElementById(menu.getAttribute('aria-describedby') ?? '');
+      expect(description).toHaveTextContent('Signed in as');
+      expect(description).not.toHaveTextContent('Example Data');
+    } finally {
+      restore();
+    }
+  });
+
+  it('starts a switch to the chosen tenant from the current path', async () => {
+    vi.mocked(useSession).mockReturnValue(TWO);
+    vi.mocked(startTenantSwitch).mockResolvedValue();
+    const user = await openMenu();
+
+    await user.click(screen.getByRole('button', { name: 'Example Data' }));
+
+    expect(startTenantSwitch).toHaveBeenCalledWith({
+      email: 'dev@runkora.test',
+      tenantId: 'example-data',
+      returnPath: '/',
+    });
+  });
+
+  it.each([
+    ['rejects', () => Promise.reject(new Error('discovery failed'))],
+    [
+      'throws before it starts',
+      () => {
+        throw new Error('no window');
+      },
+    ],
+  ])('shows an error and re-enables the list when the switch %s', async (_, fail) => {
+    vi.mocked(useSession).mockReturnValue(TWO);
+    vi.mocked(startTenantSwitch).mockImplementation(fail);
+    const user = await openMenu();
+
+    await user.click(screen.getByRole('button', { name: 'Example Data' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not start the switch.');
+    expect(screen.getByRole('button', { name: 'Example Data' })).toHaveAttribute(
+      'aria-disabled',
+      'false',
+    );
+  });
+
+  it('clears the switch error when the menu opens again', async () => {
+    vi.mocked(useSession).mockReturnValue(TWO);
+    vi.mocked(startTenantSwitch).mockRejectedValue(new Error('discovery failed'));
+    const user = await openMenu();
+    await user.click(screen.getByRole('button', { name: 'Example Data' }));
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /dev@runkora\.test/ }));
+
+    expect(await screen.findByRole('button', { name: 'Example Data' })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

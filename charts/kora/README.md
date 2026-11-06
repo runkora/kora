@@ -161,6 +161,7 @@ Kubernetes: `>=1.34.0-0`
 | frontend.config.nextPublicAppUrl | string | `""` |  |
 | frontend.config.policyGatewayUrl | string | `""` |  |
 | frontend.config.policyServiceUrl | string | `""` |  |
+| frontend.config.skillsServiceUrl | string | `""` |  |
 | frontend.config.toolGatewayUrl | string | `""` |  |
 | frontend.existingSecret | string | `"kora-frontend-secrets"` |  |
 | frontend.extraEnv | list | `[]` |  |
@@ -475,6 +476,33 @@ Kubernetes: `>=1.34.0-0`
 | sandboxMount.resources.requests.cpu | string | `"20m"` |  |
 | sandboxMount.resources.requests.memory | string | `"32Mi"` |  |
 | sandboxMount.tolerations | list | `[]` | Added to the tolerations of agents.workloads.sandbox and agents.workloads.sessionManager, which the agent always carries. |
+| skillsService.affinity | object | `{}` |  |
+| skillsService.configOverrides | object | `{}` |  |
+| skillsService.extraEnv | list | `[]` |  |
+| skillsService.extraVolumeMounts | list | `[]` |  |
+| skillsService.extraVolumes | list | `[]` |  |
+| skillsService.image.digest | string | `""` |  |
+| skillsService.image.pullPolicy | string | `""` |  |
+| skillsService.image.registry | string | `""` |  |
+| skillsService.image.repository | string | `"kora-skills-service"` |  |
+| skillsService.image.tag | string | `""` |  |
+| skillsService.limits.bytesPerFile | int | `131072` | Bytes of one file. |
+| skillsService.limits.fileCacheBytesPerMarketplace | int | `33554432` | Bytes of supporting files cached for one Marketplace. Files over it are served uncached. |
+| skillsService.limits.filesPerSkill | int | `500` | Supporting files listed for one skill. |
+| skillsService.limits.skillMdBytesPerMarketplace | int | `8388608` | Bytes of all SKILL.md files of one Marketplace. |
+| skillsService.limits.skillsPerMarketplace | int | `500` | Skills read from one Marketplace. |
+| skillsService.nodeSelector | object | `{}` |  |
+| skillsService.podAnnotations | object | `{}` |  |
+| skillsService.podLabels | object | `{}` |  |
+| skillsService.priorityClassName | string | `""` |  |
+| skillsService.replicas | int | `1` |  |
+| skillsService.resources.limits.cpu | string | `"500m"` |  |
+| skillsService.resources.limits.memory | string | `"256Mi"` |  |
+| skillsService.resources.requests.cpu | string | `"100m"` |  |
+| skillsService.resources.requests.memory | string | `"64Mi"` |  |
+| skillsService.serviceAccount.annotations | object | `{}` |  |
+| skillsService.tolerations | list | `[]` |  |
+| skillsService.topologySpreadConstraints | list | `[]` |  |
 | spire.className | string | `"spire-system-spire"` |  |
 | theme.document | string | `""` | The full theme.yaml as one string, passed with `--set-file theme.document=theme.yaml` or Argo CD `fileParameters`. Slot URLs must be https and a font host must send Access-Control-Allow-Origin. The chart also reads productName for the backend and fails the render if it is outside the Hades product-name bounds. |
 | toolGateway.affinity | object | `{}` |  |

@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"strings"
 
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // ErrEnvironmentNotAttached rejects an environment the run's agent does not have.
@@ -39,8 +39,7 @@ var (
 
 // failSpan records err on span with a static status and returns err.
 func failSpan(span trace.Span, status, err error) error {
-	span.RecordError(err)
-	span.SetStatus(codes.Error, status.Error())
+	observability.RecordFailure(span, err, status)
 	return err
 }
 

@@ -70,6 +70,7 @@ TOKEN=$(jq -r '.access_token' /tmp/kora_credentials.json) && curl -sk -X POST \
 | Policy Gateway        | `8084` |
 | Triggers              | `8097` |
 | Session Manager       | `8090` |
+| Skills Service        | `8098` |
 
 (`kora-agents` binds `8080` in-cluster; the `operator`, `identity-proxy`, and `sandbox-exec` are not host-facing HTTP. See [code-organization.md](docs/code-organization.md) for the full binary/port map.)
 
@@ -119,7 +120,7 @@ An agent **must** follow these conventions when modifying this codebase. Each co
 ### Errors & Observability
 
 - **Wrap errors with `%w`**: Always use `fmt.Errorf("context: %w", err)`, never `%s` for error wrapping.
-- **Static span status descriptions**: `span.SetStatus(codes.Error, sentinel.Error())` must use a package-level sentinel error string, never `err.Error()` or `ctx.Err().Error()` inline. Use `span.RecordError(err)` for dynamic context.
+- **Static span status descriptions**: a failed span is recorded with `observability.RecordFailure(span, err, sentinel)`, where `sentinel` is a package-level error that becomes the status description and `error.type`. Never pass `err.Error()` or `ctx.Err().Error()`; `err` carries the dynamic context.
 - **No raw OTel in typed clients**: Platform clients in `internal/platform/clients/` must not import `go.opentelemetry.io/otel/codes` or `go.opentelemetry.io/otel/trace` directly; the `httpclient.Base` handles all span lifecycle.
 
 ### Code Structure
@@ -137,6 +138,7 @@ All conventions above are mechanically enforced. Do not add inline `//nolint` di
 | ------------------------ | ------------------------------------------------- |
 | `spanSetStatusLocalErr`  | `span.SetStatus(_, err.Error())`                  |
 | `spanSetStatusCtxErr`    | `span.SetStatus(_, ctx.Err().Error())`            |
+| `spanSetStatusErrorDirect` | `span.SetStatus(<codes pkg alias>.Error, _)` outside `internal/platform/observability` (use `observability.RecordFailure`) |
 | `spanAttrStringLocalErr` | `attribute.String(_, err.Error())`                |
 | `spanAttrStringCtxErr`   | `attribute.String(_, ctx.Err().Error())`          |
 | `spanAttrKeyVocabulary`  | a string literal as a span attribute key (use semconv or `internal/platform/observability`) |
@@ -180,6 +182,7 @@ kora follows a **feature-based architecture** with the repository pattern for da
 | `policy-gateway`                                                                            | `cmd/policy-gateway/`    | In-app authz API (PEP) (port 8084)                                                                                            |
 | `kora-agents`                                                                               | `cmd/kora-agents/`       | Agent control plane: runs, sessions, event streaming, k8s orchestration                                                       |
 | `kora-triggers`                                                                             | `cmd/kora-triggers/`     | Triggers: webhook ingestion, trigger API, cron scheduler, manual fire (port 8097)                                             |
+| `skills-service`                                                                            | `cmd/skills-service/`    | Agent Skills: serves skill Marketplaces from GitHub repositories, cached in Redis (port 8098)                                 |
 | `migrate`                                                                                   | `cmd/migrate/`           | Schema migrations: embeds every service's migrations, runs as the chart's pre-install/pre-upgrade hook Job                    |
 | `session-manager`                                                                           | `cmd/session-manager/`   | Per-tenant runner for the agent (Claude Code) subprocess (port 8090)                                                          |
 | `operator`                                                                                  | `cmd/operator/`          | Kubernetes operator: reconciles Tenant/Platform CRDs, injects sidecars, projects declared resources                           |
@@ -256,6 +259,7 @@ This describes what the backend test suite **actually is today**, and (separatel
   | `policyservice/roles`  | `postgres_test.go`                                                                                                       | scope purging across roles; crd rows: API refusal, rename and conflicts                                                                                                                                                 |
   | `policyservice/tenantbudget` | `postgres_test.go`                                                                                                       | a crd budget replaces an api budget, the API cannot write it, removing it leaves an api budget                                                                                                                          |
   | `inferencegw`          | `postgres_test.go`, `pricing_postgres_test.go`, `catalog_postgres_test.go` | the `agent_slug` backfill and write path, per-agent usage aggregates and their index; price overrides without a synced row, and discovered prices replacing a provider's synced rows atomically while keeping overrides; declared virtual model upserts, conflicts and API refusals |
+  | `identity`             | `session_postgres_test.go`                                                                                               | the tenant switch transaction: new session and refresh token commit with the revocation of the replaced ones, roll back together, refuse a replaced refresh token or session that is not live, and admit one of several concurrent switches or of a switch racing a refresh |
   | `example`              | `postgres_test.go`                                                                                                       | the reference repository; gated on `KORA_EXAMPLE_TEST_DB_URL` instead, after applying `backend/cmd/example/migrations/*.sql` by hand. Its tables are outside the product schema                                        |
 
   Run them against the local Postgres (`make test-postgres` applies the schema with `cmd/migrate` first):

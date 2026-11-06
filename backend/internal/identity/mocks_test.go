@@ -41,6 +41,15 @@ type mockSessionRepository struct {
 	getByIDErr  error
 	getByJTIErr error
 	revokeErr   error
+	switchErr   error
+
+	// switched is the last SwitchSession call, for asserting what the service committed.
+	switched *switchCall
+}
+
+type switchCall struct {
+	next                  *Session
+	nextRefresh, replaced *RefreshToken
 }
 
 func newMockSessionRepo() *mockSessionRepository {
@@ -100,6 +109,15 @@ func (m *mockSessionRepository) RevokeSession(_ context.Context, id string, revo
 	}
 	s.RevokedAt = &revokedAt
 	return nil
+}
+
+// SwitchSession records the call and returns switchErr; the Postgres tests own
+// the transaction itself.
+func (m *mockSessionRepository) SwitchSession(_ context.Context, next *Session, nextRefresh *RefreshToken, replaced *RefreshToken, _ time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.switched = &switchCall{next: next, nextRefresh: nextRefresh, replaced: replaced}
+	return m.switchErr
 }
 
 // ── mockRefreshTokenRepository ────────────────────────────────────────────────

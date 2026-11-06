@@ -16,7 +16,6 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
 	"github.com/runkora/kora/backend/internal/platform/observability"
-	"go.opentelemetry.io/otel/codes"
 )
 
 // maxSystemOneBody caps the upstream answer read into memory. A body that
@@ -80,19 +79,16 @@ func (c *Connector) SystemOne(ctx context.Context, req inferencegw.SystemOneRequ
 			msg = strings.ToValidUTF8(msg[:maxSystemOneErrorMessage], "")
 		}
 		span.SetAttributes(observability.ErrorUpstreamMessageKey.String(msg))
-		span.RecordError(fmt.Errorf("%w: status %d: %s", errSystemOneStatus, resp.StatusCode, msg))
-		span.SetStatus(codes.Error, errSystemOneStatus.Error())
+		observability.RecordFailure(span, fmt.Errorf("%w: status %d: %s", errSystemOneStatus, resp.StatusCode, msg), errSystemOneStatus)
 		return nil, c.systemOneError(resp.StatusCode, msg)
 	}
 	out, err := io.ReadAll(io.LimitReader(resp.Body, maxSystemOneBody))
 	if err != nil {
-		span.RecordError(fmt.Errorf("%w: %w", errSystemOneReadBody, err))
-		span.SetStatus(codes.Error, errSystemOneReadBody.Error())
+		observability.RecordFailure(span, fmt.Errorf("%w: %w", errSystemOneReadBody, err), errSystemOneReadBody)
 		return nil, c.transportError(ctx, err)
 	}
 	if len(out) >= maxSystemOneBody {
-		span.RecordError(errSystemOneTooLarge)
-		span.SetStatus(codes.Error, errSystemOneTooLarge.Error())
+		observability.RecordFailure(span, errSystemOneTooLarge, errSystemOneTooLarge)
 		return nil, &inferencegw.ConnectorError{
 			Provider:        c.name,
 			Code:            "PROVIDER_ERROR",

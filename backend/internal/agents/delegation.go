@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -179,8 +179,7 @@ func (s *RunService) authorizeDelegatedStart(ctx context.Context, span trace.Spa
 		return nil
 	}
 	if err := requireDelegatorPrincipal(ctx); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errDelegatedRunRefused.Error())
+		observability.RecordFailure(span, err, errDelegatedRunRefused)
 		return err
 	}
 	return nil
@@ -193,8 +192,7 @@ func (s *RunService) authorizeDelegatedStart(ctx context.Context, span trace.Spa
 func (s *RunService) mintRunDelegation(ctx context.Context, span trace.Span, runID string, at AgentType, namespace string) (string, error) {
 	jti, err := s.mintAndPersistDelegation(ctx, runID, at, namespace)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errDelegationMintFailed.Error())
+		observability.RecordFailure(span, err, errDelegationMintFailed)
 		return "", err
 	}
 	s.logger.Info(ctx, "delegation minted for run",

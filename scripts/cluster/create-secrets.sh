@@ -23,6 +23,9 @@
 #
 # Required files:
 #   secrets/signing.key      RSA private key for JWT signing (kora-system only)
+#
+# Optional files:
+#   secrets/kora-github-app.pem  GitHub App key for the example Marketplace (kora-tenant-example)
 # =============================================================================
 set -euo pipefail
 
@@ -149,6 +152,18 @@ if should_run "kora-tenant-example"; then
   step "Creating secrets for kora-tenant-example"
   create_secret "kora-tenant-example" \
     --from-literal=DB_PASSWORD="${DB_PASSWORD}"
+
+  # The example Marketplace (deploy/local/marketplace/) reads with this key.
+  # Without the file it reports CredentialUnavailable and bring-up continues.
+  if [[ -f "${SECRETS_DIR}/kora-github-app.pem" ]]; then
+    kubectl create secret generic skills-github-app \
+      --namespace kora-tenant-example \
+      --from-file=private-key.pem="${SECRETS_DIR}/kora-github-app.pem" \
+      --dry-run=client -o yaml | kubectl apply -f -
+    ok "skills-github-app in kora-tenant-example"
+  else
+    warn "no secrets/kora-github-app.pem: the example Marketplace reports CredentialUnavailable"
+  fi
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
@@ -159,7 +174,7 @@ if [[ -z "${TARGET_NAMESPACE}" ]]; then
   echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
   echo ""
   echo "  kora-system         → kora-secrets (DB + Redis + signing key) + kora-frontend-secrets (BFF session)"
-  echo "  kora-tenant-example → DB only"
+  echo "  kora-tenant-example → DB + skills-github-app (when secrets/kora-github-app.pem exists)"
 else
   echo -e "${GREEN}  Secrets applied to ${TARGET_NAMESPACE}${RESET}"
   echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"

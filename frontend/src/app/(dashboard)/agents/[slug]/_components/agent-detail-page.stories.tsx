@@ -10,7 +10,7 @@ import { AgentDetailShell } from './agent-detail-shell';
 type OverviewFor = (slug: string, period: Period) => AgentOverviewResponse;
 
 /**
- * The agent detail page: identity header plus Overview, Runs, Configuration and Triggers.
+ * The agent detail page: identity header plus Overview, Runs and Triggers, with a Configure modal.
  * The 7-day overview arrives as the server render's seed and the other periods through the mock API.
  */
 const meta: Meta<typeof AgentDetailShell> = {
@@ -108,12 +108,65 @@ export const OverviewNoInstructions: Story = {
   args: { ...Overview.args, initialAgent: { ...rowFor(CODE_REVIEWER), systemPrompt: '' } },
 };
 
-export const Configuration: Story = {
+/** The header's Configure button opens the builder modal at Identity. */
+export const Configure: Story = {
   decorators: withRoutes(CODE_REVIEWER),
-  play: openTab('Configuration'),
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByRole('button', { name: 'Configure' }));
+  },
 };
 
-/** The Edit link on the Instructions card opens the Configuration tab at Behaviour. */
+/** Opens Configure, then a rail section. The modal renders in a portal, so it is queried from the body. */
+const configureSection =
+  (section?: string): NonNullable<Story['play']> =>
+  async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByRole('button', { name: 'Configure' }));
+    if (!section) return;
+    const body = within(canvasElement.ownerDocument.body);
+    const dialog = await body.findByRole('dialog');
+    await userEvent.click(await within(dialog).findByRole('button', { name: new RegExp(section) }));
+  };
+
+export const ConfigureBehaviour: Story = {
+  decorators: withRoutes(CODE_REVIEWER),
+  play: configureSection('Behaviour'),
+};
+
+export const ConfigureTools: Story = {
+  decorators: withRoutes(CODE_REVIEWER),
+  play: configureSection('Tools & access'),
+};
+
+export const ConfigureNetwork: Story = {
+  decorators: withRoutes(CODE_REVIEWER),
+  play: configureSection('Network access'),
+};
+
+export const ConfigureGuardrails: Story = {
+  decorators: withRoutes(CODE_REVIEWER),
+  play: configureSection('Guardrails'),
+};
+
+export const ConfigureDangerZone: Story = {
+  decorators: withRoutes(CODE_REVIEWER),
+  play: configureSection('Danger zone'),
+};
+
+/** A caller without edit access: every field is read only. */
+export const ConfigureReadOnly: Story = {
+  decorators: withRoutes(CODE_REVIEWER),
+  args: { initialAgent: { ...rowFor(CODE_REVIEWER), canEdit: false } },
+  play: configureSection('Behaviour'),
+};
+
+/** An agent declared in git: read only, with the managed-in-git notice. */
+export const ConfigureManagedInGit: Story = {
+  decorators: withRoutes(CODE_REVIEWER),
+  args: { initialAgent: { ...rowFor(CODE_REVIEWER), declared: true } },
+  play: configureSection(),
+};
+
+/** The Edit link on the Instructions card opens the Configure modal at Behaviour. */
 export const EditInstructions: Story = {
   ...Overview,
   play: async ({ canvasElement }) => {

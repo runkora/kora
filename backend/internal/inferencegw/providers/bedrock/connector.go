@@ -51,7 +51,7 @@ type Config struct {
 //   - mantleClient: Bedrock Mantle endpoint (bedrock-mantle.{region}.api.aws/v1) for OpenAI
 //     models (e.g. openai.gpt-oss-120b) hosted by AWS. Supports ChatCompletion and Responses API.
 //   - mantleOpenAIV1Client: Bedrock Mantle endpoint (bedrock-mantle.{region}.api.aws/openai/v1) for
-//     models served on the /openai/v1 path (GPT-5.x, xAI Grok). AWS serves these on /openai/v1,
+//     models served on the /openai/v1 path (GPT, xAI Grok). AWS serves these on /openai/v1,
 //     distinct from the /v1 path used by all other Mantle models. These models support only the
 //     Responses API.
 //
@@ -64,7 +64,7 @@ type Config struct {
 // mantleModelIDs is populated at ListModels time; before it is populated, Mantle model
 // requests fall through to openaiClient, fail, and the router's failover advances to
 // the next target (same cold-start behavior as all provider model caches).
-// GPT-5.x and xAI Grok follow the same cold-start pattern — inferBackendID maps them to
+// GPT and xAI Grok follow the same cold-start pattern — inferBackendID maps them to
 // backendMantleOpenAIV1 even before the registry is warm.
 type Connector struct {
 	providerName         inferencegw.ProviderName
@@ -132,7 +132,7 @@ func New(cfg *Config, providerName inferencegw.ProviderName, logger logging.Logg
 		)),
 	)
 
-	// Bedrock Mantle /openai/v1 endpoint — GPT-5.x and xAI Grok models.
+	// Bedrock Mantle /openai/v1 endpoint — GPT and xAI Grok models.
 	// AWS model cards state these models live on /openai/v1, "different from the
 	// /v1 path used by other models on the responses endpoint".  Chat Completions
 	// returns 400; only the Responses API works here.
@@ -256,7 +256,7 @@ func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel
 	registry := make(map[string]backendID, len(models))
 	for _, m := range models {
 		if mantleIDs[m.ModelID] {
-			// GPT-5.x and xAI Grok share the Mantle credentials but require the
+			// GPT and xAI Grok share the Mantle credentials but require the
 			// /openai/v1 path — give them their own backend ID.
 			if isMantleOpenAIV1Model(m.ModelID) {
 				registry[m.ModelID] = backendMantleOpenAIV1

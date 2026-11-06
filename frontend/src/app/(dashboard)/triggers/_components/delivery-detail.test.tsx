@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import { DeliveryDetail } from './delivery-detail';
+import { DeliveryDetail, deliveryOutcome } from './delivery-detail';
 import type { DeliveryRow } from '../_types';
 import { makeDelivery } from '../_types/fixtures';
 
@@ -352,5 +352,64 @@ describe('coalescing', () => {
     render(<DeliveryDetail delivery={delivery()} />);
     expect(screen.queryByText('Coalescing')).toBeNull();
     expect(screen.queryByText('Replaced by')).toBeNull();
+  });
+});
+
+describe('deliveryOutcome', () => {
+  it('reads the named trigger out of the fan-out, and the delivery when none is named', () => {
+    const d = failedDelivery();
+    expect(deliveryOutcome(d, 't1')).toMatchObject({
+      error: 'agent type not found',
+      runId: null,
+      redeliverable: true,
+    });
+    expect(deliveryOutcome(d).runId).toBe(d.runId);
+  });
+
+  it('reports a routed trigger that started nothing as a note, not a failure', () => {
+    const d = delivery({
+      reason: null,
+      runs: [
+        {
+          triggerId: 't1',
+          triggerName: 'gh-push',
+          runId: null,
+          status: 'unrouted',
+          error: 'no agent fit',
+          createdAt: null,
+        },
+      ],
+    });
+    expect(deliveryOutcome(d, 't1')).toMatchObject({ error: null, note: 'no agent fit' });
+  });
+
+  it('reads the delivery error when the named trigger has no fan-out row', () => {
+    const d = delivery({ error: 'refused before fan-out', runs: [] });
+    expect(deliveryOutcome(d, 't-missing')).toMatchObject({
+      error: 'refused before fan-out',
+      runId: null,
+    });
+  });
+
+  it('judges an unscoped delivery by its own status and reason, not a fan-out row', () => {
+    const d = delivery({
+      status: 'duplicate',
+      reason: 'seen before',
+      runs: [
+        {
+          triggerId: 't1',
+          triggerName: 'gh-push',
+          runId: null,
+          status: 'unrouted',
+          error: 'no agent fit',
+          createdAt: null,
+        },
+      ],
+    });
+    expect(deliveryOutcome(d)).toMatchObject({
+      error: null,
+      note: 'seen before',
+      redeliverable: false,
+    });
   });
 });

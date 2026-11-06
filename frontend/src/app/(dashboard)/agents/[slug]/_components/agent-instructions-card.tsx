@@ -13,21 +13,26 @@ import {
   Stack,
   Text,
 } from '@runkora/hades';
-import { CODE_LINE_HEIGHT, InstructionsMarkdown } from './instructions-markdown';
+import { CODE_LINE_HEIGHT, InstructionsMarkdown } from '@runkora/components';
 
 type PromptView = 'rendered' | 'raw';
 
 interface AgentInstructionsCardProps {
   prompt: string;
-  /** Opens the Configuration tab at the Behaviour step. */
+  /** Opens the Configure modal at the Behaviour step. */
   onEdit: () => void;
   /** Disables Edit when the caller cannot change the agent here. */
   editDisabled?: boolean;
+  /** Grows to fill the column's remaining height, so its bottom lines up with the neighbouring column. */
+  fill?: boolean;
 }
 
 const FADE = 'linear-gradient(to bottom, black calc(100% - 4rem), transparent)';
 
-function EditButton({ onEdit, editDisabled }: Omit<AgentInstructionsCardProps, 'prompt'>) {
+function EditButton({
+  onEdit,
+  editDisabled,
+}: Pick<AgentInstructionsCardProps, 'onEdit' | 'editDisabled'>) {
   return (
     <Button
       variant="ghost"
@@ -45,6 +50,7 @@ export function AgentInstructionsCard({
   prompt,
   onEdit,
   editDisabled,
+  fill,
 }: AgentInstructionsCardProps) {
   const [view, setView] = useState<PromptView>('rendered');
   const [expanded, setExpanded] = useState(false);
@@ -65,79 +71,83 @@ export function AgentInstructionsCard({
 
   if (!prompt) {
     return (
-      <Card>
-        <CardHeader compact title="Instructions" divider />
-        <CardContent padded>
-          <Stack direction="horizontal" align="center" justify="between">
-            <Text size="supporting" color="muted">
-              No instructions set
-            </Text>
-            <EditButton onEdit={onEdit} editDisabled={editDisabled} />
-          </Stack>
-        </CardContent>
-      </Card>
+      <Stack asChild grow={fill}>
+        <Card column>
+          <CardHeader compact title="Instructions" divider />
+          <CardContent padded>
+            <Stack direction="horizontal" align="center" justify="between">
+              <Text size="supporting" color="muted">
+                No instructions set
+              </Text>
+              <EditButton onEdit={onEdit} editDisabled={editDisabled} />
+            </Stack>
+          </CardContent>
+        </Card>
+      </Stack>
     );
   }
 
   const clamped = overflows && !expanded;
   return (
-    <Card>
-      <CardHeader
-        compact
-        title="Instructions"
-        description={`${prompt.trim().split(/\s+/).length} words`}
-        divider
-        action={
-          <Stack direction="horizontal" align="center" gap="snug">
-            <SegmentedControl
-              aria-label="Instructions view"
-              value={view}
-              onChange={(v) => setView(v as PromptView)}
-              options={[
-                { value: 'rendered', label: 'Rendered' },
-                { value: 'raw', label: 'Raw' },
-              ]}
-            />
-            <CopyButton value={prompt} label="Copy instructions" />
-            <EditButton onEdit={onEdit} editDisabled={editDisabled} />
-          </Stack>
-        }
-      />
-      <CardContent padded>
-        <Stack gap="snug" align="start">
-          <Stack
-            ref={box}
-            align="stretch"
-            overflow="hidden"
-            maxHeight={expanded ? undefined : 'scroll-lg'}
-            style={clamped ? { maskImage: FADE, WebkitMaskImage: FADE } : undefined}
-          >
-            {view === 'rendered' ? (
-              <InstructionsMarkdown content={prompt} />
-            ) : (
-              <Text
-                mono
-                size="caption"
-                color="muted"
-                preserveWhitespace
-                style={{ lineHeight: CODE_LINE_HEIGHT }}
+    <Stack asChild grow={fill}>
+      <Card column>
+        <CardHeader
+          compact
+          title="Instructions"
+          description={`${prompt.trim().split(/\s+/).length} words`}
+          divider
+          action={
+            <Stack direction="horizontal" align="center" gap="snug">
+              <SegmentedControl
+                aria-label="Instructions view"
+                value={view}
+                onChange={(v) => setView(v as PromptView)}
+                options={[
+                  { value: 'rendered', label: 'Rendered' },
+                  { value: 'raw', label: 'Raw' },
+                ]}
+              />
+              <CopyButton value={prompt} label="Copy instructions" />
+              <EditButton onEdit={onEdit} editDisabled={editDisabled} />
+            </Stack>
+          }
+        />
+        <CardContent padded>
+          <Stack gap="snug" align="start">
+            <Stack
+              ref={box}
+              align="stretch"
+              overflow="hidden"
+              maxHeight={expanded ? undefined : 'scroll-lg'}
+              style={clamped ? { maskImage: FADE, WebkitMaskImage: FADE } : undefined}
+            >
+              {view === 'rendered' ? (
+                <InstructionsMarkdown content={prompt} />
+              ) : (
+                <Text
+                  mono
+                  size="caption"
+                  color="muted"
+                  preserveWhitespace
+                  style={{ lineHeight: CODE_LINE_HEIGHT }}
+                >
+                  {prompt}
+                </Text>
+              )}
+            </Stack>
+            {(overflows || expanded) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-expanded={expanded}
+                onClick={() => setExpanded((open) => !open)}
               >
-                {prompt}
-              </Text>
+                {expanded ? 'Collapse' : 'Expand'}
+              </Button>
             )}
           </Stack>
-          {(overflows || expanded) && (
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-expanded={expanded}
-              onClick={() => setExpanded((open) => !open)}
-            >
-              {expanded ? 'Collapse' : 'Expand'}
-            </Button>
-          )}
-        </Stack>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </Stack>
   );
 }

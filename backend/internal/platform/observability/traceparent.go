@@ -26,9 +26,16 @@ func ContextWithTraceParent(ctx context.Context, traceparent string) context.Con
 
 // LinkToTraceParent adds a link from the span in ctx to the span traceparent names, when it parses.
 func LinkToTraceParent(ctx context.Context, traceparent string) {
-	if sc := spanContextOf(traceparent); sc.IsValid() {
-		trace.SpanFromContext(ctx).AddLink(trace.Link{SpanContext: sc})
+	if link, ok := TraceParentLink(traceparent); ok {
+		trace.SpanFromContext(ctx).AddLink(link)
 	}
+}
+
+// TraceParentLink is a span link to the span traceparent names, and false when it does not parse.
+// Pass it to trace.WithLinks: the sampler sees links only at span start.
+func TraceParentLink(traceparent string) (trace.Link, bool) {
+	sc := spanContextOf(traceparent)
+	return trace.Link{SpanContext: sc}, sc.IsValid()
 }
 
 // SampledTraceID is the trace ID in traceparent, or nil when it does not parse or was not sampled.

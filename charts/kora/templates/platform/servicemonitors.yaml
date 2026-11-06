@@ -15,7 +15,7 @@
 # selectorLabels a Service's own spec.selector uses — ServiceMonitor discovers
 # targets by matching Service objects, not Pods.
 {{- if and .Values.global.metrics.enabled .Values.global.metrics.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
-{{- range $svc := list "identity" "agents" "inference-gateway" "policy-service" "policy-gateway" "triggers" "egress-gateway" "tool-gateway" "mcp" }}
+{{- range $svc := list "identity" "agents" "inference-gateway" "policy-service" "policy-gateway" "triggers" "egress-gateway" "tool-gateway" "mcp" "skills-service" }}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor

@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -59,11 +59,8 @@ const (
 func (s *RunService) authorizeAttribution(ctx context.Context, span trace.Span, req StartRunRequest) (*StartedByTrigger, error) {
 	startedBy, err := authorizeTriggerAttribution(ctx, req)
 	if err != nil {
-		span.RecordError(err)
-		// Neutral description: this covers both a refused claim and an
-		// incomplete one, so it must not name either sentinel. RecordError
-		// above carries which it was.
-		span.SetStatus(codes.Error, "authorize trigger attribution")
+		// Neutral status: this covers both a refused and an incomplete claim, and err carries which.
+		observability.RecordFailure(span, err, errSpanAuthorizeTriggerAttribution)
 		return nil, err
 	}
 	return startedBy, nil

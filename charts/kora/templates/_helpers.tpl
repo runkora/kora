@@ -685,14 +685,19 @@ app: kora-sandbox-mount
 {{- end }}
 
 {{/*
-Forces x-forwarded-proto: https on API routes. Only needed behind a
-TLS-terminating Ingress, where the gateway would otherwise stamp http and
-OAuth metadata would reflect it.
+Request headers for each kora-api VirtualService route. Drops client trace
+context so the first kora service span starts a new root under the configured
+sampler (ADR 2026-10-31, Amendment 1).
+Forces x-forwarded-proto: https behind a TLS-terminating Ingress, where the
+gateway would otherwise stamp http and OAuth metadata would reflect it.
 */}}
-{{- define "kora.forceHttpsHeaders" -}}
-{{- if and .Values.gateway.create .Values.gateway.ingress.enabled }}
+{{- define "kora.edgeHeaders" -}}
 headers:
   request:
+    remove:
+      - traceparent
+      - tracestate
+{{- if and .Values.gateway.create .Values.gateway.ingress.enabled }}
     set:
       x-forwarded-proto: https
 {{- end }}
@@ -748,4 +753,13 @@ Startup probe budget in seconds for the sandbox containers, shared by kora-agent
 {{- $s := int .Values.agents.sandboxStartupSeconds -}}
 {{- if lt $s 1 }}{{ fail "agents.sandboxStartupSeconds must be at least 1" }}{{ end -}}
 {{- $s -}}
+{{- end }}
+
+{{- define "kora.skillsService.labels" -}}
+{{ include "kora.labels" . }}
+app.kubernetes.io/name: kora-skills-service
+app.kubernetes.io/component: skills-service
+{{- end }}
+{{- define "kora.skillsService.selectorLabels" -}}
+app: kora-skills-service
 {{- end }}

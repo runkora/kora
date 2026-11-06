@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/credentials"
@@ -33,12 +32,13 @@ type idLookup struct {
 	kind    string
 	subject string
 	idsAttr attribute.Key
+	failure error
 	resolve func(s ownerScoped, ctx context.Context, ids, categories []string) (map[string]string, error)
 }
 
 var (
-	nodeLookup = idLookup{kind: "node", idsAttr: observability.EgressNodeIDCountKey, subject: "node ids", resolve: ownerScoped.NodeOwners}
-	repoLookup = idLookup{kind: "repository", idsAttr: observability.EgressRepositoryIDCountKey, subject: "repository ids", resolve: ownerScoped.RepoOwners}
+	nodeLookup = idLookup{kind: "node", idsAttr: observability.EgressNodeIDCountKey, subject: "node ids", failure: errSpanNodeOwnerLookup, resolve: ownerScoped.NodeOwners}
+	repoLookup = idLookup{kind: "repository", idsAttr: observability.EgressRepositoryIDCountKey, subject: "repository ids", failure: errSpanRepositoryOwnerLookup, resolve: ownerScoped.RepoOwners}
 )
 
 // idsToResolve returns the ids the request names for an owner lookup, node ids
@@ -227,8 +227,7 @@ func (b *Broker) lookupOwners(ctx context.Context, claims *token.PlatformClaims,
 		{Key: "run_id", Value: claims.Kora.Claims["run_id"]},
 	}
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, lookup.kind+" owner lookup")
+		observability.RecordFailure(span, err, lookup.failure)
 		b.logger.Warn(ctx, lookup.kind+" id owner lookup failed", append(fields, logging.Field{Key: "error", Value: err.Error()})...)
 		return nil, err
 	}
@@ -309,7 +308,7 @@ func unresolved(host string, candidates []*credentials.Connection, ambiguous boo
 // Any other is served by the anonymous read fallback when it qualifies.
 func (b *Broker) unresolvedConnection(ctx context.Context, span trace.Span, claims *token.PlatformClaims, req EgressRequest, d *Denial) (Decision, error) {
 	if d.ambiguous || d.Reason != DenialConnectionUnresolved {
-		span.SetStatus(codes.Error, ErrForbidden.Error())
+		observability.RecordFailure(span, d, ErrForbidden)
 		b.logDenial(ctx, claims, req, d)
 		return Decision{}, d
 	}

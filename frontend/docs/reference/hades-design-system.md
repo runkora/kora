@@ -468,7 +468,7 @@ import { Button } from '@runkora/hades';
 </Button>
 ```
 
-**Button variants:** `default` (accent fill), `secondary` (surface + border), `outline` (transparent + border), `ghost` (no fill), `muted` (dimmed ghost), `destructive` (error intent).
+**Button variants:** `default` (accent fill), `secondary` (surface + border), `outline` (transparent + border), `ghost` (no fill), `muted` (dimmed ghost), `destructive` (error intent), `warning` (degraded intent).
 
 **Button sizes:** `xs`, `sm`, `md` (default), `lg`, `icon` (square 36px), `icon-sm` (square 28px).
 
@@ -671,11 +671,15 @@ import { Modal, ModalAccessibleTitle, Wizard } from '@runkora/hades';
 
 **`Wizard.Step`**: Scrollable content region for one step. Wrap one per active step.
 
+**`Wizard.Success`**: Post-flow screen. Props: `title`, `description?`, `icon?` (default `check-circle`), `children?` (extra body between the description and the actions), `actions`. Renders its own full-page layout; as a direct child of `Wizard` it hides the rail and footer and freezes the progress bar, as `Wizard.Step fullPage` does (detection only sees direct children, so do not wrap it in a fragment or helper component). Accessibility: on mount focus moves to the title (`tabIndex={-1}`, no focus ring) so Tab reaches the actions in order and the form's unmounted Submit button does not drop focus to the body; it moves again on every remount, never on re-render.
+
 **`Wizard.ReviewStep`**: Gap container for `Wizard.ReviewCard` children. Use inside `Wizard.Step` on review screens.
 
 **`Wizard.ReviewCard`**: Props: `icon` (`IconName`), `title`, `rows` (`{ label, value, mono? }[]`), `onEdit?` (renders Edit button), `children?` (block-level content below rows, separated by a `Separator`).
 
 **`Wizard.Footer`**: Props: `step`, `totalSteps`, `onBack?` (omit to hide Back), `backLabel?` (default `"Back"`), `onNext` (required), `nextDisabled?`, `onSubmit?` (swaps Continue to Submit on the final step), `submitLabel?` (default `"Create"`), `pending?` (disables both buttons), `pendingLabel?` (default `"Creating…"`), `hint?`.
+
+**`useWizardSteps`**: Step state for a wizard. `useWizardSteps({ stepCount, hints, locked?, reviewStep?, initialStep?, initialMaxVisited?, onNavigate? })` returns `{ step, maxVisited, goTo, next, back, isFirst, isLast, hint, nextDisabled, reset }`. `hints` has one entry per step (why it cannot be left yet, or `undefined`); on `reviewStep` the hint is the first defined entry. Pass the values to `Wizard.Rail`, `Wizard.Footer` and `Wizard`'s `hint` explicitly. Submit state, errors and the success screen stay in the wizard.
 
 **`Wizard` `hint`**: The validation banner rolls down when `hint` is set and rolls up when it clears (the `Collapsible` height animation, instant under `prefers-reduced-motion`). The content below moves with it.
 
@@ -689,6 +693,7 @@ import type {
   WizardHeaderProps,
   WizardFooterProps,
   WizardReviewCardProps,
+  WizardSuccessProps,
 } from '@runkora/hades';
 ```
 

@@ -44,6 +44,12 @@ type Config struct {
 		InternalURL string `yaml:"internalURL"`
 	} `yaml:"identity"`
 
+	Agents struct {
+		// InternalURL is the in-cluster base URL for kora-agents. The gateway reads a run's
+		// trace context there to link its CONNECT spans to the run trace.
+		InternalURL string `yaml:"internalURL"`
+	} `yaml:"agents"`
+
 	Policy struct {
 		// BundleEndpoint is the base URL for the policy-service bundle polling endpoint.
 		BundleEndpoint string `yaml:"bundleEndpoint"`

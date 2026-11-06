@@ -79,9 +79,8 @@ linters:
     #   - attribute.String(_, err.Error())        — raw error in span attribute
     #   - attribute.String(_, ctx.Err().Error())  — raw context err in attribute
     #
-    #   Two-signal pattern required:
-    #     span.RecordError(err)                        // full dynamic detail
-    #     span.SetStatus(codes.Error, errX.Error())    // static sentinel string
+    #   Use the helper, which records the exception and sets the static status and error.type:
+    #     observability.RecordFailure(span, err, errX)
     #
     #   See docs/adr/0022-opentelemetry-observability-discipline.md
     #

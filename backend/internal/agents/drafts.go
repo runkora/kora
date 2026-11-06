@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/token"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // ── Agent type drafts ─────────────────────────────────────────────────────────
@@ -134,7 +134,7 @@ func (s *DraftService) CreateDraft(ctx context.Context, req CreateDraftRequest) 
 
 	tenantID, createdBy, err := callerFromContext(ctx)
 	if err != nil {
-		span.SetStatus(codes.Error, errNoVerifiedClaims.Error())
+		observability.RecordFailure(span, errNoVerifiedClaims, errNoVerifiedClaims)
 		return nil, err
 	}
 	// Drafting requires create authority for at least one identity mode. The
@@ -158,8 +158,7 @@ func (s *DraftService) CreateDraft(ctx context.Context, req CreateDraftRequest) 
 		UpdatedAt: now,
 	}
 	if err := s.repo.CreateDraft(ctx, draft); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "create draft")
+		observability.RecordFailure(span, err, errSpanCreateDraft)
 		return nil, fmt.Errorf("create draft: %w", err)
 	}
 	return &draft, nil
@@ -207,8 +206,7 @@ func (s *DraftService) UpdateDraft(ctx context.Context, id string, req UpdateDra
 		if errors.Is(err, ErrDraftNotFound) {
 			return nil, ErrDraftNotFound
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "update draft")
+		observability.RecordFailure(span, err, errSpanUpdateDraft)
 		return nil, fmt.Errorf("update draft: %w", err)
 	}
 	draft.Payload = payload
@@ -233,8 +231,7 @@ func (s *DraftService) DeleteDraft(ctx context.Context, id string) error {
 		if errors.Is(err, ErrDraftNotFound) {
 			return ErrDraftNotFound
 		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "delete draft")
+		observability.RecordFailure(span, err, errSpanDeleteDraft)
 		return fmt.Errorf("delete draft: %w", err)
 	}
 	return nil

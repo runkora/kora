@@ -5,6 +5,7 @@ import Link from 'next/link';
 
 import { Icon, NavItem, Navigation, Stack, Text } from '@runkora/hades';
 import { hasScopeCovering, hasScopeWithin } from '@runkora/lib/permissions';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import { NAV_GROUPS } from '../_utils';
 import { useSession } from './permissions-provider';
 
@@ -21,6 +22,10 @@ import { useSession } from './permissions-provider';
  */
 export function DashboardSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  // The Skills entry stays active on every skill page.
+  const activePathname = pathname.startsWith(`${APP_ROUTES.skills.root}/`)
+    ? APP_ROUTES.skills.root
+    : pathname;
   const { scopes } = useSession();
 
   return (
@@ -58,7 +63,8 @@ export function DashboardSidebar({ onNavigate }: { onNavigate?: () => void }) {
                 ) : (
                   <NavItem
                     key={itemLabel}
-                    state={pathname === href ? 'active' : 'default'}
+                    state={activePathname === href ? 'active' : 'default'}
+                    aria-current={activePathname === href ? 'page' : undefined}
                     icon={<Icon name={icon} />}
                     badge={badge}
                     asChild

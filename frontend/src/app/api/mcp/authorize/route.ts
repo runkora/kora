@@ -75,10 +75,11 @@ export async function POST(req: Request): Promise<Response> {
     return json({ redirect: errorRedirect(redirectUri, state, 'access_denied') });
   }
   // CSRF: the token must be one this server minted when it rendered the consent
-  // page for THIS user and THESE exact params. Fail closed without minting.
+  // page for THIS user, THIS tenant and THESE exact params. Fail closed without minting.
   if (
     !consentTokenValid(typeof csrfToken === 'string' ? csrfToken : null, {
       userKey: session.user.email,
+      tenantId: session.tenantId,
       clientId,
       redirectUri,
       codeChallenge,

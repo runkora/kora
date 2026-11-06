@@ -22,7 +22,6 @@ import (
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 	"github.com/runkora/kora/backend/internal/platform/brand"
 
-	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 	appsv1 "k8s.io/api/apps/v1"
@@ -237,49 +236,40 @@ func (p *K8sProvisioner) provision(ctx context.Context, at AgentType, namespace 
 	// away from its session-manager over a ReadWriteOnce workspace is caught
 	// here instead of on the agent's first run.
 	if err := p.checkSandboxPlacement(at, namespace); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "check sandbox placement")
+		observability.RecordFailure(span, err, errSpanCheckSandboxPlacement)
 		return err
 	}
 
 	if err := p.ensureServiceAccount(ctx, slug, namespace, labels, tenantRef, update); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "ensure service account")
+		observability.RecordFailure(span, err, errSpanEnsureServiceAccount)
 		return err
 	}
 	if err := p.ensureStatefulSet(ctx, at, namespace, labels, tenantRef, update); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "ensure statefulset")
+		observability.RecordFailure(span, err, errSpanEnsureStatefulset)
 		return err
 	}
 	if err := p.ensureHeadlessService(ctx, slug, namespace, labels, tenantRef, update); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "ensure headless service")
+		observability.RecordFailure(span, err, errSpanEnsureHeadlessService)
 		return err
 	}
 	if err := p.ensureHPA(ctx, slug, namespace, labels, tenantRef, update); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "ensure hpa")
+		observability.RecordFailure(span, err, errSpanEnsureHpa)
 		return err
 	}
 	if err := p.ensurePDB(ctx, slug, namespace, labels, tenantRef, update); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "ensure pdb")
+		observability.RecordFailure(span, err, errSpanEnsurePdb)
 		return err
 	}
 	if err := p.ensureAgentGrant(ctx, at, namespace); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "ensure agent grant")
+		observability.RecordFailure(span, err, errSpanEnsureAgentGrant)
 		return err
 	}
 	if err := p.ensureDestinationRule(ctx, at, namespace, tenantRef, update); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "ensure destination rule")
+		observability.RecordFailure(span, err, errSpanEnsureDestinationRule)
 		return err
 	}
 	if err := p.ensureAuthorizationPolicy(ctx, at, namespace, tenantRef, update); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "ensure authorization policy")
+		observability.RecordFailure(span, err, errSpanEnsureAuthorizationPolicy)
 		return err
 	}
 	return nil
@@ -328,7 +318,7 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 			return p.deleteAgentGrant(ctx, at, namespace)
 		},
 		func() error {
-			return p.deleteDestinationRule(ctx, at.Slug)
+			return p.deleteDestinationRule(ctx, at.Slug, namespace)
 		},
 		func() error {
 			return p.deleteAuthorizationPolicy(ctx, at.Slug, namespace)
@@ -342,8 +332,7 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 		}
 	}
 	if firstErr != nil {
-		span.RecordError(firstErr)
-		span.SetStatus(codes.Error, "deprovision agent type")
+		observability.RecordFailure(span, firstErr, errSpanDeprovisionAgentType)
 	}
 	return firstErr
 }
@@ -434,15 +423,13 @@ func (p *K8sProvisioner) RolloutStatefulSet(ctx context.Context, slug, namespace
 	}
 	data, err := json.Marshal(p2)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "marshal rollout patch")
+		observability.RecordFailure(span, err, errSpanMarshalRolloutPatch)
 		return fmt.Errorf("marshal rollout patch: %w", err)
 	}
 	if _, err := p.client.AppsV1().StatefulSets(namespace).Patch(
 		ctx, slug, types.StrategicMergePatchType, data, metav1.PatchOptions{},
 	); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "patch statefulset for rollout")
+		observability.RecordFailure(span, err, errSpanPatchStatefulsetForRollout)
 		return fmt.Errorf("patch statefulset %s/%s for rollout: %w", namespace, slug, err)
 	}
 	return nil
@@ -510,15 +497,13 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 
 	token, err := newSandboxExecToken()
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errSandboxToken.Error())
+		observability.RecordFailure(span, err, errSandboxToken)
 		return Sandbox{}, fmt.Errorf("mint sandbox exec token: %w", err)
 	}
 
 	pod, err := p.buildSandboxPod(run, agentTypeSlug, namespace, spec, token)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errSandboxSize.Error())
+		observability.RecordFailure(span, err, errSandboxSize)
 		return Sandbox{}, err
 	}
 	podName := pod.Name
@@ -533,8 +518,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 
 	podVal, err := manifestpatch.Apply(*pod, "Pod", p.cfg.Patches)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "apply Pod patches")
+		observability.RecordFailure(span, err, errSpanApplyPodPatches)
 		return Sandbox{}, fmt.Errorf("apply Pod patches: %w", err)
 	}
 
@@ -551,8 +535,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 		// Reuse an existing pod if alive; replace it if dead or terminating.
 		replaced, repErr := p.replaceIfDeadSandboxPod(ctx, &podVal, namespace)
 		if repErr != nil {
-			span.RecordError(repErr)
-			span.SetStatus(codes.Error, "replace dead sandbox pod")
+			observability.RecordFailure(span, repErr, errSpanReplaceDeadSandboxPod)
 			return Sandbox{}, repErr
 		}
 		created = replaced
@@ -562,15 +545,13 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 			logging.Field{Key: "replaced_dead_pod", Value: replaced},
 		)
 	default:
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "create sandbox pod")
+		observability.RecordFailure(span, err, errSpanCreateSandboxPod)
 		return Sandbox{}, fmt.Errorf("create sandbox pod: %w", err)
 	}
 
 	ready, err := p.waitForPodReady(ctx, podName, namespace)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "wait for sandbox pod ready")
+		observability.RecordFailure(span, err, errSpanWaitForSandboxPodReady)
 		return Sandbox{}, fmt.Errorf("wait for sandbox pod ready (run %s): %w", run.ID, err)
 	}
 
@@ -578,7 +559,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	// still holds the token it was created with.
 	liveToken := sandboxExecTokenOf(ready)
 	if liveToken == "" {
-		span.SetStatus(codes.Error, errSandboxToken.Error())
+		observability.RecordFailure(span, errSandboxToken, errSandboxToken)
 		return Sandbox{}, fmt.Errorf("%w: pod %s carries no %s", errSandboxToken, podName, sandboxExecTokenEnv)
 	}
 
@@ -590,7 +571,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 		logging.Field{Key: "endpoint", Value: endpoint},
 	)
 	if ready.Annotations[annotationEnvironmentID] != spec.EnvironmentID {
-		span.SetStatus(codes.Error, ErrEnvironmentSwitch.Error())
+		observability.RecordFailure(span, ErrEnvironmentSwitch, ErrEnvironmentSwitch)
 		return Sandbox{}, fmt.Errorf("%w; call replace_environment to switch to %q", ErrEnvironmentSwitch, spec.Environment)
 	}
 	sandbox := Sandbox{Endpoint: endpoint, ExecToken: liveToken, Created: created}
@@ -620,8 +601,7 @@ func (p *K8sProvisioner) LookupSandbox(ctx context.Context, runID, namespace str
 
 	pod, err := p.sandboxPod(ctx, runID, namespace)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get sandbox pod")
+		observability.RecordFailure(span, err, errSpanGetSandboxPod)
 		return Sandbox{}, false, err
 	}
 	if pod == nil {
@@ -904,8 +884,7 @@ func (p *K8sProvisioner) DeleteSandbox(ctx context.Context, runID, namespace str
 	)
 	del := metav1.DeletePropagationForeground
 	if err := ignoreNotFound(p.client.CoreV1().Pods(namespace).Delete(ctx, podName, metav1.DeleteOptions{PropagationPolicy: &del})); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "delete sandbox pod")
+		observability.RecordFailure(span, err, errSpanDeleteSandboxPod)
 		return err
 	}
 	return nil
@@ -1401,8 +1380,7 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 
 	existing, err := p.policyClient.ListGrants(ctx, grantTenantID, "AGENT", principalID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "list agent grants")
+		observability.RecordFailure(span, err, errSpanListAgentGrants)
 		return fmt.Errorf("list agent grants for %s: %w", principalID, err)
 	}
 
@@ -1416,8 +1394,7 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 	if p.scopeResolver != nil {
 		resolved, rErr := p.scopeResolver.EffectiveScopes(ctx, at)
 		if rErr != nil {
-			span.RecordError(rErr)
-			span.SetStatus(codes.Error, "resolve effective scopes")
+			observability.RecordFailure(span, rErr, errSpanResolveEffectiveScopes)
 			return fmt.Errorf("resolve effective scopes for %s: %w", principalID, rErr)
 		}
 		effectiveScopes = resolved
@@ -1460,8 +1437,7 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 	if keepID != "" {
 		if at.Budget != nil && !budgetMatches(at.Budget, keptBudget) {
 			if err := p.policyClient.UpdateGrantBudget(ctx, keepID, clientBudget(at.Budget)); err != nil {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, "update agent grant budget")
+				observability.RecordFailure(span, err, errSpanUpdateAgentGrantBudget)
 				return fmt.Errorf("update agent grant budget for %s: %w", principalID, err)
 			}
 			p.logger.Info(ctx, "agent grant budget updated",
@@ -1484,8 +1460,7 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 		createBudget = firstBudget(existing)
 	}
 	if _, err := p.policyClient.CreateGrant(ctx, grantTenantID, "AGENT", principalID, effectiveScopes, createBudget, delegationRequired); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "create agent grant")
+		observability.RecordFailure(span, err, errSpanCreateAgentGrant)
 		return fmt.Errorf("create agent grant for %s: %w", principalID, err)
 	}
 	p.logger.Info(ctx, "agent grant created",
@@ -2132,9 +2107,10 @@ func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, 
 // SPIRE-issued SPIFFE ID (spiffe://<td>/tenant/<ns>/agent/<slug>).
 func (p *K8sProvisioner) ensureDestinationRule(ctx context.Context, at AgentType, namespace string, owner metav1.OwnerReference, update bool) error {
 	spiffeID := p.agentSpiffeID(at, namespace)
-	host := fmt.Sprintf("%s.%s.svc.cluster.local", at.Slug, namespace)
+	host := agentServiceHost(at.Slug, namespace)
+	name := agentDestinationRuleName(at.Slug, namespace)
 	metadata := map[string]any{
-		"name":      "agent-" + at.Slug,
+		"name":      name,
 		"namespace": p.cfg.SystemNamespace,
 	}
 	setUnstructuredOwnerRef(metadata, owner)
@@ -2164,26 +2140,55 @@ func (p *K8sProvisioner) ensureDestinationRule(ctx context.Context, at AgentType
 	_, err := p.dynamicClient.Resource(destinationRuleGVR).
 		Namespace(p.cfg.SystemNamespace).
 		Create(ctx, dr, metav1.CreateOptions{})
-	if err == nil || !apierrors.IsAlreadyExists(err) {
+	if err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
-	if !update {
-		return nil
-	}
-	if owner.Kind == "" {
-		return nil
-	}
-	existing, err := p.dynamicClient.Resource(destinationRuleGVR).
-		Namespace(p.cfg.SystemNamespace).
-		Get(ctx, "agent-"+at.Slug, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("get existing destinationrule: %w", err)
+		existing, getErr := p.dynamicClient.Resource(destinationRuleGVR).
+			Namespace(p.cfg.SystemNamespace).
+			Get(ctx, name, metav1.GetOptions{})
+		if getErr != nil {
+			return fmt.Errorf("get existing destinationrule: %w", getErr)
+		}
+		// A rule under this name for another host was not made by kora. Refuse
+		// rather than leave this agent unreachable behind it.
+		if existingHost, _, _ := unstructured.NestedString(existing.Object, "spec", "host"); existingHost != host {
+			return fmt.Errorf("destinationrule %s is for %s, not %s", name, existingHost, host)
+		}
+		if !update || owner.Kind == "" {
+			return p.deleteLegacyDestinationRule(ctx, at.Slug, namespace)
+		}
+		existing.SetOwnerReferences(mergeOwnerRefs(existing.GetOwnerReferences(), owner))
+		if _, err = p.dynamicClient.Resource(destinationRuleGVR).
+			Namespace(p.cfg.SystemNamespace).
+			Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+			return err
+		}
 	}
-	existing.SetOwnerReferences(mergeOwnerRefs(existing.GetOwnerReferences(), owner))
-	_, err = p.dynamicClient.Resource(destinationRuleGVR).
-		Namespace(p.cfg.SystemNamespace).
-		Update(ctx, existing, metav1.UpdateOptions{})
-	return err
+	// Istio applies one DestinationRule per host, so the rule under the earlier
+	// tenant-less name must go once this one exists.
+	return p.deleteLegacyDestinationRule(ctx, at.Slug, namespace)
+}
+
+// agentServiceHost is the FQDN of an agent type's headless service.
+func agentServiceHost(slug, namespace string) string {
+	return fmt.Sprintf("%s.%s.svc.cluster.local", slug, namespace)
+}
+
+// agentDestinationRuleName is the DestinationRule for an agent type. Every
+// tenant's rule lives in the system namespace, so the name carries the tenant
+// namespace: two tenants can have an agent with the same slug. Slugs and
+// namespaces are DNS labels and hold no dots, so the dot keeps every pair
+// distinct and apart from the earlier agent-<slug> names.
+func agentDestinationRuleName(slug, namespace string) string {
+	return "agent-" + slug + "." + namespace
+}
+
+// deleteLegacyDestinationRule deletes the rule an earlier release named
+// agent-<slug>, when it is this agent's. Another tenant's agent with the same
+// slug may hold that name, so the rule's host decides.
+func (p *K8sProvisioner) deleteLegacyDestinationRule(ctx context.Context, slug, namespace string) error {
+	return p.deleteOwnDestinationRule(ctx, "agent-"+slug, slug, namespace)
 }
 
 // agentAuthorizationPolicyName is the AuthorizationPolicy created beside each
@@ -2305,11 +2310,28 @@ func (p *K8sProvisioner) deleteAuthorizationPolicy(ctx context.Context, slug, na
 	return ignoreNotFound(err)
 }
 
-func (p *K8sProvisioner) deleteDestinationRule(ctx context.Context, slug string) error {
-	err := p.dynamicClient.Resource(destinationRuleGVR).
-		Namespace(p.cfg.SystemNamespace).
-		Delete(ctx, "agent-"+slug, metav1.DeleteOptions{})
-	return ignoreNotFound(err)
+func (p *K8sProvisioner) deleteDestinationRule(ctx context.Context, slug, namespace string) error {
+	if err := p.deleteOwnDestinationRule(ctx, agentDestinationRuleName(slug, namespace), slug, namespace); err != nil {
+		return err
+	}
+	return p.deleteLegacyDestinationRule(ctx, slug, namespace)
+}
+
+// deleteOwnDestinationRule deletes the named rule when its host is this
+// agent's service, so a rule that belongs to another agent is never removed.
+func (p *K8sProvisioner) deleteOwnDestinationRule(ctx context.Context, name, slug, namespace string) error {
+	rules := p.dynamicClient.Resource(destinationRuleGVR).Namespace(p.cfg.SystemNamespace)
+	rule, err := rules.Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get destinationrule %s: %w", name, err)
+	}
+	if host, _, _ := unstructured.NestedString(rule.Object, "spec", "host"); host != agentServiceHost(slug, namespace) {
+		return nil
+	}
+	return ignoreNotFound(rules.Delete(ctx, name, metav1.DeleteOptions{}))
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

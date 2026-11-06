@@ -3,10 +3,10 @@ package triggers
 import (
 	"context"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/observability"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // ─── Admission-controlled dispatch ───────────────────────────────────────────
@@ -93,6 +93,8 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) (held 
 		})
 		return false
 	}
+	// The worker's dispatch span only knows the id; the name comes with the read.
+	trace.SpanFromContext(ctx).SetAttributes(observability.TriggerNameKey.String(t.Name))
 	if !t.Enabled {
 		s.outcomes.record(ctx, &DeliveryRun{
 			TenantID: p.TenantID, DeliveryID: p.DeliveryID,
@@ -133,8 +135,7 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) (held 
 // toward auto-pause when the failure is the trigger's own.
 func (s *Service) recordDispatchFailure(ctx context.Context, t Trigger, deliveryID string, err error) {
 	span := trace.SpanFromContext(ctx)
-	span.RecordError(err)
-	span.SetStatus(codes.Error, errDispatchFailed.Error())
+	observability.RecordFailure(span, err, errDispatchFailed)
 	s.logger.Error(ctx, "pending dispatch failed",
 		logging.Field{Key: "trigger_id", Value: t.ID},
 		logging.Field{Key: "delivery_id", Value: deliveryID},

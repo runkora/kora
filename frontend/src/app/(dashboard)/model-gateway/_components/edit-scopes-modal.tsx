@@ -24,6 +24,8 @@ interface EditScopesModalProps {
   onUpdated: () => void;
 }
 
+const FORM_ID = 'edit-scopes-form';
+
 export function EditScopesModal({
   pat,
   availableScopes,
@@ -81,8 +83,12 @@ export function EditScopesModal({
         title="Edit permissions"
         description={pat ? `Update scopes for ${pat.name}` : undefined}
       />
-      <Form onSubmit={(e) => void handleSubmit(e)} noValidate>
-        <ModalBody constrained>
+      {/* The form lives inside ModalBody, not around it, so ModalBody and ModalFooter
+          stay direct children of the Modal panel: that is what lets the body shrink
+          and scroll while the footer stays in view. The submit button reaches the
+          form through its `form` attribute. */}
+      <ModalBody constrained>
+        <Form id={FORM_ID} onSubmit={(e) => void handleSubmit(e)} noValidate gap="comfortable">
           <Stack gap="tight">
             <Stack direction="horizontal" align="center" justify="between">
               <Text size="caption" weight="emphasis">
@@ -114,17 +120,17 @@ export function EditScopesModal({
               {error}
             </Text>
           )}
-        </ModalBody>
+        </Form>
+      </ModalBody>
 
-        <ModalFooter>
-          <Button type="button" variant="ghost" size="sm" onClick={onClose} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button type="submit" variant="default" size="sm" disabled={submitting}>
-            {submitting ? 'Saving…' : 'Save permissions'}
-          </Button>
-        </ModalFooter>
-      </Form>
+      <ModalFooter>
+        <Button type="button" variant="ghost" size="sm" onClick={onClose} disabled={submitting}>
+          Cancel
+        </Button>
+        <Button type="submit" form={FORM_ID} variant="default" size="sm" disabled={submitting}>
+          {submitting ? 'Saving…' : 'Save permissions'}
+        </Button>
+      </ModalFooter>
     </Modal>
   );
 }

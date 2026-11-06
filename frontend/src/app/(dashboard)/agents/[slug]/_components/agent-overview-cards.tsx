@@ -146,35 +146,40 @@ function MetadataRow({ label, children }: { label: string; children: React.React
   );
 }
 
-export function MetadataCard({ agent }: { agent: AgentTypeRow }) {
+export function MetadataCard({ agent, fill }: { agent: AgentTypeRow; fill?: boolean }) {
   return (
-    <Card>
-      <CardHeader compact title="Metadata" divider />
-      <CardContent padded>
-        <Stack gap="snug">
-          <MetadataRow label="Created">
-            <Text size="supporting">{fmtDate(agent.createdAt)}</Text>
-          </MetadataRow>
-          <MetadataRow label="Last updated">
-            <Text size="supporting">{fmtDate(agent.updatedAt)}</Text>
-          </MetadataRow>
-          <MetadataRow label="Max concurrent / pod">
-            <Text mono size="supporting">
-              {agent.maxConcurrentRunsPerPod}
-            </Text>
-          </MetadataRow>
-          <MetadataRow label="Model">
-            <Badge variant="secondary" size="sm">
-              {agent.modelId}
-            </Badge>
-          </MetadataRow>
-          <MetadataRow label="Identity model">
-            <Badge variant={agent.identityMode === 'delegated' ? 'default' : 'secondary'} size="sm">
-              {agent.identityMode === 'delegated' ? 'Delegated' : 'Autonomous'}
-            </Badge>
-          </MetadataRow>
-        </Stack>
-      </CardContent>
-    </Card>
+    <Stack asChild grow={fill}>
+      <Card column>
+        <CardHeader compact title="Metadata" divider />
+        <CardContent padded>
+          <Stack gap="snug">
+            <MetadataRow label="Created">
+              <Text size="supporting">{fmtDate(agent.createdAt)}</Text>
+            </MetadataRow>
+            <MetadataRow label="Last updated">
+              <Text size="supporting">{fmtDate(agent.updatedAt)}</Text>
+            </MetadataRow>
+            <MetadataRow label="Max concurrent / pod">
+              <Text mono size="supporting">
+                {agent.maxConcurrentRunsPerPod}
+              </Text>
+            </MetadataRow>
+            <MetadataRow label="Model">
+              <Badge variant="secondary" size="sm">
+                {agent.modelId}
+              </Badge>
+            </MetadataRow>
+            <MetadataRow label="Identity model">
+              <Badge
+                variant={agent.identityMode === 'delegated' ? 'default' : 'secondary'}
+                size="sm"
+              >
+                {agent.identityMode === 'delegated' ? 'Delegated' : 'Autonomous'}
+              </Badge>
+            </MetadataRow>
+          </Stack>
+        </CardContent>
+      </Card>
+    </Stack>
   );
 }

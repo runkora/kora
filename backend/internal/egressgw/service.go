@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/credentials"
@@ -93,12 +92,10 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	conn, registered, err := b.resolveConnection(ctx, claims, req)
 	var unresolved *Denial
 	if errors.As(err, &unresolved) {
-		span.RecordError(err)
 		return b.unresolvedConnection(ctx, span, claims, req, unresolved)
 	}
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errResolveConnection.Error())
+		observability.RecordFailure(span, err, errResolveConnection)
 		return Decision{}, err
 	}
 	span.SetAttributes(
@@ -123,8 +120,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	}
 	connector, err := adapter.Open(*conn)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errOpenConnector.Error())
+		observability.RecordFailure(span, err, errOpenConnector)
 		// A connection kora cannot read is an operator error, not a caller
 		// one. It still denies, but reporting it as forbidden sends whoever
 		// reads the audit log hunting a grant that was never the problem.
@@ -133,7 +129,6 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 
 	cls, err := b.classify(connector, req)
 	if err != nil {
-		span.RecordError(err)
 		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, deny(DenialUnclassified, req.Host, conn, credentials.Classification{}, err))
 	}
 	span.SetAttributes(
@@ -172,8 +167,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		// The upstream refusing to issue a credential for this scope (e.g. the
 		// GitHub App installation lacks the permission kora authorized) is a
 		// forbidden, not an internal error. The App is the outer ceiling.
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errMintCredential.Error())
+		observability.RecordFailure(span, err, errMintCredential)
 		if errors.Is(err, credentials.ErrCredentialScopeRejected) {
 			b.logger.Info(ctx, "egress denied: upstream refused credential scope",
 				logging.Field{Key: "connection", Value: conn.Name},
@@ -210,14 +204,14 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 func (b *Broker) validateCaller(ctx context.Context, span trace.Span, claims *token.PlatformClaims, req EgressRequest) error {
 	switch {
 	case claims == nil:
-		span.SetStatus(codes.Error, ErrUnauthenticated.Error())
+		observability.RecordFailure(span, ErrUnauthenticated, ErrUnauthenticated)
 		return ErrUnauthenticated
 	case claims.Kora.TenantID == "":
 		return ErrUnauthenticated
 	case req.Host == "":
 		return ErrMissingHost
 	case policy.DelegationFromContext(ctx) != nil && attestedRunID(claims) == "":
-		span.SetStatus(codes.Error, ErrDelegationRunUnattested.Error())
+		observability.RecordFailure(span, ErrDelegationRunUnattested, ErrDelegationRunUnattested)
 		b.logger.Info(ctx, "egress denied: delegated call without a per-run sandbox identity",
 			logging.Field{Key: "host", Value: req.Host},
 			logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
@@ -232,12 +226,11 @@ func (b *Broker) validateCaller(ctx context.Context, span trace.Span, claims *to
 // still be served by the anonymous fallback; a failed evaluation never is.
 func (b *Broker) policyDenied(ctx context.Context, span trace.Span, claims *token.PlatformClaims, conn *credentials.Connection, req EgressRequest, perr error) (Decision, error) {
 	span.SetAttributes(observability.EgressAllowedKey.Bool(false))
-	span.RecordError(perr)
 	var denial *Denial
 	if errors.As(perr, &denial) && denial.Reason != DenialPolicyUnavailable {
 		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, denial)
 	}
-	span.SetStatus(codes.Error, ErrForbidden.Error())
+	observability.RecordFailure(span, perr, ErrForbidden)
 	// An evaluator error is logged where it happens. An operational result
 	// such as no policy for the tenant is logged here.
 	if denial != nil && denial.decision != "" {
@@ -257,7 +250,7 @@ const anonymousReadAction = "anonymous_read"
 // docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md, Amendment 5.
 func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claims *token.PlatformClaims, conn *credentials.Connection, req EgressRequest, denial *Denial) (Decision, error) {
 	if conn.Adapter != credentials.AdapterGitHubApp || !isRead(req) || !b.ownEgressAllows(ctx, claims, req.Host) {
-		span.SetStatus(codes.Error, ErrForbidden.Error())
+		observability.RecordFailure(span, denial, ErrForbidden)
 		b.logDenial(ctx, claims, req, denial)
 		return Decision{}, denial
 	}

@@ -533,3 +533,108 @@ describe('DataTable search', () => {
     expect(screen.queryByRole('cell', { name: 'apollo' })).not.toBeInTheDocument();
   });
 });
+
+describe('DataTable expandable rows', () => {
+  const rows: Row[] = [
+    { name: 'apollo', rank: 1, status: 'healthy' },
+    { name: 'borealis', rank: 2, status: 'degraded' },
+  ];
+  const columns: DataTableColumn<Row>[] = [
+    { id: 'name', header: 'Name', cell: (r) => r.name },
+    { id: 'status', header: 'Status', cell: (r) => r.status },
+  ];
+
+  function renderExpandable(open: string[], onExpandedChange = vi.fn()) {
+    render(
+      <DataTable
+        data={rows}
+        columns={columns}
+        getRowKey={(r) => r.name}
+        rowLabel={(r) => `Row ${r.name}`}
+        expandedKeys={new Set(open)}
+        onExpandedChange={onExpandedChange}
+        renderExpanded={(r) => <p>Detail for {r.name}</p>}
+      />,
+    );
+    return onExpandedChange;
+  }
+
+  it('renders the expanded content under only the open rows', () => {
+    renderExpandable(['borealis']);
+    expect(screen.getByText('Detail for borealis')).toBeInTheDocument();
+    expect(screen.queryByText('Detail for apollo')).toBeNull();
+  });
+
+  it('marks each row as expanded or collapsed', () => {
+    renderExpandable(['borealis']);
+    expect(screen.getByRole('row', { name: 'Row apollo' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    expect(screen.getByRole('row', { name: 'Row borealis' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+  });
+
+  it('reports a click as a request to open or close that row', () => {
+    const onExpandedChange = renderExpandable(['borealis']);
+    fireEvent.click(screen.getByRole('row', { name: 'Row apollo' }));
+    expect(onExpandedChange).toHaveBeenLastCalledWith('apollo', true);
+    fireEvent.click(screen.getByRole('row', { name: 'Row borealis' }));
+    expect(onExpandedChange).toHaveBeenLastCalledWith('borealis', false);
+  });
+
+  it('toggles from the keyboard', () => {
+    const onExpandedChange = renderExpandable([]);
+    fireEvent.keyDown(screen.getByRole('row', { name: 'Row apollo' }), { key: 'Enter' });
+    expect(onExpandedChange).toHaveBeenLastCalledWith('apollo', true);
+  });
+
+  it('does not call onRowClick when rows expand', () => {
+    const onRowClick = vi.fn();
+    render(
+      <DataTable
+        data={rows}
+        columns={columns}
+        getRowKey={(r) => r.name}
+        rowLabel={(r) => `Row ${r.name}`}
+        onRowClick={onRowClick}
+        expandedKeys={new Set()}
+        onExpandedChange={() => {}}
+        renderExpanded={() => null}
+      />,
+    );
+    fireEvent.click(screen.getByRole('row', { name: 'Row apollo' }));
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+});
+
+describe('DataTable columnToggle and maxHeight', () => {
+  const columns: DataTableColumn<Row>[] = [
+    { id: 'name', header: 'Name', cell: (r) => r.name, locked: true },
+    { id: 'status', header: 'Status', cell: (r) => r.status },
+  ];
+
+  it('offers the Columns menu by default and leaves it out on request', () => {
+    const { unmount } = render(
+      <DataTable data={data} columns={columns} getRowKey={(r) => r.name} />,
+    );
+    expect(screen.getByRole('button', { name: 'Toggle column visibility' })).toBeInTheDocument();
+    unmount();
+    render(
+      <DataTable data={data} columns={columns} getRowKey={(r) => r.name} columnToggle={false} />,
+    );
+    expect(screen.queryByRole('button', { name: 'Toggle column visibility' })).toBeNull();
+  });
+
+  it('scrolls the rows inside the table past maxHeight, keeping the header sticky', () => {
+    const { container } = render(
+      <DataTable data={data} columns={columns} getRowKey={(r) => r.name} maxHeight="20rem" />,
+    );
+    const scroller = container.querySelector('.overflow-x-auto') as HTMLElement;
+    expect(scroller.style.maxHeight).toBe('20rem');
+    expect(scroller.style.overflowY).toBe('auto');
+    expect(screen.getAllByRole('row')[0]).toHaveClass('sticky', 'top-0');
+  });
+});

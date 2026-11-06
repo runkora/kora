@@ -17,6 +17,24 @@ import { ApiRoute } from './api-routes';
  *      session verb symmetry, discover path coupling).
  */
 describe('ApiRoute', () => {
+  describe('skills', () => {
+    it('sends the Favourites view without a Marketplace', () => {
+      const url = new URL(
+        ApiRoute.skills.GET({
+          marketplace: 'a',
+          favourites: true,
+          search: '',
+          page: 2,
+        }),
+        'http://localhost',
+      );
+      expect(url.pathname).toBe('/api/skills');
+      expect(Object.fromEntries(url.searchParams)).toEqual({
+        page: '2',
+        favourites: '1',
+      });
+    });
+  });
   describe('discover', () => {
     it('PATH returns a path with no query string', () => {
       // PUBLIC_PATHS uses PATH() because the Edge middleware matches pathname

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
-	"go.opentelemetry.io/otel/codes"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 var errPricingSync = errors.New("pricing sync failed")
@@ -60,8 +60,7 @@ func (w *PricingSyncWorker) sync(ctx context.Context) {
 
 	entries, err := w.source.Fetch(ctx)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errPricingSync.Error())
+		observability.RecordFailure(span, err, errPricingSync)
 		w.logger.Error(ctx, "pricing.sync.failed",
 			logging.Field{Key: "error", Value: err.Error()},
 		)
@@ -69,8 +68,7 @@ func (w *PricingSyncWorker) sync(ctx context.Context) {
 	}
 
 	if err := w.catalog.UpsertSynced(ctx, entries); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errPricingSync.Error())
+		observability.RecordFailure(span, err, errPricingSync)
 		w.logger.Error(ctx, "pricing.sync.failed",
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "models_fetched", Value: len(entries)},

@@ -10,7 +10,8 @@
 # just need to visit a URL and enter a short code on any device.
 #
 # Options:
-#   --tenant-id <id>     Tenant ID for the session (required)
+#   --tenant-id <id>     Tenant ID for the session (required). It also picks the
+#                        tenant when your account matches several.
 #   --api-base <url>     API base URL (default: http://localhost:8080/api/v1)
 #   --help, -h           Show this help message and exit
 #
@@ -210,7 +211,7 @@ while true; do
   POLL_HTTP_CODE=$(curl -s -o /tmp/kora_poll_resp.json -w "%{http_code}" \
     -X POST "${API_BASE}/identity/session" \
     -H "Content-Type: application/json" \
-    -d "{\"grant_type\": \"urn:ietf:params:oauth:grant-type:device_code\", \"device_code\": \"${DEVICE_CODE}\", \"tenant_id\": \"${TENANT_ID}\"}")
+    -d "{\"grant_type\": \"urn:ietf:params:oauth:grant-type:device_code\", \"device_code\": \"${DEVICE_CODE}\", \"tenant_id\": \"${TENANT_ID}\", \"tenant_hint\": \"${TENANT_ID}\"}")
 
   POLL_RESP=$(cat /tmp/kora_poll_resp.json)
   chmod 600 /tmp/kora_poll_resp.json
@@ -236,6 +237,14 @@ while true; do
     echo ""
     success "Authenticated successfully!"
     echo ""
+
+    # A hint only chooses among several matches. An account matching one tenant
+    # is signed in there whatever --tenant-id named.
+    ISSUED_TENANT=$(jq -rR 'split(".")[1] | gsub("-";"+") | gsub("_";"/") | @base64d | fromjson | .kora.tenant_id // ""' <<<"$ACCESS_TOKEN" 2>/dev/null || true)
+    if [[ -n "$ISSUED_TENANT" && "$ISSUED_TENANT" != "$TENANT_ID" ]]; then
+      warn "Signed in to tenant ${BOLD}${ISSUED_TENANT}${RESET}, not ${TENANT_ID}: it is the only tenant your account matches."
+      echo ""
+    fi
 
     if [[ -n "$ACCESS_TOKEN" ]]; then
       echo -e "  ${BOLD}Access token${RESET} (expires in ${EXPIRES}s):"
@@ -270,8 +279,18 @@ while true; do
 
   # Any other status is a terminal error
   echo ""
-  ERR_CODE=$(echo "$POLL_RESP" | jq -r '.error.code // "unknown"')
-  ERR_MSG=$(echo "$POLL_RESP" | jq -r '.error.message // "unknown error"')
+  ERR_CODE=$(echo "$POLL_RESP" | jq -r '.code // "unknown"')
+  ERR_MSG=$(echo "$POLL_RESP" | jq -r '.message // "unknown error"')
   echo ""
-  die "Authentication failed (HTTP ${POLL_HTTP_CODE}): ${ERR_CODE} — ${ERR_MSG}"
+  if [[ "$ERR_CODE" == "multiple_tenants_match" ]]; then
+    error "Your account matches several tenants:"
+    echo ""
+    echo "$POLL_RESP" | jq -r '.details.tenants[] | "    \(.id)" + (if (.display_name // "") != "" then "  (\(.display_name))" else "" end)'
+    echo ""
+    echo "  Run the script again with the tenant you want:"
+    echo "    $0 --tenant-id <id>"
+    echo ""
+    exit 1
+  fi
+  die "Authentication failed (HTTP ${POLL_HTTP_CODE}): ${ERR_CODE}: ${ERR_MSG}"
 done

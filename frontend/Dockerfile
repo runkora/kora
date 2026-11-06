@@ -22,7 +22,7 @@
 # deps and builder run on the build platform, and only the runner stage builds
 # per target. The standalone output traces sharp for /_next/image, so pnpm
 # installs its linux musl binaries for both image architectures.
-FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS deps
+FROM --platform=$BUILDPLATFORM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS deps
 
 WORKDIR /app
 
@@ -66,6 +66,7 @@ ARG POLICY_SERVICE_URL=http://kora-policy-service.kora-system/api/v1
 ARG KORA_AGENTS_URL=http://kora-agents.kora-system
 ARG KORA_TRIGGERS_URL=http://kora-triggers.kora-system/api/v1
 ARG TOOL_GATEWAY_URL=http://kora-tool-gateway.kora-system
+ARG SKILLS_SERVICE_URL=http://kora-skills-service.kora-system:8098/v1
 # hadolint ignore=DL3025
 # BFF_SESSION_SECRET is a placeholder value only — Next.js evaluates server
 # modules at build time to collect page data, so the variable must be present
@@ -79,6 +80,7 @@ ENV KORA_API_URL=${KORA_API_URL} \
     KORA_AGENTS_URL=${KORA_AGENTS_URL} \
     KORA_TRIGGERS_URL=${KORA_TRIGGERS_URL} \
     TOOL_GATEWAY_URL=${TOOL_GATEWAY_URL} \
+    SKILLS_SERVICE_URL=${SKILLS_SERVICE_URL} \
     BFF_SESSION_SECRET=${BFF_SESSION_SECRET}
 
 # Standalone output traces all runtime dependencies and produces a self-contained
@@ -92,7 +94,7 @@ RUN node scripts/bundle-validate-theme.mjs
 
 # ── Stage 3: runner ───────────────────────────────────────────────────────────
 # Minimal production image — only the standalone output, static assets, and public dir.
-FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runner
+FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS runner
 
 WORKDIR /app
 

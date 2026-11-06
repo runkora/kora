@@ -319,6 +319,7 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 	connAggregator := operator.NewConnectionAggregator(mgr.GetClient(), logger)
 	mcpAggregator := operator.NewMCPServerAggregator(mgr.GetClient(), logger)
 	oauthAggregator := operator.NewOAuthClientAggregator(mgr.GetClient(), logger)
+	marketplaceAggregator := operator.NewSkillMarketplaceAggregator(mgr.GetClient(), logger)
 
 	tenantReconciler := &operator.TenantReconciler{
 		Client:                mgr.GetClient(),
@@ -329,6 +330,7 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 		ConnAggregator:        connAggregator,
 		MCPAggregator:         mcpAggregator,
 		OAuthAggregator:       oauthAggregator,
+		MarketplaceAggregator: marketplaceAggregator,
 		Logger:                logger,
 		BundlePollingMinDelay: install.Injection.BundlePollingMinDelay,
 		BundlePollingMaxDelay: install.Injection.BundlePollingMaxDelay,
@@ -380,6 +382,15 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 		Logger:     logger,
 	}
 	if err := mcpServerReconciler.SetupWithManager(mgr); err != nil {
+		return err
+	}
+
+	marketplaceReconciler := &operator.SkillMarketplaceReconciler{
+		Client:     mgr.GetClient(),
+		Aggregator: marketplaceAggregator,
+		Logger:     logger,
+	}
+	if err := marketplaceReconciler.SetupWithManager(mgr); err != nil {
 		return err
 	}
 	return initDeclared(mgr, logger)

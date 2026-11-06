@@ -1,0 +1,97 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const { signinRedirect } = vi.hoisted(() => ({ signinRedirect: vi.fn() }));
+
+vi.mock('@runkora/lib/oidc-client', () => ({
+  TENANT_CONFIG_STORAGE_KEY: 'tenant-config',
+  buildUserManager: () => ({ signinRedirect }),
+}));
+
+import { announceTenantSwitch, onTenantSwitch, startTenantSwitch } from './tenant-switch';
+
+const VALID = {
+  tenant_id: 'kora-tenant-example',
+  issuer_url: 'https://auth.example.com',
+  client_id: 'dashboard',
+  scopes: ['openid', 'email'],
+};
+
+function discoverReturns(body: unknown) {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(body)));
+}
+
+const SWITCH = { email: 'dev@example.com', tenantId: 'kora-tenant-example-data', returnPath: '/' };
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  signinRedirect.mockReset();
+});
+
+describe('startTenantSwitch', () => {
+  it('redirects with the discovered issuer and client and the switch in the state', async () => {
+    discoverReturns(VALID);
+    await startTenantSwitch(SWITCH);
+    expect(signinRedirect).toHaveBeenCalledWith({
+      prompt: 'none',
+      login_hint: 'dev@example.com',
+      state: {
+        next: '/',
+        tenantId: 'kora-tenant-example',
+        switchTo: 'kora-tenant-example-data',
+        email: 'dev@example.com',
+      },
+    });
+    // The callback page rebuilds the same client from this config.
+    expect(JSON.parse(sessionStorage.getItem('tenant-config') ?? 'null')).toEqual({
+      tenantId: 'kora-tenant-example',
+      issuerUrl: 'https://auth.example.com',
+      clientId: 'dashboard',
+      scopes: ['openid', 'email'],
+    });
+  });
+
+  it.each([
+    ['no issuer', { ...VALID, issuer_url: undefined }],
+    ['an empty client', { ...VALID, client_id: '' }],
+    ['no scopes', { ...VALID, scopes: undefined }],
+    ['a null body', null],
+  ])('rejects a discovery answer with %s and does not redirect', async (_, body) => {
+    discoverReturns(body);
+    await expect(startTenantSwitch(SWITCH)).rejects.toThrow('incomplete config');
+    expect(signinRedirect).not.toHaveBeenCalled();
+  });
+});
+
+describe('tenant switch broadcast', () => {
+  it('tells a listener in another tab that a switch finished, until it unsubscribes', async () => {
+    const onSwitch = vi.fn();
+    const unsubscribe = onTenantSwitch(onSwitch);
+
+    announceTenantSwitch();
+    await vi.waitFor(() => expect(onSwitch).toHaveBeenCalledOnce());
+
+    unsubscribe();
+    announceTenantSwitch();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(onSwitch).toHaveBeenCalledOnce();
+  });
+
+  it('treats a page restored from the back-forward cache as possibly switched', () => {
+    const onSwitch = vi.fn();
+    const unsubscribe = onTenantSwitch(onSwitch);
+    const pageshow = (persisted: boolean) => {
+      const event = new Event('pageshow');
+      Object.defineProperty(event, 'persisted', { value: persisted });
+      window.dispatchEvent(event);
+    };
+
+    pageshow(false);
+    expect(onSwitch).not.toHaveBeenCalled();
+    pageshow(true);
+    expect(onSwitch).toHaveBeenCalledOnce();
+
+    unsubscribe();
+    pageshow(true);
+    expect(onSwitch).toHaveBeenCalledOnce();
+  });
+});

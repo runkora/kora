@@ -9,6 +9,7 @@ const (
 	RunStateKey                attribute.Key = "kora.run.state"
 	RunStateFromKey            attribute.Key = "kora.run.state_from"
 	RunStateToKey              attribute.Key = "kora.run.state_to"
+	RunStartedByKey            attribute.Key = "kora.run.started_by"
 	PrincipalIDKey             attribute.Key = "kora.principal.id"
 	PrincipalTypeKey           attribute.Key = "kora.principal.type"
 	PrincipalIdentitySourceKey attribute.Key = "kora.principal.identity_source"
@@ -18,6 +19,7 @@ const (
 	AgentSlugKey               attribute.Key = "kora.agent.slug"
 	AgentUpdateKey             attribute.Key = "kora.agent.update"
 	TriggerIDKey               attribute.Key = "kora.trigger.id"
+	TriggerNameKey             attribute.Key = "kora.trigger.name"
 	TriggerDeliveryIDKey       attribute.Key = "kora.trigger.delivery.id"
 	EnvironmentIDKey           attribute.Key = "kora.environment.id"
 	EnvironmentNameKey         attribute.Key = "kora.environment.name"
@@ -78,5 +80,11 @@ const (
 	GenAIOperationNameKey attribute.Key = "gen_ai.operation.name"
 	GenAIRequestModelKey  attribute.Key = "gen_ai.request.model"
 	GenAIToolNameKey      attribute.Key = "gen_ai.tool.name"
-	MCPMethodNameKey      attribute.Key = "mcp.method.name"
+
+	GenAIResponseModelKey            attribute.Key = "gen_ai.response.model"
+	GenAIUsageInputTokensKey         attribute.Key = "gen_ai.usage.input_tokens"
+	GenAIUsageOutputTokensKey        attribute.Key = "gen_ai.usage.output_tokens"
+	GenAIUsageCacheReadTokensKey     attribute.Key = "gen_ai.usage.cache_read.input_tokens"
+	GenAIUsageCacheCreationTokensKey attribute.Key = "gen_ai.usage.cache_write.input_tokens"
+	MCPMethodNameKey                 attribute.Key = "mcp.method.name"
 )

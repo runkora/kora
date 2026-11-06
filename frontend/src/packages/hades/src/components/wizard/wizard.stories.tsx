@@ -376,6 +376,42 @@ export const Overview: Story = {
   render: () => <TriggerWizardDemo />,
 };
 
+function SuccessDemo() {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>Open success screen</Button>
+      {open && (
+        <Wizard open onClose={() => setOpen(false)} icon="shield-check" title="Create grant">
+          <Wizard.Success
+            title="Grant created"
+            description="Ada Lovelace now has 3 scopes."
+            actions={
+              <>
+                <Button variant="secondary" onClick={() => setOpen(false)}>
+                  Done
+                </Button>
+                <Button onClick={() => setOpen(false)}>
+                  Create another
+                  <Icon name="plus" />
+                </Button>
+              </>
+            }
+          />
+        </Wizard>
+      )}
+    </>
+  );
+}
+
+/**
+ * `Wizard.Success` is the post-flow screen. As a direct child of `Wizard` it hides the rail and
+ * footer and freezes the progress bar. Pass `children` for extra body, such as a one-time secret.
+ */
+export const Success: Story = {
+  render: () => <SuccessDemo />,
+};
+
 type Demo = 'error-hint' | 'warning-hint' | 'toggle-hint' | 'actions' | 'full-page';
 
 const DEMO_TITLES: Record<Demo, string> = {
@@ -628,7 +664,7 @@ function PartsDemo() {
         </Option>
         <Option
           name="Wizard.Step fullPage"
-          use="Fills the modal with no rail or footer. Use it before and after the flow."
+          use="Fills the modal with no rail or footer. Use it before the flow, such as a kind picker."
         >
           {opener('full-page')}
         </Option>

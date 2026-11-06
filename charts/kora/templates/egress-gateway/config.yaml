@@ -8,6 +8,8 @@ cmd/egress-gateway:
     port: {{ .Values.global.metrics.port | default 9464 }}
   identity:
     internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-identity") | toJson }}
+  agents:
+    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-agents") | toJson }}
   policy:
     bundleEndpoint: {{ include "kora.bundleEndpoint" . | toJson }}
     policyServiceInternalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-policy-service") | toJson }}

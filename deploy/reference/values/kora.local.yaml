@@ -79,3 +79,4 @@ egressGateway:
   # scripts/cluster/register-k8s-connection.sh register it.
   upstreamPorts:
     - 6443
+

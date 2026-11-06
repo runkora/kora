@@ -45,6 +45,8 @@ export interface AgentDetailStateShape {
   status: DetailStatus;
   error: string | null;
   refresh: () => Promise<void>;
+  /** Replaces the agent with the server's saved copy, so every tab shows an edit without a reload. */
+  applyAgent: (agent: AgentTypeRow) => void;
   deleteAgent: () => Promise<boolean>;
   deleteRun: (runId: string) => Promise<{ error: string | null }>;
   startRun: (task: string) => Promise<{ runId: string | null; error: string | null }>;
@@ -221,6 +223,7 @@ export function useAgentDetail(
     status,
     error,
     refresh,
+    applyAgent: setAgent,
     deleteAgent,
     deleteRun,
     startRun,

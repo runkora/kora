@@ -34,7 +34,7 @@ export const Many: Story = {
   args: { servers: MANY_SERVERS, error: null },
 };
 
-/** Two servers ticked and the Build config panel open. */
+/** Two servers ticked and the Build config wizard open on its first step. */
 export const BuildConfigOpen: Story = {
   args: { servers: MOCK_SERVERS, error: null },
   play: async ({ canvasElement }) => {
@@ -46,5 +46,21 @@ export const BuildConfigOpen: Story = {
     await expect(
       await within(document.body).findByText('one gateway endpoint', { exact: false }),
     ).toBeTruthy();
+    await expect(await within(document.body).findByText('Selected servers')).toBeTruthy();
+  },
+};
+
+/** Walks the wizard through to the generated config. */
+export const BuildConfigWizardFinalStep: Story = {
+  args: { servers: MOCK_SERVERS, error: null },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByLabelText('Select GitHub'));
+    const buttons = await canvas.findAllByRole('button', { name: /Build config/ });
+    await userEvent.click(buttons[buttons.length - 1]!);
+    const body = within(document.body);
+    await userEvent.click(await body.findByRole('button', { name: /Continue/ }));
+    await expect(await body.findByText('Your config')).toBeTruthy();
+    await expect(await body.findByRole('button', { name: /Copy config/ })).toBeTruthy();
   },
 };

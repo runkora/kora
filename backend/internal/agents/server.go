@@ -156,6 +156,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /internal/runs/{id}/summary", c.handleSetRunSummary)
 	mux.Handle("POST /internal/runs/{id}/provision-sandbox", c.handleProvisionSandbox)
 	mux.Handle("GET /internal/runs/{id}/sandbox", c.handleGetRunSandbox)
+	mux.Handle("GET /internal/runs/{id}/trace-parent", c.handleGetRunTraceParent)
 	mux.Handle("GET /internal/runs/{id}/environments", c.handleListRunEnvironments)
 }
 
@@ -1041,6 +1042,35 @@ func (c *Controller) handleGetRunSandbox(w http.ResponseWriter, r *http.Request)
 		"endpoint":   sandbox.Endpoint,
 		"exec_token": sandbox.ExecToken,
 	})
+}
+
+// traceParentCaller is the SYSTEM principal allowed to read a run's trace context
+// (docs/adr/2026-10-31-one-trace-per-run.md).
+const traceParentCaller = "egress-gateway"
+
+// handleGetRunTraceParent returns the run's stored traceparent, empty when the run has none.
+// Any SYSTEM token is not enough: the caller must be the egress gateway.
+func (c *Controller) handleGetRunTraceParent(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims.Kora.PrincipalType != token.PrincipalTypeSystem || claims.Kora.DisplayName != traceParentCaller {
+		apiErr := api.ForbiddenError(api.ErrCodeForbidden, "caller is not authorized to read run trace context", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+
+	traceParent, err := c.runs.TraceParent(ctx, r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to look up the run trace context", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]string{"trace_parent": traceParent})
 }
 
 func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Request) {

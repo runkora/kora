@@ -106,6 +106,10 @@ policyService:
 
 A service with an unknown or mistyped key fails at startup and logs the key. Use a component's `extraEnv` for secrets only.
 
+### Skill marketplaces
+
+Tenant admins register their own [skill marketplaces](register-skill-marketplace.md) from their namespace. You can set how much of each repository kora reads with `skillsService.limits`. If your mesh runs with `istio.outboundTrafficPolicy: REGISTRY_ONLY`, the chart registers `api.github.com` for you.
+
 ## Run behind an existing gateway
 
 kora creates its own ingress gateway by default. To use an Istio gateway you already run, set `gateway.create: false`, and kora binds its `VirtualService`s to your gateway:
