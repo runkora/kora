@@ -1040,3 +1040,31 @@ func TestHandleUpdateTrigger_RevokeFailureHidesGrants(t *testing.T) {
 		t.Errorf("body = %s, want the fixed message and trigger id only", body)
 	}
 }
+
+// An event delivery's stored event is returned only to a caller holding events:read.
+func TestHandleListDeliveries_EventPayloadNeedsEventsRead(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	_, _ = deps.repo.InsertEventDelivery(context.Background(), &Delivery{
+		ID: "d-ev", TenantID: testTenant, Kind: KindEvent, EventID: "e-1", Status: StatusSkipped,
+		Payload: []byte(`{"koraprincipalname":"Ada"}`), PayloadExcerpt: `{"koraprincipalname":"Ada"}`,
+	})
+	list := func(c *Controller) Delivery {
+		body := decode[struct {
+			Deliveries []Delivery `json:"deliveries"`
+		}](t, call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries", nil, nil))
+		if len(body.Deliveries) != 1 {
+			t.Fatalf("deliveries = %d, want 1", len(body.Deliveries))
+		}
+		return body.Deliveries[0]
+	}
+	if d := list(c); d.Payload != nil || d.PayloadExcerpt != "" || d.EventID != "e-1" {
+		t.Errorf("without events:read: %+v, want the delivery without its event", d)
+	}
+	c.eval = &mockEvaluator{allow: true}
+	if d := list(c); len(d.Payload) == 0 || d.PayloadExcerpt == "" {
+		t.Errorf("with events:read: %+v, want the event", d)
+	}
+	if stored, _ := deps.repo.GetDelivery(context.Background(), testTenant, "d-ev"); len(stored.Payload) == 0 {
+		t.Error("the stored event must stay for redelivery")
+	}
+}
