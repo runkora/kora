@@ -906,17 +906,18 @@ func (s *Service) createSession(ctx context.Context, principal *Principal, repla
 		observability.RefreshTokenTTLDaysKey.Int64(int64(s.cfg.Token.RefreshTokenTTLDays)),
 	)
 
-	if replaced != nil {
+	switch {
+	case replaced != nil:
 		if err := s.sessions.SwitchSession(ctx, session, rt, replaced, session.CreatedAt); err != nil {
 			observability.RecordFailure(span, err, errSpanSessionPersistenceFailed)
 			return nil, fmt.Errorf("persist switched session: %w", err)
 		}
-	} else if signIn {
+	case signIn:
 		if err := s.sessions.StartSession(ctx, session, rt); err != nil {
 			observability.RecordFailure(span, err, errSpanSessionPersistenceFailed)
 			return nil, fmt.Errorf("persist session: %w", err)
 		}
-	} else {
+	default:
 		if err := s.sessions.CreateSession(ctx, session); err != nil {
 			observability.RecordFailure(span, err, errSpanSessionPersistenceFailed)
 			return nil, fmt.Errorf("persist session: %w", err)
