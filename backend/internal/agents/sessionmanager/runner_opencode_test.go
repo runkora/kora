@@ -989,3 +989,35 @@ func TestOpenCodeSessionUpdate_ToolCallCompletedUnquotesOutput(t *testing.T) {
 		t.Errorf("content = %q, want 'file contents here' (no extra quotes)", payload.Content)
 	}
 }
+
+func TestOpenCodeReadLoop_OverLimitLineEmitsRunError(t *testing.T) {
+	r := newTestOpenCodeRunner()
+
+	big := strings.Repeat("x", maxAgentLineBytes+1)
+	go r.readLoop(t.Context(), strings.NewReader(big+"\n"))
+	evs := collectEvents(r.events)
+
+	if len(evs) != 1 || evs[0].Type != EventTypeRunError {
+		t.Fatalf("got %d events, want one run_error", len(evs))
+	}
+	var p RunErrorPayload
+	if err := json.Unmarshal(evs[0].Payload, &p); err != nil {
+		t.Fatalf("unmarshal run_error: %v", err)
+	}
+	if !strings.Contains(p.Message, "exceeds") || !strings.Contains(p.Message, "limit") {
+		t.Errorf("message = %q, want it to name the line limit", p.Message)
+	}
+}
+
+func TestOpenCodeReadLoop_LargeLineUnderLimitIsRead(t *testing.T) {
+	r := newTestOpenCodeRunner()
+
+	big := strings.Repeat("x", 2*1024*1024)
+	fixture := `{"method":"session/update","params":{"x":"` + big + `"}}` + "\n"
+	go r.readLoop(t.Context(), strings.NewReader(fixture))
+	for _, ev := range collectEvents(r.events) {
+		if ev.Type == EventTypeRunError {
+			t.Fatalf("unexpected run_error for a line under the limit")
+		}
+	}
+}
