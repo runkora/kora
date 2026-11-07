@@ -3,7 +3,8 @@
 The gateway strips a /run/{run_id} prefix before routing, so a path rule
 written for an unprefixed path does not see a prefixed request. Agents send
 the prefix on their model calls only, so every other prefixed path is refused.
-The allowed paths are exact, so an encoded or unexpected path fails closed.
+The allowed paths are exact. The run ID segment matches any characters, so
+StripRunPrefix refuses a run path carrying percent-encoding.
 */}}
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
