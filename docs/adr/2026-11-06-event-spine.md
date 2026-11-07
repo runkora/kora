@@ -401,6 +401,7 @@ The work ships as one stack of seven pull requests:
 *   Every producer write that records an event becomes a transaction with a second insert.
 *   A repository that keeps `*pgxpool.Pool` does not join a context transaction. A producer must move to `storage.Pool` before it calls `Publish`.
 *   Changes to MCP servers, skill marketplaces, connections and platform-wide resources record no event in v1.
+*   `events:read` shows every run event in the tenant, including runs the caller cannot open through the runs API. Per-category scopes are the later fix.
 
 ### Neutral
 
