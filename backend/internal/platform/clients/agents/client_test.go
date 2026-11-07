@@ -259,6 +259,7 @@ func TestRunChain(t *testing.T) {
 		err    error
 	}{
 		{http.StatusOK, `{"caused_by":"ev-1","chain_depth":2,"trigger_ids":["trg-a"]}`, RunChain{CausedBy: "ev-1", ChainDepth: 2, TriggerIDs: []string{"trg-a"}}, nil},
+		{http.StatusUnauthorized, `{}`, RunChain{}, ErrUnauthorized},
 		{http.StatusForbidden, `{}`, RunChain{}, ErrForbidden},
 		{http.StatusServiceUnavailable, `{}`, RunChain{}, ErrUpstreamUnavailable},
 	} {

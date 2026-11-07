@@ -36,6 +36,9 @@ const (
 var (
 	// ErrForbidden is returned when the caller's token lacks the required run scope.
 	ErrForbidden = errors.New("forbidden: token lacks required run scope")
+	// ErrUnauthorized is returned when kora-agents rejects the caller's token
+	// itself, which a fresh token can clear.
+	ErrUnauthorized = errors.New("unauthorized: kora-agents rejected the token")
 	// ErrAgentTypeNotFound is returned when the target agent type does not exist.
 	ErrAgentTypeNotFound = errors.New("agent type not found")
 	// ErrRunNotFound is returned when the run does not exist in the caller's tenant.
@@ -377,7 +380,9 @@ func (c *Client) RunChain(ctx context.Context, bearer, runID, tenant, agent stri
 			return RunChain{}, fmt.Errorf("decode run chain response: %w", err)
 		}
 		return out, nil
-	case http.StatusUnauthorized, http.StatusForbidden:
+	case http.StatusUnauthorized:
+		return RunChain{}, c.HandleErrorResponse(span, resp, ErrUnauthorized)
+	case http.StatusForbidden:
 		return RunChain{}, c.HandleErrorResponse(span, resp, ErrForbidden)
 	default:
 		if resp.StatusCode >= http.StatusInternalServerError {

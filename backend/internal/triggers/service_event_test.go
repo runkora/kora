@@ -470,8 +470,8 @@ func TestHandleEvent_ReadsTheActingRunChainOnlyWhenNeeded(t *testing.T) {
 	}
 }
 
-// An unavailable kora-agents leaves the event to be read again. A refusal
-// records it with no chain and counts the fail-open.
+// An unavailable kora-agents or a rejected token leaves the event to be read
+// again. A refusal records it with no chain and counts the fail-open.
 func TestHandleEvent_ActingRunChainFailure(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -480,6 +480,7 @@ func TestHandleEvent_ActingRunChainFailure(t *testing.T) {
 		deliveries int
 	}{
 		{"unavailable", agentsclient.ErrUpstreamUnavailable, true, 0},
+		{"token rejected", agentsclient.ErrUnauthorized, true, 0},
 		{"refused", agentsclient.ErrForbidden, false, 1},
 		{"unexpected status", agentsclient.ErrUnexpectedStatus, false, 1},
 	} {
