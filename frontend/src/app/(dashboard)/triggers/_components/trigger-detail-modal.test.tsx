@@ -603,7 +603,7 @@ describe('permissions', () => {
   const eventTrigger = trigger({ kind: 'event', sourceId: '', eventType: 'agents.run.failed.v1' });
 
   const NO_EVENTS = ['triggers:read', 'triggers:write'];
-  const LOCK_NOTE = /needs the events:read permission/;
+  const LOCK_NOTE = 'Event triggers need the events:read permission to edit.';
 
   it('makes an event trigger read only without events:read, except its name', async () => {
     api.fetchPlatformEventTypes.mockResolvedValue({ eventTypes: [], error: null });
