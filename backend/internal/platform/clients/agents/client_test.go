@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -245,6 +246,37 @@ func TestRunTraceParent(t *testing.T) {
 		}
 		if gotPath != "/internal/runs/run-1/trace-parent" || gotAuth != "Bearer tok" {
 			t.Errorf("status %d: request %s with %q", tc.status, gotPath, gotAuth)
+		}
+	}
+}
+
+// RunChain reads the chain of the agent's run as the caller, and maps a refusal and an outage.
+func TestRunChain(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		body   string
+		want   RunChain
+		err    error
+	}{
+		{http.StatusOK, `{"caused_by":"ev-1","chain_depth":2,"trigger_ids":["trg-a"]}`, RunChain{CausedBy: "ev-1", ChainDepth: 2, TriggerIDs: []string{"trg-a"}}, nil},
+		{http.StatusUnauthorized, `{}`, RunChain{}, ErrUnauthorized},
+		{http.StatusForbidden, `{}`, RunChain{}, ErrForbidden},
+		{http.StatusServiceUnavailable, `{}`, RunChain{}, ErrUpstreamUnavailable},
+	} {
+		var gotURL, gotAuth string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotURL, gotAuth = r.URL.String(), r.Header.Get("Authorization")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(tc.status)
+			_, _ = w.Write([]byte(tc.body))
+		}))
+		got, err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).RunChain(context.Background(), "tok", "run-1", "t-1", "triage")
+		srv.Close()
+		if !errors.Is(err, tc.err) || !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("status %d: got %+v, %v; want %+v, %v", tc.status, got, err, tc.want, tc.err)
+		}
+		if gotURL != "/internal/runs/run-1/chain?agent=triage&tenant=t-1" || gotAuth != "Bearer tok" {
+			t.Errorf("status %d: request %s with %q", tc.status, gotURL, gotAuth)
 		}
 	}
 }

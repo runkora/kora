@@ -922,6 +922,12 @@ func (s *RunService) TraceParent(ctx context.Context, runID string) (string, err
 	return run.TraceParent, nil
 }
 
+// RunChain is the chain of a run of agent in tenant, empty when the run is
+// not that agent's (docs/adr/2026-11-06-event-spine.md, section 7).
+func (s *RunService) RunChain(ctx context.Context, runID, tenant, agent string) (runChain, error) {
+	return agentRunChain(ctx, s.repo, runID, tenant, agent)
+}
+
 // ErrNoSandbox reports that a run has no sandbox. Distinct from a lookup
 // failure: the caller routes work locally for the former and refuses for the
 // latter.

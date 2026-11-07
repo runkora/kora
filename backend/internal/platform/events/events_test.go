@@ -78,6 +78,33 @@ func TestNewEnvelope_Attributes(t *testing.T) {
 	}
 }
 
+// The envelope names the run an agent acts for, and leaves out a value that is not a run id.
+func TestNewEnvelope_ActingRun(t *testing.T) {
+	run := uuid.NewString()
+	acting := func(ctx context.Context, runID string) context.Context {
+		return policy.WithDelegation(ctx, &policy.DelegationClaims{Sub: "alice", RunID: runID})
+	}
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		want string
+	}{
+		{"agent", acting(withPrincipal("agent", token.PrincipalTypeAgent), run), run},
+		{"not a run id", acting(withPrincipal("agent", token.PrincipalTypeAgent), "run-1"), ""},
+		{"person", acting(withPrincipal("alice", token.PrincipalTypeHuman), run), ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env, err := newEnvelope(tc.ctx, uuid.New(), runFailed("t1"), time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if env.ActingRun != tc.want {
+				t.Errorf("acting run = %q, want %q", env.ActingRun, tc.want)
+			}
+		})
+	}
+}
+
 func TestNewEnvelope_Refuses(t *testing.T) {
 	for name, tc := range map[string]struct {
 		edit func(*Event)

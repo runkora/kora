@@ -36,6 +36,9 @@ const (
 var (
 	// ErrForbidden is returned when the caller's token lacks the required run scope.
 	ErrForbidden = errors.New("forbidden: token lacks required run scope")
+	// ErrUnauthorized is returned when kora-agents rejects the caller's token
+	// itself, which a fresh token can clear.
+	ErrUnauthorized = errors.New("unauthorized: kora-agents rejected the token")
 	// ErrAgentTypeNotFound is returned when the target agent type does not exist.
 	ErrAgentTypeNotFound = errors.New("agent type not found")
 	// ErrRunNotFound is returned when the run does not exist in the caller's tenant.
@@ -344,6 +347,48 @@ func (c *Client) RunTraceParent(ctx context.Context, bearer, runID string) (stri
 			return "", c.HandleErrorResponse(span, resp, ErrUpstreamUnavailable)
 		}
 		return "", c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+}
+
+// RunChain is the event chain a run is in. It is empty for a run in none.
+type RunChain struct {
+	CausedBy   string   `json:"caused_by"`
+	ChainDepth int      `json:"chain_depth"`
+	TriggerIDs []string `json:"trigger_ids"`
+}
+
+// RunChain returns the chain of a run of agent in tenant, and an empty chain
+// when the run is not that agent's. Only the kora-triggers SYSTEM token may call it.
+func (c *Client) RunChain(ctx context.Context, bearer, runID, tenant, agent string) (RunChain, error) {
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+bearer)
+
+	_, span, resp, err := c.Do(observability.WithRun(ctx, runID), httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/internal/runs/{runID}/chain", Params: []string{runID},
+		Query: url.Values{"tenant": {tenant}, "agent": {agent}}, Header: header,
+	})
+	defer span.End()
+	if err != nil {
+		return RunChain{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var out RunChain
+		if err := c.DecodeJSON(span, resp, &out); err != nil {
+			return RunChain{}, fmt.Errorf("decode run chain response: %w", err)
+		}
+		return out, nil
+	case http.StatusUnauthorized:
+		return RunChain{}, c.HandleErrorResponse(span, resp, ErrUnauthorized)
+	case http.StatusForbidden:
+		return RunChain{}, c.HandleErrorResponse(span, resp, ErrForbidden)
+	default:
+		if resp.StatusCode >= http.StatusInternalServerError {
+			return RunChain{}, c.HandleErrorResponse(span, resp, ErrUpstreamUnavailable)
+		}
+		return RunChain{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
 }
 

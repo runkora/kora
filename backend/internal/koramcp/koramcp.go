@@ -146,11 +146,11 @@ func noAccess(tool string, err error) *sdk.CallToolResult {
 	}
 }
 
-// caller returns the bearer and delegation token the kit lifted from the inbound
-// request. Every downstream call carries both. A service that reads the
+// caller returns the bearer, delegation token and run the kit lifted from the
+// inbound request. Every downstream call carries them. A service that reads the
 // delegation evaluates agent grant intersected with the delegator's access.
 func caller(ctx context.Context) korajson.Caller {
-	return korajson.Caller{Bearer: mcpkit.CallerToken(ctx), Delegation: mcpkit.CallerDelegation(ctx)}
+	return korajson.Caller{Bearer: mcpkit.CallerToken(ctx), Delegation: mcpkit.CallerDelegation(ctx), RunID: mcpkit.CallerRun(ctx)}
 }
 
 // jsonResult turns a (rawJSON, err) into an MCP tool result: the JSON as text on

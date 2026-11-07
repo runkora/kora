@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/runkora/kora/backend/internal/platform/policy"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -22,22 +22,6 @@ type runGetter interface {
 	GetRun(ctx context.Context, id string) (*Run, error)
 }
 
-// attestedRunID is the run an AGENT caller acts for when the platform attests
-// it: the run of a per-run sandbox identity, or the run its delegation is bound to.
-func attestedRunID(ctx context.Context) string {
-	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims == nil || claims.Kora.PrincipalType != token.PrincipalTypeAgent {
-		return ""
-	}
-	if id := claims.Kora.Claims["run_id"]; id != "" {
-		return id
-	}
-	if d := policy.DelegationFromContext(ctx); d != nil {
-		return d.RunID
-	}
-	return ""
-}
-
 // requestChain is the chain a trigger reports, checked by authorizeChain, or
 // else the one the caller inherits. from is the authorized trigger, nil for anyone else.
 func requestChain(ctx context.Context, runs runGetter, from *StartedByTrigger, causedBy string, depth int, targetRunID string) (runChain, error) {
@@ -50,27 +34,35 @@ func requestChain(ctx context.Context, runs runGetter, from *StartedByTrigger, c
 	return inheritedChain(ctx, runs, targetRunID)
 }
 
-// inheritedChain is the chain of the attested run the caller acts for, one step
+// inheritedChain is the chain of the run the agent caller acts for, one step
 // deeper, so a run an agent starts or messages stays in its loop guards. It is
-// empty for any other caller, for the target run itself, for a run that is not
-// the calling agent's in its tenant, and for a run in no trigger chain.
+// empty for any other caller and for the target run itself.
 func inheritedChain(ctx context.Context, runs runGetter, targetRunID string) (runChain, error) {
-	id := attestedRunID(ctx)
+	id := mw.ActingRunID(ctx)
 	if id == "" || id == targetRunID {
 		return runChain{}, nil
 	}
-	parent, err := runs.GetRun(ctx, id)
+	claims, _ := token.ClaimsFromContext(ctx)
+	chain, err := agentRunChain(ctx, runs, id, tenantFromContext(ctx), agentSlugFromClaims(claims))
+	if err != nil || chain.depth == 0 && len(chain.triggers) == 0 {
+		return runChain{}, err
+	}
+	chain.depth++
+	return chain, nil
+}
+
+// agentRunChain is the chain of a run of agent in tenant. It is empty for a
+// missing run, a run of another agent or tenant, and a run in no trigger chain.
+func agentRunChain(ctx context.Context, runs runGetter, runID, tenant, agent string) (runChain, error) {
+	run, err := runs.GetRun(ctx, runID)
 	if errors.Is(err, ErrNotFound) {
 		return runChain{}, nil
 	}
 	if err != nil {
-		return runChain{}, fmt.Errorf("read the calling run: %w", err)
+		return runChain{}, fmt.Errorf("read the acting run: %w", err)
 	}
-	claims, _ := token.ClaimsFromContext(ctx)
-	// A run outside a trigger chain passes no chain on.
-	if parent.TenantID != tenantFromContext(ctx) || parent.AgentSlug != agentSlugFromClaims(claims) ||
-		(parent.ChainDepth == 0 && len(parent.TriggerIDs) == 0) {
+	if run.TenantID != tenant || run.AgentSlug != agent {
 		return runChain{}, nil
 	}
-	return runChain{causedBy: parent.CausedBy, depth: parent.ChainDepth + 1, triggers: parent.TriggerIDs}, nil
+	return runChain{causedBy: run.CausedBy, depth: run.ChainDepth, triggers: run.TriggerIDs}, nil
 }

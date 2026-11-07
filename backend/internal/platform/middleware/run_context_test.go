@@ -184,3 +184,34 @@ func TestRunIDFromContext_AgentOnly(t *testing.T) {
 		t.Errorf("human run id = %q, want empty (prefix ignored for non-agents)", humanRunID)
 	}
 }
+
+// The sandbox run outranks the delegation run, which outranks the run prefix,
+// and only an AGENT caller has an acting run.
+func TestActingRunID(t *testing.T) {
+	t.Parallel()
+	sandbox := runCtxAgentClaims("t1")
+	sandbox.Kora.Claims = map[string]string{"run_id": "sandbox-run"}
+	prefixed := func(ctx context.Context) context.Context {
+		return context.WithValue(ctx, runIDContextKey{}, "prefix-run")
+	}
+	delegated := func(ctx context.Context) context.Context {
+		return policy.WithDelegation(ctx, &policy.DelegationClaims{RunID: "delegation-run"})
+	}
+	cases := []struct {
+		name string
+		ctx  context.Context
+		want string
+	}{
+		{"sandbox", prefixed(delegated(token.WithClaims(context.Background(), sandbox))), "sandbox-run"},
+		{"delegation", prefixed(delegated(token.WithClaims(context.Background(), runCtxAgentClaims("t1")))), "delegation-run"},
+		{"run prefix", prefixed(token.WithClaims(context.Background(), runCtxAgentClaims("t1"))), "prefix-run"},
+		{"no run", token.WithClaims(context.Background(), runCtxAgentClaims("t1")), ""},
+		{"person", prefixed(token.WithClaims(context.Background(), runCtxHumanClaims("t1"))), ""},
+		{"no claims", prefixed(context.Background()), ""},
+	}
+	for _, tc := range cases {
+		if got := ActingRunID(tc.ctx); got != tc.want {
+			t.Errorf("%s: ActingRunID = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 )
 
 // TestCallerTokenPassthrough proves the load-bearing claim of the kit: the
@@ -68,6 +70,21 @@ func TestCallerTokenPassthrough(t *testing.T) {
 	text, _ := content[0].(map[string]any)["text"].(string)
 	if text != "token=caller-token-xyz" {
 		t.Fatalf("caller token did not propagate to the tool handler; got %q", text)
+	}
+}
+
+// The kit keeps a run id from the tool-gateway and drops any other value.
+func TestCallerRun(t *testing.T) {
+	const run = "2b4e8c1d-7a4e-4c1a-9d2e-5b8f0c6a1e42"
+	for header, want := range map[string]string{run: run, "../internal": "", "": ""} {
+		var got string
+		h := callerTokenMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { got = CallerRun(r.Context()) }))
+		req := httptest.NewRequest(http.MethodPost, "/mcp", http.NoBody)
+		req.Header.Set(mw.RunIDHeader, header)
+		h.ServeHTTP(httptest.NewRecorder(), req)
+		if got != want {
+			t.Errorf("header %q: CallerRun = %q, want %q", header, got, want)
+		}
 	}
 }
 

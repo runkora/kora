@@ -2,9 +2,13 @@ package agents
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
@@ -34,6 +38,14 @@ func sandboxAgentCtx(tenantID, slug, runID string) context.Context {
 	})
 }
 
+// withRunPrefix is ctx as StripRunPrefix leaves it for a request under /run/{runID}.
+func withRunPrefix(ctx context.Context, runID string) context.Context {
+	out := ctx
+	req := httptest.NewRequest(http.MethodGet, "/run/"+runID+"/api/v1/runs", http.NoBody).WithContext(ctx)
+	mw.StripRunPrefix(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { out = r.Context() })).ServeHTTP(httptest.NewRecorder(), req)
+	return out
+}
+
 func TestInheritedChain(t *testing.T) {
 	runs := runsByID{
 		"parent": {ID: "parent", TenantID: "t-1", AgentSlug: "triage", CausedBy: "ev-1", ChainDepth: 2, TriggerIDs: []string{"trg-a"}},
@@ -52,6 +64,11 @@ func TestInheritedChain(t *testing.T) {
 		{name: "a run in no trigger chain", ctx: sandboxAgentCtx("t-1", "triage", "plain")},
 		{name: "a run a trigger started at depth 0", ctx: sandboxAgentCtx("t-1", "triage", "manual"), want: runChain{depth: 1, triggers: []string{"trg-m"}}},
 		{name: "shared pod agent", ctx: withAgentCtx(context.Background(), "t-1", "triage")},
+		{name: "shared pod agent through the run prefix", ctx: withRunPrefix(withAgentCtx(context.Background(), "t-1", "triage"), "parent"), want: inherited},
+		{name: "run prefix of another agent's run", ctx: withRunPrefix(withAgentCtx(context.Background(), "t-1", "coder"), "parent")},
+		{name: "run prefix of another tenant's run", ctx: withRunPrefix(withAgentCtx(context.Background(), "t-2", "triage"), "parent")},
+		{name: "run prefix of a run in no trigger chain", ctx: withRunPrefix(withAgentCtx(context.Background(), "t-1", "triage"), "plain")},
+		{name: "run prefix from a person", ctx: withRunPrefix(withPrincipalCtx(context.Background(), "t-1", token.PrincipalTypeHuman, "user-1"), "parent")},
 		{name: "another agent's run", ctx: sandboxAgentCtx("t-1", "coder", "parent")},
 		{name: "another tenant's run", ctx: sandboxAgentCtx("t-2", "triage", "parent")},
 		{name: "unknown run", ctx: sandboxAgentCtx("t-1", "triage", "gone")},
@@ -84,5 +101,45 @@ func TestStartRun_InheritsTheCallingRunsChain(t *testing.T) {
 	stored, _ := repo.GetRun(context.Background(), run.ID)
 	if stored.CausedBy != "ev-1" || stored.ChainDepth != 2 || !slices.Equal(stored.TriggerIDs, []string{"trg-a"}) {
 		t.Errorf("chain = %s %d %v, want ev-1 2 [trg-a]", stored.CausedBy, stored.ChainDepth, stored.TriggerIDs)
+	}
+}
+
+// Only kora-triggers reads a run's chain, and only the chain of the named agent's run in the named tenant.
+func TestHandleGetRunChain(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "triage"})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", AgentSlug: "triage", State: RunStateActive,
+		CausedBy: "ev-1", ChainDepth: 2, TriggerIDs: []string{"trg-a"}})
+
+	consumer := principalClaims(token.PrincipalTypeSystem, "kora-triggers")
+	inChain := `{"caused_by":"ev-1","chain_depth":2,"trigger_ids":["trg-a"]}`
+	empty := `{"caused_by":"","chain_depth":0,"trigger_ids":[]}`
+	cases := []struct {
+		name   string
+		query  string
+		claims *token.PlatformClaims
+		status int
+		body   string
+	}{
+		{"the agent's run", "tenant=t-1&agent=triage", consumer, http.StatusOK, inChain},
+		{"another agent", "tenant=t-1&agent=coder", consumer, http.StatusOK, empty},
+		{"another tenant", "tenant=t-2&agent=triage", consumer, http.StatusOK, empty},
+		{"other system component", "tenant=t-1&agent=triage", principalClaims(token.PrincipalTypeSystem, "egress-gateway"), http.StatusForbidden, ""},
+		{"agent principal", "tenant=t-1&agent=triage", principalClaims(token.PrincipalTypeAgent, "kora-triggers"), http.StatusForbidden, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/internal/runs/run-1/chain?"+tc.query, http.NoBody)
+			req.SetPathValue("id", "run-1")
+			req = req.WithContext(token.WithClaims(req.Context(), tc.claims))
+			w := httptest.NewRecorder()
+			c.handleGetRunChain(w, req)
+			if w.Code != tc.status {
+				t.Fatalf("status = %d, want %d; body: %s", w.Code, tc.status, w.Body.String())
+			}
+			if got := strings.TrimSpace(w.Body.String()); tc.body != "" && got != tc.body {
+				t.Errorf("body = %s, want %s", got, tc.body)
+			}
+		})
 	}
 }
