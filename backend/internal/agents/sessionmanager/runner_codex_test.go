@@ -644,3 +644,42 @@ func TestCodexWriteConfig_Offline(t *testing.T) {
 		t.Errorf("[features] lacks plugins = false:\n%s", features)
 	}
 }
+
+func TestCodexReadLoop_LargeLineSurvives(t *testing.T) {
+	r := newTestCodexRunner()
+
+	big := strings.Repeat("x", 2*1024*1024)
+	fixture := `{"method":"item/agentMessage/delta","params":{"delta":"` + big + `"}}` + "\n" +
+		`{"method":"turn/completed","params":{}}` + "\n"
+
+	go r.readLoop(t.Context(), strings.NewReader(fixture))
+	evs := collectEvents(r.events)
+
+	if len(evs) == 0 || evs[len(evs)-1].Type != EventTypeMessageStop {
+		t.Fatalf("run did not continue past a 2 MiB line: %d events", len(evs))
+	}
+	for _, ev := range evs {
+		if ev.Type == EventTypeRunError {
+			t.Fatalf("unexpected run_error for a line under the limit")
+		}
+	}
+}
+
+func TestCodexReadLoop_OverLimitLineEmitsRunError(t *testing.T) {
+	r := newTestCodexRunner()
+
+	big := strings.Repeat("x", maxAgentLineBytes+1)
+	go r.readLoop(t.Context(), strings.NewReader(big+"\n"))
+	evs := collectEvents(r.events)
+
+	if len(evs) != 1 || evs[0].Type != EventTypeRunError {
+		t.Fatalf("got %d events, want one run_error", len(evs))
+	}
+	var p RunErrorPayload
+	if err := json.Unmarshal(evs[0].Payload, &p); err != nil {
+		t.Fatalf("unmarshal run_error: %v", err)
+	}
+	if !strings.Contains(p.Message, "exceeds") || !strings.Contains(p.Message, "limit") {
+		t.Errorf("message = %q, want it to name the line limit", p.Message)
+	}
+}
