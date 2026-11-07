@@ -83,21 +83,32 @@ func (s *Service) withActingRunChain(ctx context.Context, envelope []byte, head 
 	if chain.ChainDepth == 0 && len(chain.TriggerIDs) == 0 {
 		return envelope, head, nil
 	}
-	var doc map[string]json.RawMessage
-	if err = json.Unmarshal(envelope, &doc); err != nil {
-		return nil, head, fmt.Errorf("decode event: %w", err)
-	}
-	for key, v := range map[string]any{"koracausedby": chain.CausedBy, "korachaindepth": chain.ChainDepth, "koratriggers": chain.TriggerIDs} {
-		if doc[key], err = json.Marshal(v); err != nil {
-			return nil, head, fmt.Errorf("encode %s: %w", key, err)
-		}
-	}
-	out, err := json.Marshal(doc)
+	out, err := stampChain(envelope, chain)
 	if err != nil {
-		return nil, head, fmt.Errorf("encode event: %w", err)
+		return nil, head, err
 	}
 	head.ChainDepth, head.Triggers = chain.ChainDepth, chain.TriggerIDs
 	return out, head, nil
+}
+
+// stampChain sets the chain extensions of an envelope and keeps every other field as it is.
+func stampChain(envelope []byte, chain agentsclient.RunChain) ([]byte, error) {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(envelope, &doc); err != nil {
+		return nil, fmt.Errorf("decode event: %w", err)
+	}
+	for key, v := range map[string]any{"koracausedby": chain.CausedBy, "korachaindepth": chain.ChainDepth, "koratriggers": chain.TriggerIDs} {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("encode %s: %w", key, err)
+		}
+		doc[key] = b
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("encode event: %w", err)
+	}
+	return out, nil
 }
 
 // eventChain is the cause and depth a fire reports to kora-agents.
