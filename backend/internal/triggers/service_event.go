@@ -72,6 +72,7 @@ func (s *Service) withActingRunChain(ctx context.Context, envelope []byte, head 
 	}
 	chain, err := s.runChains.RunChain(ctx, bearer, head.ActingRun, head.Tenant, head.PrincipalName)
 	// A refusal will not pass on a retry, so the event goes on without the chain.
+	// A rejected token (401) is not a refusal: it is retried with a fresh one.
 	if errors.Is(err, agentsclient.ErrForbidden) || errors.Is(err, agentsclient.ErrUnexpectedStatus) {
 		s.logger.Warn(ctx, "event left out of its acting run's chain",
 			logging.Field{Key: "event_id", Value: head.ID}, logging.Field{Key: "error", Value: err.Error()})
