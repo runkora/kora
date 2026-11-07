@@ -130,6 +130,16 @@ export async function listDeliveryPage(opts: {
   };
 }
 
+/** One delivery by id, whatever the page range. */
+export async function getDelivery(
+  id: string,
+): Promise<{ delivery: TriggerDelivery | null; error: string | null }> {
+  const res = await send<TriggerDelivery>(ApiRoute.triggerDeliveries.get(id), {
+    cache: 'no-store',
+  });
+  return { delivery: res.data, error: res.error };
+}
+
 /** The agent types a routed trigger may name, each marked runnable for the caller. */
 export async function listRoutingCandidates(): Promise<{
   candidates: TriggerRoutingCandidate[];

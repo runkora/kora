@@ -96,6 +96,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	GET    /api/v1/trigger-deliveries         List deliveries, newest first, keyset-paginated.
 //	                                          Filter: ?source_id= ?trigger_id= ?agent_type_id= ?kind= ?status= ?received_after=
 //	                                          Page:   ?limit= ?cursor= (echo back next_cursor).
+//	GET    /api/v1/trigger-deliveries/{id}    Get a delivery.
 //	POST   /api/v1/trigger-deliveries/{id}/redeliver  Replay a delivery.
 //	GET    /api/v1/trigger-sources/{id}/event-types   Event catalog for a source.
 //	GET    /api/v1/trigger-providers/{provider}/event-types  Event catalog for a provider.
@@ -162,6 +163,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.HandleWithMiddleware("GET /triggers/event-types", auth, c.handleEventTypes)
 
 	mux.HandleWithMiddleware("GET /trigger-deliveries", auth, c.handleListDeliveries)
+	mux.HandleWithMiddleware("GET /trigger-deliveries/{id}", auth, c.handleGetDelivery)
 
 	// Replaying a delivery starts real work, so it takes triggers:write like
 	// every other route that changes something. The service also requires run
@@ -512,6 +514,21 @@ func (c *Controller) handleListDeliveries(w http.ResponseWriter, r *http.Request
 		withoutEvents(deliveries)
 	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, listDeliveriesResponse{Deliveries: deliveries, NextCursor: nextCursor})
+}
+
+// handleGetDelivery returns one delivery, redacted like a listing for a caller without events:read.
+func (c *Controller) handleGetDelivery(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	d, err := c.svc.GetDelivery(ctx, tenantFromCtx(ctx), r.PathValue("id"))
+	if err != nil {
+		c.writeServiceError(w, r, err)
+		return
+	}
+	one := []Delivery{*d}
+	if !c.canReadEvents(ctx) {
+		withoutEvents(one)
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, one[0])
 }
 
 // canReadEvents reports whether the caller holds events:read. An evaluator error reads as false.

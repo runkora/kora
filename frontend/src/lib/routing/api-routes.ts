@@ -453,6 +453,9 @@ export const ApiRoute = {
       if (opts.cursor !== undefined) qs.set('cursor', opts.cursor);
       return `${API_BASE}/trigger-deliveries?${qs.toString()}`;
     },
+    /** One delivery by id, whatever its age. */
+    get: (id: string): `${typeof API_BASE}/trigger-deliveries/${string}` =>
+      `${API_BASE}/trigger-deliveries/${encodeURIComponent(id)}`,
     /** Replay a delivery. Answers with the NEW delivery's id. */
     redeliver: (id: string): `${typeof API_BASE}/trigger-deliveries/${string}/redeliver` =>
       `${API_BASE}/trigger-deliveries/${id}/redeliver`,

@@ -8,7 +8,7 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/triggers',
   useSearchParams: () => new URLSearchParams(nav.search),
 }));
-const api = vi.hoisted(() => ({ listDeliveryPage: vi.fn() }));
+const api = vi.hoisted(() => ({ listDeliveryPage: vi.fn(), getDelivery: vi.fn() }));
 vi.mock('../_services/triggers-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../_services/triggers-api')>()),
   ...api,
@@ -42,6 +42,7 @@ beforeEach(() => {
   nav.search = '';
   api.listDeliveryPage.mockReset();
   api.listDeliveryPage.mockResolvedValue({ deliveries: [], nextCursor: null, error: null });
+  api.getDelivery.mockReset();
 });
 
 function renderPage() {
@@ -195,41 +196,25 @@ describe('links from the Events page', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('opens the delivery named by ?delivery=, paging back until it is found', async () => {
-    nav.search = 'tab=deliveries&delivery=dlv-2';
-    api.listDeliveryPage
-      .mockResolvedValueOnce({ deliveries: [raw('dlv-1')], nextCursor: 'c1', error: null })
-      .mockResolvedValueOnce({ deliveries: [raw('dlv-2')], nextCursor: null, error: null });
+  it('opens the delivery named by ?delivery= by id, whatever the page range', async () => {
+    nav.search = 'tab=deliveries&delivery=dlv-old';
+    api.getDelivery.mockResolvedValue({ delivery: raw('dlv-old'), error: null });
     renderPage();
-    await waitFor(() => expect(screen.getByRole('dialog')).toHaveTextContent('Delivery dlv-2'));
-    expect(api.listDeliveryPage).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(screen.getByRole('dialog')).toHaveTextContent('Delivery dlv-old'));
+    expect(api.getDelivery).toHaveBeenCalledWith('dlv-old');
+    expect(api.listDeliveryPage).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('tab', { name: 'Deliveries', hidden: true })).toHaveAttribute(
       'aria-selected',
       'true',
     );
   });
 
-  it('stops looking for a linked delivery once a page fails', async () => {
-    nav.search = 'tab=deliveries&delivery=dlv-x';
-    api.listDeliveryPage
-      .mockResolvedValueOnce({ deliveries: [raw('dlv-1')], nextCursor: 'c1', error: null })
-      .mockResolvedValue({ deliveries: [], nextCursor: null, error: 'boom' });
-    renderPage();
-    await waitFor(() => expect(api.listDeliveryPage).toHaveBeenCalledTimes(2));
-    await new Promise((r) => setTimeout(r, 50));
-    expect(api.listDeliveryPage).toHaveBeenCalledTimes(2);
-  });
-
-  it('says so when the linked delivery is not among the loaded deliveries', async () => {
+  it('says so when the linked delivery cannot be fetched', async () => {
     nav.search = 'tab=deliveries&delivery=dlv-gone';
-    api.listDeliveryPage.mockResolvedValueOnce({
-      deliveries: [raw('dlv-1')],
-      nextCursor: null,
-      error: null,
-    });
+    api.getDelivery.mockResolvedValue({ delivery: null, error: 'Not found.' });
     renderPage();
     expect(
-      await screen.findByText('The linked delivery is not among the latest 250 deliveries.'),
+      await screen.findByText('The linked delivery could not be opened: Not found.'),
     ).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
