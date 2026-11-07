@@ -305,7 +305,7 @@ func TestSummarizer_ThinkingRetryHasRoomForText(t *testing.T) {
 	}
 }
 
-// responsesServer rejects /v1/messages with 400 model_not_supported and answers
+// responsesServer rejects /v1/messages with the gateway's real Anthropic-format 400 (no top-level code) and answers
 // /v1/responses with respStatus/respBody, recording each path and Responses body.
 func responsesServer(respStatus int, respBody string, paths *[]string, body *map[string]any) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -319,7 +319,7 @@ func responsesServer(respStatus int, respBody string, paths *[]string, body *map
 			return
 		}
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"code":"model_not_supported","message":"use another endpoint"}`)) //nolint:errcheck
+		w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"provider bedrock error [MODEL_NOT_SUPPORTED]: model \"us.openai.gpt-6-sol\" is not supported on the Anthropic Messages API endpoint"}}`)) //nolint:errcheck
 	}))
 }
 
@@ -400,7 +400,7 @@ func TestSummarizer_Other400DoesNotCallResponses(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.URL.Path)
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"code":"invalid_request","message":"nope"}`)) //nolint:errcheck
+		w.Write([]byte(`{"type":"error","error":{"type":"invalid_request_error","message":"thinking: unsupported"}}`)) //nolint:errcheck
 	}))
 	defer srv.Close()
 

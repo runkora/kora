@@ -45,7 +45,7 @@ const (
 var (
 	errSummarizerUnexpectedStatus = errors.New("unexpected status from inference gateway")
 	// errSummarizerModelNotSupported means the gateway answered 400
-	// model_not_supported: the model is not served on the Messages API.
+	// model_not_supported (Anthropic-format 400): the model is not served on the Messages API.
 	errSummarizerModelNotSupported = errors.New("model not supported on the messages endpoint")
 
 	// maxErrorBodyBytes caps how much of an error body is read to find its code.
@@ -66,7 +66,7 @@ var (
 //
 // Two dialects are spoken. The Messages API is tried first for every model. A
 // model the gateway does not serve there (non-Anthropic models, e.g. OpenAI
-// models on Bedrock) is answered 400 model_not_supported, and the summarizer
+// models on Bedrock) is answered 400 (an Anthropic-format error saying the model is not supported on the endpoint), and the summarizer
 // then makes one request to {perRunBaseURL}/v1/responses instead.
 type summarizer struct {
 	*httpclient.Base
@@ -252,7 +252,7 @@ func (s *summarizer) post(ctx context.Context, baseURL, path string, payload, ou
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		resp.Body = io.NopCloser(bytes.NewReader(raw))
 		herr := s.HandleErrorResponse(span, resp, errSummarizerUnexpectedStatus)
-		if errorCode(raw) == "model_not_supported" {
+		if isModelNotSupported(raw) {
 			return false, fmt.Errorf("%w: %w", errSummarizerModelNotSupported, herr)
 		}
 		return true, herr
@@ -264,15 +264,28 @@ func (s *summarizer) post(ctx context.Context, baseURL, path string, payload, ou
 	return false, s.DecodeJSON(span, resp, out)
 }
 
-// errorCode returns the top-level "code" of a JSON error body, or "".
-func errorCode(raw []byte) string {
+// isModelNotSupported reports whether raw is the gateway's refusal of a model on
+// the Messages endpoint. The Messages endpoint writes Anthropic-format errors,
+// {"type":"error","error":{"type":"invalid_request_error","message":...}}, which
+// carry no code, so the case is recognized by its message ("... is not
+// supported on ..."). A top-level "code" of model_not_supported is also
+// accepted, for the platform error format.
+func isModelNotSupported(raw []byte) bool {
 	var e struct {
-		Code string `json:"code"`
+		Code  string `json:"code"`
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
 	}
 	if json.Unmarshal(raw, &e) != nil {
-		return ""
+		return false
 	}
-	return e.Code
+	if e.Code == "model_not_supported" {
+		return true
+	}
+	return e.Error.Type == "invalid_request_error" &&
+		strings.Contains(strings.ToLower(e.Error.Message), "not supported on")
 }
 
 // firstOutputText returns the first non-empty output_text part of the first
