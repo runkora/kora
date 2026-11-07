@@ -19,7 +19,7 @@ var (
 	errSpanCreateSandboxPod               = errors.New("create sandbox pod")
 	errSpanDeleteDraft                    = errors.New("delete draft")
 	errSpanDeleteEnvironment              = errors.New("delete environment")
-	errSpanDeleteRun                      = errors.New("delete run")
+	errSpanTerminateRun                   = errors.New("terminate run")
 	errSpanDeleteSandboxPod               = errors.New("delete sandbox pod")
 	errSpanDeprovisionAgentType           = errors.New("deprovision agent type")
 	errSpanDeprovisionK8sResources        = errors.New("deprovision k8s resources")

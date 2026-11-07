@@ -25,7 +25,8 @@ type k8sProvisioner interface {
 	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, spec SandboxSpec) (Sandbox, error)
 	LookupSandbox(ctx context.Context, runID, namespace string) (Sandbox, bool, error)
 	SandboxEnvironment(ctx context.Context, runID, namespace string) (envID string, live bool, err error)
-	DeleteSandbox(ctx context.Context, runID, namespace string) error
+	// DeleteSandbox reports whether there was a pod to delete.
+	DeleteSandbox(ctx context.Context, runID, namespace string) (bool, error)
 }
 
 // smClient abstracts sessionmanager.Client so it can be replaced in tests.
@@ -125,6 +126,11 @@ type StartRunRequest struct {
 	TriggerID   string `json:"trigger_id,omitempty"`
 	TriggerName string `json:"trigger_name,omitempty"`
 	DeliveryID  string `json:"delivery_id,omitempty"`
+
+	// CausedBy is the event that led a trigger to send this, and ChainDepth that
+	// event's depth plus one. Only a trigger may set them (docs/adr/2026-11-06-event-spine.md, section 7).
+	CausedBy   string `json:"caused_by,omitempty"`
+	ChainDepth int    `json:"chain_depth,omitempty"`
 }
 
 // SendMessageRequest is the body of POST /api/v1/runs/{id}/messages.
@@ -136,6 +142,11 @@ type SendMessageRequest struct {
 	TriggerID   string `json:"trigger_id,omitempty"`
 	TriggerName string `json:"trigger_name,omitempty"`
 	DeliveryID  string `json:"delivery_id,omitempty"`
+
+	// CausedBy is the event that led a trigger to send this, and ChainDepth that
+	// event's depth plus one. Only a trigger may set them (docs/adr/2026-11-06-event-spine.md, section 7).
+	CausedBy   string `json:"caused_by,omitempty"`
+	ChainDepth int    `json:"chain_depth,omitempty"`
 }
 
 // EffectiveAccessPreviewRequest is a draft connectivity config resolved without

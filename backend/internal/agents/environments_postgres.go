@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/events"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // ── Environments ────────────────────────────────────────────────────────────
@@ -28,19 +30,25 @@ func (r *PostgresRepository) CreateEnvironment(ctx context.Context, env Environm
 	if err != nil {
 		return err
 	}
-	_, err = r.pool.Exec(ctx, `
-		INSERT INTO environments (id, tenant_id, name, display_name, description, sandbox_image, cpu, memory, disk, egress_hosts, connectors, source, resource_uid, resource_generation, repository, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,NULLIF($13, ''),$14,NULLIF($15, ''),$16,$17)`,
-		env.ID, env.TenantID, env.Slug, env.Name, env.Description, env.SandboxImage,
-		env.Size.CPU, env.Size.Memory, env.Size.Disk, env.EgressHosts, connectorsJSON, cmp.Or(env.Source, declarative.SourceAPI), env.ResourceUID, env.ResourceGeneration, env.Repository, now, now,
-	)
-	if err != nil {
-		if isUniqueViolation(err) {
-			return ErrEnvironmentSlugTaken
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		_, err := r.pool.Exec(ctx, `
+			INSERT INTO environments (id, tenant_id, name, display_name, description, sandbox_image, cpu, memory, disk, egress_hosts, connectors, source, resource_uid, resource_generation, repository, created_at, updated_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,NULLIF($13, ''),$14,NULLIF($15, ''),$16,$17)`,
+			env.ID, env.TenantID, env.Slug, env.Name, env.Description, env.SandboxImage,
+			env.Size.CPU, env.Size.Memory, env.Size.Disk, env.EgressHosts, connectorsJSON, cmp.Or(env.Source, declarative.SourceAPI), env.ResourceUID, env.ResourceGeneration, env.Repository, now, now,
+		)
+		if err != nil {
+			if isUniqueViolation(err) {
+				return ErrEnvironmentSlugTaken
+			}
+			return fmt.Errorf("insert environment: %w", err)
 		}
-		return fmt.Errorf("insert environment: %w", err)
-	}
-	return nil
+		created, err := r.GetEnvironment(ctx, env.TenantID, env.ID)
+		if err != nil {
+			return err
+		}
+		return events.Publish(ctx, r.pool, environmentEvent(events.EnvironmentCreated, *created, nil))
+	})
 }
 
 func (r *PostgresRepository) GetEnvironment(ctx context.Context, tenantID, id string) (*Environment, error) {
@@ -117,35 +125,47 @@ func (r *PostgresRepository) UpdateEnvironment(ctx context.Context, env Environm
 	if err != nil {
 		return err
 	}
-	tag, err := r.pool.Exec(ctx, `
-		UPDATE environments
-		SET display_name=$1, description=$2, sandbox_image=$3, cpu=$4, memory=$5, disk=$6, egress_hosts=$7, connectors=$8::jsonb, updated_at=$9, resource_uid=NULLIF($12, ''), resource_generation=$13, repository=NULLIF($14, '')
-		WHERE tenant_id=$10 AND id=$11`,
-		env.Name, env.Description, env.SandboxImage, env.Size.CPU, env.Size.Memory, env.Size.Disk,
-		env.EgressHosts, connectorsJSON, time.Now().UTC(), env.TenantID, env.ID, env.ResourceUID, env.ResourceGeneration, env.Repository,
-	)
-	if err != nil {
-		return fmt.Errorf("update environment: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		before, err := scanEnvironment(r.pool.QueryRow(ctx, `SELECT `+environmentColumns+` FROM environments WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, env.TenantID, env.ID))
+		if err != nil {
+			return err
+		}
+		if _, err = r.pool.Exec(ctx, `
+			UPDATE environments
+			SET display_name=$1, description=$2, sandbox_image=$3, cpu=$4, memory=$5, disk=$6, egress_hosts=$7, connectors=$8::jsonb, updated_at=$9, resource_uid=NULLIF($12, ''), resource_generation=$13, repository=NULLIF($14, '')
+			WHERE tenant_id=$10 AND id=$11`,
+			env.Name, env.Description, env.SandboxImage, env.Size.CPU, env.Size.Memory, env.Size.Disk,
+			env.EgressHosts, connectorsJSON, time.Now().UTC(), env.TenantID, env.ID, env.ResourceUID, env.ResourceGeneration, env.Repository,
+		); err != nil {
+			return fmt.Errorf("update environment: %w", err)
+		}
+		after, err := r.GetEnvironment(ctx, env.TenantID, env.ID)
+		if err != nil {
+			return err
+		}
+		changed := changedFields(newEnvironmentFields(*before), newEnvironmentFields(*after))
+		if len(changed) == 0 {
+			return nil
+		}
+		return events.Publish(ctx, r.pool, environmentEvent(events.EnvironmentUpdated, *after, changed))
+	})
 }
 
 // DeleteEnvironment refuses an environment an agent has attached.
 func (r *PostgresRepository) DeleteEnvironment(ctx context.Context, tenantID, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM environments WHERE tenant_id=$1 AND id=$2`, tenantID, id)
-	if err != nil {
-		if isForeignKeyViolation(err) {
-			return ErrEnvironmentInUse
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		before, err := r.GetEnvironment(ctx, tenantID, id)
+		if err != nil {
+			return err
 		}
-		return fmt.Errorf("delete environment: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
+		if _, err := r.pool.Exec(ctx, `DELETE FROM environments WHERE tenant_id=$1 AND id=$2`, tenantID, id); err != nil {
+			if isForeignKeyViolation(err) {
+				return ErrEnvironmentInUse
+			}
+			return fmt.Errorf("delete environment: %w", err)
+		}
+		return events.Publish(ctx, r.pool, environmentEvent(events.EnvironmentDeleted, *before, nil))
+	})
 }
 
 // ListAgentTypesByEnvironment returns the agents in a tenant an environment is attached to.

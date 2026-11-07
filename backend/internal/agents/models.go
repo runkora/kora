@@ -485,6 +485,9 @@ const (
 	// BUDGET_EXCEEDED. Distinct from failed — the run did nothing wrong; its
 	// budget ended. See docs/adr/2026-06-10-hierarchical-budget-enforcement.md.
 	RunStateBudgetExhausted RunState = "budget_exhausted"
+	// RunStateTerminated is terminal: a person or the platform terminated the run
+	// before it ended (docs/adr/2026-11-06-event-spine.md, Decision 6).
+	RunStateTerminated RunState = "terminated"
 )
 
 // AllRunStates lists every declared RunState. Pinned by a unit test so a new
@@ -499,6 +502,7 @@ func AllRunStates() []RunState {
 		RunStateCompleted,
 		RunStateFailed,
 		RunStateBudgetExhausted,
+		RunStateTerminated,
 	}
 }
 
@@ -511,7 +515,7 @@ func AllRunStates() []RunState {
 // finished a turn but keeps the session alive waiting for the next message,
 // and completing is snapshotting. The terminal states have released their
 // resources by then (RunService.transition deprovisions the sandbox on
-// completed, failed and budget_exhausted), so none of them occupies a slot;
+// completed, failed and budget_exhausted, and TerminateRun on terminated), so none of them occupies a slot;
 // budget_exhausted in particular is terminal rather than a paused run that
 // might resume.
 //
@@ -521,11 +525,17 @@ func (s RunState) OccupiesPod() (occupies, known bool) {
 	switch s {
 	case RunStatePending, RunStateStarting, RunStateActive, RunStateIdle, RunStateCompleting:
 		return true, true
-	case RunStateCompleted, RunStateFailed, RunStateBudgetExhausted:
+	case RunStateCompleted, RunStateFailed, RunStateBudgetExhausted, RunStateTerminated:
 		return false, true
 	default:
 		return false, false
 	}
+}
+
+// Terminal reports whether the run has ended.
+func (s RunState) Terminal() bool {
+	occupies, known := s.OccupiesPod()
+	return known && !occupies
 }
 
 // PodOccupyingRunStates returns the states for which OccupiesPod reports true,
@@ -590,6 +600,14 @@ type Run struct {
 	TraceParent string `json:"-"`
 	// TraceID is the run's trace, read from TraceParent. Nil when the run was not sampled.
 	TraceID *string `json:"trace_id"`
+	// DeletedAt is when the run was terminated. A terminated run stays readable by ID.
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	// CausedBy is the event that led a trigger to start or message the run, and
+	// ChainDepth the highest depth of those events plus one.
+	CausedBy   string `json:"caused_by,omitempty"`
+	ChainDepth int    `json:"chain_depth,omitempty"`
+	// TriggerIDs lists every trigger that started or messaged the run.
+	TriggerIDs []string `json:"-"`
 	// Usage is the run's inference total so far. It is read from
 	// inference_usage when the run is served and is not a runs column. A run
 	// with no usage rows reads as zeros.
@@ -616,14 +634,6 @@ type StartedByTrigger struct {
 	TriggerID   string `json:"trigger_id"`
 	TriggerName string `json:"trigger_name,omitempty"`
 	DeliveryID  string `json:"delivery_id,omitempty"`
-}
-
-// CancelledRun is one run ended by agent deletion. The ID names its sandbox pod. The delegation JTI,
-// set for a delegated run, is revoked because the delegation ends with the run.
-type CancelledRun struct {
-	ID            string
-	State         RunState
-	DelegationJTI *string
 }
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
@@ -660,4 +670,9 @@ type RunMessage struct {
 	SequenceNo int64
 	Content    string
 	CreatedAt  time.Time
+	// From is the trigger that sent the message, nil for a person. CausedBy and
+	// ChainDepth are the event chain it reports.
+	From       *StartedByTrigger
+	CausedBy   string
+	ChainDepth int
 }

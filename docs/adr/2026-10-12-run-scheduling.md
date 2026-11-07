@@ -80,7 +80,7 @@ kora-agents will schedule runs through a durable queue on the `runs` table, and 
 *   It will assign the pod and set the run `starting`, then create the session with the stored initial message and set the run `active`.
 *   On no Ready pod, no free slot, a transient Kubernetes API error such as a conflict, or a transient session error, it will release the claim with a `not_before` retry time.
 *   When the start budget measured from `created_at` has run out, it will set the run `failed` and record the reason on the run.
-*   Each step will change the run with a compare-and-swap on its state. Terminate deletes the run row. When a step finds the run gone or changed, the worker will stop and close any session it created.
+*   Each step will change the run with a compare-and-swap on its state. Terminate moves the run to `terminated`. When a step finds the run gone or changed, the worker will stop and close any session it created.
 *   Session creation is keyed by run ID. A repeated create of the same run on the same pod counts as success.
 *   Every replica will release `pending` runs whose claim is older than a stale window. The stale-run reaper fails a run that a dead worker left in `starting` and a run that stayed in `pending`.
 

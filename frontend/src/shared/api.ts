@@ -195,7 +195,8 @@ export type RunState =
   | 'completing'
   | 'completed'
   | 'failed'
-  | 'budget_exhausted';
+  | 'budget_exhausted'
+  | 'terminated';
 
 /**
  * An agent type's outbound egress posture — the reachability gate for its

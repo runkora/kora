@@ -221,6 +221,11 @@ type StartRunRequest struct {
 	TriggerID   string `json:"trigger_id,omitempty"`
 	TriggerName string `json:"trigger_name,omitempty"`
 	DeliveryID  string `json:"delivery_id,omitempty"`
+
+	// CausedBy is the event id that led the trigger to fire, and ChainDepth
+	// that event's depth plus one. kora-agents keeps them on the run.
+	CausedBy   string `json:"caused_by,omitempty"`
+	ChainDepth int    `json:"chain_depth,omitempty"`
 }
 
 // StartRunResponse captures the subset of the created run the caller needs.
@@ -350,6 +355,11 @@ type SendRunMessageRequest struct {
 	TriggerID   string `json:"trigger_id,omitempty"`
 	TriggerName string `json:"trigger_name,omitempty"`
 	DeliveryID  string `json:"delivery_id,omitempty"`
+
+	// CausedBy is the event id that led the trigger to fire, and ChainDepth
+	// that event's depth plus one. kora-agents keeps them on the run.
+	CausedBy   string `json:"caused_by,omitempty"`
+	ChainDepth int    `json:"chain_depth,omitempty"`
 }
 
 // SendRunMessage delivers a message to an active or idle run, authenticating

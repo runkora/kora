@@ -743,7 +743,8 @@ export function useRun(runId: string, slug: string): UseRunReturn {
         payload.state === 'idle' ||
         payload.state === 'completed' ||
         payload.state === 'failed' ||
-        payload.state === 'budget_exhausted'
+        payload.state === 'budget_exhausted' ||
+        payload.state === 'terminated'
       ) {
         // The run settled with the message in hand: a runtime that reads a
         // message within the turn (Codex, OpenCode) may produce nothing after it.

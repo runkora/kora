@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
+	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/platform/observability"
@@ -169,6 +171,27 @@ func messageTrigger(ctx context.Context, req SendMessageRequest) (*StartedByTrig
 		return from, err
 	}
 	return &StartedByTrigger{}, nil
+}
+
+// ErrInvalidChain refuses a caused_by that is not an event id, or a negative chain_depth.
+var ErrInvalidChain = errors.New("invalid event chain")
+
+// authorizeChain checks the event chain a run start or message reports. Only a
+// trigger reports one, since the loop guards trust it. from is the authorized trigger, nil for anyone else.
+func authorizeChain(from *StartedByTrigger, causedBy string, depth int) error {
+	switch {
+	case causedBy == "" && depth == 0:
+		return nil
+	case from == nil:
+		return fmt.Errorf("%w (event chain)", ErrTriggerAttributionRefused)
+	case depth < 0 || depth > math.MaxInt32:
+		return fmt.Errorf("%w: chain_depth %d", ErrInvalidChain, depth)
+	}
+	// Postgres reads only the canonical form, and kora-events writes event ids in it.
+	if id, err := uuid.Parse(causedBy); causedBy != "" && (err != nil || id.String() != causedBy) {
+		return fmt.Errorf("%w: caused_by %q is not an event id", ErrInvalidChain, causedBy)
+	}
+	return nil
 }
 
 // isTriggerPrincipal reports whether the caller is a trigger's or a webhook source's SERVICE principal.
