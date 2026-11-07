@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
@@ -89,7 +90,8 @@ func callerTokenMiddleware(next http.Handler) http.Handler {
 		if raw := strings.TrimSpace(r.Header.Get(mw.DelegationTokenHeader)); raw != "" {
 			ctx = WithCallerDelegation(ctx, raw)
 		}
-		if raw := strings.TrimSpace(r.Header.Get(mw.RunIDHeader)); raw != "" {
+		// The run goes into downstream paths, so only a run id is kept.
+		if raw := strings.TrimSpace(r.Header.Get(mw.RunIDHeader)); uuid.Validate(raw) == nil {
 			ctx = WithCallerRun(ctx, raw)
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
