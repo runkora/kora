@@ -543,6 +543,7 @@ frontend:
     koraAgentsUrl: ""
     toolGatewayUrl: ""
     skillsServiceUrl: ""
+    koraEventsUrl: ""
     nextPublicAppUrl: ""
   # Holds BFF_SESSION_SECRET.
   existingSecret: kora-frontend-secrets

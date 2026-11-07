@@ -684,9 +684,7 @@ function TriggerDetailModalBody({
     </Alert>
   ) : (
     eventLocked && (
-      <Alert variant="info">
-        Editing the event, filters and prompt of this trigger needs the events:read permission.
-      </Alert>
+      <Alert variant="info">Event triggers need the events:read permission to edit.</Alert>
     )
   );
 

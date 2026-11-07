@@ -448,6 +448,9 @@ export const ApiRoute = {
       if (opts.cursor !== undefined) qs.set('cursor', opts.cursor);
       return `${API_BASE}/trigger-deliveries?${qs.toString()}`;
     },
+    /** One delivery by id, whatever its age. */
+    get: (id: string): `${typeof API_BASE}/trigger-deliveries/${string}` =>
+      `${API_BASE}/trigger-deliveries/${encodeURIComponent(id)}`,
     /** Replay a delivery. Answers with the NEW delivery's id. */
     redeliver: (id: string): `${typeof API_BASE}/trigger-deliveries/${string}/redeliver` =>
       `${API_BASE}/trigger-deliveries/${id}/redeliver`,
@@ -513,11 +516,20 @@ export const ApiRoute = {
       `${API_BASE}/catalog/pricing/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/override`,
   },
 
+  /** The event history and its live stream, served by kora-events. Filters repeat. */
+  events: {
+    page: (params: URLSearchParams): `${typeof API_BASE}/events?${string}` =>
+      `${API_BASE}/events?${params.toString()}`,
+    stream: (params: URLSearchParams): `${typeof API_BASE}/events/stream?${string}` =>
+      `${API_BASE}/events/stream?${params.toString()}`,
+  },
+
   /**
    * `/api/skills`
    *
    * GET: one page of the Skills overview, in title order.
    */
+
   skills: {
     GET: (params: {
       marketplace: string;
@@ -576,6 +588,8 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['policyExplain']['GET']>
   | ReturnType<(typeof ApiRoute)['policySimulate']['POST']>
   | ReturnType<(typeof ApiRoute)['usage']['GET']>
+  | ReturnType<(typeof ApiRoute)['events']['page']>
+  | ReturnType<(typeof ApiRoute)['events']['stream']>
   | ReturnType<(typeof ApiRoute)['skills']['GET']>
   | ReturnType<(typeof ApiRoute)['skillFile']['GET']>
   | ReturnType<(typeof ApiRoute)['usageBudget']['GET']>
