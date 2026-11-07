@@ -1,0 +1,31 @@
+{{- if .Values.platform.spiffe.enabled }}
+{{- /*
+The services strip a /run/{run_id} prefix before routing, so a path rule
+written for /internal/* or /api/v1/policy/bundles/gateway does not see a
+prefixed request. Only the kora MCP sends the prefix to these services
+(docs/adr/2026-11-06-event-spine.md, section 7). Istio adds "spiffe://".
+*/}}
+{{- range $app := list "kora-agents" "kora-triggers" "kora-policy-service" "kora-identity" }}
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ $app }}-run-prefix
+  namespace: {{ include "kora.systemNamespace" $ }}
+  labels:
+    {{- include "kora.labels" $ | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ $app }}
+  action: DENY
+  rules:
+    - to:
+        - operation:
+            paths: ["/run/*"]
+      from:
+        - source:
+            notPrincipals:
+              - "{{ include "kora.trustDomain" $ }}/system/kora-mcp"
+{{- end }}
+{{- end }}

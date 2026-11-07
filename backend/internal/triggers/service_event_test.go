@@ -514,3 +514,122 @@ func TestCreateEventTrigger_UnknownFieldListsTheFields(t *testing.T) {
 		t.Errorf("err = %v, want the event's fields listed", err)
 	}
 }
+
+// fakeRunChains serves fixed run chains and counts the reads.
+type fakeRunChains struct {
+	chains map[string]agentsclient.RunChain
+	err    error
+	reads  int
+	agent  string
+}
+
+func (f *fakeRunChains) RunChain(_ context.Context, bearer, runID, tenant, agent string) (agentsclient.RunChain, error) {
+	f.reads++
+	f.agent = agent
+	if bearer != "system-tok" || tenant != testTenant {
+		return agentsclient.RunChain{}, errors.New("unexpected caller")
+	}
+	return f.chains[runID], f.err
+}
+
+// agentEnvelope is an event an agent caused from actingRun, with no chain of its own.
+func agentEnvelope(t *testing.T, actingRun, principalType string) []byte {
+	t.Helper()
+	var doc map[string]any
+	_ = json.Unmarshal(envelope(t, testTenant, "agents.run.failed.v1", 0, nil, nil), &doc)
+	doc["koraactingrun"], doc["koraprincipaltype"], doc["koraprincipalname"] = actingRun, principalType, "triage"
+	b, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// An agent's event with no chain joins the chain of the run the agent acted from.
+func TestHandleEvent_ResolvesTheActingRunsChain(t *testing.T) {
+	svc, deps := newTestService(t)
+	own := mustEventTrigger(t, deps, eventReq("own"))
+	off := eventReq("guard-off")
+	off.IgnoreOwnRuns = new(false)
+	open := mustEventTrigger(t, deps, off)
+	chains := &fakeRunChains{chains: map[string]agentsclient.RunChain{
+		"r-9": {CausedBy: uuid.NewString(), ChainDepth: 2, TriggerIDs: []string{own.ID}},
+	}}
+	svc.SetRunChains(chains, func(context.Context) (string, error) { return "system-tok", nil })
+
+	env := agentEnvelope(t, "r-9", "AGENT")
+	if err := svc.HandleEvent(context.Background(), env); err != nil {
+		t.Fatalf("HandleEvent: %v", err)
+	}
+	if chains.reads != 1 || chains.agent != "triage" {
+		t.Fatalf("chain reads = %d for agent %q, want 1 for triage", chains.reads, chains.agent)
+	}
+	d := deps.repo.deliveries[0]
+	if got := outcomeOf(deps.repo.deliveryRunsFor(d.ID), own.ID); got != reasonOwnRun {
+		t.Errorf("own run outcome = %q, want %q", got, reasonOwnRun)
+	}
+	var head eventHead
+	_ = json.Unmarshal(env, &head)
+	drainPending(t, svc, deps.repo)
+	call, ok := deps.agents.lastCall()
+	if !ok || call.triggerID != open.ID || call.causedBy != head.ID || call.chainDepth != 3 {
+		t.Errorf("start = %+v, want caused_by %s at depth 3 from %s", call, head.ID, open.ID)
+	}
+	if !strings.Contains(string(d.Payload), `"korachaindepth":2`) {
+		t.Errorf("the delivery does not carry the resolved chain: %s", d.Payload)
+	}
+}
+
+// The chain is read only for an agent's event that has an acting run and no chain.
+func TestHandleEvent_ReadsTheActingRunChainOnlyWhenNeeded(t *testing.T) {
+	svc, deps := newTestService(t)
+	mustEventTrigger(t, deps, eventReq("on-failure"))
+	chains := &fakeRunChains{}
+	svc.SetRunChains(chains, func(context.Context) (string, error) { return "system-tok", nil })
+
+	var withChain map[string]any
+	_ = json.Unmarshal(agentEnvelope(t, "r-9", "AGENT"), &withChain)
+	withChain["korachaindepth"] = 1
+	chained, _ := json.Marshal(withChain)
+	cases := map[string][]byte{
+		"has a chain":   chained,
+		"a person":      agentEnvelope(t, "r-9", "USER"),
+		"no acting run": agentEnvelope(t, "", "AGENT"),
+	}
+	for name, env := range cases {
+		if err := svc.HandleEvent(context.Background(), env); err != nil {
+			t.Fatalf("%s: HandleEvent: %v", name, err)
+		}
+	}
+	if chains.reads != 0 {
+		t.Errorf("chain reads = %d, want none", chains.reads)
+	}
+}
+
+// An unavailable kora-agents leaves the event to be read again. A refusal records it with no chain.
+func TestHandleEvent_ActingRunChainFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		err        error
+		wantRetry  bool
+		deliveries int
+	}{
+		{"unavailable", agentsclient.ErrUpstreamUnavailable, true, 0},
+		{"refused", agentsclient.ErrForbidden, false, 1},
+		{"unexpected status", agentsclient.ErrUnexpectedStatus, false, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, deps := newTestService(t)
+			mustEventTrigger(t, deps, eventReq("on-failure"))
+			svc.SetRunChains(&fakeRunChains{err: tc.err}, func(context.Context) (string, error) { return "system-tok", nil })
+
+			err := svc.HandleEvent(context.Background(), agentEnvelope(t, "r-9", "AGENT"))
+			if (err != nil) != tc.wantRetry {
+				t.Fatalf("HandleEvent err = %v, want retry %v", err, tc.wantRetry)
+			}
+			if n := len(deps.repo.deliveries); n != tc.deliveries {
+				t.Errorf("deliveries = %d, want %d", n, tc.deliveries)
+			}
+		})
+	}
+}

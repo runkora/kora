@@ -36,11 +36,12 @@ var (
 	ErrUpstreamFailed = errors.New("upstream_error")
 )
 
-// Caller is the principal behind a tools/call: its platform bearer and, for a
-// delegated run, the run's delegation token.
+// Caller is the principal behind a tools/call: its platform bearer, for a
+// delegated run the run's delegation token, and the run it acts for.
 type Caller struct {
 	Bearer     string
 	Delegation string
+	RunID      string
 }
 
 // UpstreamCredentials returns the headers a request to srv carries.
@@ -64,8 +65,19 @@ func NewUpstreamCredentials(secretsDir string) UpstreamCredentials {
 // Headers sends a server's declared credential whatever the caller. Otherwise
 // it forwards the caller only to a global server flagged callerIdentity:
 // forward. A tenant admin could harvest callers' platform tokens through a
-// server they control.
+// server they control. Every server gets the caller's run.
 func (u upstreamCredentials) Headers(_ context.Context, srv Server, caller *Caller) (http.Header, error) {
+	h, err := u.credentialHeaders(srv, caller)
+	if err != nil {
+		return nil, err
+	}
+	if caller != nil && caller.RunID != "" {
+		h.Set(mw.RunIDHeader, caller.RunID)
+	}
+	return h, nil
+}
+
+func (u upstreamCredentials) credentialHeaders(srv Server, caller *Caller) (http.Header, error) {
 	h := http.Header{}
 	if len(srv.AuthHeaders) > 0 {
 		for _, a := range srv.AuthHeaders {

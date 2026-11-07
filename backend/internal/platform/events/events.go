@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/storage"
@@ -86,6 +87,7 @@ type Envelope struct {
 	PrincipalName   string   `json:"koraprincipalname" doc:"The principal's display name."`
 	Delegator       string   `json:"koradelegator,omitempty" doc:"The person an agent acted for."`
 	Run             string   `json:"korarun,omitempty" doc:"The run the event concerns."`
+	ActingRun       string   `json:"koraactingrun,omitempty" doc:"The run an agent acted from when it caused the event."`
 	Agent           string   `json:"koraagent,omitempty" doc:"The slug of the agent the event concerns."`
 	CausedBy        string   `json:"koracausedby,omitempty" doc:"The event that led to this one."`
 	ChainDepth      int      `json:"korachaindepth" doc:"How many trigger-caused steps led to the event."`
@@ -175,6 +177,7 @@ func newEnvelope(ctx context.Context, id uuid.UUID, e Event, at time.Time) (Enve
 		PrincipalName:   principalName,
 		Delegator:       delegator,
 		Run:             e.RunID,
+		ActingRun:       actingRun(ctx),
 		Agent:           e.Agent,
 		CausedBy:        e.CausedBy,
 		ChainDepth:      e.ChainDepth,
@@ -182,6 +185,16 @@ func newEnvelope(ctx context.Context, id uuid.UUID, e Event, at time.Time) (Enve
 		TraceParent:     observability.TraceParent(ctx),
 		Data:            Data{Entity: e.Entity, Changed: e.Changed, EntityVersion: e.Version, OccurredAt: when},
 	}, nil
+}
+
+// actingRun is the run the agent caller acts for. A value that is not a run id
+// is left out, so a bad run prefix cannot fail the producer's transaction.
+func actingRun(ctx context.Context) string {
+	id := mw.ActingRunID(ctx)
+	if _, err := uuid.Parse(id); err != nil {
+		return ""
+	}
+	return id
 }
 
 // validate refuses what the relay could not copy into the log's typed columns.

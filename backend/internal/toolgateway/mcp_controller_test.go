@@ -311,6 +311,7 @@ func TestToolDecisions_CarryDelegationAndRun(t *testing.T) {
 
 // The caller's bearer and delegation reach a global forward-identity server only.
 // External and tenant-scoped servers use their own credentials and see neither.
+// Every server gets the run the agent calls from.
 func TestToolsCall_ForwardsDelegationToForwardIdentityOnly(t *testing.T) {
 	cases := []struct {
 		name           string
@@ -325,10 +326,11 @@ func TestToolsCall_ForwardsDelegationToForwardIdentityOnly(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			var gotAuth, gotDelegation string
+			var gotAuth, gotDelegation, gotRun string
 			upstream := mcpkit.NewServer("upstream", "v0")
 			upstream.AddTool(&sdk.Tool{Name: "agents.list", InputSchema: json.RawMessage(`{"type":"object"}`)},
-				func(context.Context, *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+				func(ctx context.Context, _ *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+					gotRun = mcpkit.CallerRun(ctx)
 					return &sdk.CallToolResult{}, nil
 				})
 			handler := mcpkit.NewController("/mcp", upstream).Handler()
@@ -348,14 +350,15 @@ func TestToolsCall_ForwardsDelegationToForwardIdentityOnly(t *testing.T) {
 
 			claims := &platformtoken.PlatformClaims{}
 			claims.Kora.TenantID = "acme"
+			claims.Kora.PrincipalType = platformtoken.PrincipalTypeAgent
 			claims.Subject = "agent-1"
 			body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"agents.list","arguments":{}}}`
-			req := httptest.NewRequest(http.MethodPost, "/v1/mcp/kora", strings.NewReader(body)).WithContext(platformtoken.WithClaims(context.Background(), claims))
+			req := httptest.NewRequest(http.MethodPost, "/run/run-1/v1/mcp/kora", strings.NewReader(body)).WithContext(platformtoken.WithClaims(context.Background(), claims))
 			req.SetPathValue("server", "kora")
 			req.Header.Set("Authorization", "Bearer agent-token")
 			req.Header.Set(mw.DelegationTokenHeader, "delegation-token")
 			rec := httptest.NewRecorder()
-			c.handleMCP(rec, req)
+			mw.StripRunPrefix(http.HandlerFunc(c.handleMCP)).ServeHTTP(rec, req)
 
 			var resp jsonRPCResponse
 			_ = json.Unmarshal(rec.Body.Bytes(), &resp)
@@ -367,6 +370,9 @@ func TestToolsCall_ForwardsDelegationToForwardIdentityOnly(t *testing.T) {
 			}
 			if gotDelegation != tc.wantDelegation {
 				t.Errorf("upstream delegation = %q, want %q", gotDelegation, tc.wantDelegation)
+			}
+			if gotRun != "run-1" {
+				t.Errorf("upstream run = %q, want run-1", gotRun)
 			}
 		})
 	}

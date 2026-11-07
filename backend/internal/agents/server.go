@@ -157,6 +157,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /internal/runs/{id}/provision-sandbox", c.handleProvisionSandbox)
 	mux.Handle("GET /internal/runs/{id}/sandbox", c.handleGetRunSandbox)
 	mux.Handle("GET /internal/runs/{id}/trace-parent", c.handleGetRunTraceParent)
+	mux.Handle("GET /internal/runs/{id}/chain", c.handleGetRunChain)
 	mux.Handle("GET /internal/runs/{id}/environments", c.handleListRunEnvironments)
 }
 
@@ -1078,6 +1079,35 @@ func (c *Controller) handleGetRunTraceParent(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]string{"trace_parent": traceParent})
+}
+
+// runChainCaller is the SYSTEM principal allowed to read a run's chain: the
+// trigger consumer, for an event an agent caused from the run.
+const runChainCaller = "kora-triggers"
+
+// handleGetRunChain returns the chain of the run when it belongs to the agent
+// and tenant in the query, and an empty chain otherwise.
+func (c *Controller) handleGetRunChain(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if !mw.IsSystemCaller(ctx, runChainCaller) {
+		apiErr := api.ForbiddenError(api.ErrCodeForbidden, "caller is not authorized to read a run chain", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+	q := r.URL.Query()
+	chain, err := c.runs.RunChain(ctx, r.PathValue("id"), q.Get("tenant"), q.Get("agent"))
+	if err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to read the run chain", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	triggers := chain.triggers
+	if triggers == nil {
+		triggers = []string{}
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
+		"caused_by": chain.causedBy, "chain_depth": chain.depth, "trigger_ids": triggers,
+	})
 }
 
 func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Request) {

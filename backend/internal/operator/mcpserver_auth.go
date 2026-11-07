@@ -41,12 +41,16 @@ var reservedHeaders = map[string]bool{
 	"te": true, "trailer": true, "upgrade": true,
 	"mcp-session-id": true, "mcp-protocol-version": true, "last-event-id": true,
 	"traceparent": true, "tracestate": true,
-	delegationTokenHeader: true,
+	delegationTokenHeader: true, runIDHeader: true,
 }
 
-// delegationTokenHeader is mw.DelegationTokenHeader, lowercased. A test keeps
-// the two in step without importing the middleware into the operator.
-const delegationTokenHeader = "x-kora-delegation-token"
+// delegationTokenHeader and runIDHeader are mw.DelegationTokenHeader and
+// mw.RunIDHeader, lowercased. A test keeps them in step without importing the
+// middleware into the operator.
+const (
+	delegationTokenHeader = "x-kora-delegation-token"
+	runIDHeader           = "x-kora-run-id"
+)
 
 // reservedHeaderPrefixes cover proxy and Envoy control headers.
 var reservedHeaderPrefixes = []string{"x-forwarded-", "x-envoy-"}
