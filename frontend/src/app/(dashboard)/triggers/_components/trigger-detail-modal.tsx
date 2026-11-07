@@ -411,6 +411,7 @@ function TriggerDetailModalBody({
   const canWrite = useHasScope('triggers:write');
   // Without events:read, kora-triggers refuses every edit of an event trigger but its name, enablement and admission.
   const canReadEvents = useHasScope('events:read');
+  const eventLocked = trigger?.kind === 'event' && !canReadEvents;
   const canShapeRuns = canWrite && canRunAgent;
   // A trigger whose source was deleted takes no edits; it can only be turned off or deleted.
   const sourceMissing = trigger?.sourceMissing ?? false;
@@ -443,7 +444,7 @@ function TriggerDetailModalBody({
   // trigger cannot inherit half-typed edits from the last one.
   const editKey = trigger?.id ?? '';
   const editable = onEdit !== undefined && trigger !== null;
-  const runEditable = editable && canRunAgent;
+  const runEditable = editable && canRunAgent && !eventLocked;
 
   const savePatch = useCallback(
     async (patch: TriggerEditPatch): Promise<string | null> => {
@@ -676,11 +677,15 @@ function TriggerDetailModalBody({
     </Stack>
   ) : !canWrite ? (
     <Alert variant="info">{permissionHintText('edit triggers')}</Alert>
+  ) : !canRunAgent ? (
+    <Alert variant="info">
+      {permissionHintText("run this trigger's agent")} Its prompt, filters, schedule and on or off
+      state are read only.
+    </Alert>
   ) : (
-    !canRunAgent && (
+    eventLocked && (
       <Alert variant="info">
-        {permissionHintText("run this trigger's agent")} Its prompt, filters, schedule and on or off
-        state are read only.
+        Editing the event, filters and prompt of this trigger needs the events:read permission.
       </Alert>
     )
   );
@@ -930,7 +935,7 @@ function TriggerDetailModalBody({
                       onIgnoreOwnRunsChange={(ignoreOwnRuns) =>
                         filters.setValue({ ...filters.value, ignoreOwnRuns })
                       }
-                      disabled={!runEditable || !canReadEvents}
+                      disabled={!runEditable}
                     />
                     <EditActions
                       dirty={filters.dirty}
