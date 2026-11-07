@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>kora Documentation & Presentation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            width: 100%;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 60px;
+        }
+
+        .header h1 {
+            font-size: 3.5rem;
+            margin-bottom: 15px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 1.3rem;
+            opacity: 0.9;
+            font-weight: 300;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 30px;
+            margin-bottom: 60px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+        }
+
+        .card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-icon {
+            font-size: 3rem;
+            margin-bottom: 20px;
+        }
+
+        .card h2 {
+            color: #667eea;
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+        }
+
+        .card p {
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 25px;
+            font-size: 0.95rem;
+        }
+
+        .card-link {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 30px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .card-link:hover {
+            background: white;
+            color: #667eea;
+            border-color: #667eea;
+        }
+
+        .features {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 40px;
+            margin-bottom: 40px;
+        }
+
+        .features h3 {
+            color: #667eea;
+            margin-bottom: 25px;
+            font-size: 1.5rem;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .feature {
+            padding: 15px;
+            background: #f5f7ff;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .feature strong {
+            color: #667eea;
+        }
+
+        .footer {
+            text-align: center;
+            color: white;
+            margin-top: 40px;
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        .footer a {
+            color: white;
+            text-decoration: none;
+            border-bottom: 1px solid white;
+        }
+
+        .footer a:hover {
+            opacity: 1;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2.5rem;
+            }
+
+            .cards {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 kora</h1>
+            <p>The Control Plane for AI Agents</p>
+        </div>
+
+        <div class="cards">
+            <div class="card">
+                <div class="card-icon">🎬</div>
+                <h2>Interactive Presentation</h2>
+                <p>17-slide presentation covering architecture, security, and how kora works. Navigate with arrow keys.</p>
+                <a href="/presentation.html" class="card-link">View Presentation →</a>
+            </div>
+
+            <div class="card">
+                <div class="card-icon">📖</div>
+                <h2>Detailed Documentation</h2>
+                <p>1,020 lines of first-principles documentation explaining identity, policy, credentials, and more.</p>
+                <a href="/docs/doc.md" class="card-link">Read Docs →</a>
+            </div>
+
+            <div class="card">
+                <div class="card-icon">📊</div>
+                <h2>Architecture Diagrams</h2>
+                <p>15 Mermaid diagrams showing message sequences, flows, state machines, and system architecture.</p>
+                <a href="/docs/diagrams.md" class="card-link">View Diagrams →</a>
+            </div>
+        </div>
+
+        <div class="features">
+            <h3>✨ What's Inside</h3>
+            <div class="feature-grid">
+                <div class="feature">
+                    <strong>🔐 Identity</strong><br/>
+                    SPIFFE certificates for unforgeable agent identity
+                </div>
+                <div class="feature">
+                    <strong>🛡️ Policy</strong><br/>
+                    OPA policies enforced before every action
+                </div>
+                <div class="feature">
+                    <strong>🔑 Credentials</strong><br/>
+                    Injected transparently, never exposed
+                </div>
+                <div class="feature">
+                    <strong>📈 Architecture</strong><br/>
+                    Multi-binary, multi-tenant, Kubernetes-native
+                </div>
+                <div class="feature">
+                    <strong>🔄 Flows</strong><br/>
+                    Complete request lifecycle visualized
+                </div>
+                <div class="feature">
+                    <strong>🎯 Philosophy</strong><br/>
+                    Security-first, observable, standards-based
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>Made with ❤️ for autonomous agents in production</p>
+            <p style="margin-top: 15px;">
+                <a href="https://github.com/runkora/kora" target="_blank">GitHub</a> •
+                <a href="https://github.com/runkora/kora/blob/kora-doc/doc.md" target="_blank">Full Docs</a> •
+                <a href="https://github.com/runkora/kora/blob/kora-doc/DIAGRAMS.md" target="_blank">Diagrams</a>
+            </p>
+        </div>
+    </div>
+</body>
+</html>

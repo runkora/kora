@@ -1,0 +1,14 @@
+node_modules
+.git
+.env*
+.env.local
+.env.*.local
+coverage
+dist
+build
+*.go
+go.mod
+go.sum
+Makefile
+.golangci.yml
+backend/
