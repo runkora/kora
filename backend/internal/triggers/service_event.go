@@ -75,6 +75,7 @@ func (s *Service) withActingRunChain(ctx context.Context, envelope []byte, head 
 	if errors.Is(err, agentsclient.ErrForbidden) || errors.Is(err, agentsclient.ErrUnexpectedStatus) {
 		s.logger.Warn(ctx, "event left out of its acting run's chain",
 			logging.Field{Key: "event_id", Value: head.ID}, logging.Field{Key: "error", Value: err.Error()})
+		s.metrics.recordChainFailOpen(ctx)
 		return envelope, head, nil
 	}
 	if err != nil {
