@@ -304,3 +304,116 @@ func TestSummarizer_ThinkingRetryHasRoomForText(t *testing.T) {
 		t.Errorf("summary = %q, want %q", got, "Label")
 	}
 }
+
+// responsesServer rejects /v1/messages with 400 model_not_supported and answers
+// /v1/responses with respStatus/respBody, recording each path and Responses body.
+func responsesServer(respStatus int, respBody string, paths *[]string, body *map[string]any) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*paths = append(*paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/v1/responses") {
+			b, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(b, body)
+			w.WriteHeader(respStatus)
+			w.Write([]byte(respBody)) //nolint:errcheck
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"code":"model_not_supported","message":"use another endpoint"}`)) //nolint:errcheck
+	}))
+}
+
+const responsesReply = `{"status":"completed","output":[` +
+	`{"type":"reasoning","summary":[]},` +
+	`{"type":"message","content":[{"type":"output_text","text":"Audit the repo for secrets"}]}]}`
+
+func TestSummarizer_FallsBackToResponsesWhenModelNotSupported(t *testing.T) {
+	var paths []string
+	var body map[string]any
+	srv := responsesServer(http.StatusOK, responsesReply, &paths, &body)
+	defer srv.Close()
+
+	s := newSummarizer(logging.NewLogger())
+	got, err := s.Summarize(context.Background(), srv.URL+"/run/run-9", "openai/gpt-6-sol", "audit the repo")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "Audit the repo for secrets" {
+		t.Errorf("summary = %q", got)
+	}
+	// Exactly one Messages call, then one Responses call on the per-run path.
+	want := []string{"/run/run-9/v1/messages", "/run/run-9/v1/responses"}
+	if strings.Join(paths, ",") != strings.Join(want, ",") {
+		t.Errorf("paths = %v, want %v", paths, want)
+	}
+	if body["model"] != "openai/gpt-6-sol" || body["instructions"] != summarizerSystemPrompt {
+		t.Errorf("model/instructions wrong: %v", body)
+	}
+	if in, _ := body["input"].(string); !strings.Contains(in, "audit the repo") {
+		t.Errorf("input = %q", in)
+	}
+	if body["max_output_tokens"] != float64(1024) {
+		t.Errorf("max_output_tokens = %v, want 1024", body["max_output_tokens"])
+	}
+	for _, k := range []string{"thinking", "temperature", "stream", "reasoning"} {
+		if _, ok := body[k]; ok {
+			t.Errorf("Responses body must not carry %q", k)
+		}
+	}
+}
+
+func TestSummarizer_ResponsesWithoutOutputTextFallsBackToFirstLine(t *testing.T) {
+	var paths []string
+	var body map[string]any
+	srv := responsesServer(http.StatusOK, `{"output":[{"type":"reasoning"}]}`, &paths, &body)
+	defer srv.Close()
+
+	s := newSummarizer(logging.NewLogger())
+	got, err := s.Summarize(context.Background(), srv.URL+"/run/run-9", "openai/gpt-6-sol", "\nfirst line\nsecond")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "first line" {
+		t.Errorf("summary = %q, want first line", got)
+	}
+}
+
+func TestSummarizer_ResponsesNon200ReturnsError(t *testing.T) {
+	var paths []string
+	var body map[string]any
+	srv := responsesServer(http.StatusInternalServerError, `{"message":"boom"}`, &paths, &body)
+	defer srv.Close()
+
+	s := newSummarizer(logging.NewLogger())
+	if _, err := s.Summarize(context.Background(), srv.URL+"/run/run-9", "openai/gpt-6-sol", "x"); err == nil {
+		t.Fatal("expected an error")
+	}
+	if len(paths) != 2 {
+		t.Errorf("paths = %v, want one Messages and one Responses call", paths)
+	}
+}
+
+// A 400 that is not model_not_supported keeps the thinking-retry sequence and
+// never reaches the Responses API.
+func TestSummarizer_Other400DoesNotCallResponses(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"code":"invalid_request","message":"nope"}`)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	s := newSummarizer(logging.NewLogger())
+	if _, err := s.Summarize(context.Background(), srv.URL+"/run/run-1", "anthropic/claude-x", "x"); err == nil {
+		t.Fatal("expected an error")
+	}
+	if len(paths) != len(summaryThinkingSettings) {
+		t.Errorf("got %d calls, want %d thinking attempts", len(paths), len(summaryThinkingSettings))
+	}
+	for _, p := range paths {
+		if strings.HasSuffix(p, "/v1/responses") || strings.HasSuffix(p, "/v1/chat/completions") {
+			t.Errorf("unexpected call to %s", p)
+		}
+	}
+}

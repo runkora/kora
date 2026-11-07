@@ -1,9 +1,12 @@
 package sessionmanager
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -39,7 +42,15 @@ const (
 	summaryPromptTemplate = "Label the following agent task request. Output only the label.\n\nREQUEST:\n\"\"\"\n%s\n\"\"\""
 )
 
-var errSummarizerUnexpectedStatus = errors.New("unexpected status from inference gateway")
+var (
+	errSummarizerUnexpectedStatus = errors.New("unexpected status from inference gateway")
+	// errSummarizerModelNotSupported means the gateway answered 400
+	// model_not_supported: the model is not served on the Messages API.
+	errSummarizerModelNotSupported = errors.New("model not supported on the messages endpoint")
+
+	// maxErrorBodyBytes caps how much of an error body is read to find its code.
+	maxErrorBodyBytes int64 = 64 << 10
+)
 
 // summarizer generates a short task label for a run by calling the inference
 // gateway over the *agent's own* authorized path.
@@ -52,6 +63,11 @@ var errSummarizerUnexpectedStatus = errors.New("unexpected status from inference
 // This is the only place those three things hold — hence summarization lives in
 // the session-manager, not the kora-agents control plane (which has no
 // inference identity and does not know the run's effective model).
+//
+// Two dialects are spoken. The Messages API is tried first for every model. A
+// model the gateway does not serve there (non-Anthropic models, e.g. OpenAI
+// models on Bedrock) is answered 400 model_not_supported, and the summarizer
+// then makes one request to {perRunBaseURL}/v1/responses instead.
 type summarizer struct {
 	*httpclient.Base
 }
@@ -104,28 +120,66 @@ type messagesContentBlock struct {
 	Text string `json:"text"`
 }
 
+// responsesRequest is the OpenAI Responses API request shape, used for models
+// the Messages API does not serve. It carries no temperature, reasoning or
+// stream field.
+type responsesRequest struct {
+	Model           string `json:"model"`
+	Instructions    string `json:"instructions"`
+	Input           string `json:"input"`
+	MaxOutputTokens int    `json:"max_output_tokens"`
+}
+
+type responsesResponse struct {
+	Status string                `json:"status"`
+	Output []responsesOutputItem `json:"output"`
+}
+
+// responsesOutputItem is one output item. A reasoning model returns a
+// "reasoning" item, which has no content, before the "message" item.
+type responsesOutputItem struct {
+	Type    string                 `json:"type"`
+	Content []responsesContentPart `json:"content"`
+}
+
+type responsesContentPart struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
 // Summarize produces a ≤120-char one-sentence label for initialMessage using the
-// given model, calling {baseURL}/v1/messages. baseURL is the per-run inference
-// base (e.g. http://kora-inference-gateway.../run/{runID}).
+// given model, calling {baseURL}/v1/messages, and {baseURL}/v1/responses once
+// when the gateway reports the model is not supported on the Messages API.
+// baseURL is the per-run inference base (e.g. http://kora-inference-gateway.../run/{runID}).
 func (s *summarizer) Summarize(ctx context.Context, baseURL, model, initialMessage string) (string, error) {
 	var result messagesResponse
 	var err error
 	for _, thinking := range summaryThinkingSettings {
 		var retry bool
 		result, retry, err = s.send(ctx, baseURL, model, initialMessage, thinking)
-		if !retry {
+		if !retry || errors.Is(err, errSummarizerModelNotSupported) {
 			break
 		}
 	}
-	if err != nil {
+	var text, stopReason string
+	var types []string
+	switch {
+	case errors.Is(err, errSummarizerModelNotSupported):
+		var resp responsesResponse
+		if resp, err = s.sendResponses(ctx, baseURL, model, initialMessage); err != nil {
+			return "", err
+		}
+		text, stopReason, types = firstOutputText(resp.Output), resp.Status, outputTypes(resp.Output)
+	case err != nil:
 		return "", err
+	default:
+		text, stopReason, types = firstText(result.Content), result.StopReason, blockTypes(result.Content)
 	}
 
-	text := firstText(result.Content)
 	if text == "" {
 		s.Logger().Warn(ctx, "Inference gateway response has no text block",
-			logging.Field{Key: "stop_reason", Value: result.StopReason},
-			logging.Field{Key: "block_types", Value: blockTypes(result.Content)})
+			logging.Field{Key: "stop_reason", Value: stopReason},
+			logging.Field{Key: "block_types", Value: types})
 		if label := truncateSummary(firstLine(initialMessage)); label != "" {
 			return label, nil
 		}
@@ -152,32 +206,99 @@ func (s *summarizer) send(ctx context.Context, baseURL, model, initialMessage st
 		},
 	}
 
+	retry, err = s.post(ctx, baseURL, "/v1/messages", payload, &result)
+	return result, retry, err
+}
+
+// sendResponses makes the single Responses API summary request.
+func (s *summarizer) sendResponses(ctx context.Context, baseURL, model, initialMessage string) (result responsesResponse, err error) {
+	payload := responsesRequest{
+		Model:           model,
+		Instructions:    summarizerSystemPrompt,
+		Input:           fmt.Sprintf(summaryPromptTemplate, initialMessage),
+		MaxOutputTokens: summaryThinkingMaxTokens,
+	}
+	_, err = s.post(ctx, baseURL, "/v1/responses", payload, &result)
+	return result, err
+}
+
+// post sends payload to {baseURL}{path} and decodes a 200 reply into out.
+// retry is true when the gateway answered 400, meaning the model may reject
+// this request shape. A 400 with code model_not_supported returns
+// errSummarizerModelNotSupported with retry false.
+func (s *summarizer) post(ctx context.Context, baseURL, path string, payload, out any) (retry bool, err error) {
 	body, err := s.EncodeJSON(payload)
 	if err != nil {
-		return result, false, fmt.Errorf("encode summarize request: %w", err)
+		return false, fmt.Errorf("encode summarize request: %w", err)
 	}
 
 	header := http.Header{}
 	header.Set("Content-Type", "application/json")
 
 	// A per-run base URL's run ID becomes a path param to keep the span name a template.
-	req := httpclient.Request{Method: http.MethodPost, BaseURL: baseURL, Path: "/v1/messages", Header: header, Body: body}
+	req := httpclient.Request{Method: http.MethodPost, BaseURL: baseURL, Path: path, Header: header, Body: body}
 	gateway, runID, perRun := strings.Cut(baseURL, "/run/")
 	if perRun {
-		req.BaseURL, req.Path, req.Params = gateway, "/run/{run_id}/v1/messages", []string{runID}
+		req.BaseURL, req.Path, req.Params = gateway, "/run/{run_id}"+path, []string{runID}
 	}
 	_, span, resp, err := s.Do(observability.WithRun(ctx, runID), req)
 	defer span.End()
 	if err != nil {
-		return result, false, err
+		return false, err
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
+	if resp.StatusCode == http.StatusBadRequest {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+		resp.Body = io.NopCloser(bytes.NewReader(raw))
+		herr := s.HandleErrorResponse(span, resp, errSummarizerUnexpectedStatus)
+		if errorCode(raw) == "model_not_supported" {
+			return false, fmt.Errorf("%w: %w", errSummarizerModelNotSupported, herr)
+		}
+		return true, herr
+	}
 	if resp.StatusCode != http.StatusOK {
-		return result, resp.StatusCode == http.StatusBadRequest, s.HandleErrorResponse(span, resp, errSummarizerUnexpectedStatus)
+		return false, s.HandleErrorResponse(span, resp, errSummarizerUnexpectedStatus)
 	}
 
-	return result, false, s.DecodeJSON(span, resp, &result)
+	return false, s.DecodeJSON(span, resp, out)
+}
+
+// errorCode returns the top-level "code" of a JSON error body, or "".
+func errorCode(raw []byte) string {
+	var e struct {
+		Code string `json:"code"`
+	}
+	if json.Unmarshal(raw, &e) != nil {
+		return ""
+	}
+	return e.Code
+}
+
+// firstOutputText returns the first non-empty output_text part of the first
+// "message" item, skipping the "reasoning" items a reasoning model returns first.
+func firstOutputText(items []responsesOutputItem) string {
+	for _, item := range items {
+		if item.Type != "message" {
+			continue
+		}
+		for _, part := range item.Content {
+			if part.Type == "output_text" && part.Text != "" {
+				return part.Text
+			}
+		}
+		return ""
+	}
+	return ""
+}
+
+// outputTypes lists the type of each output item, in order.
+func outputTypes(items []responsesOutputItem) []string {
+	types := make([]string, len(items))
+	for i, item := range items {
+		types[i] = item.Type
+	}
+	return types
 }
 
 // firstText returns the text of the first content block of type "text",
