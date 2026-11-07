@@ -192,7 +192,8 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	go pricingSyncWorker.Start(ctx)
 
 	budgetCounter := inferencegw.NewRedisBudgetCounter(redis, usageRepo, logger)
-	svc := inferencegw.NewService(pol, router, pricingCache, usageRepo, budgetCounter, logger)
+	events := storage.NewPool(db.Pool())
+	svc := inferencegw.NewService(pol, router, pricingCache, usageRepo, budgetCounter, logger).WithEvents(events)
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	// Shared revoked-JTI blocklist: rejects revoked delegation tokens at the
@@ -206,7 +207,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		// The operator projects VirtualModel resources through these endpoints.
 		declarative.NewController(verifier, logger, map[string]declarative.Applier{
 			declarative.KindVirtualModels: inferencegw.NewVirtualModelApplier(catalog),
-		}),
+		}).WithEvents(events),
 	}
 	return controllers, register, nil
 }

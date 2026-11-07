@@ -378,7 +378,7 @@ func TestIncrementSpends_WritesEveryApplicableCounter(t *testing.T) {
 	now := time.Now().UTC()
 	cats := []policy.BudgetCategory{roleCat("eng")}
 
-	err := c.IncrementSpends(context.Background(), SpendScopes{
+	after, err := c.IncrementSpends(context.Background(), SpendScopes{
 		TenantID:         "t1",
 		PrincipalID:      "pid-1",
 		PrincipalWindows: []string{"weekly"},
@@ -388,6 +388,9 @@ func TestIncrementSpends_WritesEveryApplicableCounter(t *testing.T) {
 	}, cats, 0.5)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if after.Tenant["monthly"] != 1 || after.Principal["weekly"] != 1 || after.RolePools["engineering"] != 1 || after.Run != 1 {
+		t.Errorf("after = %+v, want every counter at the incremented value", after)
 	}
 
 	want := []string{
@@ -413,7 +416,7 @@ func TestIncrementSpends_MinimalScopes_CanonicalMonthlyOnly(t *testing.T) {
 	rdb := &stubRedisOps{incrVal: 1}
 	c := newBudgetCounter(rdb, &stubUsageRepo{})
 
-	if err := c.IncrementSpends(context.Background(), SpendScopes{TenantID: "t1", PrincipalID: "pid-1"}, nil, 0.5); err != nil {
+	if _, err := c.IncrementSpends(context.Background(), SpendScopes{TenantID: "t1", PrincipalID: "pid-1"}, nil, 0.5); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	wantKey := principalKey("pid-1", "monthly", time.Now().UTC())
@@ -427,7 +430,7 @@ func TestIncrementSpends_IncrError_Propagates(t *testing.T) {
 	rdb := &stubRedisOps{incrErr: errors.New("redis unavailable")}
 	c := newBudgetCounter(rdb, &stubUsageRepo{})
 
-	err := c.IncrementSpends(context.Background(), SpendScopes{TenantID: "t1", PrincipalID: "pid-1"}, nil, 0.5)
+	_, err := c.IncrementSpends(context.Background(), SpendScopes{TenantID: "t1", PrincipalID: "pid-1"}, nil, 0.5)
 	if err == nil {
 		t.Fatal("expected error from INCRBYFLOAT failure, got nil")
 	}
@@ -438,7 +441,7 @@ func TestIncrementSpends_ExpireError_NonFatal(t *testing.T) {
 	rdb := &stubRedisOps{incrVal: 1, expireErr: errors.New("expire failed")}
 	c := newBudgetCounter(rdb, &stubUsageRepo{})
 
-	if err := c.IncrementSpends(context.Background(), SpendScopes{TenantID: "t1", PrincipalID: "pid-1"}, nil, 0.5); err != nil {
+	if _, err := c.IncrementSpends(context.Background(), SpendScopes{TenantID: "t1", PrincipalID: "pid-1"}, nil, 0.5); err != nil {
 		t.Errorf("Expire error should not propagate, got: %v", err)
 	}
 }
@@ -454,7 +457,7 @@ func TestBudgetCounter_RedisUnavailable(t *testing.T) {
 		call func() error
 	}{
 		{"get spends", func() error { _, err := c.GetSpends(context.Background(), scopes); return err }},
-		{"increment spends", func() error { return c.IncrementSpends(context.Background(), scopes, nil, 1.5) }},
+		{"increment spends", func() error { _, err := c.IncrementSpends(context.Background(), scopes, nil, 1.5); return err }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

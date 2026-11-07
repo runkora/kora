@@ -45,6 +45,19 @@ type mockSessionRepository struct {
 
 	// switched is the last SwitchSession call, for asserting what the service committed.
 	switched *switchCall
+	// started lists the sessions recorded as a sign-in or agent start.
+	started []string
+	// refresh receives the refresh token StartSession writes with its session.
+	refresh *mockRefreshTokenRepository
+}
+
+// linkRefresh lets StartSession write its refresh token where the service reads it.
+func linkRefresh(sessions SessionRepository, refresh RefreshTokenRepository) {
+	s, ok := sessions.(*mockSessionRepository)
+	r, ok2 := refresh.(*mockRefreshTokenRepository)
+	if ok && ok2 {
+		s.refresh = r
+	}
 }
 
 type switchCall struct {
@@ -68,6 +81,21 @@ func (m *mockSessionRepository) CreateSession(_ context.Context, s *Session) err
 	cp := *s
 	m.sessions[s.ID] = &cp
 	m.byJTI[s.JTI] = &cp
+	return nil
+}
+
+func (m *mockSessionRepository) StartSession(ctx context.Context, s *Session, rt *RefreshToken) error {
+	if err := m.CreateSession(ctx, s); err != nil {
+		return err
+	}
+	if rt != nil && m.refresh != nil {
+		if err := m.refresh.CreateRefreshToken(ctx, rt); err != nil {
+			return err
+		}
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.started = append(m.started, s.ID)
 	return nil
 }
 
@@ -521,6 +549,7 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 			Audience:              "kora-platform",
 		},
 	}
+	linkRefresh(sessions, refreshTokens)
 	svc, err := NewService(
 		context.Background(),
 		cfg,
@@ -598,6 +627,7 @@ tenants:
 			Audience:              "kora-platform",
 		},
 	}
+	linkRefresh(sessions, refreshTokens)
 	svc, err := NewService(
 		context.Background(),
 		cfg,
@@ -668,6 +698,7 @@ func newFullTestServiceWithPolicy(t *testing.T) (
 		},
 	}
 	var err error
+	linkRefresh(sessions, refreshTokens)
 	svc, err = NewService(
 		context.Background(),
 		cfg,

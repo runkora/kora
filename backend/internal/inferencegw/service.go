@@ -53,6 +53,8 @@ type Service struct {
 	budgetCounter SpendCounter
 	roleCache     *roleCache
 	logger        logging.Logger
+	// events records budget events. Nil records nothing.
+	events *storage.Pool
 }
 
 // NewService constructs a Service with all required dependencies.
@@ -919,6 +921,7 @@ func (s *Service) checkBudget(ctx context.Context, p principal) error {
 			}
 		}
 		s.logger.Info(ctx, "budget.hard_block", fields...)
+		s.recordExceeded(ctx, p.TenantID, result.Ceilings)
 		observability.RecordFailure(span, ErrBudgetExceeded, ErrBudgetExceeded)
 		if len(breached) > 0 {
 			// Name the breached ceiling scope(s) in the error so the run's
@@ -942,16 +945,23 @@ func (s *Service) incrementSpend(ctx context.Context, tenantID, principalID stri
 	if s.budgetCounter == nil {
 		return
 	}
-	scopes, categories, _ := s.budgetScopesFor(ctx, principal{TenantID: tenantID, PrincipalID: principalID})
+	p := principal{TenantID: tenantID, PrincipalID: principalID}
+	if claims, ok := token.ClaimsFromContext(ctx); ok && claims != nil {
+		p.PrincipalType = string(claims.Kora.PrincipalType)
+	}
+	scopes, categories, roles := s.budgetScopesFor(ctx, p)
 	// Write the run counter whenever run identity exists, even without a
 	// configured per-run ceiling — it keeps per-run cost warm and auditable.
 	scopes.RunID = runIDFromContext(ctx)
-	if err := s.budgetCounter.IncrementSpends(ctx, scopes, categories, amount); err != nil {
+	after, err := s.budgetCounter.IncrementSpends(ctx, scopes, categories, amount)
+	if err != nil {
 		s.logger.Warn(ctx, "budget.counter_increment_failed",
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "principal_id", Value: principalID},
 		)
+		return
 	}
+	s.recordThresholds(ctx, p, roles, scopes, after, amount)
 }
 
 // GetPersonalBudget returns the caller's budget status: every applicable

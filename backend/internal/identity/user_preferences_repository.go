@@ -7,7 +7,8 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // maxPreferencesDocBytes is enforced at the handler layer before any upsert.
@@ -32,11 +33,11 @@ type UserPreferencesRepository interface {
 // ─── PostgreSQL implementation ────────────────────────────────────────────────
 
 type postgresUserPreferencesRepository struct {
-	pool *pgxpool.Pool
+	pool *storage.Pool
 }
 
 // NewPostgresUserPreferencesRepository creates a UserPreferencesRepository backed by PostgreSQL.
-func NewPostgresUserPreferencesRepository(pool *pgxpool.Pool) UserPreferencesRepository {
+func NewPostgresUserPreferencesRepository(pool *storage.Pool) UserPreferencesRepository {
 	return &postgresUserPreferencesRepository{pool: pool}
 }
 

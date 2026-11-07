@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // Postgres integration tests for the tenant switch transaction. They run only
@@ -39,9 +41,12 @@ func testSwitchRepos(t *testing.T) (*pgxpool.Pool, SessionRepository, RefreshTok
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM identity_refresh_tokens WHERE session_id IN (SELECT id FROM identity_sessions WHERE principal_id = $1)`, principal)
 		_, _ = pool.Exec(ctx, `DELETE FROM identity_sessions WHERE principal_id = $1`, principal)
+		_, _ = pool.Exec(ctx, `DELETE FROM event_outbox WHERE envelope->>'koraprincipal' = $1`, principal)
+		_, _ = pool.Exec(ctx, `DELETE FROM events WHERE principal = $1`, principal)
 		pool.Close()
 	})
-	return pool, NewPostgresSessionRepository(pool), NewPostgresRefreshTokenRepository(pool), principal
+	db := storage.NewPool(pool)
+	return pool, NewPostgresSessionRepository(db), NewPostgresRefreshTokenRepository(db), principal
 }
 
 func testSessionRows(principal, tenant string) (*Session, *RefreshToken) {

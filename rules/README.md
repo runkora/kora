@@ -61,7 +61,7 @@ Two limits of the bundled ruleguard shape the rule. A bare `$s` pattern never vi
 
 ### [event-spine](../docs/adr/2026-11-06-event-spine.md) rule (event producers)
 
-An event producer package holds a `*storage.Pool`. The rule matches the `*pgxpool.Pool` type in any non-test file of a package in `eventProducerPackages`. The pattern lists `internal/agents`. Add a package to that pattern when its repositories move to `storage.Pool`.
+An event producer package holds a `*storage.Pool`. The rule matches the `*pgxpool.Pool` type in any non-test file of a package in `eventProducerPackages`. The pattern lists `internal/agents`, `internal/triggers`, `internal/identity` and the policy-service repositories `internal/policyservice/grants`, `internal/policyservice/roles` and `internal/policyservice/tenantbudget`. Add a package to that pattern when its repositories move to `storage.Pool`.
 
 ### Exclusions
 
