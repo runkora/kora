@@ -485,7 +485,7 @@ dev-cluster-down: ## Tear down the local k3d cluster
 # Adding a new service is a one-line edit here plus an entry in redeploy.sh.
 REDEPLOY_PLATFORM_SERVICES := \
 	identity identity-proxy inference-gateway policy-service policy-gateway \
-	egress-gateway agents frontend kora-mcp tool-gateway kora-triggers skills-service migrate operator \
+	egress-gateway agents frontend kora-mcp tool-gateway kora-triggers kora-events skills-service migrate operator \
 	session-manager sandbox-mount sandbox-base
 REDEPLOY_TENANT_SERVICES := example
 
@@ -495,7 +495,7 @@ REDEPLOY_TENANT_SERVICES := example
 # operator (helm-managed â€” upgraded separately so chart/CRD changes land).
 REDEPLOY_ROLLOUT_SERVICES := \
 	identity inference-gateway policy-service policy-gateway egress-gateway \
-	agents frontend kora-mcp tool-gateway kora-triggers
+	agents frontend kora-mcp tool-gateway kora-triggers kora-events
 
 # kora-system deployments we don't build (third-party images) but still restart
 # on cluster-update so they re-read chart-managed config on the way back up.
@@ -619,7 +619,7 @@ redeploy-warm: redeploy-platform redeploy-tenant ## Pre-build every service to w
 BAKE_PLATFORM_IMAGES := \
 	kora-identity kora-identity-proxy kora-inference-gateway \
 	kora-policy-service kora-policy-gateway kora-egress-gateway \
-	kora-agents kora-frontend kora-mcp kora-tool-gateway kora-triggers kora-migrate \
+	kora-agents kora-frontend kora-mcp kora-tool-gateway kora-triggers kora-events kora-migrate \
 	kora-operator kora-session-manager kora-sandbox-mount kora-sandbox-base
 
 .PHONY: redeploy-platform-bake
@@ -907,6 +907,10 @@ redeploy-tool-gateway: ## Redeploy the tool gateway (also rolls the publisher â€
 .PHONY: redeploy-triggers
 redeploy-triggers: ## Redeploy kora-triggers (webhook ingestion, management API, scheduler)
 	@bash scripts/cluster/redeploy.sh kora-triggers $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-events
+redeploy-events: ## Redeploy kora-events (event relay, read API and streams)
+	@bash scripts/cluster/redeploy.sh kora-events $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-operator
 redeploy-operator: ## Redeploy the kora-operator (tenant lifecycle, webhooks, preflight)

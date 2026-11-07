@@ -1,0 +1,20 @@
+{{- /*
+kora-events config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+*/}}
+{{- define "kora.koraEvents.configModules" -}}
+cmd/kora-events:
+  metrics:
+    enabled: {{ .Values.global.metrics.enabled }}
+    port: {{ .Values.global.metrics.port | default 9464 }}
+  identity:
+    internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-identity") | toJson }}
+  policy:
+    policyServiceURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-policy-service") | toJson }}
+    bundleEndpoint: {{ include "kora.bundleEndpoint" . | toJson }}
+  retention:
+    defaultDays: {{ .Values.koraEvents.retention.defaultDays | int }}
+{{ include "kora.observabilityConfigModule" . }}
+{{ include "kora.storageConfigModule" (dict "root" . "redisClient" true) }}
+{{ include "kora.tokenConfigModule" . }}
+{{- end }}
+{{- include "kora.configMap" (dict "root" $ "name" "koraEvents" "configMap" "kora-events-config" "modules" (include "kora.koraEvents.configModules" . | fromYaml)) }}

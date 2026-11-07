@@ -30,6 +30,7 @@ type registryEntry struct {
 	OIDC         registryOIDC        `json:"oidc"`
 	APIAuthoring string              `json:"apiAuthoring"`
 	Budget       *declarative.Budget `json:"budget,omitempty"`
+	Events       *declarative.Events `json:"events,omitempty"`
 }
 
 type registryOIDC struct {
@@ -135,6 +136,7 @@ func (r *TenantRegistry) buildRegistryYAML(tenants []KoraTenant) (string, error)
 			},
 			APIAuthoring: t.Spec.APIAuthoring,
 			Budget:       t.Spec.Budget,
+			Events:       t.Spec.Events,
 		})
 	}
 

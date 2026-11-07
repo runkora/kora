@@ -176,6 +176,19 @@ spec:
             host: kora-skills-service.{{ include "kora.systemNamespace" . }}.svc.cluster.local
             port:
               number: 8098
+    # ── kora-events: event history and the event stream ───────────────────────
+    - match:
+        - uri:
+            exact: /v1/events
+        - uri:
+            prefix: /v1/events/
+      timeout: 3600s # Event streams stay open.
+      {{- include "kora.edgeHeaders" . | nindent 6 }}
+      route:
+        - destination:
+            host: kora-events.{{ include "kora.systemNamespace" . }}.svc.cluster.local
+            port:
+              number: 8099
     # ── Inference gateway (OpenAI-compatible API), the API-host default ────────
     - timeout: 3600s # Long timeout; inference streams can run for many minutes.
       {{- include "kora.edgeHeaders" . | nindent 6 }}

@@ -59,7 +59,7 @@ func (r *postgresSessionRepository) CreateSession(ctx context.Context, s *Sessio
 }
 
 func (r *postgresSessionRepository) SwitchSession(ctx context.Context, next *Session, nextRefresh *RefreshToken, replaced *RefreshToken, at time.Time) error {
-	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
 		if err := revokeRefreshToken(ctx, tx, replaced.ID, at); err != nil {
 			return err
 		}

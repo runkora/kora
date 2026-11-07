@@ -64,6 +64,7 @@ func TestBuildRegistryYAMLDeclarativeFields(t *testing.T) {
 	locked := tenantAt("acme", "", t0)
 	locked.Spec.APIAuthoring = declarative.APIAuthoringDisabled
 	locked.Spec.Budget = &declarative.Budget{LimitUSD: 1000, ResetCadence: "monthly"}
+	locked.Spec.Events = &declarative.Events{RetentionDays: 90}
 	refused := tenantAt("beta", "kora-tenant-acme", t0.Add(time.Hour))
 	suspended := tenantAt("gamma", "", t0)
 	suspended.Spec.Active = false
@@ -87,7 +88,10 @@ func TestBuildRegistryYAMLDeclarativeFields(t *testing.T) {
 	if acme.Budget == nil || acme.Budget.LimitUSD != 1000 || acme.Budget.ResetCadence != "monthly" {
 		t.Errorf("acme budget = %+v", acme.Budget)
 	}
-	if beta.APIAuthoring != "" || beta.Budget != nil {
+	if acme.Events == nil || acme.Events.RetentionDays != 90 {
+		t.Errorf("acme events = %+v", acme.Events)
+	}
+	if beta.APIAuthoring != "" || beta.Budget != nil || beta.Events != nil {
 		t.Errorf("beta = %+v", beta)
 	}
 }
