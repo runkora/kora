@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -535,13 +536,17 @@ func (r *CodexRunner) stderrSnapshot() string {
 	return strings.Join(r.stderrTail, "\n")
 }
 
+// maxCodexLineBytes bounds one JSONL line from the Codex app-server. One line
+// carries a whole tool output, so it matches the Claude Code runner's limit.
+const maxCodexLineBytes = 32 * 1024 * 1024
+
 // readLoop reads the Codex app-server's stdout line by line and dispatches each message.
 // Runs in its own goroutine; closes r.events when stdout is exhausted.
 func (r *CodexRunner) readLoop(ctx context.Context, stdout io.Reader) {
 	defer close(r.events)
 
 	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 1024*1024), maxCodexLineBytes)
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -568,6 +573,19 @@ func (r *CodexRunner) readLoop(ctx context.Context, stdout io.Reader) {
 			// Unsolicited notification.
 			r.handleNotification(ctx, msg)
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		r.cfg.Logger.Error(ctx, "agent stdout scan error",
+			logging.Field{Key: "run_id", Value: r.cfg.RunID},
+			logging.Field{Key: "framework", Value: "codex"},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		message := "Codex output could not be read: " + err.Error()
+		if errors.Is(err, bufio.ErrTooLong) {
+			message = fmt.Sprintf("Codex output line exceeds the %d MiB limit", maxCodexLineBytes/(1024*1024))
+		}
+		r.emit(EventTypeRunError, RunErrorPayload{Code: "runner_error", Message: message})
 	}
 }
 
