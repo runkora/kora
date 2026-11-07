@@ -341,6 +341,47 @@ function ErrorTable() {
   );
 }
 
+function ServerSearchExample() {
+  const [query, setQuery] = useState('');
+  // Stands in for the server: the table only shows the box and passes the text up.
+  const rows = sample.filter((a) => a.name.includes(query.trim().toLowerCase()));
+  return (
+    <DataTable
+      data={rows}
+      noun="agents"
+      getRowKey={getKey}
+      columns={[nameColumn, statusColumn, runsColumn]}
+      searchPlaceholder="Search agents"
+      searchQuery={query}
+      onSearchChange={setQuery}
+    />
+  );
+}
+
+function BodyStateTable() {
+  const [loading, setLoading] = useState(true);
+  return (
+    <DataTable
+      data={loading ? [] : sample}
+      noun="agents"
+      getRowKey={getKey}
+      columns={[nameColumn, { ...statusColumn, filter: statusFilter }, runsColumn]}
+      bodyState={
+        loading ? (
+          <Stack align="center" gap="snug">
+            <Text size="supporting" color="muted">
+              Loading agents.
+            </Text>
+            <Button variant="outline" size="sm" onClick={() => setLoading(false)}>
+              Finish loading
+            </Button>
+          </Stack>
+        ) : undefined
+      }
+    />
+  );
+}
+
 function ControlledSearchExample() {
   const [query, setQuery] = useState('');
   return (
@@ -387,6 +428,12 @@ export const Options: Story = {
           use="Own the search text yourself, for example to share one search box with a card view. Leave both out and the table keeps the text itself."
         >
           <ControlledSearchExample />
+        </Option>
+        <Option
+          name="onSearchChange without searchFn"
+          use="Shows the search box and keeps every row. The page sends the text to the server and passes in the rows that match."
+        >
+          <ServerSearchExample />
         </Option>
         <Option
           name="sortable, sortAccessor, defaultSortId"
@@ -545,6 +592,12 @@ export const Options: Story = {
         </Option>
         <Option name="error" use="Replaces the rows when loading failed. Add a way to try again.">
           <ErrorTable />
+        </Option>
+        <Option
+          name="bodyState"
+          use="Replaces the rows with any state of the page's own, such as loading. The header and its filters stay usable."
+        >
+          <BodyStateTable />
         </Option>
       </OptionTable>
     </div>
