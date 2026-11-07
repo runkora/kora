@@ -596,16 +596,24 @@ func (r *acpRunner) Interrupt() error {
 	pend := r.pendingReqs
 	r.pendingReqs = make(map[string]*acpPending)
 	r.mu.Unlock()
-	if !inFlight {
-		return r.proc.Interrupt()
+	var err error
+	if inFlight {
+		err = r.conn.notify("session/cancel", map[string]string{"sessionId": sid})
 	}
-	err := r.conn.notify("session/cancel", map[string]string{"sessionId": sid})
-	for _, p := range pend {
+	// Whatever Interrupt discards is answered cancelled, in flight or not, or
+	// the agent stays blocked on it.
+	for key, p := range pend {
 		var resp any = acpCancelledPermission
 		if p.elicit {
 			resp = map[string]string{"action": "cancel"}
 		}
 		_ = r.conn.respond(p.rpcID, resp)
+		if p.standalone { // close the tool_use announced for it
+			r.emit(EventTypeToolResult, newToolResult(key, "cancelled", true, ""))
+		}
+	}
+	if !inFlight {
+		return r.proc.Interrupt()
 	}
 	return err
 }

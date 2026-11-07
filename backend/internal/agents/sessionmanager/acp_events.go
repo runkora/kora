@@ -8,13 +8,14 @@ import (
 	"time"
 )
 
-// acpProgressEvery spaces tool_progress events; adapters send an update for
-// every chunk of streamed output.
+// Tool call statuses that end a call.
 const (
 	acpStatusCompleted = "completed"
 	acpStatusFailed    = "failed"
 )
 
+// acpProgressEvery spaces tool_progress events; adapters send an update for
+// every chunk of streamed output.
 const acpProgressEvery = 5 * time.Second
 
 type acpToolCall struct {

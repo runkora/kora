@@ -615,3 +615,26 @@ func TestACPRunner_UnexpectedExit(t *testing.T) {
 		t.Errorf("Close after exit: %v", err)
 	}
 }
+
+func TestACPRunner_InterruptIdleAnswersPendingRequests(t *testing.T) {
+	a := newFakeACPAgent(t)
+	r := startACP(t, a, &fakeACPProfile{}, nil)
+	ch := a.request("session/elicitation", map[string]any{
+		"sessionId": "sess-1", "mode": "form",
+		"requestedSchema": map[string]any{"properties": map[string]any{"x": map[string]string{}}},
+	})
+	use := nextACPEvent(t, r) // tool_use announcing the standalone elicitation
+	if err := r.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	if got := string((<-ch).Result); !strings.Contains(got, `"cancel"`) {
+		t.Errorf("elicitation answered %s, want cancel", got)
+	}
+	res := nextACPEvent(t, r)
+	if res.Type != EventTypeToolResult || payloadOf[ToolResultPayload](t, res).ToolUseID != payloadOf[ToolUsePayload](t, use).ID {
+		t.Errorf("event = %s, want the tool_result closing the announced tool_use", res.Type)
+	}
+	if a.interrupts.Load() != 1 || a.count("session/cancel") != 0 {
+		t.Errorf("idle interrupt: signals %d, cancels %d", a.interrupts.Load(), a.count("session/cancel"))
+	}
+}
