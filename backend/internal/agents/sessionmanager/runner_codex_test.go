@@ -668,7 +668,7 @@ func TestCodexReadLoop_LargeLineSurvives(t *testing.T) {
 func TestCodexReadLoop_OverLimitLineEmitsRunError(t *testing.T) {
 	r := newTestCodexRunner()
 
-	big := strings.Repeat("x", maxCodexLineBytes+1)
+	big := strings.Repeat("x", maxAgentLineBytes+1)
 	go r.readLoop(t.Context(), strings.NewReader(big+"\n"))
 	evs := collectEvents(r.events)
 

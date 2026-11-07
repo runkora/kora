@@ -201,8 +201,9 @@ func (r *ClaudeRunner) buildRunEnv(baseEnv []string, runHome, tmpDir string) []s
 	return append(env, "HOME="+runHome, "TMPDIR="+tmpDir)
 }
 
-// maxClaudeLineBytes bounds one stream-json line from Claude Code.
-const maxClaudeLineBytes = 32 * 1024 * 1024
+// maxAgentLineBytes bounds one line of agent stdout. One line carries a whole
+// tool result, so the Claude Code and Codex runners share the limit.
+const maxAgentLineBytes = 32 * 1024 * 1024
 
 // isBudgetExceededMessage recognizes the inference gateway's 429
 // BUDGET_EXCEEDED rejection surfaced through the agent runtime's error result.
@@ -429,7 +430,7 @@ func (r *ClaudeRunner) transform(ctx context.Context, stdout io.Reader) {
 	// One line carries a whole tool result, and subagent results pass a
 	// megabyte; a line over the limit would end the scan and the session's events.
 	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 1024*1024), maxClaudeLineBytes)
+	scanner.Buffer(make([]byte, 1024*1024), maxAgentLineBytes)
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
