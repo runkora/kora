@@ -322,6 +322,22 @@ func TestUpdateRoutedEventTrigger(t *testing.T) {
 }
 
 // Choosing the events a trigger reads takes events:read. Other edits do not.
+// Only event triggers need events:read. A manual trigger is created and edited without it.
+func TestNonEventTrigger_NeedsNoEventsRead(t *testing.T) {
+	_, deps := newTestService(t)
+	deps.eval.deny = map[string]bool{"events:read": true}
+	ctx := context.Background()
+	tr, err := deps.triggers.CreateTrigger(ctx, testTenant, routingClaims, CreateTriggerRequest{
+		Kind: KindManual, Name: "deploy", AgentTypeID: "at-1", PromptTemplate: "deploy",
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, UpdateTriggerRequest{PromptTemplate: new("deploy again")}); err != nil {
+		t.Errorf("update prompt: %v", err)
+	}
+}
+
 func TestEventTrigger_NeedsEventsRead(t *testing.T) {
 	_, deps := newTestService(t)
 	tr := mustEventTrigger(t, deps, eventReq("on-failure"))
