@@ -35,8 +35,11 @@ import (
 //     nothing to purge and when the job is dead.
 //   - the scheduler, by tick duration and triggers scanned. A tick that starts
 //     taking longer than a minute silently stops being a minutely schedule.
+//   - chain fail-opens, as a counter. An event kora-agents refused a chain for
+//     skips the loop guards, so a rising count is a loop risk to look at.
 type Metrics struct {
 	autoPauses      metric.Int64Counter
+	chainFailOpens  metric.Int64Counter
 	purgedPayloads  metric.Int64Counter
 	scannedTriggers metric.Int64Counter
 	tickDuration    metric.Float64Histogram
@@ -71,6 +74,14 @@ func NewMetrics(meter metric.Meter, repo pendingStatsReader, logger logging.Logg
 		metric.WithUnit("{trigger}"),
 	); err != nil {
 		return nil, fmt.Errorf("create auto-pause counter: %w", err)
+	}
+
+	if m.chainFailOpens, err = meter.Int64Counter(
+		"kora.triggers.events.chain_fail_open",
+		metric.WithDescription("Agent events let through without their acting run's chain after kora-agents refused the read"),
+		metric.WithUnit("{event}"),
+	); err != nil {
+		return nil, fmt.Errorf("create chain fail-open counter: %w", err)
 	}
 
 	if m.purgedPayloads, err = meter.Int64Counter(
@@ -175,6 +186,15 @@ func (m *Metrics) recordAutoPause(ctx context.Context) {
 		return
 	}
 	m.autoPauses.Add(ctx, 1)
+}
+
+// recordChainFailOpen counts an event let through without its acting run's
+// chain. Unattributed for the same reason as recordAutoPause.
+func (m *Metrics) recordChainFailOpen(ctx context.Context) {
+	if m == nil {
+		return
+	}
+	m.chainFailOpens.Add(ctx, 1)
 }
 
 // recordPurge records a completed retention purge: how much it removed, and

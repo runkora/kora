@@ -606,7 +606,8 @@ func TestHandleEvent_ReadsTheActingRunChainOnlyWhenNeeded(t *testing.T) {
 	}
 }
 
-// An unavailable kora-agents leaves the event to be read again. A refusal records it with no chain.
+// An unavailable kora-agents leaves the event to be read again. A refusal
+// records it with no chain and counts the fail-open.
 func TestHandleEvent_ActingRunChainFailure(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -620,6 +621,8 @@ func TestHandleEvent_ActingRunChainFailure(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			svc, deps := newTestService(t)
+			m, reader := newTestMetrics(t, deps.repo)
+			svc.metrics = m
 			mustEventTrigger(t, deps, eventReq("on-failure"))
 			svc.SetRunChains(&fakeRunChains{err: tc.err}, func(context.Context) (string, error) { return "system-tok", nil })
 
@@ -629,6 +632,13 @@ func TestHandleEvent_ActingRunChainFailure(t *testing.T) {
 			}
 			if n := len(deps.repo.deliveries); n != tc.deliveries {
 				t.Errorf("deliveries = %d, want %d", n, tc.deliveries)
+			}
+			var failOpens int64
+			if got, ok := collect(t, reader)["kora.triggers.events.chain_fail_open"]; ok {
+				failOpens = sumInt64(t, got)
+			}
+			if want := int64(tc.deliveries); failOpens != want {
+				t.Errorf("chain fail-opens = %d, want %d", failOpens, want)
 			}
 		})
 	}
