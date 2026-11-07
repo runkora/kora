@@ -126,6 +126,10 @@ type Service struct {
 	outcomes  outcomeRecorder
 	logger    logging.Logger
 	metrics   *Metrics // nil records nothing
+	// runChains and selfToken resolve the chain of an event an agent caused
+	// from a run. Unset leaves such an event out of its run's chain.
+	runChains runChainReader
+	selfToken func(context.Context) (string, error)
 }
 
 // decisionModel asks the inference gateway's decision model which agent or run

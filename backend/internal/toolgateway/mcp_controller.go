@@ -297,7 +297,7 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 		logging.Field{Key: "tool", Value: tool},
 		logging.Field{Key: "principal", Value: claims.Subject})
 
-	caller := &Caller{Bearer: bearerFromRequest(r), Delegation: r.Header.Get(mw.DelegationTokenHeader)}
+	caller := &Caller{Bearer: bearerFromRequest(r), Delegation: r.Header.Get(mw.DelegationTokenHeader), RunID: mw.ActingRunID(ctx)}
 	result, err := c.proxy.CallTool(ctx, srv, tool, params.Arguments, caller)
 	if err != nil {
 		span.RecordError(err)

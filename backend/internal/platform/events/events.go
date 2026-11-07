@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/storage"
@@ -80,6 +81,7 @@ type Envelope struct {
 	PrincipalName   string   `json:"koraprincipalname"`
 	Delegator       string   `json:"koradelegator,omitempty"`
 	Run             string   `json:"korarun,omitempty"`
+	ActingRun       string   `json:"koraactingrun,omitempty"`
 	Agent           string   `json:"koraagent,omitempty"`
 	CausedBy        string   `json:"koracausedby,omitempty"`
 	ChainDepth      int      `json:"korachaindepth"`
@@ -169,6 +171,7 @@ func newEnvelope(ctx context.Context, id uuid.UUID, e Event, at time.Time) (Enve
 		PrincipalName:   principalName,
 		Delegator:       delegator,
 		Run:             e.RunID,
+		ActingRun:       actingRun(ctx),
 		Agent:           e.Agent,
 		CausedBy:        e.CausedBy,
 		ChainDepth:      e.ChainDepth,
@@ -176,6 +179,16 @@ func newEnvelope(ctx context.Context, id uuid.UUID, e Event, at time.Time) (Enve
 		TraceParent:     observability.TraceParent(ctx),
 		Data:            Data{Entity: e.Entity, Changed: e.Changed, EntityVersion: e.Version, OccurredAt: when},
 	}, nil
+}
+
+// actingRun is the run the agent caller acts for. A value that is not a run id
+// is left out, so a bad run prefix cannot fail the producer's transaction.
+func actingRun(ctx context.Context) string {
+	id := mw.ActingRunID(ctx)
+	if _, err := uuid.Parse(id); err != nil {
+		return ""
+	}
+	return id
 }
 
 // validate refuses what the relay could not copy into the log's typed columns.

@@ -3,11 +3,14 @@ package triggers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 
 	"github.com/google/uuid"
 
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/observability"
 )
@@ -34,12 +37,67 @@ const (
 
 // eventHead is the part of an envelope that matching and the loop guards read.
 type eventHead struct {
-	ID          string   `json:"id"`
-	Type        string   `json:"type"`
-	Tenant      string   `json:"koratenant"`
-	ChainDepth  int      `json:"korachaindepth"`
-	Triggers    []string `json:"koratriggers"`
-	TraceParent string   `json:"traceparent"`
+	ID            string   `json:"id"`
+	Type          string   `json:"type"`
+	Tenant        string   `json:"koratenant"`
+	PrincipalType string   `json:"koraprincipaltype"`
+	PrincipalName string   `json:"koraprincipalname"`
+	ActingRun     string   `json:"koraactingrun"`
+	ChainDepth    int      `json:"korachaindepth"`
+	Triggers      []string `json:"koratriggers"`
+	TraceParent   string   `json:"traceparent"`
+}
+
+// runChainReader reads the chain of an agent's run from kora-agents.
+type runChainReader interface {
+	RunChain(ctx context.Context, bearer, runID, tenant, agent string) (agentsclient.RunChain, error)
+}
+
+// SetRunChains lets the consumer put an event an agent caused from a run into
+// that run's chain. selfToken is this binary's SYSTEM token.
+func (s *Service) SetRunChains(r runChainReader, selfToken func(context.Context) (string, error)) {
+	s.runChains, s.selfToken = r, selfToken
+}
+
+// withActingRunChain stamps the chain of the event's acting run on an agent's
+// event that carries no chain, so the loop guards and the fires see it.
+func (s *Service) withActingRunChain(ctx context.Context, envelope []byte, head eventHead) ([]byte, eventHead, error) {
+	if s.runChains == nil || head.ActingRun == "" || head.PrincipalType != events.PrincipalAgent ||
+		head.ChainDepth != 0 || len(head.Triggers) != 0 {
+		return envelope, head, nil
+	}
+	bearer, err := s.selfToken(ctx)
+	if err != nil {
+		return nil, head, fmt.Errorf("self token: %w", err)
+	}
+	chain, err := s.runChains.RunChain(ctx, bearer, head.ActingRun, head.Tenant, head.PrincipalName)
+	// A refusal will not pass on a retry, so the event goes on without the chain.
+	if errors.Is(err, agentsclient.ErrForbidden) || errors.Is(err, agentsclient.ErrUnexpectedStatus) {
+		s.logger.Warn(ctx, "event left out of its acting run's chain",
+			logging.Field{Key: "event_id", Value: head.ID}, logging.Field{Key: "error", Value: err.Error()})
+		return envelope, head, nil
+	}
+	if err != nil {
+		return nil, head, fmt.Errorf("read the acting run chain: %w", err)
+	}
+	if chain.ChainDepth == 0 && len(chain.TriggerIDs) == 0 {
+		return envelope, head, nil
+	}
+	var doc map[string]json.RawMessage
+	if err = json.Unmarshal(envelope, &doc); err != nil {
+		return nil, head, fmt.Errorf("decode event: %w", err)
+	}
+	for key, v := range map[string]any{"koracausedby": chain.CausedBy, "korachaindepth": chain.ChainDepth, "koratriggers": chain.TriggerIDs} {
+		if doc[key], err = json.Marshal(v); err != nil {
+			return nil, head, fmt.Errorf("encode %s: %w", key, err)
+		}
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return nil, head, fmt.Errorf("encode event: %w", err)
+	}
+	head.ChainDepth, head.Triggers = chain.ChainDepth, chain.TriggerIDs
+	return out, head, nil
 }
 
 // eventChain is the cause and depth a fire reports to kora-agents.
@@ -97,6 +155,10 @@ func (s *Service) HandleEvent(ctx context.Context, envelope []byte) error {
 	}
 	if !anyFilterMatches(triggers, head, decodeBody(envelope)) {
 		return nil
+	}
+	envelope, head, err = s.withActingRunChain(ctx, envelope, head)
+	if err != nil {
+		return err
 	}
 
 	ctx = observability.ContextWithTraceParent(ctx, head.TraceParent)

@@ -80,9 +80,12 @@ func TestValidateMCPServerAuth(t *testing.T) {
 	}
 }
 
-func TestDelegationHeaderMatchesMiddleware(t *testing.T) {
+func TestKoraHeadersMatchMiddleware(t *testing.T) {
 	if delegationTokenHeader != strings.ToLower(mw.DelegationTokenHeader) {
 		t.Errorf("delegationTokenHeader = %q, want %q", delegationTokenHeader, strings.ToLower(mw.DelegationTokenHeader))
+	}
+	if runIDHeader != strings.ToLower(mw.RunIDHeader) {
+		t.Errorf("runIDHeader = %q, want %q", runIDHeader, strings.ToLower(mw.RunIDHeader))
 	}
 }
 

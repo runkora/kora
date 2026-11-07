@@ -151,6 +151,7 @@ Events are CloudEvents 1.0 structured JSON. `backend/internal/platform/events` d
   "koraprincipalname": "triage",
   "koradelegator": "<user subject>",
   "korarun": "2b4e8c1d-...",
+  "koraactingrun": "7c1e9a2f-...",
   "koraagent": "triage",
   "koracausedby": "0193f3b9-...",
   "korachaindepth": 1,
@@ -169,6 +170,7 @@ Events are CloudEvents 1.0 structured JSON. `backend/internal/platform/events` d
 *   `type` has the form `<domain>.<entity>.<event>.v<N>`. The catalog in `platform/events` is the list in the PRD.
 *   `koraprincipaltype` is `USER`, `AGENT`, `TRIGGER` or `SYSTEM`. A context with no claims records `SYSTEM` and the binary as principal.
 *   `koraprincipalname` is the principal's display name from the claims at publish time: the name or email of a person, the slug of an agent or trigger, and the binary for `SYSTEM`.
+*   `koraactingrun` names the run an AGENT principal acted from when it caused the event (section 7). `korarun` names the run the event concerns.
 *   `koracausedby`, `korachaindepth` and `koratriggers` are set on events about a run that an event trigger started or messaged, or that an agent started or messaged from such a run (section 7). Every other event has depth 0.
 *   `data.entity` is the resource after the change, or the resource before the delete for a delete event.
 *   `data.changed` lists the fields that an update changed.
@@ -317,8 +319,10 @@ The public routes register `events:read` through `routescopes` and are enforced 
 *   An event that matches at least one trigger records one delivery with `event_id`. A unique index on `trigger_deliveries (event_id) WHERE redelivery_of IS NULL` dedups a replayed event and leaves redelivery working. Per-trigger outcomes go in `trigger_delivery_runs` as for a webhook fan-out.
 *   Each fire goes through the existing admission, coalescing, routing and auto-pause.
 *   `StartRunRequest` and `SendRunMessageRequest` carry `caused_by` (the event id) and `chain_depth` (the event depth plus one). `kora-agents` stores the cause and the highest depth on the run. Every event about that run carries them as `koracausedby` and `korachaindepth`.
-*   A run that an agent starts or messages from an attested run joins that run's chain when the attested run is in one: its depth is above 0 or a trigger started or messaged it. A run outside a trigger chain passes no chain on, and its sub-agent runs stay at depth 0. Two claims attest the run: `run_id` in the token of a per-run sandbox identity, and `run_id` in a delegation token. `kora-agents` checks that the run belongs to the calling agent in the same tenant. The target then gets the run's cause, its depth plus one and its triggers.
-*   An agent in a shared pod has no attested run, and an admin change an agent makes carries no chain. Auto-pause and budgets bound such a loop until per-run attestation covers these cases.
+*   A run that an agent starts or messages from the run it acts for joins that run's chain when that run is in one: its depth is above 0 or a trigger started or messaged it. A run outside a trigger chain passes no chain on, and its sub-agent runs stay at depth 0. `middleware.ActingRunID` reads the acting run from `run_id` in the token of a per-run sandbox identity, else from `run_id` in a delegation token, else from the `/run/{run_id}` path prefix. `kora-agents` checks that the run belongs to the calling agent in the same tenant. The target then gets the run's cause, its depth plus one and its triggers.
+*   The tool-gateway sends the acting run to every upstream MCP server in the `X-Kora-Run-Id` header. The kora MCP sends its calls to the platform services under `/run/{run_id}`. `kora-agents`, `kora-triggers`, `policy-service` and `identity` strip the prefix with `middleware.StripRunPrefix` and honor it only for an AGENT principal. A mesh `AuthorizationPolicy` on each of these services refuses a `/run/` path from every principal but `kora-mcp`.
+*   `Publish` stamps the acting run on an event as `koraactingrun`. When a trigger's filters match an AGENT event that has an acting run and no chain, the consumer reads the run's chain from `GET /internal/runs/{id}/chain` on `kora-agents`. That endpoint returns an empty chain for a run of another agent or tenant. The consumer writes the cause, depth and triggers onto the envelope before the loop guards run, and the event log keeps the envelope as published. An unavailable `kora-agents` leaves the event to be read again, and a refused read leaves the event out of the chain.
+*   An agent that calls a platform API directly without the run prefix has no acting run unless it runs in a per-run sandbox or under a delegation. Auto-pause and budgets bound such a loop.
 *   The prompt carries the event in `<delivery-data>` with the same escaping as webhook payloads (`backend/internal/triggers/template.go`).
 *   The declarative `Trigger` kind, the API, the MCP `triggerKinds` enum and the trigger wizard gain `event`.
 
