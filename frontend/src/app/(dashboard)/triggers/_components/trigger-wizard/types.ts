@@ -137,6 +137,8 @@ export interface TriggerDraft {
   senderRestriction?: Senders;
   /** Webhook only. Omitted unless both fields are set and overflow is `wait`. */
   coalesce?: TriggerCoalesce;
+  /** Event only. Skips events about runs this trigger started or messaged. */
+  ignoreOwnRuns?: boolean;
   schedule?: { cronExpression: string; timezone: string; catchUp: boolean };
   manualInputs?: {
     name: string;
@@ -240,6 +242,8 @@ export interface WizardState {
   eventFieldsFailed: boolean;
   /** Match-condition rows. Empty means every delivery of the event qualifies. */
   filters: FilterRow[];
+  /** Event triggers: skip events about runs this trigger started or messaged. */
+  ignoreOwnRuns: boolean;
   senders: SenderRestrictionDraft;
 
   // ── Schedule ──

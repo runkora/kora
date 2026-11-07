@@ -64,9 +64,21 @@ var celCases = map[string]map[string]celCase{
 			accept: `{metadata: {name: t}, spec: {kind: scheduled, agent: a, schedule: {cronExpression: '0 9 * * 1'}}}`,
 			reject: `{metadata: {name: t}, spec: {kind: scheduled, agent: a}}`,
 		},
-		"self.kind == 'webhook' || !(has(self.source) || has(self.eventType) || has(self.match) || has(self.matchContains) || has(self.senderRestriction) || has(self.coalesce) || has(self.routing))": {
-			accept: `{metadata: {name: t}, spec: {kind: manual, agent: a}}`,
+		"self.kind != 'event' || has(self.eventType)": {
+			accept: `{metadata: {name: t}, spec: {kind: event, agent: a, eventType: e}}`,
+			reject: `{metadata: {name: t}, spec: {kind: event, agent: a}}`,
+		},
+		"self.kind == 'webhook' || !(has(self.source) || has(self.senderRestriction))": {
+			accept: `{metadata: {name: t}, spec: {kind: event, agent: a, eventType: e}}`,
+			reject: `{metadata: {name: t}, spec: {kind: event, agent: a, eventType: e, source: s}}`,
+		},
+		"self.kind in ['webhook', 'event'] || !(has(self.eventType) || has(self.match) || has(self.matchContains) || has(self.coalesce) || has(self.routing))": {
+			accept: `{metadata: {name: t}, spec: {kind: event, agent: a, eventType: e, match: {koraagent: [a]}}}`,
 			reject: `{metadata: {name: t}, spec: {kind: manual, agent: a, eventType: e}}`,
+		},
+		"self.kind == 'event' || !has(self.ignoreOwnRuns)": {
+			accept: `{metadata: {name: t}, spec: {kind: event, agent: a, eventType: e, ignoreOwnRuns: false}}`,
+			reject: `{metadata: {name: t}, spec: {kind: manual, agent: a, ignoreOwnRuns: false}}`,
 		},
 		"self.kind == 'scheduled' || !has(self.schedule)": {
 			accept: `{metadata: {name: t}, spec: {kind: manual, agent: a}}`,

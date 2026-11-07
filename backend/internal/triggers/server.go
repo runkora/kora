@@ -14,6 +14,7 @@ import (
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
@@ -156,6 +157,9 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// The routing step of the trigger wizard lists agent types with whether the
 	// caller may make each a candidate (trigger routing ADR, Console).
 	mux.HandleWithMiddleware("GET /triggers/routing/candidates", auth, c.handleRoutingCandidates)
+
+	// The platform event types an event trigger can listen for.
+	mux.HandleWithMiddleware("GET /triggers/event-types", auth, c.handleEventTypes)
 
 	mux.HandleWithMiddleware("GET /trigger-deliveries", auth, c.handleListDeliveries)
 
@@ -429,6 +433,10 @@ func (c *Controller) authorizeFire(ctx context.Context, triggerID string) error 
 	return nil
 }
 
+func (c *Controller) handleEventTypes(w http.ResponseWriter, r *http.Request) {
+	api.JSON(r.Context(), w, c.logger, http.StatusOK, EventCatalogResponse{EventTypes: events.Types()})
+}
+
 // handleRoutingCandidates lists the agent types the caller may read, with
 // runnable from the caller's can_run on each. The caller's own token reads
 // them, so the list is what the caller may see.
@@ -500,7 +508,46 @@ func (c *Controller) handleListDeliveries(w http.ResponseWriter, r *http.Request
 		c.writeServiceError(w, r, err)
 		return
 	}
+	if !c.canReadEvents(ctx) {
+		withoutEvents(deliveries)
+	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, listDeliveriesResponse{Deliveries: deliveries, NextCursor: nextCursor})
+}
+
+// canReadEvents reports whether the caller holds events:read. An evaluator error reads as false.
+func (c *Controller) canReadEvents(ctx context.Context) bool {
+	claims, _ := token.ClaimsFromContext(ctx)
+	missing, err := missingScopes(ctx, c.eval, claims, eventsReadScopes)
+	if err != nil {
+		c.logger.Warn(ctx, "events:read check failed", logging.Field{Key: "error", Value: err.Error()})
+		return false
+	}
+	return len(missing) == 0
+}
+
+// withoutEvents drops from event deliveries every field that can carry event
+// content: the stored event, rendered keys and upstream error text. Redelivery
+// still reads the stored event.
+func withoutEvents(deliveries []Delivery) {
+	for i := range deliveries {
+		d := &deliveries[i]
+		if d.Kind != KindEvent {
+			continue
+		}
+		d.Payload, d.PayloadExcerpt, d.CoalesceKeys, d.Error = nil, "", nil, nil
+		for j := range d.Runs {
+			run := &d.Runs[j]
+			// A failed or denied start carries the upstream error. Other reasons are the platform's own.
+			if run.Status == RunStatusFailed || run.Status == RunStatusDenied {
+				run.Error = nil
+			}
+			if run.Routing != nil {
+				routing := *run.Routing
+				routing.JoinKey, routing.Error = nil, nil
+				run.Routing = &routing
+			}
+		}
+	}
 }
 
 // deliveryScope resolves ?trigger_id= or ?agent_type_id= to the triggers whose
@@ -532,7 +579,7 @@ func (c *Controller) deliveryScope(ctx context.Context, triggerID, agentTypeID s
 // never touched.
 func (c *Controller) handleRedeliver(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	resp, err := c.svc.Redeliver(ctx, tenantFromCtx(ctx), r.PathValue("id"), principalFromCtx(ctx))
+	resp, err := c.svc.Redeliver(ctx, tenantFromCtx(ctx), r.PathValue("id"), principalFromCtx(ctx), c.canReadEvents(ctx))
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return

@@ -583,7 +583,7 @@ func TestRedeliver_Generic(t *testing.T) {
 	original := deps.repo.lastDelivery()
 	genericTrigger(t, deps, src.ID, "added-later", genericEventTypeDefault)
 
-	if _, err := svc.Redeliver(context.Background(), testTenant, original.ID, "user:1"); err != nil {
+	if _, err := svc.Redeliver(context.Background(), testTenant, original.ID, "user:1", true); err != nil {
 		t.Fatalf("Redeliver: %v", err)
 	}
 	drainPending(t, svc, deps.repo)

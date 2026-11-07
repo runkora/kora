@@ -129,6 +129,7 @@ export const KIND_ICON: Record<ConsoleKind, IconName> = {
   chat: 'send',
   scheduled: 'clock',
   manual: 'play',
+  event: 'activity',
 };
 
 export interface SourceRow {
@@ -183,6 +184,8 @@ export interface TriggerRow {
   senderRestriction: Senders;
   /** Webhook triggers only. Null when bursts are not coalesced. */
   coalesce: TriggerCoalesce | null;
+  /** Event triggers only. Omitted, it is on. */
+  ignoreOwnRuns?: boolean;
   promptTemplate: string;
   /** Scheduled triggers only. */
   scheduleConfig?: { cronExpression: string; timezone: string; catchUp?: boolean };
@@ -364,6 +367,7 @@ export function toTriggerRow(t: Trigger): TriggerRow {
       roles: t.sender_restriction?.roles ?? [],
     },
     coalesce: t.coalesce ? { key: t.coalesce.key, windowSeconds: t.coalesce.window_seconds } : null,
+    ignoreOwnRuns: t.ignore_own_runs,
     promptTemplate: t.prompt_template,
     scheduleConfig: t.schedule_config
       ? {
@@ -499,6 +503,8 @@ export interface TriggerPatch {
   senderRestriction?: Senders;
   /** Webhook only. Replaces the setting; null removes it. */
   coalesce?: TriggerCoalesce | null;
+  /** Event only. */
+  ignoreOwnRuns?: boolean;
   scheduleConfig?: TriggerScheduleDraft;
   enabled?: boolean;
   dedupeEnabled?: boolean;
@@ -544,6 +550,7 @@ export function toTriggerUpdateRequest(patch: TriggerPatch): TriggerUpdateReques
     ...(patch.coalesce !== undefined && {
       coalesce: patch.coalesce === null ? {} : toCoalesceRequest(patch.coalesce),
     }),
+    ...(patch.ignoreOwnRuns !== undefined && { ignore_own_runs: patch.ignoreOwnRuns }),
     ...(patch.scheduleConfig !== undefined && {
       schedule_config: toScheduleConfigRequest(patch.scheduleConfig),
     }),

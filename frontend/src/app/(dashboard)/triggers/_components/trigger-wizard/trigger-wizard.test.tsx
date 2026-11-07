@@ -28,6 +28,10 @@ const api = vi.hoisted(() => ({
   fetchEventTypes: vi.fn(),
   fetchProviderEventTypes: vi.fn(),
   fetchProviderFields: vi.fn(),
+  fetchPlatformEventTypes: vi.fn(async () => ({
+    eventTypes: ['agents.run.failed.v1'],
+    error: null,
+  })),
   createSource: vi.fn(),
   updateSource: vi.fn(),
 }));
@@ -38,6 +42,7 @@ vi.mock('./use-routing-options', () => routingOptions);
 const refresh = vi.hoisted(() => vi.fn());
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
 
+import { StaticPermissionsProvider } from '../../../_components/permissions-provider';
 import { TriggerWizard } from './trigger-wizard';
 import { StepDelivery } from './step-delivery';
 import { StepReview } from './step-review';
@@ -119,16 +124,23 @@ beforeEach(() => {
   }));
 });
 
-function renderWizard(initialKind?: ConsoleKind, sources = CONTEXT.sources, onCreate = vi.fn()) {
+function renderWizard(
+  initialKind?: ConsoleKind,
+  sources = CONTEXT.sources,
+  onCreate = vi.fn(),
+  scopes = ['events:read'],
+) {
   return render(
-    <TriggerWizard
-      initialKind={initialKind}
-      agents={CONTEXT.agents}
-      sources={sources}
-      ingestHost={CONTEXT.ingestHost}
-      onCreate={onCreate}
-      onClose={vi.fn()}
-    />,
+    <StaticPermissionsProvider scopes={scopes}>
+      <TriggerWizard
+        initialKind={initialKind}
+        agents={CONTEXT.agents}
+        sources={sources}
+        ingestHost={CONTEXT.ingestHost}
+        onCreate={onCreate}
+        onClose={vi.fn()}
+      />
+    </StaticPermissionsProvider>,
   );
 }
 
@@ -150,6 +162,12 @@ describe('TriggerWizard picker phase', () => {
     }
   });
 
+  it('hides the event kind without events:read', () => {
+    renderWizard(undefined, CONTEXT.sources, vi.fn(), []);
+    expect(screen.queryByText(TRIGGER_KINDS.event.title)).toBeNull();
+    expect(screen.getByText(TRIGGER_KINDS.webhook.title)).toBeTruthy();
+  });
+
   it('offers Chat command as a kind that can be picked, not a planned one', () => {
     renderWizard();
     const chat = screen.getByRole('radio', { name: /Chat command/ });
@@ -164,6 +182,7 @@ describe('TriggerWizard step phase', () => {
     chat: 'Source',
     scheduled: 'Schedule',
     manual: 'Inputs',
+    event: 'Event',
   };
 
   it.each(KIND_ORDER)('opens %s on the step that defines the kind', (kind) => {

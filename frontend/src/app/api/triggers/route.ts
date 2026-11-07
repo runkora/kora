@@ -29,6 +29,11 @@ function validateCreateRequest(body: TriggerCreateRequest): string | null {
       return null;
     case 'manual':
       return null;
+    case 'event':
+      if (!body.event_type?.trim()) {
+        return 'event_type is required for event triggers';
+      }
+      return null;
   }
 }
 
@@ -45,7 +50,7 @@ export const GET = withAuth(async (req: NextRequest, session) => {
 
 // POST /api/triggers — create a trigger (201). Required fields depend on
 // kind: webhook needs source_id + event_type, scheduled needs
-// schedule_config.cron_expression, manual needs neither.
+// schedule_config.cron_expression, event needs event_type, manual needs none.
 export const POST = withAuth(async (req: NextRequest, session) => {
   const body = (await req.json()) as TriggerCreateRequest;
   const validationError = validateCreateRequest(body);
@@ -72,6 +77,7 @@ export const POST = withAuth(async (req: NextRequest, session) => {
     manual_config: body.manual_config,
     sender_restriction: body.sender_restriction,
     coalesce: body.coalesce,
+    ignore_own_runs: body.ignore_own_runs,
     max_parallel: body.max_parallel,
     overflow: body.overflow,
     max_queue_depth: body.max_queue_depth,

@@ -1,6 +1,10 @@
 package events
 
-import "strings"
+import (
+	"maps"
+	"slices"
+	"strings"
+)
 
 // Type is a versioned event type of the form <domain>.<entity>.<event>.v<N>.
 type Type string
@@ -83,6 +87,11 @@ var catalog = map[Type]bool{
 	RoleCreated: true, RoleUpdated: true, RoleDeleted: true,
 	TenantBudgetCreated: true, TenantBudgetUpdated: true, TenantBudgetDeleted: true,
 	DeclaredResourceFailed: true,
+}
+
+// Types lists the catalog in name order.
+func Types() []Type {
+	return slices.Sorted(maps.Keys(catalog))
 }
 
 // Known reports whether t is in the catalog.

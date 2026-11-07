@@ -21,6 +21,7 @@ type triggerEntity struct {
 	AgentTypeID      string          `json:"agent_type_id,omitempty"`
 	AgentSlug        string          `json:"agent_slug,omitempty"`
 	EventType        string          `json:"event_type,omitempty"`
+	IgnoreOwnRuns    *bool           `json:"ignore_own_runs,omitempty"`
 	Schedule         *ScheduleConfig `json:"schedule_config,omitempty"`
 	GrantID          *string         `json:"grant_id,omitempty"`
 	Enabled          bool            `json:"enabled"`
@@ -38,7 +39,7 @@ type triggerEntity struct {
 func newTriggerEntity(t *Trigger) triggerEntity {
 	return triggerEntity{
 		ID: t.ID, Name: t.Name, Kind: t.Kind, TargetKind: t.TargetKind, SourceID: t.SourceID,
-		AgentTypeID: t.AgentTypeID, AgentSlug: t.AgentSlug, EventType: t.EventType,
+		AgentTypeID: t.AgentTypeID, AgentSlug: t.AgentSlug, EventType: t.EventType, IgnoreOwnRuns: t.IgnoreOwnRuns,
 		Schedule: t.ScheduleConfig, GrantID: t.GrantID, Enabled: t.Enabled, AutoPausedAt: t.AutoPausedAt,
 		MaxParallel: t.MaxParallel, Overflow: t.Overflow, MaxQueueDepth: t.MaxQueueDepth,
 		TimeoutSeconds: t.TimeoutSeconds, DedupeEnabled: t.DedupeEnabled, AutopauseEnabled: t.AutopauseEnabled,

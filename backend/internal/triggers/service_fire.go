@@ -322,10 +322,14 @@ func validateDeliveryFilter(filter DeliveryFilter) error {
 // The response is 202 whenever the new delivery was recorded, including when
 // admission then refuses it. The recording is the guarantee; whether a trigger
 // ran is the new delivery's own fan-out, exactly as for a fresh arrival.
-func (s *Service) Redeliver(ctx context.Context, tenantID, deliveryID, callerPrincipalID string) (*RedeliverResponse, error) {
+func (s *Service) Redeliver(ctx context.Context, tenantID, deliveryID, callerPrincipalID string, canReadEvents bool) (*RedeliverResponse, error) {
 	original, err := s.repo.GetDelivery(ctx, tenantID, deliveryID)
 	if err != nil {
 		return nil, err
+	}
+	// Replaying an event puts the event in a run, so it needs the scope that reads it.
+	if original.Kind == KindEvent && !canReadEvents {
+		return nil, &MissingScopesError{Scopes: eventsReadScopes}
 	}
 	// Every replay pins its lineage to the root, not to the delivery being
 	// replayed, so the budget counts replays of the one original however deep
@@ -347,6 +351,8 @@ func (s *Service) Redeliver(ctx context.Context, tenantID, deliveryID, callerPri
 		return s.redeliverWebhook(ctx, tenantID, original, rootID, callerPrincipalID)
 	case KindManual:
 		return s.redeliverManual(ctx, tenantID, original, rootID, callerPrincipalID)
+	case KindEvent:
+		return s.redeliverEvent(ctx, tenantID, original, rootID, callerPrincipalID)
 	default:
 		// A scheduled tick is defined by the minute it was due. Replaying one
 		// would either collide with that minute's row or invent a fire that was

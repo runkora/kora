@@ -349,6 +349,7 @@ func triggerRequest(name string, spec v1alpha1.TriggerSpec) CreateTriggerRequest
 		MatchCondition: spec.Match,
 		MatchContains:  spec.MatchContains,
 		PromptTemplate: spec.PromptTemplate,
+		IgnoreOwnRuns:  spec.IgnoreOwnRuns,
 		AdmissionSettings: AdmissionSettings{
 			MaxParallel:      spec.MaxParallel,
 			Overflow:         spec.Overflow,

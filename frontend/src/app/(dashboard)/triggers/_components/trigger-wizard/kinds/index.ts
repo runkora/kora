@@ -10,16 +10,18 @@ import type { ConsoleKind, PlannedKind, TriggerKindDefinition } from '../types';
 import { chatKind, webhookKind } from './webhook';
 import { scheduledKind } from './scheduled';
 import { manualKind } from './manual';
+import { eventKind } from './event';
 
 export const TRIGGER_KINDS: Record<ConsoleKind, TriggerKindDefinition> = {
   webhook: webhookKind,
   chat: chatKind,
   scheduled: scheduledKind,
   manual: manualKind,
+  event: eventKind,
 };
 
 /** Picker order. Explicit, so it does not depend on object key order. */
-export const KIND_ORDER: ConsoleKind[] = ['webhook', 'chat', 'scheduled', 'manual'];
+export const KIND_ORDER: ConsoleKind[] = ['webhook', 'chat', 'scheduled', 'manual', 'event'];
 
 /**
  * Kinds the model accommodates but that are not built.
@@ -30,12 +32,6 @@ export const KIND_ORDER: ConsoleKind[] = ['webhook', 'chat', 'scheduled', 'manua
  * later.
  */
 export const PLANNED_KINDS: PlannedKind[] = [
-  {
-    icon: 'activity',
-    title: 'Control-plane event',
-    description: (productName) =>
-      `When something happens inside ${productName}: a run finishes, a budget is crossed.`,
-  },
   {
     icon: 'route',
     title: 'Chained run',
@@ -58,4 +54,4 @@ export const PLANNED_KINDS: PlannedKind[] = [
   },
 ];
 
-export { webhookKind, chatKind, scheduledKind, manualKind };
+export { webhookKind, chatKind, scheduledKind, manualKind, eventKind };

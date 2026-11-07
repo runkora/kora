@@ -239,7 +239,8 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 	if err != nil {
 		return nil, err
 	}
-	if err = authorizeChain(startedBy, req.CausedBy, req.ChainDepth); err != nil {
+	chain, err := requestChain(ctx, s.repo, startedBy, req.CausedBy, req.ChainDepth, "")
+	if err != nil {
 		observability.RecordFailure(span, err, errSpanAuthorizeTriggerAttribution)
 		return nil, err
 	}
@@ -259,8 +260,9 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		StartedBy:      startedBy,
 		InitialMessage: req.InitialMessage,
 		TraceParent:    observability.TraceParent(ctx),
-		CausedBy:       req.CausedBy,
-		ChainDepth:     req.ChainDepth,
+		CausedBy:       chain.causedBy,
+		ChainDepth:     chain.depth,
+		TriggerIDs:     chain.triggers,
 	}
 	run.TraceID = observability.SampledTraceID(run.TraceParent)
 	span.SetAttributes(observability.RunIDKey.String(run.ID), observability.AgentSlugKey.String(at.Slug))
@@ -703,8 +705,9 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 
 	content := req.Content
 	from, err := messageTrigger(ctx, req)
+	var chain runChain
 	if err == nil {
-		err = authorizeChain(from, req.CausedBy, req.ChainDepth)
+		chain, err = requestChain(ctx, s.repo, from, req.CausedBy, req.ChainDepth, runID)
 	}
 	if err != nil {
 		observability.RecordFailure(span, err, errSpanAuthorizeTriggerAttribution)
@@ -727,7 +730,7 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
 	}
 
-	if err = s.repo.AppendRunMessage(ctx, RunMessage{RunID: runID, Content: content, From: from, CausedBy: req.CausedBy, ChainDepth: req.ChainDepth}); err != nil {
+	if err = s.repo.AppendRunMessage(ctx, RunMessage{RunID: runID, Content: content, From: from, CausedBy: chain.causedBy, ChainDepth: chain.depth, Triggers: chain.triggers}); err != nil {
 		observability.RecordFailure(span, err, errSpanAppendRunMessage)
 		return fmt.Errorf("append run message: %w", err)
 	}

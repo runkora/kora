@@ -7,6 +7,7 @@ const api = vi.hoisted(() => ({
   fetchEventTypes: vi.fn(),
   fetchProviderEventTypes: vi.fn(),
   fetchProviderFields: vi.fn(),
+  fetchPlatformEventTypes: vi.fn(),
   listDeliveryPage: vi.fn(),
 }));
 vi.mock('../_services/triggers-api', () => api);
@@ -599,6 +600,38 @@ describe('permissions', () => {
     );
   }
   const manual = (canFire: boolean) => trigger({ kind: 'manual', canFire });
+  const eventTrigger = trigger({ kind: 'event', sourceId: '', eventType: 'agents.run.failed.v1' });
+
+  const NO_EVENTS = ['triggers:read', 'triggers:write'];
+  const LOCK_NOTE = /needs the events:read permission/;
+
+  it('makes an event trigger read only without events:read, except its name', async () => {
+    api.fetchPlatformEventTypes.mockResolvedValue({ eventTypes: [], error: null });
+    renderWith(NO_EVENTS, eventTrigger);
+    await openSection('Event filters');
+    expect(screen.getByRole('switch', { name: /Ignore its own runs/ })).toBeDisabled();
+    expect(screen.getByText(LOCK_NOTE)).toBeTruthy();
+    await openSection('Prompt');
+    expect(screen.getByLabelText('Prompt template').getAttribute('aria-disabled')).toBe('true');
+    await openSection('Trigger');
+    expect(screen.getByLabelText(/Trigger name/)).not.toBeDisabled();
+  });
+
+  it('keeps an event trigger editable with events:read', async () => {
+    api.fetchPlatformEventTypes.mockResolvedValue({ eventTypes: [], error: null });
+    renderWith([...NO_EVENTS, 'events:read'], eventTrigger);
+    await openSection('Event filters');
+    expect(screen.getByRole('switch', { name: /Ignore its own runs/ })).not.toBeDisabled();
+    expect(screen.queryByText(LOCK_NOTE)).toBeNull();
+  });
+
+  it('does not lock a non-event trigger without events:read', async () => {
+    renderWith(NO_EVENTS, manual(false));
+    await openSection('Prompt');
+    expect(screen.getByLabelText('Prompt template').getAttribute('aria-disabled')).not.toBe('true');
+    expect(screen.queryByText(LOCK_NOTE)).toBeNull();
+  });
+
   const scheduled = trigger({
     kind: 'scheduled',
     scheduleConfig: { cronExpression: '0 2 * * *', timezone: 'UTC', catchUp: false },
