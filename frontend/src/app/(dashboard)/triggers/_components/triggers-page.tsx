@@ -35,6 +35,7 @@ import { consoleKindOf, runTargets } from '../_types';
 import { STATS_RANGE_OPTIONS, rangeSuffix, statsWindowOf } from '../_types/stats';
 import type { StatsRange, TenantStatsRow } from '../_types/stats';
 import { useTriggerDeliveries } from './use-trigger-deliveries';
+import { useLinkedDelivery } from './use-linked-delivery';
 import { useStatsRange } from './use-stats-range';
 import { ingestHostFromWindow } from '../_lib/endpoints';
 import type {
@@ -71,9 +72,6 @@ const DELIVERY_STATUS_OPTIONS = [
   { value: 'duplicate', label: 'Duplicate' },
   { value: 'missed', label: 'Missed' },
 ];
-
-/** How far back a linked delivery is looked for before the tab gives up on opening it. */
-const LINKED_DELIVERY_SEARCH = 250;
 
 /** The kind in the empty-list message, e.g. "No chat command triggers." */
 const KIND_FILTER_NOUN: Record<ConsoleKind, string> = {
@@ -181,38 +179,14 @@ export function TriggersPage({
   const [deliveryStatus, setDeliveryStatus] = useState('all');
   const feed = useTriggerDeliveries({ status: deliveryStatus, window: range });
 
-  // A linked delivery opens once its page has loaded, paging back while it is not found yet.
-  const linkedRow =
-    linkedDelivery === null ? undefined : feed.deliveries.find((d) => d.id === linkedDelivery);
-  // A failed page stops the search, so a failing API is not asked again and again.
-  const { loading, loadingMore, hasMore, loadOlder, deliveries, error: pageError } = feed;
+  // A linked delivery is fetched by id, so it opens whatever the page range.
+  const linked = useLinkedDelivery(linkedDelivery);
+  const shownDelivery = detailDelivery ?? linked.delivery;
+  // A link that failed leaves the address, so a reload does not try again.
+  const linkedError = linked.error;
   useEffect(() => {
-    if (linkedDelivery === null || linkedRow !== undefined || loading || loadingMore) return;
-    if (pageError !== null) return;
-    if (hasMore && deliveries.length < LINKED_DELIVERY_SEARCH) loadOlder();
-  }, [
-    linkedDelivery,
-    linkedRow,
-    loading,
-    loadingMore,
-    pageError,
-    hasMore,
-    deliveries.length,
-    loadOlder,
-  ]);
-  const shownDelivery = detailDelivery ?? linkedRow ?? null;
-  // The search ended without finding the linked delivery.
-  const linkedMissing =
-    linkedDelivery !== null &&
-    linkedRow === undefined &&
-    !loading &&
-    !loadingMore &&
-    pageError === null &&
-    (!hasMore || deliveries.length >= LINKED_DELIVERY_SEARCH);
-  // A missed link leaves the address, so a reload does not search again.
-  useEffect(() => {
-    if (linkedMissing) window.history.replaceState(null, '', APP_ROUTES.triggers);
-  }, [linkedMissing]);
+    if (linkedError !== null) window.history.replaceState(null, '', APP_ROUTES.triggers);
+  }, [linkedError]);
 
   /** Drops the link from the address once its modal closes, so a reload does not reopen it. */
   const forgetLink = useCallback(() => {
@@ -291,10 +265,8 @@ export function TriggersPage({
 
       {locked && <ManagedInGitCallout subject="Triggers and sources in this tenant" />}
       {error && <Alert variant="error">{error}</Alert>}
-      {linkedMissing && (
-        <Alert variant="info">
-          The linked delivery is not among the latest {LINKED_DELIVERY_SEARCH} deliveries.
-        </Alert>
+      {linkedError !== null && (
+        <Alert variant="error">The linked delivery could not be opened: {linkedError}</Alert>
       )}
       {fireResult && <Alert variant={fireResult.ok ? 'info' : 'error'}>{fireResult.message}</Alert>}
 
