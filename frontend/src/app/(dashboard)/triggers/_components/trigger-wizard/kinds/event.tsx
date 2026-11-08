@@ -67,6 +67,8 @@ export const eventKind: TriggerKindDefinition = {
   description: (productName) =>
     `When something happens inside ${productName}: a run fails, a budget is crossed.`,
   example: 'agents.run.failed.v1',
+  // The join key example on the Target step; event triggers do not coalesce.
+  coalesceKeyExample: () => '{{ korarun }}',
   steps: [
     {
       id: 'event',

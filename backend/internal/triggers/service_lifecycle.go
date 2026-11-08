@@ -84,10 +84,10 @@ func NewTriggerService(
 
 // ─── Triggers ─────────────────────────────────────────────────────────────────
 
-// CreateTrigger binds a source event (webhook), a cron schedule (scheduled), or
-// an explicit fire call (manual) to an agent, or a source event to a choice
-// among candidate agents (a routed webhook trigger). claims are the caller's,
-// which a routed trigger's grant is checked against.
+// CreateTrigger binds a source event (webhook), a cron schedule (scheduled), an
+// explicit fire call (manual) or a platform event (event) to an agent, or a
+// source or platform event to a choice among candidate agents (a routed trigger).
+// claims are the caller's, which a routed trigger's grant is checked against.
 func (s *TriggerService) CreateTrigger(ctx context.Context, tenantID string, claims *token.PlatformClaims, req CreateTriggerRequest) (*Trigger, error) {
 	if !s.tenants.APIAuthoringEnabled(tenantID) {
 		return nil, declarative.ErrAPIAuthoringDisabled

@@ -499,7 +499,7 @@ func coalesceForCreate(req CreateTriggerRequest) (*CoalesceConfig, error) {
 	return coalesce, nil
 }
 
-// validateTargetKind checks a webhook trigger's target kind and that routing
+// validateTargetKind checks a webhook or event trigger's target kind and that routing
 // is set exactly when it is routed.
 func validateTargetKind(targetKind string, routing *RoutingConfig) error {
 	switch targetKind {

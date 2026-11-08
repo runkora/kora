@@ -698,7 +698,7 @@ type CreateTriggerRequest struct {
 	// Coalesce applies to webhook triggers only, and needs overflow "wait".
 	Coalesce *CoalesceConfig `json:"coalesce,omitempty"`
 	// TargetKind is "agent" (the default) or "routed". A routed trigger is a
-	// webhook trigger that sets Routing instead of AgentTypeID.
+	// webhook or event trigger that sets Routing instead of AgentTypeID.
 	TargetKind string         `json:"target_kind,omitempty"`
 	Routing    *RoutingConfig `json:"routing,omitempty"`
 	// IgnoreOwnRuns applies to event triggers only. Omitted, it is on.

@@ -964,7 +964,7 @@ export interface Trigger {
    * `agent_type_id` and `agent_slug`.
    */
   target_kind?: TriggerTargetKind;
-  /** Webhook only, set when `target_kind` is "routed". */
+  /** Webhook and event triggers only, set when `target_kind` is "routed". */
   routing?: TriggerRouting;
   /** Event triggers only: skip events about runs this trigger started or messaged. */
   ignore_own_runs?: boolean;
@@ -1113,7 +1113,7 @@ export interface TriggerCreateRequest {
   name: string;
   /** Required unless `target_kind` is "routed". */
   agent_type_id?: string;
-  /** Defaults to "agent". "routed" is webhook only and needs `routing`. */
+  /** Defaults to "agent". "routed" is for webhook and event triggers and needs `routing`. */
   target_kind?: TriggerTargetKind;
   routing?: TriggerRouting;
   /**
