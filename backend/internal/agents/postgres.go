@@ -567,6 +567,15 @@ func (r *PostgresRepository) MarkRunFailed(ctx context.Context, id string) error
 	return nil
 }
 
+// ReleaseRunDelivery clears delivery_id so the unique key frees up for a retry. Only a
+// failed start calls it: that run never started, and a run that did start keeps its key.
+func (r *PostgresRepository) ReleaseRunDelivery(ctx context.Context, id string) error {
+	if _, err := r.pool.Exec(ctx, `UPDATE runs SET delivery_id=NULL, updated_at=$1 WHERE id=$2`, time.Now().UTC(), id); err != nil {
+		return fmt.Errorf("release run delivery: %w", err)
+	}
+	return nil
+}
+
 // SetRunSummary writes the task summary set-once: the first summary for a run
 // wins. A resumed session's first message would otherwise re-summarize and
 // clobber the original task label, so the UPDATE only fires while summary IS

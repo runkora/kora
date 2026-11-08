@@ -494,6 +494,17 @@ func (m *mockRepository) ReclaimStaleRunClaims(context.Context, time.Time) ([]st
 	return nil, nil
 }
 
+func (m *mockRepository) ReleaseRunDelivery(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r, ok := m.runs[id]; ok && r.StartedBy != nil {
+		sb := *r.StartedBy
+		sb.DeliveryID = ""
+		r.StartedBy = &sb
+	}
+	return nil
+}
+
 func (m *mockRepository) MarkRunFailed(_ context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

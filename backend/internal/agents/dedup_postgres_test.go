@@ -32,6 +32,14 @@ func TestPostgres_StartRunDedupesOnDelivery(t *testing.T) {
 		t.Fatalf("GetRunByDelivery = %v, %v; want %s", got, err, first.ID)
 	}
 
+	// A released delivery (failed start) frees the key for a new run.
+	if err := r.ReleaseRunDelivery(ctx, first.ID); err != nil {
+		t.Fatalf("ReleaseRunDelivery: %v", err)
+	}
+	if ins, err := r.CreateRun(ctx, dedupRun(tenant, at.ID, "trig-1", "deliv-1")); err != nil || !ins {
+		t.Errorf("after release = %v, %v; want inserted", ins, err)
+	}
+
 	// Different trigger, same delivery: both insert.
 	if ins, err := r.CreateRun(ctx, dedupRun(tenant, at.ID, "trig-2", "deliv-1")); err != nil || !ins {
 		t.Errorf("other trigger = %v, %v; want inserted", ins, err)

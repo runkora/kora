@@ -240,6 +240,15 @@ func (s *RunService) cleanupFailedStart(ctx context.Context, runID, mintedJTI st
 			)
 		}
 	}
+	if runID != "" {
+		// The run never started. Free its delivery key so a retry starts a new run.
+		if rerr := s.repo.ReleaseRunDelivery(ctx, runID); rerr != nil {
+			s.logger.Warn(ctx, "failed to release delivery of failed start",
+				logging.Field{Key: "run_id", Value: runID},
+				logging.Field{Key: "error", Value: rerr.Error()},
+			)
+		}
+	}
 	if mintedJTI != "" && s.delegation != nil {
 		s.delegation.RevokeBestEffort(ctx, mintedJTI, runID)
 	}
