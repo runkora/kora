@@ -492,8 +492,28 @@ func (r *PostgresRepository) publishState(ctx context.Context, id string, from, 
 	if err != nil {
 		return err
 	}
-	ev, _ := stateEvent(from, *run)
+	lastError, err := r.lastRunError(ctx, *run)
+	if err != nil {
+		return err
+	}
+	ev, _ := stateEvent(from, *run, lastError)
 	return events.Publish(ctx, r.pool, ev)
+}
+
+// lastRunError is the code of a failed run's latest run_error, or "" for any other run.
+func (r *PostgresRepository) lastRunError(ctx context.Context, run Run) (string, error) {
+	if run.State != RunStateFailed {
+		return "", nil
+	}
+	var code string
+	err := r.pool.QueryRow(ctx, `
+		SELECT coalesce(payload->>'code', '') FROM run_events
+		WHERE  run_id = $1 AND event_type = 'run_error'
+		ORDER  BY sequence_no DESC LIMIT 1`, run.ID).Scan(&code)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("read last run error: %w", err)
+	}
+	return code, nil
 }
 
 // AssignPod moves a claimed run to starting on podOrdinal. The claim token stops a
@@ -721,7 +741,11 @@ func (r *PostgresRepository) endRuns(ctx context.Context, update string, args ..
 	}
 	// The rows are read before the events are written, which share the transaction's connection.
 	for _, run := range ended {
-		if ev, ok := stateEvent("", run); ok {
+		lastError, err := r.lastRunError(ctx, run)
+		if err != nil {
+			return nil, err
+		}
+		if ev, ok := stateEvent("", run, lastError); ok {
 			if err := events.Publish(ctx, r.pool, ev); err != nil {
 				return nil, err
 			}

@@ -497,3 +497,14 @@ func TestSpinePayloads_MatchSchema(t *testing.T) {
 		}
 	}
 }
+
+// The unknown-field refusal lists the fields the event type has.
+func TestCreateEventTrigger_UnknownFieldListsTheFields(t *testing.T) {
+	_, deps := newTestService(t)
+	req := eventReq("bad")
+	req.MatchCondition = map[string][]string{"data.entity.nope": {"x"}}
+	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, routingClaims, req)
+	if !errors.Is(err, ErrValidation) || !strings.Contains(err.Error(), "use one of") || !strings.Contains(err.Error(), "data.entity.state") {
+		t.Errorf("err = %v, want the event's fields listed", err)
+	}
+}

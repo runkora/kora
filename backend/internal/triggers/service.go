@@ -466,7 +466,11 @@ func validateEventFields(t Trigger) error {
 	}
 	for _, k := range referencedKeys(t) {
 		if _, ok := byPath[k]; !ok {
-			return fmt.Errorf("%w: %q is not a field of %s", ErrValidation, k, eventType)
+			paths := make([]string, len(fields))
+			for i, f := range fields {
+				paths[i] = f.Path
+			}
+			return fmt.Errorf("%w: %q is not a field of %s; use one of %s", ErrValidation, k, eventType, strings.Join(paths, ", "))
 		}
 	}
 	for k, values := range t.MatchCondition {

@@ -163,7 +163,7 @@ Events are CloudEvents 1.0 structured JSON. `backend/internal/platform/events` d
   "koratriggers": ["<trigger id>"],
   "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
   "data": {
-    "entity": {"id": "2b4e8c1d-...", "agent": "triage", "state": "failed"},
+    "entity": {"id": "2b4e8c1d-...", "agent": "triage", "state": "failed", "error": "subprocess_exit"},
     "changed": ["state", "completed_at"],
     "entity_version": 7,
     "occurred_at": "2026-11-06T03:14:07.498Z"
@@ -399,6 +399,7 @@ These producers call `PublishOnce`. Its dedup lasts as long as the earlier event
 *   `data.changed` is an array whose enum lists every field name an update can change. The list includes fields the payload does not carry (e.g. `system_prompt`, `prompt_template`, `config`). An event names such a field and never carries its value.
 *   Each payload struct has one `state` enum for all of its types.
 *   Run error codes and loop guard kinds are Go constants in `platform/events`. The `error` and `guardrail.kind` enums list them, and a producer records `unknown` for a value outside them. `guardrail.tool` is free text.
+*   `agents.run.errored.v1` carries the code of the errored turn, and `agents.run.failed.v1` carries the code of the run's last run error. A failed run with no recorded run error carries `unknown`.
 
 ```go
 type RunPayload struct {

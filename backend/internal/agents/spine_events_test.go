@@ -260,7 +260,7 @@ func TestSpinePayloads_MatchSchema(t *testing.T) {
 	at := AgentType{ID: "at-1", Slug: "triage", Name: "Triage", ModelID: &model, State: AgentTypeStateActive,
 		Environments: []AgentEnvironment{{EnvironmentID: "env-1"}}, Connectors: []Connector{{Connection: "github"}}}
 	env := Environment{ID: "env-1", Slug: "go", Name: "Go", SandboxImage: "img", Size: EnvironmentSize{CPU: "1", Memory: "1Gi", Disk: "5Gi"}}
-	failed, _ := stateEvent(RunStateActive, run)
+	failed, _ := stateEvent(RunStateActive, run, events.RunErrorSandboxLost)
 	warned, _ := activityEvent(Run{ID: run.ID, TenantID: "t1", State: RunStateActive},
 		RunEvent{EventType: "guardrail_warning", Payload: []byte(`{"kind":"repeated_call","count":5,"tool":"Bash"}`)})
 	errored, _ := activityEvent(Run{ID: run.ID, TenantID: "t1", State: RunStateActive},
@@ -304,5 +304,25 @@ func TestSpinePayloads_StateEnums(t *testing.T) {
 	modes := []string{string(IdentityModeAutonomous), string(IdentityModeDelegated)}
 	if got := events.Enum("identity_mode"); !slices.Equal(got, modes) {
 		t.Errorf("identity_mode enum = %v, want %v", got, modes)
+	}
+}
+
+// A failed run's event carries its last run error code, and unknown for a code
+// outside the schema or a run that recorded none. Other states carry none.
+func TestStateEvent_FailedRunError(t *testing.T) {
+	run := Run{ID: uuid.NewString(), TenantID: "t1", State: RunStateFailed}
+	for last, want := range map[string]string{
+		events.RunErrorSubprocessExit: events.RunErrorSubprocessExit,
+		"made_up":                     events.RunErrorUnknown,
+		"":                            events.RunErrorUnknown,
+	} {
+		ev, ok := stateEvent(RunStateActive, run, last)
+		if !ok || ev.Type != events.RunFailed || ev.Entity.(events.RunPayload).Error != want {
+			t.Errorf("last %q: event %s error %q, want %q", last, ev.Type, ev.Entity.(events.RunPayload).Error, want)
+		}
+	}
+	run.State = RunStateCompleted
+	if ev, _ := stateEvent(RunStateActive, run, events.RunErrorAgentError); ev.Entity.(events.RunPayload).Error != "" {
+		t.Errorf("completed run error = %q, want none", ev.Entity.(events.RunPayload).Error)
 	}
 }

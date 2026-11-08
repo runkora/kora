@@ -135,7 +135,8 @@ func stateEventType(from, to RunState) (events.Type, bool) {
 }
 
 // stateEvent is the event of run r entering its current state from from.
-func stateEvent(from RunState, r Run) (events.Event, bool) {
+// A failed run carries lastError, its last run_error code, as error.
+func stateEvent(from RunState, r Run, lastError string) (events.Event, bool) {
 	t, ok := stateEventType(from, r.State)
 	if !ok {
 		return events.Event{}, false
@@ -144,7 +145,11 @@ func stateEvent(from RunState, r Run) (events.Event, bool) {
 	if r.State.Terminal() && r.CompletedAt != nil {
 		changed = append(changed, "completed_at")
 	}
-	return runEvent(t, r, newRunEntity(r), changed...), true
+	entity := newRunEntity(r)
+	if t == events.RunFailed {
+		entity.Error = knownOr(lastError, events.Enum("run_error"), events.RunErrorUnknown)
+	}
+	return runEvent(t, r, entity, changed...), true
 }
 
 // recordsActivity lists the run_events types that may record a spine event. Per-call activity records none.
