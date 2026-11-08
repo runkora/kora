@@ -127,14 +127,23 @@ func (m *PodMutator) Handle(ctx context.Context, req admission.Request) admissio
 		return admission.Denied("tenant namespace is missing the runkora.io/tenant label")
 	}
 
-	server, err := m.mcpServerFor(ctx, pod, req.Namespace)
+	warmer, err := isSandboxWarmer(ctx, m.Client, req, pod)
 	if err != nil {
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 
 	mutated := pod.DeepCopy()
-	if err = m.mutate(mutated, tenantName, server); err != nil {
-		return admission.Errored(http.StatusInternalServerError, err)
+	if warmer {
+		m.mutateWarmer(mutated)
+	} else {
+		var server string
+		server, err = m.mcpServerFor(ctx, pod, req.Namespace)
+		if err != nil {
+			return admission.Errored(http.StatusInternalServerError, err)
+		}
+		if err = m.mutate(mutated, tenantName, server); err != nil {
+			return admission.Errored(http.StatusInternalServerError, err)
+		}
 	}
 
 	raw, err := json.Marshal(mutated)
@@ -142,6 +151,21 @@ func (m *PodMutator) Handle(ctx context.Context, req admission.Request) admissio
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
 	return admission.PatchResponseFromRaw(req.Object.Raw, raw)
+}
+
+// mutateWarmer prepares a sandbox image warmer. It only keeps an image on the node, so it
+// gets the install's pull secrets and no sidecars (docs/adr/2026-10-03-sandbox-environments.md,
+// Amendment 4). The caller has verified the pod with isSandboxWarmer.
+func (m *PodMutator) mutateWarmer(pod *corev1.Pod) {
+	if pod.Annotations == nil {
+		pod.Annotations = map[string]string{}
+	}
+	pod.Annotations["sidecar.istio.io/inject"] = "false"
+	for _, name := range m.Config.ImagePullSecrets {
+		if !hasPullSecret(pod.Spec.ImagePullSecrets, name) {
+			pod.Spec.ImagePullSecrets = append(pod.Spec.ImagePullSecrets, corev1.LocalObjectReference{Name: name})
+		}
+	}
 }
 
 // mcpServerFor names the MCPServer whose workload selector matches the pod, or
