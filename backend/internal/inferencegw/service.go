@@ -739,7 +739,7 @@ func (s *Service) budgetScopesFor(ctx context.Context, p principal) (SpendScopes
 	// otherwise double-count a pooled role budget's per-category attribution.
 	roles = dedupeRoles(roles)
 
-	grantCats, err := s.policy.GetBudgetCategories(ctx, p.TenantID, string(p.PrincipalType), p.PrincipalID)
+	grantCats, err := s.policy.GetBudgetCategories(ctx, p.TenantID, p.PrincipalType, p.PrincipalID)
 	if err != nil {
 		grantCats = nil
 	}
@@ -1105,9 +1105,32 @@ func (s *Service) ListBudgetPrincipals(ctx context.Context, tenantID string) (Bu
 		roleHolders = nil
 	}
 
-	// Union of all principals that appear in any source.
-	// Rows are keyed by principal type plus ID, matching the bundle's budgets;
-	// spend maps stay keyed by bare principal ID.
+	keys, spendByPid := budgetPrincipalKeys(spenders, principalBudgets, roleHolders, roleBudgets)
+
+	for key := range keys {
+		// Role holders come from the usage log, keyed by bare ID, so attach role
+		// categories only to the key of the type that actually spent.
+		holders := roleHolders
+		if key.Type != principalTypeFor(key.ID, spendByPid[key.ID].PrincipalType) {
+			holders = nil
+		}
+		cats := budgetCategoriesFor(key, principalBudgets, holders, roleBudgets)
+		resp.Data = append(resp.Data, s.buildBudgetPrincipalRow(ctx, key, cats, spendByPid[key.ID], weeklySpendByPid[key.ID]))
+	}
+
+	sortBudgetPrincipals(resp.Data)
+	return resp, nil
+}
+
+// budgetPrincipalKeys returns the union of principals that appear in any
+// source, keyed by principal type plus ID to match the bundle's budgets, and
+// the spend rows keyed by bare principal ID.
+func budgetPrincipalKeys(
+	spenders []PrincipalPeriodSpend,
+	principalBudgets map[policy.BudgetKey]policy.PrincipalBudget,
+	roleHolders map[string][]string,
+	roleBudgets map[string]policy.RoleBudget,
+) (map[policy.BudgetKey]struct{}, map[string]PrincipalPeriodSpend) {
 	keys := make(map[policy.BudgetKey]struct{})
 	idsWithKey := make(map[string]struct{})
 	add := func(k policy.BudgetKey) {
@@ -1133,20 +1156,7 @@ func (s *Service) ListBudgetPrincipals(ctx context.Context, tenantID string) (Bu
 			}
 		}
 	}
-
-	for key := range keys {
-		// Role holders come from the usage log, keyed by bare ID, so attach role
-		// categories only to the key of the type that actually spent.
-		holders := roleHolders
-		if key.Type != principalTypeFor(key.ID, spendByPid[key.ID].PrincipalType) {
-			holders = nil
-		}
-		cats := budgetCategoriesFor(key, principalBudgets, holders, roleBudgets)
-		resp.Data = append(resp.Data, s.buildBudgetPrincipalRow(ctx, key, cats, spendByPid[key.ID], weeklySpendByPid[key.ID]))
-	}
-
-	sortBudgetPrincipals(resp.Data)
-	return resp, nil
+	return keys, spendByPid
 }
 
 // budgetCategoriesFor collects every budget category applicable to the
