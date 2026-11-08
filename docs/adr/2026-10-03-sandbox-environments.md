@@ -346,6 +346,46 @@ For the default maximum:
 *   HOME and TMPDIR move to the sandbox's local disk, and a new or replaced sandbox starts with them empty.
 *   With `sandboxMount.enabled`, the local disk also holds the sandbox's working folder at `/workspaces/<run>/sandbox`. The repository checkout and `node_modules` sit there for the life of the sandbox.
 
+## Amendment 4 (2026-11-08): Warmers run without sidecars
+
+**Status:** Proposed
+
+Touches *What can it access?* The pod webhooks stop requiring kora's sidecars on one class of pod. A pod joins the class only through who created it, so no agent or tenant workload can join it. Every other tenant pod keeps the same checks.
+
+**Context.** Decision 7 runs warmers in the tenant namespace with the full sidecar injection. Decision 5 registers `kora-base` in every tenant namespace. Together, each sandbox node runs one warmer per warm image per tenant, and each warmer carries istio-proxy, identity-proxy and opa. The warm container requests 10m CPU and 16Mi of memory. The injected sidecars add 200m CPU and 224Mi.
+
+On a deployed cluster on 2026-11-08, each sandbox node ran four warmers: `kora-base` for three tenants and `kora-dev` for one. They requested 840m CPU per node. A sandbox of 6 CPU, with the warmers and the system DaemonSets, needed a node with 8.1 vCPU. The sandbox NodePool allowed `xlarge` and `2xlarge` instances, the largest with 7.91 vCPU allocatable. Karpenter reported "no instance type has enough resources", and sandboxes stayed Pending until a running sandbox finished. The third tenant's `kora-base` warmer added the 210m that crossed the limit.
+
+A warmer runs `sleep infinity`. It makes no network calls and holds no credentials. The kubelet pulls its image with the pod's pull secrets. Its sidecars enforce nothing.
+
+Decision 7 rejected an admission exemption because "kora-agents can set any label in a tenant namespace". That holds for labels and for owner references. kora-agents can create pods in a tenant namespace. It cannot create or patch DaemonSets there. The kube-controller-manager creates the pods of a DaemonSet as `system:serviceaccount:kube-system:daemon-set-controller`.
+
+**Options.**
+
+*   **Exempt by creator (chosen):** Both pod webhooks treat a pod as a warmer only when all of these hold. The DaemonSet controller creates it. Its controlling owner is a DaemonSet in the same namespace with the same UID. That DaemonSet carries the warmer labels and is controlled by a `SandboxImage`. The mutating webhook adds the install's pull secrets and `sidecar.istio.io/inject: "false"`, and injects nothing else. The validating webhook checks the same conditions itself and admits the pod.
+*   **System namespace warmers for built-in images (deferred):** One warmer per built-in image digest in a system namespace, with the platform pull secrets. It would also remove the per-tenant copies of `kora-base`. It adds a second warmer path and its cleanup, and it can follow this amendment.
+*   **Exempt by label (rejected):** The reason in Decision 7 holds.
+*   **No change (rejected):** Each new tenant adds 210m CPU per warm image to every sandbox node.
+
+**Decision.** Warmers run in the tenant namespace without sidecars. `isSandboxWarmer` in `backend/internal/operator/warmer_admission.go` holds the check, and `PodMutator` and `PodValidator` both call it. The warmer DaemonSet drops the `spiffe.io/service` label, because its pods no longer take a mesh identity.
+
+**Consequences.**
+
+Positive:
+
+*   A warmer requests 10m CPU and 16Mi of memory. Four warmers request 40m CPU per node instead of 840m.
+*   A node of 8 vCPU fits a 6 CPU sandbox again.
+
+Negative:
+
+*   The check depends on the kube-controller-manager running each controller under its own service account. If it does not, warmers receive the full injection, as before this amendment.
+*   A platform admin who can create DaemonSets in a tenant namespace can give one the warmer labels and a `SandboxImage` owner, and its pods run without sidecars. A platform admin can already change the webhooks.
+
+Neutral:
+
+*   Each tenant still runs its own `kora-base` warmer.
+*   The negative consequence "Each warm image runs a pod with three sidecars and a SPIFFE identity on every sandbox node" no longer holds.
+
 ---
 
 ## Related Decisions
@@ -363,4 +403,4 @@ For the default maximum:
 
 ---
 
-**Last Updated:** 2026-10-08 (Amendment 3: the sandbox's local disk holds HOME, TMPDIR and its working folder)
+**Last Updated:** 2026-11-08 (Amendment 4: warmers run without sidecars)

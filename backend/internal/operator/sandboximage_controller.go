@@ -274,15 +274,14 @@ func (r *SandboxImageReconciler) deleteWarmer(ctx context.Context, img *si.Sandb
 
 func warmerName(img *si.SandboxImage) string { return "sandbox-image-" + img.Name }
 
-// warmerDaemonSet idles one pod per sandbox node with the pinned image. The
-// webhook injects the tenant sidecars like any tenant pod.
+// warmerDaemonSet idles one pod per sandbox node with the pinned image. The pod
+// webhooks recognize its pods by their creator and inject no sidecars
+// (docs/adr/2026-10-03-sandbox-environments.md, Amendment 4).
 func (r *SandboxImageReconciler) warmerDaemonSet(img *si.SandboxImage) *appsv1.DaemonSet {
 	labels := map[string]string{
 		"app.kubernetes.io/component":  warmerComponent,
 		"app.kubernetes.io/managed-by": "kora-operator",
 		labelSandboxImage:              img.Name,
-		// The tenant-service SPIFFE identity gives the injected istio-proxy its certificate.
-		podLabelSpiffeService: warmerComponent,
 	}
 	// The pod webhook adds the install's pull secrets. The image's own is added here.
 	var pullSecrets []corev1.LocalObjectReference
