@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>kora Documentation & Presentation</title>
+    <title>kora — Control Plane for AI Agents</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -15,21 +16,21 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
+            color: #333;
+            line-height: 1.6;
         }
 
         .container {
             max-width: 900px;
-            width: 100%;
+            margin: 0 auto;
+            padding: 20px;
         }
 
         .header {
             text-align: center;
             color: white;
             margin-bottom: 60px;
+            padding-top: 40px;
         }
 
         .header h1 {
@@ -44,43 +45,90 @@
             font-weight: 300;
         }
 
-        .cards {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 30px;
-            margin-bottom: 60px;
+        .nav-tabs {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 40px;
+            flex-wrap: wrap;
+            justify-content: center;
         }
 
-        .card {
+        .nav-tabs button {
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+            padding: 12px 25px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .nav-tabs button:hover,
+        .nav-tabs button.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .content {
             background: white;
             border-radius: 12px;
             padding: 40px;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-            text-align: center;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-            cursor: pointer;
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        .card {
+            background: #f9f9f9;
+            border-radius: 12px;
+            padding: 30px;
+            border: 2px solid #f0f0f0;
+            transition: transform 0.3s ease, border-color 0.3s ease;
         }
 
         .card:hover {
-            transform: translateY(-10px);
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            transform: translateY(-5px);
+            border-color: #667eea;
         }
 
         .card-icon {
-            font-size: 3rem;
-            margin-bottom: 20px;
+            font-size: 2.5rem;
+            margin-bottom: 15px;
         }
 
-        .card h2 {
+        .card h3 {
             color: #667eea;
-            font-size: 1.5rem;
-            margin-bottom: 15px;
+            font-size: 1.3rem;
+            margin-bottom: 12px;
         }
 
         .card p {
             color: #666;
-            line-height: 1.6;
-            margin-bottom: 25px;
+            margin-bottom: 20px;
             font-size: 0.95rem;
         }
 
@@ -88,56 +136,90 @@
             display: inline-block;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 12px 30px;
+            padding: 10px 25px;
             border-radius: 6px;
             text-decoration: none;
             font-weight: 600;
             transition: all 0.3s ease;
-            border: 2px solid transparent;
         }
 
         .card-link:hover {
-            background: white;
-            color: #667eea;
-            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
         }
 
-        .features {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 12px;
-            padding: 40px;
-            margin-bottom: 40px;
+        h1 {
+            color: #667eea;
+            font-size: 2.5rem;
+            margin: 30px 0 20px 0;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
         }
 
-        .features h3 {
-            color: #667eea;
-            margin-bottom: 25px;
+        h2 {
+            color: #764ba2;
             font-size: 1.5rem;
+            margin: 25px 0 15px 0;
         }
 
-        .feature-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
+        h3 {
+            color: #667eea;
+            margin: 20px 0 10px 0;
         }
 
-        .feature {
+        p {
+            margin: 12px 0;
+            line-height: 1.8;
+        }
+
+        ul {
+            margin: 15px 0 15px 30px;
+        }
+
+        li {
+            margin: 8px 0;
+        }
+
+        code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #d63384;
+        }
+
+        pre {
+            background: #f5f5f5;
             padding: 15px;
-            background: #f5f7ff;
             border-radius: 8px;
+            overflow-x: auto;
+            margin: 15px 0;
             border-left: 4px solid #667eea;
         }
 
-        .feature strong {
-            color: #667eea;
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+
+        table th {
+            background: #667eea;
+            color: white;
+            padding: 12px;
+            text-align: left;
+        }
+
+        table td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
         }
 
         .footer {
             text-align: center;
             color: white;
-            margin-top: 40px;
-            font-size: 0.9rem;
-            opacity: 0.8;
+            margin-top: 60px;
+            padding: 20px;
+            opacity: 0.9;
         }
 
         .footer a {
@@ -146,8 +228,10 @@
             border-bottom: 1px solid white;
         }
 
-        .footer a:hover {
-            opacity: 1;
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #667eea;
         }
 
         @media (max-width: 768px) {
@@ -155,8 +239,16 @@
                 font-size: 2.5rem;
             }
 
-            .cards {
-                grid-template-columns: 1fr;
+            .container {
+                padding: 10px;
+            }
+
+            .content {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 1.8rem;
             }
         }
     </style>
@@ -168,67 +260,124 @@
             <p>The Control Plane for AI Agents</p>
         </div>
 
-        <div class="cards">
-            <div class="card">
-                <div class="card-icon">🎬</div>
-                <h2>Interactive Presentation</h2>
-                <p>17-slide presentation covering architecture, security, and how kora works. Navigate with arrow keys.</p>
-                <a href="/presentation.html" class="card-link">View Presentation →</a>
-            </div>
-
-            <div class="card">
-                <div class="card-icon">📖</div>
-                <h2>Detailed Documentation</h2>
-                <p>1,020 lines of first-principles documentation explaining identity, policy, credentials, and more.</p>
-                <a href="/docs/doc.md" class="card-link">Read Docs →</a>
-            </div>
-
-            <div class="card">
-                <div class="card-icon">📊</div>
-                <h2>Architecture Diagrams</h2>
-                <p>15 Mermaid diagrams showing message sequences, flows, state machines, and system architecture.</p>
-                <a href="/docs/diagrams.md" class="card-link">View Diagrams →</a>
-            </div>
+        <div class="nav-tabs">
+            <button class="active" onclick="showTab('home')">🏠 Home</button>
+            <button onclick="showTab('docs')">📖 Full Docs</button>
+            <button onclick="showTab('diagrams')">📊 Diagrams</button>
+            <button onclick="showTab('presentation')">🎬 Presentation</button>
         </div>
 
-        <div class="features">
-            <h3>✨ What's Inside</h3>
-            <div class="feature-grid">
-                <div class="feature">
-                    <strong>🔐 Identity</strong><br/>
-                    SPIFFE certificates for unforgeable agent identity
+        <div id="home" class="content active">
+            <h1>Welcome to kora</h1>
+
+            <h2>Quick Links</h2>
+            <div class="cards">
+                <div class="card">
+                    <div class="card-icon">🎬</div>
+                    <h3>Interactive Presentation</h3>
+                    <p>17 slides covering identity, policy, architecture, and security.</p>
+                    <a href="presentation.html" class="card-link">View Slides →</a>
                 </div>
-                <div class="feature">
-                    <strong>🛡️ Policy</strong><br/>
-                    OPA policies enforced before every action
+
+                <div class="card">
+                    <div class="card-icon">📖</div>
+                    <h3>Full Documentation</h3>
+                    <p>1,020 lines of first-principles guide to kora architecture.</p>
+                    <button onclick="showTab('docs')" class="card-link">Read Docs →</button>
                 </div>
-                <div class="feature">
-                    <strong>🔑 Credentials</strong><br/>
-                    Injected transparently, never exposed
-                </div>
-                <div class="feature">
-                    <strong>📈 Architecture</strong><br/>
-                    Multi-binary, multi-tenant, Kubernetes-native
-                </div>
-                <div class="feature">
-                    <strong>🔄 Flows</strong><br/>
-                    Complete request lifecycle visualized
-                </div>
-                <div class="feature">
-                    <strong>🎯 Philosophy</strong><br/>
-                    Security-first, observable, standards-based
+
+                <div class="card">
+                    <div class="card-icon">📊</div>
+                    <h3>Architecture Diagrams</h3>
+                    <p>15 Mermaid diagrams showing flows and system design.</p>
+                    <button onclick="showTab('diagrams')" class="card-link">View Diagrams →</button>
                 </div>
             </div>
+
+            <h2>The Three Core Questions</h2>
+            <ul>
+                <li><strong>Who is this agent?</strong> — SPIFFE identity (unforgeable certificate)</li>
+                <li><strong>What can it access?</strong> — OPA policy (checked before every action)</li>
+                <li><strong>How does it connect?</strong> — Injected credentials (never exposed)</li>
+            </ul>
+
+            <h2>Documentation Topics</h2>
+            <ul>
+                <li>Foundational Concepts — What kora is and why it exists</li>
+                <li>Architecture Overview — System design and components</li>
+                <li>Identity & Authentication — SPIFFE model</li>
+                <li>Authorization & Policy — OPA policies</li>
+                <li>Credential Management — Credential brokering</li>
+                <li>Agent Lifecycle — Deployment to cleanup</li>
+                <li>Development Philosophy — Design principles</li>
+            </ul>
+
+            <h2>Quick Resources</h2>
+            <ul>
+                <li><a href="https://github.com/runkora/kora" target="_blank">GitHub Repository</a></li>
+                <li><a href="https://github.com/runkora/kora/blob/kora-doc/doc.md" target="_blank">Full Docs on GitHub</a></li>
+                <li><a href="https://github.com/runkora/kora/blob/kora-doc/DIAGRAMS.md" target="_blank">Diagrams on GitHub</a></li>
+            </ul>
         </div>
 
-        <div class="footer">
-            <p>Made with ❤️ for autonomous agents in production</p>
-            <p style="margin-top: 15px;">
-                <a href="https://github.com/runkora/kora" target="_blank">GitHub</a> •
-                <a href="https://github.com/runkora/kora/blob/kora-doc/doc.md" target="_blank">Full Docs</a> •
-                <a href="https://github.com/runkora/kora/blob/kora-doc/DIAGRAMS.md" target="_blank">Diagrams</a>
-            </p>
+        <div id="docs" class="content">
+            <div class="loading">Loading documentation...</div>
+        </div>
+
+        <div id="diagrams" class="content">
+            <div class="loading">Loading diagrams...</div>
+        </div>
+
+        <div id="presentation" class="content">
+            <h1>Interactive Presentation</h1>
+            <p><a href="presentation.html">Click here to open the presentation in full screen →</a></p>
+            <p style="margin-top: 20px; color: #666;"><strong>Note:</strong> The presentation opens in a separate page. Use arrow keys to navigate through the 17 slides.</p>
         </div>
     </div>
+
+    <div class="footer">
+        <p>Made with ❤️ for autonomous agents in production</p>
+        <p style="margin-top: 10px; font-size: 0.9rem;">
+            <a href="https://github.com/runkora/kora">GitHub</a> •
+            <a href="https://vercel.com">Deployed on Vercel</a>
+        </p>
+    </div>
+
+    <script>
+        function showTab(tabName) {
+            // Hide all content
+            document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('.nav-tabs button').forEach(b => b.classList.remove('active'));
+
+            // Show selected content
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+
+            // Load markdown if needed
+            if (tabName === 'docs' && !document.getElementById('docs').innerHTML.includes('<h')) {
+                loadMarkdown('docs', 'doc.md');
+            } else if (tabName === 'diagrams' && !document.getElementById('diagrams').innerHTML.includes('<h')) {
+                loadMarkdown('diagrams', 'diagrams.md');
+            }
+        }
+
+        async function loadMarkdown(elementId, filename) {
+            try {
+                const response = await fetch(filename);
+                if (!response.ok) throw new Error('File not found');
+                const text = await response.text();
+                document.getElementById(elementId).innerHTML = marked.parse(text);
+            } catch (error) {
+                document.getElementById(elementId).innerHTML = `
+                    <h2>Documentation</h2>
+                    <p>View the <a href="https://github.com/runkora/kora/blob/kora-doc/${filename}" target="_blank">documentation on GitHub →</a></p>
+                    <p>Error loading: ${error.message}</p>
+                `;
+            }
+        }
+
+        // Add active class to first button
+        document.querySelectorAll('.nav-tabs button')[0].classList.add('active');
+    </script>
 </body>
 </html>
