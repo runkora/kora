@@ -23,7 +23,7 @@ const event = (over: Partial<KoraEvent> = {}): KoraEvent => ({
   koraprincipal: 'agent-subject',
   koraprincipaltype: 'AGENT',
   korachaindepth: 0,
-  data: { entity: { error: 'sandbox_failed' }, occurred_at: '2026-11-06T03:14:07Z' },
+  data: { entity: { error: 'sandbox_lost' }, occurred_at: '2026-11-06T03:14:07Z' },
   ...over,
 });
 
@@ -60,7 +60,7 @@ describe('traceIdOf', () => {
 
 describe('event display', () => {
   it('summarises a failed run with its error', () => {
-    expect(eventSummary(event())).toBe('Run failed: sandbox_failed');
+    expect(eventSummary(event())).toBe('Run failed: sandbox_lost');
   });
 
   it('names the side of a tenant switch without the other tenant', () => {
