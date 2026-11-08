@@ -376,7 +376,7 @@ func initServer(ctx context.Context, logger logging.Logger, controllers []platfo
 	// has set the route on the request context. See Mux.HandleWithMiddleware.
 	apiServer.SetMetricsMiddleware(metrics.Middleware())
 
-	return apiServer.Server(
+	return platformapi.RejectEncodedPaths(logger, apiServer.Server(
 		ctx,
 		tc.Current.Server.Port,
 		tc.Current.Server.BasePath,
@@ -385,7 +385,7 @@ func initServer(ctx context.Context, logger logging.Logger, controllers []platfo
 			mw.LoggingMiddleware(logger),
 		),
 		controllers...,
-	)
+	))
 }
 
 func run(ctx context.Context, logger logging.Logger, server *http.Server, metrics *platformmetrics.Bootstrap) {

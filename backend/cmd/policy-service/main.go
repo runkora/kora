@@ -262,7 +262,7 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 	// has set the route on the request context. See Mux.HandleWithMiddleware.
 	apiServer.SetMetricsMiddleware(metrics.Middleware())
 
-	return apiServer.Server(
+	return platformapi.RejectEncodedPaths(logger, apiServer.Server(
 		ctx,
 		psc.Current.Server.Port,
 		psc.Current.Server.BasePath,
@@ -271,7 +271,7 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 			mw.LoggingMiddleware(logger),
 		),
 		controllers...,
-	)
+	))
 }
 
 // notTimerPoll leaves OPA bundle polls and route scope re-registration untraced.

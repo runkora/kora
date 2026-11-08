@@ -333,7 +333,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 	// has set the route on the request context. See Mux.HandleWithMiddleware.
 	apiServer.SetMetricsMiddleware(metrics.Middleware())
 
-	server := apiServer.Server(
+	server := api.RejectEncodedPaths(logger, apiServer.Server(
 		ctx,
 		igc.Current.Server.Port,
 		igc.Current.Server.BasePath,
@@ -346,7 +346,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 			mw.NewMiddleware(mw.StripRunPrefix),
 		),
 		controllers...,
-	)
+	))
 
 	return server, register, nil
 }
