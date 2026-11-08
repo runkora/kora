@@ -273,23 +273,8 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		observability.RecordFailure(span, err, errSpanCreateRun)
 		return nil, fmt.Errorf("create run: %w", err)
 	}
-	if !inserted && startedBy == nil {
-		return nil, fmt.Errorf("create run: no row inserted for a run without a trigger delivery")
-	}
 	if !inserted {
-		// Same trigger delivery already started a run. Return it unchanged. createdRunID
-		// stays empty so the deferred cleanup cannot touch it, and nothing is minted or queued.
-		existing, err := s.repo.GetRunByDelivery(ctx, req.TenantID, startedBy.TriggerID, startedBy.DeliveryID)
-		if err != nil {
-			observability.RecordFailure(span, err, errSpanGetRun)
-			return nil, fmt.Errorf("get run by delivery: %w", err)
-		}
-		s.logger.Info(ctx, "Run already started for delivery",
-			logging.Field{Key: "run_id", Value: existing.ID},
-			logging.Field{Key: "delivery_id", Value: startedBy.DeliveryID},
-		)
-		existing.AlreadyStarted = true
-		return existing, nil
+		return s.existingRunForDelivery(ctx, span, startedBy)
 	}
 	createdRunID = run.ID
 
@@ -322,6 +307,26 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		return stored, nil
 	}
 	return &run, nil
+}
+
+// existingRunForDelivery returns the run an earlier call created for the same trigger
+// delivery. It is StartRun's dedup path, which returns before anything is minted or
+// queued; createdRunID stays empty so the failed-start cleanup cannot touch the run.
+func (s *RunService) existingRunForDelivery(ctx context.Context, span trace.Span, startedBy *StartedByTrigger) (*Run, error) {
+	if startedBy == nil {
+		return nil, fmt.Errorf("create run: no row inserted for a run without a trigger delivery")
+	}
+	existing, err := s.repo.GetRunByDelivery(ctx, tenantFromContext(ctx), startedBy.TriggerID, startedBy.DeliveryID)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanGetRun)
+		return nil, fmt.Errorf("get run by delivery: %w", err)
+	}
+	s.logger.Info(ctx, "Run already started for delivery",
+		logging.Field{Key: "run_id", Value: existing.ID},
+		logging.Field{Key: "delivery_id", Value: startedBy.DeliveryID},
+	)
+	existing.AlreadyStarted = true
+	return existing, nil
 }
 
 // loadRunForAction loads a run together with its agent type, enforcing tenant
