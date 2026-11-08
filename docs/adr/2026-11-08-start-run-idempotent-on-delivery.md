@@ -56,6 +56,7 @@ The key the issue proposes.
 
 - The dedup path returns the existing run with HTTP 200. A new run stays 201. `internal/platform/clients/agents/client.go` accepts both and the triggers worker needs only the run id, so no wire or client change is needed. `Run.AlreadyStarted` (not serialized) carries the signal inside the service.
 - A duplicate never re-attributes the run. The stored row is returned unchanged, so `created_by` and the `trigger_*` fields stay those of the first call. A duplicate is still authorized as an ordinary start (agent write access and the trigger attribution rules) before the dedup lookup, so a caller without rights cannot read a run by guessing a delivery id.
+- A start that fails after the row is written marks the run failed and clears its `delivery_id` (`ReleaseRunDelivery`), so a retry of the delivery starts a new run instead of resolving to the failed one. A run that did start keeps its key, so a duplicate resolves to it even after it fails.
 - A duplicate returns before the delegation mint and before `QueueRun`, and the failed-start cleanup never touches the existing run.
 
 ---

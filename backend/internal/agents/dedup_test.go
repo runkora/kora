@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
@@ -111,5 +112,40 @@ func TestHandleStartRun_DuplicateDeliveryReturns200(t *testing.T) {
 	}
 	if r1.ID == "" || r1.ID != r2.ID {
 		t.Errorf("ids = %q, %q; want the same run", r1.ID, r2.ID)
+	}
+}
+
+type failQueueOnce struct {
+	runQueue
+	failed bool
+}
+
+func (q *failQueueOnce) QueueRun(ctx context.Context, id string, at time.Time) error {
+	if !q.failed {
+		q.failed = true
+		return errors.New("queue down")
+	}
+	return q.runQueue.QueueRun(ctx, id, at)
+}
+
+// A start that failed after CreateRun frees its delivery, so a retry starts a new run.
+func TestStartRun_RetryAfterFailedStartStartsNewRun(t *testing.T) {
+	f, repo, _, _ := newTestService(t)
+	at := seedAutonomousAgentType(t, repo, "at-1", "t1", "reviewer")
+	ctx := withPrincipalCtx(context.Background(), "t1", token.PrincipalTypeService, "trigger:trig-1")
+	f.run.queue = &failQueueOnce{runQueue: f.run.queue}
+
+	if _, err := f.run.StartRun(ctx, dedupReq(at.ID)); err == nil {
+		t.Fatal("first StartRun: want the queue error")
+	}
+	retry, err := f.run.StartRun(ctx, dedupReq(at.ID))
+	if err != nil {
+		t.Fatalf("retry StartRun: %v", err)
+	}
+	if retry.AlreadyStarted || retry.State == RunStateFailed {
+		t.Errorf("retry = %+v, want a new pending run", retry)
+	}
+	if len(repo.queued) != 1 || repo.queued[0] != retry.ID {
+		t.Errorf("queued = %v, want only the retry run", repo.queued)
 	}
 }
