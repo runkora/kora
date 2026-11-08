@@ -17,7 +17,7 @@ func seedRunAt(t *testing.T, r *PostgresRepository, tenant, agentTypeID, created
 	t.Helper()
 	ctx := context.Background()
 	run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: agentTypeID, CreatedBy: createdBy}
-	if err := r.CreateRun(ctx, run); err != nil {
+	if _, err := r.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
 	if _, err := r.pool.Exec(ctx, `UPDATE runs SET state=$1, created_at=$2, started_at=$3 WHERE id=$4`,
@@ -162,7 +162,7 @@ func TestPostgres_ListRunsStartedByTrigger(t *testing.T) {
 	now := time.Now().UTC()
 	triggered := func(at string, state RunState, age time.Duration) string {
 		run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at, CreatedBy: "trigger:trig-1", StartedBy: &StartedByTrigger{TriggerID: "trig-1", TriggerName: "PR comments"}}
-		if err := r.CreateRun(ctx, run); err != nil {
+		if _, err := r.CreateRun(ctx, run); err != nil {
 			t.Fatalf("CreateRun: %v", err)
 		}
 		if _, err := r.pool.Exec(ctx, `UPDATE runs SET state=$1, created_at=$2 WHERE id=$3`, string(state), now.Add(-age), run.ID); err != nil {

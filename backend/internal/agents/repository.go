@@ -33,7 +33,12 @@ type AgentTypeRepository interface {
 
 // RunRepository is the persistence interface for run operations, events, and messages.
 type RunRepository interface {
-	CreateRun(ctx context.Context, r Run) error
+	// CreateRun inserts a pending run. When the run carries a trigger and delivery id
+	// and a run with the same (tenant, trigger, delivery) exists, it inserts nothing
+	// and reports inserted=false.
+	CreateRun(ctx context.Context, r Run) (inserted bool, err error)
+	// GetRunByDelivery returns the run started for a trigger delivery, or ErrNotFound.
+	GetRunByDelivery(ctx context.Context, tenantID, triggerID, deliveryID string) (*Run, error)
 	GetRun(ctx context.Context, id string) (*Run, error)
 	// ListRuns returns up to q.Limit runs in q.Scope, newest first, after q.After.
 	ListRuns(ctx context.Context, tenantID string, q RunListQuery) ([]Run, error)

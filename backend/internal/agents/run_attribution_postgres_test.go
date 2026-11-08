@@ -75,7 +75,7 @@ func TestPostgres_RunTriggerAttribution(t *testing.T) {
 			DeliveryID:  "deliv-1",
 		},
 	}
-	if err := r.CreateRun(ctx, started); err != nil {
+	if _, err := r.CreateRun(ctx, started); err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
 	got, err := r.GetRun(ctx, started.ID)
@@ -90,7 +90,7 @@ func TestPostgres_RunTriggerAttribution(t *testing.T) {
 	}
 
 	human := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, CreatedBy: "user-1"}
-	if err := r.CreateRun(ctx, human); err != nil {
+	if _, err := r.CreateRun(ctx, human); err != nil {
 		t.Fatalf("CreateRun(human): %v", err)
 	}
 	gotHuman, err := r.GetRun(ctx, human.ID)
@@ -133,7 +133,7 @@ func TestPostgres_RunTriggerAttribution_NoForeignKey(t *testing.T) {
 		ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, CreatedBy: "trigger:ghost",
 		StartedBy: &StartedByTrigger{TriggerID: "no-such-trigger", TriggerName: "Deleted trigger"},
 	}
-	if err := r.CreateRun(ctx, run); err != nil {
+	if _, err := r.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun with an unknown trigger id must be accepted: %v", err)
 	}
 	got, err := r.GetRun(ctx, run.ID)

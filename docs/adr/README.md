@@ -114,6 +114,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) — `Accepted` · 2026-09-18
 - [One Trace per Agent Run](2026-10-31-one-trace-per-run.md) — `Accepted (Amended 2026-11-01)` · 2026-10-31
 - [Agent Attribution on Model and Harness Spans](2026-11-03-agent-attribution-on-spans.md) — `Accepted` · 2026-11-03
+- [StartRun Idempotent on Trigger Delivery](2026-11-08-start-run-idempotent-on-delivery.md) — `Accepted` · 2026-11-08
 - [Run Activity Events](2026-09-29-run-activity-events.md) — `Accepted` · 2026-09-29
 - [kora-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) — `Accepted` · 2026-05-11
 - [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) — `Accepted` · 2026-06-04
@@ -341,4 +342,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-03 | [Agent Attribution on Model and Harness Spans](2026-11-03-agent-attribution-on-spans.md) | Accepted | — |
 | 2026-11-04 | [Tenant Switching](2026-11-04-tenant-switching.md) | Accepted | — |
 | 2026-11-06 | [Policy Bundle Grants Index](2026-11-06-policy-bundle-grants-index.md) | Accepted | — |
+| 2026-11-08 | [StartRun Idempotent on Trigger Delivery](2026-11-08-start-run-idempotent-on-delivery.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

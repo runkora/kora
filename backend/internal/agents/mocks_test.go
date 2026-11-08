@@ -276,18 +276,37 @@ func (m *mockRepository) SoftDeleteAgentType(_ context.Context, id string) error
 	return nil
 }
 
-func (m *mockRepository) CreateRun(_ context.Context, r Run) error {
+func (m *mockRepository) GetRunByDelivery(_ context.Context, tenantID, triggerID, deliveryID string) (*Run, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range m.runs {
+		if r.TenantID == tenantID && r.StartedBy != nil && r.StartedBy.TriggerID == triggerID && r.StartedBy.DeliveryID == deliveryID {
+			cp := *r
+			return &cp, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (m *mockRepository) CreateRun(_ context.Context, r Run) (bool, error) {
 	if m.createRunErr != nil {
-		return m.createRunErr
+		return false, m.createRunErr
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if r.StartedBy != nil && r.StartedBy.TriggerID != "" && r.StartedBy.DeliveryID != "" {
+		for _, e := range m.runs {
+			if e.TenantID == r.TenantID && e.StartedBy != nil && e.StartedBy.TriggerID == r.StartedBy.TriggerID && e.StartedBy.DeliveryID == r.StartedBy.DeliveryID {
+				return false, nil
+			}
+		}
+	}
 	cp := r
 	if cp.CreatedAt.IsZero() {
 		cp.CreatedAt = time.Now()
 	}
 	m.runs[r.ID] = &cp
-	return nil
+	return true, nil
 }
 
 func (m *mockRepository) GetRun(_ context.Context, id string) (*Run, error) {
