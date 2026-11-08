@@ -1135,7 +1135,13 @@ func (s *Service) ListBudgetPrincipals(ctx context.Context, tenantID string) (Bu
 	}
 
 	for key := range keys {
-		cats := budgetCategoriesFor(key, principalBudgets, roleHolders, roleBudgets)
+		// Role holders come from the usage log, keyed by bare ID, so attach role
+		// categories only to the key of the type that actually spent.
+		holders := roleHolders
+		if key.Type != principalTypeFor(key.ID, spendByPid[key.ID].PrincipalType) {
+			holders = nil
+		}
+		cats := budgetCategoriesFor(key, principalBudgets, holders, roleBudgets)
 		resp.Data = append(resp.Data, s.buildBudgetPrincipalRow(ctx, key, cats, spendByPid[key.ID], weeklySpendByPid[key.ID]))
 	}
 

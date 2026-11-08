@@ -866,3 +866,34 @@ func TestListBudgetPrincipals_SameIDGrantsStayOnTheirOwnType(t *testing.T) {
 		}
 	}
 }
+
+// Role categories attach only to the type that exercised the role, not to
+// every grant type sharing the ID.
+func TestListBudgetPrincipals_RoleCategoriesAttachToSpenderTypeOnly(t *testing.T) {
+	t.Parallel()
+	eval := &stubEvaluator{
+		allBudgets: map[policy.BudgetKey]policy.PrincipalBudget{
+			{Type: "AGENT", ID: "shared"}: {Categories: []policy.BudgetCategory{{Source: "grant", ID: "g-a", ResetCadence: "monthly", LimitUSD: 1}}, EffectiveLimits: map[string]float64{"monthly": 1}},
+			{Type: "HUMAN", ID: "shared"}: {Categories: []policy.BudgetCategory{{Source: "grant", ID: "g-h", ResetCadence: "monthly", LimitUSD: 9}}, EffectiveLimits: map[string]float64{"monthly": 9}},
+		},
+		allRoleBudgets: map[string]policy.RoleBudget{"engineer": {LimitUSD: 50, ResetCadence: "monthly"}},
+	}
+	usage := &mockInferenceUsageRepository{
+		periodSpends:      []PrincipalPeriodSpend{{PrincipalID: "shared", PrincipalType: "HUMAN", SpendUSD: 1}},
+		activeRoleHolders: map[string][]string{"shared": {"engineer"}},
+	}
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, &mockSpendCounter{}, logging.NewLoggerWithOutput(io.Discard))
+	resp, err := svc.ListBudgetPrincipals(context.Background(), "tenant-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range resp.Data {
+		hasRole := false
+		for _, c := range row.Categories {
+			hasRole = hasRole || c.Source == "role"
+		}
+		if hasRole != (row.PrincipalType == "HUMAN") {
+			t.Errorf("%s row role category present = %v, want only on HUMAN", row.PrincipalType, hasRole)
+		}
+	}
+}
