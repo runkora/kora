@@ -106,7 +106,7 @@ export function LiveControl({ feed }: { feed: Pick<EventFeed, 'stream' | 'setPau
           variant="secondary"
           onClick={() => feed.setPaused(feed.stream === 'live')}
         >
-          <Icon name={feed.stream === 'live' ? 'minus' : 'play'} size="2xs" />
+          <Icon name={feed.stream === 'live' ? 'pause' : 'play'} size="2xs" />
           {feed.stream === 'live' ? 'Pause' : 'Resume'}
         </Button>
       )}
