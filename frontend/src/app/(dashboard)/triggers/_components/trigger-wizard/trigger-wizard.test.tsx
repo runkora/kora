@@ -959,6 +959,7 @@ describe('let kora choose', () => {
   it.each([
     ['chat', true],
     ['webhook', true],
+    ['event', true],
     ['scheduled', false],
   ] as const)('loads routing options for a %s trigger: %s', (kind, routed) => {
     render(

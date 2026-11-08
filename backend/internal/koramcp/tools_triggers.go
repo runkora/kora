@@ -149,7 +149,7 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers, agentTypes str
 			"prompt_template, e.g. {{ repository.full_name }}#{{ pull_request.number }}, and window_seconds (1 to 300) is how long the "+
 			"first event waits. Events with the same rendered key inside the window start one run from the newest payload; "+
 			"coalesce needs overflow wait, which is the webhook default. "+
-			"A webhook trigger with target_kind routed has no agent_type_id: routing.candidates lists 1 to 20 agent type ids, "+
+			"A webhook or event trigger with target_kind routed has no agent_type_id: routing.candidates lists 1 to 20 agent type ids, "+
 			"routing.model names a decision model (e.g. liquid/d1), and "+product+" picks the agent or an open run for each event; "+
 			"the caller must be able to run every candidate and hold inference:invoke and the model's use scope. "+
 			"scheduled: fires on a cron schedule; schedule_config (cron_expression, timezone, catch_up) is required and "+

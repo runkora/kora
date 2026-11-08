@@ -321,6 +321,42 @@ func TestUpdateRoutedEventTrigger(t *testing.T) {
 	}
 }
 
+// A routed event trigger routes each event to a candidate, carries the event's
+// chain, and skips an event about a run it started.
+func TestHandleEvent_RoutedEventTrigger(t *testing.T) {
+	svc, deps, decisions, _ := routedHarness(t)
+	decisions.resp = decisionAnswers(0.91, "", 0)
+	req := eventReq("routed")
+	req.AgentTypeID, req.TargetKind, req.Routing = "", TargetKindRouted, routingReq(nil)
+	tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, routingClaims, req)
+	if err != nil {
+		t.Fatalf("create routed event trigger: %v", err)
+	}
+
+	env := envelope(t, testTenant, "agents.run.failed.v1", 1, nil, nil)
+	if err := svc.HandleEvent(context.Background(), env); err != nil {
+		t.Fatalf("HandleEvent: %v", err)
+	}
+	drainPending(t, svc, deps.repo)
+	var head eventHead
+	_ = json.Unmarshal(env, &head)
+	call, ok := deps.agents.lastCall()
+	if !ok || call.agentTypeID != "at-a" || call.triggerID != tr.ID || call.causedBy != head.ID || call.chainDepth != 2 {
+		t.Fatalf("start = %+v, want at-a from %s caused by %s at depth 2", call, tr.ID, head.ID)
+	}
+	if d := deps.repo.decisionFor(deps.repo.deliveries[0].ID); d == nil || d.Outcome != RouteOutcomeNewRun {
+		t.Errorf("decision = %+v, want a new run", d)
+	}
+
+	own := envelope(t, testTenant, "agents.run.failed.v1", 2, []string{tr.ID}, nil)
+	if err := svc.HandleEvent(context.Background(), own); err != nil {
+		t.Fatalf("HandleEvent own run: %v", err)
+	}
+	if got := outcomeOf(deps.repo.deliveryRunsFor(deps.repo.deliveries[1].ID), tr.ID); got != reasonOwnRun {
+		t.Errorf("own run outcome = %q, want %q", got, reasonOwnRun)
+	}
+}
+
 // Choosing the events a trigger reads takes events:read. Other edits do not.
 // Only event triggers need events:read. A manual trigger is created and edited without it.
 func TestNonEventTrigger_NeedsNoEventsRead(t *testing.T) {

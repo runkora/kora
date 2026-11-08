@@ -11,7 +11,7 @@ import { KindPicker } from './kind-picker';
 import { SuccessPanel } from './success-panel';
 import { SHARED_STEPS } from './shared-steps';
 import { TRIGGER_KINDS } from './kinds';
-import { initialState, stepsFor, toDraft } from './wizard-state';
+import { initialState, routable, stepsFor, toDraft } from './wizard-state';
 import { useRoutingOptions } from './use-routing-options';
 import {
   brandedCopy,
@@ -51,10 +51,7 @@ export function TriggerWizard({
   const [created, setCreated] = useState<Created | null>(null);
   const [createdSource, setCreatedSource] = useState<CreatedSource | null>(null);
 
-  // Only a webhook trigger can be routed, a chat command included.
-  const routing = useRoutingOptions(
-    allowRouting && kind !== null && TRIGGER_KINDS[kind].apiKind === 'webhook',
-  );
+  const routing = useRoutingOptions(allowRouting && kind !== null && routable(TRIGGER_KINDS[kind]));
   const context = useMemo<WizardContext>(
     () => ({ agents, agentsError, sources, ingestHost, ...(routing !== undefined && { routing }) }),
     [agents, agentsError, sources, ingestHost, routing],

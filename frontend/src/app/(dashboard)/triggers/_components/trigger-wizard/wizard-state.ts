@@ -447,10 +447,15 @@ export function previewBody(fields: WizardField[]): string {
   return JSON.stringify({ variables }, null, 2);
 }
 
+/** Whether a trigger of this kind can be routed: a webhook, a chat command included, or an event trigger. */
+export function routable(def: TriggerKindDefinition): boolean {
+  return def.apiKind === 'webhook' || def.apiKind === 'event';
+}
+
 /** Builds the draft the parent submits: shared fields plus the kind's own. */
 export function toDraft(def: TriggerKindDefinition, state: WizardState): TriggerDraft {
-  // Only a webhook trigger can be routed, a chat command included; the step offers the mode for no other kind.
-  const routed = def.apiKind === 'webhook' && state.routing.mode === 'choose';
+  // The Target step offers the mode only for a routable kind.
+  const routed = routable(def) && state.routing.mode === 'choose';
   return {
     kind: def.apiKind,
     name: state.name.trim(),

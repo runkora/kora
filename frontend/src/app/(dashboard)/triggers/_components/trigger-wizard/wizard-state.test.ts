@@ -18,6 +18,7 @@ import {
   splitFilterValues,
   stepsFor,
   toDraft,
+  DEFAULT_ROUTING,
   validateCoalesce,
   validateDelivery,
   validateFilters,
@@ -190,6 +191,17 @@ describe('toDraft', () => {
       state({ sourceChoice: NEW_SOURCE, newSourceName: ' acme ', newSourceProvider: 'github' }),
     );
     expect(draft.source).toEqual({ newName: 'acme', provider: 'github' });
+  });
+
+  it.each([
+    ['event', 'routed'],
+    ['scheduled', 'agent'],
+  ] as const)('routes a %s trigger set to let kora choose: %s', (kind, targetKind) => {
+    const draft = toDraft(
+      TRIGGER_KINDS[kind],
+      state({ routing: { ...DEFAULT_ROUTING, mode: 'choose', candidateIds: ['at-1'] } }),
+    );
+    expect(draft.targetKind).toBe(targetKind);
   });
 
   it('derives the cron for a scheduled trigger', () => {
