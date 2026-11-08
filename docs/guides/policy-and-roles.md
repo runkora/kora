@@ -247,7 +247,7 @@ The edge OPA, the sidecar OPA, and the in-process `ScopeEnforcementMiddleware` r
 
 Route registrations live in the policy service's memory. After a restart, bundles hold no routes until services re-register. The policy service must run as a single replica.
 
-The bundle endpoint `GET /api/v1/policy/bundles/{tenant_id}` is unauthenticated and restricted by Istio `PeerAuthentication` STRICT mTLS. Keep STRICT mode enabled for `kora-system` in every environment.
+The bundle endpoint `GET /api/v1/policy/bundles/{tenant_id}` requires a mesh identity (SPIFFE ID from the mTLS client certificate). A tenant workload may read only its own tenant's bundle, resolved from its namespace through the tenant registry, and gets 403 for any other tenant. System components may read any tenant. Keep STRICT mTLS enabled for `kora-system` in every environment, because the identity is read from the sidecar-set `x-forwarded-client-cert` header.
 
 ## Propagation Timing
 

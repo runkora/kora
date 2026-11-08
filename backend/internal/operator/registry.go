@@ -25,6 +25,7 @@ type registryFile struct {
 
 type registryEntry struct {
 	ID           string              `json:"id"`
+	Namespace    string              `json:"namespace"`
 	DisplayName  string              `json:"displayName"`
 	State        string              `json:"state"`
 	OIDC         registryOIDC        `json:"oidc"`
@@ -124,6 +125,7 @@ func (r *TenantRegistry) buildRegistryYAML(tenants []KoraTenant) (string, error)
 		}
 		entries = append(entries, registryEntry{
 			ID:          t.Name,
+			Namespace:   tenantNamespace(t),
 			DisplayName: t.Spec.DisplayName,
 			State:       "active",
 			OIDC: registryOIDC{

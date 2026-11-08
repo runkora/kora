@@ -121,7 +121,7 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 	// /tenant/{tenant-id}/agent/{agent-slug}/sandbox/{run-id}
 	// /tenant/{tenant-id}/service/{service-id}
 	// /system/{component-name}
-	var tenantID, displayName, runID string
+	var tenantID, displayName, runID, namespace string
 	var agentURI string // the URI used as the principal ID — strips /sandbox/{run-id} when present
 	var principalType PrincipalType
 
@@ -139,6 +139,7 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 		// Authorize as the agent (strip sandbox suffix); attribute as the run.
 		principalType = PrincipalTypeAgent
 		tenantID = strings.TrimPrefix(segments[1], "kora-tenant-")
+		namespace = segments[1]
 		displayName = segments[3]
 		runID = segments[5]
 		agentURI = "spiffe://" + trustDomain + "/tenant/" + segments[1] + "/agent/" + segments[3]
@@ -147,6 +148,7 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 		// K8s namespaces are prefixed with "kora-tenant-" (e.g. "kora-tenant-example").
 		// Strip the prefix so the tenantID matches the logical tenant (e.g. "example").
 		tenantID = strings.TrimPrefix(segments[1], "kora-tenant-")
+		namespace = segments[1]
 		displayName = segments[3]
 
 		switch segments[2] {
@@ -182,6 +184,7 @@ func principalFromSpiffeID(spiffeID string) (*Principal, error) {
 		ID:             principalID,
 		Type:           principalType,
 		TenantID:       tenantID,
+		Namespace:      namespace,
 		DisplayName:    displayName,
 		IdentitySource: IdentitySourceAttested,
 		Claims:         claims,

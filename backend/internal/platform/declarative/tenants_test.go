@@ -136,3 +136,23 @@ func TestRegistryUnreadableFromStartRefusesAPIWrites(t *testing.T) {
 		t.Error("a fixed file is read again")
 	}
 }
+
+func TestTenantForNamespace(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	writeRegistry(t, path, `version: v1
+tenants:
+  - {id: old, state: active}
+  - {id: acme, state: active, namespace: acme-prod}
+  - {id: gone, state: suspended, namespace: gone-ns}
+`, time.Unix(1, 0))
+	r := NewRegistry(path)
+	for ns, want := range map[string]string{"kora-tenant-old": "old", "acme-prod": "acme", "kora-tenant-acme": "", "gone-ns": "", "": ""} {
+		got, ok := r.TenantForNamespace(ns)
+		if got != want || ok != (want != "") {
+			t.Errorf("TenantForNamespace(%q) = %q, %v; want %q", ns, got, ok, want)
+		}
+	}
+	if _, ok := NewRegistry("").TenantForNamespace("kora-tenant-old"); ok {
+		t.Error("an unset registry mapped a namespace")
+	}
+}
