@@ -85,8 +85,11 @@ If the refresh token itself is expired, run `make auth` to start a fresh session
 **Run the full quality gate before committing:**
 
 ```bash
-make check             # tidy + fmt + vet + lint (golangci-lint) + secret scan + docs-check + Hades manifest check + tests + frontend checks
+make check             # the checks for the groups the change touches: backend, Go deadcode, docs, frontend; check-versions and the secret scan always run
+make check-all         # every check: tidy + fmt + vet + lint (golangci-lint) + secret scan + docs-check + Hades manifest check + tests + frontend checks
 ```
+
+`make check` compares the branch with its merge base on `main`, including uncommitted and untracked files. A path outside `backend/`, `frontend/`, `docs/` or Markdown runs every check. The pre-commit hook runs `make check`.
 
 `docs-check` (`scripts/docs/check-docs.sh`) guards the docs against drift: broken links, missing ADR/PRD index entries, dead `make` targets, a stale binary table, and hardcoded counts. All PRs must pass `make check` with zero issues.
 
