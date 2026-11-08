@@ -1,5 +1,4 @@
 {
-  "name": "kora-presentation",
   "version": 2,
   "public": false,
   "builds": [
@@ -10,16 +9,17 @@
   ],
   "routes": [
     {
-      "src": "/(?:.*\\.html)?/?$",
-      "dest": "/index.html"
+      "src": "/docs/.*",
+      "dest": "/docs/$1",
+      "continue": true
     },
     {
       "src": "/presentation/?$",
       "dest": "/presentation.html"
     },
     {
-      "src": "/docs/?$",
-      "dest": "/docs.html"
+      "src": "/(?:.*\\.html)?/?$",
+      "dest": "/index.html"
     }
   ],
   "env": {
