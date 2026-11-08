@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>kora Documentation</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px 20px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .nav-tabs {
+            background: white;
+            border-bottom: 2px solid #667eea;
+            padding: 0 20px;
+            display: flex;
+            gap: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .nav-tabs a {
+            padding: 15px 20px;
+            text-decoration: none;
+            color: #666;
+            font-weight: 500;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .nav-tabs a:hover,
+        .nav-tabs a.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background: white;
+            min-height: 80vh;
+        }
+
+        .doc-content {
+            display: none;
+        }
+
+        .doc-content.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Markdown Styling */
+        h1 {
+            color: #667eea;
+            font-size: 2.5rem;
+            margin: 40px 0 20px 0;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        h2 {
+            color: #764ba2;
+            font-size: 1.8rem;
+            margin: 30px 0 15px 0;
+        }
+
+        h3 {
+            color: #667eea;
+            font-size: 1.3rem;
+            margin: 20px 0 10px 0;
+        }
+
+        p {
+            margin: 15px 0;
+            line-height: 1.8;
+        }
+
+        ul, ol {
+            margin: 15px 0 15px 30px;
+        }
+
+        li {
+            margin: 8px 0;
+        }
+
+        code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            color: #d63384;
+        }
+
+        pre {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin: 15px 0;
+            border-left: 4px solid #667eea;
+        }
+
+        pre code {
+            background: none;
+            color: inherit;
+            padding: 0;
+        }
+
+        blockquote {
+            border-left: 4px solid #667eea;
+            padding-left: 15px;
+            margin: 15px 0;
+            color: #666;
+            font-style: italic;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+
+        table th {
+            background: #667eea;
+            color: white;
+            padding: 12px;
+            text-align: left;
+        }
+
+        table td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+        }
+
+        table tr:hover {
+            background: #f9f9f9;
+        }
+
+        strong {
+            color: #764ba2;
+            font-weight: 600;
+        }
+
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            margin: 30px 0;
+        }
+
+        .footer {
+            background: #f5f5f5;
+            padding: 20px;
+            text-align: center;
+            color: #666;
+            font-size: 0.9rem;
+            margin-top: 40px;
+        }
+
+        .toc {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+            border: 1px solid #ddd;
+        }
+
+        .toc h3 {
+            margin-top: 0;
+        }
+
+        .toc ul {
+            margin: 10px 0;
+        }
+
+        .back-to-top {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #667eea;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: none;
+            font-size: 1.5rem;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .back-to-top:hover {
+            background: #764ba2;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #667eea;
+            font-weight: 500;
+        }
+
+        @media (max-width: 768px) {
+            .nav-tabs {
+                flex-wrap: wrap;
+            }
+
+            h1 {
+                font-size: 1.8rem;
+            }
+
+            .header h1 {
+                font-size: 1.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📚 kora Documentation</h1>
+        <p>Complete guide to the control plane for AI agents</p>
+    </div>
+
+    <div class="nav-tabs">
+        <a class="tab-link active" data-tab="overview">📖 Overview</a>
+        <a class="tab-link" data-tab="doc">📄 Full Docs</a>
+        <a class="tab-link" data-tab="diagrams">📊 Diagrams</a>
+    </div>
+
+    <div class="container">
+        <div id="overview" class="doc-content active">
+            <h1>Welcome to kora Documentation</h1>
+            <p>This is your comprehensive guide to kora, the control plane for AI agents.</p>
+
+            <h2>📖 What's Available:</h2>
+            <ul>
+                <li><strong>Full Docs</strong> — 1,020 lines of detailed first-principles documentation covering identity, policy, credentials, architecture, and more</li>
+                <li><strong>Diagrams</strong> — 15 Mermaid diagrams showing message sequences, flows, state machines, and system architecture</li>
+                <li><strong>Interactive Presentation</strong> — 17-slide presentation (see homepage)</li>
+            </ul>
+
+            <h2>🚀 Quick Start:</h2>
+            <ol>
+                <li><strong>Read Full Docs</strong> — Click the "Full Docs" tab to understand kora from first principles</li>
+                <li><strong>View Diagrams</strong> — Click the "Diagrams" tab to see architecture visualizations</li>
+                <li><strong>Watch Presentation</strong> — Go back to homepage to watch the interactive presentation</li>
+            </ol>
+
+            <h2>❓ The Three Core Questions:</h2>
+            <p>Everything in kora centers around answering these three questions for every agent action:</p>
+            <ol>
+                <li><strong>Who is this agent?</strong> — SPIFFE identity certificate (unforgeable)</li>
+                <li><strong>What can it access?</strong> — OPA policy decision (checked before execution)</li>
+                <li><strong>How does it connect?</strong> — Injected credentials (never exposed)</li>
+            </ol>
+
+            <h2>📚 Documentation Structure:</h2>
+            <ul>
+                <li><strong>Foundational Concepts</strong> — What kora is and why it matters</li>
+                <li><strong>The Three Core Questions</strong> — Identity, policy, and credentials explained</li>
+                <li><strong>Architecture Overview</strong> — System design and components</li>
+                <li><strong>System Components</strong> — Detailed breakdown of 8+ services</li>
+                <li><strong>Data Flow and Execution Model</strong> — How requests flow through kora</li>
+                <li><strong>Identity and Authentication</strong> — SPIFFE model explained</li>
+                <li><strong>Authorization and Policy</strong> — OPA policies and enforcement</li>
+                <li><strong>Credential Management</strong> — Credential brokering</li>
+                <li><strong>Agent Lifecycle</strong> — Deployment, execution, cleanup</li>
+                <li><strong>Development Philosophy</strong> — Design principles and conventions</li>
+            </ul>
+
+            <h2>🔗 Quick Links:</h2>
+            <ul>
+                <li><a href="https://github.com/runkora/kora" target="_blank">GitHub Repository</a></li>
+                <li><a href="https://github.com/runkora/kora/blob/kora-doc/doc.md" target="_blank">Full Docs on GitHub</a></li>
+                <li><a href="https://github.com/runkora/kora/blob/kora-doc/DIAGRAMS.md" target="_blank">Diagrams on GitHub</a></li>
+                <li><a href="/" target="_blank">Back to Homepage</a></li>
+            </ul>
+        </div>
+
+        <div id="doc" class="doc-content">
+            <div class="loading">Loading documentation...</div>
+        </div>
+
+        <div id="diagrams" class="doc-content">
+            <div class="loading">Loading diagrams...</div>
+        </div>
+    </div>
+
+    <div class="back-to-top" id="backToTop">↑</div>
+
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' });
+
+        const tabs = document.querySelectorAll('.tab-link');
+        const contents = document.querySelectorAll('.doc-content');
+        const backToTop = document.getElementById('backToTop');
+
+        tabs.forEach(tab => {
+            tab.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const tabName = tab.dataset.tab;
+
+                // Update active tab
+                tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                // Update active content
+                contents.forEach(c => c.classList.remove('active'));
+                const content = document.getElementById(tabName);
+                content.classList.add('active');
+
+                // Load content if not already loaded
+                if (content.innerHTML.includes('Loading')) {
+                    await loadContent(tabName, content);
+                }
+
+                window.scrollTo(0, 0);
+            });
+        });
+
+        async function loadContent(tabName, element) {
+            try {
+                let url;
+                if (tabName === 'doc') {
+                    url = './doc.md';
+                } else if (tabName === 'diagrams') {
+                    url = './diagrams.md';
+                }
+
+                const response = await fetch(url);
+                const markdown = await response.text();
+                const html = marked.parse(markdown);
+                element.innerHTML = html;
+
+                // Re-initialize Mermaid for new diagrams
+                mermaid.contentLoaded();
+            } catch (error) {
+                element.innerHTML = `<div class="error">Failed to load content: ${error.message}</div>`;
+            }
+        }
+
+        // Back to top button
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 300) {
+                backToTop.style.display = 'flex';
+            } else {
+                backToTop.style.display = 'none';
+            }
+        });
+
+        backToTop.addEventListener('click', () => {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+    </script>
+</body>
+</html>
