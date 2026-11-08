@@ -49,13 +49,13 @@ func (f *fakeEval) ScopesExplain(context.Context, policy.ScopesInput) (*policy.S
 func (f *fakeEval) CheckBudget(context.Context, string, policy.BudgetCheckRequest) (policy.BudgetResult, error) {
 	return policy.BudgetResult{}, nil
 }
-func (f *fakeEval) GetBudgetCategories(context.Context, string, string) ([]policy.BudgetCategory, error) {
+func (f *fakeEval) GetBudgetCategories(context.Context, string, string, string) ([]policy.BudgetCategory, error) {
 	return nil, nil
 }
 func (f *fakeEval) GetRoleBudgets(context.Context, string, []string) ([]policy.BudgetCategory, error) {
 	return nil, nil
 }
-func (f *fakeEval) ListBudgets(context.Context, string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
+func (f *fakeEval) ListBudgets(context.Context, string) (map[policy.BudgetKey]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
 	return nil, nil, nil
 }
 func (f *fakeEval) GetTenantBudget(context.Context, string) (*policy.TenantBudget, error) {

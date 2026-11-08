@@ -163,3 +163,7 @@ No other change was required: `budgetScopesFor` (inference gateway) already reso
 - **Negative:** a human's individual budget being under its own limit no longer guarantees their request succeeds if the tenant is over cap — this is the intended hard-ceiling behavior, but it is a new way for a human request to be denied that admins should communicate to end users.
 - **Neutral:** the counter and rehydration machinery is unchanged; this was a policy (Rego) correction, not a data-model change.
 
+
+## Amendment: budgets keyed by principal type (#720)
+
+`data.budgets` is keyed `<TYPE>:<principal_id>` (for example `AGENT:spiffe://…`, `HUMAN:<id>`, `PAT:<id>`), not by principal ID alone. Keyed by ID, a HUMAN grant naming an agent's, trigger's or PAT's ID merged into that principal's budget and could raise its limits. Delegator ceilings read the `HUMAN:` entry. Spend and budget counters are still keyed by bare principal ID.

@@ -448,7 +448,7 @@ func (m *mockPolicyEvaluator) GetTenantBudget(_ context.Context, _ string) (*pol
 	return nil, nil
 }
 
-func (m *mockPolicyEvaluator) GetBudgetCategories(_ context.Context, _, _ string) ([]policy.BudgetCategory, error) {
+func (m *mockPolicyEvaluator) GetBudgetCategories(_ context.Context, _, _, _ string) ([]policy.BudgetCategory, error) {
 	return nil, nil
 }
 
@@ -456,8 +456,8 @@ func (m *mockPolicyEvaluator) GetRoleBudgets(_ context.Context, _ string, _ []st
 	return nil, nil
 }
 
-func (m *mockPolicyEvaluator) ListBudgets(_ context.Context, _ string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
-	return map[string]policy.PrincipalBudget{}, map[string]policy.RoleBudget{}, nil
+func (m *mockPolicyEvaluator) ListBudgets(_ context.Context, _ string) (map[policy.BudgetKey]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
+	return map[policy.BudgetKey]policy.PrincipalBudget{}, map[string]policy.RoleBudget{}, nil
 }
 
 func (m *mockPolicyEvaluator) Start(_ context.Context) {}
