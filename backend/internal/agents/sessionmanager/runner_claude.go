@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -580,10 +581,10 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 		if budgetHit || isBudgetExceededMessage(msg) {
 			// The inference gateway rejected the run's LLM calls with 403
 			// BUDGET_EXCEEDED — a budget ceiling is met, not a fault.
-			r.emit(EventTypeRunError, RunErrorPayload{Code: "budget_exhausted", Message: msg})
+			r.emit(EventTypeRunError, RunErrorPayload{Code: events.RunErrorBudgetExhausted, Message: msg})
 			return
 		}
-		r.endTurnWithError("agent_error", msg)
+		r.endTurnWithError(events.RunErrorAgentError, msg)
 		return
 	}
 
@@ -620,7 +621,7 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 				logging.Field{Key: "stop_reason", Value: w.StopReason},
 				logging.Field{Key: "result", Value: w.Result},
 			)
-			r.endTurnWithError("empty_response", w.Result)
+			r.endTurnWithError(events.RunErrorEmptyResponse, w.Result)
 			return
 		}
 	}
@@ -679,7 +680,7 @@ func (r *ClaudeRunner) emitBudgetExhaustedTurn(ctx context.Context, w claudeOutp
 	)
 	r.flushPartial()
 	r.emit(EventTypeRunError, RunErrorPayload{
-		Code:    "budget_exhausted",
+		Code:    events.RunErrorBudgetExhausted,
 		Message: "The run's LLM calls were rejected with BUDGET_EXCEEDED — a budget ceiling was reached and the turn was cut short after retries.",
 	})
 }

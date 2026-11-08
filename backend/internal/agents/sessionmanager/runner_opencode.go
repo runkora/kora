@@ -17,6 +17,7 @@ import (
 
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -698,14 +699,14 @@ func (r *OpenCodeRunner) endTurn(resp openCodeMsg, stillRunning bool) {
 	}
 	if stillRunning {
 		if resp.Error != nil {
-			r.emit(EventTypeRunError, RunErrorPayload{Code: "runner_error", Message: string(resp.Error)})
+			r.emit(EventTypeRunError, RunErrorPayload{Code: events.RunErrorRunnerError, Message: string(resp.Error)})
 		}
 		return
 	}
 	switch {
 	case resp.Error != nil:
 		r.flushPartial()
-		r.emit(EventTypeRunError, RunErrorPayload{Code: "runner_error", Message: string(resp.Error)})
+		r.emit(EventTypeRunError, RunErrorPayload{Code: events.RunErrorRunnerError, Message: string(resp.Error)})
 	case result.StopReason == "cancelled":
 		r.flushPartial()
 		r.stopRunningCalls()

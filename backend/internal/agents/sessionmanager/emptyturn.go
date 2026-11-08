@@ -4,14 +4,12 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // emptyTurnPrompt is sent once when a turn ends with no text and no tool call.
 const emptyTurnPrompt = "Your last turn ended without a tool call or a final answer. Continue from where you stopped."
-
-// runErrorEmptyTurn fails a run whose re-prompted turn also ended empty.
-const runErrorEmptyTurn = "empty_turn"
 
 type emptyTurnVerdict int
 
@@ -140,7 +138,7 @@ func (reg *Registry) failEmptyTurn(ctx context.Context, s *session) {
 		logging.Field{Key: "run_id", Value: s.runID},
 	)
 	s.failure.Store(&RunErrorPayload{
-		Code:    runErrorEmptyTurn,
+		Code:    events.RunErrorEmptyTurn,
 		Message: "The agent ended two turns in a row without a tool call or a final answer.",
 	})
 	s.cancel()
@@ -164,7 +162,7 @@ func (reg *Registry) reportFailure(ctx context.Context, s *session) {
 	if s.failureSent.Load() {
 		return
 	}
-	f := RunErrorPayload{Code: "subprocess_exit", Message: "Agent process exited unexpectedly"}
+	f := RunErrorPayload{Code: events.RunErrorSubprocessExit, Message: "Agent process exited unexpectedly"}
 	if p := s.failure.Load(); p != nil {
 		f = *p
 	}

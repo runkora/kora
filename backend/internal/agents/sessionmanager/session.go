@@ -20,6 +20,7 @@ import (
 	"github.com/runkora/kora/backend/internal/agents/sandbox/execauth"
 	execpb "github.com/runkora/kora/backend/internal/agents/sandbox/proto"
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/trace"
@@ -1292,7 +1293,7 @@ func isBudgetExhausted(ev Event) bool {
 		return false
 	}
 	var p RunErrorPayload
-	return json.Unmarshal(ev.Payload, &p) == nil && p.Code == "budget_exhausted"
+	return json.Unmarshal(ev.Payload, &p) == nil && p.Code == events.RunErrorBudgetExhausted
 }
 
 // isStatusEvent reports events that describe the run without being turn

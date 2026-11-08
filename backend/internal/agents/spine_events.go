@@ -159,7 +159,7 @@ var recordsActivity = map[string]bool{
 
 // runErrorsWithOwnEvent are run_error codes another event records. The session ends the run on
 // subprocess_exit, empty_turn and budget_exhausted, and loop_detected precedes the guardrail pause.
-var runErrorsWithOwnEvent = []string{"budget_exhausted", "loop_detected", "subprocess_exit", "empty_turn"}
+var runErrorsWithOwnEvent = []string{events.RunErrorBudgetExhausted, events.RunErrorLoopDetected, events.RunErrorSubprocessExit, events.RunErrorEmptyTurn}
 
 // activityEvent is the spine event that run_events row e of run r records, if any.
 func activityEvent(r Run, e RunEvent) (events.Event, bool) {

@@ -12,15 +12,15 @@ import (
 
 // Run error codes a run_error records, the enum of RunPayload.Error.
 const (
-	RunErrorAgentError     = "agent_error"
-	RunErrorEmptyResponse  = "empty_response"
-	RunErrorRunnerError    = "runner_error"
-	RunErrorSandboxLost    = "sandbox_lost"
-	RunErrorLoopDetected   = "loop_detected"
-	RunErrorEmptyTurn      = "empty_turn"
-	RunErrorSubprocessExit = "subprocess_exit"
-	RunErrorBudgetExhaust  = "budget_exhausted"
-	RunErrorStartFailed    = "start_failed"
+	RunErrorAgentError      = "agent_error"
+	RunErrorEmptyResponse   = "empty_response"
+	RunErrorRunnerError     = "runner_error"
+	RunErrorSandboxLost     = "sandbox_lost"
+	RunErrorLoopDetected    = "loop_detected"
+	RunErrorEmptyTurn       = "empty_turn"
+	RunErrorSubprocessExit  = "subprocess_exit"
+	RunErrorBudgetExhausted = "budget_exhausted"
+	RunErrorStartFailed     = "start_failed"
 	// RunErrorUnknown stands for a code outside this list.
 	RunErrorUnknown = "unknown"
 )
@@ -37,7 +37,7 @@ const (
 var enums = map[string][]string{
 	"run_state": {"pending", "starting", "active", "idle", "completing", "completed", "failed", "budget_exhausted", "terminated"},
 	"run_error": {RunErrorAgentError, RunErrorEmptyResponse, RunErrorRunnerError, RunErrorSandboxLost, RunErrorLoopDetected,
-		RunErrorEmptyTurn, RunErrorSubprocessExit, RunErrorBudgetExhaust, RunErrorStartFailed, RunErrorUnknown},
+		RunErrorEmptyTurn, RunErrorSubprocessExit, RunErrorBudgetExhausted, RunErrorStartFailed, RunErrorUnknown},
 	"guardrail_kind":        {GuardrailRepeatedCall, GuardrailWaitRearm, GuardrailUnknown},
 	"sandbox_egress":        {"passed", "skipped"},
 	"agent_state":           {"provisioning", "active", "deleting", "deleted"},

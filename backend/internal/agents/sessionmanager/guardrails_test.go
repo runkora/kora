@@ -15,6 +15,7 @@ import (
 	"time"
 
 	smclient "github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/events"
 )
 
 func TestIsSleepCommand(t *testing.T) {
@@ -271,7 +272,7 @@ func TestProvisionSandbox_LostAfterAttemptsFailsFastUntilUserReplies(t *testing.
 	if n.calls != 3 {
 		t.Errorf("calls = %d, want the 3 attempts", n.calls)
 	}
-	if len(n.runErrors) != 1 || n.runErrors[0].Code != runErrorSandboxLost {
+	if len(n.runErrors) != 1 || n.runErrors[0].Code != events.RunErrorSandboxLost {
 		t.Fatalf("run errors = %v, want one sandbox_lost", n.runErrors)
 	}
 	if !strings.Contains(n.runErrors[0].Message, "Files under "+filepath.Join(ws, "run-1")+" are intact") {
@@ -354,10 +355,10 @@ func TestDrain_LoopGuardWarnsThenPauses(t *testing.T) {
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if len(n.runErrors) != 1 || n.runErrors[0].Code != runErrorLoopDetected {
+	if len(n.runErrors) != 1 || n.runErrors[0].Code != events.RunErrorLoopDetected {
 		t.Errorf("run errors = %v, want one loop_detected", n.runErrors)
 	}
-	want := GuardrailWarningPayload{Kind: loopKindRepeatedCall, Count: 2, Tool: "Bash"}
+	want := GuardrailWarningPayload{Kind: events.GuardrailRepeatedCall, Count: 2, Tool: "Bash"}
 	if len(n.warnings) != 1 || n.warnings[0] != want {
 		t.Errorf("recorded warnings = %v, want [%v]", n.warnings, want)
 	}
@@ -498,7 +499,7 @@ func TestHandleProvisionSandbox_LostSandboxIs503(t *testing.T) {
 	}
 	var body struct{ Code, Message string }
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
-	if body.Code != runErrorSandboxLost || !strings.Contains(body.Message, "after 3 attempt(s)") {
+	if body.Code != events.RunErrorSandboxLost || !strings.Contains(body.Message, "after 3 attempt(s)") {
 		t.Errorf("body = %+v", body)
 	}
 }
@@ -552,7 +553,7 @@ func TestProvisionSandbox_RetriesStopWhenRunnerExits(t *testing.T) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	for _, e := range n.runErrors {
-		if e.Code == runErrorSandboxLost {
+		if e.Code == events.RunErrorSandboxLost {
 			t.Errorf("recorded %v after the runner exited", e)
 		}
 	}
@@ -577,7 +578,7 @@ func TestDrain_RunGuardrailsOverrideTheRegistry(t *testing.T) {
 
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	if len(n.warnings) != 1 || n.warnings[0].Count != 2 || len(n.runErrors) != 1 || n.runErrors[0].Code != runErrorLoopDetected {
+	if len(n.warnings) != 1 || n.warnings[0].Count != 2 || len(n.runErrors) != 1 || n.runErrors[0].Code != events.RunErrorLoopDetected {
 		t.Errorf("warnings %v, run errors %v; want a warning at 2 and a pause at 3", n.warnings, n.runErrors)
 	}
 	s := &session{guardrails: custom}

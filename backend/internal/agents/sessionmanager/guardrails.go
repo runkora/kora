@@ -12,6 +12,7 @@ import (
 	"time"
 
 	sandboxfolder "github.com/runkora/kora/backend/internal/agents/sandbox/folder"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -108,13 +109,6 @@ func (reg *Registry) limits(s *session) Guardrails {
 	return s.guardrails.over(reg.guardrails)
 }
 
-// Run error codes the guardrails record. They are durable run events, so the
-// user sees them in the run and they survive a reload.
-const (
-	runErrorSandboxLost  = "sandbox_lost"
-	runErrorLoopDetected = "loop_detected"
-)
-
 // ErrSandboxLost means this run's sandbox could not be provisioned within the
 // guardrail's attempts, and further requests are refused until the user replies.
 var ErrSandboxLost = errors.New("sandbox lost")
@@ -205,7 +199,7 @@ func (reg *Registry) markSandboxLost(ctx context.Context, s *session, attempts i
 	first := !s.sandboxLost.Swap(true)
 	s.lostMu.Unlock()
 	if first {
-		reg.emitRunError(ctx, s.runID, runErrorSandboxLost, reg.sandboxLostMessage(s.runID))
+		reg.emitRunError(ctx, s.runID, events.RunErrorSandboxLost, reg.sandboxLostMessage(s.runID))
 	}
 	return true
 }
@@ -304,12 +298,6 @@ func commandSteps(command string) []string {
 	return strings.FieldsFunc(command, func(r rune) bool { return r == ';' || r == '&' || r == '|' || r == '\n' })
 }
 
-// Loop kinds, as recorded in a guardrail_warning event.
-const (
-	loopKindRepeatedCall = "repeated_call"
-	loopKindWaitRearm    = "wait_rearm"
-)
-
 // loopFinding is what the guard reports alongside a warn or pause verdict: the
 // text for the model or the user, and the facts recorded for the audit trail.
 type loopFinding struct {
@@ -389,8 +377,8 @@ func (g *loopGuard) observeCall(p ToolUsePayload, limits Guardrails, product str
 	g.countRepeat(p.ID, call, wait)
 	g.trackCall(p.ID, call, wait)
 
-	repeated := loopFinding{kind: loopKindRepeatedCall, count: g.repeats, tool: p.Name}
-	waiting := loopFinding{kind: loopKindWaitRearm, count: g.waits, tool: p.Name}
+	repeated := loopFinding{kind: events.GuardrailRepeatedCall, count: g.repeats, tool: p.Name}
+	waiting := loopFinding{kind: events.GuardrailWaitRearm, count: g.waits, tool: p.Name}
 	// At or above, not equal: when both counts cross a threshold on one call,
 	// the other still fires on the next.
 	switch {
@@ -460,7 +448,7 @@ func (reg *Registry) applyLoopGuard(ctx context.Context, s *session, ev Event) {
 			)
 		}
 	case loopPause:
-		reg.emitRunError(ctx, s.runID, runErrorLoopDetected, finding.text)
+		reg.emitRunError(ctx, s.runID, events.RunErrorLoopDetected, finding.text)
 		s.guard.reset()
 		s.guardStopped.Store(true)
 		if err := reg.Interrupt(ctx, s.runID); err != nil {
