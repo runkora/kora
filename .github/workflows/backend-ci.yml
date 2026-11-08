@@ -11,6 +11,7 @@ permissions:
 # Tool versions — keep in sync with the pinned versions in versions.hcl.
 env:
   GOLANGCI_LINT_VERSION: v2.11.3
+  BUF_VERSION: v1.55.1
 
 jobs:
   infra-lint:
@@ -137,15 +138,27 @@ jobs:
             ${{ runner.os }}-go-build-${{ hashFiles('backend/go.sum') }}-
             ${{ runner.os }}-go-build-
 
+      # A cached buf keeps a GitHub releases outage from failing the build.
+      - name: Restore buf
+        id: buf-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/go/bin/buf
+          key: buf-${{ env.BUF_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+
       - name: Install proto tools
+        env:
+          BUF_HIT: ${{ steps.buf-cache.outputs.cache-hit }}
         run: |
           go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
-          BUF_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-          BUF_ARCH=$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')
-          curl -sSfL --retry 3 \
-            "https://github.com/bufbuild/buf/releases/download/v1.55.1/buf-${BUF_OS}-${BUF_ARCH}" \
-            -o "$(go env GOPATH)/bin/buf" && chmod +x "$(go env GOPATH)/bin/buf"
+          if [ "${BUF_HIT}" != "true" ]; then
+            BUF_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+            BUF_ARCH=$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')
+            curl -sSfL --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 \
+              "https://github.com/bufbuild/buf/releases/download/${BUF_VERSION}/buf-${BUF_OS}-${BUF_ARCH}" \
+              -o "$(go env GOPATH)/bin/buf" && chmod +x "$(go env GOPATH)/bin/buf"
+          fi
 
       - name: Build backend
         run: make build-backend

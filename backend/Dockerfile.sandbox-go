@@ -34,15 +34,15 @@ RUN set -eux; \
     esac; \
     cd /tmp; \
     lint="golangci-lint-${GOLANGCI_LINT_VERSION#v}-linux-${LINT_ARCH}"; \
-    curl --proto '=https' --tlsv1.2 -fsSLO "https://github.com/golangci/golangci-lint/releases/download/${GOLANGCI_LINT_VERSION}/${lint}.tar.gz"; \
+    curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSLO "https://github.com/golangci/golangci-lint/releases/download/${GOLANGCI_LINT_VERSION}/${lint}.tar.gz"; \
     echo "${LINT_SHA}  ${lint}.tar.gz" | sha256sum --check; \
     tar -xzf "${lint}.tar.gz"; \
     install -m 0755 "${lint}/golangci-lint" /usr/local/bin/golangci-lint; \
-    curl --proto '=https' --tlsv1.2 -fsSLo buf "https://github.com/bufbuild/buf/releases/download/${BUF_VERSION}/buf-Linux-${BUF_ARCH}"; \
+    curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSLo buf "https://github.com/bufbuild/buf/releases/download/${BUF_VERSION}/buf-Linux-${BUF_ARCH}"; \
     echo "${BUF_SHA}  buf" | sha256sum --check; \
     install -m 0755 buf /usr/local/bin/buf; \
     protoc="protoc-${PROTOC_VERSION}-linux-${PROTOC_ARCH}.zip"; \
-    curl --proto '=https' --tlsv1.2 -fsSLO "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/${protoc}"; \
+    curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSLO "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/${protoc}"; \
     echo "${PROTOC_SHA}  ${protoc}" | sha256sum --check; \
     python3 -m zipfile -e "${protoc}" /tmp/protoc; \
     install -m 0755 /tmp/protoc/bin/protoc /usr/local/bin/protoc; \

@@ -60,12 +60,12 @@ RUN set -eux; \
     esac; \
     tarball="gitleaks_${GITLEAKS_VERSION#v}_linux_${GL_ARCH}.tar.gz"; \
     cd /tmp; \
-    curl --proto '=https' --tlsv1.2 -fsSLO "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/${tarball}"; \
+    curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSLO "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/${tarball}"; \
     echo "${GL_SHA}  ${tarball}" | sha256sum --check; \
     tar -xzf "${tarball}" gitleaks; \
     install -m 0755 gitleaks /usr/local/bin/gitleaks; \
     helm_tarball="helm-${HELM_VERSION}-linux-$(dpkg --print-architecture).tar.gz"; \
-    curl --proto '=https' --tlsv1.2 -fsSLO "https://get.helm.sh/${helm_tarball}"; \
+    curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSLO "https://get.helm.sh/${helm_tarball}"; \
     echo "${HELM_SHA}  ${helm_tarball}" | sha256sum --check; \
     tar -xzf "${helm_tarball}" --strip-components=1 "linux-$(dpkg --print-architecture)/helm"; \
     install -m 0755 helm /usr/local/bin/helm; \

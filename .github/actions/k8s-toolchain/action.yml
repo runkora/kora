@@ -18,6 +18,13 @@ inputs:
 runs:
   using: composite
   steps:
+    # Cached binaries keep a GitHub releases outage from failing the job. The key
+    # carries versions.env, which pins every tool version, and the tools wanted.
+    - name: Restore chart tools
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.k8s-toolchain
+        key: k8s-toolchain-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/cluster/versions.env') }}-helm-${{ inputs.helm }}-helmfile-${{ inputs.helmfile }}-yq-${{ inputs.yq }}-kubeconform-${{ inputs.kubeconform }}
     - name: Install pinned chart tools
       shell: bash
       env:
@@ -28,25 +35,26 @@ runs:
       run: |
         set -euo pipefail
         source scripts/cluster/versions.env
-        bindir="${HOME}/.local/bin"
+        bindir="${HOME}/.k8s-toolchain"
         mkdir -p "${bindir}"
         echo "${bindir}" >> "${GITHUB_PATH}"
+        fetch() { curl -fsSL --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 "$@"; }
 
-        if [ "${WANT_HELM}" = "true" ]; then
-          curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" \
+        if [ "${WANT_HELM}" = "true" ] && [ ! -x "${bindir}/helm" ]; then
+          fetch "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" \
             | tar -xz -C /tmp linux-amd64/helm
           install /tmp/linux-amd64/helm "${bindir}/helm"
         fi
-        if [ "${WANT_HELMFILE}" = "true" ]; then
+        if [ "${WANT_HELMFILE}" = "true" ] && [ ! -x "${bindir}/helmfile" ]; then
           bare="${HELMFILE_VERSION#v}"
-          curl -fsSL "https://github.com/helmfile/helmfile/releases/download/${HELMFILE_VERSION}/helmfile_${bare}_linux_amd64.tar.gz" \
+          fetch "https://github.com/helmfile/helmfile/releases/download/${HELMFILE_VERSION}/helmfile_${bare}_linux_amd64.tar.gz" \
             | tar -xz -C "${bindir}" helmfile
         fi
-        if [ "${WANT_YQ}" = "true" ]; then
-          curl -fsSL "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o "${bindir}/yq"
+        if [ "${WANT_YQ}" = "true" ] && [ ! -x "${bindir}/yq" ]; then
+          fetch "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o "${bindir}/yq"
           chmod +x "${bindir}/yq"
         fi
-        if [ "${WANT_KUBECONFORM}" = "true" ]; then
-          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
+        if [ "${WANT_KUBECONFORM}" = "true" ] && [ ! -x "${bindir}/kubeconform" ]; then
+          fetch "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
             | tar -xz -C "${bindir}" kubeconform
         fi
