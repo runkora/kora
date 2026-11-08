@@ -614,7 +614,7 @@ func (r *OpenCodeRunner) readLoop(ctx context.Context, stdout io.Reader) {
 		if errors.Is(err, bufio.ErrTooLong) {
 			message = fmt.Sprintf("OpenCode output line exceeds the %d MiB limit", maxAgentLineBytes/(1024*1024))
 		}
-		r.emit(EventTypeRunError, RunErrorPayload{Code: "runner_error", Message: message})
+		r.emit(EventTypeRunError, RunErrorPayload{Code: events.RunErrorRunnerError, Message: message})
 	}
 }
 

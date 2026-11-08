@@ -10,8 +10,8 @@ import (
 )
 
 // Every run error code and loop kind the session-manager emits comes from the
-// platform/events constants, which are the schema enums (Q29). A string literal
-// in their place would reach events as unknown.
+// platform/events constants, which are the schema enums (event spine ADR,
+// section 14). A string literal in their place would reach events as unknown.
 func TestRunErrorCodesComeFromTheEventsConstants(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -36,7 +36,10 @@ func TestRunErrorCodesComeFromTheEventsConstants(t *testing.T) {
 				}
 				for _, el := range n.Elts {
 					kv, _ := el.(*ast.KeyValueExpr)
-					if key, _ := kv.Key.(*ast.Ident); kv != nil && key != nil && (key.Name == "Code" || key.Name == "kind") {
+					if kv == nil {
+						continue
+					}
+					if key, _ := kv.Key.(*ast.Ident); key != nil && (key.Name == "Code" || key.Name == "kind") {
 						if lit, ok := kv.Value.(*ast.BasicLit); ok {
 							t.Errorf("%s: %s %s is the literal %s", fset.Position(lit.Pos()), typ.Name, key.Name, lit.Value)
 						}
