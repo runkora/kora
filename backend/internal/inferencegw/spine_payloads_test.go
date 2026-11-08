@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/events"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 )
 
 // The budget payload validates against both budget type schemas.
@@ -15,9 +16,15 @@ func TestSpinePayloads_MatchSchema(t *testing.T) {
 			t.Errorf("%s: %v", typ, err)
 		}
 	}
-	for _, level := range []int{50, 80, 100} {
-		if err := events.ValidatePayload(events.BudgetThresholdCrossed, events.BudgetPayload{Scope: "principal", Level: level}); err != nil {
-			t.Errorf("level %d: %v", level, err)
+	// Every level the gateway records, for both scopes it records them for.
+	for _, level := range budgetLevels {
+		for _, scope := range []string{"tenant", "principal"} {
+			if !eventBudget(policy.BudgetCeiling{Scope: scope, LimitUSD: 1}) {
+				t.Errorf("scope %s records no budget event", scope)
+			}
+			if err := events.ValidatePayload(events.BudgetThresholdCrossed, events.BudgetPayload{Scope: scope, Level: level}); err != nil {
+				t.Errorf("%s level %d: %v", scope, level, err)
+			}
 		}
 	}
 }

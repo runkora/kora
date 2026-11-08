@@ -486,7 +486,13 @@ func TestSpinePayloads_MatchSchema(t *testing.T) {
 			}
 		}
 	}
+	var reasons []string
+	for _, err := range []error{agentsclient.ErrForbidden, agentsclient.ErrAgentTypeNotFound, agentsclient.ErrRunNotFound,
+		agentsclient.ErrRunNotAcceptingMessages, agentsclient.ErrUpstreamUnavailable, context.DeadlineExceeded, errors.New("other")} {
+		reasons = append(reasons, dispatchFailureReason(err))
+	}
 	for set, want := range map[string][]string{
+		"delivery_reason": reasons,
 		"trigger_kind":    {KindWebhook, KindScheduled, KindManual, KindEvent},
 		"target_kind":     {TargetKindAgent, TargetKindRouted},
 		"overflow":        {OverflowWait, OverflowReplace, OverflowRefuse},

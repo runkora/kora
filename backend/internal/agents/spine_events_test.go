@@ -266,8 +266,9 @@ func TestSpinePayloads_MatchSchema(t *testing.T) {
 	errored, _ := activityEvent(Run{ID: run.ID, TenantID: "t1", State: RunStateActive},
 		RunEvent{EventType: "run_error", Payload: []byte(`{"code":"agent_error"}`)})
 	ready, _ := activityEvent(run, RunEvent{EventType: "sandbox_status", Payload: []byte(`{"phase":"egress_ready"}`)})
+	skipped, _ := activityEvent(run, RunEvent{EventType: "sandbox_status", Payload: []byte(`{"phase":"egress_skipped"}`)})
 	for _, ev := range []events.Event{
-		failed, warned, errored, ready, sandboxDeletedEvent(run), messageEvent(run, &StartedByTrigger{TriggerID: "trg"}),
+		failed, warned, errored, ready, skipped, sandboxDeletedEvent(run), messageEvent(run, &StartedByTrigger{TriggerID: "trg"}),
 		agentEvent(events.AgentUpdated, at, nil), environmentEvent(events.EnvironmentUpdated, env, nil),
 	} {
 		if err := events.ValidatePayload(ev.Type, ev.Entity); err != nil {
