@@ -1,34 +1,8 @@
 {
   "version": 2,
-  "public": false,
-  "builds": [
-    {
-      "src": "public/**",
-      "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/docs/.*",
-      "dest": "/docs/$1",
-      "continue": true
-    },
-    {
-      "src": "/presentation/?$",
-      "dest": "/presentation.html"
-    },
-    {
-      "src": "/(?:.*\\.html)?/?$",
-      "dest": "/index.html"
-    }
-  ],
-  "env": {
-    "VERCEL_ENV": "production"
-  },
-  "github": {
-    "enabled": true,
-    "autoAlias": false,
-    "silent": false,
-    "autoJobCancelPreviousDeploy": true
-  }
+  "public": true,
+  "buildCommand": "exit 0",
+  "outputDirectory": "public",
+  "cleanUrls": true,
+  "trailingSlash": false
 }
