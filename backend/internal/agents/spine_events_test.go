@@ -317,8 +317,11 @@ func TestStateEvent_FailedRunError(t *testing.T) {
 		"":                            events.RunErrorUnknown,
 	} {
 		ev, ok := stateEvent(RunStateActive, run, last)
-		if !ok || ev.Type != events.RunFailed || ev.Entity.(events.RunPayload).Error != want {
-			t.Errorf("last %q: event %s error %q, want %q", last, ev.Type, ev.Entity.(events.RunPayload).Error, want)
+		if !ok || ev.Type != events.RunFailed {
+			t.Fatalf("last %q: event %s %v, want a failed run event", last, ev.Type, ok)
+		}
+		if got := ev.Entity.(events.RunPayload).Error; got != want {
+			t.Errorf("last %q: error %q, want %q", last, got, want)
 		}
 	}
 	run.State = RunStateCompleted

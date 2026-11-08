@@ -76,7 +76,7 @@ type RunPayload struct {
 	StartedAt       *time.Time        `json:"started_at,omitempty" doc:"When the run started."`
 	CompletedAt     *time.Time        `json:"completed_at,omitempty" doc:"When the run ended."`
 	DeletedAt       *time.Time        `json:"deleted_at,omitempty" doc:"When the run was terminated."`
-	Error           string            `json:"error,omitempty" doc:"The error code of an errored turn." enum:"run_error"`
+	Error           string            `json:"error,omitempty" doc:"The error code of an errored turn, or of a failed run's last run error." enum:"run_error"`
 	Guardrail       *GuardrailFinding `json:"guardrail,omitempty" doc:"The loop guard finding of a warning."`
 	SenderTriggerID string            `json:"sender_trigger_id,omitempty" doc:"The trigger that sent the run a message."`
 }

@@ -500,10 +500,22 @@ func (r *PostgresRepository) publishState(ctx context.Context, id string, from, 
 	return events.Publish(ctx, r.pool, ev)
 }
 
-// lastRunError is the code of a failed run's latest run_error, or "" for any other run.
+// failureCodeKey carries the run_error code of a failure recorded after its transition.
+type failureCodeKey struct{}
+
+// withFailureCode makes a failed transition in ctx carry code.
+func withFailureCode(ctx context.Context, code string) context.Context {
+	return context.WithValue(ctx, failureCodeKey{}, code)
+}
+
+// lastRunError is the code of a failed run's latest run_error, or "" for any
+// other run. A code in ctx stands for a run_error not yet written.
 func (r *PostgresRepository) lastRunError(ctx context.Context, run Run) (string, error) {
 	if run.State != RunStateFailed {
 		return "", nil
+	}
+	if code, ok := ctx.Value(failureCodeKey{}).(string); ok {
+		return code, nil
 	}
 	var code string
 	err := r.pool.QueryRow(ctx, `

@@ -446,7 +446,7 @@ The schema of `agents.run.failed.v1` describes `data` as follows. The envelope a
             "started_at": {"type": "string", "format": "date-time", "description": "When the run started."},
             "completed_at": {"type": "string", "format": "date-time", "description": "When the run ended."},
             "deleted_at": {"type": "string", "format": "date-time", "description": "When the run was terminated."},
-            "error": {"type": "string", "description": "The error code of an errored turn.", "enum": ["agent_error", "empty_response", "runner_error", "sandbox_lost", "loop_detected", "empty_turn", "subprocess_exit", "budget_exhausted", "start_failed", "unknown"]},
+            "error": {"type": "string", "description": "The error code of an errored turn, or of a failed run's last run error.", "enum": ["agent_error", "empty_response", "runner_error", "sandbox_lost", "loop_detected", "empty_turn", "subprocess_exit", "budget_exhausted", "start_failed", "unknown"]},
             "guardrail": {"type": "object", "description": "The loop guard finding of a warning.", "required": ["kind", "count", "tool"], "properties": {
               "kind": {"type": "string", "description": "The loop the guard detected.", "enum": ["repeated_call", "wait_rearm", "unknown"]},
               "count": {"type": "integer", "description": "How many times the agent repeated the call."},
