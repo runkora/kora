@@ -1007,7 +1007,7 @@ func (allowAllEvaluator) GetTenantBudget(context.Context, string) (*policy.Tenan
 	return nil, nil
 }
 
-func (allowAllEvaluator) GetBudgetCategories(context.Context, string, string) ([]policy.BudgetCategory, error) {
+func (allowAllEvaluator) GetBudgetCategories(context.Context, string, string, string) ([]policy.BudgetCategory, error) {
 	return nil, nil
 }
 
@@ -1015,8 +1015,8 @@ func (allowAllEvaluator) GetRoleBudgets(context.Context, string, []string) ([]po
 	return nil, nil
 }
 
-func (allowAllEvaluator) ListBudgets(context.Context, string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
-	return map[string]policy.PrincipalBudget{}, map[string]policy.RoleBudget{}, nil
+func (allowAllEvaluator) ListBudgets(context.Context, string) (map[policy.BudgetKey]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
+	return map[policy.BudgetKey]policy.PrincipalBudget{}, map[string]policy.RoleBudget{}, nil
 }
 
 func (allowAllEvaluator) Start(context.Context) {}

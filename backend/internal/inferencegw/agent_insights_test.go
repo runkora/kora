@@ -21,7 +21,7 @@ import (
 
 type fakeBundle struct {
 	policy.Evaluator
-	principals map[string]policy.PrincipalBudget
+	principals map[policy.BudgetKey]policy.PrincipalBudget
 	// granted answers Check, Query and Scopes with the platform covers rule.
 	granted []string
 }
@@ -49,9 +49,11 @@ func (f fakeBundle) Scopes(context.Context, policy.ScopesInput) ([]string, error
 	return f.granted, nil
 }
 
-func (f fakeBundle) ListBudgets(context.Context, string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
+func (f fakeBundle) ListBudgets(context.Context, string) (map[policy.BudgetKey]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
 	return f.principals, nil, nil
 }
+
+func ak(id string) policy.BudgetKey { return policy.BudgetKey{Type: "AGENT", ID: id} }
 
 const agentNS = "spiffe://runkora.test/tenant/kora-tenant-example/agent/"
 
@@ -106,12 +108,12 @@ func TestInsights_FoldsUsageAndBuckets(t *testing.T) {
 }
 
 func TestAgentBudgets(t *testing.T) {
-	bundle := fakeBundle{principals: map[string]policy.PrincipalBudget{
-		agentNS + "coder":  {EffectiveLimits: map[string]float64{"monthly": 100, "weekly": 30}, EffectivePerRunLimitUSD: 5},
-		agentNS + "idle":   {EffectiveLimits: map[string]float64{"monthly": 50}}, // a limit and no usage: a zero bar
-		agentNS + "perrun": {EffectivePerRunLimitUSD: 2},                         // no window limit, no row
-		agentNS + "zero":   {EffectiveLimits: map[string]float64{"monthly": 0}},  // a zero limit is no limit
-		"user-1":           {EffectiveLimits: map[string]float64{"monthly": 9}},  // not an agent
+	bundle := fakeBundle{principals: map[policy.BudgetKey]policy.PrincipalBudget{
+		ak(agentNS + "coder"):         {EffectiveLimits: map[string]float64{"monthly": 100, "weekly": 30}, EffectivePerRunLimitUSD: 5},
+		ak(agentNS + "idle"):          {EffectiveLimits: map[string]float64{"monthly": 50}}, // a limit and no usage: a zero bar
+		ak(agentNS + "perrun"):        {EffectivePerRunLimitUSD: 2},                         // no window limit, no row
+		ak(agentNS + "zero"):          {EffectiveLimits: map[string]float64{"monthly": 0}},  // a zero limit is no limit
+		{Type: "HUMAN", ID: "user-1"}: {EffectiveLimits: map[string]float64{"monthly": 9}},  // not an agent
 	}}
 	repo := &mockInferenceUsageRepository{agentBuckets: make([]float64, 7), agentSpend: []AgentBudgetSpend{{AgentSlug: "coder", Week: 7, Month: 40}}}
 
@@ -143,9 +145,9 @@ func TestAgentBudgets(t *testing.T) {
 }
 
 func TestInsights_OneAgentKeepsOnlyItsBudget(t *testing.T) {
-	bundle := fakeBundle{principals: map[string]policy.PrincipalBudget{
-		agentNS + "coder": {EffectiveLimits: map[string]float64{"monthly": 100}},
-		agentNS + "idle":  {EffectiveLimits: map[string]float64{"monthly": 50}},
+	bundle := fakeBundle{principals: map[policy.BudgetKey]policy.PrincipalBudget{
+		ak(agentNS + "coder"): {EffectiveLimits: map[string]float64{"monthly": 100}},
+		ak(agentNS + "idle"):  {EffectiveLimits: map[string]float64{"monthly": 50}},
 	}}
 	repo := &mockInferenceUsageRepository{agentBuckets: make([]float64, 7)}
 
@@ -223,5 +225,19 @@ func TestReadableAgents(t *testing.T) {
 func TestAgentFilterIncludes(t *testing.T) {
 	if !(AgentFilter{All: true}).includes("x") || !(AgentFilter{Slugs: []string{"x"}}).includes("x") || (AgentFilter{Slugs: []string{}}).includes("x") {
 		t.Error("AgentFilter.includes disagrees with its fields")
+	}
+}
+
+func TestBudgetRowsFromBundle_OnlyAgentTypedEntries(t *testing.T) {
+	principals := map[policy.BudgetKey]policy.PrincipalBudget{
+		ak(agentNS + "coder"): {EffectiveLimits: map[string]float64{"monthly": 10}},
+		// A HUMAN entry carrying an agent-shaped ID never becomes an agent row.
+		{Type: "HUMAN", ID: agentNS + "coder"}:                    {EffectiveLimits: map[string]float64{"monthly": 999}},
+		{Type: "HUMAN", ID: agentNS + "other"}:                    {EffectiveLimits: map[string]float64{"monthly": 5}},
+		{Type: "PAT", ID: "11111111-1111-1111-1111-111111111111"}: {EffectiveLimits: map[string]float64{"monthly": 5}},
+	}
+	rows := budgetRowsFromBundle(principals, testEnd)
+	if len(rows) != 1 || rows[0].AgentSlug != "coder" || rows[0].Windows[0].LimitUSD != 10 {
+		t.Fatalf("rows = %+v, want one coder row limited to 10", rows)
 	}
 }

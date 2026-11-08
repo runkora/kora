@@ -739,7 +739,7 @@ func (s *Service) budgetScopesFor(ctx context.Context, p principal) (SpendScopes
 	// otherwise double-count a pooled role budget's per-category attribution.
 	roles = dedupeRoles(roles)
 
-	grantCats, err := s.policy.GetBudgetCategories(ctx, p.TenantID, p.PrincipalID)
+	grantCats, err := s.policy.GetBudgetCategories(ctx, p.TenantID, string(p.PrincipalType), p.PrincipalID)
 	if err != nil {
 		grantCats = nil
 	}
@@ -826,7 +826,7 @@ func (s *Service) delegatorBudgetScopes(ctx context.Context, tenantID string) (s
 		return "", nil, 0
 	}
 
-	cats, err := s.policy.GetBudgetCategories(ctx, tenantID, d.Sub)
+	cats, err := s.policy.GetBudgetCategories(ctx, tenantID, string(token.PrincipalTypeHuman), d.Sub)
 	if err != nil {
 		cats = nil
 	}
@@ -1106,27 +1106,37 @@ func (s *Service) ListBudgetPrincipals(ctx context.Context, tenantID string) (Bu
 	}
 
 	// Union of all principals that appear in any source.
-	pids := make(map[string]struct{})
+	// Rows are keyed by principal type plus ID, matching the bundle's budgets;
+	// spend maps stay keyed by bare principal ID.
+	keys := make(map[policy.BudgetKey]struct{})
+	idsWithKey := make(map[string]struct{})
+	add := func(k policy.BudgetKey) {
+		keys[k] = struct{}{}
+		idsWithKey[k.ID] = struct{}{}
+	}
 	spendByPid := make(map[string]PrincipalPeriodSpend, len(spenders))
 	for _, sp := range spenders {
-		pids[sp.PrincipalID] = struct{}{}
+		add(policy.BudgetKey{Type: principalTypeFor(sp.PrincipalID, sp.PrincipalType), ID: sp.PrincipalID})
 		spendByPid[sp.PrincipalID] = sp
 	}
-	for pid := range principalBudgets {
-		pids[pid] = struct{}{}
+	for k := range principalBudgets {
+		add(k)
 	}
 	for pid, held := range roleHolders {
+		if _, ok := idsWithKey[pid]; ok {
+			continue // attached to the existing keys with this ID via budgetCategoriesFor
+		}
 		for _, role := range held {
 			if _, ok := roleBudgets[role]; ok {
-				pids[pid] = struct{}{}
+				add(policy.BudgetKey{Type: principalTypeFor(pid, ""), ID: pid})
 				break
 			}
 		}
 	}
 
-	for pid := range pids {
-		cats := budgetCategoriesFor(pid, principalBudgets, roleHolders, roleBudgets)
-		resp.Data = append(resp.Data, s.buildBudgetPrincipalRow(ctx, pid, cats, spendByPid[pid], weeklySpendByPid[pid]))
+	for key := range keys {
+		cats := budgetCategoriesFor(key, principalBudgets, roleHolders, roleBudgets)
+		resp.Data = append(resp.Data, s.buildBudgetPrincipalRow(ctx, key, cats, spendByPid[key.ID], weeklySpendByPid[key.ID]))
 	}
 
 	sortBudgetPrincipals(resp.Data)
@@ -1137,16 +1147,16 @@ func (s *Service) ListBudgetPrincipals(ctx context.Context, tenantID string) (Bu
 // principal: grant categories from the bundle plus role categories for the
 // budgeted roles the principal has exercised this period.
 func budgetCategoriesFor(
-	pid string,
-	principalBudgets map[string]policy.PrincipalBudget,
+	key policy.BudgetKey,
+	principalBudgets map[policy.BudgetKey]policy.PrincipalBudget,
 	roleHolders map[string][]string,
 	roleBudgets map[string]policy.RoleBudget,
 ) []policy.BudgetCategory {
 	var cats []policy.BudgetCategory
-	if pb, ok := principalBudgets[pid]; ok {
+	if pb, ok := principalBudgets[key]; ok {
 		cats = append(cats, pb.Categories...)
 	}
-	for _, role := range roleHolders[pid] {
+	for _, role := range roleHolders[key.ID] {
 		rb, ok := roleBudgets[role]
 		if !ok {
 			continue // counter for a role whose budget has since been removed
@@ -1171,14 +1181,14 @@ func budgetCategoriesFor(
 // shown in the per-category breakdown with their own windows.
 func (s *Service) buildBudgetPrincipalRow(
 	ctx context.Context,
-	pid string,
+	key policy.BudgetKey,
 	cats []policy.BudgetCategory,
 	sp PrincipalPeriodSpend,
 	weeklySpend float64,
 ) BudgetPrincipalStatus {
 	var catSpends []float64
 	if s.budgetCounter != nil && len(cats) > 0 {
-		if cs, csErr := s.budgetCounter.GetCategorySpends(ctx, pid, cats); csErr == nil {
+		if cs, csErr := s.budgetCounter.GetCategorySpends(ctx, key.ID, cats); csErr == nil {
 			catSpends = cs
 		}
 	}
@@ -1186,8 +1196,8 @@ func (s *Service) buildBudgetPrincipalRow(
 	catStatuses, effective, effectiveCadence, hasLimit, reached := summarizeBudgetCategories(cats, catSpends, sp.SpendUSD, weeklySpend)
 
 	row := BudgetPrincipalStatus{
-		PrincipalID:           pid,
-		PrincipalType:         principalTypeFor(pid, sp.PrincipalType),
+		PrincipalID:           key.ID,
+		PrincipalType:         key.Type,
 		Categories:            catStatuses,
 		EffectiveLimitUSD:     effective,
 		EffectiveResetCadence: effectiveCadence,

@@ -242,10 +242,10 @@ func (s *Service) agentBudgets(ctx context.Context, tenantID string, f AgentFilt
 
 // budgetRowsFromBundle builds rows for agent principals with a window limit.
 // A zero limit is no limit.
-func budgetRowsFromBundle(principals map[string]policy.PrincipalBudget, now time.Time) []AgentBudgetRow {
+func budgetRowsFromBundle(principals map[policy.BudgetKey]policy.PrincipalBudget, now time.Time) []AgentBudgetRow {
 	rows := make([]AgentBudgetRow, 0)
-	for pid, pb := range principals {
-		slug := agentSlugFromPrincipal(string(token.PrincipalTypeAgent), pid)
+	for key, pb := range principals {
+		slug := agentSlugFromPrincipal(key.Type, key.ID)
 		if slug == "" {
 			continue
 		}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	opabundle "github.com/open-policy-agent/opa/v1/bundle"
@@ -158,16 +159,28 @@ func grantBudget(principalID, grantID string, limitUSD float64, cadence string) 
 	return &grants.Grant{
 		ID:            grantID,
 		TenantID:      testTenantID,
-		PrincipalType: grants.PrincipalTypeHuman,
+		PrincipalType: principalTypeForTestID(principalID),
 		PrincipalID:   principalID,
 		Scopes:        []string{"inference:invoke"},
 		Budget:        &grants.BudgetAssignment{LimitUSD: limitUSD, ResetCadence: cadence},
 	}
 }
 
+// principalTypeForTestID gives fixture grants the type their ID implies, since
+// budgets are keyed by type plus ID: agent-* is an AGENT, svc-* a SERVICE,
+// anything else a HUMAN.
+func principalTypeForTestID(id string) grants.PrincipalType {
+	switch {
+	case strings.HasPrefix(id, "agent-"):
+		return grants.PrincipalTypeAgent
+	case strings.HasPrefix(id, "svc-"):
+		return grants.PrincipalTypeService
+	}
+	return grants.PrincipalTypeHuman
+}
+
 func grantPerRunBudget(principalID, grantID string, perRunUSD float64) *grants.Grant {
 	g := grantBudget(principalID, grantID, 0, "monthly")
-	g.PrincipalType = grants.PrincipalTypeAgent
 	g.Budget = &grants.BudgetAssignment{PerRunLimitUSD: perRunUSD, ResetCadence: "monthly"}
 	return g
 }
@@ -478,6 +491,45 @@ func TestBudget_SpendLimitReachedInverseOfAllow(t *testing.T) {
 		v := evalBudget(t, pq, budgetEvalInput{principalID: "pid-1", principalSpends: map[string]float64{"monthly": spend}})
 		if v.allow == v.limitReached {
 			t.Errorf("spend %.2f: budget_allow=%v and spend_limit_reached=%v must differ", spend, v.allow, v.limitReached)
+		}
+	}
+}
+
+// ── #720: budgets are keyed by principal type plus ID ───────────────────────
+
+func TestBudget_SameIDDifferentTypes_DoNotShareBudget(t *testing.T) {
+	agentG := grantBudget("agent-1", "g-agent", 1, "monthly")
+	humanG := grantBudget("agent-1", "g-human", 100, "monthly")
+	humanG.PrincipalType = grants.PrincipalTypeHuman
+	patG := grantBudget("agent-1", "g-pat", 7, "monthly")
+	patG.PrincipalType = grants.PrincipalTypePAT
+	pq := compileAndPrepareBudgetQuery(t, []*grants.Grant{agentG, humanG, patG}, nil, nil)
+
+	for typ, want := range map[string]float64{"AGENT": 1, "HUMAN": 100, "PAT": 7} {
+		v := evalBudget(t, pq, budgetEvalInput{principalID: "agent-1", principalType: typ})
+		if len(v.ceilings) != 1 || num(t, v.ceilings[0]["limit_usd"]) != want {
+			t.Errorf("%s principal ceilings = %v, want a single %v ceiling", typ, v.ceilings, want)
+		}
+	}
+	// A SERVICE with the same ID has no grant and so no budget.
+	if v := evalBudget(t, pq, budgetEvalInput{principalID: "agent-1", principalType: "SERVICE"}); len(v.ceilings) != 0 {
+		t.Errorf("SERVICE principal must not pick up another type's budget, got %v", v.ceilings)
+	}
+}
+
+func TestBudget_DelegatorCeilingUsesHumanEntryOnly(t *testing.T) {
+	// The agent's own grant carries the same ID as the delegator but is AGENT.
+	pq := compileAndPrepareBudgetQuery(t, []*grants.Grant{
+		grantBudget("agent-1", "g-agent", 1000, "monthly"),
+		grantPerRunBudget("agent-1", "g-agent-run", 5),
+	}, nil, nil)
+	v := evalBudget(t, pq, budgetEvalInput{
+		principalID: "agent-2", principalType: "AGENT",
+		delegatorID: "agent-1", delegatorSpends: map[string]float64{"monthly": 999},
+	})
+	for _, c := range v.ceilings {
+		if c["scope"] == "delegator" || c["scope"] == "delegator_run" {
+			t.Errorf("delegator ceiling from a non-HUMAN entry: %v", c)
 		}
 	}
 }

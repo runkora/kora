@@ -34,7 +34,7 @@ const scopesQuery = "x := data.kora.authz.principal_all_scopes"
 const grantDetailQuery = "x := data.kora.authz.principal_grant_detail"
 const roleDetailQuery = "x := data.kora.authz.principal_role_detail"
 const budgetQuery = "x := {\"allow\": data.kora.budget.budget_allow, \"spend_limit_reached\": data.kora.budget.spend_limit_reached, \"has_limit\": data.kora.budget.has_limit, \"ceilings\": data.kora.budget.ceilings}"
-const budgetCategoriesQuery = "x := data.budgets[input.principal_id].categories"
+const budgetCategoriesQuery = "x := data.budgets[input.budget_key].categories"
 const roleBudgetsQuery = "x := data.role_budgets.role_budgets"
 const allBudgetsQuery = "x := data.budgets"
 const tenantBudgetQuery = "x := data.tenant_budget.tenant_budget"
@@ -615,17 +615,17 @@ func (e *engine) GetTenantBudget(ctx context.Context, tenantID string) (*TenantB
 }
 
 // GetBudgetCategories returns the applicable budget categories for the principal
-// from data.budgets[principal_id].categories in the compiled bundle.
+// from data.budgets["TYPE:id"].categories in the compiled bundle.
 // Returns nil, nil when the principal has no budget entry (no limit configured).
 // Fails open on any error.
-func (e *engine) GetBudgetCategories(ctx context.Context, tenantID, principalID string) ([]BudgetCategory, error) {
+func (e *engine) GetBudgetCategories(ctx context.Context, tenantID, principalType, principalID string) ([]BudgetCategory, error) {
 	tb, err := e.bundleForTenant(ctx, tenantID)
 	if err != nil || tb == nil {
 		return nil, nil
 	}
 
 	rs, err := tb.categoriesQuery.Eval(ctx, rego.EvalInput(map[string]any{
-		"principal_id": principalID,
+		"budget_key": BudgetKey{Type: principalType, ID: principalID}.String(),
 	}))
 	if err != nil || len(rs) == 0 || len(rs[0].Bindings) == 0 {
 		return nil, nil
@@ -719,8 +719,8 @@ func (e *engine) GetRoleBudgets(ctx context.Context, tenantID string, roleNames 
 // ListBudgets returns every budget assignment in the tenant's compiled bundle.
 // Implements Evaluator. Fails open: returns empty maps when the bundle is
 // unavailable or evaluation fails.
-func (e *engine) ListBudgets(ctx context.Context, tenantID string) (map[string]PrincipalBudget, map[string]RoleBudget, error) {
-	principals := make(map[string]PrincipalBudget)
+func (e *engine) ListBudgets(ctx context.Context, tenantID string) (map[BudgetKey]PrincipalBudget, map[string]RoleBudget, error) {
+	principals := make(map[BudgetKey]PrincipalBudget)
 	roleBudgets := make(map[string]RoleBudget)
 
 	tb, err := e.bundleForTenant(ctx, tenantID)
@@ -733,7 +733,11 @@ func (e *engine) ListBudgets(ctx context.Context, tenantID string) (map[string]P
 		if !ok {
 			continue
 		}
-		principals[pid] = parsePrincipalBudget(entry)
+		key, ok := parseBudgetKey(pid)
+		if !ok {
+			continue
+		}
+		principals[key] = parsePrincipalBudget(entry)
 	}
 
 	for role, raw := range evalToMap(ctx, tb.roleBudgetsQuery) {
