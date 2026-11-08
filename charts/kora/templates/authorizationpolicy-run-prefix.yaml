@@ -5,7 +5,7 @@ written for /internal/* or /api/v1/policy/bundles/gateway does not see a
 prefixed request. Only the kora MCP sends the prefix to these services
 (docs/adr/2026-11-06-event-spine.md, section 7). Istio adds "spiffe://".
 */}}
-{{- range $app := list "kora-agents" "kora-triggers" "kora-policy-service" "kora-identity" }}
+{{- range $app := list "kora-agents" "kora-triggers" "kora-policy-service" "kora-identity" "kora-events" }}
 ---
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
