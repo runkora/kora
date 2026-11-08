@@ -434,6 +434,35 @@ func (s *Service) GetScope(ctx context.Context, scope string) (*vocabulary.Scope
 	return s.vocabRepo.GetByScope(ctx, scope)
 }
 
+// ScopeEntries returns one vocabulary entry per input scope, in input order.
+// A scope with no vocabulary entry (for example an egress scope) gets an entry
+// holding the scope string with empty metadata. The result is never nil.
+func (s *Service) ScopeEntries(ctx context.Context, scopes []string) ([]*vocabulary.ScopeEntry, error) {
+	vocab, err := s.vocabRepo.List(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("list vocabulary: %w", err)
+	}
+	byScope := make(map[string]*vocabulary.ScopeEntry, len(vocab))
+	for _, e := range vocab {
+		byScope[e.Scope] = e
+	}
+	entries := make([]*vocabulary.ScopeEntry, 0, len(scopes))
+	for _, sc := range scopes {
+		if e, ok := byScope[sc]; ok {
+			entries = append(entries, &vocabulary.ScopeEntry{
+				Scope:        e.Scope,
+				ResourceType: e.ResourceType,
+				PathSegments: append([]string{}, e.PathSegments...),
+				Action:       e.Action,
+				Description:  e.Description,
+			})
+			continue
+		}
+		entries = append(entries, &vocabulary.ScopeEntry{Scope: sc, PathSegments: []string{}})
+	}
+	return entries, nil
+}
+
 // EffectiveScopes returns the union of all scopes a principal holds, derived from
 // its OIDC roles (reserved + custom) and any explicit grants matching its type + id.
 // Used by the effective-scopes endpoint (PAT scope selector UI) and by the grant

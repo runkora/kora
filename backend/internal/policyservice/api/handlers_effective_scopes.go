@@ -12,6 +12,8 @@ import (
 // derived from its OIDC roles (HUMAN only) and explicit grants. The PAT UI
 // reads it to populate the scope selector, and kora-agents reads it with the
 // caller's bearer to keep an agent's grant within its creator's scopes.
+// The response also carries "entries": one vocabulary entry per scope, in the
+// same order, with empty metadata for a scope that has no vocabulary entry.
 func (c *Controller) handleEffectiveScopes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -34,5 +36,12 @@ func (c *Controller) handleEffectiveScopes(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	platformapi.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"scopes": scopes})
+	entries, err := c.svc.ScopeEntries(ctx, scopes)
+	if err != nil {
+		platformapi.ErrorResponse(ctx, w, c.logger,
+			platformapi.InternalError(platformapi.ErrCodeInternalError, "failed to resolve effective scopes", nil), err)
+		return
+	}
+
+	platformapi.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"scopes": scopes, "entries": entries})
 }
