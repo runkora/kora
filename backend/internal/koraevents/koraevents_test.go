@@ -477,3 +477,16 @@ func TestStream_EndsWhenTheTokenIsRevoked(t *testing.T) {
 		_ = resp.Body.Close()
 	}
 }
+
+// SchemaURL joins the base and the type with one slash, whether or not the base ends with one.
+func TestSchemaURL(t *testing.T) {
+	for base, want := range map[string]string{
+		"https://api.example.com/v1/events/types/": "https://api.example.com/v1/events/types/agents.run.failed.v1",
+		"https://api.example.com/v1/events/types":  "https://api.example.com/v1/events/types/agents.run.failed.v1",
+		"": "/v1/events/types/agents.run.failed.v1",
+	} {
+		if got := SchemaURL(base, events.RunFailed); got != want {
+			t.Errorf("SchemaURL(%q) = %q, want %q", base, got, want)
+		}
+	}
+}

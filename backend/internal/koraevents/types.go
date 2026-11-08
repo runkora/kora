@@ -2,6 +2,7 @@ package koraevents
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/events"
@@ -21,11 +22,12 @@ type TypeList struct {
 }
 
 // SchemaURL is the public URL of type t's schema under base, or the API path when base is empty.
+// base may end with a slash or not.
 func SchemaURL(base string, t events.Type) string {
 	if base == "" {
-		base = "/v1/events/types/"
+		base = "/v1/events/types"
 	}
-	return base + string(t)
+	return strings.TrimRight(base, "/") + "/" + string(t)
 }
 
 func (c *Controller) handleTypes(w http.ResponseWriter, r *http.Request) {
