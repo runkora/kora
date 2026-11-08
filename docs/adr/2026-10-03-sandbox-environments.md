@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-10-03-sandbox-environments.md  (decision date + slug; no sequential number) -->
 
-**Status:** Accepted (Amended 2026-10-08)  
+**Status:** Accepted (Amended 2026-10-08, 2026-11-08)  
 **Date:** 2026-10-03  
 **Deciders:** Justin Wilkin  
 **Technical Story:** [Sandbox Environments PRD](../prd/sandbox-environments.md)  
@@ -348,7 +348,7 @@ For the default maximum:
 
 ## Amendment 4 (2026-11-08): Warmers run without sidecars
 
-**Status:** Proposed
+**Status:** Accepted
 
 Touches *What can it access?* The pod webhooks stop requiring kora's sidecars on one class of pod. A pod joins the class only through who created it, so no agent or tenant workload can join it. Every other tenant pod keeps the same checks.
 
