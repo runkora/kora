@@ -118,6 +118,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) — `Accepted` · 2026-09-18
 - [One Trace per Agent Run](2026-10-31-one-trace-per-run.md) — `Accepted (Amended 2026-11-01)` · 2026-10-31
 - [Agent Attribution on Model and Harness Spans](2026-11-03-agent-attribution-on-spans.md) — `Accepted` · 2026-11-03
+- [StartRun Idempotent on Trigger Delivery](2026-11-08-start-run-idempotent-on-delivery.md) — `Accepted` · 2026-11-08
 - [Run Activity Events](2026-09-29-run-activity-events.md) — `Accepted` · 2026-09-29
 - [kora-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) — `Accepted` · 2026-05-11
 - [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) — `Accepted` · 2026-06-04
@@ -349,6 +350,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-06 | [Event Spine](2026-11-06-event-spine.md) | Accepted | — |
 | 2026-11-07 | [ACP as the Single Agent Harness Protocol](2026-11-07-acp-agent-harness-protocol.md) | Accepted | — |
 | 2026-11-07 | [Run Sources](2026-11-07-run-sources.md) | Accepted | — |
+| 2026-11-08 | [StartRun Idempotent on Trigger Delivery](2026-11-08-start-run-idempotent-on-delivery.md) | Accepted | — |
 | 2026-11-09 | [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) | Accepted | — |
 | 2026-11-11 | [Run Page Record: Message Senders, Trigger Event Summaries and Budget Stops](2026-11-11-run-page-record.md) | Accepted | — |
 | 2026-11-11 | [API Key Connection Adapter](2026-11-11-apikey-connection-adapter.md) | Accepted | — |
