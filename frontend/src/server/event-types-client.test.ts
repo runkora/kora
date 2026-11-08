@@ -13,6 +13,7 @@ const SCHEMA = {
     data: {
       type: 'object',
       properties: {
+        changed: { type: 'array', items: { type: 'string', enum: ['state', 'completed_at'] } },
         entity: {
           type: 'object',
           properties: {
@@ -30,6 +31,7 @@ describe('schemaFields', () => {
     const fields = schemaFields(SCHEMA);
     expect(fields.map((f) => f.path)).toEqual([
       'data',
+      'data.changed',
       'data.entity',
       'data.entity.level',
       'data.entity.state',
@@ -43,6 +45,8 @@ describe('schemaFields', () => {
       enum: ['failed', 'idle'],
     });
     expect(fields.find((f) => f.path === 'data.entity.level')?.enum).toEqual(['50', '80', '100']);
+    expect(fields.find((f) => f.path === 'data.changed')?.enum).toEqual(['state', 'completed_at']);
+    expect(fields.find((f) => f.path === 'data')?.group).toBe('Resource');
     expect(fields.find((f) => f.path === 'type')).toMatchObject({
       group: 'Event',
       enum: ['agents.run.failed.v1'],

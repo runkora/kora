@@ -67,6 +67,10 @@ func collectFields(s Schema, prefix string, out *[]Field) {
 		switch {
 		case p["const"] != nil:
 			f.Type, f.Enum = "string", []string{fmt.Sprint(p["const"])}
+		case p["type"] == "array":
+			// An array's enum lists the values its items may take.
+			items, _ := p["items"].(Schema)
+			f.Type, f.Enum = "array", enumStrings(items["enum"])
 		default:
 			f.Type = stringOf(p["type"])
 			f.Enum = enumStrings(p["enum"])
@@ -131,6 +135,9 @@ func structSchema(t reflect.Type) Schema {
 		p := withDescription(schemaOf(f.Type), f.Tag.Get("doc"))
 		if set := f.Tag.Get("enum"); set != "" {
 			p["enum"] = enumValues(set, p["type"])
+		}
+		if format := f.Tag.Get("format"); format != "" {
+			p["format"] = format
 		}
 		props[name] = p
 		if !optional && f.Type.Kind() != reflect.Pointer {

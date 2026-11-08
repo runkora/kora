@@ -41,7 +41,7 @@ function StepEvent({ state, patch }: StepComponentProps) {
         hint="What the run starts with. The whole event follows it in a block marked as untrusted data."
         catalog={fields}
         catalogLabel="The fields of the chosen event."
-        placeholder="Run {{ korarun }} of {{ koraagent }} failed with {{ data.entity.error }}. Find the cause."
+        placeholder="Run {{ korarun }} of {{ koraagent }} failed. Find the cause."
       />
     </Stack>
   );

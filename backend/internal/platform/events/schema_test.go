@@ -50,6 +50,9 @@ func TestTypeSchema_RunFailed(t *testing.T) {
 	if state["description"] != "The run state after the change." || !slices.Contains(state["enum"].([]any), any("failed")) {
 		t.Errorf("state = %v", state)
 	}
+	if occurred := props["data"].(Schema)["properties"].(Schema)["occurred_at"].(Schema); occurred["format"] != "date-time" {
+		t.Errorf("occurred_at = %v, want a date-time", occurred)
+	}
 	if !slices.Contains(entity["required"].([]string), "state") || slices.Contains(entity["required"].([]string), "error") {
 		t.Errorf("required = %v", entity["required"])
 	}
@@ -82,6 +85,9 @@ func TestFields(t *testing.T) {
 	}
 	if f := byPath["koraprincipaltype"]; !slices.Equal(f.Enum, Enum("event_principal_type")) {
 		t.Errorf("koraprincipaltype = %+v", f)
+	}
+	if f := byPath["data.changed"]; f.Type != "array" || !slices.Contains(f.Enum, "spend_usd") {
+		t.Errorf("changed = %+v, want the changeable names as its values", f)
 	}
 	for _, p := range []string{"koraagent", "data.entity", "data.entity.scope", "data.changed", "type"} {
 		if _, ok := byPath[p]; !ok {

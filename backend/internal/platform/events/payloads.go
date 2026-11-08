@@ -1,6 +1,9 @@
 package events
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // Payload structs are the public contract of data.entity, one per entity kind
 // (docs/adr/2026-11-06-event-spine.md, section 14). Producers map their models
@@ -58,7 +61,7 @@ var enums = map[string][]string{
 }
 
 // Enum returns the values of the named set.
-func Enum(name string) []string { return enums[name] }
+func Enum(name string) []string { return slices.Clone(enums[name]) }
 
 // RunPayload is a run after the change.
 type RunPayload struct {

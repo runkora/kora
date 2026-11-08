@@ -13,6 +13,7 @@ interface SchemaNode {
   description?: string;
   enum?: (string | number)[];
   properties?: Record<string, SchemaNode>;
+  items?: SchemaNode;
 }
 
 /** GET /v1/events/types/{type} on kora-events: the type's JSON Schema. */
@@ -44,10 +45,12 @@ export function schemaFields(schema: SchemaNode): TriggerField[] {
   const walk = (node: SchemaNode, prefix: string) => {
     for (const [name, child] of Object.entries(node.properties ?? {})) {
       const path = prefix ? `${prefix}.${name}` : name;
-      const values = child.const !== undefined ? [child.const] : child.enum?.map(String);
+      // An array's enum lists the values its items may take.
+      const values =
+        child.const !== undefined ? [child.const] : (child.enum ?? child.items?.enum)?.map(String);
       out.push({
         path,
-        group: path.startsWith('data.') ? 'Resource' : 'Event',
+        group: path === 'data' || path.startsWith('data.') ? 'Resource' : 'Event',
         ...(child.description !== undefined && { description: child.description }),
         ...(values !== undefined && values.length > 0 && { enum: values }),
       });

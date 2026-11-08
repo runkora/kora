@@ -14,7 +14,6 @@ import (
 // budgetLevels are the percentages of a budget whose crossing records an event.
 var budgetLevels = []int{50, 80, 100}
 
-// budgetEntity is the budget an event carries.
 // WithEvents records budget threshold and exceeded events through pool.
 func (s *Service) WithEvents(pool *storage.Pool) *Service {
 	s.events = pool

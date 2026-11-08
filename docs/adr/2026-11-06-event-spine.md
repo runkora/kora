@@ -163,8 +163,8 @@ Events are CloudEvents 1.0 structured JSON. `backend/internal/platform/events` d
   "koratriggers": ["<trigger id>"],
   "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
   "data": {
-    "entity": {"id": "2b4e8c1d-...", "state": "failed", "error": "sandbox_lost"},
-    "changed": ["state", "error"],
+    "entity": {"id": "2b4e8c1d-...", "agent": "triage", "state": "failed"},
+    "changed": ["state", "completed_at"],
     "entity_version": 7,
     "occurred_at": "2026-11-06T03:14:07.498Z"
   }
@@ -390,10 +390,10 @@ These producers call `PublishOnce`. Its dedup lasts as long as the earlier event
 *   `GrantPayload`, `RolePayload` and `TenantBudgetPayload`: the `policy.grant.*`, `policy.role.*` and `policy.tenant_budget.*` types.
 *   `DeclaredResourcePayload`: `declarative.resource.failed.v1`.
 
-`events.Schema(type)` derives a JSON Schema (draft 2020-12) from the type's struct by reflection:
+`events.TypeSchema(type)` derives a JSON Schema (draft 2020-12) from the type's struct by reflection:
 
 *   The `json` tag gives the field name, and the Go type gives the JSON type.
-*   A `doc` tag gives the description, and an `enum` tag cites a value set that `platform/events` defines from Go constants.
+*   A `doc` tag gives the description, a `format` tag gives the string format, and an `enum` tag cites a value set that `platform/events` defines from Go constants.
 *   A pointer or `omitempty` field is optional. A nested struct or slice becomes a nested schema.
 *   The type schema covers the envelope attributes and `data`. `data.entity` is the payload schema.
 *   `data.changed` is an array whose enum lists every field name an update can change. The list includes fields the payload does not carry (e.g. `system_prompt`, `prompt_template`, `config`). An event names such a field and never carries its value.

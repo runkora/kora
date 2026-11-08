@@ -78,7 +78,7 @@ type Envelope struct {
 	Type            Type     `json:"type" doc:"The event type."`
 	DataSchema      string   `json:"dataschema,omitempty" doc:"The URL of the type's schema."`
 	Subject         string   `json:"subject" doc:"The resource the event is about."`
-	Time            string   `json:"time" doc:"When the event was recorded."`
+	Time            string   `json:"time" doc:"When the event was recorded." format:"date-time"`
 	DataContentType string   `json:"datacontenttype" doc:"The media type of data." enum:"datacontenttype_value"`
 	Tenant          string   `json:"koratenant" doc:"The tenant the event belongs to."`
 	Principal       string   `json:"koraprincipal" doc:"The principal that caused the event."`
@@ -99,7 +99,7 @@ type Data struct {
 	Entity        any      `json:"entity" doc:"The resource after the change, or before it for a delete."`
 	Changed       []string `json:"changed,omitempty" doc:"The fields an update changed."`
 	EntityVersion int64    `json:"entity_version,omitempty" doc:"The resource version after the change."`
-	OccurredAt    string   `json:"occurred_at" doc:"When the change happened."`
+	OccurredAt    string   `json:"occurred_at" doc:"When the change happened." format:"date-time"`
 }
 
 // Publish writes the event to event_outbox through the transaction in ctx.
