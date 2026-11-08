@@ -39,7 +39,7 @@ function StepEvent({ state, patch }: StepComponentProps) {
         value={state.promptTemplate}
         onChange={(next) => patch({ promptTemplate: next })}
         hint="What the run starts with. The whole event follows it in a block marked as untrusted data."
-        catalog={fields}
+        catalog={fields.fields}
         catalogLabel="The fields of the chosen event."
         placeholder="Run {{ korarun }} of {{ koraagent }} failed. Find the cause."
       />

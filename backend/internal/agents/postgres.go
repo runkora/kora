@@ -508,13 +508,19 @@ func withFailureCode(ctx context.Context, code string) context.Context {
 	return context.WithValue(ctx, failureCodeKey{}, code)
 }
 
+// failureCode is the run_error code withFailureCode put in ctx.
+func failureCode(ctx context.Context) (string, bool) {
+	code, ok := ctx.Value(failureCodeKey{}).(string)
+	return code, ok
+}
+
 // lastRunError is the code of a failed run's latest run_error, or "" for any
 // other run. A code in ctx stands for a run_error not yet written.
 func (r *PostgresRepository) lastRunError(ctx context.Context, run Run) (string, error) {
 	if run.State != RunStateFailed {
 		return "", nil
 	}
-	if code, ok := ctx.Value(failureCodeKey{}).(string); ok {
+	if code, ok := failureCode(ctx); ok {
 		return code, nil
 	}
 	var code string

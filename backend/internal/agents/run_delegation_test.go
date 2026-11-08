@@ -12,6 +12,7 @@ import (
 
 	"github.com/runkora/kora/backend/internal/platform/brand"
 	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
@@ -188,10 +189,13 @@ func TestStartRun_Delegated_MintFailureFailsStart(t *testing.T) {
 	if len(sm.sessions) != 0 {
 		t.Error("no session must be created when the mint fails")
 	}
-	// The created run row is failed synchronously, not left pending.
+	// The created run row is failed synchronously, not left pending, and its event carries start_failed.
 	for _, r := range repo.runs {
 		if r.State != RunStateFailed {
 			t.Errorf("run %s state = %s, want failed", r.ID, r.State)
+		}
+		if code := repo.failureCodes[r.ID]; code != events.RunErrorStartFailed {
+			t.Errorf("run %s failure code = %q, want %s", r.ID, code, events.RunErrorStartFailed)
 		}
 	}
 }

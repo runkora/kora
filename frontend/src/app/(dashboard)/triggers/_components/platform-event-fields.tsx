@@ -33,29 +33,40 @@ function usePlatformEventTypes(): { eventTypes: string[]; error: string | null }
   return answer;
 }
 
-/** The fields of one event type and their allowed values, from its schema. Empty until loaded. */
-export function useEventTypeFields(eventType: string): SchemaCatalogEntry[] {
-  const [answer, setAnswer] = useState<{ eventType: string; fields: SchemaCatalogEntry[] }>({
+/** One event type's fields, whether they have loaded, and why a load failed. */
+export interface EventTypeFields {
+  fields: SchemaCatalogEntry[];
+  ready: boolean;
+  error: string | null;
+}
+
+const NO_FIELDS: EventTypeFields = { fields: [], ready: false, error: null };
+
+/** The fields of one event type and their allowed values, from its schema. */
+export function useEventTypeFields(eventType: string): EventTypeFields {
+  const [answer, setAnswer] = useState<EventTypeFields & { eventType: string }>({
     eventType: '',
-    fields: [],
+    ...NO_FIELDS,
   });
   useEffect(() => {
     if (eventType === '') return;
     let live = true;
     void fetchEventTypeFields(eventType).then((res) => {
-      if (live) setAnswer({ eventType, fields: schemaCatalog(res.fields) });
+      if (live)
+        setAnswer({ eventType, fields: schemaCatalog(res.fields), ready: true, error: res.error });
     });
     return () => {
       live = false;
     };
   }, [eventType]);
-  return answer.eventType === eventType ? answer.fields : [];
+  if (eventType === '' || answer.eventType !== eventType) return NO_FIELDS;
+  return { fields: answer.fields, ready: answer.ready, error: answer.error };
 }
 
 interface PlatformEventFieldsProps {
   eventType: string;
   /** The event type's fields, from `useEventTypeFields`. */
-  fields: SchemaCatalogEntry[];
+  fields: EventTypeFields;
   filters: FilterRow[];
   ignoreOwnRuns: boolean;
   onEventTypeChange: (eventType: string) => void;
@@ -117,13 +128,19 @@ export function PlatformEventFields({
         </Stack>
         <FilterRowsEditor
           rows={filters}
-          fields={fields}
+          fields={fields.fields}
           onChange={onFiltersChange}
-          freeText={fields.length === 0}
+          freeText={fields.error !== null}
           hideAdd
           disabled={disabled}
         />
         <AddFilterButton rows={filters} onChange={onFiltersChange} disabled={disabled} />
+        {fields.error !== null && (
+          <Text size="caption" color="status-error">
+            Could not load the fields of this event. Type the field paths, or close this and open it
+            again to retry.
+          </Text>
+        )}
       </Stack>
 
       <ToggleRow

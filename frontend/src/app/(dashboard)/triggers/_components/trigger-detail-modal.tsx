@@ -637,7 +637,7 @@ function TriggerDetailModalBody({
       : trigger.kind === 'scheduled'
         ? toTemplateCatalog(scheduledCatalog())
         : trigger.kind === 'event'
-          ? eventFields
+          ? eventFields.fields
           : toTemplateCatalog(manualInputsCatalog(trigger.manualInputs));
 
   const setFilterRows = (rows: FilterRow[]) =>
