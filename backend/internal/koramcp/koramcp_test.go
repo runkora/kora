@@ -1231,6 +1231,19 @@ func TestEventToolsForwardFiltersAndPath(t *testing.T) {
 		t.Errorf("events.get hit %q, want /v1/events/%s", gotPath, id)
 	}
 
+	call("tools/call", map[string]any{"name": "events.types", "arguments": map[string]any{}})
+	if gotPath != "/v1/events/types" {
+		t.Errorf("events.types hit %q, want /v1/events/types", gotPath)
+	}
+	call("tools/call", map[string]any{"name": "events.types", "arguments": map[string]any{"type": "agents.run.failed.v1"}})
+	if gotPath != "/v1/events/types/agents.run.failed.v1" {
+		t.Errorf("events.types(type) hit %q, want /v1/events/types/agents.run.failed.v1", gotPath)
+	}
+	gotPath = ""
+	if resp := call("tools/call", map[string]any{"name": "events.types", "arguments": map[string]any{"type": "../stream"}}); gotPath != "" {
+		t.Errorf("events.types(../stream) = %v and hit %q, want no backend call", resp, gotPath)
+	}
+
 	// A non-UUID id never reaches the backend, where "stream" would open the event stream.
 	for _, bad := range []string{"", "stream"} {
 		gotPath = ""

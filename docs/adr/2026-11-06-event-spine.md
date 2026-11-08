@@ -371,6 +371,8 @@ These producers call `PublishOnce`. Its dedup lasts as long as the earlier event
 
 `kora-mcp` gains `events.list` and `events.get` through the shared `korajson` client. Each tool requires `mcp:kora:events:list:use` or `mcp:kora:events:get:use`, and `kora-events` enforces `events:read` on the call ([Scope-Gated Tool Exposure via MCP](2026-03-05-scope-gated-tool-exposure-via-mcp.md)).
 
+`events.types` lists the event types, and with a `type` argument it returns that type's schema (section 14). It requires `mcp:kora:events:types:use` and no `events:read`.
+
 ### 13. Deployment
 
 `kora-events` is a new binary in `backend/cmd/kora-events` with its own chart templates, NetworkPolicy, DestinationRule, ServiceMonitor and AuthorizationPolicy ([Multi-Service Backend Deployment Structure](2026-03-19-multi-service-backend-deployment-structure.md)). It runs two replicas by default.
@@ -484,7 +486,7 @@ The work ships as one stack of nine pull requests:
 4.  **Event trigger kind:** the consumer, matching, both loop guards, the declarative `Trigger`, the API and the wizard.
 5.  **Event payload schema:** the payload structs, the schema endpoints, `dataschema`, trigger field checks and the wizard's schema fields.
 6.  **Run forwarding:** the acting run through the tool-gateway and the kora MCP, and the consumer's chain read.
-7.  **kora MCP tools:** `events.list` and `events.get`.
+7.  **kora MCP tools:** `events.list`, `events.get` and `events.types`.
 8.  **Hades:** DataTable `bodyState`, a server search box and an `xl` Modal.
 9.  **Events page:** a Storybook iteration first, then the page.
 

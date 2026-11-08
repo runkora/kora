@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"regexp"
 	"strconv"
 
 	"github.com/google/uuid"
@@ -36,6 +37,28 @@ func registerEventTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			}
 			return jsonResult(jc.Get(ctx, caller(ctx), base, "/{id}", nil, a.ID))
 		})
+
+	// kora-events serves the type catalog to any authenticated caller, without events:read.
+	addTool(srv, "events.types",
+		"List the platform event types with their category and description. Pass type to get that type's JSON Schema "+
+			"instead: the envelope attributes and the data.entity fields, with descriptions and allowed values. "+
+			"An event trigger's filters and prompt can use only the fields of its type's schema.",
+		func(ctx context.Context, a eventTypeArgs) (*sdk.CallToolResult, error) {
+			if a.Type == "" {
+				return jsonResult(jc.Get(ctx, caller(ctx), base, "/types", nil))
+			}
+			if !eventTypePattern.MatchString(a.Type) {
+				return toolError(errors.New("type must be an event type, e.g. agents.run.failed.v1")), nil
+			}
+			return jsonResult(jc.Get(ctx, caller(ctx), base, "/types/{type}", nil, a.Type))
+		})
+}
+
+// eventTypePattern is the <domain>.<entity>.<event>.v<N> form of an event type.
+var eventTypePattern = regexp.MustCompile(`^[a-z_]+\.[a-z_]+\.[a-z_]+\.v[0-9]+$`)
+
+type eventTypeArgs struct {
+	Type string `json:"type,omitempty" jsonschema:"an event type, e.g. agents.run.failed.v1, to get its schema; omit to list the types"`
 }
 
 type eventIDArgs struct {
