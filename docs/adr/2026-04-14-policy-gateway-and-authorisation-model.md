@@ -809,4 +809,29 @@ In `internal/policyservice/api/service.go`, before persisting in `CreateGrant` (
 
 ---
 
-**Last Updated:** 2026-06-30
+## Amendment — 2026-11-08: Effective scopes return vocabulary entries
+
+**Status:** Accepted — additive change to the `GET /policy/effective-scopes` response.
+
+### Context
+
+`GET /policy/effective-scopes` returns only scope strings. A scope picker needs each scope's description, and the vocabulary endpoint that holds descriptions requires `platform:grants:read`, which regular users lack (runkora/kora#447, #446).
+
+### Decision
+
+The response gains an `entries` array next to the unchanged `scopes` array:
+
+- `entries` has one element per element of `scopes`, in the same order.
+- Each element is the scope's vocabulary entry: `scope`, `resource_type`, `path`, `action` and `description`. `requires` and `registered_by` are not included.
+- A held scope with no vocabulary entry (for example an egress scope or a qualified connection scope) gets an entry holding the scope string with empty metadata: `resource_type` and `action` are `""`, `path` is `[]`, and `description` is absent.
+- `scopes` and the system-principal `403` are unchanged. The `EffectiveScopes` service method is unchanged, because the grant ceiling check shares it.
+
+### Consequences
+
+- Existing clients keep working, since the change is additive.
+- The endpoint does one extra vocabulary read per request.
+- Regular users get descriptions without `platform:grants:read`.
+
+---
+
+**Last Updated:** 2026-11-08
