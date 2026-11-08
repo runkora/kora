@@ -46,7 +46,7 @@ func testStore(t *testing.T) (*Postgres, *storage.Pool, *pgxpool.Pool, string) {
 }
 
 func event(tenant string, typ events.Type, agent string) events.Event {
-	return events.Event{Type: typ, Tenant: tenant, Subject: "runs/" + uuid.NewString(), RunID: uuid.NewString(), Agent: agent, Entity: map[string]string{"state": "x"}}
+	return events.Event{Type: typ, Tenant: tenant, Subject: "runs/" + uuid.NewString(), RunID: uuid.NewString(), Agent: agent, Entity: events.ZeroPayload(typ)}
 }
 
 func publish(t *testing.T, pool *storage.Pool, e events.Event) {
@@ -397,4 +397,20 @@ func keys(m map[string]string) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// The relay stamps dataschema with the type's schema URL.
+func TestPostgres_RelayStampsDataSchema(t *testing.T) {
+	store, pool, raw, tenant := testStore(t)
+	store.WithSchemaBase("https://api.example.com/v1/events/types/")
+	ctx := context.Background()
+	publish(t, pool, event(tenant, events.RunFailed, "triage"))
+	drain(t, store)
+	var got string
+	if err := raw.QueryRow(ctx, `SELECT envelope->>'dataschema' FROM events WHERE tenant_id = $1`, tenant).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if want := "https://api.example.com/v1/events/types/agents.run.failed.v1"; got != want {
+		t.Errorf("dataschema = %q, want %q", got, want)
+	}
 }

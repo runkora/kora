@@ -106,13 +106,13 @@ func (r *postgresSessionRepository) SwitchSession(ctx context.Context, next *Ses
 		}
 		if err := events.Publish(attributedTo(ctx, next.PrincipalID, next.PrincipalType, from, next.DisplayName), r.pool, events.Event{
 			Type: events.TenantSwitched, Tenant: from, Subject: "sessions/" + replaced.SessionID,
-			Entity: tenantSwitchEntity{SessionID: replaced.SessionID, PrincipalID: next.PrincipalID, Direction: "out"},
+			Entity: events.TenantSwitchPayload{SessionID: replaced.SessionID, PrincipalID: next.PrincipalID, Direction: "out"},
 		}); err != nil {
 			return err
 		}
 		return events.Publish(actingAs(ctx, next), r.pool, events.Event{
 			Type: events.TenantSwitched, Tenant: next.TenantID, Subject: "sessions/" + next.ID,
-			Entity: tenantSwitchEntity{SessionID: next.ID, PrincipalID: next.PrincipalID, Direction: "in"},
+			Entity: events.TenantSwitchPayload{SessionID: next.ID, PrincipalID: next.PrincipalID, Direction: "in"},
 		})
 	})
 }

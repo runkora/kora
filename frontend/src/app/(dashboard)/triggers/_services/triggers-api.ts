@@ -199,6 +199,16 @@ export async function fetchPlatformEventTypes(): Promise<{
   return { eventTypes: res.data ?? [], error: res.error };
 }
 
+/** A platform event type's fields and their allowed values, from the type's schema. */
+export async function fetchEventTypeFields(
+  eventType: string,
+): Promise<{ fields: TriggerField[]; error: string | null }> {
+  const res = await send<{ fields?: TriggerField[] }>(ApiRoute.eventTypes.fields(eventType), {
+    cache: 'no-store',
+  });
+  return { fields: res.data?.fields ?? [], error: res.error };
+}
+
 /** One event type's fields, from the provider's schema. */
 export async function fetchProviderFields(
   provider: string,

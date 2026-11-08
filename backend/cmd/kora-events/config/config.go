@@ -51,6 +51,12 @@ type Config struct {
 		// DefaultDays applies to tenants whose KoraTenant sets no retention.
 		DefaultDays int `yaml:"defaultDays"`
 	} `yaml:"retention"`
+
+	Schema struct {
+		// BaseURL is the public URL of GET /v1/events/types/. The chart sets it
+		// from the API host. Empty leaves dataschema off the events.
+		BaseURL string `yaml:"baseURL"`
+	} `yaml:"schema"`
 }
 
 // ShutdownTimeout returns the server shutdown timeout.

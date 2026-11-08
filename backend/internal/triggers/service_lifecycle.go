@@ -755,8 +755,13 @@ func (s *TriggerService) applyKindUpdate(ctx context.Context, t *Trigger, req Up
 		if err := applyMatchingUpdate(t, req); err != nil {
 			return err
 		}
-		if req.EventType != nil {
-			if err := validateEventType(t.EventType); err != nil {
+		if editsMatching(req) || req.Coalesce != nil || req.Routing != nil {
+			// The routing replacement lands after this check, so its join key is read from the request.
+			checked := *t
+			if req.Routing != nil {
+				checked.Routing = req.Routing
+			}
+			if err := validateEventFields(checked); err != nil {
 				return err
 			}
 		}

@@ -1180,7 +1180,7 @@ func (r *postgresRepository) RecordDispatchFailure(ctx context.Context, dr *Deli
 		return events.Publish(ctx, r.pool, events.Event{
 			Type: typ, Tenant: dr.TenantID, Subject: "deliveries/" + dr.DeliveryID, Agent: deref(agent),
 			CausedBy: chain.causedBy, ChainDepth: chain.depth, Triggers: triggers,
-			Entity: deliveryFailureEntity{
+			Entity: events.DeliveryPayload{
 				ID: dr.ID, DeliveryID: dr.DeliveryID, TriggerID: dr.TriggerID, TriggerName: dr.TriggerName,
 				Status: dr.Status, Reason: reason,
 			},

@@ -96,7 +96,7 @@ func realMain() error {
 	}
 	defer func() { _ = redis.Close() }()
 
-	store := koraevents.NewPostgres(db.Pool())
+	store := koraevents.NewPostgres(db.Pool()).WithSchemaBase(ec.Current.Schema.BaseURL)
 	hub, err := startLoops(ctx, db, store, metrics.Meter(), logger)
 	if err != nil {
 		return err
@@ -116,7 +116,7 @@ func realMain() error {
 	apiServer.SetMetricsMiddleware(metrics.Middleware())
 	server := apiServer.Server(ctx, ec.Current.Server.Port, ec.Current.Server.BasePath,
 		mw.MiddlewareChain(mw.TracingMiddleware(), mw.LoggingMiddleware(logger)),
-		koraevents.NewController(store, hub, auth, blocklist, logger),
+		koraevents.NewController(store, hub, auth, blocklist, logger).WithSchemaBase(ec.Current.Schema.BaseURL),
 		koraevents.NewInternalController(store, hub, mw.AuthMiddlewareWithRevocation(verifier, blocklist, logger), blocklist, logger),
 	)
 

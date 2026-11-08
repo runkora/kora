@@ -92,17 +92,6 @@ func (c *Controller) handleApply(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusOK, res)
 }
 
-// failedEntity is the declared resource a failure event carries. The outcome
-// is the bounded reason. The free-text message stays on the resource status.
-type failedEntity struct {
-	Kind       string `json:"kind"`
-	Namespace  string `json:"namespace"`
-	Name       string `json:"name"`
-	UID        string `json:"uid"`
-	Generation int64  `json:"generation"`
-	Outcome    string `json:"outcome"`
-}
-
 // recordFailure records an apply that was not projected, once per resource
 // generation and outcome. Platform-wide kinds record nothing.
 func (c *Controller) recordFailure(r *http.Request, item Item, res Result) {
@@ -114,8 +103,8 @@ func (c *Controller) recordFailure(r *http.Request, item Item, res Result) {
 	key := fmt.Sprintf("%s/%d/%s", item.UID, item.Generation, res.Outcome)
 	err := events.PublishOnce(ctx, c.events, key, events.Event{
 		Type: events.DeclaredResourceFailed, Tenant: item.TenantID, Subject: "declared/" + kind + "/" + item.Name,
-		Entity: failedEntity{
-			Kind: kind, Namespace: item.Namespace, Name: item.Name, UID: item.UID,
+		Entity: events.DeclaredResourcePayload{
+			Kind: kind, Namespace: item.Namespace, Name: item.Name,
 			Generation: item.Generation, Outcome: res.Outcome,
 		},
 	})

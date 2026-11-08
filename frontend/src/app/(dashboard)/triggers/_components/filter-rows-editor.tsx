@@ -60,6 +60,12 @@ const OPERATORS = [
   { value: 'contains', label: 'contains' },
 ] as const;
 
+/** Adds value to a row's alternatives unless it is there already. */
+export function addFilterValue(values: string, value: string): string {
+  const current = splitFilterValues(values);
+  return current.includes(value) ? values : [...current, value].join(' | ');
+}
+
 /** Appends an empty row. Rendered by `FilterRowsEditor` unless `hideAdd` hands the placement over. */
 export function AddFilterButton({
   rows,
@@ -111,6 +117,11 @@ export function FilterRowsEditor({
         const valuesFill = !hasValues && hasField ? 'danger' : 'default';
         const fieldInvalid = !hasField && hasValues;
         const incomplete = showIncomplete && row.field !== '' && row.values.trim() === '';
+        // A field with known values offers them as choices while the row matches exactly.
+        const choices =
+          (row.operator ?? 'is') === 'is'
+            ? fields.find((f) => f.token === row.field)?.enum
+            : undefined;
         return (
           <Stack key={i} gap="tight">
             <Card
@@ -205,6 +216,24 @@ export function FilterRowsEditor({
                         placeholder={incomplete ? 'Add a value' : undefined}
                       />
                     </Stack>
+                    {choices !== undefined && (
+                      <CatalogPicker
+                        inline
+                        aria-label={`Filter ${i + 1} value choices`}
+                        value=""
+                        placeholder="Choose a value"
+                        catalog={choices.map((v) => ({
+                          token: v,
+                          description: '',
+                          group: 'Values',
+                        }))}
+                        searchPlaceholder="Search values…"
+                        disabled={disabled}
+                        onSelect={(value) =>
+                          setRow(i, { values: addFilterValue(row.values, value) })
+                        }
+                      />
+                    )}
                   </Stack>
                 </Stack>
                 {/* Always laid out, so the values field ends before it; only the row in use shows it. The padding centres it on the first line. */}

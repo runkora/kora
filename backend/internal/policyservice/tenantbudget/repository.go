@@ -179,15 +179,8 @@ func scanBudget(row pgx.Row) (*TenantBudget, error) {
 	return &tb, nil
 }
 
-// entity is the tenant budget an event carries.
-type entity struct {
-	LimitUSD     float64 `json:"limit_usd"`
-	ResetCadence string  `json:"reset_cadence"`
-	Source       string  `json:"source"`
-}
-
-func newEntity(tb *TenantBudget) entity {
-	return entity{LimitUSD: tb.LimitUSD, ResetCadence: tb.ResetCadence, Source: tb.Source}
+func newEntity(tb *TenantBudget) events.TenantBudgetPayload {
+	return events.TenantBudgetPayload{LimitUSD: tb.LimitUSD, ResetCadence: tb.ResetCadence, Source: tb.Source}
 }
 
 func publish(ctx context.Context, pool *storage.Pool, typ events.Type, tb *TenantBudget, changed []string) error {

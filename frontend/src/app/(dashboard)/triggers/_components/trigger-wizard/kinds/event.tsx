@@ -11,12 +11,11 @@ import {
   validateNamedPromptStep,
 } from '../wizard-state';
 import { PromptField, TriggerNameField } from '../../trigger-fields';
-import { PlatformEventFields } from '../../platform-event-fields';
-import { eventCatalog, toTemplateCatalog } from '../field-catalog';
+import { PlatformEventFields, useEventTypeFields } from '../../platform-event-fields';
 import type { StepComponentProps, TriggerKindDefinition, WizardState } from '../types';
 
 function StepEvent({ state, patch }: StepComponentProps) {
-  const fields = toTemplateCatalog(eventCatalog());
+  const fields = useEventTypeFields(state.eventType);
   return (
     <Stack gap="relaxed">
       <TriggerNameField
@@ -28,6 +27,7 @@ function StepEvent({ state, patch }: StepComponentProps) {
 
       <PlatformEventFields
         eventType={state.eventType}
+        fields={fields}
         filters={state.filters}
         ignoreOwnRuns={state.ignoreOwnRuns}
         onEventTypeChange={(eventType) => patch({ eventType })}
@@ -40,7 +40,7 @@ function StepEvent({ state, patch }: StepComponentProps) {
         onChange={(next) => patch({ promptTemplate: next })}
         hint="What the run starts with. The whole event follows it in a block marked as untrusted data."
         catalog={fields}
-        catalogLabel="Fields every event carries. Type any other path in the event."
+        catalogLabel="The fields of the chosen event."
         placeholder="Run {{ korarun }} of {{ koraagent }} failed with {{ data.entity.error }}. Find the cause."
       />
     </Stack>
@@ -99,6 +99,5 @@ export const eventKind: TriggerKindDefinition = {
       ...(matchContains ? { matchContains } : {}),
     };
   },
-  fieldCatalog: () => eventCatalog(),
   doneContent: DoneContent,
 };

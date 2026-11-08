@@ -8,6 +8,7 @@ const api = vi.hoisted(() => ({
   fetchProviderEventTypes: vi.fn(),
   fetchProviderFields: vi.fn(),
   fetchPlatformEventTypes: vi.fn(),
+  fetchEventTypeFields: vi.fn(() => Promise.resolve({ fields: [], error: null })),
   listDeliveryPage: vi.fn(),
 }));
 vi.mock('../_services/triggers-api', () => api);

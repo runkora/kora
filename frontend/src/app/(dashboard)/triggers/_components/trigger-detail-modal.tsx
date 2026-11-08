@@ -66,7 +66,7 @@ import { RoutedTarget } from './routed-target';
 import { DeliverySection, deliveryBlocker, sameDelivery } from './delivery-section';
 import type { DeliveryValue } from './delivery-section';
 import { EventFiltersSection } from './event-filters-section';
-import { PlatformEventFields } from './platform-event-fields';
+import { PlatformEventFields, useEventTypeFields } from './platform-event-fields';
 import { ScheduleBuilder, useScheduleDraft } from './schedule-builder';
 import { SectionField } from './section-mode';
 import { TriggerNameField } from './trigger-fields';
@@ -75,12 +75,7 @@ import { SenderRestrictionEditor } from './sender-restriction-editor';
 import type { SenderRestrictionDraft } from './sender-restriction-editor';
 import { useSourceCatalog } from './use-source-catalog';
 import type { StatsRange } from '../_types/stats';
-import {
-  eventCatalog,
-  schemaCatalog,
-  scheduledCatalog,
-  toTemplateCatalog,
-} from './trigger-wizard/field-catalog';
+import { schemaCatalog, scheduledCatalog, toTemplateCatalog } from './trigger-wizard/field-catalog';
 import {
   matchConditionFrom,
   coalesceFrom,
@@ -569,6 +564,7 @@ function TriggerDetailModalBody({
     webhookSource?.id ?? '',
     filters.value.eventType,
   );
+  const eventFields = useEventTypeFields(trigger?.kind === 'event' ? filters.value.eventType : '');
   // A generic source has no schema: its event type and filter fields are typed.
   const schemaless = trigger?.kind === 'webhook' && sourceCatalog.schemaless;
   // A typed event type can be emptied; a picked one cannot.
@@ -641,7 +637,7 @@ function TriggerDetailModalBody({
       : trigger.kind === 'scheduled'
         ? toTemplateCatalog(scheduledCatalog())
         : trigger.kind === 'event'
-          ? toTemplateCatalog(eventCatalog())
+          ? eventFields
           : toTemplateCatalog(manualInputsCatalog(trigger.manualInputs));
 
   const setFilterRows = (rows: FilterRow[]) =>
@@ -926,6 +922,7 @@ function TriggerDetailModalBody({
                   <Stack gap="snug">
                     <PlatformEventFields
                       eventType={filters.value.eventType}
+                      fields={eventFields}
                       filters={filters.value.filters}
                       ignoreOwnRuns={filters.value.ignoreOwnRuns}
                       onEventTypeChange={(eventType) =>

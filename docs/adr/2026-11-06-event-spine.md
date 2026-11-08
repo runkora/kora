@@ -393,18 +393,18 @@ These producers call `PublishOnce`. Its dedup lasts as long as the earlier event
 `events.Schema(type)` derives a JSON Schema (draft 2020-12) from the type's struct by reflection:
 
 *   The `json` tag gives the field name, and the Go type gives the JSON type.
-*   A `doc` tag gives the description, and an `enum` tag lists the allowed values.
+*   A `doc` tag gives the description, and an `enum` tag cites a value set that `platform/events` defines from Go constants.
 *   A pointer or `omitempty` field is optional. A nested struct or slice becomes a nested schema.
 *   The type schema covers the envelope attributes and `data`. `data.entity` is the payload schema.
 *   `data.changed` is an array whose enum lists every field name an update can change. The list includes fields the payload does not carry (e.g. `system_prompt`, `prompt_template`, `config`). An event names such a field and never carries its value.
 *   Each payload struct has one `state` enum for all of its types.
-*   Run error codes and loop guard kinds are Go constants in `platform/events`. The `error` and `guardrail.kind` enums list them. `guardrail.tool` is free text.
+*   Run error codes and loop guard kinds are Go constants in `platform/events`. The `error` and `guardrail.kind` enums list them, and a producer records `unknown` for a value outside them. `guardrail.tool` is free text.
 
 ```go
 type RunPayload struct {
     ID    string `json:"id" doc:"The run id."`
     Agent string `json:"agent" doc:"The slug of the run's agent."`
-    State string `json:"state" doc:"The run state after the change." enum:"pending,starting,active,idle,completing,completed,failed,budget_exhausted,terminated"`
+    State string `json:"state" doc:"The run state after the change." enum:"run_state"`
 }
 ```
 
@@ -444,10 +444,17 @@ The schema of `agents.run.failed.v1` describes `data` as follows. The envelope a
             "environment_id": {"type": "string", "description": "The environment the run's sandbox uses."},
             "started_at": {"type": "string", "format": "date-time", "description": "When the run started."},
             "completed_at": {"type": "string", "format": "date-time", "description": "When the run ended."},
-            "error": {"type": "string", "description": "The error code of the run's last failed turn.", "enum": ["<run error codes>"]}
+            "deleted_at": {"type": "string", "format": "date-time", "description": "When the run was terminated."},
+            "error": {"type": "string", "description": "The error code of an errored turn.", "enum": ["agent_error", "empty_response", "runner_error", "sandbox_lost", "loop_detected", "empty_turn", "subprocess_exit", "budget_exhausted", "start_failed", "unknown"]},
+            "guardrail": {"type": "object", "description": "The loop guard finding of a warning.", "required": ["kind", "count", "tool"], "properties": {
+              "kind": {"type": "string", "description": "The loop the guard detected.", "enum": ["repeated_call", "wait_rearm", "unknown"]},
+              "count": {"type": "integer", "description": "How many times the agent repeated the call."},
+              "tool": {"type": "string", "description": "The tool the agent repeated."}
+            }},
+            "sender_trigger_id": {"type": "string", "description": "The trigger that sent the run a message."}
           }
         },
-        "changed": {"type": "array", "items": {"type": "string", "enum": ["state", "completed_at", "deleted_at"]}},
+        "changed": {"type": "array", "items": {"type": "string", "enum": ["agent", "agent_id", "completed_at", "created_by", "deleted_at", "delivery_id", "environment_id", "error", "guardrail", "id", "sender_trigger_id", "started_at", "state", "trigger_id"]}},
         "entity_version": {"type": "integer"},
         "occurred_at": {"type": "string", "format": "date-time"}
       }

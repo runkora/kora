@@ -2,6 +2,7 @@ package events
 
 import (
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 )
@@ -70,23 +71,83 @@ const (
 	DeclaredResourceFailed Type = "declarative.resource.failed.v1"
 )
 
-var catalog = map[Type]bool{
-	RunCreated: true, RunStarted: true, RunCompleted: true, RunFailed: true, RunBudgetExhausted: true,
-	RunTerminated: true, RunIdle: true, RunInterrupted: true, RunErrored: true, RunGuardrailWarned: true,
-	RunGuardrailPaused: true, RunMessageReceived: true,
-	SandboxCreated: true, SandboxReplaced: true, SandboxReady: true, SandboxFailed: true, SandboxDeleted: true,
-	AgentCreated: true, AgentUpdated: true, AgentDeleted: true,
-	EnvironmentCreated: true, EnvironmentUpdated: true, EnvironmentDeleted: true,
-	DeliveryFailed: true, DeliveryDenied: true, TriggerAutopaused: true,
-	TriggerCreated: true, TriggerUpdated: true, TriggerDeleted: true,
-	SourceCreated: true, SourceUpdated: true, SourceDeleted: true,
-	BudgetThresholdCrossed: true, BudgetExceeded: true,
-	SessionCreated: true, PATCreated: true, PATRevoked: true, PATUpdated: true,
-	DelegationIssued: true, TenantSwitched: true,
-	GrantCreated: true, GrantUpdated: true, GrantDeleted: true,
-	RoleCreated: true, RoleUpdated: true, RoleDeleted: true,
-	TenantBudgetCreated: true, TenantBudgetUpdated: true, TenantBudgetDeleted: true,
-	DeclaredResourceFailed: true,
+// entry is a catalog type's payload struct and its description.
+type entry struct {
+	payload     reflect.Type
+	description string
+}
+
+func kind[T any]() reflect.Type { return reflect.TypeFor[T]() }
+
+var catalog = map[Type]entry{
+	RunCreated:         {kind[RunPayload](), "A run was created and queued."},
+	RunStarted:         {kind[RunPayload](), "A run began executing."},
+	RunCompleted:       {kind[RunPayload](), "A run finished, including a run that ended after its idle timeout."},
+	RunFailed:          {kind[RunPayload](), "A run failed."},
+	RunBudgetExhausted: {kind[RunPayload](), "A budget ran out and stopped a run."},
+	RunTerminated:      {kind[RunPayload](), "A person or the platform terminated a run."},
+	RunIdle:            {kind[RunPayload](), "A run finished its turn and is waiting for input."},
+	RunInterrupted:     {kind[RunPayload](), "A person stopped the run's turn."},
+	RunErrored:         {kind[RunPayload](), "A turn ended in an error and the run continued."},
+	RunGuardrailWarned: {kind[RunPayload](), "The loop guard warned the agent."},
+	RunGuardrailPaused: {kind[RunPayload](), "The loop guard paused the run."},
+	RunMessageReceived: {kind[RunPayload](), "A person or a trigger sent the run a message."},
+
+	SandboxCreated:  {kind[SandboxPayload](), "A sandbox was provisioned for a run."},
+	SandboxReplaced: {kind[SandboxPayload](), "A run's sandbox was replaced with a different environment or image."},
+	SandboxReady:    {kind[SandboxPayload](), "A sandbox finished provisioning."},
+	SandboxFailed:   {kind[SandboxPayload](), "A sandbox failed to provision."},
+	SandboxDeleted:  {kind[SandboxPayload](), "A run's sandbox was removed."},
+
+	AgentCreated:       {kind[AgentPayload](), "An agent was created."},
+	AgentUpdated:       {kind[AgentPayload](), "An agent was changed."},
+	AgentDeleted:       {kind[AgentPayload](), "An agent was deleted."},
+	EnvironmentCreated: {kind[EnvironmentPayload](), "An environment was created."},
+	EnvironmentUpdated: {kind[EnvironmentPayload](), "An environment was changed."},
+	EnvironmentDeleted: {kind[EnvironmentPayload](), "An environment was deleted."},
+
+	DeliveryFailed:    {kind[DeliveryPayload](), "A fire could not start its run."},
+	DeliveryDenied:    {kind[DeliveryPayload](), "A fire was refused for lack of permission."},
+	TriggerAutopaused: {kind[TriggerPayload](), "A trigger paused itself after repeated failures."},
+	TriggerCreated:    {kind[TriggerPayload](), "A trigger was created."},
+	TriggerUpdated:    {kind[TriggerPayload](), "A trigger was changed."},
+	TriggerDeleted:    {kind[TriggerPayload](), "A trigger was deleted."},
+	SourceCreated:     {kind[SourcePayload](), "A webhook source was created."},
+	SourceUpdated:     {kind[SourcePayload](), "A webhook source was changed."},
+	SourceDeleted:     {kind[SourcePayload](), "A webhook source was deleted."},
+
+	BudgetThresholdCrossed: {kind[BudgetPayload](), "Spend against a budget passed 50%, 80% or 100% of its limit."},
+	BudgetExceeded:         {kind[BudgetPayload](), "An exhausted budget refused a request."},
+
+	SessionCreated:   {kind[SessionPayload](), "A person signed in or an agent session started."},
+	PATCreated:       {kind[PATPayload](), "A personal access token was issued."},
+	PATRevoked:       {kind[PATPayload](), "A personal access token was revoked."},
+	PATUpdated:       {kind[PATPayload](), "A personal access token's scopes changed."},
+	DelegationIssued: {kind[DelegationPayload](), "A person delegated to an agent."},
+	TenantSwitched:   {kind[TenantSwitchPayload](), "A person switched tenant."},
+
+	GrantCreated:        {kind[GrantPayload](), "A grant was created."},
+	GrantUpdated:        {kind[GrantPayload](), "A grant was changed."},
+	GrantDeleted:        {kind[GrantPayload](), "A grant was deleted."},
+	RoleCreated:         {kind[RolePayload](), "A role was created."},
+	RoleUpdated:         {kind[RolePayload](), "A role was changed."},
+	RoleDeleted:         {kind[RolePayload](), "A role was deleted."},
+	TenantBudgetCreated: {kind[TenantBudgetPayload](), "The tenant budget was set."},
+	TenantBudgetUpdated: {kind[TenantBudgetPayload](), "The tenant budget was changed."},
+	TenantBudgetDeleted: {kind[TenantBudgetPayload](), "The tenant budget was removed."},
+
+	DeclaredResourceFailed: {kind[DeclaredResourcePayload](), "A declared resource could not be applied."},
+}
+
+// hiddenChanges lists the fields an update can change that a payload does not
+// carry. An event's changed list names them and never carries their values.
+var hiddenChanges = map[reflect.Type][]string{
+	kind[AgentPayload](): {"description", "system_prompt", "framework", "grant_scopes", "connectivity", "connectors",
+		"mcp_tools", "guardrails", "max_concurrent_runs_per_pod", "repository"},
+	kind[EnvironmentPayload](): {"description", "egress_hosts", "connectors", "repository"},
+	kind[TriggerPayload](): {"match_condition", "match_contains", "prompt_template", "manual_config", "sender_restriction",
+		"coalesce", "routing"},
+	kind[SourcePayload](): {"config"},
 }
 
 // Types lists the catalog in name order.
@@ -95,7 +156,10 @@ func Types() []Type {
 }
 
 // Known reports whether t is in the catalog.
-func (t Type) Known() bool { return catalog[t] }
+func (t Type) Known() bool { _, ok := catalog[t]; return ok }
+
+// Description is what an event of type t records.
+func (t Type) Description() string { return catalog[t].description }
 
 // Category is the <domain>.<entity> prefix of t.
 func (t Type) Category() string {
@@ -104,4 +168,13 @@ func (t Type) Category() string {
 		return string(t)
 	}
 	return parts[0] + "." + parts[1]
+}
+
+// ZeroPayload is the zero value of type t's payload struct, nil for a type outside the catalog.
+func ZeroPayload(t Type) any {
+	e, ok := catalog[t]
+	if !ok {
+		return nil
+	}
+	return reflect.Zero(e.payload).Interface()
 }

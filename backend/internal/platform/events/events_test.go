@@ -19,7 +19,7 @@ import (
 )
 
 func runFailed(tenant string) Event {
-	return Event{Type: RunFailed, Tenant: tenant, Subject: "runs/1", RunID: uuid.NewString(), Entity: map[string]string{"state": "failed"}}
+	return Event{Type: RunFailed, Tenant: tenant, Subject: "runs/1", RunID: uuid.NewString(), Entity: RunPayload{State: "failed"}}
 }
 
 func withPrincipal(sub string, typ token.PrincipalType) context.Context {

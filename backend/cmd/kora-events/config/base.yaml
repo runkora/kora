@@ -29,3 +29,7 @@ kubernetes:
 retention:
   # The chart sets it from koraEvents.retention.defaultDays.
   defaultDays: 30
+
+schema:
+  # The chart sets it to https://<API host>/v1/events/types/.
+  baseURL: ""

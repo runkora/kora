@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"reflect"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -39,6 +40,8 @@ var (
 	ErrNoTenant = errors.New("event has no tenant")
 	// ErrInvalidEvent refuses an event the relay could not record.
 	ErrInvalidEvent = errors.New("invalid event")
+	// ErrPayloadType refuses an entity that is not the type's payload struct.
+	ErrPayloadType = errors.New("entity is not the event type's payload struct")
 )
 
 // onceNamespace is the UUIDv5 namespace of PublishOnce ids.
@@ -59,41 +62,44 @@ type Event struct {
 	ChainDepth int
 	// Triggers lists every trigger that started or messaged the run.
 	Triggers []string
-	// Entity is the resource after the change, or before it for a delete.
+	// Entity is the type's payload struct: the resource after the change, or
+	// before it for a delete.
 	Entity  any
 	Changed []string
 	Version int64
 }
 
 // Envelope is a CloudEvents 1.0 structured event with the kora extensions.
+// The doc and enum tags describe it in the published schema.
 type Envelope struct {
-	SpecVersion     string   `json:"specversion"`
-	ID              string   `json:"id"`
-	Source          string   `json:"source"`
-	Type            Type     `json:"type"`
-	Subject         string   `json:"subject"`
-	Time            string   `json:"time"`
-	DataContentType string   `json:"datacontenttype"`
-	Tenant          string   `json:"koratenant"`
-	Principal       string   `json:"koraprincipal"`
-	PrincipalType   string   `json:"koraprincipaltype"`
-	PrincipalName   string   `json:"koraprincipalname"`
-	Delegator       string   `json:"koradelegator,omitempty"`
-	Run             string   `json:"korarun,omitempty"`
-	Agent           string   `json:"koraagent,omitempty"`
-	CausedBy        string   `json:"koracausedby,omitempty"`
-	ChainDepth      int      `json:"korachaindepth"`
-	Triggers        []string `json:"koratriggers,omitempty"`
-	TraceParent     string   `json:"traceparent,omitempty"`
-	Data            Data     `json:"data"`
+	SpecVersion     string   `json:"specversion" doc:"The CloudEvents version." enum:"cloudevents_version"`
+	ID              string   `json:"id" doc:"The event id."`
+	Source          string   `json:"source" doc:"The binary that recorded the event."`
+	Type            Type     `json:"type" doc:"The event type."`
+	DataSchema      string   `json:"dataschema,omitempty" doc:"The URL of the type's schema."`
+	Subject         string   `json:"subject" doc:"The resource the event is about."`
+	Time            string   `json:"time" doc:"When the event was recorded."`
+	DataContentType string   `json:"datacontenttype" doc:"The media type of data." enum:"datacontenttype_value"`
+	Tenant          string   `json:"koratenant" doc:"The tenant the event belongs to."`
+	Principal       string   `json:"koraprincipal" doc:"The principal that caused the event."`
+	PrincipalType   string   `json:"koraprincipaltype" doc:"The type of the principal." enum:"event_principal_type"`
+	PrincipalName   string   `json:"koraprincipalname" doc:"The principal's display name."`
+	Delegator       string   `json:"koradelegator,omitempty" doc:"The person an agent acted for."`
+	Run             string   `json:"korarun,omitempty" doc:"The run the event concerns."`
+	Agent           string   `json:"koraagent,omitempty" doc:"The slug of the agent the event concerns."`
+	CausedBy        string   `json:"koracausedby,omitempty" doc:"The event that led to this one."`
+	ChainDepth      int      `json:"korachaindepth" doc:"How many trigger-caused steps led to the event."`
+	Triggers        []string `json:"koratriggers,omitempty" doc:"The triggers that started or messaged the run."`
+	TraceParent     string   `json:"traceparent,omitempty" doc:"The W3C trace the event belongs to."`
+	Data            Data     `json:"data" doc:"The event payload."`
 }
 
 // Data is the event payload.
 type Data struct {
-	Entity        any      `json:"entity"`
-	Changed       []string `json:"changed,omitempty"`
-	EntityVersion int64    `json:"entity_version,omitempty"`
-	OccurredAt    string   `json:"occurred_at"`
+	Entity        any      `json:"entity" doc:"The resource after the change, or before it for a delete."`
+	Changed       []string `json:"changed,omitempty" doc:"The fields an update changed."`
+	EntityVersion int64    `json:"entity_version,omitempty" doc:"The resource version after the change."`
+	OccurredAt    string   `json:"occurred_at" doc:"When the change happened."`
 }
 
 // Publish writes the event to event_outbox through the transaction in ctx.
@@ -189,6 +195,8 @@ func validate(e Event) error {
 		return fmt.Errorf("%w: %s has no subject", ErrInvalidEvent, e.Type)
 	case e.ChainDepth < 0:
 		return fmt.Errorf("%w: negative chain depth", ErrInvalidEvent)
+	case reflect.TypeOf(e.Entity) != catalog[e.Type].payload:
+		return fmt.Errorf("%w: %s takes %s, got %T", ErrPayloadType, e.Type, catalog[e.Type].payload.Name(), e.Entity)
 	}
 	for _, v := range []string{e.RunID, e.CausedBy} {
 		if _, err := uuid.Parse(v); v != "" && err != nil {

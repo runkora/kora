@@ -11,8 +11,9 @@ import { useBrand } from '@runkora/theme/brand-provider';
 import { CatalogPicker } from './catalog-picker';
 import { AddFilterButton, FilterRowsEditor } from './filter-rows-editor';
 import type { FilterRow } from './filter-rows-editor';
-import { eventCatalog, eventTypeCatalog, toTemplateCatalog } from './trigger-wizard/field-catalog';
-import { fetchPlatformEventTypes } from '../_services/triggers-api';
+import { eventTypeCatalog, schemaCatalog } from './trigger-wizard/field-catalog';
+import type { SchemaCatalogEntry } from './trigger-wizard/field-catalog';
+import { fetchEventTypeFields, fetchPlatformEventTypes } from '../_services/triggers-api';
 
 /** Loads the platform event catalog once per mount. */
 function usePlatformEventTypes(): { eventTypes: string[]; error: string | null } {
@@ -32,8 +33,29 @@ function usePlatformEventTypes(): { eventTypes: string[]; error: string | null }
   return answer;
 }
 
+/** The fields of one event type and their allowed values, from its schema. Empty until loaded. */
+export function useEventTypeFields(eventType: string): SchemaCatalogEntry[] {
+  const [answer, setAnswer] = useState<{ eventType: string; fields: SchemaCatalogEntry[] }>({
+    eventType: '',
+    fields: [],
+  });
+  useEffect(() => {
+    if (eventType === '') return;
+    let live = true;
+    void fetchEventTypeFields(eventType).then((res) => {
+      if (live) setAnswer({ eventType, fields: schemaCatalog(res.fields) });
+    });
+    return () => {
+      live = false;
+    };
+  }, [eventType]);
+  return answer.eventType === eventType ? answer.fields : [];
+}
+
 interface PlatformEventFieldsProps {
   eventType: string;
+  /** The event type's fields, from `useEventTypeFields`. */
+  fields: SchemaCatalogEntry[];
   filters: FilterRow[];
   ignoreOwnRuns: boolean;
   onEventTypeChange: (eventType: string) => void;
@@ -44,6 +66,7 @@ interface PlatformEventFieldsProps {
 
 export function PlatformEventFields({
   eventType,
+  fields,
   filters,
   ignoreOwnRuns,
   onEventTypeChange,
@@ -53,7 +76,6 @@ export function PlatformEventFields({
 }: PlatformEventFieldsProps) {
   const { productName } = useBrand();
   const catalog = usePlatformEventTypes();
-  const fields = toTemplateCatalog(eventCatalog());
   return (
     <Stack gap="relaxed">
       <Stack gap="snug">
@@ -97,7 +119,7 @@ export function PlatformEventFields({
           rows={filters}
           fields={fields}
           onChange={onFiltersChange}
-          freeText
+          freeText={fields.length === 0}
           hideAdd
           disabled={disabled}
         />

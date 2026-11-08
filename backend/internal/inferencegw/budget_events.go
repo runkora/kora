@@ -15,16 +15,6 @@ import (
 var budgetLevels = []int{50, 80, 100}
 
 // budgetEntity is the budget an event carries.
-type budgetEntity struct {
-	Scope       string    `json:"scope"`
-	ID          string    `json:"id"`
-	Window      string    `json:"window"`
-	PeriodStart time.Time `json:"period_start"`
-	LimitUSD    float64   `json:"limit_usd"`
-	SpendUSD    float64   `json:"spend_usd"`
-	Level       int       `json:"level,omitempty"`
-}
-
 // WithEvents records budget threshold and exceeded events through pool.
 func (s *Service) WithEvents(pool *storage.Pool) *Service {
 	s.events = pool
@@ -105,7 +95,7 @@ func (s *Service) publishBudget(ctx context.Context, typ events.Type, tenantID s
 	}
 	err := events.PublishOnce(ctx, s.events, key, events.Event{
 		Type: typ, Tenant: tenantID, Subject: "budgets/" + c.Scope + "/" + c.ID,
-		Entity: budgetEntity{
+		Entity: events.BudgetPayload{
 			Scope: c.Scope, ID: c.ID, Window: c.Window, PeriodStart: start,
 			LimitUSD: c.LimitUSD, SpendUSD: c.SpendUSD, Level: level,
 		},
