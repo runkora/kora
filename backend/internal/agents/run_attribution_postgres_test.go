@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
@@ -149,5 +150,46 @@ func TestPostgres_RunTriggerAttribution_NoForeignKey(t *testing.T) {
 	}
 	if got.StartedBy.DeliveryID != "" {
 		t.Errorf("delivery_id = %q, want it empty when none was recorded", got.StartedBy.DeliveryID)
+	}
+}
+
+// Sources round-trip through the jsonb column, a join appends without
+// duplicating by URL, and a run with none reads as an empty list.
+func TestPostgres_RunSources(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	ctx := context.Background()
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+
+	run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, CreatedBy: "trigger:t", Sources: []RunSource{srcSlack, srcPR}}
+	if err := r.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if err := r.AppendRunSources(ctx, run.ID, []RunSource{srcPR, srcRepo}); err != nil {
+		t.Fatalf("AppendRunSources: %v", err)
+	}
+	got, err := r.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	want := []RunSource{srcSlack, srcPR, srcRepo}
+	if len(got.Sources) != len(want) {
+		t.Fatalf("sources = %+v, want %+v", got.Sources, want)
+	}
+	for i := range want {
+		if got.Sources[i] != want[i] {
+			t.Errorf("sources[%d] = %+v, want %+v", i, got.Sources[i], want[i])
+		}
+	}
+
+	none := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, CreatedBy: "user-1"}
+	if err := r.CreateRun(ctx, none); err != nil {
+		t.Fatalf("CreateRun(none): %v", err)
+	}
+	gotNone, _ := r.GetRun(ctx, none.ID)
+	if gotNone.Sources == nil || len(gotNone.Sources) != 0 {
+		t.Errorf("sources = %#v, want an empty list", gotNone.Sources)
+	}
+	if err := r.AppendRunSources(ctx, uuid.NewString(), []RunSource{srcPR}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("append to a missing run: err = %v, want ErrNotFound", err)
 	}
 }

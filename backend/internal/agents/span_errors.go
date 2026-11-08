@@ -8,6 +8,8 @@ var (
 	errSpanAppendRunMessage               = errors.New("append run message")
 	errSpanApplyPodPatches                = errors.New("apply Pod patches")
 	errSpanAuthorizeTriggerAttribution    = errors.New("authorize trigger attribution")
+	errSpanAuthorizeRunSources            = errors.New("authorize run sources")
+	errSpanAppendRunSources               = errors.New("append run sources")
 	errSpanCancelRunsForAgentType         = errors.New("cancel runs for agent type")
 	errSpanCheckSandboxPlacement          = errors.New("check sandbox placement")
 	errSpanCountRunOutcomes               = errors.New("count run outcomes")

@@ -245,6 +245,12 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		return nil, err
 	}
 
+	sources, err := authorizeRunSources(ctx, req.Sources)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanAuthorizeRunSources)
+		return nil, err
+	}
+
 	run := Run{
 		ID:          uuid.NewString(),
 		TenantID:    req.TenantID,
@@ -258,6 +264,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		// Nil unless a trigger started this run, which is what its absence means
 		// everywhere downstream.
 		StartedBy:      startedBy,
+		Sources:        sources,
 		InitialMessage: req.InitialMessage,
 		TraceParent:    observability.TraceParent(ctx),
 		CausedBy:       chain.causedBy,
@@ -713,6 +720,11 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 		observability.RecordFailure(span, err, errSpanAuthorizeTriggerAttribution)
 		return err
 	}
+	sources, err := authorizeRunSources(ctx, req.Sources)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanAuthorizeRunSources)
+		return err
+	}
 	run, at, err := s.loadRunToAct(ctx, runID)
 	if err != nil {
 		return err
@@ -734,6 +746,8 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 		observability.RecordFailure(span, err, errSpanAppendRunMessage)
 		return fmt.Errorf("append run message: %w", err)
 	}
+
+	s.appendJoinedSources(ctx, span, runID, sources)
 
 	// When sending to an idle run (resumed after interrupt), proactively transition
 	// idle → active so the frontend sees isBusy=true and shows the stop button
@@ -767,6 +781,20 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 	}
 	s.emitHumanMessage(ctx, runID, content)
 	return nil
+}
+
+// appendJoinedSources adds a joined delivery's links to the run. It is best-effort: the message is already stored, so a failure is logged, not returned.
+func (s *RunService) appendJoinedSources(ctx context.Context, span trace.Span, runID string, sources []RunSource) {
+	if len(sources) == 0 {
+		return
+	}
+	if err := s.repo.AppendRunSources(ctx, runID, sources); err != nil {
+		observability.RecordFailure(span, err, errSpanAppendRunSources)
+		s.logger.Warn(ctx, "failed to append run sources",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
 }
 
 // tryInitialMessage sends the initial message to the session-manager and, on

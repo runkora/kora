@@ -131,6 +131,9 @@ type StartRunRequest struct {
 	// event's depth plus one. Only a trigger may set them (docs/adr/2026-11-06-event-spine.md, section 7).
 	CausedBy   string `json:"caused_by,omitempty"`
 	ChainDepth int    `json:"chain_depth,omitempty"`
+
+	// Sources link to what started the run. Only a SERVICE principal may set them.
+	Sources []RunSource `json:"sources,omitempty"`
 }
 
 // SendMessageRequest is the body of POST /api/v1/runs/{id}/messages.
@@ -147,6 +150,10 @@ type SendMessageRequest struct {
 	// event's depth plus one. Only a trigger may set them (docs/adr/2026-11-06-event-spine.md, section 7).
 	CausedBy   string `json:"caused_by,omitempty"`
 	ChainDepth int    `json:"chain_depth,omitempty"`
+
+	// Sources link to what sent the message and are appended to the run's
+	// sources. Only a SERVICE principal may set them.
+	Sources []RunSource `json:"sources,omitempty"`
 }
 
 // EffectiveAccessPreviewRequest is a draft connectivity config resolved without
