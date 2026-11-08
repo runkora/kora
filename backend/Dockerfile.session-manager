@@ -87,18 +87,24 @@ RUN cd /usr/local/lib/agent-clis && \
     opencode --version
 
 # Install Codex (musl-only statically linked binary; runs on Alpine without glibc).
+# It comes from the npm registry's per-platform package, which carries the release's
+# musl binary, so a GitHub releases outage does not block the image.
 # Validate app-server JSONL notification schema on upgrade.
-# Override at image build time: docker build --build-arg CODEX_VERSION=x.y.z
+# Override at image build time: docker build --build-arg CODEX_VERSION=x.y.z, with
+# the digests of the new codex-<version>-linux-<x64|arm64>.tgz files.
 ARG CODEX_VERSION=0.142.1
+ARG CODEX_SHA256_X64=3d09d9a193fcca05607182b68597bbe204b004fc894ec05e7de22515829c3dde
+ARG CODEX_SHA256_ARM64=2f7cd7270950aa68f1e498c034cf39722f00ebcef068db0746909aad3deb1aa7
 RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "x86_64" ]; then MUSL_ARCH="x86_64"; \
-    elif [ "$ARCH" = "aarch64" ]; then MUSL_ARCH="aarch64"; \
+    if [ "$ARCH" = "x86_64" ]; then MUSL_ARCH="x86_64"; NPM_ARCH="x64"; SHA="${CODEX_SHA256_X64}"; \
+    elif [ "$ARCH" = "aarch64" ]; then MUSL_ARCH="aarch64"; NPM_ARCH="arm64"; SHA="${CODEX_SHA256_ARM64}"; \
     else echo "Unsupported architecture: $ARCH" >&2 && exit 1; fi && \
-    curl -fsSL \
-        "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-${MUSL_ARCH}-unknown-linux-musl.tar.gz" \
-        | tar -xz -C /usr/local/bin && \
-    mv /usr/local/bin/codex-${MUSL_ARCH}-unknown-linux-musl /usr/local/bin/codex && \
-    chmod +x /usr/local/bin/codex
+    tgz="codex-${CODEX_VERSION}-linux-${NPM_ARCH}.tgz" && \
+    curl -fsSLo "/tmp/${tgz}" "https://registry.npmjs.org/@openai/codex/-/${tgz}" && \
+    echo "${SHA}  /tmp/${tgz}" | sha256sum -c && \
+    tar -xzf "/tmp/${tgz}" -C /tmp "package/vendor/${MUSL_ARCH}-unknown-linux-musl/bin/codex" && \
+    install -m 0755 "/tmp/package/vendor/${MUSL_ARCH}-unknown-linux-musl/bin/codex" /usr/local/bin/codex && \
+    rm -rf "/tmp/${tgz}" /tmp/package
 
 # Non-root user: claude --dangerously-skip-permissions refuses to run as root.
 RUN addgroup -S kora && adduser -S kora -G kora
