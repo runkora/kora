@@ -75,7 +75,7 @@ export const config = {
 
   /**
    * Base URL of kora-events (port 8099), including its `/v1` base path. The BFF
-   * reads the event history and proxies the event stream. Never sent to the browser.
+   * reads event type schemas from it. Never sent to the browser.
    */
   koraEventsUrl: requireEnv('KORA_EVENTS_URL').replace(/\/$/, ''),
 

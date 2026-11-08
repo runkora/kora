@@ -94,17 +94,24 @@ func connectionNames(connectors []Connector) []string {
 
 // runEvent is an event about run r. The tenant, agent and loop guard attributes come from the row.
 func runEvent(t events.Type, r Run, entity events.RunPayload, changed ...string) events.Event {
-	return events.Event{
-		Type: t, Tenant: r.TenantID, Subject: "runs/" + r.ID, RunID: r.ID, Agent: r.AgentSlug,
-		CausedBy: r.CausedBy, ChainDepth: r.ChainDepth, Triggers: r.TriggerIDs, Entity: entity, Changed: changed,
-	}
+	e := runAttributes(t, r)
+	e.Entity, e.Changed = entity, changed
+	return e
 }
 
 // sandboxEvent is an event about the sandbox of run r.
 func sandboxEvent(t events.Type, r Run, entity events.SandboxPayload) events.Event {
-	e := runEvent(t, r, events.RunPayload{})
+	e := runAttributes(t, r)
 	e.Subject, e.Entity = e.Subject+"/sandbox", entity
 	return e
+}
+
+// runAttributes is an event about run r with no payload yet.
+func runAttributes(t events.Type, r Run) events.Event {
+	return events.Event{
+		Type: t, Tenant: r.TenantID, Subject: "runs/" + r.ID, RunID: r.ID, Agent: r.AgentSlug,
+		CausedBy: r.CausedBy, ChainDepth: r.ChainDepth, Triggers: r.TriggerIDs,
+	}
 }
 
 func agentEvent(t events.Type, at AgentType, changed []string) events.Event {

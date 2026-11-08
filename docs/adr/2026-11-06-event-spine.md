@@ -217,7 +217,7 @@ err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) 
     if _, err := r.pool.Exec(ctx, `UPDATE runs SET state = $2 WHERE id = $1`, id, state); err != nil {
         return err
     }
-    return events.Publish(ctx, r.pool, events.Event{Type: events.RunFailed, Tenant: run.TenantID, Subject: "runs/" + id, RunID: id, Entity: runEntity})
+    return events.Publish(ctx, r.pool, events.Event{Type: events.RunFailed, Tenant: run.TenantID, Subject: "runs/" + id, RunID: id, Entity: events.RunPayload{ID: id, State: "failed"}})
 })
 ```
 

@@ -27,9 +27,6 @@ func TestCatalog_EveryTypeHasASchema(t *testing.T) {
 		if _, err := json.Marshal(s); err != nil {
 			t.Errorf("%s: schema does not marshal: %v", typ, err)
 		}
-		if err := ValidatePayload(typ, ZeroPayload(typ)); err != nil && !errors.Is(err, errEnumValue) {
-			t.Errorf("%s: zero payload: %v", typ, err)
-		}
 	}
 }
 

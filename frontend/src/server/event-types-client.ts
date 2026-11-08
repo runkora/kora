@@ -16,19 +16,24 @@ interface SchemaNode {
   items?: SchemaNode;
 }
 
+/** Refuses an empty or dot segment, which fetch would resolve to another kora-events path. */
+function typeSegment(eventType: string): string {
+  if (eventType === '' || eventType === '.' || eventType === '..') {
+    throw new ApiError(404, 'not_found', 'Not found.');
+  }
+  return encodeURIComponent(eventType);
+}
+
 /** GET /v1/events/types/{type} on kora-events: the type's JSON Schema. */
 export async function fetchEventTypeSchema(
   accessToken: string,
   eventType: string,
 ): Promise<SchemaNode> {
-  const response = await fetch(
-    `${config.koraEventsUrl}/events/types/${encodeURIComponent(eventType)}`,
-    {
-      headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
-    },
-  );
+  const response = await fetch(`${config.koraEventsUrl}/events/types/${typeSegment(eventType)}`, {
+    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+  });
   if (!response.ok) {
     const err = (await response.json().catch(() => ({}))) as { code?: string; message?: string };
     throw new ApiError(response.status, err.code ?? 'UNKNOWN', err.message ?? response.statusText);

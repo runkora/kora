@@ -68,3 +68,13 @@ describe('fetchEventTypeSchema', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('fetchEventTypeSchema segment guard', () => {
+  it.each(['', '.', '..'])('refuses %j before calling kora-events', async (bad) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(fetchEventTypeSchema('tok', bad)).rejects.toMatchObject({ status: 404 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+});
