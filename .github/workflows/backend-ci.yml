@@ -138,7 +138,8 @@ jobs:
             ${{ runner.os }}-go-build-${{ hashFiles('backend/go.sum') }}-
             ${{ runner.os }}-go-build-
 
-      # A cached buf keeps a GitHub releases outage from failing the build.
+      # buf builds from the Go module proxy and is cached, so a GitHub releases
+      # outage does not fail the build.
       - name: Restore buf
         id: buf-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -153,11 +154,7 @@ jobs:
           go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
           if [ "${BUF_HIT}" != "true" ]; then
-            BUF_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-            BUF_ARCH=$(uname -m | sed 's/x86_64/x86_64/;s/aarch64/aarch64/')
-            curl -sSfL --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 \
-              "https://github.com/bufbuild/buf/releases/download/${BUF_VERSION}/buf-${BUF_OS}-${BUF_ARCH}" \
-              -o "$(go env GOPATH)/bin/buf" && chmod +x "$(go env GOPATH)/bin/buf"
+            go install "github.com/bufbuild/buf/cmd/buf@${BUF_VERSION}"
           fi
 
       - name: Build backend

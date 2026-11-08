@@ -115,7 +115,7 @@ RUN set -eux; \
       *) echo "unsupported architecture for uv: $(dpkg --print-architecture)" >&2; exit 1;; \
     esac; \
     tarball="uv-${ARCH}-unknown-linux-gnu.tar.gz"; \
-    curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSLO "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${tarball}" && \
+    curl --proto '=https' --tlsv1.2 -fsSLO "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${tarball}" && \
     echo "${SHA}  ${tarball}" | sha256sum --check && \
     tar -xzf "${tarball}" -C /usr/local/bin --strip-components=1 "uv-${ARCH}-unknown-linux-gnu/uv" "uv-${ARCH}-unknown-linux-gnu/uvx" && \
     rm -f "${tarball}" && \
@@ -130,7 +130,7 @@ RUN if [ "$INSTALL_BUN" = "true" ]; then \
         amd64) ARCH='x64';; \
         arm64) ARCH='aarch64';; \
       esac; \
-      curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSLO "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-$ARCH.zip" && \
+      curl --proto '=https' --tlsv1.2 -fsSLO "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-$ARCH.zip" && \
       unzip bun-linux-$ARCH.zip -d /tmp/bun && \
       mv /tmp/bun/bun-linux-$ARCH/bun /usr/local/bin/bun && \
       chmod +x /usr/local/bin/bun && \
@@ -153,7 +153,7 @@ RUN if [ "$INSTALL_RUST" = "true" ]; then \
       echo 'export CARGO_HOME=/usr/local/cargo' >> /etc/profile.d/rust.sh && \
       echo 'export PATH=/usr/local/cargo/bin:$PATH' >> /etc/profile.d/rust.sh && \
       . /etc/profile.d/rust.sh && \
-      curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSLo /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${ARCH}-unknown-linux-gnu/rustup-init" && \
+      curl --proto '=https' --tlsv1.2 -fsSLo /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${ARCH}-unknown-linux-gnu/rustup-init" && \
       echo "${SHA}  /tmp/rustup-init" | sha256sum --check && \
       chmod +x /tmp/rustup-init && \
       /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain $RUST_VERSION && \
@@ -168,7 +168,7 @@ RUN if [ "$INSTALL_GO" = "true" ]; then \
       set -eux; \
       : "${GO_VERSION:?set GO_VERSION from versions.hcl}"; \
       dpkgArch="$(dpkg --print-architecture)"; ARCH="${dpkgArch##*-}"; \
-      curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSLO https://go.dev/dl/go${GO_VERSION}.linux-$ARCH.tar.gz && \
+      curl --proto '=https' --tlsv1.2 -fsSLO https://go.dev/dl/go${GO_VERSION}.linux-$ARCH.tar.gz && \
       tar -C /usr/local -xzf go${GO_VERSION}.linux-$ARCH.tar.gz && \
       rm go${GO_VERSION}.linux-$ARCH.tar.gz && \
       echo 'export PATH=/usr/local/go/bin:$PATH' >> /etc/profile.d/go.sh && \
@@ -205,7 +205,7 @@ RUN if [ "$INSTALL_DOTNET" = "true" ]; then \
         *) echo "unsupported architecture for .NET: $(dpkg --print-architecture)" >&2; exit 1;; \
       esac; \
       tarball="dotnet-sdk-${DOTNET_VERSION}-linux-${DOTNET_ARCH}.tar.gz"; \
-      curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSLO "https://builds.dotnet.microsoft.com/dotnet/Sdk/${DOTNET_VERSION}/${tarball}" && \
+      curl --proto '=https' --tlsv1.2 -fsSLO "https://builds.dotnet.microsoft.com/dotnet/Sdk/${DOTNET_VERSION}/${tarball}" && \
       echo "${SHA}  ${tarball}" | sha512sum --check && \
       mkdir -p /usr/share/dotnet && \
       tar -xzf "${tarball}" -C /usr/share/dotnet && \
@@ -292,7 +292,7 @@ RUN if [ "$INSTALL_KUBECTL" = "true" ]; then \
         *) echo "unsupported architecture for kubectl: ${dpkgArch}" >&2; exit 1;; \
       esac; \
       base="https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/${ARCH}"; \
-      curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSLO "${base}/kubectl" && \
+      curl --proto '=https' --tlsv1.2 -fsSLO "${base}/kubectl" && \
       echo "${SHA}  kubectl" | sha256sum --check && \
       install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && \
       rm -f kubectl && \
@@ -312,7 +312,7 @@ RUN if [ "$INSTALL_KUSTOMIZE" = "true" ]; then \
         *) echo "unsupported architecture for kustomize: ${dpkgArch}" >&2; exit 1;; \
       esac; \
       tarball="kustomize_v${KUSTOMIZE_VERSION}_linux_${ARCH}.tar.gz"; \
-      curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSLO "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/${tarball}" && \
+      curl --proto '=https' --tlsv1.2 -fsSLO "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/${tarball}" && \
       echo "${SHA}  ${tarball}" | sha256sum --check && \
       tar -xzf "${tarball}" -C /usr/local/bin kustomize && \
       rm -f "${tarball}" && \

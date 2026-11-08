@@ -3,50 +3,57 @@
 # kora-sandbox-go: kora-sandbox-base plus golangci-lint, buf and protoc. The base
 # already carries Go. See docs/adr/2026-10-07-bundled-sandbox-images.md.
 
-# docker-bake.hcl maps kora-sandbox-base to the base target from the same commit.
-FROM kora-sandbox-base
+# golangci-lint and buf build from the Go module proxy, not GitHub releases, so a
+# releases outage does not block the image. go install checks them against the Go
+# checksum database. The stage runs natively and cross-compiles for the target.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308 AS go-builder
 
 # golangci-lint and buf share kora's pins in versions.hcl. docker-bake.hcl passes them.
 ARG GOLANGCI_LINT_VERSION
 ARG BUF_VERSION
+ARG TARGETOS TARGETARCH
+
+RUN set -eux; \
+    export CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH"; \
+    go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"; \
+    go install "github.com/bufbuild/buf/cmd/buf@${BUF_VERSION}"; \
+    mkdir /out; \
+    find "$(go env GOPATH)/bin" -type f -exec mv {} /out/ \;
+
+# docker-bake.hcl maps kora-sandbox-base to the base target from the same commit.
+FROM kora-sandbox-base
+
+# protoc and its well-known type protos come from Maven Central, which publishes
+# each protoc release as com.google.protobuf:protoc 4.<version>.
 ARG PROTOC_VERSION=36.2
 
-# Digests of the release files at the versions above, checked against the
-# releases when pinned. A version bump in versions.hcl needs new digests here.
-ARG GOLANGCI_LINT_SHA256_AMD64=87bb8cddbcc825d5778b64e8a91b46c0526b247f4e2f2904dea74ec7450475d1
-ARG GOLANGCI_LINT_SHA256_ARM64=ee3d95f301359e7d578e6d99c8ad5aeadbabc5a13009a30b2b0df11c8058afe9
-ARG BUF_SHA256_AMD64=70d46fbf2e1df60b250d0954a2c6ef2cb57baa936b197a55a9c1b8de89d95c1d
-ARG BUF_SHA256_ARM64=eeab2875438c60b007e9f9689f15f615e74946baa0a9bf81223c4418f3769d00
-ARG PROTOC_SHA256_AMD64=121f6c7afe1d4d0e3ea6aab9432038599250134cbf4474cb1167d2c7decd4278
-ARG PROTOC_SHA256_ARM64=8b8f18bd2b30346efbc698dd5a73dd7c805f3ef8380f6dfc95c768f3f1852f6a
+# Digests of the Maven files at the version above. A version bump needs new digests here.
+ARG PROTOC_SHA256_AMD64=f6ee22d65361338459208da8bff801c9ca689741cba9187b34990dd45198f864
+ARG PROTOC_SHA256_ARM64=cb89a125fd3d6c1ee86ee65a2bcbd7c3ac7c3fab1a806e0c466f162882053cb7
+ARG PROTOBUF_JAVA_SHA256=0773e72eaf375e1285df330575bfec5bda5da674d544d0e142a17f89c8f754da
 
 USER 0
 
+COPY --from=go-builder /out/ /usr/local/bin/
+
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
-      amd64) LINT_ARCH=amd64; LINT_SHA="${GOLANGCI_LINT_SHA256_AMD64}"; \
-             BUF_ARCH=x86_64; BUF_SHA="${BUF_SHA256_AMD64}"; \
-             PROTOC_ARCH=x86_64; PROTOC_SHA="${PROTOC_SHA256_AMD64}";; \
-      arm64) LINT_ARCH=arm64; LINT_SHA="${GOLANGCI_LINT_SHA256_ARM64}"; \
-             BUF_ARCH=aarch64; BUF_SHA="${BUF_SHA256_ARM64}"; \
-             PROTOC_ARCH=aarch_64; PROTOC_SHA="${PROTOC_SHA256_ARM64}";; \
+      amd64) PROTOC_ARCH=x86_64; PROTOC_SHA="${PROTOC_SHA256_AMD64}";; \
+      arm64) PROTOC_ARCH=aarch_64; PROTOC_SHA="${PROTOC_SHA256_ARM64}";; \
       *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1;; \
     esac; \
     cd /tmp; \
-    lint="golangci-lint-${GOLANGCI_LINT_VERSION#v}-linux-${LINT_ARCH}"; \
-    curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSLO "https://github.com/golangci/golangci-lint/releases/download/${GOLANGCI_LINT_VERSION}/${lint}.tar.gz"; \
-    echo "${LINT_SHA}  ${lint}.tar.gz" | sha256sum --check; \
-    tar -xzf "${lint}.tar.gz"; \
-    install -m 0755 "${lint}/golangci-lint" /usr/local/bin/golangci-lint; \
-    curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSLo buf "https://github.com/bufbuild/buf/releases/download/${BUF_VERSION}/buf-Linux-${BUF_ARCH}"; \
-    echo "${BUF_SHA}  buf" | sha256sum --check; \
-    install -m 0755 buf /usr/local/bin/buf; \
-    protoc="protoc-${PROTOC_VERSION}-linux-${PROTOC_ARCH}.zip"; \
-    curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSLO "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/${protoc}"; \
+    maven="https://repo1.maven.org/maven2/com/google/protobuf"; \
+    protoc="protoc-4.${PROTOC_VERSION}-linux-${PROTOC_ARCH}.exe"; \
+    curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSLO "${maven}/protoc/4.${PROTOC_VERSION}/${protoc}"; \
     echo "${PROTOC_SHA}  ${protoc}" | sha256sum --check; \
-    python3 -m zipfile -e "${protoc}" /tmp/protoc; \
-    install -m 0755 /tmp/protoc/bin/protoc /usr/local/bin/protoc; \
-    cp -r /tmp/protoc/include/google /usr/local/include/; \
+    install -m 0755 "${protoc}" /usr/local/bin/protoc; \
+    jar="protobuf-java-4.${PROTOC_VERSION}.jar"; \
+    curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSLO "${maven}/protobuf-java/4.${PROTOC_VERSION}/${jar}"; \
+    echo "${PROTOBUF_JAVA_SHA256}  ${jar}" | sha256sum --check; \
+    python3 -m zipfile -e "${jar}" /tmp/protobuf-java; \
+    mkdir -p /usr/local/include/google/protobuf; \
+    cp /tmp/protobuf-java/google/protobuf/*.proto /usr/local/include/google/protobuf/; \
     chmod -R a+rX /usr/local/include/google; \
     rm -rf /tmp/*; \
     golangci-lint --version; buf --version; protoc --version

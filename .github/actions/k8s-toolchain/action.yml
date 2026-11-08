@@ -18,8 +18,8 @@ inputs:
 runs:
   using: composite
   steps:
-    # Cached binaries keep a GitHub releases outage from failing the job. The key
-    # carries versions.env, which pins every tool version, and the tools wanted.
+    # Cached binaries keep a download outage from failing the job. The key carries
+    # versions.env, which pins every tool version, and the tools wanted.
     - name: Restore chart tools
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
@@ -45,16 +45,16 @@ runs:
             | tar -xz -C /tmp linux-amd64/helm
           install /tmp/linux-amd64/helm "${bindir}/helm"
         fi
+        # helmfile stays on its release download: its go.mod has a replace
+        # directive, which go install rejects.
         if [ "${WANT_HELMFILE}" = "true" ] && [ ! -x "${bindir}/helmfile" ]; then
           bare="${HELMFILE_VERSION#v}"
           fetch "https://github.com/helmfile/helmfile/releases/download/${HELMFILE_VERSION}/helmfile_${bare}_linux_amd64.tar.gz" \
             | tar -xz -C "${bindir}" helmfile
         fi
         if [ "${WANT_YQ}" = "true" ] && [ ! -x "${bindir}/yq" ]; then
-          fetch "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o "${bindir}/yq"
-          chmod +x "${bindir}/yq"
+          GOBIN="${bindir}" go install "github.com/mikefarah/yq/v4@${YQ_VERSION}"
         fi
         if [ "${WANT_KUBECONFORM}" = "true" ] && [ ! -x "${bindir}/kubeconform" ]; then
-          fetch "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" \
-            | tar -xz -C "${bindir}" kubeconform
+          GOBIN="${bindir}" go install "github.com/yannh/kubeconform/cmd/kubeconform@${KUBECONFORM_VERSION}"
         fi
