@@ -33,8 +33,10 @@ type RunSource struct {
 // Limits on the sources one request may carry.
 const (
 	maxRunSourcesPerRequest = 10
-	maxRunSourceLabelRunes  = 100
-	maxRunSourceURLBytes    = 2048
+	// maxRunSourcesPerRun bounds runs.sources; later joins past it are dropped.
+	maxRunSourcesPerRun    = 50
+	maxRunSourceLabelRunes = 100
+	maxRunSourceURLBytes   = 2048
 )
 
 var (

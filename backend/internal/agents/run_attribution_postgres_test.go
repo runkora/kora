@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -188,6 +189,20 @@ func TestPostgres_RunSources(t *testing.T) {
 	gotNone, _ := r.GetRun(ctx, none.ID)
 	if gotNone.Sources == nil || len(gotNone.Sources) != 0 {
 		t.Errorf("sources = %#v, want an empty list", gotNone.Sources)
+	}
+	// The run total is capped; further distinct sources are dropped.
+	for i := 0; i < maxRunSourcesPerRun/maxRunSourcesPerRequest+1; i++ {
+		batch := make([]RunSource, maxRunSourcesPerRequest)
+		for j := range batch {
+			batch[j] = RunSource{Kind: srcPR.Kind, URL: fmt.Sprintf("https://example.com/%d/%d", i, j), Label: "x"}
+		}
+		if err := r.AppendRunSources(ctx, run.ID, batch); err != nil {
+			t.Fatalf("AppendRunSources(batch %d): %v", i, err)
+		}
+	}
+	capped, _ := r.GetRun(ctx, run.ID)
+	if len(capped.Sources) != maxRunSourcesPerRun {
+		t.Errorf("sources = %d, want capped at %d", len(capped.Sources), maxRunSourcesPerRun)
 	}
 	if err := r.AppendRunSources(ctx, uuid.NewString(), []RunSource{srcPR}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("append to a missing run: err = %v, want ErrNotFound", err)

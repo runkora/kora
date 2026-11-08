@@ -1080,7 +1080,7 @@ func scanRun(s scanner, extra ...any) (*Run, error) {
 }
 
 // AppendRunSources adds sources to the run in one statement, skipping any whose
-// URL the run already has.
+// URL the run already has and stopping at maxRunSourcesPerRun in total.
 func (r *PostgresRepository) AppendRunSources(ctx context.Context, runID string, sources []RunSource) error {
 	add := mergeRunSources(nil, sources)
 	if len(add) == 0 {
@@ -1093,13 +1093,18 @@ func (r *PostgresRepository) AppendRunSources(ctx context.Context, runID string,
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE runs SET
 			sources = sources || COALESCE((
-				SELECT jsonb_agg(n.e ORDER BY n.i)
-				FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY AS n(e, i)
-				WHERE NOT EXISTS (
-					SELECT 1 FROM jsonb_array_elements(runs.sources) o WHERE o->>'url' = n.e->>'url')
+				SELECT jsonb_agg(f.e ORDER BY f.i)
+				FROM (
+					SELECT n.e, n.i
+					FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY AS n(e, i)
+					WHERE NOT EXISTS (
+						SELECT 1 FROM jsonb_array_elements(runs.sources) o WHERE o->>'url' = n.e->>'url')
+					ORDER BY n.i
+					LIMIT GREATEST($4::int - jsonb_array_length(runs.sources), 0)
+				) f
 			), '[]'::jsonb),
 			updated_at = $2
-		WHERE id = $3`, addJSON, time.Now().UTC(), runID)
+		WHERE id = $3`, addJSON, time.Now().UTC(), runID, maxRunSourcesPerRun)
 	if err != nil {
 		return fmt.Errorf("append run sources: %w", err)
 	}
