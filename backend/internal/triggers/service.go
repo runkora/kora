@@ -253,8 +253,22 @@ const (
 	maxContainsValueLen = 256
 )
 
+// validateMatchLists rejects a key with an empty value list. Such a list used
+// to match every event; an absent key or an empty map still means no condition.
+func validateMatchLists(field string, m map[string][]string) error {
+	for key, values := range m {
+		if len(values) == 0 {
+			return fmt.Errorf("%w: %s values for %q must not be empty", ErrValidation, field, key)
+		}
+	}
+	return nil
+}
+
 // validateContains checks a match_contains map's keys and substring bounds.
 func validateContains(contains map[string][]string) error {
+	if err := validateMatchLists("match_contains", contains); err != nil {
+		return err
+	}
 	if err := validateFieldKeys("", contains); err != nil {
 		return err
 	}
@@ -427,6 +441,9 @@ func validateWebhookTriggerCreate(req CreateTriggerRequest) error {
 	}
 	if strings.TrimSpace(req.EventType) == "" {
 		return fmt.Errorf("%w: event_type is required for webhook triggers", ErrValidation)
+	}
+	if err := validateMatchLists("match_condition", req.MatchCondition); err != nil {
+		return err
 	}
 	if err := validateFieldKeys(req.PromptTemplate, req.MatchCondition); err != nil {
 		return err
