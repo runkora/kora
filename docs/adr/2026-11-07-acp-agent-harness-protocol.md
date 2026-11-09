@@ -89,7 +89,7 @@ ACP replaces the transport and the parsers. Sandbox confinement, per-run config 
 - **`acpProfile`:** One profile per harness (`acp_profile.go`, `acp_profile_{claude,codex,opencode}.go`) with these parts:
     - `Command(workDir)` returns the binary and arguments.
     - `Prepare(workDir)` writes the per-run config files, applies the workspace-config lockdown (D8) and returns the environment.
-    - `SessionParams()` returns the cwd, the MCP servers and the harness's session `_meta`.
+    - `SessionParams(workDir)` returns the cwd, the MCP servers and the harness's session `_meta`.
     - `ClassifyError` maps a stop reason, a JSON-RPC error and the turn's adapter messages to a kora `run_error` code.
     - `ClientCapabilities()` returns the `clientCapabilities` keys the harness declares on top of the runner's own (e.g., `subagents` for Codex).
     - `IsQuestion(tool)` marks a permission request as a question for the human.
@@ -110,8 +110,8 @@ ACP replaces the transport and the parsers. Sandbox confinement, per-run config 
 | `Start` | `Profile.Prepare`, spawn, `initialize` (30 s deadline as today), then `session/new` with `mcpServers` and the profile `_meta`. A resume runner calls `session/resume` if advertised, else `session/load` with events suppressed during replay. A failure after spawn kills and reaps the process. |
 | `Send` | `session/prompt` with a text content block, and the response ends the turn. A mid-turn message goes through D3. |
 | `SendToolResult` | The runner keeps a table of pending agent-to-client requests keyed by kora tool-use id: `elicitation/create` requests and any `session/request_permission` that the profile marks as a question. `SendToolResult(toolUseID, content)` resolves that request with the answer keyed by the request schema's property, and the turn continues. An unknown id returns the sentinel `ErrNoPendingRequest`. `POST /session/{runID}/tool-results` is unchanged. |
-| `Events` | The same buffered channel, closed when the subprocess's stdout ends or `Close` is called. |
-| `Interrupt` | A `session/cancel` notification while a prompt is in flight. Pending permission and elicitation requests are answered `cancelled`. The prompt returns `stopReason: cancelled`, and the runner emits `message_complete{interrupted}` (if text was buffered), `turn_stopped{user}` and `message_stop`. The process stays alive. Messages queued during the turn are dropped. An interrupt with no prompt in flight emits nothing. |
+| `Events` | The same buffered channel, closed when the subprocess's stdout ends or `Close` is called. An adapter exit emits no event. The session reports `subprocess_exit` when the stream closes, or resumes the session after a user stop. |
+| `Interrupt` | A `session/cancel` notification while a prompt is in flight. Pending permission and elicitation requests are answered `cancelled`. The prompt returns `stopReason: cancelled`, and the runner emits `message_complete{interrupted}` (if text was buffered), `turn_stopped{user}` and `message_stop`. The process stays alive. Messages queued during the turn are dropped. An interrupt with no prompt in flight emits nothing. If the adapter exits before it answers, the runner emits nothing and `session.go` resumes the ACP session in a new process. |
 | `Close` | `session/close` if `sessionCapabilities.close`, then close stdin and wait. The process is killed if it does not exit within a bounded grace period. Idempotent (`sync.Once`). |
 | `SessionID` | The ACP `sessionId` from `session/new`. It is used only for in-process resume (`session.go`) and is not persisted across versions. |
 | `TakeText` | `turnText.take()` over the accumulated `agent_message_chunk` text. |
@@ -123,7 +123,7 @@ ACP replaces the transport and the parsers. Sandbox confinement, per-run config 
 |---|---|
 | `agent_message_chunk` | `text_delta`, with the text appended to `turnText` |
 | `agent_thought_chunk` | `thinking_delta`, appended to the thinking buffer |
-| `tool_call` / `tool_call_update` | The pending update only names the tool. `tool_use` is emitted at the first later update with `rawInput` carried forward from every earlier update (buffered text first becomes `text_block`). Completed and failed updates emit `tool_result` through `newToolResult` (64 KiB cap). In-progress updates emit `tool_progress` at most every 5 s. |
+| `tool_call` / `tool_call_update` | The first title names the tool, and later titles are ignored. `tool_use` is emitted at the first later update with `rawInput` carried forward from every earlier update (buffered text first becomes `text_block`). Completed and failed updates emit `tool_result` through `newToolResult` (64 KiB cap). A string `rawOutput.output` wins over content blocks. A non-zero `rawOutput.metadata.exit` adds an `Exit code N` line before the output and marks the result an error. In-progress updates emit `tool_progress` at most every 5 s. |
 | `plan`, `usage_update`, `user_message_chunk`, config updates | No event. Usage is logged from the prompt response. |
 | `session/prompt` response `end_turn` | `message_complete` (text and thinking), `message_stop`, unless `ClassifyError` finds a terminal error in the turn's adapter messages |
 | response `cancelled` | partial `message_complete{interrupted}`, `turn_stopped{user}`, `message_stop` |
@@ -181,7 +181,7 @@ The runner start log line carries the `framework` field as today. No new span at
 - One parser and one event translation serve all harnesses.
 - A new ACP harness is a profile (command, environment, config files).
 - OpenCode's concurrent prompts and Codex's dialect stop being special cases.
-- Interrupt keeps the process alive for every harness and removes restart-with-resume.
+- Interrupt keeps the process alive for every harness. Restart-with-resume remains for an adapter that exits before it answers the cancel.
 - MCP servers come from one list for every harness.
 
 ### Negative
