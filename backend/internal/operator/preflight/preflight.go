@@ -118,7 +118,7 @@ func (r *Runner) Run(ctx context.Context) Result {
 		}
 	}
 	for _, check := range []func(context.Context) Check{
-		r.cniDaemonSet, r.meshTrustDomain, r.systemNamespaceInjection, r.spireWorkloadAPI, r.clusterSPIFFEIDs, r.webhooks,
+		r.cniDaemonSet, r.meshTrustDomain, r.meshPathNormalization, r.systemNamespaceInjection, r.spireWorkloadAPI, r.clusterSPIFFEIDs, r.webhooks,
 	} {
 		res.Checks = append(res.Checks, check(ctx))
 	}
@@ -227,6 +227,48 @@ func (r *Runner) meshTrustDomain(ctx context.Context) Check {
 		return Check{Name: name, OK: false, Message: fmt.Sprintf("meshConfig.trustDomain is %q, kora is configured for %q", mesh.TrustDomain, r.Config.TrustDomain)}
 	}
 	return Check{Name: name, OK: true, Message: "meshConfig.trustDomain matches"}
+}
+
+// meshPathNormalization verifies Envoy normalizes request paths. The mesh deny
+// rules on internal paths match the decoded path, so they hold only while
+// meshConfig.pathNormalization.normalization is not NONE. Unset means Istio's
+// default, BASE.
+func (r *Runner) meshPathNormalization(ctx context.Context) Check {
+	const name = "istio-path-normalization"
+	cmName := "istio"
+	if r.Config.IstioRevision != "" {
+		cmName = "istio-" + r.Config.IstioRevision
+	}
+	cm := &corev1.ConfigMap{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: cmName, Namespace: r.Config.IstioNamespace}, cm); err != nil {
+		if apierrors.IsNotFound(err) {
+			return Check{Name: name, OK: false, Message: fmt.Sprintf("ConfigMap %s not found in %q: is istiod installed at this revision?", cmName, r.Config.IstioNamespace)}
+		}
+		return Check{Name: name, OK: false, Message: fmt.Sprintf("get ConfigMap %s in %q: %v", cmName, r.Config.IstioNamespace, err)}
+	}
+	return pathNormalizationCheck(name, cm.Data["mesh"])
+}
+
+// pathNormalizationCheck evaluates the meshConfig YAML.
+func pathNormalizationCheck(name, meshYAML string) Check {
+	var mesh struct {
+		PathNormalization struct {
+			Normalization string `json:"normalization"`
+		} `json:"pathNormalization"`
+	}
+	if err := sigsyaml.Unmarshal([]byte(meshYAML), &mesh); err != nil {
+		return Check{Name: name, OK: false, Message: fmt.Sprintf("parse meshConfig: %v", err)}
+	}
+	switch got := mesh.PathNormalization.Normalization; got {
+	case "":
+		return Check{Name: name, OK: true, Message: "meshConfig.pathNormalization unset; Istio defaults to BASE"}
+	case "BASE", "MERGE_SLASHES", "DECODE_AND_MERGE_SLASHES":
+		return Check{Name: name, OK: true, Message: "meshConfig.pathNormalization.normalization is " + got}
+	case "NONE":
+		return Check{Name: name, OK: false, Message: "meshConfig.pathNormalization.normalization is NONE; the mesh deny rules on internal paths can be bypassed with encoded paths. Set it to BASE, MERGE_SLASHES or DECODE_AND_MERGE_SLASHES"}
+	default:
+		return Check{Name: name, OK: false, Message: fmt.Sprintf("meshConfig.pathNormalization.normalization is %q; expected BASE, MERGE_SLASHES or DECODE_AND_MERGE_SLASHES", got)}
+	}
 }
 
 func (r *Runner) systemNamespaceInjection(ctx context.Context) Check {
