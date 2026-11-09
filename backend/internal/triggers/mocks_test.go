@@ -889,6 +889,7 @@ type startCall struct {
 	// The event chain the run was started with.
 	causedBy   string
 	chainDepth int
+	sources    []agentsclient.RunSource
 }
 
 type agentsStub struct {
@@ -947,6 +948,7 @@ type messageCall struct {
 	bearer, runID, content, triggerID, deliveryID string
 	causedBy                                      string
 	chainDepth                                    int
+	sources                                       []agentsclient.RunSource
 }
 
 // callerReadIDs returns the agent type ids callers have read, and forgets them.
@@ -1051,18 +1053,19 @@ func newAgentsStub() *agentsStub {
 	mux.HandleFunc("POST /api/v1/runs/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		var req struct {
-			Content    string `json:"content"`
-			TriggerID  string `json:"trigger_id"`
-			DeliveryID string `json:"delivery_id"`
-			CausedBy   string `json:"caused_by"`
-			ChainDepth int    `json:"chain_depth"`
+			Content    string                   `json:"content"`
+			TriggerID  string                   `json:"trigger_id"`
+			DeliveryID string                   `json:"delivery_id"`
+			CausedBy   string                   `json:"caused_by"`
+			ChainDepth int                      `json:"chain_depth"`
+			Sources    []agentsclient.RunSource `json:"sources"`
 		}
 		_ = json.Unmarshal(body, &req)
 		as.mu.Lock()
 		as.messages = append(as.messages, messageCall{
 			bearer: r.Header.Get("Authorization"), runID: r.PathValue("id"),
 			content: req.Content, triggerID: req.TriggerID, deliveryID: req.DeliveryID,
-			causedBy: req.CausedBy, chainDepth: req.ChainDepth,
+			causedBy: req.CausedBy, chainDepth: req.ChainDepth, sources: req.Sources,
 		})
 		status := as.messageStatus[r.PathValue("id")]
 		starting := as.startingRuns[r.PathValue("id")]
@@ -1082,13 +1085,14 @@ func newAgentsStub() *agentsStub {
 	mux.HandleFunc("POST /api/v1/runs", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		var req struct {
-			AgentTypeID    string `json:"agent_type_id"`
-			InitialMessage string `json:"initial_message"`
-			TriggerID      string `json:"trigger_id"`
-			TriggerName    string `json:"trigger_name"`
-			DeliveryID     string `json:"delivery_id"`
-			CausedBy       string `json:"caused_by"`
-			ChainDepth     int    `json:"chain_depth"`
+			AgentTypeID    string                   `json:"agent_type_id"`
+			InitialMessage string                   `json:"initial_message"`
+			TriggerID      string                   `json:"trigger_id"`
+			TriggerName    string                   `json:"trigger_name"`
+			DeliveryID     string                   `json:"delivery_id"`
+			CausedBy       string                   `json:"caused_by"`
+			ChainDepth     int                      `json:"chain_depth"`
+			Sources        []agentsclient.RunSource `json:"sources"`
 		}
 		_ = json.Unmarshal(body, &req)
 		as.mu.Lock()
@@ -1101,6 +1105,7 @@ func newAgentsStub() *agentsStub {
 			deliveryID:     req.DeliveryID,
 			causedBy:       req.CausedBy,
 			chainDepth:     req.ChainDepth,
+			sources:        req.Sources,
 		})
 		status, errBody := as.status, as.runErrBody
 		if as.statusOnce != 0 {
