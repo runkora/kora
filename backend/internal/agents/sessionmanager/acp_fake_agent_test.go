@@ -296,6 +296,10 @@ func (p *fakeACPProfile) AdapterSignal(m acpAdapterMessage) acpSignal {
 	return p.signal(m)
 }
 
+func (p *fakeACPProfile) ToolView(c *acpToolCall, u acp.ToolCallUpdate) acpToolView {
+	return acpDefaultToolView(c, u)
+}
+
 func (p *fakeACPProfile) lastTurn(t *testing.T) acpTurnEnd {
 	t.Helper()
 	p.mu.Lock()

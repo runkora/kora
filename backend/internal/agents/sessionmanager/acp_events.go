@@ -19,10 +19,13 @@ const acpProgressEvery = 5 * time.Second
 const acpMaxTurnMessages = 64
 
 type acpToolCall struct {
-	name       string
-	title      string
-	parent     string
-	input      any
+	name   string
+	title  string
+	parent string
+	kind   acp.ToolKind
+	input  any
+	// output is streamed output a profile collects across updates.
+	output     strings.Builder
 	recorded   bool // tool_use emitted
 	done       bool // tool_result emitted
 	startedAt  time.Time
@@ -37,15 +40,19 @@ type acpTranslator struct {
 	text      turnText
 	thinking  strings.Builder
 	tools     map[string]*acpToolCall
+	subagents map[string]bool // child sessions already recorded
+	root      string          // the run's session; empty until it is open
+	retries   int             // api_retry events this turn
 	messages  []acpAdapterMessage
 	replaying bool
 	emitFn    func(EventType, any)
 	classify  func(acpTurnEnd) string
+	view      func(*acpToolCall, acp.ToolCallUpdate) acpToolView
 	now       func() time.Time
 }
 
 func newACPTranslator(emit func(EventType, any), classify func(acpTurnEnd) string) *acpTranslator {
-	return &acpTranslator{tools: make(map[string]*acpToolCall), emitFn: emit, classify: classify, now: time.Now}
+	return &acpTranslator{tools: make(map[string]*acpToolCall), subagents: make(map[string]bool), emitFn: emit, classify: classify, view: acpDefaultToolView, now: time.Now}
 }
 
 // emit drops events while a session/load replays history already recorded.
@@ -76,14 +83,28 @@ func (t *acpTranslator) adapterMessage(msg acpAdapterMessage, retry *APIRetryPay
 		t.messages = t.messages[len(t.messages)-acpMaxTurnMessages:]
 	}
 	if retry != nil {
+		t.retries++
+		if retry.Attempt == 0 {
+			retry.Attempt = t.retries
+		}
 		t.emit(EventTypeAPIRetry, *retry)
 	}
 }
 
-func (t *acpTranslator) handleUpdate(u acp.SessionUpdate) {
+// handleSessionUpdate translates an update and reports whether it was used. An
+// announced child's calls nest and its text stays out; other sessions are dropped.
+func (t *acpTranslator) handleSessionUpdate(u acp.SessionUpdate, session string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	parent := ""
 	switch {
+	case t.subagents[session]:
+		parent = session
+	case t.root != "" && session != t.root:
+		return false
+	}
+	switch {
+	case parent != "" && (u.AgentMessageChunk != nil || u.AgentThoughtChunk != nil):
 	case u.AgentMessageChunk != nil:
 		if c := u.AgentMessageChunk.Content.Text; c != nil {
 			t.text.WriteString(c.Text)
@@ -100,25 +121,47 @@ func (t *acpTranslator) handleUpdate(u acp.SessionUpdate) {
 		if status == "" {
 			status = acp.ToolCallStatusPending // the spec's default for a new call
 		}
-		t.toolCall(acp.ToolCallUpdate{ToolCallId: c.ToolCallId, Title: &c.Title, Status: &status, RawInput: c.RawInput, RawOutput: c.RawOutput, Content: c.Content, Meta: c.Meta})
+		kind := c.Kind
+		t.toolCall(acp.ToolCallUpdate{ToolCallId: c.ToolCallId, Title: &c.Title, Kind: &kind, Status: &status, RawInput: c.RawInput, RawOutput: c.RawOutput, Content: c.Content, Meta: c.Meta}, parent)
 	case u.ToolCallUpdate != nil:
 		c := u.ToolCallUpdate
-		t.toolCall(acp.ToolCallUpdate{ToolCallId: c.ToolCallId, Title: c.Title, Status: c.Status, RawInput: c.RawInput, RawOutput: c.RawOutput, Content: c.Content, Meta: c.Meta})
+		t.toolCall(acp.ToolCallUpdate{ToolCallId: c.ToolCallId, Title: c.Title, Kind: c.Kind, Status: c.Status, RawInput: c.RawInput, RawOutput: c.RawOutput, Content: c.Content, Meta: c.Meta}, parent)
 	}
+	return true
+}
+
+func (t *acpTranslator) setRoot(session string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.root = session
+}
+
+// subagent records a child session as a finished call keyed by its session id,
+// so the child's calls nest under it. A child is recorded once.
+func (t *acpTranslator) subagent(child string, view acpToolView, result string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.subagents[child] {
+		return
+	}
+	t.subagents[child] = true
+	t.recordToolUse(child, &acpToolCall{startedAt: t.now(), done: true}, view)
+	t.emit(EventTypeToolResult, newToolResult(child, result, false, ""))
 }
 
 // toolCall follows a tool call through its updates. Name, title and rawInput
 // carry forward, since adapters stream the input over several updates after the
 // pending one, and tool_use waits for the first update past pending that has an
 // input or a running status.
-func (t *acpTranslator) toolCall(u acp.ToolCallUpdate) {
+func (t *acpTranslator) toolCall(u acp.ToolCallUpdate, parent string) {
 	id := string(u.ToolCallId)
 	c, ok := t.tools[id]
 	if !ok {
-		c = &acpToolCall{startedAt: t.now()}
+		c = &acpToolCall{startedAt: t.now(), parent: parent}
 		t.tools[id] = c
 	}
 	c.carry(u)
+	view := t.view(c, u)
 	var status acp.ToolCallStatus
 	if u.Status != nil {
 		status = *u.Status
@@ -131,18 +174,17 @@ func (t *acpTranslator) toolCall(u acp.ToolCallUpdate) {
 		if !terminal && status != acp.ToolCallStatusInProgress && c.input == nil {
 			return
 		}
-		t.recordToolUse(id, c)
+		t.recordToolUse(id, c, view)
 	}
 	switch {
 	case terminal:
 		c.done = true
-		out, exitErr := acpToolOutput(u.Content, u.RawOutput)
-		t.emit(EventTypeToolResult, newToolResult(id, out, exitErr || status == acp.ToolCallStatusFailed, c.parent))
+		t.emit(EventTypeToolResult, newToolResult(id, view.Output, view.IsError || status == acp.ToolCallStatusFailed, c.parent))
 	case t.now().Sub(c.progressAt) >= acpProgressEvery:
 		c.progressAt = t.now()
 		t.emit(EventTypeToolProgress, ToolProgressPayload{
 			ToolUseID:       id,
-			ToolName:        c.toolName(),
+			ToolName:        view.Name,
 			ParentToolUseID: c.parent,
 			ElapsedSeconds:  int(t.now().Sub(c.startedAt).Seconds()),
 		})
@@ -156,6 +198,9 @@ func (c *acpToolCall) carry(u acp.ToolCallUpdate) {
 	if u.Title != nil && c.title == "" {
 		c.title = *u.Title
 	}
+	if u.Kind != nil && c.kind == "" {
+		c.kind = *u.Kind
+	}
 	claude, _ := u.Meta["claudeCode"].(map[string]any)
 	if n, _ := claude["toolName"].(string); n != "" {
 		c.name = n
@@ -168,19 +213,19 @@ func (c *acpToolCall) carry(u acp.ToolCallUpdate) {
 	}
 }
 
-func (t *acpTranslator) recordToolUse(id string, c *acpToolCall) {
+func (t *acpTranslator) recordToolUse(id string, c *acpToolCall, view acpToolView) {
 	c.recorded, c.progressAt = true, t.now()
-	if t.text.Len() > 0 {
+	if t.text.Len() > 0 && c.parent == "" {
 		t.emit(EventTypeTextBlock, TextBlockPayload{Content: t.text.String()})
 		t.text.Reset()
 	}
 	input := json.RawMessage(`{}`)
-	if c.input != nil {
-		if b, err := json.Marshal(c.input); err == nil {
+	if view.Input != nil {
+		if b, err := json.Marshal(view.Input); err == nil {
 			input = b
 		}
 	}
-	t.emit(EventTypeToolUse, ToolUsePayload{ID: id, Name: c.toolName(), Input: input, ParentToolUseID: c.parent})
+	t.emit(EventTypeToolUse, ToolUsePayload{ID: id, Name: view.Name, Input: input, ParentToolUseID: c.parent})
 }
 
 func (c *acpToolCall) toolName() string {
@@ -278,6 +323,7 @@ func (t *acpTranslator) endTurn(stop acp.StopReason, rpcErr *acp.RequestError) {
 	defer t.mu.Unlock()
 	turn := acpTurnEnd{StopReason: stop, RPCErr: rpcErr, Messages: t.messages}
 	t.messages = nil
+	t.retries = 0
 	code := t.classify(turn)
 	switch {
 	case rpcErr == nil && stop == acp.StopReasonCancelled:

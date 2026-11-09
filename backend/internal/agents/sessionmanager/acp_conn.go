@@ -24,6 +24,10 @@ const acpEOFMethod = "_runner/eof"
 // SDK answers its id with an error from the runner's handler.
 const acpOversizedMethod = "_runner/oversized"
 
+// acpSubagentMethod carries a subagent_update, which acp-go-sdk 0.13.5 cannot
+// decode, to the runner's handler in order with the other updates.
+const acpSubagentMethod = "_runner/subagent"
+
 // acpInternalErrorCode is JSON-RPC's internal error, for responses the runner
 // makes up in place of ones it could not read.
 const acpInternalErrorCode = -32603
@@ -110,6 +114,9 @@ func (f *acpLineFilter) readLine() (line, head []byte, err error) {
 // filter passes, shrinks or replaces one line; head is set for a line past maxLine.
 func (f *acpLineFilter) filter(line, head []byte) []byte {
 	if head == nil && len(line) < f.pass {
+		if bytes.Contains(line, []byte(`"subagent_update"`)) {
+			return acpSubagentLine(line)
+		}
 		return line
 	}
 	var err error
@@ -126,6 +133,29 @@ func (f *acpLineFilter) filter(line, head []byte) []byte {
 	}
 	f.warn("ACP line dropped", err)
 	return acpDroppedLine(head)
+}
+
+// acpSubagentLine renames a session/update carrying a subagent_update to
+// acpSubagentMethod, and returns any other line unchanged.
+func acpSubagentLine(line []byte) []byte {
+	var msg struct {
+		Method string          `json:"method"`
+		Params json.RawMessage `json:"params"`
+	}
+	var p struct {
+		Update struct {
+			SessionUpdate string `json:"sessionUpdate"`
+		} `json:"update"`
+	}
+	if json.Unmarshal(line, &msg) != nil || msg.Method != "session/update" ||
+		json.Unmarshal(msg.Params, &p) != nil || p.Update.SessionUpdate != "subagent_update" {
+		return line
+	}
+	b, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": acpSubagentMethod, "params": msg.Params})
+	if err != nil {
+		return line
+	}
+	return append(b, '\n')
 }
 
 // acpDroppedLine stands in for a dropped line: an error response for a

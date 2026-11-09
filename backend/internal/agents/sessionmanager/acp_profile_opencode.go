@@ -1,8 +1,6 @@
 package sessionmanager
 
 import (
-	"strings"
-
 	acp "github.com/coder/acp-go-sdk"
 
 	"github.com/runkora/kora/backend/internal/platform/events"
@@ -47,15 +45,7 @@ func (p *openCodeProfile) SessionParams(workDir string) acpSessionParams {
 			{Name: "KORA_RUN_ID", Value: p.cfg.RunID},
 		},
 	}}}
-	// The agent calls the gateway unauthenticated; the identity-proxy sidecar
-	// injects the platform token on the way out (docs/adr/2026-06-29-mcp-tool-gateway.md).
-	if url := strings.TrimRight(p.cfg.ToolGatewayURL, "/"); url != "" {
-		for _, server := range p.cfg.MCPServers {
-			servers = append(servers, acp.McpServer{Http: &acp.McpServerHttpInline{
-				Type: "http", Name: server, Url: url + "/v1/mcp/" + server, Headers: []acp.HttpHeader{},
-			}})
-		}
-	}
+	servers = append(servers, acpGatewayServers(p.cfg.ToolGatewayURL, p.cfg.MCPServers)...)
 	return acpSessionParams{CWD: workDir, MCPServers: servers}
 }
 
@@ -73,5 +63,10 @@ func (p *openCodeProfile) IsQuestion(acp.ToolCallUpdate) bool { return false }
 
 // AdapterSignal reads nothing: OpenCode sends no retry or background-work signals.
 func (p *openCodeProfile) AdapterSignal(acpAdapterMessage) acpSignal { return acpSignal{} }
+
+// ToolView is the default: OpenCode's titles and rawOutput are what kora records.
+func (p *openCodeProfile) ToolView(c *acpToolCall, u acp.ToolCallUpdate) acpToolView {
+	return acpDefaultToolView(c, u)
+}
 
 var _ acpProfile = (*openCodeProfile)(nil)

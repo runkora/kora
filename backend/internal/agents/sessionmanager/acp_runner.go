@@ -154,6 +154,7 @@ func newACPRunner(cfg acpRunnerConfig) *acpRunner {
 		pending:     make(map[string]*acpPending),
 	}
 	r.tr = newACPTranslator(r.emit, cfg.Profile.ClassifyError)
+	r.tr.view = cfg.Profile.ToolView
 	go r.out.run()
 	return r
 }
@@ -305,6 +306,7 @@ func (r *acpRunner) openSession(ctx context.Context, workDir string) error {
 		}
 	}
 	steering, _ := init.Meta["steering"].(map[string]any)
+	r.tr.setRoot(string(sid))
 	r.mu.Lock()
 	r.sessionID = sid
 	r.canClose = agentCaps.SessionCapabilities.Close != nil
@@ -332,6 +334,9 @@ func (r *acpRunner) handle(ctx context.Context, method string, params json.RawMe
 		return nil, nil
 	case acpOversizedMethod:
 		return nil, acp.NewInvalidRequest(errACPRequestTooLarge.Error())
+	case acpSubagentMethod:
+		r.onSubagent(params)
+		return nil, nil
 	}
 	if strings.HasPrefix(method, "_") {
 		r.onAdapterMessage(acpAdapterMessage{Method: method, Params: params})
@@ -350,7 +355,25 @@ func (r *acpRunner) onUpdate(params json.RawMessage) {
 		r.onAdapterMessage(acpAdapterMessage{Method: acp.ClientMethodSessionUpdate, Params: params})
 		return
 	}
-	r.tr.handleUpdate(n.Update)
+	if !r.tr.handleSessionUpdate(n.Update, string(n.SessionId)) {
+		r.log.Debug(r.ctx, "ACP update from an unknown session dropped", r.fields(logging.Field{Key: "session_id", Value: string(n.SessionId)})...)
+	}
+}
+
+// onSubagent records a child session that a subagent_update announces. Only
+// codex-acp sends one.
+func (r *acpRunner) onSubagent(params json.RawMessage) {
+	var n struct {
+		Update struct {
+			SessionID   string `json:"sessionId"`
+			Description string `json:"description"`
+		} `json:"update"`
+	}
+	if json.Unmarshal(params, &n) != nil || n.Update.SessionID == "" {
+		return
+	}
+	view, result := codexSubagentView(n.Update.SessionID, n.Update.Description)
+	r.tr.subagent(n.Update.SessionID, view, result)
 }
 
 func (r *acpRunner) onAdapterMessage(msg acpAdapterMessage) {

@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile:1
 #
 # Session-manager image: Go binary + Node.js (required for the claude and opencode CLIs).
-# Codex (musl static binary) and OpenCode (npm) are installed here so all three frameworks
-# can run in the same container — framework selection stays a runtime concern.
+# Codex (musl static binary), its ACP adapter codex-acp (compiled with Bun) and OpenCode (npm)
+# are installed here so all three frameworks can run in the same container; framework
+# selection stays a runtime concern.
 
 # ── Build stage ───────────────────────────────────────────────────────────────
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308 AS builder
@@ -43,6 +44,30 @@ RUN mkdir -p /configs && \
         cp "$f" "/configs/$rel"; \
     done
 
+# ── codex-acp stage ───────────────────────────────────────────────────────────
+# codex-acp, the Codex ACP adapter, compiled from its pinned tag with Bun 1.4.4 or later
+# (a Bun 1.3.11 binary loses its environment under Landlock) and the target's Bun runtime
+# from the same pinned image. The autoload flags stop it loading a workspace bunfig.toml or .env.
+FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS bun-target
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS codex-acp
+ARG CODEX_ACP_VERSION=2.6.0
+ARG CODEX_ACP_COMMIT=f3208913693bd4d5171d6c6b9be5ec1ff96c6431
+ARG TARGETARCH
+RUN apk add --no-cache git=2.54.0-r0 nodejs=24.22.1-r1 npm=11.12.1-r0
+RUN git clone --depth 1 --branch "v${CODEX_ACP_VERSION}" https://github.com/agentclientprotocol/codex-acp.git /src && \
+    test "$(git -C /src rev-parse HEAD)" = "${CODEX_ACP_COMMIT}"
+WORKDIR /src
+# The bundled Codex binaries are skipped; the adapter runs the pinned codex through CODEX_PATH.
+RUN npm ci --omit=optional --ignore-scripts
+COPY --from=bun-target /usr/local/bin/bun /bun-target
+RUN case "$TARGETARCH" in \
+      amd64) target=bun-linux-x64-musl ;; \
+      arm64) target=bun-linux-arm64-musl ;; \
+      *) echo "Unsupported architecture: $TARGETARCH" >&2 && exit 1 ;; \
+    esac && \
+    bun build src/index.ts --minify --compile --no-compile-autoload-bunfig --no-compile-autoload-dotenv \
+      --target="$target" --compile-executable-path=/bun-target --outfile /codex-acp
+
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 # Node.js 24 alpine, the active LTS: required for the claude and opencode CLI subprocesses.
 FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85
@@ -76,7 +101,7 @@ COPY cmd/session-manager/agent-clis/claude-managed-settings.json /etc/claude-cod
 # Install the claude and opencode CLIs from the lockfile in cmd/session-manager/agent-clis,
 # so every build gets the same versions. Validate the opencode ACP protocol on upgrade.
 # kora-session-runner lets a run execute only its harness binary, kora-shell,
-# kora-runtime-mcp, their ELF interpreter and, for OpenCode, ripgrep.
+# kora-runtime-mcp, their ELF interpreter, ripgrep for OpenCode and codex for codex-acp.
 COPY cmd/session-manager/agent-clis/package.json cmd/session-manager/agent-clis/package-lock.json /usr/local/lib/agent-clis/
 RUN cd /usr/local/lib/agent-clis && \
     npm ci --omit=dev && \
@@ -105,6 +130,8 @@ RUN ARCH=$(uname -m) && \
     tar -xzf "/tmp/${tgz}" -C /tmp "package/vendor/${MUSL_ARCH}-unknown-linux-musl/bin/codex" && \
     install -m 0755 "/tmp/package/vendor/${MUSL_ARCH}-unknown-linux-musl/bin/codex" /usr/local/bin/codex && \
     rm -rf "/tmp/${tgz}" /tmp/package
+
+COPY --from=codex-acp /codex-acp /usr/local/bin/codex-acp
 
 # Non-root user: claude --dangerously-skip-permissions refuses to run as root.
 RUN addgroup -S kora && adduser -S kora -G kora

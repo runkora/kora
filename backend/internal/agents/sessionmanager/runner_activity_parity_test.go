@@ -206,8 +206,53 @@ func openCodeACPSubject() paritySubject {
 	}
 }
 
+// codexACPSubject is the Codex profile on the acpRunner, fed the shapes
+// codex-acp 2.6.0 sends (testdata/acp/codex): output in terminal_output_delta
+// and the exit code in terminal_exit.
+func codexACPSubject() paritySubject {
+	turn := func(t *testing.T, script func(a *fakeACPAgent, id json.RawMessage)) []Event {
+		a := newFakeACPAgent(t)
+		a.onRequest["session/prompt"] = func(a *fakeACPAgent, id, _ json.RawMessage) { script(a, id) }
+		r := startACP(t, a, testCodexProfile(), nil)
+		prompt(t, r, "go")
+		return eventsUntilStop(t, r)
+	}
+	toolTurn := func(t *testing.T, output string) []Event {
+		evs := turn(t, func(a *fakeACPAgent, id json.RawMessage) {
+			a.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": "t1", "kind": "execute", "title": "echo hi", "status": "in_progress",
+				"rawInput": map[string]string{"command": "echo hi", "cwd": "/w"}})
+			half := len(output) / 2
+			for _, part := range []string{output[:half], output[half:]} {
+				a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "t1",
+					"_meta": map[string]any{"terminal_output_delta": map[string]any{"data": part, "terminal_id": "t1"}}})
+			}
+			a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed",
+				"_meta": map[string]any{"terminal_exit": map[string]any{"exit_code": 0, "terminal_id": "t1"}}})
+			a.respond(id, map[string]any{"stopReason": "end_turn"})
+		})
+		return evs[:2]
+	}
+	return paritySubject{
+		name:      "codex-acp",
+		toolCall:  func(t *testing.T) []Event { return toolTurn(t, "hi") },
+		bigResult: func(t *testing.T, output string) []Event { return toolTurn(t, output) },
+		stop: func(t *testing.T) []Event {
+			return turn(t, func(a *fakeACPAgent, id json.RawMessage) {
+				a.text("Half")
+				a.respond(id, map[string]any{"stopReason": "cancelled"})
+			})
+		},
+		failedTurn: func(t *testing.T) []Event {
+			return turn(t, func(a *fakeACPAgent, id json.RawMessage) {
+				a.text("Half")
+				a.respondErr(id, -32603, "API Error: 500")
+			})
+		},
+	}
+}
+
 func TestRunnerParity_ActivityContract(t *testing.T) {
-	for _, sub := range []paritySubject{claudeSubject(), codexSubject(), openCodeSubject(), openCodeACPSubject()} {
+	for _, sub := range []paritySubject{claudeSubject(), codexSubject(), openCodeSubject(), openCodeACPSubject(), codexACPSubject()} {
 		t.Run(sub.name+"/tool call records its own arguments and its result", func(t *testing.T) {
 			evs := sub.toolCall(t)
 			if got := eventTypes(evs); !slices.Equal(got, []EventType{EventTypeToolUse, EventTypeToolResult}) {
