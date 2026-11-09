@@ -584,6 +584,30 @@ func TestHandleRedeliver(t *testing.T) {
 	}
 }
 
+// Replaying an event delivery needs events:read: the replay puts the event in a run.
+func TestHandleRedeliver_EventNeedsEventsRead(t *testing.T) {
+	c, deps, svc := newTestController(t)
+	mustEventTrigger(t, deps, eventReq("on-failure"))
+	if err := svc.HandleEvent(context.Background(), envelope(t, testTenant, "agents.run.failed.v1", 0, nil, nil)); err != nil {
+		t.Fatal(err)
+	}
+	id := deps.repo.deliveries[0].ID
+	redeliver := func() *httptest.ResponseRecorder {
+		return call(t, c.handleRedeliver, http.MethodPost, "/trigger-deliveries/"+id+"/redeliver", map[string]string{"id": id}, nil)
+	}
+	c.eval = &mockEvaluator{allow: false}
+	if w := redeliver(); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "events:read") {
+		t.Fatalf("without events:read: status = %d (%s), want 403 naming events:read", w.Code, w.Body.String())
+	}
+	if n := len(deps.repo.deliveries); n != 1 {
+		t.Errorf("deliveries = %d, want the refused replay to record nothing", n)
+	}
+	c.eval = &mockEvaluator{allow: true}
+	if w := redeliver(); w.Code != http.StatusAccepted {
+		t.Errorf("with events:read: status = %d (%s), want 202", w.Code, w.Body.String())
+	}
+}
+
 // A delivery that cannot be replayed is a 400 that says why, not a 500.
 func TestHandleRedeliver_NotRedeliverable(t *testing.T) {
 	c, deps, _ := newTestController(t)
@@ -1038,5 +1062,50 @@ func TestHandleUpdateTrigger_RevokeFailureHidesGrants(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "previous grant could not be revoked") || !strings.Contains(body, tr.ID) || strings.Contains(body, "grant-") {
 		t.Errorf("body = %s, want the fixed message and trigger id only", body)
+	}
+}
+
+// An event delivery's stored event is returned only to a caller holding events:read.
+func TestHandleListDeliveries_EventPayloadNeedsEventsRead(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	_, _ = deps.repo.InsertEventDelivery(context.Background(), &Delivery{
+		ID: "d-ev", TenantID: testTenant, Kind: KindEvent, EventID: "e-1", Status: StatusSkipped,
+		Payload: []byte(`{"koraprincipalname":"Ada"}`), PayloadExcerpt: `{"koraprincipalname":"Ada"}`,
+	})
+	list := func(c *Controller) Delivery {
+		body := decode[struct {
+			Deliveries []Delivery `json:"deliveries"`
+		}](t, call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries", nil, nil))
+		if len(body.Deliveries) != 1 {
+			t.Fatalf("deliveries = %d, want 1", len(body.Deliveries))
+		}
+		return body.Deliveries[0]
+	}
+	_ = deps.repo.InsertDeliveryKey(context.Background(), &DeliveryKey{DeliveryID: "d-ev", TenantID: testTenant, TriggerID: "t-1", Key: "Ada"})
+	_ = deps.repo.InsertDeliveryRun(context.Background(), &DeliveryRun{ID: "r-1", TenantID: testTenant, DeliveryID: "d-ev", TriggerID: "t-1",
+		Status: RunStatusFailed, Error: new("upstream said Ada")})
+	_ = deps.repo.InsertDeliveryRun(context.Background(), &DeliveryRun{ID: "r-2", TenantID: testTenant, DeliveryID: "d-ev", TriggerID: "t-2",
+		Status: RunStatusFiltered, Error: new(reasonChainDepth)})
+	d := list(c)
+	if d.Payload != nil || d.PayloadExcerpt != "" || d.EventID != "e-1" || len(d.CoalesceKeys) != 0 {
+		t.Errorf("without events:read: %+v, want the delivery without its event", d)
+	}
+	if len(d.Runs) != 2 {
+		t.Fatalf("runs = %d, want both outcomes listed", len(d.Runs))
+	}
+	for _, run := range d.Runs {
+		if run.Status == RunStatusFailed && run.Error != nil {
+			t.Errorf("failed outcome kept its upstream error %q", *run.Error)
+		}
+		if run.Status == RunStatusFiltered && (run.Error == nil || *run.Error != reasonChainDepth) {
+			t.Errorf("filtered outcome lost its reason: %v", run.Error)
+		}
+	}
+	c.eval = &mockEvaluator{allow: true}
+	if d := list(c); len(d.Payload) == 0 || d.PayloadExcerpt == "" {
+		t.Errorf("with events:read: %+v, want the event", d)
+	}
+	if stored, _ := deps.repo.GetDelivery(context.Background(), testTenant, "d-ev"); len(stored.Payload) == 0 {
+		t.Error("the stored event must stay for redelivery")
 	}
 }

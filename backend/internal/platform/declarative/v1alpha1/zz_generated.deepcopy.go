@@ -825,6 +825,11 @@ func (in *TriggerSpec) DeepCopyInto(out *TriggerSpec) {
 		*out = new(Coalesce)
 		**out = **in
 	}
+	if in.IgnoreOwnRuns != nil {
+		in, out := &in.IgnoreOwnRuns, &out.IgnoreOwnRuns
+		*out = new(bool)
+		**out = **in
+	}
 	if in.Routing != nil {
 		in, out := &in.Routing, &out.Routing
 		*out = new(Routing)

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -46,4 +47,28 @@ func WithTransaction(ctx context.Context, db Beginner, fn TxFunc) error {
 		return fmt.Errorf("commit transaction: %w", err)
 	}
 	return nil
+}
+
+// WithSavepoint runs fn in a savepoint of the context transaction, releasing it
+// when fn returns nil and rolling back to it otherwise. Outside a transaction
+// it runs fn plainly. It writes the savepoint SQL itself: a pgx nested
+// transaction cannot roll back once its release has failed.
+func WithSavepoint(ctx context.Context, fn func(ctx context.Context) error) error {
+	tx, ok := TxFromContext(ctx)
+	if !ok {
+		return fn(ctx)
+	}
+	if _, err := tx.Exec(ctx, `SAVEPOINT kora_savepoint`); err != nil {
+		return fmt.Errorf("savepoint: %w", err)
+	}
+	err := fn(ctx)
+	if err == nil {
+		if _, err = tx.Exec(ctx, `RELEASE SAVEPOINT kora_savepoint`); err == nil {
+			return nil
+		}
+	}
+	if _, rbErr := tx.Exec(context.WithoutCancel(ctx), `ROLLBACK TO SAVEPOINT kora_savepoint`); rbErr != nil {
+		return errors.Join(err, fmt.Errorf("roll back savepoint: %w", rbErr))
+	}
+	return err
 }

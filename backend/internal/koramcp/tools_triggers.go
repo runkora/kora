@@ -149,14 +149,19 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers, agentTypes str
 			"prompt_template, e.g. {{ repository.full_name }}#{{ pull_request.number }}, and window_seconds (1 to 300) is how long the "+
 			"first event waits. Events with the same rendered key inside the window start one run from the newest payload; "+
 			"coalesce needs overflow wait, which is the webhook default. "+
-			"A webhook trigger with target_kind routed has no agent_type_id: routing.candidates lists 1 to 20 agent type ids, "+
+			"A webhook or event trigger with target_kind routed has no agent_type_id: routing.candidates lists 1 to 20 agent type ids, "+
 			"routing.model names a decision model (e.g. liquid/d1), and "+product+" picks the agent or an open run for each event; "+
 			"the caller must be able to run every candidate and hold inference:invoke and the model's use scope. "+
 			"scheduled: fires on a cron schedule; schedule_config (cron_expression, timezone, catch_up) is required and "+
 			"source_id and event_type are not used. Check it with triggers.schedule_preview first. "+
 			"manual: fires when someone runs it; source_id and event_type are not used, and manual_config.inputs declares the "+
 			"values the caller supplies, which fill {{ var.key }} placeholders in prompt_template (e.g. {{ var.ticket }} for an "+
-			"input named ticket). Call agents.list for agent ids.",
+			"input named ticket). "+
+			"event: fires on a platform event of event_type, e.g. agents.run.failed.v1, in this tenant; source_id is not used. "+
+			"match_condition and match_contains read dotted paths in the event, e.g. data.entity.state or koraagent, and the "+
+			"prompt gets the whole event in an untrusted data block. ignore_own_runs, on by default, skips events about runs "+
+			"this trigger started or messaged, and no event trigger fires 5 or more steps down a chain of trigger-caused events. "+
+			"Call agents.list for agent ids.",
 		map[string][]any{"kind": triggerKinds},
 		func(ctx context.Context, a createTriggerArgs) (*sdk.CallToolResult, error) {
 			if err := validateCreateTrigger(&a); err != nil {
@@ -298,6 +303,9 @@ func updateTriggerBody(a updateTriggerArgs) map[string]any {
 	if a.MaxParallel != nil {
 		body["max_parallel"] = *a.MaxParallel
 	}
+	if a.IgnoreOwnRuns != nil {
+		body["ignore_own_runs"] = *a.IgnoreOwnRuns
+	}
 	return body
 }
 
@@ -318,8 +326,12 @@ func validateCreateTrigger(a *createTriggerArgs) error {
 			return errors.New("schedule_config is required for a scheduled trigger")
 		}
 	case triggerKindManual:
+	case triggerKindEvent:
+		if a.EventType == "" {
+			return errors.New("event_type is required for an event trigger")
+		}
 	default:
-		return fmt.Errorf("kind must be one of webhook, scheduled or manual, got %q", a.Kind)
+		return fmt.Errorf("kind must be one of webhook, scheduled, manual or event, got %q", a.Kind)
 	}
 	return nil
 }
@@ -330,9 +342,10 @@ const (
 	triggerKindWebhook   = "webhook"
 	triggerKindScheduled = "scheduled"
 	triggerKindManual    = "manual"
+	triggerKindEvent     = "event"
 )
 
-var triggerKinds = []any{triggerKindWebhook, triggerKindScheduled, triggerKindManual}
+var triggerKinds = []any{triggerKindWebhook, triggerKindScheduled, triggerKindManual, triggerKindEvent}
 
 type triggerIDArgs struct {
 	ID string `json:"id" jsonschema:"the id"`
@@ -351,22 +364,23 @@ type updateSourceArgs struct {
 }
 
 type createTriggerArgs struct {
-	Kind              string              `json:"kind,omitempty" jsonschema:"what fires the trigger: webhook (default), scheduled or manual"`
+	Kind              string              `json:"kind,omitempty" jsonschema:"what fires the trigger: webhook (default), scheduled, manual or event"`
 	SourceID          string              `json:"source_id,omitempty" jsonschema:"the webhook source id this trigger listens on (webhook triggers only)"`
 	Name              string              `json:"name" jsonschema:"the trigger name"`
 	AgentTypeID       string              `json:"agent_type_id,omitempty" jsonschema:"target agent type id (or use agent_slug)"`
 	AgentSlug         string              `json:"agent_slug,omitempty" jsonschema:"target agent slug (or use agent_type_id)"`
-	EventType         string              `json:"event_type,omitempty" jsonschema:"the provider event type to fire on (e.g. issue_comment); see triggers.providers.event_types (webhook triggers only)"`
+	EventType         string              `json:"event_type,omitempty" jsonschema:"the provider event type to fire on (e.g. issue_comment, see triggers.providers.event_types), or the platform event type of an event trigger (e.g. agents.run.failed.v1)"`
 	MatchCondition    map[string][]string `json:"match_condition,omitempty" jsonschema:"optional filter: field path (e.g. action) to allowed values; a delivery must match every entry"`
 	MatchContains     map[string][]string `json:"match_contains,omitempty" jsonschema:"optional filter: field path to substrings; the field must contain one of them, ignoring case"`
 	PromptTemplate    string              `json:"prompt_template,omitempty" jsonschema:"the prompt the run starts with; {{ path }} placeholders name delivery fields (e.g. {{ comment.body }}), whose values follow in an untrusted data block; a manual trigger's inputs fill {{ var.key }} placeholders"`
 	SenderRestriction *senderRestriction  `json:"sender_restriction,omitempty" jsonschema:"optional: only these senders can fire it; a sender passes when its id or any of its roles is listed"`
-	Coalesce          *coalesceConfig     `json:"coalesce,omitempty" jsonschema:"optional: start one run for a burst of events with the same rendered key (webhook triggers only)"`
-	TargetKind        string              `json:"target_kind,omitempty" jsonschema:"agent (default) starts agent_type_id; routed chooses among routing.candidates for each event (webhook triggers only)"`
+	Coalesce          *coalesceConfig     `json:"coalesce,omitempty" jsonschema:"optional: start one run for a burst of events with the same rendered key (webhook and event triggers only)"`
+	TargetKind        string              `json:"target_kind,omitempty" jsonschema:"agent (default) starts agent_type_id; routed chooses among routing.candidates for each event (webhook and event triggers only)"`
 	Routing           *routingConfig      `json:"routing,omitempty" jsonschema:"the candidates and settings of a routed trigger; required when target_kind is routed"`
 	ScheduleConfig    *scheduleConfig     `json:"schedule_config,omitempty" jsonschema:"the cron schedule (scheduled triggers only; required for them)"`
 	ManualConfig      *manualConfig       `json:"manual_config,omitempty" jsonschema:"the inputs the caller supplies when firing (manual triggers only)"`
 	MaxParallel       *int                `json:"max_parallel,omitempty" jsonschema:"most runs of this trigger in flight at once; omitted, the platform default of 4"`
+	IgnoreOwnRuns     *bool               `json:"ignore_own_runs,omitempty" jsonschema:"skip events about runs this trigger started or messaged; on by default (event triggers only)"`
 }
 
 type updateTriggerArgs struct {
@@ -383,6 +397,7 @@ type updateTriggerArgs struct {
 	ManualConfig      *manualConfig       `json:"manual_config,omitempty" jsonschema:"replaces a manual trigger's inputs"`
 	Enabled           *bool               `json:"enabled,omitempty" jsonschema:"enable or disable the trigger"`
 	MaxParallel       *int                `json:"max_parallel,omitempty" jsonschema:"new cap on runs of this trigger in flight at once"`
+	IgnoreOwnRuns     *bool               `json:"ignore_own_runs,omitempty" jsonschema:"skip events about runs this trigger started or messaged (event triggers only)"`
 }
 
 type coalesceConfig struct {

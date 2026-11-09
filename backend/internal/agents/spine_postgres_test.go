@@ -220,6 +220,37 @@ func TestPostgres_TriggerMessageExtendsTheChain(t *testing.T) {
 	}
 }
 
+// A run and a message from an agent's run carry its triggers in, union first-seen, and keep the highest depth.
+func TestPostgres_AgentInheritedChain(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+	cause := uuid.NewString()
+	run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, StartedBy: &StartedByTrigger{TriggerID: "trg-a"}, CausedBy: cause, ChainDepth: 2, TriggerIDs: []string{"trg-a", "trg-b"}}
+	if err := r.CreateRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := r.GetRun(ctx, run.ID); !slices.Equal(got.TriggerIDs, []string{"trg-a", "trg-b"}) {
+		t.Errorf("created triggers = %v, want [trg-a trg-b]", got.TriggerIDs)
+	}
+	for _, m := range []RunMessage{
+		{RunID: run.ID, Content: "from an agent", ChainDepth: 4, Triggers: []string{"trg-c", "trg-a"}},
+		{RunID: run.ID, Content: "from a shallower agent", ChainDepth: 1, Triggers: []string{"trg-d"}},
+	} {
+		if err := r.AppendRunMessage(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _ := r.GetRun(ctx, run.ID)
+	if got.CausedBy != cause || got.ChainDepth != 4 || !slices.Equal(got.TriggerIDs, []string{"trg-a", "trg-b", "trg-c", "trg-d"}) {
+		t.Errorf("chain = %s %d %v, want %s 4 [trg-a trg-b trg-c trg-d]", got.CausedBy, got.ChainDepth, got.TriggerIDs, cause)
+	}
+	envs := runEvents(recorded(t, r, tenant))
+	if last := envs[len(envs)-1]; last.ChainDepth != 4 || len(last.Triggers) != 4 {
+		t.Errorf("last message event chain = %d %v", last.ChainDepth, last.Triggers)
+	}
+}
+
 // An ended or terminated run cannot move back to a live state.
 func TestPostgres_EndedRunKeepsItsState(t *testing.T) {
 	r, tenant := testRunRepo(t)

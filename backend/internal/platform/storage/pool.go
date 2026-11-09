@@ -44,7 +44,8 @@ func (p *Pool) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	return p.pool.QueryRow(ctx, sql, args...)
 }
 
-// Begin opens a transaction, or a savepoint on the context transaction.
+// Begin opens a transaction, or a savepoint on the context transaction. A
+// savepoint whose release fails cannot be rolled back: use WithSavepoint.
 func (p *Pool) Begin(ctx context.Context) (pgx.Tx, error) {
 	if tx, ok := TxFromContext(ctx); ok {
 		return tx.Begin(ctx)

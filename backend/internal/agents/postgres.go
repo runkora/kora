@@ -334,13 +334,13 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 	// Trigger attribution is written at insert and never updated: it records why
 	// the run exists, which cannot change after it starts.
 	var triggerID, triggerName, deliveryID *string
-	triggerIDs := []string{}
+	triggerIDs := append([]string{}, run.TriggerIDs...)
 	if run.StartedBy != nil {
 		triggerID = storage.NullIfZero(run.StartedBy.TriggerID)
 		triggerName = storage.NullIfZero(run.StartedBy.TriggerName)
 		deliveryID = storage.NullIfZero(run.StartedBy.DeliveryID)
-		if run.StartedBy.TriggerID != "" {
-			triggerIDs = append(triggerIDs, run.StartedBy.TriggerID)
+		if id := run.StartedBy.TriggerID; id != "" && !slices.Contains(triggerIDs, id) {
+			triggerIDs = append(triggerIDs, id)
 		}
 	}
 	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
@@ -880,8 +880,9 @@ func (r *PostgresRepository) ListRunEvents(ctx context.Context, runID string, af
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 
-// AppendRunMessage records a message and its agents.run.message_received event. A trigger's
-// message adds the trigger to the run and keeps the cause with the highest chain depth.
+// AppendRunMessage records a message and its agents.run.message_received event. A
+// message with a chain adds its triggers to the run and keeps the cause with the
+// highest chain depth.
 func (r *PostgresRepository) AppendRunMessage(ctx context.Context, m RunMessage) error {
 	if m.ID == "" {
 		m.ID = uuid.NewString()
@@ -895,14 +896,21 @@ func (r *PostgresRepository) AppendRunMessage(ctx context.Context, m RunMessage)
 		if err != nil {
 			return fmt.Errorf("insert run_message: %w", err)
 		}
+		triggers := append([]string{}, m.Triggers...)
 		if m.From != nil {
+			triggers = append(triggers, m.From.TriggerID)
+		}
+		if m.From != nil || len(triggers) > 0 || m.ChainDepth > 0 {
+			// The union keeps the run's triggers first, in the order they joined.
 			_, err = r.pool.Exec(ctx, `
 				UPDATE runs SET
-				    trigger_ids = CASE WHEN $2 = '' OR $2 = ANY(trigger_ids) THEN trigger_ids ELSE array_append(trigger_ids, $2) END,
+				    trigger_ids = ARRAY(
+				        SELECT t FROM unnest(trigger_ids || $2::text[]) WITH ORDINALITY AS u(t, n)
+				        WHERE t <> '' GROUP BY t ORDER BY min(n)),
 				    caused_by   = CASE WHEN $3::uuid IS NOT NULL AND $4 >= chain_depth THEN $3::uuid ELSE caused_by END,
 				    chain_depth = GREATEST(chain_depth, $4)
 				WHERE id = $1`,
-				m.RunID, m.From.TriggerID, storage.NullIfZero(m.CausedBy), m.ChainDepth)
+				m.RunID, triggers, storage.NullIfZero(m.CausedBy), m.ChainDepth)
 			if err != nil {
 				return fmt.Errorf("record message trigger: %w", err)
 			}

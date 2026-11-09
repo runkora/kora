@@ -157,7 +157,7 @@ func TestRedeliver_Webhook_ReplaysAgainstCurrentTriggers(t *testing.T) {
 	// the usual reason someone replays a delivery.
 	trig := mustWebhookTrigger(t, deps.triggers, src.ID, "added-later", true)
 
-	resp, err := svc.Redeliver(context.Background(), testTenant, original.ID, "user:1")
+	resp, err := svc.Redeliver(context.Background(), testTenant, original.ID, "user:1", true)
 	if err != nil {
 		t.Fatalf("Redeliver: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestRedeliver_Manual_ReusesOriginalVariables(t *testing.T) {
 	}
 	drainPending(t, svc, deps.repo)
 
-	resp, err := svc.Redeliver(context.Background(), testTenant, fired.DeliveryID, "user:2")
+	resp, err := svc.Redeliver(context.Background(), testTenant, fired.DeliveryID, "user:2", true)
 	if err != nil {
 		t.Fatalf("Redeliver: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestRedeliver_Manual_RevalidatesAgainstCurrentInputs(t *testing.T) {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 
-	_, err = svc.Redeliver(context.Background(), testTenant, fired.DeliveryID, "user:2")
+	_, err = svc.Redeliver(context.Background(), testTenant, fired.DeliveryID, "user:2", true)
 	if !errors.Is(err, ErrValidationFailed) {
 		t.Fatalf("err = %v, want an input validation failure", err)
 	}
@@ -263,7 +263,7 @@ func TestRedeliver_Manual_AutoPausedRecordsPaused(t *testing.T) {
 		t.Fatalf("AutoPause: %v", err)
 	}
 
-	resp, err := svc.Redeliver(context.Background(), testTenant, fired.DeliveryID, "user:2")
+	resp, err := svc.Redeliver(context.Background(), testTenant, fired.DeliveryID, "user:2", true)
 	if err != nil {
 		t.Fatalf("Redeliver: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestRedeliver_Manual_AutoPausedRecordsPaused(t *testing.T) {
 func TestRedeliver_Refusals(t *testing.T) {
 	t.Run("unknown delivery", func(t *testing.T) {
 		svc, _ := newTestService(t)
-		if _, err := svc.Redeliver(context.Background(), testTenant, "nope", "user:1"); !errors.Is(err, ErrDeliveryNotFound) {
+		if _, err := svc.Redeliver(context.Background(), testTenant, "nope", "user:1", true); !errors.Is(err, ErrDeliveryNotFound) {
 			t.Errorf("err = %v, want ErrDeliveryNotFound", err)
 		}
 	})
@@ -286,7 +286,7 @@ func TestRedeliver_Refusals(t *testing.T) {
 		_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
 			ID: "other", TenantID: "t-2", Kind: KindManual, Status: StatusDispatched,
 		})
-		if _, err := svc.Redeliver(context.Background(), testTenant, "other", "user:1"); !errors.Is(err, ErrDeliveryNotFound) {
+		if _, err := svc.Redeliver(context.Background(), testTenant, "other", "user:1", true); !errors.Is(err, ErrDeliveryNotFound) {
 			t.Errorf("err = %v, want ErrDeliveryNotFound", err)
 		}
 	})
@@ -299,7 +299,7 @@ func TestRedeliver_Refusals(t *testing.T) {
 			ID: "tick", TenantID: testTenant, TriggerID: &tid, Kind: KindScheduled,
 			Status: StatusDispatched, ScheduledAt: &at,
 		})
-		if _, err := svc.Redeliver(context.Background(), testTenant, "tick", "user:1"); !errors.Is(err, ErrNotRedeliverable) {
+		if _, err := svc.Redeliver(context.Background(), testTenant, "tick", "user:1", true); !errors.Is(err, ErrNotRedeliverable) {
 			t.Errorf("err = %v, want ErrNotRedeliverable", err)
 		}
 	})
@@ -316,7 +316,7 @@ func TestRedeliver_Refusals(t *testing.T) {
 		if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, trig.ID, nil, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
 			t.Fatalf("UpdateTrigger: %v", err)
 		}
-		if _, err := svc.Redeliver(context.Background(), testTenant, fired.DeliveryID, "user:2"); !errors.Is(err, ErrNotRedeliverable) {
+		if _, err := svc.Redeliver(context.Background(), testTenant, fired.DeliveryID, "user:2", true); !errors.Is(err, ErrNotRedeliverable) {
 			t.Errorf("err = %v, want ErrNotRedeliverable", err)
 		}
 		_ = deps
@@ -329,7 +329,7 @@ func TestRedeliver_Refusals(t *testing.T) {
 			ID: "purged", TenantID: testTenant, SourceID: src.ID, Kind: KindWebhook,
 			ProviderDeliveryID: "gh-1", Status: StatusDispatched, PayloadPurged: true,
 		})
-		if _, err := svc.Redeliver(context.Background(), testTenant, "purged", "user:1"); !errors.Is(err, ErrNotRedeliverable) {
+		if _, err := svc.Redeliver(context.Background(), testTenant, "purged", "user:1", true); !errors.Is(err, ErrNotRedeliverable) {
 			t.Errorf("err = %v, want ErrNotRedeliverable", err)
 		}
 	})
@@ -629,11 +629,11 @@ func TestRedeliver_IsBoundedPerOriginal(t *testing.T) {
 	original := deps.repo.lastDelivery()
 
 	for i := range maxRedeliveriesPerOriginal {
-		if _, err := svc.Redeliver(context.Background(), testTenant, original.ID, "user:1"); err != nil {
+		if _, err := svc.Redeliver(context.Background(), testTenant, original.ID, "user:1", true); err != nil {
 			t.Fatalf("replay %d: %v", i, err)
 		}
 	}
-	if _, err := svc.Redeliver(context.Background(), testTenant, original.ID, "user:1"); !errors.Is(err, ErrNotRedeliverable) {
+	if _, err := svc.Redeliver(context.Background(), testTenant, original.ID, "user:1", true); !errors.Is(err, ErrNotRedeliverable) {
 		t.Errorf("replay past the limit = %v, want ErrNotRedeliverable", err)
 	}
 }
@@ -653,7 +653,7 @@ func TestRedeliver_BudgetCountsAgainstLineageRoot(t *testing.T) {
 
 	// The first replay produces a child, which must be pinned to the root, not
 	// to itself.
-	resp, err := svc.Redeliver(ctx, testTenant, original.ID, "user:1")
+	resp, err := svc.Redeliver(ctx, testTenant, original.ID, "user:1", true)
 	if err != nil {
 		t.Fatalf("first replay: %v", err)
 	}
@@ -667,14 +667,14 @@ func TestRedeliver_BudgetCountsAgainstLineageRoot(t *testing.T) {
 
 	// Exhaust the rest of the budget against the original.
 	for i := 1; i < maxRedeliveriesPerOriginal; i++ {
-		if _, err := svc.Redeliver(ctx, testTenant, original.ID, "user:1"); err != nil {
+		if _, err := svc.Redeliver(ctx, testTenant, original.ID, "user:1", true); err != nil {
 			t.Fatalf("replay %d: %v", i, err)
 		}
 	}
 
 	// Replaying the child (a replay) must still be refused: it shares the root's
 	// budget rather than starting a fresh chain with a count of zero.
-	if _, err := svc.Redeliver(ctx, testTenant, child.ID, "user:1"); !errors.Is(err, ErrNotRedeliverable) {
+	if _, err := svc.Redeliver(ctx, testTenant, child.ID, "user:1", true); !errors.Is(err, ErrNotRedeliverable) {
 		t.Errorf("replaying a replay must count against the root, got %v", err)
 	}
 }
@@ -696,7 +696,7 @@ func TestRedeliver_RefusesAPayloadOlderThanTheCurrentSecret(t *testing.T) {
 		t.Fatalf("rotate: %v", err)
 	}
 
-	if _, err := svc.Redeliver(context.Background(), testTenant, original.ID, "user:1"); !errors.Is(err, ErrNotRedeliverable) {
+	if _, err := svc.Redeliver(context.Background(), testTenant, original.ID, "user:1", true); !errors.Is(err, ErrNotRedeliverable) {
 		t.Errorf("replay after rotation = %v, want ErrNotRedeliverable", err)
 	}
 }
@@ -800,7 +800,7 @@ func TestRedeliver_NeedsRunAccess(t *testing.T) {
 				deps.agents.callerReadIDs()
 				before := len(deps.repo.allDeliveries())
 
-				_, err := svc.Redeliver(context.Background(), testTenant, originalID, "user:2")
+				_, err := svc.Redeliver(context.Background(), testTenant, originalID, "user:2", true)
 
 				if got := deps.agents.callerReadIDs(); !slices.Equal(got, []string{"at-1"}) {
 					t.Errorf("caller reads = %v, want one read of at-1", got)

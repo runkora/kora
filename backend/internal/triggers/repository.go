@@ -26,6 +26,15 @@ type Repository interface {
 	SafetyStore
 	RetentionStore
 	RoutingStore
+	EventCursorStore
+}
+
+// EventCursorStore is the event consumer's position in the event log.
+type EventCursorStore interface {
+	// EventCursor returns the seq of the last event the consumer handled, 0 for none.
+	EventCursor(ctx context.Context) (int64, error)
+	// AdvanceEventCursor moves the cursor to seq. It never moves it back.
+	AdvanceEventCursor(ctx context.Context, seq int64) error
 }
 
 // RoutingStore is the decision record of routed triggers. A routed trigger's
@@ -112,6 +121,9 @@ type TriggerStore interface {
 	// scheduler evaluates, across all tenants: enabled plus auto-paused, on the
 	// same reasoning as ListMatchableTriggersForSource.
 	ListMatchableScheduledTriggers(ctx context.Context) ([]Trigger, error)
+	// ListMatchableEventTriggers returns the tenant's event triggers on the
+	// event type, enabled plus auto-paused.
+	ListMatchableEventTriggers(ctx context.Context, tenantID, eventType string) ([]Trigger, error)
 	// UpdateTrigger persists the mutable fields of a trigger. writeEnablement
 	// gates the enabled / auto_paused_at columns: an edit that did not touch
 	// enablement (a rename, a filter change) passes false so it cannot write
@@ -150,6 +162,14 @@ type DeliveryStore interface {
 	// rather than an original arrival, and is never deduped against: recording
 	// the repeat is the entire point of writing it.
 	InsertDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
+	// InsertEventDelivery persists the delivery of a platform event. It returns
+	// false when an original delivery of the same event exists.
+	InsertEventDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
+	// InTransaction runs fn in one transaction that the repository calls in fn join.
+	InTransaction(ctx context.Context, fn func(ctx context.Context) error) error
+	// InSavepoint runs fn in a savepoint of the context transaction. A failed
+	// statement in fn, or an error from it, rolls back fn's work alone.
+	InSavepoint(ctx context.Context, fn func(ctx context.Context) error) error
 	UpdateDeliveryOutcome(ctx context.Context, id, status string, triggerID, runID, errMsg *string) error
 	// ListDeliveries returns one keyset page, newest first, and whether another
 	// follows.
