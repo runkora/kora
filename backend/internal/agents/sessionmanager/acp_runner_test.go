@@ -1045,3 +1045,25 @@ func TestACPRunner_LogStderr(t *testing.T) {
 		t.Errorf("the read error is not logged:\n%.300s", out)
 	}
 }
+
+// After a stderr line too long to scan, the rest of stderr is still read, so
+// the adapter never blocks on a full pipe.
+func TestACPRunner_LogStderrDrainsAfterScanError(t *testing.T) {
+	r := newACPRunner(testACPConfig(newFakeACPAgent(t), &fakeACPProfile{}))
+	pr, pw := io.Pipe()
+	go r.logStderr(pr)
+	wrote := make(chan error, 1)
+	go func() {
+		_, err := pw.Write([]byte(strings.Repeat("x", maxAgentLineBytes+1) + "\n" + strings.Repeat("y", 1<<20)))
+		wrote <- err
+	}()
+	select {
+	case err := <-wrote:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("stderr write blocked after the scan error")
+	}
+	_ = pw.Close()
+}

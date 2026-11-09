@@ -240,6 +240,8 @@ func (r *acpRunner) logStderr(stderr io.Reader) {
 	}
 	if err := sc.Err(); err != nil {
 		r.log.Error(r.ctx, "agent subprocess stderr scan error", r.fields(logging.Field{Key: "error", Value: err.Error()})...)
+		// Keep reading, or the adapter blocks once the pipe fills.
+		_, _ = io.Copy(io.Discard, stderr)
 	}
 }
 
