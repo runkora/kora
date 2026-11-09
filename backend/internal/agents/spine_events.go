@@ -1,7 +1,6 @@
 package agents
 
 import (
-	"bytes"
 	"encoding/json"
 	"slices"
 	"time"
@@ -282,29 +281,4 @@ func messageEvent(r Run, from *StartedByTrigger) events.Event {
 // sandboxDeletedEvent records the removal of run r's sandbox.
 func sandboxDeletedEvent(r Run) events.Event {
 	return sandboxEvent(events.SandboxDeleted, r, sandboxEntity{RunID: r.ID, Name: sandboxfolder.SandboxPodName(r.ID)})
-}
-
-// changedFields lists the top-level JSON fields that differ between two entities of one type.
-func changedFields(before, after any) []string {
-	b, a := jsonFields(before), jsonFields(after)
-	var out []string
-	for k, v := range a {
-		if !bytes.Equal(b[k], v) {
-			out = append(out, k)
-		}
-	}
-	for k := range b {
-		if _, ok := a[k]; !ok {
-			out = append(out, k)
-		}
-	}
-	slices.Sort(out)
-	return out
-}
-
-func jsonFields(v any) map[string]json.RawMessage {
-	raw, _ := json.Marshal(v)
-	out := map[string]json.RawMessage{}
-	_ = json.Unmarshal(raw, &out)
-	return out
 }

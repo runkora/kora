@@ -143,7 +143,7 @@ func (r *PostgresRepository) UpdateEnvironment(ctx context.Context, env Environm
 		if err != nil {
 			return err
 		}
-		changed := changedFields(newEnvironmentFields(*before), newEnvironmentFields(*after))
+		changed := events.Changed(newEnvironmentFields(*before), newEnvironmentFields(*after))
 		if len(changed) == 0 {
 			return nil
 		}

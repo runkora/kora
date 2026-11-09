@@ -12,9 +12,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/events"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // TenantBudget is the rollup spending cap for a tenant.
@@ -55,17 +56,18 @@ type Repository interface {
 
 // postgresRepository is the Postgres-backed implementation.
 type postgresRepository struct {
-	pool *pgxpool.Pool
+	pool *storage.Pool
 }
 
 // NewPostgresRepository creates a Repository backed by PostgreSQL.
-func NewPostgresRepository(pool *pgxpool.Pool) Repository {
+func NewPostgresRepository(pool *storage.Pool) Repository {
 	return &postgresRepository{pool: pool}
 }
 
 func (r *postgresRepository) Upsert(ctx context.Context, tb *TenantBudget) error {
 	tb.UpdatedAt = time.Now().UTC()
-	tag, err := r.pool.Exec(ctx, `
+	tb.Source = declarative.SourceAPI
+	return r.write(ctx, tb, `
 		INSERT INTO policy_tenant_budgets (tenant_id, limit_usd, reset_cadence, updated_at)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (tenant_id) DO UPDATE
@@ -73,20 +75,13 @@ func (r *postgresRepository) Upsert(ctx context.Context, tb *TenantBudget) error
 		    reset_cadence = EXCLUDED.reset_cadence,
 		    updated_at = EXCLUDED.updated_at
 		WHERE policy_tenant_budgets.source = 'api'
-	`, tb.TenantID, tb.LimitUSD, tb.ResetCadence, tb.UpdatedAt)
-	if err != nil {
-		return fmt.Errorf("upsert tenant budget: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return declarative.ErrManagedByResource
-	}
-	tb.Source = declarative.SourceAPI
-	return nil
+	`)
 }
 
 func (r *postgresRepository) UpsertDeclared(ctx context.Context, tb *TenantBudget) error {
 	tb.UpdatedAt = time.Now().UTC()
-	_, err := r.pool.Exec(ctx, `
+	tb.Source = declarative.SourceCRD
+	return r.write(ctx, tb, `
 		INSERT INTO policy_tenant_budgets (tenant_id, limit_usd, reset_cadence, updated_at, source)
 		VALUES ($1, $2, $3, $4, 'crd')
 		ON CONFLICT (tenant_id) DO UPDATE
@@ -94,17 +89,43 @@ func (r *postgresRepository) UpsertDeclared(ctx context.Context, tb *TenantBudge
 		    reset_cadence = EXCLUDED.reset_cadence,
 		    updated_at = EXCLUDED.updated_at,
 		    source = 'crd'
-	`, tb.TenantID, tb.LimitUSD, tb.ResetCadence, tb.UpdatedAt)
-	if err != nil {
-		return fmt.Errorf("upsert declared tenant budget: %w", err)
-	}
-	tb.Source = declarative.SourceCRD
-	return nil
+	`)
+}
+
+// write runs an upsert of tb and records it as created or updated. An upsert
+// that writes no row means a resource manages the budget.
+func (r *postgresRepository) write(ctx context.Context, tb *TenantBudget, upsert string) error {
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		// FOR UPDATE locks no row on a first write. The lock makes one of two concurrent first writes the creator.
+		if _, err := r.pool.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('policy_tenant_budgets/' || $1))`, tb.TenantID); err != nil {
+			return fmt.Errorf("lock tenant budget: %w", err)
+		}
+		before, err := scanBudget(r.pool.QueryRow(ctx,
+			`SELECT `+budgetColumns+` FROM policy_tenant_budgets WHERE tenant_id = $1 FOR UPDATE`, tb.TenantID))
+		if err != nil && !errors.Is(err, ErrTenantBudgetNotFound) {
+			return err
+		}
+		tag, err := r.pool.Exec(ctx, upsert, tb.TenantID, tb.LimitUSD, tb.ResetCadence, tb.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("upsert tenant budget: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return declarative.ErrManagedByResource
+		}
+		if before == nil {
+			return publish(ctx, r.pool, events.TenantBudgetCreated, tb, nil)
+		}
+		changed := events.Changed(newEntity(before), newEntity(tb))
+		if len(changed) == 0 {
+			return nil
+		}
+		return publish(ctx, r.pool, events.TenantBudgetUpdated, tb, changed)
+	})
 }
 
 func (r *postgresRepository) ListDeclared(ctx context.Context) ([]*TenantBudget, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT tenant_id, limit_usd, reset_cadence, updated_at, source
+		SELECT `+budgetColumns+`
 		FROM policy_tenant_budgets WHERE source = 'crd'
 	`)
 	if err != nil {
@@ -118,18 +139,37 @@ func (r *postgresRepository) ListDeclared(ctx context.Context) ([]*TenantBudget,
 }
 
 func (r *postgresRepository) DeleteDeclared(ctx context.Context, tenantID string) error {
-	if _, err := r.pool.Exec(ctx, `DELETE FROM policy_tenant_budgets WHERE tenant_id = $1 AND source = 'crd'`, tenantID); err != nil {
+	err := r.delete(ctx, `DELETE FROM policy_tenant_budgets WHERE tenant_id = $1 AND source = 'crd' RETURNING `+budgetColumns, tenantID)
+	if err != nil && !errors.Is(err, ErrTenantBudgetNotFound) {
 		return fmt.Errorf("delete declared tenant budget: %w", err)
 	}
 	return nil
 }
 
 func (r *postgresRepository) Get(ctx context.Context, tenantID string) (*TenantBudget, error) {
+	return scanBudget(r.pool.QueryRow(ctx, `SELECT `+budgetColumns+` FROM policy_tenant_budgets WHERE tenant_id = $1`, tenantID))
+}
+
+func (r *postgresRepository) Delete(ctx context.Context, tenantID string) error {
+	return r.delete(ctx, `DELETE FROM policy_tenant_budgets WHERE tenant_id = $1 AND source = 'api' RETURNING `+budgetColumns, tenantID)
+}
+
+// delete runs a DELETE that returns budgetColumns and records the deletion.
+func (r *postgresRepository) delete(ctx context.Context, sql, tenantID string) error {
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		deleted, err := scanBudget(r.pool.QueryRow(ctx, sql, tenantID))
+		if err != nil {
+			return err
+		}
+		return publish(ctx, r.pool, events.TenantBudgetDeleted, deleted, nil)
+	})
+}
+
+const budgetColumns = `tenant_id, limit_usd, reset_cadence, updated_at, source`
+
+func scanBudget(row pgx.Row) (*TenantBudget, error) {
 	var tb TenantBudget
-	err := r.pool.QueryRow(ctx, `
-		SELECT tenant_id, limit_usd, reset_cadence, updated_at, source
-		FROM policy_tenant_budgets WHERE tenant_id = $1
-	`, tenantID).Scan(&tb.TenantID, &tb.LimitUSD, &tb.ResetCadence, &tb.UpdatedAt, &tb.Source)
+	err := row.Scan(&tb.TenantID, &tb.LimitUSD, &tb.ResetCadence, &tb.UpdatedAt, &tb.Source)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrTenantBudgetNotFound
 	}
@@ -139,13 +179,19 @@ func (r *postgresRepository) Get(ctx context.Context, tenantID string) (*TenantB
 	return &tb, nil
 }
 
-func (r *postgresRepository) Delete(ctx context.Context, tenantID string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM policy_tenant_budgets WHERE tenant_id = $1 AND source = 'api'`, tenantID)
-	if err != nil {
-		return fmt.Errorf("delete tenant budget: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrTenantBudgetNotFound
-	}
-	return nil
+// entity is the tenant budget an event carries.
+type entity struct {
+	LimitUSD     float64 `json:"limit_usd"`
+	ResetCadence string  `json:"reset_cadence"`
+	Source       string  `json:"source"`
+}
+
+func newEntity(tb *TenantBudget) entity {
+	return entity{LimitUSD: tb.LimitUSD, ResetCadence: tb.ResetCadence, Source: tb.Source}
+}
+
+func publish(ctx context.Context, pool *storage.Pool, typ events.Type, tb *TenantBudget, changed []string) error {
+	return events.Publish(ctx, pool, events.Event{
+		Type: typ, Tenant: tb.TenantID, Subject: "tenant_budgets/" + tb.TenantID, Entity: newEntity(tb), Changed: changed,
+	})
 }

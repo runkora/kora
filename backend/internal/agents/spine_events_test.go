@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"slices"
@@ -103,10 +104,10 @@ func TestMessageEvent(t *testing.T) {
 func TestChangedFields(t *testing.T) {
 	before := newAgentFields(AgentType{Name: "Triage", Slug: "triage", GrantScopes: []string{"a"}, SystemPrompt: "old"})
 	after := newAgentFields(AgentType{Name: "Triage v2", Slug: "triage", GrantScopes: []string{"a", "b"}, SystemPrompt: "new"})
-	if got := changedFields(before, after); !slices.Equal(got, []string{"grant_scopes", "name", "system_prompt"}) {
+	if got := events.Changed(before, after); !slices.Equal(got, []string{"grant_scopes", "name", "system_prompt"}) {
 		t.Errorf("changed = %v", got)
 	}
-	if got := changedFields(before, before); len(got) != 0 {
+	if got := events.Changed(before, before); len(got) != 0 {
 		t.Errorf("unchanged entity reports %v", got)
 	}
 }
@@ -225,4 +226,12 @@ func TestTerminateRun_ClosesSessionOfPlacedRun(t *testing.T) {
 	if !slices.Equal(sm.closedSessions, []string{"placed"}) {
 		t.Errorf("closed sessions = %v, want [placed]", sm.closedSessions)
 	}
+}
+
+// jsonFields is the top-level JSON object of an event entity.
+func jsonFields(v any) map[string]json.RawMessage {
+	raw, _ := json.Marshal(v)
+	out := map[string]json.RawMessage{}
+	_ = json.Unmarshal(raw, &out)
+	return out
 }

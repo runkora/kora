@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/events"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // ─── PAT repository interface ─────────────────────────────────────────────────
@@ -41,11 +43,11 @@ type PATRepository interface {
 // ─── PostgreSQL implementation ────────────────────────────────────────────────
 
 type postgresPATRepository struct {
-	pool *pgxpool.Pool
+	pool *storage.Pool
 }
 
 // NewPostgresPATRepository creates a PATRepository backed by PostgreSQL.
-func NewPostgresPATRepository(pool *pgxpool.Pool) PATRepository {
+func NewPostgresPATRepository(pool *storage.Pool) PATRepository {
 	return &postgresPATRepository{pool: pool}
 }
 
@@ -54,27 +56,29 @@ func (r *postgresPATRepository) CreatePAT(ctx context.Context, pat *PAT, tokenHa
 	if err != nil {
 		return fmt.Errorf("marshal scopes: %w", err)
 	}
-	_, err = r.pool.Exec(ctx, `
-		INSERT INTO user_pat_tokens
-			(id, tenant_id, user_id, name, token_hash, jti, scopes, grant_id, expires_at, created_at)
-		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`,
-		pat.ID,
-		pat.TenantID,
-		pat.UserID,
-		pat.Name,
-		tokenHash,
-		pat.JTI,
-		scopesJSON,
-		pat.GrantID,
-		pat.ExpiresAt,
-		pat.CreatedAt,
-	)
-	if err != nil {
-		return fmt.Errorf("create PAT: %w", err)
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		_, err := r.pool.Exec(ctx, `
+			INSERT INTO user_pat_tokens
+				(id, tenant_id, user_id, name, token_hash, jti, scopes, grant_id, expires_at, created_at)
+			VALUES
+				($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`,
+			pat.ID,
+			pat.TenantID,
+			pat.UserID,
+			pat.Name,
+			tokenHash,
+			pat.JTI,
+			scopesJSON,
+			pat.GrantID,
+			pat.ExpiresAt,
+			pat.CreatedAt,
+		)
+		if err != nil {
+			return fmt.Errorf("create PAT: %w", err)
+		}
+		return events.Publish(ctx, r.pool, patEvent(events.PATCreated, pat, nil))
+	})
 }
 
 func (r *postgresPATRepository) ListByUser(ctx context.Context, tenantID, userID string) ([]PAT, error) {
@@ -173,38 +177,64 @@ func (r *postgresPATRepository) UpdateScopes(ctx context.Context, tenantID, user
 	if err != nil {
 		return fmt.Errorf("marshal scopes: %w", err)
 	}
-	tag, err := r.pool.Exec(ctx, `
-		UPDATE user_pat_tokens
-		SET    scopes   = $1,
-		       grant_id = $2
-		WHERE  id        = $3
-		  AND  tenant_id = $4
-		  AND  user_id   = $5
-		  AND  revoked_at IS NULL
-	`, scopesJSON, grantID, id, tenantID, userID)
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		before, err := r.lockLive(ctx, tenantID, userID, id)
+		if err != nil {
+			return err
+		}
+		if _, err := r.pool.Exec(ctx, `
+			UPDATE user_pat_tokens
+			SET    scopes   = $1,
+			       grant_id = $2
+			WHERE  id = $3
+		`, scopesJSON, grantID, id); err != nil {
+			return fmt.Errorf("update PAT scopes: %w", err)
+		}
+		after := *before
+		after.Scopes, after.GrantID = scopes, &grantID
+		changed := events.Changed(newPATEntity(before), newPATEntity(&after))
+		if len(changed) == 0 {
+			return nil
+		}
+		return events.Publish(ctx, r.pool, patEvent(events.PATUpdated, &after, changed))
+	})
+}
+
+// lockLive reads an unrevoked PAT of the user and locks it until the transaction ends.
+func (r *postgresPATRepository) lockLive(ctx context.Context, tenantID, userID, id string) (*PAT, error) {
+	var p PAT
+	var scopesJSON []byte
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, tenant_id, user_id, name, jti, scopes, grant_id, expires_at, created_at, revoked_at
+		FROM   user_pat_tokens
+		WHERE  id = $1 AND tenant_id = $2 AND user_id = $3 AND revoked_at IS NULL
+		FOR UPDATE
+	`, id, tenantID, userID).Scan(
+		&p.ID, &p.TenantID, &p.UserID, &p.Name,
+		&p.JTI, &scopesJSON, &p.GrantID, &p.ExpiresAt, &p.CreatedAt, &p.RevokedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrPATNotFound
+	}
 	if err != nil {
-		return fmt.Errorf("update PAT scopes: %w", err)
+		return nil, fmt.Errorf("lock PAT: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
-		return ErrPATNotFound
+	if err := json.Unmarshal(scopesJSON, &p.Scopes); err != nil {
+		return nil, fmt.Errorf("unmarshal scopes: %w", err)
 	}
-	return nil
+	return &p, nil
 }
 
 func (r *postgresPATRepository) Revoke(ctx context.Context, tenantID, userID, id string, revokedAt time.Time) error {
-	tag, err := r.pool.Exec(ctx, `
-		UPDATE user_pat_tokens
-		SET    revoked_at = $1
-		WHERE  id        = $2
-		  AND  tenant_id = $3
-		  AND  user_id   = $4
-		  AND  revoked_at IS NULL
-	`, revokedAt, id, tenantID, userID)
-	if err != nil {
-		return fmt.Errorf("revoke PAT: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrPATNotFound
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		pat, err := r.lockLive(ctx, tenantID, userID, id)
+		if err != nil {
+			return err
+		}
+		if _, err := r.pool.Exec(ctx, `UPDATE user_pat_tokens SET revoked_at = $1 WHERE id = $2`, revokedAt, id); err != nil {
+			return fmt.Errorf("revoke PAT: %w", err)
+		}
+		pat.RevokedAt = &revokedAt
+		return events.Publish(ctx, r.pool, patEvent(events.PATRevoked, pat, nil))
+	})
 }

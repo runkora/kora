@@ -183,6 +183,9 @@ type DeliveryStore interface {
 
 	// InsertDeliveryRun records one per-trigger outcome for a delivery.
 	InsertDeliveryRun(ctx context.Context, r *DeliveryRun) error
+	// RecordDispatchFailure records a failed or denied outcome, sets the
+	// delivery's reason and status, and publishes the event in one transaction.
+	RecordDispatchFailure(ctx context.Context, r *DeliveryRun, reason string) error
 	// ListDeliveryRunsForDeliveries returns the per-trigger dispatch records for
 	// the given delivery ids, scoped to the tenant, keyed by delivery id. Used to
 	// attach the full run fan-out to a delivery listing without an N+1 query.
