@@ -94,7 +94,7 @@ ACP replaces the transport and the parsers. Sandbox confinement, per-run config 
 - **Line filter:** `acp_conn.go` passes the adapter's stdout to the SDK through a filter. A line under 10 MiB passes unchanged. A longer line, up to the existing 32 MiB cap, has its large text fields (tool output content) truncated with a marker before the SDK reads it, and the session continues.
 - **Update handler:** The `session/update` handler only enqueues to the runner's event channel and never blocks on I/O.
 - **Dispatch:** `handleCreateSession` looks up the profile for `req.Framework`. An empty value still means `claude-code`, and an unknown value still returns the validation error. Until the final pull request of the stack, dispatch stays on the legacy runners.
-- **Client capabilities declared at `initialize`:** The runner turns `fs` and `terminal` off, turns form elicitation on and does not declare the subagent-session capability. The harness runs its own tools in-process under Landlock and `kora-shell` as today.
+- **Client capabilities declared at `initialize`:** The runner turns `fs` and `terminal` off, turns form elicitation on and declares `subagents` for adapters that support child sessions. The harness runs its own tools in-process under Landlock and `kora-shell` as today.
 - **Three-questions check:**
     - *What can it access?* Enforcement stays at Landlock, `kora-shell`, the identity proxy and the gateways. The agent's own permission prompt is never the control.
     - *How does it connect?* The same gateway URLs and run-token environment reach the harness through the same config files and environment.
@@ -154,10 +154,10 @@ ACP replaces the transport and the parsers. Sandbox confinement, per-run config 
 - **D1 Go ACP library:** `coder/acp-go-sdk` 0.13.5, pinned and wrapped by `acp_conn.go`. The line filter keeps a line over the SDK's 10 MiB limit from closing the session, and the non-blocking update handler keeps the notification queue from overflowing.
 - **D2 Claude adapter:** kora runs the upstream `claude-agent-acp` at a pinned version and does not fork it.
 - **D3 Mid-turn `Send`:** When `InitializeResponse._meta.steering.supported` is true, the runner sends a `_session/steering` request with `idleBehavior: "promptRequired"`. On the `promptRequired` outcome, and for adapters without steering, the message is queued and sent as the next prompt when the current one answers.
-- **D4 Adapter packaging:** Claude uses the pinned standalone `claude-agent-acp` binary with kora's pinned `claude`. Codex uses a `codex-acp` binary compiled with bun from the pinned source tag with kora's pinned `codex`. Each binary is pinned by version and hash. The image carries no Node, and the Landlock exec allow-list gains only the two adapter binaries.
-- **D5 Subagents:** Claude subagent tool calls nest through `tool_call._meta.claudeCode.parentToolUseId`. For Codex, the Codex pull request uses `codex-acp` native child sessions if they surface the child's tool calls with a link to the spawning call. Otherwise Codex runs show the spawn and wait calls without the child's tool calls. OpenCode subagent tool calls are not surfaced.
+- **D4 Adapter packaging:** Claude uses the pinned standalone `claude-agent-acp` binary with kora's pinned `claude`. Codex uses a `codex-acp` binary compiled with bun from the pinned source tag with kora's pinned `codex`. Each binary is pinned by version and hash, and `codex-acp` is compiled with Bun 1.4.4 or later. The image carries no Node. The Landlock exec allow-list gains the binary each adapter launches: `/usr/local/bin/codex` for `codex-acp` and kora's `claude` for `claude-agent-acp`.
+- **D5 Subagents:** Claude subagent tool calls nest through `tool_call._meta.claudeCode.parentToolUseId`. For Codex, the runner declares `clientCapabilities.subagents` at `initialize`. `codex-acp` announces each child session with a `subagent_update` on the root session and sends the child's tool calls on the child session. The runner nests the child's tool calls under a subagent item keyed by the child session id. The line filter reads `subagent_update` from the raw line, because `acp-go-sdk` 0.13.5 does not decode it. OpenCode subagent tool calls are not surfaced.
 - **D6 Rollout:** One stacked series migrates all three harnesses and ends with the dispatch switch and legacy deletion described in Option 4.
-- **D7 Permission prompts:** The runner keeps the auto-allow posture and answers every non-question `session/request_permission` with the allow option (`allow_always` if offered, else `allow_once`) and logs the tool and option. Claude runs in `bypassPermissions` mode, and `AskUserQuestion` stays in `claudeExcludedTools`.
+- **D7 Permission prompts:** The runner keeps the auto-allow posture and answers every non-question `session/request_permission` with the allow option (`allow_always` if offered, else `allow_once`) and logs the tool and option. Claude runs in `bypassPermissions` mode, and `AskUserQuestion` stays in `claudeExcludedTools`. Codex runs in `agent-full-access` mode, set with `session/set_config_option` after `session/new`, `session/resume` and `session/load`.
 - **D8 MCP configuration:** `session/new.mcpServers` is the only source of MCP servers for every harness. Each profile locks out workspace MCP config: `strictMcpConfig` for Claude, a kora-owned `CODEX_HOME` rewritten before every start for Codex, and `OPENCODE_DISABLE_PROJECT_CONFIG=1` for OpenCode.
 
 ### Rollout Order
@@ -186,14 +186,12 @@ The runner start log line carries the `framework` field as today. No new span at
 - An adapter process sits between kora and the Claude and Codex harnesses, with two binaries to pin, update and add to the image. The Claude adapter adds about 106 MB.
 - A line over 10 MiB from an adapter reaches kora with its tool output truncated.
 - Accepted signal losses:
-    - Codex HTTP 529 retries produce no `api_retry` event.
-    - Codex subagent tool calls are hidden unless native child sessions surface them (D5).
     - OpenCode emits no `api_retry`, steering, subagent or background-task signals. The legacy OpenCode runner emits none of them either.
 - Risks:
     - **R1 User-tier Claude settings:** `claude-agent-acp` reads the user settings tier in HOME regardless of `settingSources`. A user `defaultMode` sets the initial mode, and a user `disableBypassPermissionsMode` makes bypass fail. *Mitigation:* the Claude profile sets a kora-owned `CLAUDE_CONFIG_DIR` or managed settings, verified in the Claude pull request, and `Start` fails when bypass is refused.
     - **R2 Extension churn:** `_session/steering`, `_claude/sdkMessage`, `elicitation/create` and the SDK (0.x) can change between releases. *Mitigation:* capability-gate each extension, pin every adapter and SDK version, and bump behind the parity and replay tests.
-    - **R3 Supply chain:** Two adapter binaries and a bun toolchain enter the image build. *Mitigation:* pin by version and hash, and build `codex-acp` from a pinned source tag.
-    - **R4 Landlock allow-list:** `kora-session-runner` gains exec rights for the two adapter binaries. *Mitigation:* extend `runner_isolation_test.go` for both.
+    - **R3 Supply chain:** Two adapter binaries and a bun toolchain enter the image build. *Mitigation:* pin by version and hash, build `codex-acp` from a pinned source tag, and fetch the Bun runtime for the compile target by digest at build time.
+    - **R4 Landlock allow-list:** `kora-session-runner` gains exec rights for the harness binary each adapter launches. *Mitigation:* extend `runner_isolation_test.go` for both.
     - **R5 Mid-turn messages:** Strict ACP allows one prompt per session. Users of adapters without steering wait for the current turn before a mid-turn message runs (D3).
 
 ### Neutral
