@@ -2,6 +2,7 @@ package sessionmanager
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -340,5 +341,66 @@ func TestACPEvents_AdapterSignals(t *testing.T) {
 	}
 	if n := r.InFlightWork(); n != 2 {
 		t.Errorf("InFlightWork = %d", n)
+	}
+}
+
+// A profile's verdict decides how a turn ends: Complete finishes it whatever
+// the stop reason, Text replaces the reply, and Code and Message set the run_error.
+func TestACPEvents_TurnVerdict(t *testing.T) {
+	clean := "hi"
+	cases := map[string]struct {
+		verdict acpTurnVerdict
+		stop    string
+		want    []EventType
+		text    string
+		code    string
+		message string
+	}{
+		"complete":  {acpTurnVerdict{Complete: true}, "max_tokens", []EventType{EventTypeTextDelta, EventTypeMessageComplete, EventTypeMessageStop}, "hi warning", "", ""},
+		"text":      {acpTurnVerdict{Text: &clean}, "end_turn", []EventType{EventTypeTextDelta, EventTypeMessageComplete, EventTypeMessageStop}, "hi", "", ""},
+		"run error": {acpTurnVerdict{Code: "budget_exhausted", Message: "over budget"}, "end_turn", []EventType{EventTypeTextDelta, EventTypeMessageComplete, EventTypeRunError, EventTypeMessageStop}, "", "budget_exhausted", "over budget"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			prof := &fakeACPProfile{verdict: func(acpTurnEnd) acpTurnVerdict { return tc.verdict }}
+			evs := acpTurn(t, prof, func(a *fakeACPAgent) { a.text("hi warning") }, stop(tc.stop))
+			if got := typesOf(evs); !slices.Equal(got, tc.want) {
+				t.Fatalf("events = %v, want %v", got, tc.want)
+			}
+			last := evs[len(evs)-2]
+			switch last.Type {
+			case EventTypeMessageComplete:
+				if mc := payloadOf[MessageCompletePayload](t, last); mc.Text != tc.text {
+					t.Errorf("message_complete text = %q, want %q", mc.Text, tc.text)
+				}
+			case EventTypeRunError:
+				if re := payloadOf[RunErrorPayload](t, last); re.Code != tc.code || re.Message != tc.message {
+					t.Errorf("run_error = %+v", re)
+				}
+			}
+		})
+	}
+}
+
+// tool_use waits while the profile marks the input as streaming, and then
+// carries the full input.
+func TestACPEvents_StreamingInputWaits(t *testing.T) {
+	prof := &fakeACPProfile{view: func(c *acpToolCall, u acp.ToolCallUpdate) acpToolView {
+		v := acpDefaultToolView(c, u)
+		v.Streaming = u.Content == nil
+		return v
+	}}
+	evs := acpTurn(t, prof, func(a *fakeACPAgent) {
+		a.update(toolUpdate("tool_call", "c1", "", nil))
+		a.update(toolUpdate("tool_call_update", "c1", "", map[string]any{"rawInput": map[string]any{"command": "ma"}}))
+		a.update(toolUpdate("tool_call_update", "c1", "", map[string]any{
+			"rawInput": map[string]any{"command": "make"},
+			"content":  []map[string]any{{"type": "content", "content": map[string]string{"type": "text", "text": "running"}}},
+		}))
+		a.update(toolUpdate("tool_call_update", "c1", "completed", map[string]any{"rawOutput": map[string]any{"output": "ok"}}))
+	}, stop("end_turn"))
+	wantTypes(t, evs, EventTypeToolUse, EventTypeToolResult, EventTypeMessageComplete, EventTypeMessageStop)
+	if u := payloadOf[ToolUsePayload](t, evs[0]); !strings.Contains(string(u.Input), `"make"`) {
+		t.Errorf("tool_use input = %s, want the full command", u.Input)
 	}
 }
