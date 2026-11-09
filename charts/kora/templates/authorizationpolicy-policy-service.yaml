@@ -39,7 +39,9 @@ spec:
     - to:
         - operation:
             ports: ["8083"]
-            paths: ["/api/v1/policy/bundles/gateway"]
+            # The suffix match also covers a /run/{run_id} prefix, which the
+            # service strips (authorizationpolicy-run-prefix.yaml).
+            paths: ["/api/v1/policy/bundles/gateway", "*/api/v1/policy/bundles/gateway"]
       from:
         - source:
             notPrincipals:

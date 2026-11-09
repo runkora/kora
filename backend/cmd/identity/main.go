@@ -282,6 +282,9 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 		mw.MiddlewareChain(
 			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
+			// Rewrites /run/{run_id}/… to /… with the run in context, so an agent's
+			// call through the kora MCP carries its run (event spine ADR, section 7).
+			mw.NewMiddleware(mw.StripRunPrefix),
 		),
 		controllers...,
 	)

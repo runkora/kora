@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
@@ -62,11 +63,12 @@ func upstreamMessage(body string) string {
 	return payload.Message
 }
 
-// Caller is the identity a request is sent as: the caller's platform bearer and,
-// for a delegated run, its delegation token.
+// Caller is the identity a request is sent as: the caller's platform bearer,
+// for a delegated run its delegation token, and the run it acts for.
 type Caller struct {
 	Bearer     string
 	Delegation string
+	RunID      string
 }
 
 // Client forwards authenticated JSON requests to kora APIs.
@@ -117,6 +119,20 @@ func (c *Client) sendJSON(ctx context.Context, caller Caller, method, baseURL, p
 	})
 }
 
+// withRunPrefix sends req under /run/{runID}, the prefix the services read the
+// acting run from. The run stays a path parameter so the span keeps its template.
+func withRunPrefix(req httpclient.Request, runID string) httpclient.Request {
+	u, err := url.Parse(req.BaseURL)
+	if err != nil {
+		return req
+	}
+	req.Path = "/run/{run_id}" + strings.TrimSuffix(u.Path, "/") + req.Path
+	req.Params = append([]string{runID}, req.Params...)
+	u.Path, u.RawPath = "", ""
+	req.BaseURL = u.String()
+	return req
+}
+
 func (c *Client) send(ctx context.Context, caller Caller, req httpclient.Request) (json.RawMessage, error) {
 	if req.Header == nil {
 		req.Header = http.Header{}
@@ -126,6 +142,9 @@ func (c *Client) send(ctx context.Context, caller Caller, req httpclient.Request
 	}
 	if caller.Delegation != "" {
 		req.Header.Set(mw.DelegationTokenHeader, caller.Delegation)
+	}
+	if caller.RunID != "" {
+		req = withRunPrefix(req, caller.RunID)
 	}
 	// This is a JSON client: always ask for JSON. Lets content-negotiated routes
 	// (e.g. the agents run-events endpoint, which is SSE by default) serve us JSON.
