@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	acp "github.com/coder/acp-go-sdk"
+
+	"github.com/runkora/kora/backend/internal/platform/events"
 )
 
 // openCodeProfile runs `opencode acp` on the acpRunner. It shares the legacy
@@ -61,7 +63,7 @@ func (p *openCodeProfile) SessionParams(workDir string) acpSessionParams {
 // error, e.g. "Internal error: Forbidden: budget exceeded: ...".
 func (p *openCodeProfile) ClassifyError(turn acpTurnEnd) string {
 	if e := turn.RPCErr; e != nil && e.Code == acpInternalErrorCode && isBudgetExceededMessage(e.Message) {
-		return "budget_exhausted"
+		return events.RunErrorBudgetExhausted
 	}
 	return ""
 }
