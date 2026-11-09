@@ -77,7 +77,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.sandboxWarming.affinity | object | `{}` |  |
 | agents.sandboxWarming.mode | string | `"none"` | Warm-start strategy. `none` accepts cold starts. `capacity` runs a low-priority placeholder that holds a node open with the base image cached. Use `capacity` for a pool that scales to zero. |
 | agents.sandboxWarming.nodeSelector | object | `{}` |  |
-| agents.sandboxWarming.podAnnotations | object | `{}` | Applied to the `capacity` placeholder. It already carries the Karpenter and Cluster Autoscaler annotations that keep a held node from being scaled away. Set them here to override. |
+| agents.sandboxWarming.podAnnotations | object | `{}` | Applied to the `capacity` placeholder. kora sets no node autoscaler annotations. Set your autoscaler's here to keep a held node from being scaled away. |
 | agents.sandboxWarming.podLabels | object | `{}` | Applied to the `capacity` placeholder. kora's own selector labels win on a collision. |
 | agents.sandboxWarming.priority | int | `-10` | The placeholder's PriorityClass value. Stays below real pods at 0, or it competes with the sandbox it exists for instead of yielding to it. |
 | agents.sandboxWarming.replicas | int | `1` | `capacity` mode. Nodes held warm. Above one, placeholders repel each other by hostname so they land on separate nodes; set `affinity` with your own podAntiAffinity to replace that. |
