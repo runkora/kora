@@ -54,6 +54,10 @@ A delegated agent acts with the authority of the person who started the run. Mes
 
 Terminating a live run ends it as `terminated`, and a run that already ended keeps its state. A terminated run keeps its events and stays readable by its ID. It is left out of run lists and run statistics.
 
+## Run sources
+
+A run that a [trigger](../guides/create-a-trigger.md) started can carry links to what started it: the message or event itself, and the pull request, repository and branch the delivery names. The Runs table and the run view's top bar show them as small icon links with a text label. A run can have several sources, because a later delivery that joins the run adds its own. A run with no recorded sources, such as one a person started, shows none.
+
 ## When a run ends
 
 When a run ends, its [sandbox](sandboxes.md) and anything installed or cached inside it are deleted. If the agent stops unexpectedly, kora marks the run as `failed`.

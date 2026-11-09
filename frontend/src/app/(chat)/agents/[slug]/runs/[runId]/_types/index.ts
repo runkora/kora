@@ -1,3 +1,5 @@
+import type { RunSource } from '@runkora/shared/api';
+
 // ── Tool / run status enums ───────────────────────────────────────────────────
 
 /** `stopped` is a call still running when the user stopped the turn. */
@@ -175,6 +177,8 @@ export interface RunChatState {
   summary: string | null;
   /** Who started the run — BFF-resolved display name, or the raw principal id, or null until loaded. */
   startedBy: string | null;
+  /** Links to what started the run and what joined it; empty when none recorded. */
+  sources: RunSource[];
   /** True when the agent is delegated: the run acts on the starter's behalf and is private to them. */
   delegated: boolean;
   /** Whether the caller may message or stop this run. Null until known, which leaves it to the API. */

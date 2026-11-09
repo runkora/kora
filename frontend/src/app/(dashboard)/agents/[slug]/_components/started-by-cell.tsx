@@ -3,6 +3,7 @@
 /** @tier 3 — agents/[slug]-scoped. "Started by" cell shared by the Runs and Overview tables. */
 
 import { Badge, Icon, Stack, Text } from '@runkora/hades';
+import { RunSourceLinks } from '@runkora/components';
 import type { RunRow } from '../../_types';
 
 interface StartedByCellProps {
@@ -24,6 +25,7 @@ export function StartedByCell({ row }: StartedByCellProps) {
           {row.createdByName ?? row.createdBy}
         </Text>
       )}
+      <RunSourceLinks sources={row.sources} />
       {row.delegated && (
         <Badge variant="default" size="sm">
           Delegated

@@ -15,6 +15,7 @@ import type {
 } from '../_types';
 import { describeTool } from '../_lib/tool-activity';
 import { loadErrorMessage } from '@runkora/lib/load-error';
+import type { RunSource } from '@runkora/shared/api';
 
 // ── In-progress turn accumulator ─────────────────────────────────────────────
 
@@ -155,6 +156,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   // True when the agent is delegated: the run acts on the starter's behalf and
   // is private to them + tenant admins.
   const [delegated, setDelegated] = useState(false);
+  const [sources, setSources] = useState<RunSource[]>([]);
   const [traceUrl, setTraceUrl] = useState<string | null>(null);
   const [canSteer, setCanSteer] = useState<boolean | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -299,6 +301,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
             summary?: string | null;
             created_by?: string;
             created_by_name?: string | null;
+            sources?: RunSource[] | null;
           };
           agent_type?: {
             name?: string;
@@ -318,6 +321,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
           }
           if (body.data) {
             setStartedBy(body.data.created_by_name ?? body.data.created_by ?? null);
+            setSources(body.data.sources ?? []);
           }
           if (body.agent_type) {
             setAgentName(body.agent_type.name ?? 'Agent');
@@ -967,6 +971,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     model,
     summary,
     startedBy,
+    sources,
     delegated,
     canSteer,
     loadError,

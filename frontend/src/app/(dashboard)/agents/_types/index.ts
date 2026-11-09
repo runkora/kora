@@ -6,6 +6,7 @@
 import { isDeclared } from '@runkora/lib/declarative';
 import { FRAMEWORK_LABELS } from '@runkora/shared/agent-frameworks';
 import type {
+  RunSource,
   AgentEnvironment,
   AgentType,
   AgentBudget,
@@ -91,6 +92,8 @@ export interface RunRow {
     triggerName: string | null;
     deliveryId: string | null;
   } | null;
+  /** Links to what started the run; empty when none recorded. */
+  sources: RunSource[];
   /** True when the owning agent is delegated — the run acted on the starter's behalf and is private to them. */
   delegated: boolean;
   startedAt: string | null;
@@ -164,6 +167,7 @@ export function toRunRow(r: RunWithAttribution, agentTypeById: Map<string, Agent
           deliveryId: r.started_by.delivery_id ?? null,
         }
       : null,
+    sources: r.sources ?? [],
     delegated: (agent?.identityMode ?? r.identity_mode) === 'delegated',
     startedAt: r.started_at,
     completedAt: r.completed_at,

@@ -437,6 +437,13 @@ export interface AgentBudget {
   per_run_limit_usd?: number;
 }
 
+/** Where a run came from: a link to what a trigger delivery named. Mirrors Go: agents.RunSource */
+export interface RunSource {
+  kind: 'trigger' | 'pull_request' | 'repository' | 'branch';
+  url: string;
+  label: string;
+}
+
 /**
  * A single execution of an AgentType.
  * Mirrors Go: agents.Run
@@ -474,6 +481,8 @@ export interface Run {
     trigger_name?: string;
     delivery_id?: string;
   };
+  /** Links to what started the run and what later deliveries joined to it; empty when none recorded. */
+  sources?: RunSource[];
   /** The agent's identity model, slug and name, also set for a run whose agent was deleted. */
   identity_mode?: AgentIdentityMode;
   agent_slug?: string;

@@ -90,3 +90,7 @@ export { AuthCardShell } from './auth-card-shell';
 
 /** Markdown instructions in Hades text, and the line height its code blocks share with a Raw view. */
 export { CODE_LINE_HEIGHT, InstructionsMarkdown } from './instructions-markdown';
+
+/** Icon links to what started a run: trigger, pull request, repository, branch. */
+export { RunSourceLinks } from './run-source-links';
+export type { RunSourceLinksProps } from './run-source-links';
