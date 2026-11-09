@@ -134,6 +134,7 @@ type acpRunner struct {
 	inFlight  bool
 	queue     []string
 	closing   bool
+	gone      bool
 	pending   map[string]*acpPending
 }
 
@@ -374,7 +375,7 @@ func (r *acpRunner) onExit() {
 // run from the closed stream, or resumes the session after a user stop.
 func (r *acpRunner) exit() {
 	r.mu.Lock()
-	r.inFlight, r.queue = false, nil
+	r.inFlight, r.queue, r.gone = false, nil, true
 	r.mu.Unlock()
 	r.cancelPending()
 	r.out.close()
@@ -558,8 +559,12 @@ func (r *acpRunner) queueOrStart(text string) {
 	go r.runTurns(text)
 }
 
-// exited reports whether the adapter's connection has ended. Callers hold mu.
+// exited reports whether the adapter has exited. The event stream can close
+// before the connection reports done, so exit sets gone too. Callers hold mu.
 func (r *acpRunner) exited() bool {
+	if r.gone {
+		return true
+	}
 	select {
 	case <-r.conn.Done():
 		return true

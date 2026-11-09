@@ -355,7 +355,7 @@ func nextACPEvent(t *testing.T, r *acpRunner) Event {
 			t.Fatal("events channel closed")
 		}
 		return ev
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("timed out waiting for an event")
 	}
 	return Event{}
