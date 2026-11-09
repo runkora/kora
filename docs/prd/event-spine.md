@@ -127,6 +127,7 @@ None at this time.
 
 *   [ ] The kora MCP exposes tools to list events with the page's filters and to read a single event.
 *   [ ] The tools require the `events:read` permission and return only the agent's tenant's events.
+*   [ ] The kora MCP lists the event types and each type's fields and values, without the `events:read` permission.
 
 ### US-006: Run History Survives Termination
 
@@ -241,7 +242,7 @@ Retention from US-007 applies to events only. Run history follows the run's own 
 *   Recording every v1 event together with its change.
 *   The `event` trigger kind with both loop guards, across the API, UI and declarative resource.
 *   The Events page with live feed, filters and detail.
-*   The kora MCP tools `events.list` and `events.get`.
+*   The kora MCP tools `events.list`, `events.get` and `events.types`.
 *   The `events:read` permission.
 *   Retention set by the chart with per-tenant override.
 *   Keeping terminated runs and their history.

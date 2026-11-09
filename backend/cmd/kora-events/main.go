@@ -115,7 +115,7 @@ func realMain() error {
 	apiServer := api.NewAPI(ctx, logger)
 	apiServer.SetMetricsMiddleware(metrics.Middleware())
 	server := apiServer.Server(ctx, ec.Current.Server.Port, ec.Current.Server.BasePath,
-		mw.MiddlewareChain(mw.TracingMiddleware(), mw.LoggingMiddleware(logger)),
+		serverMiddleware(logger),
 		koraevents.NewController(store, hub, auth, blocklist, logger).WithSchemaBase(ec.Current.Schema.BaseURL),
 		koraevents.NewInternalController(store, hub, mw.AuthMiddlewareWithRevocation(verifier, blocklist, logger), blocklist, logger),
 	)
@@ -176,4 +176,10 @@ func startLoops(ctx context.Context, db *storage.DB, store *koraevents.Postgres,
 	tenants := declarative.NewRegistry(ec.Current.Kubernetes.TenantsPath)
 	go koraevents.NewRetention(store, tenants, ec.Current.Retention.DefaultDays, logger).Run(ctx)
 	return hub, nil
+}
+
+// serverMiddleware wraps every route. It rewrites /run/{run_id}/… to /… so the
+// kora MCP's calls on an agent's behalf reach the event routes (event spine ADR, section 7).
+func serverMiddleware(logger logging.Logger) mw.MiddlewareHandler {
+	return mw.MiddlewareChain(mw.TracingMiddleware(), mw.LoggingMiddleware(logger), mw.NewMiddleware(mw.StripRunPrefix))
 }

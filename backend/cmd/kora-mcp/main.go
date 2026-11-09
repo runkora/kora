@@ -76,6 +76,7 @@ func realMain() error {
 		Identity:    omc.Current.Backends.Identity,
 		Triggers:    omc.Current.Backends.Triggers,
 		ToolGateway: omc.Current.Backends.ToolGateway,
+		Events:      omc.Current.Backends.Events,
 	}, jc, b)
 
 	controller := mcpkit.NewController("/mcp", srv)

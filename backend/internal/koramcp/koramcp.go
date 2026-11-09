@@ -34,6 +34,7 @@ type Backends struct {
 	Identity    string
 	Triggers    string
 	ToolGateway string
+	Events      string
 }
 
 // productNamer is the one brand method the server calls.
@@ -123,6 +124,7 @@ var accessNouns = map[string]string{
 	"runs.":                    "runs",
 	"identity.":                "the user directory",
 	"pats.":                    "API keys",
+	"events.":                  "platform events",
 }
 
 // noAccess is the tool result for a platform 403: a plain sentence naming the

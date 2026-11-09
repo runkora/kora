@@ -330,7 +330,7 @@ The public event routes register `events:read` through `routescopes` and are enf
 *   Each fire goes through the existing admission, coalescing, routing and auto-pause.
 *   `StartRunRequest` and `SendRunMessageRequest` carry `caused_by` (the event id) and `chain_depth` (the event depth plus one). `kora-agents` stores the cause and the highest depth on the run. Every event about that run carries them as `koracausedby` and `korachaindepth`.
 *   A run that an agent starts or messages from the run it acts for joins that run's chain when that run is in one: its depth is above 0 or a trigger started or messaged it. A run outside a trigger chain passes no chain on, and its sub-agent runs stay at depth 0. `middleware.ActingRunID` reads the acting run from `run_id` in the token of a per-run sandbox identity, else from `run_id` in a delegation token, else from the `/run/{run_id}` path prefix. `kora-agents` checks that the run belongs to the calling agent in the same tenant. The target then gets the run's cause, its depth plus one and its triggers.
-*   The tool-gateway sends the acting run to every upstream MCP server in the `X-Kora-Run-Id` header. The kora MCP sends its calls to the platform services under `/run/{run_id}`. `kora-agents`, `kora-triggers`, `policy-service` and `identity` strip the prefix with `middleware.StripRunPrefix` and honor it only for an AGENT principal. A mesh `AuthorizationPolicy` on each of these services refuses a `/run/` path from every principal but `kora-mcp`.
+*   The tool-gateway sends the acting run to every upstream MCP server in the `X-Kora-Run-Id` header. The kora MCP sends its calls to the platform services under `/run/{run_id}`. `kora-agents`, `kora-triggers`, `policy-service`, `identity` and `kora-events` strip the prefix with `middleware.StripRunPrefix` and honor it only for an AGENT principal. A mesh `AuthorizationPolicy` on each of these services refuses a `/run/` path from every principal but `kora-mcp`.
 *   `Publish` stamps the acting run on an event as `koraactingrun`. When a trigger's filters match an AGENT event that has an acting run and no chain, the consumer reads the run's chain from `GET /internal/runs/{id}/chain` on `kora-agents`. That endpoint returns an empty chain for a run of another agent or tenant. The consumer writes the cause, depth and triggers onto the envelope before the loop guards run, and the event log keeps the envelope as published. An unavailable `kora-agents` leaves the event to be read again, and a refused read leaves the event out of the chain.
 *   An agent that calls a platform API directly without the run prefix has no acting run unless it runs in a per-run sandbox or under a delegation. Auto-pause and budgets bound such a loop.
 *   The prompt carries the event in `<delivery-data>` with the same escaping as webhook payloads (`backend/internal/triggers/template.go`).
@@ -370,6 +370,8 @@ These producers call `PublishOnce`. Its dedup lasts as long as the earlier event
 ### 12. kora MCP Tools
 
 `kora-mcp` gains `events.list` and `events.get` through the shared `korajson` client. Each tool requires `mcp:kora:events:list:use` or `mcp:kora:events:get:use`, and `kora-events` enforces `events:read` on the call ([Scope-Gated Tool Exposure via MCP](2026-03-05-scope-gated-tool-exposure-via-mcp.md)).
+
+`events.types` lists the event types, and with a `type` argument it returns that type's schema (section 14). It requires `mcp:kora:events:types:use` and no `events:read`.
 
 ### 13. Deployment
 
@@ -484,7 +486,7 @@ The work ships as one stack of nine pull requests:
 4.  **Event trigger kind:** the consumer, matching, both loop guards, the declarative `Trigger`, the API and the wizard.
 5.  **Event payload schema:** the payload structs, the schema endpoints, `dataschema`, trigger field checks and the wizard's schema fields.
 6.  **Run forwarding:** the acting run through the tool-gateway and the kora MCP, and the consumer's chain read.
-7.  **kora MCP tools:** `events.list` and `events.get`.
+7.  **kora MCP tools:** `events.list`, `events.get` and `events.types`.
 8.  **Hades:** DataTable `bodyState`, a server search box and an `xl` Modal.
 9.  **Events page:** a Storybook iteration first, then the page.
 

@@ -13,6 +13,7 @@ cmd/kora-mcp:
     identity: {{ include "kora.serviceURL" (dict "root" . "name" "kora-identity") | toJson }}
     triggers: {{ include "kora.serviceURL" (dict "root" . "name" "kora-triggers") | toJson }}
     toolGateway: {{ include "kora.serviceURL" (dict "root" . "name" "kora-tool-gateway") | toJson }}
+    events: {{ printf "%s:8099" (include "kora.serviceURL" (dict "root" . "name" "kora-events")) | toJson }}
 {{ include "kora.observabilityConfigModule" . }}
 {{ include "kora.brandConfigModule" . }}
 {{- end }}
