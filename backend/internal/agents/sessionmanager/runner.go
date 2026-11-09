@@ -168,3 +168,7 @@ func (t *turnText) wasTaken() bool {
 	defer t.mu.Unlock()
 	return t.taken
 }
+
+// ErrNoPendingRequest is returned by SendToolResult when the ACP agent has no
+// pending question or elicitation under that tool-use id.
+var ErrNoPendingRequest = errors.New("no pending request for tool use id")

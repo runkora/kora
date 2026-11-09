@@ -84,7 +84,7 @@ There is deliberately no exclusion for ruleguard's `used Run() with an empty rul
 
 | Rule name | Banned package(s) | Allowed in | ADR |
 |-----------|------------------|------------|-----|
-| `no-stdlib-log` | `log`, `log/slog` | `cmd/` only | [[dependency-injected-logging](../docs/adr/2026-02-17-dependency-injected-logging.md)] |
+| `no-stdlib-log` | `log`, `log/slog` | `cmd/` and `platform/logging/slog.go` only | [[dependency-injected-logging](../docs/adr/2026-02-17-dependency-injected-logging.md)] |
 | `no-otel-span-mgmt-in-service-clients` | `go.opentelemetry.io/otel/codes`, `.../otel/trace` | `httpclient/base.go` only | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
 | `no-database-sql` | `database/sql` | `platform/storage/` only | [[database-infrastructure-layer](../docs/adr/2026-03-03-database-infrastructure-layer.md)] |
 | `no-raw-viper` | `github.com/spf13/viper` | `platform/config/` only | [[yaml-file-based-configuration](../docs/adr/2026-02-18-yaml-file-based-configuration.md)] |
@@ -97,7 +97,7 @@ Import bans don't need AST inspection: the presence of the import path is the vi
 
 ### `no-stdlib-log`
 
-Stdlib `log` and `log/slog` produce unstructured output and have no access to the OTel trace ID in context. All application code must use the injected `*logging.Logger`. `cmd/` entrypoints are exempt because `log.Fatal` is the only option for bootstrap panics that occur before the logger is constructed.
+Stdlib `log` and `log/slog` produce unstructured output and have no access to the OTel trace ID in context. All application code must use the injected `*logging.Logger`. `cmd/` entrypoints are exempt because `log.Fatal` is the only option for bootstrap panics that occur before the logger is constructed. `platform/logging/slog.go` is exempt because it adapts `*logging.Logger` to `*slog.Logger` for libraries that accept only slog, such as `acp-go-sdk`.
 
 ### `no-otel-span-mgmt-in-service-clients`
 
