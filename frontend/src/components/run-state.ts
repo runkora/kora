@@ -19,4 +19,5 @@ export const RUN_STATE_DISPLAY: Record<string, RunStateDisplay> = {
   completed: { status: 'idle', label: 'Completed' },
   failed: { status: 'error', label: 'Failed' },
   budget_exhausted: { status: 'error', label: 'Budget exhausted' },
+  terminated: { status: 'idle', label: 'Terminated' },
 };

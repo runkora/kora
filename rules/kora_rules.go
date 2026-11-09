@@ -381,3 +381,18 @@ func noProductNameLiteral(m dsl.Matcher) {
 			`a white-labelled install must never show the kora name in text its people or agents read. ` +
 			`Take the name from the brand the component is given. See docs/adr/2026-10-12-white-labelling-theme.md`)
 }
+
+// eventProducerPackages are the event spine producers (docs/adr/2026-11-06-event-spine.md, section 3).
+// Add a package to the alternation when its repositories move to storage.Pool.
+const eventProducerPackages = `^github\.com/runkora/kora/backend/internal/(agents)$`
+
+// noPgxpoolInEventProducers bans *pgxpool.Pool in the event producer packages.
+// A query on the raw pool runs outside the context transaction. Its state change
+// could then commit without its event, or its event without the change.
+func noPgxpoolInEventProducers(m dsl.Matcher) {
+	m.Match(`*pgxpool.Pool`).
+		Where(m.File().PkgPath.Matches(eventProducerPackages) && !m.File().Name.Matches(`_test\.go$`)).
+		Report(`docs/adr/2026-11-06-event-spine.md: hold a *storage.Pool in an event producer package. ` +
+			`Only storage.Pool joins the context transaction that events.Publish writes through. ` +
+			`See docs/adr/2026-11-06-event-spine.md`)
+}
