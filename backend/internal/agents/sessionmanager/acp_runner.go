@@ -370,15 +370,13 @@ func (r *acpRunner) onExit() {
 	r.exitOnce.Do(r.exit)
 }
 
+// exit emits nothing, as the legacy runners do: the session reports the failed
+// run from the closed stream, or resumes the session after a user stop.
 func (r *acpRunner) exit() {
 	r.mu.Lock()
-	closing := r.closing
 	r.inFlight, r.queue = false, nil
 	r.mu.Unlock()
 	r.cancelPending()
-	if !closing {
-		r.tr.endTurn("", nil, true)
-	}
 	r.out.close()
 }
 
@@ -582,7 +580,7 @@ func (r *acpRunner) runTurns(text string) {
 		gone := r.exited()
 		r.mu.Unlock()
 		if gone {
-			return // onExit reports it
+			return // the session reports the exit
 		}
 		var rpcErr *acp.RequestError
 		if err != nil && !errors.As(err, &rpcErr) {
@@ -594,7 +592,7 @@ func (r *acpRunner) runTurns(text string) {
 				logging.Field{Key: "input_tokens", Value: res.Usage.InputTokens},
 				logging.Field{Key: "output_tokens", Value: res.Usage.OutputTokens})...)
 		}
-		r.tr.endTurn(res.StopReason, rpcErr, false)
+		r.tr.endTurn(res.StopReason, rpcErr)
 
 		r.mu.Lock()
 		if len(r.queue) == 0 || r.closing {
@@ -612,12 +610,13 @@ func (r *acpRunner) runTurns(text string) {
 func (r *acpRunner) Events() <-chan Event { return r.out.out }
 
 // Interrupt cancels the prompt in flight and answers pending requests
-// cancelled. The process stays alive; with no prompt in flight it does nothing.
+// cancelled. The process stays alive. With no prompt in flight it sends nothing
+// and returns ErrNoPromptInFlight.
 func (r *acpRunner) Interrupt() error {
 	r.mu.Lock()
 	if !r.inFlight {
 		r.mu.Unlock()
-		return nil
+		return ErrNoPromptInFlight
 	}
 	conn, sid := r.conn, r.sessionID
 	r.queue = nil

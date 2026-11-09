@@ -228,13 +228,13 @@ func TestACPEvents_CancelClosesRunningCalls(t *testing.T) {
 	update("c1", &inProgress)
 	update("c2", &inProgress)
 	update("c2", &completed)
-	tr.endTurn(acp.StopReasonCancelled, nil, false)
+	tr.endTurn(acp.StopReasonCancelled, nil)
 	update("c1", &completed)
 	wantTypes(t, out, EventTypeToolUse, EventTypeToolUse, EventTypeToolResult, EventTypeTurnStopped, EventTypeMessageStop)
 	if _, ok := tr.tools["c2"]; ok || len(tr.tools) != 1 {
 		t.Errorf("tools = %v, want only the cut-off c1", tr.tools)
 	}
-	tr.endTurn(acp.StopReasonEndTurn, nil, false)
+	tr.endTurn(acp.StopReasonEndTurn, nil)
 	if len(tr.tools) != 0 {
 		t.Errorf("tools = %v after the next turn, want none", tr.tools)
 	}

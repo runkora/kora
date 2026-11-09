@@ -48,7 +48,7 @@ type acpAdapterMessage struct {
 }
 
 // acpTurnEnd is what ClassifyError sees of a finished turn. RPCErr is nil and
-// StopReason empty when they do not apply, as on an unexpected exit.
+// StopReason empty when they do not apply.
 type acpTurnEnd struct {
 	StopReason acp.StopReason
 	RPCErr     *acp.RequestError

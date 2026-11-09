@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -238,8 +241,8 @@ func TestACPRunner_NewResumeRunner(t *testing.T) {
 func TestACPRunner_IdleInterruptEmitsNothing(t *testing.T) {
 	a := newFakeACPAgent(t)
 	r := startACP(t, a, &fakeACPProfile{}, nil)
-	if err := r.Interrupt(); err != nil {
-		t.Fatal(err)
+	if err := r.Interrupt(); !errors.Is(err, ErrNoPromptInFlight) {
+		t.Fatalf("Interrupt = %v, want ErrNoPromptInFlight", err)
 	}
 	noACPEvent(t, r, 100*time.Millisecond)
 	if a.count("session/cancel") != 0 || a.killed.Load() {
@@ -690,12 +693,13 @@ func TestACPRunner_UnexpectedExit(t *testing.T) {
 	for ev := range r.Events() {
 		got = append(got, ev)
 	}
-	wantTypes(t, got, EventTypeTextDelta, EventTypeMessageComplete, EventTypeRunError, EventTypeMessageStop)
-	if mc := payloadOf[MessageCompletePayload](t, got[1]); !mc.Interrupted || mc.Text != "half" {
-		t.Errorf("partial = %+v", mc)
-	}
-	if re := payloadOf[RunErrorPayload](t, got[2]); re.Code != acpDefaultErrorCode {
-		t.Errorf("run_error = %+v", re)
+	// As with the legacy runners, the stream just closes; the session reports
+	// the failed run.
+	wantTypes(t, got, EventTypeTextDelta)
+	// The partial text stays for a message sent before the session ends, as
+	// with the legacy runners.
+	if got := r.TakeText(); got != "half" {
+		t.Errorf("TakeText after exit = %q, want the partial text", got)
 	}
 	if err := r.Send(t.Context(), "again"); !errors.Is(err, errACPNotRunning) {
 		t.Errorf("Send after exit = %v", err)
@@ -832,7 +836,7 @@ func TestACPRunner_OversizedRequestIsAnswered(t *testing.T) {
 }
 
 // When the SDK stops reading before stdout ends, as on a notification queue
-// overflow, the runner kills the adapter and still ends the event stream.
+// overflow, the runner kills the adapter and closes the event stream.
 func TestACPRunner_ConnectionClosedEarlyEndsRun(t *testing.T) {
 	a := newFakeACPAgent(t)
 	r := startACP(t, a, &fakeACPProfile{}, nil)
@@ -851,23 +855,160 @@ func TestACPRunner_ConnectionClosedEarlyEndsRun(t *testing.T) {
 		time.Sleep(2 * time.Millisecond)
 	}
 	r.tr.mu.Unlock()
-	sawRunError := false
 	timeout := time.After(10 * time.Second)
 	for {
 		select {
 		case ev, ok := <-r.Events():
 			if !ok {
-				if !sawRunError {
-					t.Error("no run_error before the stream ended")
-				}
 				if err := r.Send(t.Context(), "again"); !errors.Is(err, errACPNotRunning) {
 					t.Errorf("Send after close = %v", err)
 				}
 				return
 			}
-			sawRunError = sawRunError || ev.Type == EventTypeRunError
+			if ev.Type == EventTypeRunError {
+				t.Error("run_error before the stream ended; the session reports the failure")
+			}
 		case <-timeout:
 			t.Fatal("events never closed")
+		}
+	}
+}
+
+// failedNotifier records whether the run completed failed.
+type failedNotifier struct {
+	*stateNotifier
+	failed atomic.Bool
+}
+
+func (n *failedNotifier) CompleteRun(ctx context.Context, runID, from string, failed bool) error {
+	n.failed.Store(failed)
+	return n.stateNotifier.CompleteRun(ctx, runID, from, failed)
+}
+
+// startACPSession runs an ACP runner in a registry. The first spawn is first,
+// any later one (a resume) is second.
+func startACPSession(t *testing.T, first, second *fakeACPAgent) (*Registry, *failedNotifier, *acpRunner) {
+	t.Helper()
+	spawned := 0
+	spawn := func(ctx context.Context, bin string, args []string, dir string, env []string) (acpProc, error) {
+		spawned++ // Start runs once per runner, one after the other
+		if spawned == 1 {
+			return first.spawner()(ctx, bin, args, dir, env)
+		}
+		return second.spawner()(ctx, bin, args, dir, env)
+	}
+	n := &failedNotifier{stateNotifier: newStateNotifier()}
+	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), n, time.Minute, testBrand)
+	cfg := testACPConfig(first, &fakeACPProfile{})
+	cfg.Spawn = spawn
+	r := newACPRunner(cfg)
+	if err := reg.Create(t.Context(), SessionConfig{RunID: "run-1", Runner: r}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() { _ = reg.Close(context.Background(), "run-1") })
+	return reg, n, r
+}
+
+// wantCrashFailure waits for the run to end and checks it failed with the
+// session's single subprocess_exit.
+func wantCrashFailure(t *testing.T, n *failedNotifier) {
+	t.Helper()
+	select {
+	case <-n.completed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the run never completed")
+	}
+	if !n.failed.Load() {
+		t.Error("the run completed, want failed")
+	}
+	_, events := n.snapshot()
+	var codes []string
+	for _, ev := range events {
+		if ev.Type == EventTypeRunError {
+			codes = append(codes, payloadOf[RunErrorPayload](t, ev).Code)
+		}
+	}
+	if !slices.Equal(codes, []string{"subprocess_exit"}) {
+		t.Errorf("run_error codes = %v, want one subprocess_exit", codes)
+	}
+}
+
+// A crash fails the run with one run_error, the session's subprocess_exit.
+func TestACPRunner_CrashFailsRunOnce(t *testing.T) {
+	a := newFakeACPAgent(t)
+	a.onRequest["session/prompt"] = func(a *fakeACPAgent, _, _ json.RawMessage) {
+		a.text("half")
+		a.exit()
+	}
+	reg, n, _ := startACPSession(t, a, nil)
+	if err := reg.Send(t.Context(), "run-1", "go"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	wantCrashFailure(t, n)
+}
+
+// An interrupt with no turn running leaves no restart pending, so a crash in
+// the next turn fails the run instead of resuming it.
+func TestACPRunner_IdleInterruptThenCrashFails(t *testing.T) {
+	a := newFakeACPAgent(t)
+	var prompts atomic.Int32
+	a.onRequest["session/prompt"] = func(a *fakeACPAgent, id, _ json.RawMessage) {
+		if prompts.Add(1) > 1 {
+			a.exit()
+			return
+		}
+		a.text("ok")
+		a.respond(id, map[string]any{"stopReason": "end_turn"})
+	}
+	reg, n, _ := startACPSession(t, a, nil)
+	if err := reg.Send(t.Context(), "run-1", "go"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	waitFor(t, "idle", func() bool { c, _ := n.snapshot(); return slices.Contains(c, "idle") })
+	if err := reg.Interrupt(t.Context(), "run-1"); err != nil {
+		t.Fatalf("idle Interrupt = %v, want nil", err)
+	}
+	if err := reg.Send(t.Context(), "run-1", "again"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	wantCrashFailure(t, n)
+}
+
+// An adapter that dies before honouring a stop still leaves the run idle: the
+// registry resumes the same ACP session in a new process.
+func TestACPRunner_InterruptThenExitResumes(t *testing.T) {
+	first, second := newFakeACPAgent(t), newFakeACPAgent(t)
+	second.caps = map[string]any{"sessionCapabilities": map[string]any{"resume": map[string]any{}}}
+	first.onRequest["session/prompt"] = func(a *fakeACPAgent, _, _ json.RawMessage) {
+		a.text("working")
+		a.waitMethod("session/cancel")
+		a.exit() // dies without answering the prompt
+	}
+	reg, n, r := startACPSession(t, first, second)
+	if err := reg.Send(t.Context(), "run-1", "go"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	first.waitMethod("session/prompt")
+	if err := reg.Interrupt(t.Context(), "run-1"); err != nil {
+		t.Fatalf("Interrupt: %v", err)
+	}
+
+	if p := string(second.waitMethod("session/resume").Params); !strings.Contains(p, `"sessionId":"sess-1"`) {
+		t.Errorf("session/resume = %s, want the first session", p)
+	}
+	waitFor(t, "the resumed session", func() bool {
+		reg.mu.RLock()
+		defer reg.mu.RUnlock()
+		s := reg.sessions["run-1"]
+		return s != nil && s.runner != Runner(r)
+	})
+	calls, events := n.snapshot()
+	if !slices.Contains(calls, "idle") {
+		t.Errorf("state calls = %v, want the run idled", calls)
+	}
+	for _, ev := range events {
+		if ev.Type == EventTypeRunError {
+			t.Errorf("resumed run recorded %s", ev.Payload)
 		}
 	}
 }

@@ -255,29 +255,26 @@ func (t *acpTranslator) pruneTools(cutShort bool) {
 	}
 }
 
-// endTurn translates a session/prompt response, or an exit when exited is set.
-func (t *acpTranslator) endTurn(stop acp.StopReason, rpcErr *acp.RequestError, exited bool) {
+// endTurn translates a session/prompt response.
+func (t *acpTranslator) endTurn(stop acp.StopReason, rpcErr *acp.RequestError) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	turn := acpTurnEnd{StopReason: stop, RPCErr: rpcErr, Messages: t.messages}
 	t.messages = nil
 	code := t.classify(turn)
 	switch {
-	case !exited && rpcErr == nil && stop == acp.StopReasonCancelled:
+	case rpcErr == nil && stop == acp.StopReasonCancelled:
 		t.flushPartial()
 		t.pruneTools(true)
 		t.emit(EventTypeTurnStopped, TurnStoppedPayload{Reason: "user"})
-	case exited || rpcErr != nil || code != "" || stop != acp.StopReasonEndTurn:
+	case rpcErr != nil || code != "" || stop != acp.StopReasonEndTurn:
 		t.flushPartial()
 		t.pruneTools(true)
 		if code == "" {
 			code = acpDefaultErrorCode
 		}
 		msg := "agent stopped: " + string(stop)
-		switch {
-		case exited:
-			msg = "agent exited unexpectedly"
-		case rpcErr != nil:
+		if rpcErr != nil {
 			msg = fmt.Sprintf("agent error %d: %s", rpcErr.Code, rpcErr.Message)
 		}
 		t.emit(EventTypeRunError, RunErrorPayload{Code: code, Message: msg})
