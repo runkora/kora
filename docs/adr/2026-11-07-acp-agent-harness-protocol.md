@@ -79,7 +79,11 @@ Build one `acpRunner` and one `acpProfile` per harness in a stacked series of pu
 
 ### Rationale
 
-None at this time.
+- **One transport, one parser:** ACP is the single protocol all three harnesses speak through their adapters. One `acpRunner` replaces three runners and three parsers (Options 1 and 2 keep two or three). A new harness needs a profile, not a runner.
+- **Legacy deleted in the same stack:** Option 3 would ship and maintain two transports for several releases. Each harness is verified on the local cluster before merge, so a staggered soak adds a second transport to every release without adding verification. Option 4 avoids that cost.
+- **Generic client proven on all three:** Option 2 leaves the generic client unproven against Claude Code and Codex. Option 4 proves it against all three before the legacy runners go.
+- **Enforcement unchanged:** Confinement stays at Landlock, `kora-shell`, the identity proxy and the gateways. The protocol change does not move any control.
+- **Accepted cost:** The image carries two compiled adapters (`codex-acp`, `claude-agent-acp`). Native harness signals are reached through the profile hooks.
 
 ### Architecture
 
@@ -124,7 +128,7 @@ ACP replaces the transport and the parsers. Sandbox confinement, per-run config 
 |---|---|
 | `agent_message_chunk` | `text_delta`, with the text appended to `turnText` |
 | `agent_thought_chunk` | `thinking_delta`, appended to the thinking buffer |
-| `tool_call` / `tool_call_update` | The first title names the tool, and later titles are ignored. `tool_use` is emitted at the first later update with `rawInput` carried forward from every earlier update (buffered text first becomes `text_block`). Completed and failed updates emit `tool_result` through `newToolResult` (64 KiB cap). A string `rawOutput.output` wins over content blocks. A non-zero `rawOutput.metadata.exit` adds an `Exit code N` line before the output and marks the result an error. In-progress updates emit `tool_progress` at most every 5 s. The Codex profile reads command output from `_meta.terminal_output_delta` and the exit code from `_meta.terminal_exit` or `rawOutput.exit_code`. An MCP call's text comes from `rawOutput.result`. For Claude Code, an update with no content and no status carries partial input and emits nothing. `tool_use` is emitted at the first update that carries content, reports `in_progress` or ends the call. |
+| `tool_call` / `tool_call_update` | The first title names the tool, and later titles are ignored. By default, `tool_use` is emitted at the first update after the initial `tool_call`, with `rawInput` carried forward from every earlier update (buffered text first becomes `text_block`). Completed and failed updates emit `tool_result` through `newToolResult` (64 KiB cap). A string `rawOutput.output` wins over content blocks. A non-zero `rawOutput.metadata.exit` adds an `Exit code N` line before the output and marks the result an error. In-progress updates emit `tool_progress` at most every 5 s. The Codex profile reads command output from `_meta.terminal_output_delta` and the exit code from `_meta.terminal_exit` or `rawOutput.exit_code`. An MCP call's text comes from `rawOutput.result`. Claude Code differs from the default: an update with no content and no status carries partial input and emits nothing, and `tool_use` is emitted at the first update that carries content, reports `in_progress` or ends the call. |
 | `plan`, `usage_update`, `user_message_chunk`, config updates | No event. Usage is logged from the prompt response. |
 | `session/prompt` response `end_turn` | `message_complete` (text and thinking), `message_stop`, unless `ClassifyError` finds a terminal error in the turn's adapter messages |
 | response `cancelled` | partial `message_complete{interrupted}`, `turn_stopped{user}`, `message_stop` |
