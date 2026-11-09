@@ -30,6 +30,8 @@ kora supports Istio 1.30 and 1.31 in sidecar mode. On any other minor version, t
 
 Install Istio with the [Istio install guide](https://istio.io/latest/docs/setup/install/) and the values in the quickstart's [`istiod.yaml`](https://github.com/runkora/examples/blob/main/quickstart/values/istiod.yaml). kora's namespaces reject Istio's default `istio-init` container. Install the Istio CNI plugin and run istiod with `pilot.cni.enabled: true`.
 
+Keep istiod's path normalization on. kora's mesh deny rules on internal paths, such as `/v1/internal/declared/`, match the request path after Envoy normalizes it. With `meshConfig.pathNormalization.normalization: NONE`, an encoded path such as `/v1/internal/%64eclared/x` passes the deny rule. Leave the setting unset (Istio's default is `BASE`) or set it to `BASE`, `MERGE_SLASHES` or `DECODE_AND_MERGE_SLASHES`. With `NONE`, the operator's preflight fails the `istio-path-normalization` check and every tenant stays `Degraded`.
+
 Set these in kora's values when your mesh differs from the defaults:
 
 - `istio.namespace`: where istiod and the `istio-cni-node` DaemonSet run, `istio-system` by default.
