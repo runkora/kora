@@ -380,14 +380,25 @@ var openCodeWorkspaceEnv = []string{"OPENCODE_DISABLE_PROJECT_CONFIG=1"}
 // prepare validates the config, writes the run's OpenCode files and returns the
 // subprocess environment.
 func (r *OpenCodeRunner) prepare(workDir string) ([]string, error) {
-	if r.cfg.InferenceGatewayURL == "" {
+	env, err := openCodePrepare(r.cfg, workDir, r.mcpConfig())
+	if err != nil {
+		return nil, err
+	}
+	return withRunEnv(os.Environ(), env), nil
+}
+
+// openCodePrepare validates the config, writes the run's OpenCode files and
+// returns the environment entries to apply over the process environment. mcp is
+// the config's "mcp" block; nil leaves it out.
+func openCodePrepare(cfg OpenCodeRunnerConfig, workDir string, mcp map[string]any) ([]string, error) {
+	if cfg.InferenceGatewayURL == "" {
 		return nil, errors.New("InferenceGatewayURL must not be empty")
 	}
 	// Without a model OpenCode falls back to its own hosted free models.
-	if r.cfg.Model == "" {
+	if cfg.Model == "" {
 		return nil, errors.New("model must not be empty")
 	}
-	config, err := r.openCodeConfig(workDir)
+	config, err := openCodeConfig(cfg, workDir, mcp)
 	if err != nil {
 		return nil, fmt.Errorf("build config: %w", err)
 	}
@@ -399,9 +410,9 @@ func (r *OpenCodeRunner) prepare(workDir string) ([]string, error) {
 		return nil, err
 	}
 	// The platform's values last, so ExtraEnv cannot override them.
-	env := append(append(append([]string{}, r.cfg.ExtraEnv...), openCodeOfflineEnv...), openCodeWorkspaceEnv...)
+	env := append(append(append([]string{}, cfg.ExtraEnv...), openCodeOfflineEnv...), openCodeWorkspaceEnv...)
 	env = append(env, "OPENCODE_CONFIG_CONTENT="+string(config))
-	return withRunEnv(os.Environ(), append(env, homeEnv...)), nil
+	return append(env, homeEnv...), nil
 }
 
 // openCodeHomeEnv puts OpenCode's HOME and config home in the run's config dir.
@@ -434,51 +445,53 @@ const openCodeProvider = "kora"
 // (OpenCode's hosted free models included) is switched off. It reaches OpenCode
 // as OPENCODE_CONFIG_CONTENT, which is merged after every config file, so an
 // opencode.json or .opencode/ directory in the workspace cannot override it.
-func (r *OpenCodeRunner) openCodeConfig(workDir string) ([]byte, error) {
-	gatewayURL := strings.TrimRight(r.cfg.InferenceGatewayURL, "/")
-	model := openCodeProvider + "/" + r.cfg.Model
+func openCodeConfig(c OpenCodeRunnerConfig, workDir string, mcp map[string]any) ([]byte, error) {
+	gatewayURL := strings.TrimRight(c.InferenceGatewayURL, "/")
+	model := openCodeProvider + "/" + c.Model
 	cfg := map[string]any{
 		"enabled_providers": []string{openCodeProvider},
 		"model":             model,
 		"small_model":       model,
 		"provider": map[string]any{
 			openCodeProvider: map[string]any{
-				"name": r.cfg.Brand.ProductName(),
+				"name": c.Brand.ProductName(),
 				// Chat completions serves every gateway model; /messages serves only Anthropic's.
 				"npm": "@ai-sdk/openai-compatible",
 				"options": map[string]string{
-					"baseURL": fmt.Sprintf("%s/run/%s/v1", gatewayURL, r.cfg.RunID),
+					"baseURL": fmt.Sprintf("%s/run/%s/v1", gatewayURL, c.RunID),
 					// Placeholder: the identity-proxy sidecar replaces the Authorization header.
 					"apiKey": "kora-managed",
 				},
-				"models": map[string]any{r.cfg.Model: map[string]any{}},
+				"models": map[string]any{c.Model: map[string]any{}},
 			},
 		},
 		"share":      "disabled",
 		"autoupdate": false,
 		// Both fetch from this container, outside the sandbox's egress policy.
 		"permission": map[string]string{"webfetch": "deny", "websearch": "deny"},
-		"mcp":        r.mcpConfig(),
 	}
 	// Project config is off, which also drops the workspace AGENTS.md. Read as
 	// instructions it is text only. A missing file is skipped.
 	instructions := []string{filepath.Join(workDir, "AGENTS.md")}
-	if r.cfg.SystemPrompt != "" {
+	if c.SystemPrompt != "" {
 		// In the run's config dir, which the agent can read but not change.
 		path := filepath.Join(runfs.ConfigDir(workDir), "instructions.md")
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return nil, err
 		}
-		if err := os.WriteFile(path, []byte(r.cfg.SystemPrompt), 0o600); err != nil {
+		if err := os.WriteFile(path, []byte(c.SystemPrompt), 0o600); err != nil {
 			return nil, err
 		}
 		instructions = append([]string{path}, instructions...)
 	}
 	cfg["instructions"] = instructions
+	if mcp != nil {
+		cfg["mcp"] = mcp
+	}
 	// "shell" is the binary OpenCode's shell tool runs commands with. Pointing it
 	// at kora-shell routes them to the run's sandbox.
-	if r.cfg.ShellPath != "" {
-		cfg["shell"] = r.cfg.ShellPath
+	if c.ShellPath != "" {
+		cfg["shell"] = c.ShellPath
 	}
 	return json.Marshal(cfg)
 }

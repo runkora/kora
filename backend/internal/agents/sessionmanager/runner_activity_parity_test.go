@@ -134,7 +134,7 @@ func openCodeSubject() paritySubject {
 	}
 	shell := func(r *OpenCodeRunner, output string) {
 		update(r, map[string]any{"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "bash", "status": "pending", "rawInput": map[string]string{"cwd": "/w"}})
-		update(r, map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "in_progress", "rawInput": map[string]string{"command": "echo hi", "cwd": "/w"}})
+		update(r, map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "title": "echo hi", "status": "in_progress", "rawInput": map[string]string{"command": "echo hi", "cwd": "/w"}})
 		update(r, map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed",
 			"rawOutput": map[string]any{"output": output, "metadata": map[string]any{"exit": 0}}})
 	}
@@ -167,8 +167,47 @@ func openCodeSubject() paritySubject {
 	}
 }
 
+// openCodeACPSubject is the OpenCode profile on the acpRunner, fed the same
+// updates as openCodeSubject.
+func openCodeACPSubject() paritySubject {
+	turn := func(t *testing.T, script func(a *fakeACPAgent, id json.RawMessage)) []Event {
+		a := newFakeACPAgent(t)
+		a.onRequest["session/prompt"] = func(a *fakeACPAgent, id, _ json.RawMessage) { script(a, id) }
+		r := startACP(t, a, testOpenCodeProfile(), nil)
+		prompt(t, r, "go")
+		return eventsUntilStop(t, r)
+	}
+	toolTurn := func(t *testing.T, output string) []Event {
+		evs := turn(t, func(a *fakeACPAgent, id json.RawMessage) {
+			a.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "bash", "status": "pending", "rawInput": map[string]string{"cwd": "/w"}})
+			a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "title": "echo hi", "status": "in_progress", "rawInput": map[string]string{"command": "echo hi", "cwd": "/w"}})
+			a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed",
+				"rawOutput": map[string]any{"output": output, "metadata": map[string]any{"exit": 0}}})
+			a.respond(id, map[string]any{"stopReason": "end_turn"})
+		})
+		return evs[:2] // tool_use and tool_result; the turn's end is not part of the call
+	}
+	return paritySubject{
+		name:      "opencode-acp",
+		toolCall:  func(t *testing.T) []Event { return toolTurn(t, "hi") },
+		bigResult: func(t *testing.T, output string) []Event { return toolTurn(t, output) },
+		stop: func(t *testing.T) []Event {
+			return turn(t, func(a *fakeACPAgent, id json.RawMessage) {
+				a.text("Half")
+				a.respond(id, map[string]any{"stopReason": "cancelled"})
+			})
+		},
+		failedTurn: func(t *testing.T) []Event {
+			return turn(t, func(a *fakeACPAgent, id json.RawMessage) {
+				a.text("Half")
+				a.respondErr(id, -32603, "API Error: 500")
+			})
+		},
+	}
+}
+
 func TestRunnerParity_ActivityContract(t *testing.T) {
-	for _, sub := range []paritySubject{claudeSubject(), codexSubject(), openCodeSubject()} {
+	for _, sub := range []paritySubject{claudeSubject(), codexSubject(), openCodeSubject(), openCodeACPSubject()} {
 		t.Run(sub.name+"/tool call records its own arguments and its result", func(t *testing.T) {
 			evs := sub.toolCall(t)
 			if got := eventTypes(evs); !slices.Equal(got, []EventType{EventTypeToolUse, EventTypeToolResult}) {
