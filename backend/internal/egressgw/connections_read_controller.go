@@ -6,8 +6,10 @@ import (
 
 	"github.com/runkora/kora/backend/internal/credentials"
 	"github.com/runkora/kora/backend/internal/platform/api"
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 	platformtoken "github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -17,12 +19,17 @@ import (
 // GET /connections is the gateway's only HTTP route. The frontend picker reads
 // its catalog from kora-agents rather than from here.
 //
-// The response carries only a connection's name, adapter type, and grantable
-// actions, so the route is auth-only with no scope enforcement. The list is
+// GET /connections carries only a connection's name, adapter type, and
+// grantable actions, so it is auth-only with no scope enforcement. The list is
 // tenant-scoped from the verified token.
+//
+// GET /connections/{name}/resources mints a credential for the connection and
+// calls the upstream, so it additionally requires the caller to hold the
+// connection's baseline read scope (connection:{name}:{baseline}).
 type ConnectionsReadController struct {
 	connRegistry connLister
 	registry     *AdapterRegistry
+	policy       policyChecker
 	verifier     *platformtoken.Verifier
 	logger       logging.Logger
 }
@@ -31,12 +38,14 @@ type ConnectionsReadController struct {
 func NewConnectionsReadController(
 	connRegistry connLister,
 	registry *AdapterRegistry,
+	pol policyChecker,
 	verifier *platformtoken.Verifier,
 	logger logging.Logger,
 ) *ConnectionsReadController {
 	return &ConnectionsReadController{
 		connRegistry: connRegistry,
 		registry:     registry,
+		policy:       pol,
 		verifier:     verifier,
 		logger:       logger,
 	}
@@ -45,7 +54,8 @@ func NewConnectionsReadController(
 // GroupedBy returns the route group prefix for this controller.
 func (c *ConnectionsReadController) GroupedBy() string { return "" }
 
-// Middleware enforces platform JWT auth on this controller's routes only. The
+// Middleware enforces platform JWT auth on this controller's routes only.
+// GET /connections/{name}/resources also checks policy in its handler. The
 // server's health endpoint is wired outside the controller mux and stays open;
 // scoping AuthMiddleware here (rather than on the whole server) keeps that
 // invariant while requiring a token for GET /connections.
@@ -72,6 +82,8 @@ type QualifierEnumerator interface {
 // handleListConnectionResources enumerates the named connection's qualifier
 // values (e.g. the GitHub installation's repositories). Tenant-scoped from the
 // verified token; a connection whose adapter has no enumerator yields 404.
+// The caller must hold the connection's baseline read scope, checked before any
+// credential is minted; otherwise 403.
 func (c *ConnectionsReadController) handleListConnectionResources(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -109,6 +121,12 @@ func (c *ConnectionsReadController) handleListConnectionResources(w http.Respons
 			api.NotFoundError(api.ErrCodeResourceNotFound, "connection adapter not registered", nil), nil)
 		return
 	}
+
+	// Authorize before Open / ListQualifierValues: enumeration mints a token.
+	if !c.authorizeResources(w, r, claims, conn) {
+		return
+	}
+
 	connector, err := adapter.Open(*conn)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger,
@@ -132,6 +150,43 @@ func (c *ConnectionsReadController) handleListConnectionResources(w http.Respons
 		values = []string{}
 	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"resources": values})
+}
+
+// authorizeResources checks that the caller holds the connection's baseline read
+// scope. It writes the error response and returns false when the caller may not
+// enumerate: 403 for a deny or an adapter with no baseline action, 500 when the
+// evaluator fails (fail closed).
+func (c *ConnectionsReadController) authorizeResources(w http.ResponseWriter, r *http.Request, claims *platformtoken.PlatformClaims, conn *credentials.Connection) bool {
+	ctx := r.Context()
+	baselines := platformconns.BaselineActions(string(conn.Adapter))
+	if len(baselines) == 0 {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.ForbiddenError(api.ErrCodeForbidden, "connection resources are not available", nil), nil)
+		return false
+	}
+	segments, verb := scopePath(conn, baselines[0], "")
+	decision, err := c.policy.Check(ctx, policy.CheckInput{
+		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
+		ResourceType: resourceType,
+		PathSegments: segments,
+		Action:       verb,
+	})
+	if err != nil {
+		c.logger.Error(ctx, "policy evaluation failed",
+			logging.Field{Key: "connection", Value: conn.Name},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		api.ErrorResponse(ctx, w, c.logger,
+			api.InternalError(api.ErrCodeInternalError, "policy evaluation unavailable", nil), err)
+		return false
+	}
+	if !decision.Allow {
+		api.ErrorResponse(ctx, w, c.logger,
+			api.ForbiddenError(api.ErrCodeForbidden, "caller lacks the required grant for this connection", nil), nil)
+		return false
+	}
+	return true
 }
 
 // connectionJSON is the wire shape for one connection in the list response.

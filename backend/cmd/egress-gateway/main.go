@@ -176,9 +176,10 @@ func realMain() error {
 	// service port and the frontend BFF can issue a normal HTTP GET.
 	//
 	// The only controller is the read-only connections catalog. Its own
-	// Middleware() enforces auth on GET /connections; the health endpoint is
+	// Middleware() enforces auth on its routes, and GET /connections/{name}/resources
+	// also checks policy before minting; the health endpoint is
 	// wired outside the controller mux and stays open.
-	connectionsReadController := egressgw.NewConnectionsReadController(connRegistry, registry, verifier, logger)
+	connectionsReadController := egressgw.NewConnectionsReadController(connRegistry, registry, eval, verifier, logger)
 	apiServer := platformapi.NewAPI(ctx, logger)
 	// Per-route, not in the global chain below: it must run after RoutePattern
 	// has set the route on the request context. See Mux.HandleWithMiddleware.
