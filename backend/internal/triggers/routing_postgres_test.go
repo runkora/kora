@@ -182,7 +182,7 @@ func TestPostgres_RoutingDecisionWrite(t *testing.T) {
 	}
 
 	// A joined delivery reads as dispatched.
-	if err := r.DeriveDeliveryStatus(ctx, deliveryID); err != nil {
+	if _, _, err := r.DeriveDeliveryStatus(ctx, deliveryID, ""); err != nil {
 		t.Fatalf("DeriveDeliveryStatus: %v", err)
 	}
 	if del, _ := r.GetDelivery(ctx, tenant, deliveryID); del.Status != StatusDispatched {
@@ -196,7 +196,7 @@ func TestPostgres_RoutingDecisionWrite(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("InsertDeliveryRun unrouted: %v", err)
 	}
-	_ = r.DeriveDeliveryStatus(ctx, unrouted)
+	_, _, _ = r.DeriveDeliveryStatus(ctx, unrouted, "")
 	if del, _ := r.GetDelivery(ctx, tenant, unrouted); del.Status != StatusSkipped {
 		t.Errorf("unrouted delivery status = %s, want skipped", del.Status)
 	}

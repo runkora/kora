@@ -9,6 +9,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"go.opentelemetry.io/otel/metric"
+
 	igc "github.com/runkora/kora/backend/cmd/inference-gateway/config"
 	"github.com/runkora/kora/backend/internal/inferencegw"
 	"github.com/runkora/kora/backend/internal/inferencegw/providers/registry"
@@ -70,10 +72,17 @@ func main() {
 	defer db.Close()
 	defer redis.Close()
 
-	server, register, err := initServer(ctx, logger, db, redis, metrics)
+	server, register, domainMetrics, err := initServer(ctx, logger, db, redis, metrics)
 	if err != nil {
 		fatal("Failed to initialize server", err)
 	}
+	// Close is nil-safe (see (*inferencegw.Metrics).Close), so this runs
+	// unconditionally — mirroring shutdownMeter above.
+	defer func() {
+		if err := domainMetrics.Close(); err != nil {
+			logger.Error(ctx, "Error shutting down inference-gateway metrics", logging.Field{Key: "error", Value: err.Error()})
+		}
+	}()
 
 	run(ctx, logger, server, metrics, register)
 }
@@ -128,17 +137,17 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *stor
 	return db, rc, nil
 }
 
-func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) ([]api.Controller, func(context.Context) error, error) {
+func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, meter metric.Meter) ([]api.Controller, func(context.Context) error, *inferencegw.Metrics, error) {
 	// ── Provider connectors ───────────────────────────────────────────────────────────────────────────────
 	// Providers come from the InferenceProvider resources the gateway watches.
 	// The first load seeds the router; the watch keeps it current.
 	restCfg, err := kubeconfig.GetConfig()
 	if err != nil {
-		return nil, nil, fmt.Errorf("kubernetes config: %w", err)
+		return nil, nil, nil, fmt.Errorf("kubernetes config: %w", err)
 	}
 	providers, err := registry.NewWatcher(ctx, restCfg, igc.Current.Providers.Namespace, logger)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	// Prices a compatible upstream publishes with its models are stored on each discovery.
 	pricingCatalogRepo := inferencegw.NewPostgresPricingCatalogRepository(db.Pool())
@@ -192,7 +201,11 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	go pricingSyncWorker.Start(ctx)
 
 	budgetCounter := inferencegw.NewRedisBudgetCounter(redis, usageRepo, logger)
-	svc := inferencegw.NewService(pol, router, pricingCache, usageRepo, budgetCounter, logger)
+	// Failing to build these is not fatal — see platformmetrics.RegisterDomain.
+	domainMetrics := platformmetrics.RegisterDomain(ctx, logger, "inference-gateway", func() (*inferencegw.Metrics, error) {
+		return inferencegw.NewMetrics(meter)
+	})
+	svc := inferencegw.NewService(pol, router, pricingCache, usageRepo, budgetCounter, logger, domainMetrics)
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	// Shared revoked-JTI blocklist: rejects revoked delegation tokens at the
@@ -208,7 +221,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 			declarative.KindVirtualModels: inferencegw.NewVirtualModelApplier(catalog),
 		}),
 	}
-	return controllers, register, nil
+	return controllers, register, domainMetrics, nil
 }
 
 // initScopeRegistration wires the policy-service scope vocabulary for the
@@ -321,12 +334,12 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 	return decls
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, metrics *platformmetrics.Bootstrap) (*http.Server, func(context.Context) error, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, metrics *platformmetrics.Bootstrap) (*http.Server, func(context.Context) error, *inferencegw.Metrics, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
-	controllers, register, err := initControllers(ctx, logger, db, redis)
+	controllers, register, domainMetrics, err := initControllers(ctx, logger, db, redis, metrics.Meter())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	// Per-route, not in the global chain below: it must run after RoutePattern
@@ -348,7 +361,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 		controllers...,
 	)
 
-	return server, register, nil
+	return server, register, domainMetrics, nil
 }
 
 func run(ctx context.Context, logger logging.Logger, server *http.Server, metrics *platformmetrics.Bootstrap, register func(context.Context) error) {

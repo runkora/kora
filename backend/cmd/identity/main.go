@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/otel/metric"
+
 	ic "github.com/runkora/kora/backend/cmd/identity/config"
 	"github.com/runkora/kora/backend/internal/identity"
 	"github.com/runkora/kora/backend/internal/platform/api"
@@ -77,10 +79,18 @@ func realMain() error {
 	defer redis.Close() //nolint:errcheck
 
 	// Create HTTP server with wired controllers.
-	server, err := initServer(ctx, logger, db, redis, metrics)
+	server, identityMetrics, err := initServer(ctx, logger, db, redis, metrics)
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
 	}
+	// Close is nil-safe (see (*identity.Metrics).Close), so this runs
+	// unconditionally — mirroring shutdownMeter above, this unregisters the
+	// sessions-active observable-gauge callback on shutdown.
+	defer func() {
+		if err := identityMetrics.Close(); err != nil {
+			logger.Error(ctx, "Error shutting down identity metrics", logging.Field{Key: "error", Value: err.Error()})
+		}
+	}()
 
 	// Run server until context is canceled (SIGTERM / SIGINT).
 	run(ctx, logger, server, metrics)
@@ -143,13 +153,23 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *stor
 // initControllers wires up repositories, services, and controllers for the
 // identity service. ctx is passed through because the identity service performs
 // OIDC provider discovery eagerly during construction.
-func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) ([]api.Controller, error) {
+func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, meter metric.Meter) ([]api.Controller, *identity.Metrics, error) {
 	identityCfg, err := identity.LoadConfig()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	sessionRepo := identity.NewPostgresSessionRepository(db.Pool())
+
+	// Instruments are built once and injected into the service and delegation
+	// paths. Failing to build them is not fatal — a service that refuses to
+	// start because a gauge could not be registered has turned its own
+	// observability into an outage — but it is loud, because unmeasured is not
+	// the state anyone signed up for. RegisterDomain is the shared helper every
+	// service's main.go uses for this.
+	metrics := platformmetrics.RegisterDomain(ctx, logger, "identity", func() (*identity.Metrics, error) {
+		return identity.NewMetrics(meter, sessionRepo, logger)
+	})
 	refreshRepo := identity.NewPostgresRefreshTokenRepository(db.Pool())
 	blocklist := identity.NewRedisJTIBlocklistRepository(redis)
 	authCodeRepo := identity.NewRedisAuthCodeRepository(redis.Client())
@@ -196,9 +216,10 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		policyEval,
 		extractor,
 		logger,
+		metrics,
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Triggers moved to the kora-triggers binary: inbound webhook ingestion is
@@ -217,7 +238,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 
 	return []api.Controller{
 		identity.NewController(svc, policyEval, identityRoutes(), ic.Current.Server.BasePath, logger),
-	}, nil
+	}, metrics, nil
 }
 
 // identityScopes returns the scope vocabulary identity owns.
@@ -261,12 +282,12 @@ func identityRoutes() []routescopes.RouteScope {
 }
 
 // initServer creates and configures the HTTP server with middleware and controllers.
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, metrics *platformmetrics.Bootstrap) (*http.Server, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, metrics *platformmetrics.Bootstrap) (*http.Server, *identity.Metrics, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
-	controllers, err := initControllers(ctx, logger, db, redis)
+	controllers, identityMetrics, err := initControllers(ctx, logger, db, redis, metrics.Meter())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Per-route, not in the global chain below: it must run after RoutePattern
@@ -285,7 +306,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 		controllers...,
 	)
 
-	return server, nil
+	return server, identityMetrics, nil
 }
 
 // run starts the HTTP server and handles graceful shutdown.

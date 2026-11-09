@@ -242,6 +242,18 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 		s.releaseStart(ctx, span, run.ID, claimedAt, fmt.Errorf("assign pod: %w", err))
 		return nil, "", 0, false
 	}
+	// AssignPod just moved the run pending→starting outside Transition — the
+	// canonical state-machine authority — because this is a compound write
+	// (pod_ordinal, started_at, and state together) rather than a bare CAS on
+	// state. Record the transition here so it reaches the same counter
+	// Transition's calls do (PR #418 review, Finding 1). at and run already
+	// carry everything runMetricLabelsFor would otherwise fetch, so build the
+	// labels directly and seed frameworkCache with them: the starting→active
+	// transition moments later (startClaimed's call to Transition) then hits
+	// the cache instead of repeating the lookup.
+	labels := runMetricLabels{Framework: at.Framework, TenantID: run.TenantID, AgentTypeID: run.AgentTypeID}
+	s.metrics.recordTransition(ctx, RunStatePending, RunStateStarting, labels.Framework, labels.TenantID, labels.AgentTypeID)
+	s.frameworkCache.Store(run.ID, labels)
 	return at, namespace, pod, true
 }
 
