@@ -341,8 +341,8 @@ func noHttpErrorInHandler(m dsl.Matcher) {
 //
 //	api.JSON(ctx, w, logger, http.StatusNoContent, nil)
 func noDirectWriteHeader(m dsl.Matcher) {
-	// Type.Is skips unrelated WriteHeader methods (archive/tar.Writer). Implements would
-	// type-check net/http from source for every linted package.
+	// Matches values typed http.ResponseWriter only; a handler that wraps w in a concrete type is not flagged.
+	// Type.Is avoids Implements, which type-checks net/http from source for every linted package.
 	m.Import("net/http")
 	m.Match(`$w.WriteHeader($code)`).
 		Where(m["w"].Type.Is(`http.ResponseWriter`)).

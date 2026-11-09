@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# Prints the make check groups a change needs: backend, go, docs, frontend.
-# The change is every file that differs from the merge base with main, plus
-# untracked files. A path outside the known groups selects every group.
-# Reasons go to stderr, the group list to stdout.
+# Prints the make check groups (backend, go, docs, frontend) that the change since the merge base with main needs.
+# A path outside the known groups, no merge base, or no changes selects every group.
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -28,7 +26,7 @@ backend="" go="" docs="" frontend=""
 while IFS= read -r path; do
   case "$path" in
     # A backend test reads this guide.
-    docs/guides/declarative-resources.md) backend=$path; docs=$path ;;
+    docs/guides/declarative-resources.md) backend=$path ;;
     # docs-check compares the binary table with backend/cmd.
     backend/cmd/*) backend=$path; docs=$path ;;
     backend/* | rules/* | .golangci.yml) backend=$path ;;
