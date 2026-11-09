@@ -117,7 +117,7 @@ func (p *claudeProfile) SessionParams(workDir string) acpSessionParams {
 	// Claude Code passes its process environment, run token included, to
 	// kora-runtime-mcp, so the token stays off the ACP channel.
 	servers := append([]acp.McpServer{acpRuntimeServer(p.cfg.SessionManagerURL, p.cfg.RunID)}, acpGatewayServers(p.cfg.ToolGatewayURL, p.cfg.MCPServers)...)
-	return acpSessionParams{CWD: workDir, MCPServers: servers, Meta: meta, Mode: claudeBypassMode}
+	return acpSessionParams{CWD: workDir, MCPServers: servers, Meta: meta, Mode: claudeBypassMode, OwnTurns: true}
 }
 
 // claudeSDKMessage is the raw SDK message of a _claude/sdkMessage notification,

@@ -64,6 +64,9 @@ type acpSessionParams struct {
 	// Mode is set with session/set_config_option after the session opens; Start
 	// fails if the adapter refuses it.
 	Mode string
+	// OwnTurns marks an adapter that takes turns with no prompt open and ends
+	// them through AdapterSignal.TurnEnded. Other adapters' late updates start no turn.
+	OwnTurns bool
 }
 
 // acpAdapterMessage is an extension notification or a session_info_update: the

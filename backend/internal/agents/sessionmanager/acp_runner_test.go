@@ -1012,3 +1012,20 @@ func TestACPRunner_InterruptThenExitResumes(t *testing.T) {
 		}
 	}
 }
+
+// An update after the prompt's turn ended starts no turn for an adapter
+// without own turns, so a stop finds nothing running.
+func TestACPRunner_LateUpdateStartsNoOwnTurn(t *testing.T) {
+	a := newFakeACPAgent(t)
+	a.onRequest["session/prompt"] = func(a *fakeACPAgent, id, _ json.RawMessage) {
+		a.respond(id, map[string]any{"stopReason": "end_turn"})
+	}
+	r := startACP(t, a, &fakeACPProfile{}, nil)
+	prompt(t, r, "go")
+	eventsUntilStop(t, r)
+	a.text("late")
+	nextACPEvent(t, r)
+	if err := r.Interrupt(); !errors.Is(err, ErrNoPromptInFlight) {
+		t.Fatalf("Interrupt after a late update = %v, want ErrNoPromptInFlight", err)
+	}
+}

@@ -136,6 +136,7 @@ type acpRunner struct {
 	// after a background task finished; ownStopped marks it cancelled.
 	ownTurn    bool
 	ownStopped bool
+	ownTurns   bool
 	queue      []string
 	closing    bool
 	gone       bool
@@ -315,6 +316,7 @@ func (r *acpRunner) openSession(ctx context.Context, workDir string) error {
 	r.sessionID = sid
 	r.canClose = agentCaps.SessionCapabilities.Close != nil
 	r.steering, _ = steering["supported"].(bool)
+	r.ownTurns = sp.OwnTurns
 	r.mu.Unlock()
 	return nil
 }
@@ -361,7 +363,7 @@ func (r *acpRunner) onUpdate(params json.RawMessage) {
 	}
 	if u := n.Update; u.AgentMessageChunk != nil || u.AgentThoughtChunk != nil || u.ToolCall != nil || u.ToolCallUpdate != nil {
 		r.mu.Lock()
-		r.ownTurn = r.ownTurn || !r.inFlight
+		r.ownTurn = r.ownTurn || (r.ownTurns && !r.inFlight)
 		r.mu.Unlock()
 	}
 	if !r.tr.handleSessionUpdate(n.Update, string(n.SessionId)) {
