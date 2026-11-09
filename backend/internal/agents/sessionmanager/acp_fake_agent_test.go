@@ -91,6 +91,7 @@ func (p *fakeACPProc) Stdout() io.Reader     { return p.a.clientR }
 func (p *fakeACPProc) Stderr() io.Reader     { return strings.NewReader(p.a.stderr) }
 func (p *fakeACPProc) Wait() error           { <-p.a.exited; return nil }
 func (p *fakeACPProc) Kill()                 { p.a.killed.Store(true); p.a.exit() }
+func (p *fakeACPProc) Pid() int              { return 0 }
 
 // exit ends the agent: its stdout closes and Wait returns.
 func (a *fakeACPAgent) exit() {

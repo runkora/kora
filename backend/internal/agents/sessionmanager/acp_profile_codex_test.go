@@ -2,7 +2,6 @@ package sessionmanager
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -13,6 +12,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 
+	"github.com/runkora/kora/backend/internal/platform/brand"
 	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
@@ -106,6 +106,43 @@ func TestCodexProfile_Launch(t *testing.T) {
 	}
 }
 
+// config.toml points Codex at the run's gateway URL, which carries the version
+// segment Codex expects, names the provider after the brand, and turns off
+// update checks, web search, analytics, feedback and the plugin sync.
+func TestWriteCodexHome_Config(t *testing.T) {
+	cfg := testCodexProfile().cfg
+	cfg.InferenceGatewayURL = "http://kora-inference-gateway.kora-system.svc.cluster.local"
+	cfg.Brand = brand.MustNew("Example")
+	home, err := writeCodexHome(cfg, t.TempDir())
+	if err != nil {
+		t.Fatalf("writeCodexHome: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	for _, want := range []string{
+		`base_url = "http://kora-inference-gateway.kora-system.svc.cluster.local/run/` + cfg.RunID + `/v1"`,
+		`name     = "Example"`,
+		"[analytics]\nenabled = false",
+		"[feedback]\nenabled = false",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("config.toml lacks %q:\n%s", want, got)
+		}
+	}
+	firstTable := strings.Index(got, "\n[")
+	for _, key := range []string{"check_for_update_on_startup = false", `web_search = "disabled"`} {
+		if i := strings.Index(got, key); i < 0 || i > firstTable {
+			t.Errorf("%q missing or not top-level in:\n%s", key, got)
+		}
+	}
+	if features := got[strings.Index(got, "[features]"):]; !strings.Contains(features, "plugins = false") {
+		t.Errorf("[features] lacks plugins = false:\n%s", features)
+	}
+}
+
 // A workspace .codex/config.toml is CODEX_HOME's file, rewritten at every start,
 // so a server declared in it never reaches Codex.
 func TestCodexProfile_WorkspaceConfigIsRewritten(t *testing.T) {
@@ -173,7 +210,7 @@ func TestCodexProfile_AdapterSignalRetry(t *testing.T) {
 }
 
 // A retry message without "n/m" is numbered by the turn's retry count, which
-// starts over with the next turn, as the legacy runner counts.
+// starts over with the next turn.
 func TestCodexProfile_RetriesWithoutCountAreCounted(t *testing.T) {
 	a := newFakeACPAgent(t)
 	retry := map[string]any{"sessionUpdate": "session_info_update", "_meta": map[string]any{"codex": map[string]any{"error": map[string]any{"message": "stream reset", "willRetry": true}}}}
@@ -183,7 +220,7 @@ func TestCodexProfile_RetriesWithoutCountAreCounted(t *testing.T) {
 		a.respond(id, map[string]any{"stopReason": "end_turn"})
 	}
 	r := startACP(t, a, testCodexProfile(), nil)
-	for turn := 0; turn < 2; turn++ {
+	for turn := range 2 {
 		prompt(t, r, "go")
 		var attempts []int
 		for _, ev := range eventsUntilStop(t, r) {
@@ -232,13 +269,12 @@ func TestWriteCodexHome_RefusesSymlinkOutOfWorkspace(t *testing.T) {
 // codexTurnWire is one turn recorded from codex-acp 2.6.0 with codex 0.142.1
 // (capabilities as the profile declares them): a commentary line, echo hi,
 // ls of a missing path that exits 1, an MCP ping and the reply.
-// turn.app-server.jsonl is the App Server traffic codex-acp saw for the same
-// turn, which is what the legacy runner reads. Paths and the root session id
-// are shortened, and usage, rate limit and status lines dropped.
+// turn.expected.json holds the events the legacy App Server runner gave for the
+// same turn. Paths and the root session id are shortened, and usage, rate limit
+// and status lines dropped.
 const (
-	codexTurnWire      = "testdata/acp/codex/turn.jsonl"
-	codexTurnAppServer = "testdata/acp/codex/turn.app-server.jsonl"
-	codexSubagentWire  = "testdata/acp/codex/subagent.jsonl"
+	codexTurnWire     = "testdata/acp/codex/turn.jsonl"
+	codexSubagentWire = "testdata/acp/codex/subagent.jsonl"
 )
 
 func replayCodexACP(t *testing.T, lines [][]byte) []Event {
@@ -255,23 +291,8 @@ func replayCodexACP(t *testing.T, lines [][]byte) []Event {
 	return eventsUntilStop(t, r)
 }
 
-func replayCodexLegacy(t *testing.T, lines [][]byte) []Event {
-	t.Helper()
-	r := newTestCodexRunner()
-	r.stdin = nopWriteCloser{}
-	r.threadID.Store("sess-1")
-	for _, l := range lines {
-		var msg codexMsg
-		if err := json.Unmarshal(l, &msg); err != nil {
-			t.Fatal(err)
-		}
-		r.handleNotification(context.Background(), msg)
-	}
-	return drainAvailable(r.events)
-}
-
 // mergeTextDeltas joins consecutive text_delta events: codex-acp splits the
-// App Server's text into chunks of its own.
+// App Server's text into chunks of its own, and the expected events do not.
 func mergeTextDeltas(t *testing.T, evs []Event) []Event {
 	t.Helper()
 	var out []Event
@@ -286,35 +307,38 @@ func mergeTextDeltas(t *testing.T, evs []Event) []Event {
 	return out
 }
 
-// The ACP turn gives the legacy runner's events, payloads included: the
+// The ACP turn gives the expected events, payloads included: the
 // commands are commandExecution, the failed ls is "Exit code 1" and an error,
 // and the MCP call is mcp__tools__ping with its text. Two differences are known
 // and checked on their own: codex-acp's model metadata warning reaches the reply
 // as text, and a command Codex parses as a read, search or list (the ls) reaches
 // ACP without its command line, so its input is empty.
-func TestCodexReplay_ACPMatchesLegacy(t *testing.T) {
+func TestCodexReplay_MatchesExpected(t *testing.T) {
 	all := readWire(t, codexTurnWire)
 	warning := all[0]
 	if !bytes.Contains(warning, []byte("Model metadata")) {
 		t.Fatalf("first recorded line is not the warning: %s", warning)
 	}
 	got := mergeTextDeltas(t, replayCodexACP(t, all[1:]))
-	legacy := mergeTextDeltas(t, replayCodexLegacy(t, readWire(t, codexTurnAppServer)))
+	var want []Event
+	if err := json.Unmarshal([]byte(readGolden(t, "testdata/acp/codex/turn.expected.json")), &want); err != nil {
+		t.Fatal(err)
+	}
 	const listCall = "call_zvhkEFKrvsAMYZiLwNfxiCEB"
-	for i, ev := range legacy {
+	for i, ev := range want {
 		if ev.Type == EventTypeToolUse && payloadOf[ToolUsePayload](t, ev).ID == listCall {
 			if use := payloadOf[ToolUsePayload](t, got[i]); string(use.Input) != `{"command":"","cwd":""}` {
 				t.Errorf("list command input = %s, want the empty command ACP gives", use.Input)
 			}
-			legacyUse := payloadOf[ToolUsePayload](t, ev)
-			legacyUse.Input = payloadOf[ToolUsePayload](t, got[i]).Input
-			legacy[i], _ = newEvent(EventTypeToolUse, legacyUse)
+			wantUse := payloadOf[ToolUsePayload](t, ev)
+			wantUse.Input = payloadOf[ToolUsePayload](t, got[i]).Input
+			want[i], _ = newEvent(EventTypeToolUse, wantUse)
 		}
 	}
 	gotJSON, _ := json.MarshalIndent(got, "", "  ")
-	legacyJSON, _ := json.MarshalIndent(legacy, "", "  ")
-	if !bytes.Equal(gotJSON, legacyJSON) {
-		t.Errorf("ACP events differ from the legacy runner's.\nACP:\n%s\nlegacy:\n%s", gotJSON, legacyJSON)
+	wantJSON, _ := json.MarshalIndent(want, "", "  ")
+	if !bytes.Equal(gotJSON, wantJSON) {
+		t.Errorf("events differ from turn.expected.json.\ngot:\n%s\nwant:\n%s", gotJSON, wantJSON)
 	}
 	var uses []ToolUsePayload
 	var results []ToolResultPayload
@@ -383,8 +407,8 @@ func TestCodexReplay_SubagentCallsNest(t *testing.T) {
 	}
 }
 
-// A child session's call does not end the reply's text block, as in the legacy
-// runner; only the run's own calls do.
+// A child session's call does not end the reply's text block; only the run's
+// own calls do.
 func TestACPEvents_ChildCallKeepsTheReplyTogether(t *testing.T) {
 	a := newFakeACPAgent(t)
 	const child = "sess-1:subagent:thr-1"
@@ -471,7 +495,7 @@ func TestCodexProfile_FileChange(t *testing.T) {
 }
 
 // A command's non-zero terminal_exit and an MCP call's error become error
-// results, as the legacy runner records them.
+// results.
 func TestCodexProfile_FailedCommandAndMCPError(t *testing.T) {
 	a := newFakeACPAgent(t)
 	a.onRequest["session/prompt"] = func(a *fakeACPAgent, id, _ json.RawMessage) {

@@ -2,7 +2,6 @@ package sessionmanager
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"os"
 	"testing"
@@ -38,41 +37,24 @@ func replayOpenCodeACP(t *testing.T, lines [][]byte) []Event {
 	return eventsUntilStop(t, r)
 }
 
-// replayOpenCodeLegacy plays the same turn to the legacy OpenCodeRunner.
-func replayOpenCodeLegacy(t *testing.T, lines [][]byte) []Event {
+// readGolden returns a turn's expected events: what the legacy runner gave for
+// the same recorded turn before it was removed.
+func readGolden(t *testing.T, path string) string {
 	t.Helper()
-	r := newTestOpenCodeRunner()
-	for _, l := range lines {
-		var msg openCodeMsg
-		if err := json.Unmarshal(l, &msg); err != nil {
-			t.Fatal(err)
-		}
-		r.handleNotification(context.Background(), msg)
-	}
-	id := int64(1)
-	r.pendingPrompts[id] = true
-	r.dispatchResponse(context.Background(), openCodeMsg{ID: &id, Result: json.RawMessage(`{"stopReason":"end_turn"}`)})
-	return drainAvailable(r.events)
-}
-
-// The recorded turn gives the events in turn.expected.json on the ACP runner,
-// and the same events, payloads included, as the legacy runner: the shell
-// call is named bash, and the failed command's result is "Exit code 1" and an
-// error.
-func TestOpenCodeReplay_ACPMatchesLegacy(t *testing.T) {
-	lines := readWire(t, openCodeTurnWire)
-	got := replayOpenCodeACP(t, lines)
-	gotJSON, _ := json.MarshalIndent(got, "", "  ")
-
-	want, err := os.ReadFile("testdata/acp/opencode/turn.expected.json")
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(bytes.TrimSpace(gotJSON), bytes.TrimSpace(want)) {
-		t.Errorf("ACP events differ from turn.expected.json; got:\n%s", gotJSON)
-	}
-	legacyJSON, _ := json.MarshalIndent(replayOpenCodeLegacy(t, lines), "", "  ")
-	if !bytes.Equal(gotJSON, legacyJSON) {
-		t.Errorf("ACP events differ from the legacy runner's.\nACP:\n%s\nlegacy:\n%s", gotJSON, legacyJSON)
+	return string(bytes.TrimSpace(raw))
+}
+
+// The recorded turn gives the events in turn.expected.json, payloads included:
+// the shell call is named bash, and the failed command's result is
+// "Exit code 1" and an error.
+func TestOpenCodeReplay_MatchesExpected(t *testing.T) {
+	got := replayOpenCodeACP(t, readWire(t, openCodeTurnWire))
+	gotJSON, _ := json.MarshalIndent(got, "", "  ")
+	if want := readGolden(t, "testdata/acp/opencode/turn.expected.json"); string(gotJSON) != want {
+		t.Errorf("events differ from turn.expected.json; got:\n%s", gotJSON)
 	}
 }

@@ -10,7 +10,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Delegated Agent Identity](delegated-agent-identity.md) | Draft | TBD |
 | [Install and Distribution](install-and-distribution.md) | In Review | [install-and-distribution-model](../adr/2026-09-04-install-and-distribution-model.md), [enforcement-sidecar-injection-and-preflight](../adr/2026-09-04-enforcement-sidecar-injection-and-preflight.md) |
 | [OAuth2 Web-Redirect Clients](oauth2-web-redirect-clients.md) | Approved | [oauth2-web-redirect-clients](../adr/2026-07-28-oauth2-web-redirect-clients.md) |
-| [Codex and OpenCode Agent Runners](codex-opencode-agent-runners.md) | Draft | [codex-agent-runner](../adr/2026-06-04-codex-agent-runner.md), [opencode-agent-runner](../adr/2026-06-04-opencode-agent-runner.md) |
+| [Codex and OpenCode Agent Runners](codex-opencode-agent-runners.md) | Implemented | [codex-agent-runner](../adr/2026-06-04-codex-agent-runner.md), [opencode-agent-runner](../adr/2026-06-04-opencode-agent-runner.md), [acp-agent-harness-protocol](../adr/2026-11-07-acp-agent-harness-protocol.md) |
 | [Run Task Summarization](run-task-summarization.md) | Approved | [run-task-summarization](../adr/2026-06-19-run-task-summarization.md) |
 | [Agent Triggers](agent-webhook-triggers.md) | Draft | [agent-triggers-and-webhook-ingestion](../adr/2026-06-17-agent-triggers-and-webhook-ingestion.md) |
 | [Extended Trigger Types](extended-trigger-types.md) | Implemented | [extended-trigger-types](../adr/2026-06-20-extended-trigger-types.md) |

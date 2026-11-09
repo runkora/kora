@@ -480,12 +480,12 @@ linters:
         text: "product name must come from internal/platform/brand"
 
       # codexProvider and openCodeProvider are config-table keys, not prose; each rule matches the declaration line only.
-      - path: "internal/agents/sessionmanager/runner_codex.go"
+      - path: "internal/agents/sessionmanager/acp_profile_codex.go"
         linters:
           - gocritic
         text: "product name must come from internal/platform/brand"
         source: 'const codexProvider = "kora"'
-      - path: "internal/agents/sessionmanager/runner_opencode.go"
+      - path: "internal/agents/sessionmanager/acp_profile_opencode.go"
         linters:
           - gocritic
         text: "product name must come from internal/platform/brand"
@@ -493,7 +493,7 @@ linters:
 
       # kora-session-runner is a thin exec() wrapper: its entire purpose is to
       # exec the binary supplied as argv[3] after applying Landlock restrictions.
-      # The binary path comes from operator configuration (ClaudeRunnerConfig),
+      # The binary path comes from the session-manager's ACP profiles,
       # not from user input — G702 (command injection via taint) is a false positive.
       - path: "cmd/kora-session-runner/"
         linters:

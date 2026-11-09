@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
@@ -193,7 +194,7 @@ func TestACPRunner_Close(t *testing.T) {
 			}
 			r := startACP(t, a, &fakeACPProfile{}, nil)
 			start := time.Now()
-			for i := 0; i < 3; i++ {
+			for i := range 3 {
 				if err := r.Close(); err != nil {
 					t.Fatalf("Close #%d: %v", i, err)
 				}
@@ -474,13 +475,13 @@ func TestACPRunner_LoadReplayIsSuppressed(t *testing.T) {
 // Updates that arrive right after the session/load response race the
 // translator reset; the race detector catches an unguarded reset.
 func TestACPRunner_LoadResetDoesNotRaceUpdates(t *testing.T) {
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		a := newFakeACPAgent(t)
 		a.caps = map[string]any{"loadSession": true}
 		a.onRequest["session/load"] = func(a *fakeACPAgent, id, _ json.RawMessage) {
 			a.text("replayed")
 			a.respond(id, map[string]any{})
-			for j := 0; j < 20; j++ {
+			for range 20 {
 				a.update(map[string]any{"sessionUpdate": "agent_thought_chunk", "content": map[string]string{"type": "text", "text": "t"}})
 				a.update(toolUpdate("tool_call", "late", "in_progress", nil))
 			}
@@ -693,11 +694,9 @@ func TestACPRunner_UnexpectedExit(t *testing.T) {
 	for ev := range r.Events() {
 		got = append(got, ev)
 	}
-	// As with the legacy runners, the stream just closes; the session reports
-	// the failed run.
+	// The stream just closes; the session reports the failed run.
 	wantTypes(t, got, EventTypeTextDelta)
-	// The partial text stays for a message sent before the session ends, as
-	// with the legacy runners.
+	// The partial text stays for a message sent before the session ends.
 	if got := r.TakeText(); got != "half" {
 		t.Errorf("TakeText after exit = %q, want the partial text", got)
 	}
@@ -762,7 +761,7 @@ func TestACPRunner_SteeringAfterTurnEndedStartsTurn(t *testing.T) {
 // The SDK's logger is set before it reads a line, so a non-JSON line written as
 // the adapter starts is logged through the run's logger without a data race.
 func TestACPRunner_SDKLogsThroughRunLogger(t *testing.T) {
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		a := newFakeACPAgent(t)
 		a.preamble = "adapter banner, not json"
 		var buf syncBuffer
@@ -842,7 +841,7 @@ func TestACPRunner_ConnectionClosedEarlyEndsRun(t *testing.T) {
 	r := startACP(t, a, &fakeACPProfile{}, nil)
 	r.tr.mu.Lock() // stall the SDK's notification goroutine so its queue overflows
 	go func() {
-		for i := 0; i < 1100; i++ {
+		for range 1100 {
 			a.text("x")
 		}
 	}()
@@ -1027,5 +1026,22 @@ func TestACPRunner_LateUpdateStartsNoOwnTurn(t *testing.T) {
 	nextACPEvent(t, r)
 	if err := r.Interrupt(); !errors.Is(err, ErrNoPromptInFlight) {
 		t.Fatalf("Interrupt after a late update = %v, want ErrNoPromptInFlight", err)
+	}
+}
+
+// A stderr line over the scanner's default 64 KiB is logged and later lines
+// still are. A failed read is logged.
+func TestACPRunner_LogStderr(t *testing.T) {
+	var buf syncBuffer
+	cfg := testACPConfig(newFakeACPAgent(t), &fakeACPProfile{})
+	cfg.Logger = logging.NewLoggerWithOutput(&buf)
+	r := newACPRunner(cfg)
+	r.logStderr(io.MultiReader(strings.NewReader(strings.Repeat("x", 70<<10)+"\nafter\n"), iotest.ErrReader(errors.New("pipe broke"))))
+	out := buf.String()
+	if !strings.Contains(out, `"line":"after"`) || !strings.Contains(out, strings.Repeat("x", 70<<10)) {
+		t.Errorf("stderr lines missing from the log:\n%.300s", out)
+	}
+	if !strings.Contains(out, "agent subprocess stderr scan error") || !strings.Contains(out, "pipe broke") {
+		t.Errorf("the read error is not logged:\n%.300s", out)
 	}
 }

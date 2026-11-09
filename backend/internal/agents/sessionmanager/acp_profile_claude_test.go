@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,14 +15,12 @@ import (
 
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 	"github.com/runkora/kora/backend/internal/platform/events"
-	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 func testClaudeProfile() *claudeProfile {
 	return &claudeProfile{cfg: ClaudeRunnerConfig{
 		Model:             "anthropic/claude-haiku-4-5",
 		SystemPrompt:      "Be brief.",
-		Logger:            logging.NewLoggerWithOutput(io.Discard),
 		RunID:             "run-1",
 		SessionManagerURL: "http://localhost:8090",
 		ToolGatewayURL:    "http://tool-gateway.test/run/run-1/",
@@ -34,19 +31,16 @@ func testClaudeProfile() *claudeProfile {
 
 // claudeTurnWire is one turn recorded from claude-agent-acp 0.101.0 with claude
 // 2.1.318 in bare mode: echo hi, an ls that exits 1, an MCP ping, a redirect to
-// a file and the reply. turn.stream-json.jsonl is the stream-json claude wrote
-// to the adapter for the same turn, read by the legacy parser. Paths and the
-// session id are shortened, and lines no runner reads are dropped. sub.jsonl is
-// a foreground subagent, a background command and the turn the agent takes on
-// its own when the command finishes. apierr.jsonl is a turn whose second model
-// call the gateway rejected with a 400 after the agent wrote text and ran echo hi.
+// a file and the reply. Paths and the session id are shortened, and lines no
+// runner reads are dropped. sub.jsonl is a foreground subagent, a background
+// command and the turn the agent takes on its own when the command finishes.
+// apierr.jsonl is a turn whose second model call the gateway rejected with a
+// 400 after the agent wrote text and ran echo hi. Each *.expected.json holds
+// the events the legacy stream-json runner gave for the same turn.
 const (
-	claudeTurnWire       = "testdata/acp/claude/turn.jsonl"
-	claudeTurnStreamJSON = "testdata/acp/claude/turn.stream-json.jsonl"
-	claudeSubWire        = "testdata/acp/claude/sub.jsonl"
-	claudeSubStreamJSON  = "testdata/acp/claude/sub.stream-json.jsonl"
-	claudeAPIErrWire     = "testdata/acp/claude/apierr.jsonl"
-	claudeAPIErrStream   = "testdata/acp/claude/apierr.stream-json.jsonl"
+	claudeTurnWire   = "testdata/acp/claude/turn.jsonl"
+	claudeSubWire    = "testdata/acp/claude/sub.jsonl"
+	claudeAPIErrWire = "testdata/acp/claude/apierr.jsonl"
 )
 
 // replayClaudeACP plays a recording to the Claude profile on the acpRunner and
@@ -85,18 +79,8 @@ func replayClaudeACP(t *testing.T, lines [][]byte) ([]Event, *acpRunner, func() 
 	}
 }
 
-func replayClaudeLegacy(t *testing.T, lines [][]byte) []Event {
-	t.Helper()
-	strs := make([]string, len(lines))
-	for i, l := range lines {
-		strs[i] = string(l)
-	}
-	return runFixture(t, newTestRunner(), strs...)
-}
-
-// claudeComparable is evs with the two encoding differences that carry no
-// meaning removed: the legacy runner keeps a tool input's key order from the
-// model and writes message_stop with a null payload.
+// claudeComparable drops two encoding differences from the expected events:
+// tool input key order and message_stop's null payload.
 func claudeComparable(t *testing.T, evs []Event) string {
 	t.Helper()
 	for i, ev := range evs {
@@ -117,16 +101,14 @@ func claudeComparable(t *testing.T, evs []Event) string {
 	return string(b)
 }
 
-// The recorded turn gives the legacy runner's events, payloads included: each
+// The recorded turn gives the expected events, payloads included: each
 // tool_use carries the complete input (the adapter streams it partially first),
 // the failed ls is "Exit code 1" and an error, the MCP result is its text and
 // the redirect's result is Claude's "(Bash completed with no output)".
-func TestClaudeReplay_ACPMatchesLegacy(t *testing.T) {
+func TestClaudeReplay_MatchesExpected(t *testing.T) {
 	got, _, _ := replayClaudeACP(t, readWire(t, claudeTurnWire))
-	acpJSON := claudeComparable(t, got)
-	legacyJSON := claudeComparable(t, replayClaudeLegacy(t, readWire(t, claudeTurnStreamJSON)))
-	if acpJSON != legacyJSON {
-		t.Errorf("ACP events differ from the legacy runner's.\nACP:\n%s\nlegacy:\n%s", acpJSON, legacyJSON)
+	if gotJSON := claudeComparable(t, got); gotJSON != readGolden(t, "testdata/acp/claude/turn.expected.json") {
+		t.Errorf("events differ from turn.expected.json; got:\n%s", gotJSON)
 	}
 	var results []ToolResultPayload
 	for _, ev := range got {
@@ -142,7 +124,7 @@ func TestClaudeReplay_ACPMatchesLegacy(t *testing.T) {
 }
 
 // A foreground subagent, a background command and the turn the agent takes on
-// its own when the command ends give the legacy runner's events: the
+// its own when the command ends give the expected events: the
 // subagent's Bash call nests under the Agent call, its text stays out of the
 // reply, the background command is work in flight until it ends, and the
 // agent's own turn ends with message_complete and message_stop.
@@ -155,10 +137,8 @@ func TestClaudeReplay_SubagentAndBackgroundTask(t *testing.T) {
 	if n := r.InFlightWork(); n != 0 {
 		t.Errorf("in-flight work after the command ended = %d", n)
 	}
-	acpJSON := claudeComparable(t, got)
-	legacyJSON := claudeComparable(t, replayClaudeLegacy(t, readWire(t, claudeSubStreamJSON)))
-	if acpJSON != legacyJSON {
-		t.Errorf("ACP events differ from the legacy runner's.\nACP:\n%s\nlegacy:\n%s", acpJSON, legacyJSON)
+	if gotJSON := claudeComparable(t, got); gotJSON != readGolden(t, "testdata/acp/claude/sub.expected.json") {
+		t.Errorf("events differ from sub.expected.json; got:\n%s", gotJSON)
 	}
 	var agent, child *ToolUsePayload
 	for _, ev := range got {
@@ -179,8 +159,9 @@ func TestClaudeReplay_SubagentAndBackgroundTask(t *testing.T) {
 }
 
 // The adapter runs through the sandbox wrapper with the pinned claude and
-// model, the legacy runner's environment and emptied user settings. session/new carries the legacy flags as options, the runtime server
-// without the run token and the gateway servers; the session is put in bypass mode.
+// model, the run's environment and emptied user settings. session/new carries
+// the Claude Code options, the runtime server without the run token and the
+// gateway servers; the session is put in bypass mode.
 func TestClaudeProfile_Launch(t *testing.T) {
 	a := newFakeACPAgent(t)
 	workDir := t.TempDir()
@@ -266,6 +247,98 @@ func TestClaudeProfile_Launch(t *testing.T) {
 	}
 }
 
+// Every run disables Claude Code's own commit trailer and PR footer: kora, not
+// the subprocess's default settings, is the record of who ran an agent.
+func TestClaudeProfile_DisablesOwnAttribution(t *testing.T) {
+	opts := testClaudeProfile().SessionParams("/w").Meta["claudeCode"].(map[string]any)["options"].(map[string]any)
+	raw, _ := opts["settings"].(json.RawMessage)
+	var settings struct {
+		Attribution struct {
+			Commit *string `json:"commit"`
+			PR     *string `json:"pr"`
+		} `json:"attribution"`
+	}
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		t.Fatalf("settings option is not valid JSON: %v (%q)", err, raw)
+	}
+	if c, pr := settings.Attribution.Commit, settings.Attribution.PR; c == nil || *c != "" || pr == nil || *pr != "" {
+		t.Errorf("attribution = %s, want commit and pr empty", raw)
+	}
+}
+
+// Without a model or system prompt the session carries neither.
+func TestClaudeProfile_OptionalOptionsAreLeftOut(t *testing.T) {
+	p := testClaudeProfile()
+	p.cfg.Model, p.cfg.SystemPrompt = "", ""
+	meta := p.SessionParams("/w").Meta
+	if _, ok := meta["claudeCode"].(map[string]any)["options"].(map[string]any)["model"]; ok {
+		t.Error("model option set without a model")
+	}
+	if _, ok := meta["systemPrompt"]; ok {
+		t.Error("systemPrompt set without a prompt")
+	}
+	env, err := p.Prepare(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range env {
+		if strings.HasPrefix(e, "ANTHROPIC_MODEL=") {
+			t.Errorf("env %s set without a model", e)
+		}
+	}
+}
+
+// The environment turns off Claude Code's calls home, tool search included,
+// over whatever the pod set, and leaves OTLP export to the platform collector on.
+func TestClaudeProfile_OfflineEnv(t *testing.T) {
+	p := testClaudeProfile()
+	p.cfg.ExtraEnv = []string{"CLAUDE_CODE_ENABLE_TELEMETRY=1"}
+	extra, err := p.Prepare(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := withRunEnv([]string{"DISABLE_TELEMETRY=0", "ENABLE_TOOL_SEARCH=true", "HOME=/root"}, extra)
+	got := map[string][]string{}
+	for _, e := range env {
+		k, v, _ := strings.Cut(e, "=")
+		got[k] = append(got[k], v)
+	}
+	for _, e := range claudeOfflineEnv {
+		k, v, _ := strings.Cut(e, "=")
+		if !slices.Equal(got[k], []string{v}) {
+			t.Errorf("%s = %q, want only %q", k, got[k], v)
+		}
+	}
+	if _, ok := got["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"]; ok {
+		t.Error("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC is set; it would stop OTLP export")
+	}
+	if !slices.Equal(got["CLAUDE_CODE_ENABLE_TELEMETRY"], []string{"1"}) {
+		t.Errorf("CLAUDE_CODE_ENABLE_TELEMETRY = %q, want the ExtraEnv value", got["CLAUDE_CODE_ENABLE_TELEMETRY"])
+	}
+}
+
+func TestToolResultText(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "string", raw: `"file.txt\n"`, want: "file.txt\n"},
+		{name: "mcp text blocks", raw: `[{"type":"text","text":"{\"number\":350}"},{"type":"text","text":"second"}]`, want: "{\"number\":350}\nsecond"},
+		{name: "agent result with an image", raw: `[{"type":"text","text":"done"},{"type":"image","source":{}}]`, want: "done\n[image]"},
+		{name: "empty array", raw: `[]`, want: ""},
+		{name: "absent", raw: ``, want: ""},
+		{name: "other json passes through", raw: `{"k":1}`, want: `{"k":1}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := toolResultText(json.RawMessage(tt.raw)); got != tt.want {
+				t.Errorf("toolResultText(%s) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestClaudeProfile_BareSetsExtraArgs(t *testing.T) {
 	p := testClaudeProfile()
 	p.cfg.Bare = true
@@ -343,7 +416,7 @@ func claudeSDK(msg string) acpAdapterMessage {
 	return acpAdapterMessage{Method: claudeSDKMessageMethod, Params: json.RawMessage(`{"sessionId":"sess-1","message":` + msg + `}`)}
 }
 
-// The last result ends the turn as the legacy runner does. The budget result
+// The last result decides how the turn ends. The budget result
 // is the one the adapter sent with the gateway's 403 (spike run claudeG).
 func TestClaudeProfile_ClassifyError(t *testing.T) {
 	const budgetText = "Failed to authenticate. API Error: 403 budget exceeded: a spending ceiling for this principal or run has been reached"
@@ -384,9 +457,9 @@ func TestClaudeProfile_ClassifyError(t *testing.T) {
 }
 
 // An API error after the agent wrote text, recorded with the gateway rejecting
-// the turn's second model call, gives the legacy runner's events: the turn
-// completes and the adapter's copy of the error stays out of the reply. The
-// one difference is that copy's text_delta, which only the ACP stream carries.
+// the turn's second model call, gives the expected events: the turn completes
+// and the adapter's copy of the error stays out of the reply. The one
+// difference is that copy's text_delta, which only the ACP stream carries.
 func TestClaudeReplay_APIErrorAfterTextCompletesTheTurn(t *testing.T) {
 	got, _, _ := replayClaudeACP(t, readWire(t, claudeAPIErrWire))
 	var kept []Event
@@ -399,18 +472,16 @@ func TestClaudeReplay_APIErrorAfterTextCompletesTheTurn(t *testing.T) {
 	if len(kept) != len(got)-1 {
 		t.Errorf("the error's text_delta is not in the ACP events once: %v", typesOf(got))
 	}
-	acpJSON := claudeComparable(t, kept)
-	legacyJSON := claudeComparable(t, replayClaudeLegacy(t, readWire(t, claudeAPIErrStream)))
-	if acpJSON != legacyJSON {
-		t.Errorf("ACP events differ from the legacy runner's.\nACP:\n%s\nlegacy:\n%s", acpJSON, legacyJSON)
+	if gotJSON := claudeComparable(t, kept); gotJSON != readGolden(t, "testdata/acp/claude/apierr.expected.json") {
+		t.Errorf("events differ from apierr.expected.json; got:\n%s", gotJSON)
 	}
 	if slices.Contains(typesOf(kept), EventTypeRunError) {
 		t.Errorf("events = %v, want the turn completed", typesOf(kept))
 	}
 }
 
-// An API error before any text ends the turn empty_response with the error, as
-// the legacy runner does, and the adapter's copy of the error is not kept as text.
+// An API error before any text ends the turn empty_response with the error,
+// and the adapter's copy of the error is not kept as text.
 func TestClaudeProfile_APIErrorOnAnEmptyTurn(t *testing.T) {
 	a := newFakeACPAgent(t)
 	a.onRequest["session/prompt"] = func(a *fakeACPAgent, id, _ json.RawMessage) {
@@ -502,8 +573,8 @@ func TestClaudeProfile_CallWithoutInputIsRecordedAtItsResult(t *testing.T) {
 }
 
 // A stop during the turn the agent takes on its own after a background task
-// cancels that turn, which ends with the partial text and turn_stopped, as the
-// legacy runner's SIGINT does. With no turn running a stop sends nothing.
+// cancels that turn, which ends with the partial text and turn_stopped. With no
+// turn running a stop sends nothing.
 func TestClaudeProfile_InterruptStopsTheAgentsOwnTurn(t *testing.T) {
 	a := newFakeACPAgent(t)
 	a.onRequest["session/prompt"] = func(a *fakeACPAgent, id, _ json.RawMessage) {
@@ -541,4 +612,28 @@ func envString(env []acp.EnvVariable) string {
 		parts[i] = e.Name + "=" + e.Value
 	}
 	return strings.Join(parts, " ")
+}
+
+// Text a mid-turn message already recorded counts as the turn's reply, so an
+// API error after it does not end the turn empty_response.
+func TestClaudeProfile_TakenTextIsNotAnEmptyResponse(t *testing.T) {
+	a := newFakeACPAgent(t)
+	release := make(chan struct{})
+	a.onRequest["session/prompt"] = func(a *fakeACPAgent, id, _ json.RawMessage) {
+		a.text("Everything so far.")
+		<-release
+		a.notify(claudeSDKMessageMethod, map[string]any{"sessionId": "sess-1", "message": map[string]any{
+			"type": "result", "subtype": "success", "is_error": true, "stop_reason": "stop_sequence", "result": "API Error: 500"}})
+		a.respondErr(id, -32603, "Internal error")
+	}
+	r := startACP(t, a, testClaudeProfile(), nil)
+	prompt(t, r, "go")
+	nextACPEvent(t, r)
+	if got := r.TakeText(); got != "Everything so far." {
+		t.Fatalf("TakeText = %q", got)
+	}
+	close(release)
+	if types := typesOf(eventsUntilStop(t, r)); slices.Contains(types, EventTypeRunError) {
+		t.Errorf("events = %v, want the turn completed", types)
+	}
 }

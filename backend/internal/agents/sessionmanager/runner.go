@@ -11,45 +11,37 @@ import (
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 )
 
-// ErrNotSupported is returned by SendToolResult for runners that handle tool
-// execution internally (Codex, OpenCode). The session-manager will not call
-// SendToolResult for these frameworks — HITL is out of scope.
-var ErrNotSupported = errors.New("operation not supported by this runner")
-
-// Runner manages a single long-lived CLI subprocess for one session.
-// Each framework (Claude Code, Codex, OpenCode) provides its own implementation.
+// Runner manages a single long-lived agent subprocess for one session.
+// acpRunner implements it for every framework, with an acpProfile per harness.
 // The session-manager is framework-agnostic above this interface.
 type Runner interface {
-	// Start spawns the CLI subprocess with workDir as its working directory.
+	// Start spawns the agent subprocess with workDir as its working directory.
 	// Must be called exactly once before Send or Events.
 	Start(ctx context.Context, workDir string) error
 
-	// Send delivers a user text message to the CLI subprocess via stdin.
-	// Blocks until the message has been written to the pipe.
+	// Send sends a user message as a prompt, or steers or queues it while a
+	// turn runs (ACP ADR, D3).
 	Send(ctx context.Context, text string) error
 
-	// SendToolResult injects a tool result for a pending human-in-the-loop tool
-	// (e.g. AskFollowupQuestion). toolUseID must match the id from the tool_use
-	// event. The subprocess will resume processing once the result is written.
+	// SendToolResult answers the pending question or elicitation keyed by
+	// toolUseID, the id from its tool_use event. It returns ErrNoPendingRequest
+	// when none is pending.
 	SendToolResult(ctx context.Context, toolUseID, content string) error
 
-	// Events returns a read-only channel of kora standard events produced
-	// by the transform layer. The channel is closed when the subprocess exits
-	// or Close is called.
+	// Events returns a read-only channel of the run's kora events. The channel
+	// is closed when the subprocess exits or Close is called.
 	Events() <-chan Event
 
-	// Interrupt sends an interrupt signal (SIGINT) to the CLI subprocess,
-	// stopping the current in-progress turn without killing the process.
-	// The subprocess should remain alive and ready for the next message.
-	// Safe to call when no turn is active; the signal is best-effort.
+	// Interrupt stops the current in-progress turn without killing the process.
+	// The subprocess should remain alive and ready for the next message. It
+	// returns ErrNoPromptInFlight when no turn is running.
 	Interrupt() error
 
 	// Close sends EOF to stdin and waits for the subprocess to exit.
 	// Safe to call more than once; subsequent calls are no-ops.
 	Close() error
 
-	// SessionID returns the Claude session ID captured from the system/init event.
-	// Returns empty string if the process has not yet emitted the init event.
+	// SessionID returns the agent's session ID, or empty before the session opens.
 	SessionID() string
 
 	// TakeText returns the text the current turn has streamed but not yet
@@ -57,9 +49,9 @@ type Runner interface {
 	// text written before the message is recorded before it.
 	TakeText() string
 
-	// NewResumeRunner creates a new Runner configured to resume this session via
-	// --resume. The returned runner has not yet been started. Returns nil if no
-	// session ID has been captured (e.g. interrupted before the init event arrived).
+	// NewResumeRunner creates a new Runner configured to resume this session.
+	// The returned runner has not yet been started. Returns nil if no session ID
+	// has been captured (e.g. interrupted before the session opened).
 	NewResumeRunner() Runner
 }
 
@@ -97,22 +89,31 @@ func runHomeDirs(workDir string) ([]string, error) {
 }
 
 // withRunEnv returns base with every key extra sets removed, then extra
-// appended, so the run's values are the only ones present.
+// appended with only the last entry for each key, so the run's values are the
+// only ones present.
 func withRunEnv(base, extra []string) []string {
-	overridden := make(map[string]bool, len(extra))
-	for _, e := range extra {
+	last := make(map[string]int, len(extra))
+	for i, e := range extra {
 		if k, _, ok := strings.Cut(e, "="); ok {
-			overridden[k] = true
+			last[k] = i
 		}
 	}
-	out := make([]string, 0, len(base))
+	out := make([]string, 0, len(base)+len(extra))
 	for _, e := range base {
-		if k, _, ok := strings.Cut(e, "="); ok && overridden[k] {
+		if k, _, ok := strings.Cut(e, "="); ok {
+			if _, set := last[k]; set {
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	for i, e := range extra {
+		if k, _, ok := strings.Cut(e, "="); ok && last[k] != i {
 			continue
 		}
 		out = append(out, e)
 	}
-	return append(out, extra...)
+	return out
 }
 
 // turnText is the text a turn has streamed but not yet recorded. The runner's
@@ -176,3 +177,25 @@ var ErrNoPendingRequest = errors.New("no pending request for tool use id")
 // ErrNoPromptInFlight is returned by an ACP runner's Interrupt when no turn is
 // running, so nothing will end it and the session must not wait for a restart.
 var ErrNoPromptInFlight = errors.New("no prompt in flight")
+
+// maxAgentLineBytes bounds one line of adapter stdout. One line carries a whole
+// tool result.
+const maxAgentLineBytes = 32 * 1024 * 1024
+
+// isBudgetExceededMessage recognizes the inference gateway's BUDGET_EXCEEDED
+// rejection surfaced through the agent runtime's error result.
+func isBudgetExceededMessage(msg string) bool {
+	lower := strings.ToLower(msg)
+	return strings.Contains(lower, "budget_exceeded") || strings.Contains(lower, "budget exceeded")
+}
+
+// isExitKilled returns true for process terminations that are normal shutdown.
+func isExitKilled(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "signal: killed") ||
+		strings.Contains(s, "signal: terminated") ||
+		strings.Contains(s, "context canceled")
+}

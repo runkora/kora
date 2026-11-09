@@ -25,13 +25,13 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `kora-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097`; metrics `9464` | ✅ |
 | `kora-events` | Event spine: relays `event_outbox` into the event log, serves the event read API and streams, and deletes expired events, backed by `internal/koraevents` | `8099`; metrics `9464` | ✅ |
 | `skills-service` | Agent Skills: serves each tenant's skill Marketplaces from GitHub repositories with a Redis cache, backed by `internal/skills` | `8098` (`/v1`); metrics `9464` | none |
-| `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090`; metrics `9464` (Go-side only, no chart wiring: there is no `charts/kora/templates/session-manager/`, so no Service port, scrape annotation, or NetworkPolicy allowance) | none |
+| `session-manager` | Per-tenant StatefulSet that runs each run's agent harness (Claude Code, Codex or OpenCode) over ACP; workspace + idle lifecycle | `8090`; metrics `9464` (Go-side only, no chart wiring: there is no `charts/kora/templates/session-manager/`, so no Service port, scrape annotation, or NetworkPolicy allowance) | none |
 | `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar), projects declared resources into their owning services | health `8081`, webhook `9443` | none |
 | `identity-proxy` | Envoy `ext_proc` gRPC sidecar: injects platform Bearer tokens into agent outbound calls (SPIFFE→JWT exchange) | unix socket; health `9090` | none |
 | `sandbox-exec` | gRPC exec server inside a sandbox pod: streams stdout/stderr/exit for commands | gRPC `50051` | none |
 | `kora-runtime-mcp` | MCP server (stdio) spawned by the agent CLI: exposes the `list_environments`, `provision_sandbox` and `replace_environment` tools | stdio | none |
 | `kora-shell` | `$SHELL` shim in the agent container: streams `-c` commands to the sandbox pod and refuses them when the run has no sandbox | none | none |
-| `kora-session-runner` | Wrapper that applies Landlock, then `exec()`s the agent CLI. The agent can execute only its CLI and the CLI's helper binaries, `kora-shell` and `kora-runtime-mcp` | none | none |
+| `kora-session-runner` | Wrapper that applies Landlock, then `exec()`s the harness's ACP process (`claude-agent-acp`, `codex-acp` or `opencode acp`). The agent can execute only that process, the CLI an adapter runs, the CLI's helper binaries, `kora-shell` and `kora-runtime-mcp` | none | none |
 | `sandbox-mount` | Privileged node agent (DaemonSet): exports each sandbox's local working folder with the kernel NFS server and mounts it into the session-manager pod at `/workspaces/<run>/sandbox` | NFS `20490` (host network, `sandboxMount.port`) | none |
 | `migrate` | Schema migrations: embeds every service's `migrations/` and runs them as the chart's pre-install/pre-upgrade hook Job | none | none |
 | `example` | Reference implementation demonstrating the patterns (not production) | `8081` | ✅ |

@@ -27,15 +27,13 @@ import (
 
 // ControllerConfig holds defaults that the controller applies to new sessions.
 type ControllerConfig struct {
-	// ClaudeBinaryPath overrides the claude binary location.
-	ClaudeBinaryPath string
 	// WrapperPath is the path to kora-session-runner. When set, every agent
 	// subprocess runs through it, applying Landlock (docs/adr/2026-06-04-per-session-home-isolation.md).
 	WrapperPath string
 	// ShellPath is the kora-shell proxy OpenCode is pointed at. Claude Code and
 	// Codex resolve it from the image.
 	ShellPath string
-	// ClaudeBare enables --bare mode (required in containers).
+	// ClaudeBare enables Claude Code's bare mode (required in containers).
 	ClaudeBare bool
 	// SelfPort is the port this session-manager listens on. kora-runtime-mcp
 	// uses it to call back for provision_sandbox requests.
@@ -44,14 +42,8 @@ type ControllerConfig struct {
 	// Used to set WORKSPACE env var for Claude and to write sandbox endpoint files.
 	WorkspacesBasePath string
 
-	// CodexBinaryPath overrides the codex binary location. Defaults to "codex".
-	CodexBinaryPath string
-
-	// OpenCodeBinaryPath overrides the opencode binary location. Defaults to "opencode".
-	OpenCodeBinaryPath string
-
 	// InferenceGatewayURL is the base URL of the kora inference gateway.
-	// Injected as OPENAI_BASE_URL for Codex; written into the OpenCode config for OpenCode.
+	// Written into the per-run Codex config.toml and OpenCode config.
 	InferenceGatewayURL string
 
 	// ToolGatewayURL is the in-mesh base URL of the MCP tool-gateway, written
@@ -119,7 +111,7 @@ func (c *Controller) GroupedBy() string { return "" }
 //
 //   - /internal/* is open at the application layer but restricted to the pod's
 //     own loopback interface. Its only callers are kora-runtime-mcp and
-//     kora-shell, which are child processes of the Claude subprocess inside
+//     kora-shell, which are child processes of the agent subprocess inside
 //     THIS container calling http://localhost:8090. They hold no platform
 //     token and cannot obtain one: the call never leaves the pod, so the
 //     identity-proxy ext_proc sidecar never sees it, and there is no inbound
@@ -285,14 +277,14 @@ func idleTimeoutFromSecs(secs int) time.Duration {
 	return time.Duration(secs) * time.Second
 }
 
-// handleCreateSession starts an agent subprocess for the given run.
-// The runner type is selected based on the Framework field.
 // validRunID admits the UUIDs kora-agents mints and nothing that could leave
 // the workspaces directory: the run ID becomes a path segment under
 // WorkspacesBasePath, so a separator or a dot-only segment would let a caller
 // place a run's files, and its Landlock scope, outside its own workspace.
 var validRunID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 
+// handleCreateSession starts an agent subprocess for the given run. The
+// Framework field selects the ACP profile.
 func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -317,74 +309,15 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var runner Runner
-	var inferenceURL string
-	switch req.Framework {
-	case "claude-code", "":
-		// Empty framework also routes to claude-code: rows that pre-date
-		// service.CreateAgentType's empty→claude-code defaulting still carry
-		// the migration's NOT NULL DEFAULT '' value.
-		extraEnv := c.runEnv(req.RunID, runToken)
-		// Run identity travels as a base-URL path prefix: point this subprocess at
-		// {gateway}/run/{run_id} so the gateway can attribute and enforce per-run
-		// budgets. Transparent to the agent runtime; the inherited pod-level value
-		// is stripped in buildRunEnv. See docs/adr/2026-06-10-hierarchical-budget-enforcement.md.
-		if base := os.Getenv("ANTHROPIC_BASE_URL"); base != "" {
-			inferenceURL = fmt.Sprintf("%s/run/%s", strings.TrimRight(base, "/"), req.RunID)
-			extraEnv = append(extraEnv, "ANTHROPIC_BASE_URL="+inferenceURL)
-		}
-		extraEnv = append(extraEnv, claudeTelemetryEnv(ctx, c.cfg.OTLPEndpoint, req.RunID, req.TenantID, req.AgentTypeID, req.AgentSlug)...)
-		runner = NewClaudeRunner(ClaudeRunnerConfig{
-			BinaryPath:        c.cfg.ClaudeBinaryPath,
-			WrapperPath:       c.cfg.WrapperPath,
-			Model:             req.Model,
-			SystemPrompt:      req.SystemPrompt,
-			Bare:              c.cfg.ClaudeBare,
-			SessionManagerURL: fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
-			ToolGatewayURL:    toolGatewayURLForRun(c.cfg.ToolGatewayURL, req.RunID),
-			MCPServers:        req.MCPServers,
-			RunID:             req.RunID,
-			ExtraEnv:          extraEnv,
-			Logger:            c.logger,
-		})
-	case "codex":
-		inferenceURL = inferenceURLForRun(c.cfg.InferenceGatewayURL, req.RunID)
-		runner = NewCodexRunner(CodexRunnerConfig{
-			BinaryPath:          c.cfg.CodexBinaryPath,
-			WrapperPath:         c.cfg.WrapperPath,
-			Model:               req.Model,
-			InferenceGatewayURL: c.cfg.InferenceGatewayURL,
-			Logger:              c.logger,
-			RunID:               req.RunID,
-			SystemPrompt:        req.SystemPrompt,
-			ExtraEnv:            c.runEnv(req.RunID, runToken),
-			SessionManagerURL:   fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
-			ToolGatewayURL:      toolGatewayURLForRun(c.cfg.ToolGatewayURL, req.RunID),
-			MCPServers:          req.MCPServers,
-			Brand:               c.cfg.Brand,
-		})
-	case "opencode":
-		inferenceURL = inferenceURLForRun(c.cfg.InferenceGatewayURL, req.RunID)
-		runner = NewOpenCodeRunner(OpenCodeRunnerConfig{
-			BinaryPath:          c.cfg.OpenCodeBinaryPath,
-			WrapperPath:         c.cfg.WrapperPath,
-			ShellPath:           c.cfg.ShellPath,
-			Model:               req.Model,
-			InferenceGatewayURL: c.cfg.InferenceGatewayURL,
-			Logger:              c.logger,
-			RunID:               req.RunID,
-			SystemPrompt:        req.SystemPrompt,
-			ExtraEnv:            c.runEnv(req.RunID, runToken),
-			SessionManagerURL:   fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
-			ToolGatewayURL:      toolGatewayURLForRun(c.cfg.ToolGatewayURL, req.RunID),
-			MCPServers:          req.MCPServers,
-			Brand:               c.cfg.Brand,
-		})
-	default:
+	profile, framework, inferenceURL, ok := c.profileFor(ctx, req, runToken)
+	if !ok {
 		apiErr := api.ValidationError(api.ErrCodeInvalidField, fmt.Sprintf("unsupported framework %q", req.Framework), nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
+	runner := newACPRunner(acpRunnerConfig{
+		Profile: profile, Framework: framework, WrapperPath: c.cfg.WrapperPath, RunID: req.RunID, Model: req.Model, Logger: c.logger,
+	})
 
 	cfg := SessionConfig{
 		RunID:        req.RunID,
@@ -415,6 +348,71 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusCreated, map[string]any{"run_id": req.RunID})
+}
+
+// profileFor is the ACP profile for the request's framework, the framework's
+// log label and the run's inference URL. ok is false for an unknown framework.
+func (c *Controller) profileFor(ctx context.Context, req CreateSessionRequest, runToken string) (profile acpProfile, framework, inferenceURL string, ok bool) {
+	framework = req.Framework
+	switch req.Framework {
+	case "claude-code", "":
+		// Empty framework also routes to claude-code: rows that pre-date
+		// service.CreateAgentType's empty→claude-code defaulting still carry
+		// the migration's NOT NULL DEFAULT '' value.
+		framework = "claude-code"
+		extraEnv := c.runEnv(req.RunID, runToken)
+		// Run identity travels as a base-URL path prefix: point this subprocess at
+		// {gateway}/run/{run_id} so the gateway can attribute and enforce per-run
+		// budgets. Transparent to the agent runtime; withRunEnv drops the
+		// inherited pod-level value. See docs/adr/2026-06-10-hierarchical-budget-enforcement.md.
+		if base := os.Getenv("ANTHROPIC_BASE_URL"); base != "" {
+			inferenceURL = fmt.Sprintf("%s/run/%s", strings.TrimRight(base, "/"), req.RunID)
+			extraEnv = append(extraEnv, "ANTHROPIC_BASE_URL="+inferenceURL)
+		}
+		extraEnv = append(extraEnv, claudeTelemetryEnv(ctx, c.cfg.OTLPEndpoint, req.RunID, req.TenantID, req.AgentTypeID, req.AgentSlug)...)
+		profile = &claudeProfile{cfg: ClaudeRunnerConfig{
+			Model:             req.Model,
+			SystemPrompt:      req.SystemPrompt,
+			Bare:              c.cfg.ClaudeBare,
+			SessionManagerURL: fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
+			ToolGatewayURL:    toolGatewayURLForRun(c.cfg.ToolGatewayURL, req.RunID),
+			MCPServers:        req.MCPServers,
+			RunID:             req.RunID,
+			ExtraEnv:          extraEnv,
+		}}
+	case "codex":
+		inferenceURL = inferenceURLForRun(c.cfg.InferenceGatewayURL, req.RunID)
+		profile = &codexProfile{cfg: CodexRunnerConfig{
+			Model:               req.Model,
+			InferenceGatewayURL: c.cfg.InferenceGatewayURL,
+			Logger:              c.logger,
+			TraceCtx:            context.WithoutCancel(ctx),
+			RunID:               req.RunID,
+			SystemPrompt:        req.SystemPrompt,
+			ExtraEnv:            c.runEnv(req.RunID, runToken),
+			SessionManagerURL:   fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
+			ToolGatewayURL:      toolGatewayURLForRun(c.cfg.ToolGatewayURL, req.RunID),
+			MCPServers:          req.MCPServers,
+			Brand:               c.cfg.Brand,
+		}}
+	case "opencode":
+		inferenceURL = inferenceURLForRun(c.cfg.InferenceGatewayURL, req.RunID)
+		profile = &openCodeProfile{cfg: OpenCodeRunnerConfig{
+			ShellPath:           c.cfg.ShellPath,
+			Model:               req.Model,
+			InferenceGatewayURL: c.cfg.InferenceGatewayURL,
+			RunID:               req.RunID,
+			SystemPrompt:        req.SystemPrompt,
+			ExtraEnv:            c.runEnv(req.RunID, runToken),
+			SessionManagerURL:   fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
+			ToolGatewayURL:      toolGatewayURLForRun(c.cfg.ToolGatewayURL, req.RunID),
+			MCPServers:          req.MCPServers,
+			Brand:               c.cfg.Brand,
+		}}
+	default:
+		return nil, "", "", false
+	}
+	return profile, framework, inferenceURL, true
 }
 
 // prepareRun rejects a request no runner can serve and returns the run's token,
@@ -556,8 +554,8 @@ type SendToolResultRequest struct {
 	Content   string `json:"content"`
 }
 
-// handleSendToolResult injects a tool result for a pending AskFollowupQuestion.
-// kora-agents calls this when the user has answered a question Claude asked.
+// handleSendToolResult answers the agent's pending question or elicitation
+// keyed by tool_use_id. An id with no pending request is accepted and changes nothing.
 func (c *Controller) handleSendToolResult(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	runID := r.PathValue("runID")
@@ -578,6 +576,10 @@ func (c *Controller) handleSendToolResult(w http.ResponseWriter, r *http.Request
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		if errors.Is(err, ErrNoPendingRequest) {
+			api.NoBody(w, http.StatusAccepted)
+			return
+		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to send tool result", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
@@ -586,8 +588,8 @@ func (c *Controller) handleSendToolResult(w http.ResponseWriter, r *http.Request
 	api.NoBody(w, http.StatusAccepted)
 }
 
-// handleInterruptSession sends SIGINT to the subprocess, stopping the current
-// in-progress turn. The session and subprocess remain alive.
+// handleInterruptSession stops the subprocess's current in-progress turn. The
+// session and subprocess remain alive.
 func (c *Controller) handleInterruptSession(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	runID := r.PathValue("runID")
@@ -631,7 +633,7 @@ type sandboxRequest struct {
 	Environment string `json:"environment"`
 }
 
-// handleProvisionSandbox is called by kora-runtime-mcp (running inside Claude)
+// handleProvisionSandbox is called by kora-runtime-mcp (running inside the agent)
 // to provision a sandbox pod. It delegates to kora-agents then writes the
 // gRPC endpoint to disk so kora-shell can route Bash commands to the sandbox.
 func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Request) {

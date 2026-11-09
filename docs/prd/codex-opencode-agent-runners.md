@@ -1,6 +1,6 @@
 # Codex and OpenCode Agent Runners — Product Requirements Document
 
-**Status:** Draft  
+**Status:** Implemented  
 **Created:** 2026-05-19  
 **Last Updated:** 2026-05-22 (rev 2 — all review findings addressed)  
 **Owner:** Platform Engineering  

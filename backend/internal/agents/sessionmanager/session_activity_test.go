@@ -16,7 +16,7 @@ import (
 )
 
 // scriptRunner is a Runner whose events the test pushes by hand. Interrupt
-// closes the event stream, the way SIGINT ends the Claude process.
+// closes the event stream, the way an adapter that exits on a stop does.
 type scriptRunner struct {
 	events  chan Event
 	mu      sync.Mutex
@@ -406,9 +406,9 @@ func TestSend_RecordsTheTextBeforeAMidTurnMessage(t *testing.T) {
 	}
 	_, evs := n.snapshot()
 	if len(evs) != 1 || evs[0].Type != EventTypeTextBlock {
-		t.Fatalf("pushed %v, want one text_block before Send returned", eventTypes(evs))
+		t.Fatalf("pushed %v, want one text_block before Send returned", typesOf(evs))
 	}
-	if got := decode[TextBlockPayload](t, evs[0]).Content; got != "Working on it. " {
+	if got := payloadOf[TextBlockPayload](t, evs[0]).Content; got != "Working on it. " {
 		t.Errorf("text_block = %q", got)
 	}
 	if got := r.sentTexts(); !slices.Equal(got, []string{"also do X"}) {

@@ -843,7 +843,7 @@ func (s *RunService) emitMessage(ctx context.Context, runID, eventType string, b
 	s.pubsub.Publish(runID, PushedEvent{Type: eventType, Payload: payload, SequenceNo: seqNo, At: at})
 }
 
-// InterruptRun signals the session-manager to send SIGINT to the Claude subprocess.
+// InterruptRun asks the session-manager to stop the agent's current turn.
 // Enforces tenant scoping and authz write on the run's agent type.
 func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.InterruptRun")
