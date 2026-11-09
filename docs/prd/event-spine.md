@@ -204,7 +204,7 @@ Events record changes of state and outcomes, and each event type has the form `<
     *   `inference.budget.threshold_crossed.v1`: spend against a budget passed 50%, 80% or 100% of its limit. Each level fires once per budget period, and the levels are the same for every budget.
     *   `inference.budget.exceeded.v1`: an exhausted budget refused a request.
 *   **Identity:**
-    *   `identity.session.created.v1`: a person signed in or an agent session started.
+    *   `identity.session.created.v1`: a person signed in.
     *   `identity.pat.created.v1` and `identity.pat.revoked.v1`: a personal access token was issued or revoked.
     *   `identity.pat.updated.v1`: a personal access token's scopes changed.
     *   `identity.delegation.issued.v1`: a person delegated to an agent.
