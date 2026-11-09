@@ -91,7 +91,10 @@ ACP replaces the transport and the parsers. Sandbox confinement, per-run config 
     - `Prepare(workDir)` writes the per-run config files, applies the workspace-config lockdown (D8) and returns the environment.
     - `SessionParams()` returns the cwd, the MCP servers and the harness's session `_meta`.
     - `ClassifyError` maps a stop reason, a JSON-RPC error and the turn's adapter messages to a kora `run_error` code.
-- **Line filter:** `acp_conn.go` passes the adapter's stdout to the SDK through a filter. A line under 10 MiB passes unchanged. A longer line, up to the existing 32 MiB cap, has its large text fields (tool output content) truncated with a marker before the SDK reads it, and the session continues.
+    - `ClientCapabilities()` returns the `clientCapabilities` keys the harness declares on top of the runner's own (e.g., `subagents` for Codex).
+    - `IsQuestion(tool)` marks a permission request as a question for the human.
+    - `AdapterSignal(msg)` reads provider retries and background work from an adapter message.
+- **Line filter:** `acp_conn.go` passes the adapter's stdout to the SDK through a filter. A line under 10 MiB passes unchanged. A longer line, up to the existing 32 MiB cap, has its large text fields (tool output content) truncated with a marker before the SDK reads it, and the session continues. A line the filter cannot shrink, or one over 32 MiB, is dropped. A dropped response reaches the SDK as a JSON-RPC error with the same id, a dropped agent request is answered with an invalid-request error, and a dropped notification is discarded. The filter's first read waits until the SDK logger is set.
 - **Update handler:** The `session/update` handler only enqueues to the runner's event channel and never blocks on I/O.
 - **Dispatch:** `handleCreateSession` looks up the profile for `req.Framework`. An empty value still means `claude-code`, and an unknown value still returns the validation error. Until the final pull request of the stack, dispatch stays on the legacy runners.
 - **Client capabilities declared at `initialize`:** The runner turns `fs` and `terminal` off, turns form elicitation on and declares `subagents` for adapters that support child sessions. The harness runs its own tools in-process under Landlock and `kora-shell` as today.
@@ -108,7 +111,7 @@ ACP replaces the transport and the parsers. Sandbox confinement, per-run config 
 | `Send` | `session/prompt` with a text content block, and the response ends the turn. A mid-turn message goes through D3. |
 | `SendToolResult` | The runner keeps a table of pending agent-to-client requests keyed by kora tool-use id: `elicitation/create` requests and any `session/request_permission` that the profile marks as a question. `SendToolResult(toolUseID, content)` resolves that request with the answer keyed by the request schema's property, and the turn continues. An unknown id returns the sentinel `ErrNoPendingRequest`. `POST /session/{runID}/tool-results` is unchanged. |
 | `Events` | The same buffered channel, closed when the subprocess's stdout ends or `Close` is called. |
-| `Interrupt` | A `session/cancel` notification while a prompt is in flight. Pending permission and elicitation requests are answered `cancelled`. The prompt returns `stopReason: cancelled`, and the runner emits `message_complete{interrupted}` (if text was buffered), `turn_stopped{user}` and `message_stop`. The process stays alive. An interrupt with no prompt in flight emits nothing. |
+| `Interrupt` | A `session/cancel` notification while a prompt is in flight. Pending permission and elicitation requests are answered `cancelled`. The prompt returns `stopReason: cancelled`, and the runner emits `message_complete{interrupted}` (if text was buffered), `turn_stopped{user}` and `message_stop`. The process stays alive. Messages queued during the turn are dropped. An interrupt with no prompt in flight emits nothing. |
 | `Close` | `session/close` if `sessionCapabilities.close`, then close stdin and wait. The process is killed if it does not exit within a bounded grace period. Idempotent (`sync.Once`). |
 | `SessionID` | The ACP `sessionId` from `session/new`. It is used only for in-process resume (`session.go`) and is not persisted across versions. |
 | `TakeText` | `turnText.take()` over the accumulated `agent_message_chunk` text. |
@@ -124,7 +127,7 @@ ACP replaces the transport and the parsers. Sandbox confinement, per-run config 
 | `plan`, `usage_update`, `user_message_chunk`, config updates | No event. Usage is logged from the prompt response. |
 | `session/prompt` response `end_turn` | `message_complete` (text and thinking), `message_stop`, unless `ClassifyError` finds a terminal error in the turn's adapter messages |
 | response `cancelled` | partial `message_complete{interrupted}`, `turn_stopped{user}`, `message_stop` |
-| response `max_tokens`, `max_turn_requests`, `refusal`, a JSON-RPC error, or a classified terminal error | `run_error` with the profile's `ClassifyError` code (default `runner_error`), then `message_stop` |
+| response `max_tokens`, `max_turn_requests`, `refusal`, a JSON-RPC error, or a classified terminal error | partial `message_complete{interrupted}` (if text was buffered), `run_error` with the profile's `ClassifyError` code (default `runner_error`), then `message_stop` |
 | Claude `_claude/sdkMessage` `api_retry` | `api_retry` with the same payload as today |
 | Claude `_claude/sdkMessage` `background_tasks_changed` | `InFlightWork()`/`WorkChanged()` with the same task list as today |
 | Codex `session_info_update._meta.codex.error` with `willRetry` | `api_retry` |
@@ -165,7 +168,7 @@ ACP replaces the transport and the parsers. Sandbox confinement, per-run config 
 1.  Accept this ADR.
 2.  Build `acpRunner`, the line filter and a scripted fake ACP agent. No framework is dispatched to it.
 3.  Add the OpenCode, Codex and Claude Code profiles in that order, one pull request each. Each pull request verifies its harness on the local cluster with the parity and replay suites.
-4.  Switch dispatch for every framework to `acpRunner` and delete `runner_claude.go`, `runner_codex.go`, `runner_opencode.go`, their parsers, their tests and the old install paths. Move still-used helpers (`wrapExec`, `runHomeDirs`, `withRunEnv`, `turnText`, `newToolResult`, `isExitKilled`, `mustMarshal`) to surviving files.
+4.  Switch dispatch for every framework to `acpRunner` and delete `runner_claude.go`, `runner_codex.go`, `runner_opencode.go`, their parsers, their tests and the old install paths. Move still-used helpers (`wrapExec`, `runHomeDirs`, `withRunEnv`, `turnText`, `newToolResult`, `isExitKilled`, `mustMarshal`, `maxAgentLineBytes`) to surviving files.
 
 The runner start log line carries the `framework` field as today. No new span attribute keys are added.
 
