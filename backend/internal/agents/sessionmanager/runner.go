@@ -98,7 +98,7 @@ func withRunEnv(base, extra []string) []string {
 			last[k] = i
 		}
 	}
-	out := make([]string, 0, len(base)+len(extra))
+	out := make([]string, 0, len(base))
 	for _, e := range base {
 		if k, _, ok := strings.Cut(e, "="); ok {
 			if _, set := last[k]; set {
