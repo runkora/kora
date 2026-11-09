@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 
 	acp "github.com/coder/acp-go-sdk"
+
+	"github.com/runkora/kora/backend/internal/platform/events"
 )
 
 // acpProfile is everything that differs between ACP harnesses, so a new harness
@@ -64,4 +66,4 @@ type acpSignal struct {
 }
 
 // acpDefaultErrorCode is the run_error code when the profile has no better one.
-const acpDefaultErrorCode = "runner_error"
+const acpDefaultErrorCode = events.RunErrorRunnerError
