@@ -23,7 +23,7 @@ type SessionRepository interface {
 	// CreateSession persists a new session record.
 	CreateSession(ctx context.Context, s *Session) error
 
-	// StartSession persists the session a sign-in or an agent start created,
+	// StartSession persists the session a sign-in created,
 	// with its refresh token when rt is non-nil, and records
 	// identity.session.created.v1 in the same transaction.
 	StartSession(ctx context.Context, s *Session, rt *RefreshToken) error

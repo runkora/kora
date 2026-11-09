@@ -350,7 +350,7 @@ These producers call `PublishOnce`. Its dedup lasts as long as the earlier event
 
 ### 9. Sessions
 
-`identity.session.created.v1` is recorded by `ExchangeIDToken`, `PollDeviceAuth` and `ExchangeAuthCode` for people, and by `ExchangeSVID` through `createAgentSession` for agents. A refresh records nothing, and a tenant switch records only `identity.tenant.switched.v1`.
+`identity.session.created.v1` is recorded by `ExchangeIDToken`, `PollDeviceAuth` and `ExchangeAuthCode` for people. `ExchangeSVID` records nothing, because agents re-exchange every few minutes and an event per exchange would swamp the stream. A refresh records nothing, and a tenant switch records only `identity.tenant.switched.v1`.
 
 ### 10. Terminated Runs
 

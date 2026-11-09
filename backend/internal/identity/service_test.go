@@ -138,8 +138,8 @@ func TestExchangeSVID_Success(t *testing.T) {
 	if count != 1 {
 		t.Errorf("expected 1 persisted session, got %d", count)
 	}
-	if started != 1 {
-		t.Errorf("an agent session records a session start, got %d", started)
+	if started != 0 {
+		t.Errorf("an agent session records no session start, got %d", started)
 	}
 }
 

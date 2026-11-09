@@ -45,7 +45,7 @@ type mockSessionRepository struct {
 
 	// switched is the last SwitchSession call, for asserting what the service committed.
 	switched *switchCall
-	// started lists the sessions recorded as a sign-in or agent start.
+	// started lists the sessions recorded as a sign-in.
 	started []string
 	// refresh receives the refresh token StartSession writes with its session.
 	refresh *mockRefreshTokenRepository

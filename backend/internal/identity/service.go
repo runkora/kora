@@ -952,7 +952,8 @@ func (s *Service) createSession(ctx context.Context, principal *Principal, repla
 	}, nil
 }
 
-// createAgentSession creates an agent session with no refresh token.
+// createAgentSession creates an agent session with no refresh token and
+// records no session event: agents re-exchange every few minutes (Decision D10).
 // Agent identity lifecycle is managed entirely by SPIRE workload attestation.
 func (s *Service) createAgentSession(ctx context.Context, principal *Principal) (*SessionResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.createAgentSession",
@@ -964,7 +965,7 @@ func (s *Service) createAgentSession(ctx context.Context, principal *Principal) 
 
 	session, accessToken, err := s.buildSession(principal)
 	if err == nil {
-		err = s.sessions.StartSession(ctx, session, nil)
+		err = s.sessions.CreateSession(ctx, session)
 	}
 	if err != nil {
 		observability.RecordFailure(span, err, errSpanAgentSessionCreationFailed)

@@ -119,7 +119,7 @@ var catalog = map[Type]entry{
 	BudgetThresholdCrossed: {kind[BudgetPayload](), "Spend against a budget passed 50%, 80% or 100% of its limit."},
 	BudgetExceeded:         {kind[BudgetPayload](), "An exhausted budget refused a request."},
 
-	SessionCreated:   {kind[SessionPayload](), "A person signed in or an agent session started."},
+	SessionCreated:   {kind[SessionPayload](), "A person signed in."},
 	PATCreated:       {kind[PATPayload](), "A personal access token was issued."},
 	PATRevoked:       {kind[PATPayload](), "A personal access token was revoked."},
 	PATUpdated:       {kind[PATPayload](), "A personal access token's scopes changed."},
