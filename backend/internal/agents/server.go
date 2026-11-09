@@ -456,7 +456,11 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	api.JSON(ctx, w, c.logger, http.StatusCreated, run)
+	status := http.StatusCreated
+	if run.AlreadyStarted {
+		status = http.StatusOK
+	}
+	api.JSON(ctx, w, c.logger, status, run)
 }
 
 // handleListRuns handles GET /api/v1/runs?agent_type_id=&state=&started_by=&created_after=&created_before=&limit=&cursor=, clamping limit to maxRunsLimit.

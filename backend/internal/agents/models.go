@@ -545,6 +545,10 @@ func PodOccupyingRunStates() []RunState {
 // Run is the durable unit of work. It outlives browser connections and persists
 // until completed, failed, or explicitly deleted.
 type Run struct {
+	// AlreadyStarted is set by StartRun when the call matched a run an earlier call
+	// created for the same trigger delivery. It is not stored or serialized.
+	AlreadyStarted bool `json:"-"`
+
 	ID          string     `json:"id"`
 	TenantID    string     `json:"tenant_id"`
 	AgentTypeID string     `json:"agent_type_id"`

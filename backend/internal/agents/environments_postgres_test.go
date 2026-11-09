@@ -224,7 +224,7 @@ func TestPostgres_DeleteAttachedEnvironment(t *testing.T) {
 		t.Fatalf("CreateAgentType: %v", err)
 	}
 	run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID}
-	if err := r.CreateRun(ctx, run); err != nil {
+	if _, err := r.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
 	if err := r.SetRunEnvironment(ctx, run.ID, &env.ID); err != nil {

@@ -15,7 +15,7 @@ func seedFinishedRun(t *testing.T, r *PostgresRepository, tenant, agentTypeID, c
 	t.Helper()
 	ctx := context.Background()
 	run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: agentTypeID, CreatedBy: createdBy}
-	if err := r.CreateRun(ctx, run); err != nil {
+	if _, err := r.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
 	if _, err := r.pool.Exec(ctx, `UPDATE runs SET state=$1, created_at=$2, completed_at=$3 WHERE id=$4`,
