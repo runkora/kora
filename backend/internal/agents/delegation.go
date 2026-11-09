@@ -8,6 +8,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/token"
@@ -233,7 +234,7 @@ func (s *RunService) mintAndPersistDelegation(ctx context.Context, runID string,
 func (s *RunService) cleanupFailedStart(ctx context.Context, runID, mintedJTI string) {
 	ctx = context.WithoutCancel(ctx)
 	if runID != "" {
-		if ferr := s.repo.MarkRunFailed(ctx, runID); ferr != nil {
+		if ferr := s.repo.MarkRunFailed(withFailureCode(ctx, events.RunErrorStartFailed), runID); ferr != nil {
 			s.logger.Warn(ctx, "failed to mark run failed after start error",
 				logging.Field{Key: "run_id", Value: runID},
 				logging.Field{Key: "error", Value: ferr.Error()},

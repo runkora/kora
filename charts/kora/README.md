@@ -157,6 +157,7 @@ Kubernetes: `>=1.34.0-0`
 | frontend.config.inferenceGatewayUrl | string | `""` |  |
 | frontend.config.koraAgentsUrl | string | `""` |  |
 | frontend.config.koraApiUrl | string | `""` |  |
+| frontend.config.koraEventsUrl | string | `""` |  |
 | frontend.config.koraTriggersUrl | string | `""` |  |
 | frontend.config.nextPublicAppUrl | string | `""` |  |
 | frontend.config.policyGatewayUrl | string | `""` |  |

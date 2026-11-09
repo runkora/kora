@@ -2,7 +2,7 @@
 
 **Status:** Approved  
 **Created:** 2026-11-06  
-**Last Updated:** 2026-11-06  
+**Last Updated:** 2026-11-08  
 **Owner:** Justin Wilkin  
 **Stakeholders:** Platform Engineering, Agent Control Plane, Identity & Policy  
 
@@ -98,6 +98,8 @@ None at this time.
 **Acceptance Criteria:**
 
 *   [ ] A trigger can select an event type and match on event fields with the conditions webhook triggers support today.
+*   [ ] The trigger lists each event type's fields and the values a field can take to choose from.
+*   [ ] A trigger cannot use a field that its event type does not carry, or a value that the field cannot take.
 *   [ ] A matching event starts a run through the same admission, coalescing and delivery history as other triggers.
 *   [ ] The run carries the event as data in its prompt with the same prompt-injection hardening as webhook payloads.
 *   [ ] The run executes under the trigger's own identity.
@@ -165,6 +167,8 @@ An event records one thing that happened. Every event carries:
 *   The trace it belongs to, linked from the trace view.
 *   The event that caused it, when there is one.
 *   The state of the resource after the change and the list of fields that changed.
+
+Each event type publishes the fields it carries, their descriptions and the values a field can take.
 
 Events use the CloudEvents 1.0 standard. A recorded event commits together with the change it describes. Neither is ever recorded without the other.
 

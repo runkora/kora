@@ -2,7 +2,6 @@ package identity
 
 import (
 	"context"
-	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -11,49 +10,16 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
-// sessionEntity is the session an event carries. It leaves out the token id
-// and the identity provider claims.
-type sessionEntity struct {
-	ID             string         `json:"id"`
-	PrincipalID    string         `json:"principal_id"`
-	PrincipalType  PrincipalType  `json:"principal_type"`
-	DisplayName    string         `json:"display_name,omitempty"`
-	IdentitySource IdentitySource `json:"identity_source"`
-	CreatedAt      time.Time      `json:"created_at"`
-	ExpiresAt      time.Time      `json:"expires_at"`
-}
-
-func newSessionEntity(s *Session) sessionEntity {
-	return sessionEntity{
-		ID: s.ID, PrincipalID: s.PrincipalID, PrincipalType: s.PrincipalType, DisplayName: s.DisplayName,
-		IdentitySource: s.IdentitySource, CreatedAt: s.CreatedAt, ExpiresAt: s.ExpiresAt,
+// newSessionEntity leaves out the display name, which the envelope's koraprincipalname carries.
+func newSessionEntity(s *Session) events.SessionPayload {
+	return events.SessionPayload{
+		ID: s.ID, PrincipalID: s.PrincipalID, PrincipalType: string(s.PrincipalType),
+		IdentitySource: string(s.IdentitySource), CreatedAt: s.CreatedAt, ExpiresAt: s.ExpiresAt,
 	}
 }
 
-// tenantSwitchEntity is one side of a switch. Each tenant records its own
-// side, and neither names the other tenant.
-type tenantSwitchEntity struct {
-	SessionID   string `json:"session_id"`
-	PrincipalID string `json:"principal_id"`
-	// Direction is "out" in the tenant the person left and "in" in the one they joined.
-	Direction string `json:"direction"`
-}
-
-// patEntity is the personal access token an event carries. It leaves out the
-// token id and the token hash.
-type patEntity struct {
-	ID        string     `json:"id"`
-	UserID    string     `json:"user_id"`
-	Name      string     `json:"name"`
-	Scopes    []string   `json:"scopes"`
-	GrantID   *string    `json:"grant_id,omitempty"`
-	ExpiresAt time.Time  `json:"expires_at"`
-	CreatedAt time.Time  `json:"created_at"`
-	RevokedAt *time.Time `json:"revoked_at,omitempty"`
-}
-
-func newPATEntity(p *PAT) patEntity {
-	return patEntity{
+func newPATEntity(p *PAT) events.PATPayload {
+	return events.PATPayload{
 		ID: p.ID, UserID: p.UserID, Name: p.Name, Scopes: p.Scopes, GrantID: p.GrantID,
 		ExpiresAt: p.ExpiresAt, CreatedAt: p.CreatedAt, RevokedAt: p.RevokedAt,
 	}
@@ -63,22 +29,12 @@ func patEvent(typ events.Type, p *PAT, changed []string) events.Event {
 	return events.Event{Type: typ, Tenant: p.TenantID, Subject: "pats/" + p.ID, Entity: newPATEntity(p), Changed: changed}
 }
 
-// delegationEntity is the delegation an event carries. It leaves out the
-// token id of the delegation token.
-type delegationEntity struct {
-	RunID                  string        `json:"run_id"`
-	AgentPrincipalID       string        `json:"agent_principal_id"`
-	DelegatorPrincipalID   string        `json:"delegator_principal_id"`
-	DelegatorPrincipalType PrincipalType `json:"delegator_principal_type"`
-	CreatedAt              time.Time     `json:"created_at"`
-}
-
 func delegationEvent(d *DelegationIssuance) events.Event {
 	e := events.Event{
 		Type: events.DelegationIssued, Tenant: d.TenantID, Subject: "delegations/" + d.RunID,
-		Entity: delegationEntity{
+		Entity: events.DelegationPayload{
 			RunID: d.RunID, AgentPrincipalID: d.AgentPrincipalID, DelegatorPrincipalID: d.DelegatorPrincipalID,
-			DelegatorPrincipalType: d.DelegatorPrincipalType, CreatedAt: d.CreatedAt,
+			DelegatorPrincipalType: string(d.DelegatorPrincipalType), CreatedAt: d.CreatedAt,
 		},
 	}
 	// The envelope's run attribute must be a UUID. Every kora run id is one.

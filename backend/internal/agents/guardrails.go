@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/events"
 )
 
 // Platform defaults for an agent type's loop thresholds
@@ -60,8 +61,8 @@ func (g Guardrails) Validate() error {
 		name        string
 		warn, pause int
 	}{
-		{"repeated_call", r.RepeatedCallWarn, r.RepeatedCallPause},
-		{"wait_rearm", r.WaitRearmWarn, r.WaitRearmPause},
+		{events.GuardrailRepeatedCall, r.RepeatedCallWarn, r.RepeatedCallPause},
+		{events.GuardrailWaitRearm, r.WaitRearmWarn, r.WaitRearmPause},
 	} {
 		if pair.warn < 1 {
 			return fmt.Errorf("%w: %s_warn must be at least 1", ErrInvalidGuardrails, pair.name)

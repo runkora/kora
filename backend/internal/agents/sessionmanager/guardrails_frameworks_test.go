@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+
+	"github.com/runkora/kora/backend/internal/platform/events"
 )
 
 // Each runtime's calls, in the {name, input} its runner records, trip the
@@ -151,7 +153,7 @@ func TestLoopGuard_SimultaneousThresholdsBothFire(t *testing.T) {
 			kinds = append(kinds, f.kind)
 		}
 	}
-	if fmt.Sprint(kinds) != fmt.Sprint([]string{loopKindRepeatedCall, loopKindWaitRearm}) {
+	if fmt.Sprint(kinds) != fmt.Sprint([]string{events.GuardrailRepeatedCall, events.GuardrailWaitRearm}) {
 		t.Errorf("warnings = %v, want a repeat warning then a wait warning", kinds)
 	}
 }

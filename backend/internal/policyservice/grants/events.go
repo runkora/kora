@@ -2,27 +2,19 @@ package grants
 
 import (
 	"context"
-	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
-// entity is the grant an event carries.
-type entity struct {
-	ID                 string            `json:"id"`
-	PrincipalType      PrincipalType     `json:"principal_type"`
-	PrincipalID        string            `json:"principal_id"`
-	Scopes             []string          `json:"scopes"`
-	Budget             *BudgetAssignment `json:"budget,omitempty"`
-	DelegationRequired bool              `json:"delegation_required"`
-	CreatedAt          time.Time         `json:"created_at"`
-}
-
-func newEntity(g *Grant) entity {
-	return entity{
-		ID: g.ID, PrincipalType: g.PrincipalType, PrincipalID: g.PrincipalID, Scopes: g.Scopes,
-		Budget: g.Budget, DelegationRequired: g.DelegationRequired, CreatedAt: g.CreatedAt,
+func newEntity(g *Grant) events.GrantPayload {
+	var budget *events.GrantBudget
+	if b := g.Budget; b != nil {
+		budget = &events.GrantBudget{LimitUSD: b.LimitUSD, ResetCadence: b.ResetCadence, PerRunLimitUSD: b.PerRunLimitUSD}
+	}
+	return events.GrantPayload{
+		ID: g.ID, PrincipalType: string(g.PrincipalType), PrincipalID: g.PrincipalID, Scopes: g.Scopes,
+		Budget: budget, DelegationRequired: g.DelegationRequired, CreatedAt: g.CreatedAt,
 	}
 }
 

@@ -34,6 +34,7 @@ This touches *Who is this agent?* Every event records the principal, the princip
 *   Let triggers fire on events through the existing delivery pipeline.
 *   Serve history and a live feed to the Events page and the kora MCP.
 *   Keep terminated runs.
+*   Publish the fields and values of every event type for trigger authors.
 
 ### Non-Goals
 
@@ -101,11 +102,15 @@ This touches *Who is this agent?* Every event records the principal, the princip
 *   **Option B (rejected):** A chart map of tenant overrides. Every override would be a platform chart change.
 *   **Option C (rejected):** An API and dashboard setting behind an `events:write` scope. Retention is an install and tenant definition setting.
 
+### Decision 9: Event Payload Schema
+
+*   **Option A (chosen):** Each entity kind has a typed payload struct in `platform/events`, and the schema of each event type is derived from its struct by reflection. `kora-events` serves the schemas as JSON Schema, and trigger create and edit check fields against them.
+
 ---
 
 ## Decision
 
-**Chosen Options:** Decision 1 A, Decision 2 A, Decision 3 A, Decision 4 A, Decision 5 A, Decision 6 D, Decision 7 A, Decision 8 A.
+**Chosen Options:** Decision 1 A, Decision 2 A, Decision 3 A, Decision 4 A, Decision 5 A, Decision 6 D, Decision 7 A, Decision 8 A, Decision 9 A.
 
 ### Architecture
 
@@ -142,6 +147,7 @@ Events are CloudEvents 1.0 structured JSON. `backend/internal/platform/events` d
   "id": "0193f3c2-7a4e-7c1a-9d2e-5b8f0c6a1e42",
   "source": "kora-agents",
   "type": "agents.run.failed.v1",
+  "dataschema": "https://api.example.com/v1/events/types/agents.run.failed.v1",
   "subject": "runs/2b4e8c1d-...",
   "time": "2026-11-06T03:14:07.512Z",
   "datacontenttype": "application/json",
@@ -157,8 +163,8 @@ Events are CloudEvents 1.0 structured JSON. `backend/internal/platform/events` d
   "koratriggers": ["<trigger id>"],
   "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
   "data": {
-    "entity": {"id": "2b4e8c1d-...", "state": "failed", "error": "sandbox_failed"},
-    "changed": ["state", "error"],
+    "entity": {"id": "2b4e8c1d-...", "agent": "triage", "state": "failed", "error": "subprocess_exit"},
+    "changed": ["state", "completed_at"],
     "entity_version": 7,
     "occurred_at": "2026-11-06T03:14:07.498Z"
   }
@@ -166,13 +172,15 @@ Events are CloudEvents 1.0 structured JSON. `backend/internal/platform/events` d
 ```
 
 *   `id` is a UUIDv7. An event with no Postgres change uses a UUIDv5 over its deterministic key.
-*   `type` has the form `<domain>.<entity>.<event>.v<N>`. The catalog in `platform/events` is the list in the PRD.
+*   `type` has the form `<domain>.<entity>.<event>.v<N>`. The catalog in `platform/events` holds every type in the PRD with its payload struct (section 14).
+*   `dataschema` is the URL of the type's schema on `GET /v1/events/types/{type}` (section 14).
 *   `koraprincipaltype` is `USER`, `AGENT`, `TRIGGER` or `SYSTEM`. A context with no claims records `SYSTEM` and the binary as principal.
 *   `koraprincipalname` is the principal's display name from the claims at publish time: the name or email of a person, the slug of an agent or trigger, and the binary for `SYSTEM`.
 *   `koracausedby`, `korachaindepth` and `koratriggers` are set on events about a run that an event trigger started or messaged, or that an agent started or messaged from such a run (section 7). Every other event has depth 0.
 *   `data.entity` is the resource after the change, or the resource before the delete for a delete event.
 *   `data.changed` lists the fields that an update changed.
-*   `data` must not carry token values, signing secrets, OAuth codes or credential references. Each producer builds `entity` from an explicit event struct. It does not marshal its storage row.
+*   `data.entity` follows the type's payload schema (section 14). A producer maps its model into the payload struct and does not marshal its storage row.
+*   `data` must not carry token values, signing secrets, OAuth codes or credential references.
 
 ### 2. Producer API
 
@@ -202,14 +210,14 @@ type Event struct {
 }
 ```
 
-The producer sets the tenant, run, agent, cause and depth from the row it changed. `Publish` refuses an event with no tenant. Bulk updates such as `ReapStaleRuns` and `CancelRunsByAgentType` return the tenant and agent of each row they change. It fills the principal, delegator and trace from the context. A producer site wraps its write and the publish in one transaction:
+`Publish` returns an error when `Entity` is not the payload struct of `Type`. The producer sets the tenant, run, agent, cause and depth from the row it changed. `Publish` refuses an event with no tenant. Bulk updates such as `ReapStaleRuns` and `CancelRunsByAgentType` return the tenant and agent of each row they change. It fills the principal, delegator and trace from the context. A producer site wraps its write and the publish in one transaction:
 
 ```go
 err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
     if _, err := r.pool.Exec(ctx, `UPDATE runs SET state = $2 WHERE id = $1`, id, state); err != nil {
         return err
     }
-    return events.Publish(ctx, r.pool, events.Event{Type: events.RunFailed, Tenant: run.TenantID, Subject: "runs/" + id, RunID: id, Entity: runEntity})
+    return events.Publish(ctx, r.pool, events.Event{Type: events.RunFailed, Tenant: run.TenantID, Subject: "runs/" + id, RunID: id, Entity: events.RunPayload{ID: id, State: "failed"}})
 })
 ```
 
@@ -303,14 +311,16 @@ Only the lock holder assigns `seq`, inside the batch transaction. A row whose en
 *   `GET /v1/events/{id}` returns one event in the caller's tenant, or 404.
 *   `GET /v1/events/stream` is an SSE stream of the caller's tenant with the `category`, `type`, `agent`, `principal` and `run_id` filters and no `q`. Each SSE message carries its seq as `id`, and a `Last-Event-ID` replays every matching event after that seq before the live events. A stream ends when the caller's token expires or is revoked.
 *   `GET /internal/v1/events/stream?after=<seq>` streams every tenant's events in seq order. An AuthorizationPolicy and `kora-events` itself allow only the `kora-triggers` identity.
+*   `GET /v1/events/types` and `GET /v1/events/types/{type}` return the type catalog and each type's JSON Schema (section 14).
 
-The public routes register `events:read` through `routescopes` and are enforced by `ScopeEnforcementMiddleware` ([Platform Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md)). `platform-admin` and `kora-operator` hold `events:read`. Each replica holds one `LISTEN kora_events` connection and fans live events out to its open streams in memory.
+The public event routes register `events:read` through `routescopes` and are enforced by `ScopeEnforcementMiddleware` ([Platform Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md)). `platform-admin` and `kora-operator` hold `events:read`. Each replica holds one `LISTEN kora_events` connection and fans live events out to its open streams in memory.
 
 ### 7. Event Triggers
 
 `kora-triggers` gains the kind `event` beside `webhook`, `scheduled` and `manual`.
 
 *   An event trigger stores `event_type` and the existing `match_condition` and `match_contains` maps. Matching runs over the envelope flattened to dotted fields (`data.entity.state`, `koraagent`) with the existing `matchesCondition` and `matchesContains`.
+*   Create and edit refuse a `match_condition` or `match_contains` key, and a prompt placeholder, that is not a field of the type's schema (section 14). They also refuse a `match_condition` value outside the field's enum.
 *   A trigger matches only events of its own tenant.
 *   `ignore_own_runs` defaults to true. When it is set, an event does not fire if its `koratriggers` list holds this trigger. `kora-agents` keeps the list on the run with every trigger that started the run or sent it a message, and copies it onto every event about the run. The delivery records outcome `filtered` with reason `own_run`.
 *   A trigger does not fire on an event with `korachaindepth` 5 or more. The delivery records outcome `filtered` with reason `chain_depth`.
@@ -321,6 +331,7 @@ The public routes register `events:read` through `routescopes` and are enforced 
 *   An agent in a shared pod has no attested run, and an admin change an agent makes carries no chain. Auto-pause and budgets bound such a loop until per-run attestation covers these cases.
 *   The prompt carries the event in `<delivery-data>` with the same escaping as webhook payloads (`backend/internal/triggers/template.go`).
 *   The declarative `Trigger` kind, the API, the MCP `triggerKinds` enum and the trigger wizard gain `event`.
+*   The trigger wizard and the detail modal offer only the schema's fields for filters and prompt placeholders, and an enum field's values for its filter.
 
 The consumer holds the internal stream from its cursor in `trigger_event_cursor`. It advances the cursor after it has recorded the deliveries for an event. One replica runs the consumer at a time. It holds a session-level `pg_try_advisory_lock` on a dedicated connection, and the other replicas retry every 10 seconds. A restart replays from the cursor, and the delivery dedup drops events that were already handled.
 
@@ -360,6 +371,99 @@ These producers call `PublishOnce`. Its dedup lasts as long as the earlier event
 
 `kora-events` is a new binary in `backend/cmd/kora-events` with its own chart templates, NetworkPolicy, DestinationRule, ServiceMonitor and AuthorizationPolicy ([Multi-Service Backend Deployment Structure](2026-03-19-multi-service-backend-deployment-structure.md)). It runs two replicas by default.
 
+### 14. Event Payload Schema
+
+`platform/events` defines one payload struct per entity kind. The catalog registers each type with its struct:
+
+*   `RunPayload`: the twelve `agents.run.*` types.
+*   `SandboxPayload`: the five `agents.sandbox.*` types.
+*   `AgentPayload`: `agents.agent.created.v1`, `agents.agent.updated.v1` and `agents.agent.deleted.v1`.
+*   `EnvironmentPayload`: the three `agents.environment.*` types.
+*   `TriggerPayload`: the three `triggers.trigger.*` change types and `triggers.trigger.autopaused.v1`.
+*   `SourcePayload`: the three `triggers.source.*` types.
+*   `DeliveryPayload`: `triggers.delivery.failed.v1` and `triggers.delivery.denied.v1`.
+*   `BudgetPayload`: `inference.budget.threshold_crossed.v1` and `inference.budget.exceeded.v1`.
+*   `SessionPayload`: `identity.session.created.v1`.
+*   `PATPayload`: the three `identity.pat.*` types.
+*   `DelegationPayload`: `identity.delegation.issued.v1`.
+*   `TenantSwitchPayload`: `identity.tenant.switched.v1`.
+*   `GrantPayload`, `RolePayload` and `TenantBudgetPayload`: the `policy.grant.*`, `policy.role.*` and `policy.tenant_budget.*` types.
+*   `DeclaredResourcePayload`: `declarative.resource.failed.v1`.
+
+`events.TypeSchema(type)` derives a JSON Schema (draft 2020-12) from the type's struct by reflection:
+
+*   The `json` tag gives the field name, and the Go type gives the JSON type.
+*   A `doc` tag gives the description, a `format` tag gives the string format, and an `enum` tag cites a value set that `platform/events` defines from Go constants.
+*   A pointer or `omitempty` field is optional. A nested struct or slice becomes a nested schema.
+*   The type schema covers the envelope attributes and `data`. `data.entity` is the payload schema.
+*   `data.changed` is an array whose enum lists every field name an update can change. The list includes fields the payload does not carry (e.g. `system_prompt`, `prompt_template`, `config`). An event names such a field and never carries its value.
+*   Each payload struct has one `state` enum for all of its types.
+*   Run error codes and loop guard kinds are Go constants in `platform/events`. The `error` and `guardrail.kind` enums list them, and a producer records `unknown` for a value outside them. `guardrail.tool` is free text.
+*   `agents.run.errored.v1` carries the code of the errored turn, and `agents.run.failed.v1` carries the code of the run's last run error. A failed run with no recorded run error carries `unknown`.
+
+```go
+type RunPayload struct {
+    ID    string `json:"id" doc:"The run id."`
+    Agent string `json:"agent" doc:"The slug of the run's agent."`
+    State string `json:"state" doc:"The run state after the change." enum:"run_state"`
+}
+```
+
+`kora-events` serves the catalog to any authenticated caller:
+
+*   `GET /v1/events/types` lists each type with its category, its description and the URL of its schema.
+*   `GET /v1/events/types/{type}` returns the type's JSON Schema, or 404 for a type outside the catalog.
+*   The routes register through `routescopes` with no required scope. A schema holds no tenant data.
+
+The relay sets `dataschema` on each event from the chart's public API host. `kora-triggers` reads the schemas from `platform/events` in process.
+
+The schema of `agents.run.failed.v1` describes `data` as follows. The envelope attributes from section 1 are omitted.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://api.example.com/v1/events/types/agents.run.failed.v1",
+  "title": "agents.run.failed.v1",
+  "description": "A run failed.",
+  "type": "object",
+  "properties": {
+    "data": {
+      "type": "object",
+      "required": ["entity", "occurred_at"],
+      "properties": {
+        "entity": {
+          "type": "object",
+          "required": ["id", "agent_id", "agent", "state", "created_by"],
+          "properties": {
+            "id": {"type": "string", "description": "The run id."},
+            "agent_id": {"type": "string", "description": "The id of the run's agent."},
+            "agent": {"type": "string", "description": "The slug of the run's agent."},
+            "state": {"type": "string", "description": "The run state after the change.", "enum": ["pending", "starting", "active", "idle", "completing", "completed", "failed", "budget_exhausted", "terminated"]},
+            "created_by": {"type": "string", "description": "The principal that created the run."},
+            "trigger_id": {"type": "string", "description": "The trigger that started the run."},
+            "delivery_id": {"type": "string", "description": "The delivery that started the run."},
+            "environment_id": {"type": "string", "description": "The environment the run's sandbox uses."},
+            "started_at": {"type": "string", "format": "date-time", "description": "When the run started."},
+            "completed_at": {"type": "string", "format": "date-time", "description": "When the run ended."},
+            "deleted_at": {"type": "string", "format": "date-time", "description": "When the run was terminated."},
+            "error": {"type": "string", "description": "The error code of an errored turn, or of a failed run's last run error.", "enum": ["agent_error", "empty_response", "runner_error", "sandbox_lost", "loop_detected", "empty_turn", "subprocess_exit", "budget_exhausted", "start_failed", "unknown"]},
+            "guardrail": {"type": "object", "description": "The loop guard finding of a warning.", "required": ["kind", "count", "tool"], "properties": {
+              "kind": {"type": "string", "description": "The loop the guard detected.", "enum": ["repeated_call", "wait_rearm", "unknown"]},
+              "count": {"type": "integer", "description": "How many times the agent repeated the call."},
+              "tool": {"type": "string", "description": "The tool the agent repeated."}
+            }},
+            "sender_trigger_id": {"type": "string", "description": "The trigger that sent the run a message."}
+          }
+        },
+        "changed": {"type": "array", "items": {"type": "string", "enum": ["agent", "agent_id", "completed_at", "created_by", "deleted_at", "delivery_id", "environment_id", "error", "guardrail", "id", "sender_trigger_id", "started_at", "state", "trigger_id"]}},
+        "entity_version": {"type": "integer"},
+        "occurred_at": {"type": "string", "format": "date-time"}
+      }
+    }
+  }
+}
+```
+
 ### Rationale
 
 None at this time.
@@ -368,15 +472,17 @@ None at this time.
 
 ## Implementation
 
-The work ships as one stack of seven pull requests:
+The work ships as one stack of nine pull requests:
 
 1.  **Foundation:** context-carried transactions and `storage.Pool`, `platform/events`, and `kora-events` with the outbox, relay, log, read API, streams, retention, `KoraTenant` field, chart and `events:read`.
 2.  **Run and sandbox producers:** `runs.deleted_at`, run lifecycle and activity events, sandbox events, agent and environment changes.
 3.  **Remaining producers:** triggers, identity, policy-service, inferencegw budgets and declared failures.
 4.  **Event trigger kind:** the consumer, matching, both loop guards, the declarative `Trigger`, the API and the wizard.
-5.  **kora MCP tools:** `events.list` and `events.get`.
-6.  **Hades:** DataTable `bodyState`, a server search box and an `xl` Modal.
-7.  **Events page:** a Storybook iteration first, then the page.
+5.  **Event payload schema:** the payload structs, the schema endpoints, `dataschema`, trigger field checks and the wizard's schema fields.
+6.  **Run forwarding:** the acting run through the tool-gateway and the kora MCP, and the consumer's chain read.
+7.  **kora MCP tools:** `events.list` and `events.get`.
+8.  **Hades:** DataTable `bodyState`, a server search box and an `xl` Modal.
+9.  **Events page:** a Storybook iteration first, then the page.
 
 ---
 
@@ -404,6 +510,7 @@ The work ships as one stack of seven pull requests:
 *   A repository that keeps `*pgxpool.Pool` does not join a context transaction. A producer must move to `storage.Pool` before it calls `Publish`.
 *   Changes to MCP servers, skill marketplaces, connections and platform-wide resources record no event in v1.
 *   `events:read` shows every run event in the tenant, including runs the caller cannot open through the runs API. Per-category scopes are the later fix.
+*   Every producer maps its model into a payload struct, and a new entity field needs a struct change.
 
 ### Neutral
 

@@ -28,6 +28,7 @@ beforeAll(async () => {
   vi.stubEnv('KORA_AGENTS_URL', 'http://kora-agents.test');
   vi.stubEnv('TOOL_GATEWAY_URL', 'http://tool-gateway.test');
   vi.stubEnv('SKILLS_SERVICE_URL', 'http://skills-service.test/v1');
+  vi.stubEnv('KORA_EVENTS_URL', 'http://kora-events.test/v1');
 
   ({ fetchAllTenantUsers } = await import('./tokens-server'));
 });

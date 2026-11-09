@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -581,7 +582,7 @@ func (r *CodexRunner) readLoop(ctx context.Context, stdout io.Reader) {
 		if errors.Is(err, bufio.ErrTooLong) {
 			message = fmt.Sprintf("Codex output line exceeds the %d MiB limit", maxAgentLineBytes/(1024*1024))
 		}
-		r.emit(EventTypeRunError, RunErrorPayload{Code: "runner_error", Message: message})
+		r.emit(EventTypeRunError, RunErrorPayload{Code: events.RunErrorRunnerError, Message: message})
 	}
 }
 
@@ -939,7 +940,7 @@ func (r *CodexRunner) handleTurnCompleted(ctx context.Context, params json.RawMe
 			if p.Turn.Error != nil && p.Turn.Error.Message != "" {
 				msg = p.Turn.Error.Message
 			}
-			r.emit(EventTypeRunError, RunErrorPayload{Code: "runner_error", Message: msg})
+			r.emit(EventTypeRunError, RunErrorPayload{Code: events.RunErrorRunnerError, Message: msg})
 		}
 	default:
 		r.emit(EventTypeMessageComplete, MessageCompletePayload{Text: r.textBuf.String(), Thinking: r.thinkingBuf.String()})
@@ -1013,7 +1014,7 @@ func (r *CodexRunner) handleErrorNotification(ctx context.Context, params json.R
 	if stderrTail != "" {
 		message = message + "\n" + stderrTail
 	}
-	r.emit(EventTypeRunError, RunErrorPayload{Code: "runner_error", Message: message})
+	r.emit(EventTypeRunError, RunErrorPayload{Code: events.RunErrorRunnerError, Message: message})
 	r.turnErrored = true
 	if turnID, _ := r.activeTurnID.Load().(string); turnID == "" {
 		_ = r.stdin.Close()

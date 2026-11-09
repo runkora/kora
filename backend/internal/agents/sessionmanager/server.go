@@ -17,6 +17,7 @@ import (
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/observability"
@@ -687,7 +688,7 @@ func (c *Controller) writeSandboxError(ctx context.Context, w http.ResponseWrite
 		apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "session not found", map[string]any{"run_id": runID})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 	case errors.Is(err, ErrSandboxLost):
-		apiErr := api.ServiceUnavailableError(runErrorSandboxLost, c.registry.sandboxLostMessage(runID), nil)
+		apiErr := api.ServiceUnavailableError(events.RunErrorSandboxLost, c.registry.sandboxLostMessage(runID), nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 	case errors.Is(err, errSandboxFolder):
 		// The reason is fixed text that names no node, address or port.

@@ -32,11 +32,27 @@ const recordColumns = `seq, recorded_at, envelope, tenant_id, category, type, CO
 // Postgres reads and writes the kora-events tables.
 type Postgres struct {
 	pool *pgxpool.Pool
+	// schemaBase is the public URL of the type schemas the relay stamps as dataschema, or empty.
+	schemaBase string
 }
 
 // NewPostgres returns the store on pool.
 func NewPostgres(pool *pgxpool.Pool) *Postgres {
 	return &Postgres{pool: pool}
+}
+
+// WithSchemaBase makes the relay stamp each event's dataschema under base.
+func (p *Postgres) WithSchemaBase(base string) *Postgres {
+	p.schemaBase = base
+	return p
+}
+
+// dataSchema is the dataschema of an event of type t, empty without a schema base.
+func (p *Postgres) dataSchema(t events.Type) string {
+	if p.schemaBase == "" {
+		return ""
+	}
+	return SchemaURL(p.schemaBase, t)
 }
 
 // EnsureRelayState inserts the relay's single row when it is missing.
@@ -111,10 +127,11 @@ func (p *Postgres) RelayBatch(ctx context.Context) (RelayResult, error) {
 			batch.Queue(`
 				INSERT INTO events (seq, id, tenant_id, type, category, subject, principal, principal_type,
 				                    run_id, agent, caused_by, chain_depth, occurred_at, envelope)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+				        CASE WHEN $15 = '' THEN $14::jsonb ELSE jsonb_set($14::jsonb, '{dataschema}', to_jsonb($15::text)) END)`,
 				last, r.id, r.tenant, string(env.Type), env.Type.Category(), env.Subject, env.Principal, env.PrincipalType,
 				storage.NullIfZero(env.Run), storage.NullIfZero(env.Agent), storage.NullIfZero(env.CausedBy),
-				env.ChainDepth, occurred, r.envelope)
+				env.ChainDepth, occurred, r.envelope, p.dataSchema(env.Type))
 		}
 		if err := tx.SendBatch(ctx, batch).Close(); err != nil {
 			return fmt.Errorf("insert events: %w", err)

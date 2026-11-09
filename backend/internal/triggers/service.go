@@ -3,6 +3,7 @@ package triggers
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -440,8 +441,47 @@ func validateEventTriggerCreate(req CreateTriggerRequest) error {
 		case req.SenderRestriction != nil:
 			return errSenderRestrictionWebhookOnly
 		}
-		return validateEventType(req.EventType)
+		if err := validateEventType(req.EventType); err != nil {
+			return err
+		}
+		return validateEventFields(Trigger{
+			EventType: req.EventType, PromptTemplate: req.PromptTemplate, MatchCondition: req.MatchCondition,
+			MatchContains: req.MatchContains, Coalesce: req.Coalesce, Routing: req.Routing,
+		})
 	})
+}
+
+// validateEventFields refuses a field an event trigger reads that its event
+// type's schema lacks, and a match_condition value outside the field's enum.
+// An empty value matches an absent field and is allowed.
+func validateEventFields(t Trigger) error {
+	eventType := strings.TrimSpace(t.EventType)
+	fields, ok := events.Fields(events.Type(eventType))
+	if !ok {
+		return validateEventType(eventType)
+	}
+	byPath := make(map[string]events.Field, len(fields))
+	for _, f := range fields {
+		byPath[f.Path] = f
+	}
+	for _, k := range referencedKeys(t) {
+		if _, ok := byPath[k]; !ok {
+			paths := make([]string, len(fields))
+			for i, f := range fields {
+				paths[i] = f.Path
+			}
+			return fmt.Errorf("%w: %q is not a field of %s; use one of %s", ErrValidation, k, eventType, strings.Join(paths, ", "))
+		}
+	}
+	for k, values := range t.MatchCondition {
+		enum := byPath[k].Enum
+		for _, v := range values {
+			if len(enum) > 0 && v != "" && !slices.Contains(enum, v) {
+				return fmt.Errorf("%w: %q is not a value of %s; use one of %s", ErrValidation, v, k, strings.Join(enum, ", "))
+			}
+		}
+	}
+	return nil
 }
 
 // validateMatchingTriggerCreate runs the checks webhook and event triggers

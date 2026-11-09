@@ -32,6 +32,7 @@ const api = vi.hoisted(() => ({
     eventTypes: ['agents.run.failed.v1'],
     error: null,
   })),
+  fetchEventTypeFields: vi.fn(async () => ({ fields: [], error: null })),
   createSource: vi.fn(),
   updateSource: vi.fn(),
 }));

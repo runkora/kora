@@ -55,6 +55,7 @@ beforeAll(async () => {
   vi.stubEnv('KORA_TRIGGERS_URL', 'http://kora-triggers.test');
   vi.stubEnv('TOOL_GATEWAY_URL', 'http://tool-gateway.test');
   vi.stubEnv('SKILLS_SERVICE_URL', 'http://skills-service.test/v1');
+  vi.stubEnv('KORA_EVENTS_URL', 'http://kora-events.test/v1');
 
   ({ fetchAnalyticsPrincipalByIdFromGateway } = await import('./analytics-server'));
 });

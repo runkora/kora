@@ -4,26 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
-// entity is the role an event carries.
-type entity struct {
-	ID         string            `json:"id"`
-	Role       string            `json:"role"`
-	Scopes     []string          `json:"scopes"`
-	Budget     *BudgetAssignment `json:"budget,omitempty"`
-	CreatedAt  time.Time         `json:"created_at"`
-	Source     string            `json:"source"`
-	Repository string            `json:"repository,omitempty"`
-}
-
-func newEntity(e *RoleEntry) entity {
-	return entity{
-		ID: e.ID, Role: e.Role, Scopes: e.Scopes, Budget: e.Budget,
+func newEntity(e *RoleEntry) events.RolePayload {
+	var budget *events.RoleBudget
+	if b := e.Budget; b != nil {
+		budget = &events.RoleBudget{LimitUSD: b.LimitUSD, ResetCadence: b.ResetCadence, Pooled: b.Pooled}
+	}
+	return events.RolePayload{
+		ID: e.ID, Role: e.Role, Scopes: e.Scopes, Budget: budget,
 		CreatedAt: e.CreatedAt, Source: e.Source, Repository: e.Repository,
 	}
 }

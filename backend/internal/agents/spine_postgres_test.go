@@ -323,3 +323,49 @@ func TestPostgres_AgentAndEnvironmentChangesRecordEvents(t *testing.T) {
 		t.Errorf("agent changed = %v", changed[events.AgentUpdated])
 	}
 }
+
+// A failed run's event carries the code of its last run_error.
+func TestPostgres_FailedRunEventCarriesTheLastError(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+	id := queueRun(t, r, tenant, at.ID, time.Now(), nil)
+	for _, code := range []string{events.RunErrorAgentError, events.RunErrorSubprocessExit} {
+		payload, _ := json.Marshal(map[string]string{"code": code})
+		if _, err := r.AppendRunEvent(ctx, RunEvent{RunID: id, EventType: "run_error", Payload: payload, CreatedAt: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.SetRunState(ctx, id, RunStatePending, RunStateFailed); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range runEvents(recorded(t, r, tenant)) {
+		if e.Type == events.RunFailed {
+			if got := e.Data.Entity.(map[string]any)["error"]; got != events.RunErrorSubprocessExit {
+				t.Errorf("failed run error = %v, want %s", got, events.RunErrorSubprocessExit)
+			}
+			return
+		}
+	}
+	t.Fatal("no failed event")
+}
+
+// A start failure, whose run_error follows the transition, carries start_failed.
+func TestPostgres_StartFailureCarriesItsCode(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := withFailureCode(context.Background(), events.RunErrorStartFailed)
+	id := queueRun(t, r, tenant, at.ID, time.Now(), nil)
+	if err := r.SetRunState(ctx, id, RunStatePending, RunStateFailed); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range runEvents(recorded(t, r, tenant)) {
+		if e.Type == events.RunFailed {
+			if got := e.Data.Entity.(map[string]any)["error"]; got != events.RunErrorStartFailed {
+				t.Errorf("failed run error = %v, want %s", got, events.RunErrorStartFailed)
+			}
+			return
+		}
+	}
+	t.Fatal("no failed event")
+}

@@ -11,8 +11,9 @@ import { useBrand } from '@runkora/theme/brand-provider';
 import { CatalogPicker } from './catalog-picker';
 import { AddFilterButton, FilterRowsEditor } from './filter-rows-editor';
 import type { FilterRow } from './filter-rows-editor';
-import { eventCatalog, eventTypeCatalog, toTemplateCatalog } from './trigger-wizard/field-catalog';
-import { fetchPlatformEventTypes } from '../_services/triggers-api';
+import { eventTypeCatalog, schemaCatalog } from './trigger-wizard/field-catalog';
+import type { SchemaCatalogEntry } from './trigger-wizard/field-catalog';
+import { fetchEventTypeFields, fetchPlatformEventTypes } from '../_services/triggers-api';
 
 /** Loads the platform event catalog once per mount. */
 function usePlatformEventTypes(): { eventTypes: string[]; error: string | null } {
@@ -32,8 +33,40 @@ function usePlatformEventTypes(): { eventTypes: string[]; error: string | null }
   return answer;
 }
 
+/** One event type's fields, whether they have loaded, and why a load failed. */
+export interface EventTypeFields {
+  fields: SchemaCatalogEntry[];
+  ready: boolean;
+  error: string | null;
+}
+
+const NO_FIELDS: EventTypeFields = { fields: [], ready: false, error: null };
+
+/** The fields of one event type and their allowed values, from its schema. */
+export function useEventTypeFields(eventType: string): EventTypeFields {
+  const [answer, setAnswer] = useState<EventTypeFields & { eventType: string }>({
+    eventType: '',
+    ...NO_FIELDS,
+  });
+  useEffect(() => {
+    if (eventType === '') return;
+    let live = true;
+    void fetchEventTypeFields(eventType).then((res) => {
+      if (live)
+        setAnswer({ eventType, fields: schemaCatalog(res.fields), ready: true, error: res.error });
+    });
+    return () => {
+      live = false;
+    };
+  }, [eventType]);
+  if (eventType === '' || answer.eventType !== eventType) return NO_FIELDS;
+  return { fields: answer.fields, ready: answer.ready, error: answer.error };
+}
+
 interface PlatformEventFieldsProps {
   eventType: string;
+  /** The event type's fields, from `useEventTypeFields`. */
+  fields: EventTypeFields;
   filters: FilterRow[];
   ignoreOwnRuns: boolean;
   onEventTypeChange: (eventType: string) => void;
@@ -44,6 +77,7 @@ interface PlatformEventFieldsProps {
 
 export function PlatformEventFields({
   eventType,
+  fields,
   filters,
   ignoreOwnRuns,
   onEventTypeChange,
@@ -53,7 +87,6 @@ export function PlatformEventFields({
 }: PlatformEventFieldsProps) {
   const { productName } = useBrand();
   const catalog = usePlatformEventTypes();
-  const fields = toTemplateCatalog(eventCatalog());
   return (
     <Stack gap="relaxed">
       <Stack gap="snug">
@@ -95,13 +128,19 @@ export function PlatformEventFields({
         </Stack>
         <FilterRowsEditor
           rows={filters}
-          fields={fields}
+          fields={fields.fields}
           onChange={onFiltersChange}
-          freeText
+          freeText={fields.error !== null}
           hideAdd
           disabled={disabled}
         />
         <AddFilterButton rows={filters} onChange={onFiltersChange} disabled={disabled} />
+        {fields.error !== null && (
+          <Text size="caption" color="status-error">
+            Could not load the fields of this event. Type the field paths, or close this and open it
+            again to retry.
+          </Text>
+        )}
       </Stack>
 
       <ToggleRow

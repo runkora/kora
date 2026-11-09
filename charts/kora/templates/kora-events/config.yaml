@@ -13,6 +13,8 @@ cmd/kora-events:
     bundleEndpoint: {{ include "kora.bundleEndpoint" . | toJson }}
   retention:
     defaultDays: {{ .Values.koraEvents.retention.defaultDays | int }}
+  schema:
+    baseURL: {{ printf "https://%s/v1/events/types/" (include "kora.apiHost" .) | toJson }}
 {{ include "kora.observabilityConfigModule" . }}
 {{ include "kora.storageConfigModule" (dict "root" . "redisClient" true) }}
 {{ include "kora.tokenConfigModule" . }}

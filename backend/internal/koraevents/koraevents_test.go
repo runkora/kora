@@ -19,6 +19,7 @@ import (
 	jwt "github.com/golang-jwt/jwt/v5"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/token"
@@ -276,6 +277,40 @@ func TestRoutes(t *testing.T) {
 	if _, ok := mw.ResolveRequiredScope(Routes(), http.MethodGet, "/internal/v1/events/stream"); ok {
 		t.Error("the internal stream is published to the edge")
 	}
+	for _, path := range []string{"/v1/events/types", "/v1/events/types/agents.run.failed.v1"} {
+		if scope, ok := mw.ResolveRequiredScope(Routes(), http.MethodGet, path); !ok || scope != "" {
+			t.Errorf("GET %s needs %q (matched %v), want any authenticated caller", path, scope, ok)
+		}
+	}
+}
+
+// The type catalog lists every type with its schema URL, and a type's schema
+// carries its own URL as $id. An unknown type is a 404.
+func TestTypes(t *testing.T) {
+	logger := testLogger
+	ctx := context.Background()
+	base := "https://api.example.com/v1/events/types/"
+	srv := api.NewAPI(ctx, logger).Server(ctx, 0, "/", nil,
+		NewController(&fakeStore{}, nil, mw.MiddlewareChain(asCaller), &blocklist{revoked: map[string]bool{}}, logger).WithSchemaBase(base))
+	ts := httptest.NewServer(srv.Handler)
+	t.Cleanup(ts.Close)
+
+	resp, body := get(t, ts, "/v1/events/types", "t1")
+	types, _ := body["types"].([]any)
+	if resp.StatusCode != http.StatusOK || len(types) != len(events.Types()) {
+		t.Fatalf("status %d, %d types, want %d", resp.StatusCode, len(types), len(events.Types()))
+	}
+	first := types[0].(map[string]any)
+	if first["schema_url"] != base+first["type"].(string) || first["category"] == "" || first["description"] == "" {
+		t.Errorf("entry = %v", first)
+	}
+	resp, body = get(t, ts, "/v1/events/types/agents.run.failed.v1", "t1")
+	if resp.StatusCode != http.StatusOK || body["$id"] != base+"agents.run.failed.v1" || body["title"] != "agents.run.failed.v1" {
+		t.Errorf("schema = %d %v", resp.StatusCode, body["$id"])
+	}
+	if resp, _ = get(t, ts, "/v1/events/types/agents.run.exploded.v1", "t1"); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("unknown type = %d, want 404", resp.StatusCode)
+	}
 }
 
 type fakeSweeps struct {
@@ -440,5 +475,18 @@ func TestStream_EndsWhenTheTokenIsRevoked(t *testing.T) {
 			t.Errorf("%s outlived the revoked token", path)
 		}
 		_ = resp.Body.Close()
+	}
+}
+
+// SchemaURL joins the base and the type with one slash, whether or not the base ends with one.
+func TestSchemaURL(t *testing.T) {
+	for base, want := range map[string]string{
+		"https://api.example.com/v1/events/types/": "https://api.example.com/v1/events/types/agents.run.failed.v1",
+		"https://api.example.com/v1/events/types":  "https://api.example.com/v1/events/types/agents.run.failed.v1",
+		"": "/v1/events/types/agents.run.failed.v1",
+	} {
+		if got := SchemaURL(base, events.RunFailed); got != want {
+			t.Errorf("SchemaURL(%q) = %q, want %q", base, got, want)
+		}
 	}
 }

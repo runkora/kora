@@ -7,6 +7,7 @@ import (
 	"math"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -82,21 +83,21 @@ func TestActivityEvent(t *testing.T) {
 func TestActivityEvent_Entities(t *testing.T) {
 	run := Run{ID: uuid.NewString(), TenantID: "t1", State: RunStateActive}
 	ev, _ := activityEvent(run, RunEvent{EventType: "sandbox_status", Payload: []byte(`{"phase":"egress_skipped"}`)})
-	if s, ok := ev.Entity.(sandboxEntity); !ok || s.Egress != "skipped" || s.RunID != run.ID || ev.Subject != "runs/"+run.ID+"/sandbox" {
+	if s, ok := ev.Entity.(events.SandboxPayload); !ok || s.Egress != "skipped" || s.RunID != run.ID || ev.Subject != "runs/"+run.ID+"/sandbox" {
 		t.Errorf("ready entity = %+v, subject %s", ev.Entity, ev.Subject)
 	}
 	ev, _ = activityEvent(run, RunEvent{EventType: "guardrail_warning", Payload: []byte(`{"kind":"repeated_call","count":5,"tool":"Bash"}`)})
-	if e, ok := ev.Entity.(runEntity); !ok || e.Guardrail == nil || *e.Guardrail != (guardrailFinding{Kind: "repeated_call", Count: 5, Tool: "Bash"}) {
+	if e, ok := ev.Entity.(events.RunPayload); !ok || e.Guardrail == nil || *e.Guardrail != (events.GuardrailFinding{Kind: "repeated_call", Count: 5, Tool: "Bash"}) {
 		t.Errorf("warning entity = %+v", ev.Entity)
 	}
 }
 
 func TestMessageEvent(t *testing.T) {
 	run := Run{ID: uuid.NewString(), TenantID: "t1"}
-	if e := messageEvent(run, nil).Entity.(runEntity); e.SenderTriggerID != "" {
+	if e := messageEvent(run, nil).Entity.(events.RunPayload); e.SenderTriggerID != "" {
 		t.Errorf("sender_trigger_id = %q, want empty", e.SenderTriggerID)
 	}
-	if e := messageEvent(run, &StartedByTrigger{TriggerID: "trg"}).Entity.(runEntity); e.SenderTriggerID != "trg" {
+	if e := messageEvent(run, &StartedByTrigger{TriggerID: "trg"}).Entity.(events.RunPayload); e.SenderTriggerID != "trg" {
 		t.Errorf("sender_trigger_id = %q, want trg", e.SenderTriggerID)
 	}
 }
@@ -234,4 +235,98 @@ func jsonFields(v any) map[string]json.RawMessage {
 	out := map[string]json.RawMessage{}
 	_ = json.Unmarshal(raw, &out)
 	return out
+}
+
+// An unknown run error code or guardrail kind records the schema's unknown value.
+func TestActivityEvent_UnknownCodes(t *testing.T) {
+	run := Run{ID: uuid.NewString(), TenantID: "t1", State: RunStateActive}
+	ev, _ := activityEvent(run, RunEvent{EventType: "run_error", Payload: []byte(`{"code":"made_up"}`)})
+	if e := ev.Entity.(events.RunPayload); e.Error != events.RunErrorUnknown {
+		t.Errorf("error = %q, want %q", e.Error, events.RunErrorUnknown)
+	}
+	ev, _ = activityEvent(run, RunEvent{EventType: "guardrail_warning", Payload: []byte(`{"kind":"other","count":1,"tool":"Bash"}`)})
+	if e := ev.Entity.(events.RunPayload); e.Guardrail.Kind != events.GuardrailUnknown {
+		t.Errorf("guardrail kind = %q, want %q", e.Guardrail.Kind, events.GuardrailUnknown)
+	}
+}
+
+// Every payload kora-agents publishes validates against its type schema, and
+// every field an update can list is in the schema's changed enum.
+func TestSpinePayloads_MatchSchema(t *testing.T) {
+	now := time.Now()
+	model := "anthropic/claude"
+	run := Run{ID: uuid.NewString(), TenantID: "t1", AgentTypeID: "at-1", AgentSlug: "triage", State: RunStateFailed,
+		CreatedBy: "user-1", StartedAt: &now, CompletedAt: &now, StartedBy: &StartedByTrigger{TriggerID: "trg", DeliveryID: "d"}}
+	at := AgentType{ID: "at-1", Slug: "triage", Name: "Triage", ModelID: &model, State: AgentTypeStateActive,
+		Environments: []AgentEnvironment{{EnvironmentID: "env-1"}}, Connectors: []Connector{{Connection: "github"}}}
+	env := Environment{ID: "env-1", Slug: "go", Name: "Go", SandboxImage: "img", Size: EnvironmentSize{CPU: "1", Memory: "1Gi", Disk: "5Gi"}}
+	failed, _ := stateEvent(RunStateActive, run, events.RunErrorSandboxLost)
+	warned, _ := activityEvent(Run{ID: run.ID, TenantID: "t1", State: RunStateActive},
+		RunEvent{EventType: "guardrail_warning", Payload: []byte(`{"kind":"repeated_call","count":5,"tool":"Bash"}`)})
+	errored, _ := activityEvent(Run{ID: run.ID, TenantID: "t1", State: RunStateActive},
+		RunEvent{EventType: "run_error", Payload: []byte(`{"code":"agent_error"}`)})
+	ready, _ := activityEvent(run, RunEvent{EventType: "sandbox_status", Payload: []byte(`{"phase":"egress_ready"}`)})
+	skipped, _ := activityEvent(run, RunEvent{EventType: "sandbox_status", Payload: []byte(`{"phase":"egress_skipped"}`)})
+	for _, ev := range []events.Event{
+		failed, warned, errored, ready, skipped, sandboxDeletedEvent(run), messageEvent(run, &StartedByTrigger{TriggerID: "trg"}),
+		agentEvent(events.AgentUpdated, at, nil), environmentEvent(events.EnvironmentUpdated, env, nil),
+	} {
+		if err := events.ValidatePayload(ev.Type, ev.Entity); err != nil {
+			t.Errorf("%s: %v", ev.Type, err)
+		}
+	}
+	for typ, fields := range map[events.Type]any{events.AgentUpdated: newAgentFields(at), events.EnvironmentUpdated: newEnvironmentFields(env)} {
+		for _, name := range events.Changed(map[string]any{}, fields) {
+			if !slices.Contains(events.Changeable(typ), name) {
+				t.Errorf("%s: changed field %q is not in the schema", typ, name)
+			}
+		}
+	}
+	for _, name := range []string{"state", "completed_at", "deleted_at"} {
+		if !slices.Contains(events.Changeable(events.RunTerminated), name) {
+			t.Errorf("run changed field %q is not in the schema", name)
+		}
+	}
+}
+
+// The schema's run and agent state enums hold every state kora-agents has.
+func TestSpinePayloads_StateEnums(t *testing.T) {
+	var states []string
+	for _, s := range AllRunStates() {
+		states = append(states, string(s))
+	}
+	if got := events.Enum("run_state"); !slices.Equal(slices.Sorted(slices.Values(got)), slices.Sorted(slices.Values(states))) {
+		t.Errorf("run_state enum = %v, want %v", got, states)
+	}
+	agentStates := []string{string(AgentTypeStateProvisioning), string(AgentTypeStateActive), string(AgentTypeStateDeleting), string(AgentTypeStateDeleted)}
+	if got := events.Enum("agent_state"); !slices.Equal(got, agentStates) {
+		t.Errorf("agent_state enum = %v, want %v", got, agentStates)
+	}
+	modes := []string{string(IdentityModeAutonomous), string(IdentityModeDelegated)}
+	if got := events.Enum("identity_mode"); !slices.Equal(got, modes) {
+		t.Errorf("identity_mode enum = %v, want %v", got, modes)
+	}
+}
+
+// A failed run's event carries its last run error code, and unknown for a code
+// outside the schema or a run that recorded none. Other states carry none.
+func TestStateEvent_FailedRunError(t *testing.T) {
+	run := Run{ID: uuid.NewString(), TenantID: "t1", State: RunStateFailed}
+	for last, want := range map[string]string{
+		events.RunErrorSubprocessExit: events.RunErrorSubprocessExit,
+		"made_up":                     events.RunErrorUnknown,
+		"":                            events.RunErrorUnknown,
+	} {
+		ev, ok := stateEvent(RunStateActive, run, last)
+		if !ok || ev.Type != events.RunFailed {
+			t.Fatalf("last %q: event %s %v, want a failed run event", last, ev.Type, ok)
+		}
+		if got := ev.Entity.(events.RunPayload).Error; got != want {
+			t.Errorf("last %q: error %q, want %q", last, got, want)
+		}
+	}
+	run.State = RunStateCompleted
+	if ev, _ := stateEvent(RunStateActive, run, events.RunErrorAgentError); ev.Entity.(events.RunPayload).Error != "" {
+		t.Errorf("completed run error = %q, want none", ev.Entity.(events.RunPayload).Error)
+	}
 }

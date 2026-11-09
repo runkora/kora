@@ -158,7 +158,8 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers, agentTypes str
 			"values the caller supplies, which fill {{ var.key }} placeholders in prompt_template (e.g. {{ var.ticket }} for an "+
 			"input named ticket). "+
 			"event: fires on a platform event of event_type, e.g. agents.run.failed.v1, in this tenant; source_id is not used. "+
-			"match_condition and match_contains read dotted paths in the event, e.g. data.entity.state or koraagent, and the "+
+			"match_condition and match_contains read dotted paths in the event, e.g. data.entity.state or koraagent. A path "+
+			"outside the event type's schema, or a match_condition value outside a field's allowed values, is refused. The "+
 			"prompt gets the whole event in an untrusted data block. ignore_own_runs, on by default, skips events about runs "+
 			"this trigger started or messaged, and no event trigger fires 5 or more steps down a chain of trigger-caused events. "+
 			"Call agents.list for agent ids.",

@@ -3,7 +3,7 @@
  *
  * Webhook fields come from the provider's schema via the API; this file maps
  * them for the pickers. Scheduled and manual fields are `var.` values. Event
- * fields are paths in the event envelope.
+ * fields come from the event type's schema via the API.
  */
 
 import { deriveFieldKey } from './wizard-state';
@@ -28,50 +28,6 @@ const SCHEDULED: FieldCatalogEntry[] = [
   { token: 'var.trigger_id', description: "This trigger's id", group: 'Schedule' },
   { token: 'var.tenant_id', description: 'The tenant the run belongs to', group: 'Schedule' },
 ];
-
-/** Envelope fields every platform event carries. Event triggers read them as dotted paths. */
-const EVENT: FieldCatalogEntry[] = [
-  { token: 'type', description: 'The event type', example: 'agents.run.failed.v1', group: 'Event' },
-  {
-    token: 'subject',
-    description: 'What the event is about',
-    example: 'runs/2b4e8c1d',
-    group: 'Event',
-  },
-  {
-    token: 'koraagent',
-    description: 'The agent the event is about',
-    example: 'triage',
-    group: 'Event',
-  },
-  { token: 'korarun', description: 'The run the event is about', group: 'Event' },
-  { token: 'koraprincipalname', description: 'Who caused the event', group: 'Event' },
-  {
-    token: 'koraprincipaltype',
-    description: 'USER, AGENT, TRIGGER or SYSTEM',
-    example: 'AGENT',
-    group: 'Event',
-  },
-  { token: 'data.entity.id', description: 'The resource id', group: 'Resource' },
-  {
-    token: 'data.entity.state',
-    description: 'The resource state after the change',
-    example: 'failed',
-    group: 'Resource',
-  },
-  {
-    token: 'data.entity.error',
-    description: "A run's error, when it failed",
-    example: 'sandbox_failed',
-    group: 'Resource',
-  },
-  { token: 'data.changed', description: 'The fields an update changed', group: 'Resource' },
-];
-
-/** The envelope fields an event trigger's prompt and filters can read. */
-export function eventCatalog(): FieldCatalogEntry[] {
-  return EVENT;
-}
 
 /** The fields a scheduled fire carries. */
 export function scheduledCatalog(): FieldCatalogEntry[] {

@@ -401,6 +401,11 @@ export const ApiRoute = {
     ): `${typeof API_BASE}/trigger-providers/${string}/fields?event_type=${string}` =>
       `${API_BASE}/trigger-providers/${encodeURIComponent(provider)}/fields?event_type=${encodeURIComponent(eventType)}`,
   },
+  /** A platform event type's fields, from its schema on kora-events. */
+  eventTypes: {
+    fields: (eventType: string): `${typeof API_BASE}/event-types/${string}/fields` =>
+      `${API_BASE}/event-types/${encodeURIComponent(eventType)}/fields`,
+  },
   triggers: {
     /** Triggers with their stats over `window`, optionally one agent's. */
     list: (opts: { agentTypeId?: string; window?: string } = {}): string => {

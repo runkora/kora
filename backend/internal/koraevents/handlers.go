@@ -49,9 +49,13 @@ type subscriber interface {
 	Subscribe() (<-chan []Record, int64, func())
 }
 
-// Routes binds every public route to events:read.
+// Routes binds the event routes to events:read. The type catalog needs only an
+// authenticated caller (docs/adr/2026-11-06-event-spine.md, section 14).
 func Routes() []routescopes.RouteScope {
-	return []routescopes.RouteScope{{PathPrefix: "/v1/events", Method: http.MethodGet, RequiredScope: eventsReadScope}}
+	return []routescopes.RouteScope{
+		{PathPrefix: "/v1/events", Method: http.MethodGet, RequiredScope: eventsReadScope},
+		{PathPrefix: "/v1/events/types", Method: http.MethodGet, RequiredScope: ""},
+	}
 }
 
 // Scopes declares the scope vocabulary kora-events owns.
@@ -67,6 +71,8 @@ func Scopes() []routescopes.ScopeDeclaration {
 
 // Controller serves the public read API and the tenant stream.
 type Controller struct {
+	// schemaBase is the public URL the type schemas are served under, or empty.
+	schemaBase string
 	store      readStore
 	hub        subscriber
 	revoked    mw.RevocationChecker
@@ -81,6 +87,12 @@ func NewController(store readStore, hub subscriber, auth mw.MiddlewareHandler, r
 	return &Controller{store: store, hub: hub, revoked: revoked, logger: logger, middleware: auth}
 }
 
+// WithSchemaBase sets the public URL of GET /v1/events/types/ that the catalog lists schemas under.
+func (c *Controller) WithSchemaBase(base string) *Controller {
+	c.schemaBase = base
+	return c
+}
+
 // GroupedBy leaves paths explicit in Boot.
 func (c *Controller) GroupedBy() string { return "" }
 
@@ -91,6 +103,8 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return c.middleware }
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /v1/events", c.handleList)
 	mux.Handle("GET /v1/events/stream", c.handleStream)
+	mux.Handle("GET /v1/events/types", c.handleTypes)
+	mux.Handle("GET /v1/events/types/{type}", c.handleTypeSchema)
 	mux.Handle("GET /v1/events/{id}", c.handleGet)
 }
 

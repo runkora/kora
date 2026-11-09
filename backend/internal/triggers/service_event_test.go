@@ -4,10 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	"github.com/runkora/kora/backend/internal/platform/events"
 )
 
 // envelope is a CloudEvents envelope as kora-events serves it.
@@ -70,14 +75,14 @@ func TestEventFilter(t *testing.T) {
 }
 
 func TestEventFields_FlattenTheEnvelope(t *testing.T) {
-	env := envelope(t, testTenant, "agents.run.failed.v1", 0, []string{"t-9"}, map[string]any{"state": "failed", "error": "sandbox_failed"})
+	env := envelope(t, testTenant, "agents.run.failed.v1", 0, []string{"t-9"}, map[string]any{"state": "failed", "error": "sandbox_lost"})
 	tr := Trigger{
 		PromptTemplate: "{{ koraagent }} {{ data.entity.error }}",
 		MatchCondition: map[string][]string{"data.entity.state": {"failed"}},
 		MatchContains:  map[string][]string{"koratriggers": {"t-9"}},
 	}
 	fields := triggerFields(tr, decodeBody(env), nil)
-	want := map[string]string{"koraagent": "triage", "data.entity.error": "sandbox_failed", "data.entity.state": "failed", "koratriggers": `["t-9"]`}
+	want := map[string]string{"koraagent": "triage", "data.entity.error": "sandbox_lost", "data.entity.state": "failed", "koratriggers": `["t-9"]`}
 	for k, v := range want {
 		if fields[k] != v {
 			t.Errorf("fields[%q] = %q, want %q", k, fields[k], v)
@@ -118,7 +123,7 @@ func TestChainOf(t *testing.T) {
 func TestHandleEvent_StartsARunWithTheChain(t *testing.T) {
 	svc, deps := newTestService(t)
 	tr := mustEventTrigger(t, deps, eventReq("on-failure"))
-	env := envelope(t, testTenant, "agents.run.failed.v1", 1, nil, map[string]any{"state": "failed", "error": "sandbox_failed"})
+	env := envelope(t, testTenant, "agents.run.failed.v1", 1, nil, map[string]any{"state": "failed", "error": "sandbox_lost"})
 	var head eventHead
 	_ = json.Unmarshal(env, &head)
 
@@ -144,7 +149,7 @@ func TestHandleEvent_StartsARunWithTheChain(t *testing.T) {
 	if call.causedBy != head.ID || call.chainDepth != 2 || call.triggerID != tr.ID {
 		t.Errorf("start = %+v, want caused_by %s at depth 2 from %s", call, head.ID, tr.ID)
 	}
-	if !strings.Contains(call.initialMessage, "<delivery-data>") || !strings.Contains(call.initialMessage, `"error": "sandbox_failed"`) {
+	if !strings.Contains(call.initialMessage, "<delivery-data>") || !strings.Contains(call.initialMessage, `"error": "sandbox_lost"`) {
 		t.Errorf("prompt does not carry the event:\n%s", call.initialMessage)
 	}
 }
@@ -193,7 +198,7 @@ func TestHandleEvent_Guards(t *testing.T) {
 func TestHandleEvent_RecordsOnlyFilterMatches(t *testing.T) {
 	svc, deps := newTestService(t)
 	req := eventReq("on-sandbox-failure")
-	req.MatchCondition = map[string][]string{"data.entity.error": {"sandbox_failed"}}
+	req.MatchCondition = map[string][]string{"data.entity.error": {"sandbox_lost"}}
 	tr := mustEventTrigger(t, deps, req)
 	ctx := context.Background()
 
@@ -204,7 +209,7 @@ func TestHandleEvent_RecordsOnlyFilterMatches(t *testing.T) {
 		t.Fatalf("deliveries = %d, want none for an event no filter matches", n)
 	}
 
-	if err := svc.HandleEvent(ctx, envelope(t, testTenant, "agents.run.failed.v1", 0, []string{tr.ID}, map[string]any{"error": "sandbox_failed"})); err != nil {
+	if err := svc.HandleEvent(ctx, envelope(t, testTenant, "agents.run.failed.v1", 0, []string{tr.ID}, map[string]any{"error": "sandbox_lost"})); err != nil {
 		t.Fatal(err)
 	}
 	if n := len(deps.repo.deliveries); n != 1 {
@@ -264,6 +269,20 @@ func TestCreateEventTrigger_Validation(t *testing.T) {
 		"a sender restriction":  func(r *CreateTriggerRequest) { r.SenderRestriction = &SenderRestriction{IDs: []string{"a"}} },
 		"a bad field key":       func(r *CreateTriggerRequest) { r.MatchCondition = map[string][]string{"data..x": {"y"}} },
 		"ignore_own_runs, kind": func(r *CreateTriggerRequest) { *r = validReq(KindManual); r.IgnoreOwnRuns = new(true) },
+		"a filter field outside the schema": func(r *CreateTriggerRequest) {
+			r.MatchCondition = map[string][]string{"data.entity.prompt": {"x"}}
+		},
+		"a filter value outside the enum": func(r *CreateTriggerRequest) {
+			r.MatchCondition = map[string][]string{"data.entity.state": {"exploded"}}
+		},
+		"a contains field outside the schema": func(r *CreateTriggerRequest) {
+			r.MatchContains = map[string][]string{"data.entity.secret": {"x"}}
+		},
+		"a placeholder outside the schema": func(r *CreateTriggerRequest) { r.PromptTemplate = "Look at {{ data.entity.nope }}." },
+		"a join key outside the schema": func(r *CreateTriggerRequest) {
+			r.AgentTypeID, r.TargetKind = "", TargetKindRouted
+			r.Routing = routingReq(func(c *RoutingConfig) { c.JoinRuns, c.JoinKey = new(true), "{{ data.entity.nope }}" })
+		},
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -410,5 +429,88 @@ func TestEventTrigger_NeedsEventsRead(t *testing.T) {
 		if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, upd); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+// An edit that reads a field outside the event type's schema, or filters on a
+// value outside a field's enum, is refused. Schema fields and enum values pass.
+func TestUpdateEventTrigger_SchemaFields(t *testing.T) {
+	_, deps := newTestService(t)
+	tr := mustEventTrigger(t, deps, eventReq("on-failure"))
+	ctx := context.Background()
+	for name, upd := range map[string]UpdateTriggerRequest{
+		"unknown field":   {MatchCondition: map[string][]string{"data.entity.nope": {"x"}}},
+		"bad enum value":  {MatchCondition: map[string][]string{"data.entity.state": {"exploded"}}},
+		"bad placeholder": {PromptTemplate: new("{{ data.entity.nope }}")},
+		"other type's field": {EventType: new("inference.budget.exceeded.v1"),
+			MatchCondition: map[string][]string{"data.entity.state": {"failed"}}},
+	} {
+		if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, upd); !errors.Is(err, ErrValidation) {
+			t.Errorf("%s: err = %v, want ErrValidation", name, err)
+		}
+	}
+	ok := UpdateTriggerRequest{
+		MatchCondition: map[string][]string{"data.entity.state": {"failed"}, "koraagent": {"triage"}, "data.entity.error": {""}},
+		PromptTemplate: new("Run {{ korarun }} of {{ data.entity.agent }} failed with {{ data.entity.error }}."),
+	}
+	if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, ok); err != nil {
+		t.Errorf("schema fields: %v", err)
+	}
+}
+
+// Every payload kora-triggers publishes validates against its type schema,
+// every field an update can list is in the changed enum, and the enums hold
+// the trigger vocabularies.
+func TestSpinePayloads_MatchSchema(t *testing.T) {
+	now := time.Now()
+	tr := &Trigger{ID: "t1", Name: "nightly", Kind: KindScheduled, TargetKind: TargetKindAgent, AgentTypeID: "at", AgentSlug: "triage",
+		ScheduleConfig: &ScheduleConfig{CronExpression: "0 2 * * *", Timezone: "UTC"}, Overflow: OverflowWait, Source: "api", AutoPausedAt: &now}
+	src := &WebhookSource{ID: "s1", Name: "gh", Provider: "github", Source: "crd", SecretRotatedAt: &now}
+	for typ, entity := range map[events.Type]any{
+		events.TriggerUpdated: newTriggerEntity(tr),
+		events.SourceUpdated:  newSourceEntity(src),
+		events.DeliveryFailed: events.DeliveryPayload{ID: "o", DeliveryID: "d", TriggerID: "t1", Status: RunStatusFailed, Reason: dispatchFailureReason(context.DeadlineExceeded)},
+		events.DeliveryDenied: events.DeliveryPayload{ID: "o", DeliveryID: "d", TriggerID: "t1", Status: RunStatusDenied, Reason: dispatchFailureReason(agentsclient.ErrForbidden)},
+	} {
+		if err := events.ValidatePayload(typ, entity); err != nil {
+			t.Errorf("%s: %v", typ, err)
+		}
+	}
+	for typ, fields := range map[events.Type]any{
+		events.TriggerUpdated: newTriggerChanges(tr),
+		events.SourceUpdated:  sourceFields{newSourceEntity(src), map[string]any{"a": 1}},
+	} {
+		for _, name := range events.Changed(map[string]any{}, fields) {
+			if !slices.Contains(events.Changeable(typ), name) {
+				t.Errorf("%s: changed field %q is not in the schema", typ, name)
+			}
+		}
+	}
+	var reasons []string
+	for _, err := range []error{agentsclient.ErrForbidden, agentsclient.ErrAgentTypeNotFound, agentsclient.ErrRunNotFound,
+		agentsclient.ErrRunNotAcceptingMessages, agentsclient.ErrUpstreamUnavailable, context.DeadlineExceeded, errors.New("other")} {
+		reasons = append(reasons, dispatchFailureReason(err))
+	}
+	for set, want := range map[string][]string{
+		"delivery_reason": reasons,
+		"trigger_kind":    {KindWebhook, KindScheduled, KindManual, KindEvent},
+		"target_kind":     {TargetKindAgent, TargetKindRouted},
+		"overflow":        {OverflowWait, OverflowReplace, OverflowRefuse},
+		"delivery_status": {RunStatusFailed, RunStatusDenied},
+	} {
+		if got := events.Enum(set); !slices.Equal(got, want) {
+			t.Errorf("%s = %v, want %v", set, got, want)
+		}
+	}
+}
+
+// The unknown-field refusal lists the fields the event type has.
+func TestCreateEventTrigger_UnknownFieldListsTheFields(t *testing.T) {
+	_, deps := newTestService(t)
+	req := eventReq("bad")
+	req.MatchCondition = map[string][]string{"data.entity.nope": {"x"}}
+	_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, routingClaims, req)
+	if !errors.Is(err, ErrValidation) || !strings.Contains(err.Error(), "use one of") || !strings.Contains(err.Error(), "data.entity.state") {
+		t.Errorf("err = %v, want the event's fields listed", err)
 	}
 }

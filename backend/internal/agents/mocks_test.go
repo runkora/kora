@@ -28,9 +28,11 @@ var _ smClient = (*mockSMClient)(nil)
 // ── mockRepository ────────────────────────────────────────────────────────────
 
 type mockRepository struct {
-	mu         sync.Mutex
-	agentTypes map[string]*AgentType
-	slugIndex  map[string]*AgentType // tenantID+":"+slug → AgentType
+	mu sync.Mutex
+	// failureCodes holds the run_error code each MarkRunFailed carried in its context.
+	failureCodes map[string]string
+	agentTypes   map[string]*AgentType
+	slugIndex    map[string]*AgentType // tenantID+":"+slug → AgentType
 	// deleted holds soft-deleted agent types. They leave agentTypes and slugIndex.
 	deleted map[string]*AgentType
 	runs    map[string]*Run
@@ -476,11 +478,15 @@ func (m *mockRepository) ReclaimStaleRunClaims(context.Context, time.Time) ([]st
 	return nil, nil
 }
 
-func (m *mockRepository) MarkRunFailed(_ context.Context, id string) error {
+func (m *mockRepository) MarkRunFailed(ctx context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if r, ok := m.runs[id]; ok && !r.State.Terminal() {
 		r.State = RunStateFailed
+		if m.failureCodes == nil {
+			m.failureCodes = map[string]string{}
+		}
+		m.failureCodes[id], _ = failureCode(ctx)
 	}
 	return nil
 }

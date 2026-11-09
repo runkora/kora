@@ -3,70 +3,17 @@ package agents
 import (
 	"encoding/json"
 	"slices"
-	"time"
 
-	sandboxfolder "github.com/runkora/kora/backend/internal/agents/sandbox/folder"
 	"github.com/runkora/kora/backend/internal/platform/events"
 )
 
-// The event spine entities of kora-agents (docs/adr/2026-11-06-event-spine.md).
-// Each is built field by field from its row, so a new column reaches an event only when it is added here.
-
-// runEntity is a run in an agents.run event.
-type runEntity struct {
-	ID            string     `json:"id"`
-	AgentID       string     `json:"agent_id"`
-	Agent         string     `json:"agent"`
-	State         RunState   `json:"state"`
-	CreatedBy     string     `json:"created_by"`
-	TriggerID     string     `json:"trigger_id,omitempty"`
-	DeliveryID    string     `json:"delivery_id,omitempty"`
-	EnvironmentID string     `json:"environment_id,omitempty"`
-	StartedAt     *time.Time `json:"started_at,omitempty"`
-	CompletedAt   *time.Time `json:"completed_at,omitempty"`
-	DeletedAt     *time.Time `json:"deleted_at,omitempty"`
-	// Error is the run_error code of an errored turn.
-	Error string `json:"error,omitempty"`
-	// Guardrail is the loop guard finding of a warning.
-	Guardrail *guardrailFinding `json:"guardrail,omitempty"`
-	// SenderTriggerID is the trigger that sent a message, when it is known.
-	SenderTriggerID string `json:"sender_trigger_id,omitempty"`
-}
-
-// guardrailFinding is the guardrail_warning payload.
-type guardrailFinding struct {
-	Kind  string `json:"kind"`
-	Count int    `json:"count"`
-	Tool  string `json:"tool"`
-}
-
-// sandboxEntity is a run's sandbox in an agents.sandbox event.
-type sandboxEntity struct {
-	RunID       string `json:"run_id"`
-	Name        string `json:"name"`
-	Environment string `json:"environment,omitempty"`
-	Image       string `json:"image,omitempty"`
-	// Egress is "passed" or "skipped" on a ready sandbox.
-	Egress string `json:"egress,omitempty"`
-}
-
-// agentEntity is an agent in an agents.agent event. Every events:read holder sees it, so it
-// names the agent's connections and environments and carries no prompt or configuration.
-type agentEntity struct {
-	ID           string         `json:"id"`
-	Slug         string         `json:"slug"`
-	Name         string         `json:"name"`
-	ModelID      *string        `json:"model_id,omitempty"`
-	State        AgentTypeState `json:"state"`
-	IdentityMode IdentityMode   `json:"identity_mode"`
-	Environments []string       `json:"environment_ids"`
-	Connections  []string       `json:"connections"`
-}
+// The event spine payloads of kora-agents (docs/adr/2026-11-06-event-spine.md,
+// section 14). Each is built field by field from its row, so a new column reaches an event only when it is added here.
 
 // agentFields are the agent's settings an update compares. An update lists each changed field,
 // the ones its entity leaves out included.
 type agentFields struct {
-	agentEntity
+	events.AgentPayload
 	Description             string         `json:"description"`
 	SystemPrompt            string         `json:"system_prompt"`
 	Framework               AgentFramework `json:"framework"`
@@ -79,28 +26,18 @@ type agentFields struct {
 	Repository              string         `json:"repository"`
 }
 
-// environmentEntity is an environment in an agents.environment event. Like agentEntity it carries no configuration.
-type environmentEntity struct {
-	ID           string          `json:"id"`
-	Slug         string          `json:"slug"`
-	Name         string          `json:"name"`
-	SandboxImage string          `json:"sandbox_image"`
-	Size         EnvironmentSize `json:"size"`
-	Connections  []string        `json:"connections"`
-}
-
 // environmentFields are the environment's settings an update compares.
 type environmentFields struct {
-	environmentEntity
+	events.EnvironmentPayload
 	Description string      `json:"description"`
 	EgressHosts []string    `json:"egress_hosts"`
 	Connectors  []Connector `json:"connectors"`
 	Repository  string      `json:"repository"`
 }
 
-func newRunEntity(r Run) runEntity {
-	e := runEntity{
-		ID: r.ID, AgentID: r.AgentTypeID, Agent: r.AgentSlug, State: r.State, CreatedBy: r.CreatedBy,
+func newRunEntity(r Run) events.RunPayload {
+	e := events.RunPayload{
+		ID: r.ID, AgentID: r.AgentTypeID, Agent: r.AgentSlug, State: string(r.State), CreatedBy: r.CreatedBy,
 		StartedAt: r.StartedAt, CompletedAt: r.CompletedAt, DeletedAt: r.DeletedAt,
 	}
 	if r.StartedBy != nil {
@@ -112,35 +49,36 @@ func newRunEntity(r Run) runEntity {
 	return e
 }
 
-func newAgentEntity(at AgentType) agentEntity {
+func newAgentEntity(at AgentType) events.AgentPayload {
 	envs := make([]string, len(at.Environments))
 	for i, e := range at.Environments {
 		envs[i] = e.EnvironmentID
 	}
-	return agentEntity{
-		ID: at.ID, Slug: at.Slug, Name: at.Name, ModelID: at.ModelID, State: at.State,
-		IdentityMode: at.IdentityMode.OrDefault(), Environments: envs, Connections: connectionNames(at.Connectors),
+	return events.AgentPayload{
+		ID: at.ID, Slug: at.Slug, Name: at.Name, ModelID: at.ModelID, State: string(at.State),
+		IdentityMode: string(at.IdentityMode.OrDefault()), EnvironmentIDs: envs, Connections: connectionNames(at.Connectors),
 	}
 }
 
 func newAgentFields(at AgentType) agentFields {
 	return agentFields{
-		agentEntity: newAgentEntity(at), Description: at.Description, SystemPrompt: at.SystemPrompt, Framework: at.Framework,
+		AgentPayload: newAgentEntity(at), Description: at.Description, SystemPrompt: at.SystemPrompt, Framework: at.Framework,
 		GrantScopes: at.GrantScopes, Connectivity: at.Connectivity, Connectors: at.Connectors, MCPTools: at.MCPTools,
 		Guardrails: at.Guardrails, MaxConcurrentRunsPerPod: at.MaxConcurrentRunsPerPod, Repository: at.Repository,
 	}
 }
 
-func newEnvironmentEntity(env Environment) environmentEntity {
-	return environmentEntity{
-		ID: env.ID, Slug: env.Slug, Name: env.Name, SandboxImage: env.SandboxImage, Size: env.Size,
+func newEnvironmentEntity(env Environment) events.EnvironmentPayload {
+	return events.EnvironmentPayload{
+		ID: env.ID, Slug: env.Slug, Name: env.Name, SandboxImage: env.SandboxImage,
+		Size:        events.EnvironmentSize{CPU: env.Size.CPU, Memory: env.Size.Memory, Disk: env.Size.Disk},
 		Connections: connectionNames(env.Connectors),
 	}
 }
 
 func newEnvironmentFields(env Environment) environmentFields {
 	return environmentFields{
-		environmentEntity: newEnvironmentEntity(env), Description: env.Description, EgressHosts: env.EgressHosts,
+		EnvironmentPayload: newEnvironmentEntity(env), Description: env.Description, EgressHosts: env.EgressHosts,
 		Connectors: env.Connectors, Repository: env.Repository,
 	}
 }
@@ -155,18 +93,25 @@ func connectionNames(connectors []Connector) []string {
 }
 
 // runEvent is an event about run r. The tenant, agent and loop guard attributes come from the row.
-func runEvent(t events.Type, r Run, entity any, changed ...string) events.Event {
-	return events.Event{
-		Type: t, Tenant: r.TenantID, Subject: "runs/" + r.ID, RunID: r.ID, Agent: r.AgentSlug,
-		CausedBy: r.CausedBy, ChainDepth: r.ChainDepth, Triggers: r.TriggerIDs, Entity: entity, Changed: changed,
-	}
+func runEvent(t events.Type, r Run, entity events.RunPayload, changed ...string) events.Event {
+	e := runAttributes(t, r)
+	e.Entity, e.Changed = entity, changed
+	return e
 }
 
 // sandboxEvent is an event about the sandbox of run r.
-func sandboxEvent(t events.Type, r Run, entity sandboxEntity) events.Event {
-	e := runEvent(t, r, entity)
-	e.Subject += "/sandbox"
+func sandboxEvent(t events.Type, r Run, entity events.SandboxPayload) events.Event {
+	e := runAttributes(t, r)
+	e.Subject, e.Entity = e.Subject+"/sandbox", entity
 	return e
+}
+
+// runAttributes is an event about run r with no payload yet.
+func runAttributes(t events.Type, r Run) events.Event {
+	return events.Event{
+		Type: t, Tenant: r.TenantID, Subject: "runs/" + r.ID, RunID: r.ID, Agent: r.AgentSlug,
+		CausedBy: r.CausedBy, ChainDepth: r.ChainDepth, Triggers: r.TriggerIDs,
+	}
 }
 
 func agentEvent(t events.Type, at AgentType, changed []string) events.Event {
@@ -197,7 +142,8 @@ func stateEventType(from, to RunState) (events.Type, bool) {
 }
 
 // stateEvent is the event of run r entering its current state from from.
-func stateEvent(from RunState, r Run) (events.Event, bool) {
+// A failed run carries lastError, its last run_error code, as error.
+func stateEvent(from RunState, r Run, lastError string) (events.Event, bool) {
 	t, ok := stateEventType(from, r.State)
 	if !ok {
 		return events.Event{}, false
@@ -206,7 +152,11 @@ func stateEvent(from RunState, r Run) (events.Event, bool) {
 	if r.State.Terminal() && r.CompletedAt != nil {
 		changed = append(changed, "completed_at")
 	}
-	return runEvent(t, r, newRunEntity(r), changed...), true
+	entity := newRunEntity(r)
+	if t == events.RunFailed {
+		entity.Error = knownOr(lastError, events.Enum("run_error"), events.RunErrorUnknown)
+	}
+	return runEvent(t, r, entity, changed...), true
 }
 
 // recordsActivity lists the run_events types that may record a spine event. Per-call activity records none.
@@ -216,7 +166,7 @@ var recordsActivity = map[string]bool{
 
 // runErrorsWithOwnEvent are run_error codes another event records. The session ends the run on
 // subprocess_exit, empty_turn and budget_exhausted, and loop_detected precedes the guardrail pause.
-var runErrorsWithOwnEvent = []string{"budget_exhausted", "loop_detected", "subprocess_exit", "empty_turn"}
+var runErrorsWithOwnEvent = []string{events.RunErrorBudgetExhausted, events.RunErrorLoopDetected, events.RunErrorSubprocessExit, events.RunErrorEmptyTurn}
 
 // activityEvent is the spine event that run_events row e of run r records, if any.
 func activityEvent(r Run, e RunEvent) (events.Event, bool) {
@@ -227,14 +177,14 @@ func activityEvent(r Run, e RunEvent) (events.Event, bool) {
 		return events.Event{}, false
 	}
 	entity := newRunEntity(r)
-	sandbox := sandboxEntity{RunID: r.ID, Name: sandboxfolder.SandboxPodName(r.ID), Environment: p.Environment, Image: p.Image}
+	sandbox := events.SandboxPayload{RunID: r.ID, Environment: p.Environment, Image: p.Image}
 	switch e.EventType {
 	case "run_error":
 		// A run_error after the run ended describes the end, which its state event records.
 		if r.State.Terminal() || slices.Contains(runErrorsWithOwnEvent, p.Code) {
 			return events.Event{}, false
 		}
-		entity.Error = p.Code
+		entity.Error = knownOr(p.Code, events.Enum("run_error"), events.RunErrorUnknown)
 		return runEvent(events.RunErrored, r, entity), true
 	case "turn_stopped":
 		if p.Reason == "guardrail" {
@@ -242,10 +192,11 @@ func activityEvent(r Run, e RunEvent) (events.Event, bool) {
 		}
 		return runEvent(events.RunInterrupted, r, entity), true
 	case "guardrail_warning":
-		var g guardrailFinding
+		var g events.GuardrailFinding
 		if json.Unmarshal(e.Payload, &g) != nil {
 			return events.Event{}, false
 		}
+		g.Kind = knownOr(g.Kind, events.Enum("guardrail_kind"), events.GuardrailUnknown)
 		entity.Guardrail = &g
 		return runEvent(events.RunGuardrailWarned, r, entity), true
 	case "sandbox_status":
@@ -280,5 +231,13 @@ func messageEvent(r Run, from *StartedByTrigger) events.Event {
 
 // sandboxDeletedEvent records the removal of run r's sandbox.
 func sandboxDeletedEvent(r Run) events.Event {
-	return sandboxEvent(events.SandboxDeleted, r, sandboxEntity{RunID: r.ID, Name: sandboxfolder.SandboxPodName(r.ID)})
+	return sandboxEvent(events.SandboxDeleted, r, events.SandboxPayload{RunID: r.ID})
+}
+
+// knownOr is v when values holds it, and unknown otherwise, so an event's value stays in its schema enum.
+func knownOr(v string, values []string, unknown string) string {
+	if slices.Contains(values, v) {
+		return v
+	}
+	return unknown
 }

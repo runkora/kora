@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/observability"
 )
@@ -320,12 +321,13 @@ func (s *RunService) failStart(ctx context.Context, span trace.Span, err error, 
 	observability.RecordFailure(span, err, errStartFailed)
 	ctx = context.WithoutCancel(ctx)
 	// A run terminated meanwhile fails the transition and gets no error event.
-	if err := s.Transition(ctx, runID, from, RunStateFailed); err != nil {
+	// The run_error follows the transition, so the failed event takes its code from ctx.
+	if err := s.Transition(withFailureCode(ctx, events.RunErrorStartFailed), runID, from, RunStateFailed); err != nil {
 		s.logger.Warn(ctx, "fail run after start failure failed",
 			logging.Field{Key: "run_id", Value: runID}, logging.Field{Key: "error", Value: err.Error()})
 		return
 	}
-	payload, _ := json.Marshal(map[string]string{"code": "start_failed", "message": reason})
+	payload, _ := json.Marshal(map[string]string{"code": events.RunErrorStartFailed, "message": reason})
 	if err := s.PublishEvent(ctx, runID, PushedEvent{Type: "run_error", Payload: payload}); err != nil {
 		s.logger.Warn(ctx, "record run start failure failed",
 			logging.Field{Key: "run_id", Value: runID}, logging.Field{Key: "error", Value: err.Error()})
