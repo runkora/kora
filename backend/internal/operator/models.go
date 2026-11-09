@@ -79,6 +79,10 @@ type KoraTenantSpec struct {
 	// Budget is the tenant's spending limit. It replaces a budget set through the API.
 	// +optional
 	Budget *declarative.Budget `json:"budget,omitempty"`
+
+	// Events configures the tenant's events. See docs/adr/2026-11-06-event-spine.md.
+	// +optional
+	Events *declarative.Events `json:"events,omitempty"`
 }
 
 // SecretRef is a reference to a Kubernetes Secret.

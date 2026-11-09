@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kora-events
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.koraEvents.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.koraEvents.replicas }}
+  selector:
+    matchLabels:
+      {{- include "kora.koraEvents.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kora.koraEvents.selectorLabels" . | nindent 8 }}
+        {{- include "kora.koraEvents.labels" . | nindent 8 }}
+        spiffe.io/component: kora-events
+        {{- include "kora.podLabels" (dict "root" $ "name" "koraEvents") | nindent 8 }}
+      annotations:
+        {{- include "kora.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
+        # Postgres is external to the mesh; bypass Envoy interception.
+        traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
+        checksum/config: {{ include (print $.Template.BasePath "/kora-events/config.yaml") . | sha256sum }}
+        {{- include "kora.podAnnotations" (dict "root" $ "name" "koraEvents") | nindent 8 }}
+    spec:
+      serviceAccountName: kora-events
+      {{- include "kora.imagePullSecrets" . | nindent 6 }}
+      {{- include "kora.scheduling" (dict "root" $ "name" "koraEvents") | nindent 6 }}
+      securityContext:
+        {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
+      volumes:
+        {{- include "kora.spireVolumes" . | nindent 8 }}
+        {{- include "kora.configVolume" (dict "root" $ "name" "koraEvents" "configMap" "kora-events-config" "modules" (include "kora.koraEvents.configModules" . | fromYaml)) | nindent 8 }}
+        # Operator-owned tenant registry: each tenant's event retention.
+        # Optional so the pod starts before any tenant exists.
+        - name: tenants-config
+          configMap:
+            name: {{ .Values.koraEvents.tenantsConfigMap }}
+            optional: true
+        {{- include "kora.redisCAVolume" . | nindent 8 }}
+        {{- include "kora.extraVolumes" (dict "root" $ "name" "koraEvents") | nindent 8 }}
+      containers:
+        - name: kora-events
+          image: {{ include "kora.image" (dict "root" $ "name" "koraEvents") | quote }}
+          imagePullPolicy: {{ include "kora.imagePullPolicy" (dict "root" $ "name" "koraEvents") }}
+          securityContext:
+            {{- include "kora.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
+          env:
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: "unix:///run/secrets/workload-spiffe-uds/socket"
+            {{- include "kora.platformEnv" (dict "root" $ "name" "koraEvents" "keys" (list "DB_PASSWORD" "REDIS_PASSWORD")) | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8099
+              protocol: TCP
+            {{- if .Values.global.metrics.enabled }}
+            - name: http-metrics
+              containerPort: {{ .Values.global.metrics.port | default 9464 }}
+              protocol: TCP
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8099
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8099
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.koraEvents.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "kora.spireVolumeMount" . | nindent 12 }}
+            {{- include "kora.configVolumeMount" . | nindent 12 }}
+            {{- include "kora.redisCAVolumeMount" . | nindent 12 }}
+            - name: tenants-config
+              mountPath: /etc/kora
+              readOnly: true
+            {{- include "kora.extraVolumeMounts" (dict "root" $ "name" "koraEvents") | nindent 12 }}

@@ -1052,8 +1052,7 @@ const traceParentCaller = "egress-gateway"
 // Any SYSTEM token is not enough: the caller must be the egress gateway.
 func (c *Controller) handleGetRunTraceParent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims.Kora.PrincipalType != token.PrincipalTypeSystem || claims.Kora.DisplayName != traceParentCaller {
+	if !mw.IsSystemCaller(ctx, traceParentCaller) {
 		apiErr := api.ForbiddenError(api.ErrCodeForbidden, "caller is not authorized to read run trace context", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return

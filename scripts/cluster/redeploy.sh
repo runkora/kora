@@ -199,6 +199,18 @@ workload=deployment/kora-triggers
 restart=true
 EOF
       ;;
+    kora-events)
+      cat <<'EOF'
+dockerfile=backend/Dockerfile
+context=backend
+build_arg=SERVICE=kora-events
+image=kora-events
+values_key=koraEvents
+namespace=kora-system
+workload=deployment/kora-events
+restart=true
+EOF
+      ;;
     skills-service)
       cat <<'EOF'
 dockerfile=backend/Dockerfile
@@ -322,6 +334,7 @@ frontend            (deployment, kora-system)
 kora-mcp            (deployment, kora-system)
 tool-gateway        (deployment, kora-system; also rolls the publisher)
 kora-triggers       (deployment, kora-system)
+kora-events         (deployment, kora-system)
 skills-service      (deployment, kora-system)
 migrate             (hook Job; re-applies the kora release so the schema migration runs)
 operator            (deployment, kora-system)
