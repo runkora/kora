@@ -45,4 +45,18 @@ describe('RunSourceLinks', () => {
       unmount();
     }
   });
+
+  it('drops sources whose URL is not http(s)', () => {
+    render(
+      <RunSourceLinks
+        sources={[
+          { kind: 'trigger', url: 'javascript:alert(1)', label: 'bad' },
+          { kind: 'trigger', url: 'not a url', label: 'bad2' },
+          sources[1],
+        ]}
+      />,
+    );
+    expect(screen.getAllByRole('link')).toHaveLength(1);
+    expect(screen.queryByText('bad')).toBeNull();
+  });
 });

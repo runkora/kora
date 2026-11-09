@@ -16,11 +16,22 @@ export interface RunSourceLinksProps {
   sources?: RunSource[] | null;
 }
 
+/** Only http(s) URLs are linkable; anything else (e.g. javascript:) is dropped. */
+function isSafeUrl(url: string): boolean {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === 'https:' || protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
 export function RunSourceLinks({ sources }: RunSourceLinksProps) {
-  if (!sources || sources.length === 0) return null;
+  const safe = (sources ?? []).filter((s) => isSafeUrl(s.url));
+  if (safe.length === 0) return null;
   return (
     <Stack direction="horizontal" align="center" gap="tight">
-      {sources.map((source) => (
+      {safe.map((source) => (
         <a
           key={`${source.kind}:${source.url}`}
           href={source.url}
