@@ -36,26 +36,17 @@ func (p *openCodeProfile) ClientCapabilities() map[string]any { return nil }
 // through and one HTTP server per MCP server it holds tool grants on. The model
 // is pinned in the config, so no mode or model is set on the session.
 func (p *openCodeProfile) SessionParams(workDir string) acpSessionParams {
-	servers := []acp.McpServer{{Stdio: &acp.McpServerStdio{
-		Name:    "runtime",
-		Command: "kora-runtime-mcp",
-		Args:    []string{},
-		Env: []acp.EnvVariable{
-			{Name: "KORA_SESSION_MANAGER_URL", Value: p.cfg.SessionManagerURL},
-			{Name: "KORA_RUN_ID", Value: p.cfg.RunID},
-		},
-	}}}
-	servers = append(servers, acpGatewayServers(p.cfg.ToolGatewayURL, p.cfg.MCPServers)...)
+	servers := append([]acp.McpServer{acpRuntimeServer(p.cfg.SessionManagerURL, p.cfg.RunID)}, acpGatewayServers(p.cfg.ToolGatewayURL, p.cfg.MCPServers)...)
 	return acpSessionParams{CWD: workDir, MCPServers: servers}
 }
 
 // ClassifyError reads the budget denial from the text of OpenCode's internal
 // error, e.g. "Internal error: Forbidden: budget exceeded: ...".
-func (p *openCodeProfile) ClassifyError(turn acpTurnEnd) string {
+func (p *openCodeProfile) ClassifyError(turn acpTurnEnd) acpTurnVerdict {
 	if e := turn.RPCErr; e != nil && e.Code == acpInternalErrorCode && isBudgetExceededMessage(e.Message) {
-		return events.RunErrorBudgetExhausted
+		return acpTurnVerdict{Code: events.RunErrorBudgetExhausted}
 	}
-	return ""
+	return acpTurnVerdict{}
 }
 
 // IsQuestion is false: every OpenCode permission request is auto-allowed.

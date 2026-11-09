@@ -267,7 +267,11 @@ func (p *fakeACPProfile) SessionParams(w string) acpSessionParams {
 
 // ClassifyError maps an error stop to stop_<reason>, an RPC error to
 // rpc_error, and an adapter message whose params mention BUDGET to budget.
-func (p *fakeACPProfile) ClassifyError(turn acpTurnEnd) string {
+func (p *fakeACPProfile) ClassifyError(turn acpTurnEnd) acpTurnVerdict {
+	return acpTurnVerdict{Code: p.classify(turn)}
+}
+
+func (p *fakeACPProfile) classify(turn acpTurnEnd) string {
 	p.mu.Lock()
 	p.turns = append(p.turns, turn)
 	p.mu.Unlock()

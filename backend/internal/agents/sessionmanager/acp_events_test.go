@@ -179,7 +179,7 @@ func TestACPEvents_ToolProgressIsThrottled(t *testing.T) {
 	tr := newACPTranslator(func(typ EventType, p any) {
 		ev, _ := newEvent(typ, p)
 		out = append(out, ev)
-	}, func(acpTurnEnd) string { return "" })
+	}, func(acpTurnEnd) acpTurnVerdict { return acpTurnVerdict{} })
 	tr.now = func() time.Time { return now }
 	inProgress := acp.ToolCallStatusInProgress
 	update := func() {
@@ -220,7 +220,7 @@ func TestACPEvents_CancelClosesRunningCalls(t *testing.T) {
 	tr := newACPTranslator(func(typ EventType, p any) {
 		ev, _ := newEvent(typ, p)
 		out = append(out, ev)
-	}, func(acpTurnEnd) string { return "" })
+	}, func(acpTurnEnd) acpTurnVerdict { return acpTurnVerdict{} })
 	inProgress, completed := acp.ToolCallStatusInProgress, acp.ToolCallStatusCompleted
 	update := func(id string, status *acp.ToolCallStatus) {
 		tr.handleSessionUpdate(acp.SessionUpdate{ToolCallUpdate: &acp.SessionToolCallUpdate{ToolCallId: acp.ToolCallId(id), Status: status}}, "")

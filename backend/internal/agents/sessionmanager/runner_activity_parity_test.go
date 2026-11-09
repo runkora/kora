@@ -251,8 +251,54 @@ func codexACPSubject() paritySubject {
 	}
 }
 
+// claudeACPSubject is the Claude profile on the acpRunner, fed the shapes
+// claude-agent-acp 0.101.0 sends (testdata/acp/claude): an empty input on the
+// pending call, the complete input with content, and the result in rawOutput.
+func claudeACPSubject() paritySubject {
+	turn := func(t *testing.T, script func(a *fakeACPAgent, id json.RawMessage)) []Event {
+		a := newFakeACPAgent(t)
+		a.onRequest["session/prompt"] = func(a *fakeACPAgent, id, _ json.RawMessage) { script(a, id) }
+		r := startACP(t, a, testClaudeProfile(), nil)
+		prompt(t, r, "go")
+		return eventsUntilStop(t, r)
+	}
+	toolTurn := func(t *testing.T, output string) []Event {
+		meta := map[string]any{"claudeCode": map[string]any{"toolName": "Bash"}}
+		evs := turn(t, func(a *fakeACPAgent, id json.RawMessage) {
+			a.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": "t1", "kind": "execute", "title": "Terminal", "status": "pending",
+				"rawInput": map[string]any{}, "content": []any{}, "_meta": meta})
+			a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "title": "echo hi", "rawInput": map[string]string{"command": "echo hi"}, "_meta": meta})
+			a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "rawInput": map[string]string{"command": "echo hi", "description": "d"},
+				"content": []any{map[string]any{"type": "content", "content": map[string]string{"type": "text", "text": "d"}}}, "_meta": meta})
+			a.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed", "rawOutput": output,
+				"content": []any{map[string]any{"type": "content", "content": map[string]string{"type": "text", "text": "```console\n" + output + "\n```"}}}, "_meta": meta})
+			a.respond(id, map[string]any{"stopReason": "end_turn"})
+		})
+		return evs[:2]
+	}
+	return paritySubject{
+		name:      "claude-acp",
+		toolCall:  func(t *testing.T) []Event { return toolTurn(t, "hi") },
+		bigResult: func(t *testing.T, output string) []Event { return toolTurn(t, output) },
+		stop: func(t *testing.T) []Event {
+			return turn(t, func(a *fakeACPAgent, id json.RawMessage) {
+				a.text("Half")
+				a.respond(id, map[string]any{"stopReason": "cancelled"})
+			})
+		},
+		failedTurn: func(t *testing.T) []Event {
+			return turn(t, func(a *fakeACPAgent, id json.RawMessage) {
+				a.text("Half")
+				a.notify(claudeSDKMessageMethod, map[string]any{"sessionId": "sess-1", "message": map[string]any{
+					"type": "result", "subtype": "error_during_execution", "is_error": true, "result": "API Error: 500"}})
+				a.respondErr(id, -32603, "API Error: 500")
+			})
+		},
+	}
+}
+
 func TestRunnerParity_ActivityContract(t *testing.T) {
-	for _, sub := range []paritySubject{claudeSubject(), codexSubject(), openCodeSubject(), openCodeACPSubject(), codexACPSubject()} {
+	for _, sub := range []paritySubject{claudeSubject(), codexSubject(), openCodeSubject(), openCodeACPSubject(), codexACPSubject(), claudeACPSubject()} {
 		t.Run(sub.name+"/tool call records its own arguments and its result", func(t *testing.T) {
 			evs := sub.toolCall(t)
 			if got := eventTypes(evs); !slices.Equal(got, []EventType{EventTypeToolUse, EventTypeToolResult}) {

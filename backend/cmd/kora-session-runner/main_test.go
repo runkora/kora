@@ -51,22 +51,26 @@ func TestCheckKernel(t *testing.T) {
 }
 
 // Each harness may execute only its own image binaries: ripgrep for OpenCode,
-// the wrapped codex for the codex-acp adapter.
+// the wrapped codex for the codex-acp adapter and the wrapped claude for the
+// claude-agent-acp adapter.
 func TestExecutablesHarnessBinaries(t *testing.T) {
 	for _, tc := range []struct {
-		name              string
-		wantRg, wantCodex bool
+		name                          string
+		wantRg, wantCodex, wantClaude bool
 	}{
-		{"opencode", true, false},
-		{"/usr/local/bin/opencode", true, false},
-		{"codex-acp", false, true},
-		{"/usr/local/bin/codex-acp", false, true},
-		{"claude", false, false},
-		{"codex", false, false},
+		{"opencode", true, false, false},
+		{"/usr/local/bin/opencode", true, false, false},
+		{"codex-acp", false, true, false},
+		{"/usr/local/bin/codex-acp", false, true, false},
+		{"claude-agent-acp", false, false, true},
+		{"/usr/local/bin/claude-agent-acp", false, false, true},
+		{"claude", false, false, false},
+		{"codex", false, false, false},
 	} {
 		got := executables(tc.name, "/harness/"+filepath.Base(tc.name))
-		if slices.Contains(got, "/usr/bin/rg") != tc.wantRg || slices.Contains(got, "/usr/local/bin/codex") != tc.wantCodex {
-			t.Errorf("executables(%q) = %v, want rg %v and codex %v", tc.name, got, tc.wantRg, tc.wantCodex)
+		if slices.Contains(got, "/usr/bin/rg") != tc.wantRg || slices.Contains(got, "/usr/local/bin/codex") != tc.wantCodex ||
+			slices.Contains(got, "/usr/local/bin/claude") != tc.wantClaude {
+			t.Errorf("executables(%q) = %v, want rg %v, codex %v and claude %v", tc.name, got, tc.wantRg, tc.wantCodex, tc.wantClaude)
 		}
 	}
 }

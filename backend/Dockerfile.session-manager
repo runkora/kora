@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1
 #
-# Session-manager image: Go binary + Node.js (required for the claude and opencode CLIs).
-# Codex (musl static binary), its ACP adapter codex-acp (compiled with Bun) and OpenCode (npm)
-# are installed here so all three frameworks can run in the same container; framework
-# selection stays a runtime concern.
+# Session-manager image: the Go binaries and the native agent CLIs, with no Node.js.
+# Claude Code and OpenCode (native binaries from npm), Codex (musl static binary) and the
+# ACP adapters claude-agent-acp and codex-acp (compiled with Bun) are installed here so all
+# three frameworks can run in the same container; framework selection stays a runtime concern.
 
 # ── Build stage ───────────────────────────────────────────────────────────────
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308 AS builder
@@ -68,9 +68,43 @@ RUN case "$TARGETARCH" in \
     bun build src/index.ts --minify --compile --no-compile-autoload-bunfig --no-compile-autoload-dotenv \
       --target="$target" --compile-executable-path=/bun-target --outfile /codex-acp
 
+# ── claude-agent-acp stage ────────────────────────────────────────────────────
+# claude-agent-acp, the Claude Code ACP adapter, compiled from its pinned tag the same way.
+# Its own copy of the Claude CLI is skipped; the adapter runs the pinned claude through
+# CLAUDE_CODE_EXECUTABLE.
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS claude-agent-acp
+ARG CLAUDE_AGENT_ACP_VERSION=0.101.0
+ARG CLAUDE_AGENT_ACP_COMMIT=85aec26ef984a421fe8064ce43f60138a3372384
+ARG TARGETARCH
+RUN apk add --no-cache git=2.54.0-r0 nodejs=24.22.1-r1 npm=11.12.1-r0
+RUN git clone --depth 1 --branch "v${CLAUDE_AGENT_ACP_VERSION}" https://github.com/agentclientprotocol/claude-agent-acp.git /src && \
+    test "$(git -C /src rev-parse HEAD)" = "${CLAUDE_AGENT_ACP_COMMIT}"
+WORKDIR /src
+RUN npm ci --omit=optional --ignore-scripts
+COPY --from=bun-target /usr/local/bin/bun /bun-target
+RUN case "$TARGETARCH" in \
+      amd64) target=bun-linux-x64-musl ;; \
+      arm64) target=bun-linux-arm64-musl ;; \
+      *) echo "Unsupported architecture: $TARGETARCH" >&2 && exit 1 ;; \
+    esac && \
+    bun build src/binary-entry.ts --compile --no-compile-autoload-bunfig --no-compile-autoload-dotenv \
+      --target="$target" --compile-executable-path=/bun-target --outfile /claude-agent-acp
+
+# ── Agent CLI stage ───────────────────────────────────────────────────────────
+# The claude and opencode CLIs from the lockfile in cmd/session-manager/agent-clis, so every
+# build gets the same versions. npm installs each one's native binary for the target, and
+# only those binaries reach the runtime image. Validate the opencode ACP protocol on upgrade.
+FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85 AS agent-clis
+COPY cmd/session-manager/agent-clis/package.json cmd/session-manager/agent-clis/package-lock.json /src/
+RUN cd /src && \
+    npm ci --omit=dev && \
+    mkdir /out && \
+    cp node_modules/@anthropic-ai/claude-code/bin/claude.exe /out/claude && \
+    cp node_modules/opencode-ai/bin/opencode.exe /out/opencode
+
 # ── Runtime stage ─────────────────────────────────────────────────────────────
-# Node.js 24 alpine, the active LTS: required for the claude and opencode CLI subprocesses.
-FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85
+# Alpine 3.24, the release the agent-clis stage is built on. Nothing here runs Node.js.
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 
 WORKDIR /app
 
@@ -79,8 +113,9 @@ WORKDIR /app
 # curl: used to download the Codex musl binary below.
 # ripgrep: OpenCode's grep, glob and list tools; it downloads rg from GitHub when none is on PATH,
 #          and the agent pod cannot reach GitHub.
+# libgcc, libstdc++: the Bun-compiled opencode, claude-agent-acp and codex-acp link them.
 # Toolchains (Go and the rest) live only in the sandbox image, where commands run.
-RUN apk add --no-cache ca-certificates bash git curl ripgrep
+RUN apk add --no-cache ca-certificates bash git curl ripgrep libgcc libstdc++
 
 # How Claude Code's Bash tool is routed into the sandbox:
 #   - Claude Code IGNORES $SHELL; it resolves its shell from CLAUDE_CODE_SHELL.
@@ -98,18 +133,11 @@ ENV CLAUDE_CODE_SHELL=/opt/kora/shell/bash
 # plugin marketplace.
 COPY cmd/session-manager/agent-clis/claude-managed-settings.json /etc/claude-code/managed-settings.json
 
-# Install the claude and opencode CLIs from the lockfile in cmd/session-manager/agent-clis,
-# so every build gets the same versions. Validate the opencode ACP protocol on upgrade.
 # kora-session-runner lets a run execute only its harness binary, kora-shell,
-# kora-runtime-mcp, their ELF interpreter, ripgrep for OpenCode and codex for codex-acp.
-COPY cmd/session-manager/agent-clis/package.json cmd/session-manager/agent-clis/package-lock.json /usr/local/lib/agent-clis/
-RUN cd /usr/local/lib/agent-clis && \
-    npm ci --omit=dev && \
-    rm -rf /root/.npm && \
-    ln -s /usr/local/lib/agent-clis/node_modules/.bin/claude /usr/local/bin/claude && \
-    ln -s /usr/local/lib/agent-clis/node_modules/.bin/opencode /usr/local/bin/opencode && \
-    claude --version && \
-    opencode --version
+# kora-runtime-mcp, their ELF interpreter, ripgrep for OpenCode, codex for codex-acp
+# and claude for claude-agent-acp.
+COPY --from=agent-clis /out/claude /out/opencode /usr/local/bin/
+RUN claude --version && opencode --version
 
 # Install Codex (musl-only statically linked binary; runs on Alpine without glibc).
 # It comes from the npm registry's per-platform package, which carries the release's
@@ -132,6 +160,7 @@ RUN ARCH=$(uname -m) && \
     rm -rf "/tmp/${tgz}" /tmp/package
 
 COPY --from=codex-acp /codex-acp /usr/local/bin/codex-acp
+COPY --from=claude-agent-acp /claude-agent-acp /usr/local/bin/claude-agent-acp
 
 # Non-root user: claude --dangerously-skip-permissions refuses to run as root.
 RUN addgroup -S kora && adduser -S kora -G kora

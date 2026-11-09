@@ -22,14 +22,14 @@ type acpProfile interface {
 	ClientCapabilities() map[string]any
 	// SessionParams are sent on session/new, session/resume and session/load.
 	SessionParams(workDir string) acpSessionParams
-	// ClassifyError returns the run_error code for a turn, or "" when the turn
-	// carries no error the profile recognizes.
-	ClassifyError(turn acpTurnEnd) string
+	// ClassifyError is how a finished turn ends: a run_error code, or none when
+	// the turn carries no error the profile recognizes.
+	ClassifyError(turn acpTurnEnd) acpTurnVerdict
 	// IsQuestion marks a permission request as a question for the human,
 	// answered through SendToolResult instead of auto-allowed.
 	IsQuestion(tool acp.ToolCallUpdate) bool
-	// AdapterSignal reads provider retries and background work from an adapter
-	// message.
+	// AdapterSignal reads provider retries, background work and the end of the
+	// agent's own turn from an adapter message.
 	AdapterSignal(msg acpAdapterMessage) acpSignal
 	// ToolView is kora's name, input and result for a tool call, given what its
 	// updates carried so far and the latest update u. It runs once per update.
@@ -43,6 +43,9 @@ type acpToolView struct {
 	Input   any
 	Output  string
 	IsError bool
+	// Streaming marks input that is still arriving: tool_use waits for an
+	// update without it, or for the call to run.
+	Streaming bool
 }
 
 // acpDefaultToolView names the call by its first title (or Claude's tool name),
@@ -76,6 +79,23 @@ type acpTurnEnd struct {
 	StopReason acp.StopReason
 	RPCErr     *acp.RequestError
 	Messages   []acpAdapterMessage
+	// Text is the reply text still buffered. HadText is set when the turn
+	// recorded text earlier, before a tool call or through TakeText.
+	Text    string
+	HadText bool
+}
+
+// acpTurnVerdict is how a profile ends a turn. The zero value lets the response decide.
+type acpTurnVerdict struct {
+	// Code is the run_error code, empty when the profile recognizes no error.
+	Code string
+	// Message replaces the runner's run_error message when set.
+	Message string
+	// Complete ends the turn as a finished one whatever the response said.
+	Complete bool
+	// Text replaces the buffered reply text when set, for text the adapter
+	// added that is not the agent's.
+	Text *string
 }
 
 // acpSignal is what a profile reads from one adapter message.
@@ -84,6 +104,23 @@ type acpSignal struct {
 	// InFlightWork is the number of background tasks running, nil when the
 	// message does not report it.
 	InFlightWork *int
+	// TurnEnded marks the end of a turn the agent took on its own, such as
+	// after a background task finished. It ends the turn when no prompt is open.
+	TurnEnded bool
+}
+
+// acpRuntimeServer declares kora-runtime-mcp, the stdio server the agent
+// provisions its sandbox through.
+func acpRuntimeServer(sessionManagerURL, runID string) acp.McpServer {
+	return acp.McpServer{Stdio: &acp.McpServerStdio{
+		Name:    "runtime",
+		Command: "kora-runtime-mcp",
+		Args:    []string{},
+		Env: []acp.EnvVariable{
+			{Name: "KORA_SESSION_MANAGER_URL", Value: sessionManagerURL},
+			{Name: "KORA_RUN_ID", Value: runID},
+		},
+	}}
 }
 
 // acpGatewayServers declares one HTTP server per MCP server the agent holds
