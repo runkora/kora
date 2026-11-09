@@ -82,6 +82,7 @@ import {
   MoreVertical,
   Network,
   PanelLeft,
+  Pause,
   Pencil,
   Play,
   PlayCircle,
@@ -196,6 +197,7 @@ export type IconName =
   | 'more-vertical'
   | 'network'
   | 'panel-left'
+  | 'pause'
   | 'play'
   | 'play-circle'
   | 'plus'
@@ -306,6 +308,7 @@ export const ICON_REGISTRY: Record<IconName, LucideIcon> = {
   'more-vertical': MoreVertical,
   network: Network,
   'panel-left': PanelLeft,
+  pause: Pause,
   play: Play,
   'play-circle': PlayCircle,
   plus: Plus,
