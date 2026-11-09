@@ -265,6 +265,20 @@ func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter De
 	return deliveries, nextCursor, nil
 }
 
+// GetDelivery returns one of the tenant's deliveries with its run fan-out and
+// coalescing keys, as a listing returns it.
+func (s *Service) GetDelivery(ctx context.Context, tenantID, id string) (*Delivery, error) {
+	d, err := s.repo.GetDelivery(ctx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	one := []Delivery{*d}
+	if err := s.attachRunsAndKeys(ctx, tenantID, one); err != nil {
+		return nil, err
+	}
+	return &one[0], nil
+}
+
 // attachRunsAndKeys sets each delivery's run fan-out and coalescing keys, one
 // batched query each.
 func (s *Service) attachRunsAndKeys(ctx context.Context, tenantID string, deliveries []Delivery) error {

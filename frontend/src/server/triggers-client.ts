@@ -256,6 +256,14 @@ export async function redeliverDelivery(
   });
 }
 
+// GET /api/v1/trigger-deliveries/:id: one delivery, whatever its age.
+export async function getDelivery(
+  accessToken: string,
+  id: string,
+): Promise<TriggerDelivery | undefined> {
+  return request<TriggerDelivery>(`/trigger-deliveries/${encodeURIComponent(id)}`, accessToken);
+}
+
 // ---------------------------------------------------------------------------
 // Schedule preview
 // ---------------------------------------------------------------------------

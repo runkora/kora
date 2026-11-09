@@ -19,6 +19,14 @@ import { ApiRoute } from './api-routes';
 
 // ── Page routes ───────────────────────────────────────────────────────────────
 
+/** The Triggers page query keys that open one trigger's or one delivery's modal. */
+export const TRIGGER_LINK = {
+  trigger: 'trigger',
+  tab: 'tab',
+  deliveriesTab: 'deliveries',
+  delivery: 'delivery',
+} as const;
+
 export const APP_ROUTES = {
   home: '/',
   login: '/login',
@@ -41,6 +49,12 @@ export const APP_ROUTES = {
   connections: '/connections',
   environments: '/environments',
   triggers: '/triggers',
+  /** Opens the Triggers page on one trigger's modal. */
+  trigger: (id: string) => `/triggers?${TRIGGER_LINK.trigger}=${encodeURIComponent(id)}` as const,
+  /** Opens the Triggers page's Deliveries tab on one delivery's modal. */
+  triggerDelivery: (id: string) =>
+    `/triggers?${TRIGGER_LINK.tab}=${TRIGGER_LINK.deliveriesTab}&${TRIGGER_LINK.delivery}=${encodeURIComponent(id)}` as const,
+  events: '/events',
   mcpGateway: {
     servers: '/mcp-gateway',
     server: (slug: string) => `/mcp-gateway/${slug}` as const,
