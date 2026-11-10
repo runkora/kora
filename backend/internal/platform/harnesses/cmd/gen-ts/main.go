@@ -32,7 +32,7 @@ func main() {
 		fmt.Fprintf(&b, "  %s: %s,\n", strconv.Quote(h.ID), strconv.Quote(h.Label))
 	}
 	b.WriteString("};\n")
-	if err := os.WriteFile(os.Args[1], []byte(b.String()), 0o644); err != nil {
+	if err := os.WriteFile(os.Args[1], []byte(b.String()), 0o600); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
