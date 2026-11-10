@@ -127,6 +127,20 @@ func TestLoadWorkloads_MemoryIsSessionManagerOnly(t *testing.T) {
 	}
 }
 
+// TestLoadWorkloads_RejectsNonPositiveMemory checks a zero or negative memory
+// fails at startup rather than when an agent is created.
+func TestLoadWorkloads_RejectsNonPositiveMemory(t *testing.T) {
+	for _, memory := range []string{"0", "-1Gi"} {
+		path := filepath.Join(t.TempDir(), "workloads.yaml")
+		if err := os.WriteFile(path, []byte("workloads:\n  sessionManager:\n    memory: "+memory+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := loadWorkloads(path); err == nil || !strings.Contains(err.Error(), "sessionManager.memory") {
+			t.Errorf("memory %s: got %v, want an error naming sessionManager.memory", memory, err)
+		}
+	}
+}
+
 // TestLoadWorkloads_RejectsUnparseableSize checks a bad quantity fails at
 // startup rather than when an agent is created.
 func TestLoadWorkloads_RejectsUnparseableSize(t *testing.T) {
