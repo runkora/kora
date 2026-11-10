@@ -16,6 +16,8 @@ metrics:
 
 kubernetes:
   inCluster: true
+  clientQPS: 50
+  clientBurst: 100
   tenantNamespacePrefix: kora-tenant-
   systemNamespace: kora-system
   # Where the chart mounts the kora-tenants ConfigMap.

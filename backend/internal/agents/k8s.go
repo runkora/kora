@@ -71,6 +71,9 @@ var authorizationPolicyGVR = schema.GroupVersionResource{
 // K8sProvisionerConfig holds the parameters the provisioner needs that cannot
 // be derived from the agent type or run model.
 type K8sProvisionerConfig struct {
+	// ClientQPS and ClientBurst rate-limit the Kubernetes client. Zero keeps the client-go defaults.
+	ClientQPS           float32
+	ClientBurst         int
 	SessionManagerImage string
 	// SandboxImage is the base image reference that rendered previews use. A
 	// live sandbox runs the digest the operator pinned on its SandboxImage.
@@ -170,6 +173,7 @@ func NewK8sProvisioner(inCluster bool, logger logging.Logger, cfg K8sProvisioner
 	if err != nil {
 		return nil, fmt.Errorf("build k8s rest config: %w", err)
 	}
+	restCfg.QPS, restCfg.Burst = cfg.ClientQPS, cfg.ClientBurst
 
 	cs, err := kubernetes.NewForConfig(restCfg)
 	if err != nil {
