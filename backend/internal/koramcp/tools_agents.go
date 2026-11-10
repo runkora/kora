@@ -106,20 +106,20 @@ type getAgentArgs struct {
 // createAgentArgs is the input to agents.create. The tenant is derived from the
 // caller's token by the agents service; any tenant in the body is ignored.
 type createAgentArgs struct {
-	Name                    string           `json:"name" jsonschema:"display name for the agent type"`
-	Slug                    string           `json:"slug" jsonschema:"unique slug within the tenant: lowercase letters, digits and hyphens, starting with a letter, ending with a letter or digit, at most 52 characters"`
-	Description             string           `json:"description,omitempty" jsonschema:"short human description of what the agent does"`
-	SystemPrompt            string           `json:"system_prompt,omitempty" jsonschema:"the system prompt the agent runs with"`
-	Framework               string           `json:"framework,omitempty" jsonschema:"agent CLI framework"`
-	IdentityMode            string           `json:"identity_mode,omitempty" jsonschema:"identity model, immutable after creation (default autonomous): autonomous = the agent acts as itself on its own grant; delegated = the agent acts on behalf of the person who runs it, bounded by the intersection of its grant and that person's live access"`
-	ModelID                 string           `json:"model_id" jsonschema:"inference model id — call the models.list tool first to get valid ids (e.g. anthropic/claude-sonnet-5)"`
-	GrantScopes             []string         `json:"grant_scopes,omitempty" jsonschema:"platform grant scopes for the agent. Optional — the server derives the inference scopes from model_id automatically; set this only to override the inference grant or add other scopes"`
-	Connectivity            *connectivityArg `json:"connectivity,omitempty" jsonschema:"outbound egress posture for the agent's sandboxes (default: none)"`
-	Connectors              []connectorArg   `json:"connectors,omitempty" jsonschema:"credential connections the agent may use and the actions allowed — call the agents.connectors tool to list available connections"`
-	MCPTools                []string         `json:"mcp_tools,omitempty" jsonschema:"governed MCP tools the agent may call through the gateway, as mcp:<server>:<tool>:use scopes — call the agents.mcp_tools tool to list what is available. The coarse mcp:invoke gate is derived automatically"`
-	Environments            []environmentRef `json:"environments,omitempty" jsonschema:"sandbox environments to attach; mark one is_default. Omit for the built-in default environment. Call agents.environments.list for ids"`
-	MaxConcurrentRunsPerPod int              `json:"max_concurrent_runs_per_pod,omitempty" jsonschema:"max concurrent runs per pod (0 = service default)"`
-	Guardrails              *guardrailsArg   `json:"guardrails,omitempty" jsonschema:"loop-guard thresholds for this agent's runs; omitted fields take the platform defaults"`
+	Name              string           `json:"name" jsonschema:"display name for the agent type"`
+	Slug              string           `json:"slug" jsonschema:"unique slug within the tenant: lowercase letters, digits and hyphens, starting with a letter, ending with a letter or digit, at most 52 characters"`
+	Description       string           `json:"description,omitempty" jsonschema:"short human description of what the agent does"`
+	SystemPrompt      string           `json:"system_prompt,omitempty" jsonschema:"the system prompt the agent runs with"`
+	Framework         string           `json:"framework,omitempty" jsonschema:"agent CLI framework"`
+	IdentityMode      string           `json:"identity_mode,omitempty" jsonschema:"identity model, immutable after creation (default autonomous): autonomous = the agent acts as itself on its own grant; delegated = the agent acts on behalf of the person who runs it, bounded by the intersection of its grant and that person's live access"`
+	ModelID           string           `json:"model_id" jsonschema:"inference model id — call the models.list tool first to get valid ids (e.g. anthropic/claude-sonnet-5)"`
+	GrantScopes       []string         `json:"grant_scopes,omitempty" jsonschema:"platform grant scopes for the agent. Optional — the server derives the inference scopes from model_id automatically; set this only to override the inference grant or add other scopes"`
+	Connectivity      *connectivityArg `json:"connectivity,omitempty" jsonschema:"outbound egress posture for the agent's sandboxes (default: none)"`
+	Connectors        []connectorArg   `json:"connectors,omitempty" jsonschema:"credential connections the agent may use and the actions allowed — call the agents.connectors tool to list available connections"`
+	MCPTools          []string         `json:"mcp_tools,omitempty" jsonschema:"governed MCP tools the agent may call through the gateway, as mcp:<server>:<tool>:use scopes — call the agents.mcp_tools tool to list what is available. The coarse mcp:invoke gate is derived automatically"`
+	Environments      []environmentRef `json:"environments,omitempty" jsonschema:"sandbox environments to attach; mark one is_default. Omit for the built-in default environment. Call agents.environments.list for ids"`
+	MaxConcurrentRuns int              `json:"max_concurrent_runs,omitempty" jsonschema:"max concurrent runs of the agent (0 = service default)"`
+	Guardrails        *guardrailsArg   `json:"guardrails,omitempty" jsonschema:"loop-guard thresholds for this agent's runs; omitted fields take the platform defaults"`
 }
 
 // guardrailsArg is an agent type's loop-guard thresholds. Each warn is at least
@@ -162,17 +162,17 @@ type connectivityArg struct {
 // pointers/slices: nil/omitted means "leave unchanged". agent_type_id selects the
 // target and is ignored by the agents service when present in the body.
 type updateAgentArgs struct {
-	AgentTypeID             string            `json:"agent_type_id" jsonschema:"the agent type id to update"`
-	Name                    *string           `json:"name,omitempty" jsonschema:"new display name"`
-	Description             *string           `json:"description,omitempty" jsonschema:"new description"`
-	SystemPrompt            *string           `json:"system_prompt,omitempty" jsonschema:"new system prompt"`
-	Framework               *string           `json:"framework,omitempty" jsonschema:"new agent CLI framework"`
-	ModelID                 *string           `json:"model_id,omitempty" jsonschema:"new inference model id — call the models.list tool first to get valid ids"`
-	MaxConcurrentRunsPerPod *int              `json:"max_concurrent_runs_per_pod,omitempty" jsonschema:"new max concurrent runs per pod"`
-	Guardrails              *guardrailsArg    `json:"guardrails,omitempty" jsonschema:"replacement loop-guard thresholds; omitted fields return to the platform defaults, an empty object restores all of them"`
-	GrantScopes             []string          `json:"grant_scopes,omitempty" jsonschema:"replacement grant scopes. Optional — the server re-derives the inference scopes from model_id when you change the model; set this only to override"`
-	Connectivity            *connectivityArg  `json:"connectivity,omitempty" jsonschema:"replacement egress posture for the agent's sandboxes"`
-	Connectors              []connectorArg    `json:"connectors,omitempty" jsonschema:"replacement set of connectors — call the agents.connectors tool to list available connections"`
-	MCPTools                []string          `json:"mcp_tools,omitempty" jsonschema:"replacement set of governed MCP tools the agent may call through the gateway, as mcp:<server>:<tool>:use scopes — call the agents.mcp_tools tool to list what is available. An empty array clears all MCP tool access; the coarse mcp:invoke gate is derived automatically"`
-	Environments            *[]environmentRef `json:"environments,omitempty" jsonschema:"replacement set of attached environments; mark one is_default. An empty array leaves the built-in default. Call agents.environments.list for ids"`
+	AgentTypeID       string            `json:"agent_type_id" jsonschema:"the agent type id to update"`
+	Name              *string           `json:"name,omitempty" jsonschema:"new display name"`
+	Description       *string           `json:"description,omitempty" jsonschema:"new description"`
+	SystemPrompt      *string           `json:"system_prompt,omitempty" jsonschema:"new system prompt"`
+	Framework         *string           `json:"framework,omitempty" jsonschema:"new agent CLI framework"`
+	ModelID           *string           `json:"model_id,omitempty" jsonschema:"new inference model id — call the models.list tool first to get valid ids"`
+	MaxConcurrentRuns *int              `json:"max_concurrent_runs,omitempty" jsonschema:"new max concurrent runs of the agent"`
+	Guardrails        *guardrailsArg    `json:"guardrails,omitempty" jsonschema:"replacement loop-guard thresholds; omitted fields return to the platform defaults, an empty object restores all of them"`
+	GrantScopes       []string          `json:"grant_scopes,omitempty" jsonschema:"replacement grant scopes. Optional — the server re-derives the inference scopes from model_id when you change the model; set this only to override"`
+	Connectivity      *connectivityArg  `json:"connectivity,omitempty" jsonschema:"replacement egress posture for the agent's sandboxes"`
+	Connectors        []connectorArg    `json:"connectors,omitempty" jsonschema:"replacement set of connectors — call the agents.connectors tool to list available connections"`
+	MCPTools          []string          `json:"mcp_tools,omitempty" jsonschema:"replacement set of governed MCP tools the agent may call through the gateway, as mcp:<server>:<tool>:use scopes — call the agents.mcp_tools tool to list what is available. An empty array clears all MCP tool access; the coarse mcp:invoke gate is derived automatically"`
+	Environments      *[]environmentRef `json:"environments,omitempty" jsonschema:"replacement set of attached environments; mark one is_default. An empty array leaves the built-in default. Call agents.environments.list for ids"`
 }

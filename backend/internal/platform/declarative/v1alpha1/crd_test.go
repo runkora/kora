@@ -118,7 +118,7 @@ func TestSchemaRejections(t *testing.T) {
 		{"generated/runkora.io_agents.yaml", "negative budget", "{displayName: A, model: {family: a, name: b}, budget: {limitUSD: -1}}", true},
 		{"generated/runkora.io_agents.yaml", "daily cadence", "{displayName: A, model: {family: a, name: b}, budget: {limitUSD: 1, resetCadence: daily}}", true},
 		{"generated/runkora.io_agents.yaml", "guardrail zero", "{displayName: A, model: {family: a, name: b}, guardrails: {repeatedCallWarn: 0}}", true},
-		{"generated/runkora.io_agents.yaml", "guardrails", "{displayName: A, model: {family: a, name: b}, guardrails: {repeatedCallWarn: 3, repeatedCallPause: 6}, maxConcurrentRunsPerPod: 4, scopes: ['agents:runs:x:read']}", false},
+		{"generated/runkora.io_agents.yaml", "guardrails", "{displayName: A, model: {family: a, name: b}, guardrails: {repeatedCallWarn: 3, repeatedCallPause: 6}, maxConcurrentRuns: 4, scopes: ['agents:runs:x:read']}", false},
 		{"generated/runkora.io_triggersources.yaml", "no secret ref", "{provider: github}", true},
 		{"generated/runkora.io_triggersources.yaml", "secret ref without key", "{provider: github, signingSecretRef: {name: s}}", true},
 		{"generated/runkora.io_triggersources.yaml", "free-form config", "{provider: slack, config: {team: T1, nested: {a: [1, 2]}}, signingSecretRef: {name: s, key: k}, enabled: false}", false},

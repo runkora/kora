@@ -400,7 +400,7 @@ export interface AgentType {
   connectors?: Connector[];
   /** Governed MCP tools the agent may call (mcp:<server>:<tool>:use). */
   mcp_tools?: string[];
-  max_concurrent_runs_per_pod: number;
+  max_concurrent_runs: number;
   /** Loop-guard thresholds; an absent field takes the platform default. */
   guardrails?: AgentTypeGuardrails;
   state: AgentTypeState;
@@ -638,7 +638,7 @@ export interface CreateAgentTypeRequest {
   connectors?: Connector[];
   /** Governed MCP tools the agent may call (mcp:<server>:<tool>:use). */
   mcp_tools?: string[];
-  max_concurrent_runs_per_pod?: number;
+  max_concurrent_runs?: number;
   /** Loop-guard thresholds; an absent field takes the platform default. */
   guardrails?: AgentTypeGuardrails;
   model_id?: string;
@@ -728,7 +728,7 @@ export interface UpdateAgentTypeRequest {
   description?: string;
   framework?: AgentFramework;
   system_prompt?: string;
-  max_concurrent_runs_per_pod?: number;
+  max_concurrent_runs?: number;
   /** Loop-guard thresholds; an absent field takes the platform default. */
   guardrails?: AgentTypeGuardrails;
   model_id?: string;

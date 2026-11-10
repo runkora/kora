@@ -14,16 +14,18 @@ import (
 // the ones its entity leaves out included.
 type agentFields struct {
 	events.AgentPayload
-	Description             string         `json:"description"`
-	SystemPrompt            string         `json:"system_prompt"`
-	Framework               AgentFramework `json:"framework"`
-	GrantScopes             []string       `json:"grant_scopes"`
-	Connectivity            Connectivity   `json:"connectivity"`
-	Connectors              []Connector    `json:"connectors"`
-	MCPTools                []string       `json:"mcp_tools"`
-	Guardrails              Guardrails     `json:"guardrails"`
-	MaxConcurrentRunsPerPod int            `json:"max_concurrent_runs_per_pod"`
-	Repository              string         `json:"repository"`
+	Description       string         `json:"description"`
+	SystemPrompt      string         `json:"system_prompt"`
+	Framework         AgentFramework `json:"framework"`
+	GrantScopes       []string       `json:"grant_scopes"`
+	Connectivity      Connectivity   `json:"connectivity"`
+	Connectors        []Connector    `json:"connectors"`
+	MCPTools          []string       `json:"mcp_tools"`
+	Guardrails        Guardrails     `json:"guardrails"`
+	MaxConcurrentRuns int            `json:"max_concurrent_runs"`
+	// MaxConcurrentRunsPerPod repeats the total under its old name until a contract step drops the column.
+	MaxConcurrentRunsPerPod int    `json:"max_concurrent_runs_per_pod"`
+	Repository              string `json:"repository"`
 }
 
 // environmentFields are the environment's settings an update compares.
@@ -64,7 +66,8 @@ func newAgentFields(at AgentType) agentFields {
 	return agentFields{
 		AgentPayload: newAgentEntity(at), Description: at.Description, SystemPrompt: at.SystemPrompt, Framework: at.Framework,
 		GrantScopes: at.GrantScopes, Connectivity: at.Connectivity, Connectors: at.Connectors, MCPTools: at.MCPTools,
-		Guardrails: at.Guardrails, MaxConcurrentRunsPerPod: at.MaxConcurrentRunsPerPod, Repository: at.Repository,
+		Guardrails: at.Guardrails, MaxConcurrentRuns: at.MaxConcurrentRuns,
+		MaxConcurrentRunsPerPod: at.MaxConcurrentRuns, Repository: at.Repository,
 	}
 }
 

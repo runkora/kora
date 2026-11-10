@@ -311,19 +311,19 @@ func agentCreateRequest(name string, spec v1alpha1.AgentSpec, envs []AgentEnviro
 		}
 	}
 	req := CreateAgentTypeRequest{
-		Name:                    spec.DisplayName,
-		Slug:                    name,
-		Description:             spec.Description,
-		SystemPrompt:            spec.SystemPrompt,
-		Framework:               AgentFramework(spec.Framework),
-		IdentityMode:            IdentityMode(spec.IdentityMode),
-		GrantScopes:             scopes,
-		Connectivity:            &Connectivity{Mode: ConnectivityMode(spec.Connectivity.Mode), Hosts: spec.Connectivity.Hosts},
-		Connectors:              connectorsOf(spec.Connectors),
-		MCPTools:                mcpTools,
-		Environments:            envs,
-		MaxConcurrentRunsPerPod: int(spec.MaxConcurrentRunsPerPod),
-		ModelID:                 &modelID,
+		Name:              spec.DisplayName,
+		Slug:              name,
+		Description:       spec.Description,
+		SystemPrompt:      spec.SystemPrompt,
+		Framework:         AgentFramework(spec.Framework),
+		IdentityMode:      IdentityMode(spec.IdentityMode),
+		GrantScopes:       scopes,
+		Connectivity:      &Connectivity{Mode: ConnectivityMode(spec.Connectivity.Mode), Hosts: spec.Connectivity.Hosts},
+		Connectors:        connectorsOf(spec.Connectors),
+		MCPTools:          mcpTools,
+		Environments:      envs,
+		MaxConcurrentRuns: int(spec.MaxConcurrentRuns),
+		ModelID:           &modelID,
 	}
 	if g := spec.Guardrails; g != nil {
 		req.Guardrails = &Guardrails{
@@ -368,8 +368,8 @@ func agentUpdateRequest(id string, c CreateAgentTypeRequest) UpdateAgentTypeRequ
 	if c.IdentityMode != "" {
 		req.IdentityMode = &c.IdentityMode
 	}
-	if c.MaxConcurrentRunsPerPod > 0 {
-		req.MaxConcurrentRunsPerPod = &c.MaxConcurrentRunsPerPod
+	if c.MaxConcurrentRuns > 0 {
+		req.MaxConcurrentRuns = &c.MaxConcurrentRuns
 	}
 	return req
 }

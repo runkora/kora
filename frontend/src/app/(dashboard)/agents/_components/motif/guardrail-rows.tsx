@@ -181,8 +181,8 @@ export function GuardrailsFields({
         title="Capacity"
         desc={
           capacityAlwaysOn
-            ? 'Max concurrent runs per pod'
-            : 'Max concurrent runs per pod (service default when off)'
+            ? 'Max concurrent runs'
+            : 'Max concurrent runs (service default when off)'
         }
       >
         <Stack direction="horizontal" align="center" gap="snug" shrink={false}>
@@ -194,11 +194,11 @@ export function GuardrailsFields({
               inputMode="numeric"
               value={values.capacity}
               onChange={(e) => onChange('capacity', e.target.value)}
-              aria-label="Max concurrent runs per pod"
+              aria-label="Max concurrent runs"
             />
           </Stack>
           <Text as="span" size="micro" color="subtle">
-            runs / pod
+            runs
           </Text>
         </Stack>
       </GuardrailRow>

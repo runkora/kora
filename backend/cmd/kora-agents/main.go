@@ -242,8 +242,8 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	tenants := declarative.NewRegistry(cfg.Kubernetes.TenantsPath)
 
 	atSvc := agents.NewAgentTypeService(repo, repo, k8s, authz, pubsub, tenants, agents.AgentTypeServiceConfig{
-		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
-		TenantNamespaceFn:       cfg.TenantNamespace,
+		MaxConcurrentRuns: cfg.Agents.MaxConcurrentRuns,
+		TenantNamespaceFn: cfg.TenantNamespace,
 	}, logger)
 
 	sizes := environmentSizes(cfg)
@@ -251,10 +251,10 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		return nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", validateErr)
 	}
 	runSvc, err := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo, agents.RunServiceConfig{
-		DefaultEnvironmentSize:  sizes.Default,
-		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
-		TenantNamespaceFn:       cfg.TenantNamespace,
-		SandboxGuardrails:       sandboxGuardrails(cfg),
+		DefaultEnvironmentSize: sizes.Default,
+		MaxConcurrentRuns:      cfg.Agents.MaxConcurrentRuns,
+		TenantNamespaceFn:      cfg.TenantNamespace,
+		SandboxGuardrails:      sandboxGuardrails(cfg),
 		IdleTimeouts: agents.IdleTimeouts{
 			Manual:  cfg.Agents.IdleTimeout.ManualSecs,
 			Trigger: cfg.Agents.IdleTimeout.TriggerSecs,

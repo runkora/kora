@@ -939,19 +939,19 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 	atSvc := NewAgentTypeService(
 		repo, repo, k8s, authz, pubsub, lockedTenants{},
 		AgentTypeServiceConfig{
-			MaxConcurrentRunsPerPod: 5,
-			TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },
+			MaxConcurrentRuns: 5,
+			TenantNamespaceFn: func(tenantID string) string { return "kora-tenant-" + tenantID },
 		},
 		logger,
 	)
 	runSvc, err := NewRunService(
 		repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo,
 		RunServiceConfig{
-			DefaultEnvironmentSize:  testSizes.Default,
-			MaxConcurrentRunsPerPod: 5,
-			TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },
-			SandboxGuardrails:       SandboxGuardrails{ProvisionAttempts: 2, ProvisionBackoffSecs: 1, ProvisionBudgetSecs: 60},
-			Brand:                   brand.MustNew("kora"),
+			DefaultEnvironmentSize: testSizes.Default,
+			MaxConcurrentRuns:      5,
+			TenantNamespaceFn:      func(tenantID string) string { return "kora-tenant-" + tenantID },
+			SandboxGuardrails:      SandboxGuardrails{ProvisionAttempts: 2, ProvisionBackoffSecs: 1, ProvisionBudgetSecs: 60},
+			Brand:                  brand.MustNew("kora"),
 		},
 		logger,
 	)

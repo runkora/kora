@@ -85,11 +85,11 @@ func newDelegationTestBroker(issuer *fakeDelegationIssuer) *DelegationBroker {
 func seedDelegatedAgentType(t *testing.T, repo *mockRepository, id, tenantID, slug string) AgentType {
 	t.Helper()
 	return seedAgentType(t, repo, AgentType{
-		ID:                      id,
-		TenantID:                tenantID,
-		Slug:                    slug,
-		IdentityMode:            IdentityModeDelegated,
-		MaxConcurrentRunsPerPod: 5,
+		ID:                id,
+		TenantID:          tenantID,
+		Slug:              slug,
+		IdentityMode:      IdentityModeDelegated,
+		MaxConcurrentRuns: 5,
 	})
 }
 
@@ -252,7 +252,7 @@ func TestStartRun_Autonomous_NeverMints(t *testing.T) {
 	f, repo, _, _ := newTestService(t)
 	issuer := &fakeDelegationIssuer{}
 	f.run.SetDelegationBroker(newDelegationTestBroker(issuer))
-	at := seedAgentType(t, repo, AgentType{ID: "at-auto", TenantID: "t1", Slug: "auto", MaxConcurrentRunsPerPod: 5})
+	at := seedAgentType(t, repo, AgentType{ID: "at-auto", TenantID: "t1", Slug: "auto", MaxConcurrentRuns: 5})
 
 	// Even a SERVICE principal may start an autonomous run (authz permitting).
 	ctx := withPrincipalCtx(context.Background(), "t1", token.PrincipalTypeService, "svc-1")
@@ -362,11 +362,11 @@ func TestReaper_RevokesDelegationOnReapedRuns(t *testing.T) {
 	issuer := &fakeDelegationIssuer{}
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	runSvc, err := NewRunService(repo, repo, &mockSMClient{}, &mockK8s{}, NewPubSub(), NewAuthz(&allowAllEvaluator{}), repo, &mockK8s{}, &mockK8s{}, repo, RunServiceConfig{
-		MaxConcurrentRunsPerPod: 5,
-		TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },
-		StaleRunTimeout:         time.Millisecond,
-		ReaperInterval:          5 * time.Millisecond,
-		Brand:                   brand.MustNew("kora"),
+		MaxConcurrentRuns: 5,
+		TenantNamespaceFn: func(tenantID string) string { return "kora-tenant-" + tenantID },
+		StaleRunTimeout:   time.Millisecond,
+		ReaperInterval:    5 * time.Millisecond,
+		Brand:             brand.MustNew("kora"),
 	}, logger)
 	if err != nil {
 		t.Fatal(err)

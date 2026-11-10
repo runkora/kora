@@ -41,8 +41,8 @@ func newModeTestService(t *testing.T, granted ...string) (*AgentTypeService, *mo
 	svc := NewAgentTypeService(
 		repo, repo, k8s, authz, nil, lockedTenants{},
 		AgentTypeServiceConfig{
-			MaxConcurrentRunsPerPod: 5,
-			TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },
+			MaxConcurrentRuns: 5,
+			TenantNamespaceFn: func(tenantID string) string { return "kora-tenant-" + tenantID },
 		},
 		logging.NewLoggerWithOutput(io.Discard),
 	)

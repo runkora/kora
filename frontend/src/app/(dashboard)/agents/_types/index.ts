@@ -52,7 +52,7 @@ export interface AgentTypeRow {
   connectors: Connector[];
   /** Governed MCP tools the agent may call (mcp:<server>:<tool>:use). */
   mcpTools: string[];
-  maxConcurrentRunsPerPod: number;
+  maxConcurrentRuns: number;
   /** Loop-guard thresholds as stored; absent fields take the platform defaults. */
   guardrails: AgentTypeGuardrails;
   systemPrompt: string;
@@ -122,7 +122,7 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     connectivity: a.connectivity ?? { mode: 'none' },
     connectors: a.connectors ?? [],
     mcpTools: a.mcp_tools ?? [],
-    maxConcurrentRunsPerPod: a.max_concurrent_runs_per_pod,
+    maxConcurrentRuns: a.max_concurrent_runs,
     guardrails: a.guardrails ?? {},
     systemPrompt: a.system_prompt,
     createdAt: a.created_at,

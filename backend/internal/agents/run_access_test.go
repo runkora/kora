@@ -52,7 +52,7 @@ func seedDelegatedRun(t *testing.T, repo *mockRepository, runID, createdBy strin
 func seedAutonomousRun(t *testing.T, repo *mockRepository, runID, createdBy string, state RunState) {
 	t.Helper()
 	if _, ok := repo.agentTypes["at-auto"]; !ok {
-		seedAgentType(t, repo, AgentType{ID: "at-auto", TenantID: "t1", Slug: "helper", MaxConcurrentRunsPerPod: 5})
+		seedAgentType(t, repo, AgentType{ID: "at-auto", TenantID: "t1", Slug: "helper", MaxConcurrentRuns: 5})
 	}
 	seedRun(t, repo, Run{ID: runID, TenantID: "t1", AgentTypeID: "at-auto", State: state, CreatedBy: createdBy})
 }

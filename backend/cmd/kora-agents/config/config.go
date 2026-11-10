@@ -82,8 +82,8 @@ type Config struct {
 		// ImagePullSecrets names the Secrets, present in every tenant namespace,
 		// that session-manager and sandbox pods pull their images with.
 		ImagePullSecrets []string `yaml:"imagePullSecrets"`
-		// MaxConcurrentRunsPerPod is the default ceiling applied to new agent types.
-		MaxConcurrentRunsPerPod int `yaml:"maxConcurrentRunsPerPod"`
+		// MaxConcurrentRuns is the default ceiling applied to new agent types.
+		MaxConcurrentRuns int `yaml:"maxConcurrentRuns"`
 		// Guardrails are the install's sandbox provisioning settings, sent with
 		// every run (docs/adr/2026-09-29-agent-run-guardrails.md).
 		Guardrails struct {

@@ -143,7 +143,7 @@ var catalog = map[Type]entry{
 // carry. An event's changed list names them and never carries their values.
 var hiddenChanges = map[reflect.Type][]string{
 	kind[AgentPayload](): {"description", "system_prompt", "framework", "grant_scopes", "connectivity", "connectors",
-		"mcp_tools", "guardrails", "max_concurrent_runs_per_pod", "repository"},
+		"mcp_tools", "guardrails", "max_concurrent_runs", "max_concurrent_runs_per_pod", "repository"},
 	kind[EnvironmentPayload](): {"description", "egress_hosts", "connectors", "repository"},
 	kind[TriggerPayload](): {"match_condition", "match_contains", "prompt_template", "manual_config", "sender_restriction",
 		"coalesce", "routing"},
