@@ -155,6 +155,12 @@ func (s *Service) recordDispatchFailure(ctx context.Context, t Trigger, delivery
 		)
 		// The delivery must not read as in progress when the transaction failed.
 		s.recordFailure(ctx, deliveryID, err.Error())
+	} else {
+		// RecordDispatchFailure writes the row in its own transaction, past the
+		// outcome recorder, so it is counted here.
+		s.outcomes.count(ctx, &DeliveryRun{
+			TenantID: t.TenantID, TriggerID: t.ID, Status: runStatusForDispatchError(err),
+		})
 	}
 	s.noteFailure(ctx, t, err)
 }

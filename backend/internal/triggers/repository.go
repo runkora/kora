@@ -398,6 +398,8 @@ type PendingStats struct {
 	// OldestUnclaimedAge is how long the oldest waiting fire has been waiting,
 	// or zero when nothing is waiting.
 	OldestUnclaimedAge time.Duration
+	// FailingTriggers is how many triggers have consecutive_failures above zero.
+	FailingTriggers int64
 }
 
 // ScheduledTick describes one invocation of the cron scheduler for a trigger.

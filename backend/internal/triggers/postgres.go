@@ -2207,20 +2207,22 @@ func (r *postgresRepository) ObservedEventTypes(ctx context.Context, sourceID st
 // held in a coalescing window ages from the moment it became claimable, so a
 // long window does not read as a stalled worker.
 func (r *postgresRepository) PendingStats(ctx context.Context) (PendingStats, error) {
-	var waiting, claimed int64
+	var waiting, claimed, failing int64
 	var oldestSeconds float64
 	err := r.pool.QueryRow(ctx, `
 		SELECT count(*) FILTER (WHERE claimed_at IS NULL),
 		       count(*) FILTER (WHERE claimed_at IS NOT NULL),
-		       GREATEST(COALESCE(EXTRACT(EPOCH FROM (now() - min(GREATEST(enqueued_at, dispatch_after)) FILTER (WHERE claimed_at IS NULL))), 0), 0)
+		       GREATEST(COALESCE(EXTRACT(EPOCH FROM (now() - min(GREATEST(enqueued_at, dispatch_after)) FILTER (WHERE claimed_at IS NULL))), 0), 0),
+		       (SELECT count(*) FROM triggers WHERE consecutive_failures > 0)
 		FROM   trigger_pending_deliveries
-	`).Scan(&waiting, &claimed, &oldestSeconds)
+	`).Scan(&waiting, &claimed, &oldestSeconds, &failing)
 	if err != nil {
 		return PendingStats{}, fmt.Errorf("read pending stats: %w", err)
 	}
 	return PendingStats{
 		Waiting:            waiting,
 		Claimed:            claimed,
+		FailingTriggers:    failing,
 		OldestUnclaimedAge: time.Duration(oldestSeconds * float64(time.Second)),
 	}, nil
 }

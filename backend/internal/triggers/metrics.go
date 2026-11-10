@@ -39,6 +39,7 @@ import (
 //     skips the loop guards, so a rising count is a loop risk to look at.
 type Metrics struct {
 	autoPauses      metric.Int64Counter
+	outcomes        metric.Int64Counter
 	chainFailOpens  metric.Int64Counter
 	purgedPayloads  metric.Int64Counter
 	scannedTriggers metric.Int64Counter
@@ -74,6 +75,14 @@ func NewMetrics(meter metric.Meter, repo pendingStatsReader, logger logging.Logg
 		metric.WithUnit("{trigger}"),
 	); err != nil {
 		return nil, fmt.Errorf("create auto-pause counter: %w", err)
+	}
+
+	if m.outcomes, err = meter.Int64Counter(
+		"kora.triggers.outcomes",
+		metric.WithDescription("Trigger outcomes, by provider and outcome. Counts one per trigger a delivery matches, so a delivery matching several triggers counts several times and one matching none is not counted"),
+		metric.WithUnit("{outcome}"),
+	); err != nil {
+		return nil, fmt.Errorf("create outcomes counter: %w", err)
 	}
 
 	if m.chainFailOpens, err = meter.Int64Counter(
@@ -126,6 +135,15 @@ func NewMetrics(meter metric.Meter, repo pendingStatsReader, logger logging.Logg
 		return nil, fmt.Errorf("create queue-age gauge: %w", err)
 	}
 
+	failing, err := meter.Int64ObservableGauge(
+		"kora.triggers.failing",
+		metric.WithDescription("Triggers whose consecutive_failures is above zero"),
+		metric.WithUnit("{trigger}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create failing-triggers gauge: %w", err)
+	}
+
 	purgeLastSuccess, err := meter.Int64ObservableGauge(
 		"kora.triggers.retention.last_success_time",
 		metric.WithDescription("Unix time of the last successful payload purge"),
@@ -152,9 +170,10 @@ func NewMetrics(meter metric.Meter, repo pendingStatsReader, logger logging.Logg
 			o.ObserveInt64(queueDepth, stats.Waiting, metric.WithAttributes(attribute.String("state", "waiting")))
 			o.ObserveInt64(queueDepth, stats.Claimed, metric.WithAttributes(attribute.String("state", "claimed")))
 			o.ObserveFloat64(queueOldest, stats.OldestUnclaimedAge.Seconds())
+			o.ObserveInt64(failing, stats.FailingTriggers)
 			return nil
 		},
-		queueDepth, queueOldest, purgeLastSuccess,
+		queueDepth, queueOldest, failing, purgeLastSuccess,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("register queue-depth callback: %w", err)
@@ -218,4 +237,59 @@ func (m *Metrics) recordSchedulerTick(ctx context.Context, scanned int, took tim
 	if scanned > 0 {
 		m.scannedTriggers.Add(ctx, int64(scanned))
 	}
+}
+
+// Delivery metric outcome values. Fixed enums: the provider and outcome labels
+// are bounded, so they are safe on an unauthenticated endpoint. No tenant,
+// source name or trigger id is ever a label (see
+// docs/adr/2026-10-06-prometheus-metrics-endpoints.md, Decision).
+const (
+	metricOutcomeStarted = "started"
+	metricOutcomeJoined  = "joined"
+	metricOutcomeSkipped = "skipped"
+	metricOutcomeLost    = "lost"
+	metricOutcomeFailed  = "failed"
+)
+
+// metricOutcomeOf maps a per-trigger outcome status to its metric outcome.
+// skipped is a fire that was correctly not run (filtered, unrouted, paused,
+// superseded); lost is work the platform accepted and then dropped; failed is a
+// trigger that tried and failed or was denied.
+var metricOutcomeOf = map[string]string{
+	RunStatusDispatched: metricOutcomeStarted,
+	RunStatusJoined:     metricOutcomeJoined,
+	RunStatusFiltered:   metricOutcomeSkipped,
+	RunStatusUnrouted:   metricOutcomeSkipped,
+	RunStatusPaused:     metricOutcomeSkipped,
+	RunStatusSuperseded: metricOutcomeSkipped,
+	RunStatusDropped:    metricOutcomeLost,
+	RunStatusFailed:     metricOutcomeFailed,
+	RunStatusDenied:     metricOutcomeFailed,
+}
+
+// metricProvider bounds a source's provider to the exported label values.
+// Triggers with no source (scheduled, manual, event) and any provider outside
+// the list count as generic.
+func metricProvider(provider string) string {
+	switch provider {
+	case ProviderGitHub, ProviderSlack, ProviderPlane:
+		return provider
+	default:
+		return ProviderGeneric
+	}
+}
+
+// recordOutcome counts one per-trigger outcome.
+func (m *Metrics) recordOutcome(ctx context.Context, provider, status string) {
+	if m == nil {
+		return
+	}
+	outcome, ok := metricOutcomeOf[status]
+	if !ok {
+		return
+	}
+	m.outcomes.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("provider", metricProvider(provider)),
+		attribute.String("outcome", outcome),
+	))
 }
