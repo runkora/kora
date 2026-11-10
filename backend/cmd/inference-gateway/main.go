@@ -128,7 +128,7 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *stor
 	return db, rc, nil
 }
 
-func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) ([]api.Controller, func(context.Context) error, error) {
+func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, metrics *platformmetrics.Bootstrap) ([]api.Controller, func(context.Context) error, error) {
 	// ── Provider connectors ───────────────────────────────────────────────────────────────────────────────
 	// Providers come from the InferenceProvider resources the gateway watches.
 	// The first load seeds the router; the watch keeps it current.
@@ -193,7 +193,10 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 
 	budgetCounter := inferencegw.NewRedisBudgetCounter(redis, usageRepo, logger)
 	events := storage.NewPool(db.Pool())
-	svc := inferencegw.NewService(pol, router, pricingCache, usageRepo, budgetCounter, logger).WithEvents(events)
+	svc, err := inferencegw.NewService(pol, router, pricingCache, usageRepo, budgetCounter, logger).WithEvents(events).WithMetrics(metrics.Meter())
+	if err != nil {
+		return nil, nil, fmt.Errorf("usage metrics: %w", err)
+	}
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	// Shared revoked-JTI blocklist: rejects revoked delegation tokens at the
@@ -325,7 +328,7 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, metrics *platformmetrics.Bootstrap) (*http.Server, func(context.Context) error, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
-	controllers, register, err := initControllers(ctx, logger, db, redis)
+	controllers, register, err := initControllers(ctx, logger, db, redis, metrics)
 	if err != nil {
 		return nil, nil, err
 	}

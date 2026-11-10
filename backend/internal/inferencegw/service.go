@@ -55,6 +55,8 @@ type Service struct {
 	logger        logging.Logger
 	// events records budget events. Nil records nothing.
 	events *storage.Pool
+	// metrics counts persisted usage. Nil records nothing.
+	metrics *usageMetrics
 }
 
 // NewService constructs a Service with all required dependencies.
@@ -719,7 +721,11 @@ func (s *Service) writeUsage(ctx context.Context, rec InferenceUsageRecord) erro
 		rec.DelegatorID = &delegatorID
 		rec.DelegatorPrincipalType = &delegatorType
 	}
-	return s.usage.Create(ctx, rec)
+	if err := s.usage.Create(ctx, rec); err != nil {
+		return err
+	}
+	s.metrics.record(ctx, rec)
+	return nil
 }
 
 // budgetScopesFor derives the caller's applicable ceiling configuration: which
