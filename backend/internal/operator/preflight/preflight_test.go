@@ -69,3 +69,30 @@ func TestResult_OKAndFailures(t *testing.T) {
 		t.Error("empty result must not pass")
 	}
 }
+
+func TestPathNormalizationCheck(t *testing.T) {
+	cases := map[string]struct {
+		mesh string
+		ok   bool
+	}{
+		"unset":                    {"trustDomain: x\n", true},
+		"empty":                    {"", true},
+		"BASE":                     {"pathNormalization:\n  normalization: BASE\n", true},
+		"MERGE_SLASHES":            {"pathNormalization:\n  normalization: MERGE_SLASHES\n", true},
+		"DECODE_AND_MERGE_SLASHES": {"pathNormalization:\n  normalization: DECODE_AND_MERGE_SLASHES\n", true},
+		"NONE":                     {"pathNormalization:\n  normalization: NONE\n", false},
+		"unknown":                  {"pathNormalization:\n  normalization: BOGUS\n", false},
+		"invalid yaml":             {"pathNormalization: [", false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := pathNormalizationCheck("istio-path-normalization", tc.mesh)
+			if c.OK != tc.ok {
+				t.Fatalf("ok=%v want %v (%s)", c.OK, tc.ok, c.Message)
+			}
+			if !tc.ok && c.Message == "" {
+				t.Fatal("failure needs a message")
+			}
+		})
+	}
+}
