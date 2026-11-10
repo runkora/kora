@@ -100,3 +100,25 @@ func TestStartRun_TriggerSpanCarriesTriggerName(t *testing.T) {
 	}
 	t.Errorf("agents.StartRun span has no %s attribute", observability.TriggerNameKey)
 }
+
+func TestStartRun_PersonSpanLacksTriggerName(t *testing.T) {
+	rec := spanRecorder()
+	f, repo, _, _ := newTestService(t)
+	at := seedAutonomousAgentType(t, repo, "at-1", "t1", "reviewer")
+	ctx := withPrincipalCtx(context.Background(), "t1", token.PrincipalTypeHuman, "user-1")
+	if _, err := f.run.StartRun(ctx, StartRunRequest{AgentTypeID: at.ID}); err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	hasSlug := false
+	for _, a := range endedSpan(t, rec, "agents.StartRun").Attributes() {
+		switch a.Key {
+		case observability.TriggerNameKey, observability.TriggerIDKey:
+			t.Errorf("person-started agents.StartRun span carries %s", a.Key)
+		case observability.AgentSlugKey:
+			hasSlug = true
+		}
+	}
+	if !hasSlug {
+		t.Errorf("agents.StartRun span has no %s attribute", observability.AgentSlugKey)
+	}
+}
