@@ -20,7 +20,7 @@ const scalerInterval = 5 * time.Second
 // errScaleAgent is the span status of a scaler pass that failed for one agent.
 var errScaleAgent = errors.New("scale agent")
 
-// scalerStore is the storage the scaler reads, under the same agent lock as placement.
+// scalerStore is the storage the scaler reads. The run counts are read under placement's agent lock.
 type scalerStore interface {
 	ListActiveAgentTypes(ctx context.Context) ([]AgentType, error)
 	TryWithAgentLock(ctx context.Context, agentTypeID string, fn func(ctx context.Context) error) (bool, error)
@@ -42,7 +42,7 @@ type ScalerConfig struct {
 	TenantNamespaceFn func(tenantID string) string
 	// MinReplicas is the floor of every agent's pods.
 	MinReplicas int32
-	// PlacementWatermark, StartingRunAllowances and StartingRunWindow are placement's, so the scaler adds pods exactly when placement finds none.
+	// PlacementWatermark, StartingRunAllowances and StartingRunWindow are placement's values.
 	PlacementWatermark    float64
 	StartingRunAllowances StartingRunAllowances
 	StartingRunWindow     time.Duration
@@ -146,16 +146,12 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 	if err != nil {
 		return err
 	}
-	in := scaleInput{
+	want := desiredReplicas(scaleInput{
 		replicas: ss.Replicas, floor: int(max(s.cfg.MinReplicas, 1)), total: at.MaxConcurrentRuns,
 		counts: counts, ready: ready, readings: readings, starting: starting,
-		memoryMax: memoryMax(ready, readings, ss.MemoryLimitBytes), allowance: allowance, watermark: s.cfg.PlacementWatermark,
-	}
-	// Pending runs have no pod and are counted under ordinal -1, so only a real top pod is looked up.
-	if ss.Replicas > 0 {
-		in.topRuns = occupied[ss.Replicas-1]
-	}
-	want := desiredReplicas(in)
+		topRuns: occupied[ss.Replicas-1], memoryMax: memoryMax(ready, readings, ss.MemoryLimitBytes),
+		allowance: allowance, watermark: s.cfg.PlacementWatermark,
+	})
 	if want == ss.Replicas {
 		return nil
 	}
@@ -194,7 +190,7 @@ func desiredReplicas(in scaleInput) int {
 	startable := min(in.counts.Pending, in.total-in.counts.Active-in.counts.Starting)
 	// Pods at or above the total, after the total was lowered, are never needed for a waiting run.
 	if startable > 0 && in.replicas < in.total {
-		if anyPodHasRoom(in) {
+		if _, ok := firstPodWithRoom(in.ready, in.replicas, in.readings, in.starting, in.allowance, in.watermark); ok {
 			return in.replicas
 		}
 		comingUp := in.replicas - len(in.ready)
@@ -205,16 +201,6 @@ func desiredReplicas(in scaleInput) int {
 		return in.replicas - 1
 	}
 	return in.replicas
-}
-
-// anyPodHasRoom applies placement's check to each Ready pod. A pod with no reading counts as full.
-func anyPodHasRoom(in scaleInput) bool {
-	for _, ord := range in.ready {
-		if m, ok := in.readings[ord]; ok && hasRoom(m, in.starting[ord], in.allowance, in.watermark) {
-			return true
-		}
-	}
-	return false
 }
 
 // podsFor is ceil(runs × allowance ÷ (watermark × memory.max)): the pods that runs fill to the watermark.

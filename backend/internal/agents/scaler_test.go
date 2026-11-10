@@ -50,7 +50,7 @@ func TestDesiredReplicas(t *testing.T) {
 			in.starting = map[int]int{1: 4}
 		}), 3},
 		{"a pod with no reading counts as full", base(func(in *scaleInput) { in.counts.Pending = 1; delete(in.readings, 1) }), 3},
-		{"no Ready pod falls back to the limit", base(func(in *scaleInput) {
+		{"pods coming up cover the need", base(func(in *scaleInput) {
 			in.counts.Pending = 3
 			in.ready, in.readings = nil, nil
 		}), 2},
@@ -77,6 +77,17 @@ func TestDesiredReplicas(t *testing.T) {
 				t.Errorf("desiredReplicas = %d, want %d", got, tc.want)
 			}
 		})
+	}
+}
+
+// memory.max is a Ready pod's report, else the StatefulSet's container limit.
+func TestMemoryMax(t *testing.T) {
+	readings := map[int]sessionmanager.Memory{1: {LimitBytes: 2048 * mi}}
+	if got := memoryMax([]int{0, 1}, readings, 1024*mi); got != 2048*mi {
+		t.Errorf("with a report = %d, want the reported 2048Mi", got/mi)
+	}
+	if got := memoryMax([]int{0}, readings, 1024*mi); got != 1024*mi {
+		t.Errorf("with no Ready report = %dMi, want the 1024Mi limit", got/mi)
 	}
 }
 
