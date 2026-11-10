@@ -1,6 +1,6 @@
 # Demand-Driven Agent Scaling
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-11-09  
 **Deciders:** Justin Wilkin  
 **Technical Story:** An agent's concurrency becomes a total across its pods, and agent pods scale on run demand.  
@@ -146,9 +146,9 @@ The starting runs on a pod come from the `runs` table, and the check holds acros
 
 `agents.scheduling.startingRunAllowance` is the memory a run is assumed to take between its start and the next memory reading. The chart default is the largest of the values measured at run start for each harness:
 
-*   Claude Code: **TBD**.
-*   Codex: **TBD**.
-*   OpenCode: **TBD**.
+*   Claude Code: **176Mi** (peak 206Mi).
+*   Codex: **55Mi** (peak 56Mi).
+*   OpenCode: **431Mi** (peak 589Mi).
 
 ### Agent Lock
 
@@ -160,7 +160,7 @@ The session-manager will check its working set every second (configurable, defau
 
 With cgroup v2 and Kubernetes 1.32 or later, the kubelet group-kills the whole container on an OOM. The pressure kill must fire before the kernel OOM kill.
 
-*   Kubelet group-kill check on a cluster node: **TBD**.
+*   Kubelet group-kill check on a cluster node: **confirmed**. The node runs cgroup v2 and kubelet v1.36.4, and the session-manager container's cgroup has `memory.oom.group` set to 1. A test container whose child process exceeded the memory limit ended `OOMKilled` with every process in it killed.
 
 ### Start Budget
 
