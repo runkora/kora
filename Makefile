@@ -971,10 +971,13 @@ test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d
 		exit $$STATUS
 
 .PHONY: test-postgres
-test-postgres: ## Postgres-backed repository tests against the local Postgres. Needs the compose Postgres up. Not run by CI or `make check`.
-	@$(MIGRATE) up
+test-postgres: ## Postgres-backed repository tests against the kora_test database on the local Postgres. Needs the compose Postgres up. Not run by CI or `make check`.
+	@# A separate database keeps the cluster's queue workers from claiming the tests' rows.
+	@docker exec kora-postgres psql -U $(DB_USER) -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='kora_test'" | grep -q 1 || \
+		docker exec kora-postgres createdb -U $(DB_USER) kora_test
+	@cd $(BACKEND_DIR) && APP_ENV=test DB_PASSWORD=$(DB_PASSWORD) $(GOCMD) run ./cmd/migrate up
 	@echo "$(COLOR_YELLOW)Running Postgres-backed repository tests...$(COLOR_RESET)"
-	@cd $(BACKEND_DIR) && KORA_TEST_DB_URL="$(DB_URL)" $(GOTEST) -race -timeout=5m ./... -run Postgres
+	@cd $(BACKEND_DIR) && KORA_TEST_DB_URL="postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/kora_test?sslmode=disable" $(GOTEST) -race -timeout=5m ./... -run Postgres
 
 .PHONY: test
 test: ## Run unit tests with coverage (no cluster required)

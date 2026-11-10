@@ -269,7 +269,7 @@ This describes what the backend test suite **actually is today**, and (separatel
   | `platform/declarative` | `events_postgres_test.go` | a declared apply failure records one event per generation |
   | `example`              | `postgres_test.go`                                                                                                       | the reference repository; gated on `KORA_EXAMPLE_TEST_DB_URL` instead, after applying `backend/cmd/example/migrations/*.sql` by hand. Its tables are outside the product schema                                        |
 
-  Run them against the local Postgres (`make test-postgres` applies the schema with `cmd/migrate` first):
+  Run them against the `kora_test` database on the local Postgres (`make test-postgres` creates it and applies the schema with `cmd/migrate` first):
 
   ```bash
   make test-postgres

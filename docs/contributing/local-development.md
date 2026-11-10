@@ -212,7 +212,7 @@ make test-integration
 
 ### Postgres-backed repository tests
 
-Repository tests that hit a real database are gated on `KORA_TEST_DB_URL` and skip when it is unset. `make test-postgres` runs them against the local Postgres.
+Repository tests that hit a real database are gated on `KORA_TEST_DB_URL` and skip when it is unset. `make test-postgres` runs them against a `kora_test` database on the local Postgres, apart from the database the cluster uses.
 
 ```bash
 make test-postgres
