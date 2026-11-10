@@ -117,6 +117,12 @@ type Config struct {
 			MinReplicas int32 `yaml:"minReplicas"`
 			// DrainGracePeriodSecs is how long a terminating session-manager pod waits for its runs to end.
 			DrainGracePeriodSecs int64 `yaml:"drainGracePeriodSecs"`
+			// PlacementWatermark is the fraction of a pod's memory.max below which it takes a run.
+			PlacementWatermark float64 `yaml:"placementWatermark"`
+			// PressureLimit is the fraction of memory.max at which the session-manager kills its newest run.
+			PressureLimit float64 `yaml:"pressureLimit"`
+			// StartingRunAllowance is the memory, as a quantity, a starting run is assumed to take before the next reading.
+			StartingRunAllowance string `yaml:"startingRunAllowance"`
 		} `yaml:"scheduling"`
 		// ConnectionRegistryPath is the mounted connections.json file rendered by
 		// the operator's ConnectionAggregator into the kora-tenant-connections

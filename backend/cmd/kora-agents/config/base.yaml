@@ -77,6 +77,9 @@ agents:
     provisionBudgetSecs: 600
     minReplicas: 2
     drainGracePeriodSecs: 3600
+    placementWatermark: 0.70
+    pressureLimit: 0.90
+    startingRunAllowance: 431Mi
   connectionRegistryPath: "/var/run/kora/connections/connections.json"
   # Where the chart mounts the manifest patches ConfigMap.
   manifestPatchDir: /etc/kora/manifest-patches

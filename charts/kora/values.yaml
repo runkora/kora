@@ -639,6 +639,12 @@ agents:
     minReplicas: 2
     # -- Seconds a terminating session-manager pod waits for its runs to end before it is stopped.
     drainGracePeriodSecs: 3600
+    # -- Fraction of a session-manager pod's memory limit its working set must stay below for the pod to take a run.
+    placementWatermark: 0.70
+    # -- Fraction of the memory limit at which the session-manager kills its most recently started run. Above placementWatermark.
+    pressureLimit: 0.90
+    # -- Memory a run is assumed to take between its start and the next memory reading, the largest measured across harnesses.
+    startingRunAllowance: 431Mi
   # Per-agent AuthorizationPolicy restricting the session-manager port to the
   # kora-agents principal. kora-agents creates one alongside each StatefulSet.
   authorizationPolicy:

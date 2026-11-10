@@ -131,6 +131,8 @@ type K8sProvisionerConfig struct {
 	MinReplicas int32
 	// DrainGracePeriodSecs is how long a terminating session-manager pod may wait for its runs to end.
 	DrainGracePeriodSecs int64
+	// PressureLimit is the session-manager's KORA_PRESSURE_LIMIT: the fraction of memory.max at which it kills its newest run.
+	PressureLimit float64
 	// SandboxMount gives each sandbox a working folder on its local disk, which the
 	// sandbox-mount node agent mounts into the session-manager pod at the same path
 	// (docs/adr/2026-10-08-sandbox-workspace-mount.md).
@@ -1855,6 +1857,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								{Name: landlockmode.EnvVar, Value: p.cfg.Landlock},
 								// The session-manager ends its drain before the kubelet stops the pod.
 								{Name: "KORA_TERMINATION_GRACE_PERIOD_SECS", Value: strconv.FormatInt(p.cfg.DrainGracePeriodSecs, 10)},
+								{Name: "KORA_PRESSURE_LIMIT", Value: strconv.FormatFloat(p.cfg.PressureLimit, 'f', -1, 64)},
 							},
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
