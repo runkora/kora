@@ -23,7 +23,7 @@ import (
 )
 
 // ownerRefFixture wires a K8sProvisioner backed by both a fake typed client
-// (agents create SA/StatefulSet/Service/HPA/PDB through it) and a fake dynamic
+// (agents create SA/StatefulSet/Service/PDB through it) and a fake dynamic
 // client (DestinationRule + AuthorizationPolicy + KoraTenant go through it),
 // seeded with an KoraTenant so tenantOwnerRef finds a UID to reference.
 func ownerRefFixture(t *testing.T, cfg K8sProvisionerConfig, tenantName string) (*K8sProvisioner, *fake.Clientset, *dynamicfake.FakeDynamicClient) {
@@ -116,7 +116,7 @@ func TestProvisionAgentType_SetsTenantOwnerReferenceOnEveryObject(t *testing.T) 
 	}
 	assertTenantOwnerRef(t, svc.OwnerReferences, tenantID)
 
-	// The scaler owns the replicas, so no HPA is created.
+	// The scaler owns the replicas. No HPA is created.
 	if _, err := typed.AutoscalingV2().HorizontalPodAutoscalers(ns).Get(context.Background(), "coder", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
 		t.Errorf("get hpa: err = %v, want not found", err)
 	}

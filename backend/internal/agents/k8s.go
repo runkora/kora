@@ -481,7 +481,7 @@ func (p *K8sProvisioner) ScaleStatefulSet(ctx context.Context, slug, namespace s
 }
 
 // parallelSwitchTimeout bounds the wait for an orphan-deleted StatefulSet to go before it is recreated.
-// The agent lock is held meanwhile, so it stays short; a later pass sees the StatefulSet gone and apply creates it.
+// The agent lock is held during the wait. A StatefulSet left missing is created by the next run start or apply.
 const parallelSwitchTimeout = 10 * time.Second
 
 // SwitchToParallel replaces a live OrderedReady StatefulSet with a Parallel one of the same name, spec
@@ -506,21 +506,19 @@ func (p *K8sProvisioner) SwitchToParallel(ctx context.Context, slug, namespace s
 		return fmt.Errorf("orphan-delete statefulset %s/%s: %w", namespace, slug, err)
 	}
 	// The orphan finalizer keeps the object until its pods are released, and a create before then conflicts.
-	var replaced bool
 	err = wait.PollUntilContextTimeout(ctx, 200*time.Millisecond, parallelSwitchTimeout, true, func(ctx context.Context) (bool, error) {
 		current, getErr := sets.Get(ctx, slug, metav1.GetOptions{})
 		if apierrors.IsNotFound(getErr) {
 			return true, nil
 		}
+		// A different UID is a Parallel StatefulSet that an apply created in the gap; the create below then conflicts.
 		if getErr == nil && current.UID != live.UID {
-			// An apply that found no StatefulSet in the gap created a Parallel one.
-			replaced = true
 			return true, nil
 		}
 		return false, getErr
 	})
-	if err != nil || replaced {
-		return err
+	if err != nil {
+		return fmt.Errorf("wait for statefulset %s/%s to go: %w", namespace, slug, err)
 	}
 	recreated := appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
@@ -530,7 +528,6 @@ func (p *K8sProvisioner) SwitchToParallel(ctx context.Context, slug, namespace s
 		Spec: live.Spec,
 	}
 	recreated.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
-	// An apply can still create it, as Parallel, between the wait and this create.
 	if _, err = sets.Create(ctx, &recreated, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return fmt.Errorf("recreate statefulset %s/%s: %w", namespace, slug, err)
 	}
