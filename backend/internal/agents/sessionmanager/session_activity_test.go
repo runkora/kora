@@ -27,11 +27,19 @@ type scriptRunner struct {
 	survives bool
 	resume   *scriptRunner
 	stopped  sync.Once
+	// startGate, when set, holds Start until it is closed; startErr is then returned.
+	startGate chan struct{}
+	startErr  error
 }
 
 func newScriptRunner() *scriptRunner { return &scriptRunner{events: make(chan Event, 16)} }
 
-func (r *scriptRunner) Start(context.Context, string) error                  { return nil }
+func (r *scriptRunner) Start(context.Context, string) error {
+	if r.startGate != nil {
+		<-r.startGate
+	}
+	return r.startErr
+}
 func (r *scriptRunner) SendToolResult(context.Context, string, string) error { return nil }
 func (r *scriptRunner) Events() <-chan Event                                 { return r.events }
 func (r *scriptRunner) TakeText() string {

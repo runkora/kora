@@ -531,6 +531,11 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		if errors.Is(err, ErrResuming) {
+			apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "session is resuming, retry", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+			return
+		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to send message", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
