@@ -3,6 +3,8 @@ package smConfig
 import (
 	"testing"
 	"time"
+
+	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
 func TestApplyEnvOverrides_Landlock(t *testing.T) {
@@ -67,6 +69,46 @@ func TestDrainTimeout(t *testing.T) {
 		}
 		if got, limited := cfg.DrainTimeout(); got != tc.want || limited != tc.limited {
 			t.Errorf("grace %q: drain timeout = %s limited %v, want %s %v", tc.grace, got, limited, tc.want, tc.limited)
+		}
+	}
+}
+
+// The pressure monitor checks every second at 0.90 of memory.max unless configured otherwise.
+func TestBaseDefaults_MemoryPressure(t *testing.T) {
+	cfg, err := config.LoadService[Config]("cmd/session-manager", "production")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.CheckInterval(); got != time.Second {
+		t.Errorf("CheckInterval = %s, want 1s", got)
+	}
+	if cfg.Memory.PressureLimit != 0.90 {
+		t.Errorf("pressureLimit = %v, want 0.90", cfg.Memory.PressureLimit)
+	}
+}
+
+func TestApplyEnvOverrides_PressureLimit(t *testing.T) {
+	for env, want := range map[string]float64{"": 0.9, "0.85": 0.85, "0.99": 0.99} {
+		cfg := &Config{}
+		cfg.Memory.PressureLimit = 0.9
+		if err := applyEnvOverrides(cfg, func(k string) string {
+			if k == "KORA_PRESSURE_LIMIT" {
+				return env
+			}
+			return ""
+		}); err != nil || cfg.Memory.PressureLimit != want {
+			t.Errorf("env %q: pressureLimit = %v, err = %v; want %v", env, cfg.Memory.PressureLimit, err, want)
+		}
+	}
+	for _, env := range []string{"0", "1", "1.5", "-0.2", "NaN", "high"} {
+		cfg := &Config{}
+		if err := applyEnvOverrides(cfg, func(k string) string {
+			if k == "KORA_PRESSURE_LIMIT" {
+				return env
+			}
+			return ""
+		}); err == nil {
+			t.Errorf("env %q: want an error", env)
 		}
 	}
 }

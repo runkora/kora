@@ -64,6 +64,9 @@ type ControllerConfig struct {
 
 	// Brand names the product where a runner shows the agent a provider name.
 	Brand brand.Brand
+
+	// Memory reads the pod's working set and memory limit for GET /memory.
+	Memory memoryReader
 }
 
 // Controller implements the session-manager's internal HTTP API.
@@ -180,6 +183,7 @@ func isLoopbackRequest(r *http.Request) bool {
 
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /health", c.handleHealth)
+	mux.Handle("GET /memory", c.handleMemory)
 	mux.Handle("POST /session", c.handleCreateSession)
 	mux.Handle("POST /session/{runID}/messages", c.handleSendMessage)
 	mux.Handle("POST /session/{runID}/tool-results", c.handleSendToolResult)
@@ -214,6 +218,18 @@ func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"status":          "ok",
 		"active_sessions": c.registry.ActiveCount(),
 	})
+}
+
+// handleMemory reports the pod's working set and memory.max, which kora-agents places runs by.
+func (c *Controller) handleMemory(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	report, err := c.cfg.Memory.ReadMemory()
+	if err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to read pod memory", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, report)
 }
 
 // CreateSessionRequest is the body for POST /session.

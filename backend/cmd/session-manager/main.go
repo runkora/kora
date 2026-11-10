@@ -118,6 +118,8 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 
 	idleTimeout := time.Duration(cfg.Session.IdleTimeoutSecs) * time.Second
 	registry := sessionmanager.NewRegistry(logger, cfg.Workspaces.BasePath, notifier, idleTimeout, b)
+	memory := sessionmanager.CgroupMemory{Dir: sessionmanager.CgroupDir}
+	go registry.WatchMemory(ctx, memory, cfg.Memory.PressureLimit, cfg.CheckInterval())
 	controller := sessionmanager.NewController(logger, sessionmanager.ControllerConfig{
 		WrapperPath:         cfg.Runner.WrapperPath,
 		ShellPath:           cfg.Runner.ShellPath,
@@ -130,6 +132,7 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 		Landlock:            landlock,
 		IsolationErr:        isolationErr,
 		Brand:               b,
+		Memory:              memory,
 	}, registry, verifier)
 
 	// Per-route, not in the global chain below: it must run after RoutePattern

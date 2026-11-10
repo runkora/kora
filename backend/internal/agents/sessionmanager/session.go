@@ -114,6 +114,7 @@ type SessionConfig struct {
 type session struct {
 	runID            string
 	runner           Runner
+	startedAt        time.Time       // when the run started; the pressure monitor kills the newest first
 	runCtx           context.Context // canceled when the session closes
 	cancel           context.CancelFunc
 	done             chan struct{}
@@ -247,6 +248,7 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 		model:        cfg.Model,
 		inferenceURL: cfg.InferenceURL,
 		guardrails:   cfg.Guardrails,
+		startedAt:    time.Now(),
 	}
 	s.idleTimeout.Store(int64(positiveOr(cfg.IdleTimeout, reg.idleTimeout)))
 	s.triggered.Store(cfg.Triggered)
@@ -1090,10 +1092,7 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 	// a concurrent Close() always finds a session to claim. Otherwise Close could land
 	// in the gap between removing s and re-registering newS, return ErrSessionNotFound,
 	// and leave the freshly-started runner untracked and never terminated.
-	if s.interruptClose.Load() {
-		// Senders that find s wait on this until the registry is final.
-		handoff := make(chan struct{})
-		s.handoff.Store(&handoff)
+	if handoff, resume := reg.beginResume(s); resume {
 		// Idle is reported before the resumed session starts: a message it takes
 		// right away must find its activation after this, not before.
 		if err := reg.notifier.IdleRun(bgCtx, cfg.RunID); err != nil {
@@ -1119,7 +1118,7 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 					logging.Field{Key: "error", Value: startErr.Error()},
 				)
 			} else {
-				newS := &session{runID: s.runID, runner: newRunner, runCtx: newCtx, cancel: newCancel, done: make(chan struct{}), wake: make(chan wakeKind, 1)}
+				newS := &session{runID: s.runID, runner: newRunner, startedAt: s.startedAt, runCtx: newCtx, cancel: newCancel, done: make(chan struct{}), wake: make(chan wakeKind, 1)}
 				newS.idleTimeout.Store(s.idleTimeout.Load())
 				newS.triggered.Store(s.triggered.Load())
 				newS.isIdle.Store(true)
@@ -1199,6 +1198,20 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 		)
 	}
 	close(s.done)
+}
+
+// beginResume reports whether an interrupted session resumes, and sets the handoff
+// its senders wait on. It holds reg.mu so the pressure monitor either fails s
+// first, and the run ends failed, or sees the handoff and leaves s to its resume.
+func (reg *Registry) beginResume(s *session) (chan struct{}, bool) {
+	reg.mu.Lock()
+	defer reg.mu.Unlock()
+	if !s.interruptClose.Load() || s.failure.Load() != nil {
+		return nil, false
+	}
+	handoff := make(chan struct{})
+	s.handoff.Store(&handoff)
+	return handoff, true
 }
 
 // pushEvent hands one event to kora-agents. Everything is pushed, including

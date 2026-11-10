@@ -49,6 +49,13 @@ toolGateway:
 session:
   idleTimeoutSecs: 1200 # 20 minutes
 
+# The pressure monitor kills the most recently started run while the working set
+# is at or above pressureLimit × memory.max. kora-agents overrides pressureLimit
+# with KORA_PRESSURE_LIMIT from the chart's agents.scheduling.pressureLimit.
+memory:
+  pressureLimit: 0.90
+  checkIntervalSecs: 1
+
 metrics:
   enabled: false
   port: 9464
