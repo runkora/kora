@@ -8,6 +8,8 @@
 
 ---
 
+> **Note:** The transport and parser design is superseded by [ACP as the Single Agent Harness Protocol](../adr/2026-11-07-acp-agent-harness-protocol.md).
+
 ## Executive Summary
 
 The agent control plane currently supports only Claude Code as a managed agent framework. This PRD covers the implementation of the two remaining framework runners — Codex (OpenAI's CLI) and OpenCode (sst/opencode) — completing the multi-framework agent promise first described in the Agent Control Plane PRD. Both frameworks target the same streaming user experience as Claude Code: text deltas appear in the UI as they are generated, not as a batch at turn-end. Codex achieves this via its persistent `codex app-server` JSON-RPC 2.0 server, which streams `item/agentMessage/delta` notifications and routes LLM calls through the kora inference gateway's Responses API endpoint. OpenCode achieves it via its persistent `opencode acp` subprocess, which communicates over stdin/stdout JSON-RPC 2.0 and streams `session/update` / `agent_message_chunk` notifications for token-level text.

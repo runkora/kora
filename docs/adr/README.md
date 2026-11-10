@@ -99,6 +99,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — `Accepted` · 2026-05-11
 - [Codex Agent Runner](2026-06-04-codex-agent-runner.md) — `Accepted (Amended 2026-09-29)` · 2026-06-04
 - [OpenCode Agent Runner](2026-06-04-opencode-agent-runner.md) — `Accepted (Amended 2026-09-30)` · 2026-06-04
+- [ACP as the Single Agent Harness Protocol](2026-11-07-acp-agent-harness-protocol.md) — `Accepted` · 2026-11-07
 - [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) — `Accepted (Amended 2026-09-29)` · 2026-05-11
 - [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — `Accepted (Amended 2026-10-12)` · 2026-05-11
 - [kora-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) — `Accepted` · 2026-05-11
@@ -343,4 +344,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-04 | [Tenant Switching](2026-11-04-tenant-switching.md) | Accepted | — |
 | 2026-11-06 | [Policy Bundle Grants Index](2026-11-06-policy-bundle-grants-index.md) | Accepted | — |
 | 2026-11-06 | [Event Spine](2026-11-06-event-spine.md) | Accepted | — |
+| 2026-11-07 | [ACP as the Single Agent Harness Protocol](2026-11-07-acp-agent-harness-protocol.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
