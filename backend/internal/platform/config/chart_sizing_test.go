@@ -194,26 +194,10 @@ func TestChartSessionManagerMemory(t *testing.T) {
 // The chart renders the memory thresholds kora-agents decodes, and rejects a
 // placement watermark at or above the pressure limit.
 func TestChartMemoryThresholds(t *testing.T) {
-	out := renderChart(t, "")
-	found := false
-	for _, root := range writeMountedConfig(t, out) {
-		if _, err := os.Stat(filepath.Join(root, "cmd", "kora-agents.yaml")); err != nil {
-			continue
-		}
-		config.SetOverlayRoot(root)
-		cfg, err := config.LoadService[agentsConfig.Config]("cmd/kora-agents", "production")
-		config.SetOverlayRoot("/etc/kora/config")
-		if err != nil {
-			t.Fatal(err)
-		}
-		s := cfg.Agents.Scheduling
-		if s.PlacementWatermark != 0.70 || s.PressureLimit != 0.90 || s.StartingRunAllowance != "431Mi" {
-			t.Errorf("scheduling = watermark %v, pressure limit %v, allowance %q; want 0.70, 0.90, 431Mi", s.PlacementWatermark, s.PressureLimit, s.StartingRunAllowance)
-		}
-		found = true
-	}
-	if !found {
-		t.Fatal("no rendered kora-agents config found")
+	out := renderChart(t, "agents:\n  scheduling: {placementWatermark: 0.6, pressureLimit: 0.85, startingRunAllowance: 300Mi}\n")
+	s := loadRendered[agentsConfig.Config](t, out, "cmd/kora-agents").Agents.Scheduling
+	if s.PlacementWatermark != 0.6 || s.PressureLimit != 0.85 || s.StartingRunAllowance != "300Mi" {
+		t.Errorf("scheduling = watermark %v, pressure limit %v, allowance %q; want 0.6, 0.85, 300Mi", s.PlacementWatermark, s.PressureLimit, s.StartingRunAllowance)
 	}
 
 	for name, values := range map[string]string{
