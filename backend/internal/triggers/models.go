@@ -40,6 +40,7 @@ const (
 	ProviderAlertmanager = "alertmanager"
 	ProviderSlack        = "slack"
 	ProviderGeneric      = "generic"
+	ProviderPlane        = "plane"
 )
 
 // Delivery statuses recorded in trigger_deliveries — what happened to the

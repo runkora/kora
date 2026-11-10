@@ -163,7 +163,7 @@ func NewAdmission(repo admissionStore, logger logging.Logger) *Admission {
 	return &Admission{
 		repo:     repo,
 		logger:   logger,
-		outcomes: outcomeRecorder{repo: repo, logger: logger},
+		outcomes: outcomeRecorder{repo: repo, logger: logger, providers: newProviderCache()},
 	}
 }
 

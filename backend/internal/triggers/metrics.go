@@ -272,7 +272,7 @@ var metricOutcomeOf = map[string]string{
 // the list count as generic.
 func metricProvider(provider string) string {
 	switch provider {
-	case ProviderGitHub, ProviderSlack, "plane":
+	case ProviderGitHub, ProviderSlack, ProviderPlane:
 		return provider
 	default:
 		return ProviderGeneric
