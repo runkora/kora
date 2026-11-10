@@ -790,9 +790,9 @@ agents:
     # -- Applied to the `capacity` placeholder. kora's own selector labels win on
     # a collision.
     podLabels: {}
-    # -- Applied to the `capacity` placeholder. It already carries the Karpenter
-    # and Cluster Autoscaler annotations that keep a held node from being scaled
-    # away. Set them here to override.
+    # -- Applied to the `capacity` placeholder. kora sets no node autoscaler
+    # annotations. Set your autoscaler's here to keep a held node from being
+    # scaled away.
     podAnnotations: {}
     nodeSelector: {}
     tolerations: []
