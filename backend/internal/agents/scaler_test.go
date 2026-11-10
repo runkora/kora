@@ -118,7 +118,7 @@ func (f *scalerFake) mustHold(call string) {
 
 func (f *scalerFake) ListActiveAgentTypes(context.Context) ([]AgentType, error) { return nil, nil }
 
-func (f *scalerFake) TryWithAgentLock(ctx context.Context, _ string, fn func(ctx context.Context) error) (bool, error) {
+func (f *scalerFake) WaitWithAgentLock(ctx context.Context, _ string, _ time.Duration, fn func(ctx context.Context) error) (bool, error) {
 	if f.busy {
 		return false, nil
 	}

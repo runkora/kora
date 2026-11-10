@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	sandboxfolder "github.com/runkora/kora/backend/internal/agents/sandbox/folder"
 	"github.com/runkora/kora/backend/internal/platform/declarative"
@@ -879,18 +880,38 @@ func (r *PostgresRepository) WithAgentLock(ctx context.Context, agentTypeID stri
 	})
 }
 
-// TryWithAgentLock runs fn holding the agent's advisory lock when the lock is free, and reports whether fn ran.
-func (r *PostgresRepository) TryWithAgentLock(ctx context.Context, agentTypeID string, fn func(ctx context.Context) error) (bool, error) {
-	var locked bool
+// lockNotAvailable is the Postgres error code of a lock wait that reached lock_timeout.
+const lockNotAvailable = "55P03"
+
+// errAgentLockTimeout ends the transaction of a lock wait that timed out, which Postgres has aborted.
+var errAgentLockTimeout = errors.New("agent lock wait timed out")
+
+// WaitWithAgentLock runs fn holding the agent's advisory lock, waiting up to timeout for it, and
+// reports whether fn ran. A queue of short placement transactions can hold the lock for long
+// stretches, and a waiter is granted it between them where a try-lock would keep missing.
+func (r *PostgresRepository) WaitWithAgentLock(ctx context.Context, agentTypeID string, timeout time.Duration, fn func(ctx context.Context) error) (bool, error) {
+	locked := false
 	err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
-		if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtext($1))`, agentLockKey(agentTypeID)).Scan(&locked); err != nil {
-			return fmt.Errorf("try agent lock: %w", err)
+		if _, err := tx.Exec(ctx, `SELECT set_config('lock_timeout', $1, true)`, fmt.Sprintf("%dms", timeout.Milliseconds())); err != nil {
+			return fmt.Errorf("set lock timeout: %w", err)
 		}
-		if !locked {
-			return nil
+		_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, agentLockKey(agentTypeID))
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == lockNotAvailable {
+			return errAgentLockTimeout
+		}
+		if err != nil {
+			return fmt.Errorf("take agent lock: %w", err)
+		}
+		locked = true
+		// The timeout is for the lock wait only, not for the statements fn runs.
+		if _, err := tx.Exec(ctx, `SELECT set_config('lock_timeout', '0', true)`); err != nil {
+			return fmt.Errorf("reset lock timeout: %w", err)
 		}
 		return fn(ctx)
 	})
+	if errors.Is(err, errAgentLockTimeout) {
+		return false, nil
+	}
 	return locked, err
 }
 
