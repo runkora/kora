@@ -310,6 +310,11 @@ func TestPostgres_AgentRunCounts(t *testing.T) {
 		setRunState(t, r, queueRun(t, r, tenant, at.ID, past, &past), s.state, s.pod)
 	}
 
+	// Another agent's runs do not count.
+	otherAgent := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	setRunState(t, r, queueRun(t, r, tenant, otherAgent.ID, past, &past), RunStateStarting, 1)
+	setRunState(t, r, queueRun(t, r, tenant, otherAgent.ID, past, &past), RunStateActive, 0)
+
 	counts, err := r.AgentRunCounts(ctx, at.ID)
 	if err != nil {
 		t.Fatalf("AgentRunCounts: %v", err)
@@ -339,9 +344,12 @@ func TestPostgres_ClaimHoldsAgentTotal(t *testing.T) {
 	setRunState(t, r, idle, RunStateIdle, 0)
 	setRunState(t, r, queueRun(t, r, tenant, at.ID, past, &past), RunStateStarting, 1)
 	waiting := queueRun(t, r, tenant, at.ID, past, &past)
+	// Another agent at its own total does not hold this agent back, nor this agent it.
+	otherAgent := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	otherWaiting := queueRun(t, r, tenant, otherAgent.ID, past.Add(time.Minute), &past)
 
-	if got := claimOwn(t, r, tenant, time.Now()); len(got) != 0 {
-		t.Fatalf("claimed %v with the agent at its total", runIDs(got))
+	if got := claimOwn(t, r, tenant, time.Now()); !slices.Equal(runIDs(got), []string{otherWaiting}) {
+		t.Fatalf("claimed %v with the agent at its total, want only the other agent's [%s]", runIDs(got), otherWaiting)
 	}
 	setRunState(t, r, idle, RunStateCompleted, 0)
 	if got := claimOwn(t, r, tenant, time.Now()); !slices.Equal(runIDs(got), []string{waiting}) {
