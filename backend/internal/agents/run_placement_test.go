@@ -136,6 +136,18 @@ func TestAssignPod(t *testing.T) {
 	}
 }
 
+// A run for an agent whose pods are all full by the pre-lock reading is released without the agent lock.
+func TestAssignPod_FullPodsSkipTheLock(t *testing.T) {
+	f, repo, _, sm, at, run := placementEnv(t, 2, 3)
+	sm.memory = fullPods("bot", 0, 1)
+	if _, err := f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1"); !errors.Is(err, errNoFreePod) {
+		t.Fatalf("assignPod error = %v, want %v", err, errNoFreePod)
+	}
+	if n := repo.agentLockCalls.Load(); n != 0 {
+		t.Errorf("agent lock taken %d times, want 0", n)
+	}
+}
+
 // Pods whose memory read times out count as full, and the reads run at once.
 func TestAssignPod_MemoryReadTimeout(t *testing.T) {
 	f, repo, _, sm, at, run := placementEnv(t, 3, 3)
