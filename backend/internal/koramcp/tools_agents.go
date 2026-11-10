@@ -118,7 +118,7 @@ type createAgentArgs struct {
 	Connectors        []connectorArg   `json:"connectors,omitempty" jsonschema:"credential connections the agent may use and the actions allowed — call the agents.connectors tool to list available connections"`
 	MCPTools          []string         `json:"mcp_tools,omitempty" jsonschema:"governed MCP tools the agent may call through the gateway, as mcp:<server>:<tool>:use scopes — call the agents.mcp_tools tool to list what is available. The coarse mcp:invoke gate is derived automatically"`
 	Environments      []environmentRef `json:"environments,omitempty" jsonschema:"sandbox environments to attach; mark one is_default. Omit for the built-in default environment. Call agents.environments.list for ids"`
-	MaxConcurrentRuns int              `json:"max_concurrent_runs,omitempty" jsonschema:"max concurrent runs of the agent (0 = service default)"`
+	MaxConcurrentRuns int              `json:"max_concurrent_runs,omitempty" jsonschema:"concurrent runs of the agent across all its pods (0 = service default)"`
 	Guardrails        *guardrailsArg   `json:"guardrails,omitempty" jsonschema:"loop-guard thresholds for this agent's runs; omitted fields take the platform defaults"`
 }
 
@@ -168,7 +168,7 @@ type updateAgentArgs struct {
 	SystemPrompt      *string           `json:"system_prompt,omitempty" jsonschema:"new system prompt"`
 	Framework         *string           `json:"framework,omitempty" jsonschema:"new agent CLI framework"`
 	ModelID           *string           `json:"model_id,omitempty" jsonschema:"new inference model id — call the models.list tool first to get valid ids"`
-	MaxConcurrentRuns *int              `json:"max_concurrent_runs,omitempty" jsonschema:"new max concurrent runs of the agent"`
+	MaxConcurrentRuns *int              `json:"max_concurrent_runs,omitempty" jsonschema:"new total of concurrent runs of the agent across all its pods, at least 1"`
 	Guardrails        *guardrailsArg    `json:"guardrails,omitempty" jsonschema:"replacement loop-guard thresholds; omitted fields return to the platform defaults, an empty object restores all of them"`
 	GrantScopes       []string          `json:"grant_scopes,omitempty" jsonschema:"replacement grant scopes. Optional — the server re-derives the inference scopes from model_id when you change the model; set this only to override"`
 	Connectivity      *connectivityArg  `json:"connectivity,omitempty" jsonschema:"replacement egress posture for the agent's sandboxes"`

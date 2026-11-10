@@ -188,6 +188,9 @@ func (s *AgentTypeService) PreviewEffectiveAccess(ctx context.Context, req Effec
 	return s.scopeResolver().EffectiveAccess(ctx, draft)
 }
 
+// ErrInvalidMaxConcurrentRuns rejects an update that sets the agent's total of concurrent runs below 1.
+var ErrInvalidMaxConcurrentRuns = errors.New("max_concurrent_runs must be at least 1")
+
 // validateAgentTypeUpdate runs the partial-update field validations
 // (connectivity posture, connectors, environment reference). Extracted from
 // UpdateAgentType to keep that method's cyclomatic complexity in check.
@@ -209,6 +212,10 @@ func (s *AgentTypeService) validateAgentTypeUpdate(ctx context.Context, at *Agen
 		if err := validateFramework(*req.Framework); err != nil {
 			return err
 		}
+	}
+	// An agent with a total below 1 could never start a run.
+	if req.MaxConcurrentRuns != nil && *req.MaxConcurrentRuns < 1 {
+		return ErrInvalidMaxConcurrentRuns
 	}
 	if req.Connectivity != nil {
 		if vErr := req.Connectivity.Validate(); vErr != nil {
