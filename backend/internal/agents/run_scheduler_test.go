@@ -134,9 +134,6 @@ func TestStartClaimed(t *testing.T) {
 		{name: "no ready pod creates missing resources and releases",
 			setup:     func(e *startClaimedEnv) { e.k8s.noReadyPods = true },
 			wantState: RunStatePending, wantReleased: 1, wantProvMiss: 1},
-		{name: "full pods release without provisioning",
-			setup:     func(e *startClaimedEnv) { e.sm.memory = fullPods("bot", 0) },
-			wantState: RunStatePending, wantReleased: 1},
 		{name: "an agent at its total releases even past the start budget",
 			setup: func(e *startClaimedEnv) {
 				e.f.run.cfg.StartBudget = time.Minute

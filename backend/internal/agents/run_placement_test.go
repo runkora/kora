@@ -143,7 +143,7 @@ func TestAssignPod_MemoryReadTimeout(t *testing.T) {
 	if err != nil || pod != 2 {
 		t.Fatalf("assignPod = %d, %v; want pod 2", pod, err)
 	}
-	// Two pods time out; read one after the other they would take twice the timeout.
+	// Two pods time out. Read one after the other, they would take twice the timeout.
 	if elapsed := time.Since(start); elapsed > memoryReadTimeout+time.Second {
 		t.Errorf("placement took %s, want about the %s read timeout", elapsed, memoryReadTimeout)
 	}
@@ -154,7 +154,9 @@ func TestAssignPod_MemoryReadTimeout(t *testing.T) {
 
 // Workers placing runs at once never take the agent past its total, whatever pod each lands on.
 func TestAssignPod_TotalHoldsAcrossPods(t *testing.T) {
-	f, repo, _, _, at, _ := placementEnv(t, 2, 3)
+	f, repo, _, sm, at, _ := placementEnv(t, 2, 3)
+	// Pod 0 has room for one starting run, so the total spans both pods.
+	sm.memory = podMemory("bot", map[int]int64{0: watermarkBytes - 1})
 	runs := make([]Run, 5)
 	for i := range runs {
 		runs[i] = seedRun(t, repo, Run{ID: fmt.Sprintf("burst-%d", i), TenantID: "t1", AgentTypeID: at.ID, State: RunStatePending})
@@ -180,5 +182,8 @@ func TestAssignPod_TotalHoldsAcrossPods(t *testing.T) {
 	}
 	if placed != 3 {
 		t.Errorf("placed %d runs, want the total of 3", placed)
+	}
+	if got := repo.podCounts(at.ID, func(s RunState) bool { return s == RunStateStarting }); got[0] != 1 || got[1] != 2 {
+		t.Errorf("starting runs per pod = %v, want map[0:1 1:2]", got)
 	}
 }
