@@ -83,7 +83,7 @@ agents:
       claudeCode: 220Mi
       codex: 60Mi
       openCode: 440Mi
-    startingRunWindowSecs: 10
+    startingRunWindowSecs: 30
   connectionRegistryPath: "/var/run/kora/connections/connections.json"
   # Where the chart mounts the manifest patches ConfigMap.
   manifestPatchDir: /etc/kora/manifest-patches
