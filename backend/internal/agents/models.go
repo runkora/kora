@@ -554,6 +554,12 @@ func PodOccupyingRunStates() []RunState {
 	return out
 }
 
+// AgentRunCounts are an agent's unfinished runs. Active counts every run with a
+// session on a pod: active, idle and completing.
+type AgentRunCounts struct {
+	Pending, Starting, Active int
+}
+
 // Run is the durable unit of work. It outlives browser connections and persists
 // until completed, failed, or explicitly deleted.
 type Run struct {
