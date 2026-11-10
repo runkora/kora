@@ -307,7 +307,7 @@ func (p *fakeACPProfile) lastTurn(t *testing.T) acpTurnEnd {
 }
 
 // testACPConfig is a runner config wired to the fake agent.
-func testACPConfig(a *fakeACPAgent, prof *fakeACPProfile) acpRunnerConfig {
+func testACPConfig(a *fakeACPAgent, prof acpProfile) acpRunnerConfig {
 	return acpRunnerConfig{
 		Profile: prof, Framework: "fake", RunID: "run-1", Spawn: a.spawner(), CloseGrace: 200 * time.Millisecond,
 		Logger: logging.NewLoggerWithOutput(io.Discard),
@@ -333,7 +333,7 @@ func (b *syncBuffer) String() string {
 }
 
 // startACP starts a runner against the fake agent.
-func startACP(t *testing.T, a *fakeACPAgent, prof *fakeACPProfile, mod func(*acpRunnerConfig)) *acpRunner {
+func startACP(t *testing.T, a *fakeACPAgent, prof acpProfile, mod func(*acpRunnerConfig)) *acpRunner {
 	t.Helper()
 	cfg := testACPConfig(a, prof)
 	if mod != nil {

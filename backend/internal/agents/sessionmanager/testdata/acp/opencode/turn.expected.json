@@ -1,0 +1,139 @@
+[
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": "I'll run those two commands in"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " separate"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " bash"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " tool"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " calls."
+    }
+  },
+  {
+    "type": "text_block",
+    "payload": {
+      "content": "I'll run those two commands in separate bash tool calls."
+    }
+  },
+  {
+    "type": "tool_use",
+    "payload": {
+      "id": "toolu_bdrk_01Q9YBqyFnXVG6xxrmBHG5U5",
+      "name": "bash",
+      "input": {
+        "command": "ls",
+        "cwd": "/w"
+      }
+    }
+  },
+  {
+    "type": "tool_result",
+    "payload": {
+      "tool_use_id": "toolu_bdrk_01Q9YBqyFnXVG6xxrmBHG5U5",
+      "content": "README.md\n",
+      "is_error": false
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": "Now"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " I'll run the second"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " command:"
+    }
+  },
+  {
+    "type": "text_block",
+    "payload": {
+      "content": "Now I'll run the second command:"
+    }
+  },
+  {
+    "type": "tool_use",
+    "payload": {
+      "id": "toolu_bdrk_01TeTrwpdRgesSLQyYqjsWTE",
+      "name": "bash",
+      "input": {
+        "command": "cat missing.txt",
+        "cwd": "/w"
+      }
+    }
+  },
+  {
+    "type": "tool_result",
+    "payload": {
+      "tool_use_id": "toolu_bdrk_01TeTrwpdRgesSLQyYqjsWTE",
+      "content": "Exit code 1\ncat: missing.txt: No such file or directory\n",
+      "is_error": true
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": "The"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " file"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " `"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": "missing.txt` doesn't exist in"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " the current directory."
+    }
+  },
+  {
+    "type": "message_complete",
+    "payload": {
+      "text": "The file `missing.txt` doesn't exist in the current directory."
+    }
+  },
+  {
+    "type": "message_stop"
+  }
+]

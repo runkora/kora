@@ -136,7 +136,8 @@ func (t *acpTranslator) toolCall(u acp.ToolCallUpdate) {
 	switch {
 	case terminal:
 		c.done = true
-		t.emit(EventTypeToolResult, newToolResult(id, acpToolOutput(u.Content, u.RawOutput), status == acp.ToolCallStatusFailed, c.parent))
+		out, exitErr := acpToolOutput(u.Content, u.RawOutput)
+		t.emit(EventTypeToolResult, newToolResult(id, out, exitErr || status == acp.ToolCallStatusFailed, c.parent))
 	case t.now().Sub(c.progressAt) >= acpProgressEvery:
 		c.progressAt = t.now()
 		t.emit(EventTypeToolProgress, ToolProgressPayload{
@@ -148,9 +149,11 @@ func (t *acpTranslator) toolCall(u acp.ToolCallUpdate) {
 	}
 }
 
-// carry keeps the latest title, name, parent and non-empty input of a call.
+// carry keeps the first title, the name, the parent and the latest non-empty
+// input of a call. The first title names the tool; OpenCode retitles a shell
+// call with its command once the input arrives.
 func (c *acpToolCall) carry(u acp.ToolCallUpdate) {
-	if u.Title != nil && *u.Title != "" {
+	if u.Title != nil && c.title == "" {
 		c.title = *u.Title
 	}
 	claude, _ := u.Meta["claudeCode"].(map[string]any)
@@ -196,9 +199,12 @@ func hasACPInput(v any) bool {
 	return v != nil
 }
 
-// acpToolOutput is a tool's output as text: content blocks first, then the
-// text in rawOutput, then rawOutput as JSON.
-func acpToolOutput(content []acp.ToolCallContent, raw any) string {
+// acpToolOutput is a tool's output as text, and whether a shell command exited
+// non-zero. OpenCode's rawOutput wins over content blocks, as in the legacy runner.
+func acpToolOutput(content []acp.ToolCallContent, raw any) (string, bool) {
+	if out, failed, ok := openCodeToolOutput(raw); ok {
+		return out, failed
+	}
 	var parts []string
 	for _, c := range content {
 		if c.Content != nil && c.Content.Content.Text != nil {
@@ -206,17 +212,13 @@ func acpToolOutput(content []acp.ToolCallContent, raw any) string {
 		}
 	}
 	if len(parts) > 0 {
-		return strings.Join(parts, "\n")
+		return strings.Join(parts, "\n"), false
 	}
 	switch v := raw.(type) {
 	case nil:
-		return ""
+		return "", false
 	case string:
-		return v
-	case map[string]any:
-		if s, ok := v["output"].(string); ok {
-			return s
-		}
+		return v, false
 	case []any:
 		for _, e := range v {
 			if m, ok := e.(map[string]any); ok {
@@ -226,11 +228,26 @@ func acpToolOutput(content []acp.ToolCallContent, raw any) string {
 			}
 		}
 		if len(parts) > 0 {
-			return strings.Join(parts, "\n")
+			return strings.Join(parts, "\n"), false
 		}
 	}
 	b, _ := json.Marshal(raw)
-	return string(b)
+	return string(b), false
+}
+
+// openCodeToolOutput reads OpenCode's rawOutput {output, metadata: {exit}}; ok
+// is false for any other shape.
+func openCodeToolOutput(raw any) (out string, failed, ok bool) {
+	m, _ := raw.(map[string]any)
+	out, ok = m["output"].(string)
+	if !ok {
+		return "", false, false
+	}
+	meta, _ := m["metadata"].(map[string]any)
+	if exit, isNum := meta["exit"].(float64); isNum && exit != 0 {
+		return fmt.Sprintf("Exit code %d\n%s", int(exit), out), true, true
+	}
+	return out, false, true
 }
 
 // flushPartial emits the text of a cut-short turn, marked interrupted.

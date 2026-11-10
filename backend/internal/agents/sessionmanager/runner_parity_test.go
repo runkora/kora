@@ -56,7 +56,7 @@ func TestOpenCodeConfig_ShellPath(t *testing.T) {
 		cfg.RunID = "run-1"
 		cfg.InferenceGatewayURL = "http://kora-inference-gateway"
 		r := NewOpenCodeRunner(cfg)
-		data, err := r.openCodeConfig(workDir)
+		data, err := openCodeConfig(r.cfg, workDir, r.mcpConfig())
 		if err != nil {
 			t.Fatalf("openCodeConfig: %v", err)
 		}
@@ -203,7 +203,7 @@ func TestOpenCodeConfig_MCPServers(t *testing.T) {
 		ToolGatewayURL:      "http://kora-tool-gateway/run/run-1",
 		MCPServers:          []string{"github"},
 	})
-	data, err := r.openCodeConfig(workDir)
+	data, err := openCodeConfig(r.cfg, workDir, r.mcpConfig())
 	if err != nil {
 		t.Fatalf("openCodeConfig: %v", err)
 	}

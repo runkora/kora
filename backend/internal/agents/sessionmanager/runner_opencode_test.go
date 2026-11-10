@@ -556,7 +556,7 @@ func TestOpenCodeWriteConfig(t *testing.T) {
 	r := newTestOpenCodeRunner()
 	r.cfg.Brand = brand.MustNew("Acme")
 
-	data, err := r.openCodeConfig(t.TempDir())
+	data, err := openCodeConfig(r.cfg, t.TempDir(), r.mcpConfig())
 	if err != nil {
 		t.Fatalf("openCodeConfig: %v", err)
 	}
@@ -627,7 +627,7 @@ func TestOpenCodeWriteConfig_SystemPromptAsInstructions(t *testing.T) {
 			r := newTestOpenCodeRunner()
 			r.cfg.SystemPrompt = tc.prompt
 			dir := t.TempDir()
-			data, err := r.openCodeConfig(dir)
+			data, err := openCodeConfig(r.cfg, dir, r.mcpConfig())
 			if err != nil {
 				t.Fatalf("openCodeConfig: %v", err)
 			}
@@ -702,7 +702,7 @@ func TestOpenCodePrepareEnv(t *testing.T) {
 	if got["WORKSPACE"] != "/w" {
 		t.Errorf("WORKSPACE = %q, want the ExtraEnv value", got["WORKSPACE"])
 	}
-	want, err := r.openCodeConfig(workDir)
+	want, err := openCodeConfig(r.cfg, workDir, r.mcpConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
