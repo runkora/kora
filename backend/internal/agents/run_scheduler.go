@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -283,7 +284,8 @@ const memoryReadTimeout = 2 * time.Second
 
 // assignPod places a claimed run on the lowest-ordinal pod with memory to spare
 // (docs/adr/2026-11-09-demand-driven-agent-scaling.md). Pod memory is read before
-// the agent lock. A slow pod must never hold it.
+// the agent lock. A slow pod must never hold it, and the lock is taken only when a pod
+// has room by that reading.
 func (s *RunService) assignPod(ctx context.Context, run Run, claimedAt time.Time, at *AgentType, namespace string) (int, error) {
 	ready, err := s.k8s.ReadyOrdinals(ctx, at.Slug, namespace)
 	if err != nil {
@@ -297,6 +299,18 @@ func (s *RunService) assignPod(ctx context.Context, run Run, claimedAt time.Time
 		return 0, err
 	}
 	readings := s.readPodMemory(ctx, at.Slug, namespace, ready)
+	// A run for an agent whose pods are all full is released here. Many such runs at once would
+	// otherwise queue on the agent lock. The lock re-checks.
+	starting, err := s.repo.StartingRunsPerPod(ctx, at.ID, time.Now().Add(-s.cfg.StartingRunWindow))
+	if err != nil {
+		return 0, err
+	}
+	if !slices.ContainsFunc(ready, func(ord int) bool {
+		m, ok := readings[ord]
+		return ok && hasRoom(m, starting[ord], allowance.Value(), s.cfg.PlacementWatermark)
+	}) {
+		return 0, errNoFreePod
+	}
 	pod := -1
 	err = s.repo.WithAgentLock(ctx, at.ID, func(ctx context.Context) error {
 		var lockedErr error

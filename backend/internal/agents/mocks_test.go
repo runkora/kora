@@ -66,6 +66,7 @@ type mockRepository struct {
 	// agentLock stands in for the agent's advisory lock, and agentLockHeld reports whether it is held.
 	agentLock           sync.Mutex
 	agentLockHeld       atomic.Bool
+	agentLockCalls      atomic.Int32
 	appendRunEventErr   error
 	listRunEventsErr    error
 	appendRunMessageErr error
@@ -648,6 +649,7 @@ func (m *mockRepository) AgentRunCounts(_ context.Context, agentTypeID string) (
 
 // WithAgentLock serialises fn per repository and records that the lock is held while it runs.
 func (m *mockRepository) WithAgentLock(ctx context.Context, _ string, fn func(ctx context.Context) error) error {
+	m.agentLockCalls.Add(1)
 	m.agentLock.Lock()
 	defer m.agentLock.Unlock()
 	m.agentLockHeld.Store(true)
