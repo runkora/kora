@@ -70,6 +70,13 @@ type RunRepository interface {
 	RecordSandboxDeleted(ctx context.Context, run Run) error
 	// ActiveRunsPerPod returns active run counts keyed by pod ordinal for an agent type.
 	ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error)
+	// AgentRunCounts counts an agent's pending, starting and active runs.
+	AgentRunCounts(ctx context.Context, agentTypeID string) (AgentRunCounts, error)
+	// StartingRunsPerPod returns an agent's starting run counts keyed by pod ordinal.
+	StartingRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error)
+	// WithAgentLock runs fn in a transaction that holds the agent's advisory lock.
+	// Calls made with fn's ctx join the transaction.
+	WithAgentLock(ctx context.Context, agentTypeID string, fn func(ctx context.Context) error) error
 	// ReapStaleRuns ends runs stuck in transient states for longer than
 	// staleDuration and returns them in their new state:
 	//   - failed:    runs transitioned pending|starting|active → failed

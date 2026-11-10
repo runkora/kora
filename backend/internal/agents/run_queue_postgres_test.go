@@ -283,3 +283,104 @@ func TestPostgres_RunTraceParent(t *testing.T) {
 		}
 	}
 }
+
+// setRunState moves a run to state on pod, bypassing the state machine.
+func setRunState(t *testing.T, r *PostgresRepository, id string, state RunState, pod int) {
+	t.Helper()
+	if _, err := r.pool.Exec(context.Background(), `UPDATE runs SET state=$2, pod_ordinal=$3 WHERE id=$1`, id, string(state), pod); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPostgres_AgentRunCounts(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+	past := time.Now().UTC().Add(-time.Hour)
+
+	for _, s := range []struct {
+		state RunState
+		pod   int
+	}{
+		{RunStatePending, -1}, {RunStatePending, -1},
+		{RunStateStarting, 1}, {RunStateStarting, 1}, {RunStateStarting, 0},
+		{RunStateActive, 0}, {RunStateIdle, 1}, {RunStateCompleting, 0},
+		{RunStateCompleted, 0}, {RunStateFailed, 1}, {RunStateTerminated, 0},
+	} {
+		setRunState(t, r, queueRun(t, r, tenant, at.ID, past, &past), s.state, s.pod)
+	}
+
+	counts, err := r.AgentRunCounts(ctx, at.ID)
+	if err != nil {
+		t.Fatalf("AgentRunCounts: %v", err)
+	}
+	if want := (AgentRunCounts{Pending: 2, Starting: 3, Active: 3}); counts != want {
+		t.Errorf("counts = %+v, want %+v", counts, want)
+	}
+	starting, err := r.StartingRunsPerPod(ctx, at.ID)
+	if err != nil {
+		t.Fatalf("StartingRunsPerPod: %v", err)
+	}
+	if starting[0] != 1 || starting[1] != 2 || len(starting) != 2 {
+		t.Errorf("starting per pod = %v, want map[0:1 1:2]", starting)
+	}
+}
+
+// A run beyond the agent's total is not claimed, and is claimed once a live run ends.
+func TestPostgres_ClaimHoldsAgentTotal(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+	past := time.Now().UTC().Add(-time.Hour)
+	if _, err := r.pool.Exec(ctx, `UPDATE agent_types SET max_concurrent_runs=2 WHERE id=$1`, at.ID); err != nil {
+		t.Fatal(err)
+	}
+	idle := queueRun(t, r, tenant, at.ID, past, &past)
+	setRunState(t, r, idle, RunStateIdle, 0)
+	setRunState(t, r, queueRun(t, r, tenant, at.ID, past, &past), RunStateStarting, 1)
+	waiting := queueRun(t, r, tenant, at.ID, past, &past)
+
+	if got := claimOwn(t, r, tenant, time.Now()); len(got) != 0 {
+		t.Fatalf("claimed %v with the agent at its total", runIDs(got))
+	}
+	setRunState(t, r, idle, RunStateCompleted, 0)
+	if got := claimOwn(t, r, tenant, time.Now()); !slices.Equal(runIDs(got), []string{waiting}) {
+		t.Errorf("claimed %v after a slot freed, want [%s]", runIDs(got), waiting)
+	}
+}
+
+// The agent lock admits one holder per agent, and another agent's lock does not wait for it.
+func TestPostgres_AgentLock(t *testing.T) {
+	r, _ := testRunRepo(t)
+	ctx := context.Background()
+	agent, other := uuid.NewString(), uuid.NewString()
+
+	held, release := make(chan struct{}), make(chan struct{})
+	go func() {
+		_ = r.WithAgentLock(ctx, agent, func(context.Context) error {
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+	<-held
+
+	if err := r.WithAgentLock(ctx, other, func(context.Context) error { return nil }); err != nil {
+		t.Fatalf("lock another agent: %v", err)
+	}
+	waited := make(chan struct{})
+	go func() {
+		_ = r.WithAgentLock(ctx, agent, func(context.Context) error { close(waited); return nil })
+	}()
+	select {
+	case <-waited:
+		t.Fatal("a second holder took the agent lock while it was held")
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case <-waited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the agent lock was not released")
+	}
+}

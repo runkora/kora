@@ -631,7 +631,7 @@ agents:
     workerConcurrency: 16
     # -- Seconds between polls for pending runs, and before a run with no free pod is tried again.
     pollIntervalSecs: 1
-    # -- Seconds a run may stay pending before it fails.
+    # -- Seconds a run may stay pending with no pod to take it before it fails. A run waiting for its agent's total of concurrent runs does not fail.
     startBudgetSecs: 180
     # -- Seconds a run may wait for its agent to finish provisioning before it fails.
     provisionBudgetSecs: 600

@@ -610,28 +610,6 @@ func TestStartRun_TenantMismatch(t *testing.T) {
 	}
 }
 
-func TestStartRun_SelectsLeastLoadedPod(t *testing.T) {
-	svc, repo, k8s, _ := newTestService(t)
-	at := seedAgentType(t, repo, AgentType{
-		ID: "at-1", TenantID: "t-1", Slug: "bot",
-		MaxConcurrentRuns: 5,
-	})
-	k8s.readyPods = 3
-	// Pod 1 has the fewest runs.
-	repo.activeRunsOverride = map[int]int{0: 3, 1: 1, 2: 2}
-
-	run, err := svc.StartAndSchedule(context.Background(), StartRunRequest{
-		TenantID:    "t-1",
-		AgentTypeID: at.ID,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if run.PodOrdinal != 1 {
-		t.Errorf("expected pod ordinal 1 (least loaded), got %d", run.PodOrdinal)
-	}
-}
-
 func TestStartRun_AgentTypeNotFound(t *testing.T) {
 	svc, _, _, _ := newTestService(t)
 
