@@ -39,7 +39,7 @@ import (
 //     skips the loop guards, so a rising count is a loop risk to look at.
 type Metrics struct {
 	autoPauses      metric.Int64Counter
-	deliveries      metric.Int64Counter
+	outcomes        metric.Int64Counter
 	chainFailOpens  metric.Int64Counter
 	purgedPayloads  metric.Int64Counter
 	scannedTriggers metric.Int64Counter
@@ -77,12 +77,12 @@ func NewMetrics(meter metric.Meter, repo pendingStatsReader, logger logging.Logg
 		return nil, fmt.Errorf("create auto-pause counter: %w", err)
 	}
 
-	if m.deliveries, err = meter.Int64Counter(
-		"kora.triggers.deliveries",
-		metric.WithDescription("Per-trigger delivery outcomes, by provider and outcome"),
-		metric.WithUnit("{delivery}"),
+	if m.outcomes, err = meter.Int64Counter(
+		"kora.triggers.outcomes",
+		metric.WithDescription("Trigger outcomes, by provider and outcome. Counts one per trigger a delivery matches, so a delivery matching several triggers counts several times and one matching none is not counted"),
+		metric.WithUnit("{outcome}"),
 	); err != nil {
-		return nil, fmt.Errorf("create deliveries counter: %w", err)
+		return nil, fmt.Errorf("create outcomes counter: %w", err)
 	}
 
 	if m.chainFailOpens, err = meter.Int64Counter(
@@ -279,8 +279,8 @@ func metricProvider(provider string) string {
 	}
 }
 
-// recordDelivery counts one per-trigger outcome.
-func (m *Metrics) recordDelivery(ctx context.Context, provider, status string) {
+// recordOutcome counts one per-trigger outcome.
+func (m *Metrics) recordOutcome(ctx context.Context, provider, status string) {
 	if m == nil {
 		return
 	}
@@ -288,7 +288,7 @@ func (m *Metrics) recordDelivery(ctx context.Context, provider, status string) {
 	if !ok {
 		return
 	}
-	m.deliveries.Add(ctx, 1, metric.WithAttributes(
+	m.outcomes.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("provider", metricProvider(provider)),
 		attribute.String("outcome", outcome),
 	))

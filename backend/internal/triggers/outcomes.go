@@ -90,7 +90,7 @@ func (o outcomeRecorder) count(ctx context.Context, dr *DeliveryRun) {
 	if o.metrics == nil {
 		return
 	}
-	o.metrics.recordDelivery(ctx, o.provider(ctx, dr), dr.Status)
+	o.metrics.recordOutcome(ctx, o.provider(ctx, dr), dr.Status)
 }
 
 // provider resolves the provider behind the outcome's trigger. A trigger with no

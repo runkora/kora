@@ -22,17 +22,17 @@ func instrument(t *testing.T, svc *Service, deps *testDeps) *sdkmetric.ManualRea
 	return reader
 }
 
-// deliveryCount reads kora_triggers_deliveries_total for one provider/outcome,
+// outcomeCount reads kora_triggers_outcomes_total for one provider/outcome,
 // and fails if any series carries a label beyond those two.
-func deliveryCount(t *testing.T, reader *sdkmetric.ManualReader, provider, outcome string) int64 {
+func outcomeCount(t *testing.T, reader *sdkmetric.ManualReader, provider, outcome string) int64 {
 	t.Helper()
-	got, ok := collect(t, reader)["kora.triggers.deliveries"]
+	got, ok := collect(t, reader)["kora.triggers.outcomes"]
 	if !ok {
 		return 0
 	}
 	sum, ok := got.Data.(metricdata.Sum[int64])
 	if !ok {
-		t.Fatalf("deliveries is %T, want a sum", got.Data)
+		t.Fatalf("outcomes is %T, want a sum", got.Data)
 	}
 	var total int64
 	for _, dp := range sum.DataPoints {
@@ -57,7 +57,7 @@ func TestDeliveryMetrics_StartedSkippedAndFailed(t *testing.T) {
 	trig := newAdmissionTrigger(t, deps, OverflowWait, 4, 32)
 	ids := enqueue(t, svc, deps, trig, 1)
 	svc.DispatchPending(ctx, PendingDelivery{ID: "p-1", TenantID: testTenant, TriggerID: trig.ID, DeliveryID: ids[0]})
-	if got := deliveryCount(t, reader, "generic", "started"); got != 1 {
+	if got := outcomeCount(t, reader, "generic", "started"); got != 1 {
 		t.Errorf("started = %d, want 1", got)
 	}
 
@@ -66,7 +66,7 @@ func TestDeliveryMetrics_StartedSkippedAndFailed(t *testing.T) {
 	now := time.Now()
 	paused.AutoPausedAt = &now
 	enqueue(t, svc, deps, paused, 1)
-	if got := deliveryCount(t, reader, "generic", "skipped"); got != 1 {
+	if got := outcomeCount(t, reader, "generic", "skipped"); got != 1 {
 		t.Errorf("skipped = %d, want 1", got)
 	}
 
@@ -77,10 +77,10 @@ func TestDeliveryMetrics_StartedSkippedAndFailed(t *testing.T) {
 	fctx, cancel := context.WithTimeout(ctx, 400*time.Millisecond)
 	defer cancel()
 	svc.DispatchPending(fctx, PendingDelivery{ID: "p-2", TenantID: testTenant, TriggerID: failing.ID, DeliveryID: fids[0]})
-	if got := deliveryCount(t, reader, "generic", "failed"); got != 1 {
+	if got := outcomeCount(t, reader, "generic", "failed"); got != 1 {
 		t.Errorf("failed = %d, want 1", got)
 	}
-	if got := deliveryCount(t, reader, "generic", "started"); got != 1 {
+	if got := outcomeCount(t, reader, "generic", "started"); got != 1 {
 		t.Errorf("started after failure = %d, want still 1", got)
 	}
 }
