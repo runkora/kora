@@ -56,7 +56,7 @@ Working set is `memory.current` minus `inactive_file` from `memory.stat`. The ku
 *   A per-agent pod memory size.
 *   A change to the `minReplicas` floor.
 *   CPU and sidecar resources.
-*   Dropping the old database column and the old event key.
+*   Dropping the old database column and the old changed-field name.
 
 ---
 
@@ -117,9 +117,8 @@ The rename is expand-contract under [Database Migrations](2026-09-10-database-mi
 
 *   A migration will add `agent_types.max_concurrent_runs` with a server default of 20 and backfill it from `max_concurrent_runs_per_pod`.
 *   The code will write both columns and read the new one. The old column stays for N-1 kora-agents pods during a rolling upgrade.
-*   The agent-type event payload will carry both `max_concurrent_runs` and `max_concurrent_runs_per_pod` with the same value. Consumers in the repository read the new key.
-*   The `hiddenChanges` list for `AgentPayload` in `backend/internal/platform/events/catalog.go` will list both names.
-*   The old column, the old event key and the old `hiddenChanges` name will be dropped no earlier than the next minor release.
+*   An agent update that changes the total will list both `max_concurrent_runs` and `max_concurrent_runs_per_pod` in its `changed` field names. `AgentPayload` carries neither value, and its `hiddenChanges` list in `backend/internal/platform/events/catalog.go` will hold both names.
+*   The old column and the old changed-field name will be dropped no earlier than the next minor release.
 
 ### Pod Memory
 
@@ -163,7 +162,7 @@ With cgroup v2 and Kubernetes 1.32 or later, the kubelet group-kills the whole c
 
 ### Start Budget
 
-A run will fail the start budget only when no pod is coming up for it: no pod is Ready, no pod exists in Pending or not-Ready phase, and the agent is under its total. A pod that exists and is not Ready (e.g., one waiting for a node) keeps the run queued.
+A run will fail the start budget only when no pod is coming up for it: no pod is Ready, no pod exists that is Pending or not yet Ready, and the agent is under its total. A pod that exists and is not Ready (e.g., one waiting for a node) keeps the run queued.
 
 ### Scaler
 
@@ -175,7 +174,7 @@ kora-agents will run a scaler loop every 5 s, independent of the claim tick. For
 
 The StatefulSet replicas will be set only on create, to `max(minReplicas, 1)`. Re-applying an agent keeps the live `spec.replicas`.
 
-Scale-down is not an eviction, and the `minAvailable: 1` PodDisruptionBudget does not block it. The defaults carry no Karpenter or Cluster Autoscaler annotations. Operators add them through `agents.workloads.common.podAnnotations` or `agents.patches`.
+Scale-down is not an eviction, and the `minAvailable: 1` PodDisruptionBudget does not block it. The defaults carry no Karpenter or Cluster Autoscaler annotations. Operators add them through `agents.workloads.common.podAnnotations` or `agents.manifestPatches`.
 
 `agents.scheduling.scaler` is `kora` (default) or `external`, and the chart rejects any other value. With `external` the scaler changes no replicas and publishes four per-agent OpenTelemetry metrics: desired replicas, active runs, pending runs and pod memory headroom in bytes. An external scaler may remove a busy top pod. The SIGTERM drain covers that case: the pod accepts no new runs, and its existing runs have `drainGracePeriodSecs` to finish.
 
@@ -211,12 +210,12 @@ kora-agents will remove the CPU and memory HPA, `MaxReplicas: 10`, the chart che
 
 *   The pressure kill ends the newest run, even when another run caused the growth.
 *   Placement and the scaler read memory from every candidate pod, and a slow read marks a pod full for that attempt.
-*   The old column and event key stay until the next minor release.
+*   `agent_types` holds two concurrency columns for one minor release.
 *   Every existing agent StatefulSet is deleted and recreated once.
 
 ### Neutral
 
-*   `minReplicas` stays the floor at 2.
+None at this time.
 
 ### Known Limits
 
@@ -239,7 +238,7 @@ kora-agents will remove the CPU and memory HPA, `MaxReplicas: 10`, the chart che
 *   Chart tests cover the session-manager memory value and the watermark and scaler validation.
 *   A unit test covers the dual-key agent-type event payload, and a chart test covers the ClusterRole verbs.
 *   A local cluster check confirms that the `Parallel` replacement keeps the running pods (same names and UIDs) and their runs.
-*   A local cluster check with one agent at `maxConcurrentRuns` 30 shows replicas rising by more than one in one scaler pass, run 31 pending past the old 3 minute budget, and pods returning to 2 after the runs end.
+*   A local cluster check with one agent at `maxConcurrentRuns` 30 shows replicas rising by more than one in one scaler pass, run 31 pending past the 3 minute start budget, and pods returning to 2 after the runs end.
 
 ---
 
@@ -251,10 +250,13 @@ kora-agents will remove the CPU and memory HPA, `MaxReplicas: 10`, the chart che
     *   Decision, Worker: the selection of a pod with a free slot, the release on no free slot, and the start budget rule.
     *   Considered Options, Session-Manager Workload: the StatefulSet held at 2 pods.
     *   Decision, Agent Resources: the HPA minimum and the StatefulSet replicas of 2.
-    *   Consequences: runs beyond a pod's free slots failing when the start budget runs out, and `pending` held for up to the start budget.
+    *   Consequences: runs beyond a pod's free slots failing when the start budget runs out, a run that finds no pod within the start budget ending `failed`, and `pending` held for up to the start budget.
     *   The rest of Run Scheduling stands, including the durable queue, the drain and the `minReplicas` value of 2.
 *   [Database Migrations](2026-09-10-database-migrations.md): Decision 5, the compatibility contract.
-*   [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md)
+*   [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md): the HPA on CPU and memory is superseded.
+*   [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md): the Run Scheduling amendment's start budget rule is superseded by the start budget rule here.
+*   [Config-Driven Kustomize Manifest Patches](2026-09-15-manifest-patches-configmap.md): StatefulSet replicas are owned by the scaler.
+*   [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md): `agents.workloads` carries the session-manager memory value.
 
 ---
 
