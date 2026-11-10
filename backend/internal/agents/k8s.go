@@ -1792,6 +1792,7 @@ const sidecarProxyConfig = `{"holdApplicationUntilProxyStarts":true,"proxyHeader
 // manifest patches are applied.
 func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace string, labels map[string]string) appsv1.StatefulSet {
 	replicas := max(p.cfg.MinReplicas, 1)
+	sessionManager := p.cfg.Workloads.ForSessionManager()
 	podAnnotations := map[string]string{
 		// The operator's pod webhook adds the SPIRE and identity-proxy
 		// wiring; Istio itself injects only the sidecar.
@@ -1868,12 +1869,12 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceCPU:              resource.MustParse("250m"),
-									corev1.ResourceMemory:           resource.MustParse("512Mi"),
+									corev1.ResourceMemory:           *sessionManager.Memory,
 									corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralRequest),
 								},
 								Limits: corev1.ResourceList{
 									corev1.ResourceCPU:              resource.MustParse("2"),
-									corev1.ResourceMemory:           resource.MustParse("4Gi"),
+									corev1.ResourceMemory:           *sessionManager.Memory,
 									corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralLimit),
 								},
 							},
@@ -1913,7 +1914,6 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 		},
 	}
 
-	sessionManager := p.cfg.Workloads.ForSessionManager()
 	sessionManager.applyToPodMeta(&ss.Spec.Template.ObjectMeta)
 	sessionManager.applyToPodSpec(&ss.Spec.Template.Spec)
 	p.cfg.Workspace.applyToClaim(&ss.Spec.VolumeClaimTemplates[0])

@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -105,6 +106,27 @@ workspace:
 	}
 }
 
+// TestLoadWorkloads_MemoryIsSessionManagerOnly checks sessionManager.memory is
+// decoded and sandbox.memory has nowhere to land.
+func TestLoadWorkloads_MemoryIsSessionManagerOnly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workloads.yaml")
+	body := "workloads:\n  sessionManager:\n    memory: 3Gi\n  sandbox:\n    memory: 3Gi\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := loadWorkloads(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := got.Workloads.SessionManager.Memory; m == nil || m.String() != "3Gi" {
+		t.Errorf("sessionManager memory: got %v, want 3Gi", m)
+	}
+	if !reflect.ValueOf(got.Workloads.Sandbox).IsZero() {
+		t.Errorf("sandbox entry should stay empty: got %+v", got.Workloads.Sandbox)
+	}
+}
+
 // TestLoadWorkloads_RejectsUnparseableSize checks a bad quantity fails at
 // startup rather than when an agent is created.
 func TestLoadWorkloads_RejectsUnparseableSize(t *testing.T) {
@@ -136,6 +158,7 @@ const defaultChartWorkloads = `workloads:
     topologySpreadConstraints: []
   sessionManager:
     affinity: {}
+    memory: 1Gi
     nodeSelector: {}
     podAnnotations: {}
     podLabels: {}

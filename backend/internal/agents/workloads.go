@@ -27,12 +27,25 @@ type WorkloadCustomization struct {
 	PodAnnotations            map[string]string                 `json:"podAnnotations,omitempty"`
 }
 
+// SessionManagerCustomization is the session-manager entry: the shared
+// customization plus the container's memory, which the sandbox sizes per
+// environment instead. See docs/adr/2026-11-09-demand-driven-agent-scaling.md.
+type SessionManagerCustomization struct {
+	WorkloadCustomization
+	// Memory is both the request and the limit of the session-manager container.
+	Memory *resource.Quantity `json:"memory,omitempty"`
+}
+
+// defaultSessionManagerMemory applies when no workloads file sets memory, such
+// as local development without the mount. It matches the chart default.
+const defaultSessionManagerMemory = "1Gi"
+
 // WorkloadsConfig is the full set of workload customizations. Common applies to
 // both workloads; the per-workload entries win on a key both set.
 type WorkloadsConfig struct {
-	Common         CommonCustomization   `json:"common"`
-	SessionManager WorkloadCustomization `json:"sessionManager"`
-	Sandbox        WorkloadCustomization `json:"sandbox"`
+	Common         CommonCustomization         `json:"common"`
+	SessionManager SessionManagerCustomization `json:"sessionManager"`
+	Sandbox        WorkloadCustomization       `json:"sandbox"`
 }
 
 // CommonCustomization is the pod metadata applied to every provisioned pod.
@@ -75,9 +88,15 @@ var reservedAnnotations = []string{
 var reservedLabels = append([]string{"app", "runkora.io/managed-agent", "sidecar.istio.io/inject"}, manifestpatch.IdentityLabels...)
 
 // ForSessionManager returns the session-manager's customization with the common
-// pod metadata merged underneath it.
-func (w WorkloadsConfig) ForSessionManager() WorkloadCustomization {
-	return w.SessionManager.withCommon(w.Common)
+// pod metadata merged underneath it and the memory default filled in.
+func (w WorkloadsConfig) ForSessionManager() SessionManagerCustomization {
+	out := w.SessionManager
+	out.WorkloadCustomization = out.withCommon(w.Common)
+	if out.Memory == nil {
+		memory := resource.MustParse(defaultSessionManagerMemory)
+		out.Memory = &memory
+	}
+	return out
 }
 
 // ForSandbox returns the sandbox's customization with the common pod metadata
