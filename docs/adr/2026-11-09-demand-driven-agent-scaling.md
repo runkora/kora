@@ -1,6 +1,6 @@
 # Demand-Driven Agent Scaling
 
-**Status:** Proposed
+**Status:** Proposed (stays Proposed until the measured `startingRunAllowance` and the kubelet group-kill check are recorded below)
 **Date:** 2026-11-09
 **Deciders:** Justin Wilkin
 **Technical Story:** FAC-30 (Agent concurrency is a total across pods, and agent pods autoscale on run demand)
@@ -164,7 +164,7 @@ The `agents.scheduling.scaler` option is `kora` (default) or `external`; the cha
 
 ### Parallel Pod Management
 
-Agent StatefulSets use `podManagementPolicy: Parallel`, so new pods are created while another pod drains or starts. The field is immutable. When apply finds a live StatefulSet on `OrderedReady`, kora-agents writes the live replicas to the `kora.io/recreate-replicas` annotation on the agent's ServiceAccount, deletes the StatefulSet with orphan propagation (the pods keep running), and recreates it with the same name, selector and live replicas. The new StatefulSet adopts the running pods, and no run is interrupted. The create path reads the annotation whenever no StatefulSet exists, uses it in preference to `max(minReplicas, 1)`, and clears it after the create succeeds. This keeps the live count across a kora-agents restart or a failed create between the delete and the create. `ensureServiceAccount` still replaces the annotations with the built ones and carries over only `kora.io/recreate-replicas`. The recreated StatefulSet carries the same apply's template, so the controller may roll the adopted pods in the normal way with the SIGTERM drain.
+Agent StatefulSets use `podManagementPolicy: Parallel`, so new pods are created while another pod drains or starts. The field is immutable. When apply finds a live StatefulSet on `OrderedReady`, kora-agents writes the live replicas to the `runkora.io/recreate-replicas` annotation on the agent's ServiceAccount, deletes the StatefulSet with orphan propagation (the pods keep running), and recreates it with the same name, selector and live replicas. The new StatefulSet adopts the running pods, and no run is interrupted. The create path reads the annotation whenever no StatefulSet exists, uses it in preference to `max(minReplicas, 1)`, and clears it after the create succeeds. This keeps the live count across a kora-agents restart or a failed create between the delete and the create. `ensureServiceAccount` still replaces the annotations with the built ones and carries over only `runkora.io/recreate-replicas`. The recreated StatefulSet carries the same apply's template, so the controller may roll the adopted pods in the normal way with the SIGTERM drain.
 
 ### Removed
 
