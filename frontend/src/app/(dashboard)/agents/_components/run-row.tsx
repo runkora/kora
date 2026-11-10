@@ -129,7 +129,15 @@ export function RunListRow({
   ];
   const when = rowTime(row, time);
   return (
-    <Stack direction="horizontal" align="center" gap="cozy" grow minWidth="none">
+    // The end padding keeps a trailing control's focus ring inside the cell, which clips overflow.
+    <Stack
+      direction="horizontal"
+      align="center"
+      gap="cozy"
+      grow
+      minWidth="none"
+      style={{ paddingInlineEnd: 4 }}
+    >
       <RunStateIcon state={row.state} />
       <Stack gap="tight" grow minWidth="form-field-sm">
         {title.known ? (
@@ -181,8 +189,9 @@ export function RunListRow({
             {when.text}
           </Text>
         </Stack>
-        {action}
       </Stack>
+      {/* Outside the right-hand group, which clips to its own height, so the focus ring shows whole. */}
+      {action}
     </Stack>
   );
 }
