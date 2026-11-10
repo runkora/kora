@@ -31,7 +31,7 @@ stateDiagram-v2
 
 | State | Meaning | Moves to |
 | --- | --- | --- |
-| `pending` | Waiting for the agent to have capacity | `starting` when capacity frees, `failed` after 180 seconds, or `terminated` |
+| `pending` | Waiting for the agent to have capacity | `starting` when capacity frees, `failed` after 180 seconds with no agent pod Ready or coming up, or `terminated` |
 | `starting` | Starting its session | `active`, `failed` if it never finishes starting, or `terminated` |
 | `active` | The agent is working | `idle` when the agent finishes its turn, `completed` when it exits cleanly, `failed` on an error, `budget_exhausted`, or `terminated` |
 | `idle` | The agent is waiting for the next message | `active` on a new message, `completed` after the idle timeout, `failed` if the agent exits unexpectedly, or `terminated` |
