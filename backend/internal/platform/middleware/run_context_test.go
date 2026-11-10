@@ -118,7 +118,7 @@ func (c *capturingEvaluator) CheckBudget(context.Context, string, policy.BudgetC
 	return policy.BudgetResult{Allow: true}, nil
 }
 
-func (c *capturingEvaluator) GetBudgetCategories(context.Context, string, string) ([]policy.BudgetCategory, error) {
+func (c *capturingEvaluator) GetBudgetCategories(context.Context, string, string, string) ([]policy.BudgetCategory, error) {
 	return nil, nil
 }
 
@@ -126,7 +126,7 @@ func (c *capturingEvaluator) GetRoleBudgets(context.Context, string, []string) (
 	return nil, nil
 }
 
-func (c *capturingEvaluator) ListBudgets(context.Context, string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
+func (c *capturingEvaluator) ListBudgets(context.Context, string) (map[policy.BudgetKey]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
 	return nil, nil, nil
 }
 
