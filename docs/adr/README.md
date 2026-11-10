@@ -104,7 +104,8 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — `Accepted (Amended 2026-10-12)` · 2026-05-11
 - [kora-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) — `Accepted` · 2026-05-11
 - [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — `Accepted (Amended 2026-10-12)` · 2026-05-11
-- [Run Scheduling](2026-10-12-run-scheduling.md) — `Accepted` · 2026-10-12
+- [Run Scheduling](2026-10-12-run-scheduling.md) — `Accepted (superseded in part by Demand-Driven Agent Scaling 2026-11-10)` · 2026-10-12
+- [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) — `Proposed` · 2026-11-09
 - [Per-Run Cost on the Run Record](2026-10-20-run-cost-on-run-record.md) — `Proposed` · 2026-10-20
 - [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) — `Accepted` · 2026-05-11
 - [Agent Workspace Model](2026-05-11-agent-workspace-model.md) — `Accepted` · 2026-05-11
