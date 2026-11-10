@@ -21,6 +21,13 @@ const (
 	sourceKindBranch      = "branch"
 )
 
+// Run source providers, as kora-agents stores them. The UI picks a link's icon by provider.
+const (
+	sourceProviderGitHub       = "github"
+	sourceProviderSlack        = "slack"
+	sourceProviderAlertmanager = "alertmanager"
+)
+
 // sourceLinker is implemented by adapters that can point at what a delivery
 // came from. doc is the document triggers read: the decoded payload, or the
 // chat document for a chat adapter.
@@ -79,7 +86,8 @@ func (a *slackAdapter) SourceLinks(_ string, doc any) []agentsclient.RunSource {
 		Kind: sourceKindTrigger,
 		URL: "https://app.slack.com/client/" + url.PathEscape(workspace) + "/" + url.PathEscape(conversation) +
 			"/thread/" + url.PathEscape(conversation+"-"+thread),
-		Label: "Slack thread",
+		Label:    "Slack thread",
+		Provider: sourceProviderSlack,
 	}}
 }
 
@@ -121,6 +129,9 @@ func (a *githubAdapter) SourceLinks(_ string, doc any) []agentsclient.RunSource 
 			})
 		}
 	}
+	for i := range out {
+		out[i].Provider = sourceProviderGitHub
+	}
 	return out
 }
 
@@ -142,7 +153,7 @@ func (a *alertmanagerAdapter) SourceLinks(_ string, doc any) []agentsclient.RunS
 	if link == "" {
 		return nil
 	}
-	return []agentsclient.RunSource{{Kind: sourceKindTrigger, URL: link, Label: "Alert"}}
+	return []agentsclient.RunSource{{Kind: sourceKindTrigger, URL: link, Label: "Alert", Provider: sourceProviderAlertmanager}}
 }
 
 // addSourceLinks records the delivery's links in meta, when it has any.

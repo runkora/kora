@@ -39,7 +39,7 @@ func TestSlackSourceLinks(t *testing.T) {
 				}
 				return
 			}
-			want := []agentsclient.RunSource{{Kind: "trigger", URL: tc.want, Label: "Slack thread"}}
+			want := []agentsclient.RunSource{{Kind: "trigger", URL: tc.want, Label: "Slack thread", Provider: "slack"}}
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("links = %+v, want %+v", got, want)
 			}
@@ -52,9 +52,9 @@ func TestGitHubSourceLinks(t *testing.T) {
 	t.Run("pull request event", func(t *testing.T) {
 		doc := decodeBody([]byte(`{"pull_request":{"html_url":"https://github.com/o/r/pull/12","number":12,"head":{"ref":"feat/x y"}},"repository":{"html_url":"https://github.com/o/r","full_name":"o/r"}}`))
 		want := []agentsclient.RunSource{
-			{Kind: "trigger", URL: "https://github.com/o/r/pull/12", Label: "PR #12"},
-			{Kind: "repository", URL: "https://github.com/o/r", Label: "o/r"},
-			{Kind: "branch", URL: "https://github.com/o/r/tree/feat/x%20y", Label: "branch feat/x y"},
+			{Kind: "trigger", URL: "https://github.com/o/r/pull/12", Label: "PR #12", Provider: "github"},
+			{Kind: "repository", URL: "https://github.com/o/r", Label: "o/r", Provider: "github"},
+			{Kind: "branch", URL: "https://github.com/o/r/tree/feat/x%20y", Label: "branch feat/x y", Provider: "github"},
 		}
 		if got := a.SourceLinks("pull_request", doc); !reflect.DeepEqual(got, want) {
 			t.Errorf("links = %+v, want %+v", got, want)
@@ -66,13 +66,13 @@ func TestGitHubSourceLinks(t *testing.T) {
 		if len(got) < 2 || got[0].URL != "https://github.com/o/r/pull/12#c1" || got[0].Kind != "trigger" {
 			t.Fatalf("links = %+v, want the comment first", got)
 		}
-		if want := (agentsclient.RunSource{Kind: "pull_request", URL: "https://github.com/o/r/pull/12", Label: "PR #12"}); got[1] != want {
+		if want := (agentsclient.RunSource{Kind: "pull_request", URL: "https://github.com/o/r/pull/12", Label: "PR #12", Provider: "github"}); got[1] != want {
 			t.Errorf("second link = %+v, want %+v", got[1], want)
 		}
 	})
 	t.Run("issue event", func(t *testing.T) {
 		doc := decodeBody([]byte(`{"issue":{"html_url":"https://github.com/o/r/issues/3"}}`))
-		want := []agentsclient.RunSource{{Kind: "trigger", URL: "https://github.com/o/r/issues/3", Label: "GitHub issue"}}
+		want := []agentsclient.RunSource{{Kind: "trigger", URL: "https://github.com/o/r/issues/3", Label: "GitHub issue", Provider: "github"}}
 		if got := a.SourceLinks("issues", doc); !reflect.DeepEqual(got, want) {
 			t.Errorf("links = %+v, want %+v", got, want)
 		}
@@ -82,12 +82,12 @@ func TestGitHubSourceLinks(t *testing.T) {
 func TestAlertmanagerSourceLinks(t *testing.T) {
 	a := &alertmanagerAdapter{}
 	got := a.SourceLinks("firing", decodeBody([]byte(`{"externalURL":"https://am.example","alerts":[{"generatorURL":"https://prom.example/graph"}]}`)))
-	want := []agentsclient.RunSource{{Kind: "trigger", URL: "https://prom.example/graph", Label: "Alert"}}
+	want := []agentsclient.RunSource{{Kind: "trigger", URL: "https://prom.example/graph", Label: "Alert", Provider: "alertmanager"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("links = %+v, want %+v", got, want)
 	}
 	got = a.SourceLinks("firing", decodeBody([]byte(`{"externalURL":"https://am.example","alerts":[{}]}`)))
-	if len(got) != 1 || got[0].URL != "https://am.example" {
+	if len(got) != 1 || got[0].URL != "https://am.example" || got[0].Provider != "alertmanager" {
 		t.Errorf("fallback links = %+v, want externalURL", got)
 	}
 	if got := a.SourceLinks("firing", decodeBody([]byte(`{}`))); len(got) != 0 {
@@ -137,7 +137,7 @@ func TestIngest_SlackStartCarriesSourceLink(t *testing.T) {
 	if !ok {
 		t.Fatal("no run was started")
 	}
-	want := []agentsclient.RunSource{{Kind: "trigger", URL: "https://app.slack.com/client/T1/C1/thread/C1-1700000000.000100", Label: "Slack thread"}}
+	want := []agentsclient.RunSource{{Kind: "trigger", URL: "https://app.slack.com/client/T1/C1/thread/C1-1700000000.000100", Label: "Slack thread", Provider: "slack"}}
 	if !reflect.DeepEqual(call.sources, want) {
 		t.Errorf("start sources = %+v, want %+v", call.sources, want)
 	}
