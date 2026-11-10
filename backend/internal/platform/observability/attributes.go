@@ -57,6 +57,11 @@ const (
 	AnalyticsPrincipalsPageKey attribute.Key = "kora.analytics.principals.page"
 	InferenceRequestStreamKey  attribute.Key = "kora.inference.request.stream"
 
+	// Metric label keys of the inference gateway usage counters. The values are
+	// the Prometheus label names, kept short on purpose (FAC-47).
+	UsageModelKey     attribute.Key = "model"
+	UsageTokenTypeKey attribute.Key = "type"
+
 	MCPServerKey   attribute.Key = "kora.mcp.server"
 	MCPDecisionKey attribute.Key = "kora.mcp.decision"
 
