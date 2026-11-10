@@ -412,3 +412,33 @@ func TestPostgres_AgentLock(t *testing.T) {
 		t.Fatal("the agent lock was not released")
 	}
 }
+
+// The scaler's try-lock is the placement lock: it is refused while placement holds it and taken once free.
+func TestPostgres_TryWithAgentLockSharesPlacementLock(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+
+	held, release := make(chan struct{}), make(chan struct{})
+	done := make(chan error)
+	go func() {
+		done <- r.WithAgentLock(ctx, at.ID, func(context.Context) error {
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+	<-held
+	ran, err := r.TryWithAgentLock(ctx, at.ID, func(context.Context) error { return nil })
+	if err != nil || ran {
+		t.Errorf("try-lock while placement holds it: ran %v, err %v; want refused", ran, err)
+	}
+	close(release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	ran, err = r.TryWithAgentLock(ctx, at.ID, func(context.Context) error { return nil })
+	if err != nil || !ran {
+		t.Errorf("try-lock once free: ran %v, err %v; want taken", ran, err)
+	}
+}

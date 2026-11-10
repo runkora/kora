@@ -16,7 +16,7 @@ import (
 
 // RenderResources builds the patchable resources kora-agents provisions for
 // an agent type (ServiceAccount, StatefulSet with its PVC template, Service,
-// HPA, PDB, and optionally a sample sandbox Pod), applies the manifest
+// PDB, and optionally a sample sandbox Pod), applies the manifest
 // patches, and returns them in creation order. The Istio DestinationRule and
 // AuthorizationPolicy are not patchable and are not rendered.
 //
@@ -45,12 +45,6 @@ func RenderResources(cfg K8sProvisionerConfig, at AgentType, namespace string, r
 		return nil, fmt.Errorf("render Service: %w", err)
 	}
 	out = append(out, &svc)
-
-	hpa, err := manifestpatch.Apply(p.buildHPA(at.Slug, namespace, labels), "HorizontalPodAutoscaler", cfg.Patches)
-	if err != nil {
-		return nil, fmt.Errorf("render HorizontalPodAutoscaler: %w", err)
-	}
-	out = append(out, &hpa)
 
 	pdb, err := manifestpatch.Apply(p.buildPDB(at.Slug, namespace, labels), "PodDisruptionBudget", cfg.Patches)
 	if err != nil {

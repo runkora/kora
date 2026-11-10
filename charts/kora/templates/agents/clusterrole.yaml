@@ -13,6 +13,10 @@ rules:
   - apiGroups: ["apps"]
     resources: ["statefulsets"]
     verbs: ["get", "create", "update", "patch", "delete"]
+  # The scaler sets each agent's replicas through the scale subresource.
+  - apiGroups: ["apps"]
+    resources: ["statefulsets/scale"]
+    verbs: ["get", "update"]
   # Run start lists an agent's pods to find the Ready ones (ReadyOrdinals).
   - apiGroups: [""]
     resources: ["pods"]
@@ -24,9 +28,10 @@ rules:
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["list", "delete"]
+  # Apply deletes the HPA an earlier release created for each agent.
   - apiGroups: ["autoscaling"]
     resources: ["horizontalpodautoscalers"]
-    verbs: ["get", "create", "update", "delete"]
+    verbs: ["get", "delete"]
   - apiGroups: ["policy"]
     resources: ["poddisruptionbudgets"]
     verbs: ["get", "create", "update", "delete"]

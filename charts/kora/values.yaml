@@ -635,7 +635,7 @@ agents:
     startBudgetSecs: 180
     # -- Seconds a run may wait for its agent to finish provisioning before it fails.
     provisionBudgetSecs: 600
-    # -- Session-manager pods each agent runs at least. A roll replaces one while the other takes new runs.
+    # -- Session-manager pods each agent runs at least. A roll replaces one while the other takes new runs. kora-agents adds pods above it as runs need them and removes empty ones.
     minReplicas: 2
     # -- Seconds a terminating session-manager pod waits for its runs to end before it is stopped.
     drainGracePeriodSecs: 3600
@@ -666,9 +666,9 @@ agents:
   tenantConnectionsConfigMapName: kora-tenant-connections
   # Kustomize patches applied to the resources kora-agents provisions in
   # tenant namespaces: StatefulSet, PersistentVolumeClaim (the StatefulSet's
-  # workspace template), Service, ServiceAccount, HorizontalPodAutoscaler,
-  # PodDisruptionBudget and the sandbox Pod. Each value is one kustomize
-  # `patches:` entry and needs target.kind; keys sort into apply order.
+  # workspace template), Service, ServiceAccount, PodDisruptionBudget and the
+  # sandbox Pod. Each value is one kustomize `patches:` entry and needs
+  # target.kind; keys sort into apply order.
   # Patches that change a resource's identity, security context or the
   # sandbox workspace mount are rejected at startup.
   #
