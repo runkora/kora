@@ -159,6 +159,10 @@ func TestChartSessionManagerMemory(t *testing.T) {
 			if err := yaml.Unmarshal([]byte(cm.Data["workloads.yaml"]), &file); err != nil {
 				t.Fatal(err)
 			}
+			// Checked before the Go fallback, which is also 1Gi, can fill it in.
+			if file.Workloads.SessionManager.Memory == nil {
+				t.Fatal("chart rendered no agents.workloads.sessionManager.memory")
+			}
 			objs, err := agents.RenderResources(agents.K8sProvisionerConfig{Workloads: file.Workloads}, agents.AgentType{ID: "a", Slug: "coder", TenantID: "t"}, "tenant-t", false)
 			if err != nil {
 				t.Fatal(err)

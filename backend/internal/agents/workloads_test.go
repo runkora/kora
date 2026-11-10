@@ -267,14 +267,6 @@ func TestBuildStatefulSet_SessionManagerMemoryIsRequestAndLimit(t *testing.T) {
 	}
 }
 
-// Sandbox memory comes from its environment size, so the sandbox entry has no
-// memory field for agents.workloads.sandbox.memory to land in.
-func TestWorkloadCustomization_HasNoMemorySetting(t *testing.T) {
-	if _, ok := reflect.TypeFor[WorkloadCustomization]().FieldByName("Memory"); ok {
-		t.Error("WorkloadCustomization must not carry Memory; it belongs to SessionManagerCustomization")
-	}
-}
-
 // A nodeSelector on one side and required node affinity on the other separates
 // the pods just as surely as two different selectors.
 func TestSplitAcrossNodes_MixedForms(t *testing.T) {

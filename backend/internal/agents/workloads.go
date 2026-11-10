@@ -191,6 +191,9 @@ func requireCoLocation(spec *corev1.PodSpec, podName string) {
 // Validate rejects configuration that would break the pod identity or mesh
 // wiring the platform owns.
 func (w WorkloadsConfig) Validate() error {
+	if m := w.SessionManager.Memory; m != nil && m.Sign() <= 0 {
+		return fmt.Errorf("agents.workloads.sessionManager.memory is %s, want a positive quantity", m.String())
+	}
 	// Ordered, so a file with several problems always reports the same one.
 	for _, workload := range []struct {
 		name        string
