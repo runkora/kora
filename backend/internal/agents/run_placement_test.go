@@ -42,11 +42,11 @@ func TestHasRoom(t *testing.T) {
 		starting int
 		want     bool
 	}{
-		{"below the watermark takes the run", at(watermarkBytes - 1), 0, true},
+		{"room for the new run below the watermark takes it", at(watermarkBytes - testRunAllowance - 1), 0, true},
+		{"the new run reaching the watermark is full", at(watermarkBytes - testRunAllowance), 0, false},
 		{"at the watermark is full", at(watermarkBytes), 0, false},
-		{"above the watermark is full", at(watermarkBytes + 1), 0, false},
-		{"a starting run counts at the allowance", at(watermarkBytes - testRunAllowance), 1, false},
-		{"a starting run below the watermark leaves room", at(watermarkBytes - testRunAllowance - 1), 1, true},
+		{"a starting run counts at the allowance", at(watermarkBytes - 2*testRunAllowance), 1, false},
+		{"a starting run and the new run below the watermark leave room", at(watermarkBytes - 2*testRunAllowance - 1), 1, true},
 		{"no memory limit has room", sessionmanager.Memory{WorkingSetBytes: testPodMemory}, 3, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -156,7 +156,7 @@ func TestAssignPod_MemoryReadTimeout(t *testing.T) {
 func TestAssignPod_TotalHoldsAcrossPods(t *testing.T) {
 	f, repo, _, sm, at, _ := placementEnv(t, 2, 3)
 	// Pod 0 has room for one starting run, so the total spans both pods.
-	sm.memory = podMemory("bot", map[int]int64{0: watermarkBytes - 1})
+	sm.memory = podMemory("bot", map[int]int64{0: watermarkBytes - testRunAllowance - 1})
 	runs := make([]Run, 5)
 	for i := range runs {
 		runs[i] = seedRun(t, repo, Run{ID: fmt.Sprintf("burst-%d", i), TenantID: "t1", AgentTypeID: at.ID, State: RunStatePending})
