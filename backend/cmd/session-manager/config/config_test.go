@@ -73,14 +73,14 @@ func TestDrainTimeout(t *testing.T) {
 	}
 }
 
-// The pressure monitor checks every second at 0.90 of memory.max unless configured otherwise.
+// The pressure monitor checks every 250 ms at 0.90 of memory.max unless configured otherwise.
 func TestBaseDefaults_MemoryPressure(t *testing.T) {
 	cfg, err := config.LoadService[Config]("cmd/session-manager", "production")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.CheckInterval(); got != time.Second {
-		t.Errorf("CheckInterval = %s, want 1s", got)
+	if got := cfg.CheckInterval(); got != 250*time.Millisecond {
+		t.Errorf("CheckInterval = %s, want 250ms", got)
 	}
 	if cfg.Memory.PressureLimit != 0.90 {
 		t.Errorf("pressureLimit = %v, want 0.90", cfg.Memory.PressureLimit)
@@ -114,11 +114,11 @@ func TestApplyEnvOverrides_PressureLimit(t *testing.T) {
 }
 
 func TestValidate_CheckInterval(t *testing.T) {
-	for secs, valid := range map[int]bool{1: true, 5: true, 0: false, -1: false} {
+	for ms, valid := range map[int]bool{1: true, 250: true, 0: false, -1: false} {
 		cfg := &Config{}
-		cfg.Memory.CheckIntervalSecs = secs
+		cfg.Memory.CheckIntervalMs = ms
 		if err := validate(cfg); (err == nil) != valid {
-			t.Errorf("checkIntervalSecs %d: err = %v, want valid %v", secs, err, valid)
+			t.Errorf("checkIntervalMs %d: err = %v, want valid %v", ms, err, valid)
 		}
 	}
 }
