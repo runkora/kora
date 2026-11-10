@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	acp "github.com/coder/acp-go-sdk"
 
@@ -175,7 +176,10 @@ func TestOpenCodeConfig(t *testing.T) {
 		Share            string            `json:"share"`
 		Autoupdate       *bool             `json:"autoupdate"`
 		Permission       map[string]string `json:"permission"`
-		Provider         map[string]struct {
+		Experimental     struct {
+			MCPTimeout *float64 `json:"mcp_timeout"`
+		} `json:"experimental"`
+		Provider map[string]struct {
 			Name    string            `json:"name"`
 			NPM     string            `json:"npm"`
 			Options map[string]string `json:"options"`
@@ -184,6 +188,9 @@ func TestOpenCodeConfig(t *testing.T) {
 	}
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("unmarshal config: %v", err)
+	}
+	if got.Experimental.MCPTimeout == nil || *got.Experimental.MCPTimeout != 720000 {
+		t.Errorf("experimental.mcp_timeout = %v, want 720000 (ms)", got.Experimental.MCPTimeout)
 	}
 	if len(got.EnabledProviders) != 1 || got.EnabledProviders[0] != "kora" {
 		t.Errorf("enabled_providers = %v, want [kora]", got.EnabledProviders)
@@ -215,6 +222,16 @@ func TestOpenCodeConfig(t *testing.T) {
 		if got.Permission[tool] != "deny" {
 			t.Errorf("permission[%s] = %q, want deny", tool, got.Permission[tool])
 		}
+	}
+}
+
+// The chart caps the provisioning budget at 600s; the egress canary adds up to
+// egressCanaryMaxWait. OpenCode must wait at least that long for provision_sandbox.
+func TestOpenCodeMCPTimeoutCoversProvisioning(t *testing.T) {
+	const chartBudgetCap = 600 * time.Second
+	floor := chartBudgetCap + egressCanaryMaxWait
+	if got := time.Duration(openCodeMCPTimeoutMs) * time.Millisecond; got < floor {
+		t.Errorf("openCodeMCPTimeoutMs = %v, want at least %v", got, floor)
 	}
 }
 
