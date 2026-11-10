@@ -250,9 +250,7 @@ function fromPayload(payload: DraftPayload): { fields: BuilderFields; step: numb
       ? String(payload.budget.per_run_limit_usd)
       : '5.00',
     capacityOn: (payload.max_concurrent_runs ?? 0) > 0,
-    capacity: payload.max_concurrent_runs
-      ? String(payload.max_concurrent_runs)
-      : '20',
+    capacity: payload.max_concurrent_runs ? String(payload.max_concurrent_runs) : '20',
     ...loopGuardrailValues(payload.guardrails),
   };
   const step = Math.min(Math.max(payload._builder?.step ?? 0, 0), BUILDER_STEPS.length - 1);
