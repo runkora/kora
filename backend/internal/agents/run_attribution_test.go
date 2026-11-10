@@ -32,6 +32,7 @@ func TestStartRun_TriggerAttribution_StoredForServicePrincipal(t *testing.T) {
 		AgentTypeID: at.ID,
 		TriggerID:   "trig-1",
 		TriggerName: "Nightly review",
+		TriggerKind: "scheduled",
 		DeliveryID:  "deliv-1",
 	})
 	if err != nil {
@@ -40,8 +41,9 @@ func TestStartRun_TriggerAttribution_StoredForServicePrincipal(t *testing.T) {
 	if run.StartedBy == nil {
 		t.Fatal("run has no trigger attribution")
 	}
-	if run.StartedBy.TriggerID != "trig-1" || run.StartedBy.TriggerName != "Nightly review" || run.StartedBy.DeliveryID != "deliv-1" {
-		t.Errorf("started_by = %+v, want the trigger, its name and the delivery", run.StartedBy)
+	want := StartedByTrigger{TriggerID: "trig-1", TriggerName: "Nightly review", TriggerKind: "scheduled", DeliveryID: "deliv-1"}
+	if *run.StartedBy != want {
+		t.Errorf("started_by = %+v, want %+v", run.StartedBy, want)
 	}
 
 	// And it is durable, not only on the create response: the runs UI reads it
@@ -166,6 +168,7 @@ func TestStartRun_TriggerAttribution_RequiresTriggerID(t *testing.T) {
 	for _, req := range []StartRunRequest{
 		{AgentTypeID: at.ID, DeliveryID: "deliv-1"},
 		{AgentTypeID: at.ID, TriggerName: "Nightly review"},
+		{AgentTypeID: at.ID, TriggerKind: "manual"},
 	} {
 		if _, err := f.run.StartRun(ctx, req); !errors.Is(err, ErrTriggerAttributionIncomplete) {
 			t.Errorf("StartRun(%+v) = %v, want ErrTriggerAttributionIncomplete", req, err)
@@ -192,6 +195,30 @@ func TestStartRun_TriggerAttribution_TriggerIDAlone(t *testing.T) {
 	}
 	if run.StartedBy.TriggerName != "" || run.StartedBy.DeliveryID != "" {
 		t.Errorf("started_by = %+v, want the optional detail left empty", run.StartedBy)
+	}
+}
+
+// The kind is empty or one of the trigger kinds; any other value is refused
+// before a run row is written.
+func TestStartRun_TriggerAttribution_TriggerKind(t *testing.T) {
+	ctx := withPrincipalCtx(context.Background(), "t1", token.PrincipalTypeService, "trigger:trig-1")
+	for _, kind := range []string{"", "webhook", "scheduled", "manual", "event"} {
+		got, err := authorizeTriggerAttribution(ctx, StartRunRequest{TriggerID: "trig-1", TriggerKind: kind})
+		if err != nil || got == nil || got.TriggerKind != kind {
+			t.Errorf("kind %q: attribution = %+v, err = %v, want the kind stored", kind, got, err)
+		}
+	}
+
+	f, repo, _, _ := newTestService(t)
+	at := seedAutonomousAgentType(t, repo, "at-1", "t1", "reviewer")
+	for _, kind := range []string{"cron", "Webhook", "agent"} {
+		_, err := f.run.StartRun(ctx, StartRunRequest{AgentTypeID: at.ID, TriggerID: "trig-1", TriggerKind: kind})
+		if !errors.Is(err, ErrTriggerKindInvalid) {
+			t.Errorf("StartRun(kind %q) = %v, want ErrTriggerKindInvalid", kind, err)
+		}
+	}
+	if len(repo.runs) != 0 {
+		t.Errorf("an invalid kind left %d run rows", len(repo.runs))
 	}
 }
 

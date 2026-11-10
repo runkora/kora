@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -36,6 +37,14 @@ var ErrTriggerAttributionRefused = errors.New("only a trigger's own principal ma
 // rendered from it, and it would quietly become a run that claims automation
 // without naming what automated it.
 var ErrTriggerAttributionIncomplete = errors.New("trigger attribution requires a trigger_id")
+
+// ErrTriggerKindInvalid is returned when attribution names a trigger kind other
+// than one of triggerKinds.
+var ErrTriggerKindInvalid = errors.New("invalid trigger_kind")
+
+// triggerKinds are the trigger kinds a run may record. They are the triggers
+// feature's kind values, repeated here because features do not import each other.
+var triggerKinds = []string{"webhook", "scheduled", "manual", "event"}
 
 // Principal-id prefixes the triggers feature mints its SERVICE principals under
 // (internal/triggers/service.go). They are the wire contract this package checks
@@ -95,22 +104,26 @@ func (s *RunService) authorizeAttribution(ctx context.Context, span trace.Span, 
 // the alternative is a trigger id stamped into the minted token's claims, which
 // is the durable fix (see the ADR's Future Work).
 func authorizeTriggerAttribution(ctx context.Context, req StartRunRequest) (*StartedByTrigger, error) {
-	return authorizeTriggerClaim(ctx, req.TriggerID, req.TriggerName, req.DeliveryID)
+	return authorizeTriggerClaim(ctx, req.TriggerID, req.TriggerName, req.TriggerKind, req.DeliveryID)
 }
 
 // authorizeTriggerClaim applies the rules above to one trigger claim, for a run
 // start or a message. It returns nil when the claim is empty.
-func authorizeTriggerClaim(ctx context.Context, triggerID, name, deliveryID string) (*StartedByTrigger, error) {
+func authorizeTriggerClaim(ctx context.Context, triggerID, name, kind, deliveryID string) (*StartedByTrigger, error) {
 	triggerID = strings.TrimSpace(triggerID)
 	deliveryID = strings.TrimSpace(deliveryID)
 	name = strings.TrimSpace(name)
+	kind = strings.TrimSpace(kind)
 
 	if triggerID == "" {
-		if deliveryID != "" || name != "" {
+		if deliveryID != "" || name != "" || kind != "" {
 			return nil, ErrTriggerAttributionIncomplete
 		}
 		// The ordinary case: a person started this run.
 		return nil, nil
+	}
+	if kind != "" && !slices.Contains(triggerKinds, kind) {
+		return nil, fmt.Errorf("%w %q", ErrTriggerKindInvalid, kind)
 	}
 
 	claims, ok := token.ClaimsFromContext(ctx)
@@ -127,6 +140,7 @@ func authorizeTriggerClaim(ctx context.Context, triggerID, name, deliveryID stri
 	return &StartedByTrigger{
 		TriggerID:   triggerID,
 		TriggerName: name,
+		TriggerKind: kind,
 		DeliveryID:  deliveryID,
 	}, nil
 }
@@ -166,7 +180,7 @@ func messageTrigger(ctx context.Context, req SendMessageRequest) (*StartedByTrig
 		// A trigger's own principal names its trigger.
 		triggerID = own
 	}
-	from, err := authorizeTriggerClaim(ctx, triggerID, req.TriggerName, req.DeliveryID)
+	from, err := authorizeTriggerClaim(ctx, triggerID, req.TriggerName, "", req.DeliveryID)
 	if err != nil || from != nil {
 		return from, err
 	}

@@ -753,7 +753,7 @@ A trigger a person disabled is refused before any of this, with nothing recorded
 
 The forward link always existed: a delivery records the run it started. The reverse did not, so a run opened from the runs list could not say a trigger started it at all. Its `created_by` is the trigger's `SERVICE` principal, which reads as an opaque id.
 
-A run therefore carries `started_by`: `{trigger_id, trigger_name, delivery_id}`, three typed nullable columns on `runs` rather than a metadata bag, following the precedent `summary` and `delegation_jti` already set. Absent means a person started the run, which is what its absence means everywhere downstream.
+A run therefore carries `started_by`: `{trigger_id, trigger_name, trigger_kind, delivery_id}`, typed nullable columns on `runs` rather than a metadata bag, following the precedent `summary` and `delegation_jti` already set. Absent means a person started the run, which is what its absence means everywhere downstream.
 
 **The attribution is authorized, not trusted.** A person who could label their own run as trigger-started could manufacture evidence that an automated, policy-governed path did something they did themselves, so the check fails closed and mirrors the delegation model's `requireDelegatorPrincipal`. Attribution that names a delivery without naming a trigger is refused outright: a dangling delivery id renders as nothing and would quietly become a run claiming automation without saying what automated it.
 
@@ -766,6 +766,8 @@ A run therefore carries `started_by`: `{trigger_id, trigger_name, delivery_id}`,
 **The residual, stated rather than hidden:** a source principal can name a *sibling* trigger id within its own tenant. Closing it would require `kora-agents` to read the triggers database to resolve the source-to-trigger binding, which the feature boundary deliberately forbids. The durable fix is to stamp the trigger id into the minted token's claims so the binding travels with the credential and needs no lookup at all; it is recorded in [Future Work](#future-work).
 
 `trigger_name` is a snapshot taken at start time and there is no foreign key, for the same reason the delivery tables have neither: a run is audit history and outlives the trigger that started it. A deleted trigger still reads as something a person recognises, and a later rename does not rewrite what this run says happened.
+
+`trigger_kind` is the trigger's kind at start time (`webhook`, `scheduled`, `manual` or `event`); any other value is refused with 400, and a run that predates the column has no kind.
 
 ### Replay
 

@@ -211,10 +211,10 @@ type StartRunRequest struct {
 	AgentTypeID    string `json:"agent_type_id"`
 	InitialMessage string `json:"initial_message,omitempty"`
 
-	// TriggerID, TriggerName and DeliveryID attribute the run to the trigger
-	// that started it, so a run detail can say "started by trigger X, delivery
-	// Y" rather than showing the trigger's SERVICE principal id and nothing
-	// else. Omitted for any other caller.
+	// TriggerID, TriggerName, TriggerKind and DeliveryID attribute the run to
+	// the trigger that started it, so a run detail can say "started by trigger
+	// X, delivery Y" rather than showing the trigger's SERVICE principal id and
+	// nothing else. Omitted for any other caller.
 	//
 	// kora-agents accepts them only from a SERVICE principal: a run's record of
 	// why it exists is an audit claim, and one any caller could author about
@@ -223,6 +223,7 @@ type StartRunRequest struct {
 	// person recognizes.
 	TriggerID   string `json:"trigger_id,omitempty"`
 	TriggerName string `json:"trigger_name,omitempty"`
+	TriggerKind string `json:"trigger_kind,omitempty"`
 	DeliveryID  string `json:"delivery_id,omitempty"`
 
 	// CausedBy is the event id that led the trigger to fire, and ChainDepth
@@ -504,6 +505,7 @@ type Run struct {
 type StartedByTrigger struct {
 	TriggerID   string `json:"trigger_id"`
 	TriggerName string `json:"trigger_name,omitempty"`
+	TriggerKind string `json:"trigger_kind,omitempty"`
 	DeliveryID  string `json:"delivery_id,omitempty"`
 }
 

@@ -337,7 +337,7 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 	now := time.Now().UTC()
 	// Trigger attribution is written at insert and never updated: it records why
 	// the run exists, which cannot change after it starts.
-	var triggerID, triggerName, deliveryID *string
+	var triggerID, triggerName, triggerKind, deliveryID *string
 	triggerIDs := append([]string{}, run.TriggerIDs...)
 	sourcesJSON, encErr := json.Marshal(mergeRunSources(nil, run.Sources))
 	if encErr != nil {
@@ -346,6 +346,7 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 	if run.StartedBy != nil {
 		triggerID = storage.NullIfZero(run.StartedBy.TriggerID)
 		triggerName = storage.NullIfZero(run.StartedBy.TriggerName)
+		triggerKind = storage.NullIfZero(run.StartedBy.TriggerKind)
 		deliveryID = storage.NullIfZero(run.StartedBy.DeliveryID)
 		if id := run.StartedBy.TriggerID; id != "" && !slices.Contains(triggerIDs, id) {
 			triggerIDs = append(triggerIDs, id)
@@ -355,10 +356,10 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 		_, err := r.pool.Exec(ctx, `
 			INSERT INTO runs
 				(id, tenant_id, agent_type_id, state, pod_ordinal, created_by, created_at, updated_at,
-				 trigger_id, trigger_name, delivery_id, initial_message, trace_parent, caused_by, chain_depth, trigger_ids, sources)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+				 trigger_id, trigger_name, trigger_kind, delivery_id, initial_message, trace_parent, caused_by, chain_depth, trigger_ids, sources)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
 			run.ID, run.TenantID, run.AgentTypeID, string(RunStatePending), -1, run.CreatedBy, now, now,
-			triggerID, triggerName, deliveryID, run.InitialMessage, storage.NullIfZero(run.TraceParent),
+			triggerID, triggerName, triggerKind, deliveryID, run.InitialMessage, storage.NullIfZero(run.TraceParent),
 			storage.NullIfZero(run.CausedBy), run.ChainDepth, triggerIDs, sourcesJSON,
 		)
 		if err != nil {
@@ -378,7 +379,7 @@ const selectRun = `SELECT ` + runColumns + ` FROM runs r JOIN agent_types at ON 
 
 const runColumns = `
 	r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode, at.slug, at.name,
-	r.trigger_id, r.trigger_name, r.delivery_id, r.environment_id, r.trace_parent, r.deleted_at, r.caused_by, r.chain_depth, r.trigger_ids, r.sources`
+	r.trigger_id, r.trigger_name, r.trigger_kind, r.delivery_id, r.environment_id, r.trace_parent, r.deleted_at, r.caused_by, r.chain_depth, r.trigger_ids, r.sources`
 
 // GetRun returns the run, a terminated one included.
 func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error) {
@@ -1040,13 +1041,13 @@ func scanAgentType(s scanner) (*AgentType, error) {
 func scanRun(s scanner, extra ...any) (*Run, error) {
 	var r Run
 	var state, identityMode string
-	var triggerID, triggerName, deliveryID, traceParent, causedBy *string
+	var triggerID, triggerName, triggerKind, deliveryID, traceParent, causedBy *string
 	var sourcesJSON []byte
 	err := s.Scan(append([]any{
 		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodOrdinal,
 		&r.CreatedBy, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
 		&r.Summary, &r.DelegationJTI, &identityMode, &r.AgentSlug, &r.AgentName,
-		&triggerID, &triggerName, &deliveryID, &r.EnvironmentID, &traceParent,
+		&triggerID, &triggerName, &triggerKind, &deliveryID, &r.EnvironmentID, &traceParent,
 		&r.DeletedAt, &causedBy, &r.ChainDepth, &r.TriggerIDs, &sourcesJSON,
 	}, extra...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -1073,6 +1074,7 @@ func scanRun(s scanner, extra ...any) (*Run, error) {
 		r.StartedBy = &StartedByTrigger{
 			TriggerID:   *triggerID,
 			TriggerName: storage.Deref(triggerName),
+			TriggerKind: storage.Deref(triggerKind),
 			DeliveryID:  storage.Deref(deliveryID),
 		}
 	}

@@ -146,8 +146,8 @@ func TestHandleEvent_StartsARunWithTheChain(t *testing.T) {
 	if !ok || deps.agents.callCount() != 1 {
 		t.Fatalf("runs started = %d, want 1", deps.agents.callCount())
 	}
-	if call.causedBy != head.ID || call.chainDepth != 2 || call.triggerID != tr.ID {
-		t.Errorf("start = %+v, want caused_by %s at depth 2 from %s", call, head.ID, tr.ID)
+	if call.causedBy != head.ID || call.chainDepth != 2 || call.triggerID != tr.ID || call.triggerKind != KindEvent {
+		t.Errorf("start = %+v, want caused_by %s at depth 2 from event trigger %s", call, head.ID, tr.ID)
 	}
 	if !strings.Contains(call.initialMessage, "<delivery-data>") || !strings.Contains(call.initialMessage, `"error": "sandbox_lost"`) {
 		t.Errorf("prompt does not carry the event:\n%s", call.initialMessage)
