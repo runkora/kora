@@ -147,3 +147,23 @@ func TestClient_SendMessageIdleTimeout(t *testing.T) {
 		})
 	}
 }
+
+func TestClient_Memory(t *testing.T) {
+	var auth, path string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth, path = r.Header.Get("Authorization"), r.URL.Path
+		_, _ = io.WriteString(w, `{"working_set_bytes":350000000,"limit_bytes":1073741824}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	got, err := NewClient(logging.NewLoggerWithOutput(io.Discard), staticToken("tok-123")).Memory(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Memory{WorkingSetBytes: 350000000, LimitBytes: 1073741824}); got != want {
+		t.Errorf("Memory = %+v, want %+v", got, want)
+	}
+	if auth != "Bearer tok-123" || path != "/memory" {
+		t.Errorf("request = %s with Authorization %q, want /memory with the bearer", path, auth)
+	}
+}
