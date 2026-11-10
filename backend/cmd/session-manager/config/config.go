@@ -2,6 +2,7 @@
 package smConfig
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -135,8 +136,22 @@ var Current = func() *Config {
 	if err := applyEnvOverrides(cfg, os.Getenv); err != nil {
 		panic(err)
 	}
+	if err := validate(cfg); err != nil {
+		panic(err)
+	}
 	return cfg
 }()
+
+// errCheckInterval means memory.checkIntervalSecs is below 1, which the pressure monitor's ticker cannot run on.
+var errCheckInterval = errors.New("memory.checkIntervalSecs must be at least 1")
+
+// validate rejects values the YAML layers can set that the session-manager cannot run with.
+func validate(cfg *Config) error {
+	if cfg.Memory.CheckIntervalSecs < 1 {
+		return errCheckInterval
+	}
+	return nil
+}
 
 // applyEnvOverrides layers the values kora-agents sets on the agent pod over
 // the YAML defaults. getenv is injected so tests can drive it.

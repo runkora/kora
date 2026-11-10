@@ -88,7 +88,7 @@ func (p *acpExecProc) Stdin() io.WriteCloser { return p.stdin }
 func (p *acpExecProc) Stdout() io.Reader     { return p.stdout }
 func (p *acpExecProc) Stderr() io.Reader     { return p.stderr }
 func (p *acpExecProc) Wait() error           { return p.cmd.Wait() }
-func (p *acpExecProc) Kill()                 { _ = syscall.Kill(-p.cmd.Process.Pid, syscall.SIGKILL) }
+func (p *acpExecProc) Kill()                 { _ = p.cmd.Cancel() }
 func (p *acpExecProc) Pid() int              { return p.cmd.Process.Pid }
 
 // acpRunnerConfig configures an acpRunner.
