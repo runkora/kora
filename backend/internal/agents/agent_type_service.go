@@ -60,8 +60,8 @@ var reservedAgentSlugs = []string{string(IdentityModeDelegated), string(Identity
 
 // AgentTypeServiceConfig holds the runtime parameters used by AgentTypeService.
 type AgentTypeServiceConfig struct {
-	MaxConcurrentRunsPerPod int
-	TenantNamespaceFn       func(tenantID string) string // maps tenant ID → k8s namespace
+	MaxConcurrentRuns int
+	TenantNamespaceFn func(tenantID string) string // maps tenant ID → k8s namespace
 }
 
 // AgentTypeService manages agent type lifecycle: creation, provisioning, updates, and deletion.
@@ -365,9 +365,9 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 	)
 	defer span.End()
 
-	maxRuns := req.MaxConcurrentRunsPerPod
+	maxRuns := req.MaxConcurrentRuns
 	if maxRuns <= 0 {
-		maxRuns = s.cfg.MaxConcurrentRunsPerPod
+		maxRuns = s.cfg.MaxConcurrentRuns
 	}
 	framework := req.Framework
 	if framework == "" {
@@ -409,25 +409,25 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 	grantScopes = applyDerivedInferenceScopes(grantScopes, req.ModelID)
 
 	at := AgentType{
-		ID:                      uuid.NewString(),
-		TenantID:                req.TenantID,
-		Name:                    req.Name,
-		Slug:                    req.Slug,
-		Description:             req.Description,
-		SystemPrompt:            req.SystemPrompt,
-		Framework:               framework,
-		IdentityMode:            validated.identityMode,
-		GrantScopes:             grantScopes,
-		Connectivity:            validated.connectivity,
-		Connectors:              req.Connectors,
-		MCPTools:                mcpTools,
-		Environments:            validated.environments,
-		Guardrails:              guardrailsOrDefault(req.Guardrails),
-		MaxConcurrentRunsPerPod: maxRuns,
-		ModelID:                 req.ModelID,
-		Budget:                  req.Budget,
-		State:                   AgentTypeStateProvisioning,
-		CreatedBy:               creatorSubject(ctx),
+		ID:                uuid.NewString(),
+		TenantID:          req.TenantID,
+		Name:              req.Name,
+		Slug:              req.Slug,
+		Description:       req.Description,
+		SystemPrompt:      req.SystemPrompt,
+		Framework:         framework,
+		IdentityMode:      validated.identityMode,
+		GrantScopes:       grantScopes,
+		Connectivity:      validated.connectivity,
+		Connectors:        req.Connectors,
+		MCPTools:          mcpTools,
+		Environments:      validated.environments,
+		Guardrails:        guardrailsOrDefault(req.Guardrails),
+		MaxConcurrentRuns: maxRuns,
+		ModelID:           req.ModelID,
+		Budget:            req.Budget,
+		State:             AgentTypeStateProvisioning,
+		CreatedBy:         creatorSubject(ctx),
 	}
 	at.Source, at.ResourceUID, at.ResourceGeneration, at.Repository = sourceFor(ctx)
 	if err := s.checkCeiling(ctx, at, s.scopeResolver()); err != nil {
@@ -870,8 +870,8 @@ func applyAgentTypeUpdates(at *AgentType, req UpdateAgentTypeRequest) {
 	if req.Framework != nil {
 		at.Framework = *req.Framework
 	}
-	if req.MaxConcurrentRunsPerPod != nil {
-		at.MaxConcurrentRunsPerPod = *req.MaxConcurrentRunsPerPod
+	if req.MaxConcurrentRuns != nil {
+		at.MaxConcurrentRuns = *req.MaxConcurrentRuns
 	}
 	if req.ModelID != nil {
 		at.ModelID = req.ModelID

@@ -18,7 +18,7 @@ import (
 func schedulerService(t *testing.T) (*testServiceFacade, *mockRepository, *mockK8s, *mockSMClient) {
 	t.Helper()
 	f, repo, k8s, sm := newTestService(t)
-	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t1", Slug: "bot", MaxConcurrentRuns: 5})
 	return f, repo, k8s, sm
 }
 

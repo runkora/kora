@@ -85,7 +85,7 @@ func TestAgentType_GuardrailsCreateAndUpdate(t *testing.T) {
 // loop thresholds to the session-manager.
 func TestStartRun_SendsGuardrails(t *testing.T) {
 	f, repo, _, sm := newTestService(t)
-	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t1", Slug: "bot", MaxConcurrentRunsPerPod: 5,
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t1", Slug: "bot", MaxConcurrentRuns: 5,
 		Guardrails: Guardrails{WaitRearmWarn: new(3), WaitRearmPause: new(7)}})
 
 	ctx := withPrincipalCtx(context.Background(), "t1", token.PrincipalTypeHuman, "user:1")

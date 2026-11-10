@@ -154,8 +154,8 @@ func TestCreateAgentType_DefaultsFrameworkAndMaxRuns(t *testing.T) {
 	if at.Framework != AgentFrameworkClaudeCode {
 		t.Errorf("framework = %q, want claude-code", at.Framework)
 	}
-	if at.MaxConcurrentRunsPerPod != 5 {
-		t.Errorf("MaxConcurrentRunsPerPod = %d, want 5 (from ServiceConfig)", at.MaxConcurrentRunsPerPod)
+	if at.MaxConcurrentRuns != 5 {
+		t.Errorf("MaxConcurrentRuns = %d, want 5 (from ServiceConfig)", at.MaxConcurrentRuns)
 	}
 }
 
@@ -163,11 +163,11 @@ func TestCreateAgentType_PreservesExplicitFrameworkAndMaxRuns(t *testing.T) {
 	svc, _, _, _ := newTestService(t)
 
 	at, err := svc.CreateAgentType(context.Background(), CreateAgentTypeRequest{
-		TenantID:                "t-1",
-		Name:                    "Codex Bot",
-		Slug:                    "codex-bot",
-		Framework:               AgentFrameworkCodex,
-		MaxConcurrentRunsPerPod: 2,
+		TenantID:          "t-1",
+		Name:              "Codex Bot",
+		Slug:              "codex-bot",
+		Framework:         AgentFrameworkCodex,
+		MaxConcurrentRuns: 2,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -175,8 +175,8 @@ func TestCreateAgentType_PreservesExplicitFrameworkAndMaxRuns(t *testing.T) {
 	if at.Framework != AgentFrameworkCodex {
 		t.Errorf("framework = %q, want codex", at.Framework)
 	}
-	if at.MaxConcurrentRunsPerPod != 2 {
-		t.Errorf("MaxConcurrentRunsPerPod = %d, want 2", at.MaxConcurrentRunsPerPod)
+	if at.MaxConcurrentRuns != 2 {
+		t.Errorf("MaxConcurrentRuns = %d, want 2", at.MaxConcurrentRuns)
 	}
 }
 
@@ -540,9 +540,9 @@ func TestStartRun_HappyPath(t *testing.T) {
 	svc, repo, k8s, sm := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{
 		ID: "at-1", TenantID: "t-1", Slug: "bot",
-		Framework:               AgentFrameworkClaudeCode,
-		SystemPrompt:            "be helpful",
-		MaxConcurrentRunsPerPod: 5,
+		Framework:         AgentFrameworkClaudeCode,
+		SystemPrompt:      "be helpful",
+		MaxConcurrentRuns: 5,
 	})
 
 	run, err := svc.StartAndSchedule(context.Background(), StartRunRequest{
@@ -579,8 +579,8 @@ func TestStartRun_CreatesNoSandbox(t *testing.T) {
 	svc, repo, k8s, sm := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{
 		ID: "at-1", TenantID: "t-1", Slug: "bot",
-		Framework:               AgentFrameworkClaudeCode,
-		MaxConcurrentRunsPerPod: 5,
+		Framework:         AgentFrameworkClaudeCode,
+		MaxConcurrentRuns: 5,
 	})
 
 	if _, err := svc.StartAndSchedule(context.Background(), StartRunRequest{TenantID: "t-1", AgentTypeID: at.ID}); err != nil {
@@ -614,7 +614,7 @@ func TestStartRun_SelectsLeastLoadedPod(t *testing.T) {
 	svc, repo, k8s, _ := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{
 		ID: "at-1", TenantID: "t-1", Slug: "bot",
-		MaxConcurrentRunsPerPod: 5,
+		MaxConcurrentRuns: 5,
 	})
 	k8s.readyPods = 3
 	// Pod 1 has the fewest runs.
@@ -727,7 +727,7 @@ func TestTerminateRun_SessionNotFoundContinues(t *testing.T) {
 
 func TestTerminateRun_SMNetworkError_ContinuesToDBCleanup(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
-	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRuns: 5})
 	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
 
 	// A general network error (not ErrSessionNotFound) should still be tolerated;
@@ -853,7 +853,7 @@ func TestTransitionRunState_Conflict(t *testing.T) {
 
 func TestSendMessage_HappyPath(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
-	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRuns: 5})
 	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
 
 	if err := svc.SendMessage(context.Background(), "run-1", "hello"); err != nil {
@@ -875,7 +875,7 @@ func TestSendMessage_HappyPath(t *testing.T) {
 
 func TestSendMessage_NonActiveRun(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
-	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRuns: 5})
 	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateCompleted})
 
 	err := svc.SendMessage(context.Background(), "run-1", "hello")
@@ -965,17 +965,17 @@ func TestUpdateAgentType_AllFields(t *testing.T) {
 	newPrompt := "New Prompt"
 	newMax := 10
 	updated, err := svc.UpdateAgentType(context.Background(), UpdateAgentTypeRequest{
-		ID:                      "at-1",
-		Name:                    &newName,
-		Description:             &newDesc,
-		SystemPrompt:            &newPrompt,
-		MaxConcurrentRunsPerPod: &newMax,
+		ID:                "at-1",
+		Name:              &newName,
+		Description:       &newDesc,
+		SystemPrompt:      &newPrompt,
+		MaxConcurrentRuns: &newMax,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if updated.Name != newName || updated.Description != newDesc ||
-		updated.SystemPrompt != newPrompt || updated.MaxConcurrentRunsPerPod != newMax {
+		updated.SystemPrompt != newPrompt || updated.MaxConcurrentRuns != newMax {
 		t.Errorf("unexpected update result: %+v", updated)
 	}
 }
@@ -1076,7 +1076,7 @@ func TestUpdateAgentType_NameChange_DoesNotRollStatefulSet(t *testing.T) {
 
 func TestSendMessage_IdleRun(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
-	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRuns: 5})
 	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateIdle})
 
 	if err := svc.SendMessage(context.Background(), "run-1", "follow up"); err != nil {
@@ -1130,7 +1130,7 @@ func TestSendMessage_RejectsTerminalStates(t *testing.T) {
 
 func TestInterruptRun_HappyPath(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
-	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRuns: 5})
 	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
 
 	if err := svc.InterruptRun(context.Background(), "run-1"); err != nil {
@@ -1221,20 +1221,20 @@ func newTestServiceWithReaper(t *testing.T) (*testServiceFacade, *mockRepository
 	atSvc := NewAgentTypeService(
 		repo, repo, k8s, authz, nil, lockedTenants{},
 		AgentTypeServiceConfig{
-			MaxConcurrentRunsPerPod: 5,
-			TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },
+			MaxConcurrentRuns: 5,
+			TenantNamespaceFn: func(tenantID string) string { return "kora-tenant-" + tenantID },
 		},
 		logger,
 	)
 	runSvc, err := NewRunService(
 		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s, k8s, repo,
 		RunServiceConfig{
-			DefaultEnvironmentSize:  testSizes.Default,
-			MaxConcurrentRunsPerPod: 5,
-			TenantNamespaceFn:       func(tenantID string) string { return "kora-tenant-" + tenantID },
-			StaleRunTimeout:         time.Minute, // shorter than UpdatedAt back-dating in tests
-			ReaperInterval:          20 * time.Millisecond,
-			Brand:                   brand.MustNew("kora"),
+			DefaultEnvironmentSize: testSizes.Default,
+			MaxConcurrentRuns:      5,
+			TenantNamespaceFn:      func(tenantID string) string { return "kora-tenant-" + tenantID },
+			StaleRunTimeout:        time.Minute, // shorter than UpdatedAt back-dating in tests
+			ReaperInterval:         20 * time.Millisecond,
+			Brand:                  brand.MustNew("kora"),
 		},
 		logger,
 	)

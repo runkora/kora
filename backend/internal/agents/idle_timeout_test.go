@@ -132,7 +132,7 @@ func TestSendMessage_IdleTimeoutAndEventBySender(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			svc, repo, _, sm := newTestService(t)
 			svc.run.cfg.IdleTimeouts = testIdleTimeouts
-			at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+			at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRuns: 5})
 			seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateIdle, StartedBy: tt.startedBy})
 
 			ctx := withPrincipalCtx(context.Background(), "t-1", tt.principal, tt.subject)
@@ -192,7 +192,7 @@ func TestSendMessage_RefusesTriggerAttribution(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc, repo, _, sm := newTestService(t)
-			at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+			at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRuns: 5})
 			seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateIdle})
 
 			ctx := withPrincipalCtx(context.Background(), "t-1", tt.principal, tt.subject)

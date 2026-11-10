@@ -25,8 +25,8 @@ func (l lockedTenants) APIAuthoringEnabled(tenantID string) bool { return !l[ten
 // caller check refuses.
 func newDenyingAgentTypeService(repo *mockRepository, locked lockedTenants) *AgentTypeService {
 	svc := NewAgentTypeService(repo, repo, &mockK8s{}, NewAuthz(&scopedEvaluator{}), nil, locked, AgentTypeServiceConfig{
-		MaxConcurrentRunsPerPod: 5,
-		TenantNamespaceFn:       func(id string) string { return "kora-tenant-" + id },
+		MaxConcurrentRuns: 5,
+		TenantNamespaceFn: func(id string) string { return "kora-tenant-" + id },
 	}, logging.NewLoggerWithOutput(io.Discard))
 	svc.SetEnvironmentLookup(repo)
 	return svc
@@ -214,8 +214,8 @@ func TestDeclaredAgentUpdateFailsWhenGrantRefused(t *testing.T) {
 	repo := newMockRepository()
 	k8s := &mockK8s{}
 	svc := NewAgentTypeService(repo, repo, k8s, NewAuthz(&scopedEvaluator{}), nil, lockedTenants{}, AgentTypeServiceConfig{
-		MaxConcurrentRunsPerPod: 5,
-		TenantNamespaceFn:       func(id string) string { return "kora-tenant-" + id },
+		MaxConcurrentRuns: 5,
+		TenantNamespaceFn: func(id string) string { return "kora-tenant-" + id },
 	}, logging.NewLoggerWithOutput(io.Discard))
 	svc.SetEnvironmentLookup(repo)
 

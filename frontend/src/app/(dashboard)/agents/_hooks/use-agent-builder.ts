@@ -166,7 +166,7 @@ const EMPTY_FIELDS: BuilderFields = {
   runBudgetOn: false,
   runBudgetUsd: '5.00',
   capacityOn: false,
-  capacity: '10',
+  capacity: '20',
   ...loopGuardrailValues(undefined),
 };
 
@@ -219,7 +219,7 @@ function toPayload(fields: BuilderFields, step: number): DraftPayload {
   };
   if (Object.keys(budget).length > 0) payload.budget = budget;
   if (fields.capacityOn && Number(fields.capacity) > 0) {
-    payload.max_concurrent_runs_per_pod = Number(fields.capacity);
+    payload.max_concurrent_runs = Number(fields.capacity);
   }
   const guardrails = loopGuardrailsPayload(fields);
   if (Object.keys(guardrails).length > 0) payload.guardrails = guardrails;
@@ -249,9 +249,9 @@ function fromPayload(payload: DraftPayload): { fields: BuilderFields; step: numb
     runBudgetUsd: payload.budget?.per_run_limit_usd
       ? String(payload.budget.per_run_limit_usd)
       : '5.00',
-    capacityOn: (payload.max_concurrent_runs_per_pod ?? 0) > 0,
-    capacity: payload.max_concurrent_runs_per_pod
-      ? String(payload.max_concurrent_runs_per_pod)
+    capacityOn: (payload.max_concurrent_runs ?? 0) > 0,
+    capacity: payload.max_concurrent_runs
+      ? String(payload.max_concurrent_runs)
       : '10',
     ...loopGuardrailValues(payload.guardrails),
   };

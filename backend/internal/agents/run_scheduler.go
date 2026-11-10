@@ -293,7 +293,7 @@ func (s *RunService) selectPod(ctx context.Context, at *AgentType, namespace str
 	}
 	best, bestCount := -1, 0
 	for _, i := range ready {
-		if c := counts[i]; c < at.MaxConcurrentRunsPerPod && (best < 0 || c < bestCount) {
+		if c := counts[i]; c < at.MaxConcurrentRuns && (best < 0 || c < bestCount) {
 			best, bestCount = i, c
 		}
 	}

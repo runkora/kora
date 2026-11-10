@@ -224,8 +224,8 @@ type AgentType struct {
 	EffectiveConnectors []Connector `json:"effective_connectors,omitempty"`
 	// Environments are the sandboxes this agent may run in, one of them the default; none means kora-base.
 	// Their egress and connectors join the agent's grant.
-	Environments            []AgentEnvironment `json:"environments"`
-	MaxConcurrentRunsPerPod int                `json:"max_concurrent_runs_per_pod"`
+	Environments      []AgentEnvironment `json:"environments"`
+	MaxConcurrentRuns int                `json:"max_concurrent_runs"`
 	// Guardrails are the loop-guard thresholds; unset fields take the platform defaults.
 	Guardrails Guardrails `json:"guardrails"`
 	// CreatedBy is the token subject that created the type; the owner check in Authz reads it.
@@ -508,7 +508,7 @@ func AllRunStates() []RunState {
 }
 
 // OccupiesPod reports whether a run in this state still holds a slot on its
-// assigned pod, and so counts towards MaxConcurrentRunsPerPod when a new run
+// assigned pod, and so counts towards the pod's run count when a new run
 // is placed.
 //
 // A state occupies a pod whenever a session process may still be resident:
