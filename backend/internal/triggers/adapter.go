@@ -191,11 +191,12 @@ func (r *Registry) Providers() []string {
 // matchesCondition reports whether the delivery fields satisfy every clause of a
 // trigger's match condition. Each clause is `field → allowed values`; a clause
 // is satisfied when the field's value is one of the allowed values. An empty
-// condition matches everything. Empty allowed-value lists are ignored.
+// condition matches everything. A clause with an empty allowed-value list
+// matches nothing: create and update reject one, so a stored one fails closed.
 func matchesCondition(condition map[string][]string, fields map[string]string) bool {
 	for key, allowed := range condition {
 		if len(allowed) == 0 {
-			continue
+			return false
 		}
 		if !slices.Contains(allowed, fields[key]) {
 			return false
@@ -206,11 +207,11 @@ func matchesCondition(condition map[string][]string, fields map[string]string) b
 
 // matchesContains reports whether every field in contains holds at least one of
 // its substrings, ignoring case. A missing field is "" and contains nothing.
-// Empty substring lists are ignored, as in matchesCondition.
+// An empty substring list matches nothing, as in matchesCondition.
 func matchesContains(contains map[string][]string, fields map[string]string) bool {
 	for key, subs := range contains {
 		if len(subs) == 0 {
-			continue
+			return false
 		}
 		value := strings.ToLower(fields[key])
 		if !slices.ContainsFunc(subs, func(sub string) bool { return strings.Contains(value, strings.ToLower(sub)) }) {

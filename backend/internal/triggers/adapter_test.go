@@ -58,7 +58,8 @@ func TestMatchesCondition(t *testing.T) {
 		{"membership match", map[string][]string{"action": {"closed", "opened"}}, true},
 		{"multi clause all match", map[string][]string{"action": {"opened"}, "pr.base_ref": {"main"}}, true},
 		{"multi clause one fails", map[string][]string{"action": {"opened"}, "pr.base_ref": {"release"}}, false},
-		{"empty allowed list is ignored", map[string][]string{"action": {}}, true},
+		{"empty allowed list matches nothing", map[string][]string{"action": {}}, false},
+		{"nil map matches all", nil, true},
 		{"missing field no match", map[string][]string{"missing": {"x"}}, false},
 	}
 	for _, tt := range tests {
@@ -83,7 +84,8 @@ func TestMatchesContains(t *testing.T) {
 		{"absent substring", map[string][]string{"comment.body": {"@other-bot"}}, false},
 		{"any listed substring", map[string][]string{"comment.body": {"@other-bot", "PLEASE"}}, true},
 		{"every entry must pass", map[string][]string{"comment.body": {"review"}, "action": {"edit"}}, false},
-		{"empty list is ignored", map[string][]string{"comment.body": {}}, true},
+		{"empty list matches nothing", map[string][]string{"comment.body": {}}, false},
+		{"empty map matches all", map[string][]string{}, true},
 		{"missing field contains nothing", map[string][]string{"comment.missing": {"x"}}, false},
 	}
 	for _, tt := range tests {
