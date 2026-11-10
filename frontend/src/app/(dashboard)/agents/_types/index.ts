@@ -4,6 +4,7 @@
 // Raw API shapes (AgentType, Run) only appear at the service layer boundary.
 
 import { isDeclared } from '@runkora/lib/declarative';
+import { FRAMEWORK_LABELS } from '@runkora/shared/agent-frameworks';
 import type {
   AgentEnvironment,
   AgentType,
@@ -106,12 +107,6 @@ export interface RunRow {
 }
 
 // ── Transformers ──────────────────────────────────────────────────────────────
-
-const FRAMEWORK_LABELS: Record<string, string> = {
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-  opencode: 'OpenCode',
-};
 
 export function toAgentTypeRow(a: AgentType): AgentTypeRow {
   return {

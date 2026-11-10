@@ -1,3 +1,5 @@
+import type { AgentFramework } from './agent-frameworks';
+
 // ── Shared API types ─────────────────────────────────────────────────────────
 //
 // These interfaces mirror Go backend JSON response shapes exactly.
@@ -169,8 +171,8 @@ export interface ScopesExplainResponse {
 
 // ── Agents — /api/agents ──────────────────────────────────────────────────────
 
-/** Execution framework the agent type targets. Mirrors Go: agents.Framework */
-export type AgentFramework = 'claude-code' | 'codex' | 'opencode';
+/** Execution framework the agent type targets. Defined in agent-frameworks.ts. */
+export type { AgentFramework };
 
 /** Lifecycle state of an AgentType resource. Mirrors Go: agents.AgentTypeState */
 export type AgentTypeState = 'provisioning' | 'active' | 'deleting';

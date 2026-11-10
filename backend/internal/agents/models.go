@@ -35,6 +35,7 @@ const (
 	AgentFrameworkClaudeCode AgentFramework = "claude-code"
 	AgentFrameworkCodex      AgentFramework = "codex"
 	AgentFrameworkOpenCode   AgentFramework = "opencode"
+	// These constants must be entries in the shared list; TestAgentFrameworkConstantsAreSupported checks it.
 )
 
 // IdentityMode is an agent type's identity model — who the agent acts as.
