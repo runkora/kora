@@ -132,12 +132,14 @@ linters:
     # depguard enforces import discipline per ADR-0004, ADR-0020, and ADR-0022.
     #
     # Rule: no-stdlib-log
-    #   Scope: all packages except cmd/ entrypoints
+    #   Scope: all packages except cmd/ entrypoints and platform/logging/slog.go
     #   Rationale: ADR-0004 mandates the injected logging.Logger for all
     #   application code. stdlib log and slog drop OTel trace context and
     #   produce unstructured output. cmd/*/main.go files are excluded because
     #   they legitimately use log.Fatal for bootstrap panics before the
-    #   structured logger is constructed.
+    #   structured logger is constructed. platform/logging/slog.go is excluded
+    #   because it hands libraries that accept only *slog.Logger a logger that
+    #   writes through logging.Logger.
     #   See docs/adr/0004-dependency-injected-logging.md
     #
     # Rule: no-otel-span-mgmt-in-service-clients
@@ -192,14 +194,17 @@ linters:
       rules:
         no-stdlib-log:
           # Ban the standard library log and slog packages everywhere except
-          # cmd/ entrypoints. cmd/*/main.go files legitimately use log.Fatal
-          # for bootstrap panics that occur before the structured logger is
-          # constructed (e.g. config load failures, signal handler setup).
+          # cmd/ entrypoints and platform/logging/slog.go. cmd/*/main.go files
+          # legitimately use log.Fatal for bootstrap panics that occur before
+          # the structured logger is constructed (e.g. config load failures,
+          # signal handler setup). slog.go adapts logging.Logger for libraries
+          # that accept only *slog.Logger (acp-go-sdk).
           # All application code under internal/ must use the injected
           # logging.Logger so that OTel trace IDs are extracted from context
           # and included in every structured log line.
           files:
             - "!**/cmd/**"
+            - "!**/platform/logging/slog.go"
           deny:
             - pkg: "log"
               desc: >

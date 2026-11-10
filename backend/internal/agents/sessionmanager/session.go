@@ -389,6 +389,9 @@ func (reg *Registry) Interrupt(ctx context.Context, runID string) error {
 	s.interruptClose.Store(true)
 	if err := s.runner.Interrupt(); err != nil {
 		s.interruptClose.Store(false)
+		if errors.Is(err, ErrNoPromptInFlight) {
+			return nil
+		}
 		return fmt.Errorf("interrupt runner: %w", err)
 	}
 	reg.logger.Info(ctx, "Session interrupted",
