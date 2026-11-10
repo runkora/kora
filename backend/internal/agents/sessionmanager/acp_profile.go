@@ -2,6 +2,7 @@ package sessionmanager
 
 import (
 	"encoding/json"
+	"strings"
 
 	acp "github.com/coder/acp-go-sdk"
 
@@ -30,6 +31,26 @@ type acpProfile interface {
 	// AdapterSignal reads provider retries and background work from an adapter
 	// message.
 	AdapterSignal(msg acpAdapterMessage) acpSignal
+	// ToolView is kora's name, input and result for a tool call, given what its
+	// updates carried so far and the latest update u. It runs once per update.
+	ToolView(c *acpToolCall, u acp.ToolCallUpdate) acpToolView
+}
+
+// acpToolView is a tool call as kora records it. Output and IsError matter once
+// the call has ended.
+type acpToolView struct {
+	Name    string
+	Input   any
+	Output  string
+	IsError bool
+}
+
+// acpDefaultToolView names the call by its first title (or Claude's tool name),
+// records its latest input and reads the result from rawOutput or the content
+// blocks. Profiles whose adapter needs nothing else use it.
+func acpDefaultToolView(c *acpToolCall, u acp.ToolCallUpdate) acpToolView {
+	out, failed := acpToolOutput(u.Content, u.RawOutput)
+	return acpToolView{Name: c.toolName(), Input: c.input, Output: out, IsError: failed}
 }
 
 // acpSessionParams is what a profile contributes to the ACP session.
@@ -63,6 +84,21 @@ type acpSignal struct {
 	// InFlightWork is the number of background tasks running, nil when the
 	// message does not report it.
 	InFlightWork *int
+}
+
+// acpGatewayServers declares one HTTP server per MCP server the agent holds
+// tool grants on. The identity-proxy sidecar injects the platform token on the
+// way out (docs/adr/2026-06-29-mcp-tool-gateway.md).
+func acpGatewayServers(gatewayURL string, names []string) []acp.McpServer {
+	servers := []acp.McpServer{}
+	if url := strings.TrimRight(gatewayURL, "/"); url != "" {
+		for _, name := range names {
+			servers = append(servers, acp.McpServer{Http: &acp.McpServerHttpInline{
+				Type: "http", Name: name, Url: url + "/v1/mcp/" + name, Headers: []acp.HttpHeader{},
+			}})
+		}
+	}
+	return servers
 }
 
 // acpDefaultErrorCode is the run_error code when the profile has no better one.

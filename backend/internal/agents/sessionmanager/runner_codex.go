@@ -389,18 +389,7 @@ func codexDeveloperInstructions(systemPrompt string) string {
 // RawMcpServerConfig at the pinned CLI version.
 func (r *CodexRunner) mcpServersTOML() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, `
-[mcp_servers.runtime]
-command = "kora-runtime-mcp"
-args    = []
-default_tools_approval_mode = "approve"
-# Codex starts MCP servers with a filtered env; the run token proves the run on /internal calls.
-env_vars = ["KORA_RUN_TOKEN"]
-
-[mcp_servers.runtime.env]
-KORA_SESSION_MANAGER_URL = %q
-KORA_RUN_ID              = %q
-`, r.cfg.SessionManagerURL, r.cfg.RunID)
+	b.WriteString(codexRuntimeMCPTOML(r.cfg))
 
 	// The agent calls the gateway unauthenticated; the identity-proxy sidecar
 	// injects the platform token on the way out (docs/adr/2026-06-29-mcp-tool-gateway.md).
@@ -414,6 +403,23 @@ default_tools_approval_mode = "approve"
 		}
 	}
 	return b.String()
+}
+
+// codexRuntimeMCPTOML renders the runtime server's table. It stays in the config
+// file because Codex passes an MCP server only the variables env_vars names.
+func codexRuntimeMCPTOML(cfg CodexRunnerConfig) string {
+	return fmt.Sprintf(`
+[mcp_servers.runtime]
+command = "kora-runtime-mcp"
+args    = []
+default_tools_approval_mode = "approve"
+# Codex starts MCP servers with a filtered env; the run token proves the run on /internal calls.
+env_vars = ["KORA_RUN_TOKEN"]
+
+[mcp_servers.runtime.env]
+KORA_SESSION_MANAGER_URL = %q
+KORA_RUN_ID              = %q
+`, cfg.SessionManagerURL, cfg.RunID)
 }
 
 // sendRPCRequest sends a request with the given method and params, registers a
@@ -1064,18 +1070,31 @@ const codexProvider = "kora"
 // on the OS environment being scoped to the subprocess, which is the standard
 // safe approach for secrets in child processes.
 func (r *CodexRunner) writeCodexConfig(workDir string) (string, error) {
-	if r.cfg.InferenceGatewayURL == "" {
+	return writeCodexHome(r.cfg, workDir, "", r.mcpServersTOML())
+}
+
+// writeCodexHome writes the run's config.toml into CODEX_HOME (workDir/.codex)
+// and returns that directory. topLevel holds extra top-level keys, which TOML
+// needs ahead of the first table, and tables the [mcp_servers.*] tables.
+func writeCodexHome(cfg CodexRunnerConfig, workDir, topLevel, tables string) (string, error) {
+	if cfg.InferenceGatewayURL == "" {
 		return "", fmt.Errorf("InferenceGatewayURL must not be empty")
 	}
-	gatewayURL := strings.TrimRight(r.cfg.InferenceGatewayURL, "/")
+	gatewayURL := strings.TrimRight(cfg.InferenceGatewayURL, "/")
 	// Codex treats base_url as already containing the API version segment (its
 	// own default is "https://api.openai.com/v1") and appends "/responses" to
 	// it. Without the trailing /v1, requests are missing the version segment
 	// and are rejected by the gateway.
-	perRunURL := fmt.Sprintf("%s/run/%s/v1", gatewayURL, r.cfg.RunID)
+	perRunURL := fmt.Sprintf("%s/run/%s/v1", gatewayURL, cfg.RunID)
 
-	codexHome := filepath.Join(workDir, ".codex")
-	if err := os.MkdirAll(codexHome, 0o700); err != nil {
+	// Written through an os.Root on the workspace the agent can write, so a
+	// symlink it plants that leads out of the workspace is refused.
+	root, err := os.OpenRoot(workDir)
+	if err != nil {
+		return "", fmt.Errorf("open workspace: %w", err)
+	}
+	defer root.Close()
+	if err := root.MkdirAll(".codex", 0o700); err != nil {
 		return "", fmt.Errorf("create codex home dir: %w", err)
 	}
 
@@ -1100,7 +1119,7 @@ approval_policy = "never"
 # hosted web search tool, as for Claude Code.
 check_for_update_on_startup = false
 web_search = "disabled"
-
+%s
 [analytics]
 enabled = false
 
@@ -1131,13 +1150,12 @@ unified_exec = false
 shell_snapshot = false
 # The curated plugin sync clones github.com/openai/plugins at start.
 plugins = false
-%s`, codexProvider, r.cfg.Model, codexProvider, r.cfg.Brand.ProductName(), perRunURL, workDir, r.mcpServersTOML())
+%s`, codexProvider, cfg.Model, topLevel, codexProvider, cfg.Brand.ProductName(), perRunURL, workDir, tables)
 
-	configPath := filepath.Join(codexHome, "config.toml")
-	if err := os.WriteFile(configPath, []byte(configContent), 0o600); err != nil {
+	if err := root.WriteFile(filepath.Join(".codex", "config.toml"), []byte(configContent), 0o600); err != nil {
 		return "", fmt.Errorf("write codex config.toml: %w", err)
 	}
-	return codexHome, nil
+	return filepath.Join(workDir, ".codex"), nil
 }
 
 // mustMarshal marshals v to JSON, panicking on error (only called with known-good types).

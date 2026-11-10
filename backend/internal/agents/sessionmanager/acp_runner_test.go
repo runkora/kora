@@ -463,7 +463,7 @@ func TestACPRunner_LoadReplayIsSuppressed(t *testing.T) {
 		a.text("old answer")
 		a.respond(id, map[string]any{})
 	}
-	r := startACP(t, a, &fakeACPProfile{}, func(c *acpRunnerConfig) { c.ResumeSessionID = "old" })
+	r := startACP(t, a, &fakeACPProfile{}, func(c *acpRunnerConfig) { c.ResumeSessionID = "sess-1" })
 	if got := r.TakeText(); got != "" {
 		t.Errorf("replayed text leaked into the first turn: %q", got)
 	}

@@ -50,20 +50,23 @@ func TestCheckKernel(t *testing.T) {
 	}
 }
 
-// OpenCode, and only OpenCode, may execute the image's ripgrep.
+// Each harness may execute only its own image binaries: ripgrep for OpenCode,
+// the wrapped codex for the codex-acp adapter.
 func TestExecutablesHarnessBinaries(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		wantRg bool
+		name              string
+		wantRg, wantCodex bool
 	}{
-		{"opencode", true},
-		{"/usr/local/bin/opencode", true},
-		{"claude", false},
-		{"codex", false},
+		{"opencode", true, false},
+		{"/usr/local/bin/opencode", true, false},
+		{"codex-acp", false, true},
+		{"/usr/local/bin/codex-acp", false, true},
+		{"claude", false, false},
+		{"codex", false, false},
 	} {
 		got := executables(tc.name, "/harness/"+filepath.Base(tc.name))
-		if slices.Contains(got, "/usr/bin/rg") != tc.wantRg {
-			t.Errorf("executables(%q) = %v, want rg allowed %v", tc.name, got, tc.wantRg)
+		if slices.Contains(got, "/usr/bin/rg") != tc.wantRg || slices.Contains(got, "/usr/local/bin/codex") != tc.wantCodex {
+			t.Errorf("executables(%q) = %v, want rg %v and codex %v", tc.name, got, tc.wantRg, tc.wantCodex)
 		}
 	}
 }
