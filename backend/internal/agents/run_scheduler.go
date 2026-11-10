@@ -253,14 +253,14 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 	return nil, "", 0, false
 }
 
-// podPhases tells the start budget whether an agent pod is Ready or on its way to Ready.
-type podPhases interface {
+// livePods tells the start budget whether the agent has a pod that is not terminating or finished.
+type livePods interface {
 	LivePod(ctx context.Context, slug, namespace string) (bool, error)
 }
 
 // waitsPastBudget reports whether a run with no Ready pod stays queued past the start budget:
 // a pod is coming up for it, or the agent is at its total (docs/adr/2026-11-09-demand-driven-agent-scaling.md).
-// A pod that turned Ready since placement looked counts too, so the run is not failed as it becomes placeable.
+// A pod that turned Ready since placement looked also counts.
 func (s *RunService) waitsPastBudget(ctx context.Context, at *AgentType, namespace string) (bool, error) {
 	up, err := s.pods.LivePod(ctx, at.Slug, namespace)
 	if err != nil {
@@ -273,7 +273,7 @@ func (s *RunService) waitsPastBudget(ctx context.Context, at *AgentType, namespa
 	if err != nil {
 		return false, err
 	}
-	return counts.Active+counts.Starting >= at.MaxConcurrentRuns, nil
+	return counts.atTotal(at.MaxConcurrentRuns), nil
 }
 
 // sessionRequest is the session-manager request for a run of at.
@@ -358,7 +358,7 @@ func (s *RunService) assignLocked(ctx context.Context, run Run, claimedAt time.T
 	if err != nil {
 		return 0, err
 	}
-	if counts.Active+counts.Starting >= at.MaxConcurrentRuns {
+	if counts.atTotal(at.MaxConcurrentRuns) {
 		return 0, errAgentAtTotal
 	}
 	// The scaler may have removed a pod since the list was read.

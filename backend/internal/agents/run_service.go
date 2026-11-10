@@ -84,7 +84,7 @@ type RunService struct {
 	envs       runEnvironmentStore
 	images     sandboxImageLookup
 	missing    missingProvisioner
-	pods       podPhases
+	pods       livePods
 	queue      runQueue
 	metrics    *Metrics // run outcome and duration; nil = not recorded
 	// attempts and schedulerDone track the scheduler started by StartScheduler.
@@ -148,7 +148,7 @@ func NewRunService(
 	envs runEnvironmentStore,
 	images sandboxImageLookup,
 	missing missingProvisioner,
-	pods podPhases,
+	pods livePods,
 	queue runQueue,
 	cfg RunServiceConfig,
 	logger logging.Logger,

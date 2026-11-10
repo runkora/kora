@@ -528,7 +528,7 @@ func TestReadyOrdinals(t *testing.T) {
 }
 
 func TestLivePod(t *testing.T) {
-	const ns, slug = "kora-tenant-acme", "coder"
+	const ns, slug = "kora-tenant-example", "coder"
 	ss := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{Name: slug, Namespace: ns},
 		Spec:       appsv1.StatefulSetSpec{Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": slug}}},
@@ -560,6 +560,8 @@ func TestLivePod(t *testing.T) {
 		{"ready", []runtime.Object{ss, pod("coder-0", corev1.PodRunning, true, false)}, true},
 		{"all terminating", []runtime.Object{ss, pod("coder-0", corev1.PodRunning, false, true), pod("coder-1", corev1.PodPending, false, true)}, false},
 		{"failed", []runtime.Object{ss, pod("coder-0", corev1.PodFailed, false, false)}, false},
+		{"succeeded", []runtime.Object{ss, pod("coder-0", corev1.PodSucceeded, false, false)}, false},
+		{"terminating beside pending", []runtime.Object{ss, pod("coder-0", corev1.PodRunning, true, true), pod("coder-1", corev1.PodPending, false, false)}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := podSecurityProvisioner()
