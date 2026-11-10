@@ -879,6 +879,21 @@ func (r *PostgresRepository) WithAgentLock(ctx context.Context, agentTypeID stri
 	})
 }
 
+// TryWithAgentLock runs fn holding the agent's advisory lock when the lock is free, and reports whether fn ran.
+func (r *PostgresRepository) TryWithAgentLock(ctx context.Context, agentTypeID string, fn func(ctx context.Context) error) (bool, error) {
+	var locked bool
+	err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtext($1))`, agentLockKey(agentTypeID)).Scan(&locked); err != nil {
+			return fmt.Errorf("try agent lock: %w", err)
+		}
+		if !locked {
+			return nil
+		}
+		return fn(ctx)
+	})
+	return locked, err
+}
+
 // ReapStaleRuns marks runs that have been stuck in transient states for longer
 // than staleDuration. A run is only reaped when neither runs.updated_at NOR its
 // most recent run_events row is newer than the cutoff — events act as a liveness

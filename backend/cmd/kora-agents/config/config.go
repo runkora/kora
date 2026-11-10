@@ -115,7 +115,7 @@ type Config struct {
 			StartBudgetSecs int `yaml:"startBudgetSecs"`
 			// ProvisionBudgetSecs is how long a run may wait for its agent to finish provisioning before it fails.
 			ProvisionBudgetSecs int `yaml:"provisionBudgetSecs"`
-			// MinReplicas is the session-manager pod count of each agent and its HPA minimum.
+			// MinReplicas is the floor of each agent's session-manager pods. The scaler adds pods above it as runs need them.
 			MinReplicas int32 `yaml:"minReplicas"`
 			// DrainGracePeriodSecs is how long a terminating session-manager pod waits for its runs to end.
 			DrainGracePeriodSecs int64 `yaml:"drainGracePeriodSecs"`

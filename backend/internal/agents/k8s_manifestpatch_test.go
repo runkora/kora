@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
-	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -34,7 +33,7 @@ func loadTestPatches(t *testing.T, files map[string]string) []manifestpatch.Patc
 
 // TestEnsure_ExistingResourcesPickUpPatches covers the reconcile path: a patch
 // added after an agent type was provisioned must reach its existing
-// StatefulSet, HPA and Service.
+// StatefulSet and Service.
 func TestEnsure_ExistingResourcesPickUpPatches(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 	const ns = "kora-tenant-acme"
@@ -48,17 +47,13 @@ func TestEnsure_ExistingResourcesPickUpPatches(t *testing.T) {
 			},
 		},
 	}
-	existingHPA := &autoscalingv2.HorizontalPodAutoscaler{
-		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns},
-		Spec:       autoscalingv2.HorizontalPodAutoscalerSpec{MaxReplicas: 10},
-	}
 	existingSvc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns},
 		Spec:       corev1.ServiceSpec{ClusterIP: "None", Ports: []corev1.ServicePort{{Name: "http", Port: sessionManagerPort}}},
 	}
 
 	p := podSecurityProvisioner()
-	p.client = fake.NewSimpleClientset(existingSS, existingHPA, existingSvc)
+	p.client = fake.NewSimpleClientset(existingSS, existingSvc)
 	p.cfg.Patches = loadTestPatches(t, map[string]string{
 		"10-sts.yaml": `target: {kind: StatefulSet}
 patch: |
@@ -69,14 +64,6 @@ patch: |
     template:
       spec:
         tolerations: [{key: dedicated, operator: Exists}]
-`,
-		"20-hpa.yaml": `target: {kind: HorizontalPodAutoscaler}
-patch: |
-  apiVersion: autoscaling/v2
-  kind: HorizontalPodAutoscaler
-  metadata: {name: any}
-  spec:
-    maxReplicas: 5
 `,
 		"30-svc.yaml": `target: {kind: Service}
 patch: |
@@ -89,9 +76,6 @@ patch: |
 	labels := agentTypeLabels(at)
 	if err := p.ensureStatefulSet(ctx, at, ns, labels, metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("ensureStatefulSet: %v", err)
-	}
-	if err := p.ensureHPA(ctx, at.Slug, ns, labels, metav1.OwnerReference{}, true); err != nil {
-		t.Fatalf("ensureHPA: %v", err)
 	}
 	if err := p.ensureHeadlessService(ctx, at.Slug, ns, labels, metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("ensureHeadlessService: %v", err)
@@ -106,14 +90,6 @@ patch: |
 	}
 	if img := ss.Spec.Template.Spec.Containers[0].Image; img != "pinned@sha256:abc" {
 		t.Errorf("StatefulSet image: got %q, want the live pinned image kept", img)
-	}
-
-	hpa, err := p.client.AutoscalingV2().HorizontalPodAutoscalers(ns).Get(ctx, at.Slug, metav1.GetOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if hpa.Spec.MaxReplicas != 5 {
-		t.Errorf("HPA maxReplicas: got %d, want 5", hpa.Spec.MaxReplicas)
 	}
 
 	svc, err := p.client.CoreV1().Services(ns).Get(ctx, at.Slug, metav1.GetOptions{})

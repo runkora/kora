@@ -10,8 +10,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 )
 
-// Each agent starts with the configured pods, the HPA keeps that floor, and a
-// terminating pod gets the drain grace period.
+// Each agent starts with the configured pods, and a terminating pod gets the drain grace period.
 func TestSessionManagerScaleAndDrain(t *testing.T) {
 	p := podSecurityProvisioner()
 	p.cfg.MinReplicas = 2
@@ -21,9 +20,6 @@ func TestSessionManagerScaleAndDrain(t *testing.T) {
 	ss := p.buildSessionManagerStatefulSet(at, "kora-tenant-acme", podLabels(at))
 	if *ss.Spec.Replicas != 2 || ss.Spec.Template.Spec.TerminationGracePeriodSeconds == nil || *ss.Spec.Template.Spec.TerminationGracePeriodSeconds != 3600 {
 		t.Errorf("replicas = %d, grace = %v, want 2 and 3600", *ss.Spec.Replicas, ss.Spec.Template.Spec.TerminationGracePeriodSeconds)
-	}
-	if hpa := p.buildHPA(at.Slug, "kora-tenant-acme", nil); *hpa.Spec.MinReplicas != 2 {
-		t.Errorf("HPA minimum = %d, want 2", *hpa.Spec.MinReplicas)
 	}
 }
 

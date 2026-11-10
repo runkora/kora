@@ -116,11 +116,10 @@ func TestProvisionAgentType_SetsTenantOwnerReferenceOnEveryObject(t *testing.T) 
 	}
 	assertTenantOwnerRef(t, svc.OwnerReferences, tenantID)
 
-	hpa, err := typed.AutoscalingV2().HorizontalPodAutoscalers(ns).Get(context.Background(), "coder", metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get hpa: %v", err)
+	// The scaler owns the replicas, so no HPA is created.
+	if _, err := typed.AutoscalingV2().HorizontalPodAutoscalers(ns).Get(context.Background(), "coder", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Errorf("get hpa: err = %v, want not found", err)
 	}
-	assertTenantOwnerRef(t, hpa.OwnerReferences, tenantID)
 
 	pdb, err := typed.PolicyV1().PodDisruptionBudgets(ns).Get(context.Background(), "coder", metav1.GetOptions{})
 	if err != nil {
@@ -356,8 +355,10 @@ func TestProvisionAgentType_BackfillsOwnerRefOnExistingObjects(t *testing.T) {
 	svc, _ := typed.CoreV1().Services(ns).Get(context.Background(), "coder", metav1.GetOptions{})
 	assertTenantOwnerRef(t, svc.OwnerReferences, tenantID)
 
-	hpa, _ := typed.AutoscalingV2().HorizontalPodAutoscalers(ns).Get(context.Background(), "coder", metav1.GetOptions{})
-	assertTenantOwnerRef(t, hpa.OwnerReferences, tenantID)
+	// An HPA left by an earlier release is deleted on apply.
+	if _, err := typed.AutoscalingV2().HorizontalPodAutoscalers(ns).Get(context.Background(), "coder", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Errorf("stale hpa: err = %v, want not found", err)
+	}
 
 	pdb, _ := typed.PolicyV1().PodDisruptionBudgets(ns).Get(context.Background(), "coder", metav1.GetOptions{})
 	assertTenantOwnerRef(t, pdb.OwnerReferences, tenantID)

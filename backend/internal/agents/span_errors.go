@@ -27,7 +27,7 @@ var (
 	errSpanEnsureAuthorizationPolicy      = errors.New("ensure authorization policy")
 	errSpanEnsureDestinationRule          = errors.New("ensure destination rule")
 	errSpanEnsureHeadlessService          = errors.New("ensure headless service")
-	errSpanEnsureHpa                      = errors.New("ensure hpa")
+	errSpanDeleteStaleHpa                 = errors.New("delete stale hpa")
 	errSpanEnsurePdb                      = errors.New("ensure pdb")
 	errSpanEnsureServiceAccount           = errors.New("ensure service account")
 	errSpanEnsureStatefulset              = errors.New("ensure statefulset")

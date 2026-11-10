@@ -328,7 +328,7 @@ func (s *RunService) assignPod(ctx context.Context, run Run, claimedAt time.Time
 	if err != nil {
 		return 0, err
 	}
-	readings := s.readPodMemory(ctx, at.Slug, namespace, ready)
+	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, ready)
 	// A run for an agent whose pods are all full is released here. Many such runs at once would
 	// otherwise queue on the agent lock. The lock re-checks.
 	starting, err := s.repo.StartingRunsPerPod(ctx, at.ID, time.Now().Add(-s.cfg.StartingRunWindow))
@@ -378,17 +378,22 @@ func (s *RunService) assignLocked(ctx context.Context, run Run, claimedAt time.T
 	return 0, errNoFreePod
 }
 
+// podMemoryReader reads one pod's memory report.
+type podMemoryReader interface {
+	Memory(ctx context.Context, podURL string) (sessionmanager.Memory, error)
+}
+
 // readPodMemory reads the memory of each pod at once. A pod whose read fails or times out is left out.
-func (s *RunService) readPodMemory(ctx context.Context, slug, namespace string, ordinals []int) map[int]sessionmanager.Memory {
+func readPodMemory(ctx context.Context, sm podMemoryReader, logger logging.Logger, slug, namespace string, ordinals []int) map[int]sessionmanager.Memory {
 	readings := make([]*sessionmanager.Memory, len(ordinals))
 	var wg sync.WaitGroup
 	for i, ord := range ordinals {
 		wg.Go(func() {
 			readCtx, cancel := context.WithTimeout(ctx, memoryReadTimeout)
 			defer cancel()
-			m, err := s.sm.Memory(readCtx, sessionmanager.PodURL(slug, ord, namespace))
+			m, err := sm.Memory(readCtx, sessionmanager.PodURL(slug, ord, namespace))
 			if err != nil {
-				s.logger.Warn(ctx, "pod memory read failed; the pod counts as full",
+				logger.Warn(ctx, "pod memory read failed; the pod counts as full",
 					logging.Field{Key: "pod_ordinal", Value: ord}, logging.Field{Key: "error", Value: err.Error()})
 				return
 			}
