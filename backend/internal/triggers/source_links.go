@@ -89,21 +89,23 @@ func (a *githubAdapter) SourceLinks(_ string, doc any) []agentsclient.RunSource 
 	var out []agentsclient.RunSource
 	prURL := resolvePath(doc, "pull_request.html_url")
 	repoURL := resolvePath(doc, "repository.html_url")
+	prLabel := "Pull request"
+	if n := resolvePath(doc, "pull_request.number"); n != "" {
+		prLabel = "PR #" + n
+	}
 
 	switch {
 	case resolvePath(doc, "comment.html_url") != "":
 		out = append(out, agentsclient.RunSource{Kind: sourceKindTrigger, URL: resolvePath(doc, "comment.html_url"), Label: "GitHub comment"})
 	case prURL != "":
-		out = append(out, agentsclient.RunSource{Kind: sourceKindTrigger, URL: prURL, Label: "GitHub pull request"})
+		out = append(out, agentsclient.RunSource{Kind: sourceKindTrigger, URL: prURL, Label: prLabel})
 	case resolvePath(doc, "issue.html_url") != "":
 		out = append(out, agentsclient.RunSource{Kind: sourceKindTrigger, URL: resolvePath(doc, "issue.html_url"), Label: "GitHub issue"})
 	}
-	if prURL != "" {
-		label := "Pull request"
-		if n := resolvePath(doc, "pull_request.number"); n != "" {
-			label = "PR #" + n
-		}
-		out = append(out, agentsclient.RunSource{Kind: sourceKindPullRequest, URL: prURL, Label: label})
+	// A pull request event's trigger link is the pull request itself, so the
+	// pull request gets its own link only when something else on it fired.
+	if prURL != "" && out[0].URL != prURL {
+		out = append(out, agentsclient.RunSource{Kind: sourceKindPullRequest, URL: prURL, Label: prLabel})
 	}
 	if repoURL != "" {
 		label := resolvePath(doc, "repository.full_name")

@@ -52,8 +52,7 @@ func TestGitHubSourceLinks(t *testing.T) {
 	t.Run("pull request event", func(t *testing.T) {
 		doc := decodeBody([]byte(`{"pull_request":{"html_url":"https://github.com/o/r/pull/12","number":12,"head":{"ref":"feat/x y"}},"repository":{"html_url":"https://github.com/o/r","full_name":"o/r"}}`))
 		want := []agentsclient.RunSource{
-			{Kind: "trigger", URL: "https://github.com/o/r/pull/12", Label: "GitHub pull request"},
-			{Kind: "pull_request", URL: "https://github.com/o/r/pull/12", Label: "PR #12"},
+			{Kind: "trigger", URL: "https://github.com/o/r/pull/12", Label: "PR #12"},
 			{Kind: "repository", URL: "https://github.com/o/r", Label: "o/r"},
 			{Kind: "branch", URL: "https://github.com/o/r/tree/feat/x%20y", Label: "branch feat/x y"},
 		}
@@ -64,8 +63,11 @@ func TestGitHubSourceLinks(t *testing.T) {
 	t.Run("comment on a pull request", func(t *testing.T) {
 		doc := decodeBody([]byte(`{"comment":{"html_url":"https://github.com/o/r/pull/12#c1"},"pull_request":{"html_url":"https://github.com/o/r/pull/12","number":12,"head":{"ref":"main"}},"repository":{"html_url":"https://github.com/o/r","full_name":"o/r"}}`))
 		got := a.SourceLinks("pull_request_review_comment", doc)
-		if len(got) == 0 || got[0].URL != "https://github.com/o/r/pull/12#c1" || got[0].Kind != "trigger" {
-			t.Errorf("first link = %+v, want the comment", got)
+		if len(got) < 2 || got[0].URL != "https://github.com/o/r/pull/12#c1" || got[0].Kind != "trigger" {
+			t.Fatalf("links = %+v, want the comment first", got)
+		}
+		if want := (agentsclient.RunSource{Kind: "pull_request", URL: "https://github.com/o/r/pull/12", Label: "PR #12"}); got[1] != want {
+			t.Errorf("second link = %+v, want %+v", got[1], want)
 		}
 	})
 	t.Run("issue event", func(t *testing.T) {
