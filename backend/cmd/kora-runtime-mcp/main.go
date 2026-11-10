@@ -90,6 +90,10 @@ func (s *mcpServer) serve(r io.Reader, w io.Writer) error {
 		if err := json.Unmarshal(line, &req); err != nil {
 			continue
 		}
+		// A notification has no id and gets no response (JSON-RPC 2.0).
+		if req.ID == nil {
+			continue
+		}
 		resp := s.handle(req)
 		if err := enc.Encode(resp); err != nil {
 			return err
@@ -102,8 +106,6 @@ func (s *mcpServer) handle(req jsonRPCRequest) jsonRPCResponse {
 	switch req.Method {
 	case "initialize":
 		return s.handleInitialize(req)
-	case "notifications/initialized":
-		return jsonRPCResponse{} // no response needed for notifications
 	case "tools/list":
 		return s.handleToolsList(req)
 	case "tools/call":
