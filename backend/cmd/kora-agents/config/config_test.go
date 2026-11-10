@@ -102,3 +102,14 @@ func TestValidate_StartingRunAllowance(t *testing.T) {
 		t.Errorf("Validate(valid) = %v", err)
 	}
 }
+
+// The Kubernetes client allows 50 requests a second with bursts of 100 unless configured otherwise.
+func TestBaseDefaults_KubernetesClientRate(t *testing.T) {
+	cfg, err := config.LoadService[Config]("cmd/kora-agents", "production")
+	if err != nil {
+		t.Fatalf("load base config: %v", err)
+	}
+	if cfg.Kubernetes.ClientQPS != 50 || cfg.Kubernetes.ClientBurst != 100 {
+		t.Errorf("client rate = %v qps burst %d, want 50 and 100", cfg.Kubernetes.ClientQPS, cfg.Kubernetes.ClientBurst)
+	}
+}
