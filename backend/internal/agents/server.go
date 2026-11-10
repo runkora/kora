@@ -441,7 +441,7 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, ErrRunSourcesRefused):
 			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-		case errors.Is(err, ErrInvalidChain), errors.Is(err, ErrRunSourcesInvalid):
+		case errors.Is(err, ErrInvalidChain), errors.Is(err, ErrRunSourcesInvalid), errors.Is(err, ErrTriggerKindInvalid):
 			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		case errors.Is(err, ErrDelegationUnavailable):

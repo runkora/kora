@@ -114,8 +114,8 @@ type StartRunRequest struct {
 	// CreatedBy is intentionally absent: the run creator is always derived from the
 	// verified platform token in ctx, never from the request body.
 
-	// TriggerID, TriggerName and DeliveryID attribute the run to the trigger
-	// that started it. Only a SERVICE principal may set them — see
+	// TriggerID, TriggerName, TriggerKind and DeliveryID attribute the run to
+	// the trigger that started it. Only a SERVICE principal may set them — see
 	// authorizeTriggerAttribution — because a run claiming a trigger started it
 	// is an audit record, and an audit record a human caller can author about
 	// itself is worth nothing.
@@ -125,6 +125,7 @@ type StartRunRequest struct {
 	// and kora-agents does not read the triggers database.
 	TriggerID   string `json:"trigger_id,omitempty"`
 	TriggerName string `json:"trigger_name,omitempty"`
+	TriggerKind string `json:"trigger_kind,omitempty"`
 	DeliveryID  string `json:"delivery_id,omitempty"`
 
 	// CausedBy is the event that led a trigger to send this, and ChainDepth that

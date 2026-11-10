@@ -420,9 +420,33 @@ func TestFireTrigger_StartRunCarriesTheBacklink(t *testing.T) {
 	if !ok {
 		t.Fatal("no run was started")
 	}
-	if call.triggerID != trig.ID || call.triggerName != trig.Name || call.deliveryID != fired.DeliveryID {
-		t.Errorf("backlink = (%q, %q, %q), want (%q, %q, %q)",
-			call.triggerID, call.triggerName, call.deliveryID, trig.ID, trig.Name, fired.DeliveryID)
+	if call.triggerID != trig.ID || call.triggerName != trig.Name || call.triggerKind != KindManual || call.deliveryID != fired.DeliveryID {
+		t.Errorf("backlink = (%q, %q, %q, %q), want (%q, %q, %q, %q)",
+			call.triggerID, call.triggerName, call.triggerKind, call.deliveryID, trig.ID, trig.Name, KindManual, fired.DeliveryID)
+	}
+}
+
+// A scheduled tick starts its run with the scheduled kind.
+func TestTickScheduled_StartRunCarriesTheKind(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := &Trigger{
+		ID: "sched-kind", Name: "nightly", TenantID: testTenant, Kind: KindScheduled,
+		PrincipalID: "trigger:sched-kind", AgentTypeID: "at-1", Enabled: true,
+		Overflow: OverflowReplace, MaxParallel: 1, MaxQueueDepth: 8,
+	}
+	if err := deps.repo.CreateTrigger(context.Background(), trig); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+
+	svc.TickScheduled(context.Background(), ScheduledTick{Trigger: *trig, ScheduledAt: time.Now()})
+	drainPending(t, svc, deps.repo)
+
+	call, ok := deps.agents.lastCall()
+	if !ok {
+		t.Fatal("no run was started")
+	}
+	if call.triggerID != trig.ID || call.triggerKind != KindScheduled {
+		t.Errorf("backlink = (%q, %q), want (%q, %q)", call.triggerID, call.triggerKind, trig.ID, KindScheduled)
 	}
 }
 

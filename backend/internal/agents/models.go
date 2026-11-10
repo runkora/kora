@@ -634,10 +634,11 @@ type RunUsage struct {
 // The name is a snapshot taken at start time, not a live lookup. A run is audit
 // history and outlives the trigger that started it, so a deleted trigger must
 // still read as something a person recognizes, and a later rename must not
-// rewrite what this run says happened.
+// rewrite what this run says happened. The kind is empty on runs that predate it.
 type StartedByTrigger struct {
 	TriggerID   string `json:"trigger_id"`
 	TriggerName string `json:"trigger_name,omitempty"`
+	TriggerKind string `json:"trigger_kind,omitempty"`
 	DeliveryID  string `json:"delivery_id,omitempty"`
 }
 

@@ -885,6 +885,7 @@ type startCall struct {
 	// kora-agents actually receives rather than what the caller intended.
 	triggerID   string
 	triggerName string
+	triggerKind string
 	deliveryID  string
 	// The event chain the run was started with.
 	causedBy   string
@@ -1089,6 +1090,7 @@ func newAgentsStub() *agentsStub {
 			InitialMessage string                   `json:"initial_message"`
 			TriggerID      string                   `json:"trigger_id"`
 			TriggerName    string                   `json:"trigger_name"`
+			TriggerKind    string                   `json:"trigger_kind"`
 			DeliveryID     string                   `json:"delivery_id"`
 			CausedBy       string                   `json:"caused_by"`
 			ChainDepth     int                      `json:"chain_depth"`
@@ -1102,6 +1104,7 @@ func newAgentsStub() *agentsStub {
 			initialMessage: req.InitialMessage,
 			triggerID:      req.TriggerID,
 			triggerName:    req.TriggerName,
+			triggerKind:    req.TriggerKind,
 			deliveryID:     req.DeliveryID,
 			causedBy:       req.CausedBy,
 			chainDepth:     req.ChainDepth,

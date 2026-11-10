@@ -559,6 +559,7 @@ func (s *Service) startRunAs(ctx context.Context, t Trigger, tok, agentTypeID, p
 		// something a person recognizes.
 		TriggerID:   t.ID,
 		TriggerName: t.Name,
+		TriggerKind: t.Kind,
 		DeliveryID:  deliveryID,
 		CausedBy:    chain.causedBy,
 		ChainDepth:  chain.depth,
