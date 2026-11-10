@@ -235,11 +235,13 @@ type StartRunRequest struct {
 }
 
 // RunSource is a link to what started or joined a run. Kind is one of trigger,
-// pull_request, repository or branch.
+// pull_request, repository or branch. Provider is empty or one of github, slack
+// or alertmanager.
 type RunSource struct {
-	Kind  string `json:"kind"`
-	URL   string `json:"url"`
-	Label string `json:"label"`
+	Kind     string `json:"kind"`
+	URL      string `json:"url"`
+	Label    string `json:"label"`
+	Provider string `json:"provider,omitempty"`
 }
 
 // StartRunResponse captures the subset of the created run the caller needs.

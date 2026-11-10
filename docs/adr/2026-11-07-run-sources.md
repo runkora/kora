@@ -21,7 +21,7 @@ Add URL fields to `StartedByTrigger`. It is written once at insert and describes
 
 ### Option 2: A dedicated JSONB column (chosen)
 
-Add `runs.sources JSONB NOT NULL DEFAULT '[]'`, a list of `{kind, url, label}`. A join appends to it. Old rows read as an empty list, and no backfill is needed.
+Add `runs.sources JSONB NOT NULL DEFAULT '[]'`, a list of `{kind, url, label, provider}`. A join appends to it. Old rows read as an empty list, and no backfill is needed.
 
 ### Option 3: A `run_sources` table
 
@@ -29,7 +29,7 @@ A row per source allows queries by URL, which nothing needs. It adds a join to e
 
 ## Decision
 
-1. `runs.sources` is a JSONB array of `RunSource{kind, url, label}`. `kind` is one of `trigger`, `pull_request`, `repository`, `branch`.
+1. `runs.sources` is a JSONB array of `RunSource{kind, url, label, provider}`. `kind` is one of `trigger`, `pull_request`, `repository`, `branch`. `provider` is optional and, when set, one of `github`, `slack`, `alertmanager`; the UI uses it to pick the link's icon.
 2. The start-run body and the trigger-message (join) body accept `sources`. Only a SERVICE principal may send them, the same rule as trigger attribution, because sources are an audit record of why a run exists. Any other caller is refused with 403.
 3. Each URL must be an absolute `https` URL of at most 2048 bytes. A label is 1 to 100 characters. A request carries at most 10 sources. A violation is a 400.
 4. A start stores the sources with the run. A join appends them, skipping any whose URL the run already has. The append is one SQL statement, so concurrent joins do not lose links. A failed append is logged and does not fail the message.

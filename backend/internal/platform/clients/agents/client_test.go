@@ -442,12 +442,12 @@ func TestSendRunMessage_Sources(t *testing.T) {
 	c, cap := newTestClient(t, http.StatusAccepted, "")
 	err := c.SendRunMessage(context.Background(), "tok", "run-1", SendRunMessageRequest{
 		Content: "more",
-		Sources: []RunSource{{Kind: "pull_request", URL: "https://github.com/o/r/pull/1", Label: "PR #1"}},
+		Sources: []RunSource{{Kind: "pull_request", URL: "https://github.com/o/r/pull/1", Label: "PR #1", Provider: "github"}},
 	})
 	if err != nil {
 		t.Fatalf("SendRunMessage: %v", err)
 	}
-	want := `{"content":"more","sources":[{"kind":"pull_request","url":"https://github.com/o/r/pull/1","label":"PR #1"}]}`
+	want := `{"content":"more","sources":[{"kind":"pull_request","url":"https://github.com/o/r/pull/1","label":"PR #1","provider":"github"}]}`
 	if strings.TrimSpace(cap.body) != want {
 		t.Errorf("body = %s, want %s", cap.body, want)
 	}

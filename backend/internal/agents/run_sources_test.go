@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	srcSlack = RunSource{Kind: RunSourceTrigger, URL: "https://app.slack.com/client/T1/C1/thread/C1-1.2", Label: "Slack thread"}
-	srcPR    = RunSource{Kind: RunSourcePullRequest, URL: "https://github.com/o/r/pull/12", Label: "PR #12"}
+	srcSlack = RunSource{Kind: RunSourceTrigger, URL: "https://app.slack.com/client/T1/C1/thread/C1-1.2", Label: "Slack thread", Provider: RunSourceProviderSlack}
+	srcPR    = RunSource{Kind: RunSourcePullRequest, URL: "https://github.com/o/r/pull/12", Label: "PR #12", Provider: RunSourceProviderGitHub}
 	srcRepo  = RunSource{Kind: RunSourceRepository, URL: "https://github.com/o/r", Label: "o/r"}
 )
 
@@ -43,6 +43,8 @@ func TestAuthorizeRunSources(t *testing.T) {
 		{"unknown kind refused", serviceCtx(), []RunSource{{Kind: "other", URL: srcPR.URL, Label: "x"}}, ErrRunSourcesInvalid, 0},
 		{"empty label refused", serviceCtx(), []RunSource{{Kind: RunSourcePullRequest, URL: srcPR.URL, Label: " "}}, ErrRunSourcesInvalid, 0},
 		{"long label refused", serviceCtx(), []RunSource{{Kind: RunSourcePullRequest, URL: srcPR.URL, Label: strings.Repeat("a", maxRunSourceLabelRunes+1)}}, ErrRunSourcesInvalid, 0},
+		{"known provider accepted", serviceCtx(), []RunSource{{Kind: RunSourcePullRequest, URL: srcPR.URL, Label: "PR #12", Provider: RunSourceProviderGitHub}}, nil, 1},
+		{"unknown provider refused", serviceCtx(), []RunSource{{Kind: RunSourcePullRequest, URL: srcPR.URL, Label: "PR #12", Provider: "gitlab"}}, ErrRunSourcesInvalid, 0},
 		{"too many refused", serviceCtx(), tooMany, ErrRunSourcesInvalid, 0},
 	}
 	for _, tt := range tests {

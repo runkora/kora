@@ -28,7 +28,18 @@ type RunSource struct {
 	Kind  RunSourceKind `json:"kind"`
 	URL   string        `json:"url"`
 	Label string        `json:"label"`
+	// Provider names the system the link points into, so the UI can show its icon.
+	Provider RunSourceProvider `json:"provider,omitempty"`
 }
+
+// RunSourceProvider is the system a RunSource link points into. Empty when unknown.
+type RunSourceProvider string
+
+const (
+	RunSourceProviderGitHub       RunSourceProvider = "github"
+	RunSourceProviderSlack        RunSourceProvider = "slack"
+	RunSourceProviderAlertmanager RunSourceProvider = "alertmanager"
+)
 
 // Limits on the sources one request may carry.
 const (
@@ -66,6 +77,11 @@ func authorizeRunSources(ctx context.Context, sources []RunSource) ([]RunSource,
 		case RunSourceTrigger, RunSourcePullRequest, RunSourceRepository, RunSourceBranch:
 		default:
 			return nil, fmt.Errorf("%w: source %d has unknown kind %q", ErrRunSourcesInvalid, i, s.Kind)
+		}
+		switch s.Provider {
+		case "", RunSourceProviderGitHub, RunSourceProviderSlack, RunSourceProviderAlertmanager:
+		default:
+			return nil, fmt.Errorf("%w: source %d has unknown provider %q", ErrRunSourcesInvalid, i, s.Provider)
 		}
 		if strings.TrimSpace(s.Label) == "" || utf8.RuneCountInString(s.Label) > maxRunSourceLabelRunes {
 			return nil, fmt.Errorf("%w: source %d label must be 1 to %d characters", ErrRunSourcesInvalid, i, maxRunSourceLabelRunes)
