@@ -20,10 +20,10 @@ func splitPoolConfig() K8sProvisionerConfig {
 				PodLabels:      map[string]string{"cost-centre": "platform"},
 				PodAnnotations: map[string]string{"backup.example.com/exclude": "true"},
 			},
-			SessionManager: WorkloadCustomization{
+			SessionManager: SessionManagerCustomization{WorkloadCustomization: WorkloadCustomization{
 				NodeSelector:      map[string]string{"workload-tier": "kora"},
 				PriorityClassName: "kora-agents",
-			},
+			}},
 			Sandbox: WorkloadCustomization{
 				NodeSelector: map[string]string{"workload-tier": "kora-sandbox"},
 				Tolerations: []corev1.Toleration{{
@@ -236,6 +236,45 @@ func TestWorkloadCustomization_HasNoServiceAccountSetting(t *testing.T) {
 	}
 }
 
+// The configured memory is both the request and the limit of the
+// session-manager container, and an unset value takes the chart default.
+func TestBuildStatefulSet_SessionManagerMemoryIsRequestAndLimit(t *testing.T) {
+	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "example"}
+	twoGi := resource.MustParse("2Gi")
+	for name, tc := range map[string]struct {
+		memory *resource.Quantity
+		want   string
+	}{
+		"configured": {&twoGi, "2Gi"},
+		"unset":      {nil, "1Gi"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := splitPoolConfig()
+			cfg.Workloads.SessionManager.Memory = tc.memory
+			p := &K8sProvisioner{cfg: cfg}
+
+			ss := p.buildSessionManagerStatefulSet(at, "tenant-example", agentTypeLabels(at))
+
+			resources := ss.Spec.Template.Spec.Containers[0].Resources
+			want := resource.MustParse(tc.want)
+			if got := resources.Requests[corev1.ResourceMemory]; got.Cmp(want) != 0 {
+				t.Errorf("memory request = %s, want %s", got.String(), tc.want)
+			}
+			if got := resources.Limits[corev1.ResourceMemory]; got.Cmp(want) != 0 {
+				t.Errorf("memory limit = %s, want %s", got.String(), tc.want)
+			}
+		})
+	}
+}
+
+// Sandbox memory comes from its environment size, so the sandbox entry has no
+// memory field for agents.workloads.sandbox.memory to land in.
+func TestWorkloadCustomization_HasNoMemorySetting(t *testing.T) {
+	if _, ok := reflect.TypeFor[WorkloadCustomization]().FieldByName("Memory"); ok {
+		t.Error("WorkloadCustomization must not carry Memory; it belongs to SessionManagerCustomization")
+	}
+}
+
 // A nodeSelector on one side and required node affinity on the other separates
 // the pods just as surely as two different selectors.
 func TestSplitAcrossNodes_MixedForms(t *testing.T) {
@@ -291,7 +330,7 @@ func TestWorkloadsConfig_ValidateRejectsPlatformKeys(t *testing.T) {
 			Sandbox: WorkloadCustomization{PodLabels: map[string]string{"runkora.io/role": "not-a-sandbox"}},
 		},
 		"selector label on the session-manager": {
-			SessionManager: WorkloadCustomization{PodLabels: map[string]string{"app": "hijacked"}},
+			SessionManager: SessionManagerCustomization{WorkloadCustomization: WorkloadCustomization{PodLabels: map[string]string{"app": "hijacked"}}},
 		},
 		"identity label in common": {
 			Common: CommonCustomization{PodLabels: map[string]string{"spiffe.io/agent": "other"}},
@@ -308,7 +347,7 @@ func TestWorkloadsConfig_ValidateRejectsPlatformKeys(t *testing.T) {
 			Sandbox: WorkloadCustomization{PodLabels: map[string]string{"sidecar.istio.io/inject": "false"}},
 		},
 		"istio interception opt-out": {
-			SessionManager: WorkloadCustomization{PodAnnotations: map[string]string{"sidecar.istio.io/interceptionMode": "NONE"}},
+			SessionManager: SessionManagerCustomization{WorkloadCustomization: WorkloadCustomization{PodAnnotations: map[string]string{"sidecar.istio.io/interceptionMode": "NONE"}}},
 		},
 	}
 	for name, cfg := range cases {
