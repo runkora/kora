@@ -174,3 +174,19 @@ func TestServedTenants(t *testing.T) {
 		t.Errorf("servedTenants = %v, want only acme", got)
 	}
 }
+
+func TestBuildRegistryYAMLNamespace(t *testing.T) {
+	t0 := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
+	r := &TenantRegistry{}
+	out, err := r.buildRegistryYAML([]KoraTenant{tenantAt("acme", "acme-prod", t0), tenantAt("beta", "", t0.Add(time.Hour))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reg registryFile
+	if err := sigsyaml.Unmarshal([]byte(out), &reg); err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Tenants) != 2 || reg.Tenants[0].Namespace != "acme-prod" || reg.Tenants[1].Namespace != "kora-tenant-beta" {
+		t.Errorf("registry namespaces = %+v", reg.Tenants)
+	}
+}

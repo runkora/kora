@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/http"
 	"regexp"
 	"slices"
 
+	"github.com/runkora/kora/backend/internal/identity"
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/policyservice/grants"
@@ -28,6 +30,9 @@ var validTenantID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$`)
 // good read. The operator-written tenant registry is the implementation.
 type tenantLister interface {
 	TenantIDs() []string
+	// TenantForNamespace maps a Kubernetes namespace to the active tenant that
+	// runs in it.
+	TenantForNamespace(ns string) (string, bool)
 	Err() error
 	Loaded() bool
 }
@@ -157,8 +162,8 @@ func (s *Server) RecompileGateway(ctx context.Context) error {
 
 // ServeGatewayHTTP handles GET /v1/policy/bundles/gateway.
 // Returns the compiled cross-tenant gateway bundle as application/gzip.
-// No authentication is required — the OPA gateway polls this endpoint from
-// inside the cluster using plain HTTP, matching the per-tenant bundle pattern.
+// No application-level authentication is required — the OPA gateway polls this
+// endpoint from inside the mesh; STRICT mTLS and the AuthorizationPolicy gate it.
 func (s *Server) ServeGatewayHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -231,9 +236,49 @@ func (s *Server) Recompile(ctx context.Context, tenantID string, vocabEntries []
 	return err
 }
 
+// authorizeTenantCaller reports whether the caller may read tenantID's bundle.
+//
+// The caller is identified by the SPIFFE ID in the x-forwarded-client-cert
+// header, which the Envoy sidecar sets from the verified peer certificate. A
+// system component may read any tenant. A tenant workload may read only the
+// bundle of the tenant its namespace maps to in the tenant registry, which
+// also covers tenants with a custom spec.namespace. A request with no header is
+// allowed only from loopback (policy-service's own evaluator, which has no
+// sidecar hop). Everything else, including an unloaded registry, is denied.
+func (s *Server) authorizeTenantCaller(r *http.Request, tenantID string) (spiffeID string, ok bool) {
+	if r.Header.Get("x-forwarded-client-cert") == "" {
+		return "", isLoopback(r.RemoteAddr)
+	}
+	p, err := (&identity.XFCCPrincipalExtractor{}).Extract(r)
+	if err != nil {
+		return "", false
+	}
+	spiffeID = p.Claims["spiffe_id"]
+	switch p.Type {
+	case identity.PrincipalTypeSystem:
+		return spiffeID, true
+	case identity.PrincipalTypeAgent, identity.PrincipalTypeService:
+		owner, found := s.tenants.TenantForNamespace(p.Namespace)
+		return spiffeID, found && owner == tenantID
+	default:
+		return spiffeID, false
+	}
+}
+
+// isLoopback reports whether the host of a RemoteAddr is 127.0.0.1 or ::1.
+func isLoopback(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return false
+	}
+	return host == "127.0.0.1" || host == "::1"
+}
+
 // ServeHTTP handles GET /v1/policy/bundles/{tenant_id}.
 // Returns the compiled bundle as application/gzip. If no bundle exists yet
 // for the tenant (no grants configured), returns 404.
+// The caller must hold a mesh identity bound to the tenant (see
+// authorizeTenantCaller); anything else gets 403 before any bundle is read.
 // This is mounted by the policy-service cmd under the /v1/policy/ prefix.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -244,6 +289,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if !validTenantID.MatchString(tenantID) {
 		api.ErrorResponse(ctx, w, s.logger, api.BadRequestError(api.ErrCodeInvalidField, "invalid tenant_id format", nil), nil)
+		return
+	}
+	if spiffeID, ok := s.authorizeTenantCaller(r, tenantID); !ok {
+		s.logger.Warn(ctx, "bundle serve: caller not authorized for tenant",
+			logging.Field{Key: "spiffe_id", Value: spiffeID},
+			logging.Field{Key: "tenant_id", Value: tenantID},
+		)
+		api.ErrorResponse(ctx, w, s.logger, api.ForbiddenError(api.ErrCodeForbidden, "not authorized for this tenant's bundle", nil), nil)
 		return
 	}
 

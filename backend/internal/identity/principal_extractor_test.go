@@ -209,3 +209,22 @@ func TestXFCCPrincipalExtractor_InvalidHeader(t *testing.T) {
 		t.Error("expected error when XFCC header has no URI field")
 	}
 }
+
+func TestPrincipalFromSpiffeID_Namespace(t *testing.T) {
+	tests := []struct{ id, ns string }{
+		{"spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder", "kora-tenant-acme"},
+		{"spiffe://runkora.test/tenant/acme-prod/agent/coder", "acme-prod"},
+		{"spiffe://runkora.test/tenant/acme-prod/agent/coder/sandbox/run-1", "acme-prod"},
+		{"spiffe://runkora.test/tenant/kora-tenant-acme/service/svc", "kora-tenant-acme"},
+		{"spiffe://runkora.test/system/identity", ""},
+	}
+	for _, tc := range tests {
+		p, err := principalFromSpiffeID(tc.id)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.id, err)
+		}
+		if p.Namespace != tc.ns {
+			t.Errorf("%s: Namespace = %q, want %q", tc.id, p.Namespace, tc.ns)
+		}
+	}
+}

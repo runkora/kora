@@ -52,6 +52,13 @@ type Principal struct {
 	// DisplayName is a human-readable label for audit and UI.
 	DisplayName string `json:"display_name"`
 
+	// Namespace is the raw Kubernetes namespace segment of an attested
+	// tenant SPIFFE ID, with no prefix stripped. Empty for system principals
+	// and for principals that did not come from a SPIFFE ID. TenantID is the
+	// logical tenant only when the namespace is the default kora-tenant-<id>;
+	// map the namespace through the tenant registry to authorize by tenant.
+	Namespace string `json:"namespace,omitempty"`
+
 	// IdentitySource records the authentication mechanism used.
 	IdentitySource IdentitySource `json:"identity_source"`
 

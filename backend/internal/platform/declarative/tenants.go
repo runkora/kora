@@ -44,6 +44,7 @@ type Events struct {
 // fields services read are decoded.
 type tenant struct {
 	ID           string  `json:"id"`
+	Namespace    string  `json:"namespace"`
 	State        string  `json:"state"`
 	APIAuthoring string  `json:"apiAuthoring"`
 	Budget       *Budget `json:"budget"`
@@ -78,6 +79,31 @@ func (r *Registry) TenantIDs() []string {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+// defaultNamespacePrefix is the operator's namespace for a tenant whose
+// KoraTenant sets no spec.namespace: kora-tenant-<id>.
+const defaultNamespacePrefix = "kora-tenant-"
+
+// TenantForNamespace returns the id of the active tenant that runs in the
+// Kubernetes namespace ns. An entry with no namespace counts as
+// kora-tenant-<id>, so a registry written before the field existed keeps
+// working. It reports false for an unknown namespace and for an unloaded
+// registry.
+func (r *Registry) TenantForNamespace(ns string) (string, bool) {
+	if ns == "" {
+		return "", false
+	}
+	for id, t := range r.load() {
+		tenantNS := t.Namespace
+		if tenantNS == "" {
+			tenantNS = defaultNamespacePrefix + id
+		}
+		if tenantNS == ns {
+			return id, true
+		}
+	}
+	return "", false
 }
 
 // APIAuthoringEnabled reports whether the API may write the tenant's
