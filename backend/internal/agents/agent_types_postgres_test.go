@@ -142,7 +142,8 @@ func TestPostgres_MaxConcurrentRunsDualWrite(t *testing.T) {
 	r, tenant := testEnvironmentRepo(t)
 	ctx := context.Background()
 	at := AgentType{ID: uuid.NewString(), TenantID: tenant, Name: "Dual", Slug: "dual-" + uuid.NewString()[:8],
-		Framework: AgentFrameworkClaudeCode, MaxConcurrentRuns: 4, State: AgentTypeStateActive}
+		Framework: AgentFrameworkClaudeCode, GrantScopes: []string{}, Connectors: []Connector{}, MCPTools: []string{},
+		MaxConcurrentRuns: 4, State: AgentTypeStateActive}
 	if err := r.CreateAgentType(ctx, at); err != nil {
 		t.Fatalf("CreateAgentType: %v", err)
 	}

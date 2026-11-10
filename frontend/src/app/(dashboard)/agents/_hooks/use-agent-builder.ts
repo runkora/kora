@@ -252,7 +252,7 @@ function fromPayload(payload: DraftPayload): { fields: BuilderFields; step: numb
     capacityOn: (payload.max_concurrent_runs ?? 0) > 0,
     capacity: payload.max_concurrent_runs
       ? String(payload.max_concurrent_runs)
-      : '10',
+      : '20',
     ...loopGuardrailValues(payload.guardrails),
   };
   const step = Math.min(Math.max(payload._builder?.step ?? 0, 0), BUILDER_STEPS.length - 1);
