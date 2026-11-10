@@ -322,12 +322,32 @@ func TestPostgres_AgentRunCounts(t *testing.T) {
 	if want := (AgentRunCounts{Pending: 2, Starting: 3, Active: 3}); counts != want {
 		t.Errorf("counts = %+v, want %+v", counts, want)
 	}
-	starting, err := r.StartingRunsPerPod(ctx, at.ID)
+	starting, err := r.StartingRunsPerPod(ctx, at.ID, time.Now())
 	if err != nil {
 		t.Fatalf("StartingRunsPerPod: %v", err)
 	}
 	if starting[0] != 1 || starting[1] != 2 || len(starting) != 2 {
 		t.Errorf("starting per pod = %v, want map[0:1 1:2]", starting)
+	}
+
+	// A live run assigned after the cutoff counts as starting; an ended one does not.
+	cutoff := time.Now().UTC().Add(-10 * time.Second)
+	for _, s := range []struct {
+		state RunState
+		pod   int
+	}{{RunStateActive, 0}, {RunStateIdle, 2}, {RunStateCompleted, 2}} {
+		id := queueRun(t, r, tenant, at.ID, past, &past)
+		setRunState(t, r, id, s.state, s.pod)
+		if _, err := r.pool.Exec(ctx, `UPDATE runs SET started_at=now() WHERE id=$1`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	starting, err = r.StartingRunsPerPod(ctx, at.ID, cutoff)
+	if err != nil {
+		t.Fatalf("StartingRunsPerPod: %v", err)
+	}
+	if starting[0] != 2 || starting[1] != 2 || starting[2] != 1 || len(starting) != 3 {
+		t.Errorf("starting per pod with recent runs = %v, want map[0:2 1:2 2:1]", starting)
 	}
 }
 

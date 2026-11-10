@@ -94,6 +94,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.scheduling.startingRunAllowance.claudeCode | string | `"220Mi"` | Memory a Claude Code run is assumed to take between its start and the next memory reading. |
 | agents.scheduling.startingRunAllowance.codex | string | `"60Mi"` | The same for a Codex run. |
 | agents.scheduling.startingRunAllowance.openCode | string | `"440Mi"` | The same for an OpenCode run. |
+| agents.scheduling.startingRunWindowSecs | int | `10` | Seconds after its pod assignment that a live run still counts at the starting allowance, because its memory grows after it leaves starting. |
 | agents.scheduling.workerConcurrency | int | `16` | Runs one kora-agents replica starts at once. |
 | agents.serviceAccount.annotations | object | `{}` |  |
 | agents.tenantConnectionsConfigMapName | string | `"kora-tenant-connections"` |  |
