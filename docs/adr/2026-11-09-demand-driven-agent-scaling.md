@@ -1,9 +1,9 @@
 # Demand-Driven Agent Scaling
 
-**Status:** Proposed (stays Proposed until the measured `startingRunAllowance` and the kubelet group-kill check are recorded below)
-**Date:** 2026-11-09
-**Deciders:** Justin Wilkin
-**Technical Story:** FAC-30 (Agent concurrency is a total across pods, and agent pods autoscale on run demand)
+**Status:** Proposed  
+**Date:** 2026-11-09  
+**Deciders:** Justin Wilkin  
+**Technical Story:** An agent's concurrency becomes a total across its pods, and agent pods scale on run demand.  
 
 ---
 
@@ -11,64 +11,61 @@
 
 Each agent type runs one session-manager StatefulSet. Two settings decide how much work it takes:
 
-*   `max_concurrent_runs_per_pod` (default 10) caps the runs on one pod. Placement in `backend/internal/agents/run_scheduler.go` (`selectPod`) skips a pod at the cap.
-*   A HorizontalPodAutoscaler on CPU and memory with a maximum of 10 replicas. [Run Scheduling](2026-10-12-run-scheduling.md) records that the production cluster has no metrics API, so the HPA has never scaled.
+*   `max_concurrent_runs_per_pod` (default 10) caps the runs on one pod, and `selectPod` in `backend/internal/agents/run_scheduler.go` skips a pod at the cap.
+*   A HorizontalPodAutoscaler on CPU and memory has a maximum of 10 replicas. [Run Scheduling](2026-10-12-run-scheduling.md) records that the production cluster has no metrics API and that the HPA has never scaled.
 
-The session-manager container is hardcoded to a 512Mi memory request and a 4Gi limit (`backend/internal/agents/k8s.go`).
+The session-manager container has a hardcoded 512Mi memory request and a 4Gi limit in `backend/internal/agents/k8s.go`. The StatefulSet uses the default `OrderedReady` pod management.
 
-These settings fail in four ways:
+The current design fails in four ways:
 
-*   A run count per pod says nothing about memory. One run costs about 220Mi and later runs about 100-140Mi each, and the cost differs by harness and task. A pod at 10 light runs is nearly empty. A pod at 4 heavy runs can be killed by the kernel.
-*   The request is far below the limit, so the scheduler packs pods by the 512Mi request while they can grow to 4Gi. A node under pressure evicts them first.
-*   The agent's capacity is `minReplicas × runs-per-pod` until an HPA that cannot work scales it. A run over capacity waits for the 3 minute start budget and then fails.
-*   The StatefulSet uses `OrderedReady`. A draining pod is not Ready for up to `drainGracePeriodSecs` (default 3600), and under `OrderedReady` it holds back the creation of later pods. Pending runs would wait up to an hour for a pod.
+*   A run count per pod says nothing about memory. A pod at 10 light runs is nearly empty, and the same count of heavy runs can exceed the pod's memory.
+*   The scheduler and the node autoscaler size nodes by the 512Mi request while each pod can grow to 4Gi.
+*   The agent's capacity is `minReplicas × runs-per-pod`. A run over that capacity waits for the 3 minute start budget and then fails.
+*   A draining pod is not Ready for up to `drainGracePeriodSecs` (default 3600). Under `OrderedReady` it holds back the creation of later pods, and pending runs wait up to an hour for a pod.
 
 ### Measurements
 
-Taken on production on 2026-11-10 from the session-manager containers:
+The session-manager containers of a production install were measured on 2026-11-10 for the period 2026-11-06 to 2026-11-10:
 
-| Measure | Value |
-| --- | --- |
-| Pods observed | 68 |
-| Peak working set of one pod | 637Mi |
-| Fleet peak working set | 2.9Gi |
-| Memory for the first run on a pod | about 220Mi |
-| Memory for each further run | about 100-140Mi |
-| Idle pod | 7-10Mi |
-| Page cache peak | 205Mi |
-| Busy pods, average | 1.3 |
-| Busy pods, peak | 12 |
-| Pod create to Ready | p50 25 s, p90 30 s |
+*   941 runs across 37 agents on 68 pods.
+*   Run duration: p50 7.7 min and p95 21 min.
+*   Peak working set of one pod: 637Mi. Fleet peak working set: 2.9Gi.
+*   The first run on a pod takes about 220Mi, and each further run takes about 100-140Mi.
+*   An idle pod uses 7-10Mi.
+*   Page cache peaked at 205Mi.
+*   Busy pods averaged 1.3 and peaked at 12.
+*   Pod create to Ready took p50 25 s and p90 30 s.
+*   No container was OOM-killed.
 
-Working set means `memory.current` minus `inactive_file` from `memory.stat`. This is the number the kubelet uses to choose eviction victims. Raw `memory.current` includes page cache, which the kernel reclaims under pressure. The page cache peak of 205Mi is a third of the peak working set, so a threshold on raw `memory.current` would act on memory that is not at risk.
+Working set is `memory.current` minus `inactive_file` from `memory.stat`. The kubelet uses this measure to choose eviction victims. Raw `memory.current` also counts page cache that the kernel reclaims under pressure.
 
 ### Goals
 
-*   `max_concurrent_runs` is a total for the agent across all its pods, with a default of 20.
-*   Runs are placed by the memory a pod really uses.
+*   An agent's concurrency limit counts its runs on every pod.
+*   Runs are placed by the memory a pod uses.
 *   A pod is protected from the kernel OOM kill by ending its newest run first.
 *   Agent pods are added by need and removed when empty.
-*   A run over the total waits with no time limit.
+*   A run over the total waits in `pending` with no time limit.
 
 ### Non-Goals
 
 *   Spot interruption handling.
-*   Warm spare pods above demand. `minReplicas` is the floor.
+*   Warm spare pods above the `minReplicas` floor.
 *   Node provisioning.
-*   A pod per run. It needs its own ADR.
+*   One pod per run (a topology for its own ADR).
 *   A per-agent pod memory size.
-*   Changing the `minReplicas` floor.
-*   Dropping the old database column and event key. A follow-up work-item does this no earlier than the next minor.
+*   A change to the `minReplicas` floor.
+*   CPU and sidecar resources.
+*   Dropping the old database column and the old event key.
 
 ---
 
 ## Decision Drivers
 
-*   Memory, not run count, is what kills a pod.
-*   The production cluster has no metrics API, and the default must not need an adapter.
-*   An install must keep working through a rolling upgrade, so old and new kora-agents pods overlap.
-*   Idle pods are nearly free. The idle floor of 7-10Mi dominates the memory a pod reserves.
-*   Pods start in about 30 s, so adding capacity on demand is fast enough.
+*   Memory is what kills a pod. A run count does not measure it.
+*   The default must work on a cluster with no metrics API or adapter.
+*   Old and new kora-agents pods overlap during a rolling upgrade, and both must keep working.
+*   A pod is Ready about 30 s after it is created.
 
 ---
 
@@ -76,99 +73,128 @@ Working set means `memory.current` minus `inactive_file` from `memory.stat`. Thi
 
 ### Placement and Limits
 
-*   **A total cap, with placement by working set and a pressure kill (chosen).**
-*   **A fixed run count per pod (rejected):** This is today's setting. Run memory varies by harness and task, so a count either wastes pods or risks the kernel OOM kill.
-*   **A run count per pod calculated from pod memory (rejected):** It still assumes one memory cost for every run, and it is wrong the first time a heavy task runs.
-*   **A fixed memory cap per run (rejected):** The cap has to cover the worst run, so it reserves far more than the 100-140Mi a typical run uses, and it needs a cgroup per run.
-*   **One pod per run (rejected here):** It removes the packing question, but it changes the topology (`owns()` in `backend/internal/agents/sandbox/mount/plan.go` is keyed on the per-pod workspace claim) and needs its own ADR.
+*   **Total Cap with Working-Set Placement (chosen):** The agent has one total of concurrent runs. A run goes to the lowest pod whose working set is below a watermark, and the session-manager kills its newest run under memory pressure.
+*   **Fixed Run Count per Pod (rejected):** This is the current `max_concurrent_runs_per_pod`. Run memory varies by harness and task, and a fixed count either leaves pods mostly empty or lets heavy runs reach the OOM kill.
+*   **Run Count per Pod Calculated from Pod Memory (rejected):** A count derived from the pod size and an assumed cost per run. It assumes one cost for every run and fails the first time a heavy task runs.
+*   **Fixed Memory Cap per Run (rejected):** Each run gets a memory limit of its own. The cap has to cover the worst run and reserves far more than the 100-140Mi a typical further run uses.
+*   **One Pod per Run (rejected):** Each run gets a pod of its own. It changes the topology, and `owns()` in `backend/internal/agents/sandbox/mount/plan.go` is keyed on the per-pod workspace claim. It needs its own ADR.
 
 ### Scaling
 
-*   **A scaler in kora-agents, with an `external` option (chosen).**
-*   **HPA or KEDA on a custom metric as the default (rejected):** It needs a metrics adapter on every cluster, and the production cluster has no metrics API. An operator who runs one can use the `external` option.
-*   **Keep the CPU and memory HPA (rejected):** It never worked without a metrics API, and CPU and memory averages do not track run demand.
+*   **Scaler in kora-agents with an External Option (chosen):** kora-agents sets the StatefulSet replicas from the run counts and pod memory. With `external` it publishes the same signals as metrics for an operator's own scaler.
+*   **HPA or KEDA on a Custom Metric as the Default (rejected):** It needs a metrics adapter on every cluster. An operator who runs one can use the `external` option.
+*   **CPU and Memory HPA (rejected):** This is the current HPA. It has never scaled without a metrics API, and CPU and memory averages do not track pending runs.
 
 ### Pod Memory
 
-*   **One chart value used as request and limit (chosen).**
-*   **A request below the limit (rejected):** The scheduler packs by the request, so the node autoscaler sizes nodes for less than the pods can use, and a node under pressure evicts the pod first because it uses more than it requested.
+*   **Request Equal to Limit (chosen):** One chart value sets both the memory request and the limit of the session-manager container.
+*   **Request Below the Limit (rejected):** Nodes are sized for less memory than the pods can use. A pod above its request is the first eviction target on a node under memory pressure.
 
 ### Memory Measure
 
-*   **Working set, `memory.current` minus `inactive_file` (chosen).**
-*   **Raw `memory.current` (rejected):** It counts reclaimable page cache. The measured peak of 205Mi would trip the thresholds with no real pressure.
+*   **Working Set (chosen):** Thresholds use `memory.current` minus `inactive_file`.
+*   **Raw `memory.current` (rejected):** It counts reclaimable page cache. The measured page cache peak of 205Mi is about a third of the peak working set and would trip the thresholds with no real pressure.
 
 ### Pod Management
 
-*   **`Parallel` (chosen).**
-*   **Keep `OrderedReady` (rejected):** A draining pod blocks the creation of later pods for up to an hour. See Context.
+*   **`Parallel` (chosen):** The StatefulSet controller creates and deletes pods without waiting for other pods.
+*   **Keep `OrderedReady` (rejected):** A draining pod blocks the creation of later pods for up to `drainGracePeriodSecs`.
 
 ---
 
 ## Decision
 
+kora-agents will cap each agent at a total of concurrent runs, place runs by pod working set, protect pods with a pressure kill in the session-manager, and scale agent StatefulSets on demand.
+
 ### Concurrency
 
-`max_concurrent_runs` (default 20) is a total across all pods of the agent. The default of 20 suits a normal team (today's 2 pods × 10). A busy install raises it per agent. A run is eligible only while the agent's active and starting runs are fewer than the total. Otherwise it stays `pending` with no time limit and is released with `not_before`. The per-pod setting is removed from the API, CRD, MCP, UI and config with no shim.
+*   `max_concurrent_runs` (default 20) will be the total across all pods of the agent. The default of 20 suits a normal team and equals the current 2 pods × 10. A busy install raises it per agent.
+*   A run will be eligible only while the agent's active and starting runs are fewer than the total. Otherwise the run is released with `not_before` and stays `pending` with no time limit.
+*   The API, CRD, MCP tools, UI and kora-agents config will use `max_concurrent_runs` (`maxConcurrentRuns`) with no compatibility shim. There will be no runs-per-pod setting.
+*   The per-ordinal run count (`ActiveRunsPerPod`, `OccupiesPod`) will stay for placement and scale-down. It is not a limit.
 
-The change is expand-contract. The migration adds `agent_types.max_concurrent_runs` with a server default of 20 and backfills it from `max_concurrent_runs_per_pod`. The code writes both columns and reads the new one. The old column stays because N-1 kora-agents pods read it during a rolling upgrade ([Database Migrations](2026-09-10-database-migrations.md), Decision 5). The agent-type event payload carries both keys, `max_concurrent_runs` and `max_concurrent_runs_per_pod`, with the same value. A follow-up work-item drops the old column and key no earlier than the next minor, with a release-notes entry. The per-ordinal run count (`ActiveRunsPerPod`, `OccupiesPod`) stays, because placement and scale-down need runs per ordinal. It is not a limit.
+The rename is expand-contract under [Database Migrations](2026-09-10-database-migrations.md) Decision 5:
+
+*   A migration will add `agent_types.max_concurrent_runs` with a server default of 20 and backfill it from `max_concurrent_runs_per_pod`.
+*   The code will write both columns and read the new one. The old column stays for N-1 kora-agents pods during a rolling upgrade.
+*   The agent-type event payload will carry both `max_concurrent_runs` and `max_concurrent_runs_per_pod` with the same value. Consumers in the repository read the new key.
+*   The `hiddenChanges` list for `AgentPayload` in `backend/internal/platform/events/catalog.go` will list both names.
+*   The old column, the old event key and the old `hiddenChanges` name will be dropped no earlier than the next minor release.
 
 ### Pod Memory
 
-One chart value, `agents.workloads.sessionManager.memory` (default `1Gi`), is both the memory request and the limit of the session-manager container. It replaces the hardcoded 512Mi and 4Gi. Request equals limit, so the pod is not the first eviction target when packed and the node autoscaler sizes nodes for real use. Operators raise it to pack more runs per pod.
+One chart value, `agents.workloads.sessionManager.memory` (default `1Gi`), will set both the memory request and the limit of the session-manager container. It replaces the hardcoded 512Mi request and 4Gi limit. The session-manager entry of `agents.workloads` will get its own type with the `memory` field, and the sandbox entry will not accept `memory`. Operators raise the value to pack more runs per pod.
 
 ### Sizing
 
-At the measured traffic, 1Gi is far above the peak working set of 637Mi. At 20x to 50x the current traffic, 1Gi still reserves the least memory. The idle floor of 7-10Mi per pod dominates, so extra pods cost almost nothing, and a larger pod adds reserved memory without adding capacity that runs need. Pods grow in number rather than in size.
+Each pod reserves its full request, and each agent keeps at least `minReplicas` pods. At 20x to 50x the measured traffic, the idle floor of `minReplicas` pods per agent dominates the reserved memory, and 1Gi reserves the least. A larger pod raises the reservation of every idle floor pod. At 1Gi the 0.70 placement watermark is 717Mi, above the measured peak working set of one pod (637Mi). A smaller pod puts its watermark below that peak.
 
 ### Memory Report
 
-The session-manager reports the working set and `memory.max` through its existing HTTP API. There is no metrics API.
+The session-manager will report its working set and `memory.max` through its existing HTTP API. No metrics API is involved.
 
 ### Placement
 
-Candidates are Ready, non-terminating pods below the StatefulSet's current replicas, in ordinal order. The scheduler reads memory from each candidate with a 2 s timeout, before it takes any lock. A pod that times out counts as full for that attempt. A pod takes the run while:
+Candidates will be Ready, non-terminating pods below the StatefulSet's current replicas, in ordinal order. The scheduler will read memory from each candidate with a 2 s timeout before it takes any lock. A pod whose read times out counts as full for that attempt. A pod takes the run while:
 
-    working set + starting_runs_on_pod × startingRunAllowance < placementWatermark × memory.max
+```text
+working set + starting_runs_on_pod × startingRunAllowance < placementWatermark × memory.max
+```
 
-Starting runs come from the runs table, so the check holds across kora-agents replicas and bursts. The lowest ordinal that passes gets the run. The default `placementWatermark` is 0.70. Lowest-first packing keeps the top pods empty so the scaler can remove them.
+The starting runs on a pod come from the `runs` table, and the check holds across kora-agents replicas and bursts. The lowest ordinal that passes gets the run, and lowest-first packing keeps the top pods empty for scale-down. The default `agents.scheduling.placementWatermark` is 0.70.
 
-`startingRunAllowance` is the memory a run is assumed to take between its start and its first memory reading. Measured value: **TBD** (measured by the memory-report work-item for Claude Code, Codex and OpenCode on the local cluster, and set to the largest).
+`agents.scheduling.startingRunAllowance` is the memory a run is assumed to take between its start and the next memory reading. The chart default is the largest of the values measured at run start for each harness:
+
+*   Claude Code: **TBD**.
+*   Codex: **TBD**.
+*   OpenCode: **TBD**.
 
 ### Agent Lock
 
-A Postgres advisory transaction lock keyed on the agent ID. Placement holds it only to re-count starting runs, check the total and the ordinal, and call `AssignPod`. The scaler uses the same key. Neither holds it across a session-manager call, so a slow pod blocks neither.
+Placement and the scaler will share a Postgres advisory transaction lock keyed on the agent ID. Placement holds it only to re-count starting runs, check the total and the ordinal, and call `AssignPod`. Neither placement nor the scaler holds it across a session-manager call, and a slow pod blocks neither.
 
 ### Pressure Protection
 
-The session-manager checks the working set every second. On a 1Gi pod the band between `pressureLimit` and the limit is about 102Mi, which a run can fill within a longer interval, and the kernel would then OOM-kill the whole container. Above `pressureLimit × memory.max` (default 0.90) it kills the most recently started run, which has done the least work, and ends it `failed` with "the agent pod ran out of memory". After a kill it reads the working set again at once and repeats until the working set is below the limit or no run is left. The chart rejects `placementWatermark` at or above `pressureLimit`.
+The session-manager will check its working set every second (configurable, default 1 s). On a 1Gi pod the band between `pressureLimit` and the limit is about 102Mi, and one run can fill it within a longer interval. Above `agents.scheduling.pressureLimit × memory.max` (default 0.90) the session-manager kills the most recently started run and ends it `failed` with "the agent pod ran out of memory". After each kill it reads the working set again at once and kills the next most recently started run, until the working set is below the limit or no run is left. The chart rejects a `placementWatermark` at or above `pressureLimit`.
 
-With cgroup v2 and Kubernetes 1.32 or later the kubelet group-kills the container on OOM, so the pressure kill must fire first. Kubelet group-kill check: **TBD** (checked on a cluster node by the memory-report work-item, which records the result here).
+With cgroup v2 and Kubernetes 1.32 or later, the kubelet group-kills the whole container on an OOM. The pressure kill must fire before the kernel OOM kill.
+
+*   Kubelet group-kill check on a cluster node: **TBD**.
 
 ### Start Budget
 
-A run fails the start budget only when no pod is coming up for it: none Ready, none existing in Pending or not-Ready phase, and the agent is under its total. A pod that exists but is not Ready, for example while it waits for a node, keeps the run queued.
+A run will fail the start budget only when no pod is coming up for it: no pod is Ready, no pod exists in Pending or not-Ready phase, and the agent is under its total. A pod that exists and is not Ready (e.g., one waiting for a node) keeps the run queued.
 
 ### Scaler
 
-kora-agents runs a scaler loop every 5 s, independent of the claim tick. For each agent it reads pod memory (2 s timeout per pod, outside any lock), then try-locks the agent lock. The replica that gets the lock re-reads the pending, active and starting counts from the database, decides, and calls the StatefulSet scale subresource.
+kora-agents will run a scaler loop every 5 s, independent of the claim tick. For each agent the loop reads pod memory (2 s timeout per pod, outside any lock) and then try-locks the agent lock. The replica that gets the lock re-reads the pending, active and starting run counts from the database, decides from those counts and the memory reading, and calls the StatefulSet scale subresource. The scaler will:
 
-*   **Scale up in one step** when runs are pending, the agent is under its total, and no Ready pod has room. It adds `ceil(pending × startingRunAllowance ÷ (placementWatermark × pod memory.max))` pods, minus the pods already coming up, clamped so the total is never exceeded. `memory.max` comes from a Ready pod's report, else from the StatefulSet's container memory limit.
-*   **Scale down by one** when the top pod (ordinal `replicas − 1`) is above `minReplicas` and has no active or starting run. The empty-top-pod check and the scale call both happen under the lock.
-*   Raising `minReplicas` above the live count scales up to the floor.
-*   Re-applying an agent keeps the live `spec.replicas`. The replicas are set only when the StatefulSet is created.
+*   Scale up in one step when runs are pending, the agent is under its total, and no Ready pod has room. It adds `ceil(pending × startingRunAllowance ÷ (placementWatermark × pod memory.max))` pods minus the pods already coming up, clamped to the agent's total. Pod `memory.max` comes from a Ready pod's report, else from the StatefulSet's container memory limit.
+*   Scale down by one pod when the top pod (ordinal `replicas − 1`) is above `minReplicas` and has no active or starting run. The empty-top-pod check and the scale call both happen under the lock.
+*   Scale up to `minReplicas` when the floor is raised above the live count.
 
-Scale-down is not an eviction, so the `minAvailable: 1` PodDisruptionBudget does not block it, and only empty pods are removed. The defaults carry no Karpenter or Cluster Autoscaler annotations. Operators use `agents.workloads.common.podAnnotations` or `agents.patches`.
+The StatefulSet replicas will be set only on create, to `max(minReplicas, 1)`. Re-applying an agent keeps the live `spec.replicas`.
 
-The `agents.scheduling.scaler` option is `kora` (default) or `external`; the chart rejects other values. With `external` the scaler never changes replicas and publishes per-agent OpenTelemetry metrics: desired replicas, active runs, pending runs and pod memory headroom in bytes. An external scaler may remove a busy top pod. The SIGTERM drain covers this: the pod accepts no new runs, and its existing runs finish within `drainGracePeriodSecs`.
+Scale-down is not an eviction, and the `minAvailable: 1` PodDisruptionBudget does not block it. The defaults carry no Karpenter or Cluster Autoscaler annotations. Operators add them through `agents.workloads.common.podAnnotations` or `agents.patches`.
+
+`agents.scheduling.scaler` is `kora` (default) or `external`, and the chart rejects any other value. With `external` the scaler changes no replicas and publishes four per-agent OpenTelemetry metrics: desired replicas, active runs, pending runs and pod memory headroom in bytes. An external scaler may remove a busy top pod. The SIGTERM drain covers that case: the pod accepts no new runs, and its existing runs have `drainGracePeriodSecs` to finish.
 
 ### Parallel Pod Management
 
-Agent StatefulSets use `podManagementPolicy: Parallel`, so new pods are created while another pod drains or starts. The field is immutable. When apply finds a live StatefulSet on `OrderedReady`, kora-agents writes the live replicas to the `runkora.io/recreate-replicas` annotation on the agent's ServiceAccount, deletes the StatefulSet with orphan propagation (the pods keep running), and recreates it with the same name, selector and live replicas. The new StatefulSet adopts the running pods, and no run is interrupted. The create path reads the annotation whenever no StatefulSet exists, uses it in preference to `max(minReplicas, 1)`, and clears it after the create succeeds. This keeps the live count across a kora-agents restart or a failed create between the delete and the create. `ensureServiceAccount` still replaces the annotations with the built ones and carries over only `runkora.io/recreate-replicas`. The recreated StatefulSet carries the same apply's template, so the controller may roll the adopted pods in the normal way with the SIGTERM drain.
+New agent StatefulSets will use `podManagementPolicy: Parallel`. A live StatefulSet already on `Parallel` is updated in place. The field is immutable, and kora-agents will replace a live StatefulSet on `OrderedReady` in these steps:
+
+1.  Write the live replica count to the `runkora.io/recreate-replicas` annotation on the agent's ServiceAccount.
+2.  Delete the StatefulSet with orphan propagation to keep the pods running.
+3.  Create the StatefulSet with the same name and selector and the annotated replica count. The new StatefulSet adopts the running pods, and the delete and the create interrupt no run.
+4.  Clear the annotation after the create succeeds.
+
+Whenever no StatefulSet exists, the create path uses the annotation in preference to `max(minReplicas, 1)`. A kora-agents restart or a failed create between the delete and the create keeps the live replica count. `ensureServiceAccount` runs before `ensureStatefulSet` and keeps replacing the ServiceAccount annotations with the built ones. It carries over only `runkora.io/recreate-replicas` from the existing ServiceAccount.
+
+The recreated StatefulSet carries the template of the same apply. The controller may then roll the adopted pods in the normal way with the SIGTERM drain.
 
 ### Removed
 
-The CPU and memory HPA, `MaxReplicas: 10`, the chart check "1 and 10, the HPA maximum", and the runs-per-pod setting. kora-agents keeps the RBAC to get and delete an HPA so it can remove the stale one on every existing install.
+kora-agents will remove the CPU and memory HPA, `MaxReplicas: 10`, the chart check that limits replicas to "1 and 10, the HPA maximum", and the runs-per-pod setting. The ClusterRole will gain `get` and `update` on `statefulsets/scale`. Its `horizontalpodautoscalers` rule keeps `get` and `delete` and drops `create` and `update`, and kora-agents deletes the stale HPA on apply.
 
 ---
 
@@ -176,58 +202,58 @@ The CPU and memory HPA, `MaxReplicas: 10`, the chart check "1 and 10, the HPA ma
 
 ### Positive
 
-*   A pod is filled by memory, so light runs pack tightly and heavy runs do not reach the kernel OOM kill.
-*   Capacity follows demand without a metrics API. A burst adds several pods in one step, and pods take about 30 s to be Ready.
-*   A run over the total waits instead of failing after 3 minutes.
-*   Request equals limit, so the node autoscaler sees real use.
+*   Light runs pack tightly on a pod, and heavy runs end before the kernel OOM kill.
+*   A burst adds several pods in one step.
+*   The node autoscaler sees the memory pods can use.
 *   A draining pod no longer holds back new pods.
 
 ### Negative
 
-*   A run over memory pressure is killed, and the newest run is the victim even if another run caused the growth.
-*   The scaler and placement need Postgres advisory locks and a memory read from every candidate pod. A slow read marks a pod full for that attempt.
-*   The old column and event key stay until a later release.
-*   The `OrderedReady` to `Parallel` recreate deletes and recreates every existing StatefulSet once.
+*   The pressure kill ends the newest run, even when another run caused the growth.
+*   Placement and the scaler read memory from every candidate pod, and a slow read marks a pod full for that attempt.
+*   The old column and event key stay until the next minor release.
+*   Every existing agent StatefulSet is deleted and recreated once.
 
 ### Neutral
 
-*   The default total of 20 equals today's 2 pods × 10.
-*   `minReplicas` stays the floor and stays 2.
+*   `minReplicas` stays the floor at 2.
 
 ### Known Limits
 
-*   **Spot interruption.** A node taken by a spot interruption drains its pods regardless of this design. Runs on it are lost.
-*   **Busy-pod removal by an external scaler.** Covered by the SIGTERM drain above. Runs that outlast `drainGracePeriodSecs` are ended.
+*   A spot interruption drains the pods on the node regardless of this design.
+*   Runs on a busy top pod that an external scaler removes end when they outlast `drainGracePeriodSecs`.
 
 ### Parked
 
-*   **The `minReplicas` floor of 2 with a rollout surge.** Not decided here. The floor stays 2.
+*   The `minReplicas` floor of 2 with a rollout surge is not decided here.
 
 ### Possible Later Improvement
 
-*   Forecast the allowance from learned per-agent peak memory. A run's cost differs by agent and harness, so a learned peak would replace the single `startingRunAllowance` and give a tighter placement and scale-up count. It needs run history and is not part of this change.
+*   A forecast from learned per-agent peak memory could replace the single `startingRunAllowance` and give a tighter placement and scale-up count.
 
 ---
 
 ## Validation
 
-*   Unit tests for placement (watermark, allowance, lowest ordinal, read timeout), the pressure kill (repeat until below the limit), the start budget, the scaler (formula, clamp, one-at-a-time scale-down, lock scope) and `Parallel` recreate.
-*   Chart tests for the session-manager memory value and the watermark and scaler validation.
-*   A local cluster check with one agent at `maxConcurrentRuns` 30: replicas rise by more than one in one scaler pass, run 31 stays pending past the old 3 minute budget, and pods return to 2 after the runs end.
-*   Measured `startingRunAllowance`: **TBD**.
-*   Kubelet group-kill check: **TBD**.
+*   Unit tests cover placement (watermark, allowance, lowest ordinal, read timeout), the repeated pressure kill, the start budget, the scaler (formula, clamp, one-at-a-time scale-down, lock scope, `external` metrics) and the `Parallel` replacement.
+*   Chart tests cover the session-manager memory value and the watermark and scaler validation.
+*   A unit test covers the dual-key agent-type event payload, and a chart test covers the ClusterRole verbs.
+*   A local cluster check confirms that the `Parallel` replacement keeps the running pods (same names and UIDs) and their runs.
+*   A local cluster check with one agent at `maxConcurrentRuns` 30 shows replicas rising by more than one in one scaler pass, run 31 pending past the old 3 minute budget, and pods returning to 2 after the runs end.
 
 ---
 
 ## Related Decisions
 
-*   [Run Scheduling](2026-10-12-run-scheduling.md): superseded in part. The sections this ADR supersedes are:
-    *   Context: the HorizontalPodAutoscaler of minimum 1 (the HPA is removed).
-    *   Decision, Worker: "It will select a Ready pod that is not terminating and has a free slot" (placement is by working set under a total cap), and the start budget rule (a run fails only when no pod is coming up).
-    *   Decision, Agent Resources: "The HPA minimum and the StatefulSet replicas will be 2" (the scaler sets replicas, and `minReplicas` is the floor).
-    *   Decision, Chart Values: the runs-per-pod limit and the HPA maximum check.
-    *   The rest of Run Scheduling stands, including the durable queue and the drain.
-*   [Database Migrations](2026-09-10-database-migrations.md): expand-contract for the column.
+*   [Run Scheduling](2026-10-12-run-scheduling.md): superseded in part. This ADR supersedes these parts of it:
+    *   Context: the HorizontalPodAutoscaler of minimum 1.
+    *   Non-Goals: autoscaling as a follow-up.
+    *   Decision, Worker: the selection of a pod with a free slot, the release on no free slot, and the start budget rule.
+    *   Considered Options, Session-Manager Workload: the StatefulSet held at 2 pods.
+    *   Decision, Agent Resources: the HPA minimum and the StatefulSet replicas of 2.
+    *   Consequences: runs beyond a pod's free slots failing when the start budget runs out, and `pending` held for up to the start budget.
+    *   The rest of Run Scheduling stands, including the durable queue, the drain and the `minReplicas` value of 2.
+*   [Database Migrations](2026-09-10-database-migrations.md): Decision 5, the compatibility contract.
 *   [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md)
 
 ---
