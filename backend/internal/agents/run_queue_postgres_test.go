@@ -413,8 +413,9 @@ func TestPostgres_AgentLock(t *testing.T) {
 	}
 }
 
-// The scaler's try-lock is the placement lock: it is refused while placement holds it and taken once free.
-func TestPostgres_TryWithAgentLockSharesPlacementLock(t *testing.T) {
+// The scaler's lock is the placement lock: it is refused when placement holds it past the timeout, and
+// taken when placement releases it within the wait.
+func TestPostgres_WaitWithAgentLockSharesPlacementLock(t *testing.T) {
 	r, tenant := testRunRepo(t)
 	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
 	ctx := context.Background()
@@ -429,16 +430,16 @@ func TestPostgres_TryWithAgentLockSharesPlacementLock(t *testing.T) {
 		})
 	}()
 	<-held
-	ran, err := r.TryWithAgentLock(ctx, at.ID, func(context.Context) error { return nil })
+	ran, err := r.WaitWithAgentLock(ctx, at.ID, 100*time.Millisecond, func(context.Context) error { return nil })
 	if err != nil || ran {
-		t.Errorf("try-lock while placement holds it: ran %v, err %v; want refused", ran, err)
+		t.Errorf("lock held past the timeout: ran %v, err %v; want refused", ran, err)
 	}
-	close(release)
+	time.AfterFunc(200*time.Millisecond, func() { close(release) })
+	ran, err = r.WaitWithAgentLock(ctx, at.ID, 5*time.Second, func(context.Context) error { return nil })
+	if err != nil || !ran {
+		t.Errorf("lock released within the wait: ran %v, err %v; want taken", ran, err)
+	}
 	if err := <-done; err != nil {
 		t.Fatal(err)
-	}
-	ran, err = r.TryWithAgentLock(ctx, at.ID, func(context.Context) error { return nil })
-	if err != nil || !ran {
-		t.Errorf("try-lock once free: ran %v, err %v; want taken", ran, err)
 	}
 }

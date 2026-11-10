@@ -17,13 +17,16 @@ import (
 // scalerInterval is how often the scaler checks each agent, independent of the claim tick.
 const scalerInterval = 5 * time.Second
 
+// scalerLockTimeout bounds the scaler's wait for the agent lock. An agent it times out on is skipped for the pass.
+const scalerLockTimeout = 2 * time.Second
+
 // errScaleAgent is the span status of a scaler pass that failed for one agent.
 var errScaleAgent = errors.New("scale agent")
 
 // scalerStore is the storage the scaler reads. The run counts are read under placement's agent lock.
 type scalerStore interface {
 	ListActiveAgentTypes(ctx context.Context) ([]AgentType, error)
-	TryWithAgentLock(ctx context.Context, agentTypeID string, fn func(ctx context.Context) error) (bool, error)
+	WaitWithAgentLock(ctx context.Context, agentTypeID string, timeout time.Duration, fn func(ctx context.Context) error) (bool, error)
 	AgentRunCounts(ctx context.Context, agentTypeID string) (AgentRunCounts, error)
 	StartingRunsPerPod(ctx context.Context, agentTypeID string, assignedSince time.Time) (map[int]int, error)
 	ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error)
@@ -85,7 +88,7 @@ func (s *Scaler) Start(ctx context.Context) {
 }
 
 // scaleAgent reads pod memory with no lock held, then decides and scales under the agent lock.
-// A replica that finds the lock taken skips the agent for this pass.
+// A replica that waits past scalerLockTimeout for the lock skips the agent for this pass.
 func (s *Scaler) scaleAgent(ctx context.Context, at AgentType) {
 	ctx, span := agentsTracer.Start(observability.WithTenant(ctx, at.TenantID), "agents.Scaler.scaleAgent",
 		trace.WithAttributes(observability.AgentIDKey.String(at.ID)))
@@ -118,7 +121,7 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 		return fmt.Errorf("list ready pods: %w", err)
 	}
 	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, ready)
-	_, err = s.store.TryWithAgentLock(ctx, at.ID, func(ctx context.Context) error {
+	_, err = s.store.WaitWithAgentLock(ctx, at.ID, scalerLockTimeout, func(ctx context.Context) error {
 		return s.scaleLocked(ctx, at, namespace, ss, ready, readings, allowance.Value())
 	})
 	return err
