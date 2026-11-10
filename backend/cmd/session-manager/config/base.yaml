@@ -54,7 +54,7 @@ session:
 # with KORA_PRESSURE_LIMIT from the chart's agents.scheduling.pressureLimit.
 memory:
   pressureLimit: 0.90
-  checkIntervalSecs: 1
+  checkIntervalMs: 250
 
 metrics:
   enabled: false

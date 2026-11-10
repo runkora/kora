@@ -98,8 +98,9 @@ type Config struct {
 		// PressureLimit is the fraction of memory.max at which the newest run is killed.
 		// kora-agents sets it through KORA_PRESSURE_LIMIT from the chart's agents.scheduling.pressureLimit.
 		PressureLimit float64 `yaml:"pressureLimit"`
-		// CheckIntervalSecs is how often the working set is checked.
-		CheckIntervalSecs int `yaml:"checkIntervalSecs"`
+		// CheckIntervalMs is how often the working set is checked, in milliseconds. Several runs
+		// starting together can cross the band between the pressure limit and memory.max in under a second.
+		CheckIntervalMs int `yaml:"checkIntervalMs"`
 	} `yaml:"memory"`
 
 	Metrics platformmetrics.Config `yaml:"metrics"`
@@ -107,7 +108,7 @@ type Config struct {
 
 // CheckInterval is the pressure monitor's interval as a time.Duration.
 func (c *Config) CheckInterval() time.Duration {
-	return time.Duration(c.Memory.CheckIntervalSecs) * time.Second
+	return time.Duration(c.Memory.CheckIntervalMs) * time.Millisecond
 }
 
 // ShutdownTimeout returns the server shutdown timeout as a time.Duration.
@@ -142,12 +143,12 @@ var Current = func() *Config {
 	return cfg
 }()
 
-// errCheckInterval means memory.checkIntervalSecs is below 1, which the pressure monitor's ticker cannot run on.
-var errCheckInterval = errors.New("memory.checkIntervalSecs must be at least 1")
+// errCheckInterval means memory.checkIntervalMs is below 1, which the pressure monitor's ticker cannot run on.
+var errCheckInterval = errors.New("memory.checkIntervalMs must be at least 1")
 
 // validate rejects values the YAML layers can set that the session-manager cannot run with.
 func validate(cfg *Config) error {
-	if cfg.Memory.CheckIntervalSecs < 1 {
+	if cfg.Memory.CheckIntervalMs < 1 {
 		return errCheckInterval
 	}
 	return nil
