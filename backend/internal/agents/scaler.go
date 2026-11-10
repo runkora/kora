@@ -121,9 +121,13 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 		return fmt.Errorf("list ready pods: %w", err)
 	}
 	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, ready)
-	_, err = s.store.WaitWithAgentLock(ctx, at.ID, scalerLockTimeout, func(ctx context.Context) error {
+	ran, err := s.store.WaitWithAgentLock(ctx, at.ID, scalerLockTimeout, func(ctx context.Context) error {
 		return s.scaleLocked(ctx, at, namespace, ss, ready, readings, allowance.Value())
 	})
+	if err == nil && !ran {
+		s.logger.Debug(ctx, "scaler skipped agent for this pass",
+			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "reason", Value: "agent lock wait timed out"})
+	}
 	return err
 }
 
