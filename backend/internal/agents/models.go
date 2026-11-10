@@ -560,6 +560,9 @@ type AgentRunCounts struct {
 	Pending, Starting, Active int
 }
 
+// atTotal reports whether the agent's active and starting runs fill its total.
+func (c AgentRunCounts) atTotal(total int) bool { return c.Active+c.Starting >= total }
+
 // Run is the durable unit of work. It outlives browser connections and persists
 // until completed, failed, or explicitly deleted.
 type Run struct {

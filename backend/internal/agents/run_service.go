@@ -85,7 +85,7 @@ type RunService struct {
 	envs       runEnvironmentStore
 	images     sandboxImageLookup
 	missing    missingProvisioner
-	pods       podPhases
+	pods       livePods
 	queue      runQueue
 	placement  podPlacementStore
 	metrics    *Metrics // run outcome and duration; nil = not recorded
@@ -159,7 +159,7 @@ func NewRunService(
 	envs runEnvironmentStore,
 	images sandboxImageLookup,
 	missing missingProvisioner,
-	pods podPhases,
+	pods livePods,
 	queue runQueue,
 	placement podPlacementStore,
 	cfg RunServiceConfig,
