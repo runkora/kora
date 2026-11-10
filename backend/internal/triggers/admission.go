@@ -167,6 +167,9 @@ func NewAdmission(repo admissionStore, logger logging.Logger) *Admission {
 	}
 }
 
+// SetMetrics attaches the instruments outcomes are counted on. Nil records nothing.
+func (a *Admission) SetMetrics(m *Metrics) { a.outcomes.metrics = m }
+
 // Admit records a fire for later dispatch, applying the trigger's overflow
 // behavior when it is already at its ceiling.
 //

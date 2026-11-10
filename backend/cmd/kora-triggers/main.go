@@ -179,6 +179,7 @@ func initController(
 	// One admission controller, shared: it holds no per-caller state, and two
 	// instances deciding the same trigger's ceiling would be two answers.
 	admission := triggers.NewAdmission(repo, logger)
+	admission.SetMetrics(metrics)
 
 	// The operator-written tenant registry carries each tenant's API authoring switch.
 	tenants := declarative.NewRegistry(tc.Current.Kubernetes.TenantsPath)

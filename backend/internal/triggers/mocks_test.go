@@ -1728,6 +1728,11 @@ func (m *mockRepository) PendingStats(_ context.Context) (PendingStats, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var stats PendingStats
+	for _, t := range m.triggers {
+		if t.ConsecutiveFailures > 0 {
+			stats.FailingTriggers++
+		}
+	}
 	oldest := time.Time{}
 	for _, p := range m.pending {
 		if p.claimed {

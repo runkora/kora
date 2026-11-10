@@ -26,8 +26,33 @@ type outcomeStore interface {
 // record of something that already happened, and there is no caller who could
 // act on the error.
 type outcomeRecorder struct {
-	repo   outcomeStore
-	logger logging.Logger
+	repo    outcomeStore
+	logger  logging.Logger
+	metrics *Metrics // nil records nothing
+}
+
+// providerLookup resolves the provider behind a trigger, for the delivery
+// metric's provider label. The recorder's store satisfies it where it can read
+// triggers and sources; otherwise the provider is reported as generic.
+type providerLookup interface {
+	GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error)
+	GetSourceByID(ctx context.Context, id string) (*WebhookSource, error)
+}
+
+// count records the outcome on the delivery metric.
+func (o outcomeRecorder) count(ctx context.Context, dr *DeliveryRun) {
+	if o.metrics == nil {
+		return
+	}
+	provider := ""
+	if l, ok := o.repo.(providerLookup); ok {
+		if t, err := l.GetTrigger(ctx, dr.TenantID, dr.TriggerID); err == nil && t.SourceID != "" {
+			if src, err := l.GetSourceByID(ctx, t.SourceID); err == nil {
+				provider = src.Provider
+			}
+		}
+	}
+	o.metrics.recordDelivery(ctx, provider, dr.Status)
 }
 
 // record writes one outcome and re-derives the delivery. This is the default;
@@ -60,6 +85,7 @@ func (o outcomeRecorder) insert(ctx context.Context, dr *DeliveryRun) bool {
 		)
 		return false
 	}
+	o.count(ctx, dr)
 	return true
 }
 
