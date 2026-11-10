@@ -340,7 +340,7 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 }
 
 // ReadyOrdinals returns the Ready, non-terminating pod ordinals below the current replicas. A pod on
-// either revision counts, so a pod a roll has not reached takes runs (docs/adr/2026-10-12-run-scheduling.md).
+// either revision counts: one a roll has not reached still takes runs (docs/adr/2026-10-12-run-scheduling.md).
 func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace string) ([]int, error) {
 	ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
@@ -384,7 +384,7 @@ func (p *K8sProvisioner) Replicas(ctx context.Context, slug, namespace string) (
 	return specReplicas(ss), nil
 }
 
-// specReplicas is the StatefulSet's spec.replicas, which defaults to 1 when unset.
+// specReplicas is the StatefulSet's spec.replicas. Unset means 1.
 func specReplicas(ss *appsv1.StatefulSet) int {
 	if ss.Spec.Replicas == nil {
 		return 1

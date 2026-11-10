@@ -787,7 +787,7 @@ func (r *PostgresRepository) endRuns(ctx context.Context, update string, args ..
 func podOccupancySQLList() string { return sqlStateList(PodOccupyingRunStates()) }
 
 // liveRunSQLList lists the states counted against an agent's total: the
-// pod-occupying states except pending, which has no session yet.
+// pod-occupying states except pending. A pending run has no pod yet.
 func liveRunSQLList() string {
 	return sqlStateList(slices.DeleteFunc(PodOccupyingRunStates(), func(s RunState) bool { return s == RunStatePending }))
 }

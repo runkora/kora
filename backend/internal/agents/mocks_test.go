@@ -747,7 +747,7 @@ type mockK8s struct {
 	deprovisionAgentTypeErr error
 	// readyPods is how many pods ReadyOrdinals reports. Zero means one.
 	readyPods int
-	// replicas is what Replicas reports. Zero means readyPods.
+	// replicas is what Replicas reports. Zero means the ReadyOrdinals count.
 	replicas              int
 	sandboxEndpoint       string
 	lookupSandbox         Sandbox

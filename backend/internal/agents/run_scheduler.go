@@ -283,7 +283,7 @@ const memoryReadTimeout = 2 * time.Second
 
 // assignPod places a claimed run on the lowest-ordinal pod with memory to spare
 // (docs/adr/2026-11-09-demand-driven-agent-scaling.md). Pod memory is read before
-// the agent lock, so a slow pod never holds it.
+// the agent lock. A slow pod must never hold it.
 func (s *RunService) assignPod(ctx context.Context, run Run, claimedAt time.Time, at *AgentType, namespace string) (int, error) {
 	ready, err := s.k8s.ReadyOrdinals(ctx, at.Slug, namespace)
 	if err != nil {
