@@ -338,6 +338,12 @@ func TestWorkloadsConfig_ValidateRejectsPlatformKeys(t *testing.T) {
 		"istio injection opt-out label": {
 			Sandbox: WorkloadCustomization{PodLabels: map[string]string{"sidecar.istio.io/inject": "false"}},
 		},
+		"zero session-manager memory": {
+			SessionManager: SessionManagerCustomization{Memory: new(resource.MustParse("0"))},
+		},
+		"negative session-manager memory": {
+			SessionManager: SessionManagerCustomization{Memory: new(resource.MustParse("-1Gi"))},
+		},
 		"istio interception opt-out": {
 			SessionManager: SessionManagerCustomization{WorkloadCustomization: WorkloadCustomization{PodAnnotations: map[string]string{"sidecar.istio.io/interceptionMode": "NONE"}}},
 		},
