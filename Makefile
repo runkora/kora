@@ -1028,8 +1028,9 @@ secrets: ## Scan for secrets and leaked credentials (gitleaks)
 .PHONY: lint
 lint: ## Run golangci-lint
 	@echo "$(COLOR_YELLOW)Running linters...$(COLOR_RESET)"
+	@# Concurrent agents otherwise fail on golangci-lint's machine-wide lock.
 	@if command -v golangci-lint > /dev/null; then \
-		if cd $(BACKEND_DIR) && $(GOLINT) run ./...; then \
+		if cd $(BACKEND_DIR) && $(GOLINT) run --allow-parallel-runners ./...; then \
 			echo "$(COLOR_GREEN)✓ Linting passed$(COLOR_RESET)"; \
 		else \
 			echo "$(COLOR_RESET)"; \
@@ -1120,14 +1121,17 @@ frontend-build: ## Build the frontend for production
 .PHONY: frontend-lint
 frontend-lint: ## Lint the frontend (eslint)
 	@echo "$(COLOR_YELLOW)Linting frontend...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm lint
+	@# ESLint's cache misses edits to our local rules. The cache key hashes them with the config and lockfile.
+	@cd $(FRONTEND_DIR) && key=$$(cat eslint.config.mjs eslint/*.mjs eslint/rules/*.mjs pnpm-lock.yaml | shasum | cut -c1-12) && \
+	  pnpm lint --cache --cache-location node_modules/.cache/eslint/$$key/
 	@echo "$(COLOR_GREEN)✓ Frontend lint passed$(COLOR_RESET)"
 
 .PHONY: frontend-type-check
 frontend-type-check: ## Type-check the frontend and, under its own strict flags, the Hades package (tsc --noEmit)
 	@echo "$(COLOR_YELLOW)Type-checking frontend...$(COLOR_RESET)"
 	@cd $(FRONTEND_DIR) && pnpm type-check
-	@cd $(FRONTEND_DIR) && pnpm --filter @runkora/hades run type-check
+	@# The app tsconfig is already incremental. Hades opts in here to keep its published tsconfig unchanged.
+	@cd $(FRONTEND_DIR) && pnpm --filter @runkora/hades run type-check --incremental --tsBuildInfoFile node_modules/.cache/tsc/hades.tsbuildinfo
 	@echo "$(COLOR_GREEN)✓ Frontend type-check passed$(COLOR_RESET)"
 
 .PHONY: frontend-fmt
@@ -1182,7 +1186,7 @@ hades-manifest-check: ## Verify manifest.json and theme.schema.json are what tok
 	@cd $(HADES_DIR) && $(HADES_NODE) scripts/manifest.ts --check
 
 .PHONY: hades-check
-hades-check: hades-manifest-check hades-chart-rules-check ## Hades manifest sync and the chart's product-name rule (part of make check)
+hades-check: hades-manifest-check hades-chart-rules-check ## Hades manifest sync and the chart's product-name rule (part of make check for frontend changes)
 
 .PHONY: hades-smoke
 hades-smoke: ## Pack Hades and build a throwaway Vite consumer from the tarball: the release workflow's smoke build, run locally (needs network)
@@ -1371,8 +1375,26 @@ chart-check: chart-lint chart-docs-check ## Lint the charts and verify their gen
 chart-deps: ## Update charts/kora/Chart.lock from its Chart.yaml dependencies
 	@helm dependency update charts/kora
 
+# The check groups. scripts/check-scope.sh decides which groups a change needs.
+CHECK_BACKEND := tidy generate-check fmt vet fix lint brand-tags-check migrate-lint test
+CHECK_GO := deadcode
+CHECK_DOCS := docs-check
+CHECK_FRONTEND := hades-check frontend-check
+
 .PHONY: check
-check: check-versions tidy generate-check fmt vet fix lint brand-tags-check deadcode secrets docs-check hades-check migrate-lint test frontend-check ## Run all checks (check-versions, tidy, generate-check, fmt, vet, lint, brand-tags-check, deadcode, secrets, docs-check, hades-check, migrate-lint, test, frontend-check)
+check: ## Run the checks for the groups the change touches (backend, go, docs, frontend); check-versions and secrets always run
+	@groups=$$(bash scripts/check-scope.sh) && targets="check-versions secrets" && \
+	for g in $$groups; do case $$g in \
+	  backend) targets="$$targets $(CHECK_BACKEND)" ;; \
+	  go) targets="$$targets $(CHECK_GO)" ;; \
+	  docs) targets="$$targets $(CHECK_DOCS)" ;; \
+	  frontend) targets="$$targets $(CHECK_FRONTEND)" ;; \
+	esac; done && \
+	$(MAKE) --no-print-directory $$targets && \
+	echo "$(COLOR_GREEN)✓ Checks passed:$$groups$(COLOR_RESET)"
+
+.PHONY: check-all
+check-all: check-versions secrets $(CHECK_BACKEND) $(CHECK_GO) $(CHECK_DOCS) $(CHECK_FRONTEND) ## Run every check, whatever the change touches
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: brand-tags-check

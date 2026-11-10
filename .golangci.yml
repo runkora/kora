@@ -450,16 +450,6 @@ linters:
           - gocritic
         text: "calling WriteHeader directly"
 
-      # egressgw/connect.go's connectResponseWriter is itself an http.ResponseWriter
-      # implementation — it serializes the inner request's response as chunked
-      # HTTP/1.1 over a tunneled TLS connection. Like platform/api/response.go, it
-      # IS the abstraction (there is no lower-level api.JSON to defer to inside the
-      # tunnel's own Write/Flush/WriteHeader trio).
-      - path: "internal/egressgw/connect.go"
-        linters:
-          - gocritic
-        text: "calling WriteHeader directly"
-
       # challengeWriter is an http.ResponseWriter implementation: its own
       # WriteHeader has no api helper to defer to.
       - path: "internal/toolgateway/challenge_writer.go"
