@@ -1,3 +1,5 @@
+import type { AgentFramework } from './agent-frameworks.generated';
+
 // ── Shared API types ─────────────────────────────────────────────────────────
 //
 // These interfaces mirror Go backend JSON response shapes exactly.
@@ -170,7 +172,6 @@ export interface ScopesExplainResponse {
 // ── Agents — /api/agents ──────────────────────────────────────────────────────
 
 /** Execution framework the agent type targets. Generated from the Go harness list. */
-import type { AgentFramework } from './agent-frameworks.generated';
 export type { AgentFramework };
 
 /** Lifecycle state of an AgentType resource. Mirrors Go: agents.AgentTypeState */
