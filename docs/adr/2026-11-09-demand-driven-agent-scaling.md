@@ -146,7 +146,7 @@ The starting runs on a pod come from the `runs` table, and the check holds acros
 
 `agents.scheduling.startingRunAllowance` holds one value per harness: the memory a run is assumed to take between its start and the next memory reading. Placement and the scaler use the value for the agent's harness. The chart defaults are the values measured at run start, rounded up:
 
-*   Claude Code (`claudeCode`): **180Mi** (measured 176Mi, peak 206Mi).
+*   Claude Code (`claudeCode`): **220Mi** (measured 176Mi settled, 206Mi peak alone, about 215Mi per run in a burst).
 *   Codex (`codex`): **60Mi** (measured 55Mi, peak 56Mi).
 *   OpenCode (`openCode`): **440Mi** (measured 431Mi, peak 589Mi).
 
@@ -156,7 +156,7 @@ Placement and the scaler will share a Postgres advisory transaction lock keyed o
 
 ### Pressure Protection
 
-The session-manager will check its working set every second (configurable, default 1 s). On a 1Gi pod the band between `pressureLimit` and the limit is about 102Mi, and one run can fill it within a longer interval. Above `agents.scheduling.pressureLimit × memory.max` (default 0.90) the session-manager kills the most recently started run and ends it `failed` with "The agent pod ran out of memory.". After each kill it reads the working set again at once and kills the next most recently started run, until the working set is below the limit or no run is left. The chart rejects a `placementWatermark` at or above `pressureLimit`.
+The session-manager will check its working set every 250 ms (configurable, default 250 ms). On a 1Gi pod the band between `pressureLimit` and the limit is about 102Mi, and one run can fill it within a longer interval. Above `agents.scheduling.pressureLimit × memory.max` (default 0.90) the session-manager kills the most recently started run and ends it `failed` with "The agent pod ran out of memory." After each kill it reads the working set again at once and kills the next most recently started run, until the working set is below the limit or no run is left. The chart rejects a `placementWatermark` at or above `pressureLimit`.
 
 With cgroup v2 and Kubernetes 1.32 or later, the kubelet group-kills the whole container on an OOM. The pressure kill must fire before the kernel OOM kill.
 
