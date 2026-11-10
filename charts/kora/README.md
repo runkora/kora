@@ -91,7 +91,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.scheduling.pressureLimit | float | `0.9` | Fraction of the memory limit at which the session-manager kills its most recently started run. Above placementWatermark. |
 | agents.scheduling.provisionBudgetSecs | int | `600` | Seconds a run may wait for its agent to finish provisioning before it fails. |
 | agents.scheduling.startBudgetSecs | int | `180` | Seconds a run may stay pending before it fails. |
-| agents.scheduling.startingRunAllowance.claudeCode | string | `"180Mi"` | Memory a Claude Code run is assumed to take between its start and the next memory reading. |
+| agents.scheduling.startingRunAllowance.claudeCode | string | `"220Mi"` | Memory a Claude Code run is assumed to take between its start and the next memory reading. |
 | agents.scheduling.startingRunAllowance.codex | string | `"60Mi"` | The same for a Codex run. |
 | agents.scheduling.startingRunAllowance.openCode | string | `"440Mi"` | The same for an OpenCode run. |
 | agents.scheduling.workerConcurrency | int | `16` | Runs one kora-agents replica starts at once. |

@@ -80,7 +80,7 @@ func TestValidate_RequiresTrustDomainInCluster(t *testing.T) {
 func validConfig() *Config {
 	cfg := &Config{}
 	cfg.Agents.Scheduling.StartingRunAllowance = StartingRunAllowance{
-		ClaudeCode: resource.MustParse("180Mi"), Codex: resource.MustParse("60Mi"), OpenCode: resource.MustParse("440Mi"),
+		ClaudeCode: resource.MustParse("220Mi"), Codex: resource.MustParse("60Mi"), OpenCode: resource.MustParse("440Mi"),
 	}
 	return cfg
 }

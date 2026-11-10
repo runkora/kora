@@ -80,7 +80,7 @@ agents:
     placementWatermark: 0.70
     pressureLimit: 0.90
     startingRunAllowance:
-      claudeCode: 180Mi
+      claudeCode: 220Mi
       codex: 60Mi
       openCode: 440Mi
   connectionRegistryPath: "/var/run/kora/connections/connections.json"
