@@ -81,8 +81,8 @@ Working set is `memory.current` minus `inactive_file` from `memory.stat`. The ku
 
 ### Scaling
 
-*   **Scaler in kora-agents with an External Option (chosen):** kora-agents sets the StatefulSet replicas from the run counts and pod memory. With `external` it publishes the same signals as metrics for an operator's own scaler.
-*   **HPA or KEDA on a Custom Metric as the Default (rejected):** It needs a metrics adapter on every cluster. An operator who runs one can use the `external` option.
+*   **Scaler in kora-agents (chosen):** kora-agents sets the StatefulSet replicas from the run counts and pod memory.
+*   **HPA or KEDA on a Custom Metric as the Default (rejected):** It needs a metrics adapter on every cluster.
 *   **CPU and Memory HPA (rejected):** This is the current HPA. It has never scaled without a metrics API, and CPU and memory averages do not track pending runs.
 
 ### Pod Memory
@@ -176,18 +176,15 @@ The StatefulSet replicas will be set only on create, to `max(minReplicas, 1)`. R
 
 Scale-down is not an eviction, and the `minAvailable: 1` PodDisruptionBudget does not block it. The defaults carry no Karpenter or Cluster Autoscaler annotations. Operators add them through `agents.workloads.common.podAnnotations` or `agents.manifestPatches`.
 
-`agents.scheduling.scaler` is `kora` (default) or `external`, and the chart rejects any other value. With `external` the scaler changes no replicas and publishes four per-agent OpenTelemetry metrics: desired replicas, active runs, pending runs and pod memory headroom in bytes. An external scaler may remove a busy top pod. The SIGTERM drain covers that case: the pod accepts no new runs, and its existing runs have `drainGracePeriodSecs` to finish.
-
 ### Parallel Pod Management
 
-New agent StatefulSets will use `podManagementPolicy: Parallel`. A live StatefulSet already on `Parallel` is updated in place. The field is immutable, and kora-agents will replace a live StatefulSet on `OrderedReady` in these steps:
+New agent StatefulSets will use `podManagementPolicy: Parallel`. A live StatefulSet already on `Parallel` is updated in place. The field is immutable. The scaler will replace a live StatefulSet on `OrderedReady` only while the agent has no active or starting run, under the agent lock:
 
-1.  Write the live replica count to the `runkora.io/recreate-replicas` annotation on the agent's ServiceAccount.
+1.  Read the live replica count.
 2.  Delete the StatefulSet with orphan propagation to keep the pods running.
-3.  Create the StatefulSet with the same name and selector and the annotated replica count. The new StatefulSet adopts the running pods, and the delete and the create interrupt no run.
-4.  Clear the annotation after the create succeeds.
+3.  Create the StatefulSet with the same name, selector and replica count. The new StatefulSet adopts the idle pods.
 
-Whenever no StatefulSet exists, the create path uses the annotation in preference to `max(minReplicas, 1)`. A kora-agents restart or a failed create between the delete and the create keeps the live replica count. `ensureServiceAccount` runs before `ensureStatefulSet` and keeps replacing the ServiceAccount annotations with the built ones. It carries over only `runkora.io/recreate-replicas` from the existing ServiceAccount.
+A busy agent keeps `OrderedReady` until its first idle scaler pass. If kora-agents stops between the delete and the create, the next apply creates the StatefulSet with `max(minReplicas, 1)` replicas and removes the idle pods above that count.
 
 The recreated StatefulSet carries the template of the same apply. The controller may then roll the adopted pods in the normal way with the SIGTERM drain.
 
@@ -220,7 +217,6 @@ None at this time.
 ### Known Limits
 
 *   A spot interruption drains the pods on the node regardless of this design.
-*   Runs on a busy top pod that an external scaler removes end when they outlast `drainGracePeriodSecs`.
 
 ### Parked
 
@@ -234,10 +230,10 @@ None at this time.
 
 ## Validation
 
-*   Unit tests cover placement (watermark, allowance, lowest ordinal, read timeout), the repeated pressure kill, the start budget, the scaler (formula, clamp, one-at-a-time scale-down, lock scope, `external` metrics) and the `Parallel` replacement.
-*   Chart tests cover the session-manager memory value and the watermark and scaler validation.
-*   A unit test covers the dual-key agent-type event payload, and a chart test covers the ClusterRole verbs.
-*   A local cluster check confirms that the `Parallel` replacement keeps the running pods (same names and UIDs) and their runs.
+*   Unit tests cover placement (watermark, allowance, lowest ordinal, read timeout), the repeated pressure kill, the start budget, the scaler (formula, clamp, one-at-a-time scale-down, lock scope) and the `Parallel` replacement.
+*   Chart tests cover the session-manager memory value and the watermark validation.
+*   A unit test covers an update listing both concurrency names in `changed`, and a chart test covers the ClusterRole verbs.
+*   A local cluster check confirms that the `Parallel` replacement of an idle agent keeps its pods (same names and UIDs).
 *   A local cluster check with one agent at `maxConcurrentRuns` 30 shows replicas rising by more than one in one scaler pass, run 31 pending past the 3 minute start budget, and pods returning to 2 after the runs end.
 
 ---
