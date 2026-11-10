@@ -152,9 +152,16 @@ func TestStartClaimed(t *testing.T) {
 				e.k8s.provisionAgentTypeErr = errors.New("conflict")
 			},
 			wantState: RunStatePending, wantReleased: 1},
-		{name: "past the start budget with full pods fails with a reason",
+		{name: "a run that waited past the start budget stays queued while Ready pods are full",
 			setup: func(e *startClaimedEnv) {
 				e.sm.memory = fullPods("bot", 0)
+				e.f.run.cfg.StartBudget = time.Minute
+				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-time.Hour)
+			},
+			wantState: RunStatePending, wantReleased: 1},
+		{name: "past the start budget with no Ready pod fails with a reason",
+			setup: func(e *startClaimedEnv) {
+				e.k8s.noReadyPods = true
 				e.f.run.cfg.StartBudget = time.Minute
 				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-2 * time.Minute)
 				e.repo.agentTypes["at-1"].ActivatedAt = time.Now().Add(-3 * time.Minute)
@@ -162,12 +169,12 @@ func TestStartClaimed(t *testing.T) {
 			wantState: RunStateFailed, wantErr: "No agent pod could take the run within 1m0s."},
 		{name: "provisioning time does not count against the start budget",
 			setup: func(e *startClaimedEnv) {
-				e.sm.memory = fullPods("bot", 0)
+				e.k8s.noReadyPods = true
 				e.f.run.cfg.StartBudget = time.Minute
 				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-5 * time.Minute)
 				e.repo.agentTypes["at-1"].ActivatedAt = time.Now()
 			},
-			wantState: RunStatePending, wantReleased: 1},
+			wantState: RunStatePending, wantReleased: 1, wantProvMiss: 1},
 		{name: "an agent provisioning past its budget fails the run",
 			setup: func(e *startClaimedEnv) {
 				e.f.run.cfg.ProvisionBudget = time.Minute
@@ -300,8 +307,8 @@ func TestFailStart_TerminatedRunGetsNoErrorEvent(t *testing.T) {
 
 // A delegated run that fails to start loses its delegation.
 func TestStartClaimed_DelegatedBudgetFailureRevokes(t *testing.T) {
-	f, repo, _, sm := newTestService(t)
-	sm.memory = fullPods("reviewer", 0)
+	f, repo, k8s, _ := newTestService(t)
+	k8s.noReadyPods = true
 	issuer := &fakeDelegationIssuer{}
 	f.run.SetDelegationBroker(newDelegationTestBroker(issuer))
 	at := seedDelegatedAgentType(t, repo, "at-del", "t1", "reviewer")
