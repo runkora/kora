@@ -7,11 +7,11 @@ import (
 	"math"
 	"testing"
 
-	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 const (
@@ -56,8 +56,8 @@ func (e metricsEnv) collect(t *testing.T) (tokens map[[2]string]int64, cost map[
 					if dp.Attributes.Len() != 2 {
 						t.Errorf("%s attributes = %v, want model and type only", m.Name, dp.Attributes)
 					}
-					model, _ := dp.Attributes.Value(attribute.Key("model"))
-					typ, _ := dp.Attributes.Value(attribute.Key("type"))
+					model, _ := dp.Attributes.Value(observability.UsageModelKey)
+					typ, _ := dp.Attributes.Value(observability.UsageTokenTypeKey)
 					tokens[[2]string{model.AsString(), typ.AsString()}] += dp.Value
 				}
 			case metricdata.Sum[float64]:
@@ -65,7 +65,7 @@ func (e metricsEnv) collect(t *testing.T) (tokens map[[2]string]int64, cost map[
 					if dp.Attributes.Len() != 1 {
 						t.Errorf("%s attributes = %v, want model only", m.Name, dp.Attributes)
 					}
-					model, _ := dp.Attributes.Value(attribute.Key("model"))
+					model, _ := dp.Attributes.Value(observability.UsageModelKey)
 					cost[model.AsString()] += dp.Value
 				}
 			}

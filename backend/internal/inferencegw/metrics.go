@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // usageMetrics exports the tokens and estimated cost of every persisted usage
@@ -55,7 +56,7 @@ func (m *usageMetrics) record(ctx context.Context, rec InferenceUsageRecord) {
 	if m == nil {
 		return
 	}
-	model := attribute.String("model", usageModelLabel(rec))
+	model := observability.UsageModelKey.String(usageModelLabel(rec))
 	for _, t := range []struct {
 		typ   string
 		count int
@@ -66,7 +67,7 @@ func (m *usageMetrics) record(ctx context.Context, rec InferenceUsageRecord) {
 		{"cache_write", rec.CacheCreationInputTokens},
 	} {
 		if t.count > 0 {
-			m.tokens.Add(ctx, int64(t.count), metric.WithAttributes(model, attribute.String("type", t.typ)))
+			m.tokens.Add(ctx, int64(t.count), metric.WithAttributes(model, observability.UsageTokenTypeKey.String(t.typ)))
 		}
 	}
 	if rec.EstimatedCostUSD > 0 {
