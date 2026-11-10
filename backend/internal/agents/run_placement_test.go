@@ -122,16 +122,16 @@ func TestAssignPod(t *testing.T) {
 	}
 }
 
-// A pod whose memory read times out counts as full, and the read of another pod is not held up.
+// Pods whose memory read times out count as full, and the reads run at once.
 func TestAssignPod_MemoryReadTimeout(t *testing.T) {
-	f, repo, _, sm, at, run := placementEnv(t, 2, 3)
-	slow := sessionmanager.PodURL("bot", 0, "kora-tenant-t1")
+	f, repo, _, sm, at, run := placementEnv(t, 3, 3)
+	fast := sessionmanager.PodURL("bot", 2, "kora-tenant-t1")
 	var lockedDuringRead atomic.Bool
 	sm.memoryFn = func(ctx context.Context, podURL string) (sessionmanager.Memory, error) {
 		if repo.agentLockHeld.Load() {
 			lockedDuringRead.Store(true)
 		}
-		if podURL == slow {
+		if podURL != fast {
 			<-ctx.Done()
 			return sessionmanager.Memory{}, ctx.Err()
 		}
@@ -140,9 +140,10 @@ func TestAssignPod_MemoryReadTimeout(t *testing.T) {
 
 	start := time.Now()
 	pod, err := f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1")
-	if err != nil || pod != 1 {
-		t.Fatalf("assignPod = %d, %v; want pod 1", pod, err)
+	if err != nil || pod != 2 {
+		t.Fatalf("assignPod = %d, %v; want pod 2", pod, err)
 	}
+	// Two pods time out; read one after the other they would take twice the timeout.
 	if elapsed := time.Since(start); elapsed > memoryReadTimeout+time.Second {
 		t.Errorf("placement took %s, want about the %s read timeout", elapsed, memoryReadTimeout)
 	}
