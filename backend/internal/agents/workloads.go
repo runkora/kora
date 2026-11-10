@@ -188,8 +188,8 @@ func requireCoLocation(spec *corev1.PodSpec, podName string) {
 		spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution, term)
 }
 
-// Validate rejects configuration that would break the pod identity or mesh
-// wiring the platform owns.
+// Validate rejects a non-positive session-manager memory and configuration
+// that would break the pod identity or mesh wiring the platform owns.
 func (w WorkloadsConfig) Validate() error {
 	if m := w.SessionManager.Memory; m != nil && m.Sign() <= 0 {
 		return fmt.Errorf("agents.workloads.sessionManager.memory is %s, want a positive quantity", m.String())
