@@ -361,13 +361,13 @@ func (s *RunService) readPodMemory(ctx context.Context, slug, namespace string, 
 	return out
 }
 
-// hasRoom reports whether a pod stays below the watermark with its starting runs counted at the allowance.
-// A pod with no memory limit always has room.
+// hasRoom reports whether a pod stays below the watermark with its starting runs and the run being
+// placed counted at the allowance. A pod with no memory limit always has room.
 func hasRoom(m sessionmanager.Memory, starting int, allowance int64, watermark float64) bool {
 	if m.LimitBytes == 0 {
 		return true
 	}
-	return float64(m.WorkingSetBytes+int64(starting)*allowance) < watermark*float64(m.LimitBytes)
+	return float64(m.WorkingSetBytes+int64(starting+1)*allowance) < watermark*float64(m.LimitBytes)
 }
 
 // releaseStart returns a claimed run to the queue after a transient failure.
