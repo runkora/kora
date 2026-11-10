@@ -19,8 +19,8 @@ import (
 // CgroupDir is the container's own cgroup v2 directory, the root of its cgroup namespace.
 const CgroupDir = "/sys/fs/cgroup"
 
-// OutOfMemoryMessage is the run_error message of a run the pressure monitor kills.
-const OutOfMemoryMessage = "The agent pod ran out of memory."
+// outOfMemoryMessage is the run_error message of a run the pressure monitor kills.
+const outOfMemoryMessage = "The agent pod ran out of memory."
 
 // errNoInactiveFile means memory.stat has no inactive_file line, so no working set can be worked out.
 var errNoInactiveFile = errors.New("memory.stat has no inactive_file")
@@ -113,7 +113,7 @@ func (reg *Registry) WatchMemory(ctx context.Context, mem memoryReader, limit fl
 }
 
 // relieveMemory kills the most recently started run while the working set is
-// at or above limit × memory.max, re-reading after each kill.
+// above limit × memory.max, re-reading after each kill.
 func (reg *Registry) relieveMemory(ctx context.Context, mem memoryReader, limit float64) {
 	for {
 		report, err := mem.ReadMemory()
@@ -121,7 +121,7 @@ func (reg *Registry) relieveMemory(ctx context.Context, mem memoryReader, limit 
 			reg.logger.Warn(ctx, "Failed to read pod memory", logging.Field{Key: "error", Value: err.Error()})
 			return
 		}
-		if report.LimitBytes == 0 || float64(report.WorkingSetBytes) < limit*float64(report.LimitBytes) {
+		if report.LimitBytes == 0 || float64(report.WorkingSetBytes) <= limit*float64(report.LimitBytes) {
 			return
 		}
 		s := reg.takeNewest()
@@ -156,7 +156,7 @@ func (reg *Registry) takeNewest() *session {
 	}
 	if newest != nil {
 		delete(reg.sessions, newest.runID)
-		newest.failure.Store(&RunErrorPayload{Code: events.RunErrorSubprocessExit, Message: OutOfMemoryMessage})
+		newest.failure.Store(&RunErrorPayload{Code: events.RunErrorSubprocessExit, Message: outOfMemoryMessage})
 	}
 	return newest
 }

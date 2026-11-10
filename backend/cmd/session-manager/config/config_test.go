@@ -112,3 +112,13 @@ func TestApplyEnvOverrides_PressureLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestValidate_CheckInterval(t *testing.T) {
+	for secs, valid := range map[int]bool{1: true, 5: true, 0: false, -1: false} {
+		cfg := &Config{}
+		cfg.Memory.CheckIntervalSecs = secs
+		if err := validate(cfg); (err == nil) != valid {
+			t.Errorf("checkIntervalSecs %d: err = %v, want valid %v", secs, err, valid)
+		}
+	}
+}

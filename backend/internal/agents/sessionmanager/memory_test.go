@@ -145,8 +145,8 @@ func (n *endNotifier) killed(t *testing.T, want int) []string {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	for _, id := range ids {
-		if n.messages[id] != OutOfMemoryMessage {
-			t.Errorf("run %s run_error = %q, want %q", id, n.messages[id], OutOfMemoryMessage)
+		if n.messages[id] != outOfMemoryMessage {
+			t.Errorf("run %s run_error = %q, want %q", id, n.messages[id], outOfMemoryMessage)
 		}
 	}
 	slices.Sort(ids)
