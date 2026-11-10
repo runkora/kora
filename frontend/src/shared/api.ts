@@ -169,8 +169,9 @@ export interface ScopesExplainResponse {
 
 // ── Agents — /api/agents ──────────────────────────────────────────────────────
 
-/** Execution framework the agent type targets. Mirrors Go: agents.Framework */
-export type AgentFramework = 'claude-code' | 'codex' | 'opencode';
+/** Execution framework the agent type targets. Generated from the Go harness list. */
+import type { AgentFramework } from './agent-frameworks.generated';
+export type { AgentFramework };
 
 /** Lifecycle state of an AgentType resource. Mirrors Go: agents.AgentTypeState */
 export type AgentTypeState = 'provisioning' | 'active' | 'deleting';

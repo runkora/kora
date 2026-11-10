@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/harnesses"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/policy"
@@ -203,6 +204,12 @@ func (s *AgentTypeService) validateAgentTypeUpdate(ctx context.Context, at *Agen
 			return fmt.Errorf("%w (current mode: %s)", ErrIdentityModeImmutable, at.IdentityMode.OrDefault())
 		}
 	}
+	// Only create defaults an empty framework; an update to "" is rejected.
+	if req.Framework != nil {
+		if err := validateFramework(*req.Framework); err != nil {
+			return err
+		}
+	}
 	if req.Connectivity != nil {
 		if vErr := req.Connectivity.Validate(); vErr != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidConnectivity, vErr)
@@ -226,6 +233,15 @@ func (s *AgentTypeService) validateAgentTypeUpdate(ctx context.Context, at *Agen
 		*req.Environments = envs
 	}
 	return nil
+}
+
+// validateFramework rejects a framework that is not a supported harness. The
+// message lists the supported values.
+func validateFramework(f AgentFramework) error {
+	if harnesses.Valid(string(f)) {
+		return nil
+	}
+	return fmt.Errorf("%w %q: supported values are %s", ErrInvalidFramework, string(f), strings.Join(harnesses.IDs(), ", "))
 }
 
 // validateEnvironments checks each environment exists in the tenant and that
@@ -282,6 +298,13 @@ func (s *AgentTypeService) validateAgentTypeCreate(ctx context.Context, req Crea
 
 	if err := validateAgentSlug(req.Slug); err != nil {
 		return out, err
+	}
+
+	// An empty framework defaults to harnesses.Default in CreateAgentType.
+	if req.Framework != "" {
+		if err := validateFramework(req.Framework); err != nil {
+			return out, err
+		}
 	}
 
 	// Identity model: autonomous unless explicitly created delegated. Immutable
@@ -348,7 +371,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 	}
 	framework := req.Framework
 	if framework == "" {
-		framework = AgentFrameworkClaudeCode
+		framework = AgentFramework(harnesses.Default)
 	}
 
 	validated, err := s.validateAgentTypeCreate(ctx, req)

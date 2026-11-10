@@ -18,6 +18,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/brand"
 	"github.com/runkora/kora/backend/internal/platform/events"
+	"github.com/runkora/kora/backend/internal/platform/harnesses"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/observability"
@@ -423,11 +424,9 @@ func (c *Controller) profileFor(ctx context.Context, req CreateSessionRequest, r
 // cannot produce a session leaves nothing behind for the run.
 func (c *Controller) prepareRun(w http.ResponseWriter, r *http.Request, req CreateSessionRequest) (string, bool) {
 	ctx := r.Context()
-	switch req.Framework {
 	// Empty means claude-code, for rows predating the defaulting in
 	// service.CreateAgentType.
-	case "claude-code", "", "codex", "opencode":
-	default:
+	if req.Framework != "" && !harnesses.Valid(req.Framework) {
 		apiErr := api.ValidationError(api.ErrCodeInvalidField, fmt.Sprintf("unsupported framework %q", req.Framework), nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return "", false

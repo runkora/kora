@@ -42,6 +42,10 @@ var ErrInvalidConnector = errors.New("invalid connector")
 // autonomous or delegated. Handlers map it to a 400.
 var ErrInvalidIdentityMode = errors.New("invalid identity mode")
 
+// ErrInvalidFramework is returned when an agent type's framework is not one of
+// the supported harnesses (internal/platform/harnesses).
+var ErrInvalidFramework = errors.New("invalid framework")
+
 // ErrIdentityModeImmutable is returned when an update attempts to change an
 // agent type's identity mode — it is fixed at creation
 // (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 1). Handlers map it to a 400.

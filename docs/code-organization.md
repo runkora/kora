@@ -330,3 +330,13 @@ Create `cmd/{name}/` with its own `main.go` and (if it needs config) a `config/b
 - [opentelemetry-observability-discipline](adr/2026-03-21-opentelemetry-observability-discipline.md): OpenTelemetry observability discipline
 - [docs/contributing/configuration.md](contributing/configuration.md) · [docs/reference/secrets.md](reference/secrets.md): Configuration & secret-management reference
 - [docs/contributing/local-development.md](contributing/local-development.md): Local setup walkthrough
+
+## Adding an agent harness
+
+The supported harnesses are one Go list, `backend/internal/platform/harnesses/harnesses.go`. To add one:
+
+1. Add an entry (ID, label, description) to the list.
+2. Add its ACP profile and a `profileFor` case in `backend/internal/agents/sessionmanager/server.go`. `TestEveryHarnessHasAProfile` fails without it.
+3. Add the ID to the `+kubebuilder:validation:Enum` marker on `AgentSpec.Framework` in `declarative/v1alpha1/types.go`, then run `make generate`. `TestFrameworkEnumMatchesHarnessList` fails when the CRD enum differs.
+4. Add the adapter stage in `backend/Dockerfile.session-manager` and the entry in `harnessBinaries` in `backend/cmd/kora-session-runner/main.go`. These stay per harness.
+5. Run `make generate` to refresh `frontend/src/shared/agent-frameworks.generated.ts`. `make generate-check` fails when it is stale. The kora MCP enum and the agents API validation read the list directly.

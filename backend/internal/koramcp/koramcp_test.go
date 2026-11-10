@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/harnesses"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -99,7 +100,7 @@ func TestCreateToolSchemaSurfacesEnumAndModelHint(t *testing.T) {
 	for _, v := range enum {
 		got = append(got, v.(string))
 	}
-	if want := "claude-code,codex,opencode"; strings.Join(got, ",") != want {
+	if want := strings.Join(harnesses.IDs(), ","); strings.Join(got, ",") != want {
 		t.Errorf("framework enum = %v, want [%s]", got, want)
 	}
 
