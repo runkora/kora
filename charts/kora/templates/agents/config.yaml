@@ -19,6 +19,21 @@ kora-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md).
 {{- if or (le (float64 $scheduling.placementWatermark) 0.0) (ge (float64 $scheduling.pressureLimit) 1.0) (ge (float64 $scheduling.placementWatermark) (float64 $scheduling.pressureLimit)) }}
   {{- fail "agents.scheduling: placementWatermark must be above 0 and below pressureLimit, and pressureLimit below 1" }}
 {{- end }}
+{{- $harnesses := list "claudeCode" "codex" "openCode" }}
+{{- $allowance := $scheduling.startingRunAllowance | default dict }}
+{{- if not (kindIs "map" $allowance) }}
+  {{- fail "agents.scheduling.startingRunAllowance must be a map of claudeCode, codex and openCode" }}
+{{- end }}
+{{- range $harness := keys $allowance }}
+  {{- if not (has $harness $harnesses) }}
+    {{- fail (printf "agents.scheduling.startingRunAllowance.%s: unknown harness; use claudeCode, codex or openCode" $harness) }}
+  {{- end }}
+{{- end }}
+{{- range $harness := $harnesses }}
+  {{- if not (regexMatch "^([1-9][0-9]*(\\.[0-9]+)?|0\\.[0-9]*[1-9][0-9]*)(Ki|Mi|Gi|Ti|k|M|G|T)?$" (index $allowance $harness | toString)) }}
+    {{- fail (printf "agents.scheduling.startingRunAllowance.%s must be a positive memory quantity" $harness) }}
+  {{- end }}
+{{- end }}
 {{- $idle := .Values.agents.idleTimeout }}
 {{- if or (lt (int $idle.manualSecs) 1) (lt (int $idle.triggerSecs) 1) }}
   {{- fail "agents.idleTimeout: manualSecs and triggerSecs must be at least 1" }}
@@ -70,7 +85,10 @@ cmd/kora-agents:
       drainGracePeriodSecs: {{ $scheduling.drainGracePeriodSecs | int }}
       placementWatermark: {{ $scheduling.placementWatermark | float64 }}
       pressureLimit: {{ $scheduling.pressureLimit | float64 }}
-      startingRunAllowance: {{ $scheduling.startingRunAllowance | toString | toJson }}
+      startingRunAllowance:
+        {{- range $harness := $harnesses }}
+        {{ $harness }}: {{ index $allowance $harness | toString | toJson }}
+        {{- end }}
     sessionManager:
       authorizationPolicyEnabled: {{ and .Values.platform.spiffe.enabled .Values.agents.authorizationPolicy.enabled }}
       landlock: {{ .Values.agents.landlock | quote }}

@@ -643,8 +643,14 @@ agents:
     placementWatermark: 0.70
     # -- Fraction of the memory limit at which the session-manager kills its most recently started run. Above placementWatermark.
     pressureLimit: 0.90
-    # -- Memory a run is assumed to take between its start and the next memory reading, the largest measured across harnesses.
-    startingRunAllowance: 431Mi
+    # Per-harness memory allowance for a starting run. Placement and the scaler use the agent's harness's value.
+    startingRunAllowance:
+      # -- Memory a Claude Code run is assumed to take between its start and the next memory reading.
+      claudeCode: 180Mi
+      # -- The same for a Codex run.
+      codex: 60Mi
+      # -- The same for an OpenCode run.
+      openCode: 440Mi
   # Per-agent AuthorizationPolicy restricting the session-manager port to the
   # kora-agents principal. kora-agents creates one alongside each StatefulSet.
   authorizationPolicy:

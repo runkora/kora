@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Measures the session-manager working-set growth a run causes, per harness, on
-# the local cluster. The largest result sets agents.scheduling.startingRunAllowance
-# (docs/adr/2026-11-09-demand-driven-agent-scaling.md).
+# the local cluster. Each harness's result sets its key of
+# agents.scheduling.startingRunAllowance (docs/adr/2026-11-09-demand-driven-agent-scaling.md).
 #
 # For each framework it creates a throwaway agent, starts RUNS one-turn runs one
 # after another, and reads the working set (memory.current minus inactive_file)
