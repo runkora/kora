@@ -122,7 +122,7 @@ The rename is expand-contract under [Database Migrations](2026-09-10-database-mi
 
 ### Pod Memory
 
-One chart value, `agents.workloads.sessionManager.memory` (default `1Gi`), will set both the memory request and the limit of the session-manager container. It replaces the hardcoded 512Mi request and 4Gi limit. The session-manager entry of `agents.workloads` will get its own type with the `memory` field, and the sandbox entry will not accept `memory`. Operators raise the value to pack more runs per pod.
+One chart value, `agents.workloads.sessionManager.memory` (default `1Gi`), will set both the memory request and the limit of the session-manager container. It replaces the hardcoded 512Mi request and 4Gi limit. The session-manager entry of `agents.workloads` will get its own type with the `memory` field, and the sandbox entry will have no `memory` field. Operators raise the value to pack more runs per pod.
 
 ### Sizing
 
