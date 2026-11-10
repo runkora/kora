@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -106,7 +107,7 @@ func TestCodexInferenceURLFormula(t *testing.T) {
 
 // The tool-gateway base URL adopts the same /run/{run_id} prefix convention so
 // MCP traffic carries run identity for delegation binding (delegated-agent-
-// identity ADR, Decision 4). writeMCPConfig then appends /v1/mcp/<server>,
+// identity ADR, Decision 4). acpGatewayServers then appends /v1/mcp/<server>,
 // yielding {gw}/run/{run_id}/v1/mcp/<server>.
 func TestToolGatewayURLForRun(t *testing.T) {
 	tests := []struct {
@@ -189,5 +190,50 @@ func TestResourceAttributes_OmitsEmptySlug(t *testing.T) {
 	want := "kora.run.id=run-1,kora.tenant.id=tenant-1,kora.agent.id=agent-1"
 	if got := resourceAttributes("run-1", "tenant-1", "agent-1", ""); got != want {
 		t.Errorf("resourceAttributes = %q, want %q", got, want)
+	}
+}
+
+// Each framework gets its profile and log label. Claude's environment carries
+// the run-prefixed ANTHROPIC_BASE_URL and the telemetry env; an unknown
+// framework gets no profile.
+func TestProfileFor(t *testing.T) {
+	t.Setenv("ANTHROPIC_BASE_URL", "http://gateway/")
+	c := newBareController(t, ControllerConfig{WorkspacesBasePath: "/workspaces", InferenceGatewayURL: "http://gateway", OTLPEndpoint: "http://collector:4317"})
+	for _, tc := range []struct{ framework, label, profile, inferenceURL string }{
+		{"claude-code", "claude-code", "*sessionmanager.claudeProfile", "http://gateway/run/run-1"},
+		{"", "claude-code", "*sessionmanager.claudeProfile", "http://gateway/run/run-1"},
+		{"codex", "codex", "*sessionmanager.codexProfile", "http://gateway/run/run-1"},
+		{"opencode", "opencode", "*sessionmanager.openCodeProfile", "http://gateway/run/run-1"},
+	} {
+		req := CreateSessionRequest{RunID: "run-1", TenantID: "tenant-1", AgentTypeID: "agent-1", AgentSlug: "triage", Model: "m", Framework: tc.framework}
+		profile, label, url, ok := c.profileFor(context.Background(), req, "tok")
+		if !ok || label != tc.label || fmt.Sprintf("%T", profile) != tc.profile || url != tc.inferenceURL {
+			t.Errorf("%q: profile %T, label %q, url %q, ok %v", tc.framework, profile, label, url, ok)
+		}
+		if p, isClaude := profile.(*claudeProfile); isClaude {
+			for _, want := range []string{"ANTHROPIC_BASE_URL=http://gateway/run/run-1", "KORA_RUN_TOKEN=tok",
+				"OTEL_RESOURCE_ATTRIBUTES=kora.run.id=run-1,kora.tenant.id=tenant-1,kora.agent.id=agent-1,kora.agent.slug=triage"} {
+				if !slices.Contains(p.cfg.ExtraEnv, want) {
+					t.Errorf("%q: env lacks %q: %v", tc.framework, want, p.cfg.ExtraEnv)
+				}
+			}
+		}
+	}
+	if _, _, _, ok := c.profileFor(context.Background(), CreateSessionRequest{RunID: "run-1", Framework: "bogus"}, "tok"); ok {
+		t.Error("an unknown framework got a profile")
+	}
+}
+
+// An answer for a tool-use id with no pending request is accepted.
+func TestHandleSendToolResult_UnknownIDIsAccepted(t *testing.T) {
+	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), NoopNotifier{}, 0, testBrand)
+	reg.sessions["run-1"] = &session{runID: "run-1", runner: newACPRunner(testACPConfig(newFakeACPAgent(t), &fakeACPProfile{})), done: make(chan struct{})}
+	ctrl := &Controller{logger: logging.NewLoggerWithOutput(io.Discard), registry: reg}
+	req := httptest.NewRequest(http.MethodPost, "/session/run-1/tool-results", strings.NewReader(`{"tool_use_id":"stale","content":"x"}`))
+	req.SetPathValue("runID", "run-1")
+	rec := httptest.NewRecorder()
+	ctrl.handleSendToolResult(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Errorf("status = %d, want 202: %s", rec.Code, rec.Body.String())
 	}
 }

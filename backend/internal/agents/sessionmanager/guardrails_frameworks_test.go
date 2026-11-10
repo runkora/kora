@@ -90,10 +90,10 @@ func TestLoopGuard_OpenCodeReadIsNotProgress(t *testing.T) {
 	}
 }
 
-// The loop guard reads the shell call each runner records from its own wire
-// format as a shell command, so its repeated-call and wait counts apply to all three.
+// The loop guard reads the shell call each profile records from its adapter's
+// updates as a shell command, so its repeated-call and wait counts apply to all three.
 func TestRunnerParity_GuardSeesEachRunnersShellCall(t *testing.T) {
-	for _, subject := range []paritySubject{claudeSubject(), codexSubject(), openCodeSubject()} {
+	for _, subject := range []paritySubject{claudeACPSubject(), codexACPSubject(), openCodeACPSubject()} {
 		t.Run(subject.name, func(t *testing.T) {
 			var use *ToolUsePayload
 			for _, ev := range subject.toolCall(t) {

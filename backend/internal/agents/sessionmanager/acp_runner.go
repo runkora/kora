@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"strings"
@@ -45,6 +46,7 @@ type acpProc interface {
 	Stderr() io.Reader
 	Wait() error
 	Kill()
+	Pid() int
 }
 
 // acpSpawner starts the adapter. Tests substitute an in-memory one.
@@ -83,6 +85,7 @@ func (p *acpExecProc) Stdout() io.Reader     { return p.stdout }
 func (p *acpExecProc) Stderr() io.Reader     { return p.stderr }
 func (p *acpExecProc) Wait() error           { return p.cmd.Wait() }
 func (p *acpExecProc) Kill()                 { _ = p.cmd.Process.Kill() }
+func (p *acpExecProc) Pid() int              { return p.cmd.Process.Pid }
 
 // acpRunnerConfig configures an acpRunner.
 type acpRunnerConfig struct {
@@ -90,6 +93,7 @@ type acpRunnerConfig struct {
 	Framework   string // labels log lines
 	WrapperPath string // kora-session-runner; empty runs the binary directly
 	RunID       string
+	Model       string // labels the start log line
 	Logger      logging.Logger
 	// ResumeSessionID makes Start resume or load that session instead of creating one.
 	ResumeSessionID string
@@ -208,7 +212,7 @@ func (r *acpRunner) Start(ctx context.Context, workDir string) error {
 	r.mu.Lock()
 	r.proc, r.conn = proc, conn
 	r.mu.Unlock()
-	r.log.Info(ctx, "ACP agent started", r.fields()...)
+	r.log.Info(ctx, "ACP agent started", r.fields(logging.Field{Key: "pid", Value: proc.Pid()}, logging.Field{Key: "model", Value: r.cfg.Model})...)
 	go r.logStderr(proc.Stderr())
 	go r.watchConn(conn, proc)
 
@@ -228,10 +232,16 @@ func (r *acpRunner) Start(ctx context.Context, workDir string) error {
 // logStderr logs the adapter's stderr, the only trace a crashed adapter leaves.
 func (r *acpRunner) logStderr(stderr io.Reader) {
 	sc := bufio.NewScanner(stderr)
+	sc.Buffer(nil, maxAgentLineBytes)
 	for sc.Scan() {
 		if line := sc.Text(); line != "" {
 			r.log.Error(r.ctx, "agent subprocess stderr", r.fields(logging.Field{Key: "line", Value: line})...)
 		}
+	}
+	if err := sc.Err(); err != nil {
+		r.log.Error(r.ctx, "agent subprocess stderr scan error", r.fields(logging.Field{Key: "error", Value: err.Error()})...)
+		// Keep reading, or the adapter blocks once the pipe fills.
+		_, _ = io.Copy(io.Discard, stderr)
 	}
 }
 
@@ -255,9 +265,7 @@ func (r *acpRunner) openSession(ctx context.Context, workDir string) error {
 		"terminal":    false,
 		"elicitation": map[string]any{"form": map[string]any{}},
 	}
-	for k, v := range r.cfg.Profile.ClientCapabilities() {
-		caps[k] = v
-	}
+	maps.Copy(caps, r.cfg.Profile.ClientCapabilities())
 	ictx, cancel := context.WithTimeout(ctx, acpInitializeTimeout)
 	init, err := acp.SendRequest[acp.InitializeResponse](r.conn, ictx, acp.AgentMethodInitialize, map[string]any{
 		"protocolVersion":    acp.ProtocolVersionNumber,
@@ -419,8 +427,8 @@ func (r *acpRunner) onExit() {
 	r.exitOnce.Do(r.exit)
 }
 
-// exit emits nothing, as the legacy runners do: the session reports the failed
-// run from the closed stream, or resumes the session after a user stop.
+// exit emits nothing: the session reports the failed run from the closed
+// stream, or resumes the session after a user stop.
 func (r *acpRunner) exit() {
 	r.mu.Lock()
 	r.inFlight, r.queue, r.gone = false, nil, true

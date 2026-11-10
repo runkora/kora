@@ -96,7 +96,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Sandbox Environments](2026-10-03-sandbox-environments.md) — `Accepted (Amended 2026-10-08)` · 2026-10-03
 - [Bundled Sandbox Images](2026-10-07-bundled-sandbox-images.md) — `Accepted` · 2026-10-07
 - [Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md) — `Accepted` · 2026-10-08
-- [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — `Accepted` · 2026-05-11
+- [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — `Accepted (Subprocess Model superseded 2026-11-07)` · 2026-05-11
 - [Codex Agent Runner](2026-06-04-codex-agent-runner.md) — `Accepted (Amended 2026-09-29)` · 2026-06-04
 - [OpenCode Agent Runner](2026-06-04-opencode-agent-runner.md) — `Accepted (Amended 2026-09-30)` · 2026-06-04
 - [ACP as the Single Agent Harness Protocol](2026-11-07-acp-agent-harness-protocol.md) — `Accepted` · 2026-11-07
@@ -240,7 +240,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-05-04 | [Semantic HTML Consolidation — Unconditional Ban on header, article, nav, aside, footer](2026-05-04-semantic-html-consolidation.md) | Accepted | 0048 |
 | 2026-05-04 | [Hades Design System Hardening](2026-05-04-terra-design-system-hardening.md) | Accepted | 0047 |
 | 2026-05-08 | [Frontend Test Strategy and Toolchain](2026-05-08-frontend-test-strategy-and-toolchain.md) | Accepted | 0049 |
-| 2026-05-11 | [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) | Accepted | 0049 |
+| 2026-05-11 | [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) | Accepted (Subprocess Model superseded 2026-11-07) | 0049 |
 | 2026-05-11 | [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) | Accepted | 0054 |
 | 2026-05-11 | [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) | Accepted (Amended 2026-10-12) | 0051 |
 | 2026-05-11 | [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) | Accepted (Amended 2026-09-29) | 0057 |

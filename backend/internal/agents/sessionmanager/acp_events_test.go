@@ -2,6 +2,7 @@ package sessionmanager
 
 import (
 	"encoding/json"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -37,9 +38,7 @@ func toolUpdate(kind, id, status string, extra map[string]any) map[string]any {
 	if status != "" {
 		u["status"] = status
 	}
-	for k, v := range extra {
-		u[k] = v
-	}
+	maps.Copy(u, extra)
 	return u
 }
 

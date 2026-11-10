@@ -74,7 +74,7 @@ Some call sites are legitimately exempt. Rather than scattering `//nolint` direc
 - `internal/platform/middleware/`: uses `http.Error` in the defensive nil-handler guard that fires before any request context exists
 - `internal/platform/middleware/metrics.go` and `internal/triggers/metrics.go`: metric labels (`method`, `route`, `status`, `state`) are not span attributes and keep their names
 - `internal/egressgw/tlsca/`: the X.509 subject of the per-tenant CA's leaf certificates is an identifier, not prose, and keeps the kora name
-- `internal/agents/sessionmanager/runner_codex.go` and `runner_opencode.go`, scoped by `source:` to the one declaration line each: `codexProvider` and `openCodeProvider` are the config-table keys the runtimes key on; the provider display name beside them reads the brand
+- `internal/agents/sessionmanager/acp_profile_codex.go` and `acp_profile_opencode.go`, scoped by `source:` to the one declaration line each: `codexProvider` and `openCodeProvider` are the config-table keys the runtimes key on; the provider display name beside them reads the brand
 
 There is deliberately no exclusion for ruleguard's `used Run() with an empty rule set` message. It appears on every file when `rules/kora_rules.go` fails to load, which is how a DSL construct the bundled ruleguard rejects surfaces, and never when it loads; excluding it would switch every Tier 1 rule off without a signal.
 

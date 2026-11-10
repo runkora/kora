@@ -69,30 +69,14 @@ type Config struct {
 	} `yaml:"runner"`
 
 	Claude struct {
-		// BinaryPath overrides the location of the claude binary.
-		// Defaults to "claude" (resolved via $PATH).
-		BinaryPath string `yaml:"binaryPath"`
-
-		// Bare enables --bare mode (no CLAUDE.md discovery, no OAuth/keychain).
-		// Required in containers where ANTHROPIC_API_KEY is set via env var.
+		// Bare enables Claude Code's bare mode (no CLAUDE.md discovery, no
+		// OAuth/keychain). Required in containers where ANTHROPIC_API_KEY is set via env var.
 		Bare bool `yaml:"bare"`
 	} `yaml:"claude"`
 
-	Codex struct {
-		// BinaryPath overrides the location of the codex binary.
-		// Defaults to "codex" (resolved via $PATH).
-		BinaryPath string `yaml:"binaryPath"`
-	} `yaml:"codex"`
-
-	OpenCode struct {
-		// BinaryPath overrides the location of the opencode binary.
-		// Defaults to "opencode" (resolved via $PATH).
-		BinaryPath string `yaml:"binaryPath"`
-	} `yaml:"opencode"`
-
 	InferenceGateway struct {
 		// URL is the base URL of the kora inference gateway.
-		// Injected as OPENAI_BASE_URL for Codex; written into the OpenCode config for OpenCode.
+		// Written into the per-run Codex config.toml and OpenCode config.
 		URL string `yaml:"url"`
 	} `yaml:"inferenceGateway"`
 

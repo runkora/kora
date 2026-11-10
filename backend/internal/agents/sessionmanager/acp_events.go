@@ -251,7 +251,7 @@ func hasACPInput(v any) bool {
 }
 
 // acpToolOutput is a tool's output as text, and whether a shell command exited
-// non-zero. OpenCode's rawOutput wins over content blocks, as in the legacy runner.
+// non-zero. OpenCode's rawOutput wins over content blocks.
 func acpToolOutput(content []acp.ToolCallContent, raw any) (string, bool) {
 	if out, failed, ok := openCodeToolOutput(raw); ok {
 		return out, failed
@@ -368,4 +368,33 @@ func (t *acpTranslator) endTurn(stop acp.StopReason, rpcErr *acp.RequestError) {
 		t.pruneTools(false)
 	}
 	t.emit(EventTypeMessageStop, nil)
+}
+
+// toolResultText returns a tool result's content as text. MCP, Agent, and
+// runtime tools return an array of blocks: text blocks are joined, and other
+// blocks (images) are named rather than inlined.
+func toolResultText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &blocks) != nil {
+		return string(raw)
+	}
+	parts := make([]string, 0, len(blocks))
+	for _, b := range blocks {
+		if b.Type == "text" {
+			parts = append(parts, b.Text)
+		} else {
+			parts = append(parts, "["+b.Type+"]")
+		}
+	}
+	return strings.Join(parts, "\n")
 }

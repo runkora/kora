@@ -119,14 +119,11 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 	idleTimeout := time.Duration(cfg.Session.IdleTimeoutSecs) * time.Second
 	registry := sessionmanager.NewRegistry(logger, cfg.Workspaces.BasePath, notifier, idleTimeout, b)
 	controller := sessionmanager.NewController(logger, sessionmanager.ControllerConfig{
-		ClaudeBinaryPath:    cfg.Claude.BinaryPath,
 		WrapperPath:         cfg.Runner.WrapperPath,
 		ShellPath:           cfg.Runner.ShellPath,
 		ClaudeBare:          cfg.Claude.Bare,
 		SelfPort:            cfg.Server.Port,
 		WorkspacesBasePath:  cfg.Workspaces.BasePath,
-		CodexBinaryPath:     cfg.Codex.BinaryPath,
-		OpenCodeBinaryPath:  cfg.OpenCode.BinaryPath,
 		InferenceGatewayURL: cfg.InferenceGateway.URL,
 		ToolGatewayURL:      cfg.ToolGateway.URL,
 		OTLPEndpoint:        observability.DefaultConfig.OTLPEndpoint,

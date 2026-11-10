@@ -142,7 +142,7 @@ RUN claude --version && opencode --version
 # Install Codex (musl-only statically linked binary; runs on Alpine without glibc).
 # It comes from the npm registry's per-platform package, which carries the release's
 # musl binary, so a GitHub releases outage does not block the image.
-# Validate app-server JSONL notification schema on upgrade.
+# Validate codex-acp against the new version on upgrade.
 # Override at image build time: docker build --build-arg CODEX_VERSION=x.y.z, with
 # the digests of the new codex-<version>-linux-<x64|arm64>.tgz files.
 ARG CODEX_VERSION=0.142.1
@@ -162,7 +162,7 @@ RUN ARCH=$(uname -m) && \
 COPY --from=codex-acp /codex-acp /usr/local/bin/codex-acp
 COPY --from=claude-agent-acp /claude-agent-acp /usr/local/bin/claude-agent-acp
 
-# Non-root user: claude --dangerously-skip-permissions refuses to run as root.
+# Non-root user: Claude Code refuses bypass permissions mode as root.
 RUN addgroup -S kora && adduser -S kora -G kora
 
 COPY --from=builder /configs/ ./

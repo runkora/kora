@@ -115,7 +115,7 @@ type session struct {
 	summarizeOnce    sync.Once   // ensures only the first user message triggers summarization
 	intentionalClose atomic.Bool // true when closed by timeout or explicit request
 	cutByShutdown    atomic.Bool // true when a pod drain hit its deadline, which fails the run
-	interruptClose   atomic.Bool // true when stopped by user interrupt (SIGINT) — leaves run idle, not completed
+	interruptClose   atomic.Bool // true when stopped by user interrupt: leaves run idle, not completed
 	isIdle           atomic.Bool // true when the agent has completed a turn and is waiting for input
 	budgetExhausted  atomic.Bool // true when the runner surfaced a BUDGET_EXCEEDED rejection — run ends budget_exhausted, not failed
 	stoppedByUser    atomic.Bool // true on a session resumed after an interrupt, until the next message carries stopNote
@@ -1041,8 +1041,8 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 	// sandbox retry, before a resumed session takes over or the run ends.
 	s.cancel()
 
-	// Interrupt: subprocess exited after SIGINT — immediately restart with --resume
-	// so the next message can be delivered to a warm process. Run transitions to idle.
+	// Interrupt: subprocess exited after an interrupt. Immediately resume the
+	// session in a new process so the next message reaches a warm one. Run transitions to idle.
 	//
 	// s stays registered until the resumed session is swapped in (or we give up), so
 	// a concurrent Close() always finds a session to claim. Otherwise Close could land
