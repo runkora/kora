@@ -223,18 +223,12 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 		// The run was terminated, or another worker holds it now.
 		s.logger.Info(ctx, "run left the queue before its pod was assigned", logging.Field{Key: "run_id", Value: run.ID})
 		return nil, "", 0, false
-	case errors.Is(err, errAgentAtTotal):
-		// A run over the agent's total waits with no time limit.
+	case !errors.Is(err, errNoReadyPod):
+		// Full pods and the agent's total keep the run queued with no time limit.
 		s.releaseStart(ctx, span, run.ID, claimedAt, err)
 		return nil, "", 0, false
 	}
-	if errors.Is(err, errNoReadyPod) {
-		// Missing resources, after a cluster reset for example, leave no Ready pod. Create them only then.
-		if provErr := s.missing.ProvisionMissing(ctx, *at, namespace); provErr != nil {
-			err = fmt.Errorf("ensure agent infrastructure: %w", provErr)
-		}
-	}
-	// Provisioning time is not part of the start budget, which runs from when the agent became active.
+	// Only a run with no Ready pod is charged the start budget. Provisioning time is not part of it.
 	budgetStart := run.CreatedAt
 	if at.ActivatedAt.After(budgetStart) {
 		budgetStart = at.ActivatedAt
@@ -242,6 +236,10 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 	if time.Since(budgetStart) > s.startBudget() {
 		s.failStart(ctx, span, errStartFailed, run.ID, RunStatePending, fmt.Sprintf("No agent pod could take the run within %s.", s.startBudget()))
 		return nil, "", 0, false
+	}
+	// Missing resources, after a cluster reset for example, leave no Ready pod. Create them only then.
+	if provErr := s.missing.ProvisionMissing(ctx, *at, namespace); provErr != nil {
+		err = fmt.Errorf("ensure agent infrastructure: %w", provErr)
 	}
 	s.releaseStart(ctx, span, run.ID, claimedAt, err)
 	return nil, "", 0, false

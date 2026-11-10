@@ -40,10 +40,10 @@ type RunServiceConfig struct {
 	// ReaperInterval controls how often the reaper polls. Defaults to 5 minutes if zero.
 	// Override in tests to speed up reaper cycles.
 	ReaperInterval time.Duration
-	// StartBudget is how long a run may stay pending with no pod to take it,
+	// StartBudget is how long a run may stay pending with no Ready agent pod,
 	// measured from its created_at or from when its agent last became active,
-	// whichever is later, before the scheduler fails it. A run held back by its
-	// agent's total does not fail. Defaults to 3 minutes.
+	// whichever is later, before the scheduler fails it. A run waiting for room
+	// on a Ready pod or for its agent's total does not fail. Defaults to 3 minutes.
 	StartBudget time.Duration
 	// ProvisionBudget is how long a run may wait for its agent to finish
 	// provisioning, measured from the run's created_at. Defaults to 10 minutes.
