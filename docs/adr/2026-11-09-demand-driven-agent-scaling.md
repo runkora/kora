@@ -111,7 +111,7 @@ kora-agents will cap each agent at a total of concurrent runs, place runs by pod
 *   `max_concurrent_runs` (default 20) will be the total across all pods of the agent. The default of 20 suits a normal team and equals the current 2 pods × 10. A busy install raises it per agent.
 *   A run will be eligible only while the agent's active and starting runs are fewer than the total. Otherwise the run is released with `not_before` and stays `pending` with no time limit.
 *   The API, CRD, MCP tools, UI and kora-agents config will use `max_concurrent_runs` (`maxConcurrentRuns`) with no compatibility shim. There will be no runs-per-pod setting.
-*   The per-ordinal run count (`ActiveRunsPerPod`, `OccupiesPod`) will stay for placement and scale-down. It is not a limit.
+*   The per-ordinal run count (`ActiveRunsPerPod`, `OccupiesPod`) will stay for scale-down. Placement counts starting runs per ordinal. Neither is a limit.
 
 The rename is expand-contract under [Database Migrations](2026-09-10-database-migrations.md) Decision 5:
 
@@ -137,8 +137,10 @@ The session-manager will report its working set and `memory.max` through its exi
 Candidates will be Ready, non-terminating pods below the StatefulSet's current replicas, in ordinal order. The scheduler will read memory from each candidate with a 2 s timeout before it takes any lock. A pod whose read times out counts as full for that attempt. A pod takes the run while:
 
 ```text
-working set + starting_runs_on_pod × startingRunAllowance < placementWatermark × memory.max
+working set + (starting_runs_on_pod + 1) × the harness's startingRunAllowance < placementWatermark × memory.max
 ```
+
+A run counts as starting on a pod while it is in `starting` or was assigned to the pod within `agents.scheduling.startingRunWindowSecs` (default 30 s). When the readings taken before the lock show no pod with room, placement releases the run without taking the agent lock.
 
 The starting runs on a pod come from the `runs` table, and the check holds across kora-agents replicas and bursts. The lowest ordinal that passes gets the run, and lowest-first packing keeps the top pods empty for scale-down. The default `agents.scheduling.placementWatermark` is 0.70.
 
@@ -166,13 +168,15 @@ A run will fail the start budget only when no pod is coming up for it: no pod is
 
 ### Scaler
 
-kora-agents will run a scaler loop every 5 s, independent of the claim tick. For each agent the loop reads pod memory (2 s timeout per pod, outside any lock) and then try-locks the agent lock. The replica that gets the lock re-reads the pending, active and starting run counts from the database, decides from those counts and the memory reading, and calls the StatefulSet scale subresource. The scaler will:
+kora-agents will run a scaler loop every 5 s, independent of the claim tick. For each agent the loop reads pod memory (2 s timeout per pod, outside any lock) and then waits up to 2 s for the agent lock. A timeout skips the agent for that pass. The replica that gets the lock re-reads the pending, active and starting run counts from the database, decides from those counts and the memory reading, and calls the StatefulSet scale subresource. The scaler will:
 
 *   Scale up in one step when runs are pending, the agent is under its total, and no Ready pod has room. It adds `ceil(pending × startingRunAllowance ÷ (placementWatermark × pod memory.max))` pods minus the pods already coming up, clamped to the agent's total. Pod `memory.max` comes from a Ready pod's report, else from the StatefulSet's container memory limit.
 *   Scale down by one pod when the top pod (ordinal `replicas − 1`) is above `minReplicas` and has no active or starting run. The empty-top-pod check and the scale call both happen under the lock.
 *   Scale up to `minReplicas` when the floor is raised above the live count.
 
 The StatefulSet replicas will be set only on create, to `max(minReplicas, 1)`. Re-applying an agent keeps the live `spec.replicas`.
+
+kora-agents' Kubernetes client runs at 50 QPS with a burst of 100.
 
 Scale-down is not an eviction, and the `minAvailable: 1` PodDisruptionBudget does not block it. The defaults carry no Karpenter or Cluster Autoscaler annotations. Operators add them through `agents.workloads.common.podAnnotations` or `agents.manifestPatches`.
 
