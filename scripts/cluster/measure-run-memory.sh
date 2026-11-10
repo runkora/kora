@@ -6,8 +6,8 @@
 # For each framework it creates a throwaway agent, starts RUNS one-turn runs one
 # after another, and reads the working set (memory.current minus inactive_file)
 # of the run's pod before the run, every second until its turn ends, and
-# SETTLE_SECS after. Runs stay idle with their process alive, so the first run
-# measures the first run on a pod and later runs measure each further run.
+# SETTLE_SECS after. Runs stay idle with their process alive, so a run that lands
+# on a pod already holding one measures a further run (before_mi above idle).
 # The agents and runs are deleted at the end.
 #
 # Usage: scripts/cluster/measure-run-memory.sh [framework=model ...]
@@ -42,8 +42,8 @@ mi() { echo $(( $1 / 1048576 )); }
 agents=()
 runs=()
 cleanup() {
-  for run in "${runs[@]}"; do api DELETE "/api/v1/runs/$run" >/dev/null || true; done
-  for agent in "${agents[@]}"; do api DELETE "/api/v1/agent-types/$agent" >/dev/null || true; done
+  for run in ${runs[@]+"${runs[@]}"}; do api DELETE "/api/v1/runs/$run" >/dev/null || true; done
+  for agent in ${agents[@]+"${agents[@]}"}; do api DELETE "/api/v1/agent-types/$agent" >/dev/null || true; done
 }
 trap cleanup EXIT
 
@@ -62,21 +62,22 @@ for spec in "$@"; do
   kubectl --context "$CONTEXT" -n "$NS" rollout status "statefulset/$slug" --timeout=300s >/dev/null
 
   for i in $(seq 1 "$RUNS"); do
-    declare -A before=()
+    # before holds each pod's working set, indexed by ordinal.
+    before=()
     for pod in $(kubectl --context "$CONTEXT" -n "$NS" get pods -l "app=$slug" -o name 2>/dev/null || true); do
-      before[${pod#pod/}]=$(working_set "${pod#pod/}")
+      before[${pod##*-}]=$(working_set "${pod#pod/}")
     done
     run=$(api POST /api/v1/runs -d "$(jq -n --arg a "$agent" --arg m "$PROMPT" '{agent_type_id: $a, initial_message: $m}')" | jq -r .id)
     runs+=("$run")
     peak=0 pod="" state=""
     for _ in $(seq 1 "$TURN_TIMEOUT_SECS"); do
       read -r state ordinal < <(api GET "/api/v1/runs/$run" | jq -r '"\(.state) \(.pod_ordinal)"')
-      if [[ -n $ordinal && $ordinal != null && $state != pending && $state != starting ]]; then
+      if (( ordinal >= 0 )); then
         pod="$slug-$ordinal"
         ws=$(working_set "$pod")
         (( ws > peak )) && peak=$ws
       fi
-      [[ $state == idle || $state == completed || $state == failed ]] && break
+      [[ $state =~ ^(idle|completed|failed|budget_exhausted|terminated)$ ]] && break
       sleep 1
     done
     if [[ $state != idle ]]; then
@@ -86,7 +87,11 @@ for spec in "$@"; do
     sleep "$SETTLE_SECS"
     settled=$(working_set "$pod")
     (( settled > peak )) && peak=$settled
-    base=${before[$pod]:-$(working_set "$pod")}
+    if [[ -z ${before[$ordinal]:-} ]]; then
+      echo "no baseline for $pod" >&2
+      exit 1
+    fi
+    base=${before[$ordinal]}
     echo "$framework,$model,$i,$pod,$(mi "$base"),$(mi "$peak"),$(mi "$settled"),$(mi $((peak - base))),$(mi $((settled - base)))"
   done
 done
