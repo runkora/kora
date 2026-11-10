@@ -111,7 +111,7 @@ type Config struct {
 			WorkerConcurrency int `yaml:"workerConcurrency"`
 			// PollIntervalSecs is how often the scheduler claims pending runs, and how long a released run waits.
 			PollIntervalSecs int `yaml:"pollIntervalSecs"`
-			// StartBudgetSecs is how long a run may stay pending with no Ready agent pod before it fails.
+			// StartBudgetSecs is how long a run may stay pending with no agent pod Ready or coming up before it fails.
 			StartBudgetSecs int `yaml:"startBudgetSecs"`
 			// ProvisionBudgetSecs is how long a run may wait for its agent to finish provisioning before it fails.
 			ProvisionBudgetSecs int `yaml:"provisionBudgetSecs"`

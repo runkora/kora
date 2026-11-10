@@ -40,10 +40,11 @@ type RunServiceConfig struct {
 	// ReaperInterval controls how often the reaper polls. Defaults to 5 minutes if zero.
 	// Override in tests to speed up reaper cycles.
 	ReaperInterval time.Duration
-	// StartBudget is how long a run may stay pending with no Ready agent pod,
+	// StartBudget is how long a run may stay pending with no agent pod Ready or coming up,
 	// measured from its created_at or from when its agent last became active,
-	// whichever is later, before the scheduler fails it. A run waiting for room
-	// on a Ready pod or for its agent's total does not fail. Defaults to 3 minutes.
+	// whichever is later, before the scheduler fails it. A run waiting for a pod that
+	// is not Ready yet, for room on a Ready pod or for its agent's total does not fail.
+	// Defaults to 3 minutes.
 	StartBudget time.Duration
 	// ProvisionBudget is how long a run may wait for its agent to finish
 	// provisioning, measured from the run's created_at. Defaults to 10 minutes.
@@ -83,6 +84,7 @@ type RunService struct {
 	envs       runEnvironmentStore
 	images     sandboxImageLookup
 	missing    missingProvisioner
+	pods       podPhases
 	queue      runQueue
 	metrics    *Metrics // run outcome and duration; nil = not recorded
 	// attempts and schedulerDone track the scheduler started by StartScheduler.
@@ -146,6 +148,7 @@ func NewRunService(
 	envs runEnvironmentStore,
 	images sandboxImageLookup,
 	missing missingProvisioner,
+	pods podPhases,
 	queue runQueue,
 	cfg RunServiceConfig,
 	logger logging.Logger,
@@ -163,6 +166,7 @@ func NewRunService(
 		envs:    envs,
 		images:  images,
 		missing: missing,
+		pods:    pods,
 		queue:   queue,
 		cfg:     cfg,
 		logger:  logger,

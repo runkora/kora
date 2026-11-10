@@ -526,3 +526,51 @@ func TestReadyOrdinals(t *testing.T) {
 		})
 	}
 }
+
+func TestLivePod(t *testing.T) {
+	const ns, slug = "kora-tenant-acme", "coder"
+	ss := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: slug, Namespace: ns},
+		Spec:       appsv1.StatefulSetSpec{Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": slug}}},
+	}
+	pod := func(name string, phase corev1.PodPhase, ready, deleting bool) *corev1.Pod {
+		st := corev1.ConditionFalse
+		if ready {
+			st = corev1.ConditionTrue
+		}
+		p := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: map[string]string{"app": slug}},
+			Status:     corev1.PodStatus{Phase: phase, Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: st}}},
+		}
+		if deleting {
+			now := metav1.Now()
+			p.DeletionTimestamp = &now
+		}
+		return p
+	}
+	for _, tc := range []struct {
+		name string
+		objs []runtime.Object
+		want bool
+	}{
+		{"no statefulset", nil, false},
+		{"no pod", []runtime.Object{ss}, false},
+		{"pending", []runtime.Object{ss, pod("coder-0", corev1.PodPending, false, false)}, true},
+		{"running, not ready", []runtime.Object{ss, pod("coder-0", corev1.PodRunning, false, false)}, true},
+		{"ready", []runtime.Object{ss, pod("coder-0", corev1.PodRunning, true, false)}, true},
+		{"all terminating", []runtime.Object{ss, pod("coder-0", corev1.PodRunning, false, true), pod("coder-1", corev1.PodPending, false, true)}, false},
+		{"failed", []runtime.Object{ss, pod("coder-0", corev1.PodFailed, false, false)}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := podSecurityProvisioner()
+			p.client = fake.NewSimpleClientset(tc.objs...)
+			got, err := p.LivePod(context.Background(), slug, ns)
+			if err != nil {
+				t.Fatalf("LivePod: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

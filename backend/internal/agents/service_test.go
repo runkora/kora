@@ -1205,7 +1205,7 @@ func newTestServiceWithReaper(t *testing.T) (*testServiceFacade, *mockRepository
 		logger,
 	)
 	runSvc, err := NewRunService(
-		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s, k8s, repo,
+		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s, k8s, k8s, repo,
 		RunServiceConfig{
 			DefaultEnvironmentSize: testSizes.Default,
 			TenantNamespaceFn:      func(tenantID string) string { return "kora-tenant-" + tenantID },
