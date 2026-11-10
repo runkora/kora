@@ -152,7 +152,7 @@ func TestCodexProfile_ClassifyError(t *testing.T) {
 		{[]acpAdapterMessage{other}, ""},
 		{nil, ""},
 	} {
-		if got := p.ClassifyError(acpTurnEnd{StopReason: acp.StopReasonEndTurn, Messages: tc.msgs}); got != tc.want {
+		if got := p.ClassifyError(acpTurnEnd{StopReason: acp.StopReasonEndTurn, Messages: tc.msgs}).Code; got != tc.want {
 			t.Errorf("ClassifyError = %q, want %q", got, tc.want)
 		}
 	}
@@ -200,7 +200,7 @@ func TestCodexProfile_RetriesWithoutCountAreCounted(t *testing.T) {
 // additionalDetails of another shape still classifies a budget denial.
 func TestCodexProfile_ClassifyErrorDetailsObject(t *testing.T) {
 	msg := codexErrorMessage(map[string]any{"message": "denied", "additionalDetails": map[string]any{"code": "BUDGET_EXCEEDED"}})
-	if got := testCodexProfile().ClassifyError(acpTurnEnd{Messages: []acpAdapterMessage{msg}}); got != events.RunErrorBudgetExhausted {
+	if got := testCodexProfile().ClassifyError(acpTurnEnd{Messages: []acpAdapterMessage{msg}}).Code; got != events.RunErrorBudgetExhausted {
 		t.Errorf("ClassifyError = %q", got)
 	}
 }

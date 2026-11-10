@@ -91,13 +91,13 @@ func codexErrorOf(msg acpAdapterMessage) *codexError {
 
 // ClassifyError finds the gateway's budget denial in the turn's Codex errors.
 // Codex retries it, then ends the turn normally with the error as reply text.
-func (p *codexProfile) ClassifyError(turn acpTurnEnd) string {
+func (p *codexProfile) ClassifyError(turn acpTurnEnd) acpTurnVerdict {
 	for _, msg := range turn.Messages {
 		if e := codexErrorOf(msg); e != nil && isBudgetExceededMessage(p.details(e)) {
-			return events.RunErrorBudgetExhausted
+			return acpTurnVerdict{Code: events.RunErrorBudgetExhausted}
 		}
 	}
-	return ""
+	return acpTurnVerdict{}
 }
 
 // details is additionalDetails as text. codex-acp 2.6.0 sends a string; any

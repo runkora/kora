@@ -46,12 +46,13 @@ type acpTranslator struct {
 	messages  []acpAdapterMessage
 	replaying bool
 	emitFn    func(EventType, any)
-	classify  func(acpTurnEnd) string
+	classify  func(acpTurnEnd) acpTurnVerdict
+	hadText   bool // text_block recorded this turn
 	view      func(*acpToolCall, acp.ToolCallUpdate) acpToolView
 	now       func() time.Time
 }
 
-func newACPTranslator(emit func(EventType, any), classify func(acpTurnEnd) string) *acpTranslator {
+func newACPTranslator(emit func(EventType, any), classify func(acpTurnEnd) acpTurnVerdict) *acpTranslator {
 	return &acpTranslator{tools: make(map[string]*acpToolCall), subagents: make(map[string]bool), emitFn: emit, classify: classify, view: acpDefaultToolView, now: time.Now}
 }
 
@@ -71,6 +72,7 @@ func (t *acpTranslator) setReplaying(on bool) {
 		t.thinking.Reset()
 		t.tools = make(map[string]*acpToolCall)
 		t.messages = nil
+		t.hadText = false
 	}
 }
 
@@ -151,8 +153,8 @@ func (t *acpTranslator) subagent(child string, view acpToolView, result string) 
 
 // toolCall follows a tool call through its updates. Name, title and rawInput
 // carry forward, since adapters stream the input over several updates after the
-// pending one, and tool_use waits for the first update past pending that has an
-// input or a running status.
+// pending one, and tool_use waits for the first update past pending that has a
+// complete input (one the view does not mark streaming) or a running status.
 func (t *acpTranslator) toolCall(u acp.ToolCallUpdate, parent string) {
 	id := string(u.ToolCallId)
 	c, ok := t.tools[id]
@@ -171,7 +173,7 @@ func (t *acpTranslator) toolCall(u acp.ToolCallUpdate, parent string) {
 	}
 	terminal := status == acp.ToolCallStatusCompleted || status == acp.ToolCallStatusFailed
 	if !c.recorded {
-		if !terminal && status != acp.ToolCallStatusInProgress && c.input == nil {
+		if !terminal && status != acp.ToolCallStatusInProgress && (c.input == nil || view.Streaming) {
 			return
 		}
 		t.recordToolUse(id, c, view)
@@ -215,9 +217,13 @@ func (c *acpToolCall) carry(u acp.ToolCallUpdate) {
 
 func (t *acpTranslator) recordToolUse(id string, c *acpToolCall, view acpToolView) {
 	c.recorded, c.progressAt = true, t.now()
+	if c.parent == "" && t.text.wasTaken() {
+		t.hadText = true
+	}
 	if t.text.Len() > 0 && c.parent == "" {
 		t.emit(EventTypeTextBlock, TextBlockPayload{Content: t.text.String()})
 		t.text.Reset()
+		t.hadText = true
 	}
 	input := json.RawMessage(`{}`)
 	if view.Input != nil {
@@ -321,11 +327,22 @@ func (t *acpTranslator) pruneTools(cutShort bool) {
 func (t *acpTranslator) endTurn(stop acp.StopReason, rpcErr *acp.RequestError) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	turn := acpTurnEnd{StopReason: stop, RPCErr: rpcErr, Messages: t.messages}
+	turn := acpTurnEnd{StopReason: stop, RPCErr: rpcErr, Messages: t.messages, Text: t.text.String(), HadText: t.hadText || t.text.wasTaken()}
 	t.messages = nil
 	t.retries = 0
-	code := t.classify(turn)
+	t.hadText = false
+	v := t.classify(turn)
+	if v.Text != nil {
+		t.text.Reset()
+		t.text.WriteString(*v.Text)
+	}
+	code := v.Code
 	switch {
+	case v.Complete:
+		t.emit(EventTypeMessageComplete, MessageCompletePayload{Text: t.text.String(), Thinking: t.thinking.String()})
+		t.text.Reset()
+		t.thinking.Reset()
+		t.pruneTools(false)
 	case rpcErr == nil && stop == acp.StopReasonCancelled:
 		t.flushPartial()
 		t.pruneTools(true)
@@ -337,7 +354,10 @@ func (t *acpTranslator) endTurn(stop acp.StopReason, rpcErr *acp.RequestError) {
 			code = acpDefaultErrorCode
 		}
 		msg := "agent stopped: " + string(stop)
-		if rpcErr != nil {
+		switch {
+		case v.Message != "":
+			msg = v.Message
+		case rpcErr != nil:
 			msg = fmt.Sprintf("agent error %d: %s", rpcErr.Code, rpcErr.Message)
 		}
 		t.emit(EventTypeRunError, RunErrorPayload{Code: code, Message: msg})

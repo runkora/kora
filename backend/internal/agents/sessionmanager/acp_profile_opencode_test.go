@@ -114,7 +114,7 @@ func TestOpenCodeProfile_ClassifyError(t *testing.T) {
 		{acpTurnEnd{StopReason: acp.StopReasonEndTurn}, ""},
 	}
 	for _, tc := range tests {
-		if got := p.ClassifyError(tc.turn); got != tc.want {
+		if got := p.ClassifyError(tc.turn).Code; got != tc.want {
 			t.Errorf("ClassifyError(%+v) = %q, want %q", tc.turn.RPCErr, got, tc.want)
 		}
 	}

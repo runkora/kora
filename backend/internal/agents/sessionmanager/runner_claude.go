@@ -121,6 +121,11 @@ func NewClaudeRunner(cfg ClaudeRunnerConfig) *ClaudeRunner {
 // baked into the subprocess's default settings would contradict that.
 const claudeAttributionSettings = `{"attribution":{"commit":"","pr":""}}`
 
+// claudeSettingSources are the settings tiers Claude Code reads. User settings
+// live in the run's HOME, which the agent writes. Unlike project settings, their
+// env can load a plugin directory, and a plugin's LSP servers start in the agent pod.
+var claudeSettingSources = []string{"project", "local"}
+
 // buildFlags returns the Claude Code CLI flags for this runner configuration.
 // Extracted to keep Start() cyclomatic complexity within bounds.
 func (r *ClaudeRunner) buildFlags() []string {
@@ -135,10 +140,7 @@ func (r *ClaudeRunner) buildFlags() []string {
 		// Only the platform's --mcp-config. A workspace .mcp.json or a plugin
 		// would start its servers in the agent pod.
 		"--strict-mcp-config",
-		// User settings live in the run's HOME, which the agent writes. Unlike
-		// project settings, their env can load a plugin directory, and a
-		// plugin's LSP servers start in the agent pod.
-		"--setting-sources", "project,local",
+		"--setting-sources", strings.Join(claudeSettingSources, ","),
 	}
 	if r.cfg.ResumeSessionID != "" {
 		args = append(args, "--resume", r.cfg.ResumeSessionID)
@@ -528,13 +530,7 @@ func (r *ClaudeRunner) handleSystem(ctx context.Context, w claudeOutputWrapper) 
 		r.setBackgroundTasks(w.Tasks)
 	}
 	if w.Subtype == "api_retry" {
-		r.emit(EventTypeAPIRetry, APIRetryPayload{
-			Attempt:      w.Attempt,
-			MaxRetries:   w.MaxRetries,
-			RetryDelayMs: w.RetryDelayMs,
-			ErrorStatus:  w.ErrorStatus,
-			Error:        rawString(w.Error),
-		})
+		r.emit(EventTypeAPIRetry, claudeAPIRetry(w))
 	}
 	if w.Subtype == "init" && w.SessionID != "" {
 		r.sessionIDMu.Lock()
@@ -875,6 +871,7 @@ type claudeOutputWrapper struct {
 	Subtype         string          `json:"subtype"`
 	StopReason      string          `json:"stop_reason"`
 	Result          string          `json:"result"`             // error message when Subtype == "error"
+	IsError         bool            `json:"is_error"`           // a result that reports an API error
 	SessionID       string          `json:"session_id"`         // present on system/init
 	Event           json.RawMessage `json:"event"`              // when Type == "stream_event"
 	Message         *claudeMessage  `json:"message"`            // when Type == "assistant" | "user"
@@ -930,17 +927,33 @@ type claudeContentItem struct {
 	IsError   bool            `json:"is_error"`
 }
 
-// setBackgroundTasks records the CLI's set of live background tasks. The event
-// carries the whole set, so each one replaces the last and a missed event cannot
-// leave a stale count.
-func (r *ClaudeRunner) setBackgroundTasks(tasks []claudeBackgroundTask) {
-	var n int64
+// claudeAPIRetry is the api_retry payload of a system/api_retry message.
+func claudeAPIRetry(w claudeOutputWrapper) APIRetryPayload {
+	return APIRetryPayload{
+		Attempt:      w.Attempt,
+		MaxRetries:   w.MaxRetries,
+		RetryDelayMs: w.RetryDelayMs,
+		ErrorStatus:  w.ErrorStatus,
+		Error:        rawString(w.Error),
+	}
+}
+
+// liveBackgroundTasks counts the tasks that are activity, leaving out ambient ones.
+func liveBackgroundTasks(tasks []claudeBackgroundTask) int {
+	n := 0
 	for _, t := range tasks {
 		if !t.Ambient {
 			n++
 		}
 	}
-	r.backgroundTasks.Store(n)
+	return n
+}
+
+// setBackgroundTasks records the CLI's set of live background tasks. The event
+// carries the whole set, so each one replaces the last and a missed event cannot
+// leave a stale count.
+func (r *ClaudeRunner) setBackgroundTasks(tasks []claudeBackgroundTask) {
+	r.backgroundTasks.Store(int64(liveBackgroundTasks(tasks)))
 	select {
 	case r.workChanged <- struct{}{}:
 	default:

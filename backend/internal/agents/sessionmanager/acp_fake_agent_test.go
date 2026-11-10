@@ -252,6 +252,8 @@ type fakeACPProfile struct {
 	meta     map[string]any
 	question func(acp.ToolCallUpdate) bool
 	signal   func(acpAdapterMessage) acpSignal
+	verdict  func(acpTurnEnd) acpTurnVerdict
+	view     func(*acpToolCall, acp.ToolCallUpdate) acpToolView
 	prepErr  error
 
 	mu    sync.Mutex
@@ -267,7 +269,15 @@ func (p *fakeACPProfile) SessionParams(w string) acpSessionParams {
 
 // ClassifyError maps an error stop to stop_<reason>, an RPC error to
 // rpc_error, and an adapter message whose params mention BUDGET to budget.
-func (p *fakeACPProfile) ClassifyError(turn acpTurnEnd) string {
+func (p *fakeACPProfile) ClassifyError(turn acpTurnEnd) acpTurnVerdict {
+	code := p.classify(turn)
+	if p.verdict != nil {
+		return p.verdict(turn)
+	}
+	return acpTurnVerdict{Code: code}
+}
+
+func (p *fakeACPProfile) classify(turn acpTurnEnd) string {
 	p.mu.Lock()
 	p.turns = append(p.turns, turn)
 	p.mu.Unlock()
@@ -297,6 +307,9 @@ func (p *fakeACPProfile) AdapterSignal(m acpAdapterMessage) acpSignal {
 }
 
 func (p *fakeACPProfile) ToolView(c *acpToolCall, u acp.ToolCallUpdate) acpToolView {
+	if p.view != nil {
+		return p.view(c, u)
+	}
 	return acpDefaultToolView(c, u)
 }
 

@@ -132,10 +132,15 @@ type acpRunner struct {
 	canClose  bool
 	steering  bool
 	inFlight  bool
-	queue     []string
-	closing   bool
-	gone      bool
-	pending   map[string]*acpPending
+	// ownTurn is a turn the agent took on its own with no prompt open, such as
+	// after a background task finished; ownStopped marks it cancelled.
+	ownTurn    bool
+	ownStopped bool
+	ownTurns   bool
+	queue      []string
+	closing    bool
+	gone       bool
+	pending    map[string]*acpPending
 }
 
 func newACPRunner(cfg acpRunnerConfig) *acpRunner {
@@ -311,6 +316,7 @@ func (r *acpRunner) openSession(ctx context.Context, workDir string) error {
 	r.sessionID = sid
 	r.canClose = agentCaps.SessionCapabilities.Close != nil
 	r.steering, _ = steering["supported"].(bool)
+	r.ownTurns = sp.OwnTurns
 	r.mu.Unlock()
 	return nil
 }
@@ -355,6 +361,11 @@ func (r *acpRunner) onUpdate(params json.RawMessage) {
 		r.onAdapterMessage(acpAdapterMessage{Method: acp.ClientMethodSessionUpdate, Params: params})
 		return
 	}
+	if u := n.Update; u.AgentMessageChunk != nil || u.AgentThoughtChunk != nil || u.ToolCall != nil || u.ToolCallUpdate != nil {
+		r.mu.Lock()
+		r.ownTurn = r.ownTurn || (r.ownTurns && !r.inFlight)
+		r.mu.Unlock()
+	}
 	if !r.tr.handleSessionUpdate(n.Update, string(n.SessionId)) {
 		r.log.Debug(r.ctx, "ACP update from an unknown session dropped", r.fields(logging.Field{Key: "session_id", Value: string(n.SessionId)})...)
 	}
@@ -379,6 +390,20 @@ func (r *acpRunner) onSubagent(params json.RawMessage) {
 func (r *acpRunner) onAdapterMessage(msg acpAdapterMessage) {
 	sig := r.cfg.Profile.AdapterSignal(msg)
 	r.tr.adapterMessage(msg, sig.Retry)
+	if sig.TurnEnded {
+		r.mu.Lock()
+		open, stop := r.inFlight, acp.StopReasonEndTurn
+		if r.ownStopped {
+			stop = acp.StopReasonCancelled
+		}
+		if !open {
+			r.ownTurn, r.ownStopped = false, false
+		}
+		r.mu.Unlock()
+		if !open {
+			r.tr.endTurn(stop, nil)
+		}
+	}
 	if sig.InFlightWork != nil {
 		r.inFlightWork.Store(int64(*sig.InFlightWork))
 		select {
@@ -625,6 +650,7 @@ func (r *acpRunner) runTurns(text string) {
 		r.mu.Lock()
 		if len(r.queue) == 0 || r.closing {
 			r.inFlight, r.queue = false, nil
+			r.ownTurn, r.ownStopped = false, false
 			r.mu.Unlock()
 			return
 		}
@@ -637,12 +663,16 @@ func (r *acpRunner) runTurns(text string) {
 // or Close is called.
 func (r *acpRunner) Events() <-chan Event { return r.out.out }
 
-// Interrupt cancels the prompt in flight and answers pending requests
-// cancelled. The process stays alive. With no prompt in flight it sends nothing
-// and returns ErrNoPromptInFlight.
+// Interrupt cancels the prompt in flight, or the agent's own turn, and answers
+// pending requests cancelled. The process stays alive. With neither it sends
+// nothing and returns ErrNoPromptInFlight.
 func (r *acpRunner) Interrupt() error {
 	r.mu.Lock()
-	if !r.inFlight {
+	switch {
+	case r.inFlight:
+	case r.ownTurn && !r.ownStopped:
+		r.ownStopped = true
+	default:
 		r.mu.Unlock()
 		return ErrNoPromptInFlight
 	}
