@@ -729,17 +729,8 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 	if err != nil {
 		return err
 	}
-	// Steer constraint (Decision 6): only the starter may message a delegated
-	// run — tenant admins included, because the message executes with the
-	// starter's authority under the starter's name.
-	if err = checkDelegatedRunSteer(ctx, at, run); err != nil {
+	if err = checkRunAcceptsMessage(ctx, at, run); err != nil {
 		return err
-	}
-	if run.State == RunStatePending || run.State == RunStateStarting {
-		return ErrRunStarting
-	}
-	if run.State != RunStateActive && run.State != RunStateIdle {
-		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
 	}
 
 	if err = s.repo.AppendRunMessage(ctx, RunMessage{RunID: runID, Content: content, From: from, CausedBy: chain.causedBy, ChainDepth: chain.depth, Triggers: chain.triggers}); err != nil {
@@ -780,6 +771,25 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 		return nil
 	}
 	s.emitHumanMessage(ctx, runID, content)
+	return nil
+}
+
+// checkRunAcceptsMessage refuses a message the run cannot take: one to a
+// delegated run from anyone but its starter, or one to a run that is starting
+// or has ended.
+func checkRunAcceptsMessage(ctx context.Context, at *AgentType, run *Run) error {
+	// Steer constraint (Decision 6): only the starter may message a delegated
+	// run — tenant admins included, because the message executes with the
+	// starter's authority under the starter's name.
+	if err := checkDelegatedRunSteer(ctx, at, run); err != nil {
+		return err
+	}
+	if run.State == RunStatePending || run.State == RunStateStarting {
+		return ErrRunStarting
+	}
+	if run.State != RunStateActive && run.State != RunStateIdle {
+		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
+	}
 	return nil
 }
 
