@@ -3,6 +3,8 @@ package agentsConfig
 import (
 	"testing"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
@@ -49,7 +51,7 @@ func TestLocalOverlay_KeepsLocalRegistryAndTrustDomain(t *testing.T) {
 
 func TestValidate_Landlock(t *testing.T) {
 	for mode, valid := range map[string]bool{"enforce": true, "bestEffort": true, "": true, "off": false} {
-		cfg := &Config{}
+		cfg := validConfig()
 		cfg.Agents.SessionManager.Landlock = mode
 		if err := Validate(cfg); (err == nil) != valid {
 			t.Errorf("Validate(landlock=%q) error = %v, want valid %v", mode, err, valid)
@@ -58,7 +60,7 @@ func TestValidate_Landlock(t *testing.T) {
 }
 
 func TestValidate_RequiresTrustDomainInCluster(t *testing.T) {
-	cfg := &Config{}
+	cfg := validConfig()
 	cfg.Kubernetes.InCluster = true
 	if err := Validate(cfg); err == nil {
 		t.Fatal("empty trust domain in cluster must fail validation")
@@ -71,5 +73,32 @@ func TestValidate_RequiresTrustDomainInCluster(t *testing.T) {
 	cfg.Kubernetes.InCluster = false
 	if err := Validate(cfg); err != nil {
 		t.Fatalf("local dev without a trust domain must pass: %v", err)
+	}
+}
+
+// validConfig passes Validate, for tests that change one field.
+func validConfig() *Config {
+	cfg := &Config{}
+	cfg.Agents.Scheduling.StartingRunAllowance = StartingRunAllowance{
+		ClaudeCode: resource.MustParse("180Mi"), Codex: resource.MustParse("60Mi"), OpenCode: resource.MustParse("440Mi"),
+	}
+	return cfg
+}
+
+// Every harness needs a positive allowance, or kora-agents does not start.
+func TestValidate_StartingRunAllowance(t *testing.T) {
+	for name, set := range map[string]func(*StartingRunAllowance){
+		"codex missing":       func(a *StartingRunAllowance) { a.Codex = resource.Quantity{} },
+		"openCode zero":       func(a *StartingRunAllowance) { a.OpenCode = resource.MustParse("0") },
+		"claudeCode negative": func(a *StartingRunAllowance) { a.ClaudeCode = resource.MustParse("-1Mi") },
+	} {
+		cfg := validConfig()
+		set(&cfg.Agents.Scheduling.StartingRunAllowance)
+		if err := Validate(cfg); err == nil {
+			t.Errorf("%s: Validate passed, want an error", name)
+		}
+	}
+	if err := Validate(validConfig()); err != nil {
+		t.Errorf("Validate(valid) = %v", err)
 	}
 }
