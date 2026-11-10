@@ -282,6 +282,12 @@ export interface DataTableProps<TData> {
   columnToggle?: boolean;
 
   /**
+   * Leaves out the column header row, for a list whose rows explain themselves. Sorting by
+   * `defaultSortId` still applies; there is no header to change it from.
+   */
+  hideHeader?: boolean;
+
+  /**
    * A CSS height past which the rows scroll inside the table, with the header kept in view,
    * e.g. `'24rem'`. Without it the table is as tall as its rows and the page scrolls.
    */
@@ -484,6 +490,7 @@ export function DataTable<TData>({
   bodyState,
   noun = 'records',
   columnToggle = true,
+  hideHeader = false,
   maxHeight,
   pagination,
 }: DataTableProps<TData>) {
@@ -770,19 +777,20 @@ export function DataTable<TData>({
           <div style={{ minWidth: tableMinWidth(visibleColDefs) }}>
             {/* Only the header and rows belong to the table role; the toolbar and pagination are outside it. */}
             <div role="table" aria-label={noun}>
-              {/* Header row */}
-              <DataTableHeader
-                columnDefs={visibleColDefs}
-                allColumnDefs={columnDefs}
-                sorting={sorting}
-                clientFilters={clientFilters}
-                onSort={handleSort}
-                onToggleClientFilter={toggleClientFilter}
-                onClearClientFilter={clearClientFilter}
-                pinnedColId={pinnedColId}
-                pinnedEndColId={pinnedEndColId}
-                overlap={overlap}
-              />
+              {!hideHeader && (
+                <DataTableHeader
+                  columnDefs={visibleColDefs}
+                  allColumnDefs={columnDefs}
+                  sorting={sorting}
+                  clientFilters={clientFilters}
+                  onSort={handleSort}
+                  onToggleClientFilter={toggleClientFilter}
+                  onClearClientFilter={clearClientFilter}
+                  pinnedColId={pinnedColId}
+                  pinnedEndColId={pinnedEndColId}
+                  overlap={overlap}
+                />
+              )}
 
               {/* Body */}
               <div role="rowgroup">

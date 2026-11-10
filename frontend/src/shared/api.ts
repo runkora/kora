@@ -442,6 +442,8 @@ export interface RunSource {
   kind: 'trigger' | 'pull_request' | 'repository' | 'branch';
   url: string;
   label: string;
+  /** The system the link points into; picks the chip's icon. */
+  provider?: 'github' | 'slack' | 'alertmanager';
 }
 
 /**

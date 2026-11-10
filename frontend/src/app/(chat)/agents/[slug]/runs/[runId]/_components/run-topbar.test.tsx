@@ -29,17 +29,22 @@ beforeEach(() => {
 });
 
 describe('RunTopbar', () => {
-  it('shows a link for each run source', () => {
+  it('shows the delivery as a chip and folds the other links into +N', () => {
     ctx.sources = [
-      { kind: 'pull_request', url: 'https://github.com/o/r/pull/12', label: 'PR #12' },
-      { kind: 'repository', url: 'https://github.com/o/r', label: 'o/r' },
+      {
+        kind: 'trigger',
+        url: 'https://github.com/o/r/pull/12',
+        label: 'PR #12',
+        provider: 'github',
+      },
+      { kind: 'repository', url: 'https://github.com/o/r', label: 'o/r', provider: 'github' },
     ];
     render(<RunTopbar />);
     expect(screen.getByRole('link', { name: /PR #12/ })).toHaveAttribute(
       'href',
       'https://github.com/o/r/pull/12',
     );
-    expect(screen.getByRole('link', { name: /o\/r/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1 more link' })).toHaveTextContent('+1');
   });
 
   it('shows no source links for a run without sources', () => {

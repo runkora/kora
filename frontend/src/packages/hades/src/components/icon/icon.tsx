@@ -194,7 +194,8 @@ export interface IconProps {
 
   /**
    * When true, the icon wrapper is initially invisible and fades in when
-   * an ancestor element with the Tailwind `group` class is hovered.
+   * an ancestor element with the Tailwind `group` class is hovered or holds
+   * keyboard focus, so a keyboard user sees the same control a pointer user does.
    * Use this for "copy" / "action" icons inside hover-reveal rows.
    *
    * ```tsx
@@ -265,7 +266,8 @@ const Icon = React.forwardRef<HTMLSpanElement, IconProps>(
           role={label ? 'img' : undefined}
           className={
             cn(
-              groupReveal && 'opacity-0 transition-opacity group-hover:opacity-100',
+              groupReveal &&
+                'opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100',
               shrink && 'shrink-0',
               cursorGrab && 'cursor-grab active:cursor-grabbing',
             ) || undefined

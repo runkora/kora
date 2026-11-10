@@ -56,7 +56,7 @@ Terminating a live run ends it as `terminated`, and a run that already ended kee
 
 ## Run sources
 
-A run that a [trigger](../guides/create-a-trigger.md) started can carry links to what started it: the message or event itself, and the pull request, repository and branch the delivery names. The Runs table and the run view's top bar show them as small icon links with a text label. A run can have several sources, because a later delivery that joins the run adds its own. A run with no recorded sources, such as one a person started, shows none.
+A run that a [trigger](../guides/create-a-trigger.md) started carries links to what started it: the message or event itself, and the pull request, repository and branch the delivery names. A later delivery that joins the run adds its own links. Run rows on the Agents page and an agent's page, and the run view's top bar, show a chip for each delivery, with the GitHub, Slack or Alertmanager icon, and fold the remaining links into a "+N" chip that lists them. A run with no recorded sources, such as one a person started, shows no chips.
 
 ## When a run ends
 

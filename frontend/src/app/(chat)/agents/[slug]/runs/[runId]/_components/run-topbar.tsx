@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { Anchor, Stack, Text, Button, Badge, StatusDot, Toggle } from '@runkora/hades';
 import { fmtUsd, fmtTokens } from '@runkora/utils';
-import { RUN_STATE_DISPLAY, RunSourceLinks, type RunStateDisplay } from '@runkora/components';
+import { RUN_STATE_DISPLAY, RunSourceChips, type RunStateDisplay } from '@runkora/components';
 import { useRunContext } from '../_context/run-context';
 
 function OrbitalMark({ size = 9 }: { size?: number }) {
@@ -205,7 +205,7 @@ export function RunTopbar() {
             by {startedBy}
           </Text>
         )}
-        <RunSourceLinks sources={sources} />
+        <RunSourceChips sources={sources} max={1} />
       </Stack>
 
       {/* Task summary — shown when available, truncated with ellipsis */}

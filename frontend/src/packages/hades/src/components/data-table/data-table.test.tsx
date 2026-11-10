@@ -762,3 +762,22 @@ describe('DataTable rows loaded on demand', () => {
     expect(onLoadMore).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('DataTable hideHeader', () => {
+  const columns: DataTableColumn<Row>[] = [
+    { id: 'name', header: 'Name', cell: (r) => r.name },
+    { id: 'rank', header: 'Rank', cell: (r) => String(r.rank) },
+  ];
+
+  it('renders the header row by default', () => {
+    render(<DataTable data={data} columns={columns} getRowKey={(r) => r.name} />);
+    expect(screen.getByText('Name')).toBeInTheDocument();
+  });
+
+  it('leaves out the header row and keeps the body', () => {
+    render(<DataTable data={data} columns={columns} getRowKey={(r) => r.name} hideHeader />);
+    expect(screen.queryByText('Name')).not.toBeInTheDocument();
+    expect(screen.getByText('apollo')).toBeInTheDocument();
+    expect(screen.getAllByRole('row')).toHaveLength(1);
+  });
+});
