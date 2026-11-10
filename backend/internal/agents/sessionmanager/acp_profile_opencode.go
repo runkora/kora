@@ -172,6 +172,14 @@ func openCodeHomeEnv(workDir string) ([]string, error) {
 // It is the provider's table key and the model id prefix, not the product name.
 const openCodeProvider = "kora"
 
+// openCodeMCPTimeoutMs is how long OpenCode waits for an MCP tool call, in
+// milliseconds. Without it OpenCode gives up after 60s, while provision_sandbox
+// can run for the provisioning budget (the chart caps it at 600s) plus the egress
+// canary (egressCanaryMaxWait). It must stay at or above provisionTimeout in
+// backend/cmd/kora-runtime-mcp/main.go, so OpenCode never times out before
+// kora-runtime-mcp reports the real outcome.
+const openCodeMCPTimeoutMs = 720000
+
 // openCodeConfig is the run's OpenCode config. The agent type's model is the
 // only model on offer, served by the inference gateway, and every other provider
 // (OpenCode's hosted free models included) is switched off. It reaches OpenCode
@@ -199,6 +207,8 @@ func openCodeConfig(c OpenCodeRunnerConfig, workDir string) ([]byte, error) {
 		},
 		"share":      "disabled",
 		"autoupdate": false,
+		// Upper bound for every MCP server OpenCode holds, not only the runtime one.
+		"experimental": map[string]any{"mcp_timeout": openCodeMCPTimeoutMs},
 		// Both fetch from this container, outside the sandbox's egress policy.
 		"permission": map[string]string{"webfetch": "deny", "websearch": "deny"},
 	}

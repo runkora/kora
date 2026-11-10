@@ -24,6 +24,8 @@ import (
 // its retry budget (the chart caps agents.guardrails.sandboxProvisionBudgetSecs
 // at 600) plus the egress canary (90s, egressCanaryMaxWait). Timing out first
 // reports a sandbox that the session-manager then goes on to hand over.
+// OpenCode's MCP tool timeout (openCodeMCPTimeoutMs in the sessionmanager
+// package) must stay at or above this value.
 const provisionTimeout = 720 * time.Second
 
 func main() {
