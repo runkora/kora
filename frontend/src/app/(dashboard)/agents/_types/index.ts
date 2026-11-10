@@ -17,6 +17,7 @@ import type {
   RunState,
   Connectivity,
   Connector,
+  TriggerKind,
 } from '@runkora/shared/api';
 
 export type {
@@ -90,6 +91,8 @@ export interface RunRow {
   startedByTrigger: {
     triggerId: string;
     triggerName: string | null;
+    /** The trigger's kind, null on runs recorded before the kind was. */
+    triggerKind: TriggerKind | null;
     deliveryId: string | null;
   } | null;
   /** Links to what started the run; empty when none recorded. */
@@ -164,6 +167,7 @@ export function toRunRow(r: RunWithAttribution, agentTypeById: Map<string, Agent
       ? {
           triggerId: r.started_by.trigger_id,
           triggerName: r.started_by.trigger_name ?? null,
+          triggerKind: r.started_by.trigger_kind ?? null,
           deliveryId: r.started_by.delivery_id ?? null,
         }
       : null,

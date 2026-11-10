@@ -164,7 +164,7 @@ const ALERT: RunSource = {
   provider: 'alertmanager',
 };
 
-/** Runs from Slack, an alert with a long trigger name, a schedule and a person. */
+/** Runs from Slack, an alert with a long trigger name, a schedule, a manual fire, an event and a person. */
 function extraRuns(agent: AgentType): RunWithAttribution[] {
   const base: RunWithAttribution = {
     id: '',
@@ -191,7 +191,11 @@ function extraRuns(agent: AgentType): RunWithAttribution[] {
       state: 'idle',
       ...at(12 * MINUTE, null),
       summary: 'Answering a question in #platform-eng about the retry budget for webhooks.',
-      started_by: { trigger_id: 'trg_slack', trigger_name: 'slack review request' },
+      started_by: {
+        trigger_id: 'trg_slack',
+        trigger_name: 'slack review request',
+        trigger_kind: 'webhook',
+      },
       sources: [SLACK],
     },
     {
@@ -202,6 +206,7 @@ function extraRuns(agent: AgentType): RunWithAttribution[] {
       started_by: {
         trigger_id: 'trg_alert',
         trigger_name: 'prometheus inference-gateway p95 latency above 2s for five minutes',
+        trigger_kind: 'webhook',
       },
       sources: [ALERT],
     },
@@ -210,7 +215,33 @@ function extraRuns(agent: AgentType): RunWithAttribution[] {
       id: 'run_0104',
       ...at(4 * HOUR, 5 * MINUTE),
       summary: 'Summarised the 14 pull requests reviewed this week for the platform team.',
-      started_by: { trigger_id: 'trg_weekly_digest', trigger_name: 'weekly review digest' },
+      started_by: {
+        trigger_id: 'trg_weekly_digest',
+        trigger_name: 'weekly review digest',
+        trigger_kind: 'scheduled',
+      },
+    },
+    {
+      ...base,
+      id: 'run_0105',
+      ...at(3 * HOUR, 4 * MINUTE),
+      summary: 'Reviewed the release branch before the 0.12 cut.',
+      started_by: {
+        trigger_id: 'trg_release_check',
+        trigger_name: 'release branch check',
+        trigger_kind: 'manual',
+      },
+    },
+    {
+      ...base,
+      id: 'run_0106',
+      ...at(4.5 * HOUR, 6 * MINUTE),
+      summary: 'Looked into a failed review run and found the sandbox ran out of disk.',
+      started_by: {
+        trigger_id: 'trg_run_failed',
+        trigger_name: 'on review run failure',
+        trigger_kind: 'event',
+      },
     },
     {
       ...base,
