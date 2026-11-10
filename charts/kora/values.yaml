@@ -652,7 +652,7 @@ agents:
       # -- The same for an OpenCode run.
       openCode: 440Mi
     # -- Seconds after its pod assignment that a live run still counts at the starting allowance, because its memory grows after it leaves starting.
-    startingRunWindowSecs: 10
+    startingRunWindowSecs: 30
   # Per-agent AuthorizationPolicy restricting the session-manager port to the
   # kora-agents principal. kora-agents creates one alongside each StatefulSet.
   authorizationPolicy:
