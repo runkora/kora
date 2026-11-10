@@ -6,5 +6,3 @@ src/packages/hades/defaults.json
 src/packages/hades/theme.schema.json
 # Theme fixtures keep the chart's odd formatting on purpose.
 src/server/theme/__fixtures__/
-# Generated from the Go harness list (make generate).
-src/shared/agent-frameworks.generated.ts

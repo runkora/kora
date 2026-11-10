@@ -4,7 +4,7 @@
 // Raw API shapes (AgentType, Run) only appear at the service layer boundary.
 
 import { isDeclared } from '@runkora/lib/declarative';
-import { FRAMEWORK_LABELS } from '@runkora/shared/agent-frameworks.generated';
+import { FRAMEWORK_LABELS } from '@runkora/shared/agent-frameworks';
 import type {
   AgentEnvironment,
   AgentType,

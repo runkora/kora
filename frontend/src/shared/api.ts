@@ -1,4 +1,4 @@
-import type { AgentFramework } from './agent-frameworks.generated';
+import type { AgentFramework } from './agent-frameworks';
 
 // ── Shared API types ─────────────────────────────────────────────────────────
 //
@@ -171,7 +171,7 @@ export interface ScopesExplainResponse {
 
 // ── Agents — /api/agents ──────────────────────────────────────────────────────
 
-/** Execution framework the agent type targets. Generated from the Go harness list. */
+/** Execution framework the agent type targets. Defined in agent-frameworks.ts. */
 export type { AgentFramework };
 
 /** Lifecycle state of an AgentType resource. Mirrors Go: agents.AgentTypeState */

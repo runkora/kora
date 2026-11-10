@@ -339,4 +339,4 @@ The supported harnesses are one Go list, `backend/internal/platform/harnesses/ha
 2. Add its ACP profile and a `profileFor` case in `backend/internal/agents/sessionmanager/server.go`. `TestEveryHarnessHasAProfile` fails without it.
 3. Add the ID to the `+kubebuilder:validation:Enum` marker on `AgentSpec.Framework` in `declarative/v1alpha1/types.go`, then run `make generate`. `TestFrameworkEnumMatchesHarnessList` fails when the CRD enum differs.
 4. Add the adapter stage in `backend/Dockerfile.session-manager` and the entry in `harnessBinaries` in `backend/cmd/kora-session-runner/main.go`. These stay per harness.
-5. Run `make generate` to refresh `frontend/src/shared/agent-frameworks.generated.ts`. `make generate-check` fails when it is stale. The kora MCP enum and the agents API validation read the list directly.
+5. Add the harness to `frontend/src/shared/agent-frameworks.ts` by hand. The frontend list is not generated. The kora MCP enum and the agents API validation read the Go list directly.

@@ -3,7 +3,7 @@
 /** @tier 3 — agents-scoped motif: shared between the builder wizard and the detail Configuration tab. */
 
 import { Grid, RadioCard, RadioGroup } from '@runkora/hades';
-import { AGENT_FRAMEWORKS, FRAMEWORK_LABELS } from '@runkora/shared/agent-frameworks.generated';
+import { AGENT_FRAMEWORKS, FRAMEWORK_LABELS } from '@runkora/shared/agent-frameworks';
 import type { AgentFramework } from '@runkora/shared/api';
 
 export { FRAMEWORK_LABELS };
