@@ -27,7 +27,6 @@ import (
 
 // RunServiceConfig holds runtime parameters for RunService.
 type RunServiceConfig struct {
-	MaxConcurrentRuns int
 	// SandboxGuardrails are the install's sandbox provisioning settings, sent
 	// with every run (docs/adr/2026-09-29-agent-run-guardrails.md).
 	SandboxGuardrails SandboxGuardrails

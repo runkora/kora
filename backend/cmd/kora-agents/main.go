@@ -252,7 +252,6 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	}
 	runSvc, err := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo, agents.RunServiceConfig{
 		DefaultEnvironmentSize: sizes.Default,
-		MaxConcurrentRuns:      cfg.Agents.MaxConcurrentRuns,
 		TenantNamespaceFn:      cfg.TenantNamespace,
 		SandboxGuardrails:      sandboxGuardrails(cfg),
 		IdleTimeouts: agents.IdleTimeouts{

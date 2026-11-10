@@ -155,7 +155,7 @@ func TestCreateAgentType_DefaultsFrameworkAndMaxRuns(t *testing.T) {
 		t.Errorf("framework = %q, want claude-code", at.Framework)
 	}
 	if at.MaxConcurrentRuns != 5 {
-		t.Errorf("MaxConcurrentRuns = %d, want 5 (from ServiceConfig)", at.MaxConcurrentRuns)
+		t.Errorf("MaxConcurrentRuns = %d, want 5 (from AgentTypeServiceConfig)", at.MaxConcurrentRuns)
 	}
 }
 
@@ -1230,7 +1230,6 @@ func newTestServiceWithReaper(t *testing.T) (*testServiceFacade, *mockRepository
 		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s, k8s, repo,
 		RunServiceConfig{
 			DefaultEnvironmentSize: testSizes.Default,
-			MaxConcurrentRuns:      5,
 			TenantNamespaceFn:      func(tenantID string) string { return "kora-tenant-" + tenantID },
 			StaleRunTimeout:        time.Minute, // shorter than UpdatedAt back-dating in tests
 			ReaperInterval:         20 * time.Millisecond,

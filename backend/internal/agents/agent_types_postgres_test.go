@@ -131,6 +131,9 @@ func TestPostgres_MaxConcurrentRunsBackfill(t *testing.T) {
 	if total, _ := maxRunColumns(t, r, id); total != 20 {
 		t.Errorf("default max_concurrent_runs = %d, want 20", total)
 	}
+	if at, err := r.GetAgentType(context.Background(), id); err != nil || at.MaxConcurrentRuns != 20 {
+		t.Errorf("GetAgentType read %v (err %v), want the new column's 20", at, err)
+	}
 	runMaxConcurrentRunsBackfill(t, r)
 	if total, perPod := maxRunColumns(t, r, id); total != 7 || perPod != 7 {
 		t.Errorf("after backfill got total %d and per pod %d, want 7 and 7", total, perPod)

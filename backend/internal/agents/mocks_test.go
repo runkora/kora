@@ -948,7 +948,6 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 		repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo,
 		RunServiceConfig{
 			DefaultEnvironmentSize: testSizes.Default,
-			MaxConcurrentRuns:      5,
 			TenantNamespaceFn:      func(tenantID string) string { return "kora-tenant-" + tenantID },
 			SandboxGuardrails:      SandboxGuardrails{ProvisionAttempts: 2, ProvisionBackoffSecs: 1, ProvisionBudgetSecs: 60},
 			Brand:                  brand.MustNew("kora"),

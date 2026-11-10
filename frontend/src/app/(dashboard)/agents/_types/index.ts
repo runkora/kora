@@ -202,6 +202,9 @@ export function formatRelativeTime(iso: string): string {
   return `${diffD} day${diffD !== 1 ? 's' : ''} ago`;
 }
 
+/** The install's default run cap for a new agent; it matches the kora-agents config. */
+export const DEFAULT_MAX_CONCURRENT_RUNS = 20;
+
 // ── Loop guardrails ───────────────────────────────────────────────────────────
 
 /** Platform defaults for the loop-guard thresholds; they match the agents API. */

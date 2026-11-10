@@ -39,6 +39,7 @@ import {
   updateDraft,
 } from '../_services/agents-api';
 import {
+  DEFAULT_MAX_CONCURRENT_RUNS,
   loopGuardrailErrors,
   loopGuardrailsPayload,
   loopGuardrailValues,
@@ -166,7 +167,7 @@ const EMPTY_FIELDS: BuilderFields = {
   runBudgetOn: false,
   runBudgetUsd: '5.00',
   capacityOn: false,
-  capacity: '20',
+  capacity: String(DEFAULT_MAX_CONCURRENT_RUNS),
   ...loopGuardrailValues(undefined),
 };
 
@@ -250,7 +251,9 @@ function fromPayload(payload: DraftPayload): { fields: BuilderFields; step: numb
       ? String(payload.budget.per_run_limit_usd)
       : '5.00',
     capacityOn: (payload.max_concurrent_runs ?? 0) > 0,
-    capacity: payload.max_concurrent_runs ? String(payload.max_concurrent_runs) : '20',
+    capacity: payload.max_concurrent_runs
+      ? String(payload.max_concurrent_runs)
+      : String(DEFAULT_MAX_CONCURRENT_RUNS),
     ...loopGuardrailValues(payload.guardrails),
   };
   const step = Math.min(Math.max(payload._builder?.step ?? 0, 0), BUILDER_STEPS.length - 1);
