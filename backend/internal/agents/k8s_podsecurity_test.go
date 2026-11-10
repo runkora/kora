@@ -231,6 +231,23 @@ func TestSessionManagerStatefulSet_PassesLandlockMode(t *testing.T) {
 	t.Error("session-manager env is missing KORA_LANDLOCK")
 }
 
+// The install's pressure limit must reach every agent pod.
+func TestSessionManagerStatefulSet_PassesPressureLimit(t *testing.T) {
+	p := podSecurityProvisioner()
+	p.cfg.PressureLimit = 0.85
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ss := p.buildSessionManagerStatefulSet(at, "ns", podLabels(at))
+	for _, e := range ss.Spec.Template.Spec.Containers[0].Env {
+		if e.Name == "KORA_PRESSURE_LIMIT" {
+			if e.Value != "0.85" {
+				t.Errorf("KORA_PRESSURE_LIMIT = %q, want 0.85", e.Value)
+			}
+			return
+		}
+	}
+	t.Error("session-manager env is missing KORA_PRESSURE_LIMIT")
+}
+
 func TestRuntimePods_NoPullSecretsWhenUnconfigured(t *testing.T) {
 	p := podSecurityProvisioner()
 	p.cfg.ImagePullSecrets = nil

@@ -21,6 +21,16 @@ import (
 // extra helm arguments through. Needs helm and the chart's dependencies.
 func renderChart(t *testing.T, values string, extra ...string) string {
 	t.Helper()
+	out, err := helmTemplate(t, values, extra...)
+	if err != nil {
+		t.Fatalf("helm template: %v\n%s", err, out)
+	}
+	return out
+}
+
+// helmTemplate is renderChart returning the render error instead of failing the test.
+func helmTemplate(t *testing.T, values string, extra ...string) (string, error) {
+	t.Helper()
 	chart := filepath.Join("..", "..", "..", "..", "charts", "kora")
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not installed")
@@ -34,10 +44,7 @@ func renderChart(t *testing.T, values string, extra ...string) string {
 	}
 	args := append([]string{"template", "kora", chart, "-n", "kora-system", "-f", filepath.Join(chart, "ci", "default-values.yaml"), "-f", file}, extra...)
 	out, err := exec.Command("helm", args...).CombinedOutput()
-	if err != nil {
-		t.Fatalf("helm template: %v\n%s", err, out)
-	}
-	return string(out)
+	return string(out), err
 }
 
 // A maxSize field left unset takes the default size's value.
@@ -179,6 +186,46 @@ func TestChartSessionManagerMemory(t *testing.T) {
 			}
 			if got := resources.Limits[corev1.ResourceMemory]; got.Cmp(want) != 0 {
 				t.Errorf("memory limit = %s, want %s", got.String(), tc.want)
+			}
+		})
+	}
+}
+
+// The chart renders the memory thresholds kora-agents decodes, and rejects a
+// placement watermark at or above the pressure limit.
+func TestChartMemoryThresholds(t *testing.T) {
+	out := renderChart(t, "")
+	found := false
+	for _, root := range writeMountedConfig(t, out) {
+		if _, err := os.Stat(filepath.Join(root, "cmd", "kora-agents.yaml")); err != nil {
+			continue
+		}
+		config.SetOverlayRoot(root)
+		cfg, err := config.LoadService[agentsConfig.Config]("cmd/kora-agents", "production")
+		config.SetOverlayRoot("/etc/kora/config")
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := cfg.Agents.Scheduling
+		if s.PlacementWatermark != 0.70 || s.PressureLimit != 0.90 || s.StartingRunAllowance != "431Mi" {
+			t.Errorf("scheduling = watermark %v, pressure limit %v, allowance %q; want 0.70, 0.90, 431Mi", s.PlacementWatermark, s.PressureLimit, s.StartingRunAllowance)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatal("no rendered kora-agents config found")
+	}
+
+	for name, values := range map[string]string{
+		"watermark equals the limit": "agents:\n  scheduling: {placementWatermark: 0.9, pressureLimit: 0.9}\n",
+		"watermark above the limit":  "agents:\n  scheduling: {placementWatermark: 0.95, pressureLimit: 0.9}\n",
+		"limit at 1":                 "agents:\n  scheduling: {pressureLimit: 1}\n",
+		"watermark zero":             "agents:\n  scheduling: {placementWatermark: 0}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, err := helmTemplate(t, values)
+			if err == nil || !strings.Contains(out, "placementWatermark must be above 0 and below pressureLimit") {
+				t.Errorf("render err = %v, want the threshold check to fail it:\n%s", err, out)
 			}
 		})
 	}
