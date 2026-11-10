@@ -646,7 +646,7 @@ agents:
     # Per-harness memory allowance for a starting run. Placement and the scaler use the agent's harness's value.
     startingRunAllowance:
       # -- Memory a Claude Code run is assumed to take between its start and the next memory reading.
-      claudeCode: 180Mi
+      claudeCode: 220Mi
       # -- The same for a Codex run.
       codex: 60Mi
       # -- The same for an OpenCode run.
