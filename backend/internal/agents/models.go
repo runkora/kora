@@ -224,8 +224,9 @@ type AgentType struct {
 	EffectiveConnectors []Connector `json:"effective_connectors,omitempty"`
 	// Environments are the sandboxes this agent may run in, one of them the default; none means kora-base.
 	// Their egress and connectors join the agent's grant.
-	Environments      []AgentEnvironment `json:"environments"`
-	MaxConcurrentRuns int                `json:"max_concurrent_runs"`
+	Environments []AgentEnvironment `json:"environments"`
+	// MaxConcurrentRuns caps the agent's concurrent runs.
+	MaxConcurrentRuns int `json:"max_concurrent_runs"`
 	// Guardrails are the loop-guard thresholds; unset fields take the platform defaults.
 	Guardrails Guardrails `json:"guardrails"`
 	// CreatedBy is the token subject that created the type; the owner check in Authz reads it.

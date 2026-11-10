@@ -2,7 +2,6 @@ package agents
 
 import (
 	"context"
-	"time"
 
 	"go.opentelemetry.io/otel"
 
@@ -36,18 +35,6 @@ type smClient interface {
 	SendMessage(ctx context.Context, podURL, runID, content string, idleTimeoutSecs int, fromPerson bool) error
 	InterruptSession(ctx context.Context, podURL, runID string) error
 	CloseSession(ctx context.Context, podURL, runID string) error
-}
-
-// ServiceConfig holds runtime parameters. Kept for use in cmd/kora-agents/main.go.
-type ServiceConfig struct {
-	MaxConcurrentRuns int
-	TenantNamespaceFn func(tenantID string) string // maps tenant ID → k8s namespace
-	// StaleRunTimeout is how long a run may stay pending, starting or active without a state update
-	// before the background reaper marks it failed. Defaults to 30 minutes if zero.
-	StaleRunTimeout time.Duration
-	// ReaperInterval controls how often the reaper polls. Defaults to 5 minutes if zero.
-	// Override in tests to speed up reaper cycles.
-	ReaperInterval time.Duration
 }
 
 // ── Request types ─────────────────────────────────────────────────────────────
