@@ -57,7 +57,7 @@ The kora operator has no ServiceMonitor. It serves controller metrics on port 80
 | `kora_triggers_events_chain_fail_open_total` | Agent events that reached the event triggers without their run's chain, because kora-agents refused the read |
 | `kora_redis_available` | Whether each service can reach Redis |
 
-Model spend and policy decisions are not metrics yet. They are in the logs, traces and the console.
+Policy decisions are not metrics yet. They are in the logs, traces and the console.
 
 ## Read the logs
 
