@@ -1492,3 +1492,24 @@ func TestPublishEvent_WriteFailureStillPublishesAndReports(t *testing.T) {
 		t.Error("expected the event to reach subscribers despite the failed write")
 	}
 }
+
+// An update cannot set the agent's total below 1. Create still treats 0 or less as the default.
+func TestMaxConcurrentRuns_Bounds(t *testing.T) {
+	svc, repo, _, _ := newTestService(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRuns: 5})
+	for _, n := range []int{0, -1} {
+		_, err := svc.UpdateAgentType(context.Background(), UpdateAgentTypeRequest{ID: "at-1", MaxConcurrentRuns: &n})
+		if !errors.Is(err, ErrInvalidMaxConcurrentRuns) || repo.agentTypes["at-1"].MaxConcurrentRuns != 5 {
+			t.Errorf("update to %d: err = %v, stored %d; want ErrInvalidMaxConcurrentRuns and 5 kept", n, err, repo.agentTypes["at-1"].MaxConcurrentRuns)
+		}
+	}
+	one := 1
+	if at, err := svc.UpdateAgentType(context.Background(), UpdateAgentTypeRequest{ID: "at-1", MaxConcurrentRuns: &one}); err != nil || at.MaxConcurrentRuns != 1 {
+		t.Errorf("update to 1 = %v, %v; want accepted", at, err)
+	}
+
+	at, err := svc.CreateAgentType(context.Background(), CreateAgentTypeRequest{TenantID: "t-1", Name: "Neg", Slug: "neg", MaxConcurrentRuns: -3})
+	if err != nil || at.MaxConcurrentRuns != 5 {
+		t.Errorf("create with -3 = %v, %v; want the default of 5", at, err)
+	}
+}

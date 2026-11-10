@@ -815,3 +815,17 @@ func TestHandleListAgentTypes_CanEditUsesRequestBearer(t *testing.T) {
 		t.Errorf("caller scope lookups = %d, want 1", scopes.calls)
 	}
 }
+
+// An update setting max_concurrent_runs below 1 is a 400.
+func TestHandleUpdateAgentType_MaxConcurrentRunsBelowOneIs400(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRuns: 5})
+	req := withTenantRequest(httptest.NewRequest(http.MethodPatch, "/api/v1/agent-types/at-1",
+		strings.NewReader(`{"max_concurrent_runs":0}`)), "t-1")
+	req.SetPathValue("id", "at-1")
+	w := httptest.NewRecorder()
+	c.handleUpdateAgentType(w, req)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "max_concurrent_runs must be at least 1") {
+		t.Errorf("status %d body %s, want 400 naming the minimum", w.Code, w.Body.String())
+	}
+}

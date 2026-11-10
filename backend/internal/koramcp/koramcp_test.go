@@ -1255,3 +1255,33 @@ func TestEventToolsForwardFiltersAndPath(t *testing.T) {
 		}
 	}
 }
+
+// agents.update forwards a max_concurrent_runs of 0, and the API's refusal reaches the caller.
+func TestUpdateSurfacesMaxConcurrentRunsRefusal(t *testing.T) {
+	var gotBody map[string]any
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"code":"invalid_field","message":"max_concurrent_runs must be at least 1"}`))
+	}))
+	defer backend.Close()
+	srv := NewServer(Backends{Agents: backend.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	resp := call("tools/call", map[string]any{"name": "agents.update", "arguments": map[string]any{"agent_type_id": "at-9", "max_concurrent_runs": 0}})
+	if v, ok := gotBody["max_concurrent_runs"]; !ok || v != float64(0) {
+		t.Errorf("forwarded body %v, want max_concurrent_runs 0", gotBody)
+	}
+	result, _ := resp["result"].(map[string]any)
+	content := asSlice(result["content"])
+	if result["isError"] != true || len(content) != 1 {
+		t.Fatalf("result = %v, want one error content", result)
+	}
+	if text, _ := content[0].(map[string]any)["text"].(string); !strings.Contains(text, "max_concurrent_runs must be at least 1") {
+		t.Errorf("text = %q, want the API's refusal", text)
+	}
+}
