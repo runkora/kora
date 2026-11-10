@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"regexp"
 
@@ -31,16 +32,31 @@ const RunIDHeader = "X-Kora-Run-Id"
 var runPrefixPattern = regexp.MustCompile(`^/run/([A-Za-z0-9._-]{1,128})(/.*)$`)
 
 // StripRunPrefix is mounted at the server root, ahead of the base-path mount.
-// Non-run paths pass through untouched.
+// Non-run paths pass through untouched. A run path carrying percent-encoding
+// that Go would not produce is refused: decoding it can move the segment
+// boundaries the mesh path rules matched on, such as an encoded slash in the
+// run ID.
 func StripRunPrefix(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if m := runPrefixPattern.FindStringSubmatch(r.URL.Path); m != nil {
+			if r.URL.RawPath != "" {
+				writeBadRequest(w, "run path must not carry percent-encoding")
+				return
+			}
 			r = r.WithContext(context.WithValue(r.Context(), runIDContextKey{}, m[1]))
 			r.URL.Path = m[2]
 			r.URL.RawPath = ""
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// writeBadRequest writes a minimal JSON 400 response; platform/api imports this
+// package, so it cannot be used here.
+func writeBadRequest(w http.ResponseWriter, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadRequest)
+	_, _ = fmt.Fprintf(w, `{"code":"bad_request","message":%q}`, message)
 }
 
 // RunIDFromContext returns the request's run identity. Honored only for

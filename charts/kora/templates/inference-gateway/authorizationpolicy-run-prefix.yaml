@@ -1,0 +1,33 @@
+{{- if .Values.platform.spiffe.enabled }}
+{{- /*
+The gateway strips a /run/{run_id} prefix before routing, so a path rule
+written for an unprefixed path does not see a prefixed request. Agents send
+the prefix on their model calls only, so every other prefixed path is refused.
+The allowed paths are exact. The run ID segment matches any characters, so
+StripRunPrefix refuses a run path carrying percent-encoding.
+*/}}
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: kora-inference-gateway-run-prefix
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: kora-inference-gateway
+  action: DENY
+  rules:
+    - to:
+        - operation:
+            ports: ["8081"]
+            paths: ["/run/*"]
+            notPaths:
+              - "/run/{*}/v1/messages"
+              - "/run/{*}/v1/chat/completions"
+              - "/run/{*}/v1/responses"
+              - "/run/{*}/v1/embeddings"
+              - "/run/{*}/v1/systemone"
+              - "/run/{*}/v1/models"
+{{- end }}
