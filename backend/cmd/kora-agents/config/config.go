@@ -125,6 +125,8 @@ type Config struct {
 			PressureLimit float64 `yaml:"pressureLimit"`
 			// StartingRunAllowance is the memory a starting run is assumed to take before the next reading, by harness.
 			StartingRunAllowance StartingRunAllowance `yaml:"startingRunAllowance"`
+			// StartingRunWindowSecs is how long after its pod assignment a live run still counts as starting.
+			StartingRunWindowSecs int `yaml:"startingRunWindowSecs"`
 		} `yaml:"scheduling"`
 		// ConnectionRegistryPath is the mounted connections.json file rendered by
 		// the operator's ConnectionAggregator into the kora-tenant-connections

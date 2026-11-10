@@ -852,12 +852,14 @@ func (r *PostgresRepository) AgentRunCounts(ctx context.Context, agentTypeID str
 	return c, nil
 }
 
-// StartingRunsPerPod returns an agent's starting run counts keyed by pod ordinal.
-func (r *PostgresRepository) StartingRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error) {
+// StartingRunsPerPod returns an agent's starting run counts keyed by pod ordinal. A live run assigned
+// to its pod after assignedSince also counts, because a run's memory grows after it leaves starting.
+func (r *PostgresRepository) StartingRunsPerPod(ctx context.Context, agentTypeID string, assignedSince time.Time) (map[int]int, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT pod_ordinal, COUNT(*) FROM runs
-		WHERE agent_type_id = $1 AND state = 'starting'
-		GROUP BY pod_ordinal`, agentTypeID)
+		WHERE agent_type_id = $1
+		AND (state = 'starting' OR (state IN (`+liveRunSQLList()+`) AND started_at > $2))
+		GROUP BY pod_ordinal`, agentTypeID, assignedSince)
 	if err != nil {
 		return nil, fmt.Errorf("query starting runs per pod: %w", err)
 	}

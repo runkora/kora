@@ -57,6 +57,8 @@ type RunServiceConfig struct {
 	PlacementWatermark float64
 	// StartingRunAllowances is the memory a starting run is assumed to take before the next memory reading, by harness.
 	StartingRunAllowances StartingRunAllowances
+	// StartingRunWindow is how long after its pod assignment a live run still counts as starting.
+	StartingRunWindow time.Duration
 	// DefaultEnvironmentSize sizes the built-in default environment.
 	DefaultEnvironmentSize EnvironmentSize
 	// SandboxMount tells the agent, in its brief, to work in the sandbox's local folder.

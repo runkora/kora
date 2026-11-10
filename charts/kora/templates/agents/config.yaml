@@ -89,6 +89,7 @@ cmd/kora-agents:
         {{- range $harness := $harnesses }}
         {{ $harness }}: {{ index $allowance $harness | toString | toJson }}
         {{- end }}
+      startingRunWindowSecs: {{ $scheduling.startingRunWindowSecs | int }}
     sessionManager:
       authorizationPolicyEnabled: {{ and .Values.platform.spiffe.enabled .Values.agents.authorizationPolicy.enabled }}
       landlock: {{ .Values.agents.landlock | quote }}

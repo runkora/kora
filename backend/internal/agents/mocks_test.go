@@ -430,8 +430,10 @@ func (m *mockRepository) AssignPod(_ context.Context, runID string, _ time.Time,
 	if !ok || r.State != RunStatePending {
 		return ErrConflict
 	}
+	now := time.Now()
 	r.PodOrdinal = podOrdinal
 	r.State = RunStateStarting
+	r.StartedAt = &now
 	return nil
 }
 
@@ -594,8 +596,21 @@ func (m *mockRepository) ActiveRunsPerPod(_ context.Context, agentTypeID string)
 	return m.podCounts(agentTypeID, func(s RunState) bool { occupies, _ := s.OccupiesPod(); return occupies }), nil
 }
 
-func (m *mockRepository) StartingRunsPerPod(_ context.Context, agentTypeID string) (map[int]int, error) {
-	return m.podCounts(agentTypeID, func(s RunState) bool { return s == RunStateStarting }), nil
+func (m *mockRepository) StartingRunsPerPod(_ context.Context, agentTypeID string, assignedSince time.Time) (map[int]int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	counts := map[int]int{}
+	for _, r := range m.runs {
+		if r.AgentTypeID != agentTypeID {
+			continue
+		}
+		occupies, _ := r.State.OccupiesPod()
+		recent := occupies && r.State != RunStatePending && r.StartedAt != nil && r.StartedAt.After(assignedSince)
+		if r.State == RunStateStarting || recent {
+			counts[r.PodOrdinal]++
+		}
+	}
+	return counts, nil
 }
 
 // podCounts counts the agent's runs whose state matches, keyed by pod ordinal.
@@ -1023,6 +1038,7 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 			Brand:                  brand.MustNew("kora"),
 			PlacementWatermark:     testWatermark,
 			StartingRunAllowances:  NewStartingRunAllowances(testAllowance, testAllowance, testAllowance),
+			StartingRunWindow:      10 * time.Second,
 		},
 		logger,
 	)

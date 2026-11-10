@@ -266,6 +266,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		WorkerConcurrency:     cfg.Agents.Scheduling.WorkerConcurrency,
 		PlacementWatermark:    cfg.Agents.Scheduling.PlacementWatermark,
 		StartingRunAllowances: agents.NewStartingRunAllowances(allowance.ClaudeCode, allowance.Codex, allowance.OpenCode),
+		StartingRunWindow:     time.Duration(cfg.Agents.Scheduling.StartingRunWindowSecs) * time.Second,
 		Brand:                 b,
 	}, logger)
 	if err != nil {

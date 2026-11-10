@@ -87,6 +87,20 @@ func TestAssignPod(t *testing.T) {
 				}
 			},
 			want: 1},
+		{name: "a run assigned within the window counts as starting",
+			setup: func(repo *mockRepository, _ *mockK8s, sm *mockSMClient) {
+				sm.memory = podMemory("bot", map[int]int64{0: watermarkBytes - 2*testRunAllowance})
+				recent := time.Now().Add(-time.Second)
+				seedRun(t, repo, Run{ID: "recent", TenantID: "t1", AgentTypeID: "at-1", State: RunStateActive, PodOrdinal: 0, StartedAt: &recent})
+			},
+			want: 1},
+		{name: "a run assigned before the window counts by its memory reading",
+			setup: func(repo *mockRepository, _ *mockK8s, sm *mockSMClient) {
+				sm.memory = podMemory("bot", map[int]int64{0: watermarkBytes - 2*testRunAllowance})
+				old := time.Now().Add(-time.Minute)
+				seedRun(t, repo, Run{ID: "old", TenantID: "t1", AgentTypeID: "at-1", State: RunStateActive, PodOrdinal: 0, StartedAt: &old})
+			},
+			want: 0},
 		{name: "every pod at the watermark",
 			setup: func(_ *mockRepository, _ *mockK8s, sm *mockSMClient) { sm.memory = fullPods("bot", 0, 1, 2) },
 			err:   errNoFreePod},

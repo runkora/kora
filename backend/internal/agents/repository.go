@@ -72,8 +72,9 @@ type RunRepository interface {
 	ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error)
 	// AgentRunCounts counts an agent's pending, starting and active runs.
 	AgentRunCounts(ctx context.Context, agentTypeID string) (AgentRunCounts, error)
-	// StartingRunsPerPod returns an agent's starting run counts keyed by pod ordinal.
-	StartingRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error)
+	// StartingRunsPerPod returns an agent's starting run counts keyed by pod ordinal, with the live
+	// runs assigned to their pod after assignedSince.
+	StartingRunsPerPod(ctx context.Context, agentTypeID string, assignedSince time.Time) (map[int]int, error)
 	// WithAgentLock runs fn in a transaction that holds the agent's advisory lock.
 	// Calls made with fn's ctx join the transaction.
 	WithAgentLock(ctx context.Context, agentTypeID string, fn func(ctx context.Context) error) error

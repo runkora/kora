@@ -322,7 +322,7 @@ func (s *RunService) assignLocked(ctx context.Context, run Run, claimedAt time.T
 	if err != nil {
 		return 0, fmt.Errorf("read replicas: %w", err)
 	}
-	starting, err := s.repo.StartingRunsPerPod(ctx, at.ID)
+	starting, err := s.repo.StartingRunsPerPod(ctx, at.ID, time.Now().Add(-s.cfg.StartingRunWindow))
 	if err != nil {
 		return 0, err
 	}
