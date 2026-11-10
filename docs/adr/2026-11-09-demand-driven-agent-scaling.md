@@ -253,7 +253,16 @@ None at this time.
     *   Consequences: runs beyond a pod's free slots failing when the start budget runs out, a run that finds no pod within the start budget ending `failed`, and `pending` held for up to the start budget.
     *   The rest of Run Scheduling stands, including the durable queue, the drain and the `minReplicas` value of 2.
 *   [Database Migrations](2026-09-10-database-migrations.md): Decision 5, the compatibility contract.
-*   [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md): the HPA on CPU and memory is superseded.
+*   [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md): superseded in part. This ADR supersedes these parts of it:
+    *   Decision Drivers: HPA on resource metrics over session-count scaling.
+    *   Decision: the HPA half of Option B, StatefulSet + HPA.
+    *   Decision, Scaling: the HPA targets of 70% CPU and 80% memory and the scale-up on resource pressure.
+    *   Rationale: HPA on resource metrics as the measure of pod load.
+    *   Consequences: the HPA handling scaling, and the HPA as one of the resources per agent type.
+    *   Implementation, Resources Per Agent Type: the `HorizontalPodAutoscaler` and the 1 replica minimum.
+    *   Validation: the HPA scale-up within 2 minutes.
+    *   Amendment 1: the HPA minimum of 2.
+    *   The rest of Agent Execution Infrastructure stands, including the StatefulSet, the stable pod DNS and the PodDisruptionBudget.
 *   [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md): the Run Scheduling amendment's start budget rule is superseded by the start budget rule here.
 *   [Config-Driven Kustomize Manifest Patches](2026-09-15-manifest-patches-configmap.md): StatefulSet replicas are owned by the scaler.
 *   [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md): `agents.workloads` carries the session-manager memory value.

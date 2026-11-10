@@ -101,7 +101,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [OpenCode Agent Runner](2026-06-04-opencode-agent-runner.md) — `Accepted (Amended 2026-09-30)` · 2026-06-04
 - [ACP as the Single Agent Harness Protocol](2026-11-07-acp-agent-harness-protocol.md) — `Accepted` · 2026-11-07
 - [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) — `Accepted (Amended 2026-09-29)` · 2026-05-11
-- [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — `Accepted (Amended 2026-10-12)` · 2026-05-11
+- [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — `Accepted (Amended 2026-10-12; HPA scaling superseded in part 2026-11-10)` · 2026-05-11
 - [kora-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) — `Accepted` · 2026-05-11
 - [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — `Accepted (Amended 2026-10-12)` · 2026-05-11
 - [Run Scheduling](2026-10-12-run-scheduling.md) — `Accepted (superseded in part by Demand-Driven Agent Scaling 2026-11-10)` · 2026-10-12
@@ -243,7 +243,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-05-08 | [Frontend Test Strategy and Toolchain](2026-05-08-frontend-test-strategy-and-toolchain.md) | Accepted | 0049 |
 | 2026-05-11 | [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) | Accepted (Subprocess Model superseded 2026-11-07) | 0049 |
 | 2026-05-11 | [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) | Accepted | 0054 |
-| 2026-05-11 | [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) | Accepted (Amended 2026-10-12) | 0051 |
+| 2026-05-11 | [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) | Accepted (Amended 2026-10-12; HPA scaling superseded in part 2026-11-10) | 0051 |
 | 2026-05-11 | [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) | Accepted (Amended 2026-09-29) | 0057 |
 | 2026-05-11 | [Agent Portal & Chat UI](2026-05-11-agent-portal-and-chat-ui.md) | Accepted | 0058 |
 | 2026-05-11 | [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) | Accepted (Amended 2026-09-29) | 0050 |
