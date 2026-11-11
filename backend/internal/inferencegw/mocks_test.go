@@ -38,6 +38,7 @@ type mockInferenceUsageRepository struct {
 	runSpend          float64
 	runTokens         int64
 	runUsageErr       error
+	runPrincipal      *RunPrincipal
 	lastFilter        InferenceUsageFilter // captured on each List call
 	lastAnalytics     AnalyticsFilter      // captured on each GetAnalytics call
 
@@ -156,6 +157,13 @@ func (m *mockInferenceUsageRepository) GetRunSpend(_ context.Context, _, _ strin
 
 func (m *mockInferenceUsageRepository) GetRunUsage(_ context.Context, _, _ string) (float64, int64, error) {
 	return m.runSpend, m.runTokens, m.runUsageErr
+}
+
+func (m *mockInferenceUsageRepository) GetRunPrincipal(_ context.Context, _, _ string) (RunPrincipal, error) {
+	if m.runPrincipal == nil {
+		return RunPrincipal{}, ErrUsageRecordNotFound
+	}
+	return *m.runPrincipal, nil
 }
 
 func (m *mockInferenceUsageRepository) GetMonthlySpendByPrincipal(_ context.Context, _ string, _ time.Time) ([]PrincipalPeriodSpend, error) {

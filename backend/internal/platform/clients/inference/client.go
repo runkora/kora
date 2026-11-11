@@ -1,10 +1,12 @@
 // Package inference provides an HTTP client for the inference gateway's
-// decision API, POST /v1/systemone (docs/adr/2026-10-10-systemone-decision-models.md).
+// decision API, POST /v1/systemone (docs/adr/2026-10-10-systemone-decision-models.md),
+// and its run budget lookup, GET /v1/budgets/runs/{id} (docs/adr/2026-11-11-run-page-record.md).
 //
 // The caller supplies a platform bearer token per call. The gateway applies the
 // token's inference scopes, the tenant budget and the usage row, so a decision
 // call made through this client is attributed and governed like any other.
 // kora-triggers uses it to route a delivery (docs/adr/2026-10-19-trigger-routing.md).
+// kora-agents uses it to record the ceiling that stopped a run.
 package inference
 
 import (
@@ -12,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
@@ -44,6 +47,8 @@ var (
 	ErrUpstreamUnavailable = errors.New("inference gateway unavailable")
 	// ErrUnexpectedStatus is returned for any other status.
 	ErrUnexpectedStatus = errors.New("unexpected status from inference gateway")
+	// ErrBudgetNotReached is returned when no spending ceiling of the run is reached (404).
+	ErrBudgetNotReached = errors.New("no spending ceiling of the run is reached")
 )
 
 // Client calls the inference gateway.
@@ -146,5 +151,51 @@ func (c *Client) SystemOne(ctx context.Context, bearer string, req SystemOneRequ
 		return SystemOneResponse{}, c.HandleErrorResponse(span, resp, ErrUpstreamUnavailable)
 	default:
 		return SystemOneResponse{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+}
+
+// RunBudget is the spending ceiling that stopped a run. ResetsAt is nil for a
+// per-run ceiling, which never resets.
+type RunBudget struct {
+	Scope    string     `json:"scope"`
+	Owner    string     `json:"owner"`
+	Window   string     `json:"window"`
+	LimitUSD float64    `json:"limit_usd"`
+	ResetsAt *time.Time `json:"resets_at,omitempty"`
+}
+
+// RunBudget returns the ceiling the run's principal has reached. The gateway
+// serves it to SYSTEM principals only: bearer is the caller's own service token.
+func (c *Client) RunBudget(ctx context.Context, bearer, tenantID, runID string) (RunBudget, error) {
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+bearer)
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/v1/budgets/runs/{runID}", Params: []string{runID},
+		Query: url.Values{"tenant_id": {tenantID}}, Header: header,
+	})
+	defer span.End()
+	if errors.Is(err, httpclient.ErrBuildRequest) {
+		return RunBudget{}, err
+	}
+	if err != nil {
+		return RunBudget{}, fmt.Errorf("%w: %w", ErrUpstreamUnavailable, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch code := resp.StatusCode; {
+	case code == http.StatusOK:
+		var out RunBudget
+		if err := c.DecodeJSON(span, resp, &out); err != nil {
+			return RunBudget{}, fmt.Errorf("decode run budget: %w", err)
+		}
+		return out, nil
+	case code == http.StatusNotFound:
+		return RunBudget{}, c.HandleErrorResponse(span, resp, ErrBudgetNotReached)
+	case code == http.StatusUnauthorized || code == http.StatusForbidden:
+		return RunBudget{}, c.HandleErrorResponse(span, resp, ErrForbidden)
+	case code >= http.StatusInternalServerError:
+		return RunBudget{}, c.HandleErrorResponse(span, resp, ErrUpstreamUnavailable)
+	default:
+		return RunBudget{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
 }

@@ -297,6 +297,7 @@ func inferenceRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},
 		// GET /v1/budgets/principals is the tenant-wide budget status listing.
 		// The platform:budgets:* scopes are declared by the policy-service.
+		// GET /v1/budgets/runs/{id} serves SYSTEM principals only, which pass this check.
 		{PathPrefix: "/v1/budgets", Method: "GET", RequiredScope: "platform:budgets:read"},
 	}
 }

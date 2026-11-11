@@ -133,3 +133,34 @@ func TestSystemOne_BadBaseURLIsNotUpstreamUnavailable(t *testing.T) {
 		t.Errorf("err = %v, want ErrBuildRequest only", err)
 	}
 }
+
+func TestRunBudget(t *testing.T) {
+	const runID = "6f1c2a1e-6a59-4c55-9a43-0f1d3c1b2e7a"
+	t.Run("the reached ceiling", func(t *testing.T) {
+		srv, cap := newTestServer(t, http.StatusOK, `{"scope":"principal","owner":"spiffe://x/agent/coder","window":"monthly","limit_usd":5,"resets_at":"2026-12-01T00:00:00Z"}`)
+		c := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+		got, err := c.RunBudget(context.Background(), "svc-tok", "t1", runID)
+		if err != nil {
+			t.Fatalf("RunBudget: %v", err)
+		}
+		if cap.method != http.MethodGet || cap.path != "/v1/budgets/runs/"+runID || cap.auth != "Bearer svc-tok" {
+			t.Errorf("request = %s %s %q", cap.method, cap.path, cap.auth)
+		}
+		want := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+		if got.Scope != "principal" || got.Window != "monthly" || got.LimitUSD != 5 || got.ResetsAt == nil || !got.ResetsAt.Equal(want) {
+			t.Errorf("budget = %+v", got)
+		}
+	})
+	for status, want := range map[int]error{
+		http.StatusNotFound:            ErrBudgetNotReached,
+		http.StatusForbidden:           ErrForbidden,
+		http.StatusInternalServerError: ErrUpstreamUnavailable,
+		http.StatusTeapot:              ErrUnexpectedStatus,
+	} {
+		srv, _ := newTestServer(t, status, `{"code":"x","message":"y"}`)
+		c := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+		if _, err := c.RunBudget(context.Background(), "svc-tok", "t1", runID); !errors.Is(err, want) {
+			t.Errorf("status %d: err = %v, want %v", status, err, want)
+		}
+	}
+}
