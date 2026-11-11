@@ -191,9 +191,6 @@ func (s *AgentTypeService) PreviewEffectiveAccess(ctx context.Context, req Effec
 // ErrInvalidMaxConcurrentRuns rejects an update that sets the agent's total of concurrent runs below 1.
 var ErrInvalidMaxConcurrentRuns = errors.New("max_concurrent_runs must be at least 1")
 
-// validateAgentTypeUpdate runs the partial-update field validations
-// (connectivity posture, connectors, environment reference). Extracted from
-// UpdateAgentType to keep that method's cyclomatic complexity in check.
 // validateIdentityModeUpdate rejects a change of identity_mode, which is immutable after creation
 // (delegated-agent-identity ADR, Decision 1): the fail-closed enforcement stack is provisioned around
 // the mode the agent was created with. Restating the current mode is a no-op.
@@ -210,6 +207,9 @@ func validateIdentityModeUpdate(at *AgentType, mode *IdentityMode) error {
 	return nil
 }
 
+// validateAgentTypeUpdate runs the partial-update field validations
+// (connectivity posture, connectors, environment reference). Extracted from
+// UpdateAgentType to keep that method's cyclomatic complexity in check.
 func (s *AgentTypeService) validateAgentTypeUpdate(ctx context.Context, at *AgentType, req UpdateAgentTypeRequest) error {
 	if err := validateIdentityModeUpdate(at, req.IdentityMode); err != nil {
 		return err
