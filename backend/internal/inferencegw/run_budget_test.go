@@ -3,6 +3,7 @@ package inferencegw
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -139,5 +140,16 @@ func TestReachedRunBudget_OwnerName(t *testing.T) {
 				t.Errorf("owner_name = %q, %v; want %q", got.OwnerName, err, tt.want)
 			}
 		})
+	}
+}
+
+// A failed name lookup still answers with the ceiling.
+func TestReachedRunBudget_NameLookupFailure(t *testing.T) {
+	agent := &RunPrincipal{PrincipalID: "spiffe://runkora.test/tenant/t1/agent/coder", PrincipalType: "AGENT"}
+	c := runBudgetController(&stubEvaluator{budgetCeilings: []policy.BudgetCeiling{{Scope: "delegator", ID: "user-1", Window: "weekly", LimitUSD: 1, SpendUSD: 1}}}, &mockSpendCounter{}, agent)
+	c.svc.usage.(*mockInferenceUsageRepository).personNameErr = errors.New("connection reset")
+	got, err := c.svc.ReachedRunBudget(context.Background(), "t1", budgetRunID)
+	if err != nil || got.Scope != "delegator" || got.OwnerName != "" {
+		t.Errorf("ReachedRunBudget = %+v, %v; want the delegator ceiling without a name", got, err)
 	}
 }

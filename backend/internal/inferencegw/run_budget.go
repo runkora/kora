@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
@@ -33,8 +34,13 @@ func (s *Service) ReachedRunBudget(ctx context.Context, tenantID, runID string) 
 			continue
 		}
 		b := RunBudget{Scope: c.Scope, Owner: c.ID, Window: c.Window, LimitUSD: c.LimitUSD}
+		// The name is for reading only: without it the ceiling is still the answer.
 		if b.OwnerName, err = s.ownerName(ctx, tenantID, rp, c); err != nil {
-			return RunBudget{}, err
+			b.OwnerName = ""
+			s.logger.Warn(ctx, "budget owner name unavailable",
+				logging.Field{Key: "run_id", Value: runID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
 		}
 		if c.Window != cadenceRun {
 			resets := periodEnd(c.Window, now)
