@@ -508,9 +508,9 @@ func AllRunStates() []RunState {
 	}
 }
 
-// OccupiesPod reports whether a run in this state still holds a slot on its
-// assigned pod, and so counts towards the pod's run count when a new run
-// is placed.
+// OccupiesPod reports whether a run in this state still holds its assigned
+// pod, and so counts towards the agent's total and keeps the pod from being
+// removed.
 //
 // A state occupies a pod whenever a session process may still be resident:
 // pending and starting are on their way in, active is mid-turn, idle has
