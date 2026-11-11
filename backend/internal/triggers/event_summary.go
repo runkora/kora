@@ -158,10 +158,13 @@ func githubPullRequest(doc any, action string) *agentsclient.RunEventSummary {
 		"ready_for_review": "marked ready for review",
 		"synchronize":      "pushed to",
 	}[action]
-	if action == "closed" && resolvePath(doc, "pull_request.merged") == jsonTrue {
+	switch {
+	case action == "closed" && resolvePath(doc, "pull_request.merged") == jsonTrue:
 		verb = "merged"
+	case verb == "":
+		verb = actionVerb(action)
 	}
-	return githubSummary(doc, verbOr(verb, action), githubPR(doc, "pull_request.html_url"), "", githubPRPreview(doc))
+	return githubSummary(doc, verb, githubPR(doc, "pull_request.html_url"), "", githubPRPreview(doc))
 }
 
 func githubIssues(doc any, action string) *agentsclient.RunEventSummary {
@@ -169,7 +172,7 @@ func githubIssues(doc any, action string) *agentsclient.RunEventSummary {
 	if action == "opened" {
 		quote = resolvePath(doc, "issue.body")
 	}
-	return githubSummary(doc, verbOr("", action), githubIssue(doc, "issue.html_url"), quote, githubIssuePreview(doc))
+	return githubSummary(doc, actionVerb(action), githubIssue(doc, "issue.html_url"), quote, githubIssuePreview(doc))
 }
 
 func githubIssueComment(doc any, action string) *agentsclient.RunEventSummary {
@@ -213,15 +216,12 @@ func githubReviewComment(doc any, action string) *agentsclient.RunEventSummary {
 	return githubSummary(doc, verb, githubPR(doc, "comment.html_url"), resolvePath(doc, "comment.body"), githubPRPreview(doc))
 }
 
-// verbOr is verb, else the action in words, else "updated".
-func verbOr(verb, action string) string {
-	switch {
-	case verb != "":
-		return verb
-	case action != "":
-		return words(action)
+// actionVerb is a webhook action in words, or "updated" when the payload names none.
+func actionVerb(action string) string {
+	if action == "" {
+		return "updated"
 	}
-	return "updated"
+	return words(action)
 }
 
 func githubSummary(doc any, verb string, object agentsclient.RunEventObject, quote string, preview *agentsclient.RunEventPreview) *agentsclient.RunEventSummary {
