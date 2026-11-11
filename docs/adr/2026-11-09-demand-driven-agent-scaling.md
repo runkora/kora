@@ -11,7 +11,7 @@
 
 Each agent type runs one session-manager StatefulSet. Two settings decide how much work it takes:
 
-*   `max_concurrent_runs_per_pod` (default 10) caps the runs on one pod, and `selectPod` in `backend/internal/agents/run_scheduler.go` skips a pod at the cap.
+*   `max_concurrent_runs_per_pod` (default 10) caps the runs on one pod, and the scheduler skips a pod at the cap.
 *   A HorizontalPodAutoscaler on CPU and memory has a maximum of 10 replicas. [Run Scheduling](2026-10-12-run-scheduling.md) records that the production cluster has no metrics API and that the HPA has never scaled.
 
 The session-manager container has a hardcoded 512Mi memory request and a 4Gi limit in `backend/internal/agents/k8s.go`. The StatefulSet uses the default `OrderedReady` pod management.
@@ -171,7 +171,7 @@ A run will fail the start budget only when no pod is coming up for it: no pod is
 kora-agents will run a scaler loop every 5 s, independent of the claim tick. For each agent the loop reads pod memory (2 s timeout per pod, outside any lock) and then waits up to 2 s for the agent lock. A timeout skips the agent for that pass. The replica that gets the lock re-reads the pending, active and starting run counts from the database, decides from those counts and the memory reading, and calls the StatefulSet scale subresource. The scaler will:
 
 *   Scale up in one step when runs are pending, the agent is under its total, and no Ready pod has room. It adds `ceil(pending × startingRunAllowance ÷ (placementWatermark × pod memory.max))` pods minus the pods already coming up, clamped to the agent's total. Pod `memory.max` comes from a Ready pod's report, else from the StatefulSet's container memory limit.
-*   Scale down by one pod when the top pod (ordinal `replicas − 1`) is above `minReplicas` and has no active or starting run. The empty-top-pod check and the scale call both happen under the lock.
+*   Scale down by one pod when the top pod (ordinal `replicas − 1`) is above `minReplicas` and has no active or starting run, and no run under the total is waiting. The empty-top-pod check and the scale call both happen under the lock.
 *   Scale up to `minReplicas` when the floor is raised above the live count.
 
 The StatefulSet replicas will be set only on create, to `max(minReplicas, 1)`. Re-applying an agent keeps the live `spec.replicas`.
@@ -194,7 +194,7 @@ The recreated StatefulSet carries the template of the same apply. The controller
 
 ### Removed
 
-kora-agents will remove the CPU and memory HPA, `MaxReplicas: 10`, the chart check that limits replicas to "1 and 10, the HPA maximum", and the runs-per-pod setting. The ClusterRole will gain `get` and `update` on `statefulsets/scale`. Its `horizontalpodautoscalers` rule keeps `get` and `delete` and drops `create` and `update`, and kora-agents deletes the stale HPA on apply.
+kora-agents will remove the CPU and memory HPA, `MaxReplicas: 10`, the chart check that limits replicas to "1 and 10, the HPA maximum", and the runs-per-pod setting. The chart check will require 1 ≤ `minReplicas` ≤ `maxReplicas`. The ClusterRole will gain `get` and `update` on `statefulsets/scale`. Its `horizontalpodautoscalers` rule keeps `get` and `delete` and drops `create` and `update`, and kora-agents deletes the stale HPA on apply.
 
 ---
 
@@ -214,17 +214,9 @@ kora-agents will remove the CPU and memory HPA, `MaxReplicas: 10`, the chart che
 *   `agent_types` holds two concurrency columns for one minor release.
 *   Every existing agent StatefulSet is deleted and recreated once.
 
-### Neutral
-
-None at this time.
-
 ### Known Limits
 
 *   A spot interruption drains the pods on the node regardless of this design.
-
-### Parked
-
-*   The `minReplicas` floor of 2 with a rollout surge is not decided here.
 
 ### Possible Later Improvement
 
@@ -264,7 +256,7 @@ None at this time.
     *   Amendment 1: the HPA minimum of 2.
     *   The rest of Agent Execution Infrastructure stands, including the StatefulSet, the stable pod DNS and the PodDisruptionBudget.
 *   [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md): the Run Scheduling amendment's start budget rule is superseded by the start budget rule here.
-*   [Config-Driven Kustomize Manifest Patches](2026-09-15-manifest-patches-configmap.md): StatefulSet replicas are owned by the scaler.
+*   [Config-Driven Kustomize Manifest Patches](2026-09-15-manifest-patches-configmap.md): superseded in part: the HPA as a patch target, `ensureHPA`, and replicas owned by the HPA. StatefulSet replicas are owned by the scaler.
 *   [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md): `agents.workloads` carries the session-manager memory value.
 
 ---

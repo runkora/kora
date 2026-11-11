@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-09-15-manifest-patches-configmap.md  (decision date + slug; no sequential number) -->
 
-**Status:** Accepted
+**Status:** Accepted (the HPA patch target and HPA-owned replicas superseded in part by [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) 2026-11-10)
 **Date:** 2026-09-15
 **Deciders:** Tom Morelly, Justin Wilkin
 **Technical Story:** Productionise the operator surface for customising the Kubernetes resources kora-agents provisions in tenant namespaces. Supersedes [2026-06-12: K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md).
