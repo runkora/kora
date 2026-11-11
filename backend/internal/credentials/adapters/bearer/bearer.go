@@ -203,6 +203,9 @@ func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (cr
 		return credentials.Credential{}, fmt.Errorf("resolve bearer secret: %w", err)
 	}
 	token := strings.TrimSpace(string(tok))
+	if token == "" {
+		return credentials.Credential{}, errors.New("bearer secret is empty")
+	}
 
 	c.adapter.logger.Debug(ctx, "resolved bearer credential",
 		logging.Field{Key: "connection", Value: c.conn.Name},

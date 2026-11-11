@@ -191,3 +191,15 @@ func TestOpen_Config(t *testing.T) {
 		}
 	}
 }
+
+func TestMint_EmptyTokenFails(t *testing.T) {
+	for _, raw := range []string{"", " \n\t"} {
+		c, err := open(t, stubSecrets{token: []byte(raw)}, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Mint(context.Background(), credentials.CallerIdentity{}); err == nil {
+			t.Errorf("Mint(%q) succeeded, want error", raw)
+		}
+	}
+}
