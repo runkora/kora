@@ -38,6 +38,7 @@ function SessionRow({
     >
       <Icon
         name={running ? 'loader' : 'circle-check'}
+        spin={running}
         size="2xs"
         color={running ? 'accent' : 'subtle'}
         label={running ? 'Running' : 'Done'}
