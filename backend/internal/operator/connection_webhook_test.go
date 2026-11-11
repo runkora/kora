@@ -159,3 +159,48 @@ func TestConnectionAggregator_KeepsEarlierOfConflictingConnections(t *testing.T)
 		t.Errorf("rendered %s, want %s", got, want)
 	}
 }
+
+func TestConnectionValidator_BearerPlaceholderEnv(t *testing.T) {
+	bearer := func(config string) *Connection {
+		c := testConnection("npm", "bearer", "registry.example.com", "", 0)
+		c.Spec.Config = runtime.RawExtension{}
+		if config != "" {
+			c.Spec.Config.Raw = []byte(config)
+		}
+		return c
+	}
+	other := testConnection("npm-gh", "github_app", "github.com", "contoso", 0)
+	other.Spec.Config = runtime.RawExtension{Raw: []byte(`{"placeholderEnv":"bad name"}`)}
+	noConfig := bearer("")
+	tests := []struct {
+		name        string
+		conn        *Connection
+		wantAllowed bool
+	}{
+		{"valid name", bearer(`{"placeholderEnv":"NPM_TOKEN"}`), true},
+		{"leading underscore and digits", bearer(`{"placeholderEnv":"_A1"}`), true},
+		{"key absent", bearer(`{"header":"X-Token"}`), true},
+		{"no config", noConfig, true},
+		{"empty object", bearer(`{}`), true},
+		{"space in name", bearer(`{"placeholderEnv":"bad name"}`), false},
+		{"lower case", bearer(`{"placeholderEnv":"npm_token"}`), false},
+		{"leading digit", bearer(`{"placeholderEnv":"1TOKEN"}`), false},
+		{"empty string", bearer(`{"placeholderEnv":""}`), false},
+		{"non-string", bearer(`{"placeholderEnv":5}`), false},
+		{"null", bearer(`{"placeholderEnv":null}`), false},
+		{"other adapter not checked", other, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := fake.NewClientBuilder().WithScheme(NewScheme()).Build()
+			v := &ConnectionValidator{Client: c, Decoder: admission.NewDecoder(NewScheme())}
+			resp := v.Handle(context.Background(), connectionRequest(t, tc.conn, nil))
+			if resp.Allowed != tc.wantAllowed {
+				t.Fatalf("allowed = %v, want %v (%v)", resp.Allowed, tc.wantAllowed, resp.Result)
+			}
+			if !tc.wantAllowed && !strings.Contains(resp.Result.Message, "config.placeholderEnv") {
+				t.Errorf("message %q does not cite config.placeholderEnv", resp.Result.Message)
+			}
+		})
+	}
+}

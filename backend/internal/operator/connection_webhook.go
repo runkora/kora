@@ -3,8 +3,10 @@ package operator
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -29,6 +31,9 @@ func (v *ConnectionValidator) Handle(ctx context.Context, req admission.Request)
 	conn := &Connection{}
 	if err := v.Decoder.Decode(req, conn); err != nil {
 		return admission.Errored(http.StatusBadRequest, err)
+	}
+	if err := validateBearerConfig(conn); err != nil {
+		return admission.Denied(fmt.Sprintf("connection %q: %v", cmp.Or(conn.Name, conn.GenerateName), err))
 	}
 	list := &ConnectionList{}
 	if err := v.Client.List(ctx, list, client.InNamespace(req.Namespace)); err != nil {
@@ -77,4 +82,33 @@ func createdBefore(a, b *Connection) bool {
 		return a.CreationTimestamp.Before(&b.CreationTimestamp)
 	}
 	return a.Name < b.Name
+}
+
+// placeholderEnvPattern is the shape of a bearer connection's
+// config.placeholderEnv: an upper-case environment variable name.
+var placeholderEnvPattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+
+// validateBearerConfig checks config.placeholderEnv of a bearer Connection.
+// Config is a RawExtension with preserve-unknown-fields, so CEL in the CRD
+// cannot read it; the webhook does. The key is optional. Other adapters and
+// the other bearer config keys are not checked here (the adapter's Open
+// validates those).
+func validateBearerConfig(c *Connection) error {
+	if c.Spec.Adapter != platformconns.AdapterBearer || len(c.Spec.Config.Raw) == 0 {
+		return nil
+	}
+	var cfg map[string]json.RawMessage
+	if err := json.Unmarshal(c.Spec.Config.Raw, &cfg); err != nil {
+		// Not an object (or null): nothing to read. The adapter's Open reports it.
+		return nil
+	}
+	raw, ok := cfg["placeholderEnv"]
+	if !ok {
+		return nil
+	}
+	var name string
+	if err := json.Unmarshal(raw, &name); err != nil || !placeholderEnvPattern.MatchString(name) {
+		return fmt.Errorf("bearer connections: config.placeholderEnv must be an environment variable name matching %s", placeholderEnvPattern)
+	}
+	return nil
 }
