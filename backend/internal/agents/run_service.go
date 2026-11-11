@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/runkora/kora/backend/internal/platform/clients/inference"
 	"net"
 	"net/http"
 	"regexp"
@@ -79,6 +80,8 @@ type RunService struct {
 	missing    missingProvisioner
 	queue      runQueue
 	metrics    *Metrics // run outcome and duration; nil = not recorded
+	budgets    runBudgetReader
+	selfToken  ServiceTokenSource
 	// attempts and schedulerDone track the scheduler started by StartScheduler.
 	attempts      sync.WaitGroup
 	schedulerDone chan struct{}
@@ -99,6 +102,13 @@ func (s *RunService) SetScopeResolver(r *ScopeResolver) { s.resolver = r }
 // (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3). When unset,
 // starting a run of a delegated agent fails closed with ErrDelegationUnavailable.
 func (s *RunService) SetDelegationBroker(b *DelegationBroker) { s.delegation = b }
+
+// SetBudgetReader installs the gateway lookup that names the ceiling a
+// budget_exhausted run reached, called with kora-agents' own token. When unset,
+// the run_state event of a budget stop has no budget.
+func (s *RunService) SetBudgetReader(r runBudgetReader, selfToken ServiceTokenSource) {
+	s.budgets, s.selfToken = r, selfToken
+}
 
 // SetMetrics installs the instruments that record a run's outcome and duration
 // when it reaches a terminal state. When unset, nothing is recorded.
@@ -542,7 +552,7 @@ func (s *RunService) TerminateRun(ctx context.Context, id string) error {
 		}
 	}
 	if terminated.State == RunStateTerminated {
-		if err := recordRunState(ctx, s.repo, s.pubsub, id, RunStateTerminated); err != nil {
+		if err := recordRunState(ctx, s.repo, s.pubsub, id, RunStateTerminated, nil); err != nil {
 			s.logger.Warn(ctx, "failed to persist run_state event",
 				logging.Field{Key: "run_id", Value: id},
 				logging.Field{Key: "error", Value: err.Error()},
@@ -583,7 +593,11 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 		logging.Field{Key: "from", Value: string(from)},
 		logging.Field{Key: "to", Value: string(to)},
 	)
-	if err := recordRunState(ctx, s.repo, s.pubsub, runID, to); err != nil {
+	var budget *inference.RunBudget
+	if to == RunStateBudgetExhausted {
+		budget = s.reachedBudget(ctx, runID)
+	}
+	if err := recordRunState(ctx, s.repo, s.pubsub, runID, to, budget); err != nil {
 		// Log and continue. The event was still published unsequenced, and live
 		// subscribers see the transition. The DB write failure is durable
 		// state loss that we surface in traces; if we returned early here the
@@ -1245,7 +1259,7 @@ func (s *RunService) StartReaper(ctx context.Context) {
 // terminal transition. ReapStaleRuns already committed the runs.state column, so
 // this only records the event (for SSE replay) and notifies live subscribers.
 func (s *RunService) publishReapedState(ctx context.Context, runID string, state RunState) {
-	if err := recordRunState(ctx, s.repo, s.pubsub, runID, state); err != nil {
+	if err := recordRunState(ctx, s.repo, s.pubsub, runID, state, nil); err != nil {
 		s.logger.Error(ctx, "reaper: failed to persist run_state event",
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "state", Value: string(state)},
@@ -1259,10 +1273,19 @@ type runEventAppender interface {
 	AppendRunEvent(ctx context.Context, e RunEvent) (int64, error)
 }
 
+// runStatePayload is a run_state event: the new state and, for a budget stop, the ceiling reached.
+type runStatePayload struct {
+	State  RunState             `json:"state"`
+	Budget *inference.RunBudget `json:"budget,omitempty"`
+}
+
 // recordRunState persists a run_state event and publishes it to live subscribers.
 // A failed write still publishes the event unsequenced, and the error goes back for the caller to log.
-func recordRunState(ctx context.Context, events runEventAppender, pubsub *PubSub, runID string, state RunState) error {
-	payload := []byte(`{"state":"` + string(state) + `"}`)
+func recordRunState(ctx context.Context, events runEventAppender, pubsub *PubSub, runID string, state RunState, budget *inference.RunBudget) error {
+	payload, err := json.Marshal(runStatePayload{State: state, Budget: budget})
+	if err != nil {
+		return fmt.Errorf("encode run_state: %w", err)
+	}
 	at := eventTime()
 	seqNo, err := events.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload, CreatedAt: at})
 	if err != nil {

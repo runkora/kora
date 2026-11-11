@@ -15,6 +15,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/brand"
 	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	inferenceclient "github.com/runkora/kora/backend/internal/platform/clients/inference"
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	smclient "github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
@@ -310,6 +311,12 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	broker := agents.NewDelegationBroker(idClient, selfToken, cfg.Platform.TrustDomain, logger)
 	runSvc.SetDelegationBroker(broker)
 	atSvc.SetDelegationBroker(broker)
+
+	// A budget stop records the ceiling the gateway says the run reached
+	// (docs/adr/2026-11-11-run-page-record.md, Decision 6).
+	if url := cfg.Platform.InferenceGatewayURL; url != "" {
+		runSvc.SetBudgetReader(inferenceclient.NewClient(url, logger), selfToken)
+	}
 
 	// Per-route, not in the global chain below: it must run after RoutePattern
 	// has set the route on the request context. See Mux.HandleWithMiddleware.
