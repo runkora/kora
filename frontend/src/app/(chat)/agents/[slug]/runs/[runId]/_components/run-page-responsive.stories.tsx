@@ -1,14 +1,15 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { Stack, Text } from '@runkora/hades';
-import { budgetRun, joinedRun } from '../_lib/run-page-proposed-mock-data';
-import { RunMixPage } from './run-mix-proposed';
+import { budgetRun, runStory, runningRun, type MockRun } from '../_lib/run-page-mock-data';
+import { RunProvider } from '../_context/run-context';
+import { RunPage } from './run-page';
 
 /**
  * The run page at device sizes, side by side. Each frame is the page at that width; the layout
  * follows the frame, so panes fold into a drawer and a sheet as they would on the device.
  */
 const meta: Meta = {
-  title: 'Pages/Agents/Run (mix)/Responsive',
+  title: 'Pages/Agents/Run/Responsive',
   parameters: {
     layout: 'fullscreen',
     nextjs: {
@@ -25,12 +26,7 @@ const DEVICES = [
   { label: 'iPhone · 390', width: 390, height: 844 },
 ];
 
-const EARLIER = [
-  { label: 'Review pull request #5 in example-org/stats-lib adding Mode', meta: '1d' },
-  { label: 'Review pull request #4 fixing Mean on an empty slice', meta: '3d' },
-];
-
-function Frames({ run }: { run: ReturnType<typeof joinedRun> }) {
+function Frames({ run }: { run: MockRun }) {
   return (
     <Stack
       direction="horizontal"
@@ -51,7 +47,9 @@ function Frames({ run }: { run: ReturnType<typeof joinedRun> }) {
               border: '1px solid var(--color-border)',
             }}
           >
-            <RunMixPage run={run} earlier={EARLIER} height={`${d.height}px`} />
+            <RunProvider slug="code-reviewer" runId={run.body.data.id}>
+              <RunPage height={`${d.height}px`} />
+            </RunProvider>
           </Stack>
         </Stack>
       ))}
@@ -59,19 +57,14 @@ function Frames({ run }: { run: ReturnType<typeof joinedRun> }) {
   );
 }
 
-/** Mid-run, with a mention joined and a message waiting. */
+/** Mid-run, with a mention joined. */
 export const Running: StoryObj = {
-  render: () => (
-    <Frames
-      run={{
-        ...joinedRun(),
-        queued: [{ id: 'q1', text: 'Also check Median on an empty slice before you decide.' }],
-      }}
-    />
-  ),
+  render: () => <Frames run={runningRun()} />,
+  decorators: runStory([runningRun()]),
 };
 
 /** Stopped by a spent budget. */
 export const BudgetExhausted: StoryObj = {
   render: () => <Frames run={budgetRun()} />,
+  decorators: runStory([budgetRun()]),
 };

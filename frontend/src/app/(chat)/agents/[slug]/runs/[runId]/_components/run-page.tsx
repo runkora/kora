@@ -1,16 +1,27 @@
 'use client';
 
 /**
- * @tier 3 — proposed, run-page-scoped. The run page as a three-pane workspace: sessions on the
- * left, the run read as a document in the middle, and the run's facts in a rail on the right.
- * Design-only; drawn from the ACP-shaped view model in `_lib/run-view-proposed`.
+ * @tier 3 — run-page-scoped. The run page as a three-pane workspace: sessions on the left, the run
+ * read as a document in the middle, and the run's facts in a rail on the right. Panes fold into a
+ * drawer and a sheet as the page narrows.
  */
 
+import Link from 'next/link';
 import {
   Avatar,
+  BottomSheet,
   Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  EmptyState,
   Heading,
   Icon,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  SidePanel,
+  SidePanelHeader,
   Stack,
   StreamingCursor,
   Text,
@@ -19,19 +30,21 @@ import {
   type IconName,
 } from '@runkora/hades';
 import { useLayoutEffect, useRef, useState } from 'react';
-import { StopIcon } from './input-area';
-import { InstructionsMarkdown, RunSourceChips } from '@runkora/components';
-import { RunRail } from './run-rail-proposed';
-import {
-  layoutFor,
-  RunLayoutContext,
-  useRunLayout,
-  type RunLayout,
-} from '../_lib/run-layout-proposed';
-import { promptEvent, TriggerEventView } from './trigger-event-proposed';
+import { InstructionsMarkdown, PermissionHint, RunSourceChips } from '@runkora/components';
+import { APP_ROUTES } from '@runkora/lib/routing';
+import { useHasScope } from '@runkora/app/(dashboard)/_components/permissions-provider';
+import { useRunContext } from '../_context/run-context';
+import { useNow } from '../_hooks/use-now';
+import { RunRail } from './run-rail';
+import { ConnectionBanner } from './connection-banner';
+import { layoutFor, RunLayoutContext, useRunLayout, type RunLayout } from '../_lib/run-layout';
+import { TriggerEventView, triggerEventOf } from './trigger-event';
+import { earlierRunsOf, toRunView, type EarlierRun } from '../_lib/to-run-view';
 import {
   allSteps,
-  clockAt,
+  clockOf,
+  commandParts,
+  ENDED,
   formatSpan,
   quietSummary,
   rowsOf,
@@ -40,7 +53,7 @@ import {
   type RunView,
   type Step,
   type StepKind,
-} from '../_lib/run-view-proposed';
+} from '../_lib/run-view';
 
 // ── Shared pieces ────────────────────────────────────────────────────────────
 
@@ -73,17 +86,19 @@ function shortName(path: string): { name: string; dir: string } {
 function SessionRow({
   label,
   meta,
+  href,
   active,
   running,
   indent,
 }: {
   label: string;
   meta: string;
+  href?: string;
   active?: boolean;
   running?: boolean;
   indent?: boolean;
 }) {
-  return (
+  const row = (
     <Stack
       direction="horizontal"
       align="center"
@@ -93,6 +108,8 @@ function SessionRow({
         paddingLeft: indent ? 28 : 10,
         borderRadius: 6,
         background: active ? 'var(--color-surface-elevated)' : 'transparent',
+        textDecoration: 'none',
+        color: 'inherit',
       }}
     >
       <Icon
@@ -114,18 +131,16 @@ function SessionRow({
       </Text>
     </Stack>
   );
+  return href ? (
+    <Stack asChild>
+      <Link href={href} style={{ textDecoration: 'none', color: 'inherit' }}>
+        {row}
+      </Link>
+    </Stack>
+  ) : (
+    row
+  );
 }
-
-export interface EarlierRun {
-  label: string;
-  meta: string;
-}
-
-const DEFAULT_EARLIER: EarlierRun[] = [
-  { label: 'Add idempotency keys to refunds', meta: '3h' },
-  { label: 'Fix flaky settlement export test', meta: '1d' },
-  { label: 'Bump the ledger client to 4.2', meta: '2d' },
-];
 
 function SessionsPane({
   run,
@@ -146,13 +161,19 @@ function SessionsPane({
         flexShrink: 0,
         borderRight: drawer ? undefined : LINE,
         padding: '18px 12px',
+        overflowY: 'auto',
       }}
     >
-      <Stack direction="horizontal" align="center" gap="snug" style={{ padding: '0 10px' }}>
-        <Icon name="arrow-left" size="2xs" color="subtle" label="" />
-        <Text size="supporting" color="muted">
-          {run.agent.name}
-        </Text>
+      <Stack asChild direction="horizontal" align="center" gap="snug">
+        <Link
+          href={APP_ROUTES.agents.detail(run.agent.slug)}
+          style={{ padding: '0 10px', textDecoration: 'none', color: 'inherit' }}
+        >
+          <Icon name="arrow-left" size="2xs" color="subtle" label="" />
+          <Text size="supporting" color="muted">
+            {run.agent.name}
+          </Text>
+        </Link>
       </Stack>
       <Stack gap="tight">
         <Text size="caption" color="subtle" style={{ padding: '0 10px 6px' }}>
@@ -174,14 +195,22 @@ function SessionsPane({
           />
         ))}
       </Stack>
-      <Stack gap="tight">
-        <Text size="caption" color="subtle" style={{ padding: '0 10px 6px' }}>
-          Earlier runs
-        </Text>
-        {earlier.map((r) => (
-          <SessionRow key={r.label + r.meta} label={r.label} meta={r.meta} />
-        ))}
-      </Stack>
+      {earlier.length > 0 && (
+        <Stack gap="tight">
+          <Text size="caption" color="subtle" style={{ padding: '0 10px 6px' }}>
+            Other runs
+          </Text>
+          {earlier.map((r) => (
+            <SessionRow
+              key={r.id}
+              label={r.label}
+              meta={r.meta}
+              running={r.running}
+              href={APP_ROUTES.agents.run(run.agent.slug, r.id)}
+            />
+          ))}
+        </Stack>
+      )}
     </Stack>
   );
 }
@@ -209,19 +238,71 @@ function Figure({ label, value, sub }: { label: string; value: string; sub?: str
 
 function planProgress(run: RunView): { done: number; total: number } | null {
   const plan = [...run.entries].reverse().find((e) => e.type === 'plan');
-  if (!plan || plan.type !== 'plan') return null;
+  if (!plan || plan.type !== 'plan' || plan.plan.items.length === 0) return null;
   return {
     done: plan.plan.items.filter((i) => i.status === 'done').length,
     total: plan.plan.items.length,
   };
 }
 
+/** The run's state in a word or two, with the icon and colour the header and end line share. */
+function stateLabel(run: RunView): {
+  label: string;
+  icon: IconName;
+  tone: 'accent' | 'status-error' | 'muted';
+} {
+  switch (run.state) {
+    case 'active':
+      return { label: 'Working', icon: 'loader', tone: 'accent' };
+    case 'idle':
+      return { label: 'Waiting for a reply', icon: 'pause', tone: 'muted' };
+    case 'pending':
+    case 'starting':
+      return { label: 'Starting', icon: 'loader', tone: 'muted' };
+    case 'completing':
+      return { label: 'Finishing', icon: 'loader', tone: 'muted' };
+    case 'budget_exhausted':
+      return { label: 'Budget spent', icon: 'circle-alert', tone: 'status-error' };
+    case 'failed':
+      return { label: 'Failed', icon: 'circle-alert', tone: 'status-error' };
+    case 'terminated':
+      return { label: 'Stopped', icon: 'circle-check', tone: 'muted' };
+    default:
+      return { label: 'Completed', icon: 'circle-check', tone: 'muted' };
+  }
+}
+
+/** The "…" menu. Trace lives here on every width; a phone has no room for its button. */
+function MoreMenu({ traceUrl }: { traceUrl: string }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button size="icon-sm" variant="ghost" aria-label="More actions">
+          <Icon name="more-horizontal" size="2xs" label="" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start">
+        <Stack gap="none" style={{ minWidth: 160 }}>
+          <Button asChild size="sm" variant="ghost" style={{ justifyContent: 'flex-start' }}>
+            <Link href={traceUrl} target="_blank" rel="noopener noreferrer">
+              <Icon name="activity" size="2xs" label="" />
+              Trace
+            </Link>
+          </Button>
+        </Stack>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function RunHeader({
   run,
+  canRun,
   onSessions,
   onDetails,
 }: {
   run: RunView;
+  canRun: boolean;
   /** Opens the sessions drawer when the pane is folded away. */
   onSessions?: () => void;
   /** Opens the details sheet when the rail is folded away. */
@@ -232,10 +313,10 @@ function RunHeader({
   const phone = layout === 'phone';
   const progress = planProgress(run);
   const pct = progress ? (progress.done / progress.total) * 100 : 100;
-  const running = run.state === 'active';
-  const live = running || run.state === 'idle';
+  const ended = ENDED.has(run.state);
   const budget = run.state === 'budget_exhausted';
   const branch = run.sources.find((s) => s.kind === 'branch');
+  const status = stateLabel(run);
   return (
     <Stack gap="comfortable" style={{ padding: phone ? '14px 16px 0' : '22px 32px 0' }}>
       <Stack direction="horizontal" justify="between" align="start" gap="relaxed">
@@ -260,7 +341,7 @@ function RunHeader({
               <Stack direction="horizontal" align="center" gap="tight">
                 <Icon name="git-branch" size="2xs" color="subtle" label="" />
                 <Text size="supporting" color="muted" mono>
-                  {branch.label.replace(/^branch /, '')} → main
+                  {branch.label.replace(/^branch /, '')}
                 </Text>
               </Stack>
             )}
@@ -281,16 +362,20 @@ function RunHeader({
             <Heading variant="section">{run.summary}</Heading>
           </Stack>
           <Stack direction="horizontal" align="center" gap="snug" style={{ paddingTop: 6 }}>
-            {!live && (
-              <Button size="sm" variant="outline">
-                <Icon name="play" size="2xs" label="" />
-                New run
+            {ended && canRun && (
+              <Button size="sm" variant="outline" asChild>
+                <Link href={APP_ROUTES.agents.detail(run.agent.slug)}>
+                  <Icon name="play" size="2xs" label="" />
+                  New run
+                </Link>
               </Button>
             )}
-            {!phone && (
-              <Button size="sm" variant="ghost">
-                <Icon name="activity" size="2xs" label="" />
-                Trace
+            {!phone && run.traceUrl && (
+              <Button size="sm" variant="ghost" asChild>
+                <Link href={run.traceUrl} target="_blank" rel="noopener noreferrer">
+                  <Icon name="activity" size="2xs" label="" />
+                  Trace
+                </Link>
               </Button>
             )}
             {onDetails && (
@@ -299,9 +384,7 @@ function RunHeader({
                 Details
               </Button>
             )}
-            <Button size="icon-sm" variant="ghost" aria-label="More actions">
-              <Icon name="more-horizontal" size="2xs" label="" />
-            </Button>
+            {run.traceUrl && <MoreMenu traceUrl={run.traceUrl} />}
           </Stack>
         </Stack>
         <Stack
@@ -322,28 +405,19 @@ function RunHeader({
       <Stack direction="horizontal" align="center" gap="cozy" style={{ paddingBottom: 14 }}>
         <Stack direction="horizontal" align="center" gap="snug" style={NOWRAP}>
           <Icon
-            name={running ? 'loader' : budget ? 'circle-alert' : 'circle-check'}
+            name={status.icon}
             size="2xs"
-            color={running ? 'accent' : budget ? 'status-error' : 'subtle'}
+            color={status.tone === 'muted' ? 'subtle' : status.tone}
             label=""
           />
-          <Text
-            size="caption"
-            weight="strong"
-            color={running ? 'accent' : budget ? 'status-error' : 'muted'}
-          >
-            {running
-              ? 'Working'
-              : budget
-                ? 'Budget spent'
-                : run.state === 'completed'
-                  ? 'Completed'
-                  : 'Ended'}
+          <Text size="caption" weight="strong" color={status.tone}>
+            {status.label}
           </Text>
           <Text size="caption" color="subtle">
             {narrow
               ? `${formatSpan(run.durationMs)} · $${run.spend.usd.toFixed(2)}`
-              : `${run.agent.name} · started ${clockAt(run, 0).slice(0, 5)}`}
+              : `${run.agent.name} · started ${clockOf(run.startedAt)}`}
+            {run.actingFor && ` · acts for ${run.actingFor}`}
           </Text>
         </Stack>
         <Stack
@@ -352,7 +426,7 @@ function RunHeader({
             height: 3,
             borderRadius: 2,
             background: 'var(--color-surface-elevated)',
-            visibility: (progress || !live) && !budget ? 'visible' : 'hidden',
+            visibility: (progress || ended) && !budget ? 'visible' : 'hidden',
           }}
         >
           <Stack
@@ -371,9 +445,8 @@ function RunHeader({
 
 // ── Centre: the run as a document ────────────────────────────────────────────
 
-/** A person's or trigger's message: a soft shaded block, like a quoted prompt. */
+/** A person's message: a soft shaded block with the sender's name. */
 function MessageBlock({ entry }: { entry: Extract<Entry, { type: 'message' }> }) {
-  const trigger = entry.author.kind === 'trigger';
   return (
     <Stack
       gap="snug"
@@ -384,19 +457,22 @@ function MessageBlock({ entry }: { entry: Extract<Entry, { type: 'message' }> })
       }}
     >
       <Stack direction="horizontal" align="center" gap="snug">
-        {trigger ? (
-          <Icon name="zap" size="2xs" color="subtle" label="" />
-        ) : (
-          <Avatar name={entry.author.name} size="2xs" />
-        )}
-        <Text size="caption" color="muted">
+        <Avatar name={entry.author.name} size="2xs" />
+        <Text size="caption" color="muted" style={{ flex: 1 }}>
           {entry.author.name}
-          {trigger ? ' trigger' : ''}
+        </Text>
+        <Text size="caption" color="subtle">
+          {entry.time}
         </Text>
       </Stack>
       <Text size="body" style={{ lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
         {entry.text}
       </Text>
+      {entry.error && (
+        <Text size="caption" color="status-error" role="alert">
+          {entry.error}
+        </Text>
+      )}
     </Stack>
   );
 }
@@ -411,21 +487,12 @@ function Prose({ text, streaming }: { text: string; streaming?: boolean }) {
   );
 }
 
-/** A command without the plumbing: a leading `cd` dropped and a chain split into its commands. */
-function commandParts(step: Step): string[] {
-  if (step.kind !== 'execute') return [step.target];
-  const parts = step.target
-    .split(/;\s*|&&\s*/)
-    .map((p) => p.trim())
-    .filter((p) => p && !/^cd\s+\S+$/.test(p));
-  return parts.length ? parts : [step.target];
-}
-
 /** A tool call as a quiet block: bold verb, monospace target, then a fading preview of what came back. */
 function CallBlock({ step, nested }: { step: Step; nested?: Step[] }) {
   const failed = step.status === 'failed' || step.status === 'denied';
   const running = step.status === 'running';
-  const preview = step.errorLine ?? step.output?.split('\n').slice(0, 4).join('\n');
+  const preview =
+    step.errorLine ?? step.policy?.reason ?? step.output?.split('\n').slice(0, 4).join('\n');
   const parts = commandParts(step);
   return (
     <Stack
@@ -443,9 +510,11 @@ function CallBlock({ step, nested }: { step: Step; nested?: Step[] }) {
           color={failed ? 'status-error' : running ? 'accent' : 'subtle'}
           label=""
         />
-        <Text size="supporting" weight="strong" style={NOWRAP}>
-          {step.verb}
-        </Text>
+        {step.verb && (
+          <Text size="supporting" weight="strong" style={NOWRAP}>
+            {step.verb}
+          </Text>
+        )}
         <Text size="supporting" mono color="muted" truncate style={{ flex: 1, minWidth: 0 }}>
           {parts[0]}
         </Text>
@@ -465,11 +534,11 @@ function CallBlock({ step, nested }: { step: Step; nested?: Step[] }) {
       </Stack>
       {step.diffs && step.diffs.length > 0 && (
         <Stack style={{ borderTop: HAIR }}>
-          {step.diffs.map((d) => {
+          {step.diffs.map((d, i) => {
             const { name, dir } = shortName(d.path);
             return (
               <Stack
-                key={d.path}
+                key={`${d.path}-${i}`}
                 direction="horizontal"
                 align="center"
                 gap="snug"
@@ -479,12 +548,16 @@ function CallBlock({ step, nested }: { step: Step; nested?: Step[] }) {
                 <Text size="caption" color="subtle" truncate style={{ flex: 1, minWidth: 0 }}>
                   {dir}
                 </Text>
-                <Text size="caption" mono color="status-healthy">
-                  +{d.added}
-                </Text>
-                <Text size="caption" mono color="status-error">
-                  −{d.removed}
-                </Text>
+                {d.lines !== null && (
+                  <>
+                    <Text size="caption" mono color="status-healthy">
+                      +{d.added}
+                    </Text>
+                    <Text size="caption" mono color="status-error">
+                      −{d.removed}
+                    </Text>
+                  </>
+                )}
               </Stack>
             );
           })}
@@ -534,53 +607,58 @@ function CallBlock({ step, nested }: { step: Step; nested?: Step[] }) {
   );
 }
 
-/** Reads and searches the reader skims past: one muted line. */
+/** Reads and searches the reader skims past: one muted line that opens to the calls. */
 function QuietLine({ steps }: { steps: Step[] }) {
+  const [open, setOpen] = useState(false);
   return (
-    <Stack direction="horizontal" align="center" gap="snug" style={{ padding: '2px 2px' }}>
-      <Icon name="file-text" size="2xs" color="subtle" label="" />
-      <Text size="supporting" color="subtle">
-        {quietSummary(steps)}
-      </Text>
-      <Icon name="chevron-right" size="2xs" color="subtle" label="" />
-    </Stack>
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger asChild>
+        <Button size="sm" variant="ghost" style={{ paddingInline: 2, height: 24 }}>
+          <Icon name="file-text" size="2xs" color="subtle" label="" />
+          <Text as="span" size="supporting" color="subtle">
+            {quietSummary(steps)}
+          </Text>
+          <Icon name={open ? 'chevron-down' : 'chevron-right'} size="2xs" color="subtle" label="" />
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <Stack gap="snug" style={{ paddingTop: 8 }}>
+          {steps.map((s) => (
+            <CallBlock key={s.id} step={s} />
+          ))}
+        </Stack>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
-/** A trigger's message as its event: the adapter's summary when there is one, else from the prompt. */
-function triggerEvent(e: Extract<Entry, { type: 'message' }>, time: string) {
-  const base = { trigger: e.author.name, time, joined: e.joined, prompt: e.text };
-  return e.event ? { ...e.event, ...base } : promptEvent({ ...base, via: e.author.via });
-}
-
-function RowView({ row, run }: { row: Row; run: RunView }) {
+function RowView({ row }: { row: Row }) {
   if (row.type === 'quiet') return <QuietLine steps={row.steps} />;
   if (row.type === 'step') return <CallBlock step={row.step} nested={row.children} />;
   const e = row.entry;
   switch (e.type) {
     case 'message':
       return e.author.kind === 'trigger' ? (
-        <TriggerEventView e={triggerEvent(e, clockAt(run, e.at).slice(0, 5))} />
+        <TriggerEventView e={triggerEventOf(e)} />
       ) : (
         <MessageBlock entry={e} />
       );
     case 'text':
       return <Prose text={e.text} streaming={e.streaming} />;
     case 'plan':
-      return null; // The plan lives in the rail and updates in place.
-    case 'retry':
+      return null; // The plan's progress shows in the header and updates in place.
+    case 'notice':
       return (
-        <Text size="supporting" color="subtle">
-          Retried {e.attempts} times over {e.seconds}s: {e.reason}
-        </Text>
-      );
-    case 'question':
-      return <Prose text={e.text} />;
-    case 'stopped':
-      return (
-        <Text size="supporting" color="subtle">
-          Stopped by {e.by}
-        </Text>
+        <Stack gap="none">
+          <Text size="supporting" color={e.tone === 'error' ? 'status-error' : 'subtle'}>
+            {e.text}
+          </Text>
+          {e.detail && (
+            <Text size="caption" color="subtle" mono>
+              {e.detail}
+            </Text>
+          )}
+        </Stack>
       );
   }
 }
@@ -590,13 +668,6 @@ const BOX = {
   borderRadius: 10,
   background: 'var(--color-surface)',
 } as const;
-
-/** The agent's step in progress, for the status strip: "Running gh api …". */
-function currentStep(run: RunView): string | undefined {
-  const s = allSteps(run).find((x) => x.status === 'running');
-  if (!s) return undefined;
-  return `${s.verb} ${commandParts(s)[0] ?? s.target}`;
-}
 
 /** Send and Stop share one square: 32px, the size of the composer's existing buttons. */
 const ACTION = {
@@ -608,77 +679,25 @@ const ACTION = {
   border: 'none',
 } as const;
 
-function SendButton({ ready }: { ready: boolean }) {
+function StopIcon() {
   return (
-    <Button
-      disabled={!ready}
-      aria-label="Send"
-      style={{
-        ...ACTION,
-        background: ready ? 'var(--color-accent)' : 'var(--color-surface-overlay)',
-        color: ready ? 'var(--color-accent-foreground)' : 'var(--color-subtle)',
-      }}
-    >
-      <Icon name="arrow-up" size="xs" label="" />
-    </Button>
-  );
-}
-
-/** Stop ends the agent's turn: a solid button with a filled square, as chat products draw it. */
-function StopButton() {
-  return (
-    <Button
-      aria-label="Stop"
-      style={{
-        ...ACTION,
-        background: 'var(--color-foreground)',
-        color: 'var(--color-background)',
-      }}
-    >
-      <StopIcon />
-    </Button>
-  );
-}
-
-function Field({
-  value,
-  onChange,
-  placeholder,
-  rows = 1,
-  maxRows = 6,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
-  /** The floor: the box never shrinks below this many lines. */
-  rows?: number;
-  maxRows?: number;
-}) {
-  return (
-    <Textarea
-      variant="bare"
-      autoResize
-      maxRows={maxRows}
-      rows={rows}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      style={{ fontSize: 14, lineHeight: 1.6, width: '100%', padding: 0, borderRadius: 0 }}
-    />
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+    </svg>
   );
 }
 
 /** Messages sent while the agent works, waiting for its next step. */
-function Pending({ run, inset }: { run: RunView; inset: number }) {
+function Pending({ run }: { run: RunView }) {
   return (
-    <>
+    <Stack gap="tight" style={{ padding: '8px 0', borderBottom: LINE }}>
       {run.queued.map((q) => (
         <Stack
           key={q.id}
           direction="horizontal"
           align="center"
           gap="snug"
-          style={{ padding: `0 ${inset}px` }}
+          style={{ padding: '0 14px' }}
         >
           <Icon name="clock" size="2xs" color="subtle" label="" />
           <Text size="supporting" color="muted" truncate style={{ flex: 1, minWidth: 0 }}>
@@ -689,7 +708,7 @@ function Pending({ run, inset }: { run: RunView; inset: number }) {
           </Text>
         </Stack>
       ))}
-    </>
+    </Stack>
   );
 }
 
@@ -698,17 +717,24 @@ function Pending({ run, inset }: { run: RunView; inset: number }) {
  * works, and Stop, which ends the turn. A strip on top says what the agent is doing now.
  */
 function Composer({ run }: { run: RunView }) {
+  const { addHumanMessage, interruptRun, canSteer, isStarting, isPending, stopError } =
+    useRunContext();
   const phone = useRunLayout() === 'phone';
   const [text, setText] = useState('');
-  const ready = !!text.trim();
+  const allowed = canSteer !== false;
+  const ready = !!text.trim() && allowed && !isStarting;
   const working = run.state === 'active';
   const name = run.agent.name;
-  const now = currentStep(run);
+  const send = () => {
+    if (!ready) return;
+    addHumanMessage(text.trim());
+    setText('');
+  };
   return (
     <Stack style={{ padding: phone ? '0 12px 12px' : '0 32px 22px' }}>
       <Stack style={{ maxWidth: READING_WIDTH, width: '100%', margin: '0 auto' }}>
         <Stack style={{ ...BOX, overflow: 'hidden' }}>
-          {working && (
+          {(working || isStarting || isPending) && (
             <Stack
               direction="horizontal"
               align="center"
@@ -721,34 +747,80 @@ function Composer({ run }: { run: RunView }) {
             >
               <Icon name="loader" size="2xs" color="accent" label="" />
               <Text size="caption" color="muted" truncate style={{ flex: 1, minWidth: 0 }}>
-                {now ?? 'Thinking'}
+                {run.activity ?? (isStarting ? 'Starting' : isPending ? 'Sending' : 'Thinking')}
               </Text>
             </Stack>
           )}
-          {run.queued.length > 0 && (
-            <Stack gap="tight" style={{ padding: '8px 0', borderBottom: LINE }}>
-              <Pending run={run} inset={14} />
-            </Stack>
-          )}
+          {run.queued.length > 0 && <Pending run={run} />}
           <Stack gap="snug" style={{ padding: '14px 10px 10px 14px' }}>
-            <Field
-              value={text}
-              onChange={setText}
+            <Textarea
+              variant="bare"
+              autoResize
               rows={phone ? 2 : 3}
               maxRows={phone ? 8 : 14}
+              value={text}
+              disabled={!allowed}
+              aria-label={`Message ${name}`}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
               placeholder={
-                working ? `Message ${name}. This won't stop its work.` : `Reply to ${name}`
+                !allowed
+                  ? 'You cannot message this run'
+                  : isStarting
+                    ? `${name} is starting`
+                    : working
+                      ? `Message ${name}. This won't stop its work.`
+                      : `Reply to ${name}`
               }
+              style={{ fontSize: 14, lineHeight: 1.6, width: '100%', padding: 0, borderRadius: 0 }}
             />
             <Stack direction="horizontal" align="center" gap="snug">
-              <Text size="caption" color="subtle" style={{ flex: 1 }}>
-                {working && !ready
-                  ? 'Stop ends its current turn'
-                  : phone
-                    ? ''
-                    : 'Shift+Enter for a new line'}
+              <Text
+                size="caption"
+                color={stopError ? 'status-error' : 'subtle'}
+                style={{ flex: 1 }}
+              >
+                {stopError ??
+                  (working && !text.trim()
+                    ? 'Stop ends its current turn'
+                    : phone
+                      ? ''
+                      : 'Shift+Enter for a new line')}
               </Text>
-              {working && !ready ? <StopButton /> : <SendButton ready={ready} />}
+              {working && !text.trim() ? (
+                <PermissionHint allowed={allowed} action="stop this run">
+                  <Button
+                    aria-label="Stop"
+                    disabled={!allowed}
+                    onClick={interruptRun}
+                    style={{
+                      ...ACTION,
+                      background: 'var(--color-foreground)',
+                      color: 'var(--color-background)',
+                    }}
+                  >
+                    <StopIcon />
+                  </Button>
+                </PermissionHint>
+              ) : (
+                <Button
+                  disabled={!ready}
+                  aria-label="Send"
+                  onClick={send}
+                  style={{
+                    ...ACTION,
+                    background: ready ? 'var(--color-accent)' : 'var(--color-surface-overlay)',
+                    color: ready ? 'var(--color-accent-foreground)' : 'var(--color-subtle)',
+                  }}
+                >
+                  <Icon name="arrow-up" size="xs" label="" />
+                </Button>
+              )}
             </Stack>
           </Stack>
         </Stack>
@@ -759,16 +831,14 @@ function Composer({ run }: { run: RunView }) {
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
-export function RunMixPage({
-  run,
-  earlier = DEFAULT_EARLIER,
-  height = '100vh',
-}: {
-  run: RunView;
-  earlier?: EarlierRun[];
-  /** The page's height; a framed preview passes the device's. */
-  height?: string;
-}) {
+/** The run page, fed by the run context. `height` is the page's; a framed preview passes its device's. */
+export function RunPage({ height = '100dvh' }: { height?: string }) {
+  const ctx = useRunContext();
+  const live = !ENDED.has(ctx.runState ?? 'pending');
+  const now = useNow(live);
+  const canRaiseBudget = useHasScope('platform:budgets:write');
+  const run = toRunView(ctx, now);
+  const earlier = earlierRunsOf(ctx.earlierRuns);
   const rows = rowsOf(run.entries);
   // Layout follows the page's own width, so a framed preview lays out like its device.
   const rootRef = useRef<HTMLDivElement>(null);
@@ -783,7 +853,6 @@ export function RunMixPage({
   const [sheet, setSheet] = useState<'sessions' | 'details' | null>(null);
   const sessionsPane = layout === 'wide';
   const railPane = layout === 'wide' || layout === 'laptop';
-  const live = run.state === 'active' || run.state === 'idle';
   // The spacer under the thread tracks the floating composer, so the last entry stops just above it.
   const composerRef = useRef<HTMLDivElement>(null);
   const [composerHeight, setComposerHeight] = useState(0);
@@ -794,6 +863,42 @@ export function RunMixPage({
     observer.observe(el);
     return () => observer.disconnect();
   }, [live]);
+  // The thread follows new content while the reader is at its foot, and stays put once they scroll up.
+  const threadRef = useRef<HTMLDivElement>(null);
+  const followRef = useRef(true);
+  useLayoutEffect(() => {
+    const el = threadRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      followRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+  const last = run.entries.at(-1);
+  const tail = `${run.entries.length}:${last?.type === 'text' ? last.text.length : ''}`;
+  useLayoutEffect(() => {
+    const el = threadRef.current;
+    if (el && followRef.current) el.scrollTop = el.scrollHeight;
+  }, [tail, composerHeight]);
+
+  if (ctx.loadError) {
+    return (
+      <Stack grow align="center" justify="center" padding="relaxed" style={{ height }}>
+        <EmptyState
+          icon="lock"
+          title="Run unavailable"
+          description={ctx.loadError}
+          action={
+            <Button variant="outline" size="sm" asChild>
+              <Link href={APP_ROUTES.agents.list}>Back to agents</Link>
+            </Button>
+          }
+        />
+      </Stack>
+    );
+  }
+
   return (
     <RunLayoutContext.Provider value={layout}>
       <TooltipProvider>
@@ -812,13 +917,16 @@ export function RunMixPage({
             <Stack style={{ borderBottom: LINE }}>
               <RunHeader
                 run={run}
+                canRun={!!ctx.agentType?.can_run}
                 onSessions={sessionsPane ? undefined : () => setSheet('sessions')}
                 onDetails={railPane ? undefined : () => setSheet('details')}
               />
             </Stack>
+            <ConnectionBanner />
             {/* The thread scrolls the full height; a live composer floats over its foot. */}
             <Stack gap="none" style={{ position: 'relative', flex: '1 1 0', minHeight: 0 }}>
               <Stack
+                ref={threadRef}
                 style={{
                   flex: '1 1 0',
                   minHeight: 0,
@@ -841,7 +949,6 @@ export function RunMixPage({
                             : row.id
                       }
                       row={row}
-                      run={run}
                     />
                   ))}
                 </Stack>
@@ -864,20 +971,27 @@ export function RunMixPage({
                 </Stack>
               )}
             </Stack>
-            {!live && <EndLine run={run} />}
+            {!live && <EndLine run={run} canRaiseBudget={canRaiseBudget} />}
           </Stack>
           {railPane && <RunRail run={run} />}
-          {sheet && (
-            <Sheet
-              side={sheet === 'sessions' ? 'left' : layout === 'phone' ? 'bottom' : 'right'}
-              onClose={() => setSheet(null)}
+          {sheet === 'sessions' && (
+            <SessionsDrawer onClose={() => setSheet(null)}>
+              <SessionsPane run={run} earlier={earlier} drawer />
+            </SessionsDrawer>
+          )}
+          {layout === 'phone' ? (
+            <BottomSheet
+              open={sheet === 'details'}
+              onOpenChange={(open) => !open && setSheet(null)}
+              title="Run details"
             >
-              {sheet === 'sessions' ? (
-                <SessionsPane run={run} earlier={earlier} drawer />
-              ) : (
-                <RunRail run={run} sheet />
-              )}
-            </Sheet>
+              <RunRail run={run} sheet />
+            </BottomSheet>
+          ) : (
+            <SidePanel open={sheet === 'details'} onClose={() => setSheet(null)} width={340}>
+              <SidePanelHeader title="Run details" />
+              <RunRail run={run} sheet />
+            </SidePanel>
           )}
         </Stack>
       </TooltipProvider>
@@ -886,23 +1000,10 @@ export function RunMixPage({
 }
 
 /**
- * A panel over the page: sessions from the left, details from the right on a tablet and from the
- * bottom on a phone. Positioned inside the page so a framed preview keeps it in its frame; the
- * real page would use a Hades sheet.
+ * The sessions list over the page from the left edge. Hades has a right-edge SidePanel and a
+ * BottomSheet but no left-edge drawer, so this one is drawn in the page.
  */
-function Sheet({
-  side,
-  onClose,
-  children,
-}: {
-  side: 'left' | 'right' | 'bottom';
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  const edge: React.CSSProperties =
-    side === 'bottom'
-      ? { left: 0, right: 0, bottom: 0, maxHeight: '80%', borderRadius: '14px 14px 0 0' }
-      : { top: 0, bottom: 0, [side]: 0, width: 'min(320px, 86%)' };
+function SessionsDrawer({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
   return (
     <>
       <Button
@@ -922,20 +1023,16 @@ function Sheet({
       <Stack
         style={{
           position: 'absolute',
-          ...edge,
+          top: 0,
+          bottom: 0,
+          left: 0,
+          width: 'min(320px, 86%)',
           zIndex: 11,
           background: 'var(--color-surface)',
           border: LINE,
           overflowY: 'auto',
         }}
       >
-        {side === 'bottom' && (
-          <Stack align="center" style={{ padding: '8px 0 4px' }}>
-            <Stack
-              style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--color-border)' }}
-            />
-          </Stack>
-        )}
         {children}
       </Stack>
     </>
@@ -943,11 +1040,11 @@ function Sheet({
 }
 
 /** An ended run closes with one line instead of a composer; a spent budget says which and when it resets. */
-function EndLine({ run }: { run: RunView }) {
+function EndLine({ run, canRaiseBudget }: { run: RunView; canRaiseBudget: boolean }) {
   const phone = useRunLayout() === 'phone';
   const b = run.budgetStop;
   const pad = phone ? '12px 16px 16px' : '14px 32px 20px';
-  if (run.state === 'budget_exhausted' && b) {
+  if (run.state === 'budget_exhausted') {
     return (
       <Stack
         direction="horizontal"
@@ -959,19 +1056,24 @@ function EndLine({ run }: { run: RunView }) {
         <Icon name="circle-alert" size="2xs" color="status-error" label="" />
         <Stack grow minWidth="none" gap="none">
           <Text size="supporting" weight="emphasis">
-            Stopped: {b.owner}&apos;s {b.window} budget of ${b.limitUsd.toFixed(2)} is spent
+            {b
+              ? `Stopped: ${b.owner}'s ${b.window} budget of $${b.limitUsd.toFixed(2)} is spent`
+              : 'Stopped: the budget is spent'}
           </Text>
           <Text size="caption" color="subtle">
-            Model calls were refused after ${run.spend.usd.toFixed(2)}. The budget resets {b.resets}
-            .
+            Model calls were refused after ${run.spend.usd.toFixed(2)}.
+            {b?.resets ? ` The budget resets ${b.resets}.` : ''}
           </Text>
         </Stack>
-        <Button size="sm" variant="outline">
-          Raise budget
-        </Button>
+        {canRaiseBudget && (
+          <Button size="sm" variant="outline" asChild>
+            <Link href={APP_ROUTES.modelGateway.budgets}>Raise budget</Link>
+          </Button>
+        )}
       </Stack>
     );
   }
+  const status = stateLabel(run);
   return (
     <Stack
       direction="horizontal"
@@ -979,9 +1081,14 @@ function EndLine({ run }: { run: RunView }) {
       gap="snug"
       style={{ padding: pad, borderTop: LINE }}
     >
-      <Icon name="circle-check" size="2xs" color="accent" label="" />
+      <Icon
+        name={status.icon}
+        size="2xs"
+        color={status.tone === 'status-error' ? 'status-error' : 'accent'}
+        label=""
+      />
       <Text size="supporting" weight="emphasis">
-        Completed
+        {status.label}
       </Text>
       <Text size="supporting" color="subtle">
         in {formatSpan(run.durationMs)} · ${run.spend.usd.toFixed(2)} ·{' '}

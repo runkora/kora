@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * @tier 3 — proposed, run-page-scoped. The run page's right rail, from data the API records today:
- * the run's messages and their senders, its sources, usage and runtime.
+ * @tier 3 — run-page-scoped. The run page's right rail: the people involved, the run's links,
+ * what it runs on and what it spent.
  */
 
 import {
@@ -16,7 +16,7 @@ import {
   Text,
   type IconName,
 } from '@runkora/hades';
-import { HARNESS_LABEL, type RunView } from '../_lib/run-view-proposed';
+import { harnessLabel, participantsOf, type Participant, type RunView } from '../_lib/run-view';
 
 const LINE = '1px solid var(--color-border-subtle)';
 
@@ -51,64 +51,6 @@ function Label({ children, aside }: { children: React.ReactNode; aside?: string 
 
 // ── People: everyone who started or steered the run ─────────────────────────
 
-interface Participant {
-  name: string;
-  kind: 'person' | 'trigger';
-  /** How they took part: "Started it on Slack", "2 messages", "Commented on GitHub". */
-  detail: string;
-  first: number;
-}
-
-const PROVIDER_NAME: Record<string, string> = {
-  github: 'GitHub',
-  slack: 'Slack',
-  alertmanager: 'Alertmanager',
-};
-
-/**
- * Everyone involved, from the run's messages: people by their recorded sender, people outside
- * the platform by the event a trigger carried (a GitHub login), and triggers with no person behind them.
- */
-function participants(run: RunView): Participant[] {
-  const by = new Map<
-    string,
-    { kind: Participant['kind']; first: number; messages: number; started: boolean; via?: string }
-  >();
-  run.entries.forEach((e, i) => {
-    if (e.type !== 'message') return;
-    const actor = e.event?.actor;
-    const isPerson = e.author.kind === 'person' || actor?.kind === 'person';
-    const name =
-      e.author.kind === 'person'
-        ? e.author.name
-        : actor?.kind === 'person'
-          ? actor.name
-          : e.author.name;
-    const prev = by.get(name);
-    // How they reached the run: by hand, or through a provider's trigger.
-    const via =
-      e.author.kind !== 'trigger'
-        ? undefined
-        : e.author.via === 'manual'
-          ? 'by hand'
-          : `via ${(e.author.provider && PROVIDER_NAME[e.author.provider]) || e.author.name}`;
-    by.set(name, {
-      kind: isPerson ? 'person' : 'trigger',
-      first: prev?.first ?? e.at,
-      messages: (prev?.messages ?? 0) + 1,
-      started: prev?.started ?? i === 0,
-      via: prev?.via ?? via,
-    });
-  });
-  return [...by].map(([name, p]) => {
-    const count = `${p.messages} ${p.messages === 1 ? 'message' : 'messages'}`;
-    const parts = p.started
-      ? [p.via ? `Started it ${p.via}` : 'Started it', p.messages > 1 ? count : '']
-      : [count, p.via ?? ''];
-    return { name, kind: p.kind, detail: parts.filter(Boolean).join(' · '), first: p.first };
-  });
-}
-
 function Mark({ p, size = '2xs' }: { p: Participant; size?: '2xs' | 'xs' }) {
   return p.kind === 'person' ? (
     <Avatar name={p.name} size={size} />
@@ -131,7 +73,7 @@ function Mark({ p, size = '2xs' }: { p: Participant; size?: '2xs' | 'xs' }) {
 
 /** People as an overlapping row of marks, names underneath. */
 function PeopleStack({ run }: { run: RunView }) {
-  const ps = participants(run);
+  const ps = participantsOf(run);
   if (!ps.length) return null;
   const people = ps.filter((p) => p.kind === 'person').length;
   const triggers = ps.length - people;
@@ -266,7 +208,7 @@ function RunsOn({ run }: { run: RunView }) {
       <Stack direction="horizontal" align="start" gap="snug">
         <LeadIcon name="square-terminal" />
         <Stack grow minWidth="none" gap="none">
-          <Text size="supporting">{HARNESS_LABEL[run.harness]}</Text>
+          <Text size="supporting">{harnessLabel(run.harness) || 'Agent harness'}</Text>
           <Text size="caption" color="subtle" truncate>
             {model}
             {provider && ` · ${provider}`}
