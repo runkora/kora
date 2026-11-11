@@ -380,7 +380,27 @@ var (
 	ErrModelPricingNotFound   = errors.New("model pricing not found")
 	ErrIncompleteOverride     = errors.New("a regional pricing row needs input and output prices")
 	ErrBudgetExceeded         = errors.New("budget exceeded")
+	// ErrNoReachedBudget is a run whose principal has reached no spending ceiling.
+	ErrNoReachedBudget = errors.New("no spending ceiling of the run has been reached")
 )
+
+// RunPrincipal is who the gateway charged for a run's inference: the principal and, for a delegated run, its delegator.
+type RunPrincipal struct {
+	PrincipalID   string
+	PrincipalType string
+	DelegatorID   string
+}
+
+// RunBudget is the spending ceiling that stopped a run.
+// ResetsAt is nil for a per-run ceiling, which never resets.
+// See docs/adr/2026-11-11-run-page-record.md, Decision 6.
+type RunBudget struct {
+	Scope    string     `json:"scope"`
+	Owner    string     `json:"owner"`
+	Window   string     `json:"window"`
+	LimitUSD float64    `json:"limit_usd"`
+	ResetsAt *time.Time `json:"resets_at,omitempty"`
+}
 
 // BudgetCeilingStatus is one applicable spending ceiling with its current spend.
 type BudgetCeilingStatus struct {

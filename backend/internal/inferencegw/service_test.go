@@ -31,6 +31,8 @@ type stubEvaluator struct {
 	budgetEffectiveUSD float64
 	// budgetErr, when non-nil, is returned by CheckBudget.
 	budgetErr error
+	// budgetCeilings, when non-nil, are the ceilings CheckBudget reports.
+	budgetCeilings []policy.BudgetCeiling
 	// lastBudgetReq captures the request passed to CheckBudget (nil = not called).
 	lastBudgetReq *policy.BudgetCheckRequest
 	// budgetCategories is returned by GetBudgetCategories. nil means no limit.
@@ -95,8 +97,8 @@ func (s *stubEvaluator) CheckBudget(_ context.Context, _ string, req policy.Budg
 	if s.checkAllow != nil {
 		allow = *s.checkAllow
 	}
-	res := policy.BudgetResult{Allow: allow, HasLimit: s.budgetHasLimit}
-	if s.budgetHasLimit {
+	res := policy.BudgetResult{Allow: allow, HasLimit: s.budgetHasLimit, Ceilings: s.budgetCeilings}
+	if s.budgetHasLimit && s.budgetCeilings == nil {
 		res.Ceilings = []policy.BudgetCeiling{{
 			Scope:    "principal",
 			ID:       req.PrincipalID,

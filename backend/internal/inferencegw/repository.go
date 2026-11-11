@@ -72,6 +72,11 @@ type InferenceUsageRepository interface {
 	// for a run with no recorded usage.
 	GetRunUsage(ctx context.Context, tenantID, runID string) (spendUSD float64, totalTokens int64, err error)
 
+	// GetRunPrincipal returns the principal and delegator of the run's latest
+	// usage row: who the gateway charged for the run. ErrUsageRecordNotFound
+	// when the run has no usage.
+	GetRunPrincipal(ctx context.Context, tenantID, runID string) (RunPrincipal, error)
+
 	// GetMonthlySpendByPrincipal returns per-principal spend aggregates for the
 	// tenant within the calendar month that contains the provided time value.
 	// Principals with no usage in the period are absent from the result.
@@ -832,6 +837,25 @@ func (r *PostgresInferenceUsageRepository) GetRunUsage(ctx context.Context, tena
 		return 0, 0, fmt.Errorf("get run usage: %w", err)
 	}
 	return spend, tokens, nil
+}
+
+// GetRunPrincipal returns the principal and delegator of the run's latest usage row.
+func (r *PostgresInferenceUsageRepository) GetRunPrincipal(ctx context.Context, tenantID, runID string) (RunPrincipal, error) {
+	const q = `
+		SELECT principal_id, principal_type, COALESCE(delegator_id, '')
+		FROM inference_usage
+		WHERE tenant_id = $1 AND run_id = $2
+		ORDER BY created_at DESC
+		LIMIT 1`
+	var p RunPrincipal
+	err := r.pool.QueryRow(ctx, q, tenantID, runID).Scan(&p.PrincipalID, &p.PrincipalType, &p.DelegatorID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return RunPrincipal{}, ErrUsageRecordNotFound
+	}
+	if err != nil {
+		return RunPrincipal{}, fmt.Errorf("get run principal: %w", err)
+	}
+	return p, nil
 }
 
 // GetSpendByPrincipalSince returns principal ID → total spend from the given
