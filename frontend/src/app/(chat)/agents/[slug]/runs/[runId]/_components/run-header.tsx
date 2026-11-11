@@ -53,12 +53,16 @@ function planProgress(run: RunView): { done: number; total: number } | null {
   };
 }
 
-/** The run's state in a word or two, with the icon and colour the header and end line share. */
+/**
+ * The run's state in a word or two, with the icon and colour the header and end line share.
+ * `null` while the state is unknown, so nothing is shown rather than a wrong state.
+ */
 export function stateLabel(run: RunView): {
   label: string;
   icon: IconName;
   tone: 'accent' | 'status-error' | 'muted';
-} {
+} | null {
+  if (run.state === undefined) return null;
   switch (run.state) {
     case 'active':
       return { label: 'Working', icon: 'loader', tone: 'accent' };
@@ -118,7 +122,7 @@ export function RunHeader({
   const narrow = layout === 'tablet' || layout === 'phone';
   const phone = layout === 'phone';
   const progress = planProgress(run);
-  const ended = ENDED.has(run.state);
+  const ended = run.state !== undefined && ENDED.has(run.state);
   const budget = run.state === 'budget_exhausted';
   const branch = run.sources.find((s) => s.kind === 'branch');
   const status = stateLabel(run);
@@ -204,16 +208,20 @@ export function RunHeader({
       {/* The run's state as a bar the width of the page: label, then progress through the plan. */}
       <Stack direction="horizontal" align="center" gap="cozy" style={{ paddingBottom: 14 }}>
         <Stack direction="horizontal" align="center" gap="snug" style={NOWRAP}>
-          <Icon
-            name={status.icon}
-            spin={status.icon === 'loader'}
-            size="2xs"
-            color={status.tone === 'muted' ? 'subtle' : status.tone}
-            label=""
-          />
-          <Text size="caption" weight="strong" color={status.tone}>
-            {status.label}
-          </Text>
+          {status && (
+            <>
+              <Icon
+                name={status.icon}
+                spin={status.icon === 'loader'}
+                size="2xs"
+                color={status.tone === 'muted' ? 'subtle' : status.tone}
+                label=""
+              />
+              <Text size="caption" weight="strong" color={status.tone}>
+                {status.label}
+              </Text>
+            </>
+          )}
           <Text size="caption" color="subtle">
             {narrow
               ? `${formatSpan(run.durationMs)} · $${run.spend.usd.toFixed(2)}`

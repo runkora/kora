@@ -174,7 +174,8 @@ export interface RunView {
   /** The agent's harness id, such as `claude-code`; empty until known. */
   harness: string;
   model: string;
-  state: RunState;
+  /** Absent until the stream or the run record reports one. */
+  state?: RunState;
   /** ISO time the run started, and when an ended run ended. */
   startedAt: string;
   endedAt?: string;

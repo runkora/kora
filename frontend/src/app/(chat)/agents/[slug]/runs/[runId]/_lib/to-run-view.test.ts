@@ -4,6 +4,7 @@ import type { UseRunReturn } from '../_hooks/use-run';
 import type { HumanTurn, ToolCall, Turn } from '../_types';
 import { triggerEventOf } from '../_components/trigger-event';
 import { elapsedMs, participantsOf, stepOf, type Entry } from './run-view';
+import { stateLabel } from '../_components/run-header';
 import { acpCallOf, entriesOf, toRunView } from './to-run-view';
 
 const RUN = {
@@ -384,5 +385,25 @@ describe('people', () => {
       { name: 'ci-failed', kind: 'trigger', detail: '1 message · via GitHub' },
       { name: 'Planner', kind: 'agent', detail: '1 message' },
     ]);
+  });
+});
+
+describe('run state', () => {
+  it('is unknown, with no label, until the stream or the run reports one', () => {
+    const view = toRunView(hookState({ runState: null, run: null }));
+    expect(view.state).toBeUndefined();
+    expect(stateLabel(view)).toBeNull();
+  });
+
+  it.each(['pending', 'starting'] as const)('reads "Starting" for a %s run', (state) => {
+    const view = toRunView(hookState({ runState: state, run: null }));
+    expect(stateLabel(view)?.label).toBe('Starting');
+  });
+
+  it('takes the fetched run state when the stream has none', () => {
+    const view = toRunView(
+      hookState({ runState: null, run: { ...RUN, state: 'completed' } as RunWithAttribution }),
+    );
+    expect(stateLabel(view)?.label).toBe('Completed');
   });
 });

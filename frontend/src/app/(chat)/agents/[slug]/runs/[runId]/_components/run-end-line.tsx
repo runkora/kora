@@ -48,6 +48,7 @@ export function EndLine({ run, canRaiseBudget }: { run: RunView; canRaiseBudget:
     );
   }
   const status = stateLabel(run);
+  if (!status) return null;
   return (
     <Stack
       direction="horizontal"
