@@ -508,7 +508,7 @@ var platformEventVerbs = map[string]string{
 	"budget.threshold_crossed": "crossed a threshold of budget",
 }
 
-// runStateTones colours the run states that are good or bad news. Every other state is neutral.
+// runStateTones gives a tone to the run states that are good or bad news. Every other state is neutral.
 var runStateTones = map[string]string{"completed": toneOK, "failed": toneBad}
 
 // platformEventSummary names the principal behind a platform event and the
