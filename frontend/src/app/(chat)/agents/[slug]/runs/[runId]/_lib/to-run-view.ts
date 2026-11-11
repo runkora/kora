@@ -326,9 +326,10 @@ function budgetWhose(b: RunBudgetStop): string {
  */
 export function toRunView(s: UseRunReturn): RunView {
   const { run, agentType } = s;
-  const state = s.runState ?? run?.state ?? 'pending';
+  const state = s.runState ?? run?.state;
   const startedAt = run?.started_at ?? run?.created_at ?? '';
-  const endedAt = ENDED.has(state) ? (run?.completed_at ?? undefined) : undefined;
+  const endedAt =
+    state !== undefined && ENDED.has(state) ? (run?.completed_at ?? undefined) : undefined;
   const limit = agentType?.budget?.per_run_limit_usd;
   const b = s.budgetStop;
   const u = run?.usage;
@@ -341,7 +342,7 @@ export function toRunView(s: UseRunReturn): RunView {
     // An agent with no framework recorded runs on Claude Code, the session manager's default.
     harness: agentType ? agentType.framework || 'claude-code' : '',
     model: agentType?.model_id ?? '',
-    state,
+    ...(state ? { state } : {}),
     startedAt,
     ...(endedAt ? { endedAt } : {}),
     durationMs: 0,
