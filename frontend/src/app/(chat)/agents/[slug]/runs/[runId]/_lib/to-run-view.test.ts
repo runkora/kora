@@ -64,7 +64,7 @@ describe('messages', () => {
   it('names the first message without a sender by the run starter, and later ones as unknown', () => {
     const [first, later] = messages([human('h1', 'start'), human('h2', 'more')], RUN);
     expect(first.author.name).toBe('Ada Lovelace');
-    expect(later.author.name).toBe('Unknown sender');
+    expect(later.author).toEqual({ kind: 'person', name: 'Unknown sender', unrecorded: true });
   });
 
   it('reads the first message of a trigger-started run as the trigger, with its event', () => {
@@ -272,6 +272,16 @@ describe('budget stop', () => {
   });
 });
 
+describe('trigger fallback', () => {
+  it('claims no kind for a trigger message whose kind is unknown', () => {
+    const [, m] = messages(
+      [human('h1', 'start'), human('h2', 'Look at this.', { fromTrigger: 'route' })],
+      RUN,
+    );
+    expect(triggerEventOf(m)).toMatchObject({ verb: 'sent a message', actor: { icon: 'zap' } });
+  });
+});
+
 describe('activity', () => {
   it('says why the model call is being retried', () => {
     const view = toRunView(
@@ -297,6 +307,7 @@ describe('people', () => {
       human('h2', 'steer', { sender: { id: 'u2', type: 'HUMAN', name: 'Grace Hopper' } }),
       human('h3', 'again', { sender: { id: 'u2', type: 'HUMAN', name: 'Grace Hopper' } }),
       human('h4', 'ci failed', { fromTrigger: 'ci-failed' }),
+      human('h5', 'from before senders were recorded'),
     ];
     const view = toRunView(hookState({ runState: 'active', turns, run: TRIGGERED }), 0);
     expect(participantsOf(view)).toEqual([

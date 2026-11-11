@@ -140,7 +140,8 @@ export type Entry =
       id: string;
       /** Local time the message arrived, as "09:14". */
       time: string;
-      author: { kind: 'person' | 'trigger'; name: string } & TriggerOrigin;
+      /** `unrecorded` marks a person's message from before senders were recorded. */
+      author: { kind: 'person' | 'trigger'; name: string; unrecorded?: boolean } & TriggerOrigin;
       text: string;
       /** A trigger_message: a trigger that sent this to a run already working. */
       joined?: boolean;
@@ -522,6 +523,11 @@ export function participantsOf(run: RunView): Participant[] {
   let first = true;
   for (const e of run.entries) {
     if (e.type !== 'message') continue;
+    // A sender the run never recorded is nobody the rail can name.
+    if (e.author.unrecorded) {
+      first = false;
+      continue;
+    }
     const actor = e.event?.actor;
     const person = e.author.kind === 'person' || actor?.kind === 'person';
     const name =

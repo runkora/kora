@@ -194,12 +194,14 @@ function messageEntry(
       ...(t.event ? { event: eventSummaryOf(t.event, origin) } : {}),
     };
   }
-  const name = t.sender?.name || (first && run?.created_by_name) || 'Unknown sender';
+  const name = t.sender?.name || (first && run?.created_by_name) || '';
   return {
     type: 'message',
     id: t.id,
     time,
-    author: { kind: 'person', name },
+    author: name
+      ? { kind: 'person', name }
+      : { kind: 'person', name: 'Unknown sender', unrecorded: true },
     text: t.content,
     ...(t.delivery === 'failed' ? { error: t.error ?? 'The message was not sent.' } : {}),
   };
