@@ -1,9 +1,12 @@
 package agents
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -110,5 +113,46 @@ func TestStartRun_RefusesEventFromPerson(t *testing.T) {
 	ctx := withPrincipalCtx(context.Background(), "t1", token.PrincipalTypeHuman, "user-1")
 	if _, err := f.run.StartRun(ctx, StartRunRequest{AgentTypeID: at.ID, Event: validRunEvent()}); !errors.Is(err, ErrRunEventRefused) {
 		t.Errorf("StartRun = %v, want ErrRunEventRefused", err)
+	}
+}
+
+// A person's summary is a 403 and a malformed service summary a 400, on start and on join.
+func TestRunEvent_HandlerStatus(t *testing.T) {
+	bad := validRunEvent()
+	bad.Preview.Facts = make([]string, 7)
+	tests := []struct {
+		name      string
+		principal token.PrincipalType
+		subject   string
+		event     *RunEventSummary
+		want      int
+	}{
+		{"a person", token.PrincipalTypeHuman, "user-1", validRunEvent(), http.StatusForbidden},
+		{"a malformed summary", token.PrincipalTypeService, "trigger:trig-1", bad, http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, repo, _, _ := newTestController(t)
+			at := seedAutonomousAgentType(t, repo, "at-1", "t1", "reviewer")
+			seedRun(t, repo, Run{ID: "run-1", TenantID: "t1", AgentTypeID: at.ID, State: RunStateActive})
+			ctx := withPrincipalCtx(context.Background(), "t1", tt.principal, tt.subject)
+
+			start, _ := json.Marshal(StartRunRequest{AgentTypeID: at.ID, InitialMessage: "go", Event: tt.event})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/runs", bytes.NewReader(start)).WithContext(ctx)
+			w := httptest.NewRecorder()
+			c.handleStartRun(w, req)
+			if w.Code != tt.want {
+				t.Errorf("start status = %d, want %d (body: %s)", w.Code, tt.want, w.Body)
+			}
+
+			msg, _ := json.Marshal(SendMessageRequest{Content: "more", Event: tt.event})
+			req = httptest.NewRequest(http.MethodPost, "/api/v1/runs/run-1/messages", bytes.NewReader(msg)).WithContext(ctx)
+			req.SetPathValue("id", "run-1")
+			w = httptest.NewRecorder()
+			c.handleSendMessage(w, req)
+			if w.Code != tt.want {
+				t.Errorf("message status = %d, want %d (body: %s)", w.Code, tt.want, w.Body)
+			}
+		})
 	}
 }

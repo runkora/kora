@@ -8,7 +8,6 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/clients/inference"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/observability"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // runBudgetReader asks the inference gateway which ceiling a run's principal has reached.
@@ -31,9 +30,14 @@ func (s *RunService) reachedBudget(ctx context.Context, runID string) *inference
 	}
 	ctx, cancel := context.WithTimeout(ctx, budgetLookupTimeout)
 	defer cancel()
+	ctx, span := agentsTracer.Start(ctx, "agents.reachedBudget")
+	defer span.End()
 	budget, err := s.lookUpBudget(ctx, runID)
 	if err != nil {
-		observability.RecordFailure(trace.SpanFromContext(ctx), err, errSpanRunBudget)
+		// A ceiling that has reset since the stop is an answer, not a failure.
+		if !errors.Is(err, inference.ErrBudgetNotReached) {
+			observability.RecordFailure(span, err, errSpanRunBudget)
+		}
 		s.logger.Warn(ctx, "budget stop recorded without its ceiling",
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "error", Value: err.Error()},

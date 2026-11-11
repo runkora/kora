@@ -39,7 +39,7 @@ type mockInferenceUsageRepository struct {
 	runTokens         int64
 	runUsageErr       error
 	runPrincipal      *RunPrincipal
-	runTenant         string // when set, GetRunPrincipal answers this tenant only
+	runTenant         string               // when set, GetRunPrincipal answers this tenant only
 	lastFilter        InferenceUsageFilter // captured on each List call
 	lastAnalytics     AnalyticsFilter      // captured on each GetAnalytics call
 
