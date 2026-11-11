@@ -16,6 +16,7 @@ import {
   Text,
   type IconName,
 } from '@runkora/hades';
+import { isSafeUrl } from '@runkora/lib/safe-url';
 import { harnessLabel, participantsOf, type Participant, type RunView } from '../_lib/run-view';
 
 const LINE = '1px solid var(--color-border-subtle)';
@@ -132,9 +133,14 @@ function Links({ run }: { run: RunView }) {
             label=""
           />
           <Text size="supporting" truncate>
-            <Anchor href={src.url} target="_blank" rel="noopener noreferrer">
-              {src.label.replace(/^branch /, '')}
-            </Anchor>
+            {/* A source URL is recorded data; only an http(s) one becomes a link. */}
+            {isSafeUrl(src.url) ? (
+              <Anchor href={src.url} target="_blank" rel="noopener noreferrer">
+                {src.label.replace(/^branch /, '')}
+              </Anchor>
+            ) : (
+              src.label.replace(/^branch /, '')
+            )}
           </Text>
         </Stack>
       ))}
