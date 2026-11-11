@@ -128,7 +128,7 @@ func TestReachedRunBudget_OwnerName(t *testing.T) {
 		{"a person principal is named", person, policy.BudgetCeiling{Scope: "principal", ID: "user-1", Window: "monthly"}, "Dev User"},
 		{"a delegator is named", agent, policy.BudgetCeiling{Scope: "delegator", ID: "user-1", Window: "weekly"}, "Dev User"},
 		{"a role pool is its role", agent, policy.BudgetCeiling{Scope: "role_pool", ID: "engineers", Window: "monthly"}, "engineers"},
-		{"a tenant cap is the tenant", agent, policy.BudgetCeiling{Scope: "tenant", ID: "t1", Window: "monthly"}, "tenant"},
+		{"a tenant cap has no owner name", agent, policy.BudgetCeiling{Scope: "tenant", ID: "t1", Window: "monthly"}, ""},
 		{"a run ceiling has no owner name", agent, policy.BudgetCeiling{Scope: "run", ID: budgetRunID, Window: "run"}, ""},
 	}
 	for _, tt := range tests {
