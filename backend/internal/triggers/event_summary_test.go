@@ -17,8 +17,8 @@ import (
 // Trimmed GitHub webhook payloads. Field names and shapes follow the real deliveries.
 const (
 	ghRepo   = `"repository":{"full_name":"example-org/stats-lib","html_url":"https://github.com/example-org/stats-lib"}`
-	ghSender = `"sender":{"login":"dev-reviewer","type":"User","html_url":"https://github.com/dev-reviewer"}`
-	ghPR     = `"pull_request":{"number":6,"title":"Median: sort a copy","html_url":"https://github.com/example-org/stats-lib/pull/6","state":"open","draft":false,"merged":false,"additions":17,"deletions":3,"head":{"ref":"fix/median-copy"},"base":{"ref":"main"}}`
+	ghSender = `"sender":{"login":"octo-reviewer","type":"User","html_url":"https://github.com/octo-reviewer"}`
+	ghPR     = `"pull_request":{"number":6,"title":"Mean: handle empty input","html_url":"https://github.com/example-org/stats-lib/pull/6","state":"open","draft":false,"merged":false,"additions":17,"deletions":3,"head":{"ref":"fix/mean-empty"},"base":{"ref":"main"}}`
 )
 
 func ghDoc(t *testing.T, parts ...string) any {
@@ -32,8 +32,8 @@ func ghDoc(t *testing.T, parts ...string) any {
 
 func prPreview(status *agentsclient.RunEventStatus) *agentsclient.RunEventPreview {
 	return &agentsclient.RunEventPreview{
-		Title:   "Median: sort a copy",
-		Facts:   []string{"example-org/stats-lib #6", "fix/median-copy → main"},
+		Title:   "Mean: handle empty input",
+		Facts:   []string{"example-org/stats-lib #6", "fix/mean-empty → main"},
 		Added:   new(17),
 		Removed: new(3),
 		Status:  status,
@@ -41,7 +41,7 @@ func prPreview(status *agentsclient.RunEventStatus) *agentsclient.RunEventPrevie
 }
 
 var (
-	reviewer = agentsclient.RunEventActor{Name: "dev-reviewer", Kind: "person", URL: "https://github.com/dev-reviewer"}
+	reviewer = agentsclient.RunEventActor{Name: "octo-reviewer", Kind: "person", URL: "https://github.com/octo-reviewer"}
 	open     = &agentsclient.RunEventStatus{Label: "Open", Tone: "ok"}
 	pr6      = agentsclient.RunEventObject{Label: "PR #6", URL: "https://github.com/example-org/stats-lib/pull/6"}
 )
@@ -77,41 +77,41 @@ func TestGitHubEventSummary(t *testing.T) {
 		},
 		{
 			name: "a bot opens a pull request", eventType: "pull_request",
-			doc: ghDoc(t, `"action":"opened"`, ghPR, ghRepo, `"sender":{"login":"fix-bot[bot]","type":"Bot","html_url":"https://github.com/apps/fix-bot"}`),
-			want: &agentsclient.RunEventSummary{Actor: agentsclient.RunEventActor{Name: "fix-bot[bot]", Kind: "bot", URL: "https://github.com/apps/fix-bot"},
+			doc: ghDoc(t, `"action":"opened"`, ghPR, ghRepo, `"sender":{"login":"helper-bot[bot]","type":"Bot","html_url":"https://github.com/apps/helper-bot"}`),
+			want: &agentsclient.RunEventSummary{Actor: agentsclient.RunEventActor{Name: "helper-bot[bot]", Kind: "bot", URL: "https://github.com/apps/helper-bot"},
 				Verb: "opened", Object: pr6, Preview: prPreview(open)},
 		},
 		{
 			name: "issue opened", eventType: "issues",
-			doc: ghDoc(t, `"action":"opened"`, `"issue":{"number":7,"title":"Median panics on an empty slice","body":"Calling stats.Median(nil) panics.","html_url":"https://github.com/example-org/stats-lib/issues/7","state":"open","labels":[{"name":"bug"},{"name":"good first issue"}]}`, ghRepo, ghSender),
+			doc: ghDoc(t, `"action":"opened"`, `"issue":{"number":7,"title":"Mean panics on an empty slice","body":"Calling stats.Mean(nil) panics.","html_url":"https://github.com/example-org/stats-lib/issues/7","state":"open","labels":[{"name":"bug"},{"name":"good first issue"}]}`, ghRepo, ghSender),
 			want: &agentsclient.RunEventSummary{
 				Actor: reviewer, Verb: "opened",
 				Object: agentsclient.RunEventObject{Label: "issue #7", URL: "https://github.com/example-org/stats-lib/issues/7"},
-				Quote:  "Calling stats.Median(nil) panics.",
-				Preview: &agentsclient.RunEventPreview{Title: "Median panics on an empty slice",
+				Quote:  "Calling stats.Mean(nil) panics.",
+				Preview: &agentsclient.RunEventPreview{Title: "Mean panics on an empty slice",
 					Facts: []string{"example-org/stats-lib #7", "bug, good first issue"}, Status: open},
 			},
 		},
 		{
 			name: "comment on a pull request", eventType: "issue_comment",
-			doc: ghDoc(t, `"action":"created"`, `"issue":{"number":6,"title":"Median: sort a copy","state":"open","pull_request":{"url":"https://api.github.com/repos/example-org/stats-lib/pulls/6"},"labels":[{"name":"bug"}]}`,
-				`"comment":{"body":"@kora-agent should Median return 0?","html_url":"https://github.com/example-org/stats-lib/pull/6#issuecomment-1"}`, ghRepo, ghSender),
+			doc: ghDoc(t, `"action":"created"`, `"issue":{"number":6,"title":"Mean: handle empty input","state":"open","pull_request":{"url":"https://api.github.com/repos/example-org/stats-lib/pulls/6"},"labels":[{"name":"bug"}]}`,
+				`"comment":{"body":"@verify-agent should Mean return 0?","html_url":"https://github.com/example-org/stats-lib/pull/6#issuecomment-1"}`, ghRepo, ghSender),
 			want: &agentsclient.RunEventSummary{
 				Actor: reviewer, Verb: "commented on",
 				Object:  agentsclient.RunEventObject{Label: "PR #6", URL: "https://github.com/example-org/stats-lib/pull/6#issuecomment-1"},
-				Quote:   "@kora-agent should Median return 0?",
-				Preview: &agentsclient.RunEventPreview{Title: "Median: sort a copy", Facts: []string{"example-org/stats-lib #6"}, Status: open},
+				Quote:   "@verify-agent should Mean return 0?",
+				Preview: &agentsclient.RunEventPreview{Title: "Mean: handle empty input", Facts: []string{"example-org/stats-lib #6"}, Status: open},
 			},
 		},
 		{
 			name: "comment on an issue", eventType: "issue_comment",
-			doc: ghDoc(t, `"action":"created"`, `"issue":{"number":7,"title":"Median panics","state":"closed","labels":[]}`,
+			doc: ghDoc(t, `"action":"created"`, `"issue":{"number":7,"title":"Mean panics","state":"closed","labels":[]}`,
 				`"comment":{"body":"still broken","html_url":"https://github.com/example-org/stats-lib/issues/7#issuecomment-2"}`, ghRepo, ghSender),
 			want: &agentsclient.RunEventSummary{
 				Actor: reviewer, Verb: "commented on",
 				Object: agentsclient.RunEventObject{Label: "issue #7", URL: "https://github.com/example-org/stats-lib/issues/7#issuecomment-2"},
 				Quote:  "still broken",
-				Preview: &agentsclient.RunEventPreview{Title: "Median panics", Facts: []string{"example-org/stats-lib #7"},
+				Preview: &agentsclient.RunEventPreview{Title: "Mean panics", Facts: []string{"example-org/stats-lib #7"},
 					Status: &agentsclient.RunEventStatus{Label: "Closed", Tone: "bad"}},
 			},
 		},
@@ -121,32 +121,32 @@ func TestGitHubEventSummary(t *testing.T) {
 		},
 		{
 			name: "review requesting changes", eventType: "pull_request_review",
-			doc: ghDoc(t, `"action":"submitted"`, `"review":{"state":"changes_requested","body":"Add a test for an even-length input.","html_url":"https://github.com/example-org/stats-lib/pull/6#pullrequestreview-9"}`,
-				`"pull_request":{"number":6,"title":"Median: sort a copy","state":"open","head":{"ref":"fix/median-copy"},"base":{"ref":"main"}}`, ghRepo, ghSender),
+			doc: ghDoc(t, `"action":"submitted"`, `"review":{"state":"changes_requested","body":"Add a test for a single-element input.","html_url":"https://github.com/example-org/stats-lib/pull/6#pullrequestreview-9"}`,
+				`"pull_request":{"number":6,"title":"Mean: handle empty input","state":"open","head":{"ref":"fix/mean-empty"},"base":{"ref":"main"}}`, ghRepo, ghSender),
 			want: &agentsclient.RunEventSummary{
 				Actor: reviewer, Verb: "requested changes on",
 				Object: agentsclient.RunEventObject{Label: "PR #6", URL: "https://github.com/example-org/stats-lib/pull/6#pullrequestreview-9"},
-				Quote:  "Add a test for an even-length input.",
-				Preview: &agentsclient.RunEventPreview{Title: "Median: sort a copy", Facts: []string{"example-org/stats-lib #6", "fix/median-copy → main"},
+				Quote:  "Add a test for a single-element input.",
+				Preview: &agentsclient.RunEventPreview{Title: "Mean: handle empty input", Facts: []string{"example-org/stats-lib #6", "fix/mean-empty → main"},
 					Status: &agentsclient.RunEventStatus{Label: "Changes requested", Tone: "bad"}},
 			},
 		},
 		{
 			name: "review comment on a line", eventType: "pull_request_review_comment",
-			doc: ghDoc(t, `"action":"created"`, `"comment":{"path":"stats/stats.go","line":20,"body":"is slices.Clone available?","html_url":"https://github.com/example-org/stats-lib/pull/6#discussion_r1"}`, ghPR, ghRepo, ghSender),
+			doc: ghDoc(t, `"action":"created"`, `"comment":{"path":"stats/mean.go","line":12,"body":"does this handle a nil slice?","html_url":"https://github.com/example-org/stats-lib/pull/6#discussion_r1"}`, ghPR, ghRepo, ghSender),
 			want: &agentsclient.RunEventSummary{
-				Actor: reviewer, Verb: "commented on stats/stats.go:20 in",
+				Actor: reviewer, Verb: "commented on stats/mean.go:12 in",
 				Object:  agentsclient.RunEventObject{Label: "PR #6", URL: "https://github.com/example-org/stats-lib/pull/6#discussion_r1"},
-				Quote:   "is slices.Clone available?",
+				Quote:   "does this handle a nil slice?",
 				Preview: prPreview(open),
 			},
 		},
 		{
 			name: "workflow run failed on a pull request", eventType: "workflow_run",
-			doc: ghDoc(t, `"action":"completed"`, `"workflow_run":{"name":"test","run_number":42,"conclusion":"failure","head_branch":"fix/median-copy","pull_requests":[{"number":6}]}`, ghRepo, ghSender),
+			doc: ghDoc(t, `"action":"completed"`, `"workflow_run":{"name":"test","run_number":42,"conclusion":"failure","head_branch":"fix/mean-empty","pull_requests":[{"number":6}]}`, ghRepo, ghSender),
 			want: &agentsclient.RunEventSummary{
 				Actor: agentsclient.RunEventActor{Name: "GitHub Actions", Kind: "bot"}, Verb: "failed test on", Object: pr6,
-				Preview: &agentsclient.RunEventPreview{Title: "test · run 42", Facts: []string{"example-org/stats-lib", "fix/median-copy"},
+				Preview: &agentsclient.RunEventPreview{Title: "test · run 42", Facts: []string{"example-org/stats-lib", "fix/mean-empty"},
 					Status: &agentsclient.RunEventStatus{Label: "Failed", Tone: "bad"}},
 			},
 		},
@@ -197,18 +197,18 @@ func TestSlackEventSummary(t *testing.T) {
 
 func TestAlertmanagerEventSummary(t *testing.T) {
 	a := &alertmanagerAdapter{}
-	const alerts = `"alerts":[{"labels":{"alertname":"HighErrorRate"},"generatorURL":"https://prometheus.example.com/graph?g0.expr=x"},{"labels":{"alertname":"HighErrorRate"}}]`
-	body := `{"status":"STATUS","commonLabels":{"alertname":"HighErrorRate","severity":"critical"},"commonAnnotations":{"summary":"Error rate above 5%"},` + alerts + `}`
-	object := agentsclient.RunEventObject{Label: "HighErrorRate", URL: "https://prometheus.example.com/graph?g0.expr=x"}
+	const alerts = `"alerts":[{"labels":{"alertname":"QueueDepthHigh"},"generatorURL":"https://prometheus.example.com/graph?g0.expr=x"},{"labels":{"alertname":"QueueDepthHigh"}}]`
+	body := `{"status":"STATUS","commonLabels":{"alertname":"QueueDepthHigh","severity":"critical"},"commonAnnotations":{"summary":"Queue depth above 100"},` + alerts + `}`
+	object := agentsclient.RunEventObject{Label: "QueueDepthHigh", URL: "https://prometheus.example.com/graph?g0.expr=x"}
 	actor := agentsclient.RunEventActor{Name: "Alertmanager", Kind: "system"}
 	tests := []struct {
 		name, eventType, status string
 		want                    *agentsclient.RunEventSummary
 	}{
 		{"firing", "alert.firing", "firing", &agentsclient.RunEventSummary{Actor: actor, Verb: "fired", Object: object,
-			Preview: &agentsclient.RunEventPreview{Title: "Error rate above 5%", Facts: []string{"critical", "2 alerts"}, Status: &agentsclient.RunEventStatus{Label: "Firing", Tone: "bad"}}}},
+			Preview: &agentsclient.RunEventPreview{Title: "Queue depth above 100", Facts: []string{"critical", "2 alerts"}, Status: &agentsclient.RunEventStatus{Label: "Firing", Tone: "bad"}}}},
 		{"resolved", "alert.resolved", "resolved", &agentsclient.RunEventSummary{Actor: actor, Verb: "resolved", Object: object,
-			Preview: &agentsclient.RunEventPreview{Title: "Error rate above 5%", Facts: []string{"critical", "2 alerts"}, Status: &agentsclient.RunEventStatus{Label: "Resolved", Tone: "ok"}}}},
+			Preview: &agentsclient.RunEventPreview{Title: "Queue depth above 100", Facts: []string{"critical", "2 alerts"}, Status: &agentsclient.RunEventStatus{Label: "Resolved", Tone: "ok"}}}},
 		{"unknown", "", "pending", nil},
 	}
 	for _, tt := range tests {
@@ -235,10 +235,10 @@ func TestManualSummary(t *testing.T) {
 		RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1"},
 		Kora:             token.KoraClaims{PrincipalType: token.PrincipalTypeHuman, DisplayName: "Dev User"},
 	})
-	got := manualSummary(ctx, Trigger{Name: "vuln-scan"}, map[string]string{"repo": "example-org/platform", "env": "prod", "empty": ""})
+	got := manualSummary(ctx, Trigger{Name: "nightly-check"}, map[string]string{"repo": "example-org/platform", "env": "prod", "empty": ""})
 	want := &agentsclient.RunEventSummary{
-		Actor: agentsclient.RunEventActor{Name: "Dev User", Kind: "person"}, Verb: "fired", Object: agentsclient.RunEventObject{Label: "vuln-scan"},
-		Preview: &agentsclient.RunEventPreview{Title: "vuln-scan", Facts: []string{"env prod", "repo example-org/platform"}},
+		Actor: agentsclient.RunEventActor{Name: "Dev User", Kind: "person"}, Verb: "fired", Object: agentsclient.RunEventObject{Label: "nightly-check"},
+		Preview: &agentsclient.RunEventPreview{Title: "nightly-check", Facts: []string{"env prod", "repo example-org/platform"}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("summary = %+v, want %+v", got, want)
@@ -249,10 +249,10 @@ func TestManualSummary(t *testing.T) {
 }
 
 func TestScheduledSummary(t *testing.T) {
-	got := scheduledSummary(Trigger{Name: "docs-drift", ScheduleConfig: &ScheduleConfig{CronExpression: "0 9 * * 1,3,5", Timezone: "Australia/Sydney"}})
+	got := scheduledSummary(Trigger{Name: "weekly-report", ScheduleConfig: &ScheduleConfig{CronExpression: "30 6 * * 2", Timezone: "Europe/Berlin"}})
 	want := &agentsclient.RunEventSummary{
-		Actor: agentsclient.RunEventActor{Name: "Schedule", Kind: "system"}, Verb: "fired", Object: agentsclient.RunEventObject{Label: "docs-drift"},
-		Preview: &agentsclient.RunEventPreview{Title: "0 9 * * 1,3,5", Facts: []string{"Australia/Sydney"}},
+		Actor: agentsclient.RunEventActor{Name: "Schedule", Kind: "system"}, Verb: "fired", Object: agentsclient.RunEventObject{Label: "weekly-report"},
+		Preview: &agentsclient.RunEventPreview{Title: "30 6 * * 2", Facts: []string{"Europe/Berlin"}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("summary = %+v, want %+v", got, want)
@@ -260,16 +260,16 @@ func TestScheduledSummary(t *testing.T) {
 }
 
 func TestPlatformEventSummary(t *testing.T) {
-	const envelope = `{"id":"e1","type":"agents.run.failed.v1","subject":"runs/4c5d6e7f-0000","koraprincipaltype":"AGENT","koraprincipalname":"smoke-opencode",
-		"data":{"entity":{"id":"4c5d6e7f-0000-0000-0000-000000000000","agent":"smoke-opencode","state":"failed"}}}`
+	const envelope = `{"id":"e1","type":"agents.run.failed.v1","subject":"runs/9a8b7c6d-0000","koraprincipaltype":"AGENT","koraprincipalname":"verify-agent",
+		"data":{"entity":{"id":"9a8b7c6d-0000-0000-0000-000000000000","agent":"verify-agent","state":"failed"}}}`
 	var head eventHead
 	if err := json.Unmarshal([]byte(envelope), &head); err != nil {
 		t.Fatal(err)
 	}
 	got := platformEventSummary(head, decodeBody([]byte(envelope)))
 	want := &agentsclient.RunEventSummary{
-		Actor: agentsclient.RunEventActor{Name: "smoke-opencode", Kind: "bot"}, Verb: "failed run", Object: agentsclient.RunEventObject{Label: "4c5d6e7f"},
-		Preview: &agentsclient.RunEventPreview{Title: "smoke-opencode · run 4c5d6e7f", Status: &agentsclient.RunEventStatus{Label: "Failed", Tone: "bad"}},
+		Actor: agentsclient.RunEventActor{Name: "verify-agent", Kind: "bot"}, Verb: "failed run", Object: agentsclient.RunEventObject{Label: "9a8b7c6d"},
+		Preview: &agentsclient.RunEventPreview{Title: "verify-agent · run 9a8b7c6d", Status: &agentsclient.RunEventStatus{Label: "Failed", Tone: "bad"}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("summary = %+v, want %+v", got, want)

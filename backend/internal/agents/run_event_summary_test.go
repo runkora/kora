@@ -21,7 +21,7 @@ func validRunEvent() *RunEventSummary {
 		Object: RunEventObject{Label: "PR #6", URL: "https://github.com/o/r/pull/6"},
 		Quote:  "Please review",
 		Preview: &RunEventPreview{
-			Title:  "Median: sort a copy",
+			Title:  "Mean: handle empty input",
 			Facts:  []string{"o/r #6", "fix → main"},
 			Status: &RunEventStatus{Label: "Open", Tone: "ok"},
 		},
