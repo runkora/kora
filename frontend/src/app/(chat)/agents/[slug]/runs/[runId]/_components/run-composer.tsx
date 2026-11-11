@@ -95,7 +95,7 @@ export function Composer({ run }: { run: RunView }) {
                 background: 'var(--color-surface-elevated)',
               }}
             >
-              <Icon name="loader" size="2xs" color="accent" label="" />
+              <Icon name="loader" size="2xs" color="accent" label="" spin />
               <Text
                 size="caption"
                 color="muted"

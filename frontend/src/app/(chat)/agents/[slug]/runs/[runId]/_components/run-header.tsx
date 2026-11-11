@@ -206,6 +206,7 @@ export function RunHeader({
         <Stack direction="horizontal" align="center" gap="snug" style={NOWRAP}>
           <Icon
             name={status.icon}
+            spin={status.icon === 'loader'}
             size="2xs"
             color={status.tone === 'muted' ? 'subtle' : status.tone}
             label=""

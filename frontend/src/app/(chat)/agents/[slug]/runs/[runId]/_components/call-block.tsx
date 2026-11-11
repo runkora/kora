@@ -115,6 +115,7 @@ export function CallBlock({ step, nested }: { step: Step; nested?: Step[] }) {
       <Stack direction="horizontal" align="center" gap="snug" style={{ padding: '9px 14px' }}>
         <Icon
           name={running ? 'loader' : KIND_ICON[step.kind]}
+          spin={running}
           size="2xs"
           color={failed ? 'status-error' : running ? 'accent' : 'subtle'}
           label={failed ? (step.status === 'denied' ? 'Denied' : 'Failed') : ''}
@@ -211,6 +212,7 @@ export function CallBlock({ step, nested }: { step: Step; nested?: Step[] }) {
             <Stack key={c.id} direction="horizontal" align="center" gap="snug">
               <Icon
                 name={c.status === 'running' ? 'loader' : KIND_ICON[c.kind]}
+                spin={c.status === 'running'}
                 size="2xs"
                 color={c.status === 'running' ? 'accent' : 'subtle'}
                 label=""
