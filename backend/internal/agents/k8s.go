@@ -366,7 +366,7 @@ func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace stri
 
 // LivePod reports whether the agent has a pod that is not terminating or finished, Ready or not.
 // A pod still coming up, such as one waiting for a node, keeps a run queued past the start budget.
-// A pod whose session-manager container crash-loops or cannot pull its image is not coming up.
+// A pod with any container, init container or sidecar included, that keeps failing to start is not coming up.
 func (p *K8sProvisioner) LivePod(ctx context.Context, slug, namespace string) (bool, error) {
 	_, pods, err := p.agentPods(ctx, slug, namespace)
 	if err != nil {
@@ -374,7 +374,7 @@ func (p *K8sProvisioner) LivePod(ctx context.Context, slug, namespace string) (b
 	}
 	for _, pod := range pods {
 		finished := pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed
-		if pod.DeletionTimestamp == nil && !finished && !sessionManagerStuck(&pod) {
+		if pod.DeletionTimestamp == nil && !finished && !podStuck(&pod) {
 			return true, nil
 		}
 	}
@@ -382,13 +382,16 @@ func (p *K8sProvisioner) LivePod(ctx context.Context, slug, namespace string) (b
 }
 
 // stuckWaitingReasons mark a container that keeps failing to start, rather than one still starting.
-var stuckWaitingReasons = []string{"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull"}
+var stuckWaitingReasons = []string{"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "CreateContainerConfigError", "InvalidImageName"}
 
-// sessionManagerStuck reports whether the pod's session-manager container is waiting for one of stuckWaitingReasons.
-func sessionManagerStuck(pod *corev1.Pod) bool {
-	for _, cs := range pod.Status.ContainerStatuses {
-		if cs.Name == sessionManagerContainerName && cs.State.Waiting != nil {
-			return slices.Contains(stuckWaitingReasons, cs.State.Waiting.Reason)
+// podStuck reports whether any init or regular container of the pod is waiting for one of stuckWaitingReasons.
+// A Running pod that is not Ready is not stuck: without a time signal it may only be slow to pass its readiness probe.
+func podStuck(pod *corev1.Pod) bool {
+	for _, statuses := range [][]corev1.ContainerStatus{pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses} {
+		for _, cs := range statuses {
+			if cs.State.Waiting != nil && slices.Contains(stuckWaitingReasons, cs.State.Waiting.Reason) {
+				return true
+			}
 		}
 	}
 	return false
