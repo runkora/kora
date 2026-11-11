@@ -146,6 +146,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Trigger Routing](2026-10-19-trigger-routing.md) — `Accepted` · 2026-10-19
 - [Chat Command Triggers](2026-10-20-chat-command-triggers.md) — `Accepted` · 2026-10-20
 - [Generic Webhook Source](2026-10-27-generic-webhook-source.md) — `Accepted` · 2026-10-27
+- [Run Page Record: Message Senders, Trigger Event Summaries and Budget Stops](2026-11-11-run-page-record.md) — `Accepted` · 2026-11-11
 
 ### MCP / Tool Gateway
 
