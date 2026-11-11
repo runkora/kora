@@ -42,11 +42,12 @@ export function parseTriggerMessage(text: string): TriggerMessageParts {
   let data: unknown;
   let dataText: string | undefined;
   if (match) {
-    // The event starts on the first line that opens an object; the note above it may mention `{{ path }}`.
-    const json = match[1].slice(match[1].search(/^\{/m));
+    // The event starts on the first line that opens an object or array; the note above it may mention `{{ path }}`.
+    const start = match[1].search(/^[{[]/m);
+    const json = start < 0 ? match[1] : match[1].slice(start);
     try {
-      data = JSON.parse(json);
-      dataText = JSON.stringify(data, null, 2);
+      data = start < 0 ? undefined : JSON.parse(json);
+      dataText = start < 0 ? json.trim() : JSON.stringify(data, null, 2);
     } catch {
       dataText = json.trim();
     }
@@ -77,7 +78,8 @@ export function parseTriggerMessage(text: string): TriggerMessageParts {
     // An empty value, or a link already given by an earlier field, adds nothing.
     .filter(
       (f, i, all) =>
-        !['', '[]', '{}'].includes(f.value) && all.findIndex((g) => g.value === f.value) === i,
+        !['', '[]', '{}'].includes(f.value) &&
+        (!/^https?:\/\//.test(f.value) || all.findIndex((g) => g.value === f.value) === i),
     );
   return {
     lead: [...paragraphs.slice(0, at), ...lines.slice(0, first)].join('\n\n').trim(),
