@@ -119,18 +119,7 @@ func realMain() error {
 	if err != nil {
 		return fmt.Errorf("init secret resolver: %w", err)
 	}
-	registry := egressgw.NewAdapterRegistry()
-	registry.Register(githubapp.New(
-		ghclient.NewClient(ghclient.DefaultBaseURL, logger),
-		secretResolver,
-		logger,
-	))
-	// Static ServiceAccount bearer token, reusing the same k8sfile secret
-	// resolver instance as githubapp. No minting, no cache.
-	registry.Register(k8sbearer.New(secretResolver, logger))
-	// Static bearer token for hosts such as the GitHub Packages npm registry.
-	// Serves only the host a Connection declares; other hosts stay passthrough.
-	registry.Register(bearer.New(secretResolver, logger))
+	registry := newAdapterRegistry(secretResolver, logger)
 
 	// ── Per-tenant CA bundle ─────────────────────────────────────────────────
 	caBundle, err := cabundle.LoadEager(ctx, egc.Current.Secrets.TenantCARoot, logger)
@@ -346,4 +335,22 @@ func initRedis(ctx context.Context, logger logging.Logger) (*storage.RedisClient
 	}
 	logger.Info(ctx, "Redis initialized successfully")
 	return rc, nil
+}
+
+// newAdapterRegistry registers every supported credential adapter. Passthrough
+// is deliberately absent: AdapterRegistry.Register refuses it.
+func newAdapterRegistry(secretResolver credentials.SecretResolver, logger logging.Logger) *egressgw.AdapterRegistry {
+	registry := egressgw.NewAdapterRegistry()
+	registry.Register(githubapp.New(
+		ghclient.NewClient(ghclient.DefaultBaseURL, logger),
+		secretResolver,
+		logger,
+	))
+	// Static ServiceAccount bearer token, reusing the same k8sfile secret
+	// resolver instance as githubapp. No minting, no cache.
+	registry.Register(k8sbearer.New(secretResolver, logger))
+	// Static bearer token for hosts such as the GitHub Packages npm registry.
+	// Serves only the host a Connection declares; other hosts stay passthrough.
+	registry.Register(bearer.New(secretResolver, logger))
+	return registry
 }
