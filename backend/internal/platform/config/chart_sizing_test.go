@@ -13,6 +13,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	agentsConfig "github.com/runkora/kora/backend/cmd/kora-agents/config"
+	"github.com/runkora/kora/backend/internal/agents"
 	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
@@ -135,6 +136,50 @@ func TestChartIdleTimeouts(t *testing.T) {
 				return
 			}
 			t.Fatal("no rendered kora-agents config found")
+		})
+	}
+}
+
+// The rendered agents.workloads reaches the session-manager container as equal
+// memory request and limit: 1Gi by default, or the configured value.
+func TestChartSessionManagerMemory(t *testing.T) {
+	for name, tc := range map[string]struct{ values, want string }{
+		"default":    {"{}\n", "1Gi"},
+		"configured": {"agents:\n  workloads:\n    sessionManager:\n      memory: 2Gi\n", "2Gi"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := renderChart(t, tc.values, "--show-only", "templates/agents/workloads-configmap.yaml")
+			var cm corev1.ConfigMap
+			if err := yaml.Unmarshal([]byte(out), &cm); err != nil {
+				t.Fatal(err)
+			}
+			var file struct {
+				Workloads agents.WorkloadsConfig `json:"workloads"`
+			}
+			if err := yaml.Unmarshal([]byte(cm.Data["workloads.yaml"]), &file); err != nil {
+				t.Fatal(err)
+			}
+			// Checked before the Go fallback, which is also 1Gi, can fill it in.
+			if file.Workloads.SessionManager.Memory == nil {
+				t.Fatal("chart rendered no agents.workloads.sessionManager.memory")
+			}
+			objs, err := agents.RenderResources(agents.K8sProvisionerConfig{Workloads: file.Workloads}, agents.AgentType{ID: "a", Slug: "coder", TenantID: "t"}, "tenant-t", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var resources corev1.ResourceRequirements
+			for _, obj := range objs {
+				if ss, ok := obj.(*appsv1.StatefulSet); ok {
+					resources = ss.Spec.Template.Spec.Containers[0].Resources
+				}
+			}
+			want := resource.MustParse(tc.want)
+			if got := resources.Requests[corev1.ResourceMemory]; got.Cmp(want) != 0 {
+				t.Errorf("memory request = %s, want %s", got.String(), tc.want)
+			}
+			if got := resources.Limits[corev1.ResourceMemory]; got.Cmp(want) != 0 {
+				t.Errorf("memory limit = %s, want %s", got.String(), tc.want)
+			}
 		})
 	}
 }
