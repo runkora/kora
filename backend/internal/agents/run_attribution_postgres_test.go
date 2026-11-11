@@ -46,16 +46,16 @@ func testRunRepo(t *testing.T) (*PostgresRepository, string) {
 func seedRunAgentType(t *testing.T, r *PostgresRepository, tenant string, mode IdentityMode) AgentType {
 	t.Helper()
 	at := AgentType{
-		ID:                      uuid.NewString(),
-		TenantID:                tenant,
-		Name:                    "Reviewer",
-		Slug:                    "reviewer-" + uuid.NewString()[:8],
-		State:                   AgentTypeStateActive,
-		MaxConcurrentRunsPerPod: 5,
-		IdentityMode:            mode,
-		GrantScopes:             []string{},
-		Connectors:              []Connector{},
-		MCPTools:                []string{},
+		ID:                uuid.NewString(),
+		TenantID:          tenant,
+		Name:              "Reviewer",
+		Slug:              "reviewer-" + uuid.NewString()[:8],
+		State:             AgentTypeStateActive,
+		MaxConcurrentRuns: 5,
+		IdentityMode:      mode,
+		GrantScopes:       []string{},
+		Connectors:        []Connector{},
+		MCPTools:          []string{},
 	}
 	if err := r.CreateAgentType(context.Background(), at); err != nil {
 		t.Fatalf("CreateAgentType: %v", err)

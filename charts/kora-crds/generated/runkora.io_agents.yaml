@@ -187,10 +187,10 @@ spec:
                 x-kubernetes-validations:
                 - message: identityMode is immutable.
                   rule: self == oldSelf
-              maxConcurrentRunsPerPod:
+              maxConcurrentRuns:
                 description: |-
-                  MaxConcurrentRunsPerPod is the number of runs one agent pod holds at
-                  once. Unset takes the install default.
+                  MaxConcurrentRuns caps the agent's concurrent runs. Unset takes the
+                  install default.
                 format: int32
                 minimum: 1
                 type: integer

@@ -159,9 +159,9 @@ export function MetadataCard({ agent, fill }: { agent: AgentTypeRow; fill?: bool
             <MetadataRow label="Last updated">
               <Text size="supporting">{fmtDate(agent.updatedAt)}</Text>
             </MetadataRow>
-            <MetadataRow label="Max concurrent / pod">
+            <MetadataRow label="Max concurrent runs">
               <Text mono size="supporting">
-                {agent.maxConcurrentRunsPerPod}
+                {agent.maxConcurrentRuns}
               </Text>
             </MetadataRow>
             <MetadataRow label="Model">

@@ -2,7 +2,6 @@ package agents
 
 import (
 	"context"
-	"time"
 
 	"go.opentelemetry.io/otel"
 
@@ -38,18 +37,6 @@ type smClient interface {
 	CloseSession(ctx context.Context, podURL, runID string) error
 }
 
-// ServiceConfig holds runtime parameters. Kept for use in cmd/kora-agents/main.go.
-type ServiceConfig struct {
-	MaxConcurrentRunsPerPod int
-	TenantNamespaceFn       func(tenantID string) string // maps tenant ID → k8s namespace
-	// StaleRunTimeout is how long a run may stay pending, starting or active without a state update
-	// before the background reaper marks it failed. Defaults to 30 minutes if zero.
-	StaleRunTimeout time.Duration
-	// ReaperInterval controls how often the reaper polls. Defaults to 5 minutes if zero.
-	// Override in tests to speed up reaper cycles.
-	ReaperInterval time.Duration
-}
-
 // ── Request types ─────────────────────────────────────────────────────────────
 
 type CreateAgentTypeRequest struct {
@@ -69,9 +56,9 @@ type CreateAgentTypeRequest struct {
 	MCPTools []string `json:"mcp_tools"`
 	// Environments attaches environments. One is the default. Omitted means the
 	// built-in default environment.
-	Environments            []AgentEnvironment `json:"environments"`
-	MaxConcurrentRunsPerPod int                `json:"max_concurrent_runs_per_pod"`
-	ModelID                 *string            `json:"model_id"`
+	Environments      []AgentEnvironment `json:"environments"`
+	MaxConcurrentRuns int                `json:"max_concurrent_runs"`
+	ModelID           *string            `json:"model_id"`
 	// Guardrails sets loop-guard thresholds; omitted fields take the defaults.
 	Guardrails *Guardrails `json:"guardrails"`
 	// Budget is applied to the agent's policy grant (nil = no budget).
@@ -79,13 +66,13 @@ type CreateAgentTypeRequest struct {
 }
 
 type UpdateAgentTypeRequest struct {
-	ID                      string          `json:"-"`
-	Name                    *string         `json:"name"`
-	Description             *string         `json:"description"`
-	SystemPrompt            *string         `json:"system_prompt"`
-	Framework               *AgentFramework `json:"framework"`
-	MaxConcurrentRunsPerPod *int            `json:"max_concurrent_runs_per_pod"`
-	ModelID                 *string         `json:"model_id"`
+	ID                string          `json:"-"`
+	Name              *string         `json:"name"`
+	Description       *string         `json:"description"`
+	SystemPrompt      *string         `json:"system_prompt"`
+	Framework         *AgentFramework `json:"framework"`
+	MaxConcurrentRuns *int            `json:"max_concurrent_runs"`
+	ModelID           *string         `json:"model_id"`
 	// Guardrails replaces the loop-guard thresholds. nil = unchanged; an empty
 	// object restores every default.
 	Guardrails  *Guardrails `json:"guardrails"`

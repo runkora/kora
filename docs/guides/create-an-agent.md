@@ -38,7 +38,7 @@ Every guardrail is optional. Switch on the ones you want kora to enforce.
 | --- | --- |
 | Agent budget | Total spend per week or month |
 | Run budget | Spend on a single run |
-| Capacity | Concurrent runs on each agent pod. The service default is 10. |
+| Capacity | Concurrent runs of the agent across all its pods. The service default is 20. |
 | Repeated calls | The same tool call with the same result in a row. kora warns after 4 and pauses the run after 8 unless you set your own. |
 | Wait loops | Waits that make no progress. kora warns after 6 and pauses after 12 unless you set your own. |
 
