@@ -527,6 +527,12 @@ func TestReadyOrdinals(t *testing.T) {
 	}
 }
 
+// waiting sets the pod's session-manager container waiting with reason.
+func waiting(p *corev1.Pod, reason string) *corev1.Pod {
+	p.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: sessionManagerContainerName, State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: reason}}}}
+	return p
+}
+
 func TestLivePod(t *testing.T) {
 	const ns, slug = "kora-tenant-example", "coder"
 	ss := &appsv1.StatefulSet{
@@ -562,6 +568,11 @@ func TestLivePod(t *testing.T) {
 		{"failed", []runtime.Object{ss, pod("coder-0", corev1.PodFailed, false, false)}, false},
 		{"succeeded", []runtime.Object{ss, pod("coder-0", corev1.PodSucceeded, false, false)}, false},
 		{"terminating beside pending", []runtime.Object{ss, pod("coder-0", corev1.PodRunning, true, true), pod("coder-1", corev1.PodPending, false, false)}, true},
+		{"crash looping", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodRunning, false, false), "CrashLoopBackOff")}, false},
+		{"image pull back-off", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodPending, false, false), "ImagePullBackOff")}, false},
+		{"image pull error", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodPending, false, false), "ErrImagePull")}, false},
+		{"creating", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodPending, false, false), "ContainerCreating")}, true},
+		{"stuck beside pending", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodPending, false, false), "ImagePullBackOff"), pod("coder-1", corev1.PodPending, false, false)}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := podSecurityProvisioner()
