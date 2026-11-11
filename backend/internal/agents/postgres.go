@@ -445,6 +445,8 @@ func (r *PostgresRepository) RunUsageTotals(ctx context.Context, tenantID string
 		       COALESCE(SUM(estimated_cost_usd), 0)::float8,
 		       COALESCE(SUM(prompt_tokens), 0)::bigint,
 		       COALESCE(SUM(completion_tokens), 0)::bigint,
+		       COALESCE(SUM(cache_read_input_tokens), 0)::bigint,
+		       COALESCE(SUM(cache_creation_input_tokens), 0)::bigint,
 		       COUNT(*)
 		FROM inference_usage
 		WHERE tenant_id = $1 AND run_id = ANY($2)
@@ -456,7 +458,7 @@ func (r *PostgresRepository) RunUsageTotals(ctx context.Context, tenantID string
 	for rows.Next() {
 		var id string
 		var u RunUsage
-		if err := rows.Scan(&id, &u.CostUSD, &u.InputTokens, &u.OutputTokens, &u.RequestCount); err != nil {
+		if err := rows.Scan(&id, &u.CostUSD, &u.InputTokens, &u.OutputTokens, &u.CacheReadTokens, &u.CacheCreationTokens, &u.RequestCount); err != nil {
 			return nil, fmt.Errorf("scan run usage: %w", err)
 		}
 		out[id] = u
