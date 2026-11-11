@@ -399,3 +399,22 @@ func TestEventSummaryTones(t *testing.T) {
 		t.Errorf("terminated run tone = %q, want none", got.Preview.Status.Tone)
 	}
 }
+
+// Each platform event type reads as a sentence; an unknown one falls back.
+func TestPlatformEventVerbs(t *testing.T) {
+	for eventType, want := range map[string]string{
+		"agents.run.message_received.v1": "sent a message to run",
+		"agents.run.budget_exhausted.v1": "ran out of budget on run",
+		"agents.agent.deleted.v1":        "deleted agent",
+		"example.widget.spun.v1":         "sent an event about",
+	} {
+		envelope := `{"id":"e1","type":"` + eventType + `","subject":"widgets/w1","koraprincipaltype":"SYSTEM","data":{"entity":{"id":"w1-0000"}}}`
+		var head eventHead
+		if err := json.Unmarshal([]byte(envelope), &head); err != nil {
+			t.Fatal(err)
+		}
+		if got := platformEventSummary(head, decodeBody([]byte(envelope))); got == nil || got.Verb != want {
+			t.Errorf("%s verb = %+v, want %q", eventType, got, want)
+		}
+	}
+}
