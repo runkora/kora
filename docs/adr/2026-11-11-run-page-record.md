@@ -1,6 +1,6 @@
 # Run Page Record: Message Senders, Trigger Event Summaries and Budget Stops
 
-**Status:** Accepted  
+**Status:** Proposed  
 **Date:** 2026-11-11  
 **Deciders:** Platform Team  
 **Technical Story:** The run page redesign (`docs/prd/run-page.md`)
