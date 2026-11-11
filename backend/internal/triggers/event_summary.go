@@ -460,6 +460,54 @@ func scheduledSummary(t Trigger) *agentsclient.RunEventSummary {
 	}
 }
 
+// platformEventVerbs read "<actor> <verb> <object>" for each platform event
+// type, keyed by entity and action. Any other type is "sent an event about".
+var platformEventVerbs = map[string]string{
+	"run.created":              "created run",
+	"run.started":              "started run",
+	"run.completed":            "completed run",
+	"run.failed":               "failed run",
+	"run.budget_exhausted":     "ran out of budget on run",
+	"run.terminated":           "terminated run",
+	"run.idle":                 "finished a turn of run",
+	"run.interrupted":          "interrupted run",
+	"run.errored":              "hit an error in run",
+	"run.guardrail_warned":     "was warned of a loop in run",
+	"run.guardrail_paused":     "was paused for a loop in run",
+	"run.message_received":     "sent a message to run",
+	"sandbox.created":          "created a sandbox for",
+	"sandbox.replaced":         "replaced the sandbox of",
+	"sandbox.ready":            "readied the sandbox of",
+	"sandbox.failed":           "failed to start the sandbox of",
+	"sandbox.deleted":          "deleted the sandbox of",
+	"agent.created":            "created agent",
+	"agent.updated":            "updated agent",
+	"agent.deleted":            "deleted agent",
+	"environment.created":      "created environment",
+	"environment.updated":      "updated environment",
+	"environment.deleted":      "deleted environment",
+	"trigger.created":          "created trigger",
+	"trigger.updated":          "updated trigger",
+	"trigger.deleted":          "deleted trigger",
+	"trigger.autopaused":       "paused trigger",
+	"source.created":           "created source",
+	"source.updated":           "updated source",
+	"source.deleted":           "deleted source",
+	"delivery.failed":          "failed a delivery for",
+	"delivery.denied":          "denied a delivery for",
+	"grant.created":            "created grant",
+	"grant.updated":            "updated grant",
+	"grant.deleted":            "deleted grant",
+	"role.created":             "created role",
+	"role.updated":             "updated role",
+	"role.deleted":             "deleted role",
+	"tenant_budget.created":    "set the tenant budget",
+	"tenant_budget.updated":    "changed the tenant budget",
+	"tenant_budget.deleted":    "removed the tenant budget",
+	"budget.exceeded":          "exceeded budget",
+	"budget.threshold_crossed": "crossed a threshold of budget",
+}
+
 // runStateTones colours the run states that are good or bad news. Every other state is neutral.
 var runStateTones = map[string]string{"completed": toneOK, "failed": toneBad}
 
@@ -482,9 +530,13 @@ func platformEventSummary(head eventHead, doc any) *agentsclient.RunEventSummary
 	if name == "" {
 		name = "Platform"
 	}
+	verb, ok := platformEventVerbs[entity+"."+action]
+	if !ok {
+		verb = "sent an event about"
+	}
 	e := &agentsclient.RunEventSummary{
 		Actor:  agentsclient.RunEventActor{Name: name, Kind: kind},
-		Verb:   words(action) + " " + entity,
+		Verb:   verb,
 		Object: agentsclient.RunEventObject{Label: resolvePath(doc, "subject")},
 	}
 	id := resolvePath(doc, "data.entity.id")
