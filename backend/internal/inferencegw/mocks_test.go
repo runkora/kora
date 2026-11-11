@@ -39,6 +39,7 @@ type mockInferenceUsageRepository struct {
 	runTokens         int64
 	runUsageErr       error
 	runPrincipal      *RunPrincipal
+	runTenant         string // when set, GetRunPrincipal answers this tenant only
 	lastFilter        InferenceUsageFilter // captured on each List call
 	lastAnalytics     AnalyticsFilter      // captured on each GetAnalytics call
 
@@ -159,8 +160,8 @@ func (m *mockInferenceUsageRepository) GetRunUsage(_ context.Context, _, _ strin
 	return m.runSpend, m.runTokens, m.runUsageErr
 }
 
-func (m *mockInferenceUsageRepository) GetRunPrincipal(_ context.Context, _, _ string) (RunPrincipal, error) {
-	if m.runPrincipal == nil {
+func (m *mockInferenceUsageRepository) GetRunPrincipal(_ context.Context, tenantID, _ string) (RunPrincipal, error) {
+	if m.runPrincipal == nil || (m.runTenant != "" && tenantID != m.runTenant) {
 		return RunPrincipal{}, ErrUsageRecordNotFound
 	}
 	return *m.runPrincipal, nil
