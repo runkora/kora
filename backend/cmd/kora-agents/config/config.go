@@ -56,6 +56,9 @@ type Config struct {
 		// PolicyServiceURL is the base URL of the kora-policy-service.
 		// When empty, grant management is skipped (local dev without policy service).
 		PolicyServiceURL string `yaml:"policyServiceURL"`
+		// InferenceGatewayURL is the base URL of the inference gateway, asked which
+		// ceiling stopped a budget_exhausted run. When empty, the run_state event has no budget.
+		InferenceGatewayURL string `yaml:"inferenceGatewayURL"`
 	} `yaml:"platform"`
 
 	Policy PolicyConfig `yaml:"policy"`

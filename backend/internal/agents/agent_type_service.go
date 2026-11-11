@@ -968,7 +968,7 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 // cleanupCancelledRun records and publishes the run's terminal state, revokes its delegation and deletes its
 // sandbox pod. All of it is best-effort. Agent deletion must not wedge on it.
 func (s *AgentTypeService) cleanupCancelledRun(ctx context.Context, run Run, namespace string) {
-	if err := recordRunState(ctx, s.runRepo, s.pubsub, run.ID, run.State); err != nil {
+	if err := recordRunState(ctx, s.runRepo, s.pubsub, run.ID, run.State, nil); err != nil {
 		s.logger.Warn(ctx, "failed to record state of cancelled run",
 			logging.Field{Key: "run_id", Value: run.ID},
 			logging.Field{Key: "error", Value: err.Error()},
