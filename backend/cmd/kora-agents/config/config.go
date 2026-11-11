@@ -176,6 +176,9 @@ type StartingRunAllowance struct {
 }
 
 // errStartingRunAllowance means a harness has no positive starting-run allowance.
+// errMaxReplicas means maxReplicas is below the floor of pods, so the scaler could never add one.
+var errMaxReplicas = errors.New("agents.scheduling.maxReplicas must be at least minReplicas and at least 1")
+
 var errStartingRunAllowance = errors.New("agents.scheduling.startingRunAllowance: claudeCode, codex and openCode must each be a positive quantity")
 
 // EnvironmentSize is a sandbox's CPU, memory and local disk.
@@ -251,6 +254,9 @@ func Validate(cfg *Config) error {
 	}
 	if _, err := landlockmode.Parse(cfg.Agents.SessionManager.Landlock); err != nil {
 		return err
+	}
+	if s := cfg.Agents.Scheduling; s.MaxReplicas < max(s.MinReplicas, 1) {
+		return errMaxReplicas
 	}
 	a := cfg.Agents.Scheduling.StartingRunAllowance
 	for _, q := range []resource.Quantity{a.ClaudeCode, a.Codex, a.OpenCode} {
