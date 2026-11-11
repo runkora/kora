@@ -207,16 +207,18 @@ function RunsOn({ run }: { run: RunView }) {
   return (
     <Stack gap="cozy">
       <Label>Runs on</Label>
-      <Stack direction="horizontal" align="start" gap="snug">
-        <LeadIcon name="square-terminal" />
-        <Stack grow minWidth="none" gap="none">
-          <Text size="supporting">{harnessLabel(run.harness) || 'Agent harness'}</Text>
-          <Text size="caption" color="subtle" truncate>
-            {model}
-            {provider && ` · ${provider}`}
-          </Text>
+      {(run.harness || model) && (
+        <Stack direction="horizontal" align="start" gap="snug">
+          <LeadIcon name="square-terminal" />
+          <Stack grow minWidth="none" gap="none">
+            <Text size="supporting">{harnessLabel(run.harness) || 'Agent harness'}</Text>
+            <Text size="caption" color="subtle" truncate>
+              {model}
+              {provider && ` · ${provider}`}
+            </Text>
+          </Stack>
         </Stack>
-      </Stack>
+      )}
       {r?.sandbox && (
         <Stack direction="horizontal" align="start" gap="snug">
           <LeadIcon name="box" />

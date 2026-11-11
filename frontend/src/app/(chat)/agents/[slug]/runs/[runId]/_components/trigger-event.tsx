@@ -219,7 +219,11 @@ export function promptEvent(input: {
 }): TriggerEvent {
   const parts = parseTriggerMessage(input.prompt);
   const title = parts.lead.split(/(?<=[.!?])\s/)[0] || input.trigger;
-  const look = FALLBACK[input.via ?? 'webhook'] ?? FALLBACK.webhook;
+  // A message whose trigger kind is unknown, such as one joining a run, claims no kind.
+  const look = (input.via && FALLBACK[input.via]) || {
+    icon: 'zap' as const,
+    verb: 'sent a message',
+  };
   return {
     actor: { name: input.trigger, kind: 'system', icon: look.icon },
     verb: look.verb,
