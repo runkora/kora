@@ -264,7 +264,7 @@ func ValidEventLink(s string) bool {
 
 // RunEventSummary describes the event behind a trigger's message: who did what
 // to which object, and a preview of that object. Actor kind is person, bot or
-// system; a status tone is ok or bad. Strings, quotes and facts are bounded by
+// system; a status tone is ok, bad or empty. Strings, quotes and facts are bounded by
 // the MaxEventSummary limits. See docs/adr/2026-11-11-run-page-record.md.
 type RunEventSummary struct {
 	Actor   RunEventActor    `json:"actor"`
