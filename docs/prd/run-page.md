@@ -136,7 +136,7 @@ The page will show:
 *   A rail with the people involved, the run's links, what the run runs on and what it spent.
 *   An end line for a finished run: the result for a completed run, and the budget, its reset and a Raise budget action for a run stopped by its budget.
 
-The designs are in Storybook under `Pages/Agents/Run`.
+The designs are in Storybook under `Pages/Agents/Run (mix)`.
 
 ---
 
