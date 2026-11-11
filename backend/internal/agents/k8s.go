@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -1085,6 +1086,9 @@ func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Clu
 	// token variable to issue the request, and the gateway injects the real one
 	// on the wire. A name already set above is not overridden.
 	for _, name := range placeholderEnvs {
+		if !validPlaceholderEnvName(name) {
+			continue
+		}
 		if !slices.ContainsFunc(env, func(e corev1.EnvVar) bool { return e.Name == name }) {
 			env = append(env, corev1.EnvVar{Name: name, Value: CredentialPlaceholder})
 		}
@@ -2445,4 +2449,21 @@ func (p *K8sProvisioner) SandboxImages(ctx context.Context, namespace string) ([
 		out = append(out, img)
 	}
 	return out, nil
+}
+
+var placeholderEnvNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+
+// validPlaceholderEnvName reports whether name is safe to set as a sandbox env
+// var holding the credential placeholder: a plain identifier that is not a
+// loader or process-critical variable.
+func validPlaceholderEnvName(name string) bool {
+	if !placeholderEnvNameRE.MatchString(name) {
+		return false
+	}
+	u := strings.ToUpper(name)
+	switch u {
+	case "PATH", "HOME", "USER", "SHELL", "PWD", "IFS", "ENV", "BASH_ENV", "PYTHONPATH", "NODE_OPTIONS", "KUBECONFIG":
+		return false
+	}
+	return !strings.HasPrefix(u, "LD_") && !strings.HasPrefix(u, "DYLD_") && !strings.HasPrefix(u, "KORA_")
 }

@@ -139,6 +139,9 @@ func (c *ConnectionCatalog) PlaceholderEnv(ctx context.Context, tenantID, name s
 		if err := json.Unmarshal(e.Config, &cfg); err != nil {
 			return "", false, fmt.Errorf("parse config of connection %q: %w", name, err)
 		}
+		if cfg.PlaceholderEnv != "" && !validPlaceholderEnvName(cfg.PlaceholderEnv) {
+			return "", false, fmt.Errorf("connection %q: invalid placeholderEnv %q", name, cfg.PlaceholderEnv)
+		}
 		return cfg.PlaceholderEnv, cfg.PlaceholderEnv != "", nil
 	}
 	return "", false, nil

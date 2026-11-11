@@ -297,3 +297,22 @@ func TestCatalogPlaceholderEnv_NoRealToken(t *testing.T) {
 		}
 	}
 }
+
+func TestValidPlaceholderEnvName(t *testing.T) {
+	for _, ok := range []string{"NPM_TOKEN", "_x1"} {
+		if !validPlaceholderEnvName(ok) {
+			t.Errorf("%q rejected", ok)
+		}
+	}
+	for _, bad := range []string{"", "1A", "A=B", "A B", "PATH", "LD_PRELOAD", "KORA_X", "a-b"} {
+		if validPlaceholderEnvName(bad) {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "kora-system"}
+	for _, e := range sandboxContainerEnv(cfg, nil, []string{"LD_PRELOAD", "A=B"}, "/workspaces/r", "exec") {
+		if e.Name == "LD_PRELOAD" || e.Name == "A=B" {
+			t.Errorf("invalid name %q set", e.Name)
+		}
+	}
+}
