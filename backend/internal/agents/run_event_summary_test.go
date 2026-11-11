@@ -49,6 +49,7 @@ func TestAuthorizeRunEvent(t *testing.T) {
 		{name: "a quote of 2000 characters is allowed", ctx: service, edit: func(e *RunEventSummary) { e.Quote = strings.Repeat("x", 2000) }},
 		{name: "more than 6 facts", ctx: service, edit: func(e *RunEventSummary) { e.Preview.Facts = make([]string, 7) }, wantErr: ErrRunEventInvalid},
 		{name: "unknown status tone", ctx: service, edit: func(e *RunEventSummary) { e.Preview.Status.Tone = "warn" }, wantErr: ErrRunEventInvalid},
+		{name: "a neutral status has no tone", ctx: service, edit: func(e *RunEventSummary) { e.Preview.Status.Tone = "" }},
 		{name: "a javascript link", ctx: service, edit: func(e *RunEventSummary) { e.Object.URL = "javascript:alert(1)" }, wantErr: ErrRunEventInvalid},
 		{name: "a relative link", ctx: service, edit: func(e *RunEventSummary) { e.Actor.URL = "/users/octocat" }, wantErr: ErrRunEventInvalid},
 		{name: "an http link is allowed", ctx: service, edit: func(e *RunEventSummary) { e.Object.URL = "http://prometheus:9090/graph" }},

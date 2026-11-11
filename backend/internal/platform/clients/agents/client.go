@@ -296,10 +296,10 @@ type RunEventPreview struct {
 	Status  *RunEventStatus `json:"status,omitempty"`
 }
 
-// RunEventStatus is the object's state.
+// RunEventStatus is the object's state. Tone is ok, bad or empty for a neutral state.
 type RunEventStatus struct {
 	Label string `json:"label"`
-	Tone  string `json:"tone"`
+	Tone  string `json:"tone,omitempty"`
 }
 
 // StartRunResponse captures the subset of the created run the caller needs.

@@ -42,10 +42,10 @@ type RunEventPreview struct {
 	Status  *RunEventStatus `json:"status,omitempty"`
 }
 
-// RunEventStatus is the object's state. Tone is ok or bad.
+// RunEventStatus is the object's state. Tone is ok, bad or empty for a neutral state.
 type RunEventStatus struct {
 	Label string `json:"label"`
-	Tone  string `json:"tone"`
+	Tone  string `json:"tone,omitempty"`
 }
 
 var (
@@ -84,8 +84,8 @@ func checkRunEventShape(e *RunEventSummary) error {
 	if e.Actor.Name == "" || e.Verb == "" || e.Object.Label == "" {
 		return errors.New("actor name, verb and object label are required")
 	}
-	if p := e.Preview; p != nil && p.Status != nil && p.Status.Tone != "ok" && p.Status.Tone != "bad" {
-		return errors.New("status tone must be ok or bad")
+	if p := e.Preview; p != nil && p.Status != nil && p.Status.Tone != "" && p.Status.Tone != "ok" && p.Status.Tone != "bad" {
+		return errors.New("status tone must be ok, bad or empty")
 	}
 	return nil
 }
