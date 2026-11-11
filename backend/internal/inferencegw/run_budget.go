@@ -51,18 +51,13 @@ func (s *Service) ReachedRunBudget(ctx context.Context, tenantID, runID string) 
 	return RunBudget{}, ErrNoReachedBudget
 }
 
-// scopeTenant is the scope of the tenant cap. Its owner reads as "tenant".
-const scopeTenant = "tenant"
-
 // ownerName is the name a person reads for the ceiling's owner. A person is
 // named from their profile. An agent principal is left empty: kora-agents
-// knows the agent's name. A per-run ceiling belongs to no one.
+// knows the agent's name. The tenant cap and a per-run ceiling have no name.
 func (s *Service) ownerName(ctx context.Context, tenantID string, rp RunPrincipal, c policy.BudgetCeiling) (string, error) {
 	switch c.Scope {
 	case "role_pool":
 		return c.ID, nil
-	case scopeTenant:
-		return scopeTenant, nil
 	case "delegator":
 		return s.usage.GetPersonName(ctx, tenantID, c.ID)
 	case "principal":
