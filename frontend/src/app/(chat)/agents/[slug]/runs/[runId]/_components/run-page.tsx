@@ -494,6 +494,10 @@ function CallBlock({ step, nested }: { step: Step; nested?: Step[] }) {
   const preview =
     step.errorLine ?? step.policy?.reason ?? step.output?.split('\n').slice(0, 4).join('\n');
   const parts = commandParts(step);
+  // The block previews; opening it shows the whole command, output and diff.
+  const [open, setOpen] = useState(false);
+  const full =
+    (parts.length > 1 || !!step.output || !!step.diffs?.some((d) => d.lines?.length)) && !running;
   return (
     <Stack
       style={{
@@ -531,8 +535,21 @@ function CallBlock({ step, nested }: { step: Step; nested?: Step[] }) {
         <Text size="caption" color="subtle" tabular style={NOWRAP}>
           {running ? 'now' : step.durationMs !== null ? formatSpan(step.durationMs) : ''}
         </Text>
+        {full && (
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-expanded={open}
+            aria-label={open ? 'Hide the full call' : 'Show the full call'}
+            onClick={() => setOpen(!open)}
+            style={{ width: 20, height: 20 }}
+          >
+            <Icon name={open ? 'chevron-down' : 'chevron-right'} size="2xs" label="" />
+          </Button>
+        )}
       </Stack>
-      {step.diffs && step.diffs.length > 0 && (
+      {open && <CallDetail step={step} />}
+      {!open && step.diffs && step.diffs.length > 0 && (
         <Stack style={{ borderTop: HAIR }}>
           {step.diffs.map((d, i) => {
             const { name, dir } = shortName(d.path);
@@ -563,7 +580,7 @@ function CallBlock({ step, nested }: { step: Step; nested?: Step[] }) {
           })}
         </Stack>
       )}
-      {preview && !step.diffs?.length && (
+      {!open && preview && !step.diffs?.length && (
         <Stack
           style={{
             borderTop: HAIR,
@@ -602,6 +619,54 @@ function CallBlock({ step, nested }: { step: Step; nested?: Step[] }) {
             </Stack>
           ))}
         </Stack>
+      )}
+    </Stack>
+  );
+}
+
+/** Everything a call recorded: the whole command, its full output and each file's diff lines. */
+function CallDetail({ step }: { step: Step }) {
+  const mono = { whiteSpace: 'pre-wrap', lineHeight: 1.6, wordBreak: 'break-word' } as const;
+  return (
+    <Stack
+      gap="snug"
+      style={{ borderTop: HAIR, padding: '8px 14px 10px', maxHeight: 480, overflowY: 'auto' }}
+    >
+      {step.command && (
+        <Text size="caption" mono style={mono}>
+          {step.command}
+        </Text>
+      )}
+      {step.diffs?.map((d, i) => (
+        <Stack key={`${d.path}-${i}`} gap="none">
+          <Text size="caption" weight="strong">
+            {d.path}
+          </Text>
+          {d.lines?.map((l, k) => (
+            <Text
+              key={k}
+              size="caption"
+              mono
+              color={
+                l.kind === 'add' ? 'status-healthy' : l.kind === 'del' ? 'status-error' : 'subtle'
+              }
+              style={mono}
+            >
+              {l.kind === 'add' ? '+ ' : l.kind === 'del' ? '− ' : '  '}
+              {l.text}
+            </Text>
+          ))}
+        </Stack>
+      ))}
+      {step.output && (
+        <Text
+          size="caption"
+          mono
+          color={step.status === 'failed' ? 'status-error' : 'subtle'}
+          style={mono}
+        >
+          {step.output}
+        </Text>
       )}
     </Stack>
   );

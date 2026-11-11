@@ -650,10 +650,17 @@ describe('useRun — the run record', () => {
 
   it('keeps the page when the re-read after the run ends fails', async () => {
     const { result, emit } = await start();
-    server.use(http.get('/api/agents/runs/:runId', () => new HttpResponse(null, { status: 502 })));
+    let rereads = 0;
+    server.use(
+      http.get('/api/agents/runs/:runId', () => {
+        rereads++;
+        return new HttpResponse(null, { status: 502 });
+      }),
+    );
     emit('run_state', { state: 'completed' });
+    await waitFor(() => expect(rereads).toBe(1));
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 20));
+      await Promise.resolve();
     });
     expect(result.current.loadError).toBeNull();
     expect(result.current.run?.id).toBe('run-1');

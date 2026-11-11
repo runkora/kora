@@ -18,6 +18,7 @@ import {
 } from '@runkora/hades';
 import { isSafeUrl } from '@runkora/lib/safe-url';
 import { harnessLabel, participantsOf, type Participant, type RunView } from '../_lib/run-view';
+import { PROVIDER_ICON } from '../_lib/to-run-view';
 
 const LINE = '1px solid var(--color-border-subtle)';
 
@@ -28,11 +29,6 @@ const SOURCE_ICON: Record<string, IconName> = {
   pull_request: 'github',
   repository: 'folder',
   branch: 'git-branch',
-};
-const PROVIDER_ICON: Record<string, IconName> = {
-  github: 'github',
-  slack: 'hash',
-  alertmanager: 'prometheus',
 };
 
 function Label({ children, aside }: { children: React.ReactNode; aside?: string }) {

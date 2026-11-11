@@ -120,7 +120,8 @@ function planOf(tool: ToolCall): Plan {
   };
 }
 
-const PROVIDER_ICON: Record<string, IconName> = {
+/** The icon of the system a link or event points into. */
+export const PROVIDER_ICON: Record<string, IconName> = {
   github: 'github',
   slack: 'hash',
   alertmanager: 'prometheus',
@@ -286,7 +287,9 @@ export function entriesOf(
 function activityOf(a: UseRunReturn['liveActivity']): string | undefined {
   switch (a?.kind) {
     case 'retry':
-      return `Retrying the model call (${a.attempt} of ${a.maxRetries})`;
+      return `Retrying the model call (${a.attempt} of ${a.maxRetries})${
+        a.error ? `: ${a.error.split('\n')[0]}` : ''
+      }`;
     case 'sandbox':
       return 'Starting the sandbox';
     case 'tool': {
