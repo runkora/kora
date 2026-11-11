@@ -1079,6 +1079,7 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, environ
 		return Sandbox{}, err
 	}
 	spec.KubeClusters = kubeClusters
+	spec.PlaceholderEnvs = s.sandboxPlaceholderEnvs(ctx, *at)
 
 	if switching {
 		if _, err = s.k8s.DeleteSandbox(ctx, runID, namespace); err != nil {
@@ -1311,6 +1312,21 @@ func (s *RunService) SetRunSummary(ctx context.Context, runID, summary string) e
 		return nil
 	}
 	return s.repo.SetRunSummary(ctx, runID, summary)
+}
+
+// sandboxPlaceholderEnvs resolves the env vars the sandbox sets to the
+// credential placeholder, one per granted bearer connection that names one. A
+// failed lookup yields none: no placeholder beats no sandbox.
+func (s *RunService) sandboxPlaceholderEnvs(ctx context.Context, at AgentType) []string {
+	envs, err := s.resolver.PlaceholderEnvs(ctx, at.TenantID, at.Connectors)
+	if err != nil {
+		s.logger.Warn(ctx, "resolve placeholder env vars for sandbox",
+			logging.Field{Key: "agent_type", Value: at.Slug},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return nil
+	}
+	return envs
 }
 
 // sandboxKubeClusters resolves the Kubernetes connections whose kubeconfig the

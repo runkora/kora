@@ -46,6 +46,9 @@ type connectionRegistryEntry struct {
 	Name     string `json:"name"`
 	Adapter  string `json:"adapter"`
 	BaseHost string `json:"base_host"`
+	// Config is read only for a bearer connection's placeholderEnv, a variable
+	// name. The token never appears here: it is mounted from secret_ref.
+	Config json.RawMessage `json:"config,omitempty"`
 }
 
 // ConnectionCatalog serves the read-only, tenant-filtered connection catalog
@@ -112,6 +115,33 @@ func (c *ConnectionCatalog) ResolveConnection(ctx context.Context, tenantID, nam
 		}
 	}
 	return "", "", false, nil
+}
+
+// PlaceholderEnv returns the sandbox env var a bearer connection names in
+// config.placeholderEnv. ok is false when the connection is not registered, is
+// not a bearer connection, or sets none. Only the variable name is read; the
+// secret behind the connection is never loaded here.
+func (c *ConnectionCatalog) PlaceholderEnv(ctx context.Context, tenantID, name string) (env string, ok bool, err error) {
+	entries, err := c.load(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	for _, e := range entries {
+		if e.TenantID != tenantID || e.Name != name {
+			continue
+		}
+		if e.Adapter != platformconns.AdapterBearer || len(e.Config) == 0 {
+			return "", false, nil
+		}
+		var cfg struct {
+			PlaceholderEnv string `json:"placeholderEnv"`
+		}
+		if err := json.Unmarshal(e.Config, &cfg); err != nil {
+			return "", false, fmt.Errorf("parse config of connection %q: %w", name, err)
+		}
+		return cfg.PlaceholderEnv, cfg.PlaceholderEnv != "", nil
+	}
+	return "", false, nil
 }
 
 // load reads and unmarshals connections.json. An empty path or a missing file is
