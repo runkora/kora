@@ -361,7 +361,7 @@ func TestReaper_RevokesDelegationOnReapedRuns(t *testing.T) {
 	repo := newMockRepository()
 	issuer := &fakeDelegationIssuer{}
 	logger := logging.NewLoggerWithOutput(io.Discard)
-	runSvc, err := NewRunService(repo, repo, &mockSMClient{}, &mockK8s{}, NewPubSub(), NewAuthz(&allowAllEvaluator{}), repo, &mockK8s{}, &mockK8s{}, repo, RunServiceConfig{
+	runSvc, err := NewRunService(repo, repo, &mockSMClient{}, &mockK8s{}, NewPubSub(), NewAuthz(&allowAllEvaluator{}), repo, &mockK8s{}, &mockK8s{}, &mockK8s{}, repo, RunServiceConfig{
 		TenantNamespaceFn: func(tenantID string) string { return "kora-tenant-" + tenantID },
 		StaleRunTimeout:   time.Millisecond,
 		ReaperInterval:    5 * time.Millisecond,

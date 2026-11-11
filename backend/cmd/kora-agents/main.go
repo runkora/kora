@@ -251,7 +251,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		return nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", validateErr)
 	}
 	allowance := cfg.Agents.Scheduling.StartingRunAllowance
-	runSvc, err := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo, agents.RunServiceConfig{
+	runSvc, err := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, k8s, repo, agents.RunServiceConfig{
 		DefaultEnvironmentSize: sizes.Default,
 		TenantNamespaceFn:      cfg.TenantNamespace,
 		SandboxGuardrails:      sandboxGuardrails(cfg),

@@ -164,6 +164,34 @@ func TestStartClaimed(t *testing.T) {
 				e.repo.agentTypes["at-1"].ActivatedAt = time.Now().Add(-3 * time.Minute)
 			},
 			wantState: RunStateFailed, wantErr: "No agent pod could take the run within 1m0s."},
+		{name: "past the start budget a pod that is not Ready yet keeps the run queued",
+			setup: func(e *startClaimedEnv) {
+				e.k8s.noReadyPods = true
+				e.k8s.livePod = true
+				e.f.run.cfg.StartBudget = time.Minute
+				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-time.Hour)
+			},
+			wantState: RunStatePending, wantReleased: 1, wantProvMiss: 1},
+		{name: "past the start budget a failed pod lookup releases the run",
+			setup: func(e *startClaimedEnv) {
+				e.k8s.noReadyPods = true
+				e.k8s.livePodErr = errors.New("api unavailable")
+				e.f.run.cfg.StartBudget = time.Minute
+				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-time.Hour)
+			},
+			wantState: RunStatePending, wantReleased: 1},
+		{name: "past the start budget with no Ready pod an agent at its total keeps the run queued",
+			setup: func(e *startClaimedEnv) {
+				e.k8s.noReadyPods = true
+				e.f.run.cfg.StartBudget = time.Minute
+				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-time.Hour)
+				// Starting runs count toward the total as well as active ones.
+				for i := range 4 {
+					seedRun(t, e.repo, Run{ID: fmt.Sprintf("live-%d", i), TenantID: "t1", AgentTypeID: "at-1", State: RunStateIdle})
+				}
+				seedRun(t, e.repo, Run{ID: "starting-0", TenantID: "t1", AgentTypeID: "at-1", State: RunStateStarting})
+			},
+			wantState: RunStatePending, wantReleased: 1, wantProvMiss: 1},
 		{name: "provisioning time does not count against the start budget",
 			setup: func(e *startClaimedEnv) {
 				e.k8s.noReadyPods = true

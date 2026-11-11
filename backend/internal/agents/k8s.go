@@ -342,20 +342,12 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 // ReadyOrdinals returns the Ready, non-terminating pod ordinals below the current replicas. A pod on
 // either revision counts: one a roll has not reached still takes runs (docs/adr/2026-10-12-run-scheduling.md).
 func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace string) ([]int, error) {
-	ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
-	}
-	sel := labels.SelectorFromSet(ss.Spec.Selector.MatchLabels).String()
-	pods, err := p.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: sel})
-	if err != nil {
-		return nil, fmt.Errorf("list pods for %s/%s: %w", namespace, slug, err)
+	ss, pods, err := p.agentPods(ctx, slug, namespace)
+	if ss == nil || err != nil {
+		return nil, err
 	}
 	var out []int
-	for _, pod := range pods.Items {
+	for _, pod := range pods {
 		if pod.DeletionTimestamp != nil || !podReady(&pod) {
 			continue
 		}
@@ -370,6 +362,53 @@ func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace stri
 	}
 	sort.Ints(out)
 	return out, nil
+}
+
+// LivePod reports whether the agent has a pod that is not terminating or finished, Ready or not.
+// A pod still coming up, such as one waiting for a node, keeps a run queued past the start budget.
+// A pod whose session-manager container crash-loops or cannot pull its image is not coming up.
+func (p *K8sProvisioner) LivePod(ctx context.Context, slug, namespace string) (bool, error) {
+	_, pods, err := p.agentPods(ctx, slug, namespace)
+	if err != nil {
+		return false, err
+	}
+	for _, pod := range pods {
+		finished := pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed
+		if pod.DeletionTimestamp == nil && !finished && !sessionManagerStuck(&pod) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// stuckWaitingReasons mark a container that keeps failing to start, rather than one still starting.
+var stuckWaitingReasons = []string{"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull"}
+
+// sessionManagerStuck reports whether the pod's session-manager container is waiting for one of stuckWaitingReasons.
+func sessionManagerStuck(pod *corev1.Pod) bool {
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.Name == sessionManagerContainerName && cs.State.Waiting != nil {
+			return slices.Contains(stuckWaitingReasons, cs.State.Waiting.Reason)
+		}
+	}
+	return false
+}
+
+// agentPods returns the agent's StatefulSet and its pods, a nil StatefulSet when it does not exist.
+func (p *K8sProvisioner) agentPods(ctx context.Context, slug, namespace string) (*appsv1.StatefulSet, []corev1.Pod, error) {
+	ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
+	}
+	sel := labels.SelectorFromSet(ss.Spec.Selector.MatchLabels).String()
+	pods, err := p.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: sel})
+	if err != nil {
+		return nil, nil, fmt.Errorf("list pods for %s/%s: %w", namespace, slug, err)
+	}
+	return ss, pods.Items, nil
 }
 
 // Replicas returns the StatefulSet's current spec.replicas, zero when it does not exist.
