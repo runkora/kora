@@ -391,15 +391,18 @@ type RunPrincipal struct {
 	DelegatorID   string
 }
 
-// RunBudget is the spending ceiling that stopped a run.
-// ResetsAt is nil for a per-run ceiling, which never resets.
-// See docs/adr/2026-11-11-run-page-record.md, Decision 6.
+// RunBudget is the spending ceiling that stopped a run. Owner is the id the
+// ceiling belongs to and OwnerName the name a person reads: a person's display
+// name, a role, or "tenant". An agent's name is left to kora-agents, and a
+// per-run ceiling has none. ResetsAt is nil for a per-run ceiling, which never
+// resets. See docs/adr/2026-11-11-run-page-record.md, Decision 6.
 type RunBudget struct {
-	Scope    string     `json:"scope"`
-	Owner    string     `json:"owner"`
-	Window   string     `json:"window"`
-	LimitUSD float64    `json:"limit_usd"`
-	ResetsAt *time.Time `json:"resets_at,omitempty"`
+	Scope     string     `json:"scope"`
+	Owner     string     `json:"owner"`
+	OwnerName string     `json:"owner_name"`
+	Window    string     `json:"window"`
+	LimitUSD  float64    `json:"limit_usd"`
+	ResetsAt  *time.Time `json:"resets_at,omitempty"`
 }
 
 // BudgetCeilingStatus is one applicable spending ceiling with its current spend.

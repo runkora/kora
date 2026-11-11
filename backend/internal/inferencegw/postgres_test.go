@@ -201,3 +201,18 @@ func TestPostgres_GetRunPrincipal(t *testing.T) {
 		t.Errorf("GetRunPrincipal(other tenant) = %v, want ErrUsageRecordNotFound", err)
 	}
 }
+
+// A person's name is their display name, else their email; no profile reads empty.
+func TestPostgres_GetPersonName(t *testing.T) {
+	repo, pool, tenant := testUsageRepo(t)
+	ctx := context.Background()
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM user_profiles WHERE tenant_id = $1`, tenant) })
+	if _, err := pool.Exec(ctx, `INSERT INTO user_profiles (id, tenant_id, email, display_name) VALUES ('u-named', $1, 'named@example.com', 'Named Person'), ('u-email', $1, 'email@example.com', '')`, tenant); err != nil {
+		t.Fatalf("insert profiles: %v", err)
+	}
+	for id, want := range map[string]string{"u-named": "Named Person", "u-email": "email@example.com", "u-none": ""} {
+		if got, err := repo.GetPersonName(ctx, tenant, id); err != nil || got != want {
+			t.Errorf("GetPersonName(%s) = %q, %v; want %q", id, got, err, want)
+		}
+	}
+}

@@ -154,14 +154,17 @@ func (c *Client) SystemOne(ctx context.Context, bearer string, req SystemOneRequ
 	}
 }
 
-// RunBudget is the spending ceiling that stopped a run. ResetsAt is nil for a
-// per-run ceiling, which never resets.
+// RunBudget is the spending ceiling that stopped a run. Owner is the id the
+// ceiling belongs to and OwnerName its readable name. The gateway leaves
+// OwnerName empty for an agent and for a per-run ceiling. ResetsAt is nil for
+// a per-run ceiling, which never resets.
 type RunBudget struct {
-	Scope    string     `json:"scope"`
-	Owner    string     `json:"owner"`
-	Window   string     `json:"window"`
-	LimitUSD float64    `json:"limit_usd"`
-	ResetsAt *time.Time `json:"resets_at,omitempty"`
+	Scope     string     `json:"scope"`
+	Owner     string     `json:"owner"`
+	OwnerName string     `json:"owner_name"`
+	Window    string     `json:"window"`
+	LimitUSD  float64    `json:"limit_usd"`
+	ResetsAt  *time.Time `json:"resets_at,omitempty"`
 }
 
 // RunBudget returns the ceiling the run's principal has reached. The gateway
