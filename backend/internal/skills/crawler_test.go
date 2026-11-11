@@ -280,3 +280,56 @@ func TestIsTextPath(t *testing.T) {
 		}
 	}
 }
+
+// A skill kept under more than one skills root is returned once. The first
+// folder in path order wins and the other copies are never fetched.
+func TestCrawl_DedupesSkillsAcrossRoots(t *testing.T) {
+	g := repo(map[string]string{
+		".agents/skills/pdf/SKILL.md": skillMD("pdf", "From agents.", ""),
+		".claude/skills/pdf/SKILL.md": skillMD("pdf", "From claude, differs.", "more"),
+	})
+	list, err := NewCrawler(g, testLimits, discard()).Crawl(context.Background(), testMarketplace(t, "example", "m"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{".agents/skills/pdf=pdf"}; !slices.Equal(crawlNames(list), want) {
+		t.Errorf("skills = %v, want %v", crawlNames(list), want)
+	}
+	if list.Skills[0].Description != "From agents." {
+		t.Errorf("description = %q, want the .agents/skills copy", list.Skills[0].Description)
+	}
+	if want := []string{".agents/skills/pdf/SKILL.md"}; !slices.Equal(g.fetchedPaths(), want) {
+		t.Errorf("fetched %v, want only %v", g.fetchedPaths(), want)
+	}
+}
+
+func TestCrawl_DedupeSkillsRootAgainstDotFolder(t *testing.T) {
+	g := repo(map[string]string{
+		"skills/pdf/SKILL.md":         skillMD("pdf", "Plain.", ""),
+		".claude/skills/pdf/SKILL.md": skillMD("pdf", "Claude.", ""),
+		"other/pdf/SKILL.md":          skillMD("pdf", "Other.", ""),
+	})
+	list, err := NewCrawler(g, testLimits, discard()).Crawl(context.Background(), testMarketplace(t, "example", "m"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{".claude/skills/pdf=pdf", "other/pdf=pdf"}; !slices.Equal(crawlNames(list), want) {
+		t.Errorf("skills = %v, want %v", crawlNames(list), want)
+	}
+}
+
+// A duplicate uses none of the skillsPerMarketplace budget.
+func TestCrawl_DuplicatesDoNotCountTowardLimit(t *testing.T) {
+	g := repo(map[string]string{
+		".agents/skills/a/SKILL.md": skillMD("a", "A.", ""),
+		".claude/skills/a/SKILL.md": skillMD("a", "A.", ""),
+		"skills/b/SKILL.md":         skillMD("b", "B.", ""),
+	})
+	list, err := NewCrawler(g, Limits{SkillsPerMarketplace: 2}, discard()).Crawl(context.Background(), testMarketplace(t, "example", "m"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{".agents/skills/a=a", "skills/b=b"}; !slices.Equal(crawlNames(list), want) {
+		t.Errorf("skills = %v, want %v", crawlNames(list), want)
+	}
+}
