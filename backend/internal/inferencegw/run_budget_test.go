@@ -1,6 +1,7 @@
 package inferencegw
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -16,7 +17,7 @@ import (
 const budgetRunID = "6f1c2a1e-6a59-4c55-9a43-0f1d3c1b2e7a"
 
 func runBudgetController(eval *stubEvaluator, counter *mockSpendCounter, rp *RunPrincipal) *Controller {
-	svc := &Service{policy: eval, usage: &mockInferenceUsageRepository{runPrincipal: rp, runTenant: "t1"}, budgetCounter: counter, logger: logging.NewLoggerWithOutput(io.Discard)}
+	svc := &Service{policy: eval, usage: &mockInferenceUsageRepository{runPrincipal: rp, runTenant: "t1", personNames: map[string]string{"user-1": "Dev User"}}, budgetCounter: counter, logger: logging.NewLoggerWithOutput(io.Discard)}
 	return &Controller{svc: svc, logger: logging.NewLoggerWithOutput(io.Discard)}
 }
 
@@ -50,7 +51,7 @@ func TestHandleGetRunBudget(t *testing.T) {
 		wantBody *RunBudget
 	}{
 		{name: "the reached ceiling", claims: system, runID: budgetRunID, ceilings: reached, rp: agent, want: http.StatusOK,
-			wantBody: &RunBudget{Scope: "delegator", Owner: "user-1", Window: "weekly", LimitUSD: 5}},
+			wantBody: &RunBudget{Scope: "delegator", Owner: "user-1", OwnerName: "Dev User", Window: "weekly", LimitUSD: 5}},
 		{name: "a per-run ceiling never resets", claims: system, runID: budgetRunID, rp: agent, want: http.StatusOK,
 			ceilings: []policy.BudgetCeiling{{Scope: "run", ID: budgetRunID, Window: "run", LimitUSD: 1, SpendUSD: 1}},
 			wantBody: &RunBudget{Scope: "run", Owner: budgetRunID, Window: "run", LimitUSD: 1}},
@@ -97,6 +98,35 @@ func TestHandleGetRunBudget(t *testing.T) {
 			}
 			if counter.lastScopes.RunID != budgetRunID || counter.lastScopes.DelegatorID != "user-1" {
 				t.Errorf("counter scopes = %+v, want the run and the delegator", counter.lastScopes)
+			}
+		})
+	}
+}
+
+// Each ceiling scope names its owner for a person, except an agent and a run.
+func TestReachedRunBudget_OwnerName(t *testing.T) {
+	agent := &RunPrincipal{PrincipalID: "spiffe://runkora.test/tenant/t1/agent/coder", PrincipalType: "AGENT"}
+	person := &RunPrincipal{PrincipalID: "user-1", PrincipalType: "HUMAN"}
+	tests := []struct {
+		name    string
+		rp      *RunPrincipal
+		ceiling policy.BudgetCeiling
+		want    string
+	}{
+		{"an agent principal is left to kora-agents", agent, policy.BudgetCeiling{Scope: "principal", ID: agent.PrincipalID, Window: "monthly"}, ""},
+		{"a person principal is named", person, policy.BudgetCeiling{Scope: "principal", ID: "user-1", Window: "monthly"}, "Dev User"},
+		{"a delegator is named", agent, policy.BudgetCeiling{Scope: "delegator", ID: "user-1", Window: "weekly"}, "Dev User"},
+		{"a role pool is its role", agent, policy.BudgetCeiling{Scope: "role_pool", ID: "engineers", Window: "monthly"}, "engineers"},
+		{"a tenant cap is the tenant", agent, policy.BudgetCeiling{Scope: "tenant", ID: "t1", Window: "monthly"}, "tenant"},
+		{"a run ceiling has no owner name", agent, policy.BudgetCeiling{Scope: "run", ID: budgetRunID, Window: "run"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.ceiling.LimitUSD, tt.ceiling.SpendUSD = 1, 1
+			c := runBudgetController(&stubEvaluator{budgetCeilings: []policy.BudgetCeiling{tt.ceiling}}, &mockSpendCounter{}, tt.rp)
+			got, err := c.svc.ReachedRunBudget(context.Background(), "t1", budgetRunID)
+			if err != nil || got.OwnerName != tt.want {
+				t.Errorf("owner_name = %q, %v; want %q", got.OwnerName, err, tt.want)
 			}
 		})
 	}

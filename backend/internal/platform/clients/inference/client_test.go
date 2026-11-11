@@ -138,7 +138,7 @@ func TestSystemOne_BadBaseURLIsNotUpstreamUnavailable(t *testing.T) {
 func TestRunBudget(t *testing.T) {
 	const runID = "6f1c2a1e-6a59-4c55-9a43-0f1d3c1b2e7a"
 	t.Run("the reached ceiling", func(t *testing.T) {
-		srv, cap := newTestServer(t, http.StatusOK, `{"scope":"principal","owner":"spiffe://x/agent/coder","window":"monthly","limit_usd":5,"resets_at":"2026-12-01T00:00:00Z"}`)
+		srv, cap := newTestServer(t, http.StatusOK, `{"scope":"delegator","owner":"user-1","owner_name":"Dev User","window":"monthly","limit_usd":5,"resets_at":"2026-12-01T00:00:00Z"}`)
 		c := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 		got, err := c.RunBudget(context.Background(), "svc-tok", "t1", runID)
 		if err != nil {
@@ -148,7 +148,7 @@ func TestRunBudget(t *testing.T) {
 			t.Errorf("request = %s %s?%s %q, want the run's tenant in the query", cap.method, cap.path, cap.query, cap.auth)
 		}
 		want := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
-		if got.Scope != "principal" || got.Window != "monthly" || got.LimitUSD != 5 || got.ResetsAt == nil || !got.ResetsAt.Equal(want) {
+		if got.Scope != "delegator" || got.OwnerName != "Dev User" || got.Window != "monthly" || got.LimitUSD != 5 || got.ResetsAt == nil || !got.ResetsAt.Equal(want) {
 			t.Errorf("budget = %+v", got)
 		}
 	})

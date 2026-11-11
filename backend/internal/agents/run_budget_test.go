@@ -89,3 +89,27 @@ func TestReachedBudget_TokenFailure(t *testing.T) {
 		t.Errorf("reachedBudget = %+v (asked %q), want nil without a call", got, reader.runID)
 	}
 }
+
+// The gateway cannot name an agent: kora-agents names the run's principal ceiling after its agent.
+func TestReachedBudget_NamesTheAgent(t *testing.T) {
+	f, repo, _, _ := newTestService(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "verify-agent", Name: "Verify agent"})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", AgentSlug: "verify-agent", AgentName: "Verify agent", State: RunStateActive})
+	tests := []struct {
+		name string
+		got  inference.RunBudget
+		want string
+	}{
+		{"an agent principal", inference.RunBudget{Scope: "principal", Owner: "spiffe://x/agent/verify-agent"}, "Verify agent"},
+		{"a named delegator stays", inference.RunBudget{Scope: "delegator", Owner: "user-1", OwnerName: "Dev User"}, "Dev User"},
+		{"a run ceiling stays unnamed", inference.RunBudget{Scope: "run", Owner: "run-1"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f.run.SetBudgetReader(&fakeBudgetReader{budget: tt.got}, func(context.Context) (string, error) { return "svc-tok", nil })
+			if got := f.run.reachedBudget(context.Background(), "run-1"); got == nil || got.OwnerName != tt.want {
+				t.Errorf("owner_name = %+v, want %q", got, tt.want)
+			}
+		})
+	}
+}

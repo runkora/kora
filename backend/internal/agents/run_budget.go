@@ -56,5 +56,16 @@ func (s *RunService) lookUpBudget(ctx context.Context, runID string) (inference.
 	if err != nil {
 		return inference.RunBudget{}, err
 	}
-	return s.budgets.RunBudget(ctx, bearer, run.TenantID, runID)
+	budget, err := s.budgets.RunBudget(ctx, bearer, run.TenantID, runID)
+	if err != nil {
+		return inference.RunBudget{}, err
+	}
+	// The gateway cannot name an agent. The run's own principal ceiling is its agent's.
+	if budget.Scope == "principal" && budget.OwnerName == "" {
+		budget.OwnerName = run.AgentName
+		if budget.OwnerName == "" {
+			budget.OwnerName = run.AgentSlug
+		}
+	}
+	return budget, nil
 }

@@ -133,6 +133,10 @@ func (s *stubUsageRepo) GetRunPrincipal(_ context.Context, _, _ string) (RunPrin
 	return RunPrincipal{}, ErrUsageRecordNotFound
 }
 
+func (s *stubUsageRepo) GetPersonName(_ context.Context, _, _ string) (string, error) {
+	return "", nil
+}
+
 func (s *stubUsageRepo) AgentUsage(_ context.Context, _ string, _ usagewindow.Window, _ AgentFilter) ([]AgentModelUsage, error) {
 	return nil, nil
 }
