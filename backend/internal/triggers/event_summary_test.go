@@ -30,14 +30,12 @@ func ghDoc(t *testing.T, parts ...string) any {
 	return doc
 }
 
-func ptr(n int) *int { return &n }
-
 func prPreview(status *agentsclient.RunEventStatus) *agentsclient.RunEventPreview {
 	return &agentsclient.RunEventPreview{
 		Title:   "Median: sort a copy",
 		Facts:   []string{"example-org/stats-lib #6", "fix/median-copy → main"},
-		Added:   ptr(17),
-		Removed: ptr(3),
+		Added:   new(17),
+		Removed: new(3),
 		Status:  status,
 	}
 }
@@ -307,6 +305,11 @@ func TestSetEventSummary_ClampsToLimits(t *testing.T) {
 		t.Errorf("summary not clamped: verb %d, quote %d, facts %d", utf8.RuneCountInString(got.Verb), utf8.RuneCountInString(got.Quote), len(got.Preview.Facts))
 	case got.Actor.URL != "" || got.Object.URL != "":
 		t.Errorf("links = %q %q, want an overlong and a javascript link dropped", got.Actor.URL, got.Object.URL)
+	}
+	incomplete := map[string]string{}
+	setEventSummary(incomplete, &agentsclient.RunEventSummary{Actor: agentsclient.RunEventActor{Name: "GitHub Actions", Kind: "bot"}, Verb: "started ci on"})
+	if len(incomplete) != 0 {
+		t.Errorf("a summary without an object label was stored: %v", incomplete)
 	}
 	if eventFromFields(map[string]string{metaEventSummary: "{not json"}) != nil {
 		t.Error("a malformed summary decodes")
