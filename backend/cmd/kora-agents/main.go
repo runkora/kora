@@ -338,6 +338,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	scaler := agents.NewScaler(repo, k8s, sm, agents.ScalerConfig{
 		TenantNamespaceFn:     cfg.TenantNamespace,
 		MinReplicas:           cfg.Agents.Scheduling.MinReplicas,
+		MaxReplicas:           cfg.Agents.Scheduling.MaxReplicas,
 		PlacementWatermark:    cfg.Agents.Scheduling.PlacementWatermark,
 		StartingRunAllowances: allowances,
 		StartingRunWindow:     time.Duration(cfg.Agents.Scheduling.StartingRunWindowSecs) * time.Second,

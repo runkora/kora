@@ -13,8 +13,8 @@ kora-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md).
 {{- if lt (int $scheduling.drainGracePeriodSecs) 61 }}
   {{- fail "agents.scheduling.drainGracePeriodSecs must be at least 61: the session-manager's 30 s shutdown timeout plus its 30 s drainMargin (cmd/session-manager/config/config.go)" }}
 {{- end }}
-{{- if lt (int $scheduling.minReplicas) 1 }}
-  {{- fail "agents.scheduling.minReplicas must be at least 1" }}
+{{- if or (lt (int $scheduling.minReplicas) 1) (gt (int $scheduling.minReplicas) (int $scheduling.maxReplicas)) }}
+  {{- fail "agents.scheduling: minReplicas must be at least 1 and at most maxReplicas" }}
 {{- end }}
 {{- if or (le (float64 $scheduling.placementWatermark) 0.0) (ge (float64 $scheduling.pressureLimit) 1.0) (ge (float64 $scheduling.placementWatermark) (float64 $scheduling.pressureLimit)) }}
   {{- fail "agents.scheduling: placementWatermark must be above 0 and below pressureLimit, and pressureLimit below 1" }}
@@ -82,6 +82,7 @@ cmd/kora-agents:
       startBudgetSecs: {{ $scheduling.startBudgetSecs | int }}
       provisionBudgetSecs: {{ $scheduling.provisionBudgetSecs | int }}
       minReplicas: {{ $scheduling.minReplicas | int }}
+      maxReplicas: {{ $scheduling.maxReplicas | int }}
       drainGracePeriodSecs: {{ $scheduling.drainGracePeriodSecs | int }}
       placementWatermark: {{ $scheduling.placementWatermark | float64 }}
       pressureLimit: {{ $scheduling.pressureLimit | float64 }}

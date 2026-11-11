@@ -21,7 +21,7 @@ func TestDesiredReplicas(t *testing.T) {
 	empty := sessionmanager.Memory{WorkingSetBytes: 10 * mi, LimitBytes: 1024 * mi}
 	base := func(mod func(*scaleInput)) scaleInput {
 		in := scaleInput{
-			replicas: 2, floor: 2, total: 30,
+			replicas: 2, floor: 2, total: 30, maxReplicas: 10,
 			ready:     []int{0, 1},
 			readings:  map[int]sessionmanager.Memory{0: full, 1: full},
 			memoryMax: 1024 * mi, allowance: 180 * mi, watermark: 0.70,
@@ -41,6 +41,19 @@ func TestDesiredReplicas(t *testing.T) {
 		// ceil(4 × 1024 ÷ 716.8) = 6 pods would pass the total of 4.
 		{"clamped to the agent total", base(func(in *scaleInput) { in.counts.Pending = 40; in.total = 4; in.allowance = 1024 * mi }), 4},
 		// Only 2 of the pending runs fit under the total: ceil(2 × 180 ÷ 716.8) = 1.
+		{"clamped to maxReplicas", base(func(in *scaleInput) { in.counts.Pending = 30; in.maxReplicas = 5 }), 5},
+		{"at maxReplicas adds nothing", base(func(in *scaleInput) {
+			in.counts.Pending = 30
+			in.replicas = 5
+			in.maxReplicas = 5
+			in.ready = []int{0, 1, 2, 3, 4}
+		}), 5},
+		{"the total below maxReplicas clamps first", base(func(in *scaleInput) {
+			in.counts.Pending = 40
+			in.total = 3
+			in.maxReplicas = 10
+			in.allowance = 1024 * mi
+		}), 3},
 		{"runs over the total need no pod", base(func(in *scaleInput) { in.counts.Pending = 20; in.total = 10; in.counts.Active = 8 }), 3},
 		{"at the total adds nothing", base(func(in *scaleInput) { in.counts.Pending = 5; in.total = 4; in.counts.Active = 4 }), 2},
 		{"a Ready pod with room adds nothing", base(func(in *scaleInput) { in.counts.Pending = 20; in.readings[1] = empty }), 2},
@@ -179,6 +192,7 @@ func newTestScaler(f *scalerFake) *Scaler {
 	return NewScaler(f, f, f, ScalerConfig{
 		TenantNamespaceFn:     func(string) string { return scaleTestNS },
 		MinReplicas:           2,
+		MaxReplicas:           10,
 		PlacementWatermark:    0.70,
 		StartingRunAllowances: NewStartingRunAllowances(q, q, q),
 	}, logging.NewLoggerWithOutput(io.Discard))

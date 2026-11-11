@@ -121,6 +121,8 @@ type Config struct {
 			ProvisionBudgetSecs int `yaml:"provisionBudgetSecs"`
 			// MinReplicas is the floor of each agent's session-manager pods. The scaler adds pods above it as runs need them.
 			MinReplicas int32 `yaml:"minReplicas"`
+			// MaxReplicas is the ceiling of each agent's session-manager pods. The scaler never adds pods past it or the agent's total.
+			MaxReplicas int32 `yaml:"maxReplicas"`
 			// DrainGracePeriodSecs is how long a terminating session-manager pod waits for its runs to end.
 			DrainGracePeriodSecs int64 `yaml:"drainGracePeriodSecs"`
 			// PlacementWatermark is the fraction of a pod's memory.max below which it takes a run.
