@@ -147,7 +147,7 @@ func TestIngest_SlackStartCarriesSourceLink(t *testing.T) {
 func TestJoinRun_SendsSources(t *testing.T) {
 	svc, deps := newTestService(t)
 	links := []agentsclient.RunSource{{Kind: "trigger", URL: "https://x.example/t", Label: "L"}}
-	if err := svc.joinRun(context.Background(), Trigger{ID: "t-1", Name: "n"}, "tok", "run-1", "hello", "d-1", eventChain{}, links); err != nil {
+	if err := svc.joinRun(context.Background(), Trigger{ID: "t-1", Name: "n"}, "tok", "run-1", "hello", "d-1", eventChain{}, links, nil); err != nil {
 		t.Fatalf("joinRun: %v", err)
 	}
 	deps.agents.mu.Lock()

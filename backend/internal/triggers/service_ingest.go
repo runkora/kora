@@ -304,6 +304,7 @@ func (s *Service) fanOut(
 	}
 
 	addSourceLinks(meta, adapter, eventType, doc)
+	addEventSummary(meta, adapter, eventType, doc)
 
 	triggers, err := s.repo.ListMatchableTriggersForSource(ctx, src.ID)
 	if err != nil {
@@ -504,7 +505,7 @@ func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, d
 	if err != nil {
 		return "", err
 	}
-	return s.startRunAs(ctx, t, tok, t.AgentTypeID, renderPrompt(t, fields), deliveryID, chainOf(fields), sourcesFromFields(fields))
+	return s.startRunAs(ctx, t, tok, t.AgentTypeID, renderPrompt(t, fields), deliveryID, chainOf(fields), sourcesFromFields(fields), eventFromFields(fields))
 }
 
 // triggerToken mints the SERVICE token a trigger's runs, messages and decision
@@ -550,7 +551,7 @@ func (s *Service) triggerToken(ctx context.Context, t Trigger) (string, error) {
 
 // startRunAs starts a run of agentTypeID under tok, attributed to the trigger,
 // the delivery and the event chain.
-func (s *Service) startRunAs(ctx context.Context, t Trigger, tok, agentTypeID, prompt, deliveryID string, chain eventChain, sources []agentsclient.RunSource) (string, error) {
+func (s *Service) startRunAs(ctx context.Context, t Trigger, tok, agentTypeID, prompt, deliveryID string, chain eventChain, sources []agentsclient.RunSource, event *agentsclient.RunEventSummary) (string, error) {
 	req := agentsclient.StartRunRequest{
 		AgentTypeID:    agentTypeID,
 		InitialMessage: prompt,
@@ -564,6 +565,7 @@ func (s *Service) startRunAs(ctx context.Context, t Trigger, tok, agentTypeID, p
 		CausedBy:    chain.causedBy,
 		ChainDepth:  chain.depth,
 		Sources:     sources,
+		Event:       event,
 	}
 
 	var run agentsclient.StartRunResponse

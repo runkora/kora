@@ -96,6 +96,7 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 	problems := t.ManualConfig.ValidateInputs(values)
 
 	fields := varFields(values)
+	setEventSummary(fields, manualSummary(ctx, *t, values))
 
 	// The values a person supplied are the manual kind's payload. Storing them is
 	// what makes a manual fire answerable after the fact ("what was it run
@@ -221,6 +222,7 @@ func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 		"var.trigger_id": t.ID,
 		"var.tenant_id":  t.TenantID,
 	}
+	setEventSummary(fields, scheduledSummary(t))
 
 	// Scheduled triggers default to replacing what is waiting: if the previous
 	// tick has not run yet, the newest one is the state worth acting on.
@@ -493,7 +495,9 @@ func (s *Service) redeliverManual(ctx context.Context, tenantID string, original
 	// Unlike FireTrigger, a refusal here is not returned as an error: the replay
 	// was accepted and recorded, and what admission then decided is in the
 	// delivery history the caller is already looking at.
-	_, _ = s.admitOrDerive(ctx, *t, dup.ID, varFields(values))
+	fields := varFields(values)
+	setEventSummary(fields, manualSummary(ctx, *t, values))
+	_, _ = s.admitOrDerive(ctx, *t, dup.ID, fields)
 
 	s.logger.Info(ctx, "manual fire replayed",
 		logging.Field{Key: "trigger_id", Value: t.ID},

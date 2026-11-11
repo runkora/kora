@@ -138,7 +138,7 @@ func (s *Service) route(ctx context.Context, t Trigger, p PendingDelivery) (*Rou
 	if key, ok := renderJoinKey(r, p.Fields); ok {
 		d.JoinKey = &key
 		if r.joins() {
-			joined, joinErr := s.joinByKey(ctx, t, tok, prompt, key, p.HoldCount, d, chain, sourcesFromFields(p.Fields))
+			joined, joinErr := s.joinByKey(ctx, t, tok, prompt, key, p.HoldCount, d, chain, sourcesFromFields(p.Fields), eventFromFields(p.Fields))
 			var hold *holdForStartingRun
 			if errors.As(joinErr, &hold) {
 				return nil, "", joinErr
@@ -160,7 +160,7 @@ func (s *Service) route(ctx context.Context, t Trigger, p PendingDelivery) (*Rou
 	case RouteOutcomeNoRun:
 		return d, "", nil
 	case RouteOutcomeJoinedRun:
-		joinErr := s.joinRun(ctx, t, tok, choice.run.ID, prompt, p.DeliveryID, chain, sourcesFromFields(p.Fields))
+		joinErr := s.joinRun(ctx, t, tok, choice.run.ID, prompt, p.DeliveryID, chain, sourcesFromFields(p.Fields), eventFromFields(p.Fields))
 		if joinErr == nil {
 			d.RunID = &choice.run.ID
 			return d, choice.run.ID, nil
@@ -173,7 +173,7 @@ func (s *Service) route(ctx context.Context, t Trigger, p PendingDelivery) (*Rou
 		d.Outcome, d.FallbackReason = RouteOutcomeNewRun, new(FallbackRunClosed)
 	}
 
-	runID, err := s.startRunAs(ctx, t, tok, choice.agentTypeID, prompt, p.DeliveryID, chain, sourcesFromFields(p.Fields))
+	runID, err := s.startRunAs(ctx, t, tok, choice.agentTypeID, prompt, p.DeliveryID, chain, sourcesFromFields(p.Fields), eventFromFields(p.Fields))
 	if err != nil {
 		return d, "", err
 	}
@@ -186,12 +186,12 @@ func (s *Service) route(ctx context.Context, t Trigger, p PendingDelivery) (*Rou
 // (ADR Decision 7). A run that is still starting returns holdForStartingRun
 // while holds remain. joined is false when no open run matched, and the model
 // decides; any other error is a join that failed.
-func (s *Service) joinByKey(ctx context.Context, t Trigger, tok, prompt, key string, holds int16, d *RoutingDecision, chain eventChain, sources []agentsclient.RunSource) (joined bool, err error) {
+func (s *Service) joinByKey(ctx context.Context, t Trigger, tok, prompt, key string, holds int16, d *RoutingDecision, chain eventChain, sources []agentsclient.RunSource, event *agentsclient.RunEventSummary) (joined bool, err error) {
 	runID, agentID, ok := s.keyMatch(ctx, t, key)
 	if !ok {
 		return false, nil
 	}
-	err = s.joinRun(ctx, t, tok, runID, prompt, d.DeliveryID, chain, sources)
+	err = s.joinRun(ctx, t, tok, runID, prompt, d.DeliveryID, chain, sources, event)
 	switch {
 	case err == nil:
 		d.Outcome, d.KeyMatched, d.AgentTypeID, d.RunID = RouteOutcomeJoinedRun, true, &agentID, &runID
@@ -349,7 +349,7 @@ func runClosed(err error) bool {
 }
 
 // joinRun sends the delivery's prompt to a run as a trigger message.
-func (s *Service) joinRun(ctx context.Context, t Trigger, tok, runID, prompt, deliveryID string, chain eventChain, sources []agentsclient.RunSource) error {
+func (s *Service) joinRun(ctx context.Context, t Trigger, tok, runID, prompt, deliveryID string, chain eventChain, sources []agentsclient.RunSource, event *agentsclient.RunEventSummary) error {
 	return s.agents.SendRunMessage(ctx, tok, runID, agentsclient.SendRunMessageRequest{
 		Content:     prompt,
 		TriggerID:   t.ID,
@@ -358,5 +358,6 @@ func (s *Service) joinRun(ctx context.Context, t Trigger, tok, runID, prompt, de
 		CausedBy:    chain.causedBy,
 		ChainDepth:  chain.depth,
 		Sources:     sources,
+		Event:       event,
 	})
 }
