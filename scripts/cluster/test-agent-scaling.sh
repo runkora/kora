@@ -131,7 +131,10 @@ kubectl --context "$CONTEXT" -n "$NS" get statefulset "$slug" --watch -o jsonpat
   > >(while read -r line; do echo "$(date +%s) $line"; done > "$watch_log") 2>/dev/null &
 watch_pid=$!
 # The watch's first event is the current state; a scale write before it would be missed.
-until [[ -s $watch_log ]]; do sleep 1; done
+until [[ -s $watch_log ]]; do
+  kill -0 "$watch_pid" 2>/dev/null || fail "the StatefulSet watch did not start"
+  sleep 1
+done
 
 start=$SECONDS
 for _ in $(seq 0 "$TOTAL"); do
