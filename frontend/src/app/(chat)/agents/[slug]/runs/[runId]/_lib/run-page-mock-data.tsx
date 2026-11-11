@@ -331,7 +331,7 @@ export const slackRun = (): MockRun => {
   const start = '2026-11-11T01:04:00Z';
   const e = at(start);
   const person = (s: number, name: string, content: string) =>
-    e(s, 'human_message', { content, sender: { id: name, type: 'HUMAN', name } });
+    e(s, 'human_message', { content, sender: { id: name, type: 'USER', name } });
   return {
     body: {
       data: {

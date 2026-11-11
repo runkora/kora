@@ -449,7 +449,7 @@ export interface RunSource {
 /** The person or agent who sent a message to a run. Absent on trigger messages and older runs. */
 export interface RunMessageSender {
   id: string;
-  /** The sender's principal type, such as HUMAN or AGENT. */
+  /** The sender's principal type: USER or AGENT. */
   type: string;
   name: string;
 }
@@ -482,7 +482,8 @@ export interface RunBudgetStop {
   /** The budget's period, such as daily or monthly. */
   window: string;
   limit_usd: number;
-  resets_at: string;
+  /** When the budget resets; absent for a per-run ceiling. */
+  resets_at?: string;
 }
 
 /** Payload of a `human_message` run event. */

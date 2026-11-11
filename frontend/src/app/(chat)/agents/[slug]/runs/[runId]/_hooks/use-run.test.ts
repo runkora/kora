@@ -621,7 +621,7 @@ describe('useRun — the run record', () => {
       verb: 'opened',
       object: { label: 'PR #6' },
     };
-    emit('human_message', { content: 'hi', sender: { id: 'u1', type: 'HUMAN', name: 'Ada' } });
+    emit('human_message', { content: 'hi', sender: { id: 'u1', type: 'USER', name: 'Ada' } });
     emit('trigger_message', { content: 'joined', trigger_name: 'route', event });
     expect(result.current.turns).toMatchObject([
       { type: 'human', content: 'hi', sender: { name: 'Ada' } },
