@@ -106,7 +106,7 @@ func TestGitHubEventSummary(t *testing.T) {
 		},
 		{
 			name: "comment on an issue", eventType: "issue_comment",
-			doc: ghDoc(t, `"action":"created"`, `"issue":{"number":7,"title":"Mean panics","state":"closed","labels":[]}`,
+			doc: ghDoc(t, `"action":"created"`, `"issue":{"number":7,"title":"Mean panics","state":"closed","labels":[{},{"name":""}]}`,
 				`"comment":{"body":"still broken","html_url":"https://github.com/example-org/stats-lib/issues/7#issuecomment-2"}`, ghRepo, ghSender),
 			want: &agentsclient.RunEventSummary{
 				Actor: reviewer, Verb: "commented on",
