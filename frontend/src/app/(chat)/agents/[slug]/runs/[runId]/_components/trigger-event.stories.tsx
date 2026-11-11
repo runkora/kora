@@ -1,14 +1,20 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { Heading, Stack, Text } from '@runkora/hades';
-import type { RunEventSummary, RunSource, TriggerKind } from '@runkora/shared/api';
+import type {
+  RunEventSummary,
+  RunSource,
+  RunWithAttribution,
+  TriggerKind,
+} from '@runkora/shared/api';
+import type { HumanTurn } from '../_types';
 import { FIRED, MENTION, MENTION_EVENT, PROMPT, VERIFY } from '../_lib/run-page-mock-data';
-import { eventSummaryOf } from '../_lib/to-run-view';
+import { entriesOf } from '../_lib/to-run-view';
+import type { Entry } from '../_lib/run-view';
 import { TriggerEventView, triggerEventOf, type TriggerEvent } from './trigger-event';
 
 /**
- * A trigger's message as the event that caused it, for every kind of trigger. Each one is the
- * summary its adapter records, read through the page's own mapping. Previews hold only fields the
- * event's own payload carries.
+ * A trigger's message as the event that caused it, for every kind of trigger. Each row is a
+ * recorded message with the summary its adapter builds, read through the page's own mapping.
  */
 const meta: Meta = {
   title: 'Pages/Agents/Run/Trigger messages',
@@ -45,322 +51,303 @@ const FORM_PROMPT = webhookPrompt(
 
 const NO_FIELDS_PROMPT = 'Something changed in the billing service. Take a look.';
 
-const REPO = 'https://github.com/example-org/stats-lib';
-const PR6 = FIRED.preview;
-const pr6 = { label: 'PR #6', url: `${REPO}/pull/6` };
-const SAM = { name: 'Sam Lee', kind: 'person' as const };
-const DEV = { name: 'dev-reviewer', kind: 'person' as const };
+const REPO = 'https://github.com/example-org/geo-utils';
+const pr12 = { label: 'PR #12', url: `${REPO}/pull/12` };
+const PR12 = {
+  title: 'Distance: return metres instead of kilometres',
+  facts: ['example-org/geo-utils #12', 'fix/distance-units → main'],
+  status: { label: 'Open', tone: 'ok' as const },
+};
+const PAT = {
+  name: 'pat-reviewer',
+  kind: 'person' as const,
+  url: 'https://github.com/pat-reviewer',
+};
 
-interface Message {
+interface Delivery {
   trigger: string;
   time: string;
   prompt: string;
   via?: TriggerKind;
   provider?: RunSource['provider'];
-  joined?: boolean;
 }
 
-/** A trigger message as the run records it, drawn the way the page draws it. */
-function ev(summary: RunEventSummary | undefined, m: Message): TriggerEvent {
-  const origin = { via: m.via, provider: m.provider };
-  return triggerEventOf({
-    type: 'message',
-    id: m.trigger,
-    time: m.time,
-    author: { kind: 'trigger', name: m.trigger, ...origin },
-    text: m.prompt,
-    ...(m.joined ? { joined: true } : {}),
-    ...(summary ? { event: eventSummaryOf(summary, origin) } : {}),
-  });
+/** A run started by `d`, holding only what the mapping reads: who started it and from where. */
+function runOf(d: Delivery): RunWithAttribution {
+  return {
+    started_by: { trigger_id: 't', trigger_name: d.trigger, trigger_kind: d.via },
+    sources: d.provider
+      ? [{ kind: 'trigger', url: 'https://example.com/', label: d.trigger, provider: d.provider }]
+      : [],
+  } as RunWithAttribution;
 }
+
+const turn = (id: string, d: Delivery, over: Partial<HumanTurn> = {}): HumanTurn => ({
+  type: 'human',
+  id,
+  content: d.prompt,
+  timestamp: `${d.time}:00`,
+  ...over,
+});
+
+const message = (entries: Entry[]) => {
+  const m = entries.at(-1);
+  if (m?.type !== 'message') throw new Error('expected a message');
+  return triggerEventOf(m);
+};
+
+/** The first message of a run the delivery started. */
+const start = (event: RunEventSummary | undefined, d: Delivery) =>
+  message(entriesOf([turn('m', d, event ? { event } : {})], runOf(d), false).entries);
+
+/** A delivery a routed trigger sent to a run already working. */
+const join = (event: RunEventSummary | undefined, d: Delivery) =>
+  message(
+    entriesOf(
+      [
+        turn('first', { ...d, prompt: 'Earlier work.' }),
+        turn('m', d, { fromTrigger: d.trigger, ...(event ? { event } : {}) }),
+      ],
+      runOf(d),
+      false,
+    ).entries,
+  );
 
 const github = { provider: 'github' as const, via: 'webhook' as const };
+const alerts = { provider: 'alertmanager' as const, via: 'webhook' as const };
+const slack = { provider: 'slack' as const, via: 'webhook' as const };
+const thread = { label: 'Slack thread', url: 'https://app.slack.com/client/T0/C0/thread/C0-1' };
+const firing = {
+  title: 'Error rate above 5%',
+  facts: ['critical', '2 alerts'],
+};
 
 const STARTS: { label: string; e: TriggerEvent }[] = [
   {
     label: 'GitHub · pull_request opened',
-    e: ev(
-      { actor: { name: 'app/fix-bot', kind: 'bot' }, verb: 'opened', object: pr6, preview: PR6 },
-      { ...github, trigger: 'review-opened', time: '04:35', prompt: PROMPT },
+    e: start(
+      { actor: PAT, verb: 'opened', object: pr12, preview: PR12 },
+      { ...github, trigger: 'review-on-open', time: '08:20', prompt: PROMPT },
     ),
   },
   {
-    label: 'GitHub · review requested',
-    e: ev(
-      { actor: DEV, verb: 'requested a review on', object: pr6, preview: PR6 },
+    label: 'GitHub · a bot opens a pull request',
+    e: start(
       {
-        ...github,
-        trigger: 'review-requested',
-        time: '11:20',
-        prompt: `Re-review this pull request. dev-reviewer requested a review from kora-agent.\n\n${PROMPT.split('\n').slice(2).join('\n')}`,
+        actor: { name: 'fix-bot[bot]', kind: 'bot', url: 'https://github.com/apps/fix-bot' },
+        verb: 'opened',
+        object: pr12,
+        preview: PR12,
       },
+      { ...github, trigger: 'review-on-open', time: '08:20', prompt: PROMPT },
     ),
   },
   {
     label: 'GitHub · issue opened',
-    e: ev(
+    e: start(
       {
-        actor: DEV,
+        actor: PAT,
         verb: 'opened',
-        object: { label: 'issue #7', url: `${REPO}/issues/7` },
-        quote: 'Calling stats.Median(nil) panics with index out of range [-1].',
+        object: { label: 'issue #14', url: `${REPO}/issues/14` },
+        quote: 'Midpoint returns NaN when both points are the same.',
         preview: {
-          title: 'Median panics on an empty slice',
-          facts: ['example-org/stats-lib #7', 'no labels'],
+          title: 'Midpoint returns NaN for equal points',
+          facts: ['example-org/geo-utils #14', 'bug'],
           status: { label: 'Open', tone: 'ok' },
         },
       },
       {
         ...github,
-        trigger: 'issue-triage-opened',
+        trigger: 'triage-new-issue',
         time: '09:12',
-        prompt:
-          'Triage this issue. dev-reviewer opened it.\n\nRepository: example-org/stats-lib\nIssue: #7\nTitle: Median panics on an empty slice',
+        prompt: 'Triage the issue below.\n\nRepository: example-org/geo-utils\nIssue: #14',
       },
     ),
   },
   {
     label: 'Slack · message',
-    e: ev(
+    e: start(
       {
-        actor: SAM,
-        verb: 'asked in',
-        object: { label: '#platform-help', url: 'https://example.slack.com/archives/C0000000000' },
-        quote: 'Can someone give the staging tenant access to the new Bedrock model?',
-        preview: { title: '#platform-help', facts: ['Slack thread', '1 message'] },
+        actor: { name: 'U04ABCD12', kind: 'person' },
+        verb: 'wrote in',
+        object: thread,
+        quote: 'Can the evaluation agents use the new model in staging?',
       },
-      {
-        provider: 'slack',
-        via: 'webhook',
-        trigger: 'slack-platform-help',
-        time: '13:04',
-        prompt:
-          'Sam Lee asked in #platform-help.\n\nMessage: Can someone give the staging tenant access to the new Bedrock model?',
-      },
+      { ...slack, trigger: 'help-thread', time: '13:04', prompt: 'A message in the help thread.' },
     ),
   },
   {
     label: 'Alertmanager · firing',
-    e: ev(
+    e: start(
       {
-        actor: { name: 'Alertmanager', kind: 'bot' },
+        actor: { name: 'Alertmanager', kind: 'system' },
         verb: 'fired',
         object: { label: 'HighErrorRate', url: 'https://prometheus.example.com/graph' },
-        preview: {
-          title: 'HighErrorRate',
-          facts: ['critical', 'kora-agents', 'since 03:10'],
-          status: { label: 'Firing', tone: 'bad' },
-        },
+        preview: { ...firing, status: { label: 'Firing', tone: 'bad' } },
       },
       {
-        provider: 'alertmanager',
-        via: 'webhook',
-        trigger: 'oncall-alerts',
+        ...alerts,
+        trigger: 'on-call-alerts',
         time: '03:12',
-        prompt:
-          'Investigate this alert.\n\nAlert: HighErrorRate\nSeverity: critical\nService: kora-agents',
+        prompt: 'Look into the alert below.\n\nAlert: HighErrorRate\nSeverity: critical',
       },
     ),
   },
   {
     label: 'Schedule',
-    e: ev(
+    e: start(
       {
         actor: { name: 'Schedule', kind: 'system' },
-        verb: 'started the docs drift check for',
-        object: { label: 'example-org/platform', url: 'https://github.com/example-org/platform' },
-        preview: {
-          title: 'Mon, Wed and Fri at 09:00',
-          facts: ['Australia/Sydney', 'next Friday 09:00'],
-        },
+        verb: 'fired',
+        object: { label: 'weekly-dependency-check' },
+        preview: { title: '0 9 * * 1', facts: ['Europe/London'] },
       },
       {
         via: 'scheduled',
-        trigger: 'docs-drift-scheduled',
+        trigger: 'weekly-dependency-check',
         time: '09:00',
-        prompt:
-          'The scheduled docs drift check is due.\nRepository: example-org/platform\nSchedule: 0 9 * * 1,3,5 Australia/Sydney',
+        prompt: 'Check the dependencies for updates.',
       },
     ),
   },
   {
-    label: 'Manual fire on a pull request',
-    e: ev(FIRED, {
+    label: 'Manual fire, with inputs',
+    e: start(FIRED, {
       via: 'manual',
       provider: 'github',
-      trigger: 'review-stats-pr6',
-      time: '04:35',
+      trigger: 'review-pull-request',
+      time: '08:20',
       prompt: PROMPT,
     }),
   },
   {
-    label: 'Manual fire, with inputs',
-    e: ev(
+    label: 'Manual fire, no inputs: no preview',
+    e: start(
       {
-        actor: SAM,
-        verb: 'fired vuln-scan-manual on',
-        object: { label: 'example-org/platform', url: 'https://github.com/example-org/platform' },
-        preview: { title: 'vuln-scan-manual', facts: ['repository_name example-org/platform'] },
+        actor: { name: 'Sam Lee', kind: 'person' },
+        verb: 'fired',
+        object: { label: 'refresh-docs-index' },
+        preview: { title: 'refresh-docs-index' },
       },
       {
         via: 'manual',
-        trigger: 'vuln-scan-manual',
+        trigger: 'refresh-docs-index',
         time: '15:41',
-        prompt: 'Run the vulnerability check.\nRepository: example-org/platform',
+        prompt: 'Rebuild the docs index.',
       },
     ),
   },
   {
-    label: 'Platform event · run completed',
-    e: ev(
+    label: 'Platform event · run failed',
+    e: start(
       {
-        actor: { name: 'smoke-codex', kind: 'system' },
-        verb: 'completed run',
-        object: { label: '7d8e9f0a' },
+        actor: { name: 'release-check', kind: 'bot' },
+        verb: 'failed run',
+        object: { label: '4c5d6e7f' },
         preview: {
-          title: 'smoke-codex · run 7d8e9f0a',
-          facts: ['took 8m 31s'],
-          status: { label: 'Completed', tone: 'ok' },
+          title: 'release-check · run 4c5d6e7f',
+          status: { label: 'Failed', tone: 'bad' },
         },
       },
-      { via: 'event', trigger: 'smoke-verifier-completed', time: '02:26', prompt: VERIFY },
+      { via: 'event', trigger: 'verify-on-complete', time: '17:41', prompt: VERIFY },
+    ),
+  },
+  {
+    label: 'Platform event · agent updated',
+    e: start(
+      {
+        actor: { name: 'Sam Lee', kind: 'person' },
+        verb: 'updated agent',
+        object: { label: 'Code Reviewer' },
+      },
+      { via: 'event', trigger: 'audit-agent-changes', time: '11:02', prompt: 'An agent changed.' },
     ),
   },
   {
     label: 'Platform event · no summary, read from the prompt',
-    e: ev(undefined, {
+    e: start(undefined, {
       via: 'event',
-      trigger: 'smoke-verifier-completed',
-      time: '02:26',
+      trigger: 'verify-on-complete',
+      time: '17:41',
       prompt: VERIFY,
-    }),
-  },
-  {
-    label: 'Generic webhook, no adapter',
-    e: ev(undefined, {
-      via: 'webhook',
-      trigger: 'deploy-notify',
-      time: '17:02',
-      prompt: DEPLOY_PROMPT,
     }),
   },
 ];
 
 const JOINS: { label: string; e: TriggerEvent }[] = [
   {
-    label: 'GitHub · mention in a comment',
-    e: ev(MENTION_EVENT, {
+    label: 'GitHub · comment on a pull request',
+    e: join(MENTION_EVENT, {
       ...github,
-      trigger: 'mention-comment',
-      time: '04:38',
-      joined: true,
+      trigger: 'answer-comment',
+      time: '08:22',
       prompt: MENTION,
     }),
   },
   {
     label: 'GitHub · comment on a line',
-    e: ev(
+    e: join(
       {
-        actor: DEV,
-        verb: 'commented on stats/stats.go:20 in',
-        object: { label: 'PR #6', url: `${REPO}/pull/6#discussion_r2219983311` },
-        quote: '@kora-agent is slices.Clone available in our Go version?',
-        preview: PR6,
+        actor: PAT,
+        verb: 'commented on geo/distance.go:23 in',
+        object: { label: 'PR #12', url: `${REPO}/pull/12#discussion_r1` },
+        quote: '@kora-agent is 6371 the right radius here?',
+        preview: PR12,
       },
-      {
-        ...github,
-        trigger: 'mention-review-comment',
-        time: '04:40',
-        joined: true,
-        prompt:
-          'dev-reviewer mentioned @kora-agent on a line of a pull request.\n\nFile: stats/stats.go\nLine: 20',
-      },
+      { ...github, trigger: 'answer-line-comment', time: '08:24', prompt: 'A comment on a line.' },
     ),
   },
   {
-    label: 'GitHub · review submitted',
-    e: ev(
+    label: 'GitHub · changes requested',
+    e: join(
       {
-        actor: DEV,
+        actor: PAT,
         verb: 'requested changes on',
-        object: pr6,
-        quote: 'Add a test for an even-length input as well.',
-        preview: PR6 && { ...PR6, status: { label: 'Changes requested', tone: 'bad' } },
+        object: { label: 'PR #12', url: `${REPO}/pull/12#pullrequestreview-9` },
+        quote: 'Add a test across the date line as well.',
+        preview: { ...PR12, status: { label: 'Changes requested', tone: 'bad' } },
       },
-      {
-        ...github,
-        trigger: 'issue-fixer-reviewed',
-        time: '05:02',
-        joined: true,
-        prompt:
-          'Follow-up: dev-reviewer reviewed your pull request. Address the review.\n\nPull request: #6\nReview: Add a test for an even-length input as well.',
-      },
+      { ...github, trigger: 'address-review', time: '09:02', prompt: 'Address the review.' },
     ),
   },
   {
     label: 'GitHub · CI failed',
-    e: ev(
+    e: join(
       {
         actor: { name: 'GitHub Actions', kind: 'bot' },
         verb: 'failed test on',
-        object: pr6,
+        object: pr12,
         preview: {
-          title: 'test · run 19243318823',
-          facts: ['example-org/stats-lib', 'fix/median-copy'],
+          title: 'test · run 42',
+          facts: ['example-org/geo-utils', 'fix/distance-units'],
           status: { label: 'Failed', tone: 'bad' },
         },
       },
-      {
-        ...github,
-        trigger: 'issue-fixer-ci-failed',
-        time: '10:02',
-        joined: true,
-        prompt:
-          'Follow-up: CI failed on your pull request. Fix it.\n\nPull request: #6\nFailed workflow: test',
-      },
+      { ...github, trigger: 'fix-failed-checks', time: '10:02', prompt: 'A check failed.' },
     ),
   },
   {
     label: 'Slack · thread reply',
-    e: ev(
+    e: join(
       {
-        actor: SAM,
+        actor: { name: 'U04ABCD12', kind: 'person' },
         verb: 'replied in',
-        object: { label: '#platform-help', url: 'https://example.slack.com/archives/C0000000000' },
-        quote: 'Only for the eval agents, not the whole tenant.',
+        object: thread,
+        quote: 'Only the evaluation agents, not the whole tenant.',
       },
-      {
-        provider: 'slack',
-        via: 'webhook',
-        trigger: 'slack-platform-help',
-        time: '13:09',
-        joined: true,
-        prompt:
-          'Sam Lee replied in the thread.\n\nMessage: Only for the eval agents, not the whole tenant.',
-      },
+      { ...slack, trigger: 'help-thread', time: '13:09', prompt: 'A reply in the help thread.' },
     ),
   },
   {
     label: 'Alertmanager · resolved',
-    e: ev(
+    e: join(
       {
-        actor: { name: 'Alertmanager', kind: 'bot' },
+        actor: { name: 'Alertmanager', kind: 'system' },
         verb: 'resolved',
         object: { label: 'HighErrorRate', url: 'https://prometheus.example.com/graph' },
-        preview: {
-          title: 'HighErrorRate',
-          facts: ['critical', 'kora-agents', 'lasted 21m'],
-          status: { label: 'Resolved', tone: 'ok' },
-        },
+        preview: { ...firing, status: { label: 'Resolved', tone: 'ok' } },
       },
-      {
-        provider: 'alertmanager',
-        via: 'webhook',
-        trigger: 'oncall-alerts',
-        time: '03:31',
-        joined: true,
-        prompt: 'The alert resolved.\n\nAlert: HighErrorRate',
-      },
+      { ...alerts, trigger: 'on-call-alerts', time: '03:31', prompt: 'The alert resolved.' },
     ),
   },
 ];
@@ -400,7 +387,7 @@ export const Events: StoryObj = {
 };
 
 const hook = (trigger: string, time: string, prompt: string, joined?: boolean) =>
-  ev(undefined, { via: 'webhook', trigger, time, prompt, joined });
+  (joined ? join : start)(undefined, { via: 'webhook', trigger, time, prompt });
 
 const WEBHOOKS: { label: string; e: TriggerEvent }[] = [
   { label: 'Deploy tool', e: hook('deploy-notify', '17:02', DEPLOY_PROMPT) },

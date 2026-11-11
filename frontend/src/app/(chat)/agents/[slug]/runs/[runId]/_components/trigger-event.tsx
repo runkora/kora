@@ -22,6 +22,7 @@ import { isSafeUrl } from '@runkora/lib/safe-url';
 import { parseTriggerMessage } from '../_lib/trigger-message';
 import { useRunLayout } from '../_lib/run-layout';
 import type { Entry, TriggerEventSummary, TriggerOrigin } from '../_lib/run-view';
+import { LINE, NOWRAP } from '../_lib/run-styles';
 
 /** An event summary placed in the thread: when it arrived and the prompt it rendered. */
 export interface TriggerEvent extends TriggerEventSummary {
@@ -31,26 +32,28 @@ export interface TriggerEvent extends TriggerEventSummary {
   prompt: string;
 }
 
-const LINE = '1px solid var(--color-border-subtle)';
-const NOWRAP: React.CSSProperties = { whiteSpace: 'nowrap', flexShrink: 0 };
-
-function Mark({ actor }: { actor: TriggerEvent['actor'] }) {
-  if (actor.kind === 'person') return <Avatar name={actor.name} size="2xs" />;
+/** A round mark for something that is not a person: a trigger, a bot or the platform. */
+export function SystemMark({ icon = 'zap', size = 18 }: { icon?: IconName; size?: number }) {
   return (
     <Stack
       align="center"
       justify="center"
+      shrink
       style={{
-        width: 18,
-        height: 18,
+        width: size,
+        height: size,
         borderRadius: 999,
         background: 'var(--color-surface-overlay)',
-        flexShrink: 0,
       }}
     >
-      <Icon name={actor.icon ?? 'zap'} size="2xs" color="muted" label="" />
+      <Icon name={icon} size="2xs" color="muted" label="" />
     </Stack>
   );
+}
+
+function Mark({ actor }: { actor: TriggerEvent['actor'] }) {
+  if (actor.kind === 'person') return <Avatar name={actor.name} size="2xs" />;
+  return <SystemMark icon={actor.icon ?? 'zap'} />;
 }
 
 function ObjectLink({ object }: { object: TriggerEvent['object'] }) {
@@ -71,7 +74,7 @@ function ObjectLink({ object }: { object: TriggerEvent['object'] }) {
 function EventLine({ e }: { e: TriggerEvent }) {
   const phone = useRunLayout() === 'phone';
   return (
-    <Stack direction="horizontal" align="center" gap="snug" style={{ position: 'relative' }}>
+    <Stack direction="horizontal" align="center" gap="snug" position="relative">
       {/* The mark hangs in the gutter so the event lines up with the blocks around it. A phone has no gutter, so it sits inline. */}
       {phone ? (
         <Mark actor={e.actor} />
@@ -103,11 +106,8 @@ function Quote({ text }: { text: string }) {
   return (
     <Text
       size="supporting"
-      style={{
-        borderLeft: '2px solid var(--color-border)',
-        paddingLeft: 10,
-        whiteSpace: 'pre-wrap',
-      }}
+      preserveWhitespace
+      style={{ borderLeft: '2px solid var(--color-border)', paddingLeft: 10 }}
     >
       {text}
     </Text>
@@ -174,7 +174,8 @@ function Prompt({ e }: { e: TriggerEvent }) {
           size="caption"
           color="muted"
           mono
-          style={{ whiteSpace: 'pre-wrap', paddingTop: 4, display: 'block' }}
+          preserveWhitespace
+          style={{ paddingTop: 4, display: 'block' }}
         >
           {e.prompt}
         </Text>
@@ -210,7 +211,7 @@ const FALLBACK: Record<string, { icon: IconName; verb: string }> = {
  * `Key: {{ path }}` lines, filled from the data block the platform appends. Generic webhooks use
  * this, and every other trigger falls back to it until its adapter records a summary.
  */
-export function promptEvent(input: {
+function promptEvent(input: {
   trigger: string;
   time: string;
   joined?: boolean;
@@ -218,7 +219,8 @@ export function promptEvent(input: {
   via?: TriggerOrigin['via'];
 }): TriggerEvent {
   const parts = parseTriggerMessage(input.prompt);
-  const title = parts.lead.split(/(?<=[.!?])\s/)[0] || input.trigger;
+  const title = parts.lead.split(/(?<=[.!?])\s/)[0];
+  const meta = parts.fields.map((f) => `${f.key} ${f.value}`);
   // A message whose trigger kind is unknown, such as one joining a run, claims no kind.
   const look = (input.via && FALLBACK[input.via]) || {
     icon: 'zap' as const,
@@ -231,7 +233,10 @@ export function promptEvent(input: {
     trigger: input.trigger,
     time: input.time,
     joined: input.joined,
-    unfurl: { icon: look.icon, title, meta: parts.fields.map((f) => `${f.key} ${f.value}`) },
+    // A prompt with neither a lead sentence nor fields has nothing to preview.
+    ...(title || meta.length
+      ? { unfurl: { icon: look.icon, title: title || input.trigger, meta } }
+      : {}),
     prompt: input.prompt,
   };
 }

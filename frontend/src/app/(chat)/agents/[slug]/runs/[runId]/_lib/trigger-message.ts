@@ -1,5 +1,5 @@
 /**
- * @tier 3 — proposed, run-page-scoped. Splits a trigger's rendered message into the parts every
+ * @tier 3 — run-page-scoped. Splits a trigger's rendered message into the parts every
  * trigger template has: a lead instruction, a block of `Key: value` lines, closing instructions, and
  * the event the platform appends inside `<delivery-data>`.
  */

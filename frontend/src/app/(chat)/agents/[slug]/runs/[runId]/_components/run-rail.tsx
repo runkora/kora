@@ -8,6 +8,7 @@
 import {
   Anchor,
   Avatar,
+  Button,
   Icon,
   Popover,
   PopoverContent,
@@ -17,19 +18,16 @@ import {
   type IconName,
 } from '@runkora/hades';
 import { isSafeUrl } from '@runkora/lib/safe-url';
-import { harnessLabel, participantsOf, type Participant, type RunView } from '../_lib/run-view';
-import { PROVIDER_ICON } from '../_lib/to-run-view';
-
-const LINE = '1px solid var(--color-border-subtle)';
-
-const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n));
-
-const SOURCE_ICON: Record<string, IconName> = {
-  trigger: 'github',
-  pull_request: 'github',
-  repository: 'folder',
-  branch: 'git-branch',
-};
+import { sourceIcon } from '@runkora/components';
+import {
+  harnessLabel,
+  participantsOf,
+  tokensLine,
+  type Participant,
+  type RunView,
+} from '../_lib/run-view';
+import { branchName, LINE } from '../_lib/run-styles';
+import { SystemMark } from './trigger-event';
 
 function Label({ children, aside }: { children: React.ReactNode; aside?: string }) {
   return (
@@ -48,60 +46,73 @@ function Label({ children, aside }: { children: React.ReactNode; aside?: string 
 
 // ── People: everyone who started or steered the run ─────────────────────────
 
-function Mark({ p, size = '2xs' }: { p: Participant; size?: '2xs' | 'xs' }) {
-  return p.kind === 'person' ? (
-    <Avatar name={p.name} size={size} />
-  ) : (
-    <Stack
-      align="center"
-      justify="center"
-      style={{
-        width: 18,
-        height: 18,
-        borderRadius: 999,
-        background: 'var(--color-surface-overlay)',
-        flexShrink: 0,
-      }}
-    >
-      <Icon name="zap" size="2xs" color="muted" label="" />
-    </Stack>
-  );
+/** A participant's mark: a person's avatar, a bot for an agent, a bolt for a trigger. */
+function Mark({ p }: { p: Participant }) {
+  if (p.kind === 'person') return <Avatar name={p.name} size="xs" />;
+  return <SystemMark icon={p.kind === 'agent' ? 'bot' : 'zap'} size={24} />;
 }
 
-/** People as an overlapping row of marks, names underneath. */
+const plural = (n: number, one: string, many: string) => (n ? `${n} ${n === 1 ? one : many}` : '');
+
+/** People as an overlapping row of marks that opens to how each took part. */
 function PeopleStack({ run }: { run: RunView }) {
   const ps = participantsOf(run);
   if (!ps.length) return null;
-  const people = ps.filter((p) => p.kind === 'person').length;
-  const triggers = ps.length - people;
+  const count = (k: Participant['kind']) => ps.filter((p) => p.kind === k).length;
   return (
     <Stack gap="cozy">
       <Label>People</Label>
-      <Stack direction="horizontal" align="center" gap="snug">
-        <Stack direction="horizontal">
-          {ps.map((p, i) => (
-            <Stack
-              key={p.name}
-              style={{
-                marginLeft: i ? -6 : 0,
-                borderRadius: 999,
-                boxShadow: '0 0 0 2px var(--color-background)',
-              }}
-              title={`${p.name}: ${p.detail}`}
-            >
-              <Mark p={p} size="xs" />
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label="Who took part"
+            style={{ justifyContent: 'flex-start', paddingInline: 0, height: 'auto' }}
+          >
+            <Stack direction="horizontal" align="center" gap="snug">
+              <Stack direction="horizontal">
+                {ps.map((p, i) => (
+                  <Stack
+                    key={p.name}
+                    style={{
+                      marginLeft: i ? -6 : 0,
+                      borderRadius: 999,
+                      boxShadow: '0 0 0 2px var(--color-background)',
+                    }}
+                  >
+                    <Mark p={p} />
+                  </Stack>
+                ))}
+              </Stack>
+              <Text as="span" size="caption" color="muted">
+                {[
+                  plural(count('person'), 'person', 'people'),
+                  plural(count('agent'), 'agent', 'agents'),
+                  plural(count('trigger'), 'trigger', 'triggers'),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </Text>
             </Stack>
-          ))}
-        </Stack>
-        <Text size="caption" color="muted">
-          {[
-            people && `${people} ${people === 1 ? 'person' : 'people'}`,
-            triggers && `${triggers} ${triggers === 1 ? 'trigger' : 'triggers'}`,
-          ]
-            .filter(Boolean)
-            .join(' · ')}
-        </Text>
-      </Stack>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start">
+          <Stack gap="snug" padding="tight">
+            {ps.map((p) => (
+              <Stack key={p.name} direction="horizontal" align="center" gap="snug">
+                <Mark p={p} />
+                <Stack gap="none" minWidth="none">
+                  <Text size="supporting">{p.name}</Text>
+                  <Text size="caption" color="subtle">
+                    {p.detail}
+                  </Text>
+                </Stack>
+              </Stack>
+            ))}
+          </Stack>
+        </PopoverContent>
+      </Popover>
       <Text size="caption" color="subtle">
         {ps.map((p) => p.name).join(', ')}
       </Text>
@@ -118,24 +129,15 @@ function Links({ run }: { run: RunView }) {
       <Label>Links</Label>
       {run.sources.map((src) => (
         <Stack key={src.url} direction="horizontal" align="center" gap="snug">
-          <Icon
-            name={
-              (src.kind === 'trigger' && src.provider && PROVIDER_ICON[src.provider]) ||
-              SOURCE_ICON[src.kind] ||
-              'external-link'
-            }
-            size="2xs"
-            color="subtle"
-            label=""
-          />
+          <Icon name={sourceIcon(src)} size="2xs" color="subtle" label="" />
           <Text size="supporting" truncate>
             {/* A source URL is recorded data; only an http(s) one becomes a link. */}
             {isSafeUrl(src.url) ? (
               <Anchor href={src.url} target="_blank" rel="noopener noreferrer">
-                {src.label.replace(/^branch /, '')}
+                {branchName(src.label)}
               </Anchor>
             ) : (
-              src.label.replace(/^branch /, '')
+              branchName(src.label)
             )}
           </Text>
         </Stack>
@@ -193,7 +195,7 @@ function Access({ actions }: { actions: string[] }) {
 /** An icon centred on the first line of the text beside it, whatever that text's size. */
 function LeadIcon({ name }: { name: IconName }) {
   return (
-    <Stack align="center" justify="center" style={{ height: 20, width: 14, flexShrink: 0 }}>
+    <Stack align="center" justify="center" shrink style={{ height: 20, width: 14 }}>
       <Icon name={name} size="2xs" color="subtle" label="" />
     </Stack>
   );
@@ -211,7 +213,7 @@ function RunsOn({ run }: { run: RunView }) {
         <Stack direction="horizontal" align="start" gap="snug">
           <LeadIcon name="square-terminal" />
           <Stack grow minWidth="none" gap="none">
-            <Text size="supporting">{harnessLabel(run.harness) || 'Agent harness'}</Text>
+            <Text size="supporting">{harnessLabel(run.harness)}</Text>
             <Text size="caption" color="subtle" truncate>
               {model}
               {provider && ` · ${provider}`}
@@ -261,7 +263,10 @@ function Spend({ run }: { run: RunView }) {
         ${run.spend.usd.toFixed(3)}
       </Text>
       <Text size="caption" color="muted" tabular>
-        {r.requests} model calls · {k(r.inputTokens)} in · {k(r.outputTokens)} out
+        {r.requests} model calls
+      </Text>
+      <Text size="caption" color="muted" tabular>
+        {tokensLine(run)}
       </Text>
     </Stack>
   );
@@ -275,12 +280,12 @@ export function RunRail({ run, sheet }: { run: RunView; sheet?: boolean }) {
   return (
     <Stack
       gap="loose"
+      shrink
+      overflowY="auto"
       style={{
         width: sheet ? '100%' : 320,
-        flexShrink: 0,
         padding: sheet ? '8px 20px 28px' : '24px 22px',
         borderLeft: sheet ? undefined : LINE,
-        overflowY: 'auto',
         scrollbarWidth: 'none',
       }}
     >

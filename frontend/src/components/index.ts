@@ -92,5 +92,5 @@ export { AuthCardShell } from './auth-card-shell';
 export { CODE_LINE_HEIGHT, InstructionsMarkdown } from './instructions-markdown';
 
 /** Chips linking to what started a run: one per delivery, the rest behind "+N". */
-export { RunSourceChips } from './run-source-chips';
+export { PROVIDER_ICON, RunSourceChips, sourceIcon } from './run-source-chips';
 export type { RunSourceChipsProps } from './run-source-chips';

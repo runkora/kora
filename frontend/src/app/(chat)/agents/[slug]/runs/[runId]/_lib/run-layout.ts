@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * @tier 3 — proposed, run-page-scoped. The run page's layout, chosen from the page's own width so
+ * @tier 3 — run-page-scoped. The run page's layout, chosen from the page's own width so
  * a framed preview lays out like the device it stands for.
  */
 import { createContext, useContext } from 'react';

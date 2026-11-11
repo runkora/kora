@@ -26,21 +26,19 @@ export function ConnectionBanner() {
       direction="horizontal"
       align="center"
       justify="between"
+      gap="cozy"
+      shrink
       style={{
-        gap: 12,
         padding: '6px 14px',
-        flexShrink: 0,
         background: isClosed
           ? 'color-mix(in oklch, var(--color-status-error) 18%, transparent)'
           : 'color-mix(in oklch, var(--color-status-degraded) 18%, transparent)',
         borderBottom: '1px solid var(--color-border-subtle)',
-        fontSize: 12,
-        color: 'var(--color-foreground)',
       }}
       role="status"
       aria-live="polite"
     >
-      <Text as="span" style={{ fontSize: 12, color: 'var(--color-foreground)' }}>
+      <Text as="span" size="caption" color="foreground">
         {message}
       </Text>
       {isClosed && (

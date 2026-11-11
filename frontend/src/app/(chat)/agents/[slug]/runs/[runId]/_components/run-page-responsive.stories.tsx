@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { Stack, Text } from '@runkora/hades';
-import { budgetRun, runStory, runningRun, type MockRun } from '../_lib/run-page-mock-data';
+import { BUDGETS, budgetRun, runStory, runningRun, type MockRun } from '../_lib/run-page-mock-data';
 import { RunProvider } from '../_context/run-context';
 import { RunPage } from './run-page';
 
@@ -57,7 +57,7 @@ function Frames({ run }: { run: MockRun }) {
   );
 }
 
-/** Mid-run, with a mention joined. */
+/** Mid-run, with a comment joined. */
 export const Running: StoryObj = {
   render: () => <Frames run={runningRun()} />,
   decorators: runStory([runningRun()]),
@@ -65,6 +65,6 @@ export const Running: StoryObj = {
 
 /** Stopped by a spent budget. */
 export const BudgetExhausted: StoryObj = {
-  render: () => <Frames run={budgetRun()} />,
-  decorators: runStory([budgetRun()]),
+  render: () => <Frames run={budgetRun(BUDGETS.monthly)} />,
+  decorators: runStory([budgetRun(BUDGETS.monthly)]),
 };

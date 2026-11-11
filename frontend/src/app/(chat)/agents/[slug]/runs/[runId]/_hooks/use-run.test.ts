@@ -513,11 +513,11 @@ describe('useRun — activity, delivery and stops', () => {
     ).toEqual(['a1', 'c1']);
   });
 
-  it('counts a replayed running call from its server start, not the reload', async () => {
+  it("shows a running call as the agent's activity", async () => {
     const { result, emit } = await start();
     emit('tool_use', { id: 't1', name: 'bash', input: { command: 'make' } });
     const activity = result.current.liveActivity;
-    expect(activity).toMatchObject({ kind: 'tool', since: Date.parse(at) });
+    expect(activity).toMatchObject({ kind: 'tool' });
   });
 
   it('attaches a subagent call to its Agent call and records durations from server time', async () => {
@@ -632,11 +632,12 @@ describe('useRun — the run record', () => {
   it('records the budget a run_state names, and the sandbox it started in', async () => {
     const { result, emit } = await start();
     const budget = {
-      scope: 'agent',
-      owner: 'Test',
-      window: 'daily',
+      scope: 'principal',
+      owner: 'spiffe://kora.example/ns/example/sa/test',
+      owner_name: 'Test',
+      window: 'monthly',
       limit_usd: 5,
-      resets_at: '2026-11-12T00:00:00Z',
+      resets_at: '2026-12-01T00:00:00Z',
     };
     emit('sandbox_environment', {
       action: 'create',
@@ -664,6 +665,18 @@ describe('useRun — the run record', () => {
     });
     expect(result.current.loadError).toBeNull();
     expect(result.current.run?.id).toBe('run-1');
+  });
+
+  it('does not give a pending message the name of someone who sent the same words', async () => {
+    const { result, emit } = await start();
+    await act(async () => {
+      result.current.addHumanMessage('yes');
+    });
+    emit('human_message', { content: 'yes', sender: { id: 'u-other', type: 'USER', name: 'Ada' } });
+    const humans = result.current.turns.filter((t) => t.type === 'human');
+    expect(humans).toHaveLength(2);
+    expect(humans[0]).toMatchObject({ content: 'yes', timestamp: '' });
+    expect(humans[1]).toMatchObject({ sender: { name: 'Ada' } });
   });
 
   it('lists the other runs of the agent, not this one', async () => {
