@@ -593,10 +593,6 @@ func (m *mockRepository) CancelRunsByAgentType(_ context.Context, agentTypeID st
 	return cancelled, nil
 }
 
-func (m *mockRepository) ActiveRunsPerPod(_ context.Context, agentTypeID string) (map[int]int, error) {
-	return m.podCounts(agentTypeID, func(s RunState) bool { occupies, _ := s.OccupiesPod(); return occupies }), nil
-}
-
 func (m *mockRepository) StartingRunsPerPod(_ context.Context, agentTypeID string, assignedSince time.Time) (map[int]int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
