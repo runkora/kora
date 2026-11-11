@@ -280,9 +280,11 @@ export function RunRail({ run, sheet }: { run: RunView; sheet?: boolean }) {
   return (
     <Stack
       gap="loose"
-      shrink
+      shrink={!sheet}
       overflowY="auto"
       style={{
+        // In a sheet the rail fills the panel's column and scrolls inside it.
+        ...(sheet ? { flex: '1 1 0', minHeight: 0 } : {}),
         width: sheet ? '100%' : 320,
         padding: sheet ? '8px 20px 28px' : '24px 22px',
         borderLeft: sheet ? undefined : LINE,

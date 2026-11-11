@@ -2,6 +2,7 @@
 
 /** @tier 3 — run-page-scoped. One row of the run's thread: a message, the agent's words, a call. */
 
+import { memo } from 'react';
 import { Avatar, Icon, Stack, StreamingCursor, Text } from '@runkora/hades';
 import { InstructionsMarkdown } from '@runkora/components';
 import type { Entry, Row } from '../_lib/run-view';
@@ -60,7 +61,8 @@ function Prose({ text, streaming }: { text: string; streaming?: boolean }) {
   );
 }
 
-export function RowView({ row }: { row: Row }) {
+/** Memoised: rows are stable between clock ticks, so a tick does not re-render the thread. */
+export const RowView = memo(function RowView({ row }: { row: Row }) {
   if (row.type === 'quiet') return <QuietLine steps={row.steps} />;
   if (row.type === 'step') return <CallBlock step={row.step} nested={row.children} />;
   const e = row.entry;
@@ -89,7 +91,7 @@ export function RowView({ row }: { row: Row }) {
         </Stack>
       );
   }
-}
+});
 
 /** A row's key: its entry's, step's or fold's id. */
 export const rowKey = (row: Row) =>

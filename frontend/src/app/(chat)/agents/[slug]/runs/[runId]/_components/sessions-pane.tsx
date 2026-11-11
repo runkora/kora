@@ -87,9 +87,11 @@ export function SessionsPane({
   return (
     <Stack
       gap="relaxed"
-      shrink
+      shrink={!drawer}
       overflowY="auto"
       style={{
+        // In a drawer the pane fills the panel's column and scrolls inside it.
+        ...(drawer ? { flex: '1 1 0', minHeight: 0 } : {}),
         width: drawer ? '100%' : 264,
         borderRight: drawer ? undefined : LINE,
         padding: '18px 12px',

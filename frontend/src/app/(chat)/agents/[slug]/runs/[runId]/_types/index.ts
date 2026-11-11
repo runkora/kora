@@ -58,7 +58,7 @@ export interface ToolCall {
   /** Server times (ms) of the call and its result, for durations. */
   startedAt?: number;
   endedAt?: number;
-  /** Browser time (ms) the call arrived, for the live elapsed counter. */
+  /** Browser time (ms) the call arrived, for a call the server sent no time for. */
   receivedAt?: number;
 }
 

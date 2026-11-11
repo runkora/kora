@@ -36,6 +36,7 @@ export function EndLine({ run, canRaiseBudget }: { run: RunView; canRaiseBudget:
           <Text size="caption" color="subtle">
             Model calls were refused after ${run.spend.usd.toFixed(2)}.
             {b?.resets ? ` The budget resets ${b.resets}.` : ''}
+            {run.record ? ` ${tokensLine(run)}.` : ''}
           </Text>
         </Stack>
         {canRaiseBudget && (
