@@ -35,6 +35,8 @@ const (
 	actorSystem = "system"
 	toneOK      = "ok"
 	toneBad     = "bad"
+	// jsonTrue is how resolvePath renders a JSON true.
+	jsonTrue = "true"
 )
 
 // eventSummarizer is implemented by adapters that can describe a delivery.
@@ -54,12 +56,16 @@ func addEventSummary(meta map[string]string, adapter SourceAdapter, eventType st
 	setEventSummary(meta, es.EventSummary(eventType, doc))
 }
 
-// setEventSummary stores e, clamped to the limits, in fields. A nil summary stores nothing.
+// setEventSummary stores e, clamped to the limits, in fields. A nil or incomplete summary stores nothing.
 func setEventSummary(fields map[string]string, e *agentsclient.RunEventSummary) {
 	if e == nil {
 		return
 	}
 	clampSummary(e)
+	// kora-agents refuses a summary without these, and a run never fails over its summary.
+	if e.Actor.Name == "" || e.Verb == "" || e.Object.Label == "" {
+		return
+	}
 	if b, err := json.Marshal(e); err == nil {
 		fields[metaEventSummary] = string(b)
 	}
@@ -141,65 +147,84 @@ func intPtr(s string) *int {
 
 // ─── GitHub ──────────────────────────────────────────────────────────────────
 
+// githubSummarizers build a summary per GitHub event type from the payload and its action.
+var githubSummarizers = map[string]func(doc any, action string) *agentsclient.RunEventSummary{
+	"pull_request":                githubPullRequest,
+	"issues":                      githubIssues,
+	"issue_comment":               githubIssueComment,
+	"pull_request_review":         githubReview,
+	"pull_request_review_comment": githubReviewComment,
+	"workflow_run":                githubWorkflowRun,
+}
+
 // EventSummary describes pull request, issue, comment, review and workflow run deliveries.
 func (a *githubAdapter) EventSummary(eventType string, doc any) *agentsclient.RunEventSummary {
-	action := resolvePath(doc, "action")
-	switch eventType {
-	case "pull_request":
-		verb := map[string]string{
-			"review_requested": "requested a review on",
-			"ready_for_review": "marked ready for review",
-			"synchronize":      "pushed to",
-		}[action]
-		if action == "closed" && resolvePath(doc, "pull_request.merged") == "true" {
-			verb = "merged"
-		}
-		return githubSummary(doc, verbOr(verb, action), githubPR(doc, "pull_request.html_url"), "", githubPRPreview(doc))
-	case "issues":
-		quote := ""
-		if action == "opened" {
-			quote = resolvePath(doc, "issue.body")
-		}
-		return githubSummary(doc, verbOr("", action), githubIssue(doc, "issue.html_url"), quote, githubIssuePreview(doc))
-	case "issue_comment":
-		if action != "created" {
-			return nil
-		}
-		object := githubIssue(doc, "comment.html_url")
-		if resolvePath(doc, "issue.pull_request.url") != "" {
-			object.Label = "PR #" + resolvePath(doc, "issue.number")
-		}
-		// A comment on a pull request carries no branch or diff. Its preview is the issue view.
-		return githubSummary(doc, "commented on", object, resolvePath(doc, "comment.body"), githubIssuePreview(doc))
-	case "pull_request_review":
-		if action != "submitted" {
-			return nil
-		}
-		preview := githubPRPreview(doc)
-		verb := "reviewed"
-		switch resolvePath(doc, "review.state") {
-		case "approved":
-			verb, preview.Status = "approved", &agentsclient.RunEventStatus{Label: "Approved", Tone: toneOK}
-		case "changes_requested":
-			verb, preview.Status = "requested changes on", &agentsclient.RunEventStatus{Label: "Changes requested", Tone: toneBad}
-		}
-		return githubSummary(doc, verb, githubPR(doc, "review.html_url"), resolvePath(doc, "review.body"), preview)
-	case "pull_request_review_comment":
-		if action != "created" {
-			return nil
-		}
-		verb := "commented on"
-		if path := resolvePath(doc, "comment.path"); path != "" {
-			if line := resolvePath(doc, "comment.line"); line != "" {
-				path += ":" + line
-			}
-			verb += " " + path + " in"
-		}
-		return githubSummary(doc, verb, githubPR(doc, "comment.html_url"), resolvePath(doc, "comment.body"), githubPRPreview(doc))
-	case "workflow_run":
-		return githubWorkflowRun(doc, action)
+	summarize, ok := githubSummarizers[eventType]
+	if !ok {
+		return nil
 	}
-	return nil
+	return summarize(doc, resolvePath(doc, "action"))
+}
+
+func githubPullRequest(doc any, action string) *agentsclient.RunEventSummary {
+	verb := map[string]string{
+		"review_requested": "requested a review on",
+		"ready_for_review": "marked ready for review",
+		"synchronize":      "pushed to",
+	}[action]
+	if action == "closed" && resolvePath(doc, "pull_request.merged") == jsonTrue {
+		verb = "merged"
+	}
+	return githubSummary(doc, verbOr(verb, action), githubPR(doc, "pull_request.html_url"), "", githubPRPreview(doc))
+}
+
+func githubIssues(doc any, action string) *agentsclient.RunEventSummary {
+	quote := ""
+	if action == "opened" {
+		quote = resolvePath(doc, "issue.body")
+	}
+	return githubSummary(doc, verbOr("", action), githubIssue(doc, "issue.html_url"), quote, githubIssuePreview(doc))
+}
+
+func githubIssueComment(doc any, action string) *agentsclient.RunEventSummary {
+	if action != "created" {
+		return nil
+	}
+	object := githubIssue(doc, "comment.html_url")
+	if resolvePath(doc, "issue.pull_request.url") != "" {
+		object.Label = "PR #" + resolvePath(doc, "issue.number")
+	}
+	// A comment on a pull request carries no branch or diff. Its preview is the issue view.
+	return githubSummary(doc, "commented on", object, resolvePath(doc, "comment.body"), githubIssuePreview(doc))
+}
+
+func githubReview(doc any, action string) *agentsclient.RunEventSummary {
+	if action != "submitted" {
+		return nil
+	}
+	preview := githubPRPreview(doc)
+	verb := "reviewed"
+	switch resolvePath(doc, "review.state") {
+	case "approved":
+		verb, preview.Status = "approved", &agentsclient.RunEventStatus{Label: "Approved", Tone: toneOK}
+	case "changes_requested":
+		verb, preview.Status = "requested changes on", &agentsclient.RunEventStatus{Label: "Changes requested", Tone: toneBad}
+	}
+	return githubSummary(doc, verb, githubPR(doc, "review.html_url"), resolvePath(doc, "review.body"), preview)
+}
+
+func githubReviewComment(doc any, action string) *agentsclient.RunEventSummary {
+	if action != "created" {
+		return nil
+	}
+	verb := "commented on"
+	if path := resolvePath(doc, "comment.path"); path != "" {
+		if line := resolvePath(doc, "comment.line"); line != "" {
+			path += ":" + line
+		}
+		verb += " " + path + " in"
+	}
+	return githubSummary(doc, verb, githubPR(doc, "comment.html_url"), resolvePath(doc, "comment.body"), githubPRPreview(doc))
 }
 
 // verbOr is verb, else the action in words, else "updated".
@@ -254,11 +279,11 @@ func githubPRPreview(doc any) *agentsclient.RunEventPreview {
 		p.Facts = append(p.Facts, head+" → "+base)
 	}
 	switch {
-	case resolvePath(doc, "pull_request.merged") == "true":
+	case resolvePath(doc, "pull_request.merged") == jsonTrue:
 		p.Status = &agentsclient.RunEventStatus{Label: "Merged", Tone: toneOK}
 	case resolvePath(doc, "pull_request.state") == "closed":
 		p.Status = &agentsclient.RunEventStatus{Label: "Closed", Tone: toneBad}
-	case resolvePath(doc, "pull_request.draft") == "true":
+	case resolvePath(doc, "pull_request.draft") == jsonTrue:
 		p.Status = &agentsclient.RunEventStatus{Label: "Draft", Tone: toneOK}
 	case resolvePath(doc, "pull_request.state") == "open":
 		p.Status = &agentsclient.RunEventStatus{Label: "Open", Tone: toneOK}
