@@ -11,8 +11,10 @@ package inference
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -193,7 +195,15 @@ func (c *Client) RunBudget(ctx context.Context, bearer, tenantID, runID string) 
 		}
 		return out, nil
 	case code == http.StatusNotFound:
-		return RunBudget{}, c.HandleErrorResponse(span, resp, ErrBudgetNotReached)
+		// Only the gateway's own answer means no ceiling is reached. A 404 from a
+		// gateway without the route, or for a run with no usage, is unexpected.
+		var body struct {
+			Code string `json:"code"`
+		}
+		if json.NewDecoder(io.LimitReader(resp.Body, 512)).Decode(&body) == nil && body.Code == "budget_not_reached" {
+			return RunBudget{}, ErrBudgetNotReached
+		}
+		return RunBudget{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	case code == http.StatusUnauthorized || code == http.StatusForbidden:
 		return RunBudget{}, c.HandleErrorResponse(span, resp, ErrForbidden)
 	case code >= http.StatusInternalServerError:

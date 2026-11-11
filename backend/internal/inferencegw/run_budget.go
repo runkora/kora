@@ -36,7 +36,7 @@ func (s *Service) ReachedRunBudget(ctx context.Context, tenantID, runID string) 
 		if b.OwnerName, err = s.ownerName(ctx, tenantID, rp, c); err != nil {
 			return RunBudget{}, err
 		}
-		if c.Window != "run" {
+		if c.Window != cadenceRun {
 			resets := periodEnd(c.Window, now)
 			b.ResetsAt = &resets
 		}
