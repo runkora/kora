@@ -272,6 +272,24 @@ describe('budget stop', () => {
   });
 });
 
+describe('activity', () => {
+  it('says why the model call is being retried', () => {
+    const view = toRunView(
+      hookState({
+        runState: 'active',
+        liveActivity: {
+          kind: 'retry',
+          attempt: 2,
+          maxRetries: 5,
+          error: 'authentication_failed\nmore',
+        },
+      }),
+      0,
+    );
+    expect(view.activity).toBe('Retrying the model call (2 of 5): authentication_failed');
+  });
+});
+
 describe('people', () => {
   it('lists the person behind a trigger, senders, and triggers with no person', () => {
     const turns: Turn[] = [
