@@ -40,6 +40,8 @@ export type {
 
 export { IconTile, iconTileVariants } from './components/icon-tile';
 export type { IconTileProps } from './components/icon-tile';
+export { Avatar, avatarVariants } from './components/avatar';
+export type { AvatarProps } from './components/avatar';
 
 export { Button, buttonVariants } from './components/button';
 export type { ButtonProps } from './components/button';

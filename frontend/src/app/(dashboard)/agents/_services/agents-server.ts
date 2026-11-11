@@ -1,7 +1,8 @@
 import 'server-only';
 
 import type { AgentRunStats, AgentType } from '@runkora/shared/api';
-import { agentsClient, fetchTenantRunStats, listRuns } from '@runkora/server/agents-client';
+import { agentsClient, fetchTenantRunStats } from '@runkora/server/agents-client';
+import { listRunsWithNames } from '@runkora/server/services/runs-server';
 import { loadFailure } from '@runkora/server/load-failure';
 import type { Loaded } from '@runkora/server/load-failure';
 import { DEFAULT_PERIOD } from '../_lib/spend';
@@ -29,7 +30,7 @@ export async function fetchAgentsFromBFF(
     agentsClient(accessToken).get<{ agent_types: AgentType[] }>(
       `/api/v1/agent-types?tenant_id=${encodeURIComponent(tenantId)}`,
     ),
-    listRuns(accessToken, runs),
+    listRunsWithNames(accessToken, runs),
     fetchTenantRunStats(accessToken, DEFAULT_PERIOD),
   ]);
 
@@ -43,7 +44,7 @@ export async function fetchAgentsFromBFF(
         : loadFailure(types.reason, 'agents'),
     runs:
       page.status === 'fulfilled'
-        ? { ok: true, data: (page.value?.runs ?? []).map((r) => toRunRow(r, byId)) }
+        ? { ok: true, data: page.value.data.map((r) => toRunRow(r, byId)) }
         : loadFailure(page.reason, 'runs'),
     runStats: stats.status === 'fulfilled' ? (stats.value ?? null) : null,
   };

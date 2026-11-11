@@ -1,10 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@runkora/test-utils';
 import { RUNNING_ROWS } from '../_lib/spend';
 import { LIVE_RUN_STATES } from '../_types';
 import { RunningNowCard } from './running-now-card';
 import { RUN_ROWS } from './agents-mock-data';
+
+vi.mock('next/navigation', async (orig) => ({
+  ...(await orig<typeof import('next/navigation')>()),
+  useRouter: () => ({ push: vi.fn() }),
+}));
 
 describe('RunningNowCard', () => {
   const template = RUN_ROWS.find((r) => LIVE_RUN_STATES.includes(r.state));
@@ -28,7 +33,7 @@ describe('RunningNowCard', () => {
       screen.getByText(`${RUNNING_ROWS - 1} running · 2 starting · 1 queued`),
     ).toBeInTheDocument();
     expect(screen.getByText('Longest 1m 30s')).toBeInTheDocument();
-    expect(screen.getAllByRole('link', { name: 'Open' })).toHaveLength(RUNNING_ROWS);
+    expect(screen.getAllByRole('row', { name: /^Open run / })).toHaveLength(RUNNING_ROWS);
     expect(screen.getByText('+2 more runs not shown')).toBeInTheDocument();
   });
 

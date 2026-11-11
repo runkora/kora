@@ -508,6 +508,18 @@ export const Options: Story = {
         >
           <RowClickTable />
         </Option>
+        <Option
+          name="hideHeader"
+          use="Leaves out the column headers, for a list whose rows explain themselves."
+        >
+          <DataTable
+            data={sample}
+            noun="agents"
+            getRowKey={getKey}
+            columns={[nameColumn, statusColumn, runsColumn]}
+            hideHeader
+          />
+        </Option>
       </OptionTable>
 
       <OptionTable

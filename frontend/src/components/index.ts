@@ -90,3 +90,7 @@ export { AuthCardShell } from './auth-card-shell';
 
 /** Markdown instructions in Hades text, and the line height its code blocks share with a Raw view. */
 export { CODE_LINE_HEIGHT, InstructionsMarkdown } from './instructions-markdown';
+
+/** Chips linking to what started a run: one per delivery, the rest behind "+N". */
+export { RunSourceChips } from './run-source-chips';
+export type { RunSourceChipsProps } from './run-source-chips';

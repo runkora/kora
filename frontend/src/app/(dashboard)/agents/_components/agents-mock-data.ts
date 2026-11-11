@@ -16,6 +16,7 @@ import type {
   McpServer,
   ModelObject,
   Run,
+  RunSource,
   RunWithAttribution,
 } from '@runkora/shared/api';
 import { RUNNING_ROWS } from '../_lib/spend';
@@ -233,6 +234,7 @@ interface RunSeed {
   summary?: string | null;
   toolCalls?: number;
   trigger?: Run['started_by'];
+  sources?: Run['sources'];
 }
 
 let runCounter = 0;
@@ -259,6 +261,7 @@ function run(seed: RunSeed): RunWithAttribution {
     ...(seed.toolCalls !== undefined ? { tool_calls: seed.toolCalls } : {}),
     ...(seed.summary !== undefined ? { summary: seed.summary } : {}),
     ...(seed.trigger ? { started_by: seed.trigger } : {}),
+    ...(seed.sources ? { sources: seed.sources } : {}),
   };
 }
 
@@ -267,6 +270,22 @@ const PR_OPENED = {
   trigger_name: 'github pull_request.opened',
   delivery_id: 'dlv_5b21',
 } as const;
+
+/** The links a GitHub pull request delivery records: the pull request, its repository and branches. */
+export function prSources(repo: string, pr: number, ...branches: string[]): RunSource[] {
+  const repoURL = `https://github.com/${repo}`;
+  return [
+    { kind: 'trigger', url: `${repoURL}/pull/${pr}`, label: `PR #${pr}`, provider: 'github' },
+    { kind: 'repository', url: repoURL, label: repo, provider: 'github' },
+    ...branches.map((b): RunSource => ({
+      kind: 'branch',
+      url: `${repoURL}/tree/${b}`,
+      label: `branch ${b}`,
+      provider: 'github',
+    })),
+  ];
+}
+
 const NIGHTLY = { trigger_id: 'trg_nightly', trigger_name: 'nightly dependency scan' } as const;
 const NEW_ISSUE = {
   trigger_id: 'trg_issue_opened',
@@ -293,6 +312,7 @@ export const RAW_RUNS: RunWithAttribution[] = [
     toolCalls: 9,
     summary: 'Reviewing pull request 412, which moves session storage to Redis.',
     trigger: PR_OPENED,
+    sources: prSources('example-org/platform', 412, 'feat/redis-sessions'),
   }),
   run({
     agent: CODER,
@@ -302,7 +322,27 @@ export const RAW_RUNS: RunWithAttribution[] = [
     toolCalls: 31,
     summary: 'Implementing KOR-318: paginate the audit log endpoint.',
   }),
-  run({ agent: TRIAGE, state: 'starting', startedAgo: 40_000, by: OPERATOR, trigger: NEW_ISSUE }),
+  run({
+    agent: TRIAGE,
+    state: 'starting',
+    startedAgo: 40_000,
+    by: OPERATOR,
+    trigger: NEW_ISSUE,
+    sources: [
+      {
+        kind: 'trigger',
+        url: 'https://github.com/example-org/platform/issues/88',
+        label: 'GitHub issue',
+        provider: 'github',
+      },
+      {
+        kind: 'repository',
+        url: 'https://github.com/example-org/platform',
+        label: 'example-org/platform',
+        provider: 'github',
+      },
+    ],
+  }),
   run({ agent: SECURITY, state: 'pending', startedAgo: 20_000, by: OPERATOR }),
   run({
     agent: NOTES,
@@ -320,6 +360,12 @@ export const RAW_RUNS: RunWithAttribution[] = [
     toolCalls: 22,
     summary: 'Reviewed pull request 409 and left 6 inline comments.',
     trigger: PR_OPENED,
+    sources: prSources(
+      'example-org/a-very-long-repository-name-for-layout-checks',
+      409,
+      'feature/JIRA-12345-make-the-run-view-top-bar-handle-long-branch-names',
+      'feat/follow-up-fixes',
+    ),
   }),
   run({
     agent: REVIEWER,
@@ -329,6 +375,7 @@ export const RAW_RUNS: RunWithAttribution[] = [
     toolCalls: 18,
     summary: 'Reviewed pull request 407; approved with two nits.',
     trigger: PR_OPENED,
+    sources: prSources('example-org/dashboard', 407, 'fix/chart-axis'),
   }),
   run({
     agent: REVIEWER,

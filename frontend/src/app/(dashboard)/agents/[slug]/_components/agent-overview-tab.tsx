@@ -14,7 +14,7 @@ import { useTenantLocked } from '../../../_components/permissions-provider';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import type { WindowStatus } from '../../_hooks/use-period-cache';
 import { AgentInstructionsCard } from './agent-instructions-card';
-import { GrantScopesCard, MetadataCard, RecentRunsTable } from './agent-overview-cards';
+import { GrantScopesCard, MetadataCard, RecentRunsCard } from './agent-overview-cards';
 import { AgentSpendCard, shortModel } from './agent-spend-card';
 import { DurationHistogram } from './duration-histogram';
 
@@ -25,6 +25,8 @@ interface AgentOverviewTabProps {
   status: WindowStatus;
   /** Opens the Configure modal at the Behaviour step. */
   onEditInstructions: () => void;
+  /** Switches the page to the Runs tab. */
+  onViewAllRuns: () => void;
 }
 
 function CouldNotLoad({ title }: { title: string }) {
@@ -56,7 +58,12 @@ function modelSegments(models: { name: string; cost: number }[]) {
   return other > 0 ? [...top, { label: 'other', value: other, text: fmtUsd(other) }] : top;
 }
 
-export function AgentOverviewTab({ overview, status, onEditInstructions }: AgentOverviewTabProps) {
+export function AgentOverviewTab({
+  overview,
+  status,
+  onEditInstructions,
+  onViewAllRuns,
+}: AgentOverviewTabProps) {
   const { agent } = useAgentDetailContext();
   const locked = useTenantLocked();
   if (!agent) return null;
@@ -168,7 +175,7 @@ export function AgentOverviewTab({ overview, status, onEditInstructions }: Agent
       {/* Columns stretch to full width; align="start" would size them to their content on mobile. */}
       <Stack direction={{ base: 'vertical', xl: 'horizontal' }} gap="comfortable">
         <Stack gap="comfortable" grow minWidth="none">
-          <RecentRunsTable />
+          <RecentRunsCard onViewAll={onViewAllRuns} />
           {/* Edit stays visible but disabled where the Configure form would be read only. */}
           <AgentInstructionsCard
             prompt={agent.systemPrompt}
