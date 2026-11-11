@@ -136,7 +136,7 @@ The page will show:
 *   A rail with the people involved, the run's links, what the run runs on and what it spent.
 *   An end line for a finished run: the result for a completed run, and the budget, its reset and a Raise budget action for a run stopped by its budget.
 
-The designs are in Storybook under `Pages/Agents/Run (mix)`.
+The designs are in Storybook under `Pages/Agents/Run`.
 
 ---
 
@@ -166,7 +166,11 @@ The designs are in Storybook under `Pages/Agents/Run (mix)`.
 *   The page works the same for Claude Code, Codex and OpenCode runs.
 *   A trigger message with no event summary renders from the trigger's name and its rendered prompt.
 *   A connector shows the resources it can write. Its full access list opens on demand.
-*   Green marks an open, completed or resolved object, and red marks a failure, a firing alert or a spent budget. No other status uses color.
+*   Green marks an open, merged, completed or resolved object, and red marks a failure, a firing alert, requested changes or a spent budget. No other status uses color.
+*   The Raise budget action shows only to a person who holds `platform:budgets:write`.
+*   Trace sits in the run's actions menu at every width.
+*   A message sent before senders were recorded shows no sender name.
+*   Token counts read the same in the rail and the end line: tokens in, tokens out and cached tokens.
 
 ### Non-Functional Requirements
 
@@ -186,5 +190,4 @@ None at this time.
 
 ## Open Questions
 
-*   Which permission shows the Raise budget action.
-*   Where Trace sits on a phone, where the action row hides it.
+None at this time.

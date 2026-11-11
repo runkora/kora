@@ -1,6 +1,6 @@
 # Run Page Record: Message Senders, Trigger Event Summaries and Budget Stops
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-11-11  
 **Deciders:** Platform Team  
 **Technical Story:** The run page redesign (`docs/prd/run-page.md`)
@@ -38,7 +38,7 @@ This touches **Who is this agent?** through attribution: the record states which
 
 ## Decision
 
-1.  `run_messages` gains nullable `sender_id`, `sender_type` and `sender_name` columns. `SendMessage` fills them from the request's claims for a message a person or an agent sends. The `human_message` payload gains `sender: {id, type, name}`. A run a person starts records the starter as the sender of its first message. A trigger message keeps its trigger attribution and has no sender.
+1.  `run_messages` gains nullable `sender_id`, `sender_type` and `sender_name` columns. `SendMessage` fills them from the request's claims for a message a person or an agent sends. The `human_message` payload gains `sender: {id, type, name}`, where `type` is `USER` or `AGENT`. A run a person starts records the starter as the sender of its first message. `StartRun` records that first message when the run starts, before the run is queued. A trigger message keeps its trigger attribution and has no sender.
 2.  A `RunEventSummary` describes the event behind a trigger message:
     *   `actor: {name, kind, url?}`, where `kind` is `person`, `bot` or `system`.
     *   `verb` and `object: {label, url?}`.
@@ -46,13 +46,13 @@ This touches **Who is this agent?** through attribution: the record states which
     *   `preview?: {title, facts[], added?, removed?, status?: {label, tone}}`, where `tone` is `ok` or `bad`.
 3.  Each adapter in `internal/triggers` gains a summary function beside `SourceLinks`:
     *   GitHub summarizes `pull_request`, `issues`, `issue_comment`, `pull_request_review`, `pull_request_review_comment` and `workflow_run` deliveries.
-    *   Slack summarizes a message and a thread reply.
+    *   Slack summarizes a message and a thread reply. The Slack chat document has no display name for the sender, and the summary's actor is the Slack user ID.
     *   Alertmanager summarizes a firing and a resolved notification.
     *   A manual fire names the person who fired it. A scheduled fire names the schedule. A platform event names the agent and run in its entity.
     *   A generic webhook has no summary. The page reads its trigger template instead.
-4.  The start-run and trigger-message bodies accept `event`. Only a SERVICE principal may send it, the same rule as run sources. Each string is at most 300 characters, a quote at most 2,000, and a preview at most 6 facts. A violation is a 400.
+4.  The start-run and trigger-message bodies accept `event`. Only a SERVICE principal may send it, the same rule as run sources. Any other caller is refused with 403. Each string is at most 300 characters, a quote at most 2,000, and a preview at most 6 facts. A link is an absolute `http` or `https` URL. A violation is a 400. `kora-triggers` drops a link or a summary that would break these rules.
 5.  The summary is stored in the payload of the message's run event: the first `human_message` of a trigger-started run and each `trigger_message`. No column is added.
-6.  The ceiling lookup goes through a new method on `internal/platform/clients/inference`. `kora-agents` records `budget: {scope, owner, window, limit_usd, resets_at}` on the `run_state` event payload. A failed lookup records the state without `budget`.
+6.  The inference gateway serves `GET /v1/budgets/runs/{id}?tenant_id=` with the first ceiling the run's principal has reached. Only `kora-agents` may call it. It reads the run's principal and delegator from the run's usage rows in that tenant. `kora-agents` calls it through a new method on `internal/platform/clients/inference` and records `budget: {scope, owner, owner_name, window, limit_usd, resets_at?}` on the `run_state` event payload. `owner` is the principal, tenant or run ID, and `owner_name` its display name. A per-run ceiling has no `resets_at`. A failed lookup records the state without `budget`.
 
 ## Consequences
 

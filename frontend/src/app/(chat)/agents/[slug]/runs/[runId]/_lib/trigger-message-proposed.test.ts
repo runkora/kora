@@ -53,9 +53,9 @@ describe('parseTriggerMessage', () => {
 
   it('fills placeholders from a nested platform event', () => {
     const parts = parseTriggerMessage(
-      `Verify run {{ korarun }} of agent {{ koraagent }}.\n\n<delivery-data>\nEach {{ path }} placeholder above names a field.\n{"korarun": "7d8e9f0a", "koraagent": "smoke-codex"}\n</delivery-data>`,
+      `Check run {{ korarun }} of agent {{ koraagent }}.\n\n<delivery-data>\nEach {{ path }} placeholder above names a field.\n{"korarun": "7d8e9f0a", "koraagent": "nightly-builder"}\n</delivery-data>`,
     );
-    expect(parts.lead).toBe('Verify run 7d8e9f0a of agent smoke-codex.');
+    expect(parts.lead).toBe('Check run 7d8e9f0a of agent nightly-builder.');
   });
 
   it('returns the whole text as the lead when there are no fields', () => {
