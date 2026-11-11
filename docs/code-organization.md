@@ -50,7 +50,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `operator` | K8s reconciliation: tenant/platform controllers, Helm render, Istio templates, pod webhook, projection of declared resources |
 | `identityproxy` | `ext_proc` server, token cache, refresh loop |
 | `example` | Reference implementation, not production. Full feature layout (`models`, `repository`, `postgres`, `service`, `handlers`) with tests, demonstrating the pattern |
-| `credentials` | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, and the non-registrable `passthrough`) + `resolvers/` ([jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) |
+| `credentials` | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, `bearer`, and the non-registrable `passthrough`) + `resolvers/` ([jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) |
 | `toolgateway` | Governed MCP/tool gateway behind `tool-gateway`: server catalog, MCP controller, OAuth controller, introspector ([MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway)) |
 | `koraevents` | The event log behind `kora-events`: outbox relay, read API, public and internal streams, retention sweep ([event spine ADR](adr/2026-11-06-event-spine.md)) |
 | `skills` | Agent Skills behind `skills-service`: Marketplace registry, per-Marketplace GitHub App tokens, crawler, Redis cache, in-memory search and the Marketplace API ([agent skills ADR](adr/2026-08-17-agent-skills.md)) |

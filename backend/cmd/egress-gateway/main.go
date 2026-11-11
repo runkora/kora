@@ -51,6 +51,7 @@ import (
 	platformtoken "github.com/runkora/kora/backend/internal/platform/token"
 
 	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/bearer"
 	"github.com/runkora/kora/backend/internal/credentials/adapters/githubapp"
 	"github.com/runkora/kora/backend/internal/credentials/adapters/k8sbearer"
 	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
@@ -127,6 +128,9 @@ func realMain() error {
 	// Static ServiceAccount bearer token, reusing the same k8sfile secret
 	// resolver instance as githubapp. No minting, no cache.
 	registry.Register(k8sbearer.New(secretResolver, logger))
+	// Static bearer token for hosts such as the GitHub Packages npm registry.
+	// Serves only the host a Connection declares; other hosts stay passthrough.
+	registry.Register(bearer.New(secretResolver, logger))
 
 	// ── Per-tenant CA bundle ─────────────────────────────────────────────────
 	caBundle, err := cabundle.LoadEager(ctx, egc.Current.Secrets.TenantCARoot, logger)

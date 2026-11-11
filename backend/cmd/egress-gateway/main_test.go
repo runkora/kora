@@ -15,6 +15,7 @@ import (
 
 	egc "github.com/runkora/kora/backend/cmd/egress-gateway/config"
 	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/bearer"
 	"github.com/runkora/kora/backend/internal/credentials/adapters/githubapp"
 	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
 	"github.com/runkora/kora/backend/internal/egressgw"
@@ -79,6 +80,16 @@ func testAdapters(t *testing.T) *egressgw.AdapterRegistry {
 	registry := egressgw.NewAdapterRegistry()
 	registry.Register(githubapp.New(nil, nil, logging.NewLoggerWithOutput(io.Discard)))
 	return registry
+}
+
+// TestBearerAdapterRegistered locks main.go's wiring of the bearer adapter:
+// a Connection naming "bearer" must resolve to a registered adapter.
+func TestBearerAdapterRegistered(t *testing.T) {
+	registry := egressgw.NewAdapterRegistry()
+	registry.Register(bearer.New(nil, logging.NewLoggerWithOutput(io.Discard)))
+	if _, ok := registry.Lookup(credentials.AdapterBearer); !ok {
+		t.Fatal("bearer adapter not registrable")
+	}
 }
 
 // TestAdapterRegistryRefusesPassthrough locks the wiring guarantee: reaching a
