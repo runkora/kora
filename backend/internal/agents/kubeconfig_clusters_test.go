@@ -298,21 +298,37 @@ func TestCatalogPlaceholderEnv_NoRealToken(t *testing.T) {
 	}
 }
 
-func TestValidPlaceholderEnvName(t *testing.T) {
-	for _, ok := range []string{"NPM_TOKEN", "_x1"} {
-		if !validPlaceholderEnvName(ok) {
-			t.Errorf("%q rejected", ok)
-		}
-	}
-	for _, bad := range []string{"", "1A", "A=B", "A B", "PATH", "LD_PRELOAD", "KORA_X", "a-b"} {
-		if validPlaceholderEnvName(bad) {
-			t.Errorf("%q accepted", bad)
-		}
-	}
+func TestSandboxContainerEnv_SkipsInvalidPlaceholderEnvs(t *testing.T) {
 	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "kora-system"}
 	for _, e := range sandboxContainerEnv(cfg, nil, []string{"LD_PRELOAD", "A=B"}, "/workspaces/r", "exec") {
 		if e.Name == "LD_PRELOAD" || e.Name == "A=B" {
 			t.Errorf("invalid name %q set", e.Name)
 		}
+	}
+}
+
+// TestCatalogPlaceholderEnv_BadConnectionSkipped locks that one connection with
+// an invalid placeholderEnv or malformed config is skipped and does not remove
+// the placeholders of the other granted connections.
+func TestCatalogPlaceholderEnv_BadConnectionSkipped(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "connections.json")
+	registry := `[
+	 {"tenant_id":"t1","name":"good1","adapter":"bearer","base_host":"a.example.com","config":{"placeholderEnv":"NPM_TOKEN"}},
+	 {"tenant_id":"t1","name":"reserved","adapter":"bearer","base_host":"b.example.com","config":{"placeholderEnv":"LD_PRELOAD"}},
+	 {"tenant_id":"t1","name":"toolong","adapter":"bearer","base_host":"c.example.com","config":{"placeholderEnv":"` + strings.Repeat("A", 129) + `"}},
+	 {"tenant_id":"t1","name":"badjson","adapter":"bearer","base_host":"d.example.com","config":"not-an-object"},
+	 {"tenant_id":"t1","name":"good2","adapter":"bearer","base_host":"e.example.com","config":{"placeholderEnv":"PYPI_TOKEN"}}]`
+	if err := os.WriteFile(path, []byte(registry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := NewScopeResolver(nil, NewConnectionCatalog(path, logging.NewLogger()))
+
+	cs := []Connector{{Connection: "good1"}, {Connection: "reserved"}, {Connection: "toolong"}, {Connection: "badjson"}, {Connection: "good2"}}
+	envs, err := r.PlaceholderEnvs(context.Background(), "t1", cs)
+	if err != nil {
+		t.Fatalf("PlaceholderEnvs: %v", err)
+	}
+	if len(envs) != 2 || envs[0] != "NPM_TOKEN" || envs[1] != "PYPI_TOKEN" {
+		t.Fatalf("envs = %v, want [NPM_TOKEN PYPI_TOKEN] with the bad connections skipped", envs)
 	}
 }

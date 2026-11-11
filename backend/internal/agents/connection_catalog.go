@@ -119,7 +119,10 @@ func (c *ConnectionCatalog) ResolveConnection(ctx context.Context, tenantID, nam
 
 // PlaceholderEnv returns the sandbox env var a bearer connection names in
 // config.placeholderEnv. ok is false when the connection is not registered, is
-// not a bearer connection, or sets none. Only the variable name is read; the
+// not a bearer connection, sets none, or its config or placeholderEnv name is
+// invalid: a bad connection is logged by name and skipped, so it cannot take
+// the other connections' placeholders down with it. err is non-nil only when
+// the registry itself cannot be read. Only the variable name is read; the
 // secret behind the connection is never loaded here.
 func (c *ConnectionCatalog) PlaceholderEnv(ctx context.Context, tenantID, name string) (env string, ok bool, err error) {
 	entries, err := c.load(ctx)
@@ -137,10 +140,18 @@ func (c *ConnectionCatalog) PlaceholderEnv(ctx context.Context, tenantID, name s
 			PlaceholderEnv string `json:"placeholderEnv"`
 		}
 		if err := json.Unmarshal(e.Config, &cfg); err != nil {
-			return "", false, fmt.Errorf("parse config of connection %q: %w", name, err)
+			c.logger.Warn(ctx, "skipping placeholderEnv: connection config is not valid JSON",
+				logging.Field{Key: "connection", Value: name},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			return "", false, nil
 		}
-		if cfg.PlaceholderEnv != "" && !validPlaceholderEnvName(cfg.PlaceholderEnv) {
-			return "", false, fmt.Errorf("connection %q: invalid placeholderEnv %q", name, cfg.PlaceholderEnv)
+		if cfg.PlaceholderEnv != "" && !platformconns.ValidPlaceholderEnvName(cfg.PlaceholderEnv) {
+			c.logger.Warn(ctx, "skipping placeholderEnv: invalid or reserved environment variable name",
+				logging.Field{Key: "connection", Value: name},
+				logging.Field{Key: "placeholder_env", Value: cfg.PlaceholderEnv},
+			)
+			return "", false, nil
 		}
 		return cfg.PlaceholderEnv, cfg.PlaceholderEnv != "", nil
 	}

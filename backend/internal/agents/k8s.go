@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -22,6 +21,7 @@ import (
 	"github.com/runkora/kora/backend/internal/agents/sandbox/landlockmode"
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 	"github.com/runkora/kora/backend/internal/platform/brand"
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
 
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
@@ -1086,7 +1086,7 @@ func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Clu
 	// token variable to issue the request, and the gateway injects the real one
 	// on the wire. A name already set above is not overridden.
 	for _, name := range placeholderEnvs {
-		if !validPlaceholderEnvName(name) {
+		if !platformconns.ValidPlaceholderEnvName(name) {
 			continue
 		}
 		if !slices.ContainsFunc(env, func(e corev1.EnvVar) bool { return e.Name == name }) {
@@ -2449,21 +2449,4 @@ func (p *K8sProvisioner) SandboxImages(ctx context.Context, namespace string) ([
 		out = append(out, img)
 	}
 	return out, nil
-}
-
-var placeholderEnvNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
-
-// validPlaceholderEnvName reports whether name is safe to set as a sandbox env
-// var holding the credential placeholder: a plain identifier that is not a
-// loader or process-critical variable.
-func validPlaceholderEnvName(name string) bool {
-	if !placeholderEnvNameRE.MatchString(name) {
-		return false
-	}
-	u := strings.ToUpper(name)
-	switch u {
-	case "PATH", "HOME", "USER", "SHELL", "PWD", "IFS", "ENV", "BASH_ENV", "PYTHONPATH", "NODE_OPTIONS", "KUBECONFIG":
-		return false
-	}
-	return !strings.HasPrefix(u, "LD_") && !strings.HasPrefix(u, "DYLD_") && !strings.HasPrefix(u, "KORA_")
 }
