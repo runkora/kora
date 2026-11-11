@@ -470,22 +470,23 @@ export interface RunEventSummary {
     facts?: string[];
     added?: number;
     removed?: number;
-    status?: { label: string; tone: 'ok' | 'bad' };
+    /** `tone` is good or bad news; a neutral state such as closed or draft has none. */
+    status?: { label: string; tone?: 'ok' | 'bad' };
   };
 }
 
 /** The budget that stopped a budget_exhausted run. */
 export interface RunBudgetStop {
-  /** The ceiling's level: tenant, principal, delegator, role_pool or run. */
+  /** The ceiling's level: principal, role_pool, tenant, run, delegator or delegator_run. */
   scope: string;
   /** The ceiling's id: a principal, role, tenant or run. Never shown. */
   owner: string;
-  /** Whose budget it is, by name; empty for a per-run ceiling. */
-  owner_name?: string;
+  /** Whose budget it is, by name; empty when there is no name to give. */
+  owner_name: string;
   /** The budget's period as the gateway sends it: weekly, monthly or run. */
   window: string;
   limit_usd: number;
-  /** When the budget resets; absent for a per-run ceiling. */
+  /** When the budget resets; absent for a run's own ceilings. */
   resets_at?: string;
 }
 

@@ -143,6 +143,18 @@ const STARTS: { label: string; e: TriggerEvent }[] = [
     ),
   },
   {
+    label: 'GitHub · pull request closed: a neutral state has no tone',
+    e: start(
+      {
+        actor: PAT,
+        verb: 'closed',
+        object: pr12,
+        preview: { ...PR12, status: { label: 'Closed' } },
+      },
+      { ...github, trigger: 'review-on-open', time: '08:40', prompt: PROMPT },
+    ),
+  },
+  {
     label: 'GitHub · issue opened',
     e: start(
       {
@@ -227,7 +239,6 @@ const STARTS: { label: string; e: TriggerEvent }[] = [
         actor: { name: 'Sam Lee', kind: 'person' },
         verb: 'fired',
         object: { label: 'refresh-docs-index' },
-        preview: { title: 'refresh-docs-index' },
       },
       {
         via: 'manual',

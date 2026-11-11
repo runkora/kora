@@ -77,7 +77,7 @@ export const FIRED: RunEventSummary = {
   actor: { name: 'Sam Lee', kind: 'person' },
   verb: 'fired',
   object: { label: 'review-pull-request' },
-  preview: { title: 'review-pull-request', facts: ['pull_request 12'] },
+  preview: { title: 'Inputs', facts: ['pull_request 12'] },
 };
 
 /** A comment template that joins a working run, rendered for PR #12. */
@@ -248,6 +248,14 @@ export const BUDGETS = {
     owner_name: '',
     window: 'run',
     limit_usd: 0.25,
+  },
+  tenant: {
+    scope: 'tenant',
+    owner: 'example',
+    owner_name: '',
+    window: 'monthly',
+    limit_usd: 500,
+    resets_at: '2026-11-01T00:00:00Z',
   },
 } as const;
 

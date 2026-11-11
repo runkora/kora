@@ -279,6 +279,19 @@ describe('budget stop', () => {
     expect(view.budgetStop).toEqual({ whose: "this run's budget", limitUsd: 0.25, resets: '' });
   });
 
+  it.each([
+    ['delegator_run', "this run's budget"],
+    ['tenant', "the tenant's budget"],
+    ['role_pool', "the agent's budget"],
+  ])('names a %s ceiling with no owner name by its level', (scope, whose) => {
+    const view = toRunView(
+      hookState({
+        budgetStop: { scope, owner: 'id-1', owner_name: '', window: 'monthly', limit_usd: 5 },
+      }),
+    );
+    expect(view.budgetStop?.whose).toBe(whose);
+  });
+
   it('has no budget detail when the run recorded none', () => {
     const view = toRunView(hookState({}));
     expect(view.state).toBe('budget_exhausted');

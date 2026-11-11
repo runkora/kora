@@ -146,7 +146,13 @@ function Unfurl({ u }: { u: NonNullable<TriggerEvent['unfurl']> }) {
       {u.status && (
         <Text
           size="caption"
-          color={u.status.tone === 'bad' ? 'status-error' : 'status-healthy'}
+          color={
+            u.status.tone === 'bad'
+              ? 'status-error'
+              : u.status.tone === 'ok'
+                ? 'status-healthy'
+                : 'muted'
+          }
           style={NOWRAP}
         >
           {u.status.label}
