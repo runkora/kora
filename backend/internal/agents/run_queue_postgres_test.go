@@ -442,4 +442,15 @@ func TestPostgres_WaitWithAgentLockSharesPlacementLock(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
+
+	// The wait's timeout is lifted once the lock is held, so fn's statements run under the default.
+	var timeout string
+	if _, err := r.WaitWithAgentLock(ctx, at.ID, time.Second, func(ctx context.Context) error {
+		return r.pool.QueryRow(ctx, `SHOW lock_timeout`).Scan(&timeout)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if timeout != "0" {
+		t.Errorf("lock_timeout inside the lock = %q, want the default 0", timeout)
+	}
 }
