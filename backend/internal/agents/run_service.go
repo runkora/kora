@@ -250,6 +250,10 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		observability.RecordFailure(span, err, errSpanAuthorizeRunSources)
 		return nil, err
 	}
+	if err = authorizeRunEvent(ctx, req.Event); err != nil {
+		observability.RecordFailure(span, err, errSpanAuthorizeRunEvent)
+		return nil, err
+	}
 
 	run := Run{
 		ID:          uuid.NewString(),
@@ -304,7 +308,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 	// Recorded before the run is queued, so it is the run's first event. The
 	// starter's claims are only in this request.
 	if run.InitialMessage != "" {
-		s.emitHumanMessage(ctx, run.ID, humanMessagePayload{Content: run.InitialMessage, Sender: messageSender(ctx)})
+		s.emitHumanMessage(ctx, run.ID, humanMessagePayload{Content: run.InitialMessage, Sender: messageSender(ctx), Event: req.Event})
 	}
 
 	// Queued last, so the scheduler never claims a run whose delegation is not yet stored.
@@ -731,6 +735,10 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 		observability.RecordFailure(span, err, errSpanAuthorizeRunSources)
 		return err
 	}
+	if err = authorizeRunEvent(ctx, req.Event); err != nil {
+		observability.RecordFailure(span, err, errSpanAuthorizeRunEvent)
+		return err
+	}
 	run, at, err := s.loadRunToAct(ctx, runID)
 	if err != nil {
 		return err
@@ -777,10 +785,10 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 	}
 
 	if from != nil {
-		s.emitTriggerMessage(ctx, runID, content, *from)
+		s.emitTriggerMessage(ctx, runID, content, *from, req.Event)
 		return nil
 	}
-	s.emitHumanMessage(ctx, runID, humanMessagePayload{Content: content, Sender: sender})
+	s.emitHumanMessage(ctx, runID, humanMessagePayload{Content: content, Sender: sender, Event: req.Event})
 	return nil
 }
 
@@ -843,19 +851,22 @@ const (
 	eventTriggerMessage = "trigger_message"
 )
 
-// triggerMessagePayload is a trigger_message event: the content and the trigger that sent it.
+// triggerMessagePayload is a trigger_message event: the content, the trigger
+// that sent it and the event behind it.
 type triggerMessagePayload struct {
-	Content     string `json:"content"`
-	TriggerID   string `json:"trigger_id,omitempty"`
-	TriggerName string `json:"trigger_name,omitempty"`
-	DeliveryID  string `json:"delivery_id,omitempty"`
+	Content     string           `json:"content"`
+	TriggerID   string           `json:"trigger_id,omitempty"`
+	TriggerName string           `json:"trigger_name,omitempty"`
+	DeliveryID  string           `json:"delivery_id,omitempty"`
+	Event       *RunEventSummary `json:"event,omitempty"`
 }
 
 // humanMessagePayload is a human_message event: the content and who sent it.
-// A trigger-started run's first message has no sender.
+// A trigger-started run's first message has no sender and carries the event behind it.
 type humanMessagePayload struct {
-	Content string         `json:"content"`
-	Sender  *MessageSender `json:"sender,omitempty"`
+	Content string           `json:"content"`
+	Sender  *MessageSender   `json:"sender,omitempty"`
+	Event   *RunEventSummary `json:"event,omitempty"`
 }
 
 // emitHumanMessage persists a human message to run_events and fans it out via
@@ -865,12 +876,13 @@ func (s *RunService) emitHumanMessage(ctx context.Context, runID string, payload
 }
 
 // emitTriggerMessage records a message a trigger sent to a run that is already working.
-func (s *RunService) emitTriggerMessage(ctx context.Context, runID, content string, from StartedByTrigger) {
+func (s *RunService) emitTriggerMessage(ctx context.Context, runID, content string, from StartedByTrigger, event *RunEventSummary) {
 	s.emitMessage(ctx, runID, eventTriggerMessage, triggerMessagePayload{
 		Content:     content,
 		TriggerID:   from.TriggerID,
 		TriggerName: from.TriggerName,
 		DeliveryID:  from.DeliveryID,
+		Event:       event,
 	})
 }
 

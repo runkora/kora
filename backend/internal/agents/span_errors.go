@@ -9,6 +9,7 @@ var (
 	errSpanApplyPodPatches                = errors.New("apply Pod patches")
 	errSpanAuthorizeTriggerAttribution    = errors.New("authorize trigger attribution")
 	errSpanAuthorizeRunSources            = errors.New("authorize run sources")
+	errSpanAuthorizeRunEvent              = errors.New("authorize run event")
 	errSpanAppendRunSources               = errors.New("append run sources")
 	errSpanCancelRunsForAgentType         = errors.New("cancel runs for agent type")
 	errSpanCheckSandboxPlacement          = errors.New("check sandbox placement")

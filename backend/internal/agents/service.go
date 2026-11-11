@@ -135,6 +135,8 @@ type StartRunRequest struct {
 
 	// Sources link to what started the run. Only a SERVICE principal may set them.
 	Sources []RunSource `json:"sources,omitempty"`
+	// Event summarizes the event behind the first message. Only a SERVICE principal may set it.
+	Event *RunEventSummary `json:"event,omitempty"`
 }
 
 // SendMessageRequest is the body of POST /api/v1/runs/{id}/messages.
@@ -155,6 +157,8 @@ type SendMessageRequest struct {
 	// Sources link to what sent the message and are appended to the run's
 	// sources. Only a SERVICE principal may set them.
 	Sources []RunSource `json:"sources,omitempty"`
+	// Event summarizes the event behind the message. Only a SERVICE principal may set it.
+	Event *RunEventSummary `json:"event,omitempty"`
 }
 
 // EffectiveAccessPreviewRequest is a draft connectivity config resolved without
