@@ -288,9 +288,13 @@ func githubIssuePreview(doc any) *agentsclient.RunEventPreview {
 		if labels, _ := resolveNode(doc, "issue.labels").([]any); len(labels) > 0 {
 			names := make([]string, 0, len(labels))
 			for i := range labels {
-				names = append(names, resolvePath(labels, strconv.Itoa(i)+".name"))
+				if name := resolvePath(labels, strconv.Itoa(i)+".name"); name != "" {
+					names = append(names, name)
+				}
 			}
-			p.Facts = append(p.Facts, strings.Join(names, ", "))
+			if len(names) > 0 {
+				p.Facts = append(p.Facts, strings.Join(names, ", "))
+			}
 		}
 	}
 	switch resolvePath(doc, "issue.state") {
