@@ -127,7 +127,7 @@ export interface TriggerEventSummary {
     meta: string[];
     /** Lines added and removed, shown in the diff colours after the facts. */
     diff?: { added: number; removed: number };
-    status?: { label: string; tone: 'ok' | 'bad' };
+    status?: { label: string; tone?: 'ok' | 'bad' };
   };
 }
 

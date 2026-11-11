@@ -313,11 +313,11 @@ function activityOf(a: UseRunReturn['liveActivity']): string | undefined {
   }
 }
 
-/** Whose budget stopped the run, by name; the ceiling's id is never shown. */
+/** Whose budget stopped the run, by name or by its level; the ceiling's id is never shown. */
 function budgetWhose(b: RunBudgetStop): string {
-  if (b.scope === 'run' || b.window === 'run') return "this run's budget";
-  const owner = b.owner_name || (b.scope === 'tenant' ? 'the tenant' : '');
-  return owner ? `${owner}'s ${b.window} budget` : `a ${b.window} budget`;
+  if (b.owner_name) return `${b.owner_name}'s ${b.window} budget`;
+  if (b.scope === 'run' || b.scope === 'delegator_run') return "this run's budget";
+  return b.scope === 'tenant' ? "the tenant's budget" : "the agent's budget";
 }
 
 /**

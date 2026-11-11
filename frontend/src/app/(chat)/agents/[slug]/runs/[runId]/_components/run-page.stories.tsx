@@ -58,6 +58,12 @@ export const BudgetExhaustedPerRun: Story = {
   decorators: runStory([budgetRun(BUDGETS.perRun)]),
 };
 
+/** Stopped by the tenant's budget, which has no name to give: named by its level. */
+export const BudgetExhaustedTenant: Story = {
+  args: args(budgetRun(BUDGETS.tenant)),
+  decorators: runStory([budgetRun(BUDGETS.tenant)]),
+};
+
 /** Stopped by a budget the run did not record: a generic stop line. */
 export const BudgetExhaustedUnrecorded: Story = {
   args: args(budgetRun()),
