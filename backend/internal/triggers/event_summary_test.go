@@ -175,21 +175,52 @@ func TestGitHubEventSummary(t *testing.T) {
 	}
 }
 
+func TestSlackQuote(t *testing.T) {
+	tests := []struct {
+		name, in, want string
+		trimBot        bool
+	}{
+		{"leading mention", "<@U0123ABC> can you help?", "can you help?", true},
+		{"leading mention colon", "<@U0123ABC>: can you help?", "can you help?", true},
+		{"mention no name", "<@U0BOT> ask <@U0123ABC>", "ask @user", true},
+		{"mention with name", "<@U0BOT> ask <@U0123ABC|dana>", "ask @dana", true},
+		{"channel with name", "<@U0BOT> see <#C0123|ops>", "see #ops", true},
+		{"channel no name", "<@U0BOT> see <#C0123>", "see #channel", true},
+		{"link with label", "<@U0BOT> read <https://example.com/a|the doc>", "read the doc", true},
+		{"link no label", "<@U0BOT> read <https://example.com/a>", "read https://example.com/a", true},
+		{"mailto", "write <mailto:a@example.com|Ann>", "write Ann", true},
+		{"only a mention", "<@U0BOT>", "", true},
+		{"only mentions", "<@U0BOT> <@U2> hi", "@user hi", true},
+		{"no markup", "plain text", "plain text", true},
+		{"here unchanged", "<!here> hi", "<!here> hi", true},
+		{"direct message keeps mention", "<@U2> please check this", "@user please check this", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := slackQuote(tt.in, tt.trimBot); got != tt.want {
+				t.Errorf("slackQuote(%q, %v) = %q, want %q", tt.in, tt.trimBot, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSlackEventSummary(t *testing.T) {
 	a := &slackAdapter{}
 	thread := agentsclient.RunEventObject{Label: "Slack thread", URL: "https://app.slack.com/client/T1/C1/thread/C1-1700000000.000100"}
 	tests := []struct {
-		name, payload, wantVerb string
+		name, eventType, payload, wantVerb, wantQuote string
 	}{
-		{"message", `{"team_id":"T1","event":{"type":"app_mention","user":"u1","text":"Can someone help?","ts":"1700000000.000100","channel":"C1"}}`, "wrote in"},
-		{"thread reply", `{"team_id":"T1","event":{"type":"app_mention","user":"u1","text":"Can someone help?","ts":"1700000000.000200","thread_ts":"1700000000.000100","channel":"C1"}}`, "replied in"},
+		{"message", "mention", `{"team_id":"T1","event":{"type":"app_mention","user":"u1","text":"Can someone help?","ts":"1700000000.000100","channel":"C1"}}`, "wrote in", "Can someone help?"},
+		{"bot mention trimmed", "mention", `{"team_id":"T1","event":{"type":"app_mention","user":"u1","text":"<@U0BOT> can you help?","ts":"1700000000.000100","channel":"C1"}}`, "wrote in", "can you help?"},
+		{"direct message keeps mention", "direct_message", `{"team_id":"T1","event":{"type":"message","user":"u1","text":"<@U2> please check this","ts":"1700000000.000100","channel":"C1"}}`, "wrote in", "@user please check this"},
+		{"thread reply", "mention", `{"team_id":"T1","event":{"type":"app_mention","user":"u1","text":"Can someone help?","ts":"1700000000.000200","thread_ts":"1700000000.000100","channel":"C1"}}`, "replied in", "Can someone help?"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			want := &agentsclient.RunEventSummary{
-				Actor: agentsclient.RunEventActor{Name: "U1", Kind: "person"}, Verb: tt.wantVerb, Object: thread, Quote: "Can someone help?",
+				Actor: agentsclient.RunEventActor{Name: "U1", Kind: "person"}, Verb: tt.wantVerb, Object: thread, Quote: tt.wantQuote,
 			}
-			if got := a.EventSummary("mention", slackChatDoc(t, tt.payload)); !reflect.DeepEqual(got, want) {
+			if got := a.EventSummary(tt.eventType, slackChatDoc(t, tt.payload)); !reflect.DeepEqual(got, want) {
 				t.Errorf("summary = %+v, want %+v", got, want)
 			}
 		})
