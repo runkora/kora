@@ -191,7 +191,7 @@ func TestPostgres_RunSources(t *testing.T) {
 		t.Errorf("sources = %#v, want an empty list", gotNone.Sources)
 	}
 	// The run total is capped; further distinct sources are dropped.
-	for i := 0; i < maxRunSourcesPerRun/maxRunSourcesPerRequest+1; i++ {
+	for i := range maxRunSourcesPerRun/maxRunSourcesPerRequest + 1 {
 		batch := make([]RunSource, maxRunSourcesPerRequest)
 		for j := range batch {
 			batch[j] = RunSource{Kind: srcPR.Kind, URL: fmt.Sprintf("https://example.com/%d/%d", i, j), Label: "x"}
