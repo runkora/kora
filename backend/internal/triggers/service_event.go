@@ -262,6 +262,7 @@ func (s *Service) fireOnEvent(ctx context.Context, t Trigger, deliveryID string,
 		return false, nil
 	}
 	fields[eventDocField] = string(envelope)
+	setEventSummary(fields, platformEventSummary(head, doc))
 	return s.admit(ctx, t, deliveryID, fields)
 }
 
