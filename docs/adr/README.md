@@ -347,5 +347,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-06 | [Event Spine](2026-11-06-event-spine.md) | Accepted | — |
 | 2026-11-07 | [ACP as the Single Agent Harness Protocol](2026-11-07-acp-agent-harness-protocol.md) | Accepted | — |
 | 2026-11-07 | [Run Sources](2026-11-07-run-sources.md) | Accepted | — |
-| 2026-11-11 | [Run Page Record: Message Senders, Trigger Event Summaries and Budget Stops](2026-11-11-run-page-record.md) | Proposed | — |
+| 2026-11-11 | [Run Page Record: Message Senders, Trigger Event Summaries and Budget Stops](2026-11-11-run-page-record.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
