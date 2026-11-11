@@ -6,7 +6,7 @@ import { cn } from '../../utils';
 import { Heading, Text } from '../typography';
 import { Icon } from '../icon';
 
-/** @tier 1 — Zero kora domain knowledge. A slide-over panel from the right edge of the viewport. */
+/** @tier 1 — Zero kora domain knowledge. A slide-over panel from the right or left edge of the viewport. */
 
 // ── Size lookup ───────────────────────────────────────────────────────────────
 // Full string literals required — Tailwind v4 static scanner cannot handle
@@ -69,13 +69,26 @@ export interface SidePanelProps {
    * Default: `true`.
    */
   dismissOnOutsideClick?: boolean;
+  /**
+   * The edge the panel slides in from.
+   * - `'right'` — details or a form for the item picked. Default.
+   * - `'left'` — navigation that stands in for a folded-away sidebar.
+   */
+  side?: 'left' | 'right';
   children: React.ReactNode;
 }
+
+const PANEL_SIDE: Record<Required<SidePanelProps>['side'], string> = {
+  right:
+    'right-0 border-l data-[state=closed]:slide-out-to-right-full data-[state=open]:slide-in-from-right-full',
+  left: 'left-0 border-r data-[state=closed]:slide-out-to-left-full data-[state=open]:slide-in-from-left-full',
+};
 
 /**
  * SidePanel
  *
- * A slide-over panel from the right edge of the viewport. Built on Radix UI's
+ * A slide-over panel from the right edge of the viewport, or the left with
+ * `side="left"`. Built on Radix UI's
  * Dialog primitive — handles keyboard (Escape), overlay-click dismissal, focus
  * trap, and ARIA automatically.
  *
@@ -103,6 +116,7 @@ const SidePanel = ({
   size = 'md',
   width,
   dismissOnOutsideClick = true,
+  side = 'right',
   children,
 }: SidePanelProps) => (
   <DialogPrimitive.Root
@@ -126,17 +140,17 @@ const SidePanel = ({
           if (!dismissOnOutsideClick) e.preventDefault();
         }}
         className={cn(
-          // Positioning — right-side slide panel
-          'fixed inset-y-0 right-0 z-50',
+          // Positioning — a full-height panel on one edge
+          'fixed inset-y-0 z-50',
           // Layout
           'flex flex-col',
           // Visual
-          'bg-surface shadow-2xl border-l border-border',
-          // Animation — slide from right
+          'bg-surface shadow-2xl border-border',
+          // Animation — slide in from its edge
           'data-[state=open]:animate-in data-[state=closed]:animate-out',
           'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
-          'data-[state=closed]:slide-out-to-right-full data-[state=open]:slide-in-from-right-full',
           'duration-300',
+          PANEL_SIDE[side],
           width === undefined && PANEL_SIZE[size],
         )}
         style={width === undefined ? undefined : { width }}
