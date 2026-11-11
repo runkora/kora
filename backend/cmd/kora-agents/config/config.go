@@ -175,10 +175,10 @@ type StartingRunAllowance struct {
 	OpenCode   resource.Quantity `yaml:"openCode"`
 }
 
-// errStartingRunAllowance means a harness has no positive starting-run allowance.
 // errMaxReplicas means maxReplicas is below the floor of pods, so the scaler could never add one.
 var errMaxReplicas = errors.New("agents.scheduling.maxReplicas must be at least minReplicas and at least 1")
 
+// errStartingRunAllowance means a harness has no positive starting-run allowance.
 var errStartingRunAllowance = errors.New("agents.scheduling.startingRunAllowance: claudeCode, codex and openCode must each be a positive quantity")
 
 // EnvironmentSize is a sandbox's CPU, memory and local disk.
