@@ -101,10 +101,11 @@ kora records every significant technical decision as an ADR. This index is the c
 - [OpenCode Agent Runner](2026-06-04-opencode-agent-runner.md) — `Accepted (Amended 2026-09-30)` · 2026-06-04
 - [ACP as the Single Agent Harness Protocol](2026-11-07-acp-agent-harness-protocol.md) — `Accepted` · 2026-11-07
 - [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) — `Accepted (Amended 2026-09-29)` · 2026-05-11
-- [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — `Accepted (Amended 2026-10-12)` · 2026-05-11
+- [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — `Accepted (Amended 2026-10-12; HPA scaling superseded in part 2026-11-10)` · 2026-05-11
 - [kora-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) — `Accepted` · 2026-05-11
-- [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — `Accepted (Amended 2026-10-12)` · 2026-05-11
-- [Run Scheduling](2026-10-12-run-scheduling.md) — `Accepted` · 2026-10-12
+- [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — `Accepted (Amended 2026-10-12; start budget rule superseded in part 2026-11-10)` · 2026-05-11
+- [Run Scheduling](2026-10-12-run-scheduling.md) — `Accepted (superseded in part by Demand-Driven Agent Scaling 2026-11-10)` · 2026-10-12
+- [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) — `Proposed` · 2026-11-09
 - [Per-Run Cost on the Run Record](2026-10-20-run-cost-on-run-record.md) — `Proposed` · 2026-10-20
 - [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) — `Accepted` · 2026-05-11
 - [Agent Workspace Model](2026-05-11-agent-workspace-model.md) — `Accepted` · 2026-05-11
@@ -123,7 +124,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Service-Layer Authorization for orbit-agents](2026-06-04-orbit-agents-authorization-model.md) — `Accepted` · 2026-06-04
 
 - [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md) — `Superseded by [manifest-patches-configmap](2026-09-15-manifest-patches-configmap.md)` · 2026-06-12
-- [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md) — `Accepted` · 2026-09-15
+- [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md) — `Accepted (HPA patch target superseded in part 2026-11-10)` · 2026-09-15
 - [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md) — `Accepted (Amended 2026-10-29)` · 2026-09-16
 - [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) — `Accepted (Decision item 3 superseded in part 2026-09-29; Amended 2026-10-31)` · 2026-06-17
 - [Run Task Summarization](2026-06-19-run-task-summarization.md) — `Accepted` · 2026-06-19
@@ -242,7 +243,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-05-08 | [Frontend Test Strategy and Toolchain](2026-05-08-frontend-test-strategy-and-toolchain.md) | Accepted | 0049 |
 | 2026-05-11 | [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) | Accepted (Subprocess Model superseded 2026-11-07) | 0049 |
 | 2026-05-11 | [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) | Accepted | 0054 |
-| 2026-05-11 | [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) | Accepted (Amended 2026-10-12) | 0051 |
+| 2026-05-11 | [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) | Accepted (Amended 2026-10-12; HPA scaling superseded in part 2026-11-10) | 0051 |
 | 2026-05-11 | [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) | Accepted (Amended 2026-09-29) | 0057 |
 | 2026-05-11 | [Agent Portal & Chat UI](2026-05-11-agent-portal-and-chat-ui.md) | Accepted | 0058 |
 | 2026-05-11 | [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) | Accepted (Amended 2026-09-29) | 0050 |
@@ -250,7 +251,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-05-11 | [BYOC Agent Discovery & Observability](2026-05-11-byoc-agent-discovery-and-observability.md) | Accepted | 0056 |
 | 2026-05-11 | [kora-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) | Accepted | 0060 |
 | 2026-05-11 | [kora-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) | Accepted | 0052 |
-| 2026-05-11 | [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) | Accepted (Amended 2026-10-12) | 0053 |
+| 2026-05-11 | [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) | Accepted (Amended 2026-10-12; start budget rule superseded in part 2026-11-10) | 0053 |
 | 2026-05-11 | [Sandbox Provisioning and Shell Proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) | Accepted | 0059 |
 | 2026-05-13 | [Profile Page Architecture](2026-05-13-profile-page-architecture.md) | Proposed | — |
 | 2026-06-04 | [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) | Accepted | 0061 |
@@ -302,7 +303,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-09-04 | [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) | Proposed (Amended 2026-10-24: Amendment 1 Accepted) | — |
 | 2026-09-04 | [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) | Accepted (Amended 2026-10-02, 2026-10-12) | — |
 | 2026-09-10 | [Database Migrations](2026-09-10-database-migrations.md) | Proposed | — |
-| 2026-09-15 | [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md) | Accepted | — |
+| 2026-09-15 | [Config-Driven Kustomize Manifest Patches for orbit-agents](2026-09-15-manifest-patches-configmap.md) | Accepted (HPA patch target superseded in part 2026-11-10) | — |
 | 2026-09-16 | [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md) | Accepted (Amended 2026-10-29) | — |
 | 2026-09-17 | [Tenant MCP Servers as a Recognised Workload Class](2026-09-17-mcp-workload-class.md) | Proposed | — |
 | 2026-09-18 | [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) | Accepted (Amended 2026-10-31: Amendment 1 Accepted) | — |
@@ -322,7 +323,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-10 | [Decision Models and the System One API](2026-10-10-systemone-decision-models.md) | Accepted | — |
 | 2026-10-11 | [Hades Versioning and Theme Surface Manifest](2026-10-11-hades-versioning-and-theme-surface-manifest.md) | Accepted | — |
 | 2026-10-11 | [Hades Delivery to External Consumers](2026-10-11-hades-delivery-to-external-consumers.md) | Accepted | — |
-| 2026-10-12 | [Run Scheduling](2026-10-12-run-scheduling.md) | Accepted | — |
+| 2026-10-12 | [Run Scheduling](2026-10-12-run-scheduling.md) | Accepted (superseded in part by Demand-Driven Agent Scaling 2026-11-10) | — |
 | 2026-10-12 | [White-labelling Theme](2026-10-12-white-labelling-theme.md) | Accepted | — |
 | 2026-10-13 | [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) | Accepted | — |
 | 2026-10-15 | [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md) | Accepted | — |
@@ -345,4 +346,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-06 | [Policy Bundle Grants Index](2026-11-06-policy-bundle-grants-index.md) | Accepted | — |
 | 2026-11-06 | [Event Spine](2026-11-06-event-spine.md) | Accepted | — |
 | 2026-11-07 | [ACP as the Single Agent Harness Protocol](2026-11-07-acp-agent-harness-protocol.md) | Accepted | — |
+| 2026-11-09 | [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
