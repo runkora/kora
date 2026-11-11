@@ -10,7 +10,8 @@ import { SidePanel, SidePanelBody, SidePanelFooter, SidePanelHeader } from './si
 
 /**
  * A panel that slides in from the right edge and holds details or a form for
- * the item the user picked. The page stays visible behind it.
+ * the item the user picked, or from the left for navigation that stands in for
+ * a folded-away sidebar. The page stays visible behind it.
  */
 const meta: Meta<typeof SidePanel> = {
   title: 'Hades/Molecules/SidePanel',
@@ -98,11 +99,13 @@ function OpenButton({
   label,
   size,
   width,
+  side,
   children,
 }: {
   label: string;
   size?: PanelSize;
   width?: number | string;
+  side?: 'left' | 'right';
   children: (onClose: () => void) => React.ReactNode;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -116,6 +119,7 @@ function OpenButton({
         onClose={() => setOpen(false)}
         {...(size ? { size } : {})}
         {...(width ? { width } : {})}
+        {...(side ? { side } : {})}
       >
         {children(() => setOpen(false))}
       </SidePanel>
@@ -175,6 +179,14 @@ export const Options: Story = {
         <Option name="width={360}" use="An exact width in pixels. Replaces size.">
           <OpenButton label="Open 360px panel" width={360}>
             {(onClose) => <EditForm onClose={onClose} />}
+          </OpenButton>
+        </Option>
+        <Option
+          name='side="left"'
+          use="For navigation, such as a sidebar folded away on a narrow page."
+        >
+          <OpenButton label="Open left panel" side="left" width={320}>
+            {() => <DetailsOnly />}
           </OpenButton>
         </Option>
         <Option name="No SidePanelFooter" use="For panels that only show details.">
