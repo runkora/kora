@@ -876,7 +876,7 @@ func (s *Service) evaluateBudget(ctx context.Context, p principal, delegatorID, 
 	}
 	spends, err := s.budgetCounter.GetSpends(ctx, scopes)
 	if err != nil {
-		return policy.BudgetResult{}, fmt.Errorf("read spend counters: %w", err)
+		return policy.BudgetResult{}, &budgetEvalError{reason: reasonSpendCounter, err: err}
 	}
 	result, err := s.policy.CheckBudget(ctx, p.TenantID, policy.BudgetCheckRequest{
 		PrincipalID:   p.PrincipalID,
@@ -887,10 +887,25 @@ func (s *Service) evaluateBudget(ctx context.Context, p principal, delegatorID, 
 		Spends:        spends,
 	})
 	if err != nil {
-		return policy.BudgetResult{}, fmt.Errorf("evaluate budget policy: %w", err)
+		return policy.BudgetResult{}, &budgetEvalError{reason: reasonBudgetPolicy, err: err}
 	}
 	return result, nil
 }
+
+// Steps of evaluateBudget that can fail, as checkBudget logs them.
+const (
+	reasonSpendCounter = "spend counter get failed"
+	reasonBudgetPolicy = "OPA budget check failed"
+)
+
+// budgetEvalError is a failed evaluateBudget step. Its message is the step's own error.
+type budgetEvalError struct {
+	reason string
+	err    error
+}
+
+func (e *budgetEvalError) Error() string { return e.err.Error() }
+func (e *budgetEvalError) Unwrap() error { return e.err }
 
 // checkBudget evaluates the kora.budget hierarchical ceilings via the policy
 // evaluator. It reads every applicable canonical counter (principal windows,
@@ -915,7 +930,18 @@ func (s *Service) checkBudget(ctx context.Context, p principal) error {
 
 	result, err := s.evaluateBudget(ctx, p, verifiedDelegator(ctx), "")
 	if err != nil {
-		s.logger.Warn(ctx, "budget.fail_open",
+		// A counter failure is an infrastructure fault and logs at error; a policy failure at warn.
+		log := s.logger.Warn
+		reason := reasonBudgetPolicy
+		var evalErr *budgetEvalError
+		if errors.As(err, &evalErr) {
+			reason = evalErr.reason
+		}
+		if reason == reasonSpendCounter {
+			log = s.logger.Error
+		}
+		log(ctx, "budget.fail_open",
+			logging.Field{Key: "reason", Value: reason},
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "principal_id", Value: p.PrincipalID},
 		)
