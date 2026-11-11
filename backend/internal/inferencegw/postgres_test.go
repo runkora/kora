@@ -202,7 +202,7 @@ func TestPostgres_GetRunPrincipal(t *testing.T) {
 	}
 }
 
-// A person's name is their display name, else their email; no profile reads empty.
+// A person's name is their display name. Without one it reads empty, never the email.
 func TestPostgres_GetPersonName(t *testing.T) {
 	repo, pool, tenant := testUsageRepo(t)
 	ctx := context.Background()
@@ -210,7 +210,7 @@ func TestPostgres_GetPersonName(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO user_profiles (id, tenant_id, email, display_name) VALUES ('u-named', $1, 'named@example.com', 'Named Person'), ('u-email', $1, 'email@example.com', '')`, tenant); err != nil {
 		t.Fatalf("insert profiles: %v", err)
 	}
-	for id, want := range map[string]string{"u-named": "Named Person", "u-email": "email@example.com", "u-none": ""} {
+	for id, want := range map[string]string{"u-named": "Named Person", "u-email": "", "u-none": ""} {
 		if got, err := repo.GetPersonName(ctx, tenant, id); err != nil || got != want {
 			t.Errorf("GetPersonName(%s) = %q, %v; want %q", id, got, err, want)
 		}

@@ -78,7 +78,7 @@ type InferenceUsageRepository interface {
 	GetRunPrincipal(ctx context.Context, tenantID, runID string) (RunPrincipal, error)
 
 	// GetPersonName returns a person's display name from the user_profiles
-	// snapshot, else their email. Empty, no error, when there is no profile.
+	// snapshot. Empty, no error, when there is none: an email is never a name.
 	GetPersonName(ctx context.Context, tenantID, principalID string) (string, error)
 
 	// GetMonthlySpendByPrincipal returns per-principal spend aggregates for the
@@ -862,9 +862,10 @@ func (r *PostgresInferenceUsageRepository) GetRunPrincipal(ctx context.Context, 
 	return p, nil
 }
 
-// GetPersonName returns a person's display name, else their email, from user_profiles.
+// GetPersonName returns a person's display name from user_profiles. It never
+// falls back to the email: the name is shown to every reader of a run.
 func (r *PostgresInferenceUsageRepository) GetPersonName(ctx context.Context, tenantID, principalID string) (string, error) {
-	const q = `SELECT COALESCE(NULLIF(display_name, ''), email) FROM user_profiles WHERE tenant_id = $1 AND id = $2`
+	const q = `SELECT display_name FROM user_profiles WHERE tenant_id = $1 AND id = $2`
 	var name string
 	err := r.pool.QueryRow(ctx, q, tenantID, principalID).Scan(&name)
 	if errors.Is(err, pgx.ErrNoRows) {
