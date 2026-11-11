@@ -939,10 +939,14 @@ func (r *PostgresRepository) AppendRunMessage(ctx context.Context, m RunMessage)
 		m.ID = uuid.NewString()
 	}
 	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		var senderID, senderType, senderName *string
+		if m.Sender != nil {
+			senderID, senderType, senderName = &m.Sender.ID, &m.Sender.Type, &m.Sender.Name
+		}
 		_, err := r.pool.Exec(ctx, `
-			INSERT INTO run_messages (id, run_id, content, created_at)
-			VALUES ($1,$2,$3,$4)`,
-			m.ID, m.RunID, m.Content, time.Now().UTC(),
+			INSERT INTO run_messages (id, run_id, content, created_at, sender_id, sender_type, sender_name)
+			VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			m.ID, m.RunID, m.Content, time.Now().UTC(), senderID, senderType, senderName,
 		)
 		if err != nil {
 			return fmt.Errorf("insert run_message: %w", err)
