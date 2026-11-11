@@ -247,11 +247,25 @@ type RunSource struct {
 	Provider string `json:"provider,omitempty"`
 }
 
+// Limits on a RunEventSummary. kora-agents refuses a summary over them, and
+// kora-triggers clamps to them, so the two cannot drift apart.
+const (
+	MaxEventSummaryStringRunes = 300
+	MaxEventSummaryQuoteRunes  = 2000
+	MaxEventSummaryFacts       = 6
+)
+
+// ValidEventLink reports whether s may be a summary link: an absolute http or
+// https URL. The page renders links, so a javascript: or relative URL is refused.
+func ValidEventLink(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
+}
+
 // RunEventSummary describes the event behind a trigger's message: who did what
 // to which object, and a preview of that object. Actor kind is person, bot or
-// system; a status tone is ok or bad. Strings are at most 300 characters, a
-// quote at most 2,000, and a preview at most 6 facts.
-// See docs/adr/2026-11-11-run-page-record.md.
+// system; a status tone is ok or bad. Strings, quotes and facts are bounded by
+// the MaxEventSummary limits. See docs/adr/2026-11-11-run-page-record.md.
 type RunEventSummary struct {
 	Actor   RunEventActor    `json:"actor"`
 	Verb    string           `json:"verb"`

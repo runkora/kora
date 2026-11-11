@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"unicode/utf8"
 
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -47,13 +47,6 @@ type RunEventStatus struct {
 	Label string `json:"label"`
 	Tone  string `json:"tone"`
 }
-
-// Limits on a summary, so a delivery cannot grow a run's event log without bound.
-const (
-	maxRunEventStringRunes = 300
-	maxRunEventQuoteRunes  = 2000
-	maxRunEventFacts       = 6
-)
 
 var (
 	// ErrRunEventRefused is returned when a caller that is not a SERVICE principal sends an event summary.
@@ -101,8 +94,8 @@ func checkRunEventShape(e *RunEventSummary) error {
 func checkRunEventLengths(e *RunEventSummary) error {
 	strs := []string{e.Actor.Name, e.Actor.URL, e.Verb, e.Object.Label, e.Object.URL}
 	if p := e.Preview; p != nil {
-		if len(p.Facts) > maxRunEventFacts {
-			return fmt.Errorf("at most %d facts", maxRunEventFacts)
+		if len(p.Facts) > agentsclient.MaxEventSummaryFacts {
+			return fmt.Errorf("at most %d facts", agentsclient.MaxEventSummaryFacts)
 		}
 		strs = append(append(strs, p.Title), p.Facts...)
 		if p.Status != nil {
@@ -110,23 +103,23 @@ func checkRunEventLengths(e *RunEventSummary) error {
 		}
 	}
 	for _, s := range strs {
-		if utf8.RuneCountInString(s) > maxRunEventStringRunes {
-			return fmt.Errorf("strings are at most %d characters", maxRunEventStringRunes)
+		if utf8.RuneCountInString(s) > agentsclient.MaxEventSummaryStringRunes {
+			return fmt.Errorf("strings are at most %d characters", agentsclient.MaxEventSummaryStringRunes)
 		}
 	}
-	if utf8.RuneCountInString(e.Quote) > maxRunEventQuoteRunes {
-		return fmt.Errorf("quote is at most %d characters", maxRunEventQuoteRunes)
+	if utf8.RuneCountInString(e.Quote) > agentsclient.MaxEventSummaryQuoteRunes {
+		return fmt.Errorf("quote is at most %d characters", agentsclient.MaxEventSummaryQuoteRunes)
 	}
 	return nil
 }
 
-// checkRunEventLinks refuses a javascript: or relative URL: the page renders these as links.
+// checkRunEventLinks refuses a link that is not an absolute http or https URL.
 func checkRunEventLinks(e *RunEventSummary) error {
 	for _, link := range []string{e.Actor.URL, e.Object.URL} {
 		if link == "" {
 			continue
 		}
-		if u, err := url.Parse(link); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		if !agentsclient.ValidEventLink(link) {
 			return errors.New("links must be absolute http or https urls")
 		}
 	}

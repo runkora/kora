@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"maps"
-	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -19,14 +18,6 @@ import (
 // summary, JSON-encoded, to the worker that starts or joins the run. Like
 // metaSourceLinks it is not a catalog field. See docs/adr/2026-11-11-run-page-record.md.
 const metaEventSummary = "meta.event_summary"
-
-// Limits kora-agents enforces on a summary. A summary is clamped to them here:
-// a long comment shortens its quote and does not fail the run.
-const (
-	maxSummaryStringRunes = 300
-	maxSummaryQuoteRunes  = 2000
-	maxSummaryFacts       = 6
-)
 
 // Actor kinds and status tones, as kora-agents stores them.
 const (
@@ -85,25 +76,26 @@ func eventFromFields(fields map[string]string) *agentsclient.RunEventSummary {
 	return &e
 }
 
+// clampSummary cuts e to the limits kora-agents enforces: a long comment shortens its quote and does not fail the run.
 func clampSummary(e *agentsclient.RunEventSummary) {
 	for _, s := range []*string{&e.Actor.Name, &e.Verb, &e.Object.Label} {
-		*s = clampRunes(*s, maxSummaryStringRunes)
+		*s = clampRunes(*s, agentsclient.MaxEventSummaryStringRunes)
 	}
-	e.Quote = clampRunes(e.Quote, maxSummaryQuoteRunes)
+	e.Quote = clampRunes(e.Quote, agentsclient.MaxEventSummaryQuoteRunes)
 	// A link that would be cut is dropped: half a URL points somewhere else.
 	for _, s := range []*string{&e.Actor.URL, &e.Object.URL} {
-		if utf8.RuneCountInString(*s) > maxSummaryStringRunes || !isWebURL(*s) {
+		if utf8.RuneCountInString(*s) > agentsclient.MaxEventSummaryStringRunes || (*s != "" && !agentsclient.ValidEventLink(*s)) {
 			*s = ""
 		}
 	}
 	if p := e.Preview; p != nil {
-		p.Title = clampRunes(p.Title, maxSummaryStringRunes)
-		p.Facts = p.Facts[:min(len(p.Facts), maxSummaryFacts)]
+		p.Title = clampRunes(p.Title, agentsclient.MaxEventSummaryStringRunes)
+		p.Facts = p.Facts[:min(len(p.Facts), agentsclient.MaxEventSummaryFacts)]
 		for i := range p.Facts {
-			p.Facts[i] = clampRunes(p.Facts[i], maxSummaryStringRunes)
+			p.Facts[i] = clampRunes(p.Facts[i], agentsclient.MaxEventSummaryStringRunes)
 		}
 		if p.Status != nil {
-			p.Status.Label = clampRunes(p.Status.Label, maxSummaryStringRunes)
+			p.Status.Label = clampRunes(p.Status.Label, agentsclient.MaxEventSummaryStringRunes)
 		}
 	}
 }
@@ -115,14 +107,6 @@ func clampRunes(s string, n int) string {
 		return s
 	}
 	return string([]rune(s)[:n-1]) + "…"
-}
-
-func isWebURL(s string) bool {
-	if s == "" {
-		return true
-	}
-	u, err := url.Parse(s)
-	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
 }
 
 // words turns an identifier such as review_requested into "review requested".
