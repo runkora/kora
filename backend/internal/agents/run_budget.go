@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/inference"
@@ -50,11 +51,11 @@ func (s *RunService) reachedBudget(ctx context.Context, runID string) *inference
 func (s *RunService) lookUpBudget(ctx context.Context, runID string) (inference.RunBudget, error) {
 	run, err := s.repo.GetRun(ctx, runID)
 	if err != nil {
-		return inference.RunBudget{}, err
+		return inference.RunBudget{}, fmt.Errorf("get run: %w", err)
 	}
 	bearer, err := s.selfToken(ctx)
 	if err != nil {
-		return inference.RunBudget{}, err
+		return inference.RunBudget{}, fmt.Errorf("service token: %w", err)
 	}
 	budget, err := s.budgets.RunBudget(ctx, bearer, run.TenantID, runID)
 	if err != nil {

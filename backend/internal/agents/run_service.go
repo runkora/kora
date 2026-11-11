@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/runkora/kora/backend/internal/platform/clients/inference"
 	"net"
 	"net/http"
 	"regexp"
@@ -18,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/clients/inference"
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/token"
@@ -751,10 +751,8 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 		return err
 	}
 
-	var sender *MessageSender
-	if from == nil {
-		sender = messageSender(ctx)
-	}
+	// A trigger's SERVICE principal is never a sender, so a trigger message records none.
+	sender := messageSender(ctx)
 	if err = s.repo.AppendRunMessage(ctx, RunMessage{RunID: runID, Content: content, From: from, CausedBy: chain.causedBy, ChainDepth: chain.depth, Triggers: chain.triggers, Sender: sender}); err != nil {
 		observability.RecordFailure(span, err, errSpanAppendRunMessage)
 		return fmt.Errorf("append run message: %w", err)
