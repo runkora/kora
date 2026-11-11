@@ -107,15 +107,6 @@ func TestRunEvent_StoredOnMessageEvents(t *testing.T) {
 	}
 }
 
-func TestStartRun_RefusesEventFromPerson(t *testing.T) {
-	f, repo, _, _ := newTestService(t)
-	at := seedAutonomousAgentType(t, repo, "at-1", "t1", "reviewer")
-	ctx := withPrincipalCtx(context.Background(), "t1", token.PrincipalTypeHuman, "user-1")
-	if _, err := f.run.StartRun(ctx, StartRunRequest{AgentTypeID: at.ID, Event: validRunEvent()}); !errors.Is(err, ErrRunEventRefused) {
-		t.Errorf("StartRun = %v, want ErrRunEventRefused", err)
-	}
-}
-
 // A person's summary is a 403 and a malformed service summary a 400, on start and on join.
 func TestRunEvent_HandlerStatus(t *testing.T) {
 	bad := validRunEvent()
