@@ -43,8 +43,9 @@ type scalerCluster interface {
 // ScalerConfig holds the scaler's settings.
 type ScalerConfig struct {
 	TenantNamespaceFn func(tenantID string) string
-	// MinReplicas is the floor of every agent's pods.
+	// MinReplicas is the floor of every agent's pods, and MaxReplicas their ceiling.
 	MinReplicas int32
+	MaxReplicas int32
 	// PlacementWatermark, StartingRunAllowances and StartingRunWindow are placement's values.
 	PlacementWatermark    float64
 	StartingRunAllowances StartingRunAllowances
@@ -154,7 +155,7 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 		return err
 	}
 	want := desiredReplicas(scaleInput{
-		replicas: ss.Replicas, floor: int(max(s.cfg.MinReplicas, 1)), total: at.MaxConcurrentRuns,
+		replicas: ss.Replicas, floor: int(max(s.cfg.MinReplicas, 1)), total: at.MaxConcurrentRuns, maxReplicas: int(s.cfg.MaxReplicas),
 		counts: counts, ready: ready, readings: readings, starting: starting,
 		topRuns: occupied[ss.Replicas-1], memoryMax: memoryMax(ready, readings, ss.MemoryLimitBytes),
 		allowance: allowance, watermark: s.cfg.PlacementWatermark,
@@ -175,11 +176,11 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 
 // scaleInput is what one scaling decision reads.
 type scaleInput struct {
-	replicas, floor, total int
-	counts                 AgentRunCounts
-	ready                  []int
-	readings               map[int]sessionmanager.Memory
-	starting               map[int]int
+	replicas, floor, total, maxReplicas int
+	counts                              AgentRunCounts
+	ready                               []int
+	readings                            map[int]sessionmanager.Memory
+	starting                            map[int]int
 	// topRuns counts the runs on the top pod, ordinal replicas-1.
 	topRuns   int
 	memoryMax int64
@@ -189,20 +190,26 @@ type scaleInput struct {
 
 // desiredReplicas raises the replicas to the floor, adds the pods the startable pending runs need in
 // one step when no Ready pod has room, or removes the top pod when it is empty and nothing waits.
+// It never adds pods past the agent's total or maxReplicas.
 func desiredReplicas(in scaleInput) int {
 	if in.replicas < in.floor {
 		return in.floor
 	}
+	ceiling := min(in.total, in.maxReplicas)
 	// Runs over the agent's total cannot start, so they need no pod.
 	startable := min(in.counts.Pending, in.total-in.counts.Active-in.counts.Starting)
-	// Pods at or above the total, after the total was lowered, are never needed for a waiting run.
-	if startable > 0 && in.replicas < in.total {
+	// Pods above the ceiling, after it was lowered, are never needed for a waiting run. A pod at the
+	// ceiling is kept while runs wait, or it would be removed and added again.
+	if startable > 0 && in.replicas <= ceiling {
+		if in.replicas == ceiling {
+			return in.replicas
+		}
 		if _, ok := firstPodWithRoom(in.ready, in.replicas, in.readings, in.starting, in.allowance, in.watermark); ok {
 			return in.replicas
 		}
 		comingUp := in.replicas - len(in.ready)
 		add := podsFor(startable, in.allowance, in.watermark, in.memoryMax) - comingUp
-		return max(in.replicas, min(in.replicas+add, in.total))
+		return max(in.replicas, min(in.replicas+add, ceiling))
 	}
 	if in.replicas > in.floor && in.topRuns == 0 {
 		return in.replicas - 1

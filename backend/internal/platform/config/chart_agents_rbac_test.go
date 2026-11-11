@@ -52,15 +52,17 @@ func TestChartAgentsClusterRoleScaleAndStaleHPA(t *testing.T) {
 	}
 }
 
-// minReplicas needs at least one pod and has no upper bound now the HPA is gone.
+// minReplicas needs at least one pod and at most maxReplicas.
 func TestChartMinReplicasBounds(t *testing.T) {
-	for _, n := range []string{"0", "-1"} {
-		out, err := helmTemplate(t, "agents:\n  scheduling: {minReplicas: "+n+"}\n")
-		if err == nil || !strings.Contains(out, "agents.scheduling.minReplicas must be at least 1") {
-			t.Errorf("minReplicas %s: render err = %v, want the floor check to fail it", n, err)
+	for _, v := range []string{"{minReplicas: 0}", "{minReplicas: -1}", "{minReplicas: 11}", "{minReplicas: 3, maxReplicas: 2}"} {
+		out, err := helmTemplate(t, "agents:\n  scheduling: "+v+"\n")
+		if err == nil || !strings.Contains(out, "minReplicas must be at least 1 and at most maxReplicas") {
+			t.Errorf("%s: render err = %v, want the bounds check to fail it", v, err)
 		}
 	}
-	if _, err := helmTemplate(t, "agents:\n  scheduling: {minReplicas: 12}\n"); err != nil {
-		t.Errorf("minReplicas 12: render err = %v, want no upper bound", err)
+	for _, v := range []string{"{minReplicas: 10}", "{minReplicas: 12, maxReplicas: 20}"} {
+		if _, err := helmTemplate(t, "agents:\n  scheduling: "+v+"\n"); err != nil {
+			t.Errorf("%s: render err = %v, want it accepted", v, err)
+		}
 	}
 }
