@@ -162,7 +162,7 @@ With cgroup v2 and Kubernetes 1.32 or later, the kubelet group-kills the whole c
 
 ### Start Budget
 
-A run will fail the start budget only when no pod is coming up for it: no pod is Ready, no pod exists that is Pending or not yet Ready, and the agent is under its total. A pod that exists and is not Ready (e.g., one waiting for a node) keeps the run queued. A pod whose container is waiting in `CrashLoopBackOff`, `ImagePullBackOff` or `ErrImagePull` is not coming up.
+A run will fail the start budget only when no pod is coming up for it: no pod is Ready, no pod exists that is Pending or not yet Ready, and the agent is under its total. A pod that exists and is not Ready (e.g., one waiting for a node) keeps the run queued. A pod with any container, init containers and sidecars included, waiting in `CrashLoopBackOff`, `ImagePullBackOff`, `ErrImagePull`, `CreateContainerConfigError` or `InvalidImageName` is not coming up: those states last until someone fixes the spec, image or a missing ConfigMap or Secret, so the run fails rather than waits. A Running pod that is not Ready still counts as coming up: the check keeps no pod age or budget, so a pod that is only slow to pass its readiness probe, or is draining, would fail runs that could still start. A readiness probe that never passes needs its own timeout.
 
 ### Scaler
 
