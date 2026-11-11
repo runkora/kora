@@ -415,7 +415,7 @@ func (a *alertmanagerAdapter) EventSummary(eventType string, doc any) *agentscli
 
 // ─── Manual, scheduled and platform event fires ─────────────────────────────
 
-// manualSummary names the person who fired the trigger and the inputs they gave.
+// manualSummary names the person who fired the trigger and lists the inputs they gave.
 func manualSummary(ctx context.Context, t Trigger, values map[string]string) *agentsclient.RunEventSummary {
 	claims, ok := token.ClaimsFromContext(ctx)
 	if !ok || claims == nil {
@@ -431,12 +431,16 @@ func manualSummary(ctx context.Context, t Trigger, values map[string]string) *ag
 	if claims.Kora.PrincipalType == token.PrincipalTypeAgent {
 		kind = actorBot
 	}
-	return &agentsclient.RunEventSummary{
-		Actor:   agentsclient.RunEventActor{Name: events.PrincipalNameOf(claims), Kind: kind},
-		Verb:    "fired",
-		Object:  agentsclient.RunEventObject{Label: t.Name},
-		Preview: &agentsclient.RunEventPreview{Title: t.Name, Facts: facts},
+	e := &agentsclient.RunEventSummary{
+		Actor:  agentsclient.RunEventActor{Name: events.PrincipalNameOf(claims), Kind: kind},
+		Verb:   "fired",
+		Object: agentsclient.RunEventObject{Label: t.Name},
 	}
+	// Without inputs a preview would only repeat the trigger name.
+	if len(facts) > 0 {
+		e.Preview = &agentsclient.RunEventPreview{Title: "Inputs", Facts: facts}
+	}
+	return e
 }
 
 // scheduledSummary names the schedule that fired the trigger.
