@@ -238,10 +238,13 @@ func TestManualSummary(t *testing.T) {
 	got := manualSummary(ctx, Trigger{Name: "nightly-check"}, map[string]string{"repo": "example-org/platform", "env": "prod", "empty": ""})
 	want := &agentsclient.RunEventSummary{
 		Actor: agentsclient.RunEventActor{Name: "Dev User", Kind: "person"}, Verb: "fired", Object: agentsclient.RunEventObject{Label: "nightly-check"},
-		Preview: &agentsclient.RunEventPreview{Title: "nightly-check", Facts: []string{"env prod", "repo example-org/platform"}},
+		Preview: &agentsclient.RunEventPreview{Title: "Inputs", Facts: []string{"env prod", "repo example-org/platform"}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("summary = %+v, want %+v", got, want)
+	}
+	if got := manualSummary(ctx, Trigger{Name: "nightly-check"}, map[string]string{"empty": ""}); got == nil || got.Preview != nil {
+		t.Errorf("summary without inputs = %+v, want no preview", got)
 	}
 	if manualSummary(context.Background(), Trigger{Name: "x"}, nil) != nil {
 		t.Error("a fire without claims names no actor")
