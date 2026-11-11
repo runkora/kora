@@ -503,3 +503,17 @@ func TestStartRunAndSendRunMessage_Event(t *testing.T) {
 		t.Errorf("message body = %s, want %s", cap.body, want)
 	}
 }
+
+func TestValidEventLink(t *testing.T) {
+	for link, want := range map[string]bool{
+		"https://github.com/o/r/pull/1": true,
+		"http://prometheus:9090/graph":  true,
+		"javascript:alert(1)":           false,
+		"/users/octocat":                false,
+		"":                              false,
+	} {
+		if got := ValidEventLink(link); got != want {
+			t.Errorf("ValidEventLink(%q) = %v, want %v", link, got, want)
+		}
+	}
+}
