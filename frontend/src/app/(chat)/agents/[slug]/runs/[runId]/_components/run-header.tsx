@@ -53,8 +53,10 @@ function planProgress(run: RunView): { done: number; total: number } | null {
   };
 }
 
-/** The run's state in a word or two, with the icon and colour the header and end line share. */
-/** `null` while the state is unknown, so nothing is shown rather than a wrong state. */
+/**
+ * The run's state in a word or two, with the icon and colour the header and end line share.
+ * `null` while the state is unknown, so nothing is shown rather than a wrong state.
+ */
 export function stateLabel(run: RunView): {
   label: string;
   icon: IconName;
