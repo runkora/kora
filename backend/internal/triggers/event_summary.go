@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"maps"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -356,7 +357,7 @@ func githubWorkflowRun(doc any, action string) *agentsclient.RunEventSummary {
 
 // EventSummary describes a message or a thread reply. doc is the chat
 // document, which names the user by id only.
-func (a *slackAdapter) EventSummary(_ string, doc any) *agentsclient.RunEventSummary {
+func (a *slackAdapter) EventSummary(eventType string, doc any) *agentsclient.RunEventSummary {
 	user := resolvePath(doc, "user.id")
 	if user == "" {
 		return nil
@@ -373,8 +374,46 @@ func (a *slackAdapter) EventSummary(_ string, doc any) *agentsclient.RunEventSum
 		Actor:  agentsclient.RunEventActor{Name: user, Kind: actorPerson},
 		Verb:   verb,
 		Object: object,
-		Quote:  resolvePath(doc, "text"),
+		Quote:  slackQuote(resolvePath(doc, "text"), eventType == "mention"),
 	}
+}
+
+var (
+	slackLeadingMention = regexp.MustCompile(`^<@[^>|]+(?:\|[^>]*)?>\s*[:,]?\s*`)
+	slackUserMention    = regexp.MustCompile(`<@[^>|]+(?:\|([^>]*))?>`)
+	slackChannelMention = regexp.MustCompile(`<#[^>|]+(?:\|([^>]*))?>`)
+	slackLink           = regexp.MustCompile(`<((?:https?://|mailto:)[^>|]+)(?:\|([^>]*))?>`)
+)
+
+// slackQuote turns Slack message markup into plain text. trimBot removes one
+// leading user mention, which on a channel mention is the bot (the chat
+// document does not carry the bot's id). Names are not resolved: a mention
+// without a name reads @user.
+func slackQuote(text string, trimBot bool) string {
+	text = strings.TrimSpace(text)
+	if trimBot {
+		text = slackLeadingMention.ReplaceAllString(text, "")
+	}
+	text = slackUserMention.ReplaceAllStringFunc(text, func(m string) string {
+		if name := slackUserMention.FindStringSubmatch(m)[1]; name != "" {
+			return "@" + name
+		}
+		return "@user"
+	})
+	text = slackChannelMention.ReplaceAllStringFunc(text, func(m string) string {
+		if name := slackChannelMention.FindStringSubmatch(m)[1]; name != "" {
+			return "#" + name
+		}
+		return "#channel"
+	})
+	text = slackLink.ReplaceAllStringFunc(text, func(m string) string {
+		sub := slackLink.FindStringSubmatch(m)
+		if sub[2] != "" {
+			return sub[2]
+		}
+		return sub[1]
+	})
+	return strings.TrimSpace(text)
 }
 
 // ─── Alertmanager ────────────────────────────────────────────────────────────
