@@ -11,6 +11,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -415,6 +416,17 @@ func TestPlatformEventVerbs(t *testing.T) {
 		}
 		if got := platformEventSummary(head, decodeBody([]byte(envelope))); got == nil || got.Verb != want {
 			t.Errorf("%s verb = %+v, want %q", eventType, got, want)
+		}
+	}
+}
+
+// Every catalog event type has its own verb, so a new type cannot fall back without a test failing.
+func TestPlatformEventVerbs_CoverTheCatalog(t *testing.T) {
+	for _, typ := range events.Types() {
+		parts := strings.Split(strings.TrimSuffix(string(typ), ".v1"), ".")
+		key := parts[len(parts)-2] + "." + parts[len(parts)-1]
+		if _, ok := platformEventVerbs[key]; !ok {
+			t.Errorf("%s has no verb in platformEventVerbs", typ)
 		}
 	}
 }

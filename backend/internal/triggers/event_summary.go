@@ -506,6 +506,13 @@ var platformEventVerbs = map[string]string{
 	"tenant_budget.deleted":    "removed the tenant budget",
 	"budget.exceeded":          "exceeded budget",
 	"budget.threshold_crossed": "crossed a threshold of budget",
+	"resource.failed":          "failed to apply resource",
+	"delegation.issued":        "delegated to",
+	"pat.created":              "created token",
+	"pat.updated":              "updated token",
+	"pat.revoked":              "revoked token",
+	"session.created":          "signed in with session",
+	"tenant.switched":          "switched to tenant",
 }
 
 // runStateTones gives a tone to the run states that are good or bad news. Every other state is neutral.
