@@ -288,6 +288,15 @@ func TestPlatformEventSummary(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("agent summary = %+v, want %+v", got, want)
 	}
+
+	const triggerEnvelope = `{"id":"e3","type":"triggers.trigger.created.v1","subject":"triggers/t1","koraprincipaltype":"USER","koraprincipalname":"Dev User","data":{"entity":{"id":"t1","name":"nightly-build"}}}`
+	if err := json.Unmarshal([]byte(triggerEnvelope), &head); err != nil {
+		t.Fatal(err)
+	}
+	got = platformEventSummary(head, decodeBody([]byte(triggerEnvelope)))
+	if got == nil || got.Object.Label != "nightly-build" {
+		t.Errorf("trigger summary = %+v, want the trigger's name as its label", got)
+	}
 }
 
 // A summary over kora-agents' limits is clamped, never sent to be refused.
