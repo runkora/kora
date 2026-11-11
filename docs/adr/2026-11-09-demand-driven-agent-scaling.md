@@ -156,11 +156,9 @@ Placement and the scaler will share a Postgres advisory transaction lock keyed o
 
 ### Pressure Protection
 
-The session-manager will check its working set every 250 ms (configurable, default 250 ms). On a 1Gi pod the band between `pressureLimit` and the limit is about 102Mi, and one run can fill it within a longer interval. Above `agents.scheduling.pressureLimit × memory.max` (default 0.90) the session-manager kills the most recently started run and ends it `failed` with "The agent pod ran out of memory." After each kill it reads the working set again at once and kills the next most recently started run, until the working set is below the limit or no run is left. The chart rejects a `placementWatermark` at or above `pressureLimit`.
+The session-manager will check its working set every 250 ms by default. On a 1Gi pod the band between `pressureLimit` and the limit is about 102Mi, and one run can fill it within a longer interval. Above `agents.scheduling.pressureLimit × memory.max` (default 0.90) the session-manager kills the most recently started run and ends it `failed` with "The agent pod ran out of memory." After each kill it reads the working set again at once and kills the next most recently started run, until the working set is below the limit or no run is left. The chart rejects a `placementWatermark` at or above `pressureLimit`.
 
 With cgroup v2 and Kubernetes 1.32 or later, the kubelet group-kills the whole container on an OOM. The pressure kill must fire before the kernel OOM kill.
-
-*   Kubelet group-kill check on a cluster node: **confirmed**. The node runs cgroup v2 and kubelet v1.36.4, and the session-manager container's cgroup has `memory.oom.group` set to 1. A test container whose child process exceeded the memory limit ended `OOMKilled` with every process in it killed.
 
 ### Start Budget
 
@@ -170,7 +168,7 @@ A run will fail the start budget only when no pod is coming up for it: no pod is
 
 kora-agents will run a scaler loop every 5 s, independent of the claim tick. For each agent the loop reads pod memory (2 s timeout per pod, outside any lock) and then waits up to 2 s for the agent lock. A timeout skips the agent for that pass. The replica that gets the lock re-reads the pending, active and starting run counts from the database, decides from those counts and the memory reading, and calls the StatefulSet scale subresource. The scaler will:
 
-*   Scale up in one step when runs are pending, the agent is under its total, and no Ready pod has room. It adds `ceil(pending × the harness's startingRunAllowance ÷ (placementWatermark × pod memory.max))` pods minus the pods already coming up, clamped to the agent's total. Pod `memory.max` comes from a Ready pod's report, else from the StatefulSet's container memory limit.
+*   Scale up in one step when runs are pending, the agent is under its total, and no Ready pod has room. It adds `ceil(pending × the harness's startingRunAllowance ÷ (placementWatermark × pod memory.max))` pods minus the pods already coming up, clamped to the agent's total and to `agents.scheduling.maxReplicas` (default 10). Pod `memory.max` comes from a Ready pod's report, else from the StatefulSet's container memory limit.
 *   Scale down by one pod when the top pod (ordinal `replicas − 1`) is above `minReplicas` and has no active or starting run, and no run under the total is waiting. The empty-top-pod check and the scale call both happen under the lock.
 *   Scale up to `minReplicas` when the floor is raised above the live count.
 
