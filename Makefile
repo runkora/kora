@@ -970,6 +970,10 @@ test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d
 		if [ $$STATUS -eq 0 ]; then echo "$(COLOR_GREEN)✓ Integration tests passed$(COLOR_RESET)"; fi; \
 		exit $$STATUS
 
+.PHONY: test-agent-scaling
+test-agent-scaling: auth-refresh-k3d ## Live-cluster agent scaling check: the Parallel switch, a one-step scale-up for 31 runs over a total of 30, and scale-down to the floor. Not run by CI or `make check`.
+	@bash scripts/cluster/test-agent-scaling.sh
+
 .PHONY: test-postgres
 test-postgres: ## Postgres-backed repository tests against the local Postgres. Needs the compose Postgres up. Not run by CI or `make check`.
 	@$(MIGRATE) up
