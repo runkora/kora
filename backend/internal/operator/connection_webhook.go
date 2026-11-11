@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"regexp"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -84,10 +83,6 @@ func createdBefore(a, b *Connection) bool {
 	return a.Name < b.Name
 }
 
-// placeholderEnvPattern is the shape of a bearer connection's
-// config.placeholderEnv: an upper-case environment variable name.
-var placeholderEnvPattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
-
 // validateBearerConfig checks config.placeholderEnv of a bearer Connection.
 // Config is a RawExtension with preserve-unknown-fields, so CEL in the CRD
 // cannot read it; the webhook does. The key is optional. Other adapters and
@@ -107,8 +102,8 @@ func validateBearerConfig(c *Connection) error {
 		return nil
 	}
 	var name string
-	if err := json.Unmarshal(raw, &name); err != nil || !placeholderEnvPattern.MatchString(name) {
-		return fmt.Errorf("bearer connections: config.placeholderEnv must be an environment variable name matching %s", placeholderEnvPattern)
+	if err := json.Unmarshal(raw, &name); err != nil || !platformconns.ValidPlaceholderEnvName(name) {
+		return fmt.Errorf("bearer connections: config.placeholderEnv must be a plain environment variable name (letters, digits, underscore; at most 128 characters; not PATH, HOME, LD_*, DYLD_*, KORA_* or another reserved name)")
 	}
 	return nil
 }
