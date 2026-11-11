@@ -865,6 +865,33 @@ func (s *Service) delegatorBudgetScopes(ctx context.Context, tenantID, delegator
 	return delegatorID, windows, perRunLimit
 }
 
+// evaluateBudget reads every applicable spend counter of p and asks the policy
+// which ceilings apply. delegatorID is a verified delegator or empty. runID,
+// when set, names the run whose counter is read. Otherwise the run comes from
+// an agent's request and is read only under a per-run ceiling.
+func (s *Service) evaluateBudget(ctx context.Context, p principal, delegatorID, runID string) (policy.BudgetResult, error) {
+	scopes, _, roles := s.budgetScopesFor(ctx, p, delegatorID)
+	if runID != "" {
+		scopes.RunID = runID
+	}
+	spends, err := s.budgetCounter.GetSpends(ctx, scopes)
+	if err != nil {
+		return policy.BudgetResult{}, fmt.Errorf("read spend counters: %w", err)
+	}
+	result, err := s.policy.CheckBudget(ctx, p.TenantID, policy.BudgetCheckRequest{
+		PrincipalID:   p.PrincipalID,
+		PrincipalType: p.PrincipalType,
+		Roles:         roles,
+		RunID:         scopes.RunID,
+		DelegatorID:   scopes.DelegatorID,
+		Spends:        spends,
+	})
+	if err != nil {
+		return policy.BudgetResult{}, fmt.Errorf("evaluate budget policy: %w", err)
+	}
+	return result, nil
+}
+
 // checkBudget evaluates the kora.budget hierarchical ceilings via the policy
 // evaluator. It reads every applicable canonical counter (principal windows,
 // role pools, tenant cap, run), then delegates the decision to OPA, which
@@ -886,32 +913,9 @@ func (s *Service) checkBudget(ctx context.Context, p principal) error {
 	)
 	defer span.End()
 
-	scopes, _, roles := s.budgetScopesFor(ctx, p, verifiedDelegator(ctx))
-
-	spends, err := s.budgetCounter.GetSpends(ctx, scopes)
-	if err != nil {
-		s.logger.Error(ctx, "budget.fail_open",
-			logging.Field{Key: "reason", Value: "spend counter get failed"},
-			logging.Field{Key: "error", Value: err.Error()},
-			logging.Field{Key: "principal_id", Value: p.PrincipalID},
-		)
-		span.RecordError(err)
-		return nil
-	}
-
-	result, err := s.policy.CheckBudget(ctx, p.TenantID, policy.BudgetCheckRequest{
-		PrincipalID:   p.PrincipalID,
-		PrincipalType: p.PrincipalType,
-		Roles:         roles,
-		RunID:         scopes.RunID,
-		// From the verified delegation context via budgetScopesFor — never
-		// caller-asserted. Empty for non-delegated traffic.
-		DelegatorID: scopes.DelegatorID,
-		Spends:      spends,
-	})
+	result, err := s.evaluateBudget(ctx, p, verifiedDelegator(ctx), "")
 	if err != nil {
 		s.logger.Warn(ctx, "budget.fail_open",
-			logging.Field{Key: "reason", Value: "OPA budget check failed"},
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "principal_id", Value: p.PrincipalID},
 		)
