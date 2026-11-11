@@ -40,7 +40,6 @@ func TestDesiredReplicas(t *testing.T) {
 		{"coming up covers the need", base(func(in *scaleInput) { in.counts.Pending = 4; in.replicas = 4 }), 4},
 		// ceil(4 × 1024 ÷ 716.8) = 6 pods would pass the total of 4.
 		{"clamped to the agent total", base(func(in *scaleInput) { in.counts.Pending = 40; in.total = 4; in.allowance = 1024 * mi }), 4},
-		// Only 2 of the pending runs fit under the total: ceil(2 × 180 ÷ 716.8) = 1.
 		{"clamped to maxReplicas", base(func(in *scaleInput) { in.counts.Pending = 30; in.maxReplicas = 5 }), 5},
 		{"at maxReplicas adds nothing", base(func(in *scaleInput) {
 			in.counts.Pending = 30
@@ -54,6 +53,13 @@ func TestDesiredReplicas(t *testing.T) {
 			in.maxReplicas = 10
 			in.allowance = 1024 * mi
 		}), 3},
+		{"a lowered maxReplicas removes an empty top pod while runs wait", base(func(in *scaleInput) {
+			in.counts.Pending = 30
+			in.replicas = 6
+			in.maxReplicas = 4
+			in.ready = []int{0, 1, 2, 3, 4, 5}
+		}), 5},
+		// Only 2 of the pending runs fit under the total: ceil(2 × 180 ÷ 716.8) = 1.
 		{"runs over the total need no pod", base(func(in *scaleInput) { in.counts.Pending = 20; in.total = 10; in.counts.Active = 8 }), 3},
 		{"at the total adds nothing", base(func(in *scaleInput) { in.counts.Pending = 5; in.total = 4; in.counts.Active = 4 }), 2},
 		{"a Ready pod with room adds nothing", base(func(in *scaleInput) { in.counts.Pending = 20; in.readings[1] = empty }), 2},
