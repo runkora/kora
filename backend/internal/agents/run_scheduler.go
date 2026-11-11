@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -213,7 +215,21 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 		s.releaseStart(ctx, span, run.ID, claimedAt, errAgentProvisioning)
 		return nil, "", 0, false
 	}
-	// Provisioning time is not part of the start budget, which runs from when the agent became active.
+	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
+	pod, err := s.assignPod(ctx, run, claimedAt, at, namespace)
+	switch {
+	case err == nil:
+		return at, namespace, pod, true
+	case errors.Is(err, ErrConflict):
+		// The run was terminated, or another worker holds it now.
+		s.logger.Info(ctx, "run left the queue before its pod was assigned", logging.Field{Key: "run_id", Value: run.ID})
+		return nil, "", 0, false
+	case !errors.Is(err, errNoReadyPod):
+		// Full pods and the agent's total keep the run queued with no time limit.
+		s.releaseStart(ctx, span, run.ID, claimedAt, err)
+		return nil, "", 0, false
+	}
+	// Only a run with no Ready pod is charged the start budget. Provisioning time is not part of it.
 	budgetStart := run.CreatedAt
 	if at.ActivatedAt.After(budgetStart) {
 		budgetStart = at.ActivatedAt
@@ -222,28 +238,12 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 		s.failStart(ctx, span, errStartFailed, run.ID, RunStatePending, fmt.Sprintf("No agent pod could take the run within %s.", s.startBudget()))
 		return nil, "", 0, false
 	}
-	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
-	pod, err := s.selectPod(ctx, at, namespace)
-	if errors.Is(err, errNoReadyPod) {
-		// Missing resources, after a cluster reset for example, leave no Ready pod. Create them only then.
-		if provErr := s.missing.ProvisionMissing(ctx, *at, namespace); provErr != nil {
-			err = fmt.Errorf("ensure agent infrastructure: %w", provErr)
-		}
+	// Missing resources, after a cluster reset for example, leave no Ready pod. Create them only then.
+	if provErr := s.missing.ProvisionMissing(ctx, *at, namespace); provErr != nil {
+		err = fmt.Errorf("ensure agent infrastructure: %w", provErr)
 	}
-	if err != nil {
-		s.releaseStart(ctx, span, run.ID, claimedAt, err)
-		return nil, "", 0, false
-	}
-	if err = s.repo.AssignPod(ctx, run.ID, claimedAt, pod); errors.Is(err, ErrConflict) {
-		// The run was terminated, or another worker holds it now.
-		s.logger.Info(ctx, "run left the queue before its pod was assigned", logging.Field{Key: "run_id", Value: run.ID})
-		return nil, "", 0, false
-	}
-	if err != nil {
-		s.releaseStart(ctx, span, run.ID, claimedAt, fmt.Errorf("assign pod: %w", err))
-		return nil, "", 0, false
-	}
-	return at, namespace, pod, true
+	s.releaseStart(ctx, span, run.ID, claimedAt, err)
+	return nil, "", 0, false
 }
 
 // sessionRequest is the session-manager request for a run of at.
@@ -269,21 +269,24 @@ func (s *RunService) sessionRequest(ctx context.Context, run Run, at AgentType) 
 	return req
 }
 
-// selectPod errors: no Ready, non-terminating pod, or every such pod is full.
+// Placement errors: no Ready, non-terminating pod, every such pod is full, or the agent is at its total.
 var (
-	errNoReadyPod = errors.New("no ready agent pod")
-	errNoFreePod  = errors.New("no ready agent pod with a free slot")
+	errNoReadyPod   = errors.New("no ready agent pod")
+	errNoFreePod    = errors.New("no ready agent pod with memory to spare")
+	errAgentAtTotal = errors.New("agent is at its total of concurrent runs")
 )
 
 // errAgentProvisioning releases a run whose agent is still being created.
 var errAgentProvisioning = errors.New("agent is still provisioning")
 
-// selectPod picks the least-loaded Ready, non-terminating pod with a free slot.
-func (s *RunService) selectPod(ctx context.Context, at *AgentType, namespace string) (int, error) {
-	counts, err := s.repo.ActiveRunsPerPod(ctx, at.ID)
-	if err != nil {
-		return 0, err
-	}
+// memoryReadTimeout bounds one pod memory read. A pod that does not answer in time counts as full.
+const memoryReadTimeout = 2 * time.Second
+
+// assignPod places a claimed run on the lowest-ordinal pod with memory to spare
+// (docs/adr/2026-11-09-demand-driven-agent-scaling.md). Pod memory is read before
+// the agent lock. A slow pod must never hold it, and the lock is taken only when a pod
+// has room by that reading.
+func (s *RunService) assignPod(ctx context.Context, run Run, claimedAt time.Time, at *AgentType, namespace string) (int, error) {
 	ready, err := s.k8s.ReadyOrdinals(ctx, at.Slug, namespace)
 	if err != nil {
 		return 0, fmt.Errorf("list ready pods: %w", err)
@@ -291,17 +294,94 @@ func (s *RunService) selectPod(ctx context.Context, at *AgentType, namespace str
 	if len(ready) == 0 {
 		return 0, errNoReadyPod
 	}
-	best, bestCount := -1, 0
-	// The per-pod check reads the renamed field until the agent-wide total cap replaces it.
-	for _, i := range ready {
-		if c := counts[i]; c < at.MaxConcurrentRuns && (best < 0 || c < bestCount) {
-			best, bestCount = i, c
-		}
+	allowance, err := s.cfg.StartingRunAllowances.For(at.Framework)
+	if err != nil {
+		return 0, err
 	}
-	if best < 0 {
+	readings := s.readPodMemory(ctx, at.Slug, namespace, ready)
+	// A run for an agent whose pods are all full is released here. Many such runs at once would
+	// otherwise queue on the agent lock. The lock re-checks.
+	starting, err := s.repo.StartingRunsPerPod(ctx, at.ID, time.Now().Add(-s.cfg.StartingRunWindow))
+	if err != nil {
+		return 0, err
+	}
+	if !slices.ContainsFunc(ready, func(ord int) bool {
+		m, ok := readings[ord]
+		return ok && hasRoom(m, starting[ord], allowance.Value(), s.cfg.PlacementWatermark)
+	}) {
 		return 0, errNoFreePod
 	}
-	return best, nil
+	pod := -1
+	err = s.repo.WithAgentLock(ctx, at.ID, func(ctx context.Context) error {
+		var lockedErr error
+		pod, lockedErr = s.assignLocked(ctx, run, claimedAt, at, namespace, ready, readings, allowance.Value())
+		return lockedErr
+	})
+	return pod, err
+}
+
+// assignLocked runs under the agent lock: it re-counts the agent's runs, checks the total and
+// the current replicas, and assigns the lowest ready pod whose reading has room.
+func (s *RunService) assignLocked(ctx context.Context, run Run, claimedAt time.Time, at *AgentType, namespace string,
+	ready []int, readings map[int]sessionmanager.Memory, allowance int64) (int, error) {
+	counts, err := s.repo.AgentRunCounts(ctx, at.ID)
+	if err != nil {
+		return 0, err
+	}
+	if counts.Active+counts.Starting >= at.MaxConcurrentRuns {
+		return 0, errAgentAtTotal
+	}
+	// The scaler may have removed a pod since the list was read.
+	replicas, err := s.k8s.Replicas(ctx, at.Slug, namespace)
+	if err != nil {
+		return 0, fmt.Errorf("read replicas: %w", err)
+	}
+	starting, err := s.repo.StartingRunsPerPod(ctx, at.ID, time.Now().Add(-s.cfg.StartingRunWindow))
+	if err != nil {
+		return 0, err
+	}
+	for _, ord := range ready {
+		if m, ok := readings[ord]; ok && ord < replicas && hasRoom(m, starting[ord], allowance, s.cfg.PlacementWatermark) {
+			return ord, s.repo.AssignPod(ctx, run.ID, claimedAt, ord)
+		}
+	}
+	return 0, errNoFreePod
+}
+
+// readPodMemory reads the memory of each pod at once. A pod whose read fails or times out is left out.
+func (s *RunService) readPodMemory(ctx context.Context, slug, namespace string, ordinals []int) map[int]sessionmanager.Memory {
+	readings := make([]*sessionmanager.Memory, len(ordinals))
+	var wg sync.WaitGroup
+	for i, ord := range ordinals {
+		wg.Go(func() {
+			readCtx, cancel := context.WithTimeout(ctx, memoryReadTimeout)
+			defer cancel()
+			m, err := s.sm.Memory(readCtx, sessionmanager.PodURL(slug, ord, namespace))
+			if err != nil {
+				s.logger.Warn(ctx, "pod memory read failed; the pod counts as full",
+					logging.Field{Key: "pod_ordinal", Value: ord}, logging.Field{Key: "error", Value: err.Error()})
+				return
+			}
+			readings[i] = &m
+		})
+	}
+	wg.Wait()
+	out := make(map[int]sessionmanager.Memory, len(ordinals))
+	for i, m := range readings {
+		if m != nil {
+			out[ordinals[i]] = *m
+		}
+	}
+	return out
+}
+
+// hasRoom reports whether a pod stays below the watermark with its starting runs and the run being
+// placed counted at the allowance. A pod with no memory limit always has room.
+func hasRoom(m sessionmanager.Memory, starting int, allowance int64, watermark float64) bool {
+	if m.LimitBytes == 0 {
+		return true
+	}
+	return float64(m.WorkingSetBytes+int64(starting+1)*allowance) < watermark*float64(m.LimitBytes)
 }
 
 // releaseStart returns a claimed run to the queue after a transient failure.

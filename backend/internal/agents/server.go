@@ -1192,7 +1192,7 @@ type sandboxEnvironmentRequest struct {
 
 // invalidAgentTypeField reports an agent-type write the request itself got wrong. The handler answers it with a 400.
 func invalidAgentTypeField(err error) bool {
-	for _, target := range []error{ErrInvalidConnectivity, ErrInvalidConnector, ErrInvalidIdentityMode, ErrInvalidFramework, ErrInvalidGuardrails, ErrInvalidEnvironment, ErrInvalidSlug} {
+	for _, target := range []error{ErrInvalidConnectivity, ErrInvalidConnector, ErrInvalidIdentityMode, ErrInvalidFramework, ErrInvalidGuardrails, ErrInvalidEnvironment, ErrInvalidSlug, ErrInvalidMaxConcurrentRuns} {
 		if errors.Is(err, target) {
 			return true
 		}

@@ -188,27 +188,41 @@ func (s *AgentTypeService) PreviewEffectiveAccess(ctx context.Context, req Effec
 	return s.scopeResolver().EffectiveAccess(ctx, draft)
 }
 
+// ErrInvalidMaxConcurrentRuns rejects an update that sets the agent's total of concurrent runs below 1.
+var ErrInvalidMaxConcurrentRuns = errors.New("max_concurrent_runs must be at least 1")
+
+// validateIdentityModeUpdate rejects a change of identity_mode, which is immutable after creation
+// (delegated-agent-identity ADR, Decision 1): the fail-closed enforcement stack is provisioned around
+// the mode the agent was created with. Restating the current mode is a no-op.
+func validateIdentityModeUpdate(at *AgentType, mode *IdentityMode) error {
+	if mode == nil || *mode == "" {
+		return nil
+	}
+	if err := mode.Validate(); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidIdentityMode, err)
+	}
+	if *mode != at.IdentityMode.OrDefault() {
+		return fmt.Errorf("%w (current mode: %s)", ErrIdentityModeImmutable, at.IdentityMode.OrDefault())
+	}
+	return nil
+}
+
 // validateAgentTypeUpdate runs the partial-update field validations
 // (connectivity posture, connectors, environment reference). Extracted from
 // UpdateAgentType to keep that method's cyclomatic complexity in check.
 func (s *AgentTypeService) validateAgentTypeUpdate(ctx context.Context, at *AgentType, req UpdateAgentTypeRequest) error {
-	// identity_mode is immutable after creation (delegated-agent-identity ADR,
-	// Decision 1): the fail-closed enforcement stack is provisioned around the
-	// mode the agent was created with. Restating the current mode is a no-op;
-	// any change is rejected.
-	if req.IdentityMode != nil && *req.IdentityMode != "" {
-		if vErr := req.IdentityMode.Validate(); vErr != nil {
-			return fmt.Errorf("%w: %w", ErrInvalidIdentityMode, vErr)
-		}
-		if *req.IdentityMode != at.IdentityMode.OrDefault() {
-			return fmt.Errorf("%w (current mode: %s)", ErrIdentityModeImmutable, at.IdentityMode.OrDefault())
-		}
+	if err := validateIdentityModeUpdate(at, req.IdentityMode); err != nil {
+		return err
 	}
 	// Only create defaults an empty framework; an update to "" is rejected.
 	if req.Framework != nil {
 		if err := validateFramework(*req.Framework); err != nil {
 			return err
 		}
+	}
+	// An agent with a total below 1 could never start a run.
+	if req.MaxConcurrentRuns != nil && *req.MaxConcurrentRuns < 1 {
+		return ErrInvalidMaxConcurrentRuns
 	}
 	if req.Connectivity != nil {
 		if vErr := req.Connectivity.Validate(); vErr != nil {

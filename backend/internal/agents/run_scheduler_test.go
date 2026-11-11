@@ -134,8 +134,14 @@ func TestStartClaimed(t *testing.T) {
 		{name: "no ready pod creates missing resources and releases",
 			setup:     func(e *startClaimedEnv) { e.k8s.noReadyPods = true },
 			wantState: RunStatePending, wantReleased: 1, wantProvMiss: 1},
-		{name: "full pods release without provisioning",
-			setup:     func(e *startClaimedEnv) { e.repo.activeRunsOverride = map[int]int{0: 5} },
+		{name: "an agent at its total releases even past the start budget",
+			setup: func(e *startClaimedEnv) {
+				e.f.run.cfg.StartBudget = time.Minute
+				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-time.Hour)
+				for i := range 5 {
+					seedRun(t, e.repo, Run{ID: fmt.Sprintf("live-%d", i), TenantID: "t1", AgentTypeID: "at-1", State: RunStateIdle})
+				}
+			},
 			wantState: RunStatePending, wantReleased: 1},
 		{name: "a provisioning error releases",
 			setup: func(e *startClaimedEnv) {
@@ -143,8 +149,16 @@ func TestStartClaimed(t *testing.T) {
 				e.k8s.provisionAgentTypeErr = errors.New("conflict")
 			},
 			wantState: RunStatePending, wantReleased: 1},
-		{name: "past the start budget fails with a reason",
+		{name: "a run that waited past the start budget stays queued while Ready pods are full",
 			setup: func(e *startClaimedEnv) {
+				e.sm.memory = fullPods("bot", 0)
+				e.f.run.cfg.StartBudget = time.Minute
+				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-time.Hour)
+			},
+			wantState: RunStatePending, wantReleased: 1},
+		{name: "past the start budget with no Ready pod fails with a reason",
+			setup: func(e *startClaimedEnv) {
+				e.k8s.noReadyPods = true
 				e.f.run.cfg.StartBudget = time.Minute
 				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-2 * time.Minute)
 				e.repo.agentTypes["at-1"].ActivatedAt = time.Now().Add(-3 * time.Minute)
@@ -152,11 +166,12 @@ func TestStartClaimed(t *testing.T) {
 			wantState: RunStateFailed, wantErr: "No agent pod could take the run within 1m0s."},
 		{name: "provisioning time does not count against the start budget",
 			setup: func(e *startClaimedEnv) {
+				e.k8s.noReadyPods = true
 				e.f.run.cfg.StartBudget = time.Minute
 				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-5 * time.Minute)
 				e.repo.agentTypes["at-1"].ActivatedAt = time.Now()
 			},
-			wantState: RunStateActive, wantSessions: 1, wantMessages: 1},
+			wantState: RunStatePending, wantReleased: 1, wantProvMiss: 1},
 		{name: "an agent provisioning past its budget fails the run",
 			setup: func(e *startClaimedEnv) {
 				e.f.run.cfg.ProvisionBudget = time.Minute
@@ -289,7 +304,8 @@ func TestFailStart_TerminatedRunGetsNoErrorEvent(t *testing.T) {
 
 // A delegated run that fails to start loses its delegation.
 func TestStartClaimed_DelegatedBudgetFailureRevokes(t *testing.T) {
-	f, repo, _, _ := newTestService(t)
+	f, repo, k8s, _ := newTestService(t)
+	k8s.noReadyPods = true
 	issuer := &fakeDelegationIssuer{}
 	f.run.SetDelegationBroker(newDelegationTestBroker(issuer))
 	at := seedDelegatedAgentType(t, repo, "at-del", "t1", "reviewer")

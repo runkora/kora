@@ -194,14 +194,17 @@ func TestChartSessionManagerMemory(t *testing.T) {
 // The chart renders the memory thresholds kora-agents decodes, and rejects a
 // placement watermark at or above the pressure limit.
 func TestChartMemoryThresholds(t *testing.T) {
-	out := renderChart(t, "agents:\n  scheduling:\n    placementWatermark: 0.6\n    pressureLimit: 0.85\n    startingRunAllowance: {claudeCode: 200Mi, codex: 0.1Gi, openCode: 500Mi}\n")
+	out := renderChart(t, "agents:\n  scheduling:\n    placementWatermark: 0.6\n    pressureLimit: 0.85\n    startingRunWindowSecs: 45\n    startingRunAllowance: {claudeCode: 200Mi, codex: 0.1Gi, openCode: 500Mi}\n")
 	cfg := loadRendered[agentsConfig.Config](t, out, "cmd/kora-agents")
 	if err := agentsConfig.Validate(cfg); err != nil {
 		t.Fatal(err)
 	}
 	s := cfg.Agents.Scheduling
-	if s.PlacementWatermark != 0.6 || s.PressureLimit != 0.85 {
-		t.Errorf("scheduling = watermark %v, pressure limit %v; want 0.6, 0.85", s.PlacementWatermark, s.PressureLimit)
+	if s.PlacementWatermark != 0.6 || s.PressureLimit != 0.85 || s.StartingRunWindowSecs != 45 {
+		t.Errorf("scheduling = watermark %v, pressure limit %v, starting window %d; want 0.6, 0.85, 45", s.PlacementWatermark, s.PressureLimit, s.StartingRunWindowSecs)
+	}
+	if out, err := helmTemplate(t, "agents:\n  scheduling: {startingRunWindowSecs: 0}\n"); err == nil || !strings.Contains(out, "startingRunWindowSecs must be at least 1") {
+		t.Errorf("startingRunWindowSecs 0: render err = %v, want the check to fail it", err)
 	}
 	a := s.StartingRunAllowance
 	for name, tc := range map[string]struct {

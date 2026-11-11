@@ -559,17 +559,19 @@ func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, claime
 }
 
 // ClaimPendingRuns claims up to limit due pending runs, oldest first, with SKIP LOCKED.
+// A run of an agent at its total of live runs is left for a later claim.
 // The claim time now is the token that AssignPod and ReleaseRunClaim check.
 func (r *PostgresRepository) ClaimPendingRuns(ctx context.Context, limit int, now time.Time) ([]Run, error) {
 	rows, err := r.pool.Query(ctx, `
 		WITH claimed AS (
 		    UPDATE runs SET claimed_at = $2, updated_at = $2
 		    WHERE id IN (
-		        SELECT id FROM runs
-		        WHERE  state = 'pending' AND claimed_at IS NULL AND not_before <= $2 AND deleted_at IS NULL
-		        ORDER  BY created_at
+		        SELECT q.id FROM runs q JOIN agent_types qa ON qa.id = q.agent_type_id
+		        WHERE  q.state = 'pending' AND q.claimed_at IS NULL AND q.not_before <= $2 AND q.deleted_at IS NULL
+		        AND    (SELECT COUNT(*) FROM runs o WHERE o.agent_type_id = q.agent_type_id AND o.state IN (`+liveRunSQLList()+`)) < qa.max_concurrent_runs
+		        ORDER  BY q.created_at
 		        LIMIT  $1
-		        FOR UPDATE SKIP LOCKED)
+		        FOR UPDATE OF q SKIP LOCKED)
 		    RETURNING id, initial_message)
 		SELECT `+runColumns+`, c.initial_message
 		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id JOIN claimed c ON c.id = r.id
@@ -782,8 +784,16 @@ func (r *PostgresRepository) endRuns(ctx context.Context, update string, args ..
 // list ('pending','starting',...). The states are inlined rather than bound as
 // a query parameter so the predicate stays textually identical to the partial
 // index idx_runs_active, which the planner needs to match it.
-func podOccupancySQLList() string {
-	states := PodOccupyingRunStates()
+func podOccupancySQLList() string { return sqlStateList(PodOccupyingRunStates()) }
+
+// liveRunSQLList lists the states counted against an agent's total: the
+// pod-occupying states except pending. A pending run has no pod yet.
+func liveRunSQLList() string {
+	return sqlStateList(slices.DeleteFunc(PodOccupyingRunStates(), func(s RunState) bool { return s == RunStatePending }))
+}
+
+// sqlStateList quotes states for an SQL IN list.
+func sqlStateList(states []RunState) string {
 	quoted := make([]string, len(states))
 	for i, s := range states {
 		quoted[i] = "'" + string(s) + "'"
@@ -810,8 +820,12 @@ func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID s
 	if err != nil {
 		return nil, fmt.Errorf("query active runs per pod: %w", err)
 	}
-	defer rows.Close()
+	return collectPodCounts(rows)
+}
 
+// collectPodCounts reads (pod_ordinal, count) rows into a map.
+func collectPodCounts(rows pgx.Rows) (map[int]int, error) {
+	defer rows.Close()
 	out := make(map[int]int)
 	for rows.Next() {
 		var ord, count int
@@ -821,6 +835,48 @@ func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID s
 		out[ord] = count
 	}
 	return out, rows.Err()
+}
+
+// AgentRunCounts counts an agent's pending, starting and active runs.
+func (r *PostgresRepository) AgentRunCounts(ctx context.Context, agentTypeID string) (AgentRunCounts, error) {
+	var c AgentRunCounts
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FILTER (WHERE state = 'pending'),
+		       COUNT(*) FILTER (WHERE state = 'starting'),
+		       COUNT(*) FILTER (WHERE state NOT IN ('pending', 'starting'))
+		FROM   runs WHERE agent_type_id = $1 AND state IN (`+podOccupancySQLList()+`)`,
+		agentTypeID).Scan(&c.Pending, &c.Starting, &c.Active)
+	if err != nil {
+		return AgentRunCounts{}, fmt.Errorf("count agent runs: %w", err)
+	}
+	return c, nil
+}
+
+// StartingRunsPerPod returns an agent's starting run counts keyed by pod ordinal. A live run assigned
+// to its pod after assignedSince also counts, because a run's memory grows after it leaves starting.
+func (r *PostgresRepository) StartingRunsPerPod(ctx context.Context, agentTypeID string, assignedSince time.Time) (map[int]int, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT pod_ordinal, COUNT(*) FROM runs
+		WHERE agent_type_id = $1
+		AND (state = 'starting' OR (state IN (`+liveRunSQLList()+`) AND started_at > $2))
+		GROUP BY pod_ordinal`, agentTypeID, assignedSince)
+	if err != nil {
+		return nil, fmt.Errorf("query starting runs per pod: %w", err)
+	}
+	return collectPodCounts(rows)
+}
+
+// agentLockKey keys the advisory lock that placement and the scaler take on an agent.
+func agentLockKey(agentTypeID string) string { return "agent/" + agentTypeID }
+
+// WithAgentLock runs fn in a transaction that holds the agent's advisory lock.
+func (r *PostgresRepository) WithAgentLock(ctx context.Context, agentTypeID string, fn func(ctx context.Context) error) error {
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, agentLockKey(agentTypeID)); err != nil {
+			return fmt.Errorf("take agent lock: %w", err)
+		}
+		return fn(ctx)
+	})
 }
 
 // ReapStaleRuns marks runs that have been stuck in transient states for longer

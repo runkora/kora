@@ -250,6 +250,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	if validateErr := sizes.Validate(); validateErr != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", validateErr)
 	}
+	allowance := cfg.Agents.Scheduling.StartingRunAllowance
 	runSvc, err := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo, agents.RunServiceConfig{
 		DefaultEnvironmentSize: sizes.Default,
 		TenantNamespaceFn:      cfg.TenantNamespace,
@@ -258,12 +259,15 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 			Manual:  cfg.Agents.IdleTimeout.ManualSecs,
 			Trigger: cfg.Agents.IdleTimeout.TriggerSecs,
 		},
-		SandboxMount:      cfg.Agents.SandboxMount,
-		StartBudget:       time.Duration(cfg.Agents.Scheduling.StartBudgetSecs) * time.Second,
-		ProvisionBudget:   time.Duration(cfg.Agents.Scheduling.ProvisionBudgetSecs) * time.Second,
-		StartPollInterval: time.Duration(cfg.Agents.Scheduling.PollIntervalSecs) * time.Second,
-		WorkerConcurrency: cfg.Agents.Scheduling.WorkerConcurrency,
-		Brand:             b,
+		SandboxMount:          cfg.Agents.SandboxMount,
+		StartBudget:           time.Duration(cfg.Agents.Scheduling.StartBudgetSecs) * time.Second,
+		ProvisionBudget:       time.Duration(cfg.Agents.Scheduling.ProvisionBudgetSecs) * time.Second,
+		StartPollInterval:     time.Duration(cfg.Agents.Scheduling.PollIntervalSecs) * time.Second,
+		WorkerConcurrency:     cfg.Agents.Scheduling.WorkerConcurrency,
+		PlacementWatermark:    cfg.Agents.Scheduling.PlacementWatermark,
+		StartingRunAllowances: agents.NewStartingRunAllowances(allowance.ClaudeCode, allowance.Codex, allowance.OpenCode),
+		StartingRunWindow:     time.Duration(cfg.Agents.Scheduling.StartingRunWindowSecs) * time.Second,
+		Brand:                 b,
 	}, logger)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("initialize run service: %w", err)

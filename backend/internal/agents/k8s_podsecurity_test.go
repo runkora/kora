@@ -475,10 +475,11 @@ func TestEnsureStatefulSet_UnpinnedImageFollowsRelease(t *testing.T) {
 func TestReadyOrdinals(t *testing.T) {
 	const ns, slug = "kora-tenant-acme", "coder"
 	sel := map[string]string{"app": slug}
+	replicas := int32(2)
 	ss := func(gen, observed int64, rev string) *appsv1.StatefulSet {
 		return &appsv1.StatefulSet{
 			ObjectMeta: metav1.ObjectMeta{Name: slug, Namespace: ns, Generation: gen},
-			Spec:       appsv1.StatefulSetSpec{Selector: &metav1.LabelSelector{MatchLabels: sel}},
+			Spec:       appsv1.StatefulSetSpec{Replicas: &replicas, Selector: &metav1.LabelSelector{MatchLabels: sel}},
 			Status:     appsv1.StatefulSetStatus{ObservedGeneration: observed, UpdateRevision: rev},
 		}
 	}
@@ -510,6 +511,7 @@ func TestReadyOrdinals(t *testing.T) {
 		{"old revision during a roll", []runtime.Object{ss(2, 2, "r2"), pod("coder-0", "r1", true, false), pod("coder-1", "r2", false, false)}, []int{0}},
 		{"terminating", []runtime.Object{ss(1, 1, "r1"), pod("coder-0", "r1", true, true)}, nil},
 		{"ready current", []runtime.Object{ss(1, 1, "r1"), pod("coder-1", "r1", true, false), pod("coder-0", "r1", true, false), pod("coder-2", "r1", false, false)}, []int{0, 1}},
+		{"at or above the replicas", []runtime.Object{ss(1, 1, "r1"), pod("coder-0", "r1", true, false), pod("coder-2", "r1", true, false), pod("coder-3", "r1", true, false)}, []int{0}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := podSecurityProvisioner()

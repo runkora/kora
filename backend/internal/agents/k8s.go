@@ -339,9 +339,8 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 	return firstErr
 }
 
-// ReadyOrdinals returns the ordinals of the StatefulSet's pods that are Ready
-// and not terminating. A pod on either revision counts, so the pod a roll has
-// not reached yet takes new runs (docs/adr/2026-10-12-run-scheduling.md).
+// ReadyOrdinals returns the Ready, non-terminating pod ordinals below the current replicas. A pod on
+// either revision counts: one a roll has not reached still takes runs (docs/adr/2026-10-12-run-scheduling.md).
 func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace string) ([]int, error) {
 	ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
@@ -364,12 +363,33 @@ func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace stri
 		if !ok {
 			continue
 		}
-		if ord, convErr := strconv.Atoi(n); convErr == nil {
+		// A pod at or above the current replicas is being scaled away.
+		if ord, convErr := strconv.Atoi(n); convErr == nil && ord < specReplicas(ss) {
 			out = append(out, ord)
 		}
 	}
 	sort.Ints(out)
 	return out, nil
+}
+
+// Replicas returns the StatefulSet's current spec.replicas, zero when it does not exist.
+func (p *K8sProvisioner) Replicas(ctx context.Context, slug, namespace string) (int, error) {
+	ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
+	}
+	return specReplicas(ss), nil
+}
+
+// specReplicas is the StatefulSet's spec.replicas. Unset means 1.
+func specReplicas(ss *appsv1.StatefulSet) int {
+	if ss.Spec.Replicas == nil {
+		return 1
+	}
+	return int(*ss.Spec.Replicas)
 }
 
 func podReady(pod *corev1.Pod) bool {

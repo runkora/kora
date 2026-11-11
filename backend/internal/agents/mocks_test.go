@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 	"github.com/runkora/kora/backend/internal/platform/token"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -56,13 +58,15 @@ type mockRepository struct {
 	setRunDelegationJTIErr error
 	terminateRunErr        error
 	sandboxDeleted         []string
-	activeRunsOverride     map[int]int
 	// queued lists the runs QueueRun made claimable, and released counts ReleaseRunClaim calls.
 	queued   []string
 	released int
 	// reclaims counts stale-claim sweeps.
-	reclaims            int
-	activeRunsErr       error
+	reclaims int
+	// agentLock stands in for the agent's advisory lock, and agentLockHeld reports whether it is held.
+	agentLock           sync.Mutex
+	agentLockHeld       atomic.Bool
+	agentLockCalls      atomic.Int32
 	appendRunEventErr   error
 	listRunEventsErr    error
 	appendRunMessageErr error
@@ -427,8 +431,10 @@ func (m *mockRepository) AssignPod(_ context.Context, runID string, _ time.Time,
 	if !ok || r.State != RunStatePending {
 		return ErrConflict
 	}
+	now := time.Now()
 	r.PodOrdinal = podOrdinal
 	r.State = RunStateStarting
+	r.StartedAt = &now
 	return nil
 }
 
@@ -587,22 +593,64 @@ func (m *mockRepository) CancelRunsByAgentType(_ context.Context, agentTypeID st
 	return cancelled, nil
 }
 
-func (m *mockRepository) ActiveRunsPerPod(_ context.Context, agentTypeID string) (map[int]int, error) {
-	if m.activeRunsErr != nil {
-		return nil, m.activeRunsErr
-	}
-	if m.activeRunsOverride != nil {
-		return m.activeRunsOverride, nil
-	}
+func (m *mockRepository) StartingRunsPerPod(_ context.Context, agentTypeID string, assignedSince time.Time) (map[int]int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	counts := map[int]int{}
 	for _, r := range m.runs {
-		if r.AgentTypeID == agentTypeID && (r.State == RunStateActive || r.State == RunStateStarting) {
+		if r.AgentTypeID != agentTypeID {
+			continue
+		}
+		occupies, _ := r.State.OccupiesPod()
+		recent := occupies && r.State != RunStatePending && r.StartedAt != nil && r.StartedAt.After(assignedSince)
+		if r.State == RunStateStarting || recent {
 			counts[r.PodOrdinal]++
 		}
 	}
 	return counts, nil
+}
+
+// podCounts counts the agent's runs whose state matches, keyed by pod ordinal.
+func (m *mockRepository) podCounts(agentTypeID string, match func(RunState) bool) map[int]int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	counts := map[int]int{}
+	for _, r := range m.runs {
+		if r.AgentTypeID == agentTypeID && match(r.State) {
+			counts[r.PodOrdinal]++
+		}
+	}
+	return counts
+}
+
+func (m *mockRepository) AgentRunCounts(_ context.Context, agentTypeID string) (AgentRunCounts, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var c AgentRunCounts
+	for _, r := range m.runs {
+		if r.AgentTypeID != agentTypeID {
+			continue
+		}
+		switch r.State {
+		case RunStatePending:
+			c.Pending++
+		case RunStateStarting:
+			c.Starting++
+		case RunStateActive, RunStateIdle, RunStateCompleting:
+			c.Active++
+		}
+	}
+	return c, nil
+}
+
+// WithAgentLock serialises fn per repository and records that the lock is held while it runs.
+func (m *mockRepository) WithAgentLock(ctx context.Context, _ string, fn func(ctx context.Context) error) error {
+	m.agentLockCalls.Add(1)
+	m.agentLock.Lock()
+	defer m.agentLock.Unlock()
+	m.agentLockHeld.Store(true)
+	defer m.agentLockHeld.Store(false)
+	return fn(ctx)
 }
 
 func (m *mockRepository) ReapStaleRuns(_ context.Context, staleDuration time.Duration) (reaped []Run, err error) {
@@ -711,7 +759,9 @@ type mockK8s struct {
 	ensureAgentGrantErr     error
 	deprovisionAgentTypeErr error
 	// readyPods is how many pods ReadyOrdinals reports. Zero means one.
-	readyPods             int
+	readyPods int
+	// replicas is what Replicas reports. Zero means the ReadyOrdinals count.
+	replicas              int
 	sandboxEndpoint       string
 	lookupSandbox         Sandbox
 	lookupFound           bool
@@ -772,6 +822,13 @@ func (m *mockK8s) ReadyOrdinals(_ context.Context, _, _ string) ([]int, error) {
 		out[i] = i
 	}
 	return out, nil
+}
+
+func (m *mockK8s) Replicas(_ context.Context, _, _ string) (int, error) {
+	if m.replicas > 0 {
+		return m.replicas, nil
+	}
+	return max(m.readyPods, 1), nil
 }
 
 func (m *mockK8s) ProvisionSandbox(_ context.Context, _ Run, _, _ string, spec SandboxSpec) (Sandbox, error) {
@@ -877,6 +934,10 @@ type mockSMClient struct {
 	sendMessageErr      error
 	interruptSessionErr error
 	closeSessionErr     error
+	// memory serves Memory by pod URL. A pod not in it reports an empty 1Gi pod.
+	memory map[string]sessionmanager.Memory
+	// memoryFn, when set, replaces Memory.
+	memoryFn func(ctx context.Context, podURL string) (sessionmanager.Memory, error)
 }
 
 func (m *mockSMClient) CreateSession(_ context.Context, _ string, req sessionmanager.CreateSessionRequest) error {
@@ -921,6 +982,28 @@ func (m *mockSMClient) CloseSession(_ context.Context, _, runID string) error {
 	return nil
 }
 
+func (m *mockSMClient) Memory(ctx context.Context, podURL string) (sessionmanager.Memory, error) {
+	if m.memoryFn != nil {
+		return m.memoryFn(ctx, podURL)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if mem, ok := m.memory[podURL]; ok {
+		return mem, nil
+	}
+	return sessionmanager.Memory{LimitBytes: testPodMemory}, nil
+}
+
+// The memory.max of a mock pod, the placement watermark and the starting-run allowance.
+const (
+	testPodMemory    = 1 << 30
+	testWatermark    = 0.5
+	testRunAllowance = 100 << 20
+)
+
+// testAllowance is testRunAllowance as a quantity.
+var testAllowance = *resource.NewQuantity(testRunAllowance, resource.BinarySI)
+
 // ── test wiring helpers ───────────────────────────────────────────────────────
 
 func newTestService(t *testing.T) (*testServiceFacade, *mockRepository, *mockK8s, *mockSMClient) {
@@ -951,6 +1034,9 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 			TenantNamespaceFn:      func(tenantID string) string { return "kora-tenant-" + tenantID },
 			SandboxGuardrails:      SandboxGuardrails{ProvisionAttempts: 2, ProvisionBackoffSecs: 1, ProvisionBudgetSecs: 60},
 			Brand:                  brand.MustNew("kora"),
+			PlacementWatermark:     testWatermark,
+			StartingRunAllowances:  NewStartingRunAllowances(testAllowance, testAllowance, testAllowance),
+			StartingRunWindow:      10 * time.Second,
 		},
 		logger,
 	)
