@@ -3,7 +3,7 @@ import type { RunEventSummary, RunWithAttribution } from '@runkora/shared/api';
 import type { UseRunReturn } from '../_hooks/use-run';
 import type { HumanTurn, ToolCall, Turn } from '../_types';
 import { triggerEventOf } from '../_components/trigger-event';
-import { participantsOf, stepOf, type Entry } from './run-view';
+import { elapsedMs, participantsOf, stepOf, type Entry } from './run-view';
 import { acpCallOf, entriesOf, toRunView } from './to-run-view';
 
 const RUN = {
@@ -64,7 +64,7 @@ describe('messages', () => {
   it('names the first message without a sender by the run starter, and later ones as unknown', () => {
     const [first, later] = messages([human('h1', 'start'), human('h2', 'more')], RUN);
     expect(first.author.name).toBe('Ada Lovelace');
-    expect(later.author).toEqual({ kind: 'person', name: 'Unknown sender', unrecorded: true });
+    expect(later.author).toEqual({ kind: 'person', name: '', unrecorded: true });
   });
 
   it('reads the first message of a trigger-started run as the trigger, with its event', () => {
@@ -223,7 +223,6 @@ function hookState(over: Partial<UseRunReturn>): UseRunReturn {
     runState: 'budget_exhausted',
     turns: [],
     spentUsd: 5,
-    tokensUsed: 900,
     canSteer: true,
     loadError: null,
     stopError: null,
@@ -233,6 +232,7 @@ function hookState(over: Partial<UseRunReturn>): UseRunReturn {
     budgetStop: null,
     sandbox: null,
     earlierRuns: [],
+    earlierRunsError: null,
     isStreaming: false,
     isPending: false,
     isBusy: false,
@@ -247,28 +247,83 @@ function hookState(over: Partial<UseRunReturn>): UseRunReturn {
 }
 
 describe('budget stop', () => {
-  it('names the budget the run recorded', () => {
+  it('names whose budget stopped the run, never its id', () => {
     const view = toRunView(
       hookState({
         budgetStop: {
-          scope: 'agent',
-          owner: 'Code Reviewer',
-          window: 'daily',
+          scope: 'principal',
+          owner: 'spiffe://kora.example/ns/example/sa/code-reviewer',
+          owner_name: 'Code Reviewer',
+          window: 'monthly',
           limit_usd: 5,
-          resets_at: '2026-11-12T00:00:00Z',
+          resets_at: '2026-12-01T00:00:00Z',
         },
       }),
-      0,
     );
-    expect(view.budgetStop).toMatchObject({ owner: 'Code Reviewer', window: 'daily', limitUsd: 5 });
+    expect(view.budgetStop).toMatchObject({ whose: "Code Reviewer's monthly budget", limitUsd: 5 });
     expect(view.budgetStop?.resets).not.toBe('');
   });
 
+  it("names a per-run ceiling as this run's budget, with no reset", () => {
+    const view = toRunView(
+      hookState({
+        budgetStop: {
+          scope: 'run',
+          owner: 'run-1',
+          owner_name: '',
+          window: 'run',
+          limit_usd: 0.25,
+        },
+      }),
+    );
+    expect(view.budgetStop).toEqual({ whose: "this run's budget", limitUsd: 0.25, resets: '' });
+  });
+
   it('has no budget detail when the run recorded none', () => {
-    const view = toRunView(hookState({}), 0);
+    const view = toRunView(hookState({}));
     expect(view.state).toBe('budget_exhausted');
     expect(view.budgetStop).toBeUndefined();
-    expect(view.durationMs).toBe(245_000);
+    expect(elapsedMs(view, 0)).toBe(245_000);
+  });
+});
+
+describe('agents and previews', () => {
+  it('reads an agent sender as an agent', () => {
+    const [, m] = messages(
+      [
+        human('h1', 'start'),
+        human('h2', 'hi', { sender: { id: 'a1', type: 'AGENT', name: 'Planner' } }),
+      ],
+      RUN,
+    );
+    expect(m.author).toEqual({ kind: 'agent', name: 'Planner' });
+  });
+
+  it('draws no preview that only repeats the object', () => {
+    const fired: RunEventSummary = {
+      actor: { name: 'Sam', kind: 'person' },
+      verb: 'fired',
+      object: { label: 'refresh-index' },
+      preview: { title: 'refresh-index' },
+    };
+    const [m] = messages([human('h1', 'go', { event: fired })], TRIGGERED);
+    expect(m.event?.unfurl).toBeUndefined();
+  });
+
+  it('carries a cut result through to the step', () => {
+    const step = stepOf(
+      acpCallOf(
+        tool('Read', { file_path: 'a' }, { result: 'x', truncated: true, originalBytes: 200_000 }),
+      ),
+    );
+    expect(step.truncated).toEqual({ originalBytes: 200_000 });
+  });
+
+  it('runs an agent with no framework recorded on Claude Code', () => {
+    const view = toRunView(
+      hookState({ agentType: { framework: '' } as unknown as UseRunReturn['agentType'] }),
+    );
+    expect(view.harness).toBe('claude-code');
   });
 });
 
@@ -294,7 +349,6 @@ describe('activity', () => {
           error: 'authentication_failed\nmore',
         },
       }),
-      0,
     );
     expect(view.activity).toBe('Retrying the model call (2 of 5): authentication_failed');
   });
@@ -308,12 +362,14 @@ describe('people', () => {
       human('h3', 'again', { sender: { id: 'u2', type: 'USER', name: 'Grace Hopper' } }),
       human('h4', 'ci failed', { fromTrigger: 'ci-failed' }),
       human('h5', 'from before senders were recorded'),
+      human('h6', 'checked', { sender: { id: 'a1', type: 'AGENT', name: 'Planner' } }),
     ];
-    const view = toRunView(hookState({ runState: 'active', turns, run: TRIGGERED }), 0);
+    const view = toRunView(hookState({ runState: 'active', turns, run: TRIGGERED }));
     expect(participantsOf(view)).toEqual([
       { name: 'dev-reviewer', kind: 'person', detail: 'Started it via GitHub' },
       { name: 'Grace Hopper', kind: 'person', detail: '2 messages' },
       { name: 'ci-failed', kind: 'trigger', detail: '1 message · via GitHub' },
+      { name: 'Planner', kind: 'agent', detail: '1 message' },
     ]);
   });
 });

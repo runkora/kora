@@ -84,7 +84,7 @@ function Installed({ events, children }: { events: MockStream; children: React.R
   return <>{children}</>;
 }
 
-/** Story decorator that answers every EventSource with `events`. */
+/** Story decorator that answers each EventSource with `events`, or with the events chosen for its URL. */
 export function mockEventSource(events: MockStream): Decorator {
   const WithMockEventSource: Decorator = (Story) => (
     <Installed events={events}>

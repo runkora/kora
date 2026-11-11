@@ -4,7 +4,13 @@
  * input, and are read into ACP's shape here so every harness renders the same way.
  */
 import type { IconName } from '@runkora/hades';
-import type { RunEventSummary, RunSource, RunWithAttribution } from '@runkora/shared/api';
+import { PROVIDER_ICON } from '@runkora/components';
+import type {
+  RunBudgetStop,
+  RunEventSummary,
+  RunSource,
+  RunWithAttribution,
+} from '@runkora/shared/api';
 import { fmtDateTime } from '@runkora/utils';
 import { relativeTime } from '@runkora/lib/relative-time';
 import { isSafeUrl } from '@runkora/lib/safe-url';
@@ -15,6 +21,7 @@ import {
   commandParts,
   ENDED,
   stepOf,
+  str,
   type AcpKind,
   type AcpToolCall,
   type Entry,
@@ -24,8 +31,6 @@ import {
   type TriggerEventSummary,
   type TriggerOrigin,
 } from './run-view';
-
-const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
 
 const ACP_KIND: Record<ToolKind, AcpKind> = {
   command: 'execute',
@@ -91,6 +96,7 @@ export function acpCallOf(tool: ToolCall): AcpToolCall {
     meta: { toolName, ...(tool.parentId ? { parentId: tool.parentId } : {}) },
     startedAt: tool.startedAt ?? tool.receivedAt,
     endedAt: tool.endedAt,
+    ...(tool.truncated ? { truncated: { originalBytes: tool.originalBytes } } : {}),
     ...(denial
       ? {
           policy: {
@@ -120,12 +126,6 @@ function planOf(tool: ToolCall): Plan {
   };
 }
 
-/** The icon of the system a link or event points into. */
-export const PROVIDER_ICON: Record<string, IconName> = {
-  github: 'github',
-  slack: 'hash',
-  alertmanager: 'prometheus',
-};
 const VIA_ICON: Record<string, IconName> = {
   manual: 'play',
   scheduled: 'clock',
@@ -140,12 +140,20 @@ export function eventSummaryOf(e: RunEventSummary, origin: TriggerOrigin): Trigg
     (origin.via && VIA_ICON[origin.via]) ||
     'zap';
   const p = e.preview;
+  // A preview that only repeats the object's name, with nothing else to say, is not drawn.
+  const informative =
+    p &&
+    (p.facts?.length ||
+      p.status ||
+      p.added !== undefined ||
+      p.removed !== undefined ||
+      p.title !== e.object.label);
   return {
     actor: { ...e.actor, ...(e.actor.kind === 'person' ? {} : { icon }) },
     verb: e.verb,
     object: e.object,
     ...(e.quote ? { quote: e.quote } : {}),
-    ...(p
+    ...(p && informative
       ? {
           unfurl: {
             icon,
@@ -200,8 +208,8 @@ function messageEntry(
     id: t.id,
     time,
     author: name
-      ? { kind: 'person', name }
-      : { kind: 'person', name: 'Unknown sender', unrecorded: true },
+      ? { kind: t.sender?.type === 'AGENT' ? 'agent' : 'person', name }
+      : { kind: 'person', name: '', unrecorded: true },
     text: t.content,
     ...(t.delivery === 'failed' ? { error: t.error ?? 'The message was not sent.' } : {}),
   };
@@ -305,35 +313,43 @@ function activityOf(a: UseRunReturn['liveActivity']): string | undefined {
   }
 }
 
-/** The run page's view of the run at `now` (ms), which drives a live run's elapsed time. */
-export function toRunView(s: UseRunReturn, now: number): RunView {
+/** Whose budget stopped the run, by name; the ceiling's id is never shown. */
+function budgetWhose(b: RunBudgetStop): string {
+  if (b.scope === 'run' || b.window === 'run') return "this run's budget";
+  const owner = b.owner_name || (b.scope === 'tenant' ? 'the tenant' : '');
+  return owner ? `${owner}'s ${b.window} budget` : `a ${b.window} budget`;
+}
+
+/**
+ * The run page's view of the run. A live run's elapsed time is left at zero; the page sets it
+ * from the clock, so a tick does not rebuild the transcript.
+ */
+export function toRunView(s: UseRunReturn): RunView {
   const { run, agentType } = s;
   const state = s.runState ?? run?.state ?? 'pending';
   const startedAt = run?.started_at ?? run?.created_at ?? '';
-  const start = startedAt ? new Date(startedAt).getTime() : NaN;
-  const end = ENDED.has(state) && run?.completed_at ? new Date(run.completed_at).getTime() : now;
+  const endedAt = ENDED.has(state) ? (run?.completed_at ?? undefined) : undefined;
   const limit = agentType?.budget?.per_run_limit_usd;
   const b = s.budgetStop;
+  const u = run?.usage;
   const { entries, queued } = entriesOf(s.turns, run, s.isStreaming);
   const agentName = agentType?.name ?? run?.agent_name ?? 'Agent';
-  return {
+  const view: RunView = {
     id: s.runId,
     summary: run?.summary || `${agentName} run`,
     agent: { name: agentName, slug: s.slug },
-    harness: agentType?.framework ?? '',
+    // An agent with no framework recorded runs on Claude Code, the session manager's default.
+    harness: agentType ? agentType.framework || 'claude-code' : '',
     model: agentType?.model_id ?? '',
     state,
     startedAt,
-    durationMs: Number.isNaN(start) ? 0 : Math.max(0, end - start),
+    ...(endedAt ? { endedAt } : {}),
+    durationMs: 0,
     sources: run?.sources ?? [],
     ...(agentType?.identity_mode === 'delegated'
       ? { actingFor: run?.created_by_name ?? run?.created_by ?? 'its starter' }
       : {}),
-    spend: {
-      usd: s.spentUsd,
-      limitUsd: typeof limit === 'number' && limit > 0 ? limit : null,
-      tokens: s.tokensUsed,
-    },
+    spend: { usd: s.spentUsd, limitUsd: typeof limit === 'number' && limit > 0 ? limit : null },
     traceUrl: isSafeUrl(s.traceUrl) ? s.traceUrl : null,
     entries,
     queued,
@@ -341,9 +357,10 @@ export function toRunView(s: UseRunReturn, now: number): RunView {
     ...(run
       ? {
           record: {
-            requests: run.usage?.request_count ?? 0,
-            inputTokens: run.usage?.input_tokens ?? 0,
-            outputTokens: run.usage?.output_tokens ?? 0,
+            requests: u?.request_count ?? 0,
+            inputTokens: u?.input_tokens ?? 0,
+            outputTokens: u?.output_tokens ?? 0,
+            cachedTokens: (u?.cache_read_tokens ?? 0) + (u?.cache_creation_tokens ?? 0),
             ...(s.sandbox
               ? { sandbox: { image: s.sandbox.image, environment: s.sandbox.environment } }
               : {}),
@@ -357,14 +374,14 @@ export function toRunView(s: UseRunReturn, now: number): RunView {
     ...(b
       ? {
           budgetStop: {
-            owner: b.owner,
-            window: b.window,
+            whose: budgetWhose(b),
             limitUsd: b.limit_usd,
             resets: b.resets_at ? fmtDateTime(b.resets_at) : '',
           },
         }
       : {}),
   };
+  return view;
 }
 
 /** One of the agent's earlier runs, for the sessions pane. */

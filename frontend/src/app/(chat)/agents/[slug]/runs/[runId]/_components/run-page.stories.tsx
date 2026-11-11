@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import {
+  BUDGETS,
   budgetRun,
   doneRun,
   eventStartedRun,
@@ -45,14 +46,20 @@ export const EventStarted: Story = {
   decorators: runStory([eventStartedRun()], []),
 };
 
-/** Stopped because the agent's daily budget ran out: says whose budget, and when it resets. */
+/** Stopped because the agent's monthly budget ran out: says whose budget, and when it resets. */
 export const BudgetExhausted: Story = {
-  args: args(budgetRun()),
-  decorators: runStory([budgetRun()]),
+  args: args(budgetRun(BUDGETS.monthly)),
+  decorators: runStory([budgetRun(BUDGETS.monthly)]),
+};
+
+/** Stopped by the run's own ceiling, which has no owner to name and does not reset. */
+export const BudgetExhaustedPerRun: Story = {
+  args: args(budgetRun(BUDGETS.perRun)),
+  decorators: runStory([budgetRun(BUDGETS.perRun)]),
 };
 
 /** Stopped by a budget the run did not record: a generic stop line. */
 export const BudgetExhaustedUnrecorded: Story = {
-  args: args(budgetRun(false)),
-  decorators: runStory([budgetRun(false)]),
+  args: args(budgetRun()),
+  decorators: runStory([budgetRun()]),
 };

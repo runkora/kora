@@ -3,7 +3,6 @@ import { Grid, Heading, Stack } from '@runkora/hades';
 import { doneRun, runStory, runningRun, slackRun } from '../_lib/run-page-mock-data';
 import { RunProvider, useRunContext } from '../_context/run-context';
 import { toRunView } from '../_lib/to-run-view';
-import { useNow } from '../_hooks/use-now';
 import { RunRail } from './run-rail';
 
 /** The run page's right rail: the Code Reviewer mid-run and finished, and a long Slack session. */
@@ -25,7 +24,7 @@ const STATES = [
 
 /** The rail as the page draws it, from the run's context. */
 function Rail() {
-  return <RunRail run={toRunView(useRunContext(), useNow(false))} />;
+  return <RunRail run={toRunView(useRunContext())} />;
 }
 
 export const States: StoryObj = {

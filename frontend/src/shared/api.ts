@@ -467,7 +467,7 @@ export interface RunEventSummary {
   quote?: string;
   preview?: {
     title: string;
-    facts: string[];
+    facts?: string[];
     added?: number;
     removed?: number;
     status?: { label: string; tone: 'ok' | 'bad' };
@@ -476,10 +476,13 @@ export interface RunEventSummary {
 
 /** The budget that stopped a budget_exhausted run. */
 export interface RunBudgetStop {
+  /** The ceiling's level: tenant, principal, delegator, role_pool or run. */
   scope: string;
-  /** Whose budget it is: an agent, a person or the tenant. */
+  /** The ceiling's id: a principal, role, tenant or run. Never shown. */
   owner: string;
-  /** The budget's period, such as daily or monthly. */
+  /** Whose budget it is, by name; empty for a per-run ceiling. */
+  owner_name?: string;
+  /** The budget's period as the gateway sends it: weekly, monthly or run. */
   window: string;
   limit_usd: number;
   /** When the budget resets; absent for a per-run ceiling. */
@@ -536,8 +539,12 @@ export interface Run {
   /** Inference totals summed over the run's requests; a live run reports its total so far. */
   usage?: {
     cost_usd: number;
+    /** Uncached input tokens. */
     input_tokens: number;
     output_tokens: number;
+    /** Cached input tokens read and written; absent from older servers. */
+    cache_read_tokens?: number;
+    cache_creation_tokens?: number;
     request_count: number;
   };
   /** LLM-generated one-sentence summary of the run's task intent, if available. */

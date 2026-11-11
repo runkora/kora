@@ -60,14 +60,10 @@ export interface ToolCall {
   endedAt?: number;
   /** Browser time (ms) the call arrived, for the live elapsed counter. */
   receivedAt?: number;
-  /** Latest heartbeat from a long-running tool. */
-  progressSeconds?: number;
 }
 
 export interface ThinkingBlock {
   content: string;
-  durationSeconds: number;
-  tokenCount: number;
 }
 
 export interface AgentTurn {
@@ -98,15 +94,12 @@ export type AgentElement =
 
 export type Turn = HumanTurn | AgentTurn | ErrorTurn;
 
-/**
- * What the agent is doing while nothing visible streams, for the status line.
- * `since` is a browser time (ms).
- */
+/** What the agent is doing while nothing visible streams, for the composer's status strip. */
 export type LiveActivity =
-  | { kind: 'sandbox'; since: number }
+  | { kind: 'sandbox' }
   | { kind: 'retry'; attempt: number; maxRetries: number; error: string }
-  | { kind: 'tool'; tool: ToolCall; since: number }
-  | { kind: 'thinking'; since: number };
+  | { kind: 'tool'; tool: ToolCall }
+  | { kind: 'thinking' };
 
 // ── Top-level run state ───────────────────────────────────────────────────────
 
@@ -118,8 +111,6 @@ export interface RunChatState {
   turns: Turn[];
   /** Live USD spent on this run; grows as turns complete. */
   spentUsd: number;
-  /** Total tokens consumed by this run so far. */
-  tokensUsed: number;
   /** Whether the caller may message or stop this run. Null until known, which leaves it to the API. */
   canSteer: boolean | null;
   /** Why the run could not be loaded; the page shows this instead of an empty thread. */
@@ -137,4 +128,6 @@ export interface RunChatState {
   sandbox: SandboxEnvironmentPayload | null;
   /** The agent's other recent runs, newest first. */
   earlierRuns: RunWithAttribution[];
+  /** Why the other runs could not be loaded; null when they were. */
+  earlierRunsError: string | null;
 }

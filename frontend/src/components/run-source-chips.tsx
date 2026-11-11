@@ -18,13 +18,15 @@ import {
 import type { RunSource } from '@runkora/shared/api';
 import { isSafeUrl } from '@runkora/lib/safe-url';
 
-const PROVIDER_ICON: Record<NonNullable<RunSource['provider']>, IconName> = {
+/** The icon of the system a run source points into. */
+export const PROVIDER_ICON: Record<NonNullable<RunSource['provider']>, IconName> = {
   github: 'github',
   slack: 'hash',
   alertmanager: 'prometheus',
 };
 
-function sourceIcon(source: RunSource): IconName {
+/** A source's icon: a folder for a repository, a branch, or its provider's mark. */
+export function sourceIcon(source: RunSource): IconName {
   if (source.kind === 'repository') return 'folder';
   if (source.kind === 'branch') return 'git-branch';
   return (source.provider && PROVIDER_ICON[source.provider]) ?? 'zap';
