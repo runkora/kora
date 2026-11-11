@@ -152,16 +152,22 @@ func TestRunBudget(t *testing.T) {
 			t.Errorf("budget = %+v", got)
 		}
 	})
-	for status, want := range map[int]error{
-		http.StatusNotFound:            ErrBudgetNotReached,
-		http.StatusForbidden:           ErrForbidden,
-		http.StatusInternalServerError: ErrUpstreamUnavailable,
-		http.StatusTeapot:              ErrUnexpectedStatus,
+	for _, tt := range []struct {
+		status int
+		body   string
+		want   error
+	}{
+		{http.StatusNotFound, `{"code":"budget_not_reached","message":"y"}`, ErrBudgetNotReached},
+		{http.StatusNotFound, `{"code":"run_usage_not_found","message":"y"}`, ErrUnexpectedStatus},
+		{http.StatusNotFound, `404 page not found`, ErrUnexpectedStatus},
+		{http.StatusForbidden, `{"code":"x","message":"y"}`, ErrForbidden},
+		{http.StatusInternalServerError, `{"code":"x","message":"y"}`, ErrUpstreamUnavailable},
+		{http.StatusTeapot, `{"code":"x","message":"y"}`, ErrUnexpectedStatus},
 	} {
-		srv, _ := newTestServer(t, status, `{"code":"x","message":"y"}`)
+		srv, _ := newTestServer(t, tt.status, tt.body)
 		c := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard))
-		if _, err := c.RunBudget(context.Background(), "svc-tok", "t1", runID); !errors.Is(err, want) {
-			t.Errorf("status %d: err = %v, want %v", status, err, want)
+		if _, err := c.RunBudget(context.Background(), "svc-tok", "t1", runID); !errors.Is(err, tt.want) {
+			t.Errorf("status %d %s: err = %v, want %v", tt.status, tt.body, err, tt.want)
 		}
 	}
 }

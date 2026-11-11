@@ -22,6 +22,8 @@ const (
 	// throughout the budget counter to avoid repeating the literal.
 	cadenceWeekly  = "weekly"
 	cadenceMonthly = "monthly"
+	// cadenceRun is the window of a per-run ceiling, which never resets.
+	cadenceRun = "run"
 )
 
 // SpendScopes describes which canonical counters apply to one request — the
