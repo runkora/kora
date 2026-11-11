@@ -48,6 +48,7 @@ func TestHandleGetRunBudget(t *testing.T) {
 		ceilings []policy.BudgetCeiling
 		rp       *RunPrincipal
 		want     int
+		wantCode string
 		wantBody *RunBudget
 	}{
 		{name: "the reached ceiling", claims: system, runID: budgetRunID, ceilings: reached, rp: agent, want: http.StatusOK,
@@ -55,10 +56,10 @@ func TestHandleGetRunBudget(t *testing.T) {
 		{name: "a per-run ceiling never resets", claims: system, runID: budgetRunID, rp: agent, want: http.StatusOK,
 			ceilings: []policy.BudgetCeiling{{Scope: "run", ID: budgetRunID, Window: "run", LimitUSD: 1, SpendUSD: 1}},
 			wantBody: &RunBudget{Scope: "run", Owner: budgetRunID, Window: "run", LimitUSD: 1}},
-		{name: "nothing reached", claims: system, runID: budgetRunID, rp: agent, ceilings: reached[:1], want: http.StatusNotFound},
-		{name: "a run without usage", claims: system, runID: budgetRunID, want: http.StatusNotFound},
+		{name: "nothing reached", claims: system, runID: budgetRunID, rp: agent, ceilings: reached[:1], want: http.StatusNotFound, wantCode: "budget_not_reached"},
+		{name: "a run without usage", claims: system, runID: budgetRunID, want: http.StatusNotFound, wantCode: "run_usage_not_found"},
 		{name: "another system component may not ask", claims: otherSystem, runID: budgetRunID, rp: agent, ceilings: reached, want: http.StatusForbidden},
-		{name: "a run outside the tenant", claims: system, runID: budgetRunID, tenant: "t2", rp: agent, ceilings: reached, want: http.StatusNotFound},
+		{name: "a run outside the tenant", claims: system, runID: budgetRunID, tenant: "t2", rp: agent, ceilings: reached, want: http.StatusNotFound, wantCode: "run_usage_not_found"},
 		{name: "a person may not ask", claims: makeClaims("t1", "user-1", token.PrincipalTypeHuman, ""), runID: budgetRunID, rp: agent, ceilings: reached, want: http.StatusForbidden},
 		{name: "a run id that is not a UUID", claims: system, runID: "stats", rp: agent, want: http.StatusBadRequest},
 	}
@@ -73,6 +74,15 @@ func TestHandleGetRunBudget(t *testing.T) {
 			w := getRunBudget(runBudgetController(eval, counter, tt.rp), tt.claims, tt.runID, tenant)
 			if w.Code != tt.want {
 				t.Fatalf("status = %d, want %d; body %s", w.Code, tt.want, w.Body)
+			}
+			// kora-agents tells a ceiling that is not reached apart from every other 404 by its code.
+			if tt.wantCode != "" {
+				var e struct {
+					Code string `json:"code"`
+				}
+				if err := json.Unmarshal(w.Body.Bytes(), &e); err != nil || e.Code != tt.wantCode {
+					t.Errorf("code = %q, want %q", e.Code, tt.wantCode)
+				}
 			}
 			if tt.wantBody == nil {
 				return
