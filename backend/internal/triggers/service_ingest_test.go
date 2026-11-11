@@ -609,6 +609,9 @@ func TestDispatch_StartRunCarriesTheBacklink(t *testing.T) {
 	if call.triggerName != triggers[0].Name {
 		t.Errorf("trigger_name = %q, want %q", call.triggerName, triggers[0].Name)
 	}
+	if call.triggerKind != KindWebhook {
+		t.Errorf("trigger_kind = %q, want %q", call.triggerKind, KindWebhook)
+	}
 	if call.deliveryID != delID {
 		t.Errorf("delivery_id = %q, want %q", call.deliveryID, delID)
 	}

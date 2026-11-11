@@ -78,6 +78,7 @@ func TestPostgres_RunTriggerAttribution(t *testing.T) {
 		StartedBy: &StartedByTrigger{
 			TriggerID:   "trig-1",
 			TriggerName: "Nightly review",
+			TriggerKind: "scheduled",
 			DeliveryID:  "deliv-1",
 		},
 	}
@@ -117,7 +118,7 @@ func TestPostgres_RunTriggerAttribution(t *testing.T) {
 	for _, run := range runs {
 		if run.ID == started.ID {
 			found = true
-			if run.StartedBy == nil || run.StartedBy.TriggerName != "Nightly review" {
+			if run.StartedBy == nil || *run.StartedBy != *started.StartedBy {
 				t.Errorf("listed run started_by = %+v, want the attribution", run.StartedBy)
 			}
 		}
@@ -149,8 +150,8 @@ func TestPostgres_RunTriggerAttribution_NoForeignKey(t *testing.T) {
 	if got.StartedBy == nil || got.StartedBy.TriggerName != "Deleted trigger" {
 		t.Errorf("started_by = %+v, want the snapshot name", got.StartedBy)
 	}
-	if got.StartedBy.DeliveryID != "" {
-		t.Errorf("delivery_id = %q, want it empty when none was recorded", got.StartedBy.DeliveryID)
+	if got.StartedBy.DeliveryID != "" || got.StartedBy.TriggerKind != "" {
+		t.Errorf("started_by = %+v, want delivery_id and trigger_kind empty when none was recorded", got.StartedBy)
 	}
 }
 

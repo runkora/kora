@@ -268,6 +268,7 @@ function run(seed: RunSeed): RunWithAttribution {
 const PR_OPENED = {
   trigger_id: 'trg_pr_opened',
   trigger_name: 'github pull_request.opened',
+  trigger_kind: 'webhook',
   delivery_id: 'dlv_5b21',
 } as const;
 
@@ -286,10 +287,15 @@ export function prSources(repo: string, pr: number, ...branches: string[]): RunS
   ];
 }
 
-const NIGHTLY = { trigger_id: 'trg_nightly', trigger_name: 'nightly dependency scan' } as const;
+const NIGHTLY = {
+  trigger_id: 'trg_nightly',
+  trigger_name: 'nightly dependency scan',
+  trigger_kind: 'scheduled',
+} as const;
 const NEW_ISSUE = {
   trigger_id: 'trg_issue_opened',
   trigger_name: 'github issues.opened',
+  trigger_kind: 'webhook',
   delivery_id: 'dlv_9ac4',
 } as const;
 

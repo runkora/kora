@@ -475,12 +475,13 @@ export interface Run {
   /** The run's W3C trace ID; null when the run was not sampled. */
   trace_id?: string | null;
   /**
-   * Present when a trigger started this run. trigger_name and delivery_id are
+   * Present when a trigger started this run. trigger_name, trigger_kind and delivery_id are
    * omitted when unknown; absent entirely for human-started runs.
    */
   started_by?: {
     trigger_id: string;
     trigger_name?: string;
+    trigger_kind?: TriggerKind;
     delivery_id?: string;
   };
   /** Links to what started the run and what later deliveries joined to it; empty when none recorded. */

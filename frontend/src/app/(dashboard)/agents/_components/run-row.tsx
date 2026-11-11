@@ -22,6 +22,7 @@ import { RUN_STATE_DISPLAY, RunSourceChips, type RunStateDisplay } from '@runkor
 import { fmtUsd } from '@runkora/utils';
 import { formatDuration, formatRelativeTime } from '../_types';
 import type { RunRow } from '../_types';
+import type { TriggerKind } from '@runkora/shared/api';
 
 const STATE_ICON: Partial<Record<RunStateDisplay['status'], { name: IconName; color: IconColor }>> =
   {
@@ -48,8 +49,20 @@ function RunStateIcon({ state }: { state: string }) {
   );
 }
 
-/** Who started the run as one round mark: a person's initials or a trigger's icon. */
-function StarterMark({ row }: { row: RunRow }) {
+const TRIGGER_KIND_ICON: Record<TriggerKind, IconName> = {
+  webhook: 'zap',
+  scheduled: 'clock',
+  manual: 'play',
+  event: 'activity',
+};
+
+/** The icon for a trigger of the given kind; `zap` for a run recorded without one. */
+export function triggerKindIcon(kind: TriggerKind | null): IconName {
+  return (kind && TRIGGER_KIND_ICON[kind]) ?? 'zap';
+}
+
+/** Who started the run as one round mark: a person's initials or the trigger kind's icon. */
+export function StarterMark({ row }: { row: RunRow }) {
   const trigger = row.startedByTrigger;
   const name = trigger
     ? (trigger.triggerName ?? trigger.triggerId)
@@ -60,7 +73,13 @@ function StarterMark({ row }: { row: RunRow }) {
       <TooltipTrigger asChild>
         <Text as="span" aria-label={tooltip} style={{ display: 'inline-flex', flexShrink: 0 }}>
           {trigger ? (
-            <Icon name="zap" size="2xs" container circle containerVariant="accent" />
+            <Icon
+              name={triggerKindIcon(trigger.triggerKind)}
+              size="2xs"
+              container
+              circle
+              containerVariant="accent"
+            />
           ) : (
             <Avatar name={name} size="2xs" />
           )}
