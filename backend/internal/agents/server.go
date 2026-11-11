@@ -438,7 +438,10 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 			apiErr := api.ValidationError(api.ErrCodeMissingField,
 				"trigger_id is required when attributing a run to a trigger", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-		case errors.Is(err, ErrInvalidChain):
+		case errors.Is(err, ErrRunSourcesRefused):
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		case errors.Is(err, ErrInvalidChain), errors.Is(err, ErrRunSourcesInvalid):
 			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		case errors.Is(err, ErrDelegationUnavailable):
@@ -671,7 +674,12 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		if errors.Is(err, ErrInvalidChain) {
+		if errors.Is(err, ErrRunSourcesRefused) {
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrInvalidChain) || errors.Is(err, ErrRunSourcesInvalid) {
 			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return

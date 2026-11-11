@@ -345,4 +345,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-06 | [Policy Bundle Grants Index](2026-11-06-policy-bundle-grants-index.md) | Accepted | — |
 | 2026-11-06 | [Event Spine](2026-11-06-event-spine.md) | Accepted | — |
 | 2026-11-07 | [ACP as the Single Agent Harness Protocol](2026-11-07-acp-agent-harness-protocol.md) | Accepted | — |
+| 2026-11-07 | [Run Sources](2026-11-07-run-sources.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

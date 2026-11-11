@@ -229,6 +229,19 @@ type StartRunRequest struct {
 	// that event's depth plus one. kora-agents keeps them on the run.
 	CausedBy   string `json:"caused_by,omitempty"`
 	ChainDepth int    `json:"chain_depth,omitempty"`
+
+	// Sources link to what started the run. kora-agents accepts them only from a SERVICE principal.
+	Sources []RunSource `json:"sources,omitempty"`
+}
+
+// RunSource is a link to what started or joined a run. Kind is one of trigger,
+// pull_request, repository or branch. Provider is empty or one of github, slack
+// or alertmanager.
+type RunSource struct {
+	Kind     string `json:"kind"`
+	URL      string `json:"url"`
+	Label    string `json:"label"`
+	Provider string `json:"provider,omitempty"`
 }
 
 // StartRunResponse captures the subset of the created run the caller needs.
@@ -405,6 +418,9 @@ type SendRunMessageRequest struct {
 	// that event's depth plus one. kora-agents keeps them on the run.
 	CausedBy   string `json:"caused_by,omitempty"`
 	ChainDepth int    `json:"chain_depth,omitempty"`
+
+	// Sources are appended to the run's sources, de-duplicated by URL.
+	Sources []RunSource `json:"sources,omitempty"`
 }
 
 // SendRunMessage delivers a message to an active or idle run, authenticating
@@ -481,6 +497,7 @@ type Run struct {
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
 	StartedBy   *StartedByTrigger `json:"started_by,omitempty"`
+	Sources     []RunSource       `json:"sources,omitempty"`
 }
 
 // StartedByTrigger names the trigger and delivery that started a run.

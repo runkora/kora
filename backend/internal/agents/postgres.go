@@ -339,6 +339,10 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 	// the run exists, which cannot change after it starts.
 	var triggerID, triggerName, deliveryID *string
 	triggerIDs := append([]string{}, run.TriggerIDs...)
+	sourcesJSON, encErr := json.Marshal(mergeRunSources(nil, run.Sources))
+	if encErr != nil {
+		return fmt.Errorf("encode run sources: %w", encErr)
+	}
 	if run.StartedBy != nil {
 		triggerID = storage.NullIfZero(run.StartedBy.TriggerID)
 		triggerName = storage.NullIfZero(run.StartedBy.TriggerName)
@@ -351,11 +355,11 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 		_, err := r.pool.Exec(ctx, `
 			INSERT INTO runs
 				(id, tenant_id, agent_type_id, state, pod_ordinal, created_by, created_at, updated_at,
-				 trigger_id, trigger_name, delivery_id, initial_message, trace_parent, caused_by, chain_depth, trigger_ids)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+				 trigger_id, trigger_name, delivery_id, initial_message, trace_parent, caused_by, chain_depth, trigger_ids, sources)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
 			run.ID, run.TenantID, run.AgentTypeID, string(RunStatePending), -1, run.CreatedBy, now, now,
 			triggerID, triggerName, deliveryID, run.InitialMessage, storage.NullIfZero(run.TraceParent),
-			storage.NullIfZero(run.CausedBy), run.ChainDepth, triggerIDs,
+			storage.NullIfZero(run.CausedBy), run.ChainDepth, triggerIDs, sourcesJSON,
 		)
 		if err != nil {
 			return fmt.Errorf("insert run: %w", err)
@@ -374,7 +378,7 @@ const selectRun = `SELECT ` + runColumns + ` FROM runs r JOIN agent_types at ON 
 
 const runColumns = `
 	r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode, at.slug, at.name,
-	r.trigger_id, r.trigger_name, r.delivery_id, r.environment_id, r.trace_parent, r.deleted_at, r.caused_by, r.chain_depth, r.trigger_ids`
+	r.trigger_id, r.trigger_name, r.delivery_id, r.environment_id, r.trace_parent, r.deleted_at, r.caused_by, r.chain_depth, r.trigger_ids, r.sources`
 
 // GetRun returns the run, a terminated one included.
 func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error) {
@@ -1037,18 +1041,25 @@ func scanRun(s scanner, extra ...any) (*Run, error) {
 	var r Run
 	var state, identityMode string
 	var triggerID, triggerName, deliveryID, traceParent, causedBy *string
+	var sourcesJSON []byte
 	err := s.Scan(append([]any{
 		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodOrdinal,
 		&r.CreatedBy, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
 		&r.Summary, &r.DelegationJTI, &identityMode, &r.AgentSlug, &r.AgentName,
 		&triggerID, &triggerName, &deliveryID, &r.EnvironmentID, &traceParent,
-		&r.DeletedAt, &causedBy, &r.ChainDepth, &r.TriggerIDs,
+		&r.DeletedAt, &causedBy, &r.ChainDepth, &r.TriggerIDs, &sourcesJSON,
 	}, extra...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("scan run: %w", err)
+	}
+	r.Sources = []RunSource{}
+	if len(sourcesJSON) > 0 {
+		if err := json.Unmarshal(sourcesJSON, &r.Sources); err != nil {
+			return nil, fmt.Errorf("decode run sources: %w", err)
+		}
 	}
 	r.State = RunState(state)
 	r.IdentityMode = IdentityMode(identityMode).OrDefault()
@@ -1066,6 +1077,41 @@ func scanRun(s scanner, extra ...any) (*Run, error) {
 		}
 	}
 	return &r, nil
+}
+
+// AppendRunSources adds sources to the run in one statement, skipping any whose
+// URL the run already has and stopping at maxRunSourcesPerRun in total.
+func (r *PostgresRepository) AppendRunSources(ctx context.Context, runID string, sources []RunSource) error {
+	add := mergeRunSources(nil, sources)
+	if len(add) == 0 {
+		return nil
+	}
+	addJSON, err := json.Marshal(add)
+	if err != nil {
+		return fmt.Errorf("encode run sources: %w", err)
+	}
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE runs SET
+			sources = sources || COALESCE((
+				SELECT jsonb_agg(f.e ORDER BY f.i)
+				FROM (
+					SELECT n.e, n.i
+					FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY AS n(e, i)
+					WHERE NOT EXISTS (
+						SELECT 1 FROM jsonb_array_elements(runs.sources) o WHERE o->>'url' = n.e->>'url')
+					ORDER BY n.i
+					LIMIT GREATEST($4::int - jsonb_array_length(runs.sources), 0)
+				) f
+			), '[]'::jsonb),
+			updated_at = $2
+		WHERE id = $3`, addJSON, time.Now().UTC(), runID, maxRunSourcesPerRun)
+	if err != nil {
+		return fmt.Errorf("append run sources: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // SetRunEnvironment records the environment of the run's current sandbox. Nil is the built-in default.

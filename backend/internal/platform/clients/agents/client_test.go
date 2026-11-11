@@ -437,3 +437,44 @@ func TestListAgentTypesByIDs(t *testing.T) {
 		t.Errorf("types = %+v", types)
 	}
 }
+
+func TestSendRunMessage_Sources(t *testing.T) {
+	c, cap := newTestClient(t, http.StatusAccepted, "")
+	err := c.SendRunMessage(context.Background(), "tok", "run-1", SendRunMessageRequest{
+		Content: "more",
+		Sources: []RunSource{{Kind: "pull_request", URL: "https://github.com/o/r/pull/1", Label: "PR #1", Provider: "github"}},
+	})
+	if err != nil {
+		t.Fatalf("SendRunMessage: %v", err)
+	}
+	want := `{"content":"more","sources":[{"kind":"pull_request","url":"https://github.com/o/r/pull/1","label":"PR #1","provider":"github"}]}`
+	if strings.TrimSpace(cap.body) != want {
+		t.Errorf("body = %s, want %s", cap.body, want)
+	}
+}
+
+func TestStartRun_Sources(t *testing.T) {
+	c, cap := newTestClient(t, http.StatusCreated, `{"id":"run-1","state":"pending"}`)
+	_, err := c.StartRun(context.Background(), "tok", StartRunRequest{
+		AgentTypeID: "at-1",
+		Sources:     []RunSource{{Kind: "trigger", URL: "https://app.slack.com/client/T/C/thread/C-1", Label: "Slack thread"}},
+	})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	want := `{"agent_type_id":"at-1","sources":[{"kind":"trigger","url":"https://app.slack.com/client/T/C/thread/C-1","label":"Slack thread"}]}`
+	if strings.TrimSpace(cap.body) != want {
+		t.Errorf("body = %s, want %s", cap.body, want)
+	}
+}
+
+func TestListRuns_Sources(t *testing.T) {
+	c, _ := newTestClient(t, http.StatusOK, `{"runs":[{"id":"run-1","agent_type_id":"at-1","state":"idle","created_at":"2026-10-19T01:02:03Z","updated_at":"2026-10-19T01:05:00Z","sources":[{"kind":"repository","url":"https://github.com/o/r","label":"o/r"}]}],"limit":20}`)
+	runs, err := c.ListRuns(context.Background(), "tok", ListRunsQuery{})
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || len(runs[0].Sources) != 1 || runs[0].Sources[0].Label != "o/r" {
+		t.Errorf("runs = %+v", runs)
+	}
+}

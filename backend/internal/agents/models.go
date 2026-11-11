@@ -591,6 +591,9 @@ type Run struct {
 	// answer "why did this happen?" at all. See the ADR on extended trigger
 	// types, US-004.
 	StartedBy *StartedByTrigger `json:"started_by,omitempty"`
+	// Sources are the links to what started the run and to what later deliveries
+	// joined to it. Empty for a run with none recorded.
+	Sources []RunSource `json:"sources"`
 	// EnvironmentID is the environment of the run's current sandbox. It is nil
 	// for the built-in default and before the first sandbox.
 	EnvironmentID *string `json:"environment_id,omitempty"`

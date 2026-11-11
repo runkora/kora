@@ -35,6 +35,8 @@ type AgentTypeRepository interface {
 type RunRepository interface {
 	CreateRun(ctx context.Context, r Run) error
 	GetRun(ctx context.Context, id string) (*Run, error)
+	// AppendRunSources adds sources to the run, skipping any whose URL it already has.
+	AppendRunSources(ctx context.Context, runID string, sources []RunSource) error
 	// ListRuns returns up to q.Limit runs in q.Scope, newest first, after q.After.
 	ListRuns(ctx context.Context, tenantID string, q RunListQuery) ([]Run, error)
 	// RunUsageTotals returns the inference totals of the given runs in one

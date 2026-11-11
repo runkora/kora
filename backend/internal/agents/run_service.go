@@ -245,6 +245,12 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		return nil, err
 	}
 
+	sources, err := authorizeRunSources(ctx, req.Sources)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanAuthorizeRunSources)
+		return nil, err
+	}
+
 	run := Run{
 		ID:          uuid.NewString(),
 		TenantID:    req.TenantID,
@@ -258,6 +264,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		// Nil unless a trigger started this run, which is what its absence means
 		// everywhere downstream.
 		StartedBy:      startedBy,
+		Sources:        sources,
 		InitialMessage: req.InitialMessage,
 		TraceParent:    observability.TraceParent(ctx),
 		CausedBy:       chain.causedBy,
@@ -713,27 +720,25 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 		observability.RecordFailure(span, err, errSpanAuthorizeTriggerAttribution)
 		return err
 	}
+	sources, err := authorizeRunSources(ctx, req.Sources)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanAuthorizeRunSources)
+		return err
+	}
 	run, at, err := s.loadRunToAct(ctx, runID)
 	if err != nil {
 		return err
 	}
-	// Steer constraint (Decision 6): only the starter may message a delegated
-	// run — tenant admins included, because the message executes with the
-	// starter's authority under the starter's name.
-	if err = checkDelegatedRunSteer(ctx, at, run); err != nil {
+	if err = checkRunAcceptsMessage(ctx, at, run); err != nil {
 		return err
-	}
-	if run.State == RunStatePending || run.State == RunStateStarting {
-		return ErrRunStarting
-	}
-	if run.State != RunStateActive && run.State != RunStateIdle {
-		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
 	}
 
 	if err = s.repo.AppendRunMessage(ctx, RunMessage{RunID: runID, Content: content, From: from, CausedBy: chain.causedBy, ChainDepth: chain.depth, Triggers: chain.triggers}); err != nil {
 		observability.RecordFailure(span, err, errSpanAppendRunMessage)
 		return fmt.Errorf("append run message: %w", err)
 	}
+
+	s.appendJoinedSources(ctx, span, runID, sources)
 
 	// When sending to an idle run (resumed after interrupt), proactively transition
 	// idle → active so the frontend sees isBusy=true and shows the stop button
@@ -767,6 +772,39 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 	}
 	s.emitHumanMessage(ctx, runID, content)
 	return nil
+}
+
+// checkRunAcceptsMessage refuses a message the run cannot take: one to a
+// delegated run from anyone but its starter, or one to a run that is starting
+// or has ended.
+func checkRunAcceptsMessage(ctx context.Context, at *AgentType, run *Run) error {
+	// Steer constraint (Decision 6): only the starter may message a delegated
+	// run — tenant admins included, because the message executes with the
+	// starter's authority under the starter's name.
+	if err := checkDelegatedRunSteer(ctx, at, run); err != nil {
+		return err
+	}
+	if run.State == RunStatePending || run.State == RunStateStarting {
+		return ErrRunStarting
+	}
+	if run.State != RunStateActive && run.State != RunStateIdle {
+		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
+	}
+	return nil
+}
+
+// appendJoinedSources adds a joined delivery's links to the run. It is best-effort: the message is already stored, so a failure is logged, not returned.
+func (s *RunService) appendJoinedSources(ctx context.Context, span trace.Span, runID string, sources []RunSource) {
+	if len(sources) == 0 {
+		return
+	}
+	if err := s.repo.AppendRunSources(ctx, runID, sources); err != nil {
+		observability.RecordFailure(span, err, errSpanAppendRunSources)
+		s.logger.Warn(ctx, "failed to append run sources",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
 }
 
 // tryInitialMessage sends the initial message to the session-manager and, on

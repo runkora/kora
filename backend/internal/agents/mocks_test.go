@@ -293,6 +293,17 @@ func (m *mockRepository) CreateRun(_ context.Context, r Run) error {
 	return nil
 }
 
+func (m *mockRepository) AppendRunSources(_ context.Context, runID string, sources []RunSource) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.runs[runID]
+	if !ok {
+		return ErrNotFound
+	}
+	r.Sources = mergeRunSources(r.Sources, sources)
+	return nil
+}
+
 func (m *mockRepository) GetRun(_ context.Context, id string) (*Run, error) {
 	if m.getRunErr != nil {
 		return nil, m.getRunErr
