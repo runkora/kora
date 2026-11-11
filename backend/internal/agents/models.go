@@ -683,4 +683,6 @@ type RunMessage struct {
 	CausedBy   string
 	ChainDepth int
 	Triggers   []string
+	// Sender is the person or agent who sent the message, nil for a trigger's.
+	Sender *MessageSender
 }

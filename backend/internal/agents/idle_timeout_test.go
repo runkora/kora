@@ -87,17 +87,17 @@ func TestSendMessage_IdleTimeoutAndEventBySender(t *testing.T) {
 		{
 			name: "a person moves a trigger run to the manual timeout", principal: token.PrincipalTypeHuman, subject: "user:1",
 			startedBy: trig, req: SendMessageRequest{Content: "keep going"},
-			wantTimeout: 1200, wantFromPerson: true, wantEvent: "human_message", wantPayload: `{"content":"keep going"}`,
+			wantTimeout: 1200, wantFromPerson: true, wantEvent: "human_message", wantPayload: `{"content":"keep going","sender":{"id":"user:1","type":"USER","name":"user:1"}}`,
 		},
 		{
 			name: "a person keeps a manual run's timeout", principal: token.PrincipalTypeHuman, subject: "user:1",
 			req:         SendMessageRequest{Content: "keep going"},
-			wantTimeout: 0, wantFromPerson: true, wantEvent: "human_message", wantPayload: `{"content":"keep going"}`,
+			wantTimeout: 0, wantFromPerson: true, wantEvent: "human_message", wantPayload: `{"content":"keep going","sender":{"id":"user:1","type":"USER","name":"user:1"}}`,
 		},
 		{
 			name: "a PAT is a person", principal: token.PrincipalTypePAT, subject: "pat:1",
 			startedBy: trig, req: SendMessageRequest{Content: "keep going"},
-			wantTimeout: 1200, wantFromPerson: true, wantEvent: "human_message", wantPayload: `{"content":"keep going"}`,
+			wantTimeout: 1200, wantFromPerson: true, wantEvent: "human_message", wantPayload: `{"content":"keep going","sender":{"id":"pat:1","type":"USER","name":"pat:1"}}`,
 		},
 		{
 			name: "a trigger keeps the trigger run's timeout", principal: token.PrincipalTypeService, subject: "trigger-source:github",

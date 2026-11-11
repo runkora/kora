@@ -301,6 +301,12 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		run.DelegationJTI = &jti
 	}
 
+	// Recorded before the run is queued, so it is the run's first event. The
+	// starter's claims are only in this request.
+	if run.InitialMessage != "" {
+		s.emitHumanMessage(ctx, run.ID, humanMessagePayload{Content: run.InitialMessage, Sender: messageSender(ctx)})
+	}
+
 	// Queued last, so the scheduler never claims a run whose delegation is not yet stored.
 	if err := s.queue.QueueRun(ctx, run.ID, time.Now().UTC()); err != nil {
 		observability.RecordFailure(span, err, errSpanQueueRun)
@@ -733,7 +739,11 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 		return err
 	}
 
-	if err = s.repo.AppendRunMessage(ctx, RunMessage{RunID: runID, Content: content, From: from, CausedBy: chain.causedBy, ChainDepth: chain.depth, Triggers: chain.triggers}); err != nil {
+	var sender *MessageSender
+	if from == nil {
+		sender = messageSender(ctx)
+	}
+	if err = s.repo.AppendRunMessage(ctx, RunMessage{RunID: runID, Content: content, From: from, CausedBy: chain.causedBy, ChainDepth: chain.depth, Triggers: chain.triggers, Sender: sender}); err != nil {
 		observability.RecordFailure(span, err, errSpanAppendRunMessage)
 		return fmt.Errorf("append run message: %w", err)
 	}
@@ -770,7 +780,7 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 		s.emitTriggerMessage(ctx, runID, content, *from)
 		return nil
 	}
-	s.emitHumanMessage(ctx, runID, content)
+	s.emitHumanMessage(ctx, runID, humanMessagePayload{Content: content, Sender: sender})
 	return nil
 }
 
@@ -807,10 +817,11 @@ func (s *RunService) appendJoinedSources(ctx context.Context, span trace.Span, r
 	}
 }
 
-// tryInitialMessage sends the initial message to the session-manager and, on
-// success, emits it to the event stream. The session-manager generates the run's
-// task summary from this first message over its own authorized inference path
-// (see internal/agents/sessionmanager/summarizer.go) and reports it back via the
+// tryInitialMessage sends the initial message to the session-manager. StartRun
+// already recorded it as the run's first human_message, while the starter's
+// claims were in hand. The session-manager generates the run's task summary
+// from this first message over its own authorized inference path (see
+// internal/agents/sessionmanager/summarizer.go) and reports it back via the
 // /internal/runs/{id}/summary callback. Best-effort: a send failure is logged but
 // does not abort the run.
 func (s *RunService) tryInitialMessage(ctx context.Context, podURL, runID, msg string) {
@@ -823,9 +834,7 @@ func (s *RunService) tryInitialMessage(ctx context.Context, podURL, runID, msg s
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return
 	}
-	s.emitHumanMessage(ctx, runID, msg)
 }
 
 // Event types for a message sent to a run: a person's, or a trigger's.
@@ -842,10 +851,17 @@ type triggerMessagePayload struct {
 	DeliveryID  string `json:"delivery_id,omitempty"`
 }
 
+// humanMessagePayload is a human_message event: the content and who sent it.
+// A trigger-started run's first message has no sender.
+type humanMessagePayload struct {
+	Content string         `json:"content"`
+	Sender  *MessageSender `json:"sender,omitempty"`
+}
+
 // emitHumanMessage persists a human message to run_events and fans it out via
 // PubSub so live SSE subscribers and future replays both see it.
-func (s *RunService) emitHumanMessage(ctx context.Context, runID, content string) {
-	s.emitMessage(ctx, runID, eventHumanMessage, map[string]string{"content": content})
+func (s *RunService) emitHumanMessage(ctx context.Context, runID string, payload humanMessagePayload) {
+	s.emitMessage(ctx, runID, eventHumanMessage, payload)
 }
 
 // emitTriggerMessage records a message a trigger sent to a run that is already working.
