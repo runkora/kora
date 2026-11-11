@@ -39,8 +39,9 @@ type mockInferenceUsageRepository struct {
 	runTokens         int64
 	runUsageErr       error
 	runPrincipal      *RunPrincipal
-	runTenant         string               // when set, GetRunPrincipal answers this tenant only
-	personNames       map[string]string    // GetPersonName answers, by principal id
+	runTenant         string            // when set, GetRunPrincipal answers this tenant only
+	personNames       map[string]string // GetPersonName answers, by principal id
+	personNameErr     error
 	lastFilter        InferenceUsageFilter // captured on each List call
 	lastAnalytics     AnalyticsFilter      // captured on each GetAnalytics call
 
@@ -169,7 +170,7 @@ func (m *mockInferenceUsageRepository) GetRunPrincipal(_ context.Context, tenant
 }
 
 func (m *mockInferenceUsageRepository) GetPersonName(_ context.Context, _, principalID string) (string, error) {
-	return m.personNames[principalID], nil
+	return m.personNames[principalID], m.personNameErr
 }
 
 func (m *mockInferenceUsageRepository) GetMonthlySpendByPrincipal(_ context.Context, _ string, _ time.Time) ([]PrincipalPeriodSpend, error) {
