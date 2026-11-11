@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
@@ -62,6 +63,9 @@ type acpExecProc struct {
 func acpExecSpawn(ctx context.Context, bin string, args []string, dir string, env []string) (acpProc, error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir, cmd.Env = dir, env
+	// The adapter leads its own process group, so a kill also ends the harness and MCP servers it started.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("stdin pipe: %w", err)
@@ -84,7 +88,7 @@ func (p *acpExecProc) Stdin() io.WriteCloser { return p.stdin }
 func (p *acpExecProc) Stdout() io.Reader     { return p.stdout }
 func (p *acpExecProc) Stderr() io.Reader     { return p.stderr }
 func (p *acpExecProc) Wait() error           { return p.cmd.Wait() }
-func (p *acpExecProc) Kill()                 { _ = p.cmd.Process.Kill() }
+func (p *acpExecProc) Kill()                 { _ = p.cmd.Cancel() }
 func (p *acpExecProc) Pid() int              { return p.cmd.Process.Pid }
 
 // acpRunnerConfig configures an acpRunner.

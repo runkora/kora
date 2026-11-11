@@ -2,6 +2,7 @@
 package smConfig
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -92,7 +93,22 @@ type Config struct {
 		IdleTimeoutSecs int `yaml:"idleTimeoutSecs"`
 	} `yaml:"session"`
 
+	// Memory configures the pressure monitor (docs/adr/2026-11-09-demand-driven-agent-scaling.md).
+	Memory struct {
+		// PressureLimit is the fraction of memory.max at which the newest run is killed.
+		// kora-agents sets it through KORA_PRESSURE_LIMIT from the chart's agents.scheduling.pressureLimit.
+		PressureLimit float64 `yaml:"pressureLimit"`
+		// CheckIntervalMs is how often the working set is checked, in milliseconds. Several runs
+		// starting together can cross the band between the pressure limit and memory.max in under a second.
+		CheckIntervalMs int `yaml:"checkIntervalMs"`
+	} `yaml:"memory"`
+
 	Metrics platformmetrics.Config `yaml:"metrics"`
+}
+
+// CheckInterval is the pressure monitor's interval as a time.Duration.
+func (c *Config) CheckInterval() time.Duration {
+	return time.Duration(c.Memory.CheckIntervalMs) * time.Millisecond
 }
 
 // ShutdownTimeout returns the server shutdown timeout as a time.Duration.
@@ -121,8 +137,22 @@ var Current = func() *Config {
 	if err := applyEnvOverrides(cfg, os.Getenv); err != nil {
 		panic(err)
 	}
+	if err := validate(cfg); err != nil {
+		panic(err)
+	}
 	return cfg
 }()
+
+// errCheckInterval means memory.checkIntervalMs is below 1, which the pressure monitor's ticker cannot run on.
+var errCheckInterval = errors.New("memory.checkIntervalMs must be at least 1")
+
+// validate rejects values the YAML layers can set that the session-manager cannot run with.
+func validate(cfg *Config) error {
+	if cfg.Memory.CheckIntervalMs < 1 {
+		return errCheckInterval
+	}
+	return nil
+}
 
 // applyEnvOverrides layers the values kora-agents sets on the agent pod over
 // the YAML defaults. getenv is injected so tests can drive it.
@@ -142,6 +172,14 @@ func applyEnvOverrides(cfg *Config, getenv func(string) string) error {
 			return fmt.Errorf("KORA_TERMINATION_GRACE_PERIOD_SECS must be a non-negative integer, got %q", v)
 		}
 		cfg.Server.TerminationGracePeriodSecs = secs
+	}
+	if v := getenv("KORA_PRESSURE_LIMIT"); v != "" {
+		limit, err := strconv.ParseFloat(v, 64)
+		// Written so NaN fails too. Below 1, so the kill fires before the kernel OOM kill.
+		if err != nil || !(limit > 0 && limit < 1) {
+			return fmt.Errorf("KORA_PRESSURE_LIMIT must be a number above 0 and below 1, got %q", v)
+		}
+		cfg.Memory.PressureLimit = limit
 	}
 	if v := getenv(landlockmode.EnvVar); v != "" {
 		cfg.Runner.Landlock = v

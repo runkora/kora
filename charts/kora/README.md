@@ -86,9 +86,14 @@ Kubernetes: `>=1.34.0-0`
 | agents.sandboxWarming.topologySpreadConstraints | list | `[]` |  |
 | agents.scheduling.drainGracePeriodSecs | int | `3600` | Seconds a terminating session-manager pod waits for its runs to end before it is stopped. |
 | agents.scheduling.minReplicas | int | `2` | Session-manager pods each agent runs at least. A roll replaces one while the other takes new runs. |
+| agents.scheduling.placementWatermark | float | `0.7` | Fraction of a session-manager pod's memory limit its working set must stay below for the pod to take a run. |
 | agents.scheduling.pollIntervalSecs | int | `1` | Seconds between polls for pending runs, and before a run with no free pod is tried again. |
+| agents.scheduling.pressureLimit | float | `0.9` | Fraction of the memory limit at which the session-manager kills its most recently started run. Above placementWatermark. |
 | agents.scheduling.provisionBudgetSecs | int | `600` | Seconds a run may wait for its agent to finish provisioning before it fails. |
 | agents.scheduling.startBudgetSecs | int | `180` | Seconds a run may stay pending before it fails. |
+| agents.scheduling.startingRunAllowance.claudeCode | string | `"220Mi"` | Memory a Claude Code run is assumed to take between its start and the next memory reading. |
+| agents.scheduling.startingRunAllowance.codex | string | `"60Mi"` | The same for a Codex run. |
+| agents.scheduling.startingRunAllowance.openCode | string | `"440Mi"` | The same for an OpenCode run. |
 | agents.scheduling.workerConcurrency | int | `16` | Runs one kora-agents replica starts at once. |
 | agents.serviceAccount.annotations | object | `{}` |  |
 | agents.tenantConnectionsConfigMapName | string | `"kora-tenant-connections"` |  |

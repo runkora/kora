@@ -1,6 +1,6 @@
 # Demand-Driven Agent Scaling
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-11-09  
 **Deciders:** Justin Wilkin  
 **Technical Story:** An agent's concurrency becomes a total across its pods, and agent pods scale on run demand.  
@@ -144,11 +144,11 @@ A run counts as starting on a pod while it is in `starting` or was assigned to t
 
 The starting runs on a pod come from the `runs` table, and the check holds across kora-agents replicas and bursts. The lowest ordinal that passes gets the run, and lowest-first packing keeps the top pods empty for scale-down. The default `agents.scheduling.placementWatermark` is 0.70.
 
-`agents.scheduling.startingRunAllowance` is the memory a run is assumed to take between its start and the next memory reading. The chart default is the largest of the values measured at run start for each harness:
+`agents.scheduling.startingRunAllowance` holds one value per harness: the memory a run is assumed to take between its start and the next memory reading. Placement and the scaler use the value for the agent's harness. The chart defaults are the values measured at run start, rounded up:
 
-*   Claude Code: **TBD**.
-*   Codex: **TBD**.
-*   OpenCode: **TBD**.
+*   Claude Code (`claudeCode`): **220Mi** (measured 176Mi settled, 206Mi peak alone, about 215Mi per run in a burst).
+*   Codex (`codex`): **60Mi** (measured 55Mi, peak 56Mi).
+*   OpenCode (`openCode`): **440Mi** (measured 431Mi, peak 589Mi).
 
 ### Agent Lock
 
@@ -156,11 +156,9 @@ Placement and the scaler will share a Postgres advisory transaction lock keyed o
 
 ### Pressure Protection
 
-The session-manager will check its working set every second (configurable, default 1 s). On a 1Gi pod the band between `pressureLimit` and the limit is about 102Mi, and one run can fill it within a longer interval. Above `agents.scheduling.pressureLimit × memory.max` (default 0.90) the session-manager kills the most recently started run and ends it `failed` with "the agent pod ran out of memory". After each kill it reads the working set again at once and kills the next most recently started run, until the working set is below the limit or no run is left. The chart rejects a `placementWatermark` at or above `pressureLimit`.
+The session-manager will check its working set every 250 ms by default. On a 1Gi pod the band between `pressureLimit` and the limit is about 102Mi, and one run can fill it within a longer interval. Above `agents.scheduling.pressureLimit × memory.max` (default 0.90) the session-manager kills the most recently started run and ends it `failed` with "The agent pod ran out of memory." After each kill it reads the working set again at once and kills the next most recently started run, until the working set is below the limit or no run is left. The chart rejects a `placementWatermark` at or above `pressureLimit`.
 
 With cgroup v2 and Kubernetes 1.32 or later, the kubelet group-kills the whole container on an OOM. The pressure kill must fire before the kernel OOM kill.
-
-*   Kubelet group-kill check on a cluster node: **TBD**.
 
 ### Start Budget
 
@@ -170,7 +168,7 @@ A run will fail the start budget only when no pod is coming up for it: no pod is
 
 kora-agents will run a scaler loop every 5 s, independent of the claim tick. For each agent the loop reads pod memory (2 s timeout per pod, outside any lock) and then waits up to 2 s for the agent lock. A timeout skips the agent for that pass. The replica that gets the lock re-reads the pending, active and starting run counts from the database, decides from those counts and the memory reading, and calls the StatefulSet scale subresource. The scaler will:
 
-*   Scale up in one step when runs are pending, the agent is under its total, and no Ready pod has room. It adds `ceil(pending × startingRunAllowance ÷ (placementWatermark × pod memory.max))` pods minus the pods already coming up, clamped to the agent's total. Pod `memory.max` comes from a Ready pod's report, else from the StatefulSet's container memory limit.
+*   Scale up in one step when runs are pending, the agent is under its total, and no Ready pod has room. It adds `ceil(pending × the harness's startingRunAllowance ÷ (placementWatermark × pod memory.max))` pods minus the pods already coming up, clamped to the agent's total and to `agents.scheduling.maxReplicas` (default 10). Pod `memory.max` comes from a Ready pod's report, else from the StatefulSet's container memory limit.
 *   Scale down by one pod when the top pod (ordinal `replicas − 1`) is above `minReplicas` and has no active or starting run, and no run under the total is waiting. The empty-top-pod check and the scale call both happen under the lock.
 *   Scale up to `minReplicas` when the floor is raised above the live count.
 
@@ -220,7 +218,7 @@ kora-agents will remove the CPU and memory HPA, `MaxReplicas: 10`, the chart che
 
 ### Possible Later Improvement
 
-*   A forecast from learned per-agent peak memory could replace the single `startingRunAllowance` and give a tighter placement and scale-up count.
+*   A forecast from learned per-agent peak memory could replace the per-harness `startingRunAllowance` and give a tighter placement and scale-up count.
 
 ---
 

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	"github.com/runkora/kora/backend/internal/agents/sandbox/landlockmode"
 	"github.com/runkora/kora/backend/internal/platform/config"
 	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
@@ -117,6 +119,12 @@ type Config struct {
 			MinReplicas int32 `yaml:"minReplicas"`
 			// DrainGracePeriodSecs is how long a terminating session-manager pod waits for its runs to end.
 			DrainGracePeriodSecs int64 `yaml:"drainGracePeriodSecs"`
+			// PlacementWatermark is the fraction of a pod's memory.max below which it takes a run.
+			PlacementWatermark float64 `yaml:"placementWatermark"`
+			// PressureLimit is the fraction of memory.max at which the session-manager kills its newest run.
+			PressureLimit float64 `yaml:"pressureLimit"`
+			// StartingRunAllowance is the memory a starting run is assumed to take before the next reading, by harness.
+			StartingRunAllowance StartingRunAllowance `yaml:"startingRunAllowance"`
 		} `yaml:"scheduling"`
 		// ConnectionRegistryPath is the mounted connections.json file rendered by
 		// the operator's ConnectionAggregator into the kora-tenant-connections
@@ -151,6 +159,16 @@ type Config struct {
 		SandboxMount bool `yaml:"sandboxMount"`
 	} `yaml:"agents"`
 }
+
+// StartingRunAllowance holds one memory allowance per harness, keyed as the chart's agents.scheduling.startingRunAllowance.
+type StartingRunAllowance struct {
+	ClaudeCode resource.Quantity `yaml:"claudeCode"`
+	Codex      resource.Quantity `yaml:"codex"`
+	OpenCode   resource.Quantity `yaml:"openCode"`
+}
+
+// errStartingRunAllowance means a harness has no positive starting-run allowance.
+var errStartingRunAllowance = errors.New("agents.scheduling.startingRunAllowance: claudeCode, codex and openCode must each be a positive quantity")
 
 // EnvironmentSize is a sandbox's CPU, memory and local disk.
 type EnvironmentSize struct {
@@ -225,6 +243,12 @@ func Validate(cfg *Config) error {
 	}
 	if _, err := landlockmode.Parse(cfg.Agents.SessionManager.Landlock); err != nil {
 		return err
+	}
+	a := cfg.Agents.Scheduling.StartingRunAllowance
+	for _, q := range []resource.Quantity{a.ClaudeCode, a.Codex, a.OpenCode} {
+		if q.Sign() <= 0 {
+			return errStartingRunAllowance
+		}
 	}
 	return nil
 }

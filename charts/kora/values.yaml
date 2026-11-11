@@ -639,6 +639,18 @@ agents:
     minReplicas: 2
     # -- Seconds a terminating session-manager pod waits for its runs to end before it is stopped.
     drainGracePeriodSecs: 3600
+    # -- Fraction of a session-manager pod's memory limit its working set must stay below for the pod to take a run.
+    placementWatermark: 0.70
+    # -- Fraction of the memory limit at which the session-manager kills its most recently started run. Above placementWatermark.
+    pressureLimit: 0.90
+    # Per-harness memory allowance for a starting run. Placement and the scaler use the agent's harness's value. scripts/cluster/measure-run-memory.sh measures them.
+    startingRunAllowance:
+      # -- Memory a Claude Code run is assumed to take between its start and the next memory reading.
+      claudeCode: 220Mi
+      # -- The same for a Codex run.
+      codex: 60Mi
+      # -- The same for an OpenCode run.
+      openCode: 440Mi
   # Per-agent AuthorizationPolicy restricting the session-manager port to the
   # kora-agents principal. kora-agents creates one alongside each StatefulSet.
   authorizationPolicy:

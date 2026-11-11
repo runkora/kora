@@ -267,3 +267,34 @@ func (c *Client) CloseSession(ctx context.Context, podURL, runID string) error {
 		return c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
 }
+
+// Memory is a pod's memory report: its working set (memory.current minus
+// inactive_file) and memory.max, zero when the container has no limit.
+type Memory struct {
+	WorkingSetBytes int64 `json:"working_set_bytes"`
+	LimitBytes      int64 `json:"limit_bytes"`
+}
+
+// Memory reads the target pod's working set and memory limit.
+func (c *Client) Memory(ctx context.Context, podURL string) (Memory, error) {
+	header, err := c.authorize(ctx, http.Header{})
+	if err != nil {
+		return Memory{}, err
+	}
+
+	_, span, resp, err := c.Do(ctx, httpclient.Request{Method: http.MethodGet, BaseURL: podURL, Path: "/memory", Header: header})
+	defer span.End()
+	if err != nil {
+		return Memory{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return Memory{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+	var m Memory
+	if err := c.DecodeJSON(span, resp, &m); err != nil {
+		return Memory{}, err
+	}
+	return m, nil
+}
