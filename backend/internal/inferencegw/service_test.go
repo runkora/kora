@@ -1,6 +1,7 @@
 package inferencegw
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -31,6 +32,8 @@ type stubEvaluator struct {
 	budgetEffectiveUSD float64
 	// budgetErr, when non-nil, is returned by CheckBudget.
 	budgetErr error
+	// budgetCeilings, when non-nil, are the ceilings CheckBudget reports.
+	budgetCeilings []policy.BudgetCeiling
 	// lastBudgetReq captures the request passed to CheckBudget (nil = not called).
 	lastBudgetReq *policy.BudgetCheckRequest
 	// budgetCategories is returned by GetBudgetCategories. nil means no limit.
@@ -95,8 +98,8 @@ func (s *stubEvaluator) CheckBudget(_ context.Context, _ string, req policy.Budg
 	if s.checkAllow != nil {
 		allow = *s.checkAllow
 	}
-	res := policy.BudgetResult{Allow: allow, HasLimit: s.budgetHasLimit}
-	if s.budgetHasLimit {
+	res := policy.BudgetResult{Allow: allow, HasLimit: s.budgetHasLimit, Ceilings: s.budgetCeilings}
+	if s.budgetHasLimit && s.budgetCeilings == nil {
 		res.Ceilings = []policy.BudgetCeiling{{
 			Scope:    "principal",
 			ID:       req.PrincipalID,
@@ -816,5 +819,30 @@ func TestIncrementSpend_RoleCategoriesMergedForAttribution(t *testing.T) {
 	}
 	if counter.incremented != 1.25 {
 		t.Errorf("counter incremented = %v, want 1.25", counter.incremented)
+	}
+}
+
+// checkBudget fails open: a counter failure logs at error, a policy failure at warn, each with its reason.
+func TestCheckBudget_FailOpenLogging(t *testing.T) {
+	tests := []struct {
+		name, level, reason string
+		eval                *stubEvaluator
+		counter             *mockSpendCounter
+	}{
+		{"spend counter failure", "error", "spend counter get failed", &stubEvaluator{}, &mockSpendCounter{getSpendErr: errors.New("redis down")}},
+		{"policy failure", "warn", "OPA budget check failed", &stubEvaluator{budgetErr: errors.New("OPA unavailable")}, &mockSpendCounter{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			svc := NewService(tt.eval, buildTestRouter(nil), NewNopPricingCache(), nil, tt.counter, logging.NewLoggerWithOutput(&buf))
+			if err := svc.checkBudget(ctxWithClaims(t), principal{TenantID: "tenant-1", PrincipalID: "user-1", PrincipalType: "HUMAN"}); err != nil {
+				t.Fatalf("checkBudget = %v, want nil (fail open)", err)
+			}
+			out := buf.String()
+			if !strings.Contains(out, `"level":"`+tt.level+`"`) || !strings.Contains(out, `"reason":"`+tt.reason+`"`) || !strings.Contains(out, "budget.fail_open") {
+				t.Errorf("log = %s, want budget.fail_open at %s with reason %q", out, tt.level, tt.reason)
+			}
+		})
 	}
 }

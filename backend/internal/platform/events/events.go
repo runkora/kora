@@ -156,7 +156,7 @@ func newEnvelope(ctx context.Context, id uuid.UUID, e Event, at time.Time) (Enve
 	}
 	principal, principalType, principalName := source, PrincipalSystem, source
 	if claims, ok := token.ClaimsFromContext(ctx); ok && claims != nil {
-		principal, principalType, principalName = claims.Subject, principalTypeOf(claims), principalNameOf(claims)
+		principal, principalType, principalName = claims.Subject, PrincipalTypeOf(claims), PrincipalNameOf(claims)
 	}
 	var delegator string
 	if d := policy.DelegationFromContext(ctx); d != nil {
@@ -219,10 +219,10 @@ func validate(e Event) error {
 	return nil
 }
 
-// principalTypeOf maps a token principal to the event vocabulary. A PAT acts
+// PrincipalTypeOf maps a token principal to the event vocabulary. A PAT acts
 // as its user. A SERVICE principal is a trigger when its subject is a trigger
 // or webhook source principal, and the platform otherwise.
-func principalTypeOf(claims *token.PlatformClaims) string {
+func PrincipalTypeOf(claims *token.PlatformClaims) string {
 	switch claims.Kora.PrincipalType {
 	case token.PrincipalTypeHuman, token.PrincipalTypePAT:
 		return PrincipalUser
@@ -238,10 +238,10 @@ func principalTypeOf(claims *token.PlatformClaims) string {
 	}
 }
 
-// principalNameOf is the display name the token carries: a person's name, an
+// PrincipalNameOf is the display name the token carries: a person's name, an
 // agent's or trigger's slug, or a platform component. A person with no name
 // falls back to their email, and any other principal to its subject.
-func principalNameOf(claims *token.PlatformClaims) string {
+func PrincipalNameOf(claims *token.PlatformClaims) string {
 	switch {
 	case claims.Kora.DisplayName != "":
 		return claims.Kora.DisplayName

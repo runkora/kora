@@ -478,3 +478,42 @@ func TestListRuns_Sources(t *testing.T) {
 		t.Errorf("runs = %+v", runs)
 	}
 }
+
+func TestStartRunAndSendRunMessage_Event(t *testing.T) {
+	event := &RunEventSummary{
+		Actor:  RunEventActor{Name: "octocat", Kind: "person"},
+		Verb:   "opened",
+		Object: RunEventObject{Label: "PR #1", URL: "https://github.com/o/r/pull/1"},
+	}
+	const wantEvent = `"event":{"actor":{"name":"octocat","kind":"person"},"verb":"opened","object":{"label":"PR #1","url":"https://github.com/o/r/pull/1"}}`
+
+	c, cap := newTestClient(t, http.StatusCreated, `{"id":"run-1","state":"pending"}`)
+	if _, err := c.StartRun(context.Background(), "tok", StartRunRequest{AgentTypeID: "at-1", Event: event}); err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if want := `{"agent_type_id":"at-1",` + wantEvent + `}`; strings.TrimSpace(cap.body) != want {
+		t.Errorf("start body = %s, want %s", cap.body, want)
+	}
+
+	c, cap = newTestClient(t, http.StatusAccepted, "")
+	if err := c.SendRunMessage(context.Background(), "tok", "run-1", SendRunMessageRequest{Content: "more", Event: event}); err != nil {
+		t.Fatalf("SendRunMessage: %v", err)
+	}
+	if want := `{"content":"more",` + wantEvent + `}`; strings.TrimSpace(cap.body) != want {
+		t.Errorf("message body = %s, want %s", cap.body, want)
+	}
+}
+
+func TestValidEventLink(t *testing.T) {
+	for link, want := range map[string]bool{
+		"https://github.com/o/r/pull/1": true,
+		"http://prometheus:9090/graph":  true,
+		"javascript:alert(1)":           false,
+		"/users/octocat":                false,
+		"":                              false,
+	} {
+		if got := ValidEventLink(link); got != want {
+			t.Errorf("ValidEventLink(%q) = %v, want %v", link, got, want)
+		}
+	}
+}

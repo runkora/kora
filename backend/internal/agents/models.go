@@ -625,7 +625,10 @@ type RunUsage struct {
 	CostUSD      float64 `json:"cost_usd"`
 	InputTokens  int64   `json:"input_tokens"`
 	OutputTokens int64   `json:"output_tokens"`
-	RequestCount int64   `json:"request_count"`
+	// CacheReadTokens and CacheCreationTokens are the input tokens read from and written to the provider's prompt cache.
+	CacheReadTokens     int64 `json:"cache_read_tokens"`
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+	RequestCount        int64 `json:"request_count"`
 }
 
 // StartedByTrigger is the run's backlink to the trigger and delivery that
@@ -683,4 +686,6 @@ type RunMessage struct {
 	CausedBy   string
 	ChainDepth int
 	Triggers   []string
+	// Sender is the person or agent who sent the message, nil for a trigger's.
+	Sender *MessageSender
 }

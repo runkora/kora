@@ -30,6 +30,7 @@ cmd/kora-agents:
     trustDomain: {{ include "kora.trustDomain" . | toJson }}
     identityServiceURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-identity") | toJson }}
     policyServiceURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-policy-service") | toJson }}
+    inferenceGatewayURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-inference-gateway") | toJson }}
   policy:
     bundleEndpoint: {{ include "kora.bundleEndpoint" . | toJson }}
   agents:

@@ -297,6 +297,7 @@ func inferenceRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},
 		// GET /v1/budgets/principals is the tenant-wide budget status listing.
 		// The platform:budgets:* scopes are declared by the policy-service.
+		// GET /v1/budgets/runs/{id} serves kora-agents only. Its SYSTEM token passes this check and the handler checks the caller.
 		{PathPrefix: "/v1/budgets", Method: "GET", RequiredScope: "platform:budgets:read"},
 	}
 }

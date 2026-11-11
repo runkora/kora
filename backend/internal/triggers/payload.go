@@ -76,6 +76,11 @@ func triggerFields(t Trigger, doc any, meta map[string]string) map[string]string
 
 // resolvePath returns the value at a dotted path as a string. A missing path resolves empty.
 func resolvePath(doc any, key string) string {
+	return strings.ReplaceAll(stringValue(resolveNode(doc, key)), "\x00", "")
+}
+
+// resolveNode returns the decoded value at a dotted path, nil when the path is missing.
+func resolveNode(doc any, key string) any {
 	node := doc
 	for seg := range strings.SplitSeq(key, ".") {
 		switch n := node.(type) {
@@ -84,14 +89,14 @@ func resolvePath(doc any, key string) string {
 		case []any:
 			i, err := strconv.Atoi(seg)
 			if err != nil || i < 0 || i >= len(n) {
-				return ""
+				return nil
 			}
 			node = n[i]
 		default:
-			return ""
+			return nil
 		}
 	}
-	return strings.ReplaceAll(stringValue(node), "\x00", "")
+	return node
 }
 
 // stringValue converts a decoded JSON value to the string a field resolves to.

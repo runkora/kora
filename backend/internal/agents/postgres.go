@@ -445,6 +445,8 @@ func (r *PostgresRepository) RunUsageTotals(ctx context.Context, tenantID string
 		       COALESCE(SUM(estimated_cost_usd), 0)::float8,
 		       COALESCE(SUM(prompt_tokens), 0)::bigint,
 		       COALESCE(SUM(completion_tokens), 0)::bigint,
+		       COALESCE(SUM(cache_read_input_tokens), 0)::bigint,
+		       COALESCE(SUM(cache_creation_input_tokens), 0)::bigint,
 		       COUNT(*)
 		FROM inference_usage
 		WHERE tenant_id = $1 AND run_id = ANY($2)
@@ -456,7 +458,7 @@ func (r *PostgresRepository) RunUsageTotals(ctx context.Context, tenantID string
 	for rows.Next() {
 		var id string
 		var u RunUsage
-		if err := rows.Scan(&id, &u.CostUSD, &u.InputTokens, &u.OutputTokens, &u.RequestCount); err != nil {
+		if err := rows.Scan(&id, &u.CostUSD, &u.InputTokens, &u.OutputTokens, &u.CacheReadTokens, &u.CacheCreationTokens, &u.RequestCount); err != nil {
 			return nil, fmt.Errorf("scan run usage: %w", err)
 		}
 		out[id] = u
@@ -939,10 +941,14 @@ func (r *PostgresRepository) AppendRunMessage(ctx context.Context, m RunMessage)
 		m.ID = uuid.NewString()
 	}
 	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		var senderID, senderType, senderName *string
+		if m.Sender != nil {
+			senderID, senderType, senderName = &m.Sender.ID, &m.Sender.Type, &m.Sender.Name
+		}
 		_, err := r.pool.Exec(ctx, `
-			INSERT INTO run_messages (id, run_id, content, created_at)
-			VALUES ($1,$2,$3,$4)`,
-			m.ID, m.RunID, m.Content, time.Now().UTC(),
+			INSERT INTO run_messages (id, run_id, content, created_at, sender_id, sender_type, sender_name)
+			VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			m.ID, m.RunID, m.Content, time.Now().UTC(), senderID, senderType, senderName,
 		)
 		if err != nil {
 			return fmt.Errorf("insert run_message: %w", err)

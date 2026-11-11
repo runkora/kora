@@ -16,9 +16,11 @@ func TestPostgres_RunUsageTotals(t *testing.T) {
 
 	insert := func(tenantID, runID string, cost float64, in, out int) {
 		t.Helper()
+		// Each row reads a tenth of its input from the cache and writes a twentieth to it.
 		if _, err := r.pool.Exec(ctx, `
-			INSERT INTO inference_usage (id, tenant_id, principal_id, principal_type, model_id, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, status, run_id)
-			VALUES ($1, $2, 'p', 'AGENT', 'm', $3, $4, $3::int + $4::int, $5, 'success', $6)`,
+			INSERT INTO inference_usage (id, tenant_id, principal_id, principal_type, model_id, prompt_tokens, completion_tokens, total_tokens,
+			    cache_read_input_tokens, cache_creation_input_tokens, estimated_cost_usd, status, run_id)
+			VALUES ($1, $2, 'p', 'AGENT', 'm', $3, $4, $3::int + $4::int, $3::int / 10, $3::int / 20, $5, 'success', $6)`,
 			uuid.NewString(), tenantID, in, out, cost, runID); err != nil {
 			t.Fatalf("insert usage: %v", err)
 		}
@@ -35,8 +37,9 @@ func TestPostgres_RunUsageTotals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunUsageTotals: %v", err)
 	}
-	if u := got[a]; math.Abs(u.CostUSD-0.75) > 1e-9 || u.InputTokens != 300 || u.OutputTokens != 30 || u.RequestCount != 2 {
-		t.Errorf("run a = %+v, want 0.75 cost, 300 in, 30 out, 2 requests", u)
+	if u := got[a]; math.Abs(u.CostUSD-0.75) > 1e-9 || u.InputTokens != 300 || u.OutputTokens != 30 ||
+		u.CacheReadTokens != 30 || u.CacheCreationTokens != 15 || u.RequestCount != 2 {
+		t.Errorf("run a = %+v, want 0.75 cost, 300 in, 30 out, 30 cache read, 15 cache creation, 2 requests", u)
 	}
 	if u := got[b]; u.RequestCount != 1 || u.CostUSD != 1 {
 		t.Errorf("run b = %+v", u)

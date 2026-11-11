@@ -120,8 +120,9 @@ func TestFanOut_StoresPerTriggerFields(t *testing.T) {
 			t.Fatalf("trigger %s queued %d fires, want 1", id, len(pending))
 		}
 		got := pending[0].Fields
-		if len(got) != len(paths)+len(metaFields) {
-			t.Errorf("trigger %s stored %v, want its own paths plus the meta fields", id, got)
+		// The GitHub adapter also stores the delivery's event summary.
+		if len(got) != len(paths)+len(metaFields)+1 || got[metaEventSummary] == "" {
+			t.Errorf("trigger %s stored %v, want its own paths, the meta fields and the event summary", id, got)
 		}
 		for k, v := range paths {
 			if got[k] != v {

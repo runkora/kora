@@ -209,3 +209,47 @@ func TestPostgres_RunSources(t *testing.T) {
 		t.Errorf("append to a missing run: err = %v, want ErrNotFound", err)
 	}
 }
+
+// A person's message stores its sender; a trigger's message stores none.
+func TestPostgres_RunMessageSender(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	ctx := context.Background()
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, CreatedBy: "user-1"}
+	if err := r.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	sender := &MessageSender{ID: "user-1", Type: "USER", Name: "Dev User"}
+	if err := r.AppendRunMessage(ctx, RunMessage{RunID: run.ID, Content: "from a person", Sender: sender}); err != nil {
+		t.Fatalf("AppendRunMessage(person): %v", err)
+	}
+	if err := r.AppendRunMessage(ctx, RunMessage{RunID: run.ID, Content: "from a trigger", From: &StartedByTrigger{TriggerID: "trig-1"}}); err != nil {
+		t.Fatalf("AppendRunMessage(trigger): %v", err)
+	}
+	rows, err := r.pool.Query(ctx, `SELECT content, sender_id, sender_type, sender_name FROM run_messages WHERE run_id=$1 ORDER BY sequence_no`, run.ID)
+	if err != nil {
+		t.Fatalf("select run_messages: %v", err)
+	}
+	defer rows.Close()
+	type row struct {
+		content          string
+		id, typ, display *string
+	}
+	var got []row
+	for rows.Next() {
+		var x row
+		if err := rows.Scan(&x.content, &x.id, &x.typ, &x.display); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got = append(got, x)
+	}
+	if len(got) != 2 {
+		t.Fatalf("rows = %d, want 2", len(got))
+	}
+	if p := got[0]; p.id == nil || *p.id != "user-1" || p.typ == nil || *p.typ != "USER" || p.display == nil || *p.display != "Dev User" {
+		t.Errorf("person's message sender = %v %v %v, want user-1 USER Dev User", p.id, p.typ, p.display)
+	}
+	if tr := got[1]; tr.id != nil || tr.typ != nil || tr.display != nil {
+		t.Errorf("trigger's message sender = %v %v %v, want none", tr.id, tr.typ, tr.display)
+	}
+}

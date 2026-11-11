@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,8 +16,8 @@ import (
 )
 
 type capture struct {
-	method, path, auth string
-	body               []byte
+	method, path, query, auth string
+	body                      []byte
 }
 
 func newTestServer(t *testing.T, status int, body string) (*httptest.Server, *capture) {
@@ -25,6 +26,7 @@ func newTestServer(t *testing.T, status int, body string) (*httptest.Server, *ca
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cap.method = r.Method
 		cap.path = r.URL.Path
+		cap.query = r.URL.RawQuery
 		cap.auth = r.Header.Get("Authorization")
 		cap.body, _ = io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
@@ -131,5 +133,47 @@ func TestSystemOne_BadBaseURLIsNotUpstreamUnavailable(t *testing.T) {
 	_, err := c.SystemOne(context.Background(), "tok", routingRequest())
 	if !errors.Is(err, httpclient.ErrBuildRequest) || errors.Is(err, ErrUpstreamUnavailable) {
 		t.Errorf("err = %v, want ErrBuildRequest only", err)
+	}
+}
+
+func TestRunBudget(t *testing.T) {
+	const runID = "6f1c2a1e-6a59-4c55-9a43-0f1d3c1b2e7a"
+	t.Run("the reached ceiling", func(t *testing.T) {
+		srv, cap := newTestServer(t, http.StatusOK, `{"scope":"delegator","owner":"user-1","owner_name":"Dev User","window":"monthly","limit_usd":5,"resets_at":"2026-12-01T00:00:00Z"}`)
+		c := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+		got, err := c.RunBudget(context.Background(), "svc-tok", "t1", runID)
+		if err != nil {
+			t.Fatalf("RunBudget: %v", err)
+		}
+		if cap.method != http.MethodGet || cap.path != "/v1/budgets/runs/"+runID || cap.query != "tenant_id=t1" || cap.auth != "Bearer svc-tok" {
+			t.Errorf("request = %s %s?%s %q, want the run's tenant in the query", cap.method, cap.path, cap.query, cap.auth)
+		}
+		want := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+		if got.Scope != "delegator" || got.OwnerName != "Dev User" || got.Window != "monthly" || got.LimitUSD != 5 || got.ResetsAt == nil || !got.ResetsAt.Equal(want) {
+			t.Errorf("budget = %+v", got)
+		}
+	})
+	for _, tt := range []struct {
+		status int
+		body   string
+		want   error
+	}{
+		{http.StatusNotFound, `{"code":"budget_not_reached","message":"y"}`, ErrBudgetNotReached},
+		{http.StatusNotFound, `{"code":"run_usage_not_found","message":"the run has no inference usage"}`, ErrUnexpectedStatus},
+		{http.StatusNotFound, `404 page not found`, ErrUnexpectedStatus},
+		{http.StatusForbidden, `{"code":"x","message":"y"}`, ErrForbidden},
+		{http.StatusInternalServerError, `{"code":"x","message":"y"}`, ErrUpstreamUnavailable},
+		{http.StatusTeapot, `{"code":"x","message":"y"}`, ErrUnexpectedStatus},
+	} {
+		srv, _ := newTestServer(t, tt.status, tt.body)
+		c := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+		_, err := c.RunBudget(context.Background(), "svc-tok", "t1", runID)
+		if !errors.Is(err, tt.want) {
+			t.Errorf("status %d %s: err = %v, want %v", tt.status, tt.body, err, tt.want)
+		}
+		// Every error but the gateway's own answer keeps the gateway's message.
+		if tt.want != ErrBudgetNotReached && !strings.Contains(err.Error(), tt.body) {
+			t.Errorf("status %d: err = %v, want it to carry %s", tt.status, err, tt.body)
+		}
 	}
 }

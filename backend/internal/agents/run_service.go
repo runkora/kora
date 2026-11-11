@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/clients/inference"
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/token"
@@ -79,6 +80,8 @@ type RunService struct {
 	missing    missingProvisioner
 	queue      runQueue
 	metrics    *Metrics // run outcome and duration; nil = not recorded
+	budgets    runBudgetReader
+	selfToken  ServiceTokenSource
 	// attempts and schedulerDone track the scheduler started by StartScheduler.
 	attempts      sync.WaitGroup
 	schedulerDone chan struct{}
@@ -99,6 +102,13 @@ func (s *RunService) SetScopeResolver(r *ScopeResolver) { s.resolver = r }
 // (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3). When unset,
 // starting a run of a delegated agent fails closed with ErrDelegationUnavailable.
 func (s *RunService) SetDelegationBroker(b *DelegationBroker) { s.delegation = b }
+
+// SetBudgetReader installs the gateway lookup that names the ceiling a
+// budget_exhausted run reached, called with kora-agents' own token. When unset,
+// the run_state event of a budget stop has no budget.
+func (s *RunService) SetBudgetReader(r runBudgetReader, selfToken ServiceTokenSource) {
+	s.budgets, s.selfToken = r, selfToken
+}
 
 // SetMetrics installs the instruments that record a run's outcome and duration
 // when it reaches a terminal state. When unset, nothing is recorded.
@@ -245,9 +255,8 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		return nil, err
 	}
 
-	sources, err := authorizeRunSources(ctx, req.Sources)
+	sources, err := authorizeRunRecord(ctx, span, req.Sources, req.Event)
 	if err != nil {
-		observability.RecordFailure(span, err, errSpanAuthorizeRunSources)
 		return nil, err
 	}
 
@@ -299,6 +308,12 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		}
 		mintedJTI = jti
 		run.DelegationJTI = &jti
+	}
+
+	// Recorded before the run is queued, so it is the run's first event. The
+	// starter's claims are only in this request.
+	if run.InitialMessage != "" {
+		s.emitHumanMessage(ctx, run.ID, humanMessagePayload{Content: run.InitialMessage, Sender: messageSender(ctx), Event: req.Event})
 	}
 
 	// Queued last, so the scheduler never claims a run whose delegation is not yet stored.
@@ -532,7 +547,7 @@ func (s *RunService) TerminateRun(ctx context.Context, id string) error {
 		}
 	}
 	if terminated.State == RunStateTerminated {
-		if err := recordRunState(ctx, s.repo, s.pubsub, id, RunStateTerminated); err != nil {
+		if err := recordRunState(ctx, s.repo, s.pubsub, id, RunStateTerminated, nil); err != nil {
 			s.logger.Warn(ctx, "failed to persist run_state event",
 				logging.Field{Key: "run_id", Value: id},
 				logging.Field{Key: "error", Value: err.Error()},
@@ -573,7 +588,11 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 		logging.Field{Key: "from", Value: string(from)},
 		logging.Field{Key: "to", Value: string(to)},
 	)
-	if err := recordRunState(ctx, s.repo, s.pubsub, runID, to); err != nil {
+	var budget *inference.RunBudget
+	if to == RunStateBudgetExhausted {
+		budget = s.reachedBudget(ctx, runID)
+	}
+	if err := recordRunState(ctx, s.repo, s.pubsub, runID, to, budget); err != nil {
 		// Log and continue. The event was still published unsequenced, and live
 		// subscribers see the transition. The DB write failure is durable
 		// state loss that we surface in traces; if we returned early here the
@@ -720,9 +739,8 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 		observability.RecordFailure(span, err, errSpanAuthorizeTriggerAttribution)
 		return err
 	}
-	sources, err := authorizeRunSources(ctx, req.Sources)
+	sources, err := authorizeRunRecord(ctx, span, req.Sources, req.Event)
 	if err != nil {
-		observability.RecordFailure(span, err, errSpanAuthorizeRunSources)
 		return err
 	}
 	run, at, err := s.loadRunToAct(ctx, runID)
@@ -733,7 +751,9 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 		return err
 	}
 
-	if err = s.repo.AppendRunMessage(ctx, RunMessage{RunID: runID, Content: content, From: from, CausedBy: chain.causedBy, ChainDepth: chain.depth, Triggers: chain.triggers}); err != nil {
+	// A trigger's SERVICE principal is never a sender, so a trigger message records none.
+	sender := messageSender(ctx)
+	if err = s.repo.AppendRunMessage(ctx, RunMessage{RunID: runID, Content: content, From: from, CausedBy: chain.causedBy, ChainDepth: chain.depth, Triggers: chain.triggers, Sender: sender}); err != nil {
 		observability.RecordFailure(span, err, errSpanAppendRunMessage)
 		return fmt.Errorf("append run message: %w", err)
 	}
@@ -767,10 +787,10 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 	}
 
 	if from != nil {
-		s.emitTriggerMessage(ctx, runID, content, *from)
+		s.emitTriggerMessage(ctx, runID, content, *from, req.Event)
 		return nil
 	}
-	s.emitHumanMessage(ctx, runID, content)
+	s.emitHumanMessage(ctx, runID, humanMessagePayload{Content: content, Sender: sender, Event: req.Event})
 	return nil
 }
 
@@ -793,6 +813,21 @@ func checkRunAcceptsMessage(ctx context.Context, at *AgentType, run *Run) error 
 	return nil
 }
 
+// authorizeRunRecord validates the sources and event summary a start or join
+// request records on the run, and returns the de-duplicated sources.
+func authorizeRunRecord(ctx context.Context, span trace.Span, sources []RunSource, event *RunEventSummary) ([]RunSource, error) {
+	sources, err := authorizeRunSources(ctx, sources)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanAuthorizeRunSources)
+		return nil, err
+	}
+	if err = authorizeRunEvent(ctx, event); err != nil {
+		observability.RecordFailure(span, err, errSpanAuthorizeRunEvent)
+		return nil, err
+	}
+	return sources, nil
+}
+
 // appendJoinedSources adds a joined delivery's links to the run. It is best-effort: the message is already stored, so a failure is logged, not returned.
 func (s *RunService) appendJoinedSources(ctx context.Context, span trace.Span, runID string, sources []RunSource) {
 	if len(sources) == 0 {
@@ -807,10 +842,11 @@ func (s *RunService) appendJoinedSources(ctx context.Context, span trace.Span, r
 	}
 }
 
-// tryInitialMessage sends the initial message to the session-manager and, on
-// success, emits it to the event stream. The session-manager generates the run's
-// task summary from this first message over its own authorized inference path
-// (see internal/agents/sessionmanager/summarizer.go) and reports it back via the
+// tryInitialMessage sends the initial message to the session-manager. StartRun
+// already recorded it as the run's first human_message, while the starter's
+// claims were in hand. The session-manager generates the run's task summary
+// from this first message over its own authorized inference path (see
+// internal/agents/sessionmanager/summarizer.go) and reports it back via the
 // /internal/runs/{id}/summary callback. Best-effort: a send failure is logged but
 // does not abort the run.
 func (s *RunService) tryInitialMessage(ctx context.Context, podURL, runID, msg string) {
@@ -823,9 +859,7 @@ func (s *RunService) tryInitialMessage(ctx context.Context, podURL, runID, msg s
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return
 	}
-	s.emitHumanMessage(ctx, runID, msg)
 }
 
 // Event types for a message sent to a run: a person's, or a trigger's.
@@ -834,27 +868,38 @@ const (
 	eventTriggerMessage = "trigger_message"
 )
 
-// triggerMessagePayload is a trigger_message event: the content and the trigger that sent it.
+// triggerMessagePayload is a trigger_message event: the content, the trigger
+// that sent it and the event behind it.
 type triggerMessagePayload struct {
-	Content     string `json:"content"`
-	TriggerID   string `json:"trigger_id,omitempty"`
-	TriggerName string `json:"trigger_name,omitempty"`
-	DeliveryID  string `json:"delivery_id,omitempty"`
+	Content     string           `json:"content"`
+	TriggerID   string           `json:"trigger_id,omitempty"`
+	TriggerName string           `json:"trigger_name,omitempty"`
+	DeliveryID  string           `json:"delivery_id,omitempty"`
+	Event       *RunEventSummary `json:"event,omitempty"`
+}
+
+// humanMessagePayload is a human_message event: the content and who sent it.
+// A trigger-started run's first message has no sender and carries the event behind it.
+type humanMessagePayload struct {
+	Content string           `json:"content"`
+	Sender  *MessageSender   `json:"sender,omitempty"`
+	Event   *RunEventSummary `json:"event,omitempty"`
 }
 
 // emitHumanMessage persists a human message to run_events and fans it out via
 // PubSub so live SSE subscribers and future replays both see it.
-func (s *RunService) emitHumanMessage(ctx context.Context, runID, content string) {
-	s.emitMessage(ctx, runID, eventHumanMessage, map[string]string{"content": content})
+func (s *RunService) emitHumanMessage(ctx context.Context, runID string, payload humanMessagePayload) {
+	s.emitMessage(ctx, runID, eventHumanMessage, payload)
 }
 
 // emitTriggerMessage records a message a trigger sent to a run that is already working.
-func (s *RunService) emitTriggerMessage(ctx context.Context, runID, content string, from StartedByTrigger) {
+func (s *RunService) emitTriggerMessage(ctx context.Context, runID, content string, from StartedByTrigger, event *RunEventSummary) {
 	s.emitMessage(ctx, runID, eventTriggerMessage, triggerMessagePayload{
 		Content:     content,
 		TriggerID:   from.TriggerID,
 		TriggerName: from.TriggerName,
 		DeliveryID:  from.DeliveryID,
+		Event:       event,
 	})
 }
 
@@ -1217,7 +1262,7 @@ func (s *RunService) StartReaper(ctx context.Context) {
 // terminal transition. ReapStaleRuns already committed the runs.state column, so
 // this only records the event (for SSE replay) and notifies live subscribers.
 func (s *RunService) publishReapedState(ctx context.Context, runID string, state RunState) {
-	if err := recordRunState(ctx, s.repo, s.pubsub, runID, state); err != nil {
+	if err := recordRunState(ctx, s.repo, s.pubsub, runID, state, nil); err != nil {
 		s.logger.Error(ctx, "reaper: failed to persist run_state event",
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "state", Value: string(state)},
@@ -1231,10 +1276,19 @@ type runEventAppender interface {
 	AppendRunEvent(ctx context.Context, e RunEvent) (int64, error)
 }
 
+// runStatePayload is a run_state event: the new state and, for a budget stop, the ceiling reached.
+type runStatePayload struct {
+	State  RunState             `json:"state"`
+	Budget *inference.RunBudget `json:"budget,omitempty"`
+}
+
 // recordRunState persists a run_state event and publishes it to live subscribers.
 // A failed write still publishes the event unsequenced, and the error goes back for the caller to log.
-func recordRunState(ctx context.Context, events runEventAppender, pubsub *PubSub, runID string, state RunState) error {
-	payload := []byte(`{"state":"` + string(state) + `"}`)
+func recordRunState(ctx context.Context, events runEventAppender, pubsub *PubSub, runID string, state RunState, budget *inference.RunBudget) error {
+	payload, err := json.Marshal(runStatePayload{State: state, Budget: budget})
+	if err != nil {
+		return fmt.Errorf("encode run_state: %w", err)
+	}
 	at := eventTime()
 	seqNo, err := events.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload, CreatedAt: at})
 	if err != nil {

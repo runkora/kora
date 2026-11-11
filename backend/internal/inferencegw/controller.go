@@ -100,6 +100,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	GET    /analytics/principals  Per-principal usage summary (requires platform:analytics:read)
 //	GET    /analytics/principals/{id}  Full usage breakdown for one principal, admin drill-down (requires platform:analytics:read)
 //	GET    /budgets/principals    Per-principal budget status (requires platform:budgets:read)
+//	GET    /budgets/runs/{runID}  The ceiling that stopped a run (kora-agents only)
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /chat/completions", c.handleChatCompletions)
 	mux.Handle("POST /messages", c.handleMessages)
@@ -118,6 +119,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /analytics/principals", c.handleAnalyticsPrincipals)
 	mux.Handle("GET /analytics/principals/{id}", c.handleAnalyticsPrincipalByID)
 	mux.Handle("GET /budgets/principals", c.handleListBudgetPrincipals)
+	mux.Handle("GET /budgets/runs/{runID}", c.handleGetRunBudget)
 }
 
 // connectorClientErrorResponse maps ConnectorError codes that represent a client
