@@ -73,7 +73,7 @@ func TestGitHubEventSummary(t *testing.T) {
 			name: "pull request closed unmerged", eventType: "pull_request",
 			doc: ghDoc(t, `"action":"closed"`, strings.Replace(ghPR, `"state":"open"`, `"state":"closed"`, 1), ghRepo, ghSender),
 			want: &agentsclient.RunEventSummary{Actor: reviewer, Verb: "closed", Object: pr6,
-				Preview: prPreview(&agentsclient.RunEventStatus{Label: "Closed", Tone: "bad"})},
+				Preview: prPreview(&agentsclient.RunEventStatus{Label: "Closed"})},
 		},
 		{
 			name: "a bot opens a pull request", eventType: "pull_request",
@@ -112,7 +112,7 @@ func TestGitHubEventSummary(t *testing.T) {
 				Object: agentsclient.RunEventObject{Label: "issue #7", URL: "https://github.com/example-org/stats-lib/issues/7#issuecomment-2"},
 				Quote:  "still broken",
 				Preview: &agentsclient.RunEventPreview{Title: "Mean panics", Facts: []string{"example-org/stats-lib #7"},
-					Status: &agentsclient.RunEventStatus{Label: "Closed", Tone: "bad"}},
+					Status: &agentsclient.RunEventStatus{Label: "Closed"}},
 			},
 		},
 		{
@@ -365,5 +365,34 @@ func TestJoinRun_SendsEventSummary(t *testing.T) {
 	defer deps.agents.mu.Unlock()
 	if len(deps.agents.messages) != 1 || !reflect.DeepEqual(deps.agents.messages[0].event, event) {
 		t.Errorf("messages = %+v, want one carrying %+v", deps.agents.messages, event)
+	}
+}
+
+// Only good and bad news is coloured. A closed or draft pull request, an
+// approval and a cancelled workflow are neutral.
+func TestEventSummaryTones(t *testing.T) {
+	a := &githubAdapter{}
+	tests := []struct {
+		name, eventType string
+		doc             any
+		want            *agentsclient.RunEventStatus
+	}{
+		{"draft pull request", "pull_request", ghDoc(t, `"action":"opened"`, strings.Replace(ghPR, `"draft":false`, `"draft":true`, 1), ghRepo, ghSender), &agentsclient.RunEventStatus{Label: "Draft"}},
+		{"approved review", "pull_request_review", ghDoc(t, `"action":"submitted"`, `"review":{"state":"approved","html_url":"https://github.com/example-org/stats-lib/pull/6#r1"}`, ghPR, ghRepo, ghSender), &agentsclient.RunEventStatus{Label: "Approved"}},
+		{"cancelled workflow", "workflow_run", ghDoc(t, `"action":"completed"`, `"workflow_run":{"name":"test","run_number":3,"conclusion":"cancelled","head_branch":"main","pull_requests":[]}`, ghRepo, ghSender), &agentsclient.RunEventStatus{Label: "Cancelled"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := a.EventSummary(tt.eventType, tt.doc)
+			if got == nil || got.Preview == nil || !reflect.DeepEqual(got.Preview.Status, tt.want) {
+				t.Errorf("status = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+	var head eventHead
+	envelope := `{"id":"e1","type":"agents.run.terminated.v1","koraprincipaltype":"USER","koraprincipalname":"Dev User","data":{"entity":{"id":"9a8b7c6d-1","agent":"verify-agent","state":"terminated"}}}`
+	_ = json.Unmarshal([]byte(envelope), &head)
+	if got := platformEventSummary(head, decodeBody([]byte(envelope))); got.Preview.Status.Tone != "" {
+		t.Errorf("terminated run tone = %q, want none", got.Preview.Status.Tone)
 	}
 }

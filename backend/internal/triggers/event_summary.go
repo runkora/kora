@@ -26,6 +26,8 @@ const (
 	actorSystem = "system"
 	toneOK      = "ok"
 	toneBad     = "bad"
+	// toneNone marks a state that is neither good nor bad news, such as closed or draft.
+	toneNone = ""
 	// jsonTrue is how resolvePath renders a JSON true.
 	jsonTrue = "true"
 )
@@ -190,7 +192,7 @@ func githubReview(doc any, action string) *agentsclient.RunEventSummary {
 	verb := "reviewed"
 	switch resolvePath(doc, "review.state") {
 	case "approved":
-		verb, preview.Status = "approved", &agentsclient.RunEventStatus{Label: "Approved", Tone: toneOK}
+		verb, preview.Status = "approved", &agentsclient.RunEventStatus{Label: "Approved", Tone: toneNone}
 	case "changes_requested":
 		verb, preview.Status = "requested changes on", &agentsclient.RunEventStatus{Label: "Changes requested", Tone: toneBad}
 	}
@@ -266,9 +268,9 @@ func githubPRPreview(doc any) *agentsclient.RunEventPreview {
 	case resolvePath(doc, "pull_request.merged") == jsonTrue:
 		p.Status = &agentsclient.RunEventStatus{Label: "Merged", Tone: toneOK}
 	case resolvePath(doc, "pull_request.state") == "closed":
-		p.Status = &agentsclient.RunEventStatus{Label: "Closed", Tone: toneBad}
+		p.Status = &agentsclient.RunEventStatus{Label: "Closed", Tone: toneNone}
 	case resolvePath(doc, "pull_request.draft") == jsonTrue:
-		p.Status = &agentsclient.RunEventStatus{Label: "Draft", Tone: toneOK}
+		p.Status = &agentsclient.RunEventStatus{Label: "Draft", Tone: toneNone}
 	case resolvePath(doc, "pull_request.state") == "open":
 		p.Status = &agentsclient.RunEventStatus{Label: "Open", Tone: toneOK}
 	}
@@ -295,7 +297,7 @@ func githubIssuePreview(doc any) *agentsclient.RunEventPreview {
 	case "open":
 		p.Status = &agentsclient.RunEventStatus{Label: "Open", Tone: toneOK}
 	case "closed":
-		p.Status = &agentsclient.RunEventStatus{Label: "Closed", Tone: toneBad}
+		p.Status = &agentsclient.RunEventStatus{Label: "Closed", Tone: toneNone}
 	}
 	return p
 }
@@ -327,11 +329,7 @@ func githubWorkflowRun(doc any, action string) *agentsclient.RunEventSummary {
 		case "":
 			verb = "finished " + name + " on"
 		default:
-			tone := toneBad
-			if conclusion == "neutral" || conclusion == "skipped" {
-				tone = toneOK
-			}
-			verb, status = "finished "+name+" on", &agentsclient.RunEventStatus{Label: capitalized(words(conclusion)), Tone: tone}
+			verb, status = "finished "+name+" on", &agentsclient.RunEventStatus{Label: capitalized(words(conclusion)), Tone: toneNone}
 		}
 	}
 	facts := []string{resolvePath(doc, "repository.full_name")}
@@ -458,6 +456,9 @@ func scheduledSummary(t Trigger) *agentsclient.RunEventSummary {
 	}
 }
 
+// runStateTones colours the run states that are good or bad news. Every other state is neutral.
+var runStateTones = map[string]string{"completed": toneOK, "failed": toneBad}
+
 // platformEventSummary names the principal behind a platform event and the
 // entity it changed: a run with its agent and state, or an agent.
 func platformEventSummary(head eventHead, doc any) *agentsclient.RunEventSummary {
@@ -489,11 +490,7 @@ func platformEventSummary(head eventHead, doc any) *agentsclient.RunEventSummary
 		e.Object.Label = short
 		e.Preview = &agentsclient.RunEventPreview{Title: resolvePath(doc, "data.entity.agent") + " · run " + short}
 		if state := resolvePath(doc, "data.entity.state"); state != "" {
-			tone := toneOK
-			if state == "failed" || state == "budget_exhausted" || state == "terminated" {
-				tone = toneBad
-			}
-			e.Preview.Status = &agentsclient.RunEventStatus{Label: capitalized(words(state)), Tone: tone}
+			e.Preview.Status = &agentsclient.RunEventStatus{Label: capitalized(words(state)), Tone: runStateTones[state]}
 		}
 	case "agent":
 		if n := resolvePath(doc, "data.entity.name"); n != "" {
