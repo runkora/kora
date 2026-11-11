@@ -43,7 +43,7 @@ This touches **Who is this agent?** through attribution: the record states which
     *   `actor: {name, kind, url?}`, where `kind` is `person`, `bot` or `system`.
     *   `verb` and `object: {label, url?}`.
     *   `quote?`: text a person wrote, such as a comment or an issue body.
-    *   `preview?: {title, facts[], added?, removed?, status?: {label, tone}}`, where `tone` is `ok` or `bad`.
+    *   `preview?: {title, facts[], added?, removed?, status?: {label, tone?}}`, where `tone` is `ok` or `bad`. A status with no tone, such as closed or draft, carries no color.
 3.  Each adapter in `internal/triggers` gains a summary function beside `SourceLinks`:
     *   GitHub summarizes `pull_request`, `issues`, `issue_comment`, `pull_request_review`, `pull_request_review_comment` and `workflow_run` deliveries.
     *   Slack summarizes a message and a thread reply. The Slack chat document has no display name for the sender, and the summary's actor is the Slack user ID.
@@ -52,7 +52,7 @@ This touches **Who is this agent?** through attribution: the record states which
     *   A generic webhook has no summary. The page reads its trigger template instead.
 4.  The start-run and trigger-message bodies accept `event`. Only a SERVICE principal may send it, the same rule as run sources. Any other caller is refused with 403. Each string is at most 300 characters, a quote at most 2,000, and a preview at most 6 facts. A link is an absolute `http` or `https` URL. A violation is a 400. `kora-triggers` drops a link or a summary that would break these rules.
 5.  The summary is stored in the payload of the message's run event: the first `human_message` of a trigger-started run and each `trigger_message`. No column is added.
-6.  The inference gateway serves `GET /v1/budgets/runs/{id}?tenant_id=` with the first ceiling the run's principal has reached. Only `kora-agents` may call it. It reads the run's principal and delegator from the run's usage rows in that tenant. `kora-agents` calls it through a new method on `internal/platform/clients/inference` and records `budget: {scope, owner, owner_name, window, limit_usd, resets_at?}` on the `run_state` event payload. `owner` is the principal, tenant or run ID, and `owner_name` its display name. A per-run ceiling has no `resets_at`. A failed lookup records the state without `budget`.
+6.  The inference gateway serves `GET /v1/budgets/runs/{id}?tenant_id=` with the first ceiling the run's principal has reached. Only `kora-agents` may call it. It reads the run's principal and delegator from the run's usage rows in that tenant. `kora-agents` calls it through a new method on `internal/platform/clients/inference` and records `budget: {scope, owner, owner_name, window, limit_usd, resets_at?}` on the `run_state` event payload. `scope` is `principal`, `role_pool`, `tenant`, `run`, `delegator` or `delegator_run`. `owner` is the ID of the principal, role, tenant or run. `owner_name` is its display name, or empty when it has none. A per-run ceiling has no `resets_at`. A failed lookup records the state without `budget`.
 
 ## Consequences
 
