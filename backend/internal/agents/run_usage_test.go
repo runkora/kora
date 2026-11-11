@@ -16,7 +16,7 @@ func seedUsage(repo *mockRepository, id string, u RunUsage) {
 func TestListRuns_ReturnsUsageForThePageInOneQuery(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
 	seedRunsAcrossTypes(t, repo, "t-1", 30, 3)
-	want := RunUsage{CostUSD: 1.25, InputTokens: 900, OutputTokens: 100, RequestCount: 4}
+	want := RunUsage{CostUSD: 1.25, InputTokens: 900, OutputTokens: 100, CacheReadTokens: 300, CacheCreationTokens: 40, RequestCount: 4}
 	seedUsage(repo, "run-0003", want)
 
 	page, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), nil, RunListQuery{Limit: 20})
@@ -71,7 +71,7 @@ func TestRun_UsageJSONAlwaysPresent(t *testing.T) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		t.Fatal(err)
 	}
-	if got := string(m["usage"]); got != `{"cost_usd":0,"input_tokens":0,"output_tokens":0,"request_count":0}` {
+	if got := string(m["usage"]); got != `{"cost_usd":0,"input_tokens":0,"output_tokens":0,"cache_read_tokens":0,"cache_creation_tokens":0,"request_count":0}` {
 		t.Errorf("usage = %s", got)
 	}
 }
