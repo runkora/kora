@@ -255,13 +255,8 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		return nil, err
 	}
 
-	sources, err := authorizeRunSources(ctx, req.Sources)
+	sources, err := authorizeRunRecord(ctx, span, req.Sources, req.Event)
 	if err != nil {
-		observability.RecordFailure(span, err, errSpanAuthorizeRunSources)
-		return nil, err
-	}
-	if err = authorizeRunEvent(ctx, req.Event); err != nil {
-		observability.RecordFailure(span, err, errSpanAuthorizeRunEvent)
 		return nil, err
 	}
 
@@ -744,13 +739,8 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 		observability.RecordFailure(span, err, errSpanAuthorizeTriggerAttribution)
 		return err
 	}
-	sources, err := authorizeRunSources(ctx, req.Sources)
+	sources, err := authorizeRunRecord(ctx, span, req.Sources, req.Event)
 	if err != nil {
-		observability.RecordFailure(span, err, errSpanAuthorizeRunSources)
-		return err
-	}
-	if err = authorizeRunEvent(ctx, req.Event); err != nil {
-		observability.RecordFailure(span, err, errSpanAuthorizeRunEvent)
 		return err
 	}
 	run, at, err := s.loadRunToAct(ctx, runID)
@@ -823,6 +813,21 @@ func checkRunAcceptsMessage(ctx context.Context, at *AgentType, run *Run) error 
 		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
 	}
 	return nil
+}
+
+// authorizeRunRecord validates the sources and event summary a start or join
+// request records on the run, and returns the de-duplicated sources.
+func authorizeRunRecord(ctx context.Context, span trace.Span, sources []RunSource, event *RunEventSummary) ([]RunSource, error) {
+	sources, err := authorizeRunSources(ctx, sources)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanAuthorizeRunSources)
+		return nil, err
+	}
+	if err = authorizeRunEvent(ctx, event); err != nil {
+		observability.RecordFailure(span, err, errSpanAuthorizeRunEvent)
+		return nil, err
+	}
+	return sources, nil
 }
 
 // appendJoinedSources adds a joined delivery's links to the run. It is best-effort: the message is already stored, so a failure is logged, not returned.

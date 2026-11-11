@@ -63,7 +63,7 @@ var (
 )
 
 // authorizeRunEvent validates the event summary of a start or join request. A
-// summary is an audit record of why a run took a turn, so only a SERVICE
+// summary is an audit record of why a run took a turn. Only a SERVICE
 // principal may write it, the same rule as run sources.
 func authorizeRunEvent(ctx context.Context, e *RunEventSummary) error {
 	if e == nil {
@@ -73,43 +73,61 @@ func authorizeRunEvent(ctx context.Context, e *RunEventSummary) error {
 	if !ok || claims == nil || claims.Kora.PrincipalType != token.PrincipalTypeService {
 		return ErrRunEventRefused
 	}
+	for _, check := range []func(*RunEventSummary) error{checkRunEventShape, checkRunEventLengths, checkRunEventLinks} {
+		if err := check(e); err != nil {
+			return fmt.Errorf("%w: %w", ErrRunEventInvalid, err)
+		}
+	}
+	return nil
+}
+
+// checkRunEventShape checks the required fields and the closed vocabularies.
+func checkRunEventShape(e *RunEventSummary) error {
 	switch e.Actor.Kind {
 	case "person", "bot", "system":
 	default:
-		return fmt.Errorf("%w: actor kind must be person, bot or system", ErrRunEventInvalid)
+		return errors.New("actor kind must be person, bot or system")
 	}
 	if e.Actor.Name == "" || e.Verb == "" || e.Object.Label == "" {
-		return fmt.Errorf("%w: actor name, verb and object label are required", ErrRunEventInvalid)
+		return errors.New("actor name, verb and object label are required")
 	}
+	if p := e.Preview; p != nil && p.Status != nil && p.Status.Tone != "ok" && p.Status.Tone != "bad" {
+		return errors.New("status tone must be ok or bad")
+	}
+	return nil
+}
+
+// checkRunEventLengths bounds every string and the number of facts.
+func checkRunEventLengths(e *RunEventSummary) error {
 	strs := []string{e.Actor.Name, e.Actor.URL, e.Verb, e.Object.Label, e.Object.URL}
 	if p := e.Preview; p != nil {
 		if len(p.Facts) > maxRunEventFacts {
-			return fmt.Errorf("%w: at most %d facts", ErrRunEventInvalid, maxRunEventFacts)
+			return fmt.Errorf("at most %d facts", maxRunEventFacts)
 		}
-		strs = append(strs, p.Title)
-		strs = append(strs, p.Facts...)
+		strs = append(append(strs, p.Title), p.Facts...)
 		if p.Status != nil {
-			if p.Status.Tone != "ok" && p.Status.Tone != "bad" {
-				return fmt.Errorf("%w: status tone must be ok or bad", ErrRunEventInvalid)
-			}
 			strs = append(strs, p.Status.Label)
 		}
 	}
 	for _, s := range strs {
 		if utf8.RuneCountInString(s) > maxRunEventStringRunes {
-			return fmt.Errorf("%w: strings are at most %d characters", ErrRunEventInvalid, maxRunEventStringRunes)
+			return fmt.Errorf("strings are at most %d characters", maxRunEventStringRunes)
 		}
 	}
 	if utf8.RuneCountInString(e.Quote) > maxRunEventQuoteRunes {
-		return fmt.Errorf("%w: quote is at most %d characters", ErrRunEventInvalid, maxRunEventQuoteRunes)
+		return fmt.Errorf("quote is at most %d characters", maxRunEventQuoteRunes)
 	}
+	return nil
+}
+
+// checkRunEventLinks refuses a javascript: or relative URL: the page renders these as links.
+func checkRunEventLinks(e *RunEventSummary) error {
 	for _, link := range []string{e.Actor.URL, e.Object.URL} {
 		if link == "" {
 			continue
 		}
-		// The page renders these as links, so a javascript: or relative URL is refused.
 		if u, err := url.Parse(link); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-			return fmt.Errorf("%w: links must be absolute http or https urls", ErrRunEventInvalid)
+			return errors.New("links must be absolute http or https urls")
 		}
 	}
 	return nil
