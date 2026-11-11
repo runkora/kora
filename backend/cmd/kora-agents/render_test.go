@@ -204,9 +204,9 @@ func TestLoadWorkloads_ChartDefaultsChangeNoManifest(t *testing.T) {
 	if !ok {
 		t.Fatalf("objs[1] not *appsv1.StatefulSet: %T", objs[1])
 	}
-	pod, ok := objs[5].(*corev1.Pod)
+	pod, ok := objs[4].(*corev1.Pod)
 	if !ok {
-		t.Fatalf("objs[5] not *corev1.Pod: %T", objs[5])
+		t.Fatalf("objs[4] not *corev1.Pod: %T", objs[4])
 	}
 	for name, spec := range map[string]corev1.PodSpec{"StatefulSet": ss.Spec.Template.Spec, "sandbox Pod": pod.Spec} {
 		if spec.NodeSelector != nil {

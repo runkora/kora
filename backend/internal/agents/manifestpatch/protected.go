@@ -19,7 +19,6 @@ var protectedPaths = [][]string{
 	{"metadata", "ownerReferences"},
 	{"spec", "selector"},
 	{"spec", "serviceName"},
-	{"spec", "scaleTargetRef"},
 	{"spec", "volumeClaimTemplates", "*", "metadata", "name"},
 	{"spec", "serviceAccountName"},
 	{"spec", "template", "spec", "serviceAccountName"},

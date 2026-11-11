@@ -39,6 +39,10 @@ type Config struct {
 	Kubernetes struct {
 		// InCluster uses the pod's service account token. Set false for local dev.
 		InCluster bool `yaml:"inCluster"`
+		// ClientQPS and ClientBurst rate-limit the Kubernetes client. Each run placement and scaler
+		// pass makes API calls, and client-go's defaults of 5 and 10 throttle a burst of runs.
+		ClientQPS   float32 `yaml:"clientQPS"`
+		ClientBurst int     `yaml:"clientBurst"`
 		// TenantNamespacePrefix is prepended to tenant IDs to form namespace names.
 		TenantNamespacePrefix string `yaml:"tenantNamespacePrefix"`
 		// SystemNamespace is where kora-agents itself runs.
@@ -115,8 +119,10 @@ type Config struct {
 			StartBudgetSecs int `yaml:"startBudgetSecs"`
 			// ProvisionBudgetSecs is how long a run may wait for its agent to finish provisioning before it fails.
 			ProvisionBudgetSecs int `yaml:"provisionBudgetSecs"`
-			// MinReplicas is the session-manager pod count of each agent and its HPA minimum.
+			// MinReplicas is the floor of each agent's session-manager pods. The scaler adds pods above it as runs need them.
 			MinReplicas int32 `yaml:"minReplicas"`
+			// MaxReplicas is the ceiling of each agent's session-manager pods. The scaler never adds pods past it or the agent's total.
+			MaxReplicas int32 `yaml:"maxReplicas"`
 			// DrainGracePeriodSecs is how long a terminating session-manager pod waits for its runs to end.
 			DrainGracePeriodSecs int64 `yaml:"drainGracePeriodSecs"`
 			// PlacementWatermark is the fraction of a pod's memory.max below which it takes a run.
@@ -168,6 +174,9 @@ type StartingRunAllowance struct {
 	Codex      resource.Quantity `yaml:"codex"`
 	OpenCode   resource.Quantity `yaml:"openCode"`
 }
+
+// errMaxReplicas means maxReplicas is below the floor of pods, so the scaler could never add one.
+var errMaxReplicas = errors.New("agents.scheduling.maxReplicas must be at least minReplicas and at least 1")
 
 // errStartingRunAllowance means a harness has no positive starting-run allowance.
 var errStartingRunAllowance = errors.New("agents.scheduling.startingRunAllowance: claudeCode, codex and openCode must each be a positive quantity")
@@ -245,6 +254,9 @@ func Validate(cfg *Config) error {
 	}
 	if _, err := landlockmode.Parse(cfg.Agents.SessionManager.Landlock); err != nil {
 		return err
+	}
+	if s := cfg.Agents.Scheduling; s.MaxReplicas < max(s.MinReplicas, 1) {
+		return errMaxReplicas
 	}
 	a := cfg.Agents.Scheduling.StartingRunAllowance
 	for _, q := range []resource.Quantity{a.ClaudeCode, a.Codex, a.OpenCode} {

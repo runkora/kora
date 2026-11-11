@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -25,7 +26,6 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
 	appsv1 "k8s.io/api/apps/v1"
-	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -71,6 +71,9 @@ var authorizationPolicyGVR = schema.GroupVersionResource{
 // K8sProvisionerConfig holds the parameters the provisioner needs that cannot
 // be derived from the agent type or run model.
 type K8sProvisionerConfig struct {
+	// ClientQPS and ClientBurst rate-limit the Kubernetes client. Zero keeps the client-go defaults.
+	ClientQPS           float32
+	ClientBurst         int
 	SessionManagerImage string
 	// SandboxImage is the base image reference that rendered previews use. A
 	// live sandbox runs the digest the operator pinned on its SandboxImage.
@@ -127,7 +130,7 @@ type K8sProvisionerConfig struct {
 	AuthorizationPolicyEnabled bool
 	// Landlock is the session-manager's KORA_LANDLOCK: enforce or bestEffort.
 	Landlock string
-	// MinReplicas is the session-manager pod count each agent starts with and the HPA minimum.
+	// MinReplicas is the session-manager pod count each agent starts with and the scaler's floor.
 	MinReplicas int32
 	// DrainGracePeriodSecs is how long a terminating session-manager pod may wait for its runs to end.
 	DrainGracePeriodSecs int64
@@ -141,7 +144,7 @@ type K8sProvisionerConfig struct {
 
 // K8sProvisioner manages Kubernetes resources on behalf of kora-agents.
 // It is the only component with RBAC to create/delete StatefulSets, Services,
-// HPAs, PDBs, sandbox Pods, and Istio DestinationRules in tenant namespaces.
+// PDBs, sandbox Pods, and Istio DestinationRules in tenant namespaces.
 type K8sProvisioner struct {
 	client        kubernetes.Interface
 	dynamicClient dynamic.Interface
@@ -170,6 +173,7 @@ func NewK8sProvisioner(inCluster bool, logger logging.Logger, cfg K8sProvisioner
 	if err != nil {
 		return nil, fmt.Errorf("build k8s rest config: %w", err)
 	}
+	restCfg.QPS, restCfg.Burst = cfg.ClientQPS, cfg.ClientBurst
 
 	cs, err := kubernetes.NewForConfig(restCfg)
 	if err != nil {
@@ -254,9 +258,12 @@ func (p *K8sProvisioner) provision(ctx context.Context, at AgentType, namespace 
 		observability.RecordFailure(span, err, errSpanEnsureHeadlessService)
 		return err
 	}
-	if err := p.ensureHPA(ctx, slug, namespace, labels, tenantRef, update); err != nil {
-		observability.RecordFailure(span, err, errSpanEnsureHpa)
-		return err
+	// An HPA left by an earlier release would fight the scaler over the replicas.
+	if update {
+		if err := ignoreNotFound(p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Delete(ctx, slug, metav1.DeleteOptions{})); err != nil {
+			observability.RecordFailure(span, err, errSpanDeleteStaleHpa)
+			return fmt.Errorf("delete stale hpa: %w", err)
+		}
 	}
 	if err := p.ensurePDB(ctx, slug, namespace, labels, tenantRef, update); err != nil {
 		observability.RecordFailure(span, err, errSpanEnsurePdb)
@@ -421,6 +428,114 @@ func (p *K8sProvisioner) Replicas(ctx context.Context, slug, namespace string) (
 		return 0, fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
 	}
 	return specReplicas(ss), nil
+}
+
+// statefulSetView is what the scaler reads of an agent's StatefulSet.
+type statefulSetView struct {
+	Replicas int
+	// MemoryLimitBytes is the session-manager container's memory limit, the scaler's fallback for memory.max.
+	MemoryLimitBytes int64
+	Parallel         bool
+}
+
+// Scale errors: the replicas changed since the scaler read them, or the target is out of range.
+var (
+	errReplicasMoved   = errors.New("statefulset replicas changed since they were read")
+	errReplicasInvalid = errors.New("statefulset replicas out of range")
+)
+
+// AgentStatefulSet reads the scaler's view of an agent's StatefulSet. found is false when it does not exist.
+func (p *K8sProvisioner) AgentStatefulSet(ctx context.Context, slug, namespace string) (view statefulSetView, found bool, err error) {
+	ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return statefulSetView{}, false, nil
+	}
+	if err != nil {
+		return statefulSetView{}, false, fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
+	}
+	view = statefulSetView{Replicas: specReplicas(ss), Parallel: ss.Spec.PodManagementPolicy == appsv1.ParallelPodManagement}
+	for _, c := range ss.Spec.Template.Spec.Containers {
+		if c.Name == sessionManagerContainerName {
+			view.MemoryLimitBytes = c.Resources.Limits.Memory().Value()
+		}
+	}
+	return view, true, nil
+}
+
+// ScaleStatefulSet sets the replicas through the scale subresource, only while they are still from.
+func (p *K8sProvisioner) ScaleStatefulSet(ctx context.Context, slug, namespace string, from, to int) error {
+	if to < 0 || to > math.MaxInt32 {
+		return fmt.Errorf("%w: %d", errReplicasInvalid, to)
+	}
+	sets := p.client.AppsV1().StatefulSets(namespace)
+	scale, err := sets.GetScale(ctx, slug, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get statefulset scale %s/%s: %w", namespace, slug, err)
+	}
+	if int(scale.Spec.Replicas) != from {
+		return errReplicasMoved
+	}
+	scale.Spec.Replicas = int32(to)
+	if _, err := sets.UpdateScale(ctx, slug, scale, metav1.UpdateOptions{}); apierrors.IsConflict(err) {
+		return errReplicasMoved
+	} else if err != nil {
+		return fmt.Errorf("update statefulset scale %s/%s: %w", namespace, slug, err)
+	}
+	return nil
+}
+
+// parallelSwitchTimeout bounds the wait for an orphan-deleted StatefulSet to go before it is recreated.
+// The agent lock is held during the wait. A StatefulSet left missing is created by the next run start or apply.
+const parallelSwitchTimeout = 10 * time.Second
+
+// SwitchToParallel replaces a live OrderedReady StatefulSet with a Parallel one of the same name, spec
+// and replicas. The pod management policy is immutable, and the orphan delete keeps the pods running
+// for the new StatefulSet to adopt.
+func (p *K8sProvisioner) SwitchToParallel(ctx context.Context, slug, namespace string) error {
+	sets := p.client.AppsV1().StatefulSets(namespace)
+	live, err := sets.Get(ctx, slug, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
+	}
+	if live.Spec.PodManagementPolicy == appsv1.ParallelPodManagement || live.DeletionTimestamp != nil {
+		return nil
+	}
+	orphan := metav1.DeletePropagationOrphan
+	// The resource version precondition refuses the delete if an apply changed the StatefulSet since the read.
+	precondition := metav1.Preconditions{UID: &live.UID, ResourceVersion: &live.ResourceVersion}
+	if err = sets.Delete(ctx, slug, metav1.DeleteOptions{PropagationPolicy: &orphan, Preconditions: &precondition}); err != nil {
+		return fmt.Errorf("orphan-delete statefulset %s/%s: %w", namespace, slug, err)
+	}
+	// The orphan finalizer keeps the object until its pods are released, and a create before then conflicts.
+	err = wait.PollUntilContextTimeout(ctx, 200*time.Millisecond, parallelSwitchTimeout, true, func(ctx context.Context) (bool, error) {
+		current, getErr := sets.Get(ctx, slug, metav1.GetOptions{})
+		if apierrors.IsNotFound(getErr) {
+			return true, nil
+		}
+		// A different UID is a Parallel StatefulSet that an apply created in the gap; the create below then conflicts.
+		if getErr == nil && current.UID != live.UID {
+			return true, nil
+		}
+		return false, getErr
+	})
+	if err != nil {
+		return fmt.Errorf("wait for statefulset %s/%s to go: %w", namespace, slug, err)
+	}
+	recreated := appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: live.Name, Namespace: live.Namespace, Labels: live.Labels,
+			Annotations: live.Annotations, OwnerReferences: live.OwnerReferences,
+		},
+		Spec: live.Spec,
+	}
+	recreated.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
+	if _, err = sets.Create(ctx, &recreated, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("recreate statefulset %s/%s: %w", namespace, slug, err)
+	}
+	return nil
 }
 
 // specReplicas is the StatefulSet's spec.replicas. Unset means 1.
@@ -1735,8 +1850,8 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	// Replace the existing pod template with the rendered one so a patch change
 	// reaches existing agents on the next reconcile, keeping only the live
 	// session-manager image, which redeploy pins by digest. Replicas belong to
-	// the HPA, and the selector and VolumeClaimTemplates are immutable, so
-	// those stay create-only.
+	// the scaler, and the selector, VolumeClaimTemplates and pod management
+	// policy are immutable, so those stay create-only.
 	existing, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, ss.Name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("get existing statefulset: %w", err)
@@ -1869,7 +1984,9 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 		Spec: appsv1.StatefulSetSpec{
 			Replicas:    &replicas,
 			ServiceName: at.Slug,
-			Selector:    &metav1.LabelSelector{MatchLabels: podLabels(at)},
+			// A draining pod must not hold back the pods the scaler adds.
+			PodManagementPolicy: appsv1.ParallelPodManagement,
+			Selector:            &metav1.LabelSelector{MatchLabels: podLabels(at)},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels:      podLabels(at),
@@ -1954,7 +2071,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 					},
 				},
 			},
-			// WhenScaled stays Retain: an HPA scale-down is not agent deletion.
+			// WhenScaled stays Retain: a scale-down is not agent deletion.
 			PersistentVolumeClaimRetentionPolicy: &appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy{
 				WhenDeleted: appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
 				WhenScaled:  appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
@@ -2036,79 +2153,6 @@ func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namesp
 	existing.Spec.PublishNotReadyAddresses = svc.Spec.PublishNotReadyAddresses
 	applyOwnerRef(&existing.ObjectMeta, owner)
 	_, err = p.client.CoreV1().Services(namespace).Update(ctx, existing, metav1.UpdateOptions{})
-	return err
-}
-
-func (p *K8sProvisioner) buildHPA(name, namespace string, labels map[string]string) autoscalingv2.HorizontalPodAutoscaler {
-	cpuTarget := int32(70)
-	memTarget := int32(80)
-	minReplicas := max(p.cfg.MinReplicas, 1)
-	return autoscalingv2.HorizontalPodAutoscaler{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "autoscaling/v2", Kind: "HorizontalPodAutoscaler"},
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
-		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
-			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
-				APIVersion: "apps/v1",
-				Kind:       "StatefulSet",
-				Name:       name,
-			},
-			MinReplicas: &minReplicas,
-			MaxReplicas: 10,
-			Metrics: []autoscalingv2.MetricSpec{
-				{
-					Type: autoscalingv2.ResourceMetricSourceType,
-					Resource: &autoscalingv2.ResourceMetricSource{
-						Name: corev1.ResourceCPU,
-						Target: autoscalingv2.MetricTarget{
-							Type:               autoscalingv2.UtilizationMetricType,
-							AverageUtilization: &cpuTarget,
-						},
-					},
-				},
-				{
-					Type: autoscalingv2.ResourceMetricSourceType,
-					Resource: &autoscalingv2.ResourceMetricSource{
-						Name: corev1.ResourceMemory,
-						Target: autoscalingv2.MetricTarget{
-							Type:               autoscalingv2.UtilizationMetricType,
-							AverageUtilization: &memTarget,
-						},
-					},
-				},
-			},
-		},
-	}
-}
-
-// ensureHPA creates an HPA targeting the agent StatefulSet.
-// Note: when the HPA scales the StatefulSet down, Kubernetes does NOT delete the
-// PVCs created by the StatefulSet's VolumeClaimTemplate. Orphaned workspace PVCs
-// accumulate silently. A cleanup controller or CronJob should prune PVCs whose
-// owning pod no longer exists. Track in the sandbox hardening story.
-func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference, update bool) error {
-	hpa := p.buildHPA(name, namespace, labels)
-	applyOwnerRef(&hpa.ObjectMeta, owner)
-	var err error
-	hpa, err = manifestpatch.Apply(hpa, "HorizontalPodAutoscaler", p.cfg.Patches)
-	if err != nil {
-		return fmt.Errorf("apply HorizontalPodAutoscaler patches: %w", err)
-	}
-	_, err = p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Create(ctx, &hpa, metav1.CreateOptions{})
-	if err == nil || !apierrors.IsAlreadyExists(err) {
-		return err
-	}
-	if !update {
-		return nil
-	}
-	existing, err := p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("get existing hpa: %w", err)
-	}
-	existing.Labels = hpa.Labels
-	existing.Annotations = hpa.Annotations
-	existing.Spec = hpa.Spec
-	applyOwnerRef(&existing.ObjectMeta, owner)
-	_, err = p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Update(ctx, existing, metav1.UpdateOptions{})
 	return err
 }
 

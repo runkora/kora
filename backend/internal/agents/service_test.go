@@ -215,7 +215,7 @@ func TestCreateAgentType_K8sFailure(t *testing.T) {
 
 // TestCreateAgentType_K8sFailure_DeprovisionCalled asserts that an async
 // provisioning failure triggers DeprovisionAgentType so partial k8s state
-// (StatefulSet, Service, HPA, …) is cleaned up, not just the DB row. This
+// (StatefulSet, Service, PDB, …) is cleaned up, not just the DB row. This
 // prevents the orphan-resource bug we hit with sales-agent in dev.
 func TestCreateAgentType_K8sFailure_DeprovisionCalled(t *testing.T) {
 	svc, repo, k8s, _ := newTestService(t)

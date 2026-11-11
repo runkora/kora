@@ -52,6 +52,8 @@ func TestLoad_Rejects(t *testing.T) {
 	}{
 		{"missing target", "patch: |\n  - {op: remove, path: /spec/x}\n", "target.kind is required"},
 		{"unknown kind", "target: {kind: Deployement}\npatch: |\n  - {op: remove, path: /spec/x}\n", `unknown target kind "Deployement"`},
+		// kora-agents no longer provisions an HPA; the scaler owns the replicas.
+		{"hpa kind", "target: {kind: HorizontalPodAutoscaler}\npatch: |\n  - {op: remove, path: /spec/x}\n", `unknown target kind "HorizontalPodAutoscaler"`},
 		{"empty patch", "target: {kind: Pod}\npatch: \"\"\n", "patch is empty"},
 		{"file path", "target: {kind: Pod}\npath: other.yaml\n", "path is not supported"},
 		{"entry typo", "targt: {kind: Pod}\npatch: x\n", "unknown field"},

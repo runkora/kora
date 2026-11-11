@@ -79,10 +79,25 @@ func TestValidate_RequiresTrustDomainInCluster(t *testing.T) {
 // validConfig passes Validate, for tests that change one field.
 func validConfig() *Config {
 	cfg := &Config{}
+	cfg.Agents.Scheduling.MinReplicas, cfg.Agents.Scheduling.MaxReplicas = 2, 10
 	cfg.Agents.Scheduling.StartingRunAllowance = StartingRunAllowance{
 		ClaudeCode: resource.MustParse("220Mi"), Codex: resource.MustParse("60Mi"), OpenCode: resource.MustParse("440Mi"),
 	}
 	return cfg
+}
+
+// maxReplicas below the floor of pods, or 0, would stop the scaler from adding a pod.
+func TestValidate_MaxReplicas(t *testing.T) {
+	for _, tc := range []struct {
+		min, max int32
+		valid    bool
+	}{{2, 10, true}, {2, 2, true}, {0, 1, true}, {3, 2, false}, {0, 0, false}} {
+		cfg := validConfig()
+		cfg.Agents.Scheduling.MinReplicas, cfg.Agents.Scheduling.MaxReplicas = tc.min, tc.max
+		if err := Validate(cfg); (err == nil) != tc.valid {
+			t.Errorf("min %d max %d: Validate error = %v, want valid %v", tc.min, tc.max, err, tc.valid)
+		}
+	}
 }
 
 // Every harness needs a positive allowance, or kora-agents does not start.
@@ -100,5 +115,16 @@ func TestValidate_StartingRunAllowance(t *testing.T) {
 	}
 	if err := Validate(validConfig()); err != nil {
 		t.Errorf("Validate(valid) = %v", err)
+	}
+}
+
+// The Kubernetes client allows 50 requests a second with bursts of 100 unless configured otherwise.
+func TestBaseDefaults_KubernetesClientRate(t *testing.T) {
+	cfg, err := config.LoadService[Config]("cmd/kora-agents", "production")
+	if err != nil {
+		t.Fatalf("load base config: %v", err)
+	}
+	if cfg.Kubernetes.ClientQPS != 50 || cfg.Kubernetes.ClientBurst != 100 {
+		t.Errorf("client rate = %v qps burst %d, want 50 and 100", cfg.Kubernetes.ClientQPS, cfg.Kubernetes.ClientBurst)
 	}
 }

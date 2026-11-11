@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
+	"math"
 	"sync"
 	"time"
 
@@ -328,17 +328,15 @@ func (s *RunService) assignPod(ctx context.Context, run Run, claimedAt time.Time
 	if err != nil {
 		return 0, err
 	}
-	readings := s.readPodMemory(ctx, at.Slug, namespace, ready)
+	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, ready)
 	// A run for an agent whose pods are all full is released here. Many such runs at once would
 	// otherwise queue on the agent lock. The lock re-checks.
 	starting, err := s.repo.StartingRunsPerPod(ctx, at.ID, time.Now().Add(-s.cfg.StartingRunWindow))
 	if err != nil {
 		return 0, err
 	}
-	if !slices.ContainsFunc(ready, func(ord int) bool {
-		m, ok := readings[ord]
-		return ok && hasRoom(m, starting[ord], allowance.Value(), s.cfg.PlacementWatermark)
-	}) {
+	// ReadyOrdinals already left out the ordinals at or above the replicas, so no bound is applied here.
+	if _, ok := firstPodWithRoom(ready, math.MaxInt, readings, starting, allowance.Value(), s.cfg.PlacementWatermark); !ok {
 		return 0, errNoFreePod
 	}
 	pod := -1
@@ -370,25 +368,28 @@ func (s *RunService) assignLocked(ctx context.Context, run Run, claimedAt time.T
 	if err != nil {
 		return 0, err
 	}
-	for _, ord := range ready {
-		if m, ok := readings[ord]; ok && ord < replicas && hasRoom(m, starting[ord], allowance, s.cfg.PlacementWatermark) {
-			return ord, s.repo.AssignPod(ctx, run.ID, claimedAt, ord)
-		}
+	if ord, ok := firstPodWithRoom(ready, replicas, readings, starting, allowance, s.cfg.PlacementWatermark); ok {
+		return ord, s.repo.AssignPod(ctx, run.ID, claimedAt, ord)
 	}
 	return 0, errNoFreePod
 }
 
+// podMemoryReader reads one pod's memory report.
+type podMemoryReader interface {
+	Memory(ctx context.Context, podURL string) (sessionmanager.Memory, error)
+}
+
 // readPodMemory reads the memory of each pod at once. A pod whose read fails or times out is left out.
-func (s *RunService) readPodMemory(ctx context.Context, slug, namespace string, ordinals []int) map[int]sessionmanager.Memory {
+func readPodMemory(ctx context.Context, sm podMemoryReader, logger logging.Logger, slug, namespace string, ordinals []int) map[int]sessionmanager.Memory {
 	readings := make([]*sessionmanager.Memory, len(ordinals))
 	var wg sync.WaitGroup
 	for i, ord := range ordinals {
 		wg.Go(func() {
 			readCtx, cancel := context.WithTimeout(ctx, memoryReadTimeout)
 			defer cancel()
-			m, err := s.sm.Memory(readCtx, sessionmanager.PodURL(slug, ord, namespace))
+			m, err := sm.Memory(readCtx, sessionmanager.PodURL(slug, ord, namespace))
 			if err != nil {
-				s.logger.Warn(ctx, "pod memory read failed; the pod counts as full",
+				logger.Warn(ctx, "pod memory read failed; the pod counts as full",
 					logging.Field{Key: "pod_ordinal", Value: ord}, logging.Field{Key: "error", Value: err.Error()})
 				return
 			}
@@ -403,6 +404,17 @@ func (s *RunService) readPodMemory(ctx context.Context, slug, namespace string, 
 		}
 	}
 	return out
+}
+
+// firstPodWithRoom returns the lowest Ready ordinal below replicas whose reading has room. A pod with no reading is full.
+// Placement and the scaler share it, so the scaler adds pods exactly when placement finds none.
+func firstPodWithRoom(ready []int, replicas int, readings map[int]sessionmanager.Memory, starting map[int]int, allowance int64, watermark float64) (int, bool) {
+	for _, ord := range ready {
+		if m, ok := readings[ord]; ok && ord < replicas && hasRoom(m, starting[ord], allowance, watermark) {
+			return ord, true
+		}
+	}
+	return 0, false
 }
 
 // hasRoom reports whether a pod stays below the watermark with its starting runs and the run being
