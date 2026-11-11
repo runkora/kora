@@ -904,7 +904,7 @@ func (r *PostgresRepository) WaitWithAgentLock(ctx context.Context, agentTypeID 
 		}
 		locked = true
 		// The timeout is for the lock wait only, not for the statements fn runs.
-		if _, err := tx.Exec(ctx, `SELECT set_config('lock_timeout', '0', true)`); err != nil {
+		if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout TO DEFAULT`); err != nil {
 			return fmt.Errorf("reset lock timeout: %w", err)
 		}
 		return fn(ctx)
