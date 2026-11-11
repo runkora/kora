@@ -732,7 +732,7 @@ func (s *Service) writeUsage(ctx context.Context, rec InferenceUsageRecord) erro
 // canonical counters to read/write (windows, pools, tenant, run) and the
 // attribution categories. Limits come from bundle data; role membership and
 // run identity come from request context. Every lookup fails open.
-func (s *Service) budgetScopesFor(ctx context.Context, p principal) (SpendScopes, []policy.BudgetCategory, []string) {
+func (s *Service) budgetScopesFor(ctx context.Context, p principal, delegatorID string) (SpendScopes, []policy.BudgetCategory, []string) {
 	// Live JWT roles (interactive browser sessions) win. When the credential
 	// carries none — every PAT and agent token — fall back to the principal's
 	// current role snapshot from user_profiles, so role budgets attribute and
@@ -801,7 +801,7 @@ func (s *Service) budgetScopesFor(ctx context.Context, p principal) (SpendScopes
 	// VERIFIED delegation is present, the delegator's per-window limits and
 	// per-run limit apply as additional independent ceilings.
 	var delegatorPerRunLimit float64
-	scopes.DelegatorID, scopes.DelegatorWindows, delegatorPerRunLimit = s.delegatorBudgetScopes(ctx, p.TenantID)
+	scopes.DelegatorID, scopes.DelegatorWindows, delegatorPerRunLimit = s.delegatorBudgetScopes(ctx, p.TenantID, delegatorID)
 
 	// Read the run counter only when a per-run ceiling exists (the agent's or
 	// the delegator's); the write path sets RunID unconditionally so per-run
@@ -809,6 +809,15 @@ func (s *Service) budgetScopesFor(ctx context.Context, p principal) (SpendScopes
 	scopes.RunID = runCounterID(ctx, perRunLimit, delegatorPerRunLimit)
 
 	return scopes, append(grantCats, roleCats...), roles
+}
+
+// verifiedDelegator is the delegator of the verified delegation the request
+// carries, empty for traffic that is not delegated.
+func verifiedDelegator(ctx context.Context) string {
+	if d := policy.DelegationFromContext(ctx); d != nil {
+		return d.Sub
+	}
+	return ""
 }
 
 // runCounterID returns the run identity to READ the run counter under — only
@@ -821,20 +830,19 @@ func runCounterID(ctx context.Context, perRunLimit, delegatorPerRunLimit float64
 	return runIDFromContext(ctx)
 }
 
-// delegatorBudgetScopes resolves the delegator's ceiling configuration from
-// the VERIFIED delegation context: their id, the windows carrying configured
+// delegatorBudgetScopes resolves the ceiling configuration of a delegator the
+// caller has verified (the request's delegation, or the run's usage row): their id, the windows carrying configured
 // limits, and their per-run limit. The delegator's limits come from the same
 // bundle data the person's own enforcement uses, so the ceilings a delegated
 // run adds are exactly the ceilings the person already lives under. Fails
 // open on lookup errors, consistent with budgetScopesFor; returns zero values
 // for non-delegated traffic.
-func (s *Service) delegatorBudgetScopes(ctx context.Context, tenantID string) (string, []string, float64) {
-	d := policy.DelegationFromContext(ctx)
-	if d == nil || d.Sub == "" {
+func (s *Service) delegatorBudgetScopes(ctx context.Context, tenantID, delegatorID string) (string, []string, float64) {
+	if delegatorID == "" {
 		return "", nil, 0
 	}
 
-	cats, err := s.policy.GetBudgetCategories(ctx, tenantID, d.Sub)
+	cats, err := s.policy.GetBudgetCategories(ctx, tenantID, delegatorID)
 	if err != nil {
 		cats = nil
 	}
@@ -854,7 +862,7 @@ func (s *Service) delegatorBudgetScopes(ctx context.Context, tenantID string) (s
 		windows = append(windows, w)
 	}
 	sort.Strings(windows)
-	return d.Sub, windows, perRunLimit
+	return delegatorID, windows, perRunLimit
 }
 
 // checkBudget evaluates the kora.budget hierarchical ceilings via the policy
@@ -878,7 +886,7 @@ func (s *Service) checkBudget(ctx context.Context, p principal) error {
 	)
 	defer span.End()
 
-	scopes, _, roles := s.budgetScopesFor(ctx, p)
+	scopes, _, roles := s.budgetScopesFor(ctx, p, verifiedDelegator(ctx))
 
 	spends, err := s.budgetCounter.GetSpends(ctx, scopes)
 	if err != nil {
@@ -955,7 +963,7 @@ func (s *Service) incrementSpend(ctx context.Context, tenantID, principalID stri
 	if claims, ok := token.ClaimsFromContext(ctx); ok && claims != nil {
 		p.PrincipalType = string(claims.Kora.PrincipalType)
 	}
-	scopes, categories, roles := s.budgetScopesFor(ctx, p)
+	scopes, categories, roles := s.budgetScopesFor(ctx, p, verifiedDelegator(ctx))
 	// Write the run counter whenever run identity exists, even without a
 	// configured per-run ceiling — it keeps per-run cost warm and auditable.
 	scopes.RunID = runIDFromContext(ctx)
@@ -984,7 +992,7 @@ func (s *Service) GetPersonalBudget(ctx context.Context, tenantID, principalID s
 	if claims, ok := token.ClaimsFromContext(ctx); ok && claims != nil {
 		p.PrincipalType = string(claims.Kora.PrincipalType)
 	}
-	scopes, _, roles := s.budgetScopesFor(ctx, p)
+	scopes, _, roles := s.budgetScopesFor(ctx, p, verifiedDelegator(ctx))
 
 	spends, err := s.budgetCounter.GetSpends(ctx, scopes)
 	if err != nil {

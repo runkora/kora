@@ -21,11 +21,8 @@ func (s *Service) ReachedRunBudget(ctx context.Context, tenantID, runID string) 
 		return RunBudget{}, fmt.Errorf("find the run's principal: %w", err)
 	}
 	p := principal{TenantID: tenantID, PrincipalID: rp.PrincipalID, PrincipalType: rp.PrincipalType}
-	// The usage row is the record of the verified delegation the run's requests carried.
-	if rp.DelegatorID != "" {
-		ctx = policy.WithDelegation(ctx, &policy.DelegationClaims{Sub: rp.DelegatorID, TenantID: tenantID})
-	}
-	scopes, _, roles := s.budgetScopesFor(ctx, p)
+	// The usage row records the delegator of the verified delegation the run's requests carried.
+	scopes, _, roles := s.budgetScopesFor(ctx, p, rp.DelegatorID)
 	// budgetScopesFor reads the run from an agent's request; this caller names it.
 	scopes.RunID = runID
 
