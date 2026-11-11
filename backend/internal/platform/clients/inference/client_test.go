@@ -15,8 +15,8 @@ import (
 )
 
 type capture struct {
-	method, path, auth string
-	body               []byte
+	method, path, query, auth string
+	body                      []byte
 }
 
 func newTestServer(t *testing.T, status int, body string) (*httptest.Server, *capture) {
@@ -25,6 +25,7 @@ func newTestServer(t *testing.T, status int, body string) (*httptest.Server, *ca
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cap.method = r.Method
 		cap.path = r.URL.Path
+		cap.query = r.URL.RawQuery
 		cap.auth = r.Header.Get("Authorization")
 		cap.body, _ = io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
@@ -143,8 +144,8 @@ func TestRunBudget(t *testing.T) {
 		if err != nil {
 			t.Fatalf("RunBudget: %v", err)
 		}
-		if cap.method != http.MethodGet || cap.path != "/v1/budgets/runs/"+runID || cap.auth != "Bearer svc-tok" {
-			t.Errorf("request = %s %s %q", cap.method, cap.path, cap.auth)
+		if cap.method != http.MethodGet || cap.path != "/v1/budgets/runs/"+runID || cap.query != "tenant_id=t1" || cap.auth != "Bearer svc-tok" {
+			t.Errorf("request = %s %s?%s %q, want the run's tenant in the query", cap.method, cap.path, cap.query, cap.auth)
 		}
 		want := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
 		if got.Scope != "principal" || got.Window != "monthly" || got.LimitUSD != 5 || got.ResetsAt == nil || !got.ResetsAt.Equal(want) {
