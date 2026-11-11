@@ -16,7 +16,7 @@ import (
 const budgetRunID = "6f1c2a1e-6a59-4c55-9a43-0f1d3c1b2e7a"
 
 func runBudgetController(eval *stubEvaluator, counter *mockSpendCounter, rp *RunPrincipal) *Controller {
-	svc := &Service{policy: eval, usage: &mockInferenceUsageRepository{runPrincipal: rp}, budgetCounter: counter, logger: logging.NewLoggerWithOutput(io.Discard)}
+	svc := &Service{policy: eval, usage: &mockInferenceUsageRepository{runPrincipal: rp, runTenant: "t1"}, budgetCounter: counter, logger: logging.NewLoggerWithOutput(io.Discard)}
 	return &Controller{svc: svc, logger: logging.NewLoggerWithOutput(io.Discard)}
 }
 
@@ -31,7 +31,10 @@ func getRunBudget(c *Controller, claims *token.PlatformClaims, runID, tenant str
 
 func TestHandleGetRunBudget(t *testing.T) {
 	agent := &RunPrincipal{PrincipalID: "spiffe://runkora.test/tenant/t1/agent/coder", PrincipalType: "AGENT", DelegatorID: "user-1"}
-	system := makeClaims("", "kora-agents", token.PrincipalTypeSystem, "")
+	system := makeClaims("", "spiffe://runkora.test/system/kora-agents", token.PrincipalTypeSystem, "")
+	system.Kora.DisplayName = "kora-agents"
+	otherSystem := makeClaims("", "spiffe://runkora.test/system/kora-triggers", token.PrincipalTypeSystem, "")
+	otherSystem.Kora.DisplayName = "kora-triggers"
 	reached := []policy.BudgetCeiling{
 		{Scope: "principal", ID: agent.PrincipalID, Window: "monthly", LimitUSD: 100, SpendUSD: 10},
 		{Scope: "delegator", ID: "user-1", Window: "weekly", LimitUSD: 5, SpendUSD: 5.2},
@@ -40,6 +43,7 @@ func TestHandleGetRunBudget(t *testing.T) {
 		name     string
 		claims   *token.PlatformClaims
 		runID    string
+		tenant   string
 		ceilings []policy.BudgetCeiling
 		rp       *RunPrincipal
 		want     int
@@ -52,6 +56,8 @@ func TestHandleGetRunBudget(t *testing.T) {
 			wantBody: &RunBudget{Scope: "run", Owner: budgetRunID, Window: "run", LimitUSD: 1}},
 		{name: "nothing reached", claims: system, runID: budgetRunID, rp: agent, ceilings: reached[:1], want: http.StatusNotFound},
 		{name: "a run without usage", claims: system, runID: budgetRunID, want: http.StatusNotFound},
+		{name: "another system component may not ask", claims: otherSystem, runID: budgetRunID, rp: agent, ceilings: reached, want: http.StatusForbidden},
+		{name: "a run outside the tenant", claims: system, runID: budgetRunID, tenant: "t2", rp: agent, ceilings: reached, want: http.StatusNotFound},
 		{name: "a person may not ask", claims: makeClaims("t1", "user-1", token.PrincipalTypeHuman, ""), runID: budgetRunID, rp: agent, ceilings: reached, want: http.StatusForbidden},
 		{name: "a run id that is not a UUID", claims: system, runID: "stats", rp: agent, want: http.StatusBadRequest},
 	}
@@ -59,7 +65,11 @@ func TestHandleGetRunBudget(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			eval := &stubEvaluator{budgetCeilings: tt.ceilings}
 			counter := &mockSpendCounter{}
-			w := getRunBudget(runBudgetController(eval, counter, tt.rp), tt.claims, tt.runID, "t1")
+			tenant := tt.tenant
+			if tenant == "" {
+				tenant = "t1"
+			}
+			w := getRunBudget(runBudgetController(eval, counter, tt.rp), tt.claims, tt.runID, tenant)
 			if w.Code != tt.want {
 				t.Fatalf("status = %d, want %d; body %s", w.Code, tt.want, w.Body)
 			}

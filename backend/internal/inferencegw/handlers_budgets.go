@@ -7,8 +7,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/observability"
-	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ─── GET /v1/budgets/principals ──────────────────────────────────────────────
@@ -47,17 +47,17 @@ func (c *Controller) handleListBudgetPrincipals(w http.ResponseWriter, r *http.R
 //
 // Returns the spending ceiling that stopped the run. kora-agents calls it when
 // a run moves to budget_exhausted (docs/adr/2026-11-11-run-page-record.md,
-// Decision 6). The tenant comes from the query, so only a SYSTEM principal,
-// a platform service, may call it. 404 when no ceiling of the run is reached.
+// Decision 6). The tenant comes from the query, so only kora-agents may call
+// it. The usage lookup is scoped to that tenant: a run outside it is a 404, as
+// is a run with no reached ceiling.
 func (c *Controller) handleGetRunBudget(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	ctx, span := tracer.Start(ctx, "inferencegw.Controller.handleGetRunBudget")
 	defer span.End()
 
-	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims == nil || claims.Kora.PrincipalType != token.PrincipalTypeSystem {
-		api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, "only a platform service may read a run's budget stop", nil), nil)
+	if !mw.IsSystemCaller(ctx, runBudgetCaller) {
+		api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, "only "+runBudgetCaller+" may read a run's budget stop", nil), nil)
 		return
 	}
 	runID, tenantID := r.PathValue("runID"), r.URL.Query().Get("tenant_id")
@@ -77,6 +77,9 @@ func (c *Controller) handleGetRunBudget(w http.ResponseWriter, r *http.Request) 
 		api.JSON(ctx, w, c.logger, http.StatusOK, budget)
 	}
 }
+
+// runBudgetCaller is the only SYSTEM component that reads a run's budget stop.
+const runBudgetCaller = "kora-agents"
 
 // errSpanRunBudget is the static span status of a failed run budget lookup.
 var errSpanRunBudget = errors.New("read run budget")
