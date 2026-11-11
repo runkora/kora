@@ -10,6 +10,7 @@
 package inference
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -28,6 +29,9 @@ const (
 	// clientTimeout matches the gateway's per-attempt decision timeout.
 	clientTimeout = 15 * time.Second
 )
+
+// CodeBudgetNotReached is the gateway's 404 code for a run whose ceilings are all below their limits.
+const CodeBudgetNotReached = "budget_not_reached"
 
 // QuestionTypeChoice is a question answered by one option out of its criteria.
 const QuestionTypeChoice = "choice"
@@ -49,7 +53,7 @@ var (
 	ErrUpstreamUnavailable = errors.New("inference gateway unavailable")
 	// ErrUnexpectedStatus is returned for any other status.
 	ErrUnexpectedStatus = errors.New("unexpected status from inference gateway")
-	// ErrBudgetNotReached is returned when no spending ceiling of the run is reached (404).
+	// ErrBudgetNotReached is returned when the gateway answers 404 with CodeBudgetNotReached.
 	ErrBudgetNotReached = errors.New("no spending ceiling of the run is reached")
 )
 
@@ -197,12 +201,15 @@ func (c *Client) RunBudget(ctx context.Context, bearer, tenantID, runID string) 
 	case code == http.StatusNotFound:
 		// Only the gateway's own answer means no ceiling is reached. A 404 from a
 		// gateway without the route, or for a run with no usage, is unexpected.
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		var body struct {
 			Code string `json:"code"`
 		}
-		if json.NewDecoder(io.LimitReader(resp.Body, 512)).Decode(&body) == nil && body.Code == "budget_not_reached" {
+		if json.Unmarshal(raw, &body) == nil && body.Code == CodeBudgetNotReached {
 			return RunBudget{}, ErrBudgetNotReached
 		}
+		// The error keeps the gateway's message, read once above.
+		resp.Body = io.NopCloser(bytes.NewReader(raw))
 		return RunBudget{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	case code == http.StatusUnauthorized || code == http.StatusForbidden:
 		return RunBudget{}, c.HandleErrorResponse(span, resp, ErrForbidden)

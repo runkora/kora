@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/clients/inference"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/observability"
 )
@@ -69,7 +70,7 @@ func (c *Controller) handleGetRunBudget(w http.ResponseWriter, r *http.Request) 
 	budget, err := c.svc.ReachedRunBudget(ctx, tenantID, runID)
 	switch {
 	case errors.Is(err, ErrNoReachedBudget):
-		api.ErrorResponse(ctx, w, c.logger, api.NotFoundError(codeBudgetNotReached, "no spending ceiling of this run has been reached", nil), nil)
+		api.ErrorResponse(ctx, w, c.logger, api.NotFoundError(inference.CodeBudgetNotReached, "no spending ceiling of this run has been reached", nil), nil)
 	case errors.Is(err, ErrUsageRecordNotFound):
 		api.ErrorResponse(ctx, w, c.logger, api.NotFoundError("run_usage_not_found", "the run has no inference usage in this tenant", nil), nil)
 	case err != nil:
@@ -79,9 +80,6 @@ func (c *Controller) handleGetRunBudget(w http.ResponseWriter, r *http.Request) 
 		api.JSON(ctx, w, c.logger, http.StatusOK, budget)
 	}
 }
-
-// codeBudgetNotReached is the 404 code of a run whose ceilings are all below their limits.
-const codeBudgetNotReached = "budget_not_reached"
 
 // runBudgetCaller is the only SYSTEM component that reads a run's budget stop.
 const runBudgetCaller = "kora-agents"

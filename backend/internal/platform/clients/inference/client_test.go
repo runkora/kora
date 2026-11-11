@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -158,7 +159,7 @@ func TestRunBudget(t *testing.T) {
 		want   error
 	}{
 		{http.StatusNotFound, `{"code":"budget_not_reached","message":"y"}`, ErrBudgetNotReached},
-		{http.StatusNotFound, `{"code":"run_usage_not_found","message":"y"}`, ErrUnexpectedStatus},
+		{http.StatusNotFound, `{"code":"run_usage_not_found","message":"the run has no inference usage"}`, ErrUnexpectedStatus},
 		{http.StatusNotFound, `404 page not found`, ErrUnexpectedStatus},
 		{http.StatusForbidden, `{"code":"x","message":"y"}`, ErrForbidden},
 		{http.StatusInternalServerError, `{"code":"x","message":"y"}`, ErrUpstreamUnavailable},
@@ -166,8 +167,13 @@ func TestRunBudget(t *testing.T) {
 	} {
 		srv, _ := newTestServer(t, tt.status, tt.body)
 		c := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard))
-		if _, err := c.RunBudget(context.Background(), "svc-tok", "t1", runID); !errors.Is(err, tt.want) {
+		_, err := c.RunBudget(context.Background(), "svc-tok", "t1", runID)
+		if !errors.Is(err, tt.want) {
 			t.Errorf("status %d %s: err = %v, want %v", tt.status, tt.body, err, tt.want)
+		}
+		// Every error but the gateway's own answer keeps the gateway's message.
+		if tt.want != ErrBudgetNotReached && !strings.Contains(err.Error(), tt.body) {
+			t.Errorf("status %d: err = %v, want it to carry %s", tt.status, err, tt.body)
 		}
 	}
 }
