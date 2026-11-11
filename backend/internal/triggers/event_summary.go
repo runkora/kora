@@ -523,7 +523,7 @@ var platformEventVerbs = map[string]string{
 var runStateTones = map[string]string{"completed": toneOK, "failed": toneBad}
 
 // platformEventSummary names the principal behind a platform event and the
-// entity it changed: a run with its agent and state, or an agent.
+// entity it changed: a run with its agent and state, or any other entity by its name.
 func platformEventSummary(head eventHead, doc any) *agentsclient.RunEventSummary {
 	parts := strings.Split(strings.TrimSuffix(head.Type, ".v1"), ".")
 	if len(parts) < 3 {
@@ -559,7 +559,7 @@ func platformEventSummary(head eventHead, doc any) *agentsclient.RunEventSummary
 		if state := resolvePath(doc, "data.entity.state"); state != "" {
 			e.Preview.Status = &agentsclient.RunEventStatus{Label: capitalized(words(state)), Tone: runStateTones[state]}
 		}
-	case "agent":
+	default:
 		if n := resolvePath(doc, "data.entity.name"); n != "" {
 			e.Object.Label = n
 		}
