@@ -165,8 +165,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   // Bumped to force the SSE effect to re-run on manual reconnect.
   const [reconnectKey, setReconnectKey] = useState(0);
-  // Status line inputs: a sandbox being started, a provider retry, and when the
-  // agent last showed any sign of life (browser time).
+  // Activity strip inputs: a sandbox being started and a provider retry.
   const [sandboxStarting, setSandboxStarting] = useState(false);
   const [retry, setRetry] = useState<{
     attempt: number;
@@ -210,8 +209,11 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   // Reads the run and its agent. Called on mount, with each usage refresh and when the run
   // ends, so its sources, end time and token totals stay current.
   const loadedRef = useRef(false);
+  // Reads overlap during a live run; only the latest one's answer is kept.
+  const loadSeq = useRef(0);
   const loadRun = useCallback(() => {
     if (!runId) return;
+    const seq = ++loadSeq.current;
     // A failed re-read keeps the page it already drew; only a failed first read replaces it.
     const fail = (message: string) => {
       if (!loadedRef.current) setLoadError(message);
@@ -234,7 +236,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
           data?: RunWithAttribution;
           agent_type?: AgentType | null;
         }) => {
-          if (!body.data) return;
+          if (!body.data || seq !== loadSeq.current) return;
           loadedRef.current = true;
           setCanSteer(typeof body.can_steer === 'boolean' ? body.can_steer : null);
           setTraceUrl(body.trace_url ?? null);

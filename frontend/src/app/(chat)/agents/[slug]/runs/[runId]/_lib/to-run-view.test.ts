@@ -21,7 +21,7 @@ const TRIGGERED = {
   ...RUN,
   started_by: { trigger_id: 't1', trigger_name: 'review-pr', trigger_kind: 'webhook' },
   sources: [
-    { kind: 'trigger', url: 'https://github.com/o/r/pull/6', label: 'PR #6', provider: 'github' },
+    { kind: 'trigger', url: 'https://github.com/o/r/pull/12', label: 'PR #12', provider: 'github' },
   ],
 } as RunWithAttribution;
 
@@ -41,10 +41,10 @@ const messages = (turns: Turn[], run: RunWithAttribution) =>
 const EVENT: RunEventSummary = {
   actor: { name: 'dev-reviewer', kind: 'person' },
   verb: 'commented on',
-  object: { label: 'PR #6', url: 'https://github.com/o/r/pull/6' },
+  object: { label: 'PR #12', url: 'https://github.com/o/r/pull/12' },
   quote: 'Can you check the empty slice?',
   preview: {
-    title: 'Median: sort a copy',
+    title: 'Distance: return metres',
     facts: ['o/r #6', 'fix → main'],
     added: 17,
     removed: 3,
@@ -77,7 +77,7 @@ describe('messages', () => {
       quote: 'Can you check the empty slice?',
       unfurl: {
         icon: 'github',
-        title: 'Median: sort a copy',
+        title: 'Distance: return metres',
         meta: ['o/r #6', 'fix → main'],
         diff: { added: 17, removed: 3 },
         status: { label: 'Open', tone: 'ok' },
