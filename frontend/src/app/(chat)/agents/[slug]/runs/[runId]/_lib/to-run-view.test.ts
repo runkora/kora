@@ -55,7 +55,7 @@ const EVENT: RunEventSummary = {
 describe('messages', () => {
   it('names a person by the recorded sender', () => {
     const [m] = messages(
-      [human('h1', 'hi', { sender: { id: 'u2', type: 'HUMAN', name: 'Grace Hopper' } })],
+      [human('h1', 'hi', { sender: { id: 'u2', type: 'USER', name: 'Grace Hopper' } })],
       RUN,
     );
     expect(m.author).toEqual({ kind: 'person', name: 'Grace Hopper' });
@@ -304,8 +304,8 @@ describe('people', () => {
   it('lists the person behind a trigger, senders, and triggers with no person', () => {
     const turns: Turn[] = [
       human('h1', 'start', { event: EVENT }),
-      human('h2', 'steer', { sender: { id: 'u2', type: 'HUMAN', name: 'Grace Hopper' } }),
-      human('h3', 'again', { sender: { id: 'u2', type: 'HUMAN', name: 'Grace Hopper' } }),
+      human('h2', 'steer', { sender: { id: 'u2', type: 'USER', name: 'Grace Hopper' } }),
+      human('h3', 'again', { sender: { id: 'u2', type: 'USER', name: 'Grace Hopper' } }),
       human('h4', 'ci failed', { fromTrigger: 'ci-failed' }),
       human('h5', 'from before senders were recorded'),
     ];

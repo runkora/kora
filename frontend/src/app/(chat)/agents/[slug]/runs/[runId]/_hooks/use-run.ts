@@ -884,7 +884,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       content,
       timestamp: '',
       delivery: agentWorking ? 'queued' : undefined,
-      sender: user ? { id: user.sub, type: 'HUMAN', name: user.name || user.email } : undefined,
+      sender: user ? { id: user.sub, type: 'USER', name: user.name || user.email } : undefined,
     };
     setIsPending(true);
     appendHuman(turn);
