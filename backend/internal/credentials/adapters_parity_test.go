@@ -17,6 +17,7 @@ func TestAdapterIDParity(t *testing.T) {
 	registrable := map[credentials.AdapterType]string{
 		credentials.AdapterGitHubApp:        connections.AdapterGitHubApp,
 		credentials.AdapterKubernetesBearer: connections.AdapterKubernetesBearer,
+		credentials.AdapterBearer:           connections.AdapterBearer,
 	}
 	for typed, plain := range registrable {
 		if string(typed) != plain {

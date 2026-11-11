@@ -34,6 +34,7 @@ func TestActionNames(t *testing.T) {
 			"rbac:read", "rbac:write",
 			"cluster:read", "cluster:write",
 		},
+		AdapterBearer:     {"read", "write"},
 		"unknown_adapter": {},
 	}
 	for adapter, want := range cases {
@@ -163,5 +164,17 @@ func TestValidateBaseHost_NoRequirement(t *testing.T) {
 		if err := ValidateBaseHost(adapter, "34.147.135.56"); err != nil {
 			t.Errorf("ValidateBaseHost(%q, IP) = %v, want nil", adapter, err)
 		}
+	}
+}
+
+// TestEgressHosts_Bearer locks that a bearer connection serves exactly its
+// declared host.
+func TestEgressHosts_Bearer(t *testing.T) {
+	want := []string{"npm.pkg.github.com"}
+	if got := EgressHosts(AdapterBearer, "npm.pkg.github.com"); !slices.Equal(got, want) {
+		t.Errorf("EgressHosts(bearer) = %v, want %v", got, want)
+	}
+	if got := EgressHosts(AdapterBearer, ""); got != nil {
+		t.Errorf("EgressHosts(bearer, \"\") = %v, want nil", got)
 	}
 }
