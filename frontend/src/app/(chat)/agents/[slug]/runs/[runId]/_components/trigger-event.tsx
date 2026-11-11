@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * @tier 3 — proposed, run-page-scoped. A trigger's message shown as the event that caused it: who
+ * @tier 3 — run-page-scoped. A trigger's message shown as the event that caused it: who
  * did what to which object, a preview of that object, and the rendered prompt behind a toggle.
  */
 
@@ -18,9 +18,9 @@ import {
   Text,
   type IconName,
 } from '@runkora/hades';
-import { parseTriggerMessage } from '../_lib/trigger-message-proposed';
-import { useRunLayout } from '../_lib/run-layout-proposed';
-import type { TriggerEventSummary, TriggerOrigin } from '../_lib/run-view-proposed';
+import { parseTriggerMessage } from '../_lib/trigger-message';
+import { useRunLayout } from '../_lib/run-layout';
+import type { Entry, TriggerEventSummary, TriggerOrigin } from '../_lib/run-view';
 
 /** An event summary placed in the thread: when it arrived and the prompt it rendered. */
 export interface TriggerEvent extends TriggerEventSummary {
@@ -230,6 +230,8 @@ export function promptEvent(input: {
   };
 }
 
-/** A generic webhook's event. */
-export const webhookEvent = (input: Parameters<typeof promptEvent>[0]) =>
-  promptEvent({ ...input, via: 'webhook' });
+/** A trigger's message as its event: the adapter's summary when there is one, else from the prompt. */
+export function triggerEventOf(e: Extract<Entry, { type: 'message' }>): TriggerEvent {
+  const base = { trigger: e.author.name, time: e.time, joined: e.joined, prompt: e.text };
+  return e.event ? { ...e.event, ...base } : promptEvent({ ...base, via: e.author.via });
+}

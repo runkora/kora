@@ -1,7 +1,6 @@
 /**
- * Human descriptions of an agent's tool calls: labels, outcome chips, group
- * summaries, and policy denials. Pure functions over ToolCall so the run chat
- * components stay presentational.
+ * Human descriptions of an agent's tool calls, by each harness's own tool
+ * names, and the policy denials in their results.
  */
 
 import type { ToolCall } from '../_types';
@@ -181,108 +180,6 @@ export function policyDenial(tool: ToolCall): { blocked: string } | null {
   return { blocked: host ? host[1] : '' };
 }
 
-/** A call that must stay visible: it failed, was refused, or was denied. */
-export function isFailure(tool: ToolCall): boolean {
-  return tool.status === 'error' || policyDenial(tool) !== null;
-}
-
-const EMPTY_RESULTS =
-  /^\((?:Bash completed with no output|No content)\)$|^No (?:matches|files) found$/;
-
-function countLines(s: string): number {
-  const t = s.replace(/\n+$/, '');
-  return t ? t.split('\n').length : 0;
-}
-
-/** A short outcome chip for a finished call, from its result. */
-export function outcome(tool: ToolCall): string {
-  if (tool.status === 'running') return '';
-  const result = tool.result.trim();
-  // The harness refuses a tool outside the agent's scopes before running it.
-  if (tool.status === 'error' && result.includes('No such tool available')) return 'not available';
-  if (tool.status === 'error') {
-    const exit = /Exit code (\d+)/.exec(result);
-    return exit ? `exit ${exit[1]}` : 'failed';
-  }
-  if (!result || EMPTY_RESULTS.test(result)) return 'empty';
-  const lines = countLines(result);
-  switch (describeTool(tool.name, tool.input).kind) {
-    case 'command':
-      return 'exit 0';
-    case 'read':
-      return `${lines} lines`;
-  }
-  switch (tool.name.toLowerCase()) {
-    case 'grep':
-      return `${lines} ${lines === 1 ? 'match' : 'matches'}`;
-    case 'glob':
-      return `${lines} ${lines === 1 ? 'file' : 'files'}`;
-  }
-  try {
-    const parsed: unknown = JSON.parse(result);
-    if (Array.isArray(parsed)) return `${parsed.length} items`;
-  } catch {
-    // Not JSON: fall through to the generic chip.
-  }
-  return 'done';
-}
-
-export function formatDuration(ms: number): string {
-  if (ms < 1000) return `${(ms / 1000).toFixed(1)}s`;
-  const secs = Math.round(ms / 1000);
-  if (secs < 60) return `${secs}s`;
-  return `${Math.floor(secs / 60)}m ${String(secs % 60).padStart(2, '0')}s`;
-}
-
-/** Duration of a finished call, or null while it runs or without times. */
-export function callDuration(tool: ToolCall): number | null {
-  if (tool.startedAt === undefined || tool.endedAt === undefined) return null;
-  return Math.max(0, tool.endedAt - tool.startedAt);
-}
-
-/** Wall time a set of calls spanned, from the first start to the last end. */
-export function spanDuration(tools: ToolCall[]): number | null {
-  const starts = tools.flatMap((t) => (t.startedAt === undefined ? [] : [t.startedAt]));
-  const ends = tools.flatMap((t) => (t.endedAt === undefined ? [] : [t.endedAt]));
-  if (!starts.length || !ends.length) return null;
-  return Math.max(0, Math.max(...ends) - Math.min(...starts));
-}
-
-function times(n: number): string {
-  return n === 1 ? 'once' : n === 2 ? 'twice' : `${n} times`;
-}
-
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
-}
-
-/** One line for a group of calls: "Ran 6 commands, read 3 files, called GitHub twice". */
-export function summarize(tools: ToolCall[]): string {
-  const counts = new Map<string, number>();
-  const bump = (key: string) => counts.set(key, (counts.get(key) ?? 0) + 1);
-  for (const t of tools) {
-    const d = describeTool(t.name, t.input);
-    bump(d.kind === 'mcp' ? `mcp:${d.service}` : d.kind);
-  }
-  const parts: string[] = [];
-  for (const [key, n] of counts) {
-    if (key.startsWith('mcp:')) parts.push(`called ${key.slice(4)} ${times(n)}`);
-    else if (key === 'command') parts.push(`ran ${plural(n, 'command', 'commands')}`);
-    else if (key === 'read') parts.push(`read ${plural(n, 'file', 'files')}`);
-    else if (key === 'write') parts.push(`edited ${plural(n, 'file', 'files')}`);
-    else if (key === 'search') parts.push(`searched ${times(n)}`);
-    else if (key === 'web') parts.push(`fetched ${plural(n, 'page', 'pages')}`);
-    else if (key === 'agent') parts.push(`ran ${plural(n, 'subagent', 'subagents')}`);
-    else if (key === 'platform') parts.push(`made ${plural(n, 'platform call', 'platform calls')}`);
-    else parts.push(`used ${plural(n, 'tool', 'tools')}`);
-  }
-  const line = parts.join(', ');
-  return line.charAt(0).toUpperCase() + line.slice(1);
-}
-
-export function isSandboxProvision(tool: ToolCall): boolean {
-  return (
-    tool.name === `${RUNTIME_PREFIX}provision_sandbox` ||
-    tool.name === `${OPENCODE_RUNTIME_PREFIX}provision_sandbox`
-  );
 }

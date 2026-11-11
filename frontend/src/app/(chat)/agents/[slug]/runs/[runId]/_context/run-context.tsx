@@ -1,8 +1,8 @@
 'use client';
 
 /**
- * @tier 3 — run-chat-scoped. Provides RunChatState + canvas mutations to the
- * entire run chat page tree. Promote only if a second feature needs it.
+ * @tier 3 — run-page-scoped. Provides the run's state and actions to the run page tree.
+ * Promote only if a second feature needs it.
  */
 
 import { createContext, useContext } from 'react';

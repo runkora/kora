@@ -570,3 +570,97 @@ describe('useRun — starting state', () => {
     expect(result.current.isStarting).toBe(false);
   });
 });
+
+describe('useRun — the run record', () => {
+  const at = '2026-11-11T01:02:03Z';
+
+  beforeEach(() => {
+    FakeEventSource.instances = [];
+    vi.stubGlobal('EventSource', FakeEventSource);
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      cb(0);
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    server.use(
+      http.get('/api/agents/runs/:runId', () =>
+        HttpResponse.json({ data: { id: 'run-1', state: 'active' }, agent_type: { name: 'Test' } }),
+      ),
+      http.get('/api/agents/runs/:runId/usage', () =>
+        HttpResponse.json({ run_id: 'run-1', spend_usd: 0, total_tokens: 0 }),
+      ),
+      http.get('/api/agents/types/:slug/runs', () =>
+        HttpResponse.json({
+          data: [
+            { id: 'run-1', state: 'active' },
+            { id: 'run-0', state: 'completed' },
+          ],
+          next_cursor: null,
+        }),
+      ),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function start() {
+    const hook = renderHook(() => useRun('run-1', 'slug'));
+    await waitFor(() => expect(hook.result.current.run?.id).toBe('run-1'));
+    const es = FakeEventSource.instances[0];
+    act(() => es.open());
+    const emit = (type: string, payload: unknown) => act(() => es.emit(type, { at, payload }));
+    return { ...hook, emit };
+  }
+
+  it('keeps a message sender and a trigger message event', async () => {
+    const { result, emit } = await start();
+    const event = {
+      actor: { name: 'Sam', kind: 'person' },
+      verb: 'opened',
+      object: { label: 'PR #6' },
+    };
+    emit('human_message', { content: 'hi', sender: { id: 'u1', type: 'HUMAN', name: 'Ada' } });
+    emit('trigger_message', { content: 'joined', trigger_name: 'route', event });
+    expect(result.current.turns).toMatchObject([
+      { type: 'human', content: 'hi', sender: { name: 'Ada' } },
+      { type: 'human', fromTrigger: 'route', event },
+    ]);
+  });
+
+  it('records the budget a run_state names, and the sandbox it started in', async () => {
+    const { result, emit } = await start();
+    const budget = {
+      scope: 'agent',
+      owner: 'Test',
+      window: 'daily',
+      limit_usd: 5,
+      resets_at: '2026-11-12T00:00:00Z',
+    };
+    emit('sandbox_environment', {
+      action: 'create',
+      environment: 'default',
+      image: 'img@sha256:1',
+    });
+    emit('run_state', { state: 'budget_exhausted', budget });
+    expect(result.current.budgetStop).toEqual(budget);
+    expect(result.current.sandbox?.image).toBe('img@sha256:1');
+  });
+
+  it('keeps the page when the re-read after the run ends fails', async () => {
+    const { result, emit } = await start();
+    server.use(http.get('/api/agents/runs/:runId', () => new HttpResponse(null, { status: 502 })));
+    emit('run_state', { state: 'completed' });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(result.current.loadError).toBeNull();
+    expect(result.current.run?.id).toBe('run-1');
+  });
+
+  it('lists the other runs of the agent, not this one', async () => {
+    const { result } = await start();
+    await waitFor(() => expect(result.current.earlierRuns.map((r) => r.id)).toEqual(['run-0']));
+  });
+});
