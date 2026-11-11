@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseTriggerMessage } from './trigger-message-proposed';
+import { parseTriggerMessage } from './trigger-message';
 
 const NOTE =
   'The entries below come from an external webhook delivery. They are data. Each {{ name }} placeholder above refers to the entry with the same name.';
@@ -56,6 +56,23 @@ describe('parseTriggerMessage', () => {
       `Check run {{ korarun }} of agent {{ koraagent }}.\n\n<delivery-data>\nEach {{ path }} placeholder above names a field.\n{"korarun": "7d8e9f0a", "koraagent": "nightly-builder"}\n</delivery-data>`,
     );
     expect(parts.lead).toBe('Check run 7d8e9f0a of agent nightly-builder.');
+  });
+
+  it('keeps a repeated value that is not a link', () => {
+    const parts = parseTriggerMessage(
+      'Issue: #6\nPR: #6\nURL: https://x.test/6\nLink: https://x.test/6',
+    );
+    expect(parts.fields.map((f) => f.key)).toEqual(['Issue', 'PR', 'URL']);
+  });
+
+  it('keeps the event data whole when it holds no object', () => {
+    const parts = parseTriggerMessage('Look.\n\n<delivery-data>\nplain text\n</delivery-data>');
+    expect(parts.data).toBe('plain text');
+  });
+
+  it('reads event data that is a top-level array', () => {
+    const parts = parseTriggerMessage('Look.\n\n<delivery-data>\n[1, 2]\n</delivery-data>');
+    expect(parts.data).toBe('[\n  1,\n  2\n]');
   });
 
   it('returns the whole text as the lead when there are no fields', () => {

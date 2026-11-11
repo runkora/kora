@@ -2,20 +2,28 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useBrand } from '@runkora/theme/brand-provider';
+import { useSession } from '@runkora/app/(dashboard)/_components/permissions-provider';
 import type {
   RunChatState,
   Turn,
   AgentTurn,
   AgentElement,
-  CanvasState,
-  CanvasView,
   RunState,
   ToolCall,
   LiveActivity,
 } from '../_types';
-import { describeTool } from '../_lib/tool-activity';
 import { loadErrorMessage } from '@runkora/lib/load-error';
-import type { RunSource } from '@runkora/shared/api';
+import { ApiRoute } from '@runkora/lib/routing';
+import type {
+  AgentType,
+  HumanMessagePayload,
+  RunBudgetStop,
+  RunStatePayload,
+  RunWithAttribution,
+  RunsPageResponse,
+  SandboxEnvironmentPayload,
+  TriggerMessagePayload,
+} from '@runkora/shared/api';
 
 // ── In-progress turn accumulator ─────────────────────────────────────────────
 
@@ -43,6 +51,7 @@ const RECORDED = new Set([
   'run_error',
   'api_retry',
   'sandbox_status',
+  'sandbox_environment',
 ]);
 
 // ── Event payload shapes ──────────────────────────────────────────────────────
@@ -67,17 +76,10 @@ interface ToolResultPayload {
   truncated?: boolean;
   original_bytes?: number;
 }
-interface ToolProgressPayload {
-  tool_use_id: string;
-  elapsed_seconds: number;
-}
 interface MessageCompletePayload {
   text: string;
   thinking?: string;
   interrupted?: boolean;
-}
-interface RunStatePayload {
-  state: RunState;
 }
 interface RunErrorPayload {
   code: string;
@@ -124,13 +126,6 @@ export interface UseRunReturn extends RunChatState {
   connectionStatus: ConnectionStatus;
   /** What the agent is doing while nothing visible streams; null when not busy. */
   liveActivity: LiveActivity | null;
-  /** Render every tool call rather than grouping them. */
-  showAllCalls: boolean;
-  setShowAllCalls: (show: boolean) => void;
-  openCanvas: (viewId: string) => void;
-  openToolInCanvas: (tool: ToolCall) => void;
-  closeCanvas: () => void;
-  switchTab: (tabId: string) => void;
   addHumanMessage: (content: string) => void;
   interruptRun: () => void;
   /** Manually re-open the SSE stream after a terminal failure. */
@@ -143,20 +138,21 @@ const SANDBOX_STARTING = new Set(['provisioning', 'pod_ready']);
 
 export function useRun(runId: string, slug: string): UseRunReturn {
   const { productName } = useBrand();
+  // The signed-in person, recorded as the sender of a message sent from this page until its echo.
+  const { user } = useSession();
+  // The stream's handlers read the viewer through a ref, so the session loading does not reopen it.
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
   // Null until the API or the stream reports the run's state.
   const [runState, setRunState] = useState<RunState | null>(null);
-  const [agentName, setAgentName] = useState('Agent');
-  // Empty until the run's agent type metadata resolves — the model is injected
-  // from the created agent (agent_type.model_id), never hardcoded here.
-  const [model, setModel] = useState('');
-  const [summary, setSummary] = useState<string | null>(null);
-  // Who started the run — the BFF-resolved display name, falling back to the
-  // raw principal id when unresolvable. Null until metadata loads.
-  const [startedBy, setStartedBy] = useState<string | null>(null);
-  // True when the agent is delegated: the run acts on the starter's behalf and
-  // is private to them + tenant admins.
-  const [delegated, setDelegated] = useState(false);
-  const [sources, setSources] = useState<RunSource[]>([]);
+  const [run, setRun] = useState<RunWithAttribution | null>(null);
+  const [agentType, setAgentType] = useState<AgentType | null>(null);
+  const [earlierRuns, setEarlierRuns] = useState<RunWithAttribution[]>([]);
+  const [earlierRunsError, setEarlierRunsError] = useState<string | null>(null);
+  const [budgetStop, setBudgetStop] = useState<RunBudgetStop | null>(null);
+  const [sandbox, setSandbox] = useState<SandboxEnvironmentPayload | null>(null);
   const [traceUrl, setTraceUrl] = useState<string | null>(null);
   const [canSteer, setCanSteer] = useState<boolean | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -164,30 +160,18 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   const [committedTurns, setCommittedTurns] = useState<Turn[]>([]);
   const [inProgressTurn, setInProgressTurn] = useState<AgentTurn | null>(null);
   const [isPending, setIsPending] = useState(false);
-  // Live run-usage meter. spentUsd/tokensUsed refresh as turns complete;
-  // perRunLimitUsd comes from the agent's grant and is fixed for the run.
+  // Live run spend; refreshes as turns complete.
   const [spentUsd, setSpentUsd] = useState(0);
-  const [tokensUsed, setTokensUsed] = useState(0);
-  const [perRunLimitUsd, setPerRunLimitUsd] = useState<number | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
   // Bumped to force the SSE effect to re-run on manual reconnect.
   const [reconnectKey, setReconnectKey] = useState(0);
-  const [canvasState, setCanvasState] = useState<CanvasState>({
-    isOpen: false,
-    tabs: [],
-    activeTabId: null,
-  });
-  const [views, setViews] = useState<Record<string, CanvasView>>({});
-  const [showAllCalls, setShowAllCalls] = useState(false);
-  // Status line inputs: a sandbox being started, a provider retry, and when the
-  // agent last showed any sign of life (browser time).
-  const [sandboxSince, setSandboxSince] = useState<number | null>(null);
+  // Activity strip inputs: a sandbox being started and a provider retry.
+  const [sandboxStarting, setSandboxStarting] = useState(false);
   const [retry, setRetry] = useState<{
     attempt: number;
     maxRetries: number;
     error: string;
   } | null>(null);
-  const [lastActivityAt, setLastActivityAt] = useState(() => Date.now());
 
   const inProgressRef = useRef<InProgress | null>(null);
   // RAF handle for batching text_delta / thinking_delta state flushes to ~60fps.
@@ -206,7 +190,6 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   // sent. What the first part already streamed is carried over, so the
   // turn's message_complete does not repeat it in the second part.
   const splitStreamed = useRef({ text: false, thinking: false });
-  const lastActivityRef = useRef(0);
   // Calls a mid-turn message moved into a committed part of their turn.
   const splitToolIds = useRef<Set<string>>(new Set());
 
@@ -217,12 +200,55 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     if (!runId) return;
     void fetch(`/api/agents/runs/${runId}/usage`)
       .then((r) => (r.ok ? r.json() : null))
-      .then((body: { spend_usd?: number; total_tokens?: number } | null) => {
-        if (!body) return;
-        if (typeof body.spend_usd === 'number') setSpentUsd(body.spend_usd);
-        if (typeof body.total_tokens === 'number') setTokensUsed(body.total_tokens);
+      .then((body: { spend_usd?: number } | null) => {
+        if (typeof body?.spend_usd === 'number') setSpentUsd(body.spend_usd);
       })
       .catch(() => undefined);
+  }, [runId]);
+
+  // Reads the run and its agent. Called on mount, with each usage refresh and when the run
+  // ends, so its sources, end time and token totals stay current.
+  const loadedRef = useRef(false);
+  // Reads overlap during a live run; only the latest one's answer is kept.
+  const loadSeq = useRef(0);
+  const loadRun = useCallback(() => {
+    if (!runId) return;
+    const seq = ++loadSeq.current;
+    // A failed re-read keeps the page it already drew; only a failed first read replaces it.
+    const fail = (message: string) => {
+      if (!loadedRef.current) setLoadError(message);
+    };
+    void fetch(ApiRoute.runs.detail(runId))
+      .then(async (r) => {
+        if (r.ok) return r.json();
+        // A run the caller may not read answers 404, so its existence does not leak.
+        fail(
+          r.status === 404
+            ? 'This run does not exist, or you do not have access to it.'
+            : loadErrorMessage(r.status, 'this run'),
+        );
+        return {};
+      })
+      .then(
+        (body: {
+          can_steer?: boolean | null;
+          trace_url?: string | null;
+          data?: RunWithAttribution;
+          agent_type?: AgentType | null;
+        }) => {
+          if (!body.data || seq !== loadSeq.current) return;
+          loadedRef.current = true;
+          setCanSteer(typeof body.can_steer === 'boolean' ? body.can_steer : null);
+          setTraceUrl(body.trace_url ?? null);
+          setRun(body.data);
+          if (body.data.state && runStateRef.current === null) {
+            runStateRef.current = body.data.state;
+            setRunState(body.data.state);
+          }
+          if (body.agent_type) setAgentType(body.agent_type);
+        },
+      )
+      .catch(() => fail('Could not load this run: the server could not be reached.'));
   }, [runId]);
 
   // Throttled wrapper around loadUsage for the high-frequency stream events. A
@@ -240,17 +266,19 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     const t = usageRefreshRef.current;
     const now = Date.now();
     const wait = t.last + MIN_INTERVAL_MS - now;
-    if (wait <= 0) {
-      t.last = now;
+    const refresh = () => {
+      t.last = Date.now();
       loadUsage();
-    } else if (t.timer === null) {
+      loadRun();
+    };
+    if (wait <= 0) refresh();
+    else if (t.timer === null) {
       t.timer = setTimeout(() => {
         t.timer = null;
-        t.last = Date.now();
-        loadUsage();
+        refresh();
       }, wait);
     }
-  }, [loadUsage]);
+  }, [loadUsage, loadRun]);
 
   // Adds a human message to the transcript. A message sent mid-turn splits the
   // turn so the bubble sits after what the agent had already said, live and on
@@ -277,64 +305,24 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     setCommittedTurns((prev) => [...prev, inProgress.turn, turn]);
   }, []);
 
-  // Fetch initial run + agent type metadata, the per-run budget ceiling, and
-  // the opening usage snapshot.
+  // Fetch the run, its opening usage snapshot and the agent's earlier runs.
   useEffect(() => {
     if (!runId) return;
-    void fetch(`/api/agents/runs/${runId}`)
-      .then(async (r) => {
-        if (r.ok) return r.json();
-        // A run the caller may not read answers 404, so its existence does not leak.
-        setLoadError(
-          r.status === 404
-            ? 'This run does not exist, or you do not have access to it.'
-            : loadErrorMessage(r.status, 'this run'),
-        );
-        return {};
-      })
-      .then(
-        (body: {
-          can_steer?: boolean | null;
-          trace_url?: string | null;
-          data?: {
-            state: RunState;
-            summary?: string | null;
-            created_by?: string;
-            created_by_name?: string | null;
-            sources?: RunSource[] | null;
-          };
-          agent_type?: {
-            name?: string;
-            model_id?: string;
-            identity_mode?: 'autonomous' | 'delegated';
-            budget?: { per_run_limit_usd?: number };
-          };
-        }) => {
-          setCanSteer(typeof body.can_steer === 'boolean' ? body.can_steer : null);
-          setTraceUrl(body.trace_url ?? null);
-          if (body.data?.state) {
-            runStateRef.current = body.data.state;
-            setRunState(body.data.state);
-          }
-          if (typeof body.data?.summary === 'string') {
-            setSummary(body.data.summary);
-          }
-          if (body.data) {
-            setStartedBy(body.data.created_by_name ?? body.data.created_by ?? null);
-            setSources(body.data.sources ?? []);
-          }
-          if (body.agent_type) {
-            setAgentName(body.agent_type.name ?? 'Agent');
-            setModel(body.agent_type.model_id ?? '');
-            setDelegated(body.agent_type.identity_mode === 'delegated');
-            const limit = body.agent_type.budget?.per_run_limit_usd;
-            setPerRunLimitUsd(typeof limit === 'number' && limit > 0 ? limit : null);
-          }
-        },
-      )
-      .catch(() => setLoadError('Could not load this run: the server could not be reached.'));
+    loadRun();
     loadUsage();
-  }, [runId, loadUsage]);
+    if (!slug) return;
+    const failed = 'Other runs could not be loaded.';
+    void fetch(`${ApiRoute.runs.listForType(encodeURIComponent(slug))}?limit=8`)
+      .then(async (r) => {
+        if (!r.ok) {
+          setEarlierRunsError(failed);
+          return;
+        }
+        const body = (await r.json()) as RunsPageResponse;
+        setEarlierRuns((body.data ?? []).filter((x) => x.id !== runId));
+      })
+      .catch(() => setEarlierRunsError(failed));
+  }, [runId, slug, loadRun, loadUsage]);
 
   // Subscribe to the SSE event stream for this run.
   useEffect(() => {
@@ -500,19 +488,9 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       );
     }
 
-    // At most one state update a second: the status line only counts seconds,
-    // and one per token would defeat the frame batching of text deltas.
-    function markActivity(): void {
-      const now = Date.now();
-      if (now - lastActivityRef.current < 1000) return;
-      lastActivityRef.current = now;
-      setLastActivityAt(now);
-    }
-
     // The agent produced output: it is alive, any provider retry is over, and
     // a queued message whose boundary has passed has been read.
     function agentActed(): void {
-      markActivity();
       setIsPending(false);
       setRetry(null);
       markDelivered([...queued].filter(([, boundary]) => boundary).map(([id]) => id));
@@ -568,8 +546,6 @@ export function useRun(runId: string, slug: string): UseRunReturn {
         ...turn,
         thinking: {
           content: newContent,
-          durationSeconds: turn.thinking?.durationSeconds ?? 0,
-          tokenCount: turn.thinking?.tokenCount ?? 0,
         },
       }));
     });
@@ -613,7 +589,6 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     es.addEventListener('tool_result', (e: MessageEvent) => {
       const payload = read<ToolResultPayload>(e);
       if (!payload) return;
-      markActivity();
       // Only the main thread reads queued messages; a subagent's result is not its boundary.
       if (!payload.parent_tool_use_id) boundaryPassed();
       const result =
@@ -631,15 +606,6 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       }));
     });
 
-    es.addEventListener('tool_progress', (e: MessageEvent) => {
-      const payload = read<ToolProgressPayload>(e);
-      if (!payload) return;
-      patchTool(payload.tool_use_id, (tool) => ({
-        ...tool,
-        progressSeconds: payload.elapsed_seconds,
-      }));
-    });
-
     es.addEventListener('api_retry', (e: MessageEvent) => {
       const payload = read<ApiRetryPayload>(e);
       if (!payload) return;
@@ -653,9 +619,12 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     es.addEventListener('sandbox_status', (e: MessageEvent) => {
       const payload = read<SandboxStatusPayload>(e);
       if (!payload) return;
-      setSandboxSince(
-        SANDBOX_STARTING.has(payload.phase) ? Date.now() - (payload.elapsed_ms ?? 0) : null,
-      );
+      setSandboxStarting(SANDBOX_STARTING.has(payload.phase));
+    });
+
+    es.addEventListener('sandbox_environment', (e: MessageEvent) => {
+      const payload = read<SandboxEnvironmentPayload>(e);
+      if (payload?.image) setSandbox(payload);
     });
 
     es.addEventListener('message_complete', (e: MessageEvent) => {
@@ -687,7 +656,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
           if (inProgressRef.current) inProgressRef.current.thinkingContent = content;
           updateInProgress((turn) => ({
             ...turn,
-            thinking: { content, durationSeconds: 0, tokenCount: 0 },
+            thinking: { content },
           }));
         }
         // A partial turn stays open: the turn_stopped or run_error that follows
@@ -724,7 +693,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       );
       flushInProgress();
       setRetry(null);
-      setSandboxSince(null);
+      setSandboxStarting(false);
     });
 
     es.addEventListener('guardrail_warning', (e: MessageEvent) => {
@@ -756,21 +725,25 @@ export function useRun(runId: string, slug: string): UseRunReturn {
         flushInProgress(true);
         setIsPending(false);
         setRetry(null);
-        setSandboxSince(null);
+        setSandboxStarting(false);
         // Final true-up of the usage meter when the run settles (terminal or
         // idle between turns) — catches any spend the last turn added.
         loadUsage();
+        // An ended run has its end time and final totals; re-read them.
+        if (payload.state !== 'idle') loadRun();
       }
-      if (payload.state === 'active') markActivity();
+      if (payload.state === 'budget_exhausted') setBudgetStop(payload.budget ?? null);
       runStateRef.current = payload.state;
       setRunState(payload.state);
     });
 
     es.addEventListener('human_message', (e: MessageEvent) => {
-      const payload = read<{ content: string }>(e);
+      const payload = read<HumanMessagePayload>(e);
       if (!payload?.content) return;
       // Skip if we sent this message ourselves (already optimistically rendered).
-      const idx = pendingHumanMessages.current.indexOf(payload.content);
+      // Only this viewer's own echo replaces their pending bubble; the same words from someone else are theirs.
+      const mine = !payload.sender || payload.sender.id === userRef.current?.sub;
+      const idx = mine ? pendingHumanMessages.current.indexOf(payload.content) : -1;
       if (idx !== -1) {
         pendingHumanMessages.current.splice(idx, 1);
         // The optimistic bubble takes the server's time from its echo.
@@ -781,7 +754,8 @@ export function useRun(runId: string, slug: string): UseRunReturn {
           );
           if (at === -1) return prev;
           const next = [...prev];
-          next[at] = { ...next[at], timestamp: time } as Turn;
+          const sent = next[at] as Extract<Turn, { type: 'human' }>;
+          next[at] = { ...sent, timestamp: time, sender: payload.sender ?? sent.sender };
           return next;
         });
         return;
@@ -791,12 +765,14 @@ export function useRun(runId: string, slug: string): UseRunReturn {
         id: `h-${++turnSeq.current}`,
         content: payload.content,
         timestamp: eventTime,
+        sender: payload.sender,
+        event: payload.event,
       });
     });
 
     // A routed trigger sends a later delivery to a run already working on it.
     es.addEventListener('trigger_message', (e: MessageEvent) => {
-      const payload = read<{ content: string; trigger_id?: string; trigger_name?: string }>(e);
+      const payload = read<TriggerMessagePayload>(e);
       if (!payload?.content) return;
       appendHuman({
         type: 'human',
@@ -804,6 +780,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
         content: payload.content,
         timestamp: eventTime,
         fromTrigger: payload.trigger_name || payload.trigger_id || 'a trigger',
+        event: payload.event,
       });
     });
 
@@ -852,7 +829,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     // tears down the current EventSource and opens a fresh one. loadUsage /
     // scheduleUsageRefresh are stable per runId, so they never re-subscribe the
     // stream on their own.
-  }, [runId, reconnectKey, loadUsage, scheduleUsageRefresh, appendHuman, productName]);
+  }, [runId, reconnectKey, loadUsage, loadRun, scheduleUsageRefresh, appendHuman, productName]);
 
   function reconnect(): void {
     // Clear accumulated turns before opening a fresh EventSource. The new
@@ -877,34 +854,6 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     setReconnectKey((k) => k + 1);
   }
 
-  function openCanvas(viewId: string): void {
-    setCanvasState((prev) =>
-      prev.tabs.some((t) => t.id === viewId)
-        ? { ...prev, isOpen: true, activeTabId: viewId }
-        : prev,
-    );
-  }
-
-  function openToolInCanvas(tool: ToolCall): void {
-    const view = toolCanvasView(tool);
-    setViews((prev) => ({ ...prev, [view.id]: view }));
-    setCanvasState((prev) => ({
-      isOpen: true,
-      activeTabId: view.id,
-      tabs: prev.tabs.some((t) => t.id === view.id)
-        ? prev.tabs
-        : [...prev.tabs, { id: view.id, label: view.title }],
-    }));
-  }
-
-  function closeCanvas(): void {
-    setCanvasState((prev) => ({ ...prev, isOpen: false }));
-  }
-
-  function switchTab(tabId: string): void {
-    setCanvasState((prev) => ({ ...prev, activeTabId: tabId }));
-  }
-
   function addHumanMessage(content: string): void {
     pendingHumanMessages.current.push(content);
     humanSeq.current += 1;
@@ -919,6 +868,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       content,
       timestamp: '',
       delivery: agentWorking ? 'queued' : undefined,
+      sender: user ? { id: user.sub, type: 'USER', name: user.name || user.email } : undefined,
     };
     setIsPending(true);
     appendHuman(turn);
@@ -967,12 +917,12 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   return {
     runId,
     slug,
-    agentName,
-    model,
-    summary,
-    startedBy,
-    sources,
-    delegated,
+    run,
+    agentType,
+    earlierRuns,
+    earlierRunsError,
+    budgetStop,
+    sandbox,
     canSteer,
     loadError,
     stopError,
@@ -984,19 +934,8 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     isStarting,
     isBusy,
     connectionStatus,
-    liveActivity: isBusy ? deriveActivity(allTurns, retry, sandboxSince, lastActivityAt) : null,
-    showAllCalls,
-    setShowAllCalls,
+    liveActivity: isBusy ? deriveActivity(allTurns, retry, sandboxStarting) : null,
     spentUsd,
-    perRunLimitUsd,
-    tokensUsed,
-    contextFiles: [],
-    canvasState,
-    views,
-    openCanvas,
-    openToolInCanvas,
-    closeCanvas,
-    switchTab,
     addHumanMessage,
     interruptRun,
     reconnect,
@@ -1046,11 +985,10 @@ function guardrailMessage(p: GuardrailWarningPayload, productName: string): stri
 export function deriveActivity(
   turns: Turn[],
   retry: { attempt: number; maxRetries: number; error: string } | null,
-  sandboxSince: number | null,
-  lastActivityAt: number,
+  sandboxStarting: boolean,
 ): LiveActivity {
   if (retry) return { kind: 'retry', ...retry };
-  if (sandboxSince !== null) return { kind: 'sandbox', since: sandboxSince };
+  if (sandboxStarting) return { kind: 'sandbox' };
   // Calls left running by an earlier turn are marked stopped when it settles,
   // so the latest running call is live, however many messages were sent since.
   let current: ToolCall | undefined;
@@ -1062,52 +1000,7 @@ export function deriveActivity(
       .filter((tool) => !tool.parentId)
       .at(-1);
   }
-  if (current) return { kind: 'tool', tool: current, since: callStart(current) ?? lastActivityAt };
-  return { kind: 'thinking', since: lastActivityAt };
-}
-
-/**
- * When a running call started, by the server's clock, so a reload does not
- * restart its count; the browser's arrival time when the server gave none.
- */
-export function callStart(tool: ToolCall): number | undefined {
-  return tool.startedAt ?? tool.receivedAt;
-}
-
-/** A canvas view for a call's full result: terminal output, a diff, or text. */
-function toolCanvasView(tool: ToolCall): CanvasView {
-  const id = `tool-${tool.id}`;
-  const d = describeTool(tool.name, tool.input);
-  const title = d.target ? `${d.label} ${d.target}`.slice(0, 60) : d.label;
-  if (d.kind === 'command') {
-    return {
-      id,
-      type: 'terminal',
-      title,
-      command: String(tool.input.command ?? ''),
-      output: tool.result
-        .split('\n')
-        .map((content) => ({ kind: tool.status === 'error' ? 'error' : 'normal', content })),
-    };
-  }
-  return {
-    id,
-    type: 'code',
-    title,
-    code: prettyJson(tool.result) ?? tool.result,
-    lineCount: tool.result.split('\n').length,
-  };
-}
-
-/** Pretty-printed JSON, or null when the text is not a JSON object or array. */
-export function prettyJson(text: string): string | null {
-  const t = text.trim();
-  if (!(t.startsWith('{') || t.startsWith('['))) return null;
-  try {
-    return JSON.stringify(JSON.parse(t), null, 2);
-  } catch {
-    return null;
-  }
+  return current ? { kind: 'tool', tool: current } : { kind: 'thinking' };
 }
 
 /**

@@ -94,3 +94,23 @@ describe('SidePanelBody', () => {
     expect(body).not.toHaveClass('px-5');
   });
 });
+
+describe('SidePanel side', () => {
+  it('opens from the right by default', () => {
+    renderPanel(<SidePanelHeader title="Details" />);
+    const panel = screen.getByRole('dialog');
+    expect(panel.className).toContain('right-0');
+    expect(panel.className).not.toContain('left-0');
+  });
+
+  it('opens from the left when asked', () => {
+    render(
+      <SidePanel open onClose={() => {}} side="left">
+        <SidePanelHeader title="Sessions" />
+      </SidePanel>,
+    );
+    const panel = screen.getByRole('dialog');
+    expect(panel.className).toContain('left-0');
+    expect(panel.className).toContain('border-r');
+  });
+});

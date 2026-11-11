@@ -1,20 +1,19 @@
-import type { RunSource } from '@runkora/shared/api';
+import type {
+  AgentType,
+  RunBudgetStop,
+  RunEventSummary,
+  RunMessageSender,
+  RunWithAttribution,
+  SandboxEnvironmentPayload,
+} from '@runkora/shared/api';
 
 // ── Tool / run status enums ───────────────────────────────────────────────────
 
 /** `stopped` is a call still running when the user stopped the turn. */
 export type ToolStatus = 'running' | 'done' | 'error' | 'stopped';
 
-export type RunState =
-  | 'pending'
-  | 'starting'
-  | 'active'
-  | 'idle'
-  | 'completing'
-  | 'completed'
-  | 'failed'
-  | 'budget_exhausted'
-  | 'terminated';
+export type { RunState } from '@runkora/shared/api';
+import type { RunState } from '@runkora/shared/api';
 
 // ── Turn types ────────────────────────────────────────────────────────────────
 
@@ -38,6 +37,10 @@ export interface HumanTurn {
    * trigger's name, or its id when the name is unknown.
    */
   fromTrigger?: string;
+  /** Who sent it, when the run recorded a sender. */
+  sender?: RunMessageSender;
+  /** The event behind a trigger's message, when its adapter summarized one. */
+  event?: RunEventSummary;
 }
 
 export interface ToolCall {
@@ -55,16 +58,12 @@ export interface ToolCall {
   /** Server times (ms) of the call and its result, for durations. */
   startedAt?: number;
   endedAt?: number;
-  /** Browser time (ms) the call arrived, for the live elapsed counter. */
+  /** Browser time (ms) the call arrived, for a call the server sent no time for. */
   receivedAt?: number;
-  /** Latest heartbeat from a long-running tool. */
-  progressSeconds?: number;
 }
 
 export interface ThinkingBlock {
   content: string;
-  durationSeconds: number;
-  tokenCount: number;
 }
 
 export interface AgentTurn {
@@ -91,96 +90,27 @@ export type AgentElement =
   /** A stopped turn; byGuardrail when kora's loop guard paused it, not the user. */
   | { kind: 'stopped'; byGuardrail?: boolean }
   /** A platform notice, such as a guardrail asking the agent to change approach. */
-  | { kind: 'notice'; message: string; tone?: 'error' }
-  | { kind: 'approval'; id: string; title: string; description: string; command: string };
+  | { kind: 'notice'; message: string; tone?: 'error' };
 
 export type Turn = HumanTurn | AgentTurn | ErrorTurn;
 
-/**
- * What the agent is doing while nothing visible streams, for the status line.
- * `since` is a browser time (ms).
- */
+/** What the agent is doing while nothing visible streams, for the composer's status strip. */
 export type LiveActivity =
-  | { kind: 'sandbox'; since: number }
+  | { kind: 'sandbox' }
   | { kind: 'retry'; attempt: number; maxRetries: number; error: string }
-  | { kind: 'tool'; tool: ToolCall; since: number }
-  | { kind: 'thinking'; since: number };
-
-// ── Canvas types ──────────────────────────────────────────────────────────────
-
-export interface CanvasTab {
-  id: string;
-  label: string;
-  ext?: string; // 'tsx' | 'ts' | undefined — shown in accent colour
-  modified?: boolean; // shows ● dot (degraded colour) when true
-}
-
-export type CanvasViewType = 'code' | 'diff' | 'terminal';
-
-export interface DiffLine {
-  kind: 'add' | 'del' | 'ctx';
-  oldNum?: number;
-  newNum?: number;
-  content: string;
-}
-
-export interface TerminalLine {
-  kind: 'normal' | 'error' | 'success' | 'dim';
-  content: string;
-}
-
-export interface CanvasView {
-  id: string;
-  type: CanvasViewType;
-  title: string;
-  subtitle?: string;
-  // Code view fields
-  code?: string;
-  language?: string;
-  lineCount?: number;
-  // Diff view fields
-  diffLines?: DiffLine[];
-  addCount?: number;
-  delCount?: number;
-  // Terminal view fields
-  command?: string;
-  exitCode?: number;
-  output?: TerminalLine[];
-}
+  | { kind: 'tool'; tool: ToolCall }
+  | { kind: 'thinking' };
 
 // ── Top-level run state ───────────────────────────────────────────────────────
-
-export interface CanvasState {
-  isOpen: boolean;
-  tabs: CanvasTab[];
-  activeTabId: string | null;
-}
 
 export interface RunChatState {
   runId: string;
   slug: string;
-  agentName: string;
-  model: string;
   /** Null until the run's state has loaded. */
   runState: RunState | null;
   turns: Turn[];
-  contextFiles: string[];
-  canvasState: CanvasState;
-  views: Record<string, CanvasView>;
   /** Live USD spent on this run; grows as turns complete. */
   spentUsd: number;
-  /** Per-run budget ceiling in USD (from the agent's grant); null when unset. */
-  perRunLimitUsd: number | null;
-  /** Total tokens consumed by this run so far. */
-  tokensUsed: number;
-  /** LLM-generated one-sentence summary of the run's task intent, or null if not available. */
-  summary: string | null;
-  /** Who started the run — BFF-resolved display name, or the raw principal id, or null until loaded. */
-  startedBy: string | null;
-  /** Links to what started the run and what joined it; empty when none recorded. */
-  sources: RunSource[];
-  /** True when the agent is delegated: the run acts on the starter's behalf and is private to them. */
-  delegated: boolean;
   /** Whether the caller may message or stop this run. Null until known, which leaves it to the API. */
   canSteer: boolean | null;
   /** Why the run could not be loaded; the page shows this instead of an empty thread. */
@@ -189,4 +119,15 @@ export interface RunChatState {
   stopError: string | null;
   /** The run's trace viewer link; null without a trace URL template or a sampled trace. */
   traceUrl: string | null;
+  /** The run and its agent as last read; null until loaded or when unreadable. */
+  run: RunWithAttribution | null;
+  agentType: AgentType | null;
+  /** The budget that stopped the run, when the run_state event named one. */
+  budgetStop: RunBudgetStop | null;
+  /** The environment and image of the run's latest sandbox. */
+  sandbox: SandboxEnvironmentPayload | null;
+  /** The agent's other recent runs, newest first. */
+  earlierRuns: RunWithAttribution[];
+  /** Why the other runs could not be loaded; null when they were. */
+  earlierRunsError: string | null;
 }

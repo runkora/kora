@@ -446,6 +446,80 @@ export interface RunSource {
   provider?: 'github' | 'slack' | 'alertmanager';
 }
 
+/** The person or agent who sent a message to a run. Absent on trigger messages and older runs. */
+export interface RunMessageSender {
+  id: string;
+  /** The sender's principal type: USER or AGENT. */
+  type: string;
+  name: string;
+}
+
+/**
+ * The event behind a trigger message, as the provider adapter summarized it at ingest.
+ * Mirrors Go: agents.RunEventSummary (docs/adr/2026-11-11-run-page-record.md).
+ */
+export interface RunEventSummary {
+  actor: { name: string; kind: 'person' | 'bot' | 'system'; url?: string };
+  /** "commented on", "opened", "fired". */
+  verb: string;
+  object: { label: string; url?: string };
+  /** Text a person wrote, such as a comment or an issue body. */
+  quote?: string;
+  preview?: {
+    title: string;
+    facts?: string[];
+    added?: number;
+    removed?: number;
+    /** `tone` is good or bad news; a neutral state such as closed or draft has none. */
+    status?: { label: string; tone?: 'ok' | 'bad' };
+  };
+}
+
+/** The budget that stopped a budget_exhausted run. */
+export interface RunBudgetStop {
+  /** The ceiling's level: principal, role_pool, tenant, run, delegator or delegator_run. */
+  scope: string;
+  /** The ceiling's id: a principal, role, tenant or run. Never shown. */
+  owner: string;
+  /** Whose budget it is, by name; empty when there is no name to give. */
+  owner_name: string;
+  /** The budget's period as the gateway sends it: weekly, monthly or run. */
+  window: string;
+  limit_usd: number;
+  /** When the budget resets; absent for a run's own ceilings. */
+  resets_at?: string;
+}
+
+/** Payload of a `human_message` run event. */
+export interface HumanMessagePayload {
+  content: string;
+  sender?: RunMessageSender;
+  /** Set on the first message of a trigger-started run. */
+  event?: RunEventSummary;
+}
+
+/** Payload of a `trigger_message` run event: a trigger's delivery sent to a working run. */
+export interface TriggerMessagePayload {
+  content: string;
+  trigger_id?: string;
+  trigger_name?: string;
+  event?: RunEventSummary;
+}
+
+/** Payload of a `run_state` run event. */
+export interface RunStatePayload {
+  state: RunState;
+  /** Set on a move to budget_exhausted when the gateway named the ceiling. */
+  budget?: RunBudgetStop;
+}
+
+/** Payload of a `sandbox_environment` run event: where the run's sandbox started. */
+export interface SandboxEnvironmentPayload {
+  action: string;
+  environment: string;
+  image: string;
+}
+
 /**
  * A single execution of an AgentType.
  * Mirrors Go: agents.Run
@@ -466,8 +540,12 @@ export interface Run {
   /** Inference totals summed over the run's requests; a live run reports its total so far. */
   usage?: {
     cost_usd: number;
+    /** Uncached input tokens. */
     input_tokens: number;
     output_tokens: number;
+    /** Cached input tokens read and written; absent from older servers. */
+    cache_read_tokens?: number;
+    cache_creation_tokens?: number;
     request_count: number;
   };
   /** LLM-generated one-sentence summary of the run's task intent, if available. */

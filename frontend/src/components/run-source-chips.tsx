@@ -16,27 +16,20 @@ import {
   type IconName,
 } from '@runkora/hades';
 import type { RunSource } from '@runkora/shared/api';
+import { isSafeUrl } from '@runkora/lib/safe-url';
 
-const PROVIDER_ICON: Record<NonNullable<RunSource['provider']>, IconName> = {
+/** The icon of the system a run source points into. */
+export const PROVIDER_ICON: Record<NonNullable<RunSource['provider']>, IconName> = {
   github: 'github',
   slack: 'hash',
   alertmanager: 'prometheus',
 };
 
-function sourceIcon(source: RunSource): IconName {
+/** A source's icon: a folder for a repository, a branch, or its provider's mark. */
+export function sourceIcon(source: RunSource): IconName {
   if (source.kind === 'repository') return 'folder';
   if (source.kind === 'branch') return 'git-branch';
   return (source.provider && PROVIDER_ICON[source.provider]) ?? 'zap';
-}
-
-/** Only http(s) URLs are linkable; anything else (e.g. javascript:) is dropped. */
-function isSafeUrl(url: string): boolean {
-  try {
-    const { protocol } = new URL(url);
-    return protocol === 'https:' || protocol === 'http:';
-  } catch {
-    return false;
-  }
 }
 
 const sourceKey = (s: RunSource) => `${s.kind}:${s.url}`;
@@ -118,6 +111,7 @@ export interface RunSourceChipsProps {
  * fold into a "+N" chip that lists them. A run with no delivery link shows its first link.
  */
 export function RunSourceChips({ sources, max = 2 }: RunSourceChipsProps) {
+  // Only http(s) URLs are linkable; anything else (e.g. javascript:) is dropped.
   const safe = (sources ?? []).filter((s) => isSafeUrl(s.url));
   if (safe.length === 0) return null;
   const deliveries = safe.filter((s) => s.kind === 'trigger');

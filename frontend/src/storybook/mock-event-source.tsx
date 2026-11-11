@@ -17,7 +17,10 @@ export interface MockStreamEvent {
 
 type Listener = (event: MessageEvent) => void;
 
-function fakeEventSource(events: MockStreamEvent[]) {
+/** The events every stream replays, or a function choosing them by the stream's URL. */
+export type MockStream = MockStreamEvent[] | ((url: string) => MockStreamEvent[]);
+
+function fakeEventSource(stream: MockStream) {
   return class FakeEventSource {
     static readonly CONNECTING = 0;
     static readonly OPEN = 1;
@@ -31,6 +34,7 @@ function fakeEventSource(events: MockStreamEvent[]) {
 
     constructor(url: string | URL) {
       this.url = String(url);
+      const events = typeof stream === 'function' ? stream(this.url) : stream;
       // Replayed after the opening effect has attached its listeners.
       setTimeout(() => {
         if (this.readyState === FakeEventSource.CLOSED) return;
@@ -58,7 +62,7 @@ function fakeEventSource(events: MockStreamEvent[]) {
   };
 }
 
-function install(events: MockStreamEvent[]): () => void {
+function install(events: MockStream): () => void {
   const original = window.EventSource;
   window.EventSource = fakeEventSource(events) as unknown as typeof EventSource;
   return () => {
@@ -66,7 +70,7 @@ function install(events: MockStreamEvent[]): () => void {
   };
 }
 
-function Installed({ events, children }: { events: MockStreamEvent[]; children: React.ReactNode }) {
+function Installed({ events, children }: { events: MockStream; children: React.ReactNode }) {
   // Installed during the first render so the page's mount effects see it.
   const restore = React.useRef<(() => void) | null>(null);
   if (restore.current === null) restore.current = install(events);
@@ -80,8 +84,8 @@ function Installed({ events, children }: { events: MockStreamEvent[]; children: 
   return <>{children}</>;
 }
 
-/** Story decorator that answers every EventSource with `events`. */
-export function mockEventSource(events: MockStreamEvent[]): Decorator {
+/** Story decorator that answers each EventSource with `events`, or with the events chosen for its URL. */
+export function mockEventSource(events: MockStream): Decorator {
   const WithMockEventSource: Decorator = (Story) => (
     <Installed events={events}>
       <Story />

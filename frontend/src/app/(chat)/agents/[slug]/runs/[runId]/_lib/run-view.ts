@@ -1,20 +1,15 @@
 /**
- * The run page proposal's view of one run. Tool calls keep the shape ACP gives them (kind, title,
- * content and the harness's `_meta`), and `stepOf` turns any harness's call into one step type, so
- * the page renders Claude Code, Codex and OpenCode runs the same way. Design-only: the event
- * stream does not record ACP kind and title yet (see the ACP tool-shape follow-up).
+ * The run page's view of one run. Tool calls take the shape ACP gives them (kind, title, content
+ * and the harness's tool name), and `stepOf` turns any harness's call into one step type, so the
+ * page renders Claude Code, Codex and OpenCode runs the same way. `toRunView` builds it.
  */
 import type { IconName } from '@runkora/hades';
 import type { RunSource, TriggerKind } from '@runkora/shared/api';
+import { FRAMEWORK_LABELS } from '@runkora/shared/agent-frameworks';
 import type { RunState } from '../_types';
 
-export type Harness = 'claude-code' | 'codex' | 'opencode';
-
-export const HARNESS_LABEL: Record<Harness, string> = {
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-  opencode: 'OpenCode',
-};
+/** The harness's display name: "Claude Code", or the raw id for one the page does not know. */
+export const harnessLabel = (harness: string): string => FRAMEWORK_LABELS[harness] ?? harness;
 
 /** ACP `tool_call.kind`. */
 export type AcpKind =
@@ -30,15 +25,15 @@ export type AcpKind =
   | 'other';
 
 /** What policy decided for a call the edge checked. */
-export interface PolicyDecision {
+interface PolicyDecision {
   allowed: boolean;
-  /** The scope the call needed. */
+  /** The scope the call needed, when known. */
   scope: string;
-  /** The grant that allowed it, or why it was refused. */
+  /** The grant that allowed it, or what was refused. */
   reason: string;
 }
 
-/** A tool call as recorded from ACP, with the times and policy decision the platform adds. */
+/** A tool call in ACP's shape, with the times and policy decision the platform adds. */
 export interface AcpToolCall {
   id: string;
   kind: AcpKind;
@@ -53,13 +48,15 @@ export interface AcpToolCall {
   /** Codex sends a file change's path and kind without its text. */
   changes?: { path: string; kind: 'add' | 'update' | 'delete' }[];
   meta?: {
-    /** `_meta.claudeCode.toolName`, or the Codex item type. */
+    /** The harness's own tool name, such as `Bash` or `mcp__github__get_pull_request`. */
     toolName?: string;
     /** Set on a call made inside a subagent. */
     parentId?: string;
   };
-  /** Seconds after the run started. */
-  startedAt: number;
+  /** The recorded result was cut; `originalBytes` is its full size. */
+  truncated?: { originalBytes?: number };
+  /** Server times (ms) of the call and its result. */
+  startedAt?: number;
   endedAt?: number;
   policy?: PolicyDecision;
 }
@@ -76,12 +73,12 @@ export type StepKind =
   | 'sandbox'
   | 'other';
 
-export interface DiffLine {
+interface DiffLine {
   kind: 'add' | 'del' | 'ctx';
   text: string;
 }
 
-export interface FileDiff {
+interface FileDiff {
   path: string;
   added: number;
   removed: number;
@@ -97,7 +94,6 @@ export interface Step {
   /** The object of the verb: a path, a command, a pattern, an MCP tool. */
   target: string;
   status: 'running' | 'done' | 'failed' | 'denied';
-  startedAt: number;
   durationMs: number | null;
   command?: string;
   output?: string;
@@ -107,6 +103,7 @@ export interface Step {
   diffs?: FileDiff[];
   mcp?: { server: string; tool: string; args: Record<string, unknown> };
   policy?: PolicyDecision;
+  truncated?: AcpToolCall['truncated'];
   call: AcpToolCall;
 }
 
@@ -117,7 +114,7 @@ export interface Plan {
 /** Who did what to which object, and a preview of that object, for a trigger's message. */
 export interface TriggerEventSummary {
   /** Who caused it: a person, a bot such as GitHub Actions, or the platform itself. */
-  actor: { name: string; kind: 'person' | 'bot' | 'system'; icon?: IconName };
+  actor: { name: string; kind: 'person' | 'bot' | 'system'; icon?: IconName; url?: string };
   /** "commented on", "opened", "failed on". */
   verb: string;
   object: { label: string; url?: string };
@@ -130,97 +127,81 @@ export interface TriggerEventSummary {
     meta: string[];
     /** Lines added and removed, shown in the diff colours after the facts. */
     diff?: { added: number; removed: number };
-    status?: { label: string; tone: 'ok' | 'bad' };
+    status?: { label: string; tone?: 'ok' | 'bad' };
   };
 }
 
-/** Where a trigger's message came from, from its delivery. */
+/** How a trigger's message reached the run. */
 export interface TriggerOrigin {
-  via?: 'manual' | 'webhook' | 'scheduled' | 'event';
-  /** The webhook or platform event type, such as `issue_comment` or `agents.run.completed.v1`. */
-  event?: string;
+  via?: TriggerKind;
   provider?: RunSource['provider'];
-  deliveryId?: string;
 }
 
 export type Entry =
   | {
       type: 'message';
       id: string;
-      at: number;
-      author: { kind: 'person' | 'trigger'; name: string } & TriggerOrigin;
+      /** Local time the message arrived, as "09:14". */
+      time: string;
+      /** `unrecorded` marks a person's message from before senders were recorded; it has no name. */
+      author: {
+        kind: 'person' | 'agent' | 'trigger';
+        name: string;
+        unrecorded?: boolean;
+      } & TriggerOrigin;
       text: string;
       /** A trigger_message: a trigger that sent this to a run already working. */
       joined?: boolean;
-      /** The event behind a trigger's message, as its adapter would record it. Not stored today. */
+      /** The event behind a trigger's message, as its adapter recorded it. */
       event?: TriggerEventSummary;
-      /** How a message sent mid-run was applied. */
-      mode?: 'steer' | 'queue';
+      /** Why sending it from this page failed. */
+      error?: string;
     }
-  | { type: 'text'; id: string; at: number; text: string; streaming?: boolean }
-  | { type: 'plan'; id: string; at: number; plan: Plan }
+  | { type: 'text'; id: string; text: string; streaming?: boolean }
+  | { type: 'plan'; id: string; plan: Plan }
   | { type: 'call'; id: string; call: AcpToolCall }
-  | { type: 'retry'; id: string; at: number; attempts: number; reason: string; seconds: number }
-  | { type: 'question'; id: string; at: number; text: string; options?: string[] }
-  | { type: 'stopped'; id: string; at: number; by: string };
+  | { type: 'notice'; id: string; text: string; tone?: 'error'; detail?: string };
 
 export interface QueuedMessage {
   id: string;
   text: string;
 }
 
-export interface RunFailure {
-  /** One sentence a person can act on. */
-  cause: string;
-  /** The provider or platform's own message. */
-  detail: string;
-  attempts: number;
-  /** How long the run spent retrying, in seconds. */
-  retrySeconds: number;
-}
-
 export interface RunView {
   id: string;
   summary: string;
   agent: { name: string; slug: string };
-  harness: Harness;
+  /** The agent's harness id, such as `claude-code`; empty until known. */
+  harness: string;
   model: string;
   state: RunState;
-  /** ISO time the run started. */
+  /** ISO time the run started, and when an ended run ended. */
   startedAt: string;
+  endedAt?: string;
+  /** Elapsed time; the page sets it from the clock for a live run. */
   durationMs: number;
-  startedBy:
-    { kind: 'person'; name: string } | { kind: 'trigger'; name: string; triggerKind: TriggerKind };
   sources: RunSource[];
-  access: {
-    identity: 'autonomous' | 'delegated';
-    /** The person a delegated run acts for. */
-    actingFor?: string;
-    grants: string[];
-  };
-  spend: { usd: number; limitUsd: number | null; tokens: number };
+  /** The person a delegated run acts for, with their access. */
+  actingFor?: string;
+  spend: { usd: number; limitUsd: number | null };
   traceUrl: string | null;
   entries: Entry[];
   queued: QueuedMessage[];
-  /** The agent's final answer, for an ended run. */
-  result?: string;
-  pullRequest?: { label: string; url: string };
-  failure?: RunFailure;
+  /** What the agent is doing now, for the composer's status strip. */
+  activity?: string;
   /** What the platform recorded about the run, beside the conversation. */
   record?: RunRecord;
-  /**
-   * The budget that stopped a budget_exhausted run, from the gateway's budget event: whose budget,
-   * its period and limit, and when it resets.
-   */
-  budgetStop?: { owner: string; window: string; limitUsd: number; resets: string };
+  /** The budget that stopped a budget_exhausted run: whose, its limit and its reset. */
+  budgetStop?: { whose: string; limitUsd: number; resets: string };
 }
 
-/** Facts the API returns today: run usage, the sandbox the run started, the agent's connectors. */
-export interface RunRecord {
+/** Facts the API records: run usage, the sandbox the run started, the agent's connectors. */
+interface RunRecord {
   requests: number;
+  /** Uncached input, output, and cached input (read and written) tokens. */
   inputTokens: number;
   outputTokens: number;
-  deliveryId?: string;
+  cachedTokens: number;
   sandbox?: { image: string; environment: string };
   connectors: { connection: string; actions: string[] }[];
 }
@@ -230,17 +211,17 @@ export interface RunRecord {
 const WORKSPACE = /^\/workspaces\/[^/]+\//;
 
 /** A path relative to the run's workspace, which every call repeats otherwise. */
-export function shortPath(path: string): string {
+function shortPath(path: string): string {
   return path.replace(WORKSPACE, '');
 }
 
 /** The first line of a multi-line value, with an ellipsis when more follows. */
-export function firstLine(text: string): string {
+function firstLine(text: string): string {
   const lines = text.split('\n');
   return lines.length > 1 ? `${lines[0]} …` : text;
 }
 
-const SUBAGENT_TOOLS = new Set(['Task', 'Agent', 'spawnAgent']);
+const SUBAGENT_TOOLS = new Set(['Task', 'Agent', 'task', 'spawnAgent']);
 
 /** Splits `mcp__server__tool`, the name Claude Code and the legacy events give an MCP call. */
 function mcpName(call: AcpToolCall): { server: string; tool: string } | null {
@@ -278,10 +259,12 @@ const VERBS: Record<StepKind, [running: string, done: string]> = {
   mcp: ['Calling', 'Called'],
   subagent: ['Subagent', 'Subagent'],
   sandbox: ['Starting sandbox', 'Sandbox ready'],
-  other: ['Using', 'Used'],
+  // An unnamed call's title already says what it did.
+  other: ['', ''],
 };
 
-const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
+/** A non-empty string value, or undefined. */
+export const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
 
 /** The title without the harness's leading verb ("Run ", "Read ", "Search "). */
 function titleObject(title: string): string {
@@ -294,7 +277,11 @@ function targetOf(kind: StepKind, call: AcpToolCall): string {
     case 'read':
     case 'edit': {
       const path =
-        str(input.file_path) ?? str(input.path) ?? call.diffs?.[0]?.path ?? call.changes?.[0]?.path;
+        str(input.file_path) ??
+        str(input.filePath) ??
+        str(input.path) ??
+        call.diffs?.[0]?.path ??
+        call.changes?.[0]?.path;
       return shortPath(path ?? titleObject(call.title));
     }
     case 'execute':
@@ -305,7 +292,7 @@ function targetOf(kind: StepKind, call: AcpToolCall): string {
     case 'fetch':
       return str(input.url) ?? titleObject(call.title);
     case 'subagent':
-      return str(input.description) ?? call.title;
+      return str(input.description) ?? str(input.prompt)?.split('\n')[0] ?? call.title;
     case 'sandbox':
       return [str(input.image), str(input.size)].filter(Boolean).join(' · ');
     case 'mcp': {
@@ -317,10 +304,15 @@ function targetOf(kind: StepKind, call: AcpToolCall): string {
   }
 }
 
+/** Past this many cells the line diff is skipped and only the line counts are shown. */
+const DIFF_CELLS = 250_000;
+
 /** Unified lines of an ACP diff (whole-file before and after), with two lines of context. */
 function fileDiff(d: { path: string; oldText: string | null; newText: string }): FileDiff {
   const a = d.oldText === null ? [] : d.oldText.split('\n');
   const b = d.newText.split('\n');
+  if (a.length * b.length > DIFF_CELLS)
+    return { path: shortPath(d.path), added: b.length, removed: a.length, lines: null };
   // Longest common subsequence table; edited files here are small.
   const lcs = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
   for (let i = a.length - 1; i >= 0; i--)
@@ -388,8 +380,10 @@ export function stepOf(call: AcpToolCall): Step {
     verb: running ? runningVerb : doneVerb,
     target: targetOf(kind, call),
     status,
-    startedAt: call.startedAt,
-    durationMs: call.endedAt === undefined ? null : (call.endedAt - call.startedAt) * 1000,
+    durationMs:
+      call.endedAt === undefined || call.startedAt === undefined
+        ? null
+        : Math.max(0, call.endedAt - call.startedAt),
     ...(kind === 'execute'
       ? { command: str(call.rawInput?.command) ?? titleObject(call.title) }
       : {}),
@@ -408,6 +402,7 @@ export function stepOf(call: AcpToolCall): Step {
         }
       : {}),
     ...(call.policy ? { policy: call.policy } : {}),
+    ...(call.truncated ? { truncated: call.truncated } : {}),
     call,
   };
 }
@@ -512,38 +507,97 @@ export function quietSummary(steps: Step[]): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-// ── Run facts ────────────────────────────────────────────────────────────────
+// ── People ───────────────────────────────────────────────────────────────────
 
-export function allSteps(run: RunView): Step[] {
-  return run.entries.flatMap((e) => (e.type === 'call' ? [stepOf(e.call)] : []));
+export interface Participant {
+  name: string;
+  kind: 'person' | 'agent' | 'trigger';
+  /** How they took part: "Started it via Slack", "2 messages", "1 message · by hand". */
+  detail: string;
 }
 
-export function denials(run: RunView): Step[] {
-  return allSteps(run).filter((s) => s.status === 'denied');
-}
+const PROVIDER_NAME: Record<string, string> = {
+  github: 'GitHub',
+  slack: 'Slack',
+  alertmanager: 'Alertmanager',
+};
 
-/** Every file the run changed, with its lines added and removed summed across edits. */
-export function filesChanged(run: RunView): FileDiff[] {
-  const byPath = new Map<string, FileDiff>();
-  for (const step of allSteps(run)) {
-    if (step.kind !== 'edit' || step.status !== 'done') continue;
-    for (const d of step.diffs ?? []) {
-      const prev = byPath.get(d.path);
-      byPath.set(d.path, {
-        path: d.path,
-        added: (prev?.added ?? 0) + d.added,
-        removed: (prev?.removed ?? 0) + d.removed,
-        lines: d.lines && prev?.lines !== null ? [...(prev?.lines ?? []), ...d.lines] : null,
-      });
+/**
+ * Everyone involved, from the run's messages: people by their recorded sender, people outside
+ * the platform by the event a trigger carried (a GitHub login), and triggers with no person behind them.
+ */
+export function participantsOf(run: RunView): Participant[] {
+  const by = new Map<
+    string,
+    { kind: Participant['kind']; messages: number; started: boolean; via?: string }
+  >();
+  let first = true;
+  for (const e of run.entries) {
+    if (e.type !== 'message') continue;
+    // A sender the run never recorded is nobody the rail can name.
+    if (e.author.unrecorded) {
+      first = false;
+      continue;
     }
+    const actor = e.event?.actor;
+    const person = e.author.kind === 'person' || actor?.kind === 'person';
+    const kind: Participant['kind'] = person
+      ? 'person'
+      : e.author.kind === 'agent'
+        ? 'agent'
+        : 'trigger';
+    const name =
+      e.author.kind === 'trigger' && actor?.kind === 'person' ? actor.name : e.author.name;
+    const prev = by.get(name);
+    // How they reached the run: by hand, or through a provider's trigger.
+    const via =
+      e.author.kind !== 'trigger'
+        ? undefined
+        : e.author.via === 'manual'
+          ? 'by hand'
+          : `via ${(e.author.provider && PROVIDER_NAME[e.author.provider]) || e.author.name}`;
+    by.set(name, {
+      kind,
+      messages: (prev?.messages ?? 0) + 1,
+      started: prev?.started ?? first,
+      via: prev?.via ?? via,
+    });
+    first = false;
   }
-  return [...byPath.values()];
+  return [...by].map(([name, p]) => {
+    const count = `${p.messages} ${p.messages === 1 ? 'message' : 'messages'}`;
+    const parts = p.started
+      ? [p.via ? `Started it ${p.via}` : 'Started it', p.messages > 1 ? count : '']
+      : [count, p.via ?? ''];
+    return { name, kind: p.kind, detail: parts.filter(Boolean).join(' · ') };
+  });
 }
 
-/** The question the run waits on, when the agent asked one and nobody has answered. */
-export function openQuestion(run: RunView): Extract<Entry, { type: 'question' }> | null {
-  const last = run.entries[run.entries.length - 1];
-  return run.state === 'idle' && last?.type === 'question' ? last : null;
+/** A command without the plumbing: a leading `cd` dropped and a chain split into its commands. */
+export function commandParts(step: Step): string[] {
+  if (step.kind !== 'execute') return [step.target];
+  const parts = step.target
+    .split(/;\s*|&&\s*/)
+    .map((p) => p.trim())
+    .filter((p) => p && !/^cd\s+\S+$/.test(p));
+  return parts.length ? parts : [step.target];
+}
+
+/** Elapsed time at `now` (ms): to the end for an ended run, to now for a live one. */
+export function elapsedMs(run: RunView, now: number): number {
+  const start = run.startedAt ? new Date(run.startedAt).getTime() : NaN;
+  const end = run.endedAt ? new Date(run.endedAt).getTime() : now;
+  return Number.isNaN(start) ? 0 : Math.max(0, end - start);
+}
+
+/** "1.2K", or the number itself under a thousand. */
+export const compact = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n));
+
+/** The run's token use, as the rail and the end line both show it. */
+export function tokensLine(run: RunView): string {
+  const r = run.record;
+  if (!r) return '';
+  return `${compact(r.inputTokens)} in · ${compact(r.outputTokens)} out · ${compact(r.cachedTokens)} cached`;
 }
 
 export const ENDED: ReadonlySet<RunState> = new Set([
@@ -563,8 +617,8 @@ export function formatSpan(ms: number): string {
   return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
 }
 
-/** The wall-clock time of a point in the run, as "09:14:05". */
-export function clockAt(run: RunView, seconds: number): string {
-  const t = new Date(new Date(run.startedAt).getTime() + seconds * 1000);
-  return t.toISOString().slice(11, 19);
+/** A local wall-clock time as "09:14". */
+export function clockOf(iso: string): string {
+  const t = new Date(iso);
+  return Number.isNaN(t.getTime()) ? '' : t.toTimeString().slice(0, 5);
 }
