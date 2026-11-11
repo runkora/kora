@@ -18,6 +18,7 @@ import {
   Text,
   type IconName,
 } from '@runkora/hades';
+import { isSafeUrl } from '@runkora/lib/safe-url';
 import { parseTriggerMessage } from '../_lib/trigger-message';
 import { useRunLayout } from '../_lib/run-layout';
 import type { Entry, TriggerEventSummary, TriggerOrigin } from '../_lib/run-view';
@@ -54,7 +55,8 @@ function Mark({ actor }: { actor: TriggerEvent['actor'] }) {
 
 function ObjectLink({ object }: { object: TriggerEvent['object'] }) {
   if (!object.label) return null;
-  return object.url ? (
+  // A summary's URL is recorded data; only an http(s) one becomes a link.
+  return isSafeUrl(object.url) ? (
     <Anchor href={object.url} target="_blank" rel="noopener noreferrer">
       {object.label}
     </Anchor>

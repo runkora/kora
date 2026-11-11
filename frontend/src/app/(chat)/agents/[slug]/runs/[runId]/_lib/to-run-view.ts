@@ -7,6 +7,7 @@ import type { IconName } from '@runkora/hades';
 import type { RunEventSummary, RunSource, RunWithAttribution } from '@runkora/shared/api';
 import { fmtDateTime } from '@runkora/utils';
 import { relativeTime } from '@runkora/lib/relative-time';
+import { isSafeUrl } from '@runkora/lib/safe-url';
 import type { HumanTurn, RunChatState, ToolCall } from '../_types';
 import type { UseRunReturn } from '../_hooks/use-run';
 import { describeTool, policyDenial, type ToolKind } from './tool-activity';
@@ -328,7 +329,7 @@ export function toRunView(s: UseRunReturn, now: number): RunView {
       limitUsd: typeof limit === 'number' && limit > 0 ? limit : null,
       tokens: s.tokensUsed,
     },
-    traceUrl: s.traceUrl,
+    traceUrl: isSafeUrl(s.traceUrl) ? s.traceUrl : null,
     entries,
     queued,
     activity: activityOf(s.liveActivity),
