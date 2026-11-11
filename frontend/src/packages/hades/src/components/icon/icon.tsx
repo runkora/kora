@@ -181,6 +181,12 @@ export interface IconProps {
   rotate?: 0 | 45 | 90 | 135 | 180 | 270;
 
   /**
+   * When true, the icon turns continuously. Use on `loader` to show work in
+   * progress. It stays still for a user who asks for reduced motion.
+   */
+  spin?: boolean;
+
+  /**
    * When true, adds `shrink-0` to the wrapper span so this icon does not
    * compress inside a flex row when sibling elements compete for space.
    */
@@ -228,6 +234,7 @@ const Icon = React.forwardRef<HTMLSpanElement, IconProps>(
       filled = false,
       label,
       rotate,
+      spin = false,
       shrink = false,
       cursorGrab = false,
       groupReveal = false,
@@ -240,6 +247,7 @@ const Icon = React.forwardRef<HTMLSpanElement, IconProps>(
       'shrink-0 pointer-events-none',
       color && !container && ICON_COLOR[color],
       filled && 'fill-current',
+      spin && 'motion-safe:animate-spin',
     );
 
     const svgEl = <LucideIcon className={svgClasses} aria-hidden={true} data-slot="icon" />;

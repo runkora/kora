@@ -104,6 +104,9 @@ export const Options: Story = {
             <Icon name="chevron-right" size="md" rotate={90} />
           </Stack>
         </Option>
+        <Option name="spin" use="Turn the icon continuously, for a loader on work in progress.">
+          <Icon name="loader" size="md" color="accent" spin />
+        </Option>
         <Option
           name="groupReveal"
           use="Hide the icon until its group is hovered or holds keyboard focus, for row actions."

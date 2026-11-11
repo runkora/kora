@@ -36,7 +36,16 @@ const STATE_ICON: Partial<Record<RunStateDisplay['status'], { name: IconName; co
 function RunStateIcon({ state }: { state: string }) {
   const display = RUN_STATE_DISPLAY[state] ?? { status: 'idle', label: state };
   const icon = STATE_ICON[display.status] ?? { name: 'circle-check', color: 'muted' };
-  return <Icon name={icon.name} size="sm" color={icon.color} label={display.label} shrink />;
+  return (
+    <Icon
+      name={icon.name}
+      size="sm"
+      color={icon.color}
+      label={display.label}
+      shrink
+      spin={icon.name === 'loader'}
+    />
+  );
 }
 
 /** Who started the run as one round mark: a person's initials or a trigger's icon. */
