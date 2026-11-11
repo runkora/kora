@@ -56,7 +56,9 @@ Terminating a live run ends it as `terminated`, and a run that already ended kee
 
 ## Run sources
 
-A run that a [trigger](../guides/create-a-trigger.md) started carries links to what started it: the message or event itself, and the pull request, repository and branch the delivery names. A later delivery that joins the run adds its own links. Run rows on the Agents page and an agent's page, and the run view's top bar, show a chip for each delivery, with the GitHub, Slack or Alertmanager icon, and fold the remaining links into a "+N" chip that lists them. A run with no recorded sources, such as one a person started, shows no chips.
+A run started by a [trigger](../guides/create-a-trigger.md) links back to the event that started it, such as a GitHub pull request, a Slack message or an Alertmanager alert. When the event has them, the links also cover the pull request, repository and branch. When a trigger sends another event to the same run, that event's links are added. A run started by a person or through the API has no links.
+
+Only kora can add links to a run.
 
 ## When a run ends
 
@@ -66,3 +68,4 @@ When a run ends, its [sandbox](sandboxes.md) and anything installed or cached in
 
 - [Run and session lifecycle](../adr/2026-05-11-run-and-session-lifecycle.md)
 - [Run scheduling](../adr/2026-10-12-run-scheduling.md)
+- [Run sources](../adr/2026-11-07-run-sources.md)
