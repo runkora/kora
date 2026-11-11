@@ -233,6 +233,8 @@ type StartRunRequest struct {
 
 	// Sources link to what started the run. kora-agents accepts them only from a SERVICE principal.
 	Sources []RunSource `json:"sources,omitempty"`
+	// Event summarizes the event behind the first message. kora-agents accepts it only from a SERVICE principal.
+	Event *RunEventSummary `json:"event,omitempty"`
 }
 
 // RunSource is a link to what started or joined a run. Kind is one of trigger,
@@ -243,6 +245,47 @@ type RunSource struct {
 	URL      string `json:"url"`
 	Label    string `json:"label"`
 	Provider string `json:"provider,omitempty"`
+}
+
+// RunEventSummary describes the event behind a trigger's message: who did what
+// to which object, and a preview of that object. Actor kind is person, bot or
+// system; a status tone is ok or bad. Strings are at most 300 characters, a
+// quote at most 2,000, and a preview at most 6 facts.
+// See docs/adr/2026-11-11-run-page-record.md.
+type RunEventSummary struct {
+	Actor   RunEventActor    `json:"actor"`
+	Verb    string           `json:"verb"`
+	Object  RunEventObject   `json:"object"`
+	Quote   string           `json:"quote,omitempty"`
+	Preview *RunEventPreview `json:"preview,omitempty"`
+}
+
+// RunEventActor is who caused the event.
+type RunEventActor struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+	URL  string `json:"url,omitempty"`
+}
+
+// RunEventObject is what the event acted on.
+type RunEventObject struct {
+	Label string `json:"label"`
+	URL   string `json:"url,omitempty"`
+}
+
+// RunEventPreview is the object as it was when the event arrived.
+type RunEventPreview struct {
+	Title   string          `json:"title"`
+	Facts   []string        `json:"facts,omitempty"`
+	Added   *int            `json:"added,omitempty"`
+	Removed *int            `json:"removed,omitempty"`
+	Status  *RunEventStatus `json:"status,omitempty"`
+}
+
+// RunEventStatus is the object's state.
+type RunEventStatus struct {
+	Label string `json:"label"`
+	Tone  string `json:"tone"`
 }
 
 // StartRunResponse captures the subset of the created run the caller needs.
@@ -422,6 +465,8 @@ type SendRunMessageRequest struct {
 
 	// Sources are appended to the run's sources, de-duplicated by URL.
 	Sources []RunSource `json:"sources,omitempty"`
+	// Event summarizes the event behind the message.
+	Event *RunEventSummary `json:"event,omitempty"`
 }
 
 // SendRunMessage delivers a message to an active or idle run, authenticating
