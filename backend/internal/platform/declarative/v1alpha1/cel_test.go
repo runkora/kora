@@ -230,12 +230,12 @@ func TestConnectionBaseHostRules(t *testing.T) {
 	}
 }
 
-// TestConnectionBearerRules covers the bearer baseHost rule and the schema's
+// TestConnectionAPIKeyRules covers the apikey baseHost rule and the schema's
 // secretRef requirement. config.placeholderEnv is validated in the Connection
 // webhook, because CEL cannot read the undeclared config fields.
-func TestConnectionBearerRules(t *testing.T) {
+func TestConnectionAPIKeyRules(t *testing.T) {
 	const file = "generated/runkora.io_connections.yaml"
-	const missing = "bearer connections require a non-empty baseHost."
+	const missing = "apikey connections require a non-empty baseHost."
 	s, all := structural(t, file)
 	msgs := map[string]apiextensionsv1.ValidationRule{}
 	for _, r := range all {
@@ -255,10 +255,10 @@ func TestConnectionBearerRules(t *testing.T) {
 	for _, c := range []struct {
 		name, obj, refusal string
 	}{
-		{"no baseHost", `{metadata: {name: c}, spec: {adapter: bearer, secretRef: s}}`, missing},
-		{"empty baseHost", `{metadata: {name: c}, spec: {adapter: bearer, secretRef: s, baseHost: ""}}`, missing},
-		{"complete", `{metadata: {name: c}, spec: {adapter: bearer, secretRef: s, baseHost: registry.example.com, config: {placeholderEnv: NPM_TOKEN}}}`, ""},
-		{"complete without config", `{metadata: {name: c}, spec: {adapter: bearer, secretRef: s, baseHost: registry.example.com}}`, ""},
+		{"no baseHost", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s}}`, missing},
+		{"empty baseHost", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s, baseHost: ""}}`, missing},
+		{"complete", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s, baseHost: registry.example.com, config: {placeholderEnv: NPM_TOKEN}}}`, ""},
+		{"complete without config", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s, baseHost: registry.example.com}}`, ""},
 		{"other adapter without baseHost", `{metadata: {name: c}, spec: {adapter: github_app, secretRef: s}}`, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {

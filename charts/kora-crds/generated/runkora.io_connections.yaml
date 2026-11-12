@@ -104,8 +104,8 @@ spec:
             - secretRef
             type: object
             x-kubernetes-validations:
-            - message: bearer connections require a non-empty baseHost.
-              rule: self.adapter != 'bearer' || (has(self.baseHost) && size(self.baseHost)
+            - message: apikey connections require a non-empty baseHost.
+              rule: self.adapter != 'apikey' || (has(self.baseHost) && size(self.baseHost)
                 > 0)
             - message: kubernetes connections require a non-empty baseHost.
               rule: self.adapter != 'kubernetes' || (has(self.baseHost) && size(self.baseHost)

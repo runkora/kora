@@ -160,9 +160,9 @@ func TestConnectionAggregator_KeepsEarlierOfConflictingConnections(t *testing.T)
 	}
 }
 
-func TestConnectionValidator_BearerPlaceholderEnv(t *testing.T) {
-	bearer := func(config string) *Connection {
-		c := testConnection("npm", "bearer", "registry.example.com", "", 0)
+func TestConnectionValidator_APIKeyConfig(t *testing.T) {
+	apikey := func(config string) *Connection {
+		c := testConnection("npm", "apikey", "registry.example.com", "", 0)
 		c.Spec.Config = runtime.RawExtension{}
 		if config != "" {
 			c.Spec.Config.Raw = []byte(config)
@@ -171,32 +171,40 @@ func TestConnectionValidator_BearerPlaceholderEnv(t *testing.T) {
 	}
 	other := testConnection("npm-gh", "github_app", "github.com", "contoso", 0)
 	other.Spec.Config = runtime.RawExtension{Raw: []byte(`{"placeholderEnv":"bad name"}`)}
-	noConfig := bearer("")
+	noConfig := apikey("")
 	tests := []struct {
 		name        string
 		conn        *Connection
 		wantAllowed bool
 	}{
-		{"valid name", bearer(`{"placeholderEnv":"NPM_TOKEN"}`), true},
-		{"leading underscore and digits", bearer(`{"placeholderEnv":"_A1"}`), true},
-		{"key absent", bearer(`{"header":"X-Token"}`), true},
+		{"valid name", apikey(`{"placeholderEnv":"NPM_TOKEN"}`), true},
+		{"leading underscore and digits", apikey(`{"placeholderEnv":"_A1"}`), true},
+		{"key absent", apikey(`{"headers":[{"name":"x-api-key"}]}`), true},
 		{"no config", noConfig, true},
-		{"empty object", bearer(`{}`), true},
-		{"space in name", bearer(`{"placeholderEnv":"bad name"}`), false},
-		{"lower case is a valid runtime name", bearer(`{"placeholderEnv":"npm_token"}`), true},
-		{"max length", bearer(`{"placeholderEnv":"` + strings.Repeat("A", 128) + `"}`), true},
-		{"over length", bearer(`{"placeholderEnv":"` + strings.Repeat("A", 129) + `"}`), false},
-		{"PATH", bearer(`{"placeholderEnv":"PATH"}`), false},
-		{"lower case path", bearer(`{"placeholderEnv":"path"}`), false},
-		{"LD_PRELOAD", bearer(`{"placeholderEnv":"LD_PRELOAD"}`), false},
-		{"DYLD_ prefix", bearer(`{"placeholderEnv":"DYLD_INSERT_LIBRARIES"}`), false},
-		{"KORA_ prefix", bearer(`{"placeholderEnv":"KORA_TOKEN"}`), false},
-		{"lower case kora prefix", bearer(`{"placeholderEnv":"kora_token"}`), false},
-		{"KUBECONFIG", bearer(`{"placeholderEnv":"KUBECONFIG"}`), false},
-		{"leading digit", bearer(`{"placeholderEnv":"1TOKEN"}`), false},
-		{"empty string", bearer(`{"placeholderEnv":""}`), false},
-		{"non-string", bearer(`{"placeholderEnv":5}`), false},
-		{"null", bearer(`{"placeholderEnv":null}`), false},
+		{"empty object", apikey(`{}`), true},
+		{"space in name", apikey(`{"placeholderEnv":"bad name"}`), false},
+		{"lower case is a valid runtime name", apikey(`{"placeholderEnv":"npm_token"}`), true},
+		{"max length", apikey(`{"placeholderEnv":"` + strings.Repeat("A", 128) + `"}`), true},
+		{"over length", apikey(`{"placeholderEnv":"` + strings.Repeat("A", 129) + `"}`), false},
+		{"PATH", apikey(`{"placeholderEnv":"PATH"}`), false},
+		{"lower case path", apikey(`{"placeholderEnv":"path"}`), false},
+		{"LD_PRELOAD", apikey(`{"placeholderEnv":"LD_PRELOAD"}`), false},
+		{"DYLD_ prefix", apikey(`{"placeholderEnv":"DYLD_INSERT_LIBRARIES"}`), false},
+		{"KORA_ prefix", apikey(`{"placeholderEnv":"KORA_TOKEN"}`), false},
+		{"lower case kora prefix", apikey(`{"placeholderEnv":"kora_token"}`), false},
+		{"KUBECONFIG", apikey(`{"placeholderEnv":"KUBECONFIG"}`), false},
+		{"leading digit", apikey(`{"placeholderEnv":"1TOKEN"}`), false},
+		{"empty string", apikey(`{"placeholderEnv":""}`), false},
+		{"non-string", apikey(`{"placeholderEnv":5}`), false},
+		{"null", apikey(`{"placeholderEnv":null}`), false},
+		{"two headers", apikey(`{"headers":[{"name":"Authorization","prefix":"Bearer "},{"name":"x-api-key"}]}`), true},
+		{"reserved header", apikey(`{"headers":[{"name":"Host"}]}`), false},
+		{"invalid header name", apikey(`{"headers":[{"name":"bad name"}]}`), false},
+		{"duplicate header", apikey(`{"headers":[{"name":"X-Key"},{"name":"x-key"}]}`), false},
+		{"empty headers list", apikey(`{"headers":[]}`), false},
+		{"nine headers", apikey(`{"headers":[` + strings.TrimSuffix(strings.Repeat(`{"name":"X-K"},`, 9), ",") + `]}`), false},
+		{"over-long prefix", apikey(`{"headers":[{"name":"X-Key","prefix":"` + strings.Repeat("p", 257) + `"}]}`), false},
+		{"unknown key", apikey(`{"header":"X-Token"}`), false},
 		{"other adapter not checked", other, true},
 	}
 	for _, tc := range tests {
@@ -207,8 +215,8 @@ func TestConnectionValidator_BearerPlaceholderEnv(t *testing.T) {
 			if resp.Allowed != tc.wantAllowed {
 				t.Fatalf("allowed = %v, want %v (%v)", resp.Allowed, tc.wantAllowed, resp.Result)
 			}
-			if !tc.wantAllowed && !strings.Contains(resp.Result.Message, "config.placeholderEnv") {
-				t.Errorf("message %q does not cite config.placeholderEnv", resp.Result.Message)
+			if !tc.wantAllowed && !strings.Contains(resp.Result.Message, "apikey connections") {
+				t.Errorf("message %q does not cite apikey connections", resp.Result.Message)
 			}
 		})
 	}
