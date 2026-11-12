@@ -34,7 +34,7 @@ func TestActionNames(t *testing.T) {
 			"rbac:read", "rbac:write",
 			"cluster:read", "cluster:write",
 		},
-		AdapterBearer:     {"read", "write"},
+		AdapterAPIKey:     {"read", "write"},
 		"unknown_adapter": {},
 	}
 	for adapter, want := range cases {
@@ -167,14 +167,14 @@ func TestValidateBaseHost_NoRequirement(t *testing.T) {
 	}
 }
 
-// TestEgressHosts_Bearer locks that a bearer connection serves exactly its
+// TestEgressHosts_APIKey locks that an apikey connection serves exactly its
 // declared host.
-func TestEgressHosts_Bearer(t *testing.T) {
+func TestEgressHosts_APIKey(t *testing.T) {
 	want := []string{"npm.pkg.github.com"}
-	if got := EgressHosts(AdapterBearer, "npm.pkg.github.com"); !slices.Equal(got, want) {
-		t.Errorf("EgressHosts(bearer) = %v, want %v", got, want)
+	if got := EgressHosts(AdapterAPIKey, "npm.pkg.github.com"); !slices.Equal(got, want) {
+		t.Errorf("EgressHosts(apikey) = %v, want %v", got, want)
 	}
-	if got := EgressHosts(AdapterBearer, ""); got != nil {
-		t.Errorf("EgressHosts(bearer, \"\") = %v, want nil", got)
+	if got := EgressHosts(AdapterAPIKey, ""); got != nil {
+		t.Errorf("EgressHosts(apikey, \"\") = %v, want nil", got)
 	}
 }

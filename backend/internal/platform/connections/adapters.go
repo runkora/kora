@@ -30,7 +30,7 @@ import (
 const (
 	AdapterGitHubApp        = "github_app"
 	AdapterKubernetesBearer = "kubernetes"
-	AdapterBearer           = "bearer"
+	AdapterAPIKey           = "apikey"
 )
 
 // Action vocabulary, shared by the gateway adapters (which classify requests
@@ -58,10 +58,10 @@ const (
 	ActionGitHubAdminRead     = "admin:read"
 	ActionGitHubAdminWrite    = "admin:write"
 
-	// Bearer actions are a coarse read/write pair chosen by HTTP method. See
-	// docs/adr/2026-11-11-bearer-connection-adapter.md.
-	ActionBearerRead  = "read"
-	ActionBearerWrite = "write"
+	// API key actions are a coarse read/write pair chosen by HTTP method. See
+	// docs/adr/2026-11-11-apikey-connection-adapter.md.
+	ActionAPIKeyRead  = "read"
+	ActionAPIKeyWrite = "write"
 
 	// Kubernetes actions are resource-category-scoped, not one coarse
 	// read/write pair. See docs/adr/2026-07-06-kubernetes-connection-bearer-
@@ -204,10 +204,10 @@ var registry = map[string]adapterMeta{
 		// ErrBaseHostMustBeHostname.
 		requiresHostname: true,
 	},
-	AdapterBearer: {
+	AdapterAPIKey: {
 		actions: []ActionMeta{
-			{Action: ActionBearerRead, Description: "Read access to the host: GET and HEAD requests"},
-			{Action: ActionBearerWrite, Description: "Write access to the host: POST, PUT, PATCH and DELETE requests"},
+			{Action: ActionAPIKeyRead, Description: "Read access to the host: GET and HEAD requests"},
+			{Action: ActionAPIKeyWrite, Description: "Write access to the host: POST, PUT, PATCH and DELETE requests"},
 		},
 		// A bearer connection serves exactly its declared host. It has no
 		// qualifier and no baseline actions.

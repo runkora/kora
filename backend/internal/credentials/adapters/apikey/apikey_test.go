@@ -1,16 +1,17 @@
-package bearer_test
+package apikey_test
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/runkora/kora/backend/internal/credentials"
-	"github.com/runkora/kora/backend/internal/credentials/adapters/bearer"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/apikey"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -29,7 +30,7 @@ func open(t *testing.T, secrets credentials.SecretResolver, cfg string, logs *by
 	if logs == nil {
 		logs = &out
 	}
-	a := bearer.New(secrets, logging.NewLoggerWithOutput(logs))
+	a := apikey.New(secrets, logging.NewLoggerWithOutput(logs))
 	conn := credentials.Connection{Name: "npm", SecretRef: "ref"}
 	if cfg != "" {
 		conn.Config = json.RawMessage(cfg)
@@ -47,9 +48,9 @@ func mustOpen(t *testing.T, cfg string) credentials.Connector {
 }
 
 func TestAdapter_TypeAndActions(t *testing.T) {
-	a := bearer.New(stubSecrets{}, logging.NewLoggerWithOutput(&bytes.Buffer{}))
-	if a.Type() != credentials.AdapterBearer {
-		t.Errorf("Type() = %q, want %q", a.Type(), credentials.AdapterBearer)
+	a := apikey.New(stubSecrets{}, logging.NewLoggerWithOutput(&bytes.Buffer{}))
+	if a.Type() != credentials.AdapterAPIKey {
+		t.Errorf("Type() = %q, want %q", a.Type(), credentials.AdapterAPIKey)
 	}
 	var got []string
 	for _, d := range a.Actions() {
@@ -66,12 +67,12 @@ func TestClassify(t *testing.T) {
 		method string
 		want   string
 	}{
-		{http.MethodGet, bearer.ActionRead},
-		{http.MethodHead, bearer.ActionRead},
-		{http.MethodPost, bearer.ActionWrite},
-		{http.MethodPut, bearer.ActionWrite},
-		{http.MethodPatch, bearer.ActionWrite},
-		{http.MethodDelete, bearer.ActionWrite},
+		{http.MethodGet, apikey.ActionRead},
+		{http.MethodHead, apikey.ActionRead},
+		{http.MethodPost, apikey.ActionWrite},
+		{http.MethodPut, apikey.ActionWrite},
+		{http.MethodPatch, apikey.ActionWrite},
+		{http.MethodDelete, apikey.ActionWrite},
 	}
 	for _, tt := range tests {
 		req, _ := http.NewRequest(tt.method, "https://npm.pkg.github.com/x", nil)
@@ -96,12 +97,20 @@ func TestClassify_Unsupported(t *testing.T) {
 	}
 }
 
+func hdrs(c credentials.Credential) string {
+	var parts []string
+	for _, h := range c.Headers {
+		parts = append(parts, h.Name+": "+h.Value)
+	}
+	return strings.Join(parts, "|")
+}
+
 func TestMint_Default(t *testing.T) {
 	cred, err := mustOpen(t, "").Mint(context.Background(), credentials.CallerIdentity{})
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
-	if cred.Header != "Authorization" || cred.Value != "Bearer "+secretToken || cred.Token != secretToken {
+	if got := hdrs(cred); got != "Authorization: Bearer "+secretToken || cred.Token != secretToken {
 		t.Errorf("Mint = %+v", cred)
 	}
 	if !cred.ExpiresAt.IsZero() {
@@ -109,23 +118,25 @@ func TestMint_Default(t *testing.T) {
 	}
 }
 
-func TestMint_CustomHeaderAndPrefix(t *testing.T) {
-	cred, err := mustOpen(t, `{"header":"X-Api-Key","prefix":"Token "}`).Mint(context.Background(), credentials.CallerIdentity{})
+func TestMint_HeadersWithoutPrefixIsRaw(t *testing.T) {
+	cred, err := mustOpen(t, `{"headers":[{"name":"x-api-key"}]}`).Mint(context.Background(), credentials.CallerIdentity{})
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
-	if cred.Header != "X-Api-Key" || cred.Value != "Token "+secretToken {
-		t.Errorf("Mint = %+v", cred)
+	if got := hdrs(cred); got != "x-api-key: "+secretToken {
+		t.Errorf("Mint = %q", got)
 	}
 }
 
-func TestMint_EmptyPrefixIsRawToken(t *testing.T) {
-	cred, err := mustOpen(t, `{"prefix":""}`).Mint(context.Background(), credentials.CallerIdentity{})
+func TestMint_MultipleHeaders(t *testing.T) {
+	cfg := `{"headers":[{"name":"Authorization","prefix":"Token "},{"name":"x-api-key"}]}`
+	cred, err := mustOpen(t, cfg).Mint(context.Background(), credentials.CallerIdentity{})
 	if err != nil {
 		t.Fatalf("Mint: %v", err)
 	}
-	if cred.Value != secretToken {
-		t.Errorf("Value = %q, want raw token", cred.Value)
+	want := "Authorization: Token " + secretToken + "|x-api-key: " + secretToken
+	if got := hdrs(cred); got != want {
+		t.Errorf("Mint = %q, want %q", got, want)
 	}
 }
 
@@ -135,7 +146,7 @@ func TestMint_TrimsTrailingNewline(t *testing.T) {
 		t.Fatal(err)
 	}
 	cred, err := c.Mint(context.Background(), credentials.CallerIdentity{})
-	if err != nil || cred.Value != "Bearer "+secretToken {
+	if err != nil || hdrs(cred) != "Authorization: Bearer "+secretToken {
 		t.Errorf("Mint = %+v, %v", cred, err)
 	}
 }
@@ -166,28 +177,50 @@ func TestMint_NeverLogsToken(t *testing.T) {
 }
 
 func TestOpen_Config(t *testing.T) {
-	valid := []string{"", "null", "{}", `{"placeholderEnv":"NPM_TOKEN"}`, `{"header":"X-Token","prefix":"","placeholderEnv":"A_1"}`}
+	valid := []string{
+		"", "null", "{}", `{"placeholderEnv":"NPM_TOKEN"}`,
+		`{"headers":[{"name":"X-Token","prefix":""}],"placeholderEnv":"A_1"}`,
+		`{"headers":[{"name":"` + strings.Repeat("a", 64) + `"}]}`,
+		`{"headers":[{"name":"a","prefix":"` + strings.Repeat("p", 256) + `"}]}`,
+	}
 	for _, cfg := range valid {
 		if _, err := open(t, stubSecrets{}, cfg, nil); err != nil {
 			t.Errorf("Open(%q) = %v, want nil", cfg, err)
 		}
 	}
+	var nine []string
+	for i := range 9 {
+		nine = append(nine, fmt.Sprintf(`{"name":"h%d"}`, i))
+	}
 	invalid := []string{
-		`{"hedaer":"X"}`,
-		`{"header":"bad name"}`,
-		`{"header":"X:Y"}`,
-		`{"header":"Host"}`,
-		`{"header":"content-length"}`,
-		`{"header":"Transfer-Encoding"}`,
-		`{"header":"Connection"}`,
-		`{"prefix":"a\nb"}`,
-		`{"header":1}`,
+		`{"hedaers":[]}`,
+		`{"header":"X"}`,
+		`{"headers":[]}`,
+		`{"headers":[{"name":"bad name"}]}`,
+		`{"headers":[{"name":"X:Y"}]}`,
+		`{"headers":[{"name":""}]}`,
+		`{"headers":[{"name":"Host"}]}`,
+		`{"headers":[{"name":"content-length"}]}`,
+		`{"headers":[{"name":"Transfer-Encoding"}]}`,
+		`{"headers":[{"name":"X-Forwarded-For"}]}`,
+		`{"headers":[{"name":"x-envoy-foo"}]}`,
+		`{"headers":[{"name":"X-Kora-Run-Id"}]}`,
+		`{"headers":[{"name":"a"},{"name":"A"}]}`,
+		`{"headers":[{"name":"a","secretRef":"x"}]}`,
+		`{"headers":[{"name":"` + strings.Repeat("a", 65) + `"}]}`,
+		`{"headers":[{"name":"a","prefix":"` + strings.Repeat("p", 257) + `"}]}`,
+		`{"headers":[{"name":"a","prefix":"a\nb"}]}`,
+		`{"headers":[` + strings.Join(nine, ",") + `]}`,
+		`{"headers":"x"}`,
 		`[]`,
 		`{} {}`,
 	}
 	for _, cfg := range invalid {
-		if _, err := open(t, stubSecrets{}, cfg, nil); !errors.Is(err, bearer.ErrInvalidConfig) {
+		if _, err := open(t, stubSecrets{}, cfg, nil); !errors.Is(err, apikey.ErrInvalidConfig) {
 			t.Errorf("Open(%q) err = %v, want ErrInvalidConfig", cfg, err)
+		}
+		if err := apikey.ValidateConfig(json.RawMessage(cfg)); !errors.Is(err, apikey.ErrInvalidConfig) {
+			t.Errorf("ValidateConfig(%q) err = %v, want ErrInvalidConfig", cfg, err)
 		}
 	}
 }
