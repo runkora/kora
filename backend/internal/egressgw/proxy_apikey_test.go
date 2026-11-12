@@ -11,22 +11,22 @@ import (
 	"testing"
 
 	"github.com/runkora/kora/backend/internal/credentials"
-	"github.com/runkora/kora/backend/internal/credentials/adapters/bearer"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/apikey"
 	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-const bearerRealToken = "ghp_real_registry_token"
+const apikeyRealToken = "ghp_real_registry_token"
 
-type bearerSecrets struct{}
+type apikeySecrets struct{}
 
-func (bearerSecrets) Resolve(context.Context, string) ([]byte, error) {
-	return []byte(bearerRealToken), nil
+func (apikeySecrets) Resolve(context.Context, string) ([]byte, error) {
+	return []byte(apikeyRealToken), nil
 }
 
-// bearerFixture wires a real bearer adapter behind the proxy. One upstream
-// hosts the bearer connection; a second is a host with no connection.
-type bearerFixture struct {
+// apikeyFixture wires a real apikey adapter behind the proxy. One upstream
+// hosts the apikey connection; a second is a host with no connection.
+type apikeyFixture struct {
 	gateway      *httptest.Server
 	servedHost   string
 	unservedHost string
@@ -36,7 +36,7 @@ type bearerFixture struct {
 	hits map[string]string      // upstream host -> method of the last request
 }
 
-func (f *bearerFixture) record(host string) http.HandlerFunc {
+func (f *apikeyFixture) record(host string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.seen[host] = r.Header.Clone()
@@ -46,10 +46,10 @@ func (f *bearerFixture) record(host string) http.HandlerFunc {
 	}
 }
 
-func newBearerFixture(t *testing.T, eval policyChecker, cfg string) *bearerFixture {
+func newAPIKeyFixture(t *testing.T, eval policyChecker, cfg string) *apikeyFixture {
 	t.Helper()
 	logger := logging.NewLoggerWithOutput(io.Discard)
-	f := &bearerFixture{seen: map[string]http.Header{}, hits: map[string]string{}}
+	f := &apikeyFixture{seen: map[string]http.Header{}, hits: map[string]string{}}
 
 	served := httptest.NewTLSServer(nil)
 	unserved := httptest.NewTLSServer(nil)
@@ -60,7 +60,7 @@ func newBearerFixture(t *testing.T, eval policyChecker, cfg string) *bearerFixtu
 
 	conn := &credentials.Connection{
 		ID: "conn-npm", TenantID: "acme", Name: "npm",
-		Adapter: credentials.AdapterBearer, BaseHost: f.servedHost, SecretRef: "ref",
+		Adapter: credentials.AdapterAPIKey, BaseHost: f.servedHost, SecretRef: "ref",
 	}
 	if cfg != "" {
 		conn.Config = []byte(cfg)
@@ -69,7 +69,7 @@ func newBearerFixture(t *testing.T, eval policyChecker, cfg string) *bearerFixtu
 	_ = repo.Create(context.Background(), conn)
 
 	registry := NewAdapterRegistry()
-	registry.Register(bearer.New(bearerSecrets{}, logger))
+	registry.Register(apikey.New(apikeySecrets{}, logger))
 	broker := NewBroker(eval, repo, registry, passthrough.New(), logger)
 	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 	handler := NewProxyHandler(broker, tr, testBrand, logger)
@@ -79,7 +79,7 @@ func newBearerFixture(t *testing.T, eval policyChecker, cfg string) *bearerFixtu
 	return f
 }
 
-func (f *bearerFixture) call(t *testing.T, method, host string, hdr map[string]string) *http.Response {
+func (f *apikeyFixture) call(t *testing.T, method, host string, hdr map[string]string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(method, f.gateway.URL+"/@clear-route%2fcompass-theme", nil)
 	if err != nil {
@@ -97,44 +97,63 @@ func (f *bearerFixture) call(t *testing.T, method, host string, hdr map[string]s
 	return resp
 }
 
-func (f *bearerFixture) header(host, name string) string {
+func (f *apikeyFixture) header(host, name string) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.seen[host].Get(name)
 }
 
-func TestProxy_Bearer_ReplacesPlaceholderAuthorization(t *testing.T) {
-	f := newBearerFixture(t, heldScopes{"npm:read"}, "")
+func TestProxy_APIKey_ReplacesPlaceholderAuthorization(t *testing.T) {
+	f := newAPIKeyFixture(t, heldScopes{"npm:read"}, "")
 	resp := f.call(t, http.MethodGet, f.servedHost, map[string]string{"Authorization": "Bearer placeholder"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	if got, want := f.header(f.servedHost, "Authorization"), "Bearer "+bearerRealToken; got != want {
+	if got, want := f.header(f.servedHost, "Authorization"), "Bearer "+apikeyRealToken; got != want {
 		t.Errorf("upstream Authorization = %q, want %q", got, want)
 	}
 }
 
-func TestProxy_Bearer_AddsAuthorizationWhenAbsent(t *testing.T) {
-	f := newBearerFixture(t, heldScopes{"npm:read"}, "")
+func TestProxy_APIKey_AddsAuthorizationWhenAbsent(t *testing.T) {
+	f := newAPIKeyFixture(t, heldScopes{"npm:read"}, "")
 	resp := f.call(t, http.MethodGet, f.servedHost, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	if got, want := f.header(f.servedHost, "Authorization"), "Bearer "+bearerRealToken; got != want {
+	if got, want := f.header(f.servedHost, "Authorization"), "Bearer "+apikeyRealToken; got != want {
 		t.Errorf("upstream Authorization = %q, want %q", got, want)
 	}
 }
 
-func TestProxy_Bearer_CustomHeaderReplacesClientValue(t *testing.T) {
-	f := newBearerFixture(t, heldScopes{"npm:read"}, `{"header":"X-Api-Token","prefix":""}`)
-	f.call(t, http.MethodGet, f.servedHost, map[string]string{"X-Api-Token": "placeholder"})
-	if got := f.header(f.servedHost, "X-Api-Token"); got != bearerRealToken {
-		t.Errorf("upstream X-Api-Token = %q, want %q", got, bearerRealToken)
+func TestProxy_APIKey_CustomHeaderReplacesClientValue(t *testing.T) {
+	f := newAPIKeyFixture(t, heldScopes{"npm:read"}, `{"headers":[{"name":"X-Api-Token"}]}`)
+	f.call(t, http.MethodGet, f.servedHost, map[string]string{"X-Api-Token": "placeholder", "Authorization": "Bearer placeholder"})
+	if got := f.header(f.servedHost, "X-Api-Token"); got != apikeyRealToken {
+		t.Errorf("upstream X-Api-Token = %q, want %q", got, apikeyRealToken)
+	}
+	if got := f.header(f.servedHost, "Authorization"); got != "" {
+		t.Errorf("upstream Authorization = %q, want none (stripped)", got)
 	}
 }
 
-func TestProxy_Bearer_ReadOnlyGrantDeniesPut(t *testing.T) {
-	f := newBearerFixture(t, heldScopes{"npm:read"}, "")
+func TestProxy_APIKey_MultipleHeadersReplacedAndAdded(t *testing.T) {
+	f := newAPIKeyFixture(t, heldScopes{"npm:read"},
+		`{"headers":[{"name":"Authorization","prefix":"Token "},{"name":"X-Api-Key"},{"name":"X-Extra","prefix":"k="}]}`)
+	// X-Api-Key is supplied as a placeholder (replaced); X-Extra is absent (added).
+	f.call(t, http.MethodGet, f.servedHost, map[string]string{"X-Api-Key": "placeholder"})
+	for name, want := range map[string]string{
+		"Authorization": "Token " + apikeyRealToken,
+		"X-Api-Key":     apikeyRealToken,
+		"X-Extra":       "k=" + apikeyRealToken,
+	} {
+		if got := f.header(f.servedHost, name); got != want {
+			t.Errorf("upstream %s = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestProxy_APIKey_ReadOnlyGrantDeniesPut(t *testing.T) {
+	f := newAPIKeyFixture(t, heldScopes{"npm:read"}, "")
 
 	if resp := f.call(t, http.MethodGet, f.servedHost, nil); resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET status = %d, want 200", resp.StatusCode)
@@ -154,8 +173,8 @@ func TestProxy_Bearer_ReadOnlyGrantDeniesPut(t *testing.T) {
 	}
 }
 
-func TestProxy_Bearer_UnservedHostFallsThroughToPassthrough(t *testing.T) {
-	f := newBearerFixture(t, heldScopes{"npm:read"}, "")
+func TestProxy_APIKey_UnservedHostFallsThroughToPassthrough(t *testing.T) {
+	f := newAPIKeyFixture(t, heldScopes{"npm:read"}, "")
 	resp := f.call(t, http.MethodGet, f.unservedHost, map[string]string{"Authorization": "Bearer platform-token"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (passthrough)", resp.StatusCode)
@@ -163,7 +182,7 @@ func TestProxy_Bearer_UnservedHostFallsThroughToPassthrough(t *testing.T) {
 	if got := f.header(f.unservedHost, "Authorization"); got != "" {
 		t.Errorf("unserved host saw Authorization %q, want none", got)
 	}
-	if strings.Contains(f.header(f.unservedHost, "Authorization"), bearerRealToken) {
-		t.Error("bearer token leaked to an unserved host")
+	if strings.Contains(f.header(f.unservedHost, "Authorization"), apikeyRealToken) {
+		t.Error("apikey secret leaked to an unserved host")
 	}
 }

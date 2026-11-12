@@ -51,7 +51,7 @@ import (
 	platformtoken "github.com/runkora/kora/backend/internal/platform/token"
 
 	"github.com/runkora/kora/backend/internal/credentials"
-	"github.com/runkora/kora/backend/internal/credentials/adapters/bearer"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/apikey"
 	"github.com/runkora/kora/backend/internal/credentials/adapters/githubapp"
 	"github.com/runkora/kora/backend/internal/credentials/adapters/k8sbearer"
 	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
@@ -349,8 +349,9 @@ func newAdapterRegistry(secretResolver credentials.SecretResolver, logger loggin
 	// Static ServiceAccount bearer token, reusing the same k8sfile secret
 	// resolver instance as githubapp. No minting, no cache.
 	registry.Register(k8sbearer.New(secretResolver, logger))
-	// Static bearer token for hosts such as the GitHub Packages npm registry.
-	// Serves only the host a Connection declares; other hosts stay passthrough.
-	registry.Register(bearer.New(secretResolver, logger))
+	// Static API key for hosts such as the GitHub Packages npm registry, sent in
+	// configurable headers. Serves only the host a Connection declares; other
+	// hosts stay passthrough.
+	registry.Register(apikey.New(secretResolver, logger))
 	return registry
 }

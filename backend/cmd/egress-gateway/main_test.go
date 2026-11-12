@@ -78,12 +78,12 @@ func testAdapters(t *testing.T) *egressgw.AdapterRegistry {
 	return newAdapterRegistry(nil, logging.NewLoggerWithOutput(io.Discard))
 }
 
-// TestBearerAdapterRegistered locks main.go's wiring of the bearer adapter:
-// a Connection naming "bearer" must resolve to a registered adapter.
-func TestBearerAdapterRegistered(t *testing.T) {
+// TestAPIKeyAdapterRegistered locks main.go's wiring of the apikey adapter:
+// a Connection naming "apikey" must resolve to a registered adapter.
+func TestAPIKeyAdapterRegistered(t *testing.T) {
 	registry := testAdapters(t)
-	if _, ok := registry.Lookup(credentials.AdapterBearer); !ok {
-		t.Fatal("bearer adapter not registrable")
+	if _, ok := registry.Lookup(credentials.AdapterAPIKey); !ok {
+		t.Fatal("apikey adapter not registrable")
 	}
 }
 
