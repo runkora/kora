@@ -56,7 +56,7 @@ Route every event to one agent, or let kora choose. When kora chooses, a decisio
 | Suppress duplicates            | On                                                            |
 | Auto-pause on repeated failure | On, after ten failed deliveries in a row                      |
 
-Webhook and chat triggers can also coalesce events. Events with the same key within a window start one run with the newest event.
+Webhook and platform event triggers can also coalesce events. Events with the same key within a window start one run with the newest event.
 
 ## Review and create
 
