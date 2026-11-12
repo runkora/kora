@@ -467,7 +467,7 @@ type SandboxSpec struct {
 	Size         EnvironmentSize
 	KubeClusters []kubeconfig.Cluster
 	// PlaceholderEnvs names env vars set to CredentialPlaceholder, one per
-	// granted bearer connection with config.placeholderEnv.
+	// granted apikey connection with config.placeholderEnv.
 	PlaceholderEnvs []string
 }
 
@@ -1082,7 +1082,7 @@ func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Clu
 		// never reaches GitHub and reads clearly as a non-secret to credential scanners.
 		corev1.EnvVar{Name: "GH_TOKEN", Value: CredentialPlaceholder},
 	)
-	// Bearer connections with config.placeholderEnv: the tool needs a non-empty
+	// apikey connections with config.placeholderEnv: the tool needs a non-empty
 	// token variable to issue the request, and the gateway injects the real one
 	// on the wire. A name already set above is not overridden.
 	for _, name := range placeholderEnvs {

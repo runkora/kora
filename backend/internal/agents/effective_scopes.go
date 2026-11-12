@@ -33,7 +33,7 @@ type connectionResolver interface {
 	ResolveConnection(ctx context.Context, tenantID, name string) (adapter, baseHost string, ok bool, err error)
 }
 
-// placeholderEnvResolver resolves the sandbox env var a bearer connection
+// placeholderEnvResolver resolves the sandbox env var an apikey connection
 // names. Implemented by ConnectionCatalog; kept apart from connectionResolver
 // so a resolver without it simply contributes no placeholder env vars.
 type placeholderEnvResolver interface {
@@ -445,7 +445,7 @@ func (r *ScopeResolver) KubeClusters(ctx context.Context, tenantID string, conne
 }
 
 // PlaceholderEnvs returns the env var names the sandbox sets to the credential
-// placeholder: one per granted bearer connection that sets config.placeholderEnv,
+// placeholder: one per granted apikey connection that sets config.placeholderEnv,
 // deduplicated, in first-seen order. Names only; no secret is read. A connector
 // the registry cannot resolve contributes nothing. Returns nil when no resolver
 // supports placeholder lookup.

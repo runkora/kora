@@ -1315,7 +1315,7 @@ func (s *RunService) SetRunSummary(ctx context.Context, runID, summary string) e
 }
 
 // sandboxPlaceholderEnvs resolves the env vars the sandbox sets to the
-// credential placeholder, one per granted bearer connection that names one. A
+// credential placeholder, one per granted apikey connection that names one. A
 // failed lookup yields none: no placeholder beats no sandbox.
 func (s *RunService) sandboxPlaceholderEnvs(ctx context.Context, at AgentType) []string {
 	envs, err := s.resolver.PlaceholderEnvs(ctx, at.TenantID, at.Connectors)

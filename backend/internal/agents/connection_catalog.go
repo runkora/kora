@@ -46,7 +46,7 @@ type connectionRegistryEntry struct {
 	Name     string `json:"name"`
 	Adapter  string `json:"adapter"`
 	BaseHost string `json:"base_host"`
-	// Config is read only for a bearer connection's placeholderEnv, a variable
+	// Config is read only for an apikey connection's placeholderEnv, a variable
 	// name. The token never appears here: it is mounted from secret_ref.
 	Config json.RawMessage `json:"config,omitempty"`
 }
@@ -117,9 +117,9 @@ func (c *ConnectionCatalog) ResolveConnection(ctx context.Context, tenantID, nam
 	return "", "", false, nil
 }
 
-// PlaceholderEnv returns the sandbox env var a bearer connection names in
+// PlaceholderEnv returns the sandbox env var an apikey connection names in
 // config.placeholderEnv. ok is false when the connection is not registered, is
-// not a bearer connection, sets none, or its config or placeholderEnv name is
+// not an apikey connection, sets none, or its config or placeholderEnv name is
 // invalid: a bad connection is logged by name and skipped, so it cannot take
 // the other connections' placeholders down with it. err is non-nil only when
 // the registry itself cannot be read. Only the variable name is read; the
@@ -133,7 +133,7 @@ func (c *ConnectionCatalog) PlaceholderEnv(ctx context.Context, tenantID, name s
 		if e.TenantID != tenantID || e.Name != name {
 			continue
 		}
-		if e.Adapter != platformconns.AdapterBearer || len(e.Config) == 0 {
+		if e.Adapter != platformconns.AdapterAPIKey || len(e.Config) == 0 {
 			return "", false, nil
 		}
 		var cfg struct {

@@ -272,10 +272,10 @@ func TestCatalogPlaceholderEnv_NoRealToken(t *testing.T) {
 	const real = "real-token-must-not-leak"
 	path := filepath.Join(t.TempDir(), "connections.json")
 	registry := `[
-	 {"tenant_id":"t1","name":"npm","adapter":"bearer","base_host":"registry.npmjs.org","secret_ref":"` + real + `","config":{"placeholderEnv":"NPM_TOKEN"}},
-	 {"tenant_id":"t1","name":"plain","adapter":"bearer","base_host":"a.example.com","config":{}},
+	 {"tenant_id":"t1","name":"npm","adapter":"apikey","base_host":"registry.npmjs.org","secret_ref":"` + real + `","config":{"placeholderEnv":"NPM_TOKEN"}},
+	 {"tenant_id":"t1","name":"plain","adapter":"apikey","base_host":"a.example.com","config":{}},
 	 {"tenant_id":"t1","name":"gh","adapter":"github_app","base_host":"github.com","config":{"placeholderEnv":"GHX"}},
-	 {"tenant_id":"t2","name":"npm2","adapter":"bearer","base_host":"b.example.com","config":{"placeholderEnv":"T2_TOKEN"}}]`
+	 {"tenant_id":"t2","name":"npm2","adapter":"apikey","base_host":"b.example.com","config":{"placeholderEnv":"T2_TOKEN"}}]`
 	if err := os.WriteFile(path, []byte(registry), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func TestCatalogPlaceholderEnv_NoRealToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(envs) != 1 || envs[0] != "NPM_TOKEN" {
-		t.Fatalf("envs = %v, want only NPM_TOKEN (not unset, non-bearer or other-tenant)", envs)
+		t.Fatalf("envs = %v, want only NPM_TOKEN (not unset, non-apikey or other-tenant)", envs)
 	}
 	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "kora-system"}
 	for _, e := range sandboxContainerEnv(cfg, nil, envs, "/workspaces/run-1", "exec") {
@@ -313,11 +313,11 @@ func TestSandboxContainerEnv_SkipsInvalidPlaceholderEnvs(t *testing.T) {
 func TestCatalogPlaceholderEnv_BadConnectionSkipped(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "connections.json")
 	registry := `[
-	 {"tenant_id":"t1","name":"good1","adapter":"bearer","base_host":"a.example.com","config":{"placeholderEnv":"NPM_TOKEN"}},
-	 {"tenant_id":"t1","name":"reserved","adapter":"bearer","base_host":"b.example.com","config":{"placeholderEnv":"LD_PRELOAD"}},
-	 {"tenant_id":"t1","name":"toolong","adapter":"bearer","base_host":"c.example.com","config":{"placeholderEnv":"` + strings.Repeat("A", 129) + `"}},
-	 {"tenant_id":"t1","name":"badjson","adapter":"bearer","base_host":"d.example.com","config":"not-an-object"},
-	 {"tenant_id":"t1","name":"good2","adapter":"bearer","base_host":"e.example.com","config":{"placeholderEnv":"PYPI_TOKEN"}}]`
+	 {"tenant_id":"t1","name":"good1","adapter":"apikey","base_host":"a.example.com","config":{"placeholderEnv":"NPM_TOKEN"}},
+	 {"tenant_id":"t1","name":"reserved","adapter":"apikey","base_host":"b.example.com","config":{"placeholderEnv":"LD_PRELOAD"}},
+	 {"tenant_id":"t1","name":"toolong","adapter":"apikey","base_host":"c.example.com","config":{"placeholderEnv":"` + strings.Repeat("A", 129) + `"}},
+	 {"tenant_id":"t1","name":"badjson","adapter":"apikey","base_host":"d.example.com","config":"not-an-object"},
+	 {"tenant_id":"t1","name":"good2","adapter":"apikey","base_host":"e.example.com","config":{"placeholderEnv":"PYPI_TOKEN"}}]`
 	if err := os.WriteFile(path, []byte(registry), 0o600); err != nil {
 		t.Fatal(err)
 	}
