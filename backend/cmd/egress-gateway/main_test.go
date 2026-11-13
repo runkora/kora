@@ -15,7 +15,6 @@ import (
 
 	egc "github.com/runkora/kora/backend/cmd/egress-gateway/config"
 	"github.com/runkora/kora/backend/internal/credentials"
-	"github.com/runkora/kora/backend/internal/credentials/adapters/githubapp"
 	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
 	"github.com/runkora/kora/backend/internal/egressgw"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
@@ -76,9 +75,16 @@ func withPolicyServiceURL(t *testing.T, url string) {
 // deliberately absent: AdapterRegistry.Register refuses it.
 func testAdapters(t *testing.T) *egressgw.AdapterRegistry {
 	t.Helper()
-	registry := egressgw.NewAdapterRegistry()
-	registry.Register(githubapp.New(nil, nil, logging.NewLoggerWithOutput(io.Discard)))
-	return registry
+	return newAdapterRegistry(nil, logging.NewLoggerWithOutput(io.Discard))
+}
+
+// TestAPIKeyAdapterRegistered locks main.go's wiring of the apikey adapter:
+// a Connection naming "apikey" must resolve to a registered adapter.
+func TestAPIKeyAdapterRegistered(t *testing.T) {
+	registry := testAdapters(t)
+	if _, ok := registry.Lookup(credentials.AdapterAPIKey); !ok {
+		t.Fatal("apikey adapter not registrable")
+	}
 }
 
 // TestAdapterRegistryRefusesPassthrough locks the wiring guarantee: reaching a
