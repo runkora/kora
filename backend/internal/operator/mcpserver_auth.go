@@ -15,6 +15,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
 )
 
 // aggregatedMCPServerSecretsName is the kora-system Secret holding every
@@ -32,29 +34,6 @@ var (
 	ErrMCPCredentialUnavailable = errors.New("credential unavailable")
 )
 
-// reservedHeaders are set by HTTP, the MCP client, tracing or the platform.
-// A credential header must not replace them.
-var reservedHeaders = map[string]bool{
-	"host": true, "content-length": true, "content-type": true, "accept": true,
-	"transfer-encoding": true, "connection": true, "keep-alive": true,
-	"proxy-connection": true, "proxy-authenticate": true, "proxy-authorization": true,
-	"te": true, "trailer": true, "upgrade": true,
-	"mcp-session-id": true, "mcp-protocol-version": true, "last-event-id": true,
-	"traceparent": true, "tracestate": true,
-	delegationTokenHeader: true, runIDHeader: true,
-}
-
-// delegationTokenHeader and runIDHeader are mw.DelegationTokenHeader and
-// mw.RunIDHeader, lowercased. A test keeps them in step without importing the
-// middleware into the operator.
-const (
-	delegationTokenHeader = "x-kora-delegation-token"
-	runIDHeader           = "x-kora-run-id"
-)
-
-// reservedHeaderPrefixes cover proxy and Envoy control headers.
-var reservedHeaderPrefixes = []string{"x-forwarded-", "x-envoy-"}
-
 // validateMCPServerAuth checks spec.auth. Errors carry header names only.
 func validateMCPServerAuth(spec MCPServerSpec) error {
 	if spec.Auth == nil {
@@ -63,24 +42,24 @@ func validateMCPServerAuth(spec MCPServerSpec) error {
 	if spec.CallerIdentity == CallerIdentityForward {
 		return ErrMCPServerAuthWithForward
 	}
-	if n := len(spec.Auth.Headers); n == 0 || n > maxMCPAuthHeaders {
-		return fmt.Errorf("%w: spec.auth.headers must list 1 to %d headers", ErrMCPServerBadAuthHeader, maxMCPAuthHeaders)
+	if n := len(spec.Auth.Headers); n == 0 || n > platformconns.MaxAPIKeyHeaders {
+		return fmt.Errorf("%w: spec.auth.headers must list 1 to %d headers", ErrMCPServerBadAuthHeader, platformconns.MaxAPIKeyHeaders)
 	}
 	seen := make(map[string]bool, len(spec.Auth.Headers))
 	for _, h := range spec.Auth.Headers {
 		lower := strings.ToLower(h.Name)
 		switch {
-		case len(h.Name) > maxHeaderNameLength:
-			return fmt.Errorf("%w: a header name is over %d characters", ErrMCPServerBadAuthHeader, maxHeaderNameLength)
-		case !isHeaderName(h.Name):
+		case len(h.Name) > platformconns.MaxHeaderNameLength:
+			return fmt.Errorf("%w: a header name is over %d characters", ErrMCPServerBadAuthHeader, platformconns.MaxHeaderNameLength)
+		case !platformconns.IsHeaderName(h.Name):
 			return fmt.Errorf("%w: %q must use only letters, digits and hyphens", ErrMCPServerBadAuthHeader, h.Name)
-		case isReservedHeader(lower):
+		case platformconns.IsReservedHeader(h.Name):
 			return fmt.Errorf("%w: %q is reserved", ErrMCPServerBadAuthHeader, h.Name)
 		case seen[lower]:
 			return fmt.Errorf("%w: %q is listed twice", ErrMCPServerBadAuthHeader, h.Name)
-		case len(h.Prefix) > maxPrefixLength:
-			return fmt.Errorf("%w: the prefix of %q is over %d characters", ErrMCPServerBadAuthHeader, h.Name, maxPrefixLength)
-		case !isHeaderValue([]byte(h.Prefix)):
+		case len(h.Prefix) > platformconns.MaxHeaderPrefixLength:
+			return fmt.Errorf("%w: the prefix of %q is over %d characters", ErrMCPServerBadAuthHeader, h.Name, platformconns.MaxHeaderPrefixLength)
+		case !platformconns.IsHeaderValue([]byte(h.Prefix)):
 			return fmt.Errorf("%w: the prefix of %q contains a control character", ErrMCPServerBadAuthHeader, h.Name)
 		case len(validation.IsDNS1123Subdomain(h.SecretRef.Name)) > 0 || len(validation.IsConfigMapKey(h.SecretRef.Key)) > 0:
 			return fmt.Errorf("%w: %q needs a valid secretRef.name and secretRef.key", ErrMCPServerBadAuthHeader, h.Name)
@@ -88,46 +67,6 @@ func validateMCPServerAuth(spec MCPServerSpec) error {
 		seen[lower] = true
 	}
 	return nil
-}
-
-func isReservedHeader(lower string) bool {
-	if reservedHeaders[lower] {
-		return true
-	}
-	for _, p := range reservedHeaderPrefixes {
-		if strings.HasPrefix(lower, p) {
-			return true
-		}
-	}
-	return false
-}
-
-// isHeaderName reports whether name uses only letters, digits and hyphens.
-// That subset of RFC 7230 tokens is also valid in a Secret data key.
-func isHeaderName(name string) bool {
-	if name == "" {
-		return false
-	}
-	for _, c := range []byte(name) {
-		if !isHeaderNameChar(c) {
-			return false
-		}
-	}
-	return true
-}
-
-func isHeaderNameChar(c byte) bool {
-	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' || c == '-'
-}
-
-// isHeaderValue rejects control characters other than tab, as net/http does.
-func isHeaderValue(v []byte) bool {
-	for _, c := range v {
-		if (c < 0x20 && c != '\t') || c == 0x7f {
-			return false
-		}
-	}
-	return true
 }
 
 // mcpSecretKey is the aggregated Secret's data key for one header. Keying on
@@ -141,16 +80,6 @@ func mcpSecretKey(namespace, name, header string) string {
 // maxMCPCredentialSize bounds one value. Every value shares one Secret, which
 // Kubernetes caps at 1 MiB.
 const maxMCPCredentialSize = 4 << 10
-
-// maxMCPAuthHeaders bounds spec.auth.headers for the same reason.
-const maxMCPAuthHeaders = 8
-
-// maxHeaderNameLength keeps the data key under the 253-character Secret key
-// limit: a 63-character namespace and name plus the header name and dots.
-const maxHeaderNameLength = 64
-
-// maxPrefixLength bounds the prefix carried in servers.json.
-const maxPrefixLength = 256
 
 // readMCPCredential returns the value for ref in namespace. An unusable value
 // wraps ErrMCPCredentialUnavailable. No error carries the value.
@@ -179,7 +108,7 @@ func readMCPCredential(ctx context.Context, c client.Reader, namespace string, r
 	if len(v) > maxMCPCredentialSize {
 		return nil, fmt.Errorf("%w: Secret %q key %q is over %d bytes", ErrMCPCredentialUnavailable, ref.Name, ref.Key, maxMCPCredentialSize)
 	}
-	if !isHeaderValue(v) {
+	if !platformconns.IsHeaderValue(v) {
 		return nil, fmt.Errorf("%w: Secret %q key %q contains a control character", ErrMCPCredentialUnavailable, ref.Name, ref.Key)
 	}
 	return v, nil

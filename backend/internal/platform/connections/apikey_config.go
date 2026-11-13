@@ -100,8 +100,26 @@ type APIKeyConfig struct {
 	// Headers lists the headers to inject, 1 to MaxAPIKeyHeaders. After parsing
 	// it is never empty: the default is Authorization: Bearer <secret>.
 	Headers []APIKeyHeader `json:"headers"`
-	// PlaceholderEnv names a sandbox env var set to the placeholder.
-	PlaceholderEnv string `json:"placeholderEnv"`
+	// PlaceholderEnv names a sandbox env var set to the placeholder. It is kept
+	// raw so that null and an empty string are refused by ValidatePlaceholderEnv
+	// and not read as absent.
+	PlaceholderEnv json.RawMessage `json:"placeholderEnv"`
+}
+
+// ErrInvalidPlaceholderEnv is returned by ValidatePlaceholderEnv.
+var ErrInvalidPlaceholderEnv = errors.New("config.placeholderEnv must be a plain environment variable name that is not reserved")
+
+// ValidatePlaceholderEnv checks config.placeholderEnv when the key is present.
+// An absent key is valid.
+func (c APIKeyConfig) ValidatePlaceholderEnv() error {
+	if c.PlaceholderEnv == nil {
+		return nil
+	}
+	var name string
+	if err := json.Unmarshal(c.PlaceholderEnv, &name); err != nil || !ValidPlaceholderEnvName(name) {
+		return ErrInvalidPlaceholderEnv
+	}
+	return nil
 }
 
 // ParseAPIKeyConfig decodes and validates an apikey Connection config once.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -217,6 +218,55 @@ func TestConnectionBaseHostRules(t *testing.T) {
 		{"ip literal", `{metadata: {name: c}, spec: {adapter: kubernetes, baseHost: 10.0.0.1}}`, ipLit},
 		{"dns name", `{metadata: {name: c}, spec: {adapter: kubernetes, baseHost: api.example.com}}`, ""},
 		{"other adapter without baseHost", `{metadata: {name: c}, spec: {adapter: github_app}}`, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			for msg, rule := range msgs {
+				want := c.refusal != "" && strings.HasPrefix(msg, c.refusal)
+				if got := refusedBy(t, s, rule, c.obj, ""); got != want {
+					t.Errorf("rule %q refused=%v, want %v", msg, got, want)
+				}
+			}
+		})
+	}
+}
+
+// TestConnectionAPIKeyRules covers the apikey baseHost rule and the schema's
+// secretRef requirement. config.placeholderEnv is validated in the Connection
+// webhook, because CEL cannot read the undeclared config fields.
+func TestConnectionAPIKeyRules(t *testing.T) {
+	const file = "generated/runkora.io_connections.yaml"
+	const (
+		missing = "apikey connections require a non-empty baseHost."
+		ipLit   = "apikey connections must use a DNS hostname as baseHost"
+	)
+	s, all := structural(t, file)
+	msgs := map[string]apiextensionsv1.ValidationRule{}
+	for _, r := range all {
+		msgs[r.Message] = r
+	}
+	if _, ok := msgs[missing]; !ok {
+		t.Fatalf("CRD has no rule with message %q", missing)
+	}
+	// secretRef is required by the schema itself (MinLength=1), for every adapter.
+	sr := s.Properties["spec"].Properties["secretRef"]
+	if sr.ValueValidation == nil || sr.ValueValidation.MinLength == nil || *sr.ValueValidation.MinLength < 1 {
+		t.Errorf("spec.secretRef has no MinLength >= 1 in the generated schema")
+	}
+	if !slices.Contains(s.Properties["spec"].ValueValidation.Required, "secretRef") {
+		t.Errorf("spec.secretRef is not required in the generated schema")
+	}
+	for _, c := range []struct {
+		name, obj, refusal string
+	}{
+		{"no baseHost", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s}}`, missing},
+		{"empty baseHost", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s, baseHost: ""}}`, missing},
+		{"ipv4 literal", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s, baseHost: 10.0.0.1}}`, ipLit},
+		{"ipv4 literal with port", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s, baseHost: "10.0.0.1:443"}}`, ipLit},
+		{"ipv6 literal", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s, baseHost: "[::1]"}}`, ipLit},
+		{"dns name with port", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s, baseHost: "npm.pkg.github.com:443"}}`, ""},
+		{"complete", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s, baseHost: registry.example.com, config: {placeholderEnv: NPM_TOKEN}}}`, ""},
+		{"complete without config", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s, baseHost: registry.example.com}}`, ""},
+		{"other adapter without baseHost", `{metadata: {name: c}, spec: {adapter: github_app, secretRef: s}}`, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			for msg, rule := range msgs {
