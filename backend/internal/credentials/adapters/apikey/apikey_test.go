@@ -216,11 +216,8 @@ func TestOpen_Config(t *testing.T) {
 		`{} {}`,
 	}
 	for _, cfg := range invalid {
-		if _, err := open(t, stubSecrets{}, cfg, nil); !errors.Is(err, apikey.ErrInvalidConfig) {
-			t.Errorf("Open(%q) err = %v, want ErrInvalidConfig", cfg, err)
-		}
-		if err := apikey.ValidateConfig(json.RawMessage(cfg)); !errors.Is(err, apikey.ErrInvalidConfig) {
-			t.Errorf("ValidateConfig(%q) err = %v, want ErrInvalidConfig", cfg, err)
+		if _, err := open(t, stubSecrets{}, cfg, nil); !errors.Is(err, credentials.ErrInvalidConfig) {
+			t.Errorf("Open(%q) err = %v, want credentials.ErrInvalidConfig", cfg, err)
 		}
 	}
 }
@@ -231,8 +228,8 @@ func TestMint_EmptyTokenFails(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := c.Mint(context.Background(), credentials.CallerIdentity{}); err == nil {
-			t.Errorf("Mint(%q) succeeded, want error", raw)
+		if _, err := c.Mint(context.Background(), credentials.CallerIdentity{}); !errors.Is(err, apikey.ErrEmptySecret) {
+			t.Errorf("Mint(%q) err = %v, want ErrEmptySecret", raw, err)
 		}
 	}
 }

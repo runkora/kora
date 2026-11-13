@@ -118,7 +118,7 @@ type adapterMeta struct {
 	egressHosts func(baseHost string) []string
 
 	// requiresHostname, when true, rejects a base host that is a bare IP
-	// literal. Only kubernetes sets this: see ErrBaseHostMustBeHostname.
+	// literal. Set by kubernetes and apikey: see ErrBaseHostMustBeHostname.
 	requiresHostname bool
 
 	// qualifier is the adapter's grant-time resource dimension, nil when the
@@ -268,8 +268,8 @@ var ErrBaseHostMustBeHostname = errors.New("base_host must be a DNS hostname, no
 
 // ValidateBaseHost checks baseHost against adapter's shape requirements.
 // Unknown adapters, and adapters with no requirement, always return nil: this
-// rejects only the case an adapter has opted into, currently just kubernetes's
-// bare-IP rejection.
+// rejects only the case an adapter has opted into: today the bare-IP
+// rejection of kubernetes and apikey.
 func ValidateBaseHost(adapter, baseHost string) error {
 	m, ok := registry[adapter]
 	if !ok || !m.requiresHostname {

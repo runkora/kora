@@ -12,7 +12,7 @@
 
 ### Background
 
-The egress gateway injects credentials just-in-time through connection adapters (`github_app`, `kubernetes`). Agents never hold a real credential; the sandbox holds a placeholder and the gateway swaps in the real one on the re-originated leg.
+The egress gateway injects credentials just-in-time through connection adapters (`github_app`, `kubernetes`). Agents never hold a real credential. The sandbox holds a placeholder and the gateway swaps in the real one on the re-originated leg.
 
 ### Problem Statement
 
@@ -36,9 +36,9 @@ Some hosts authenticate with a static secret sent in custom request headers, not
 
 ## Decision Drivers
 
-- Reuse the existing adapter interface; a new service is a new subpackage, not a change to the parent package.
-- Least surprise for admins: one Connection, one secret, one host.
-- A typo in config must fail loudly rather than silently send the wrong header.
+- Reuse the existing adapter interface. A new service is a new subpackage, not a change to the parent package.
+- One Connection, one secret, one host.
+- A typo in config fails with an error and never sends the wrong header.
 
 ---
 
@@ -54,7 +54,7 @@ Couples an unrelated host to Kubernetes path classification and the cluster acti
 
 ### Option 3: A new `apikey` adapter (chosen)
 
-A small adapter modelled on `kubernetes` without path categories, with header names and prefixes configured the way MCPServer `spec.auth.headers` configures them ([MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md)). It is named for what it holds, a static secret for an HTTP API, not for one header format. `staticheaders` was the alternative name.
+A small adapter modelled on `kubernetes` without path categories. Header names and prefixes are configured the way MCPServer `spec.auth.headers` configures them ([MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md)). The name says what the adapter holds, a static secret for an HTTP API, not one header format.
 
 ---
 
@@ -71,17 +71,17 @@ Add an `apikey` adapter type under `backend/internal/credentials/adapters/apikey
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `headers` | `[{"name":"Authorization","prefix":"Bearer "}]` | 1 to 8 headers to inject. Each item has a `name` (letters, digits and hyphens, at most 64 characters, not reserved, no case-insensitive duplicates) and an optional `prefix` (at most 256 characters, empty by default, so a raw token is sent as is). The injected value is the prefix followed by the Connection's secret. |
-| `placeholderEnv` | none | Name of a sandbox env var set to the placeholder, so clients such as npm (`_authToken=${NPM_TOKEN}`) send a header at all. Read by the agents service through the connection catalog, ignored by the adapter. |
+| `placeholderEnv` | none | Name of a sandbox env var set to the placeholder, so clients such as npm (`_authToken=${NPM_TOKEN}`) send a header at all. The name is an identifier (letters, digits and underscores, not starting with a digit) of at most 128 characters. Loader and process variables are reserved: `PATH`, `HOME`, `USER`, `SHELL`, `PWD`, `IFS`, `ENV`, `BASH_ENV`, `PYTHONPATH`, `NODE_OPTIONS`, `KUBECONFIG`, and any name starting with `LD_`, `DYLD_` or `KORA_`. The value is the fixed placeholder `placeholder-credential-injected-by-kora-egress-gateway`, the same one written into rendered kubeconfigs. The agents service reads the name through the connection catalog; the adapter ignores it. |
 
-The header rules reuse the MCPServer limits and reserved-header list. The adapter holds its own copy because it cannot import the operator's unexported helpers; the operator webhook calls the adapter's `ValidateConfig`, and a test keeps the limits in step. Unlike MCPServer, items carry no per-header `secretRef`: a Connection has one `secretRef`, and every header is built from that one secret (for example `Authorization: Bearer X` and `x-api-key: X`). A different secret per header is out of scope.
+The header rules reuse the MCPServer limits and reserved-header list. They live in one place, `internal/platform/connections`, which the adapter, the operator webhook and the MCPServer validation all import, so no feature package imports another. Unlike MCPServer, items carry no per-header `secretRef`: a Connection has one `secretRef`, and every header is built from that one secret (for example `Authorization: Bearer X` and `x-api-key: X`). A different secret per header is out of scope.
 
-Unknown keys are rejected in `Open`.
+Unknown keys are rejected in `Open`. A config error wraps `credentials.ErrInvalidConfig`, so the gateway reports it as a config error.
 
 **Mint.** Resolve `conn.SecretRef` once and return a `Credential` whose `Headers` (a new additive field, injected in addition to `Header`/`Value`) hold prefix plus secret for each configured header, with a zero `ExpiresAt`. The gateway deletes each configured header from the outbound request before setting it, so client-supplied values such as the placeholder are replaced and the header is added when absent. The token is never logged.
 
 ### Rationale
 
-The upstream authorizes by token scope; the platform only needs to distinguish reads from writes so a read-only grant can be expressed. The `placeholderEnv` name is per-Connection config because each client's config file chooses its own variable name.
+The upstream authorizes by token scope; the platform only needs to distinguish reads from writes so a read-only grant can be expressed. The `placeholderEnv` name is per-Connection config because each client's config file picks its own variable name.
 
 ---
 
