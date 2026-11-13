@@ -12,31 +12,31 @@
 
 ### Background
 
-The egress gateway injects credentials just-in-time through connection adapters (`github_app`, `kubernetes`). Agents never hold a real credential. The sandbox holds a placeholder and the gateway swaps in the real one on the re-originated leg.
+The egress gateway injects credentials just-in-time through connection adapters (`github_app`, `kubernetes`). Agents never hold a real credential. The sandbox holds a placeholder, and the gateway swaps in the real credential on the re-originated leg.
 
 ### Problem Statement
 
-Some hosts authenticate with a static secret sent in custom request headers, not always `Authorization: Bearer`. The first case is the GitHub Packages npm registry (`npm.pkg.github.com`), which a sandbox needs to install `@clear-route` packages. Neither existing adapter fits:
+Some hosts authenticate with a static secret in custom request headers. The header is often `Authorization: Bearer`, and sometimes another name such as `x-api-key`. The first case is the GitHub Packages npm registry (`npm.pkg.github.com`). A sandbox needs it to install `@clear-route` packages. Neither existing adapter fits:
 
-- **`github_app`** mints GitHub App installation tokens. GitHub Packages does not accept installation tokens for the npm registry, only a personal access token with `read:packages`.
-- **`kubernetes`** injects a static bearer token, but its `Classify` parses Kubernetes API paths and denies anything it does not recognize, so it cannot serve another host.
+- **`github_app`** mints GitHub App installation tokens. The GitHub Packages npm registry accepts only a personal access token with `read:packages`.
+- **`kubernetes`** injects a static bearer token. Its `Classify` parses Kubernetes API paths and denies every other path. It cannot serve another host.
 
 ### Goals
 
-- Let an agent reach a token-authenticated host through a Connection, with the gateway injecting the credential.
-- Keep the sandbox free of the real token.
+- An agent reaches a token-authenticated host through a Connection. The gateway injects the credential.
+- The sandbox never holds the real token.
 
 ### Non-Goals
 
 - Path-category, qualifier or per-package authorization.
-- Token rotation tooling. Rotation is a Secret update, as for `kubernetes`.
+- Token rotation tooling. Rotation is a Secret update, the same as for `kubernetes`.
 - Any change to `github_app`, `kubernetes` or `passthrough`.
 
 ---
 
 ## Decision Drivers
 
-- Reuse the existing adapter interface. A new service is a new subpackage, not a change to the parent package.
+- Reuse the existing adapter interface. A new adapter is a new subpackage and leaves the parent package unchanged.
 - One Connection, one secret, one host.
 - A typo in config fails with an error and never sends the wrong header.
 
@@ -50,11 +50,11 @@ Couples an unrelated host to Kubernetes path classification and the cluster acti
 
 ### Option 2: Use `github_app` with a stored PAT (rejected)
 
-`github_app` mints tokens and carries a repository qualifier and a GitHub host family. A static PAT does not fit that model and would blur what the adapter means.
+`github_app` mints tokens and carries a repository qualifier and a GitHub host family. A static PAT does not fit that model.
 
 ### Option 3: A new `apikey` adapter (chosen)
 
-A small adapter modelled on `kubernetes` without path categories. Header names and prefixes are configured the way MCPServer `spec.auth.headers` configures them ([MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md)). The name says what the adapter holds, a static secret for an HTTP API, not one header format.
+A small adapter modelled on `kubernetes` without path categories. Header names and prefixes follow MCPServer `spec.auth.headers` ([MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md)). The name describes what the adapter holds: a static secret for an HTTP API.
 
 ---
 
@@ -62,26 +62,26 @@ A small adapter modelled on `kubernetes` without path categories. Header names a
 
 Add an `apikey` adapter type under `backend/internal/credentials/adapters/apikey`.
 
-**Authorization is coarse, by HTTP method.** `GET` and `HEAD` classify as `read`. `POST`, `PUT`, `PATCH` and `DELETE` classify as `write`. Everything else, including `OPTIONS` and protocol upgrades, is `ErrUnsupportedAction`. The vocabulary is `connection:<name>:read` and `connection:<name>:write`, with no qualifier and no baseline actions. Finer authorization is the upstream's own on the injected token.
+**Authorization.** Authorization is coarse and set by HTTP method. `GET` and `HEAD` classify as `read`, and `POST`, `PUT`, `PATCH` and `DELETE` classify as `write`. Every other method, including `OPTIONS` and protocol upgrades, is `ErrUnsupportedAction`. The vocabulary is `connection:<name>:read` and `connection:<name>:write`, with no qualifier and no baseline actions. The upstream applies finer authorization to the injected token.
 
-**Hosts.** The connection serves exactly its declared `baseHost` (`declaredHostOnly`). `baseHost` must be a DNS hostname, not an IP literal: TLS to an IP carries no SNI, so the sandbox's egress interception cannot authorize it. This is the same rule as `kubernetes`. Hosts without an apikey connection keep falling through to passthrough.
+**Hosts.** The connection serves exactly its declared `baseHost` (`declaredHostOnly`). `baseHost` must be a DNS hostname, and an IP literal is refused. TLS to an IP carries no SNI, and the sandbox's egress interception cannot authorize it. The `kubernetes` adapter applies the same rule. Hosts without an apikey connection fall through to passthrough.
 
-**Config.** `Connection.config` JSON, all keys optional:
+**Config.** `Connection.config` is JSON with two optional keys.
 
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `headers` | `[{"name":"Authorization","prefix":"Bearer "}]` | 1 to 8 headers to inject. Each item has a `name` (letters, digits and hyphens, at most 64 characters, not reserved, no case-insensitive duplicates) and an optional `prefix` (at most 256 characters, empty by default, so a raw token is sent as is). The injected value is the prefix followed by the Connection's secret. |
-| `placeholderEnv` | none | Name of a sandbox env var set to the placeholder, so clients such as npm (`_authToken=${NPM_TOKEN}`) send a header at all. The name is an identifier (letters, digits and underscores, not starting with a digit) of at most 128 characters. Loader and process variables are reserved: `PATH`, `HOME`, `USER`, `SHELL`, `PWD`, `IFS`, `ENV`, `BASH_ENV`, `PYTHONPATH`, `NODE_OPTIONS`, `KUBECONFIG`, and any name starting with `LD_`, `DYLD_` or `KORA_`. The value is the fixed placeholder `placeholder-credential-injected-by-kora-egress-gateway`, the same one written into rendered kubeconfigs. The agents service reads the name through the connection catalog; the adapter ignores it. |
+- `headers` lists 1 to 8 headers to inject, and defaults to `[{"name":"Authorization","prefix":"Bearer "}]` when omitted. Each item in the list has a `name` and an optional `prefix`. A name uses letters, digits and hyphens, has at most 64 characters, is not reserved, and appears once (case-insensitive). A prefix has at most 256 characters and is empty by default, and an empty prefix sends the raw token. The injected value is the prefix followed by the Connection's secret.
+- `placeholderEnv` names a sandbox env var. The agents service sets it to the placeholder. Clients such as npm (`_authToken=${NPM_TOKEN}`) send a header only when the variable has a value. The name is an identifier of letters, digits and underscores, does not start with a digit, and has at most 128 characters. Loader and process variables are reserved: `PATH`, `HOME`, `USER`, `SHELL`, `PWD`, `IFS`, `ENV`, `BASH_ENV`, `PYTHONPATH`, `NODE_OPTIONS`, `KUBECONFIG`, and every name starting with `LD_`, `DYLD_` or `KORA_`. The value is the fixed placeholder `placeholder-credential-injected-by-kora-egress-gateway`, the same value written into rendered kubeconfigs. The agents service reads the name through the connection catalog. The adapter ignores it.
 
-The header rules reuse the MCPServer limits and reserved-header list. They live in one place, `internal/platform/connections`, which the adapter, the operator webhook and the MCPServer validation all import, so no feature package imports another. Unlike MCPServer, items carry no per-header `secretRef`: a Connection has one `secretRef`, and every header is built from that one secret (for example `Authorization: Bearer X` and `x-api-key: X`). A different secret per header is out of scope.
+The header rules reuse the MCPServer limits and reserved-header list. They live in `internal/platform/connections`. The adapter, the operator webhook and the MCPServer validation import them from there. No feature package imports another.
 
-Unknown keys are rejected in `Open`. A config error wraps `credentials.ErrInvalidConfig`, so the gateway reports it as a config error.
+Items carry no per-header `secretRef`. A Connection has one `secretRef`, and every header is built from that secret, for example `Authorization: Bearer X` and `x-api-key: X`. A different secret per header is out of scope.
 
-**Mint.** Resolve `conn.SecretRef` once and return a `Credential` whose `Headers` (a new additive field, injected in addition to `Header`/`Value`) hold prefix plus secret for each configured header, with a zero `ExpiresAt`. The gateway deletes each configured header from the outbound request before setting it, so client-supplied values such as the placeholder are replaced and the header is added when absent. The token is never logged.
+`Open` rejects unknown keys. A config error wraps `credentials.ErrInvalidConfig`, and the gateway reports it as a configuration error.
+
+**Mint.** `Mint` resolves `conn.SecretRef` once. It returns a `Credential` whose `Headers` hold the prefix plus the secret for each configured header, with a zero `ExpiresAt`. `Headers` is a new field that the gateway injects in addition to `Header` and `Value`. The gateway deletes each configured header from the outbound request and then sets it. A client value such as the placeholder is replaced, and a missing header is added. The token is never logged.
 
 ### Rationale
 
-The upstream authorizes by token scope; the platform only needs to distinguish reads from writes so a read-only grant can be expressed. The `placeholderEnv` name is per-Connection config because each client's config file picks its own variable name.
+The upstream authorizes by token scope. The platform distinguishes reads from writes to express a read-only grant. Each client's config file picks its own variable name. `placeholderEnv` is therefore per-Connection config.
 
 ---
 
@@ -89,13 +89,13 @@ The upstream authorizes by token scope; the platform only needs to distinguish r
 
 ### Positive
 
-- Any static-secret HTTP host, with any header format, becomes reachable through a governed Connection.
-- A read-only grant denies `PUT`, which stops an agent publishing a package.
+- Any static-secret HTTP host, with any header format, is reachable through a governed Connection.
+- A read-only grant denies `PUT`. An agent with read access cannot publish a package.
 
 ### Negative
 
-- Authorization is coarse; there is no per-package or per-path control.
-- A static token has no expiry; rotation is manual.
+- Authorization is coarse. There is no per-package or per-path control.
+- A static token has no expiry, and rotation is a manual Secret update.
 
 ---
 
