@@ -139,6 +139,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) — `Accepted` · 2026-07-23
 - [Hades Wizard Component](2026-08-03-terra-wizard-component.md) — `Proposed` · 2026-08-03
 - [Agent Skills](2026-08-17-agent-skills.md) — `Accepted` · 2026-08-17
+- [Internal Skill Retrieval Endpoint for Agent Runs](2026-11-08-internal-skill-retrieval-endpoint.md) — `Proposed` · 2026-11-08
 - [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) — `Proposed` · 2026-09-06
 - [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) — `Accepted (Amended 2026-10-31: Amendment 1 Accepted)` · 2026-09-18
 - [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) — `Accepted` · 2026-09-28
@@ -348,6 +349,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-06 | [Event Spine](2026-11-06-event-spine.md) | Accepted | — |
 | 2026-11-07 | [ACP as the Single Agent Harness Protocol](2026-11-07-acp-agent-harness-protocol.md) | Accepted | — |
 | 2026-11-07 | [Run Sources](2026-11-07-run-sources.md) | Accepted | — |
+| 2026-11-08 | [Internal Skill Retrieval Endpoint for Agent Runs](2026-11-08-internal-skill-retrieval-endpoint.md) | Proposed | — |
 | 2026-11-11 | [Run Page Record: Message Senders, Trigger Event Summaries and Budget Stops](2026-11-11-run-page-record.md) | Accepted | — |
 | 2026-11-11 | [API Key Connection Adapter](2026-11-11-apikey-connection-adapter.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
