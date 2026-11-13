@@ -26,6 +26,7 @@ type AdapterType string
 const (
 	AdapterGitHubApp        AdapterType = "github_app"
 	AdapterKubernetesBearer AdapterType = "kubernetes"
+	AdapterAPIKey           AdapterType = "apikey"
 
 	// AdapterPassthrough injects no credential. It is not registrable: the
 	// broker holds the passthrough adapter directly and uses it for hosts with

@@ -34,6 +34,7 @@ func TestActionNames(t *testing.T) {
 			"rbac:read", "rbac:write",
 			"cluster:read", "cluster:write",
 		},
+		AdapterAPIKey:     {"read", "write"},
 		"unknown_adapter": {},
 	}
 	for adapter, want := range cases {
@@ -156,6 +157,19 @@ func TestValidateBaseHost_KubernetesBearer(t *testing.T) {
 	}
 }
 
+// TestValidateBaseHost_APIKey locks that apikey rejects a bare IP literal base
+// host but accepts a DNS hostname.
+func TestValidateBaseHost_APIKey(t *testing.T) {
+	for _, host := range []string{"10.0.0.1", "10.0.0.1:443", "[::1]"} {
+		if err := ValidateBaseHost(AdapterAPIKey, host); !errors.Is(err, ErrBaseHostMustBeHostname) {
+			t.Errorf("ValidateBaseHost(apikey, %q) = %v, want ErrBaseHostMustBeHostname", host, err)
+		}
+	}
+	if err := ValidateBaseHost(AdapterAPIKey, "npm.pkg.github.com"); err != nil {
+		t.Errorf("ValidateBaseHost(apikey, npm.pkg.github.com) = %v, want nil", err)
+	}
+}
+
 // TestValidateBaseHost_NoRequirement locks that adapters with no hostname
 // requirement (and unknown adapters) never reject an IP literal.
 func TestValidateBaseHost_NoRequirement(t *testing.T) {
@@ -163,5 +177,17 @@ func TestValidateBaseHost_NoRequirement(t *testing.T) {
 		if err := ValidateBaseHost(adapter, "34.147.135.56"); err != nil {
 			t.Errorf("ValidateBaseHost(%q, IP) = %v, want nil", adapter, err)
 		}
+	}
+}
+
+// TestEgressHosts_APIKey locks that an apikey connection serves exactly its
+// declared host.
+func TestEgressHosts_APIKey(t *testing.T) {
+	want := []string{"npm.pkg.github.com"}
+	if got := EgressHosts(AdapterAPIKey, "npm.pkg.github.com"); !slices.Equal(got, want) {
+		t.Errorf("EgressHosts(apikey) = %v, want %v", got, want)
+	}
+	if got := EgressHosts(AdapterAPIKey, ""); got != nil {
+		t.Errorf("EgressHosts(apikey, \"\") = %v, want nil", got)
 	}
 }
