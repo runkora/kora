@@ -36,8 +36,8 @@ const (
 )
 
 // Header limits. They match the MCPServer spec.auth.headers limits in
-// operator/mcpserver_auth.go; a test in the operator package keeps the two in
-// step.
+// operator/mcpserver_auth.go; TestAPIKeyLimitsMatchMCPServer in the operator
+// package keeps the two, and the reserved header list, in step.
 const (
 	MaxHeaders          = 8
 	MaxHeaderNameLength = 64

@@ -64,7 +64,7 @@ Add an `apikey` adapter type under `backend/internal/credentials/adapters/apikey
 
 **Authorization is coarse, by HTTP method.** `GET` and `HEAD` classify as `read`. `POST`, `PUT`, `PATCH` and `DELETE` classify as `write`. Everything else, including `OPTIONS` and protocol upgrades, is `ErrUnsupportedAction`. The vocabulary is `connection:<name>:read` and `connection:<name>:write`, with no qualifier and no baseline actions. Finer authorization is the upstream's own on the injected token.
 
-**Hosts.** The connection serves exactly its declared `baseHost` (`declaredHostOnly`). Hosts without an apikey connection keep falling through to passthrough.
+**Hosts.** The connection serves exactly its declared `baseHost` (`declaredHostOnly`). `baseHost` must be a DNS hostname, not an IP literal: TLS to an IP carries no SNI, so the sandbox's egress interception cannot authorize it. This is the same rule as `kubernetes`. Hosts without an apikey connection keep falling through to passthrough.
 
 **Config.** `Connection.config` JSON, all keys optional:
 
@@ -96,10 +96,6 @@ The upstream authorizes by token scope; the platform only needs to distinguish r
 
 - Authorization is coarse; there is no per-package or per-path control.
 - A static token has no expiry; rotation is manual.
-
-### Neutral
-
-- Gateway registration and header injection, the Connection CRD rules and the sandbox placeholder env are delivered in follow-up changes.
 
 ---
 
