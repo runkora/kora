@@ -30,7 +30,7 @@ spec:
 - `adapter`: selects the credential mechanism. See [Adapters](#adapters) for the available adapters and their config.
 - `baseHost`: the upstream host the gateway terminates and re-originates, such as `github.com`.
 - `secretRef`: the name of a Secret in the same namespace holding the credential material. `secretKey` is used to target a key within the Secret when there is more than one key.
-- `config`: adapter-specific settings that are passed to the gateway verbatim in snake_case. Each adapter's keys are listed under [Adapters](#adapters).
+- `config`: adapter-specific settings that are passed to the adapter as written. Key names follow each adapter's own convention, for example `installation_id` for `github_app` and `placeholderEnv` for `apikey`. Each adapter's keys are listed under [Adapters](#adapters).
 
 A `Connection` is declarative, applied the way you manage the rest of your cluster. Commit it to your GitOps repository, or `kubectl apply` it for a quick start. To list what a tenant has:
 
@@ -72,5 +72,33 @@ kubectl config view --raw --minify \
 ```
 
 `baseHost` must be a DNS hostname, not a bare IP. TLS to an IP literal carries no SNI, and the sandbox's egress interception cannot authorize it.
+
+### apikey
+
+Injects a static secret, such as a personal access token or an API key, into the request headers of one host. Use it for a host that none of the other adapters fits, for example the GitHub Packages npm registry.
+
+```yaml
+apiVersion: runkora.io/v1alpha1
+kind: Connection
+metadata:
+  name: github-packages
+  namespace: kora-tenant-example
+spec:
+  adapter: apikey
+  baseHost: npm.pkg.github.com
+  secretRef: github-packages-token
+  config:
+    headers:
+      - name: Authorization
+        prefix: "Bearer "
+    placeholderEnv: NPM_TOKEN
+```
+
+- `baseHost`: the one host the connection serves. It must be a DNS hostname, not a bare IP, for the same reason as `kubernetes`.
+- `secretRef`: a Secret in the same namespace holding the token. `secretKey` selects a key when the Secret has more than one.
+- `config.headers`: 1 to 8 headers to inject. Each has a `name` (letters, digits and hyphens, at most 64 characters, not a reserved header, no case-insensitive duplicates) and an optional `prefix` (at most 256 characters). The injected value is the prefix followed by the secret. When `headers` is omitted the gateway sends `Authorization: Bearer <secret>`. Every header uses the same secret.
+- `config.placeholderEnv`: optional name of an environment variable the sandbox sets to a placeholder, so a client such as npm (`_authToken=${NPM_TOKEN}`) sends the header at all. The gateway replaces the placeholder with the real secret. The name is an identifier of at most 128 characters and cannot be a loader or process variable such as `PATH` or `LD_PRELOAD`, or start with `KORA_`.
+
+Other keys under `config` are rejected. The connection grants `connection:<name>:read` for `GET` and `HEAD` and `connection:<name>:write` for `POST`, `PUT`, `PATCH` and `DELETE`. To rotate the token, update the Secret.
 
 See [connectivity](../architecture/connectivity.md) and [egress gateway](../architecture/egress-gateway.md) for how credentials are brokered.

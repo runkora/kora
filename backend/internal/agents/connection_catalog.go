@@ -40,12 +40,16 @@ type ConnectionQualifierEntry struct {
 // kora-tenant-connections ConfigMap. secret_ref is intentionally ignored.
 // base_host IS read: it is the upstream authority, not a secret, and the grant
 // compiler needs it to derive a connector's auto-egress hosts via the shared
-// adapter metadata table. Adapter config is not read here at all.
+// adapter metadata table. Adapter config is read only for an apikey
+// connection's placeholderEnv (see Config below).
 type connectionRegistryEntry struct {
 	TenantID string `json:"tenant_id"`
 	Name     string `json:"name"`
 	Adapter  string `json:"adapter"`
 	BaseHost string `json:"base_host"`
+	// Config is read only for an apikey connection's placeholderEnv, a variable
+	// name. The token never appears here: it is mounted from secret_ref.
+	Config json.RawMessage `json:"config,omitempty"`
 }
 
 // ConnectionCatalog serves the read-only, tenant-filtered connection catalog
@@ -112,6 +116,47 @@ func (c *ConnectionCatalog) ResolveConnection(ctx context.Context, tenantID, nam
 		}
 	}
 	return "", "", false, nil
+}
+
+// PlaceholderEnv returns the sandbox env var an apikey connection names in
+// config.placeholderEnv. ok is false when the connection is not registered, is
+// not an apikey connection, sets none, or its config or placeholderEnv name is
+// invalid: a bad connection is logged by name and skipped, so it cannot take
+// the other connections' placeholders down with it. err is non-nil only when
+// the registry itself cannot be read. Only the variable name is read; the
+// secret behind the connection is never loaded here.
+func (c *ConnectionCatalog) PlaceholderEnv(ctx context.Context, tenantID, name string) (env string, ok bool, err error) {
+	entries, err := c.load(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	for _, e := range entries {
+		if e.TenantID != tenantID || e.Name != name {
+			continue
+		}
+		if e.Adapter != platformconns.AdapterAPIKey || len(e.Config) == 0 {
+			return "", false, nil
+		}
+		var cfg struct {
+			PlaceholderEnv string `json:"placeholderEnv"`
+		}
+		if err := json.Unmarshal(e.Config, &cfg); err != nil {
+			c.logger.Warn(ctx, "skipping placeholderEnv: connection config is not valid JSON",
+				logging.Field{Key: "connection", Value: name},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			return "", false, nil
+		}
+		if cfg.PlaceholderEnv != "" && !platformconns.ValidPlaceholderEnvName(cfg.PlaceholderEnv) {
+			c.logger.Warn(ctx, "skipping placeholderEnv: invalid or reserved environment variable name",
+				logging.Field{Key: "connection", Value: name},
+				logging.Field{Key: "placeholder_env", Value: cfg.PlaceholderEnv},
+			)
+			return "", false, nil
+		}
+		return cfg.PlaceholderEnv, cfg.PlaceholderEnv != "", nil
+	}
+	return "", false, nil
 }
 
 // load reads and unmarshals connections.json. An empty path or a missing file is

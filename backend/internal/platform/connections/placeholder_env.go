@@ -10,7 +10,7 @@ import (
 var placeholderEnvNameRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
 
 // ValidPlaceholderEnvName reports whether name is safe to set in a sandbox as
-// an env var holding the credential placeholder (a bearer connection's
+// an env var holding the credential placeholder (an apikey connection's
 // config.placeholderEnv): a plain identifier that is not a loader or
 // process-critical variable. It is the single rule shared by Connection
 // admission and the sandbox runtime, so admission refuses everything the
