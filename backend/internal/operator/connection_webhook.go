@@ -3,7 +3,6 @@ package operator
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -11,13 +10,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"github.com/runkora/kora/backend/internal/credentials/adapters/apikey"
 	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
 )
 
 // ConnectionValidator rejects a Connection the egress gateway could not tell
-// apart from another Connection in the same namespace. An update is rejected
-// only for a conflict its previous version did not have. See
+// apart from another Connection in the same namespace, and an apikey
+// Connection whose config is invalid. An update is rejected only for a
+// conflict its previous version did not have. See
 // docs/adr/2026-10-15-same-host-connection-selection.md.
 type ConnectionValidator struct {
 	// Client is the manager's cached client. TenantReconciler watches every
@@ -84,29 +83,20 @@ func createdBefore(a, b *Connection) bool {
 	return a.Name < b.Name
 }
 
-// validateAPIKeyConfig checks the config of an apikey Connection: the headers
-// list and the other keys through the adapter's own validator (so admission and
-// the gateway agree), and config.placeholderEnv. Config is a RawExtension with
-// preserve-unknown-fields, so CEL in the CRD cannot read it; the webhook does.
-// Other adapters are not checked here.
+// validateAPIKeyConfig checks the config of an apikey Connection with the same
+// parser the gateway adapter uses, and config.placeholderEnv. Config is a
+// RawExtension with preserve-unknown-fields, so CEL in the CRD cannot read it;
+// the webhook does. Other adapters are not checked here.
 func validateAPIKeyConfig(c *Connection) error {
-	if c.Spec.Adapter != platformconns.AdapterAPIKey || len(c.Spec.Config.Raw) == 0 {
+	if c.Spec.Adapter != platformconns.AdapterAPIKey {
 		return nil
 	}
-	if err := apikey.ValidateConfig(c.Spec.Config.Raw); err != nil {
-		return fmt.Errorf("apikey connections: invalid config: %w", err)
+	cfg, err := platformconns.ParseAPIKeyConfig(c.Spec.Config.Raw)
+	if err != nil {
+		return fmt.Errorf("apikey connections: %w", err)
 	}
-	var cfg map[string]json.RawMessage
-	if err := json.Unmarshal(c.Spec.Config.Raw, &cfg); err != nil {
-		return nil
-	}
-	raw, ok := cfg["placeholderEnv"]
-	if !ok {
-		return nil
-	}
-	var name string
-	if err := json.Unmarshal(raw, &name); err != nil || !platformconns.ValidPlaceholderEnvName(name) {
-		return fmt.Errorf("apikey connections: config.placeholderEnv must be a plain environment variable name (letters, digits, underscore; at most 128 characters; not PATH, HOME, LD_*, DYLD_*, KORA_* or another reserved name)")
+	if err := cfg.ValidatePlaceholderEnv(); err != nil {
+		return fmt.Errorf("apikey connections: %w", err)
 	}
 	return nil
 }

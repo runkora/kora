@@ -66,7 +66,8 @@ webhooks:
         runkora.io/role: tenant
     sideEffects: None
     timeoutSeconds: 10
-  # Rejects a Connection the egress gateway cannot tell apart from an earlier one.
+  # Rejects a Connection the egress gateway cannot tell apart from an earlier
+  # one, and an apikey Connection with an invalid config.
   - name: connection.runkora.io
     admissionReviewVersions: ["v1"]
     clientConfig:

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
 	"io"
 	"strings"
 	"testing"
@@ -43,12 +44,12 @@ func TestValidateMCPServerAuth(t *testing.T) {
 		{"valid", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{ok, authHeader("Authorization", "Bearer ", "exa", "token")}}}, nil},
 		{"with forward", MCPServerSpec{CallerIdentity: CallerIdentityForward, Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{ok}}}, ErrMCPServerAuthWithForward},
 		{"empty list", MCPServerSpec{Auth: &MCPServerAuth{}}, ErrMCPServerBadAuthHeader},
-		{"name too long", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader(strings.Repeat("x", maxHeaderNameLength+1), "", "exa", "key")}}}, ErrMCPServerBadAuthHeader},
-		{"name at the limit", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader(strings.Repeat("x", maxHeaderNameLength), "", "exa", "key")}}}, nil},
-		{"prefix too long", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader("Authorization", strings.Repeat("p", maxPrefixLength+1), "exa", "key")}}}, ErrMCPServerBadAuthHeader},
+		{"name too long", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader(strings.Repeat("x", platformconns.MaxHeaderNameLength+1), "", "exa", "key")}}}, ErrMCPServerBadAuthHeader},
+		{"name at the limit", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader(strings.Repeat("x", platformconns.MaxHeaderNameLength), "", "exa", "key")}}}, nil},
+		{"prefix too long", MCPServerSpec{Auth: &MCPServerAuth{Headers: []MCPServerAuthHeader{authHeader("Authorization", strings.Repeat("p", platformconns.MaxHeaderPrefixLength+1), "exa", "key")}}}, ErrMCPServerBadAuthHeader},
 		{"too many headers", MCPServerSpec{Auth: &MCPServerAuth{Headers: func() []MCPServerAuthHeader {
 			var hs []MCPServerAuthHeader
-			for i := range maxMCPAuthHeaders + 1 {
+			for i := range platformconns.MaxAPIKeyHeaders + 1 {
 				hs = append(hs, authHeader(fmt.Sprintf("x-key-%d", i), "", "exa", "key"))
 			}
 			return hs
@@ -81,11 +82,10 @@ func TestValidateMCPServerAuth(t *testing.T) {
 }
 
 func TestKoraHeadersMatchMiddleware(t *testing.T) {
-	if delegationTokenHeader != strings.ToLower(mw.DelegationTokenHeader) {
-		t.Errorf("delegationTokenHeader = %q, want %q", delegationTokenHeader, strings.ToLower(mw.DelegationTokenHeader))
-	}
-	if runIDHeader != strings.ToLower(mw.RunIDHeader) {
-		t.Errorf("runIDHeader = %q, want %q", runIDHeader, strings.ToLower(mw.RunIDHeader))
+	for _, name := range []string{mw.DelegationTokenHeader, mw.RunIDHeader} {
+		if !platformconns.IsReservedHeader(name) {
+			t.Errorf("%q is not in the reserved credential header list", name)
+		}
 	}
 }
 
@@ -226,7 +226,7 @@ func TestMCPServerReconciler_ReportsUnavailableCredential(t *testing.T) {
 
 // The longest valid namespace, name and header still make a valid data key.
 func TestMCPSecretKey_FitsTheSecretKeyLimit(t *testing.T) {
-	key := mcpSecretKey(strings.Repeat("n", 63), strings.Repeat("s", maxLabelValueLength), strings.Repeat("H", maxHeaderNameLength))
+	key := mcpSecretKey(strings.Repeat("n", 63), strings.Repeat("s", maxLabelValueLength), strings.Repeat("H", platformconns.MaxHeaderNameLength))
 	if errs := validation.IsConfigMapKey(key); len(errs) > 0 {
 		t.Errorf("key of %d characters is invalid: %v", len(key), errs)
 	}
