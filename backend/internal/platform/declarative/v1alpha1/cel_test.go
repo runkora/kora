@@ -235,7 +235,10 @@ func TestConnectionBaseHostRules(t *testing.T) {
 // webhook, because CEL cannot read the undeclared config fields.
 func TestConnectionAPIKeyRules(t *testing.T) {
 	const file = "generated/runkora.io_connections.yaml"
-	const missing = "apikey connections require a non-empty baseHost."
+	const (
+		missing = "apikey connections require a non-empty baseHost."
+		ipLit   = "apikey connections must use a DNS hostname as baseHost"
+	)
 	s, all := structural(t, file)
 	msgs := map[string]apiextensionsv1.ValidationRule{}
 	for _, r := range all {
@@ -257,6 +260,10 @@ func TestConnectionAPIKeyRules(t *testing.T) {
 	}{
 		{"no baseHost", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s}}`, missing},
 		{"empty baseHost", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s, baseHost: ""}}`, missing},
+		{"ipv4 literal", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s, baseHost: 10.0.0.1}}`, ipLit},
+		{"ipv4 literal with port", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s, baseHost: "10.0.0.1:443"}}`, ipLit},
+		{"ipv6 literal", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s, baseHost: "[::1]"}}`, ipLit},
+		{"dns name with port", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s, baseHost: "npm.pkg.github.com:443"}}`, ""},
 		{"complete", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s, baseHost: registry.example.com, config: {placeholderEnv: NPM_TOKEN}}}`, ""},
 		{"complete without config", `{metadata: {name: c}, spec: {adapter: apikey, secretRef: s, baseHost: registry.example.com}}`, ""},
 		{"other adapter without baseHost", `{metadata: {name: c}, spec: {adapter: github_app, secretRef: s}}`, ""},
