@@ -247,7 +247,7 @@ func TestSandboxContainerEnv_PlaceholderEnvs(t *testing.T) {
 	}
 
 	env := sandboxContainerEnv(cfg, nil, []string{"NPM_TOKEN", "GH_TOKEN"}, "/workspaces/run-1", "exec")
-	if v, ok := value(env, "NPM_TOKEN"); !ok || v != CredentialPlaceholder {
+	if v, ok := value(env, "NPM_TOKEN"); !ok || v != kubeconfig.PlaceholderToken {
 		t.Errorf("NPM_TOKEN = %q (set %v), want the placeholder", v, ok)
 	}
 	n := 0
@@ -330,5 +330,22 @@ func TestCatalogPlaceholderEnv_BadConnectionSkipped(t *testing.T) {
 	}
 	if len(envs) != 2 || envs[0] != "NPM_TOKEN" || envs[1] != "PYPI_TOKEN" {
 		t.Fatalf("envs = %v, want [NPM_TOKEN PYPI_TOKEN] with the bad connections skipped", envs)
+	}
+}
+
+// TestProvisionSandbox_SetsPlaceholderEnvs fails if ProvisionSandbox stops
+// copying the granted apikey connections' placeholderEnv names into the spec.
+func TestProvisionSandbox_SetsPlaceholderEnvs(t *testing.T) {
+	svc, repo, k8s, _ := newTestService(t)
+	svc.run.SetScopeResolver(NewScopeResolver(nil, placeholderConns{envs: map[string]string{"npm": "NPM_TOKEN", "other": "OTHER_TOKEN"}}))
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot",
+		Connectors: []Connector{{Connection: "npm", Actions: []string{"read"}}}})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if got := k8s.provisionSpec.PlaceholderEnvs; len(got) != 1 || got[0] != "NPM_TOKEN" {
+		t.Errorf("PlaceholderEnvs = %v, want [NPM_TOKEN]", got)
 	}
 }

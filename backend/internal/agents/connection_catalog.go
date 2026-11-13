@@ -40,7 +40,8 @@ type ConnectionQualifierEntry struct {
 // kora-tenant-connections ConfigMap. secret_ref is intentionally ignored.
 // base_host IS read: it is the upstream authority, not a secret, and the grant
 // compiler needs it to derive a connector's auto-egress hosts via the shared
-// adapter metadata table. Adapter config is not read here at all.
+// adapter metadata table. Adapter config is read only for an apikey
+// connection's placeholderEnv (see Config below).
 type connectionRegistryEntry struct {
 	TenantID string `json:"tenant_id"`
 	Name     string `json:"name"`

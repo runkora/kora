@@ -466,7 +466,7 @@ type SandboxSpec struct {
 	PullSecret   string
 	Size         EnvironmentSize
 	KubeClusters []kubeconfig.Cluster
-	// PlaceholderEnvs names env vars set to CredentialPlaceholder, one per
+	// PlaceholderEnvs names env vars set to kubeconfig.PlaceholderToken, one per
 	// granted apikey connection with config.placeholderEnv.
 	PlaceholderEnvs []string
 }
@@ -1080,7 +1080,7 @@ func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Clu
 		// strips this header. A non-empty, obviously-non-functional placeholder lets
 		// gh issue the request (which the gateway then authenticates); the value
 		// never reaches GitHub and reads clearly as a non-secret to credential scanners.
-		corev1.EnvVar{Name: "GH_TOKEN", Value: CredentialPlaceholder},
+		corev1.EnvVar{Name: "GH_TOKEN", Value: kubeconfig.PlaceholderToken},
 	)
 	// apikey connections with config.placeholderEnv: the tool needs a non-empty
 	// token variable to issue the request, and the gateway injects the real one
@@ -1090,7 +1090,7 @@ func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Clu
 			continue
 		}
 		if !slices.ContainsFunc(env, func(e corev1.EnvVar) bool { return e.Name == name }) {
-			env = append(env, corev1.EnvVar{Name: name, Value: CredentialPlaceholder})
+			env = append(env, corev1.EnvVar{Name: name, Value: kubeconfig.PlaceholderToken})
 		}
 	}
 	// Kubernetes connections the agent is granted. sandbox-exec renders these to
@@ -1116,11 +1116,6 @@ func egressGatewayURL(cfg K8sProvisionerConfig) string {
 	}
 	return fmt.Sprintf("http://kora-egress-gateway.%s.svc:%d", cfg.SystemNamespace, ports.EgressGatewayCONNECT)
 }
-
-// CredentialPlaceholder is the non-secret value sandbox env vars such as
-// GH_TOKEN carry so a tool issues the request; the egress gateway injects the
-// real credential on the wire. It reads clearly as a non-secret to scanners.
-const CredentialPlaceholder = "placeholder-credential-injected-by-kora-egress-gateway"
 
 // sandboxTenantCAPath is where the tenant CA root is mounted inside the
 // sandbox container. The runtime env hints in sandboxContainerEnv all point
