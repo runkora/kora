@@ -209,9 +209,13 @@ var registry = map[string]adapterMeta{
 			{Action: ActionAPIKeyRead, Description: "Read access to the host: GET and HEAD requests"},
 			{Action: ActionAPIKeyWrite, Description: "Write access to the host: POST, PUT, PATCH and DELETE requests"},
 		},
-		// A bearer connection serves exactly its declared host. It has no
+		// An apikey connection serves exactly its declared host. It has no
 		// qualifier and no baseline actions.
 		egressHosts: declaredHostOnly,
+		// The sandbox's egress interception authorizes by TLS SNI, which an
+		// IP-literal destination never carries. Reject a bare IP here, as for
+		// kubernetes. See ErrBaseHostMustBeHostname.
+		requiresHostname: true,
 	},
 }
 
