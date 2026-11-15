@@ -15,7 +15,8 @@ import (
 func TestClassifyResolved_NodeIDs(t *testing.T) {
 	resolved := map[string]string{
 		"PR_w": "example-org/widgets", "I_w": "example-org/widgets", "LA_w": "example-org/widgets",
-		"PR_g": "example-org/gadgets", "PR_foreign": "contoso/widgets",
+		"PR_g": "example-org/gadgets", "PR_foreign": "contoso/widgets", "R_w": "example-org/widgets",
+		"U_1": "User", "BOT_1": "Bot", "T_1": "Team", "M_1": "Mannequin", "PVT_1": "ProjectV2",
 	}
 	update := `{"query":"mutation($in: UpdatePullRequestInput!) { updatePullRequest(input: $in) { clientMutationId } }","variables":{"in":{"pullRequestId":"%s"}}}`
 	tests := []struct {
@@ -34,6 +35,12 @@ func TestClassifyResolved_NodeIDs(t *testing.T) {
 		{"node id disagreeing with a repository() call", `{"query":"{ repository(owner: \"example-org\", name: \"gadgets\") { name } node(id: \"PR_w\") { id } }"}`, cls("metadata:read", "")},
 		{"a node id from an unsupplied variable stays unqualified", `{"query":"query($id: ID!) { node(id: $id) { ... on PullRequest { title } } }"}`, pullsCls("pulls:read", "")},
 		{"an empty nodes list stays unqualified", `{"query":"{ nodes(ids: []) { id } }"}`, cls("metadata:read", "")},
+		// Account ids address no repository, so the repository-addressed ids alone qualify the request.
+		{"reviewers by user id", `{"query":"mutation { requestReviews(input: {pullRequestId: \"PR_w\", userIds: [\"U_1\", \"BOT_1\", \"M_1\"]}) { clientMutationId } }"}`, pullsCls("pulls:write", "widgets")},
+		{"reviewers by team id", `{"query":"mutation { requestReviews(input: {pullRequestId: \"PR_w\", teamIds: [\"T_1\"]}) { clientMutationId } }"}`, pullsCls("pulls:write", "widgets")},
+		{"issue created with an assignee", `{"query":"mutation { createIssue(input: {repositoryId: \"R_w\", title: \"t\", assigneeIds: [\"U_1\"]}) { clientMutationId } }"}`, cls("issues:write", "widgets")},
+		{"a project id stays unqualified", `{"query":"mutation { updatePullRequest(input: {pullRequestId: \"PR_w\", projectIds: [\"PVT_1\"]}) { clientMutationId } }"}`, pullsCls("pulls:write", "")},
+		{"a user id alone stays unqualified", `{"query":"{ node(id: \"U_1\") { id } }"}`, cls("metadata:read", "")},
 		// The catch-all is never qualified by node ids, so these classify as before resolution existed.
 		{"catch-all mutation with a resolved id stays unqualified", `{"query":"mutation { addComment(input: {subjectId: \"I_w\"}) { clientMutationId } createCommitOnBranch(input: {branch: {repositoryNameWithOwner: \"example-org/gadgets\", branchName: \"main\"}}) { clientMutationId } }"}`, cls("repo:write", "")},
 		{"catch-all query with a resolved node id stays unqualified", `{"query":"{ node(id: \"PR_w\") { id } organization(login: \"example-org\") { login } }"}`, cls("repo:read", "")},

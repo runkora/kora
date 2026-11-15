@@ -147,7 +147,11 @@ func TestConnector_NodeRepositories(t *testing.T) {
 				t.Errorf("lookup authorization = %q", r.Header.Get("Authorization"))
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"data":   map[string]any{"n0": map[string]any{"repository": map[string]any{"name": "Widgets", "owner": map[string]any{"login": "Fabrikam"}}}, "n1": nil, "n2": map[string]any{"name": "gadgets", "owner": map[string]any{"login": "contoso"}}},
+				"data": map[string]any{
+					"n0": map[string]any{"__typename": "PullRequest", "repository": map[string]any{"name": "Widgets", "owner": map[string]any{"login": "Fabrikam"}}}, "n1": nil,
+					"n2": map[string]any{"__typename": "Repository", "name": "gadgets", "owner": map[string]any{"login": "contoso"}},
+					"n3": map[string]any{"__typename": "User"},
+				},
 				"errors": []any{map[string]any{"message": "Could not resolve to a node"}},
 			})
 		default:
@@ -161,12 +165,12 @@ func TestConnector_NodeRepositories(t *testing.T) {
 	a.now = func() time.Time { return time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC) }
 	c := open(t, a, credentials.Connection{ID: "example|fabrikam", SecretRef: "ref", Config: mustConfig(t, config{AppID: "1", InstallationID: 42, Owner: "fabrikam"})}).(*connector)
 
-	got, complete, err := c.NodeRepositories(t.Context(), []string{"PR_1", "garbage", "R_1"}, []string{"contents", "issues"})
+	got, complete, err := c.NodeRepositories(t.Context(), []string{"PR_1", "garbage", "R_1", "U_1"}, []string{"contents", "issues"})
 	if err != nil {
 		t.Fatalf("NodeRepositories: %v", err)
 	}
-	if len(got) != 2 || got["PR_1"] != "fabrikam/widgets" || got["R_1"] != "contoso/gadgets" || complete {
-		t.Errorf("repositories = %v complete %v, want PR_1=fabrikam/widgets R_1=contoso/gadgets, incomplete from the errors", got, complete)
+	if len(got) != 3 || got["PR_1"] != "fabrikam/widgets" || got["R_1"] != "contoso/gadgets" || got["U_1"] != "User" || complete {
+		t.Errorf("repositories = %v complete %v, want PR_1=fabrikam/widgets R_1=contoso/gadgets U_1=User, incomplete from the errors", got, complete)
 	}
 	want := map[string]string{"contents": "read", "issues": "read", "metadata": "read"}
 	if len(minted.Permissions) != len(want) || minted.Permissions["contents"] != "read" || minted.Permissions["issues"] != "read" || minted.Permissions["administration"] != "" {

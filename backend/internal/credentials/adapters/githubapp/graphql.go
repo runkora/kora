@@ -601,17 +601,8 @@ func (w *graphqlWalker) qualifier(op *ast.OperationDefinition, owner string, rep
 			(f.Name == "nodes" && (repos == nil || !w.stringIDs(f, "ids")))
 	})
 	w.collectRefs(op.SelectionSet, &refs)
-	ids := map[string]bool{}
 	if repos != nil {
-		w.collectOwners(op.SelectionSet, map[string]bool{}, ids)
-	}
-	for id := range ids {
-		repoOwner, name, ok := strings.Cut(repos[id], "/")
-		if !ok || repoOwner != owner {
-			refs.unattributed = true
-			break
-		}
-		refs.names[name] = true
+		w.nodeIDRefs(op, repos, &refs)
 	}
 	switch {
 	case refs.foreign:
@@ -623,6 +614,25 @@ func (w *graphqlWalker) qualifier(op *ast.OperationDefinition, owner string, rep
 		return name, nil
 	}
 	return "", nil
+}
+
+// nodeIDRefs records the repository of every node id the operation names. An
+// account id addresses no repository and is skipped; any other id outside one
+// of the owner's repositories leaves the operation unattributed.
+func (w *graphqlWalker) nodeIDRefs(op *ast.OperationDefinition, repos map[string]string, refs *repoRefs) {
+	ids := map[string]bool{}
+	w.collectOwners(op.SelectionSet, map[string]bool{}, ids)
+	for id := range ids {
+		repoOwner, name, ok := strings.Cut(repos[id], "/")
+		if !ok && graphqlAccountTypes[repos[id]] {
+			continue
+		}
+		if !ok || repoOwner != refs.owner {
+			refs.unattributed = true
+			return
+		}
+		refs.names[name] = true
+	}
 }
 
 // stringIDs reports whether a node or nodes argument is one or more non-empty
@@ -704,6 +714,11 @@ func (w *graphqlWalker) argument(f *ast.Field, name string) any {
 var graphqlOwnerFields = map[string]string{
 	"repository": "owner", "organization": "login", "repositoryOwner": "login", "user": "login",
 }
+
+// graphqlAccountTypes are the resolved node types that name a person or team,
+// such as an assignee or reviewer. They address no repository, so they do not
+// affect the qualifier; any other type outside a repository leaves it unset.
+var graphqlAccountTypes = map[string]bool{"User": true, "Bot": true, "Team": true, "Mannequin": true}
 
 // graphqlNonNodeIDs are arguments and input fields whose names end in Id or Ids
 // but hold no node id in the GitHub schema.

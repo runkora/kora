@@ -81,7 +81,7 @@ type API interface {
 	CreateInstallationToken(ctx context.Context, appJWT string, installationID int64, body ghclient.InstallationTokenRequest) (ghclient.InstallationToken, error)
 	ListInstallationRepositories(ctx context.Context, installationToken string) ([]string, error)
 	GetInstallationPermissions(ctx context.Context, appJWT string, installationID int64) (map[string]string, error)
-	NodeRepositories(ctx context.Context, installationToken string, ids []string) (map[string]ghclient.Repository, bool, error)
+	NodeRepositories(ctx context.Context, installationToken string, ids []string) (map[string]ghclient.Node, bool, error)
 	Repositories(ctx context.Context, installationToken string, ids []string) (map[string]ghclient.Repository, error)
 }
 
@@ -919,9 +919,10 @@ var lookupPermissions = map[string][]string{
 	"repo":     {"metadata", "contents", "issues", "pull_requests", "discussions", "checks", "actions"},
 }
 
-// NodeRepositories resolves node ids to the "owner/name" of their repository
-// with a read-only installation token limited to categories, the ones the
-// caller holds. Ids the token cannot see, or outside any repository, are absent.
+// NodeRepositories resolves node ids with a read-only installation token
+// limited to categories, the ones the caller holds. An object in a repository
+// resolves to its "owner/name", and any other object to its type, such as
+// "User", which never contains a slash. Ids the token cannot see are absent.
 // complete is false when GitHub answered with errors, so absent ids may not be
 // unseen. See docs/adr/2026-10-15-same-host-connection-selection.md.
 func (c *connector) NodeRepositories(ctx context.Context, ids, categories []string) (map[string]string, bool, error) {
@@ -929,11 +930,18 @@ func (c *connector) NodeRepositories(ctx context.Context, ids, categories []stri
 	if err != nil {
 		return nil, false, err
 	}
-	repos, complete, err := c.adapter.api.NodeRepositories(ctx, token, ids)
+	nodes, complete, err := c.adapter.api.NodeRepositories(ctx, token, ids)
 	if err != nil {
 		return nil, false, fmt.Errorf("node repository lookup: %w", err)
 	}
-	return nameWithOwner(repos), complete, nil
+	out := make(map[string]string, len(nodes))
+	for id, n := range nodes {
+		out[id] = n.Type
+		if n.Repository.Name != "" {
+			out[id] = n.Repository.Owner + "/" + n.Repository.Name
+		}
+	}
+	return out, complete, nil
 }
 
 // Repositories resolves numeric repository ids to "owner/name" with the same
@@ -948,15 +956,11 @@ func (c *connector) Repositories(ctx context.Context, ids, categories []string) 
 	if err != nil {
 		return nil, false, fmt.Errorf("repository lookup: %w", err)
 	}
-	return nameWithOwner(repos), true, nil
-}
-
-func nameWithOwner(repos map[string]ghclient.Repository) map[string]string {
 	out := make(map[string]string, len(repos))
 	for id, r := range repos {
 		out[id] = r.Owner + "/" + r.Name
 	}
-	return out
+	return out, true, nil
 }
 
 // lookupToken returns a read-only installation token limited to categories.

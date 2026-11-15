@@ -22,7 +22,8 @@ func (c qualifyingConnector) ClassifyResolved(req *http.Request, repos map[strin
 
 func TestClassify_QualifiesByResolvedIDs(t *testing.T) {
 	conn := githubConn(t, "fabrikam-github", "fabrikam")
-	visible := map[string]map[string]string{"fabrikam-github": {"PR_w": "fabrikam/widgets", "PR_g": "fabrikam/gadgets", "522": "fabrikam/widgets"}}
+	visible := map[string]map[string]string{"fabrikam-github": {"PR_w": "fabrikam/widgets", "PR_g": "fabrikam/gadgets", "522": "fabrikam/widgets", "U_1": "User"}}
+	reviewers := graphqlRequest(`{"query":"mutation { requestReviews(input: {pullRequestId: \"PR_w\", userIds: [\"U_1\"]}) { clientMutationId } }"}`)
 	pullsWrite := `{"query":"mutation($in: UpdatePullRequestInput!) { updatePullRequest(input: $in) { clientMutationId } }","variables":{"in":{"pullRequestId":"PR_ID"}}}`
 	update := func(id string) EgressRequest {
 		return graphqlRequest(strings.ReplaceAll(pullsWrite, "PR_ID", id))
@@ -44,6 +45,7 @@ func TestClassify_QualifiesByResolvedIDs(t *testing.T) {
 		wantCategories []string
 	}{
 		{name: "per-repository grant qualifies by the resolved repository", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: update("PR_w"), wantQualifier: "widgets", wantAction: "pulls:write", wantCategories: []string{"pulls"}},
+		{name: "a user id survives the grant filter", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: reviewers, wantQualifier: "widgets", wantAction: "pulls:write", wantCategories: []string{"pulls"}},
 		{name: "a repository the caller holds no grant on stays unresolved", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: update("PR_g"), wantAction: "pulls:write", wantCategories: []string{"pulls"}},
 		{name: "an unqualified grant qualifies by any resolved repository", scopes: []string{"connection:fabrikam-github:pulls:write", "connection:fabrikam-github:issues:widgets:write"}, req: update("PR_g"), wantQualifier: "gadgets", wantAction: "pulls:write", wantCategories: []string{"issues", "pulls"}},
 		{name: "no grant on the connection needs no lookup", scopes: []string{"connection:other-github:pulls:write"}, req: update("PR_w"), wantAction: "pulls:write"},

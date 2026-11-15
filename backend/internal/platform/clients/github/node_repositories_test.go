@@ -16,21 +16,24 @@ func TestClient_NodeRepositories(t *testing.T) {
 	tests := []struct {
 		name         string
 		reply        string
-		want         map[string]Repository
+		want         map[string]Node
 		wantComplete bool
 		wantErr      error
 	}{
 		{
-			name: "repository shapes, a user and an unseen id, with errors",
-			reply: `{"data":{"n0":{"name":"Widgets","owner":{"login":"Fabrikam"}},"n1":{"repository":{"name":"gadgets","owner":{"login":"contoso"}}},` +
-				`"n2":{"pullRequest":{"repository":{"name":"w","owner":{"login":"fabrikam"}}}},"n3":{"commit":{"repository":{"name":"c","owner":{"login":"fabrikam"}}}},"n4":{},"n5":null},` +
+			name: "repository shapes, a user, a typeless node and an unseen id, with errors",
+			reply: `{"data":{"n0":{"__typename":"Repository","name":"Widgets","owner":{"login":"Fabrikam"}},"n1":{"__typename":"PullRequest","repository":{"name":"gadgets","owner":{"login":"contoso"}}},` +
+				`"n2":{"__typename":"PullRequestCommit","pullRequest":{"repository":{"name":"w","owner":{"login":"fabrikam"}}}},"n3":{"__typename":"StatusContext","commit":{"repository":{"name":"c","owner":{"login":"fabrikam"}}}},"n4":{"__typename":"User"},"n5":{}},` +
 				`"errors":[{"message":"Could not resolve to a node"}]}`,
-			want: map[string]Repository{"R_1": {"fabrikam", "widgets"}, "PR_1": {"contoso", "gadgets"}, "PRC_1": {"fabrikam", "w"}, "SC_1": {"fabrikam", "c"}},
+			want: map[string]Node{
+				"R_1": {"Repository", Repository{"fabrikam", "widgets"}}, "PR_1": {"PullRequest", Repository{"contoso", "gadgets"}},
+				"PRC_1": {"PullRequestCommit", Repository{"fabrikam", "w"}}, "SC_1": {"StatusContext", Repository{"fabrikam", "c"}}, "U_1": {Type: "User"},
+			},
 		},
 		{
 			name:         "no errors is complete",
-			reply:        `{"data":{"n0":{"name":"widgets","owner":{"login":"fabrikam"}},"n1":null,"n2":null,"n3":null,"n4":{},"n5":null}}`,
-			want:         map[string]Repository{"R_1": {"fabrikam", "widgets"}},
+			reply:        `{"data":{"n0":{"__typename":"Repository","name":"widgets","owner":{"login":"fabrikam"}},"n1":null,"n2":null,"n3":null,"n4":null,"n5":null}}`,
+			want:         map[string]Node{"R_1": {"Repository", Repository{"fabrikam", "widgets"}}},
 			wantComplete: true,
 		},
 		{name: "errors without data fail", reply: `{"data":null,"errors":[{"type":"RATE_LIMITED"}]}`, wantErr: ErrGraphQLQuery},
@@ -56,9 +59,9 @@ func TestClient_NodeRepositories(t *testing.T) {
 			if err != nil || len(got) != len(tc.want) || complete != tc.wantComplete {
 				t.Fatalf("got %v complete %v, err %v, want %v complete %v", got, complete, err, tc.want, tc.wantComplete)
 			}
-			for id, repo := range tc.want {
-				if got[id] != repo {
-					t.Errorf("repository of %s = %v, want %v", id, got[id], repo)
+			for id, node := range tc.want {
+				if got[id] != node {
+					t.Errorf("node %s = %v, want %v", id, got[id], node)
 				}
 			}
 			if body.Variables["i5"] != "nope" || !strings.Contains(body.Query, "n5: node(id: $i5)") {

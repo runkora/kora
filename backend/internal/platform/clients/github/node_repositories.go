@@ -23,14 +23,21 @@ type Repository struct {
 	Name  string
 }
 
+// Node is the type of a resolved object and the repository it is or belongs to.
+// Repository is zero for an object outside any repository, such as a user.
+type Node struct {
+	Type       string
+	Repository Repository
+}
+
 // repoFields selects a repository's owner login and name.
 const repoFields = `{ name owner { login } }`
 
-// nodeRepositoryFields selects the repository of a repository or a
-// repository-scoped object. A pull request commit reaches it through its pull
+// nodeRepositoryFields selects the type and the repository of a repository or
+// a repository-scoped object. A pull request commit reaches it through its pull
 // request and a status context through its commit. Users and organizations
-// select nothing, so ids such as assignees resolve to no repository.
-const nodeRepositoryFields = `{ ... on Repository ` + repoFields +
+// select only their type.
+const nodeRepositoryFields = `{ __typename ... on Repository ` + repoFields +
 	` ... on RepositoryNode { repository ` + repoFields + ` }` +
 	` ... on Label { repository ` + repoFields + ` } ... on Milestone { repository ` + repoFields + ` }` +
 	` ... on PullRequestReviewThread { repository ` + repoFields + ` }` +
@@ -59,6 +66,7 @@ func (r *repositoryJSON) ref() (Repository, bool) {
 // nodeRepository is one aliased node in the lookup response.
 type nodeRepository struct {
 	repositoryJSON
+	Typename    string          `json:"__typename"`
 	Repository  *repositoryJSON `json:"repository"`
 	PullRequest *struct {
 		Repository *repositoryJSON `json:"repository"`
@@ -80,13 +88,13 @@ func (n *nodeRepository) ref() (Repository, bool) {
 	return n.repositoryJSON.ref()
 }
 
-// NodeRepositories resolves global node ids to the repository each object is,
-// or belongs to, using an installation token. Ids the token cannot see, and
-// ids of objects outside any repository, are absent from the result. Each id
-// is a separate aliased field, so one unresolvable id does not fail the others.
-// At most MaxNodeLookup ids are sent. complete is false when the response
-// carried errors, so an absent id may be a failure rather than unseen.
-func (c *Client) NodeRepositories(ctx context.Context, installationToken string, ids []string) (repos map[string]Repository, complete bool, err error) {
+// NodeRepositories resolves global node ids to the type of each object and the
+// repository it is, or belongs to, using an installation token. Ids the token
+// cannot see are absent from the result. Each id is a separate aliased field,
+// so one unresolvable id does not fail the others. At most MaxNodeLookup ids
+// are sent. complete is false when the response carried errors, so an absent id
+// may be a failure rather than unseen.
+func (c *Client) NodeRepositories(ctx context.Context, installationToken string, ids []string) (nodes map[string]Node, complete bool, err error) {
 	ids = ids[:min(len(ids), MaxNodeLookup)]
 	params := make([]string, len(ids))
 	fields := make([]string, len(ids))
@@ -131,13 +139,12 @@ func (c *Client) NodeRepositories(ctx context.Context, installationToken string,
 	if out.Data == nil && len(out.Errors) > 0 {
 		return nil, false, c.RecordError(span, fmt.Errorf("%w: %s", ErrGraphQLQuery, out.Errors[0]))
 	}
-	repos = make(map[string]Repository, len(ids))
+	nodes = make(map[string]Node, len(ids))
 	for i, id := range ids {
-		if n := out.Data[fmt.Sprintf("n%d", i)]; n != nil {
-			if ref, ok := n.ref(); ok {
-				repos[id] = ref
-			}
+		if n := out.Data[fmt.Sprintf("n%d", i)]; n != nil && n.Typename != "" {
+			ref, _ := n.ref()
+			nodes[id] = Node{Type: n.Typename, Repository: ref}
 		}
 	}
-	return repos, len(out.Errors) == 0, nil
+	return nodes, len(out.Errors) == 0, nil
 }

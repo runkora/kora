@@ -416,9 +416,10 @@ func (b *Broker) classify(ctx context.Context, claims *token.PlatformClaims, con
 	}
 	// A repository the caller holds no grant on stays unresolved, so no denial names it.
 	if repos != nil {
+		// A value without a slash is an object type, such as "User", and names no repository.
 		maps.DeleteFunc(resolved, func(_, repo string) bool {
-			_, name, _ := strings.Cut(repo, "/")
-			return !repos[name]
+			_, name, ok := strings.Cut(repo, "/")
+			return ok && !repos[name]
 		})
 	}
 	return q.ClassifyResolved(req.HTTPRequest, resolved)

@@ -180,12 +180,13 @@ func (b *Broker) resolveOwners(ctx context.Context, claims *token.PlatformClaims
 		if err != nil {
 			return nil, err
 		}
+		// Only an "owner/name" value has an owner; an object type such as "User" has none.
 		pending = slices.DeleteFunc(pending, func(id string) bool {
-			owner, _, _ := strings.Cut(resolved[id], "/")
-			if owner != "" {
+			owner, _, ok := strings.Cut(resolved[id], "/")
+			if ok && owner != "" {
 				found[owner] = true
 			}
-			return owner != ""
+			return ok && owner != ""
 		})
 	}
 	return slices.Sorted(maps.Keys(found)), nil
