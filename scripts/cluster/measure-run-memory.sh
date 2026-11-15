@@ -12,12 +12,12 @@
 #
 # Usage: scripts/cluster/measure-run-memory.sh [framework=model ...]
 #   default: claude-code=anthropic/claude-haiku-4-5 codex=openai/gpt-5-5 opencode=anthropic/claude-haiku-4-5
-# Needs make auth (/tmp/kora_credentials.json). KUBE_CONTEXT defaults to k3d-kora-local.
+# Needs make auth (/tmp/kora_credentials.json). KORA_KUBE_CONTEXT defaults to k3d-kora-local.
 set -euo pipefail
 
 API=${KORA_API:-https://api.local.runkora.io}
 NS=${TENANT_NAMESPACE:-kora-tenant-example}
-CONTEXT=${KUBE_CONTEXT:-k3d-kora-local}
+CONTEXT=${KORA_KUBE_CONTEXT:-k3d-kora-local}
 RUNS=${RUNS:-3}
 SETTLE_SECS=${SETTLE_SECS:-20}
 TURN_TIMEOUT_SECS=${TURN_TIMEOUT_SECS:-240}

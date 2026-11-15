@@ -146,9 +146,9 @@ The starting runs on a pod come from the `runs` table, and the check holds acros
 
 `agents.scheduling.startingRunAllowance` holds one value per harness: the memory a run is assumed to take between its start and the next memory reading. Placement and the scaler use the value for the agent's harness. The chart defaults are the values measured at run start, rounded up:
 
-*   Claude Code (`claudeCode`): **220Mi** (measured 176Mi settled, 206Mi peak alone, about 215Mi per run in a burst).
-*   Codex (`codex`): **60Mi** (measured 55Mi, peak 56Mi).
-*   OpenCode (`openCode`): **440Mi** (measured 431Mi, peak 589Mi).
+*   Claude Code (`claudeCode`): **220Mi**.
+*   Codex (`codex`): **60Mi**.
+*   OpenCode (`openCode`): **440Mi**.
 
 ### Agent Lock
 
