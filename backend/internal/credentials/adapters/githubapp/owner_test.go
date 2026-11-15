@@ -106,9 +106,9 @@ func TestConnector_RequestOwners_GraphQL(t *testing.T) {
 		{"node and nodes ids", `{"query":"{ node(id: \"PR_1\") { id } nodes(ids: [\"I_2\", \"I_3\"]) { id } }"}`, nil, []string{"I_2", "I_3", "PR_1"}},
 		{"mutation input ids", `{"query":"mutation($in: AddLabelsToLabelableInput!) { addLabelsToLabelable(input: $in) { clientMutationId } }","variables":{"in":{"labelableId":"I_9","labelIds":["LA_1"],"clientMutationId":"abc"}}}`, nil, []string{"I_9", "LA_1"}},
 		{"excluded id names", `{"query":"mutation { updateProjectV2ItemFieldValue(input: {projectId: \"PVT_1\", itemId: \"PVTI_1\", fieldId: \"F_1\", value: {singleSelectOptionId: \"abc\", iterationId: \"it\"}, clientMutationId: \"x\"}) { clientMutationId } }"}`, nil, []string{"F_1", "PVTI_1", "PVT_1"}},
-		{"search query variable", `{"query":"query($q: String!) { search(query: $q, type: ISSUE, first: 10) { issueCount } }","variables":{"q":"repo:acme/widgets is:pr author:bot"}}`, []string{"acme"}, nil},
+		{"search query variable", `{"query":"query($q: String!) { search(query: $q, type: ISSUE, first: 10) { issueCount } }","variables":{"q":"repo:example-org/widgets is:pr author:bot"}}`, []string{"example-org"}, nil},
 		{"search query literal", `{"query":"{ search(query: \"org:contoso is:open\", type: ISSUE) { issueCount } }"}`, []string{"contoso"}, nil},
-		{"search query negated", `{"query":"query($q: String!) { search(query: $q, type: ISSUE) { issueCount } }","variables":{"q":"-repo:acme/widgets is:pr"}}`, nil, nil},
+		{"search query negated", `{"query":"query($q: String!) { search(query: $q, type: ISSUE) { issueCount } }","variables":{"q":"-repo:example-org/widgets is:pr"}}`, nil, nil},
 		{"viewer only", `{"query":"{ viewer { login } }"}`, nil, nil},
 		{"unparseable", `{"query":"{ repository("}`, nil, nil},
 	}
@@ -158,7 +158,7 @@ func TestConnector_NodeOwners(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	a := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
 	a.now = func() time.Time { return time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC) }
-	c := open(t, a, credentials.Connection{ID: "acme|fabrikam", SecretRef: "ref", Config: mustConfig(t, config{AppID: "1", InstallationID: 42, Owner: "fabrikam"})}).(*connector)
+	c := open(t, a, credentials.Connection{ID: "example|fabrikam", SecretRef: "ref", Config: mustConfig(t, config{AppID: "1", InstallationID: 42, Owner: "fabrikam"})}).(*connector)
 
 	got, err := c.NodeOwners(t.Context(), []string{"PR_1", "garbage", "O_1"}, []string{"contents", "issues"})
 	if err != nil {

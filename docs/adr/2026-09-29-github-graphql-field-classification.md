@@ -3,6 +3,7 @@
 <!-- Filename: 2026-09-29-github-graphql-field-classification.md -->
 
 **Status:** Accepted
+**Partially superseded by:** [GitHub connector route coverage](2026-11-15-github-connector-route-coverage.md) (Option 4 and the node-ID clause of "Qualifier and owner")
 **Date:** 2026-09-29
 **Deciders:** Justin Wilkin
 **Technical Story:** Extends the `github_app` classifier from the [category-scoped actions ADR](2026-07-22-github-connection-category-scoped-actions.md), which left GraphQL on the umbrella and deferred parsing it.

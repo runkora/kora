@@ -130,14 +130,14 @@ func TestAdapter_Resolve_MintsAndCaches(t *testing.T) {
 	adapter.now = func() time.Time { return time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC) }
 
 	conn := credentials.Connection{
-		ID: "conn-1", TenantID: "acme", Name: "github", Adapter: credentials.AdapterGitHubApp,
-		BaseHost: "github.com", SecretRef: "k8s:kora-conn-acme-github",
+		ID: "conn-1", TenantID: "example", Name: "github", Adapter: credentials.AdapterGitHubApp,
+		BaseHost: "github.com", SecretRef: "k8s:kora-conn-example-github",
 		Config: mustConfig(t, config{
 			AppID: "12345", InstallationID: 42,
 			Permissions: map[string]string{"contents": "write"},
 		}),
 	}
-	id := credentials.CallerIdentity{TenantID: "acme", PrincipalID: "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder", RunID: "run-9", Action: "repo:write", Qualifier: "kora"}
+	id := credentials.CallerIdentity{TenantID: "example", PrincipalID: "spiffe://runkora.test/tenant/kora-tenant-example/agent/coder", RunID: "run-9", Action: "repo:write", Qualifier: "kora"}
 
 	cred, err := open(t, adapter, conn).Mint(context.Background(), id)
 	if err != nil {
@@ -537,7 +537,7 @@ func TestAdapter_Resolve_UmbrellaOmitsMissingPermission(t *testing.T) {
 	adapter.now = func() time.Time { return time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC) }
 
 	conn := credentials.Connection{
-		ID: "conn-1", TenantID: "acme", Name: "github",
+		ID: "conn-1", TenantID: "example", Name: "github",
 		Adapter:   credentials.AdapterGitHubApp,
 		SecretRef: "ref",
 		// No Permissions ceiling: umbrella should intersect with installation perms.
@@ -545,7 +545,7 @@ func TestAdapter_Resolve_UmbrellaOmitsMissingPermission(t *testing.T) {
 	}
 
 	_, err := open(t, adapter, conn).Mint(context.Background(),
-		credentials.CallerIdentity{TenantID: "acme", Action: "repo:write", Qualifier: "kora"})
+		credentials.CallerIdentity{TenantID: "example", Action: "repo:write", Qualifier: "kora"})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
@@ -609,12 +609,12 @@ func TestAdapter_Resolve_UmbrellaPermissionsCached(t *testing.T) {
 	adapter.now = func() time.Time { return now }
 
 	conn := credentials.Connection{
-		ID: "conn-1", TenantID: "acme", Name: "github",
+		ID: "conn-1", TenantID: "example", Name: "github",
 		Adapter:   credentials.AdapterGitHubApp,
 		SecretRef: "ref",
 		Config:    mustConfig(t, config{AppID: "1", InstallationID: 42}),
 	}
-	id := credentials.CallerIdentity{TenantID: "acme", Action: "repo:write"}
+	id := credentials.CallerIdentity{TenantID: "example", Action: "repo:write"}
 
 	// First mint: calls GetInstallationPermissions once, then CreateInstallationToken.
 	if _, err := open(t, adapter, conn).Mint(context.Background(), id); err != nil {
@@ -685,7 +685,7 @@ func TestAdapter_Resolve_UmbrellaWithCeilingSkipsInstallationPermissions(t *test
 	adapter.now = func() time.Time { return time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC) }
 
 	conn := credentials.Connection{
-		ID: "conn-1", TenantID: "acme", Name: "github",
+		ID: "conn-1", TenantID: "example", Name: "github",
 		Adapter:   credentials.AdapterGitHubApp,
 		SecretRef: "ref",
 		Config: mustConfig(t, config{
@@ -695,7 +695,7 @@ func TestAdapter_Resolve_UmbrellaWithCeilingSkipsInstallationPermissions(t *test
 	}
 
 	if _, err := open(t, adapter, conn).Mint(context.Background(),
-		credentials.CallerIdentity{TenantID: "acme", Action: "repo:write"}); err != nil {
+		credentials.CallerIdentity{TenantID: "example", Action: "repo:write"}); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 	if instPermsCallCount != 0 {
@@ -721,11 +721,11 @@ func TestAdapter_Resolve_QualifierNarrowsMint(t *testing.T) {
 	adapter.now = func() time.Time { return time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC) }
 
 	conn := credentials.Connection{
-		ID: "conn-1", TenantID: "acme", Name: "github", Adapter: credentials.AdapterGitHubApp,
+		ID: "conn-1", TenantID: "example", Name: "github", Adapter: credentials.AdapterGitHubApp,
 		SecretRef: "ref",
 		Config:    mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "orbital"}),
 	}
-	id := credentials.CallerIdentity{TenantID: "acme", Action: "issues:write", Qualifier: "kora"}
+	id := credentials.CallerIdentity{TenantID: "example", Action: "issues:write", Qualifier: "kora"}
 
 	if _, err := open(t, adapter, conn).Mint(context.Background(), id); err != nil {
 		t.Fatalf("Resolve: %v", err)

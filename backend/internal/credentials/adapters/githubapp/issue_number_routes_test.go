@@ -82,7 +82,7 @@ func mintPermissions(t *testing.T, id credentials.CallerIdentity) map[string]str
 	a := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
 	a.now = func() time.Time { return time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC) }
 	conn := credentials.Connection{
-		ID: "conn-1", TenantID: "acme", Name: "github", Adapter: credentials.AdapterGitHubApp,
+		ID: "conn-1", TenantID: "example", Name: "github", Adapter: credentials.AdapterGitHubApp,
 		SecretRef: "ref",
 		Config:    mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "orbital"}),
 	}
@@ -97,7 +97,7 @@ func mintPermissions(t *testing.T, id credentials.CallerIdentity) map[string]str
 func TestMint_AlsoAuthorizedWidensByExactlyThoseActions(t *testing.T) {
 	t.Run("pulls authorized", func(t *testing.T) {
 		perms := mintPermissions(t, credentials.CallerIdentity{
-			TenantID: "acme", Action: "issues:write", Qualifier: "kora",
+			TenantID: "example", Action: "issues:write", Qualifier: "kora",
 			AlsoAuthorized: []string{"pulls:write"},
 		})
 		if perms["issues"] != "write" || perms["pull_requests"] != "write" {
@@ -110,7 +110,7 @@ func TestMint_AlsoAuthorizedWidensByExactlyThoseActions(t *testing.T) {
 
 	t.Run("pulls not authorized", func(t *testing.T) {
 		perms := mintPermissions(t, credentials.CallerIdentity{
-			TenantID: "acme", Action: "issues:write", Qualifier: "kora",
+			TenantID: "example", Action: "issues:write", Qualifier: "kora",
 		})
 		if perms["issues"] != "write" {
 			t.Errorf("permissions = %v, want issues:write", perms)
@@ -122,7 +122,7 @@ func TestMint_AlsoAuthorizedWidensByExactlyThoseActions(t *testing.T) {
 
 	t.Run("a read alternate does not lower a write", func(t *testing.T) {
 		perms := mintPermissions(t, credentials.CallerIdentity{
-			TenantID: "acme", Action: "pulls:write", Qualifier: "kora",
+			TenantID: "example", Action: "pulls:write", Qualifier: "kora",
 			AlsoAuthorized: []string{"pulls:read"},
 		})
 		if perms["pull_requests"] != "write" {

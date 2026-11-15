@@ -16,13 +16,13 @@ import (
 )
 
 // graphqlConnector opens a connection whose installation belongs to
-// acme. GraphQL classification makes no GitHub calls.
+// example-org. GraphQL classification makes no GitHub calls.
 func graphqlConnector(t *testing.T) credentials.Connector {
 	t.Helper()
 	a := New(nil, stubSecrets{}, logging.NewLoggerWithOutput(io.Discard))
 	conn := credentials.Connection{
 		ID: "conn-1", TenantID: "example", Name: "github", SecretRef: "ref", Adapter: credentials.AdapterGitHubApp,
-		Config: mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "acme"}),
+		Config: mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "example-org"}),
 	}
 	return open(t, a, conn)
 }
@@ -84,8 +84,8 @@ var (
 )
 
 // TestClassifyGraphQL_GHCommands replays the GraphQL documents the gh CLI
-// sends (testdata/gh, captured with GH_DEBUG=api from gh 2.101.0; the
-// mutations are reconstructed from the gh source) against a code-reviewer
+// sends (testdata/gh, captured with GH_DEBUG=api from gh 2.101.0, and the
+// mutations from gh 2.103.3) against a code-reviewer
 // grant on one repository, the same grant on every repository, and an
 // issues-only grant. Requests addressed by node ID are unqualified, so only the
 // unqualified grant covers them.
@@ -111,11 +111,11 @@ func TestClassifyGraphQL_GHCommands(t *testing.T) {
 		{"repo-view", cls("metadata:read", "widgets"), true, true, true},
 		// search has no category to check against, so it keeps the umbrella.
 		{"pr-status", cls("repo:read", "widgets"), false, false, false},
-		{"pr-comment", credentials.Classification{Action: "issues:write", Alternates: []string{"pulls:write"}}, false, true, false},
-		{"pr-review", pullsCls("pulls:write", ""), false, true, false},
-		{"pr-merge", cls("contents:write", ""), false, false, false},
-		{"pr-create", pullsCls("pulls:write", ""), false, true, false},
-		{"issue-create", cls("issues:write", ""), false, true, false},
+		{"pr-comment-2-CommentCreate", credentials.Classification{Action: "issues:write", Alternates: []string{"pulls:write"}}, false, true, false},
+		{"pr-review-comment-2-PullRequestReviewAdd", pullsCls("pulls:write", ""), false, true, false},
+		{"pr-merge-4-PullRequestMerge", cls("contents:write", ""), false, false, false},
+		{"pr-create-3-PullRequestCreate", pullsCls("pulls:write", ""), false, true, false},
+		{"issue-create-2-IssueCreate", cls("issues:write", ""), false, true, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.fixture, func(t *testing.T) {
@@ -171,7 +171,7 @@ func TestClassifyGraphQL(t *testing.T) {
 		b, _ := json.Marshal(map[string]any{"query": query, "variables": vars})
 		return string(b)
 	}
-	const repoWidgets = `repository(owner:"acme", name:"widgets")`
+	const repoWidgets = `repository(owner:"example-org", name:"widgets")`
 
 	cases := []struct {
 		name   string
@@ -201,8 +201,8 @@ func TestClassifyGraphQL(t *testing.T) {
 		{name: "node of an unmapped type needs the umbrella", body: q(`{ node(id:"PR_kwDORRWKBs8AAAABFbAsiQ") { ... on Discussion { title } } }`, nil), want: cls("repo:read", "")},
 		{name: "node repository walks repository fields", body: q(`{ node(id:"R_kgDORRWKBg") { ... on Repository { pullRequests(first:1){totalCount} } } }`, nil), want: pullsCls("pulls:read", "")},
 		{name: "nodes by fragment spread", body: q(`query { nodes(ids:["I_kwDORRWKBs8AAAABTb6V6w"]) { ...F } } fragment F on Issue { title }`, nil), want: cls("issues:read", "")},
-		{name: "variables resolve owner and name", body: q(`query($o:String!,$n:String!){ repository(owner:$o,name:$n){ issues(first:1){totalCount} } }`, map[string]any{"o": "Acme", "n": "Widgets"}), want: cls("issues:read", "widgets")},
-		{name: "two repositories are unqualified", body: q(`{ a: `+repoWidgets+` { id } b: repository(owner:"acme", name:"tools") { id } }`, nil), want: cls("metadata:read", "")},
+		{name: "variables resolve owner and name", body: q(`query($o:String!,$n:String!){ repository(owner:$o,name:$n){ issues(first:1){totalCount} } }`, map[string]any{"o": "Example-Org", "n": "Widgets"}), want: cls("issues:read", "widgets")},
+		{name: "two repositories are unqualified", body: q(`{ a: `+repoWidgets+` { id } b: repository(owner:"example-org", name:"tools") { id } }`, nil), want: cls("metadata:read", "")},
 		{name: "repository without a string owner is unqualified", body: q(`query($o:String){ repository(owner:$o, name:"widgets") { id } }`, nil), want: cls("metadata:read", "")},
 		{name: "mutation by node ID is unqualified", body: q(`mutation { requestReviews(input:{pullRequestId:"PR_kwDORRWKBs8AAAABFbAsiQ", userIds:["U_kgDOBlrQ6Q"], teamIds:["T_kwDOBlrQ6c4AvZ86"]}){clientMutationId} }`, nil), want: pullsCls("pulls:write", "")},
 		{name: "named operation is selected", body: `{"query":"query A { viewer { login } } mutation B { mergePullRequest(input:{pullRequestId:\"PR_kwDORRWKBs8AAAABFbAsiQ\"}){clientMutationId} }","operationName":"B"}`, want: cls("contents:write", "")},
@@ -221,7 +221,7 @@ func TestClassifyGraphQL(t *testing.T) {
 		{name: "no body fails closed", body: "", want: cls("repo:write", "")},
 		{name: "malformed JSON fails closed", body: "not json", want: cls("repo:write", "")},
 		{name: "empty query fails closed", body: `{"query":""}`, want: cls("repo:write", "")},
-		{name: "unparseable document fails closed", body: q(`{ repository(owner:"acme" { id }`, nil), want: cls("repo:write", "")},
+		{name: "unparseable document fails closed", body: q(`{ repository(owner:"example-org" { id }`, nil), want: cls("repo:write", "")},
 		{name: "two anonymous operations fail closed", body: q(`query A { viewer { login } } query B { viewer { login } }`, nil), want: cls("repo:write", "")},
 		{name: "unknown operation name fails closed", body: `{"query":"query A { viewer { login } }","operationName":"Z"}`, want: cls("repo:write", "")},
 		{name: "subscription fails closed", body: q(`subscription { viewer { login } }`, nil), want: cls("repo:write", "")},
@@ -266,7 +266,7 @@ func TestClassifyGraphQL_NoDeclaredOwner(t *testing.T) {
 // TestClassifyGraphQL_BodyPreservation verifies that Classify leaves the full
 // original body readable for forwarding.
 func TestClassifyGraphQL_BodyPreservation(t *testing.T) {
-	body := `{"query":"query { repository(owner:\"acme\", name:\"widgets\") { id } }"}`
+	body := `{"query":"query { repository(owner:\"example-org\", name:\"widgets\") { id } }"}`
 	c := graphqlConnector(t)
 	req := graphqlPost(t, body)
 	if _, err := c.Classify(req); err != nil {
@@ -338,7 +338,7 @@ func TestClassifyGraphQL_OversizedBodyForwardedIntact(t *testing.T) {
 func TestClassifyGraphQL_GHEPath(t *testing.T) {
 	c := graphqlConnector(t)
 	req, _ := http.NewRequest(http.MethodPost, "https://ghe.example.com/api/graphql",
-		strings.NewReader(`{"query":"{ repository(owner:\"acme\", name:\"widgets\") { pullRequest(number:1){ title } } }"}`))
+		strings.NewReader(`{"query":"{ repository(owner:\"example-org\", name:\"widgets\") { pullRequest(number:1){ title } } }"}`))
 	got, err := c.Classify(req)
 	if err != nil {
 		t.Fatalf("Classify: %v", err)
@@ -350,7 +350,7 @@ func TestClassifyGraphQL_GHEPath(t *testing.T) {
 // reach file contents through a nested selection.
 func TestClassifyGraphQL_PullsNeedContentsForNestedReads(t *testing.T) {
 	c := graphqlConnector(t)
-	got, err := c.Classify(graphqlPost(t, `{"query":"{ repository(owner:\"acme\",name:\"widgets\"){ pullRequests(first:1){ nodes { repository { object(expression:\"HEAD:secrets.env\"){ ... on Blob { text } } } } } } }"}`))
+	got, err := c.Classify(graphqlPost(t, `{"query":"{ repository(owner:\"example-org\",name:\"widgets\"){ pullRequests(first:1){ nodes { repository { object(expression:\"HEAD:secrets.env\"){ ... on Blob { text } } } } } } }"}`))
 	if err != nil {
 		t.Fatalf("Classify: %v", err)
 	}
