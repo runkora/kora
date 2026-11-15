@@ -196,6 +196,10 @@ func classifyGraphQL(req *http.Request, owner string, repos map[string]string) (
 	if owner == "" {
 		return cls, nil
 	}
+	// The catch-all mints every installation permission, so node ids never qualify it.
+	if cls.Action == catRepo+":"+verbRead || cls.Action == catRepo+":"+verbWrite {
+		repos = nil
+	}
 	qualifier, err := w.qualifier(op, owner, repos)
 	if err != nil {
 		return credentials.Classification{}, err
@@ -585,18 +589,22 @@ func classificationFor(reqs []requirement) credentials.Classification {
 // repository() call that names another owner. It returns "" when the operation
 // names no repository, several, or one it cannot pin down, including a node id
 // that is unresolved or outside the owner; only an unqualified grant covers that.
+// With repos nil, node ids are ignored and any node lookup is unqualified.
 func (w *graphqlWalker) qualifier(op *ast.OperationDefinition, owner string, repos map[string]string) (string, error) {
 	refs := repoRefs{names: map[string]bool{}, owner: owner}
 	w.spreads, w.incomplete = 0, false
 	// repositoryOwner lists every repository of an account, and a node lookup
-	// whose ids are not literal strings names objects the walk cannot resolve.
+	// is unattributed unless its literal ids were resolved.
 	w.fields(op.SelectionSet, func(f *ast.Field) {
 		refs.unattributed = refs.unattributed || f.Name == "repositoryOwner" ||
-			(f.Name == "node" && !w.stringIDs(f, "id")) || (f.Name == "nodes" && !w.stringIDs(f, "ids"))
+			(f.Name == "node" && (repos == nil || !w.stringIDs(f, "id"))) ||
+			(f.Name == "nodes" && (repos == nil || !w.stringIDs(f, "ids")))
 	})
 	w.collectRefs(op.SelectionSet, &refs)
 	ids := map[string]bool{}
-	w.collectOwners(op.SelectionSet, map[string]bool{}, ids)
+	if repos != nil {
+		w.collectOwners(op.SelectionSet, map[string]bool{}, ids)
+	}
 	for id := range ids {
 		repoOwner, name, ok := strings.Cut(repos[id], "/")
 		if !ok || repoOwner != owner {

@@ -34,6 +34,10 @@ func TestClassifyResolved_NodeIDs(t *testing.T) {
 		{"node id disagreeing with a repository() call", `{"query":"{ repository(owner: \"example-org\", name: \"gadgets\") { name } node(id: \"PR_w\") { id } }"}`, cls("metadata:read", "")},
 		{"a node id from an unsupplied variable stays unqualified", `{"query":"query($id: ID!) { node(id: $id) { ... on PullRequest { title } } }"}`, pullsCls("pulls:read", "")},
 		{"an empty nodes list stays unqualified", `{"query":"{ nodes(ids: []) { id } }"}`, cls("metadata:read", "")},
+		// The catch-all is never qualified by node ids, so these classify as before resolution existed.
+		{"catch-all mutation with a resolved id stays unqualified", `{"query":"mutation { addComment(input: {subjectId: \"I_w\"}) { clientMutationId } createCommitOnBranch(input: {branch: {repositoryNameWithOwner: \"example-org/gadgets\", branchName: \"main\"}}) { clientMutationId } }"}`, cls("repo:write", "")},
+		{"catch-all query with a resolved node id stays unqualified", `{"query":"{ node(id: \"PR_w\") { id } organization(login: \"example-org\") { login } }"}`, cls("repo:read", "")},
+		{"catch-all query keeps its repository() qualifier", `{"query":"{ repository(owner: \"example-org\", name: \"widgets\") { name } organization(login: \"example-org\") { login } }"}`, cls("repo:read", "widgets")},
 	}
 	c := graphqlConnector(t).(*connector)
 	for _, tc := range tests {
