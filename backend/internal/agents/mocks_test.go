@@ -1039,7 +1039,7 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 		logger,
 	)
 	runSvc, err := NewRunService(
-		repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo,
+		repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo, repo,
 		RunServiceConfig{
 			DefaultEnvironmentSize: testSizes.Default,
 			TenantNamespaceFn:      func(tenantID string) string { return "kora-tenant-" + tenantID },

@@ -279,6 +279,15 @@ var (
 // errAgentProvisioning releases a run whose agent is still being created.
 var errAgentProvisioning = errors.New("agent is still provisioning")
 
+// podPlacementStore is the run counts, agent lock and pod assignment that placing a run takes.
+type podPlacementStore interface {
+	AgentRunCounts(ctx context.Context, agentTypeID string) (AgentRunCounts, error)
+	StartingRunsPerPod(ctx context.Context, agentTypeID string, assignedSince time.Time) (map[int]int, error)
+	// WithAgentLock runs fn holding the agent's lock. Calls made with fn's ctx join its transaction.
+	WithAgentLock(ctx context.Context, agentTypeID string, fn func(ctx context.Context) error) error
+	AssignPod(ctx context.Context, runID string, claimedAt time.Time, podOrdinal int) error
+}
+
 // memoryReadTimeout bounds one pod memory read. A pod that does not answer in time counts as full.
 const memoryReadTimeout = 2 * time.Second
 
@@ -301,7 +310,7 @@ func (s *RunService) assignPod(ctx context.Context, run Run, claimedAt time.Time
 	readings := s.readPodMemory(ctx, at.Slug, namespace, ready)
 	// A run for an agent whose pods are all full is released here. Many such runs at once would
 	// otherwise queue on the agent lock. The lock re-checks.
-	starting, err := s.repo.StartingRunsPerPod(ctx, at.ID, time.Now().Add(-s.cfg.StartingRunWindow))
+	starting, err := s.placement.StartingRunsPerPod(ctx, at.ID, time.Now().Add(-s.cfg.StartingRunWindow))
 	if err != nil {
 		return 0, err
 	}
@@ -312,7 +321,7 @@ func (s *RunService) assignPod(ctx context.Context, run Run, claimedAt time.Time
 		return 0, errNoFreePod
 	}
 	pod := -1
-	err = s.repo.WithAgentLock(ctx, at.ID, func(ctx context.Context) error {
+	err = s.placement.WithAgentLock(ctx, at.ID, func(ctx context.Context) error {
 		var lockedErr error
 		pod, lockedErr = s.assignLocked(ctx, run, claimedAt, at, namespace, ready, readings, allowance.Value())
 		return lockedErr
@@ -324,7 +333,7 @@ func (s *RunService) assignPod(ctx context.Context, run Run, claimedAt time.Time
 // the current replicas, and assigns the lowest ready pod whose reading has room.
 func (s *RunService) assignLocked(ctx context.Context, run Run, claimedAt time.Time, at *AgentType, namespace string,
 	ready []int, readings map[int]sessionmanager.Memory, allowance int64) (int, error) {
-	counts, err := s.repo.AgentRunCounts(ctx, at.ID)
+	counts, err := s.placement.AgentRunCounts(ctx, at.ID)
 	if err != nil {
 		return 0, err
 	}
@@ -336,13 +345,13 @@ func (s *RunService) assignLocked(ctx context.Context, run Run, claimedAt time.T
 	if err != nil {
 		return 0, fmt.Errorf("read replicas: %w", err)
 	}
-	starting, err := s.repo.StartingRunsPerPod(ctx, at.ID, time.Now().Add(-s.cfg.StartingRunWindow))
+	starting, err := s.placement.StartingRunsPerPod(ctx, at.ID, time.Now().Add(-s.cfg.StartingRunWindow))
 	if err != nil {
 		return 0, err
 	}
 	for _, ord := range ready {
 		if m, ok := readings[ord]; ok && ord < replicas && hasRoom(m, starting[ord], allowance, s.cfg.PlacementWatermark) {
-			return ord, s.repo.AssignPod(ctx, run.ID, claimedAt, ord)
+			return ord, s.placement.AssignPod(ctx, run.ID, claimedAt, ord)
 		}
 	}
 	return 0, errNoFreePod

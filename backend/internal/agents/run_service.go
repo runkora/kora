@@ -85,6 +85,7 @@ type RunService struct {
 	images     sandboxImageLookup
 	missing    missingProvisioner
 	queue      runQueue
+	placement  podPlacementStore
 	metrics    *Metrics // run outcome and duration; nil = not recorded
 	budgets    runBudgetReader
 	selfToken  ServiceTokenSource
@@ -157,6 +158,7 @@ func NewRunService(
 	images sandboxImageLookup,
 	missing missingProvisioner,
 	queue runQueue,
+	placement podPlacementStore,
 	cfg RunServiceConfig,
 	logger logging.Logger,
 ) (*RunService, error) {
@@ -164,18 +166,19 @@ func NewRunService(
 		return nil, ErrRunServiceProductNameEmpty
 	}
 	return &RunService{
-		repo:    repo,
-		atRepo:  atRepo,
-		sm:      sm,
-		k8s:     k8s,
-		pubsub:  pubsub,
-		authz:   authz,
-		envs:    envs,
-		images:  images,
-		missing: missing,
-		queue:   queue,
-		cfg:     cfg,
-		logger:  logger,
+		repo:      repo,
+		atRepo:    atRepo,
+		sm:        sm,
+		k8s:       k8s,
+		pubsub:    pubsub,
+		authz:     authz,
+		envs:      envs,
+		images:    images,
+		missing:   missing,
+		queue:     queue,
+		placement: placement,
+		cfg:       cfg,
+		logger:    logger,
 	}, nil
 }
 

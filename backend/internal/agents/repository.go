@@ -70,14 +70,6 @@ type RunRepository interface {
 	CancelRunsByAgentType(ctx context.Context, agentTypeID string) ([]Run, error)
 	// RecordSandboxDeleted records the removal of the run's sandbox once.
 	RecordSandboxDeleted(ctx context.Context, run Run) error
-	// AgentRunCounts counts an agent's pending, starting and active runs.
-	AgentRunCounts(ctx context.Context, agentTypeID string) (AgentRunCounts, error)
-	// StartingRunsPerPod returns an agent's starting run counts keyed by pod ordinal, with the live
-	// runs assigned to their pod after assignedSince.
-	StartingRunsPerPod(ctx context.Context, agentTypeID string, assignedSince time.Time) (map[int]int, error)
-	// WithAgentLock runs fn in a transaction that holds the agent's advisory lock.
-	// Calls made with fn's ctx join the transaction.
-	WithAgentLock(ctx context.Context, agentTypeID string, fn func(ctx context.Context) error) error
 	// ReapStaleRuns ends runs stuck in transient states for longer than
 	// staleDuration and returns them in their new state:
 	//   - failed:    runs transitioned pending|starting|active → failed
