@@ -2,8 +2,7 @@
 
 <!-- Filename: 2026-06-06-jit-credential-brokering-egress-gateway.md -->
 
-**Status:** Proposed (Amended 2026-10-27: Amendment 6 Accepted)
-**Partially superseded by:** [GitHub connector route coverage](2026-11-15-github-connector-route-coverage.md) (Amendment 5's "Resolve repository IDs for paginated links" rejection)
+**Status:** Proposed (Amended 2026-10-27: Amendment 6 Accepted; Amendment 5's "Resolve repository IDs for paginated links" rejection superseded by [GitHub connector route coverage](2026-11-15-github-connector-route-coverage.md))
 **Date:** 2026-06-06
 **Deciders:** Platform Engineering
 **Technical Story:** How a kora agent running in a sandbox makes governed, audited, credential-isolated calls to external services (GitHub, AWS, Kubernetes, OAuth2/OIDC apps, API-key SaaS) without any credential entering the agent. Implements the [credential-broker-and-outbound-connections PRD](../prd/credential-broker-and-outbound-connections.md).

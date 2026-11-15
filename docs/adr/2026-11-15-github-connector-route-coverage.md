@@ -42,7 +42,7 @@ Agents work around some of these through REST. `gh pr edit`, `gh pr ready` and `
 
 ### Non-Goals
 
-*   Connections for other owners (e.g., `clear-route-delivery`).
+*   Connections for owners other than the connection's owner.
 *   Changing which permissions GitHub requires for a field or route.
 
 ---
