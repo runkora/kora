@@ -17,13 +17,13 @@
 # The agent and its runs are deleted at the end.
 #
 # Usage: scripts/cluster/test-agent-scaling.sh (or make test-agent-scaling)
-# Needs make auth (/tmp/kora_credentials.json). KUBE_CONTEXT defaults to k3d-kora-local,
+# Needs make auth (/tmp/kora_credentials.json). KORA_KUBE_CONTEXT defaults to k3d-kora-local,
 # MODEL to anthropic/claude-haiku-4-5, and FLOOR to the chart's agents minReplicas of 2.
 set -euo pipefail
 
 API=${KORA_API:-https://api.local.runkora.io}
 NS=${TENANT_NAMESPACE:-kora-tenant-example}
-CONTEXT=${KUBE_CONTEXT:-k3d-kora-local}
+CONTEXT=${KORA_KUBE_CONTEXT:-k3d-kora-local}
 MODEL=${MODEL:-anthropic/claude-haiku-4-5}
 TOTAL=${TOTAL:-30}
 FLOOR=${FLOOR:-2}
