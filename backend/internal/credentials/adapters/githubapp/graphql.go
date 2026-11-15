@@ -169,7 +169,8 @@ var graphqlNodeIDPrefixes = map[string]requirement{
 // it selects and the repository it names. The body is always restored so the
 // gateway forwards it byte for byte. A body that cannot be read, parsed, or
 // attributed to one operation classifies as the unqualified umbrella write.
-func classifyGraphQL(req *http.Request, owner string) (credentials.Classification, error) {
+// repos holds the node ids the request names resolved to "owner/name".
+func classifyGraphQL(req *http.Request, owner string, repos map[string]string) (credentials.Classification, error) {
 	fallback := credentials.Classification{Action: ActionRepoWrite}
 
 	buf, ok := bufferGraphQLBody(req)
@@ -195,7 +196,7 @@ func classifyGraphQL(req *http.Request, owner string) (credentials.Classificatio
 	if owner == "" {
 		return cls, nil
 	}
-	qualifier, err := w.qualifier(op, owner)
+	qualifier, err := w.qualifier(op, owner, repos)
 	if err != nil {
 		return credentials.Classification{}, err
 	}
@@ -527,6 +528,12 @@ func (w *graphqlWalker) nodeType(typeCondition string, set ast.SelectionSet) {
 	default:
 		r, ok := graphqlNodeTypes[typeCondition]
 		w.require(r, ok)
+		// The object's repository is walked as a repository, so reaching its other categories needs them.
+		w.fields(set, func(f *ast.Field) {
+			if f.Name == "repository" {
+				w.fields(f.SelectionSet, w.repositoryField)
+			}
+		})
 	}
 }
 
@@ -574,18 +581,30 @@ func classificationFor(reqs []requirement) credentials.Classification {
 
 // qualifier attributes the operation to a repository of the connection's
 // owner, from its repository() calls and the repo: terms of its searches,
-// denying a repository() call that names another owner. It returns ""
-// when the operation names no repository, several, or one it cannot pin down,
-// including any node or nodes lookup; only an unqualified grant covers that.
-func (w *graphqlWalker) qualifier(op *ast.OperationDefinition, owner string) (string, error) {
+// and the repositories its node ids resolve to in repos, denying a
+// repository() call that names another owner. It returns "" when the operation
+// names no repository, several, or one it cannot pin down, including a node id
+// that is unresolved or outside the owner; only an unqualified grant covers that.
+func (w *graphqlWalker) qualifier(op *ast.OperationDefinition, owner string, repos map[string]string) (string, error) {
 	refs := repoRefs{names: map[string]bool{}, owner: owner}
 	w.spreads, w.incomplete = 0, false
-	// A root node lookup names objects by global ID, whose repository is not
-	// decoded, and repositoryOwner lists every repository of an account.
+	// repositoryOwner lists every repository of an account, and a node lookup
+	// whose ids are not literal strings names objects the walk cannot resolve.
 	w.fields(op.SelectionSet, func(f *ast.Field) {
-		refs.unattributed = refs.unattributed || f.Name == "node" || f.Name == "nodes" || f.Name == "repositoryOwner"
+		refs.unattributed = refs.unattributed || f.Name == "repositoryOwner" ||
+			(f.Name == "node" && !w.stringIDs(f, "id")) || (f.Name == "nodes" && !w.stringIDs(f, "ids"))
 	})
 	w.collectRefs(op.SelectionSet, &refs)
+	ids := map[string]bool{}
+	w.collectOwners(op.SelectionSet, map[string]bool{}, ids)
+	for id := range ids {
+		repoOwner, name, ok := strings.Cut(repos[id], "/")
+		if !ok || repoOwner != owner {
+			refs.unattributed = true
+			break
+		}
+		refs.names[name] = true
+	}
 	switch {
 	case refs.foreign:
 		return "", credentials.ErrUnsupportedAction
@@ -596,6 +615,18 @@ func (w *graphqlWalker) qualifier(op *ast.OperationDefinition, owner string) (st
 		return name, nil
 	}
 	return "", nil
+}
+
+// stringIDs reports whether a node or nodes argument is one or more non-empty
+// strings, the only ids collectNodeIDs records.
+func (w *graphqlWalker) stringIDs(f *ast.Field, arg string) bool {
+	switch v := w.argument(f, arg).(type) {
+	case string:
+		return v != ""
+	case []any:
+		return len(v) > 0 && !slices.ContainsFunc(v, func(id any) bool { s, _ := id.(string); return s == "" })
+	}
+	return false
 }
 
 // repoRefs is every repository an operation names.

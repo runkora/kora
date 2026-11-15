@@ -129,7 +129,7 @@ func TestConnector_RequestOwners_GraphQL(t *testing.T) {
 
 // The lookup mints a read-only token from the installation's permissions and
 // returns only the ids GitHub resolves.
-func TestConnector_NodeOwners(t *testing.T) {
+func TestConnector_NodeRepositories(t *testing.T) {
 	var minted ghclient.InstallationTokenRequest
 	var lookups int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -147,7 +147,7 @@ func TestConnector_NodeOwners(t *testing.T) {
 				t.Errorf("lookup authorization = %q", r.Header.Get("Authorization"))
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"data":   map[string]any{"n0": map[string]any{"repository": map[string]any{"owner": map[string]any{"login": "Fabrikam"}}}, "n1": nil, "n2": map[string]any{"owner": map[string]any{"login": "contoso"}}},
+				"data":   map[string]any{"n0": map[string]any{"repository": map[string]any{"name": "Widgets", "owner": map[string]any{"login": "Fabrikam"}}}, "n1": nil, "n2": map[string]any{"name": "gadgets", "owner": map[string]any{"login": "contoso"}}},
 				"errors": []any{map[string]any{"message": "Could not resolve to a node"}},
 			})
 		default:
@@ -161,25 +161,25 @@ func TestConnector_NodeOwners(t *testing.T) {
 	a.now = func() time.Time { return time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC) }
 	c := open(t, a, credentials.Connection{ID: "example|fabrikam", SecretRef: "ref", Config: mustConfig(t, config{AppID: "1", InstallationID: 42, Owner: "fabrikam"})}).(*connector)
 
-	got, err := c.NodeOwners(t.Context(), []string{"PR_1", "garbage", "O_1"}, []string{"contents", "issues"})
+	got, err := c.NodeRepositories(t.Context(), []string{"PR_1", "garbage", "R_1"}, []string{"contents", "issues"})
 	if err != nil {
-		t.Fatalf("NodeOwners: %v", err)
+		t.Fatalf("NodeRepositories: %v", err)
 	}
-	if len(got) != 2 || got["PR_1"] != "fabrikam" || got["O_1"] != "contoso" {
-		t.Errorf("owners = %v, want PR_1=fabrikam O_1=contoso", got)
+	if len(got) != 2 || got["PR_1"] != "fabrikam/widgets" || got["R_1"] != "contoso/gadgets" {
+		t.Errorf("repositories = %v, want PR_1=fabrikam/widgets R_1=contoso/gadgets", got)
 	}
 	want := map[string]string{"contents": "read", "issues": "read", "metadata": "read"}
 	if len(minted.Permissions) != len(want) || minted.Permissions["contents"] != "read" || minted.Permissions["issues"] != "read" || minted.Permissions["administration"] != "" {
 		t.Errorf("lookup token permissions = %v, want %v", minted.Permissions, want)
 	}
-	if _, err := c.NodeOwners(t.Context(), []string{"PR_1"}, []string{"contents", "issues"}); err != nil || lookups != 2 {
+	if _, err := c.NodeRepositories(t.Context(), []string{"PR_1"}, []string{"contents", "issues"}); err != nil || lookups != 2 {
 		t.Errorf("second lookup err %v, lookups %d", err, lookups)
 	}
 }
 
 // An installation granting none of the lookup permissions mints no token, since
 // an empty permission set would carry every installation permission.
-func TestConnector_NodeOwnersWithoutLookupPermissions(t *testing.T) {
+func TestConnector_NodeRepositoriesWithoutLookupPermissions(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/app/installations/42" {
 			t.Errorf("unexpected call to %s", r.URL.Path)
@@ -190,7 +190,7 @@ func TestConnector_NodeOwnersWithoutLookupPermissions(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	a := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
 	c := open(t, a, credentials.Connection{ID: "x", SecretRef: "ref", Config: mustConfig(t, config{AppID: "1", InstallationID: 42})}).(*connector)
-	if _, err := c.NodeOwners(t.Context(), []string{"PR_1"}, []string{"repo"}); !errors.Is(err, errNoLookupPermissions) {
+	if _, err := c.NodeRepositories(t.Context(), []string{"PR_1"}, []string{"repo"}); !errors.Is(err, errNoLookupPermissions) {
 		t.Errorf("err = %v, want errNoLookupPermissions", err)
 	}
 }

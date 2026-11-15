@@ -27,6 +27,8 @@ type lookupAdapter struct {
 	err        error
 	lookups    int
 	categories [][]string
+	// qualifying opens connectors that also qualify by resolved ids.
+	qualifying bool
 }
 
 type lookupConnector struct {
@@ -41,10 +43,14 @@ func (a *lookupAdapter) Open(conn credentials.Connection) (credentials.Connector
 	if err != nil {
 		return nil, err
 	}
-	return &lookupConnector{Connector: c, ownerScoped: c.(ownerScoped), name: conn.Name, adapter: a}, nil
+	lc := &lookupConnector{Connector: c, ownerScoped: c.(ownerScoped), name: conn.Name, adapter: a}
+	if a.qualifying {
+		return qualifyingConnector{lc}, nil
+	}
+	return lc, nil
 }
 
-func (c *lookupConnector) NodeOwners(_ context.Context, ids, categories []string) (map[string]string, error) {
+func (c *lookupConnector) NodeRepositories(_ context.Context, ids, categories []string) (map[string]string, error) {
 	c.adapter.lookups++
 	c.adapter.categories = append(c.adapter.categories, categories)
 	if c.adapter.err != nil {
@@ -59,8 +65,8 @@ func (c *lookupConnector) NodeOwners(_ context.Context, ids, categories []string
 	return out, nil
 }
 
-func (c *lookupConnector) RepoOwners(ctx context.Context, ids, categories []string) (map[string]string, error) {
-	return c.NodeOwners(ctx, ids, categories)
+func (c *lookupConnector) Repositories(ctx context.Context, ids, categories []string) (map[string]string, error) {
+	return c.NodeRepositories(ctx, ids, categories)
 }
 
 func lookupBroker(pol *selectionPolicy, conns candidateConns, la *lookupAdapter) *Broker {

@@ -12,8 +12,9 @@ const (
 	nodeOwnerEntries = 10_000
 )
 
-// ownerCache maps a node id to its owner login per tenant, host and the
-// connection whose token resolved it, with a TTL and a size bound.
+// ownerCache maps a node or repository id to its repository's "owner/name" per
+// tenant, host and the connection whose token resolved it, with a TTL and a size
+// bound. The TTL is shorter than the lookup token's hour.
 type ownerCache struct {
 	mu      sync.Mutex
 	now     func() time.Time
@@ -39,7 +40,7 @@ func (c *ownerCache) get(tenantID, host, connection, id string) (string, bool) {
 	return e.owner, true
 }
 
-// put stores an owner, or "" for an id the connection cannot see. At the size
+// put stores a repository, or "" for an id the connection cannot see. At the size
 // bound it drops expired entries, then any entries needed to make room.
 func (c *ownerCache) put(tenantID, host, connection, id, owner string) {
 	c.mu.Lock()

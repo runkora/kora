@@ -23,11 +23,11 @@ import (
 type ownerScoped interface {
 	Owner() string
 	RequestOwners(req *http.Request) credentials.RequestOwners
-	NodeOwners(ctx context.Context, ids, categories []string) (map[string]string, error)
-	RepoOwners(ctx context.Context, ids, categories []string) (map[string]string, error)
+	NodeRepositories(ctx context.Context, ids, categories []string) (map[string]string, error)
+	Repositories(ctx context.Context, ids, categories []string) (map[string]string, error)
 }
 
-// idLookup resolves one kind of id, node or repository, to owners.
+// idLookup resolves one kind of id, node or repository, to "owner/name".
 type idLookup struct {
 	kind    string
 	subject string
@@ -37,8 +37,8 @@ type idLookup struct {
 }
 
 var (
-	nodeLookup = idLookup{kind: "node", idsAttr: observability.EgressNodeIDCountKey, subject: "node ids", failure: errSpanNodeOwnerLookup, resolve: ownerScoped.NodeOwners}
-	repoLookup = idLookup{kind: "repository", idsAttr: observability.EgressRepositoryIDCountKey, subject: "repository ids", failure: errSpanRepositoryOwnerLookup, resolve: ownerScoped.RepoOwners}
+	nodeLookup = idLookup{kind: "node", idsAttr: observability.EgressNodeIDCountKey, subject: "node ids", failure: errSpanNodeOwnerLookup, resolve: ownerScoped.NodeRepositories}
+	repoLookup = idLookup{kind: "repository", idsAttr: observability.EgressRepositoryIDCountKey, subject: "repository ids", failure: errSpanRepositoryOwnerLookup, resolve: ownerScoped.Repositories}
 )
 
 // idsToResolve returns the ids the request names for an owner lookup, node ids
@@ -167,7 +167,6 @@ func (b *Broker) selectByIDs(ctx context.Context, claims *token.PlatformClaims, 
 // cached owner counts only for the same connection and categories. Ids no held
 // candidate can see are ignored.
 func (b *Broker) resolveOwners(ctx context.Context, claims *token.PlatformClaims, host string, held []*credentials.Connection, scoped map[*credentials.Connection]ownerScoped, scopes, ids []string, lookup idLookup) ([]string, error) {
-	tenantID := claims.Kora.TenantID
 	found := map[string]bool{}
 	pending := slices.Clone(ids)
 	for _, c := range held {
@@ -176,31 +175,12 @@ func (b *Broker) resolveOwners(ctx context.Context, claims *token.PlatformClaims
 		if len(pending) == 0 || !ok || len(categories) == 0 {
 			continue
 		}
-		cacheConn := lookup.kind + "|" + c.Name + "|" + strings.Join(categories, ",")
-		resolved := map[string]string{}
-		var misses []string
-		for _, id := range pending {
-			owner, hit := b.nodeOwners.get(tenantID, host, cacheConn, id)
-			switch {
-			case !hit:
-				misses = append(misses, id)
-			case owner != "":
-				resolved[id] = owner
-			}
-		}
-		if len(misses) > 0 {
-			looked, err := b.lookupOwners(ctx, claims, c, s, misses, categories, lookup)
-			if err != nil {
-				return nil, err
-			}
-			// An id this token cannot see is cached as "" to spare repeat lookups.
-			for _, id := range misses {
-				resolved[id] = looked[id]
-				b.nodeOwners.put(tenantID, host, cacheConn, id, looked[id])
-			}
+		resolved, err := b.resolveRepositories(ctx, claims, host, c, s, pending, categories, lookup)
+		if err != nil {
+			return nil, err
 		}
 		pending = slices.DeleteFunc(pending, func(id string) bool {
-			owner := resolved[id]
+			owner, _, _ := strings.Cut(resolved[id], "/")
 			if owner != "" {
 				found[owner] = true
 			}
@@ -208,6 +188,40 @@ func (b *Broker) resolveOwners(ctx context.Context, claims *token.PlatformClaims
 		})
 	}
 	return slices.Sorted(maps.Keys(found)), nil
+}
+
+// resolveRepositories resolves ids to "owner/name" with one connection's lookup
+// token for categories, through the cache. A cached entry counts only for the
+// same connection and categories. Ids the token cannot see are absent.
+func (b *Broker) resolveRepositories(ctx context.Context, claims *token.PlatformClaims, host string, c *credentials.Connection, s ownerScoped, ids, categories []string, lookup idLookup) (map[string]string, error) {
+	tenantID := claims.Kora.TenantID
+	cacheConn := lookup.kind + "|" + c.Name + "|" + strings.Join(categories, ",")
+	resolved := map[string]string{}
+	var misses []string
+	for _, id := range ids {
+		repo, hit := b.nodeOwners.get(tenantID, host, cacheConn, id)
+		switch {
+		case !hit:
+			misses = append(misses, id)
+		case repo != "":
+			resolved[id] = repo
+		}
+	}
+	if len(misses) == 0 {
+		return resolved, nil
+	}
+	looked, err := b.lookupOwners(ctx, claims, c, s, misses, categories, lookup)
+	if err != nil {
+		return nil, err
+	}
+	// An id this token cannot see is cached as "" to spare repeat lookups.
+	for _, id := range misses {
+		if looked[id] != "" {
+			resolved[id] = looked[id]
+		}
+		b.nodeOwners.put(tenantID, host, cacheConn, id, looked[id])
+	}
+	return resolved, nil
 }
 
 // lookupOwners runs one candidate's id lookup under its own span and

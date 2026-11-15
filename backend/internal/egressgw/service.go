@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -127,7 +129,11 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		return Decision{}, err
 	}
 
-	cls, err := b.classify(connector, req)
+	cls, err := b.classify(ctx, claims, conn, connector, req)
+	var unavailable *Denial
+	if errors.As(err, &unavailable) {
+		return b.policyDenied(ctx, span, claims, conn, req, unavailable)
+	}
 	if err != nil {
 		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, deny(DenialUnclassified, req.Host, conn, credentials.Classification{}, err))
 	}
@@ -376,10 +382,77 @@ func hostWithoutPort(host string) string {
 // grant: an attachment narrowed to a repository compiles to a qualified scope,
 // and policy evaluation below rejects anything the grant does not cover. See
 // docs/adr/2026-07-22-connection-scope-qualifiers.md.
-func (b *Broker) classify(connector credentials.Connector, req EgressRequest) (credentials.Classification, error) {
-	// An adapter that cannot classify the request shape is a deny, logged by
-	// logDenial unless the anonymous fallback serves the request.
-	return connector.Classify(req.HTTPRequest)
+//
+// A connector that qualifies by id has the node or repository ids the request
+// names resolved first, with a lookup limited to the categories the caller holds.
+// A failed scope read or lookup returns a policy_unavailable Denial, which the
+// anonymous fallback never serves. See
+// docs/adr/2026-11-15-github-connector-route-coverage.md.
+func (b *Broker) classify(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, connector credentials.Connector, req EgressRequest) (credentials.Classification, error) {
+	q, ok := connector.(idQualifier)
+	if !ok {
+		return connector.Classify(req.HTTPRequest)
+	}
+	ids, lookup := idsToResolve(q.RequestOwners(req.HTTPRequest))
+	if len(ids) == 0 || len(ids) > MaxNodeIDs {
+		return connector.Classify(req.HTTPRequest)
+	}
+	scopes, err := b.policy.Scopes(ctx, policy.ScopesInput{Claims: claims})
+	if err != nil {
+		b.logger.Error(ctx, "reading caller scopes failed",
+			logging.Field{Key: "connection", Value: conn.Name},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return credentials.Classification{}, deny(DenialPolicyUnavailable, req.Host, conn, credentials.Classification{}, err)
+	}
+	categories, repos := heldOnConnection(scopes, conn.Name)
+	if len(categories) == 0 {
+		return connector.Classify(req.HTTPRequest)
+	}
+	// The lookup logs its own failure.
+	resolved, err := b.resolveRepositories(ctx, claims, req.Host, conn, q, ids, categories, lookup)
+	if err != nil {
+		return credentials.Classification{}, deny(DenialPolicyUnavailable, req.Host, conn, credentials.Classification{}, err)
+	}
+	// A repository the caller holds no grant on stays unresolved, so no denial names it.
+	if repos != nil {
+		maps.DeleteFunc(resolved, func(_, repo string) bool {
+			_, name, _ := strings.Cut(repo, "/")
+			return !repos[name]
+		})
+	}
+	return q.ClassifyResolved(req.HTTPRequest, resolved)
+}
+
+// idQualifier is a connector that qualifies a request by the repositories the
+// ids it names resolve to.
+type idQualifier interface {
+	ownerScoped
+	ClassifyResolved(req *http.Request, repos map[string]string) (credentials.Classification, error)
+}
+
+// heldOnConnection returns the categories the caller holds on a connection,
+// qualified or not, and the repositories its qualified grants name. repos is
+// nil when any grant on the connection is unqualified. A connection:<verb> or
+// connection:<name>:<verb> scope holds every category, as the repo umbrella.
+func heldOnConnection(scopes []string, connection string) ([]string, map[string]bool) {
+	held, repos, unqualified := map[string]bool{}, map[string]bool{}, false
+	for _, s := range scopes {
+		parts := strings.Split(s, ":")
+		switch {
+		case parts[0] != resourceType:
+		case len(parts) == 2, len(parts) == 3 && parts[1] == connection:
+			held["repo"], unqualified = true, true
+		case len(parts) == 4 && parts[1] == connection:
+			held[parts[2]], unqualified = true, true
+		case len(parts) == 5 && parts[1] == connection:
+			held[parts[2]], repos[strings.ToLower(parts[3])] = true, true
+		}
+	}
+	if unqualified {
+		repos = nil
+	}
+	return slices.Sorted(maps.Keys(held)), repos
 }
 
 // evaluatePolicy checks the classified call against the caller's grants and

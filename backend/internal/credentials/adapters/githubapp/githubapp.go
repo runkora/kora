@@ -81,8 +81,8 @@ type API interface {
 	CreateInstallationToken(ctx context.Context, appJWT string, installationID int64, body ghclient.InstallationTokenRequest) (ghclient.InstallationToken, error)
 	ListInstallationRepositories(ctx context.Context, installationToken string) ([]string, error)
 	GetInstallationPermissions(ctx context.Context, appJWT string, installationID int64) (map[string]string, error)
-	NodeOwners(ctx context.Context, installationToken string, ids []string) (map[string]string, error)
-	RepoOwners(ctx context.Context, installationToken string, ids []string) (map[string]string, error)
+	NodeRepositories(ctx context.Context, installationToken string, ids []string) (map[string]ghclient.Repository, error)
+	Repositories(ctx context.Context, installationToken string, ids []string) (map[string]ghclient.Repository, error)
 }
 
 // instPermsCacheTTL is how long the installation's permission set is cached
@@ -179,6 +179,14 @@ type connector struct {
 // exception: their shapes are not always owner-addressed, so one that does not
 // match classifies unqualified instead.
 func (c *connector) Classify(req *http.Request) (credentials.Classification, error) {
+	return c.ClassifyResolved(req, nil)
+}
+
+// ClassifyResolved is Classify with the node and repository ids the request
+// names resolved to "owner/name" by NodeRepositories and Repositories. An id
+// absent from repos is unresolved. See
+// docs/adr/2026-11-15-github-connector-route-coverage.md.
+func (c *connector) ClassifyResolved(req *http.Request, repos map[string]string) (credentials.Classification, error) {
 	if req == nil || req.URL == nil {
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
@@ -200,11 +208,11 @@ func (c *connector) Classify(req *http.Request) (credentials.Classification, err
 	// /api/graphql on the shared host.
 	switch {
 	case host == "api.github.com":
-		return classifyAPI(req, escaped, owner)
+		return classifyAPI(req, escaped, owner, repos)
 	case path == "/api/v3" || strings.HasPrefix(path, "/api/v3/"):
-		return classifyAPI(req, strings.TrimPrefix(escaped, "/api/v3"), owner)
+		return classifyAPI(req, strings.TrimPrefix(escaped, "/api/v3"), owner, repos)
 	case path == "/api/graphql":
-		return classifyAPI(req, "/graphql", owner)
+		return classifyAPI(req, "/graphql", owner, repos)
 	}
 
 	switch host {
@@ -394,16 +402,16 @@ const (
 // classifyAPI maps a REST/GraphQL API path (host prefix already stripped,
 // still escaped) to category actions plus repository qualifier. A REST
 // endpoint outside GitHub's permission data, or needing a permission no
-// category holds, is refused.
-func classifyAPI(req *http.Request, path, owner string) (credentials.Classification, error) {
-	segs := pathSegments(path)
+// category holds, is refused. repos holds the resolved ids.
+func classifyAPI(req *http.Request, path, owner string, repos map[string]string) (credentials.Classification, error) {
+	segs := resolveRepositoryPath(pathSegments(path), repos)
 	method := strings.ToUpper(req.Method)
 	if method == http.MethodHead {
 		method = http.MethodGet
 	}
 	switch {
 	case len(segs) == 1 && segs[0] == "graphql":
-		return classifyGraphQL(req, owner)
+		return classifyGraphQL(req, owner, repos)
 	case len(segs) > 0 && segs[0] == "search":
 		if cls, ok := classifySearch(req, segs, owner); ok && method == http.MethodGet {
 			return cls, nil
@@ -419,6 +427,19 @@ func classifyAPI(req *http.Request, path, owner string) (credentials.Classificat
 		return credentials.Classification{Action: catRepo + ":" + verb}, nil
 	}
 	return classifyREST(method, segs, owner)
+}
+
+// resolveRepositoryPath rewrites a /repositories/{id} path whose id resolved to
+// the /repos path it names, so it classifies with that path's owner check.
+func resolveRepositoryPath(segs []string, repos map[string]string) []string {
+	if len(segs) < 2 || segs[0] != "repositories" {
+		return segs
+	}
+	repoOwner, name, ok := strings.Cut(repos[segs[1]], "/")
+	if !ok {
+		return segs
+	}
+	return append([]string{"repos", repoOwner, name}, segs[2:]...)
 }
 
 // classifyREST classifies a REST endpoint by its route in GitHub's data. A
@@ -898,34 +919,42 @@ var lookupPermissions = map[string][]string{
 	"repo":     {"metadata", "contents", "issues", "pull_requests", "discussions", "checks", "actions"},
 }
 
-// NodeOwners resolves node ids to their owners' logins with a read-only
-// installation token limited to categories, the ones the caller holds. Ids the
-// token cannot see are absent. See
-// docs/adr/2026-10-15-same-host-connection-selection.md.
-func (c *connector) NodeOwners(ctx context.Context, ids, categories []string) (map[string]string, error) {
+// NodeRepositories resolves node ids to the "owner/name" of their repository
+// with a read-only installation token limited to categories, the ones the
+// caller holds. Ids the token cannot see, or outside any repository, are absent.
+// See docs/adr/2026-10-15-same-host-connection-selection.md.
+func (c *connector) NodeRepositories(ctx context.Context, ids, categories []string) (map[string]string, error) {
 	token, err := c.lookupToken(ctx, categories)
 	if err != nil {
 		return nil, err
 	}
-	owners, err := c.adapter.api.NodeOwners(ctx, token, ids)
+	repos, err := c.adapter.api.NodeRepositories(ctx, token, ids)
 	if err != nil {
-		return nil, fmt.Errorf("node owner lookup: %w", err)
+		return nil, fmt.Errorf("node repository lookup: %w", err)
 	}
-	return owners, nil
+	return nameWithOwner(repos), nil
 }
 
-// RepoOwners resolves numeric repository ids to their owners' logins with the
-// same read-only token as NodeOwners. Ids the token cannot see are absent.
-func (c *connector) RepoOwners(ctx context.Context, ids, categories []string) (map[string]string, error) {
+// Repositories resolves numeric repository ids to "owner/name" with the same
+// read-only token as NodeRepositories. Ids the token cannot see are absent.
+func (c *connector) Repositories(ctx context.Context, ids, categories []string) (map[string]string, error) {
 	token, err := c.lookupToken(ctx, categories)
 	if err != nil {
 		return nil, err
 	}
-	owners, err := c.adapter.api.RepoOwners(ctx, token, ids)
+	repos, err := c.adapter.api.Repositories(ctx, token, ids)
 	if err != nil {
-		return nil, fmt.Errorf("repository owner lookup: %w", err)
+		return nil, fmt.Errorf("repository lookup: %w", err)
 	}
-	return owners, nil
+	return nameWithOwner(repos), nil
+}
+
+func nameWithOwner(repos map[string]ghclient.Repository) map[string]string {
+	out := make(map[string]string, len(repos))
+	for id, r := range repos {
+		out[id] = r.Owner + "/" + r.Name
+	}
+	return out
 }
 
 // lookupToken returns a read-only installation token limited to categories.
