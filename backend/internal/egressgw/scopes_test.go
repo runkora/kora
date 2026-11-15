@@ -58,10 +58,10 @@ func TestAllScopes_PerConnectionScopes(t *testing.T) {
 
 	// AllScopes prepends the three static scopes,
 	// then per connection: the two covering parents (connection:<n>:read/write)
-	// plus the adapter's 15 category/catch-all actions = 17 each, 36 total.
+	// plus the adapter's 17 category/catch-all actions = 19 each, 41 total.
 	// No wildcard entry: connection:<n>:* matched nothing under scope_covers
 	// and is no longer published.
-	const perConn = 17
+	const perConn = 19
 	if want := 3 + 2*perConn; len(got) != want {
 		t.Fatalf("scopes = %d, want %d (got: %v)", len(got), want, scopeStrings(got))
 	}
@@ -141,9 +141,9 @@ func TestConnectionScopes_DedupeOnDuplicateConnectionName(t *testing.T) {
 	}
 	got := ConnectionScopes(conns, registry)
 
-	// Expect one set of unique entries: 2 covering parents + the adapter's 15
+	// Expect one set of unique entries: 2 covering parents + the adapter's 17
 	// actions: duplicates from the repeated connection name are dropped.
-	wantCount := 17
+	wantCount := 19
 	if len(got) != wantCount {
 		t.Errorf("scopes = %d, want %d (got: %v)", len(got), wantCount, scopeStrings(got))
 	}

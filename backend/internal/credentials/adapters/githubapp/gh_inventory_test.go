@@ -104,7 +104,7 @@ func TestClassify_GHInventory(t *testing.T) {
 		command, method, url string
 		want                 credentials.Classification
 	}{
-		{"api-orgs-teams", "GET", "https://api.github.com/orgs/example-org/teams", cls("repo:read", "")},
+		{"api-orgs-teams", "GET", "https://api.github.com/orgs/example-org/teams", cls("members:read", "")},
 		{"api-paginate-pr-files", "GET", "https://api.github.com/repos/example-org/widgets/pulls/1206/files?per_page=100", cls("pulls:read", "widgets")},
 		{"api-paginate-pr-files", "GET", "https://api.github.com/repositories/123456789/pulls/1206/files?per_page=100&page=2", cls("repo:read", "")},
 		{"git-push", "GET", "https://github.com/example-org/widgets.git/info/refs?service=git-receive-pack", cls("contents:write", "widgets")},

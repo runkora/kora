@@ -208,13 +208,19 @@ func TestAdapter_Resolve_InstallationPermissionCeiling(t *testing.T) {
 		Config: mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "orbital"}),
 	}
 
-	_, err := open(t, adapter, conn).Mint(context.Background(),
-		credentials.CallerIdentity{Action: "issues:write", Qualifier: "kora"})
-	if !errors.Is(err, credentials.ErrCredentialScopeRejected) {
-		t.Fatalf("err = %v, want wrapped ErrCredentialScopeRejected", err)
-	}
-	if !errors.Is(err, ghclient.ErrInstallationPermissions) {
-		t.Fatalf("err = %v, want the underlying ErrInstallationPermissions preserved", err)
+	// members:read is unqualified and organization-wide, and an installation
+	// without the members permission refuses it the same way.
+	for _, id := range []credentials.CallerIdentity{
+		{Action: "issues:write", Qualifier: "kora"},
+		{Action: "members:read"},
+	} {
+		_, err := open(t, adapter, conn).Mint(context.Background(), id)
+		if !errors.Is(err, credentials.ErrCredentialScopeRejected) {
+			t.Fatalf("%s: err = %v, want wrapped ErrCredentialScopeRejected", id.Action, err)
+		}
+		if !errors.Is(err, ghclient.ErrInstallationPermissions) {
+			t.Fatalf("%s: err = %v, want the underlying ErrInstallationPermissions preserved", id.Action, err)
+		}
 	}
 }
 
@@ -302,7 +308,23 @@ func TestConnector_Classify(t *testing.T) {
 		{"org_repos", http.MethodGet, "https://api.github.com/orgs/orbital/repos", "metadata:read", "", false},
 		{"user_repos", http.MethodGet, "https://api.github.com/users/octocat/repos", "metadata:read", "", false},
 		{"org_repo_create", http.MethodPost, "https://api.github.com/orgs/orbital/repos", "repo:write", "", false},
-		{"org_invitations", http.MethodGet, "https://api.github.com/orgs/orbital/invitations", "repo:read", "", false},
+		{"org_invitations", http.MethodGet, "https://api.github.com/orgs/orbital/invitations", "members:read", "", false},
+		{"org_invite", http.MethodPost, "https://api.github.com/orgs/orbital/invitations", "members:write", "", false},
+		{"org_invitation_teams", http.MethodGet, "https://api.github.com/orgs/orbital/invitations/7/teams", "members:read", "", false},
+		{"org_members", http.MethodGet, "https://api.github.com/orgs/orbital/members", "members:read", "", false},
+		{"org_member_remove", http.MethodDelete, "https://api.github.com/orgs/orbital/members/octocat", "members:write", "", false},
+		{"org_member_codespaces", http.MethodGet, "https://api.github.com/orgs/orbital/members/octocat/codespaces", "repo:read", "", false},
+		{"org_membership_set", http.MethodPut, "https://api.github.com/orgs/orbital/memberships/octocat", "members:write", "", false},
+		{"org_teams", http.MethodGet, "https://api.github.com/orgs/orbital/teams", "members:read", "", false},
+		{"org_team_create", http.MethodPost, "https://api.github.com/orgs/orbital/teams", "members:write", "", false},
+		{"org_team_edit", http.MethodPatch, "https://api.github.com/orgs/orbital/teams/platform", "members:write", "", false},
+		{"org_team_members", http.MethodGet, "https://api.github.com/orgs/orbital/teams/platform/members", "members:read", "", false},
+		{"org_team_membership_add", http.MethodPut, "https://api.github.com/orgs/orbital/teams/platform/memberships/octocat", "members:write", "", false},
+		{"org_team_child_teams", http.MethodGet, "https://api.github.com/orgs/orbital/teams/platform/teams", "members:read", "", false},
+		{"org_team_repo_check", http.MethodGet, "https://api.github.com/orgs/orbital/teams/platform/repos/orbital/kora", "members:read", "", false},
+		{"org_team_repo_add", http.MethodPut, "https://api.github.com/orgs/orbital/teams/platform/repos/orbital/kora", "repo:write", "", false},
+		{"org_team_copilot", http.MethodGet, "https://api.github.com/orgs/orbital/teams/platform/copilot/customizations", "repo:read", "", false},
+		{"org_team_discussions", http.MethodGet, "https://api.github.com/orgs/orbital/teams/platform/discussions", "repo:read", "", false},
 
 		// REST: uncategorized repo routes fall to the qualified catch-all
 		{"deployments_catchall", http.MethodGet, "https://api.github.com/repos/orbital/kora/deployments", "repo:read", "kora", false},
@@ -428,6 +450,8 @@ func TestPermissionsFor(t *testing.T) {
 			map[string]string{"pull_requests": "write", "metadata": "read"}},
 		{"checks_write", "checks:write", nil, map[string]string{"checks": "write", "statuses": "write", "metadata": "read"}},
 		{"admin_read", "admin:read", nil, map[string]string{"administration": "read", "repository_hooks": "read", "secrets": "read", "dependabot_secrets": "read", "metadata": "read"}},
+		{"members_read", "members:read", nil, map[string]string{"members": "read", "metadata": "read"}},
+		{"members_write", "members:write", nil, map[string]string{"members": "write", "metadata": "read"}},
 		{"ceiling_drops_and_lowers", "admin:write", map[string]string{"administration": "read", "metadata": "read"},
 			map[string]string{"administration": "read", "metadata": "read"}},
 		{"umbrella_mints_ceiling_verbatim", "repo:write", map[string]string{"contents": "write", "workflows": "write"},

@@ -57,6 +57,8 @@ const (
 	ActionGitHubChecksWrite   = "checks:write"
 	ActionGitHubAdminRead     = "admin:read"
 	ActionGitHubAdminWrite    = "admin:write"
+	ActionGitHubMembersRead   = "members:read"
+	ActionGitHubMembersWrite  = "members:write"
 
 	// API key actions are a coarse read/write pair chosen by HTTP method. See
 	// docs/adr/2026-11-11-apikey-connection-adapter.md.
@@ -139,11 +141,13 @@ type adapterMeta struct {
 var githubCategoryReads = []string{
 	ActionGitHubMetadataRead, ActionGitHubContentsRead, ActionGitHubIssuesRead,
 	ActionGitHubPullsRead, ActionGitHubActionsRead, ActionGitHubChecksRead, ActionGitHubAdminRead,
+	ActionGitHubMembersRead,
 }
 
 var githubCategoryWrites = []string{
 	ActionGitHubContentsWrite, ActionGitHubIssuesWrite, ActionGitHubPullsWrite,
 	ActionGitHubActionsWrite, ActionGitHubChecksWrite, ActionGitHubAdminWrite,
+	ActionGitHubMembersWrite,
 }
 
 // githubMeta is the requires edge every GitHub category action carries:
@@ -167,6 +171,8 @@ var registry = map[string]adapterMeta{
 			{Action: ActionGitHubChecksWrite, Description: "Create and update check runs, check suites, and commit statuses", Requires: githubMeta},
 			{Action: ActionGitHubAdminRead, Description: "Read repository administration: settings, webhooks, deploy keys, collaborators, branch protection, Actions secrets metadata", Requires: githubMeta},
 			{Action: ActionGitHubAdminWrite, Description: "Administer the repository: settings, webhooks, deploy keys, collaborators, branch protection, Actions/Dependabot secrets", Requires: githubMeta},
+			{Action: ActionGitHubMembersRead, Description: "Read the organization's members, memberships, pending invitations, and teams. Organization-wide, so only an unqualified grant covers it", Requires: githubMeta},
+			{Action: ActionGitHubMembersWrite, Description: "Invite and remove organization members and edit teams and team memberships. Organization-wide, so only an unqualified grant covers it", Requires: githubMeta},
 			{Action: ActionGitHubRepoRead, Description: "Catch-all read for uncategorized GitHub routes (search, GraphQL, long-tail APIs). Unqualified, it also confers every category read, admin:read included. A repository-qualified grant confers no categories", Requires: githubCategoryReads},
 			{Action: ActionGitHubRepoWrite, Description: "Catch-all write for uncategorized GitHub routes. Unqualified, it also confers every category write, admin:write included. A repository-qualified grant confers no categories", Requires: githubCategoryWrites},
 		},

@@ -369,7 +369,8 @@ const (
 	catActions  = "actions"
 	catChecks   = "checks"
 	catAdmin    = "admin"
-	catRepo     = "repo" // catch-all + legacy umbrella
+	catMembers  = "members" // organization-wide, never qualified
+	catRepo     = "repo"    // catch-all + legacy umbrella
 )
 
 // classifyAPI maps a REST/GraphQL API path (host prefix already stripped) to a
@@ -425,13 +426,43 @@ func classifyAPI(req *http.Request, path, owner string) (credentials.Classificat
 }
 
 // classifyAccountPath maps /orgs/{org}/... and /users/{user}/... GitHub serves
-// an account's repository list with metadata read. The other account routes
-// need organization permissions no category maps to, so they keep the catch-all.
+// an account's repository list with metadata read, and the organization's
+// people and teams with the organization members permission. The other account
+// routes need permissions no category maps to, so they keep the catch-all.
 func classifyAccountPath(verb string, segs []string) credentials.Classification {
-	if verb == verbRead && len(segs) == 3 && segs[2] == "repos" {
+	switch {
+	case verb == verbRead && len(segs) == 3 && segs[2] == "repos":
 		return credentials.Classification{Action: ActionMetadataRead}
+	case segs[0] == "orgs" && len(segs) >= 3 && orgMembersRoute(verb, segs[2:]):
+		return credentials.Classification{Action: catMembers + ":" + verb}
 	}
 	return credentials.Classification{Action: catRepo + ":" + verb}
+}
+
+// orgMembersRoute reports whether sub, the path under /orgs/{org}/, is a route
+// GitHub documents under the organization members permission. Deeper routes
+// such as a member's Copilot seat or a team's Copilot settings need other
+// permissions, and a write to a team's repository needs administration.
+func orgMembersRoute(verb string, sub []string) bool {
+	switch sub[0] {
+	case "members", "memberships":
+		return len(sub) <= 2
+	case "invitations":
+		return len(sub) <= 2 || (len(sub) == 3 && sub[2] == "teams")
+	case "teams":
+		if len(sub) <= 2 {
+			return true
+		}
+		switch sub[2] {
+		case "members", "invitations", "teams":
+			return len(sub) == 3
+		case "memberships":
+			return len(sub) == 4
+		case "repos":
+			return verb == verbRead && len(sub) <= 5
+		}
+	}
+	return false
 }
 
 // classifySearch maps /search/{kind} to the category that owns the searched
@@ -708,6 +739,7 @@ var categoryPermissionKeys = map[string][]string{
 	"actions":  {"actions"},
 	"checks":   {"checks", "statuses"},
 	"admin":    {"administration", "repository_hooks", "secrets", "dependabot_secrets"},
+	"members":  {"members"},
 }
 
 // permissionsFor derives the installation-token permission set for the
@@ -724,7 +756,7 @@ func permissionsFor(action string, ceiling map[string]string, installationPerms 
 	switch category {
 	case catMetadata:
 		derived[catMetadata] = verbRead
-	case catContents, catIssues, catPulls, catActions, catChecks, catAdmin:
+	case catContents, catIssues, catPulls, catActions, catChecks, catAdmin, catMembers:
 		for _, key := range categoryPermissionKeys[category] {
 			derived[key] = verb
 		}

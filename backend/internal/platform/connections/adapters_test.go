@@ -23,6 +23,7 @@ func TestActionNames(t *testing.T) {
 			"actions:read", "actions:write",
 			"checks:read", "checks:write",
 			"admin:read", "admin:write",
+			"members:read", "members:write",
 			"repo:read", "repo:write",
 		},
 		AdapterKubernetesBearer: {
