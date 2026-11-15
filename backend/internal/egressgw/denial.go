@@ -32,6 +32,13 @@ type Denial struct {
 	Connection string
 	Action     string
 	Qualifier  string
+	// Method and Path state the refused request. Path never carries the query
+	// string, which can hold tokens.
+	Method string
+	Path   string
+	// Unrecognized is what in the request the adapter does not recognize, such
+	// as a GraphQL field, set only on an unclassified denial.
+	Unrecognized string
 	// RequiredScope is the scope a grant must cover, set only on a not-granted
 	// denial since that is the one a grant can fix.
 	RequiredScope string
@@ -78,13 +85,17 @@ func (d *Denial) Message(product string) string {
 	switch d.Reason {
 	case DenialNotGranted:
 		return fmt.Sprintf("%s egress policy denied %s: this agent is not granted %s on connection %s. To allow it, grant %s.",
-			product, d.Host, d.actionPhrase(), d.Connection, d.RequiredScope)
+			product, d.request(), d.actionPhrase(), d.Connection, d.RequiredScope)
 	case DenialGrantNotApplied:
 		return fmt.Sprintf("%s egress policy denied %s: this agent's grant for %s on connection %s does not apply to this call (%s).",
 			product, d.Host, d.actionPhrase(), d.Connection, d.PolicyReason)
 	case DenialUnclassified:
-		return fmt.Sprintf("%s egress policy denied %s: connection %s does not map this request to a grantable action (an unsupported API shape, or a resource outside the connection), so no grant can allow it.",
-			product, d.Host, d.Connection)
+		why := "an unsupported API shape, or a resource outside the connection"
+		if d.Unrecognized != "" {
+			why = d.Unrecognized
+		}
+		return fmt.Sprintf("%s egress policy denied %s: connection %s does not map this request to a grantable action (%s), so no grant can allow it.",
+			product, d.request(), d.Connection, why)
 	case DenialCredentialRefused:
 		return fmt.Sprintf("%s egress policy allowed %s on connection %s, but the upstream refused to issue a credential for it. To allow it, add that permission upstream (for GitHub, on the App installation).",
 			product, d.actionPhrase(), d.Connection)
@@ -105,12 +116,24 @@ func (d *Denial) Details() map[string]any {
 	if len(d.Candidates) > 0 {
 		details["candidates"] = d.Candidates
 	}
-	for key, value := range map[string]string{"unresolved": d.Unresolved, "action": d.Action, "qualifier": d.Qualifier, "required_scope": d.RequiredScope, "policy_reason": d.PolicyReason} {
+	for key, value := range map[string]string{
+		"unresolved": d.Unresolved, "action": d.Action, "qualifier": d.Qualifier, "required_scope": d.RequiredScope, "policy_reason": d.PolicyReason,
+		"method": d.Method, "path": d.Path, "unrecognized": d.Unrecognized,
+	} {
 		if value != "" {
 			details[key] = value
 		}
 	}
 	return details
+}
+
+// request names the refused request as method, host and path, or the host alone
+// when the method is unknown.
+func (d *Denial) request() string {
+	if d.Method == "" {
+		return d.Host
+	}
+	return d.Method + " " + d.Host + d.Path
 }
 
 func (d *Denial) actionPhrase() string {

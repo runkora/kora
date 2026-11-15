@@ -147,6 +147,9 @@ type fixture struct {
 	upstreamSawHost   string
 	upstreamSawMethod string
 	upstreamSawPath   string
+
+	// upstreamStatus is what the upstream stub answers with, 200 when unset.
+	upstreamStatus int
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -154,13 +157,19 @@ func newFixture(t *testing.T) *fixture {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	f := &fixture{t: t, logger: logger}
 
-	// Upstream: receives forwarded requests; records what it saw and replies 200.
+	// Upstream: receives forwarded requests; records what it saw and replies
+	// with upstreamStatus.
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.upstreamSawAuth = r.Header.Get("Authorization")
 		f.upstreamSawHost = r.Host
 		f.upstreamSawMethod = r.Method
 		f.upstreamSawPath = r.URL.Path
-		w.WriteHeader(http.StatusOK)
+		status := http.StatusOK
+		if f.upstreamStatus != 0 {
+			status = f.upstreamStatus
+		}
+		w.Header().Set("X-Upstream", "github")
+		w.WriteHeader(status)
 		_, _ = w.Write([]byte("ok"))
 	}))
 	f.upstream = upstream
@@ -295,10 +304,10 @@ func TestProxy_HappyPath_GitPush_MintsAndForwards(t *testing.T) {
 	}
 }
 
-func TestProxy_HappyPath_RestRead_ClassifiesAsRepoRead(t *testing.T) {
+func TestProxy_HappyPath_RestRead_ClassifiesByCategory(t *testing.T) {
 	f := newFixture(t)
 
-	resp, err := f.callGateway(http.MethodGet, "/orgs/kora/repos", f.connectionHost)
+	resp, err := f.callGateway(http.MethodGet, "/api/v3/orgs/kora/repos", f.connectionHost)
 	if err != nil {
 		t.Fatalf("call: %v", err)
 	}
@@ -309,11 +318,11 @@ func TestProxy_HappyPath_RestRead_ClassifiesAsRepoRead(t *testing.T) {
 
 	f.eval.mu.Lock()
 	defer f.eval.mu.Unlock()
-	// An unrecognized read path falls to the repo:read catch-all. The broker
-	// splits it into path=[github repo], action=read.
+	// An account's repository list is metadata:read, split into
+	// path=[github metadata], action=read.
 	if len(f.eval.calls) != 1 || f.eval.calls[0].Action != "read" ||
-		len(f.eval.calls[0].PathSegments) != 2 || f.eval.calls[0].PathSegments[1] != "repo" {
-		t.Fatalf("policy input = %+v, want connection/[github repo]/read", f.eval.calls[0])
+		len(f.eval.calls[0].PathSegments) != 2 || f.eval.calls[0].PathSegments[1] != "metadata" {
+		t.Fatalf("policy input = %+v, want connection/[github metadata]/read", f.eval.calls[0])
 	}
 }
 

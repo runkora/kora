@@ -3,6 +3,7 @@ package githubapp
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"maps"
 	"net/http"
@@ -49,21 +50,27 @@ const fieldSearch = "search"
 // or attributed to one operation, and a subscription, are unclassified. repos
 // holds the resolved node ids.
 func classifyGraphQL(req *http.Request, owner string, repos map[string]string) (credentials.Classification, error) {
-	buf, ok := bufferGraphQLBody(req)
-	if !ok {
-		return credentials.Classification{}, credentials.ErrUnsupportedAction
+	buf, reason := bufferGraphQLBody(req)
+	if reason != "" {
+		return unclassifiedGraphQL(reason)
 	}
 	gql, ok := decodeGraphQLRequest(buf)
-	if !ok || gql.Query == "" {
-		return credentials.Classification{}, credentials.ErrUnsupportedAction
+	switch {
+	case !ok:
+		return unclassifiedGraphQL("body is not a valid request envelope")
+	case gql.Query == "":
+		return unclassifiedGraphQL("body has no query")
 	}
 	doc, err := parser.ParseQueryWithTokenLimit(&ast.Source{Input: gql.Query}, graphqlTokenLimit)
 	if err != nil {
-		return credentials.Classification{}, credentials.ErrUnsupportedAction
+		return unclassifiedGraphQL("query does not parse")
 	}
 	op := selectOperation(doc, gql.OperationName)
-	if op == nil || op.Operation == ast.Subscription {
-		return credentials.Classification{}, credentials.ErrUnsupportedAction
+	switch {
+	case op == nil:
+		return unclassifiedGraphQL("document names no single operation to run")
+	case op.Operation == ast.Subscription:
+		return unclassifiedGraphQL("subscriptions are not supported")
 	}
 
 	verb := verbRead
@@ -125,12 +132,17 @@ func decodeGraphQLRequest(buf []byte) (graphqlRequest, bool) {
 	return gql, true
 }
 
+// unclassifiedGraphQL denies a GraphQL request, stating why for the denial.
+func unclassifiedGraphQL(reason string) (credentials.Classification, error) {
+	return credentials.Classification{}, &credentials.UnclassifiedError{Detail: "GraphQL " + reason}
+}
+
 // bufferGraphQLBody reads the body for classification and restores it for
-// forwarding. ok is false when the body is absent, unreadable, or over the
-// size limit; an oversized body is still forwarded whole.
-func bufferGraphQLBody(req *http.Request) ([]byte, bool) {
+// forwarding. reason is non-empty when the body is absent, unreadable, or over
+// the size limit; an oversized body is left whole in the request.
+func bufferGraphQLBody(req *http.Request) (buf []byte, reason string) {
 	if req.Body == nil || req.Body == http.NoBody {
-		return nil, false
+		return nil, "request has no body"
 	}
 	original := req.Body
 	buf, err := io.ReadAll(io.LimitReader(original, graphqlBodySizeLimit+1))
@@ -138,14 +150,17 @@ func bufferGraphQLBody(req *http.Request) ([]byte, bool) {
 		// Forward what was read followed by the unread remainder. GetBody is left
 		// alone: one that replays only buf would truncate a retry.
 		req.Body = &chainedBody{r: io.MultiReader(bytes.NewReader(buf), original), c: original}
-		return nil, false
+		if err != nil {
+			return nil, "body could not be read"
+		}
+		return nil, fmt.Sprintf("body over %d KiB", graphqlBodySizeLimit/1024)
 	}
 	_ = original.Close()
 	req.Body = io.NopCloser(bytes.NewReader(buf))
 	req.GetBody = func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(buf)), nil
 	}
-	return buf, true
+	return buf, ""
 }
 
 // chainedBody closes the original request body once an oversized GraphQL
@@ -382,8 +397,8 @@ var graphqlNonNodeIDs = map[string]bool{
 // that cannot be read or parsed names neither. The body is restored for forwarding.
 func graphqlOwners(req *http.Request) credentials.RequestOwners {
 	out := credentials.RequestOwners{Subject: subjectGraphQL}
-	buf, ok := bufferGraphQLBody(req)
-	if !ok {
+	buf, reason := bufferGraphQLBody(req)
+	if reason != "" {
 		return out
 	}
 	gql, ok := decodeGraphQLRequest(buf)

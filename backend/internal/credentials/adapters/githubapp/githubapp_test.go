@@ -334,6 +334,7 @@ func TestConnector_Classify(t *testing.T) {
 
 		// REST: categories from GitHub's permission data
 		{"deployments", http.MethodGet, "https://api.github.com/repos/orbital/kora/deployments", "deployments:read", "kora", false},
+		{"repos_owner_only", http.MethodGet, "https://api.github.com/repos/orbital", "", "", true},
 
 		// REST: owner mismatch on the API surface is denied outright
 		{"foreign_owner_api", http.MethodGet, "https://api.github.com/repos/evil/kora", "", "", true},
@@ -357,9 +358,13 @@ func TestConnector_Classify(t *testing.T) {
 		{"search_commits_repo", http.MethodGet, "https://api.github.com/search/commits?q=fix+repo:Orbital/Kora", "contents:read", "kora", false},
 		{"search_repositories", http.MethodGet, "https://api.github.com/search/repositories?q=x", "metadata:read", "", false},
 		{"search_unknown", http.MethodGet, "https://api.github.com/search/other?q=x", "", "", true},
+		{"search_write", http.MethodPost, "https://api.github.com/search/code?q=x", "", "", true},
 		{"rate_limit", http.MethodGet, "https://api.github.com/rate_limit", "metadata:read", "", false},
 		{"user", http.MethodGet, "https://api.github.com/user", "", "", true},
 		{"installation_repos", http.MethodGet, "https://api.github.com/installation/repositories", "metadata:read", "", false},
+		{"discovery_write", http.MethodPatch, "https://api.github.com/user", "", "", true},
+		{"api_root_write", http.MethodPost, "https://api.github.com/", "", "", true},
+		{"other_api_root", http.MethodGet, "https://api.github.com/gists", "", "", true},
 
 		// GitHub Enterprise path prefixes on the appliance host
 		{"ghe_issues", http.MethodGet, "https://ghe.example.com/api/v3/repos/orbital/kora/issues", "issues:read", "kora", false},
@@ -380,8 +385,9 @@ func TestConnector_Classify(t *testing.T) {
 		// A repository-ID pagination link that did not resolve is denied
 		{"repository_id_page", http.MethodGet, "https://api.github.com/repositories/123/pulls/5/files?page=2", "", "", true},
 
-		// Anything else: verb-classified catch-all, unqualified
-		{"web_page", http.MethodGet, "https://github.com/orbital", "repo:read", "", false},
+		// Anything else on the host family is denied
+		{"web_page", http.MethodGet, "https://github.com/orbital", "", "", true},
+		{"web_write", http.MethodPost, "https://github.com/orbital/kora/issues", "", "", true},
 
 		// Unknown verb (deny via ErrUnsupportedAction)
 		{"unknown_verb", "PROPFIND", "https://github.com/x", "", "", true},

@@ -132,8 +132,6 @@ func (a *Adapter) Type() credentials.AdapterType { return credentials.AdapterGit
 // They combine with the connection name (and optional repository qualifier) to
 // form "connection:<name>:<category>[:<repo>]:<verb>".
 const (
-	ActionRepoRead      = platformconns.ActionGitHubRepoRead
-	ActionRepoWrite     = platformconns.ActionGitHubRepoWrite
 	ActionMetadataRead  = platformconns.ActionGitHubMetadataRead
 	ActionContentsRead  = platformconns.ActionGitHubContentsRead
 	ActionContentsWrite = platformconns.ActionGitHubContentsWrite
@@ -168,9 +166,9 @@ type connector struct {
 }
 
 // Classify maps a GitHub-bound request to the action and repository that
-// authorize it, across the four surfaces sharing the host family: git
-// smart-HTTP, the REST and GraphQL API, the content hosts, and a
-// verb-classified catch-all for everything else.
+// authorize it, across the surfaces sharing the host family: git smart-HTTP,
+// the REST and GraphQL API, and the content hosts. Any other request returns
+// ErrUnsupportedAction.
 //
 // A repo-addressed path naming an owner other than the connection's is denied
 // outright. GitHub serves foreign public repositories to any token, so
@@ -227,13 +225,8 @@ func (c *connector) ClassifyResolved(req *http.Request, repos map[string]string)
 		return classifyContentHost(req.Method, path, owner)
 	}
 
-	// Catch-all: verb-classified and unqualified, the legacy behavior for
-	// anything not recognized above.
-	verb, err := verbClass(req.Method)
-	if err != nil {
-		return credentials.Classification{}, err
-	}
-	return credentials.Classification{Action: catRepo + ":" + verb}, nil
+	// Anything not recognized above is denied: no grant was reviewed for it.
+	return credentials.Classification{}, credentials.ErrUnsupportedAction
 }
 
 // Owner returns the account the connection's installation is bound to, normalized.
@@ -408,7 +401,7 @@ const (
 	catAdmin       = "admin"
 	catMembers     = "members"      // organization-wide, never qualified
 	catOrgProjects = "org_projects" // organization-wide, never qualified
-	catRepo        = "repo"         // legacy umbrella grant and the unknown-host catch-all
+	catRepo        = "repo"         // legacy umbrella, grantable but never classified
 )
 
 // classifyAPI maps a REST/GraphQL API path (host prefix already stripped,
@@ -695,8 +688,8 @@ func lfsQualifier(segs []string, owner string) (string, bool) {
 // lfsBatchOperation reads the batch request's operation, matching the key
 // exactly as the LFS server does. The body is restored for forwarding.
 func lfsBatchOperation(req *http.Request) (string, error) {
-	buf, ok := bufferGraphQLBody(req)
-	if !ok {
+	buf, reason := bufferGraphQLBody(req)
+	if reason != "" {
 		return "", credentials.ErrUnsupportedAction
 	}
 	var body map[string]json.RawMessage
