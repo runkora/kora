@@ -29,6 +29,7 @@ Each function in the file is one rule. The rule name is the function name. Viola
 | `noHttpErrorInHandler` | `http.Error(w, ...)`: plain-text error response bypassing `api.ErrorResponse` | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
 | `noDirectWriteHeader` | `w.WriteHeader(code)`: bare status code bypassing `api.JSON` / `api.ErrorResponse` | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
 | `noProductNameLiteral` | a prose `kora` / `orbit` string literal in a speaking package: the product name must come from `internal/platform/brand` | [[white-labelling-theme](../docs/adr/2026-10-12-white-labelling-theme.md)] |
+| `noPgxpoolInEventProducers` | `*pgxpool.Pool` in an event producer package outside tests: a producer holds a `*storage.Pool` to join the context transaction | [[event-spine](../docs/adr/2026-11-06-event-spine.md)] |
 
 ### [opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md) rules (span telemetry)
 
@@ -58,6 +59,10 @@ A white-labelled install must never show the kora name in text its people or age
 
 Two limits of the bundled ruleguard shape the rule. A bare `$s` pattern never visits a literal, so the rule names each position a literal can occupy (call argument, composite-literal element, const or var initialiser, return, assignment, operand of `+`). And gogrep has no pattern for a struct field's tag, so the rule does not see a `jsonschema:"..."` description. `scripts/check-brand-tags.go`, run by `make brand-tags-check` as part of `make check`, parses the same packages and fails on a struct tag that matches the same word pattern. Keep tag text neutral and put the product-specific sentence in code, as `internal/koramcp/tools_agents.go` does.
 
+### [event-spine](../docs/adr/2026-11-06-event-spine.md) rule (event producers)
+
+An event producer package holds a `*storage.Pool`. The rule matches the `*pgxpool.Pool` type in any non-test file of a package in `eventProducerPackages`. The pattern lists `internal/agents`, `internal/triggers`, `internal/identity` and the policy-service repositories `internal/policyservice/grants`, `internal/policyservice/roles` and `internal/policyservice/tenantbudget`. Add a package to that pattern when its repositories move to `storage.Pool`.
+
 ### Exclusions
 
 Some call sites are legitimately exempt. Rather than scattering `//nolint` directives, all exceptions are centrally declared as path-scoped rules in the `exclusions:` block of `.golangci.yml` with documented rationale. Notable examples:
@@ -69,7 +74,7 @@ Some call sites are legitimately exempt. Rather than scattering `//nolint` direc
 - `internal/platform/middleware/`: uses `http.Error` in the defensive nil-handler guard that fires before any request context exists
 - `internal/platform/middleware/metrics.go` and `internal/triggers/metrics.go`: metric labels (`method`, `route`, `status`, `state`) are not span attributes and keep their names
 - `internal/egressgw/tlsca/`: the X.509 subject of the per-tenant CA's leaf certificates is an identifier, not prose, and keeps the kora name
-- `internal/agents/sessionmanager/runner_codex.go` and `runner_opencode.go`, scoped by `source:` to the one declaration line each: `codexProvider` and `openCodeProvider` are the config-table keys the runtimes key on; the provider display name beside them reads the brand
+- `internal/agents/sessionmanager/acp_profile_codex.go` and `acp_profile_opencode.go`, scoped by `source:` to the one declaration line each: `codexProvider` and `openCodeProvider` are the config-table keys the runtimes key on; the provider display name beside them reads the brand
 
 There is deliberately no exclusion for ruleguard's `used Run() with an empty rule set` message. It appears on every file when `rules/kora_rules.go` fails to load, which is how a DSL construct the bundled ruleguard rejects surfaces, and never when it loads; excluding it would switch every Tier 1 rule off without a signal.
 
@@ -79,7 +84,7 @@ There is deliberately no exclusion for ruleguard's `used Run() with an empty rul
 
 | Rule name | Banned package(s) | Allowed in | ADR |
 |-----------|------------------|------------|-----|
-| `no-stdlib-log` | `log`, `log/slog` | `cmd/` only | [[dependency-injected-logging](../docs/adr/2026-02-17-dependency-injected-logging.md)] |
+| `no-stdlib-log` | `log`, `log/slog` | `cmd/` and `platform/logging/slog.go` only | [[dependency-injected-logging](../docs/adr/2026-02-17-dependency-injected-logging.md)] |
 | `no-otel-span-mgmt-in-service-clients` | `go.opentelemetry.io/otel/codes`, `.../otel/trace` | `httpclient/base.go` only | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
 | `no-database-sql` | `database/sql` | `platform/storage/` only | [[database-infrastructure-layer](../docs/adr/2026-03-03-database-infrastructure-layer.md)] |
 | `no-raw-viper` | `github.com/spf13/viper` | `platform/config/` only | [[yaml-file-based-configuration](../docs/adr/2026-02-18-yaml-file-based-configuration.md)] |
@@ -92,7 +97,7 @@ Import bans don't need AST inspection: the presence of the import path is the vi
 
 ### `no-stdlib-log`
 
-Stdlib `log` and `log/slog` produce unstructured output and have no access to the OTel trace ID in context. All application code must use the injected `*logging.Logger`. `cmd/` entrypoints are exempt because `log.Fatal` is the only option for bootstrap panics that occur before the logger is constructed.
+Stdlib `log` and `log/slog` produce unstructured output and have no access to the OTel trace ID in context. All application code must use the injected `*logging.Logger`. `cmd/` entrypoints are exempt because `log.Fatal` is the only option for bootstrap panics that occur before the logger is constructed. `platform/logging/slog.go` is exempt because it adapts `*logging.Logger` to `*slog.Logger` for libraries that accept only slog, such as `acp-go-sdk`.
 
 ### `no-otel-span-mgmt-in-service-clients`
 

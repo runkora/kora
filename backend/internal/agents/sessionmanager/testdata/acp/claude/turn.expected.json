@@ -1,0 +1,198 @@
+[
+  {
+    "type": "tool_use",
+    "payload": {
+      "id": "toolu_bdrk_01BTjWHRjs6tUkyHjf8ymxMZ",
+      "name": "Bash",
+      "input": {
+        "command": "echo hi",
+        "description": "Print \"hi\" to standard output"
+      }
+    }
+  },
+  {
+    "type": "tool_result",
+    "payload": {
+      "tool_use_id": "toolu_bdrk_01BTjWHRjs6tUkyHjf8ymxMZ",
+      "content": "hi",
+      "is_error": false
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": "Now"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " for"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " #2:"
+    }
+  },
+  {
+    "type": "text_block",
+    "payload": {
+      "content": "Now for #2:"
+    }
+  },
+  {
+    "type": "tool_use",
+    "payload": {
+      "id": "toolu_bdrk_01TYHKskiNpwtPVzBGRud9qE",
+      "name": "Bash",
+      "input": {
+        "command": "ls /nonexistent-s5",
+        "description": "List contents of the nonexistent directory"
+      }
+    }
+  },
+  {
+    "type": "tool_result",
+    "payload": {
+      "tool_use_id": "toolu_bdrk_01TYHKskiNpwtPVzBGRud9qE",
+      "content": "Exit code 1\nls: /nonexistent-s5: No such file or directory",
+      "is_error": true
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": "Now"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " for #3:"
+    }
+  },
+  {
+    "type": "text_block",
+    "payload": {
+      "content": "Now for #3:"
+    }
+  },
+  {
+    "type": "tool_use",
+    "payload": {
+      "id": "toolu_bdrk_015E5JqjfQvq2w14QteMjLkC",
+      "name": "mcp__tools__ping",
+      "input": {}
+    }
+  },
+  {
+    "type": "tool_result",
+    "payload": {
+      "tool_use_id": "toolu_bdrk_015E5JqjfQvq2w14QteMjLkC",
+      "content": "pong from tools",
+      "is_error": false
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": "Now for #4:"
+    }
+  },
+  {
+    "type": "text_block",
+    "payload": {
+      "content": "Now for #4:"
+    }
+  },
+  {
+    "type": "tool_use",
+    "payload": {
+      "id": "toolu_bdrk_01M5sWyapYCwv67sEpJ7MkFK",
+      "name": "Bash",
+      "input": {
+        "command": "echo hello \u003e note.txt",
+        "description": "Create note.txt file with the single line hello"
+      }
+    }
+  },
+  {
+    "type": "tool_result",
+    "payload": {
+      "tool_use_id": "toolu_bdrk_01M5sWyapYCwv67sEpJ7MkFK",
+      "content": "(Bash completed with no output)",
+      "is_error": false
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": "Now for #5,"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " I'll"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " reply"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " with one"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " short"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " sentence:\n\nI"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": "'ve"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " completed all four"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " tasks successfully"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": "."
+    }
+  },
+  {
+    "type": "message_complete",
+    "payload": {
+      "text": "Now for #5, I'll reply with one short sentence:\n\nI've completed all four tasks successfully."
+    }
+  },
+  {
+    "type": "message_stop"
+  }
+]

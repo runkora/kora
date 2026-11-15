@@ -11,9 +11,6 @@ import { useSkillsContext } from '../_context/skills-context';
 import { skillHref, skillKey } from '../_types';
 import { clampLines, FavouriteButton, nameLine, SkillChips } from './skill-chips';
 
-/** skills-service has already searched the page; the table keeps every row it gets. */
-const keepRow = () => true;
-
 export function SkillList({ toolbarActions }: { toolbarActions: React.ReactNode }) {
   const { skills, browse, favourites, toggleFavourite, searchText, setSearchText } =
     useSkillsContext();
@@ -106,7 +103,6 @@ export function SkillList({ toolbarActions }: { toolbarActions: React.ReactNode 
       getRowKey={skillKey}
       noun="skills"
       searchPlaceholder="Search skills…"
-      searchFn={keepRow}
       searchQuery={searchText}
       onSearchChange={setSearchText}
       onRowClick={(skill) => router.push(skillHref(skill, browse))}

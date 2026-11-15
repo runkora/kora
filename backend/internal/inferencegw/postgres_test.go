@@ -2,6 +2,7 @@ package inferencegw
 
 import (
 	"context"
+	"errors"
 	"io"
 	"io/fs"
 	"os"
@@ -165,5 +166,53 @@ func TestPostgres_WriteUsageRecordsAgentSlug(t *testing.T) {
 	}
 	if g := got["HUMAN CgNkZXYSCmxvY2FsLWxkYXA"]; g != nil {
 		t.Errorf("human row agent_slug = %q, want NULL", *g)
+	}
+}
+
+// The run's principal is the one its latest usage row charged, delegator included.
+func TestPostgres_GetRunPrincipal(t *testing.T) {
+	repo, pool, tenant := testUsageRepo(t)
+	ctx := context.Background()
+	runID := uuid.NewString()
+	for _, r := range []struct {
+		principal, delegator string
+		age                  time.Duration
+	}{
+		{"spiffe://runkora.test/tenant/t/agent/old", "", time.Hour},
+		{"spiffe://runkora.test/tenant/t/agent/coder", "user-1", time.Minute},
+	} {
+		_, err := pool.Exec(ctx, `
+			INSERT INTO inference_usage (id, tenant_id, principal_id, principal_type, model_id, status, run_id, delegator_id, created_at)
+			VALUES ($1, $2, $3, 'AGENT', 'm', 'budget_exceeded', $4, NULLIF($5, ''), $6)`,
+			uuid.NewString(), tenant, r.principal, runID, r.delegator, time.Now().Add(-r.age))
+		if err != nil {
+			t.Fatalf("insert usage: %v", err)
+		}
+	}
+	got, err := repo.GetRunPrincipal(ctx, tenant, runID)
+	want := RunPrincipal{PrincipalID: "spiffe://runkora.test/tenant/t/agent/coder", PrincipalType: "AGENT", DelegatorID: "user-1"}
+	if err != nil || got != want {
+		t.Errorf("GetRunPrincipal = %+v, %v; want %+v", got, err, want)
+	}
+	if _, err := repo.GetRunPrincipal(ctx, tenant, uuid.NewString()); !errors.Is(err, ErrUsageRecordNotFound) {
+		t.Errorf("GetRunPrincipal(no usage) = %v, want ErrUsageRecordNotFound", err)
+	}
+	if _, err := repo.GetRunPrincipal(ctx, "other-"+tenant, runID); !errors.Is(err, ErrUsageRecordNotFound) {
+		t.Errorf("GetRunPrincipal(other tenant) = %v, want ErrUsageRecordNotFound", err)
+	}
+}
+
+// A person's name is their display name. Without one it reads empty, never the email.
+func TestPostgres_GetPersonName(t *testing.T) {
+	repo, pool, tenant := testUsageRepo(t)
+	ctx := context.Background()
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DELETE FROM user_profiles WHERE tenant_id = $1`, tenant) })
+	if _, err := pool.Exec(ctx, `INSERT INTO user_profiles (id, tenant_id, email, display_name) VALUES ('u-named', $1, 'named@example.com', 'Named Person'), ('u-email', $1, 'email@example.com', '')`, tenant); err != nil {
+		t.Fatalf("insert profiles: %v", err)
+	}
+	for id, want := range map[string]string{"u-named": "Named Person", "u-email": "", "u-none": ""} {
+		if got, err := repo.GetPersonName(ctx, tenant, id); err != nil || got != want {
+			t.Errorf("GetPersonName(%s) = %q, %v; want %q", id, got, err, want)
+		}
 	}
 }

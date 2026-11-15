@@ -1,12 +1,13 @@
 'use client';
 
-/** @tier 3 — agents/[slug]-scoped. Runs table tab for the agent detail page. */
+/** @tier 3 — agents/[slug]-scoped. The agent detail page's Runs tab: a list of run rows. */
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Button,
   DataTable,
+  Icon,
   SegmentedControl,
   Stack,
   Text,
@@ -16,53 +17,20 @@ import {
 
 import { DelegatedRunNotice } from '../../_components/motif/delegated-run-notice';
 import type { DataTableColumn } from '@runkora/hades';
-import { PermissionHint, StatusBadge } from '@runkora/components';
+import { PermissionHint } from '@runkora/components';
 import { APP_ROUTES } from '@runkora/lib/routing';
-import { fmtUsd } from '@runkora/utils';
 import type { RunStateCounts } from '@runkora/shared/api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { RUN_FILTER_STATES } from '../_hooks/use-agent-detail';
 import type { RunFilter } from '../_hooks/use-agent-detail';
-import { formatDuration, formatRelativeTime } from '../../_types';
 import type { RunRow } from '../../_types';
-import { StartedByCell } from './started-by-cell';
+import { RunListRow } from '../../_components/run-row';
 
 /** How many runs a filter matches, from the server's counts; undefined without them. */
 function filterCount(counts: RunStateCounts | null, filter: RunFilter): number | undefined {
   if (!counts) return undefined;
   if (filter === 'all') return counts.total;
   return RUN_FILTER_STATES[filter].reduce((n, state) => n + (counts.by_state[state] ?? 0), 0);
-}
-
-// ── Status helpers ────────────────────────────────────────────────────────────
-
-function runStatusBadge(row: RunRow) {
-  const statusMap: Record<string, 'idle' | 'degraded' | 'healthy' | 'error'> = {
-    pending: 'idle',
-    starting: 'degraded',
-    active: 'healthy',
-    idle: 'degraded',
-    completing: 'degraded',
-    completed: 'idle',
-    failed: 'error',
-    budget_exhausted: 'error',
-  };
-  const labelMap: Record<string, string> = {
-    pending: 'Pending',
-    starting: 'Starting',
-    active: 'Active',
-    idle: 'Waiting',
-    completing: 'Completing',
-    completed: 'Completed',
-    failed: 'Failed',
-    budget_exhausted: 'Budget exhausted',
-  };
-  return (
-    <StatusBadge
-      status={statusMap[row.state] ?? 'unknown'}
-      label={labelMap[row.state] ?? row.state}
-    />
-  );
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -102,153 +70,42 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
     }
   };
 
+  const canRun = !!agent?.canRun;
   const columns = useMemo<DataTableColumn<RunRow>[]>(
     () => [
       {
-        id: 'summary',
-        header: 'Task',
-        gridWidth: 'minmax(0, 2fr)',
-        minWidth: '9rem',
-        locked: true,
-        cell: (row) =>
-          row.summary ? (
-            <Text
-              size="caption"
-              style={{
-                maxWidth: '22rem',
-                display: '-webkit-box',
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: 'vertical',
-                overflow: 'hidden',
-                lineHeight: 1.35,
-              }}
-              title={row.summary}
-            >
-              {row.summary}
-            </Text>
-          ) : (
-            <Text size="caption" color="muted">
-              —
-            </Text>
-          ),
-      },
-      {
-        id: 'id',
-        header: 'Run ID',
-        gridWidth: '8rem',
-        minWidth: '5.5rem',
-        locked: true,
-        cell: (row) => (
-          <Text mono size="supporting">
-            {row.id.slice(0, 8)}
-          </Text>
-        ),
-      },
-      {
-        id: 'state',
-        header: 'Status',
-        gridWidth: '7.5rem',
-        minWidth: '4.5rem',
-        locked: true,
-        cell: (row) => runStatusBadge(row),
-      },
-      {
-        id: 'startedBy',
-        header: 'Started by',
-        gridWidth: 'minmax(0, 1fr)',
-        minWidth: '6rem',
-        locked: true,
-        cell: (row) => <StartedByCell row={row} />,
-      },
-      {
         id: 'started',
-        header: 'Started',
-        gridWidth: '8rem',
-        minWidth: '5rem',
+        header: 'Run',
+        gridWidth: 'minmax(0, 1fr)',
+        minWidth: '20rem',
         locked: true,
-        sortable: true,
         sortAccessor: (row) => row.startedAt ?? row.createdAt,
         cell: (row) => (
-          <Text size="supporting" color="muted">
-            {row.startedAt ? formatRelativeTime(row.startedAt) : '—'}
-          </Text>
-        ),
-      },
-      {
-        id: 'duration',
-        header: 'Duration',
-        gridWidth: '6.5rem',
-        minWidth: '4.5rem',
-        locked: true,
-        cell: (row) => (
-          <Text mono size="supporting">
-            {formatDuration(row.durationMs)}
-          </Text>
-        ),
-      },
-      {
-        id: 'tools',
-        header: 'Tools',
-        gridWidth: '6rem',
-        minWidth: '4rem',
-        locked: true,
-        cell: (row) => (
-          <Text mono size="supporting">
-            {row.toolCalls !== null ? String(row.toolCalls) : '—'}
-          </Text>
-        ),
-      },
-      {
-        id: 'cost',
-        header: 'Cost',
-        gridWidth: '6rem',
-        minWidth: '4rem',
-        locked: true,
-        cell: (row) => (
-          <Text mono size="supporting">
-            {fmtUsd(row.costUsd)}
-          </Text>
-        ),
-      },
-      {
-        id: 'actions',
-        header: '',
-        pinEnd: true,
-        locked: true,
-        gridWidth: '7rem',
-        cell: (row) => (
-          <Stack direction="horizontal" gap="snug">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                if (agent) {
-                  router.push(APP_ROUTES.agents.run(agent.slug, row.id));
-                }
-              }}
-            >
-              Open
-            </Button>
-            <PermissionHint allowed={!!agent?.canRun} action="delete runs of this agent">
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={!agent?.canRun}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setDeleteError(null);
-                  setDeleteTarget(row);
-                }}
-              >
-                Delete
-              </Button>
-            </PermissionHint>
-          </Stack>
+          <RunListRow
+            row={row}
+            action={
+              // The button keeps its width; only the icon shows, on row hover or focus.
+              <PermissionHint allowed={canRun} action="delete runs of this agent">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Delete run ${row.id.slice(0, 8)}`}
+                  disabled={!canRun}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeleteError(null);
+                    setDeleteTarget(row);
+                  }}
+                >
+                  <Icon name="trash" size="2xs" color="muted" groupReveal />
+                </Button>
+              </PermissionHint>
+            }
+          />
         ),
       },
     ],
-    [agent, router],
+    [canRun],
   );
 
   // No paddingTop on the root: Hades' TabsContent already provides the
@@ -283,11 +140,14 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
           noun="runs"
           defaultSortId="started"
           defaultSortDir="desc"
+          hideHeader
+          columnToggle={false}
           searchFn={(row, q) =>
             row.id.toLowerCase().includes(q) ||
             (row.summary?.toLowerCase().includes(q) ?? false) ||
             (row.createdByName?.toLowerCase().includes(q) ?? false) ||
-            row.createdBy.toLowerCase().includes(q)
+            row.createdBy.toLowerCase().includes(q) ||
+            row.sources.some((s) => s.label.toLowerCase().includes(q))
           }
           searchPlaceholder="Search runs…"
           quickFilters={
@@ -329,6 +189,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
           filteredEmptyMessage={
             status === 'loading' ? 'Loading runs…' : 'No runs match your search.'
           }
+          rowLabel={(row) => `Open run ${row.id.slice(0, 8)}`}
           onRowClick={(row) => {
             if (agent) {
               router.push(APP_ROUTES.agents.run(agent.slug, row.id));

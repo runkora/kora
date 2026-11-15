@@ -1,90 +1,58 @@
 'use client';
 
-/** @tier 3 · agents/[slug]-scoped. The Overview tab's Recent Runs table, Grant Scopes and Metadata cards. */
+/** @tier 3 · agents/[slug]-scoped. The Overview tab's Recent Runs, Grant Scopes and Metadata cards. */
 
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Badge, Card, CardContent, CardHeader, DataTable, Stack, Text } from '@runkora/hades';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  DataTable,
+  Icon,
+  Stack,
+  Text,
+} from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
 import { ScopeChip } from '@runkora/components';
 import { fmtDate } from '@runkora/utils';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
-import { formatDuration, formatRelativeTime } from '../../_types';
 import type { AgentTypeRow, RunRow } from '../../_types';
-import { StartedByCell } from './started-by-cell';
-import { RunStateDot } from '../../_components/running-now-card';
+import { RunListRow } from '../../_components/run-row';
 
-/** The five most recent runs. */
-export function RecentRunsTable() {
-  const { agent, recentRuns: runs } = useAgentDetailContext();
+const RECENT_RUNS = 5;
+
+interface RecentRunsCardProps {
+  /** Switches the page to the Runs tab. */
+  onViewAll: () => void;
+}
+
+/** The five newest runs as Runs tab rows, without headers or row controls. */
+export function RecentRunsCard({ onViewAll }: RecentRunsCardProps) {
+  const { agent, recentRuns } = useAgentDetailContext();
   const router = useRouter();
 
-  const recentRuns = useMemo(
+  const rows = useMemo(
     () =>
-      [...runs]
-        .sort((a, b) => {
-          const aTime = a.startedAt ?? a.createdAt;
-          const bTime = b.startedAt ?? b.createdAt;
-          return bTime.localeCompare(aTime);
-        })
-        .slice(0, 5),
-    [runs],
+      [...recentRuns]
+        .sort((a, b) => (b.startedAt ?? b.createdAt).localeCompare(a.startedAt ?? a.createdAt))
+        .slice(0, RECENT_RUNS),
+    [recentRuns],
   );
 
   const columns = useMemo<DataTableColumn<RunRow>[]>(
     () => [
       {
-        id: 'id',
-        header: 'Run ID',
-        gridWidth: '6rem',
-        minWidth: '5rem',
-        locked: true,
-        cell: (row) => (
-          <Text mono size="supporting">
-            {row.id.slice(0, 8)}
-          </Text>
-        ),
-      },
-      {
-        id: 'state',
-        header: 'Status',
-        gridWidth: '7rem',
-        minWidth: '5.5rem',
-        locked: true,
-        cell: (row) => <RunStateDot state={row.state} />,
-      },
-      {
-        id: 'duration',
-        header: 'Duration',
-        gridWidth: '6rem',
-        minWidth: '5rem',
-        locked: true,
-        cell: (row) => (
-          <Text mono size="supporting">
-            {formatDuration(row.durationMs)}
-          </Text>
-        ),
-      },
-      {
-        id: 'startedBy',
-        header: 'Started by',
+        id: 'run',
+        header: 'Run',
         gridWidth: 'minmax(0, 1fr)',
-        minWidth: '4rem',
+        minWidth: '16rem',
         locked: true,
-        cell: (row) => <StartedByCell row={row} />,
-      },
-      {
-        id: 'started',
-        header: 'Started',
-        gridWidth: '6.5rem',
-        minWidth: '5rem',
-        locked: true,
-        cell: (row) => (
-          <Text size="supporting" color="muted">
-            {row.startedAt ? formatRelativeTime(row.startedAt) : '–'}
-          </Text>
-        ),
+        // The card is narrower than the Runs tab, so one delivery chip shows before "+N".
+        cell: (row) => <RunListRow row={row} maxChips={1} />,
       },
     ],
     [],
@@ -92,24 +60,28 @@ export function RecentRunsTable() {
 
   return (
     <DataTable
-      data={recentRuns}
+      data={rows}
       columns={columns}
       getRowKey={(row) => row.id}
       noun="runs"
+      hideHeader
+      columnToggle={false}
       emptyMessage="No runs yet."
-      defaultSortId="started"
-      defaultSortDir="desc"
       toolbarTitle={
         <Text size="supporting" weight="emphasis">
           Recent Runs
         </Text>
       }
+      toolbarActions={
+        <Button variant="ghost" size="sm" onClick={onViewAll}>
+          View all runs
+          <Icon name="chevron-right" size="2xs" />
+        </Button>
+      }
       onRowClick={(row) => {
-        if (agent) {
-          router.push(APP_ROUTES.agents.run(agent.slug, row.id));
-        }
+        if (agent) router.push(APP_ROUTES.agents.run(agent.slug, row.id));
       }}
-      rowLabel={(row) => `View run ${row.id}`}
+      rowLabel={(row) => `Open run ${row.id.slice(0, 8)}`}
     />
   );
 }

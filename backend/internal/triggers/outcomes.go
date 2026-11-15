@@ -2,6 +2,8 @@ package triggers
 
 import (
 	"context"
+	"sync"
+	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
@@ -26,8 +28,100 @@ type outcomeStore interface {
 // record of something that already happened, and there is no caller who could
 // act on the error.
 type outcomeRecorder struct {
-	repo   outcomeStore
-	logger logging.Logger
+	repo    outcomeStore
+	logger  logging.Logger
+	metrics *Metrics // nil records nothing
+	// providers caches trigger → provider so counting an outcome does not read
+	// the trigger and its source every time. Nil disables the cache.
+	providers *providerCache
+}
+
+// providerCacheTTL bounds how stale a cached provider can be. A trigger's
+// source rarely changes; the label tolerates a few minutes of lag.
+const providerCacheTTL = 5 * time.Minute
+
+// providerCacheMax bounds the cache. At the limit it is emptied, not evicted
+// entry by entry: it is a metrics label cache, refilling is cheap.
+const providerCacheMax = 10000
+
+type providerCacheEntry struct {
+	provider string
+	expires  time.Time
+}
+
+type providerCache struct {
+	mu sync.Mutex
+	m  map[string]providerCacheEntry
+}
+
+func newProviderCache() *providerCache {
+	return &providerCache{m: map[string]providerCacheEntry{}}
+}
+
+func (c *providerCache) get(triggerID string) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.m[triggerID]
+	if !ok || time.Now().After(e.expires) {
+		return "", false
+	}
+	return e.provider, true
+}
+
+func (c *providerCache) put(triggerID, provider string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.m) >= providerCacheMax {
+		c.m = map[string]providerCacheEntry{}
+	}
+	c.m[triggerID] = providerCacheEntry{provider: provider, expires: time.Now().Add(providerCacheTTL)}
+}
+
+// providerLookup resolves the provider behind a trigger, for the delivery
+// metric's provider label. The recorder's store satisfies it where it can read
+// triggers and sources; otherwise the provider is reported as generic.
+type providerLookup interface {
+	GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error)
+	GetSourceByID(ctx context.Context, id string) (*WebhookSource, error)
+}
+
+// count records the outcome on the delivery metric.
+func (o outcomeRecorder) count(ctx context.Context, dr *DeliveryRun) {
+	if o.metrics == nil {
+		return
+	}
+	o.metrics.recordOutcome(ctx, o.provider(ctx, dr), dr.Status)
+}
+
+// provider resolves the provider behind the outcome's trigger. A trigger with no
+// source is generic and cached as such; a failed read is not cached, so the next
+// outcome retries it, and reports generic for this one.
+func (o outcomeRecorder) provider(ctx context.Context, dr *DeliveryRun) string {
+	if o.providers != nil {
+		if p, ok := o.providers.get(dr.TriggerID); ok {
+			return p
+		}
+	}
+	l, ok := o.repo.(providerLookup)
+	if !ok {
+		return ProviderGeneric
+	}
+	t, err := l.GetTrigger(ctx, dr.TenantID, dr.TriggerID)
+	if err != nil {
+		return ProviderGeneric
+	}
+	provider := ProviderGeneric
+	if t.SourceID != "" {
+		src, err := l.GetSourceByID(ctx, t.SourceID)
+		if err != nil {
+			return ProviderGeneric
+		}
+		provider = src.Provider
+	}
+	if o.providers != nil {
+		o.providers.put(dr.TriggerID, provider)
+	}
+	return provider
 }
 
 // record writes one outcome and re-derives the delivery. This is the default;
@@ -60,6 +154,7 @@ func (o outcomeRecorder) insert(ctx context.Context, dr *DeliveryRun) bool {
 		)
 		return false
 	}
+	o.count(ctx, dr)
 	return true
 }
 

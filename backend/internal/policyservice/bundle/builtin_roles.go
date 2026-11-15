@@ -29,6 +29,7 @@ var (
 		"triggers:read",
 		"inference:list",
 		"platform:connections:read",
+		"skills:read",
 	}
 	userScopes = append(slices.Clone(viewerScopes),
 		"inference:invoke",
@@ -47,6 +48,7 @@ var (
 		"platform:analytics:read",
 		"platform:budgets:read",
 		"identity:users:read",
+		"events:read",
 	)
 )
 

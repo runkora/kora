@@ -763,3 +763,12 @@ app.kubernetes.io/component: skills-service
 {{- define "kora.skillsService.selectorLabels" -}}
 app: kora-skills-service
 {{- end }}
+
+{{- define "kora.koraEvents.labels" -}}
+{{ include "kora.labels" . }}
+app.kubernetes.io/name: kora-events
+app.kubernetes.io/component: events
+{{- end }}
+{{- define "kora.koraEvents.selectorLabels" -}}
+app: kora-events
+{{- end }}

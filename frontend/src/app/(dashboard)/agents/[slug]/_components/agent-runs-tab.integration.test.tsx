@@ -127,7 +127,7 @@ describe('Agent runs tab', () => {
     renderTab(rawRuns(0, 2, 'failed'), null);
     expect(screen.getByRole('button', { name: /Failed/ })).toHaveTextContent('3');
 
-    await userEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0]);
+    await userEvent.click(screen.getAllByRole('button', { name: /^Delete run / })[0]);
     const dialog = await screen.findByRole('dialog');
     await userEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
 

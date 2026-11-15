@@ -36,6 +36,7 @@ import (
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/brand"
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	eventsclient "github.com/runkora/kora/backend/internal/platform/clients/events"
 	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
 	inferenceclient "github.com/runkora/kora/backend/internal/platform/clients/inference"
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
@@ -153,7 +154,8 @@ func initController(
 	)
 	policyEval.Start(ctx)
 
-	repo := triggers.NewPostgresRepository(db.Pool())
+	pool := storage.NewPool(db.Pool())
+	repo := triggers.NewPostgresRepository(pool)
 	agentsClient := agentsclient.NewClient(tc.Current.Agents.InternalURL, logger)
 	inferenceClient := inferenceclient.NewClient(tc.Current.Inference.InternalURL, logger)
 
@@ -177,6 +179,7 @@ func initController(
 	// One admission controller, shared: it holds no per-caller state, and two
 	// instances deciding the same trigger's ceiling would be two answers.
 	admission := triggers.NewAdmission(repo, logger)
+	admission.SetMetrics(metrics)
 
 	// The operator-written tenant registry carries each tenant's API authoring switch.
 	tenants := declarative.NewRegistry(tc.Current.Kubernetes.TenantsPath)
@@ -236,6 +239,13 @@ func initController(
 	// tenant shortens their window, not only for new ones.
 	triggers.NewRetentionJob(repo, logger, triggers.DefaultPayloadRetentionDays, metrics).Start(ctx)
 
+	// Event triggers fire from the kora-events internal stream, read as this
+	// binary's SYSTEM identity. One replica consumes at a time.
+	events := eventsclient.NewClient(tc.Current.Events.InternalURL, selfToken, logger)
+	svc.SetRunChains(agentsClient, selfToken)
+	consumer := triggers.NewEventConsumer(svc, repo, events, storage.NewSessionLocker(db.Pool()), logger)
+	consumer.Start(ctx)
+
 	// The cron scheduler fires time-driven triggers. It is safe to run on every
 	// replica: each tick inserts its delivery under a unique (trigger_id,
 	// scheduled_at) key before dispatching, so a losing replica simply stops.
@@ -249,8 +259,9 @@ func initController(
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(parentCtx), 10*time.Second)
 		defer cancel()
 		scheduler.Stop(shutdownCtx)
-		// Let an in-flight dispatch finish rather than cutting it in half.
+		// Let an in-flight dispatch and event fan-out finish rather than cutting them in half.
 		worker.Wait(shutdownCtx)
+		consumer.Wait(shutdownCtx)
 	}(ctx)
 
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
@@ -260,7 +271,7 @@ func initController(
 	declared := declarative.NewController(verifier, logger, map[string]declarative.Applier{
 		declarative.KindTriggerSources: sources,
 		declarative.KindTriggers:       lifecycle,
-	})
+	}).WithEvents(pool)
 	return []platformapi.Controller{
 		triggers.NewController(svc, sources, lifecycle, auth, policyEval, routeScopes(), tc.Current.Server.BasePath, logger),
 		declared,
@@ -383,6 +394,9 @@ func initServer(ctx context.Context, logger logging.Logger, controllers []platfo
 		mw.MiddlewareChain(
 			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
+			// Rewrites /run/{run_id}/… to /… with the run in context, so an agent's
+			// call through the kora MCP carries its run (event spine ADR, section 7).
+			mw.NewMiddleware(mw.StripRunPrefix),
 		),
 		controllers...,
 	)

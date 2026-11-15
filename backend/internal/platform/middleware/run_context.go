@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"regexp"
 
+	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -20,6 +21,9 @@ import (
 // canonical run identity.
 
 type runIDContextKey struct{}
+
+// RunIDHeader carries the acting run from the tool-gateway to an upstream MCP server.
+const RunIDHeader = "X-Kora-Run-Id"
 
 // runPrefixPattern matches /run/{run_id}/rest-of-path. Run IDs are UUIDs, but
 // the pattern stays permissive on length to avoid coupling to ID format;
@@ -49,4 +53,21 @@ func RunIDFromContext(ctx context.Context) string {
 	}
 	runID, _ := ctx.Value(runIDContextKey{}).(string)
 	return runID
+}
+
+// ActingRunID is the run an AGENT caller acts for: the run of a per-run
+// sandbox identity, else the run its delegation is bound to, else the run
+// prefix. The caller checks that the run belongs to the agent.
+func ActingRunID(ctx context.Context) string {
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil || claims.Kora.PrincipalType != token.PrincipalTypeAgent {
+		return ""
+	}
+	if id := claims.Kora.Claims["run_id"]; id != "" {
+		return id
+	}
+	if d := policy.DelegationFromContext(ctx); d != nil && d.RunID != "" {
+		return d.RunID
+	}
+	return RunIDFromContext(ctx)
 }

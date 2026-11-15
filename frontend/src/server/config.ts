@@ -74,6 +74,13 @@ export const config = {
   skillsServiceUrl: requireEnv('SKILLS_SERVICE_URL').replace(/\/$/, ''),
 
   /**
+   * Base URL of kora-events (port 8099), including its `/v1` base path. The BFF
+   * reads event type schemas and the event history from it and proxies the event
+   * stream. Never sent to the browser.
+   */
+  koraEventsUrl: requireEnv('KORA_EVENTS_URL').replace(/\/$/, ''),
+
+  /**
    * Secret used to sign/verify session tokens.
    * Lazy — only validated when the session layer first accesses it.
    */

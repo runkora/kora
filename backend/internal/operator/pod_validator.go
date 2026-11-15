@@ -37,6 +37,15 @@ func (v *PodValidator) Handle(ctx context.Context, req admission.Request) admiss
 		return admission.Allowed("not a tenant namespace")
 	}
 
+	// The validator checks the creator itself rather than trusting anything the mutator set.
+	warmer, err := isSandboxWarmer(ctx, v.Client, req, pod)
+	if err != nil {
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+	if warmer {
+		return admission.Allowed("sandbox image warmer")
+	}
+
 	if reason := v.rejectionReason(pod, ns); reason != "" {
 		return admission.Denied(reason)
 	}

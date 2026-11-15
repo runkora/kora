@@ -2,11 +2,15 @@ package agents
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // Postgres integration test for the run→trigger backlink. Runs only when
@@ -32,11 +36,13 @@ func testRunRepo(t *testing.T) (*PostgresRepository, string) {
 	}
 	tenant := "test-" + uuid.NewString()
 	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM event_outbox WHERE tenant_id=$1`, tenant)
+		_, _ = pool.Exec(ctx, `DELETE FROM events WHERE tenant_id=$1`, tenant)
 		_, _ = pool.Exec(ctx, `DELETE FROM runs WHERE tenant_id=$1`, tenant)
 		_, _ = pool.Exec(ctx, `DELETE FROM agent_types WHERE tenant_id=$1`, tenant)
 		pool.Close()
 	})
-	return NewPostgresRepository(pool), tenant
+	return NewPostgresRepository(storage.NewPool(pool)), tenant
 }
 
 func seedRunAgentType(t *testing.T, r *PostgresRepository, tenant string, mode IdentityMode) AgentType {
@@ -72,6 +78,7 @@ func TestPostgres_RunTriggerAttribution(t *testing.T) {
 		StartedBy: &StartedByTrigger{
 			TriggerID:   "trig-1",
 			TriggerName: "Nightly review",
+			TriggerKind: "scheduled",
 			DeliveryID:  "deliv-1",
 		},
 	}
@@ -111,7 +118,7 @@ func TestPostgres_RunTriggerAttribution(t *testing.T) {
 	for _, run := range runs {
 		if run.ID == started.ID {
 			found = true
-			if run.StartedBy == nil || run.StartedBy.TriggerName != "Nightly review" {
+			if run.StartedBy == nil || *run.StartedBy != *started.StartedBy {
 				t.Errorf("listed run started_by = %+v, want the attribution", run.StartedBy)
 			}
 		}
@@ -143,7 +150,106 @@ func TestPostgres_RunTriggerAttribution_NoForeignKey(t *testing.T) {
 	if got.StartedBy == nil || got.StartedBy.TriggerName != "Deleted trigger" {
 		t.Errorf("started_by = %+v, want the snapshot name", got.StartedBy)
 	}
-	if got.StartedBy.DeliveryID != "" {
-		t.Errorf("delivery_id = %q, want it empty when none was recorded", got.StartedBy.DeliveryID)
+	if got.StartedBy.DeliveryID != "" || got.StartedBy.TriggerKind != "" {
+		t.Errorf("started_by = %+v, want delivery_id and trigger_kind empty when none was recorded", got.StartedBy)
+	}
+}
+
+// Sources round-trip through the jsonb column, a join appends without
+// duplicating by URL, and a run with none reads as an empty list.
+func TestPostgres_RunSources(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	ctx := context.Background()
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+
+	run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, CreatedBy: "trigger:t", Sources: []RunSource{srcSlack, srcPR}}
+	if err := r.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if err := r.AppendRunSources(ctx, run.ID, []RunSource{srcPR, srcRepo}); err != nil {
+		t.Fatalf("AppendRunSources: %v", err)
+	}
+	got, err := r.GetRun(ctx, run.ID)
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	want := []RunSource{srcSlack, srcPR, srcRepo}
+	if len(got.Sources) != len(want) {
+		t.Fatalf("sources = %+v, want %+v", got.Sources, want)
+	}
+	for i := range want {
+		if got.Sources[i] != want[i] {
+			t.Errorf("sources[%d] = %+v, want %+v", i, got.Sources[i], want[i])
+		}
+	}
+
+	none := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, CreatedBy: "user-1"}
+	if err := r.CreateRun(ctx, none); err != nil {
+		t.Fatalf("CreateRun(none): %v", err)
+	}
+	gotNone, _ := r.GetRun(ctx, none.ID)
+	if gotNone.Sources == nil || len(gotNone.Sources) != 0 {
+		t.Errorf("sources = %#v, want an empty list", gotNone.Sources)
+	}
+	// The run total is capped; further distinct sources are dropped.
+	for i := range maxRunSourcesPerRun/maxRunSourcesPerRequest + 1 {
+		batch := make([]RunSource, maxRunSourcesPerRequest)
+		for j := range batch {
+			batch[j] = RunSource{Kind: srcPR.Kind, URL: fmt.Sprintf("https://example.com/%d/%d", i, j), Label: "x"}
+		}
+		if err := r.AppendRunSources(ctx, run.ID, batch); err != nil {
+			t.Fatalf("AppendRunSources(batch %d): %v", i, err)
+		}
+	}
+	capped, _ := r.GetRun(ctx, run.ID)
+	if len(capped.Sources) != maxRunSourcesPerRun {
+		t.Errorf("sources = %d, want capped at %d", len(capped.Sources), maxRunSourcesPerRun)
+	}
+	if err := r.AppendRunSources(ctx, uuid.NewString(), []RunSource{srcPR}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("append to a missing run: err = %v, want ErrNotFound", err)
+	}
+}
+
+// A person's message stores its sender; a trigger's message stores none.
+func TestPostgres_RunMessageSender(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	ctx := context.Background()
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, CreatedBy: "user-1"}
+	if err := r.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	sender := &MessageSender{ID: "user-1", Type: "USER", Name: "Dev User"}
+	if err := r.AppendRunMessage(ctx, RunMessage{RunID: run.ID, Content: "from a person", Sender: sender}); err != nil {
+		t.Fatalf("AppendRunMessage(person): %v", err)
+	}
+	if err := r.AppendRunMessage(ctx, RunMessage{RunID: run.ID, Content: "from a trigger", From: &StartedByTrigger{TriggerID: "trig-1"}}); err != nil {
+		t.Fatalf("AppendRunMessage(trigger): %v", err)
+	}
+	rows, err := r.pool.Query(ctx, `SELECT content, sender_id, sender_type, sender_name FROM run_messages WHERE run_id=$1 ORDER BY sequence_no`, run.ID)
+	if err != nil {
+		t.Fatalf("select run_messages: %v", err)
+	}
+	defer rows.Close()
+	type row struct {
+		content          string
+		id, typ, display *string
+	}
+	var got []row
+	for rows.Next() {
+		var x row
+		if err := rows.Scan(&x.content, &x.id, &x.typ, &x.display); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		got = append(got, x)
+	}
+	if len(got) != 2 {
+		t.Fatalf("rows = %d, want 2", len(got))
+	}
+	if p := got[0]; p.id == nil || *p.id != "user-1" || p.typ == nil || *p.typ != "USER" || p.display == nil || *p.display != "Dev User" {
+		t.Errorf("person's message sender = %v %v %v, want user-1 USER Dev User", p.id, p.typ, p.display)
+	}
+	if tr := got[1]; tr.id != nil || tr.typ != nil || tr.display != nil {
+		t.Errorf("trigger's message sender = %v %v %v, want none", tr.id, tr.typ, tr.display)
 	}
 }

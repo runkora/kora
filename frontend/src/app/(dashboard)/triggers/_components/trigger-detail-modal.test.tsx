@@ -7,6 +7,8 @@ const api = vi.hoisted(() => ({
   fetchEventTypes: vi.fn(),
   fetchProviderEventTypes: vi.fn(),
   fetchProviderFields: vi.fn(),
+  fetchPlatformEventTypes: vi.fn(),
+  fetchEventTypeFields: vi.fn(() => Promise.resolve({ fields: [], error: null })),
   listDeliveryPage: vi.fn(),
 }));
 vi.mock('../_services/triggers-api', () => api);
@@ -71,6 +73,7 @@ const SOURCES: SourceRow[] = [
 function renderDetailModal(row: TriggerRow, onEdit?: () => Promise<string | null>) {
   return renderWithProviders(
     <TriggerDetailModal
+      window="24h"
       canRunAgent
       trigger={row}
       sources={SOURCES}
@@ -222,6 +225,7 @@ describe('closing the modal', () => {
     const onClose = vi.fn();
     renderWithProviders(
       <TriggerDetailModal
+        window="24h"
         canRunAgent
         trigger={trigger()}
         sources={SOURCES}
@@ -482,6 +486,7 @@ describe('read-only callers', () => {
   it('offers no edit affordances without onEdit', () => {
     renderWithProviders(
       <TriggerDetailModal
+        window="24h"
         canRunAgent
         trigger={trigger({
           kind: 'scheduled',
@@ -504,6 +509,7 @@ describe('ephemeral state is scoped to the open trigger', () => {
     const onRotateSecret = vi.fn().mockResolvedValue('secret-for-A');
     const { rerender } = renderWithProviders(
       <TriggerDetailModal
+        window="24h"
         canRunAgent
         trigger={trigger({ id: 'trg-A', name: 'trigger-a' })}
         sources={SOURCES}
@@ -526,6 +532,7 @@ describe('ephemeral state is scoped to the open trigger', () => {
     // shows the Rotate button and no revealed secret, never A's live secret.
     rerender(
       <TriggerDetailModal
+        window="24h"
         canRunAgent
         trigger={trigger({ id: 'trg-B', name: 'trigger-b' })}
         sources={SOURCES}
@@ -550,6 +557,7 @@ describe('ephemeral state is scoped to the open trigger', () => {
       canRunAgent: true,
       sources: SOURCES,
       deliveries: [],
+      window: '24h' as const,
       ingestHost: 'local.runkora.io:8443',
       onClose: vi.fn(),
       onToggleEnabled: vi.fn(),
@@ -578,6 +586,7 @@ describe('permissions', () => {
   function renderWith(scopes: string[], row: TriggerRow, canRunAgent = true) {
     return renderWithProviders(
       <TriggerDetailModal
+        window="24h"
         canRunAgent={canRunAgent}
         trigger={row}
         sources={SOURCES}
@@ -592,6 +601,38 @@ describe('permissions', () => {
     );
   }
   const manual = (canFire: boolean) => trigger({ kind: 'manual', canFire });
+  const eventTrigger = trigger({ kind: 'event', sourceId: '', eventType: 'agents.run.failed.v1' });
+
+  const NO_EVENTS = ['triggers:read', 'triggers:write'];
+  const LOCK_NOTE = 'Event triggers need the events:read permission to edit.';
+
+  it('makes an event trigger read only without events:read, except its name', async () => {
+    api.fetchPlatformEventTypes.mockResolvedValue({ eventTypes: [], error: null });
+    renderWith(NO_EVENTS, eventTrigger);
+    await openSection('Event filters');
+    expect(screen.getByRole('switch', { name: /Ignore its own runs/ })).toBeDisabled();
+    expect(screen.getByText(LOCK_NOTE)).toBeTruthy();
+    await openSection('Prompt');
+    expect(screen.getByLabelText('Prompt template').getAttribute('aria-disabled')).toBe('true');
+    await openSection('Trigger');
+    expect(screen.getByLabelText(/Trigger name/)).not.toBeDisabled();
+  });
+
+  it('keeps an event trigger editable with events:read', async () => {
+    api.fetchPlatformEventTypes.mockResolvedValue({ eventTypes: [], error: null });
+    renderWith([...NO_EVENTS, 'events:read'], eventTrigger);
+    await openSection('Event filters');
+    expect(screen.getByRole('switch', { name: /Ignore its own runs/ })).not.toBeDisabled();
+    expect(screen.queryByText(LOCK_NOTE)).toBeNull();
+  });
+
+  it('does not lock a non-event trigger without events:read', async () => {
+    renderWith(NO_EVENTS, manual(false));
+    await openSection('Prompt');
+    expect(screen.getByLabelText('Prompt template').getAttribute('aria-disabled')).not.toBe('true');
+    expect(screen.queryByText(LOCK_NOTE)).toBeNull();
+  });
+
   const scheduled = trigger({
     kind: 'scheduled',
     scheduleConfig: { cronExpression: '0 2 * * *', timezone: 'UTC', catchUp: false },
@@ -650,6 +691,7 @@ describe('managed in git', () => {
   ) {
     return renderWithProviders(
       <TriggerDetailModal
+        window="24h"
         canRunAgent
         trigger={row}
         sources={opts.sources ?? SOURCES}
@@ -737,6 +779,7 @@ describe('a source whose provider issues the secret', () => {
   ) {
     renderWithProviders(
       <TriggerDetailModal
+        window="24h"
         canRunAgent
         trigger={trigger()}
         sources={SLACK}
@@ -774,6 +817,7 @@ describe('a source whose provider issues the secret', () => {
     const onRotateSecret = vi.fn().mockResolvedValue('');
     renderWithProviders(
       <TriggerDetailModal
+        window="24h"
         canRunAgent
         trigger={trigger()}
         sources={[{ ...SLACK[0]!, signingSecretSet: false }]}
@@ -832,6 +876,7 @@ describe('a chat command trigger', () => {
   function renderChat(row: TriggerRow, onEdit = vi.fn().mockResolvedValue(null)) {
     renderWithProviders(
       <TriggerDetailModal
+        window="24h"
         canRunAgent
         trigger={row}
         sources={CHAT_SOURCES}
@@ -1026,6 +1071,7 @@ describe('a generic webhook source', () => {
     };
     renderWithProviders(
       <TriggerDetailModal
+        window="24h"
         canRunAgent
         trigger={trigger({ eventType: 'Issue', matchCondition: { 'data.state': ['open'] } })}
         sources={[generic]}
@@ -1116,6 +1162,7 @@ describe('closing with unsaved edits', () => {
     const onClose = vi.fn();
     renderWithProviders(
       <TriggerDetailModal
+        window="24h"
         canRunAgent
         trigger={row}
         sources={SOURCES}

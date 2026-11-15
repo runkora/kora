@@ -36,6 +36,9 @@ const (
 var (
 	// ErrForbidden is returned when the caller's token lacks the required run scope.
 	ErrForbidden = errors.New("forbidden: token lacks required run scope")
+	// ErrUnauthorized is returned when kora-agents rejects the caller's token
+	// itself, which a fresh token can clear.
+	ErrUnauthorized = errors.New("unauthorized: kora-agents rejected the token")
 	// ErrAgentTypeNotFound is returned when the target agent type does not exist.
 	ErrAgentTypeNotFound = errors.New("agent type not found")
 	// ErrRunNotFound is returned when the run does not exist in the caller's tenant.
@@ -208,10 +211,10 @@ type StartRunRequest struct {
 	AgentTypeID    string `json:"agent_type_id"`
 	InitialMessage string `json:"initial_message,omitempty"`
 
-	// TriggerID, TriggerName and DeliveryID attribute the run to the trigger
-	// that started it, so a run detail can say "started by trigger X, delivery
-	// Y" rather than showing the trigger's SERVICE principal id and nothing
-	// else. Omitted for any other caller.
+	// TriggerID, TriggerName, TriggerKind and DeliveryID attribute the run to
+	// the trigger that started it, so a run detail can say "started by trigger
+	// X, delivery Y" rather than showing the trigger's SERVICE principal id and
+	// nothing else. Omitted for any other caller.
 	//
 	// kora-agents accepts them only from a SERVICE principal: a run's record of
 	// why it exists is an audit claim, and one any caller could author about
@@ -220,7 +223,83 @@ type StartRunRequest struct {
 	// person recognizes.
 	TriggerID   string `json:"trigger_id,omitempty"`
 	TriggerName string `json:"trigger_name,omitempty"`
+	TriggerKind string `json:"trigger_kind,omitempty"`
 	DeliveryID  string `json:"delivery_id,omitempty"`
+
+	// CausedBy is the event id that led the trigger to fire, and ChainDepth
+	// that event's depth plus one. kora-agents keeps them on the run.
+	CausedBy   string `json:"caused_by,omitempty"`
+	ChainDepth int    `json:"chain_depth,omitempty"`
+
+	// Sources link to what started the run. kora-agents accepts them only from a SERVICE principal.
+	Sources []RunSource `json:"sources,omitempty"`
+	// Event summarizes the event behind the first message. kora-agents accepts it only from a SERVICE principal.
+	Event *RunEventSummary `json:"event,omitempty"`
+}
+
+// RunSource is a link to what started or joined a run. Kind is one of trigger,
+// pull_request, repository or branch. Provider is empty or one of github, slack
+// or alertmanager.
+type RunSource struct {
+	Kind     string `json:"kind"`
+	URL      string `json:"url"`
+	Label    string `json:"label"`
+	Provider string `json:"provider,omitempty"`
+}
+
+// Limits on a RunEventSummary. kora-agents refuses a summary over them, and
+// kora-triggers clamps to them, so the two cannot drift apart.
+const (
+	MaxEventSummaryStringRunes = 300
+	MaxEventSummaryQuoteRunes  = 2000
+	MaxEventSummaryFacts       = 6
+)
+
+// ValidEventLink reports whether s may be a summary link: an absolute http or
+// https URL. The page renders links, so a javascript: or relative URL is refused.
+func ValidEventLink(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
+}
+
+// RunEventSummary describes the event behind a trigger's message: who did what
+// to which object, and a preview of that object. Actor kind is person, bot or
+// system; a status tone is ok, bad or empty. Strings, quotes and facts are bounded by
+// the MaxEventSummary limits. See docs/adr/2026-11-11-run-page-record.md.
+type RunEventSummary struct {
+	Actor   RunEventActor    `json:"actor"`
+	Verb    string           `json:"verb"`
+	Object  RunEventObject   `json:"object"`
+	Quote   string           `json:"quote,omitempty"`
+	Preview *RunEventPreview `json:"preview,omitempty"`
+}
+
+// RunEventActor is who caused the event.
+type RunEventActor struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+	URL  string `json:"url,omitempty"`
+}
+
+// RunEventObject is what the event acted on.
+type RunEventObject struct {
+	Label string `json:"label"`
+	URL   string `json:"url,omitempty"`
+}
+
+// RunEventPreview is the object as it was when the event arrived.
+type RunEventPreview struct {
+	Title   string          `json:"title"`
+	Facts   []string        `json:"facts,omitempty"`
+	Added   *int            `json:"added,omitempty"`
+	Removed *int            `json:"removed,omitempty"`
+	Status  *RunEventStatus `json:"status,omitempty"`
+}
+
+// RunEventStatus is the object's state. Tone is ok, bad or empty for a neutral state.
+type RunEventStatus struct {
+	Label string `json:"label"`
+	Tone  string `json:"tone,omitempty"`
 }
 
 // StartRunResponse captures the subset of the created run the caller needs.
@@ -342,6 +421,48 @@ func (c *Client) RunTraceParent(ctx context.Context, bearer, runID string) (stri
 	}
 }
 
+// RunChain is the event chain a run is in. It is empty for a run in none.
+type RunChain struct {
+	CausedBy   string   `json:"caused_by"`
+	ChainDepth int      `json:"chain_depth"`
+	TriggerIDs []string `json:"trigger_ids"`
+}
+
+// RunChain returns the chain of a run of agent in tenant, and an empty chain
+// when the run is not that agent's. Only the kora-triggers SYSTEM token may call it.
+func (c *Client) RunChain(ctx context.Context, bearer, runID, tenant, agent string) (RunChain, error) {
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+bearer)
+
+	_, span, resp, err := c.Do(observability.WithRun(ctx, runID), httpclient.Request{
+		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/internal/runs/{runID}/chain", Params: []string{runID},
+		Query: url.Values{"tenant": {tenant}, "agent": {agent}}, Header: header,
+	})
+	defer span.End()
+	if err != nil {
+		return RunChain{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var out RunChain
+		if err := c.DecodeJSON(span, resp, &out); err != nil {
+			return RunChain{}, fmt.Errorf("decode run chain response: %w", err)
+		}
+		return out, nil
+	case http.StatusUnauthorized:
+		return RunChain{}, c.HandleErrorResponse(span, resp, ErrUnauthorized)
+	case http.StatusForbidden:
+		return RunChain{}, c.HandleErrorResponse(span, resp, ErrForbidden)
+	default:
+		if resp.StatusCode >= http.StatusInternalServerError {
+			return RunChain{}, c.HandleErrorResponse(span, resp, ErrUpstreamUnavailable)
+		}
+		return RunChain{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+}
+
 // SendRunMessageRequest is the payload for SendRunMessage. TriggerID,
 // TriggerName and DeliveryID name the trigger and delivery the message comes
 // from, under the same rules as StartRunRequest's attribution.
@@ -350,6 +471,16 @@ type SendRunMessageRequest struct {
 	TriggerID   string `json:"trigger_id,omitempty"`
 	TriggerName string `json:"trigger_name,omitempty"`
 	DeliveryID  string `json:"delivery_id,omitempty"`
+
+	// CausedBy is the event id that led the trigger to fire, and ChainDepth
+	// that event's depth plus one. kora-agents keeps them on the run.
+	CausedBy   string `json:"caused_by,omitempty"`
+	ChainDepth int    `json:"chain_depth,omitempty"`
+
+	// Sources are appended to the run's sources, de-duplicated by URL.
+	Sources []RunSource `json:"sources,omitempty"`
+	// Event summarizes the event behind the message.
+	Event *RunEventSummary `json:"event,omitempty"`
 }
 
 // SendRunMessage delivers a message to an active or idle run, authenticating
@@ -426,12 +557,14 @@ type Run struct {
 	CreatedAt   time.Time         `json:"created_at"`
 	UpdatedAt   time.Time         `json:"updated_at"`
 	StartedBy   *StartedByTrigger `json:"started_by,omitempty"`
+	Sources     []RunSource       `json:"sources,omitempty"`
 }
 
 // StartedByTrigger names the trigger and delivery that started a run.
 type StartedByTrigger struct {
 	TriggerID   string `json:"trigger_id"`
 	TriggerName string `json:"trigger_name,omitempty"`
+	TriggerKind string `json:"trigger_kind,omitempty"`
 	DeliveryID  string `json:"delivery_id,omitempty"`
 }
 

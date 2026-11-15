@@ -449,7 +449,8 @@ func TestHandleListDeliveries_Cursor(t *testing.T) {
 	}
 }
 
-// status= narrows the page; a value the list cannot match is a 400.
+// status= narrows the page. The tenant-wide list takes delivery statuses and a
+// trigger scope takes trigger statuses; anything else is a 400.
 func TestHandleListDeliveries_Status(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	for id, status := range map[string]string{"d-failed": StatusFailed, "d-skipped": StatusSkipped} {
@@ -461,13 +462,20 @@ func TestHandleListDeliveries_Status(t *testing.T) {
 	if len(body.Deliveries) != 1 || body.Deliveries[0].ID != "d-failed" {
 		t.Errorf("status=failed = %+v, want only d-failed", body.Deliveries)
 	}
-	for _, q := range []string{"status=bogus", "status=superseded"} {
+	for _, q := range []string{"status=bogus", "status=superseded", "status=started", "status=filtered"} {
 		if w := call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?"+q, nil, nil); w.Code != http.StatusBadRequest {
-			t.Errorf("%s: status %d, want 400", q, w.Code)
+			t.Errorf("tenant-wide %s: status %d, want 400", q, w.Code)
 		}
 	}
-	if w := call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?trigger_id=t1&status=superseded", nil, nil); w.Code != http.StatusOK {
-		t.Errorf("trigger-scoped superseded: status %d, want 200", w.Code)
+	for _, status := range TriggerStatuses {
+		if w := call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?trigger_id=t1&status="+status, nil, nil); w.Code != http.StatusOK {
+			t.Errorf("trigger-scoped %s: status %d, want 200", status, w.Code)
+		}
+	}
+	for _, status := range []string{"dispatched", "joined", "duplicate", "bogus"} {
+		if w := call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?trigger_id=t1&status="+status, nil, nil); w.Code != http.StatusBadRequest {
+			t.Errorf("trigger-scoped %s: status %d, want 400", status, w.Code)
+		}
 	}
 }
 
@@ -497,33 +505,55 @@ func TestHandleListDeliveries_AgentScope(t *testing.T) {
 	}
 }
 
-// Every listed trigger carries stats, zero-filled when it has no activity, and
-// the tenant's stats sit beside the list.
+// Every listed trigger carries stats, zero-filled when it has no activity, the
+// tenant's stats sit beside the list, and ?window= picks the span.
 func TestHandleListTriggers_Stats(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	src := mustSource(t, deps.sources)
 	busy := mustTrigger(t, deps.triggers, src.ID, nil, "busy")
 	quiet := mustTrigger(t, deps.triggers, src.ID, nil, "quiet")
 	p50 := 120.0
-	deps.repo.triggerStats = map[string]TriggerStats{busy.ID: {Deliveries24h: 3, Started24h: 2}}
-	deps.repo.tenantStats = TenantTriggerStats{Deliveries24h: 4, Started24h: 2, DispatchP50Ms: &p50}
+	deps.repo.triggerStats = map[string]TriggerStats{busy.ID: {Deliveries: 3, Started: 2}}
+	deps.repo.tenantStats = TenantTriggerStats{Deliveries: 4, Started: 2, DispatchP50Ms: &p50}
 
-	body := decode[struct {
-		Triggers []Trigger          `json:"triggers"`
-		Stats    TenantTriggerStats `json:"stats"`
-	}](t, call(t, c.handleListTriggers, http.MethodGet, "/triggers", nil, nil))
-	got := map[string]*TriggerStats{}
-	for _, tr := range body.Triggers {
-		got[tr.ID] = tr.Stats
+	list := func(query string) map[string]*TriggerStats {
+		body := decode[struct {
+			Triggers []Trigger          `json:"triggers"`
+			Stats    TenantTriggerStats `json:"stats"`
+		}](t, call(t, c.handleListTriggers, http.MethodGet, "/triggers"+query, nil, nil))
+		if body.Stats.Deliveries != 4 || body.Stats.DispatchP50Ms == nil || *body.Stats.DispatchP50Ms != p50 {
+			t.Errorf("%q tenant stats = %+v", query, body.Stats)
+		}
+		got := map[string]*TriggerStats{}
+		for _, tr := range body.Triggers {
+			got[tr.ID] = tr.Stats
+		}
+		return got
 	}
-	if st := got[busy.ID]; st == nil || st.Deliveries24h != 3 || st.Started24h != 2 {
+	if st := list("")[busy.ID]; st == nil || st.Deliveries != 3 || st.Started != 2 {
 		t.Errorf("busy stats = %+v, want the repository's", st)
 	}
-	if st := got[quiet.ID]; st == nil || st.Deliveries24h != 0 || len(st.Buckets) != statsBucketCount || st.LastFiredAt != nil {
-		t.Errorf("quiet stats = %+v, want zeros and %d empty buckets", st, statsBucketCount)
+	for _, tc := range []struct {
+		query   string
+		window  StatsWindow
+		buckets int
+	}{
+		{"", StatsWindow24h, 13},
+		{"?window=24h", StatsWindow24h, 13},
+		{"?window=7d", StatsWindow7d, 15},
+	} {
+		st := list(tc.query)[quiet.ID]
+		if st == nil || st.Deliveries != 0 || len(st.Buckets) != tc.buckets || st.LastFiredAt != nil {
+			t.Errorf("%q quiet stats = %+v, want zeros and %d empty buckets", tc.query, st, tc.buckets)
+		}
+		if deps.repo.statsWindow != tc.window {
+			t.Errorf("%q repository read %+v, want %s", tc.query, deps.repo.statsWindow, tc.window.Name)
+		}
 	}
-	if body.Stats.Deliveries24h != 4 || body.Stats.DispatchP50Ms == nil || *body.Stats.DispatchP50Ms != p50 {
-		t.Errorf("tenant stats = %+v", body.Stats)
+	for _, bad := range []string{"30d", "1h", "24H", "all"} {
+		if w := call(t, c.handleListTriggers, http.MethodGet, "/triggers?window="+bad, nil, nil); w.Code != http.StatusBadRequest {
+			t.Errorf("window=%s: status %d, want 400", bad, w.Code)
+		}
 	}
 }
 
@@ -551,6 +581,30 @@ func TestHandleRedeliver(t *testing.T) {
 	}
 	if body.DeliveryID == "" || body.DeliveryID == fired.DeliveryID {
 		t.Errorf("delivery_id = %q, want a new delivery", body.DeliveryID)
+	}
+}
+
+// Replaying an event delivery needs events:read: the replay puts the event in a run.
+func TestHandleRedeliver_EventNeedsEventsRead(t *testing.T) {
+	c, deps, svc := newTestController(t)
+	mustEventTrigger(t, deps, eventReq("on-failure"))
+	if err := svc.HandleEvent(context.Background(), envelope(t, testTenant, "agents.run.failed.v1", 0, nil, nil)); err != nil {
+		t.Fatal(err)
+	}
+	id := deps.repo.deliveries[0].ID
+	redeliver := func() *httptest.ResponseRecorder {
+		return call(t, c.handleRedeliver, http.MethodPost, "/trigger-deliveries/"+id+"/redeliver", map[string]string{"id": id}, nil)
+	}
+	c.eval = &mockEvaluator{allow: false}
+	if w := redeliver(); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "events:read") {
+		t.Fatalf("without events:read: status = %d (%s), want 403 naming events:read", w.Code, w.Body.String())
+	}
+	if n := len(deps.repo.deliveries); n != 1 {
+		t.Errorf("deliveries = %d, want the refused replay to record nothing", n)
+	}
+	c.eval = &mockEvaluator{allow: true}
+	if w := redeliver(); w.Code != http.StatusAccepted {
+		t.Errorf("with events:read: status = %d (%s), want 202", w.Code, w.Body.String())
 	}
 }
 
@@ -1008,5 +1062,90 @@ func TestHandleUpdateTrigger_RevokeFailureHidesGrants(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "previous grant could not be revoked") || !strings.Contains(body, tr.ID) || strings.Contains(body, "grant-") {
 		t.Errorf("body = %s, want the fixed message and trigger id only", body)
+	}
+}
+
+// An event delivery's stored event is returned only to a caller holding events:read.
+func TestHandleListDeliveries_EventPayloadNeedsEventsRead(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	_, _ = deps.repo.InsertEventDelivery(context.Background(), &Delivery{
+		ID: "d-ev", TenantID: testTenant, Kind: KindEvent, EventID: "e-1", Status: StatusSkipped,
+		Payload: []byte(`{"koraprincipalname":"Ada"}`), PayloadExcerpt: `{"koraprincipalname":"Ada"}`,
+	})
+	list := func(c *Controller) Delivery {
+		body := decode[struct {
+			Deliveries []Delivery `json:"deliveries"`
+		}](t, call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries", nil, nil))
+		if len(body.Deliveries) != 1 {
+			t.Fatalf("deliveries = %d, want 1", len(body.Deliveries))
+		}
+		return body.Deliveries[0]
+	}
+	_ = deps.repo.InsertDeliveryKey(context.Background(), &DeliveryKey{DeliveryID: "d-ev", TenantID: testTenant, TriggerID: "t-1", Key: "Ada"})
+	_ = deps.repo.InsertDeliveryRun(context.Background(), &DeliveryRun{ID: "r-1", TenantID: testTenant, DeliveryID: "d-ev", TriggerID: "t-1",
+		Status: RunStatusFailed, Error: new("upstream said Ada")})
+	_ = deps.repo.InsertDeliveryRun(context.Background(), &DeliveryRun{ID: "r-2", TenantID: testTenant, DeliveryID: "d-ev", TriggerID: "t-2",
+		Status: RunStatusFiltered, Error: new(reasonChainDepth)})
+	d := list(c)
+	if d.Payload != nil || d.PayloadExcerpt != "" || d.EventID != "e-1" || len(d.CoalesceKeys) != 0 {
+		t.Errorf("without events:read: %+v, want the delivery without its event", d)
+	}
+	if len(d.Runs) != 2 {
+		t.Fatalf("runs = %d, want both outcomes listed", len(d.Runs))
+	}
+	for _, run := range d.Runs {
+		if run.Status == RunStatusFailed && run.Error != nil {
+			t.Errorf("failed outcome kept its upstream error %q", *run.Error)
+		}
+		if run.Status == RunStatusFiltered && (run.Error == nil || *run.Error != reasonChainDepth) {
+			t.Errorf("filtered outcome lost its reason: %v", run.Error)
+		}
+	}
+	c.eval = &mockEvaluator{allow: true}
+	if d := list(c); len(d.Payload) == 0 || d.PayloadExcerpt == "" {
+		t.Errorf("with events:read: %+v, want the event", d)
+	}
+	if stored, _ := deps.repo.GetDelivery(context.Background(), testTenant, "d-ev"); len(stored.Payload) == 0 {
+		t.Error("the stored event must stay for redelivery")
+	}
+}
+
+// GET /trigger-deliveries/{id} returns one of the tenant's deliveries with its
+// outcomes, redacts the event without events:read, and 404s another tenant's id.
+func TestHandleGetDelivery(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	_, _ = deps.repo.InsertEventDelivery(context.Background(), &Delivery{
+		ID: "d-ev", TenantID: testTenant, Kind: KindEvent, EventID: "e-1", Status: StatusSkipped,
+		Payload: []byte(`{"koraprincipalname":"Ada"}`), PayloadExcerpt: `{"koraprincipalname":"Ada"}`,
+	})
+	_, _ = deps.repo.InsertEventDelivery(context.Background(), &Delivery{
+		ID: "d-other", TenantID: "other-tenant", Kind: KindEvent, EventID: "e-2", Status: StatusSkipped,
+	})
+	_ = deps.repo.InsertDeliveryRun(context.Background(), &DeliveryRun{ID: "r-1", TenantID: testTenant, DeliveryID: "d-ev", TriggerID: "t-1",
+		Status: RunStatusFailed, Error: new("upstream said Ada")})
+	get := func(id string) *httptest.ResponseRecorder {
+		return call(t, c.handleGetDelivery, http.MethodGet, "/trigger-deliveries/"+id, map[string]string{"id": id}, nil)
+	}
+
+	w := get("d-ev")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", w.Code, w.Body.String())
+	}
+	d := decode[Delivery](t, w)
+	if d.ID != "d-ev" || len(d.Runs) != 1 {
+		t.Fatalf("delivery = %+v, want d-ev with its outcome", d)
+	}
+	if d.Payload != nil || d.PayloadExcerpt != "" || d.Runs[0].Error != nil {
+		t.Errorf("without events:read: %+v, want the delivery without its event", d)
+	}
+
+	c.eval = &mockEvaluator{allow: true}
+	if d := decode[Delivery](t, get("d-ev")); len(d.Payload) == 0 || d.Runs[0].Error == nil {
+		t.Errorf("with events:read: %+v, want the event", d)
+	}
+	for _, id := range []string{"d-other", "missing"} {
+		if w := get(id); w.Code != http.StatusNotFound {
+			t.Errorf("%s: status = %d, want 404", id, w.Code)
+		}
 	}
 }

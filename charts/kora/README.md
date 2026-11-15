@@ -77,7 +77,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.sandboxWarming.affinity | object | `{}` |  |
 | agents.sandboxWarming.mode | string | `"none"` | Warm-start strategy. `none` accepts cold starts. `capacity` runs a low-priority placeholder that holds a node open with the base image cached. Use `capacity` for a pool that scales to zero. |
 | agents.sandboxWarming.nodeSelector | object | `{}` |  |
-| agents.sandboxWarming.podAnnotations | object | `{}` | Applied to the `capacity` placeholder. It already carries the Karpenter and Cluster Autoscaler annotations that keep a held node from being scaled away. Set them here to override. |
+| agents.sandboxWarming.podAnnotations | object | `{}` | Applied to the `capacity` placeholder. kora sets no node autoscaler annotations. Set your autoscaler's here to keep a held node from being scaled away. |
 | agents.sandboxWarming.podLabels | object | `{}` | Applied to the `capacity` placeholder. kora's own selector labels win on a collision. |
 | agents.sandboxWarming.priority | int | `-10` | The placeholder's PriorityClass value. Stays below real pods at 0, or it competes with the sandbox it exists for instead of yielding to it. |
 | agents.sandboxWarming.replicas | int | `1` | `capacity` mode. Nodes held warm. Above one, placeholders repel each other by hostname so they land on separate nodes; set `affinity` with your own podAntiAffinity to replace that. |
@@ -157,6 +157,7 @@ Kubernetes: `>=1.34.0-0`
 | frontend.config.inferenceGatewayUrl | string | `""` |  |
 | frontend.config.koraAgentsUrl | string | `""` |  |
 | frontend.config.koraApiUrl | string | `""` |  |
+| frontend.config.koraEventsUrl | string | `""` |  |
 | frontend.config.koraTriggersUrl | string | `""` |  |
 | frontend.config.nextPublicAppUrl | string | `""` |  |
 | frontend.config.policyGatewayUrl | string | `""` |  |
@@ -313,6 +314,30 @@ Kubernetes: `>=1.34.0-0`
 | istio.namespace | string | `"istio-system"` |  |
 | istio.outboundTrafficPolicy | string | `"ALLOW_ANY"` |  |
 | istio.revision | string | `""` |  |
+| koraEvents.affinity | object | `{}` |  |
+| koraEvents.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
+| koraEvents.extraEnv | list | `[]` |  |
+| koraEvents.extraVolumeMounts | list | `[]` |  |
+| koraEvents.extraVolumes | list | `[]` |  |
+| koraEvents.image.digest | string | `""` |  |
+| koraEvents.image.pullPolicy | string | `""` |  |
+| koraEvents.image.registry | string | `""` |  |
+| koraEvents.image.repository | string | `"kora-events"` |  |
+| koraEvents.image.tag | string | `""` |  |
+| koraEvents.nodeSelector | object | `{}` |  |
+| koraEvents.podAnnotations | object | `{}` |  |
+| koraEvents.podLabels | object | `{}` |  |
+| koraEvents.priorityClassName | string | `""` |  |
+| koraEvents.replicas | int | `2` |  |
+| koraEvents.resources.limits.cpu | string | `"500m"` |  |
+| koraEvents.resources.limits.memory | string | `"256Mi"` |  |
+| koraEvents.resources.requests.cpu | string | `"100m"` |  |
+| koraEvents.resources.requests.memory | string | `"64Mi"` |  |
+| koraEvents.retention.defaultDays | int | `30` | Days events are kept. A tenant's KoraTenant spec.events.retentionDays overrides it. |
+| koraEvents.serviceAccount.annotations | object | `{}` |  |
+| koraEvents.tenantsConfigMap | string | `"kora-tenants"` | Operator-owned tenant registry ConfigMap; the service reads each tenant's event retention from it. |
+| koraEvents.tolerations | list | `[]` |  |
+| koraEvents.topologySpreadConstraints | list | `[]` |  |
 | koraMcp.affinity | object | `{}` |  |
 | koraMcp.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | koraMcp.extraEnv | list | `[]` |  |

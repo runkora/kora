@@ -401,11 +401,20 @@ export const ApiRoute = {
     ): `${typeof API_BASE}/trigger-providers/${string}/fields?event_type=${string}` =>
       `${API_BASE}/trigger-providers/${encodeURIComponent(provider)}/fields?event_type=${encodeURIComponent(eventType)}`,
   },
+  /** A platform event type's fields, from its schema on kora-events. */
+  eventTypes: {
+    fields: (eventType: string): `${typeof API_BASE}/event-types/${string}/fields` =>
+      `${API_BASE}/event-types/${encodeURIComponent(eventType)}/fields`,
+  },
   triggers: {
-    list: (agentTypeId?: string): string =>
-      agentTypeId
-        ? `${API_BASE}/triggers?agent_type_id=${encodeURIComponent(agentTypeId)}`
-        : `${API_BASE}/triggers`,
+    /** Triggers with their stats over `window`, optionally one agent's. */
+    list: (opts: { agentTypeId?: string; window?: string } = {}): string => {
+      const qs = new URLSearchParams();
+      if (opts.agentTypeId) qs.set('agent_type_id', opts.agentTypeId);
+      if (opts.window !== undefined) qs.set('window', opts.window);
+      const q = qs.toString();
+      return q === '' ? `${API_BASE}/triggers` : `${API_BASE}/triggers?${q}`;
+    },
     create: (): `${typeof API_BASE}/triggers` => `${API_BASE}/triggers`,
     detail: (id: string): `${typeof API_BASE}/triggers/${string}` => `${API_BASE}/triggers/${id}`,
     delete: (id: string): `${typeof API_BASE}/triggers/${string}` => `${API_BASE}/triggers/${id}`,
@@ -414,6 +423,8 @@ export const ApiRoute = {
     /** Agent types a routed trigger may name, each marked runnable for the caller. */
     routingCandidates: (): `${typeof API_BASE}/triggers/routing/candidates` =>
       `${API_BASE}/triggers/routing/candidates`,
+    /** The platform event types an event trigger can listen for. */
+    eventTypes: (): `${typeof API_BASE}/triggers/event-types` => `${API_BASE}/triggers/event-types`,
     /** Next fires for a cron expression, resolved by the scheduler itself. */
     schedulePreview: (): `${typeof API_BASE}/triggers/schedule-preview` =>
       `${API_BASE}/triggers/schedule-preview`,
@@ -423,12 +434,14 @@ export const ApiRoute = {
     /**
      * A page of deliveries, newest first. `triggerId` matches every delivery that reached the
      * trigger, and `status` its own outcome there; `agentTypeId` every delivery that reached one
-     * of the agent's triggers. `cursor` is the previous page's `next_cursor`.
+     * of the agent's triggers. `receivedAfter` bounds every page to the same range. `cursor` is
+     * the previous page's `next_cursor`.
      */
     page: (opts: {
       triggerId?: string;
       agentTypeId?: string;
       status?: string;
+      receivedAfter?: string;
       limit: number;
       cursor?: string;
     }): string => {
@@ -436,9 +449,13 @@ export const ApiRoute = {
       if (opts.triggerId !== undefined) qs.set('trigger_id', opts.triggerId);
       if (opts.agentTypeId !== undefined) qs.set('agent_type_id', opts.agentTypeId);
       if (opts.status !== undefined) qs.set('status', opts.status);
+      if (opts.receivedAfter !== undefined) qs.set('received_after', opts.receivedAfter);
       if (opts.cursor !== undefined) qs.set('cursor', opts.cursor);
       return `${API_BASE}/trigger-deliveries?${qs.toString()}`;
     },
+    /** One delivery by id, whatever its age. */
+    get: (id: string): `${typeof API_BASE}/trigger-deliveries/${string}` =>
+      `${API_BASE}/trigger-deliveries/${encodeURIComponent(id)}`,
     /** Replay a delivery. Answers with the NEW delivery's id. */
     redeliver: (id: string): `${typeof API_BASE}/trigger-deliveries/${string}/redeliver` =>
       `${API_BASE}/trigger-deliveries/${id}/redeliver`,
@@ -504,11 +521,20 @@ export const ApiRoute = {
       `${API_BASE}/catalog/pricing/${encodeURIComponent(provider)}/${encodeURIComponent(modelId)}/override`,
   },
 
+  /** The event history and its live stream, served by kora-events. Filters repeat. */
+  events: {
+    page: (params: URLSearchParams): `${typeof API_BASE}/events?${string}` =>
+      `${API_BASE}/events?${params.toString()}`,
+    stream: (params: URLSearchParams): `${typeof API_BASE}/events/stream?${string}` =>
+      `${API_BASE}/events/stream?${params.toString()}`,
+  },
+
   /**
    * `/api/skills`
    *
    * GET: one page of the Skills overview, in title order.
    */
+
   skills: {
     GET: (params: {
       marketplace: string;
@@ -567,6 +593,8 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['policyExplain']['GET']>
   | ReturnType<(typeof ApiRoute)['policySimulate']['POST']>
   | ReturnType<(typeof ApiRoute)['usage']['GET']>
+  | ReturnType<(typeof ApiRoute)['events']['page']>
+  | ReturnType<(typeof ApiRoute)['events']['stream']>
   | ReturnType<(typeof ApiRoute)['skills']['GET']>
   | ReturnType<(typeof ApiRoute)['skillFile']['GET']>
   | ReturnType<(typeof ApiRoute)['usageBudget']['GET']>

@@ -169,7 +169,7 @@ Recreating a `TriggerSource`, or changing its `provider`, gives it a new webhook
 
 ## Create a trigger
 
-A `Trigger` starts runs of an agent on a webhook event, a schedule or a manual fire.
+A `Trigger` starts runs of an agent on a webhook event, a schedule, a manual fire or a platform event.
 
 ```yaml
 apiVersion: runkora.io/v1alpha1
@@ -185,7 +185,7 @@ spec:
   promptTemplate: "Review {{ pull_request.html_url }}"
 ```
 
-Set `kind: scheduled` with a `schedule`, or `kind: manual` with `manual.inputs`, for the other kinds. A trigger names one `agent` or a `routing` block of candidate agents. Every agent it starts must be an autonomous `Agent` resource. See [Create a trigger](create-a-trigger.md) for filters, prompts and routing.
+Set `kind: scheduled` with a `schedule`, `kind: manual` with `manual.inputs`, or `kind: event` with an `eventType` such as `agents.run.failed.v1`, for the other kinds. An event trigger also takes `match`, `matchContains` and `ignoreOwnRuns`. A trigger names one `agent` or a `routing` block of candidate agents. Every agent it starts must be an autonomous `Agent` resource. See [Create a trigger](create-a-trigger.md) for filters, prompts and routing.
 
 ## Grant access with a role
 

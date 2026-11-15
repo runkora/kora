@@ -16,7 +16,7 @@ import (
 )
 
 // scriptRunner is a Runner whose events the test pushes by hand. Interrupt
-// closes the event stream, the way SIGINT ends the Claude process.
+// closes the event stream, the way an adapter that exits on a stop does.
 type scriptRunner struct {
 	events  chan Event
 	mu      sync.Mutex
@@ -27,11 +27,19 @@ type scriptRunner struct {
 	survives bool
 	resume   *scriptRunner
 	stopped  sync.Once
+	// startGate, when set, holds Start until it is closed; startErr is then returned.
+	startGate chan struct{}
+	startErr  error
 }
 
 func newScriptRunner() *scriptRunner { return &scriptRunner{events: make(chan Event, 16)} }
 
-func (r *scriptRunner) Start(context.Context, string) error                  { return nil }
+func (r *scriptRunner) Start(context.Context, string) error {
+	if r.startGate != nil {
+		<-r.startGate
+	}
+	return r.startErr
+}
 func (r *scriptRunner) SendToolResult(context.Context, string, string) error { return nil }
 func (r *scriptRunner) Events() <-chan Event                                 { return r.events }
 func (r *scriptRunner) TakeText() string {
@@ -406,9 +414,9 @@ func TestSend_RecordsTheTextBeforeAMidTurnMessage(t *testing.T) {
 	}
 	_, evs := n.snapshot()
 	if len(evs) != 1 || evs[0].Type != EventTypeTextBlock {
-		t.Fatalf("pushed %v, want one text_block before Send returned", eventTypes(evs))
+		t.Fatalf("pushed %v, want one text_block before Send returned", typesOf(evs))
 	}
-	if got := decode[TextBlockPayload](t, evs[0]).Content; got != "Working on it. " {
+	if got := payloadOf[TextBlockPayload](t, evs[0]).Content; got != "Working on it. " {
 		t.Errorf("text_block = %q", got)
 	}
 	if got := r.sentTexts(); !slices.Equal(got, []string{"also do X"}) {

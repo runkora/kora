@@ -125,6 +125,12 @@ func (p *ProxyHandler) forward(w http.ResponseWriter, r *http.Request, upstream 
 			if d.Credential.Header != "" {
 				pr.Out.Header.Set(d.Credential.Header, d.Credential.Value)
 			}
+			// Further headers (e.g. an apikey connection with several). Each
+			// replaces any client-supplied value, or is added when absent.
+			for _, h := range d.Credential.Headers {
+				pr.Out.Header.Del(h.Name)
+				pr.Out.Header.Set(h.Name, h.Value)
+			}
 		},
 		ModifyResponse: p.explainWorkflowRefusal,
 		ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {

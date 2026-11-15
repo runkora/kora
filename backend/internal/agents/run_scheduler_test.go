@@ -182,9 +182,9 @@ func TestStartClaimed(t *testing.T) {
 			wantState: RunStateFailed},
 		{name: "a run terminated during session create loses the session",
 			setup: func(e *startClaimedEnv) {
-				e.f.run.sm = &scriptedSM{mockSMClient: e.sm, onCreate: func() { _ = e.repo.DeleteRun(context.Background(), e.run.ID) }}
+				e.f.run.sm = &scriptedSM{mockSMClient: e.sm, onCreate: func() { _, _ = e.repo.TerminateRun(context.Background(), e.run.ID) }}
 			},
-			wantSessions: 1, wantClosed: 1},
+			wantState: RunStateTerminated, wantSessions: 1, wantClosed: 1},
 		{name: "an attempt that times out during session create releases",
 			setup: func(e *startClaimedEnv) {
 				ctx, cancel := context.WithCancel(context.Background())
@@ -278,7 +278,7 @@ func TestFailStart_TerminatedRunGetsNoErrorEvent(t *testing.T) {
 	f.run.cfg.StartBudget = time.Minute
 	seedRun(t, repo, Run{ID: "run-1", TenantID: "t1", AgentTypeID: "at-1", State: RunStatePending, CreatedAt: time.Now().Add(-time.Hour)})
 	run, claimedAt := claimRun(repo, "run-1")
-	_ = repo.DeleteRun(context.Background(), "run-1")
+	_, _ = repo.TerminateRun(context.Background(), "run-1")
 
 	f.run.startClaimed(context.Background(), run, claimedAt)
 

@@ -41,6 +41,7 @@ describe('ApiRoute', () => {
         ApiRoute.triggerDeliveries.page({
           agentTypeId: 'at-1',
           status: 'failed',
+          receivedAfter: '2026-10-30T12:00:00.000Z',
           limit: 50,
           cursor: 'c1',
         }),
@@ -50,8 +51,20 @@ describe('ApiRoute', () => {
         limit: '50',
         agent_type_id: 'at-1',
         status: 'failed',
+        received_after: '2026-10-30T12:00:00.000Z',
         cursor: 'c1',
       });
+    });
+  });
+
+  describe('triggers.list', () => {
+    it('sends the agent and the window it is given, and nothing otherwise', () => {
+      expect(ApiRoute.triggers.list()).toBe('/api/triggers');
+      const q = new URL(
+        ApiRoute.triggers.list({ agentTypeId: 'at-1', window: '7d' }),
+        'http://localhost',
+      ).searchParams;
+      expect(Object.fromEntries(q)).toEqual({ agent_type_id: 'at-1', window: '7d' });
     });
   });
 

@@ -54,6 +54,7 @@ The kora operator has no ServiceMonitor. It serves controller metrics on port 80
 | `kora_triggers_queue_depth` | Trigger deliveries waiting and claimed |
 | `kora_triggers_queue_oldest_unclaimed_age_seconds` | How long the oldest waiting delivery has waited |
 | `kora_triggers_auto_pauses_total` | Triggers paused after repeated failures |
+| `kora_triggers_events_chain_fail_open_total` | Agent events that reached the event triggers without their run's chain, because kora-agents refused the read |
 | `kora_redis_available` | Whether each service can reach Redis |
 
 Model spend and policy decisions are not metrics yet. They are in the logs, traces and the console.
@@ -88,4 +89,4 @@ The resources platform teams register report whether kora accepted them:
 
 A run that stops early records why. `budget_exhausted` is its own state. Errors such as `sandbox_lost` or `loop_detected` appear in the run's events on its page, or through `GET /api/v1/runs/{id}/events`. kora closes a run that has made no progress for 30 minutes.
 
-In the console, **Model Gateway** shows requests, spend, latency and error rates, with a log of every model call. **Triggers** shows every delivery and its outcome. **Policy** → **Evaluate** explains why a principal can or cannot reach something.
+In the console, **Model Gateway** shows requests, spend, latency and error rates, with a log of every model call. **Triggers** shows each delivery and its outcome over the last 24 hours, the last 7 days or all history. **Policy** → **Evaluate** explains why a principal can or cannot reach something.

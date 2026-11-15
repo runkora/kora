@@ -52,8 +52,10 @@ func newTestServiceWithRegistryLog(t *testing.T, registry string, out io.Writer)
 		Registry: RegistryConfig{TenantsPath: path},
 		Token:    TokenConfig{AccessTokenTTLMinutes: 60, RefreshTokenTTLDays: 30, Audience: "kora-platform"},
 	}
+	sessions, refreshTokens := newMockSessionRepo(), newMockRefreshTokenRepo()
+	linkRefresh(sessions, refreshTokens)
 	return NewService(context.Background(), cfg,
-		newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(),
+		sessions, refreshTokens, newMockBlocklistRepo(),
 		newMockAuthCodeRepo(), newMockClientRepo(), newMockPATRepo(),
 		nil, nil, nil, &mockPolicyClient{}, &mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{}, logging.NewLoggerWithOutput(out))

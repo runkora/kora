@@ -33,6 +33,13 @@ type connectionResolver interface {
 	ResolveConnection(ctx context.Context, tenantID, name string) (adapter, baseHost string, ok bool, err error)
 }
 
+// placeholderEnvResolver resolves the sandbox env var an apikey connection
+// names. Implemented by ConnectionCatalog; kept apart from connectionResolver
+// so a resolver without it simply contributes no placeholder env vars.
+type placeholderEnvResolver interface {
+	PlaceholderEnv(ctx context.Context, tenantID, name string) (env string, ok bool, err error)
+}
+
 // ScopeResolver compiles an agent type's FULL effective grant scope set:
 //
 //   - the agent's own scopes — capability GrantScopes, its connectivity posture
@@ -435,4 +442,30 @@ func (r *ScopeResolver) KubeClusters(ctx context.Context, tenantID string, conne
 		}
 	}
 	return clusters, unresolved, nil
+}
+
+// PlaceholderEnvs returns the env var names the sandbox sets to the credential
+// placeholder: one per granted apikey connection that sets config.placeholderEnv,
+// deduplicated, in first-seen order. Names only; no secret is read. A connector
+// the registry cannot resolve contributes nothing. Returns nil when no resolver
+// supports placeholder lookup.
+func (r *ScopeResolver) PlaceholderEnvs(ctx context.Context, tenantID string, connectors []Connector) ([]string, error) {
+	if r == nil {
+		return nil, nil
+	}
+	pr, ok := r.conns.(placeholderEnvResolver)
+	if !ok {
+		return nil, nil
+	}
+	var out []string
+	for _, c := range mergeConnectors(connectors) {
+		env, ok, err := pr.PlaceholderEnv(ctx, tenantID, c.Connection)
+		if err != nil {
+			return nil, fmt.Errorf("resolve placeholder env of connection %q: %w", c.Connection, err)
+		}
+		if ok && !slices.Contains(out, env) {
+			out = append(out, env)
+		}
+	}
+	return out, nil
 }

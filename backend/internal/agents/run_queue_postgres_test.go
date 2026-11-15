@@ -237,13 +237,13 @@ func TestPostgres_ReapStalePendingRun(t *testing.T) {
 	if _, err := r.pool.Exec(ctx, `UPDATE runs SET updated_at = now() - interval '1 hour' WHERE id = $1`, id); err != nil {
 		t.Fatal(err)
 	}
-	failed, _, err := r.ReapStaleRuns(ctx, time.Minute)
+	reaped, err := r.ReapStaleRuns(ctx, time.Minute)
 	if err != nil {
 		t.Fatalf("ReapStaleRuns: %v", err)
 	}
 	run, _ := r.GetRun(ctx, id)
-	if !slices.Contains(failed, id) || run.State != RunStateFailed {
-		t.Errorf("reaped %v, state %s, want %s failed", failed, run.State, id)
+	if !slices.ContainsFunc(reaped, func(x Run) bool { return x.ID == id && x.State == RunStateFailed }) || run.State != RunStateFailed {
+		t.Errorf("reaped %v, state %s, want %s failed", reaped, run.State, id)
 	}
 }
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/runkora/kora/backend/internal/platform/declarative"
 	"maps"
 	"os"
 	"slices"
@@ -15,6 +14,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // Postgres integration tests for the Triggers repository. They run only when
@@ -45,9 +47,11 @@ func testRepo(t *testing.T) (*postgresRepository, string) {
 		_, _ = pool.Exec(ctx, `DELETE FROM triggers WHERE tenant_id=$1`, tenant)
 		_, _ = pool.Exec(ctx, `DELETE FROM webhook_sources WHERE tenant_id=$1`, tenant)
 		_, _ = pool.Exec(ctx, `DELETE FROM trigger_deliveries WHERE tenant_id=$1`, tenant)
+		_, _ = pool.Exec(ctx, `DELETE FROM event_outbox WHERE tenant_id=$1`, tenant)
+		_, _ = pool.Exec(ctx, `DELETE FROM events WHERE tenant_id=$1`, tenant)
 		pool.Close()
 	})
-	return &postgresRepository{pool: pool}, tenant
+	return &postgresRepository{pool: storage.NewPool(pool)}, tenant
 }
 
 func seedSource(t *testing.T, r *postgresRepository, tenant string) *WebhookSource {
@@ -1712,7 +1716,7 @@ func TestPostgres_TrimPending_LeavesAConcurrentlyClaimedRow(t *testing.T) {
 
 // waitForBlockedLock blocks until some backend is waiting on a lock, the signal
 // that the concurrent DELETE has reached the claimed row and parked.
-func waitForBlockedLock(t *testing.T, pool *pgxpool.Pool) {
+func waitForBlockedLock(t *testing.T, pool *storage.Pool) {
 	t.Helper()
 	ctx := context.Background()
 	deadline := time.Now().Add(5 * time.Second)

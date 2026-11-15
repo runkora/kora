@@ -1,6 +1,6 @@
 # Codex Agent Runner
 
-**Status:** Accepted (Amended 2026-09-29)  
+**Status:** Accepted (Amended 2026-09-29). Transport and parser sections superseded by [acp-agent-harness-protocol](2026-11-07-acp-agent-harness-protocol.md)  
 **Date:** 2026-06-04  
 **Deciders:** Platform Engineering  
 **Technical Story:** [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) implemented the Claude Code runner and explicitly deferred Codex. This ADR documents the subprocess model, wire protocol, transform layer design, and framework dispatch wiring for the Codex runner.

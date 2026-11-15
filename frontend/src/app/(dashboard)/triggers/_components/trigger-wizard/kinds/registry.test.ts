@@ -31,6 +31,21 @@ describe('TRIGGER_KINDS', () => {
     expect(TRIGGER_KINDS.webhook.sourceCategory).toBe('webhook');
     expect(TRIGGER_KINDS.scheduled.apiKind).toBe('scheduled');
     expect(TRIGGER_KINDS.manual.apiKind).toBe('manual');
+    expect(TRIGGER_KINDS.event.apiKind).toBe('event');
+  });
+
+  it('sends an event trigger with its event type, filters and ignore_own_runs on by default', () => {
+    const state = {
+      ...initialState(TRIGGER_KINDS.event, CONTEXT.sources),
+      eventType: ' agents.run.failed.v1 ',
+      filters: [{ field: 'koraagent', operator: 'is' as const, values: 'triage' }],
+    };
+    expect(state.ignoreOwnRuns).toBe(true);
+    expect(TRIGGER_KINDS.event.draftPatch(state)).toEqual({
+      eventType: 'agents.run.failed.v1',
+      ignoreOwnRuns: true,
+      matchCondition: { koraagent: ['triage'] },
+    });
   });
 
   it('starts each source kind on the first source of its own category', () => {

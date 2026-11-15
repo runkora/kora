@@ -213,8 +213,8 @@ func (c *Client) SendMessage(ctx context.Context, podURL, runID, content string,
 	}
 }
 
-// InterruptSession sends SIGINT to the Claude subprocess on the target pod,
-// stopping the current in-progress turn without killing the session.
+// InterruptSession stops the agent's current in-progress turn on the target
+// pod without killing the session.
 // Returns ErrSessionNotFound if no session exists for the given run ID.
 func (c *Client) InterruptSession(ctx context.Context, podURL, runID string) error {
 	header, err := c.authorize(ctx, http.Header{})
@@ -241,7 +241,7 @@ func (c *Client) InterruptSession(ctx context.Context, podURL, runID string) err
 	}
 }
 
-// CloseSession terminates the session and stops the Claude subprocess on the target pod.
+// CloseSession terminates the session and stops the agent subprocess on the target pod.
 // Returns ErrSessionNotFound if no session exists for the given run ID.
 func (c *Client) CloseSession(ctx context.Context, podURL, runID string) error {
 	header, err := c.authorize(ctx, http.Header{})

@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
@@ -34,6 +35,7 @@ type ctxKey int
 const (
 	callerTokenKey ctxKey = iota
 	callerDelegationKey
+	callerRunKey
 )
 
 // WithCallerToken stores the caller's bearer token in the context.
@@ -63,8 +65,20 @@ func CallerDelegation(ctx context.Context) string {
 	return t
 }
 
-// callerTokenMiddleware lifts the inbound Authorization bearer and delegation
-// token into the request context so they propagate (via the SDK's request
+// WithCallerRun stores the run the tool-gateway says the caller acts for.
+func WithCallerRun(ctx context.Context, runID string) context.Context {
+	return context.WithValue(ctx, callerRunKey, runID)
+}
+
+// CallerRun returns the caller's run, or "". Tool handlers pass it downstream,
+// which honors it only for an agent whose run it is. The kit verifies nothing.
+func CallerRun(ctx context.Context) string {
+	t, _ := ctx.Value(callerRunKey).(string)
+	return t
+}
+
+// callerTokenMiddleware lifts the inbound Authorization bearer, delegation
+// token and run into the request context so they propagate (via the SDK's request
 // context) to tool handlers. It does NOT verify either token — authorisation is
 // the gateway's and the downstream service's job.
 func callerTokenMiddleware(next http.Handler) http.Handler {
@@ -75,6 +89,10 @@ func callerTokenMiddleware(next http.Handler) http.Handler {
 		}
 		if raw := strings.TrimSpace(r.Header.Get(mw.DelegationTokenHeader)); raw != "" {
 			ctx = WithCallerDelegation(ctx, raw)
+		}
+		// The run goes into downstream paths, so only a run id is kept.
+		if raw := strings.TrimSpace(r.Header.Get(mw.RunIDHeader)); uuid.Validate(raw) == nil {
+			ctx = WithCallerRun(ctx, raw)
 		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

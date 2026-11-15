@@ -101,7 +101,7 @@ A Helm or Argo CD install of the published charts does not apply the schema. The
 
 ### Decision 1: Embedding
 
-Each `backend/cmd/<service>/migrations/` directory gains an `embed.go` declaring `package migrations` with `//go:embed *.sql` and an exported `embed.FS`. `go:embed` cannot reference parent directories. `cmd/migrate` imports the six packages (`identity`, `inference-gateway`, `kora-agents`, `kora-triggers`, `policy-service`, `tool-gateway`) and merges them into one `fs.FS` that serves every file at its root directory. A duplicate filename or version prefix across directories fails the merge before any migration runs; goose rejects a duplicate version independently. `cmd/example` migrations are not embedded and its tables do not ship.
+Each `backend/cmd/<service>/migrations/` directory gains an `embed.go` declaring `package migrations` with `//go:embed *.sql` and an exported `embed.FS`. `go:embed` cannot reference parent directories. `cmd/migrate` imports the packages of the table-owning services (`identity`, `inference-gateway`, `kora-agents`, `kora-events`, `kora-triggers`, `policy-service`, `tool-gateway`) and merges them into one `fs.FS` that serves every file at its root directory. A duplicate filename or version prefix across directories fails the merge before any migration runs; goose rejects a duplicate version independently. `cmd/example` migrations are not embedded and its tables do not ship.
 
 ### Decision 2: The migrate binary
 
@@ -122,6 +122,8 @@ The goose CLI is removed from `make install-tools`.
 The migrate binary runs one goose pass over the merged set. Version prefixes are ordered globally across services and must be unique across all directories.
 
 A migration must not declare a foreign key to a table another service owns. Cross-service reads at query time are permitted; the `triggers` join into `runs` is the existing instance.
+
+`event_outbox` is the one cross-service write path. `kora-events` owns the table, and every binary that records events writes it in its own transaction ([Event Spine](2026-11-06-event-spine.md)). Its migrations live in `kora-events`, and `make migrate-lint` checks them as that service's tables.
 
 One run covers every tenant.
 

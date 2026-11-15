@@ -9,6 +9,7 @@ import type {
   TriggerDeliveryPage,
   TenantTriggerStats,
   TriggerEventTypes,
+  TriggerList,
   TriggerField,
   TriggerFireRequest,
   TriggerFireResponse,
@@ -164,11 +165,14 @@ export async function providerFields(
 // sit beside the list.
 export async function listTriggers(
   accessToken: string,
-  agentTypeId?: string,
-): Promise<{ triggers: Trigger[]; stats: TenantTriggerStats | null }> {
-  const q = agentTypeId ? `?agent_type_id=${encodeURIComponent(agentTypeId)}` : '';
+  opts: { agentTypeId?: string; window?: string } = {},
+): Promise<TriggerList> {
+  const qs = new URLSearchParams();
+  if (opts.agentTypeId) qs.set('agent_type_id', opts.agentTypeId);
+  if (opts.window !== undefined) qs.set('window', opts.window);
+  const q = qs.toString();
   const body = await request<{ triggers?: Trigger[]; stats?: TenantTriggerStats }>(
-    `/triggers${q}`,
+    `/triggers${q ? `?${q}` : ''}`,
     accessToken,
   );
   return { triggers: body?.triggers ?? [], stats: body?.stats ?? null };
@@ -190,6 +194,12 @@ export async function updateTrigger(
     method: 'PATCH',
     body: payload,
   });
+}
+
+// GET /api/v1/triggers/event-types: the platform event types an event trigger can listen for.
+export async function listPlatformEventTypes(accessToken: string): Promise<string[]> {
+  const body = await request<{ event_types?: string[] }>('/triggers/event-types', accessToken);
+  return body?.event_types ?? [];
 }
 
 // GET /api/v1/triggers/routing/candidates: the agent types a routed trigger may
@@ -246,6 +256,14 @@ export async function redeliverDelivery(
   });
 }
 
+// GET /api/v1/trigger-deliveries/:id: one delivery, whatever its age.
+export async function getDelivery(
+  accessToken: string,
+  id: string,
+): Promise<TriggerDelivery | undefined> {
+  return request<TriggerDelivery>(`/trigger-deliveries/${encodeURIComponent(id)}`, accessToken);
+}
+
 // ---------------------------------------------------------------------------
 // Schedule preview
 // ---------------------------------------------------------------------------
@@ -271,17 +289,22 @@ export async function listDeliveries(
     triggerId?: string;
     agentTypeId?: string;
     status?: string;
+    receivedAfter?: string;
     cursor?: string;
     limit?: number;
   } = {},
 ): Promise<TriggerDeliveryPage> {
+  // The console never reads the full payload from a list row: the excerpt and
+  // outcomes come back without it, and the body is most of a page's bytes.
   const params: Record<string, string | number | undefined> = {
     source_id: opts.sourceId,
     trigger_id: opts.triggerId,
     agent_type_id: opts.agentTypeId,
     status: opts.status,
+    received_after: opts.receivedAfter,
     cursor: opts.cursor,
     limit: opts.limit,
+    omit_payload: 'true',
   };
   const qs = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {

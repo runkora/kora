@@ -12,6 +12,8 @@ cmd/kora-triggers:
     internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-agents") | toJson }}
   inference:
     internalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-inference-gateway") | toJson }}
+  events:
+    internalURL: {{ printf "%s:8099" (include "kora.serviceURL" (dict "root" . "name" "kora-events")) | toJson }}
   policy:
     policyServiceInternalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-policy-service") | toJson }}
     bundleEndpoint: {{ include "kora.bundleEndpoint" . | toJson }}

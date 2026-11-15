@@ -1,6 +1,6 @@
 import { RunShell } from './_components/run-shell';
 
-export default async function RunPage({
+export default async function RunRoute({
   params,
 }: {
   params: Promise<{ slug: string; runId: string }>;

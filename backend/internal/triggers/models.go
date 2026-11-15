@@ -1,8 +1,9 @@
 // Package triggers implements the kora Triggers feature: the front door for the
-// ways something can start in the platform. Three kinds ship today: an inbound
-// webhook, a cron schedule, and a manual fire. See
-// docs/adr/2026-06-20-extended-trigger-types.md and the original
-// docs/adr/2026-06-17-agent-triggers-and-webhook-ingestion.md.
+// ways something can start in the platform. Four kinds ship today: an inbound
+// webhook, a cron schedule, a manual fire and a platform event. See
+// docs/adr/2026-06-20-extended-trigger-types.md, the original
+// docs/adr/2026-06-17-agent-triggers-and-webhook-ingestion.md and
+// docs/adr/2026-11-06-event-spine.md.
 //
 // The package is hosted by the kora-triggers binary, deliberately separate from
 // identity: webhook ingestion is the one unauthenticated, internet-reachable
@@ -21,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/runkora/kora/backend/internal/platform/events"
 )
 
 // Trigger kind identifiers.
@@ -28,6 +31,7 @@ const (
 	KindWebhook   = "webhook"   // inbound HTTP push from an external system (v1)
 	KindScheduled = "scheduled" // cron-based, time-driven firing
 	KindManual    = "manual"    // explicit API call (agent-to-agent, CI scripts, etc.)
+	KindEvent     = "event"     // a platform event from the event spine
 )
 
 // Provider identifiers for the source adapters that ship in v1.
@@ -36,6 +40,7 @@ const (
 	ProviderAlertmanager = "alertmanager"
 	ProviderSlack        = "slack"
 	ProviderGeneric      = "generic"
+	ProviderPlane        = "plane"
 )
 
 // Delivery statuses recorded in trigger_deliveries — what happened to the
@@ -73,36 +78,76 @@ const (
 	RunStatusPaused     = "paused"     // the trigger was auto-paused when this fire arrived
 )
 
-// DeliveryStatusFilters are the values ?status= accepts on the deliveries list.
-// Each maps to the per-trigger outcomes it matches when the list is scoped to one
-// trigger; "failed" covers every outcome the console shows as a failure.
-var DeliveryStatusFilters = map[string][]string{
-	StatusDispatched:    {RunStatusDispatched},
-	StatusVerified:      {},
-	StatusSkipped:       {},
-	StatusFailed:        FailureRunStatuses,
-	RunStatusSuperseded: {RunStatusSuperseded},
-	StatusDuplicate:     {},
-	StatusMissed:        {},
+// TenantDeliveryStatuses are the values ?status= accepts on the tenant-wide
+// deliveries list: the delivery's own status, matched with scalar equality.
+var TenantDeliveryStatuses = []string{StatusDispatched, StatusVerified, StatusSkipped, StatusFailed, StatusDuplicate, StatusMissed}
+
+// Trigger statuses group what happened to a delivery for one trigger. They are
+// the values ?status= accepts on a trigger-scoped list and the keys of
+// TriggerStats.StatusCounts.
+const (
+	TriggerStatusStarted    = "started"
+	TriggerStatusFailed     = "failed"
+	TriggerStatusFiltered   = "filtered"
+	TriggerStatusSkipped    = "skipped"
+	TriggerStatusSuperseded = "superseded"
+	TriggerStatusMissed     = "missed"
+	TriggerStatusVerified   = "verified"
+)
+
+// TriggerStatuses lists every trigger status, in the order the console shows them.
+var TriggerStatuses = []string{
+	TriggerStatusStarted, TriggerStatusFailed, TriggerStatusFiltered, TriggerStatusSkipped,
+	TriggerStatusSuperseded, TriggerStatusMissed, TriggerStatusVerified,
 }
 
-// StartedRunStatuses are the per-trigger outcomes where a run took the delivery.
-var StartedRunStatuses = []string{RunStatusDispatched, RunStatusJoined}
+// triggerStatusOf maps every outcome status trigger_delivery_runs permits, and
+// every recorded delivery status, to the one trigger status it counts under.
+var triggerStatusOf = map[string]string{
+	RunStatusDispatched: TriggerStatusStarted,
+	RunStatusJoined:     TriggerStatusStarted,
+	RunStatusFailed:     TriggerStatusFailed,
+	RunStatusDenied:     TriggerStatusFailed,
+	RunStatusDropped:    TriggerStatusFailed,
+	RunStatusFiltered:   TriggerStatusFiltered,
+	RunStatusUnrouted:   TriggerStatusSkipped,
+	RunStatusPaused:     TriggerStatusSkipped,
+	RunStatusSuperseded: TriggerStatusSuperseded,
+	StatusMissed:        TriggerStatusMissed,
+	StatusVerified:      TriggerStatusVerified,
+}
+
+// triggerStatusMembers returns the outcome statuses and the recorded delivery
+// statuses a trigger status matches.
+func triggerStatusMembers(status string) (outcomes, recorded []string) {
+	for raw, ts := range triggerStatusOf {
+		if ts != status {
+			continue
+		}
+		if slices.Contains(recordedStatuses, raw) {
+			recorded = append(recorded, raw)
+		} else {
+			outcomes = append(outcomes, raw)
+		}
+	}
+	slices.Sort(outcomes)
+	slices.Sort(recorded)
+	return outcomes, recorded
+}
+
+// startedOutcomes are the outcome statuses where a run took the delivery.
+var startedOutcomes, _ = triggerStatusMembers(TriggerStatusStarted)
 
 // attemptedStatuses are the outcomes that count towards a trigger's last fire.
 var attemptedStatuses = []string{RunStatusDispatched, RunStatusJoined, RunStatusFailed, RunStatusDenied}
 
 // recordedStatuses are the delivery statuses that stand in for a trigger's
-// outcome on a delivery recorded against it: pending, missed or a repeat.
-var recordedStatuses = []string{StatusVerified, StatusMissed, StatusDuplicate}
+// outcome on a delivery recorded against it: pending or missed.
+var recordedStatuses = []string{StatusVerified, StatusMissed}
 
-// recordedStatusesSQL is recordedStatuses as the literal list
-// idx_trigger_deliveries_recorded is defined over.
-const recordedStatusesSQL = "('verified', 'missed', 'duplicate')"
-
-// FailureRunStatuses are the per-trigger outcomes that mean something went wrong,
-// as opposed to the trigger declining on purpose (filtered, superseded, unrouted).
-var FailureRunStatuses = []string{RunStatusFailed, RunStatusDenied, RunStatusDropped}
+// recordedStatusesSQL is recordedStatuses as a literal list. The partial index
+// idx_trigger_deliveries_recorded covers it.
+const recordedStatusesSQL = "('verified', 'missed')"
 
 // TerminalRunStatuses are the per-trigger outcomes that mean no run will ever
 // start for this trigger and delivery. The console must show them as settled
@@ -397,7 +442,8 @@ func (m *ManualConfig) ApplyDefaults(values map[string]string) map[string]string
 // A webhook trigger whose source was deleted keeps a null source_id.
 // For KindScheduled: kind_config carries the cron schedule; source_id is empty.
 // For KindManual: firing is driven by POST /trigger-fires/{id}; source_id is empty.
-// Scheduled and manual triggers have their own principal_id (not inherited from a source).
+// For KindEvent: event_type and the match fields select platform events; source_id is empty.
+// Scheduled, manual and event triggers have their own principal_id (not inherited from a source).
 type Trigger struct {
 	ID       string `json:"id"`
 	TenantID string `json:"tenant_id"`
@@ -430,6 +476,9 @@ type Trigger struct {
 	// Routing holds the candidates and settings of a routed trigger; nil on
 	// every other trigger.
 	Routing *RoutingConfig `json:"routing,omitempty"`
+	// IgnoreOwnRuns skips an event about a run this trigger started or messaged.
+	// Set on event triggers only.
+	IgnoreOwnRuns *bool `json:"ignore_own_runs,omitempty"`
 	// PrincipalID is the SERVICE principal for this trigger (scheduled/manual only;
 	// webhook triggers inherit from their WebhookSource).
 	PrincipalID string    `json:"-"`
@@ -535,9 +584,11 @@ type Delivery struct {
 	// FiredBy is the principal ID of the caller who fired a manual trigger.
 	FiredBy string `json:"fired_by,omitempty"`
 	// ScheduledAt is the cron tick time for scheduled trigger deliveries.
-	ScheduledAt *time.Time    `json:"scheduled_at,omitempty"`
-	ReceivedAt  time.Time     `json:"received_at"`
-	Runs        []DeliveryRun `json:"runs,omitempty"`
+	ScheduledAt *time.Time `json:"scheduled_at,omitempty"`
+	// EventID is the platform event an event delivery fired on.
+	EventID    string        `json:"event_id,omitempty"`
+	ReceivedAt time.Time     `json:"received_at"`
+	Runs       []DeliveryRun `json:"runs,omitempty"`
 	// CoalesceKeys are the keys the triggers this delivery matched rendered for
 	// it, one per coalescing trigger. Populated on reads.
 	CoalesceKeys []DeliveryKey `json:"coalesce_keys,omitempty"`
@@ -618,13 +669,14 @@ type SourceResponse struct {
 
 // CreateTriggerRequest is the body for POST /api/v1/triggers.
 //
-// Kind selects the trigger kind ("webhook", "scheduled", or "manual").
+// Kind selects the trigger kind ("webhook", "scheduled", "manual" or "event").
 // Defaults to "webhook" when omitted for backward compatibility.
 //
 // For webhook kind: SourceID, EventType are required; MatchCondition and
 // SenderRestriction are optional.
 // For scheduled kind: ScheduleConfig is required; SourceID/EventType are ignored.
 // For manual kind: no extra fields required beyond Name/AgentTypeID/PromptTemplate.
+// For event kind: EventType names a platform event type; SourceID is refused.
 //
 // AgentSlug is accepted for backward compatibility but IGNORED: CreateTrigger
 // resolves the canonical slug from AgentTypeID via the agent control plane and
@@ -647,9 +699,11 @@ type CreateTriggerRequest struct {
 	// Coalesce applies to webhook triggers only, and needs overflow "wait".
 	Coalesce *CoalesceConfig `json:"coalesce,omitempty"`
 	// TargetKind is "agent" (the default) or "routed". A routed trigger is a
-	// webhook trigger that sets Routing instead of AgentTypeID.
+	// webhook or event trigger that sets Routing instead of AgentTypeID.
 	TargetKind string         `json:"target_kind,omitempty"`
 	Routing    *RoutingConfig `json:"routing,omitempty"`
+	// IgnoreOwnRuns applies to event triggers only. Omitted, it is on.
+	IgnoreOwnRuns *bool `json:"ignore_own_runs,omitempty"`
 
 	// Embedded, not repeated: create and update accept the same settings with
 	// the same bounds, and JSON field promotion keeps them flat on the wire.
@@ -697,6 +751,8 @@ type UpdateTriggerRequest struct {
 	TargetKind *string `json:"target_kind,omitempty"`
 	// Routing replaces the stored routing object of a routed trigger.
 	Routing *RoutingConfig `json:"routing,omitempty"`
+	// IgnoreOwnRuns applies to event triggers only.
+	IgnoreOwnRuns *bool `json:"ignore_own_runs,omitempty"`
 	// Editable after creation with exactly the create-time bounds. Changes
 	// apply to the next delivery, not to work already in flight.
 	AdmissionSettings
@@ -767,6 +823,11 @@ type EventTypesResponse struct {
 	Senders  *Senders `json:"senders,omitempty"`
 }
 
+// EventCatalogResponse lists the platform event types an event trigger can listen for.
+type EventCatalogResponse struct {
+	EventTypes []events.Type `json:"event_types"`
+}
+
 // Senders is what a sender restriction on a provider's triggers may name.
 type Senders struct {
 	// Roles is empty when the provider reports no roles.
@@ -830,6 +891,13 @@ type WebhookConfig struct {
 	SenderRestriction *storedSenderRestriction `json:"sender_restriction,omitempty"`
 	MatchContains     map[string][]string      `json:"match_contains,omitempty"`
 	Coalesce          *CoalesceConfig          `json:"coalesce,omitempty"`
+}
+
+// EventConfig is the kind_config for an event trigger.
+type EventConfig struct {
+	MatchContains map[string][]string `json:"match_contains,omitempty"`
+	Coalesce      *CoalesceConfig     `json:"coalesce,omitempty"`
+	IgnoreOwnRuns bool                `json:"ignore_own_runs"`
 }
 
 // storedSenderRestriction is a sender restriction as kind_config stores it. The

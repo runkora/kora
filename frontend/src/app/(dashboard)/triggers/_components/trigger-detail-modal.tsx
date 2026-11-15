@@ -66,6 +66,7 @@ import { RoutedTarget } from './routed-target';
 import { DeliverySection, deliveryBlocker, sameDelivery } from './delivery-section';
 import type { DeliveryValue } from './delivery-section';
 import { EventFiltersSection } from './event-filters-section';
+import { PlatformEventFields, useEventTypeFields } from './platform-event-fields';
 import { ScheduleBuilder, useScheduleDraft } from './schedule-builder';
 import { SectionField } from './section-mode';
 import { TriggerNameField } from './trigger-fields';
@@ -73,6 +74,7 @@ import type { FilterRow } from './filter-rows-editor';
 import { SenderRestrictionEditor } from './sender-restriction-editor';
 import type { SenderRestrictionDraft } from './sender-restriction-editor';
 import { useSourceCatalog } from './use-source-catalog';
+import type { StatsRange } from '../_types/stats';
 import { schemaCatalog, scheduledCatalog, toTemplateCatalog } from './trigger-wizard/field-catalog';
 import {
   matchConditionFrom,
@@ -118,6 +120,7 @@ export interface TriggerEditPatch {
   senderRestriction?: Senders;
   /** Replaces the setting; null removes it. */
   coalesce?: TriggerCoalesce | null;
+  ignoreOwnRuns?: boolean;
   scheduleConfig?: { cronExpression: string; timezone: string; catchUp: boolean };
   maxParallel?: number;
   overflow?: TriggerRow['overflow'];
@@ -173,6 +176,8 @@ interface TriggerDetailModalProps {
   canRunAgent: boolean;
   /** Names a routed trigger's candidates and the agents its decisions mention. */
   agents?: RoutingAgentName[];
+  /** The page's range, which the stats, the filter counts and the delivery list cover. */
+  window: StatsRange;
 }
 
 /**
@@ -393,11 +398,15 @@ function TriggerDetailModalBody({
   firing = false,
   canRunAgent,
   agents = [],
+  window: range,
 }: TriggerDetailModalProps) {
   // Without triggers:write every write handler is dropped, which disables its
   // control. Run-shaping edits also need run authority on the bound agent.
   // Firing has its own per-trigger answer from the API.
   const canWrite = useHasScope('triggers:write');
+  // Without events:read, kora-triggers refuses every edit of an event trigger but its name, enablement and admission.
+  const canReadEvents = useHasScope('events:read');
+  const eventLocked = trigger?.kind === 'event' && !canReadEvents;
   const canShapeRuns = canWrite && canRunAgent;
   // A trigger whose source was deleted takes no edits; it can only be turned off or deleted.
   const sourceMissing = trigger?.sourceMissing ?? false;
@@ -416,7 +425,7 @@ function TriggerDetailModalBody({
   // again whenever the filter changes.
   const [deliveryFilter, setDeliveryFilter] = useState<DeliveryFilter>('all');
   const history = useTriggerDeliveries(
-    trigger === null ? null : { triggerId: trigger.id, status: deliveryFilter },
+    trigger === null ? null : { triggerId: trigger.id, status: deliveryFilter, window: range },
   );
   // Rotation is destructive (the provider's configured secret stops working the
   // moment it lands), so the button opens a confirmation before doing it.
@@ -430,7 +439,7 @@ function TriggerDetailModalBody({
   // trigger cannot inherit half-typed edits from the last one.
   const editKey = trigger?.id ?? '';
   const editable = onEdit !== undefined && trigger !== null;
-  const runEditable = editable && canRunAgent;
+  const runEditable = editable && canRunAgent && !eventLocked;
 
   const savePatch = useCallback(
     async (patch: TriggerEditPatch): Promise<string | null> => {
@@ -451,26 +460,32 @@ function TriggerDetailModalBody({
     validate: (value) => (value.trim() ? undefined : 'Needs a name'),
   });
 
+  const isEvent = trigger?.kind === 'event';
   const storedFilters = useMemo(
     () => ({
       eventType: trigger?.eventType ?? '',
       filters: filtersFromMatchCondition(trigger?.matchCondition, trigger?.matchContains),
+      ignoreOwnRuns: trigger?.ignoreOwnRuns ?? true,
     }),
-    [trigger?.eventType, trigger?.matchCondition, trigger?.matchContains],
+    [trigger?.eventType, trigger?.matchCondition, trigger?.matchContains, trigger?.ignoreOwnRuns],
   );
   const saveFilters = useCallback(
-    (value: { eventType: string; filters: FilterRow[] }) =>
+    (value: { eventType: string; filters: FilterRow[]; ignoreOwnRuns: boolean }) =>
       // Sent together: the event narrows which fields exist, so a filter and
       // the event it belongs to must never land as two separate states.
       savePatch({
         eventType: value.eventType.trim(),
         matchCondition: matchConditionFrom(value.filters) ?? {},
         matchContains: matchContainsFrom(value.filters) ?? {},
+        ...(isEvent && { ignoreOwnRuns: value.ignoreOwnRuns }),
       }),
-    [savePatch],
+    [savePatch, isEvent],
   );
   const filters = useEditableSection(storedFilters, editKey, saveFilters, {
-    isEqual: (a, b) => a.eventType === b.eventType && sameFilters(a.filters, b.filters),
+    isEqual: (a, b) =>
+      a.eventType === b.eventType &&
+      a.ignoreOwnRuns === b.ignoreOwnRuns &&
+      sameFilters(a.filters, b.filters),
     // A half-written filter looks configured but matches nothing, so it is the
     // one edit worth refusing rather than saving as-is. Same rule as the
     // wizard's, from the same function.
@@ -549,6 +564,7 @@ function TriggerDetailModalBody({
     webhookSource?.id ?? '',
     filters.value.eventType,
   );
+  const eventFields = useEventTypeFields(trigger?.kind === 'event' ? filters.value.eventType : '');
   // A generic source has no schema: its event type and filter fields are typed.
   const schemaless = trigger?.kind === 'webhook' && sourceCatalog.schemaless;
   // A typed event type can be emptied; a picked one cannot.
@@ -609,7 +625,7 @@ function TriggerDetailModalBody({
   const kind = consoleKindOf(trigger, (id) => sources.find((s) => s.id === id)?.category);
   const eventName =
     kind === 'chat' ? chatEventLabel(filters.value.eventType) : filters.value.eventType;
-  const { deliveries24h, started24h, failed24h } = trigger.stats;
+  const { deliveries, started, failed } = trigger.stats;
   const endpoint = endpointFor(ingestHost, trigger.sourceId);
   // A webhook or chat trigger on a live source has a secret to rotate.
   const hasSigningSecret = trigger.kind === 'webhook' && !trigger.sourceMissing;
@@ -620,7 +636,9 @@ function TriggerDetailModalBody({
       ? webhookFields
       : trigger.kind === 'scheduled'
         ? toTemplateCatalog(scheduledCatalog())
-        : toTemplateCatalog(manualInputsCatalog(trigger.manualInputs));
+        : trigger.kind === 'event'
+          ? eventFields.fields
+          : toTemplateCatalog(manualInputsCatalog(trigger.manualInputs));
 
   const setFilterRows = (rows: FilterRow[]) =>
     filters.setValue({ ...filters.value, filters: rows });
@@ -635,7 +653,9 @@ function TriggerDetailModalBody({
       ? `${kind === 'chat' ? 'Chat command' : 'Webhook'} · ${source?.name ?? (trigger.sourceMissing ? 'no source' : trigger.sourceId)} · ${firesOn}`
       : trigger.kind === 'scheduled'
         ? `Schedule · ${describeCron(trigger.scheduleConfig?.cronExpression ?? '')}`
-        : 'Manual · run on demand';
+        : trigger.kind === 'event'
+          ? `Platform event · ${firesOn}`
+          : 'Manual · run on demand';
 
   const managedMessage = managedFooterMessage(trigger.declared, trigger.repository);
   // One notice covers every disabled edit control in the modal.
@@ -653,12 +673,14 @@ function TriggerDetailModalBody({
     </Stack>
   ) : !canWrite ? (
     <Alert variant="info">{permissionHintText('edit triggers')}</Alert>
+  ) : !canRunAgent ? (
+    <Alert variant="info">
+      {permissionHintText("run this trigger's agent")} Its prompt, filters, schedule and on or off
+      state are read only.
+    </Alert>
   ) : (
-    !canRunAgent && (
-      <Alert variant="info">
-        {permissionHintText("run this trigger's agent")} Its prompt, filters, schedule and on or off
-        state are read only.
-      </Alert>
+    eventLocked && (
+      <Alert variant="info">Event triggers need the events:read permission to edit.</Alert>
     )
   );
 
@@ -684,6 +706,18 @@ function TriggerDetailModalBody({
             title: 'Schedule',
             sub: 'When it fires',
             description: 'When this trigger starts a run on its own.',
+          },
+        ]
+      : []),
+    ...(trigger.kind === 'event'
+      ? [
+          {
+            id: 'filters',
+            icon: 'filter' as const,
+            dirty: filters.dirty,
+            title: 'Event filters',
+            sub: 'What starts a run',
+            description: 'The event this trigger listens for, and which of them start a run.',
           },
         ]
       : []),
@@ -881,6 +915,33 @@ function TriggerDetailModalBody({
                       </Stack>
                     )}
                   </>
+                )}
+                {activeSection.id === 'filters' && trigger.kind === 'event' && (
+                  <Stack gap="snug">
+                    <PlatformEventFields
+                      eventType={filters.value.eventType}
+                      fields={eventFields}
+                      filters={filters.value.filters}
+                      ignoreOwnRuns={filters.value.ignoreOwnRuns}
+                      onEventTypeChange={(eventType) =>
+                        filters.setValue({ ...filters.value, eventType })
+                      }
+                      onFiltersChange={setFilterRows}
+                      onIgnoreOwnRunsChange={(ignoreOwnRuns) =>
+                        filters.setValue({ ...filters.value, ignoreOwnRuns })
+                      }
+                      disabled={!runEditable}
+                    />
+                    <EditActions
+                      dirty={filters.dirty}
+                      pending={filters.pending}
+                      error={filters.error}
+                      blocker={filters.blocker}
+                      saveLabel="Save filters"
+                      onSave={filters.save}
+                      onDiscard={filters.discard}
+                    />
+                  </Stack>
                 )}
                 {activeSection.id === 'filters' && trigger.kind === 'webhook' && (
                   <Stack gap="snug">
@@ -1143,17 +1204,22 @@ function TriggerDetailModalBody({
                   cols={trigger.pendingCount > 0 ? { base: 2, sm: 3, md: 5 } : { base: 2, md: 4 }}
                   gap="snug"
                 >
-                  <DetailStat label="Deliveries 24h" value={String(deliveries24h)} />
-                  <DetailStat
-                    label="Succeeded 24h"
-                    value={String(started24h)}
-                    tone={started24h > 0 ? 'healthy' : undefined}
-                  />
-                  <DetailStat
-                    label="Failed 24h"
-                    value={String(failed24h)}
-                    tone={failed24h > 0 ? 'error' : undefined}
-                  />
+                  {/* All history has no window counts. */}
+                  {range !== 'all' && (
+                    <>
+                      <DetailStat label={`Deliveries ${range}`} value={String(deliveries)} />
+                      <DetailStat
+                        label={`Succeeded ${range}`}
+                        value={String(started)}
+                        tone={started > 0 ? 'healthy' : undefined}
+                      />
+                      <DetailStat
+                        label={`Failed ${range}`}
+                        value={String(failed)}
+                        tone={failed > 0 ? 'error' : undefined}
+                      />
+                    </>
+                  )}
                   <DetailStat
                     label="Consecutive failures"
                     value={String(trigger.consecutiveFailures)}
@@ -1294,9 +1360,10 @@ function TriggerDetailModalBody({
                   filter={deliveryFilter}
                   onFilterChange={setDeliveryFilter}
                   stats={trigger.stats}
+                  window={range}
                   loading={history.loading}
-                  loadingMore={history.loadingMore}
                   hasMore={history.hasMore}
+                  loadingMore={history.loadingMore}
                   error={history.error}
                   onLoadOlder={history.loadOlder}
                   onRetry={history.retry}

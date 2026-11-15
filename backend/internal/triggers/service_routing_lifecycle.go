@@ -107,18 +107,9 @@ func (s *TriggerService) applyRoutingUpdate(ctx context.Context, t *Trigger, cla
 	if t.Routing == nil {
 		return false, nil, errNoRouting
 	}
-	src, err := s.repo.GetSource(ctx, t.TenantID, t.SourceID)
+	principal, err := s.applyRouting(ctx, t, raw)
 	if err != nil {
 		return false, nil, err
-	}
-	if raw != nil {
-		if t.Routing, err = resolveRouting(ctx, raw, s.callerBinder(src.TenantID)); err != nil {
-			return false, nil, err
-		}
-		// A chat trigger's join key reads only chat and meta fields.
-		if err = validateChatTrigger(s.registry, src.Provider, *t); err != nil {
-			return false, nil, err
-		}
 	}
 	scopes, err := routedGrantScopes(t.Routing)
 	if err != nil {
@@ -136,12 +127,39 @@ func (s *TriggerService) applyRoutingUpdate(ctx context.Context, t *Trigger, cla
 	if current {
 		return false, nil, nil
 	}
-	grantID, err := s.policy.CreateGrant(ctx, t.TenantID, string(token.PrincipalTypeService), src.PrincipalID, scopes, nil, false)
+	grantID, err := s.policy.CreateGrant(ctx, t.TenantID, string(token.PrincipalTypeService), principal, scopes, nil, false)
 	if err != nil {
 		return false, nil, grantCreateError(err, t.Routing, t.AgentSlug)
 	}
 	oldGrant, t.GrantID = t.GrantID, &grantID
 	return true, oldGrant, nil
+}
+
+// applyRouting resolves a routing replacement onto t and returns the principal
+// its grant belongs to: a webhook trigger's source's, or the trigger's own.
+func (s *TriggerService) applyRouting(ctx context.Context, t *Trigger, raw *RoutingConfig) (principal string, err error) {
+	principal = t.PrincipalID
+	provider := ""
+	if t.Kind == KindWebhook {
+		src, srcErr := s.repo.GetSource(ctx, t.TenantID, t.SourceID)
+		if srcErr != nil {
+			return "", srcErr
+		}
+		principal, provider = src.PrincipalID, src.Provider
+	}
+	if raw == nil {
+		return principal, nil
+	}
+	if t.Routing, err = resolveRouting(ctx, raw, s.callerBinder(t.TenantID)); err != nil {
+		return "", err
+	}
+	// A chat trigger's join key reads only chat and meta fields.
+	if provider != "" {
+		if err = validateChatTrigger(s.registry, provider, *t); err != nil {
+			return "", err
+		}
+	}
+	return principal, nil
 }
 
 // grantHolds reports whether the stored grant holds exactly the given scopes.
@@ -162,7 +180,7 @@ func (s *TriggerService) grantHolds(ctx context.Context, grantID *string, scopes
 
 // authorizeCaller fails unless the caller holds every given scope, listing the ones missing.
 func (s *TriggerService) authorizeCaller(ctx context.Context, claims *token.PlatformClaims, scopes []string) error {
-	missing, err := s.missingScopes(ctx, claims, scopes)
+	missing, err := missingScopes(ctx, s.eval, claims, scopes)
 	if err != nil {
 		return err
 	}
@@ -176,18 +194,18 @@ func (s *TriggerService) authorizeCaller(ctx context.Context, claims *token.Plat
 // in-process policy evaluator and returns the ones it denies. It fails closed:
 // no claims deny every scope, and a missing evaluator or an evaluation error
 // is an error.
-func (s *TriggerService) missingScopes(ctx context.Context, claims *token.PlatformClaims, scopes []string) ([]string, error) {
+func missingScopes(ctx context.Context, eval scopeChecker, claims *token.PlatformClaims, scopes []string) ([]string, error) {
 	if claims == nil {
 		return scopes, nil
 	}
-	if s.eval == nil {
+	if eval == nil {
 		return nil, fmt.Errorf("%w: no policy evaluator configured", ErrCallerLacksScopes)
 	}
 	var missing []string
 	for _, scope := range scopes {
 		in := scopeCheckInput(scope)
 		in.Claims, in.Delegation = claims, policy.DelegationFromContext(ctx)
-		res, err := s.eval.Check(ctx, in)
+		res, err := eval.Check(ctx, in)
 		if err != nil {
 			return nil, fmt.Errorf("evaluate %s: %w", scope, err)
 		}

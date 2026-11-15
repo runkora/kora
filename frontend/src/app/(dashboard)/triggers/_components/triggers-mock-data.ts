@@ -129,23 +129,21 @@ export const SOURCES: SourceRow[] = [
 /** A day of steady activity with one failure, for triggers whose story is not about stats. */
 const SAMPLE_STATS: TriggerStatsRow = {
   lastFiredAt: ago(40 * MIN),
-  deliveries24h: 14,
-  started24h: 12,
-  failed24h: 1,
-  status24h: { dispatched: 12, failed: 1, skipped: 1 },
+  deliveries: 14,
+  started: 12,
+  failed: 1,
+  statusCounts: { started: 12, failed: 1, filtered: 1 },
   buckets: Array.from({ length: 13 }, (_, i) => ({
-    start: ago((24 - i * 2) * HOUR),
     started: i % 3 === 0 ? 2 : 1,
     failed: i === 9 ? 1 : 0,
-    other: i === 4 ? 1 : 0,
   })),
 };
 
 /** The tenant's stats over the mock fleet. */
 export const TENANT_STATS: TenantStatsRow = {
-  deliveries24h: 63,
-  started24h: 54,
-  failed24h: 4,
+  deliveries: 63,
+  started: 54,
+  failed: 4,
   dispatchP50Ms: 840,
   dispatchP95Ms: 2300,
 };
@@ -1038,7 +1036,7 @@ export function routedDelivery(c: RoutingCase): DeliveryRow {
 // at one point on them. The name says which: `<kind>-<target>[-<state>]`.
 //
 //   kind    webhook · chat · scheduled · manual
-//   target  agent (one fixed agent) · routed (kora chooses; webhook and chat only)
+//   target  agent (one fixed agent) · routed (kora chooses; webhook, chat and event only)
 //   state   unfiltered · auto-paused · source-deleted · waiting-for-secret ·
 //           managed-in-git
 //
@@ -1046,7 +1044,7 @@ export function routedDelivery(c: RoutingCase): DeliveryRow {
 // Configuration sections (event filters and senders, schedule, or neither).
 // Target decides what the Overview's Target shows. State adds a notice or alert and changes
 // what can be edited. Combinations the product cannot produce are absent: only
-// a webhook or chat trigger can be routed, and only one with a source can lose it.
+// a webhook, chat or event trigger can be routed, and only one with a source can lose it.
 //
 // Fixtures are separate from the fleet above so the fleet stays a realistic
 // list, while these stay easy to find from the name alone.

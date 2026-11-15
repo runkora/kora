@@ -30,6 +30,7 @@ type Config struct {
 		Identity    string `yaml:"identity"`
 		Triggers    string `yaml:"triggers"`
 		ToolGateway string `yaml:"toolGateway"`
+		Events      string `yaml:"events"`
 	} `yaml:"backends"`
 
 	Observability struct {

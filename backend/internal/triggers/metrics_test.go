@@ -74,6 +74,7 @@ func TestMetrics_NilIsSafe(t *testing.T) {
 	m.recordAutoPause(ctx)
 	m.recordPurge(ctx, 5, time.Now())
 	m.recordSchedulerTick(ctx, 3, time.Second)
+	m.recordChainFailOpen(ctx)
 	if err := m.Close(); err != nil {
 		t.Errorf("Close on nil = %v", err)
 	}

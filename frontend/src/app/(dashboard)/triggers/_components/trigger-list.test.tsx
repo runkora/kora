@@ -17,6 +17,7 @@ function many(count: number): TriggerRow[] {
 function list(overrides: Partial<ComponentProps<typeof TriggerList>> = {}) {
   return (
     <TriggerList
+      window="24h"
       triggers={[]}
       sourceName={(id) => id}
       onOpen={vi.fn()}

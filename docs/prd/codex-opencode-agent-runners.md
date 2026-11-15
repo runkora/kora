@@ -1,12 +1,14 @@
 # Codex and OpenCode Agent Runners — Product Requirements Document
 
-**Status:** Draft  
+**Status:** Implemented  
 **Created:** 2026-05-19  
 **Last Updated:** 2026-05-22 (rev 2 — all review findings addressed)  
 **Owner:** Platform Engineering  
 **Stakeholders:** kora Core Team, Agent Developers, Tenant Users
 
 ---
+
+> **Note:** The transport and parser design is superseded by [ACP as the Single Agent Harness Protocol](../adr/2026-11-07-acp-agent-harness-protocol.md).
 
 ## Executive Summary
 

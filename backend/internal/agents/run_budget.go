@@ -1,0 +1,72 @@
+package agents
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/runkora/kora/backend/internal/platform/clients/inference"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+)
+
+// runBudgetReader asks the inference gateway which ceiling a run's principal has reached.
+type runBudgetReader interface {
+	RunBudget(ctx context.Context, bearer, tenantID, runID string) (inference.RunBudget, error)
+}
+
+// budgetLookupTimeout bounds the lookup: it runs inside the session-manager's state callback.
+const budgetLookupTimeout = 5 * time.Second
+
+// errSpanRunBudget is the static span status of a failed budget lookup.
+var errSpanRunBudget = errors.New("look up run budget")
+
+// reachedBudget is the ceiling that stopped the run, or nil when the lookup is
+// off or fails. A failure is logged: the state change is recorded without it.
+// See docs/adr/2026-11-11-run-page-record.md, Decision 6.
+func (s *RunService) reachedBudget(ctx context.Context, runID string) *inference.RunBudget {
+	if s.budgets == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, budgetLookupTimeout)
+	defer cancel()
+	ctx, span := agentsTracer.Start(ctx, "agents.reachedBudget")
+	defer span.End()
+	budget, err := s.lookUpBudget(ctx, runID)
+	if err != nil {
+		// A ceiling that has reset since the stop is an answer, not a failure.
+		if !errors.Is(err, inference.ErrBudgetNotReached) {
+			observability.RecordFailure(span, err, errSpanRunBudget)
+		}
+		s.logger.Warn(ctx, "budget stop recorded without its ceiling",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return nil
+	}
+	return &budget
+}
+
+func (s *RunService) lookUpBudget(ctx context.Context, runID string) (inference.RunBudget, error) {
+	run, err := s.repo.GetRun(ctx, runID)
+	if err != nil {
+		return inference.RunBudget{}, fmt.Errorf("get run: %w", err)
+	}
+	bearer, err := s.selfToken(ctx)
+	if err != nil {
+		return inference.RunBudget{}, fmt.Errorf("service token: %w", err)
+	}
+	budget, err := s.budgets.RunBudget(ctx, bearer, run.TenantID, runID)
+	if err != nil {
+		return inference.RunBudget{}, err
+	}
+	// The gateway cannot name an agent. The run's own principal ceiling is its agent's.
+	if budget.Scope == "principal" && budget.OwnerName == "" {
+		budget.OwnerName = run.AgentName
+		if budget.OwnerName == "" {
+			budget.OwnerName = run.AgentSlug
+		}
+	}
+	return budget, nil
+}

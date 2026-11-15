@@ -166,3 +166,17 @@ describe('pagination', () => {
     expect(screen.getByText('No deliveries yet.')).toBeTruthy();
   });
 });
+
+describe('server paging', () => {
+  it('asks the feed for its next page when the next page runs past the loaded rows', () => {
+    const loadOlder = vi.fn();
+    render(
+      grid({
+        deliveries: many(12),
+        paging: { loading: false, loadingMore: false, hasMore: true, error: null, loadOlder },
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(loadOlder).toHaveBeenCalledTimes(1);
+  });
+});

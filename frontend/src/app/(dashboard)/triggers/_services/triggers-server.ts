@@ -4,7 +4,7 @@ import { listSources, listTriggers } from '@runkora/server/triggers-client';
 import { agentsClient } from '@runkora/server/agents-client';
 import { ApiError } from '@runkora/server/client';
 import { loadErrorMessage } from '@runkora/lib/load-error';
-import type { AgentType } from '@runkora/shared/api';
+import type { AgentType, TriggerStatsWindow } from '@runkora/shared/api';
 import { toSourceRow, toTriggerRow } from '../_types';
 import type { AgentOption, SourceRow, TriggerRow } from '../_types';
 import { toTenantStatsRow } from '../_types/stats';
@@ -38,11 +38,14 @@ export const SESSION_EXPIRED_MESSAGE = 'Session expired. Sign in again.';
  * trigger form's agent picker). A failed agent read leaves the picker empty with
  * a reason rather than failing the whole page.
  */
-export async function fetchTriggersPage(accessToken: string): Promise<TriggersResult> {
+export async function fetchTriggersPage(
+  accessToken: string,
+  statsWindow: TriggerStatsWindow,
+): Promise<TriggersResult> {
   try {
     const [sources, triggers] = await Promise.all([
       listSources(accessToken),
-      listTriggers(accessToken),
+      listTriggers(accessToken, { window: statsWindow }),
     ]);
     const agents = await loadAgents(accessToken);
     return {

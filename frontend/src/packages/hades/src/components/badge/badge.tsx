@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Slot, Slottable } from '@radix-ui/react-slot';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../utils';
 
@@ -196,6 +197,16 @@ const badgeVariants = cva(
         pill: 'rounded-full',
       },
 
+      /**
+       * A chip the user can click: a hover tint, a pointer and a focus ring. Pair it with
+       * `asChild` on a link or button. It may shrink in a tight row, so a truncating label
+       * inside ends with an ellipsis.
+       */
+      interactive: {
+        true: 'cursor-pointer min-w-0 max-w-full hover:bg-surface-overlay hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+        false: '',
+      },
+
       /** Gap between flex children. Use `none` for tightly packed token chips. */
       gap: {
         default: 'gap-1.5',
@@ -207,6 +218,7 @@ const badgeVariants = cva(
       size: 'md',
       shape: 'default',
       gap: 'default',
+      interactive: false,
     },
   },
 );
@@ -227,6 +239,18 @@ export interface BadgeProps extends VariantProps<typeof badgeVariants> {
    * ```
    */
   mono?: boolean;
+
+  /**
+   * When true, renders the badge's styles onto its only child, a link or a button, instead
+   * of a span. Use with `interactive` for a chip that opens something.
+   *
+   * ```tsx
+   * <Badge asChild interactive variant="secondary" size="sm" shape="pill">
+   *   <a href="https://github.com/o/r/pull/12">PR #12</a>
+   * </Badge>
+   * ```
+   */
+  asChild?: boolean;
 
   /** @internal className is locked — all styling must go through typed props. */
   className?: never;
@@ -269,11 +293,30 @@ export interface BadgeProps extends VariantProps<typeof badgeVariants> {
  * ```
  */
 const Badge = React.forwardRef<HTMLSpanElement, BadgeProps>(
-  ({ variant, size, shape, gap, dot = false, mono = false, children, ...props }, ref) => {
+  (
+    {
+      variant,
+      size,
+      shape,
+      gap,
+      interactive,
+      dot = false,
+      mono = false,
+      asChild = false,
+      children,
+      ...props
+    },
+    ref,
+  ) => {
+    const Comp = asChild ? Slot : 'span';
     return (
-      <span
+      <Comp
         ref={ref}
-        className={cn(badgeVariants({ variant, size, shape, gap }), mono && 'font-mono')}
+        data-slot="badge"
+        className={cn(
+          badgeVariants({ variant, size, shape, gap, interactive }),
+          mono && 'font-mono',
+        )}
         {...props}
       >
         {dot && (
@@ -282,8 +325,8 @@ const Badge = React.forwardRef<HTMLSpanElement, BadgeProps>(
             className="size-1.5 rounded-full bg-current opacity-80 shrink-0"
           />
         )}
-        {children}
-      </span>
+        <Slottable>{children}</Slottable>
+      </Comp>
     );
   },
 );

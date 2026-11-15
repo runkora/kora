@@ -56,6 +56,11 @@
  * **Server-side** — manage page state externally, pass the current page slice
  * as `data`. Render your own pagination controls beneath the table.
  *
+ * **Loaded on demand:** pass `hasMore`, `onLoadMore` and `loadingMore` with
+ * `pagination` when `data` is the rows fetched so far. The footer reads
+ * "1–25 of 50+", and the next-page button on the last loaded page asks for more
+ * rows and turns the page once they arrive.
+ *
  * **Server-side sort** — provide `onSortChange`; DataTable delegates reordering
  * to the consumer and disables client-side sort.
  */
@@ -224,6 +229,7 @@ export interface DataTableProps<TData> {
 
   // Search
   searchPlaceholder?: string;
+  /** Filters the rows by the search text. Leave it out when the server does the search. */
   searchFn?: (row: TData, query: string) => boolean;
   /**
    * Controlled search text. Provide it, with `onSearchChange`, to own the query outside the
@@ -233,7 +239,10 @@ export interface DataTableProps<TData> {
    * string to `undefined` falls back to the table's own stale text.
    */
   searchQuery?: string;
-  /** Called with the new text whenever the search box changes. */
+  /**
+   * Called with the new text whenever the search box changes. Given without `searchFn`, the
+   * table shows the box and leaves every row in, for a page that searches on the server.
+   */
   onSearchChange?: (query: string) => void;
 
   // Sort
@@ -260,12 +269,23 @@ export interface DataTableProps<TData> {
   emptyMessage?: string;
   filteredEmptyMessage?: string;
   error?: React.ReactNode;
+  /**
+   * Shown in the body in place of the rows, such as a loading, empty or error state of the
+   * page's own. The toolbar and the column headers stay, so their filters can still change.
+   */
+  bodyState?: React.ReactNode;
 
   /**
    * Whether the toolbar offers the Columns menu. Defaults to true. Turn it off for a table
    * with few columns, or one in a space too narrow to spare the button.
    */
   columnToggle?: boolean;
+
+  /**
+   * Leaves out the column header row, for a list whose rows explain themselves. Sorting by
+   * `defaultSortId` still applies; there is no header to change it from.
+   */
+  hideHeader?: boolean;
 
   /**
    * A CSS height past which the rows scroll inside the table, with the header kept in view,
@@ -284,6 +304,12 @@ export interface DataTableProps<TData> {
   pagination?: {
     pageSizeOptions: readonly number[];
     defaultPageSize?: number;
+    /** More rows exist than `data` holds. The total reads "N+" until they are loaded. */
+    hasMore?: boolean;
+    /** Asks for more rows when the next page runs past `data`. */
+    onLoadMore?: () => void;
+    /** More rows are on their way. Next is disabled until they land or the request fails. */
+    loadingMore?: boolean;
   };
 }
 
@@ -461,8 +487,10 @@ export function DataTable<TData>({
   emptyMessage = 'No records found.',
   filteredEmptyMessage = 'No records match your filters.',
   error,
+  bodyState,
   noun = 'records',
   columnToggle = true,
+  hideHeader = false,
   maxHeight,
   pagination,
 }: DataTableProps<TData>) {
@@ -642,6 +670,8 @@ export function DataTable<TData>({
     if (safePage !== page) setPage(safePage);
   }, [safePage, page]);
 
+  const nextPage = useNextPage(pagination, allRows.length, safePage, pageSize, setPage);
+
   const paginatedRows = React.useMemo(() => {
     if (!pagination) return allRows;
     const start = safePage * pageSize;
@@ -706,7 +736,6 @@ export function DataTable<TData>({
     }));
 
   // Pagination window
-  const pageCount = safePageCount;
   const from = pagination && allRows.length > 0 ? safePage * pageSize + 1 : 1;
   const to = pagination ? Math.min((safePage + 1) * pageSize, allRows.length) : allRows.length;
 
@@ -720,7 +749,7 @@ export function DataTable<TData>({
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           searchPlaceholder={searchPlaceholder}
-          hasSearch={!!searchFn}
+          hasSearch={searchFn !== undefined || onSearchChange !== undefined}
           columnItems={columnToggle ? toolbarColumnItems : []}
           onColumnToggle={(id) => {
             const col = table.getColumn(id);
@@ -748,26 +777,27 @@ export function DataTable<TData>({
           <div style={{ minWidth: tableMinWidth(visibleColDefs) }}>
             {/* Only the header and rows belong to the table role; the toolbar and pagination are outside it. */}
             <div role="table" aria-label={noun}>
-              {/* Header row */}
-              <DataTableHeader
-                columnDefs={visibleColDefs}
-                allColumnDefs={columnDefs}
-                sorting={sorting}
-                clientFilters={clientFilters}
-                onSort={handleSort}
-                onToggleClientFilter={toggleClientFilter}
-                onClearClientFilter={clearClientFilter}
-                pinnedColId={pinnedColId}
-                pinnedEndColId={pinnedEndColId}
-                overlap={overlap}
-              />
+              {!hideHeader && (
+                <DataTableHeader
+                  columnDefs={visibleColDefs}
+                  allColumnDefs={columnDefs}
+                  sorting={sorting}
+                  clientFilters={clientFilters}
+                  onSort={handleSort}
+                  onToggleClientFilter={toggleClientFilter}
+                  onClearClientFilter={clearClientFilter}
+                  pinnedColId={pinnedColId}
+                  pinnedEndColId={pinnedEndColId}
+                  overlap={overlap}
+                />
+              )}
 
               {/* Body */}
               <div role="rowgroup">
-                {error ? (
+                {error || bodyState ? (
                   <div role="row">
                     <div role="cell" className="px-4 py-8">
-                      {error}
+                      {error || bodyState}
                     </div>
                   </div>
                 ) : paginatedRows.length === 0 ? (
@@ -865,16 +895,18 @@ export function DataTable<TData>({
         </div>
 
         {/* Pagination footer */}
-        {pagination && pageCount > 1 && (
+        {pagination && nextPage.footer && (
           <DataTablePagination
             from={from}
             to={to}
             total={allRows.length}
+            more={nextPage.more}
             page={safePage}
-            pageCount={pageCount}
             pageSize={pageSize}
             pageSizeOptions={pagination.pageSizeOptions}
             onPageChange={handlePageChange}
+            onNextPage={nextPage.go}
+            nextDisabled={nextPage.disabled}
             onPageSizeChange={handlePageSizeChange}
             noun={noun}
           />
@@ -1298,17 +1330,64 @@ function FilterButton({
   );
 }
 
+// ─── Internal: Next page, loaded on demand ─────────────────────────────────────
+
+/** Next-page behaviour when rows load on demand. */
+function useNextPage(
+  pagination: DataTableProps<unknown>['pagination'],
+  rowCount: number,
+  page: number,
+  pageSize: number,
+  setPage: (page: number) => void,
+) {
+  // The row count when more rows were asked for; the page turns once it grows.
+  const [askedAt, setAskedAt] = React.useState<number | null>(null);
+  const more = pagination?.hasMore === true;
+  const loading = pagination?.loadingMore === true;
+  const onLastPage = (page + 1) * pageSize >= rowCount;
+
+  React.useLayoutEffect(() => {
+    if (askedAt === null) return;
+    if (rowCount > askedAt) {
+      setPage(page + 1);
+      setAskedAt(null);
+    } else if (!loading) {
+      setAskedAt(null);
+    }
+  }, [askedAt, rowCount, loading, page, setPage]);
+
+  function go() {
+    if (!onLastPage) {
+      setPage(page + 1);
+      return;
+    }
+    setAskedAt(rowCount);
+    pagination?.onLoadMore?.();
+  }
+
+  // The footer shows once there is a second page, loaded or not.
+  return {
+    more,
+    go,
+    disabled: loading || (onLastPage && !more),
+    footer: rowCount > pageSize || more,
+  };
+}
+
 // ─── Internal: Pagination footer ───────────────────────────────────────────────
 
 interface PaginationProps {
   from: number;
   to: number;
   total: number;
+  /** More rows exist past `total`. */
+  more: boolean;
   page: number;
-  pageCount: number;
   pageSize: number;
   pageSizeOptions: readonly number[];
   onPageChange: (page: number) => void;
+  onNextPage: () => void;
+  nextDisabled: boolean;
   onPageSizeChange: (size: number) => void;
   noun?: string;
 }
@@ -1317,11 +1396,13 @@ function DataTablePagination({
   from,
   to,
   total,
+  more,
   page,
-  pageCount,
   pageSize,
   pageSizeOptions,
   onPageChange,
+  onNextPage,
+  nextDisabled,
   onPageSizeChange,
   noun = 'rows',
 }: PaginationProps) {
@@ -1329,6 +1410,7 @@ function DataTablePagination({
     <div className="flex items-center gap-3 border-t border-border-subtle px-4 py-[11px]">
       <span className="text-xs whitespace-nowrap text-subtle">
         {from}–{to} of {total}
+        {more ? '+' : ''}
       </span>
       <span className="grow" />
       <span className="text-xs whitespace-nowrap text-subtle">Rows per page</span>
@@ -1356,9 +1438,9 @@ function DataTablePagination({
       <Button
         variant="ghost"
         size="icon-sm"
-        disabled={page >= pageCount - 1}
+        disabled={nextDisabled}
         aria-label="Next page"
-        onClick={() => onPageChange(page + 1)}
+        onClick={onNextPage}
       >
         <Icon name="chevron-right" size="2xs" />
       </Button>

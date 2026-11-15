@@ -59,7 +59,7 @@ kubectl get skillmarketplaces -A
 
 The `Phase` column reports `Pending`, `Aggregated`, or `Invalid`. When the key is missing or cannot be used, the marketplace still reports `Aggregated` with the reason `CredentialUnavailable`. Its skills will not load until the key is fixed.
 
-Users need the `skills:read` scope to open the Skills page. See [managing roles](policy-and-roles.md#managing-roles) to add it to a role.
+Users need the `skills:read` scope to open the Skills page. Every built-in role from `kora-viewer` up holds it, so no role change is needed. Only a user who holds `kora-finops` alone needs a tenant role with the scope. See [managing roles](policy-and-roles.md#managing-roles).
 
 ## Limits
 

@@ -6,32 +6,31 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 type postgresRepository struct {
-	pool *pgxpool.Pool
+	pool *storage.Pool
 }
 
 // NewPostgresRepository creates a Repository backed by PostgreSQL.
-func NewPostgresRepository(pool *pgxpool.Pool) Repository {
+func NewPostgresRepository(pool *storage.Pool) Repository {
 	return &postgresRepository{pool: pool}
 }
 
 // getOne runs a single-row query, mapping pgx.ErrNoRows to notFound and
 // wrapping anything else as "get {what}". One implementation of the
 // QueryRow→scan→sentinel dance the getters otherwise each hand-copy.
-func getOne[T any](ctx context.Context, pool *pgxpool.Pool, what string, notFound error, scan func(pgx.Row) (*T, error), sql string, args ...any) (*T, error) {
+func getOne[T any](ctx context.Context, pool *storage.Pool, what string, notFound error, scan func(pgx.Row) (*T, error), sql string, args ...any) (*T, error) {
 	v, err := scan(pool.QueryRow(ctx, sql, args...))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -47,7 +46,7 @@ func getOne[T any](ctx context.Context, pool *pgxpool.Pool, what string, notFoun
 // queries otherwise each hand-copy; `what` names the rows once for all three
 // wraps. The SQL stays at each call site — this is a scan helper, not a
 // query builder.
-func queryList[T any](ctx context.Context, pool *pgxpool.Pool, what string, scan func(pgx.Row) (*T, error), sql string, args ...any) ([]T, error) {
+func queryList[T any](ctx context.Context, pool *storage.Pool, what string, scan func(pgx.Row) (*T, error), sql string, args ...any) ([]T, error) {
 	rows, err := pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list %s: %w", what, err)
@@ -86,21 +85,27 @@ func (r *postgresRepository) CreateSource(ctx context.Context, s *WebhookSource)
 	if err != nil {
 		return fmt.Errorf("marshal source config: %w", err)
 	}
-	// secret_rotated_at is stamped at creation: the secret a source starts with
-	// was issued now, and dating it is what lets a later replay tell whether the
-	// payload it wants to re-run predates the secret currently in force.
-	_, err = r.pool.Exec(ctx, `
-		INSERT INTO webhook_sources
-			(id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, secret_rotated_at,
-			 source, resource_uid, repository)
-		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10, $11, $12)
-	`, s.ID, s.TenantID, s.Name, s.Provider, s.PrincipalID, s.GrantID, s.SecretCiphertext, configJSON, s.Enabled,
-		cmp.Or(s.Source, declarative.SourceAPI), storage.NullIfZero(s.ResourceUID), storage.NullIfZero(s.Repository))
-	if err != nil {
-		return sourceWriteError("create webhook source", err)
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		// secret_rotated_at is stamped at creation: the secret a source starts with
+		// was issued now, and dating it is what lets a later replay tell whether the
+		// payload it wants to re-run predates the secret currently in force.
+		_, err := r.pool.Exec(ctx, `
+			INSERT INTO webhook_sources
+				(id, tenant_id, name, provider, principal_id, grant_id, secret_ciphertext, config, enabled, secret_rotated_at,
+				 source, resource_uid, repository)
+			VALUES
+				($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10, $11, $12)
+		`, s.ID, s.TenantID, s.Name, s.Provider, s.PrincipalID, s.GrantID, s.SecretCiphertext, configJSON, s.Enabled,
+			cmp.Or(s.Source, declarative.SourceAPI), storage.NullIfZero(s.ResourceUID), storage.NullIfZero(s.Repository))
+		if err != nil {
+			return sourceWriteError("create webhook source", err)
+		}
+		created, err := r.GetSource(ctx, s.TenantID, s.ID)
+		if err != nil {
+			return err
+		}
+		return publishSource(ctx, r.pool, events.SourceCreated, created)
+	})
 }
 
 // sourceNameKey is the unique constraint on a source's name within its tenant.
@@ -178,32 +183,46 @@ func (r *postgresRepository) UpdateSource(ctx context.Context, s *WebhookSource)
 	// comparison reads the old secret. Deriving it here rather than passing a
 	// flag means an ordinary enable/disable can never accidentally date the
 	// secret forward and invalidate every replay of an older payload.
-	tag, err := r.pool.Exec(ctx, `
-		UPDATE webhook_sources
-		SET    name = $1, secret_ciphertext = $2, grant_id = $3, config = $4, enabled = $5, repository = $8,
-		       secret_rotated_at = CASE WHEN secret_ciphertext IS DISTINCT FROM $2
-		                                THEN now() ELSE secret_rotated_at END,
-		       updated_at = now()
-		WHERE  id = $6 AND tenant_id = $7
-	`, s.Name, s.SecretCiphertext, s.GrantID, configJSON, s.Enabled, s.ID, s.TenantID, storage.NullIfZero(s.Repository))
-	if err != nil {
-		return sourceWriteError("update webhook source", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrSourceNotFound
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		before, err := getOne(ctx, r.pool, "webhook source", ErrSourceNotFound, scanSource,
+			`SELECT `+sourceColumns+` FROM webhook_sources WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, s.ID, s.TenantID)
+		if err != nil {
+			return err
+		}
+		if _, err = r.pool.Exec(ctx, `
+			UPDATE webhook_sources
+			SET    name = $1, secret_ciphertext = $2, grant_id = $3, config = $4, enabled = $5, repository = $8,
+			       secret_rotated_at = CASE WHEN secret_ciphertext IS DISTINCT FROM $2
+			                                THEN now() ELSE secret_rotated_at END,
+			       updated_at = now()
+			WHERE  id = $6 AND tenant_id = $7
+		`, s.Name, s.SecretCiphertext, s.GrantID, configJSON, s.Enabled, s.ID, s.TenantID, storage.NullIfZero(s.Repository)); err != nil {
+			return sourceWriteError("update webhook source", err)
+		}
+		after, err := r.GetSource(ctx, s.TenantID, s.ID)
+		if err != nil {
+			return err
+		}
+		entity := newSourceEntity(after)
+		changed := events.Changed(sourceFields{newSourceEntity(before), before.Config}, sourceFields{entity, after.Config})
+		if len(changed) == 0 {
+			return nil
+		}
+		return events.Publish(ctx, r.pool, events.Event{
+			Type: events.SourceUpdated, Tenant: after.TenantID, Subject: "sources/" + after.ID, Entity: entity, Changed: changed,
+		})
+	})
 }
 
 func (r *postgresRepository) DeleteSource(ctx context.Context, tenantID, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM webhook_sources WHERE id = $1 AND tenant_id = $2`, id, tenantID)
-	if err != nil {
-		return fmt.Errorf("delete webhook source: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrSourceNotFound
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		deleted, err := getOne(ctx, r.pool, "deleted webhook source", ErrSourceNotFound, scanSource,
+			`DELETE FROM webhook_sources WHERE id = $1 AND tenant_id = $2 RETURNING `+sourceColumns, id, tenantID)
+		if err != nil {
+			return err
+		}
+		return publishSource(ctx, r.pool, events.SourceDeleted, deleted)
+	})
 }
 
 // ─── Triggers ─────────────────────────────────────────────────────────────────
@@ -251,6 +270,9 @@ func scanTrigger(row pgx.Row) (*Trigger, error) {
 	if err := decodeKindConfig(&t, kindConfigJSON); err != nil {
 		return nil, err
 	}
+	if t.Kind == KindEvent && t.IgnoreOwnRuns == nil {
+		t.IgnoreOwnRuns = new(true)
+	}
 	return &t, nil
 }
 
@@ -290,7 +312,25 @@ func decodeKindConfig(t *Trigger, raw []byte) error {
 		if wc.Coalesce.Enabled() {
 			t.Coalesce = wc.Coalesce
 		}
+	case KindEvent:
+		return decodeEventConfig(t, raw)
 	}
+	return nil
+}
+
+// decodeEventConfig reads an event trigger's kind_config.
+func decodeEventConfig(t *Trigger, raw []byte) error {
+	var ec EventConfig
+	if err := json.Unmarshal(raw, &ec); err != nil {
+		return fmt.Errorf("unmarshal event config: %w", err)
+	}
+	if len(ec.MatchContains) > 0 {
+		t.MatchContains = ec.MatchContains
+	}
+	if ec.Coalesce.Enabled() {
+		t.Coalesce = ec.Coalesce
+	}
+	t.IgnoreOwnRuns = &ec.IgnoreOwnRuns
 	return nil
 }
 
@@ -309,7 +349,7 @@ func (r *postgresRepository) CreateTrigger(ctx context.Context, t *Trigger) erro
 		sourceID = &t.SourceID
 	}
 
-	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
 		if err := claimTriggerName(ctx, tx, t); err != nil {
 			return err
 		}
@@ -328,8 +368,37 @@ func (r *postgresRepository) CreateTrigger(ctx context.Context, t *Trigger) erro
 			t.DedupeEnabled, t.AutopauseEnabled, cmp.Or(t.Source, declarative.SourceAPI), storage.NullIfZero(t.ResourceUID), storage.NullIfZero(t.Repository)); err != nil {
 			return fmt.Errorf("create trigger: %w", err)
 		}
-		return writeRoute(ctx, tx, t)
+		if err := writeRoute(ctx, tx, t); err != nil {
+			return err
+		}
+		created, err := r.lockTrigger(ctx, t.TenantID, t.ID)
+		if err != nil {
+			return err
+		}
+		return publishTrigger(ctx, r.pool, events.TriggerCreated, created)
 	})
+}
+
+// lockTrigger reads a trigger and locks its row until the transaction ends.
+func (r *postgresRepository) lockTrigger(ctx context.Context, tenantID, id string) (*Trigger, error) {
+	t, err := getOne(ctx, r.pool, "trigger", ErrTriggerNotFound, scanTrigger,
+		`SELECT `+triggerColumns+` FROM triggers WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, id, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.attachRoutes(ctx, []*Trigger{t}); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// publishUpdated reads the trigger back after an update and records what changed.
+func (r *postgresRepository) publishUpdated(ctx context.Context, before *Trigger) error {
+	after, err := r.lockTrigger(ctx, before.TenantID, before.ID)
+	if err != nil {
+		return err
+	}
+	return publishTriggerUpdate(ctx, r.pool, before, after)
 }
 
 // claimTriggerName serializes writes of one trigger name in a tenant and
@@ -521,7 +590,11 @@ func (r *postgresRepository) UpdateDeclaredTrigger(ctx context.Context, t *Trigg
 	if err != nil {
 		return err
 	}
-	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
+		before, err := r.lockTrigger(ctx, t.TenantID, t.ID)
+		if err != nil {
+			return err
+		}
 		tag, err := tx.Exec(ctx, `
 			UPDATE triggers
 			SET    source_id = $1, agent_type_id = $2, agent_slug = $3, event_type = $4, match_condition = $5,
@@ -540,7 +613,10 @@ func (r *postgresRepository) UpdateDeclaredTrigger(ctx context.Context, t *Trigg
 		if tag.RowsAffected() == 0 {
 			return ErrTriggerNotFound
 		}
-		return writeRoute(ctx, tx, t)
+		if err := writeRoute(ctx, tx, t); err != nil {
+			return err
+		}
+		return r.publishUpdated(ctx, before)
 	})
 }
 
@@ -563,6 +639,16 @@ func (r *postgresRepository) ListMatchableTriggersForSource(ctx context.Context,
 		FROM   triggers
 		WHERE  source_id = $1 AND kind = 'webhook'
 		  AND  `+matchablePredicate, sourceID)
+}
+
+// ListMatchableEventTriggers returns the tenant's event triggers on an event
+// type: enabled, plus auto-paused, as for a source.
+func (r *postgresRepository) ListMatchableEventTriggers(ctx context.Context, tenantID, eventType string) ([]Trigger, error) {
+	return r.listTriggers(ctx, "event triggers", `
+		SELECT `+triggerColumns+`
+		FROM   triggers
+		WHERE  tenant_id = $1 AND kind = 'event' AND event_type = $2
+		  AND  `+matchablePredicate, tenantID, eventType)
 }
 
 // ListMatchableScheduledTriggers returns the scheduled triggers the cron loop
@@ -613,8 +699,12 @@ func (r *postgresRepository) updateTrigger(ctx context.Context, t *Trigger, writ
 	// not replace the grant cannot overwrite one a concurrent update swapped in.
 	// The routing rows are replaced in the same transaction, and only when the
 	// edit changed routing, so a stale copy cannot revert a concurrent change.
-	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
 		if err := claimTriggerName(ctx, tx, t); err != nil {
+			return err
+		}
+		before, err := r.lockTrigger(ctx, t.TenantID, t.ID)
+		if err != nil {
 			return err
 		}
 		tag, err := tx.Exec(ctx, `
@@ -641,10 +731,12 @@ func (r *postgresRepository) updateTrigger(ctx context.Context, t *Trigger, writ
 			}
 			return ErrTriggerNotFound
 		}
-		if !writeRouting {
-			return nil
+		if writeRouting {
+			if err := writeRoute(ctx, tx, t); err != nil {
+				return err
+			}
 		}
-		return writeRoute(ctx, tx, t)
+		return r.publishUpdated(ctx, before)
 	})
 }
 
@@ -663,14 +755,16 @@ func grantGuardMiss(ctx context.Context, tx pgx.Tx, t *Trigger) error {
 }
 
 func (r *postgresRepository) DeleteTrigger(ctx context.Context, tenantID, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM triggers WHERE id = $1 AND tenant_id = $2`, id, tenantID)
-	if err != nil {
-		return fmt.Errorf("delete trigger: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrTriggerNotFound
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		deleted, err := r.lockTrigger(ctx, tenantID, id)
+		if err != nil {
+			return err
+		}
+		if _, err := r.pool.Exec(ctx, `DELETE FROM triggers WHERE id = $1 AND tenant_id = $2`, id, tenantID); err != nil {
+			return fmt.Errorf("delete trigger: %w", err)
+		}
+		return publishTrigger(ctx, r.pool, events.TriggerDeleted, deleted)
+	})
 }
 
 // ─── Deliveries ───────────────────────────────────────────────────────────────
@@ -682,9 +776,9 @@ const deliveryInsertColumns = `
 		INSERT INTO trigger_deliveries
 			(id, tenant_id, source_id, trigger_id, trigger_name, kind, provider_delivery_id, event_type,
 			 status, run_id, error, payload_excerpt, fired_by, scheduled_at,
-			 payload, payload_bytes, reason, redelivery_of)
+			 payload, payload_bytes, reason, redelivery_of, event_id)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 		`
 
 // insertDelivery writes a delivery under the given ON CONFLICT clause, which is
@@ -702,7 +796,7 @@ func (r *postgresRepository) insertDelivery(ctx context.Context, d *Delivery, on
 	tag, err := r.pool.Exec(ctx, deliveryInsertColumns+onConflict,
 		d.ID, d.TenantID, sourceID, d.TriggerID, storage.NullIfZero(d.TriggerName), d.Kind, d.ProviderDeliveryID, d.EventType,
 		d.Status, d.RunID, d.Error, d.PayloadExcerpt, storage.NullIfZero(d.FiredBy), d.ScheduledAt,
-		d.Payload, storage.NullIfZero(d.PayloadBytes), d.Reason, d.RedeliveryOf)
+		d.Payload, storage.NullIfZero(d.PayloadBytes), d.Reason, d.RedeliveryOf, storage.NullIfZero(d.EventID))
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", what, err)
 	}
@@ -732,6 +826,23 @@ func (r *postgresRepository) InsertScheduledDelivery(ctx context.Context, d *Del
 		"insert scheduled delivery")
 }
 
+// InsertEventDelivery inserts the delivery of a platform event, deduplicated on
+// the event id. A redelivery names its original and is outside the index.
+func (r *postgresRepository) InsertEventDelivery(ctx context.Context, d *Delivery) (bool, error) {
+	return r.insertDelivery(ctx, d, `
+		ON CONFLICT (event_id) WHERE redelivery_of IS NULL DO NOTHING`, "insert event delivery")
+}
+
+// InTransaction runs fn in one transaction. The repository calls fn makes join it.
+func (r *postgresRepository) InTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error { return fn(ctx) })
+}
+
+// InSavepoint runs fn in a savepoint, or plainly outside a transaction.
+func (r *postgresRepository) InSavepoint(ctx context.Context, fn func(ctx context.Context) error) error {
+	return storage.WithSavepoint(ctx, fn)
+}
+
 // UpdateDeliveryOutcome records the run a delivery produced.
 //
 // The arrival-level statuses are preserved, matching DeriveDeliveryStatus: what
@@ -755,24 +866,25 @@ func (r *postgresRepository) UpdateDeliveryOutcome(ctx context.Context, id, stat
 // deliveryColumns is the full read projection for a delivery row.
 const deliveryColumns = `id, tenant_id, source_id, trigger_id, trigger_name, kind, provider_delivery_id, event_type,
 	status, run_id, error, payload_excerpt, fired_by, scheduled_at, received_at,
-	payload, payload_bytes, payload_purged, reason, redelivery_of`
+	payload, payload_bytes, payload_purged, reason, redelivery_of, event_id`
 
 // deliveryColumnsNoPayload is deliveryColumns with the payload body left out.
 const deliveryColumnsNoPayload = `id, tenant_id, source_id, trigger_id, trigger_name, kind, provider_delivery_id, event_type,
 	status, run_id, error, payload_excerpt, fired_by, scheduled_at, received_at,
-	NULL::bytea AS payload, payload_bytes, payload_purged, reason, redelivery_of`
+	NULL::bytea AS payload, payload_bytes, payload_purged, reason, redelivery_of, event_id`
 
 func scanDelivery(row pgx.Row) (*Delivery, error) {
 	var d Delivery
-	var sourceID, firedBy, triggerName *string
+	var sourceID, firedBy, triggerName, eventID *string
 	var payloadBytes *int
 	if err := row.Scan(
 		&d.ID, &d.TenantID, &sourceID, &d.TriggerID, &triggerName, &d.Kind, &d.ProviderDeliveryID, &d.EventType,
 		&d.Status, &d.RunID, &d.Error, &d.PayloadExcerpt, &firedBy, &d.ScheduledAt, &d.ReceivedAt,
-		&d.Payload, &payloadBytes, &d.PayloadPurged, &d.Reason, &d.RedeliveryOf,
+		&d.Payload, &payloadBytes, &d.PayloadPurged, &d.Reason, &d.RedeliveryOf, &eventID,
 	); err != nil {
 		return nil, err
 	}
+	d.EventID = deref(eventID)
 	d.SourceID = deref(sourceID)
 	d.FiredBy = deref(firedBy)
 	d.TriggerName = deref(triggerName)
@@ -887,13 +999,9 @@ const reachDeliveriesSQL = `
 // An absent cursor or received_after binds to infinity to keep the text fixed.
 func reachDeliveriesQuery(tenantID string, filter DeliveryFilter, limit int) (string, []any) {
 	every := filter.Status == ""
-	outcomes := DeliveryStatusFilters[filter.Status]
-	recorded := recordedStatuses
-	if !every {
-		recorded = nil
-		if slices.Contains(recordedStatuses, filter.Status) {
-			recorded = []string{filter.Status}
-		}
+	outcomes, recorded := triggerStatusMembers(filter.Status)
+	if every {
+		recorded = recordedStatuses
 	}
 	after := pgtype.Timestamptz{InfinityModifier: pgtype.NegativeInfinity, Valid: true}
 	if !filter.ReceivedAfter.IsZero() {
@@ -922,10 +1030,10 @@ const reachedSQL = `
 		  AND  received_at >= $2 AND received_at <= $3
 	)`
 
-func (r *postgresRepository) TriggerStats(ctx context.Context, tenantID string, triggerIDs []string, now time.Time) (map[string]TriggerStats, TenantTriggerStats, error) {
+func (r *postgresRepository) TriggerStats(ctx context.Context, tenantID string, triggerIDs []string, now time.Time, w StatsWindow) (map[string]TriggerStats, TenantTriggerStats, error) {
 	now = now.UTC()
 	out := map[string]TriggerStats{}
-	tenant, err := r.windowedTriggerStats(ctx, tenantID, now, out)
+	tenant, err := r.windowedTriggerStats(ctx, tenantID, now, w, out)
 	if err != nil {
 		return nil, tenant, err
 	}
@@ -936,27 +1044,26 @@ func (r *postgresRepository) TriggerStats(ctx context.Context, tenantID string, 
 		       percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM created_at - received_at) * 1000)
 		FROM   trigger_delivery_runs
 		WHERE  tenant_id = $1 AND received_at >= $2 AND received_at <= $3
-		  AND  status IN `+sqlList(StartedRunStatuses)+` AND created_at >= received_at`,
-		tenantID, now.Add(-statsWindow), now,
-	).Scan(&tenant.Deliveries24h, &tenant.DispatchP50Ms, &tenant.DispatchP95Ms); err != nil {
+		  AND  status IN `+sqlList(startedOutcomes)+` AND created_at >= received_at`,
+		tenantID, now.Add(-w.Span), now,
+	).Scan(&tenant.Deliveries, &tenant.DispatchP50Ms, &tenant.DispatchP95Ms); err != nil {
 		return nil, tenant, fmt.Errorf("tenant trigger stats: %w", err)
 	}
-	if err := r.triggerLastFired(ctx, tenantID, triggerIDs, now, out); err != nil {
+	if err := r.triggerLastFired(ctx, tenantID, triggerIDs, now, w, out); err != nil {
 		return nil, tenant, err
 	}
 	return out, tenant, nil
 }
 
-// windowedTriggerStats fills out with each trigger's 24h counts and buckets, and
-// returns the tenant's started and failed totals.
-func (r *postgresRepository) windowedTriggerStats(ctx context.Context, tenantID string, now time.Time, out map[string]TriggerStats) (TenantTriggerStats, error) {
+// windowedTriggerStats fills out with each trigger's counts and buckets over the
+// window, and returns the tenant's started and failed totals.
+func (r *postgresRepository) windowedTriggerStats(ctx context.Context, tenantID string, now time.Time, w StatsWindow, out map[string]TriggerStats) (TenantTriggerStats, error) {
 	var tenant TenantTriggerStats
-	since := now.Add(-statsWindow)
-	firstBucket := since.Truncate(statsBucketWidth)
+	firstBucket := w.firstBucket(now)
 	rows, err := r.pool.Query(ctx, reachedSQL+`
-		SELECT trigger_id, status, date_bin('2 hours', received_at, TIMESTAMPTZ '2000-01-01 00:00:00+00'), count(*)
+		SELECT trigger_id, status, date_bin($4::interval, received_at, TIMESTAMPTZ '2000-01-01 00:00:00+00'), count(*)
 		FROM   reached
-		GROUP  BY 1, 2, 3`, tenantID, since, now)
+		GROUP  BY 1, 2, 3`, tenantID, now.Add(-w.Span), now, w.BucketWidth)
 	if err != nil {
 		return tenant, fmt.Errorf("trigger stats: %w", err)
 	}
@@ -970,26 +1077,24 @@ func (r *postgresRepository) windowedTriggerStats(ctx context.Context, tenantID 
 		}
 		st, ok := out[id]
 		if !ok {
-			st = emptyTriggerStats(now)
+			st = emptyTriggerStats(now, w)
 		}
-		st.count(status, int(bucket.Sub(firstBucket)/statsBucketWidth), n)
+		st.count(status, int(bucket.Sub(firstBucket)/w.BucketWidth), n)
 		out[id] = st
-		switch {
-		case slices.Contains(StartedRunStatuses, status):
-			tenant.Started24h += n
-		case slices.Contains(FailureRunStatuses, status):
-			tenant.Failed24h += n
-		}
 	}
 	if err := rows.Err(); err != nil {
 		return tenant, fmt.Errorf("iterate trigger stats: %w", err)
+	}
+	for _, st := range out {
+		tenant.Started += st.Started
+		tenant.Failed += st.Failed
 	}
 	return tenant, nil
 }
 
 // triggerLastFired sets each trigger's newest attempted delivery with one
 // idx_trigger_delivery_runs_last_fired probe per trigger.
-func (r *postgresRepository) triggerLastFired(ctx context.Context, tenantID string, triggerIDs []string, now time.Time, out map[string]TriggerStats) error {
+func (r *postgresRepository) triggerLastFired(ctx context.Context, tenantID string, triggerIDs []string, now time.Time, w StatsWindow, out map[string]TriggerStats) error {
 	rows, err := r.pool.Query(ctx, `
 		SELECT t.id, fired.received_at
 		FROM   unnest($2::text[]) AS t(id)
@@ -1011,7 +1116,7 @@ func (r *postgresRepository) triggerLastFired(ctx context.Context, tenantID stri
 		}
 		st, ok := out[id]
 		if !ok {
-			st = emptyTriggerStats(now)
+			st = emptyTriggerStats(now, w)
 		}
 		st.LastFiredAt = &at
 		out[id] = st
@@ -1039,6 +1144,48 @@ func (r *postgresRepository) InsertDeliveryRun(ctx context.Context, dr *Delivery
 		return fmt.Errorf("insert delivery run: %w", err)
 	}
 	return nil
+}
+
+// RecordDispatchFailure records a fire that could not start its run in one
+// transaction: the outcome, the delivery's reason and status, and the event.
+func (r *postgresRepository) RecordDispatchFailure(ctx context.Context, dr *DeliveryRun, reason string) error {
+	typ := events.DeliveryFailed
+	if dr.Status == RunStatusDenied {
+		typ = events.DeliveryDenied
+	}
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		if err := r.InsertDeliveryRun(ctx, dr); err != nil {
+			return err
+		}
+		if err := r.UpdateDeliveryOutcome(ctx, dr.DeliveryID, StatusFailed, nil, nil, dr.Error); err != nil {
+			return err
+		}
+		if err := r.DeriveDeliveryStatus(ctx, dr.DeliveryID); err != nil {
+			return err
+		}
+		var agent *string
+		if err := r.pool.QueryRow(ctx, `SELECT agent_slug FROM triggers WHERE id = $1`, dr.TriggerID).Scan(&agent); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("read trigger agent: %w", err)
+		}
+		// The failure of an event fire joins the event's chain, so the loop guards see it.
+		var envelope []byte
+		if err := r.pool.QueryRow(ctx, `SELECT payload FROM trigger_deliveries WHERE id = $1 AND event_id IS NOT NULL`, dr.DeliveryID).Scan(&envelope); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("read delivery event: %w", err)
+		}
+		chain := chainOfEnvelope(envelope)
+		var triggers []string
+		if chain.causedBy != "" {
+			triggers = []string{dr.TriggerID}
+		}
+		return events.Publish(ctx, r.pool, events.Event{
+			Type: typ, Tenant: dr.TenantID, Subject: "deliveries/" + dr.DeliveryID, Agent: deref(agent),
+			CausedBy: chain.causedBy, ChainDepth: chain.depth, Triggers: triggers,
+			Entity: events.DeliveryPayload{
+				ID: dr.ID, DeliveryID: dr.DeliveryID, TriggerID: dr.TriggerID, TriggerName: dr.TriggerName,
+				Status: dr.Status, Reason: reason,
+			},
+		})
+	})
 }
 
 func (r *postgresRepository) ListDeliveryRunsForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error) {
@@ -1163,8 +1310,23 @@ func marshalKindConfig(t *Trigger) ([]byte, error) {
 			return nil, fmt.Errorf("marshal webhook config: %w", err)
 		}
 		return b, nil
+	case t.Kind == KindEvent:
+		return marshalEventConfig(t)
 	}
 	return []byte("{}"), nil
+}
+
+// marshalEventConfig writes an event trigger's kind_config. It always carries ignore_own_runs.
+func marshalEventConfig(t *Trigger) ([]byte, error) {
+	ec := EventConfig{MatchContains: t.MatchContains, IgnoreOwnRuns: t.ignoresOwnRuns()}
+	if t.Coalesce.Enabled() {
+		ec.Coalesce = t.Coalesce
+	}
+	b, err := json.Marshal(ec)
+	if err != nil {
+		return nil, fmt.Errorf("marshal event config: %w", err)
+	}
+	return b, nil
 }
 
 // defaultTargetKind fills in the only target kind that exists today. Triggers
@@ -1376,7 +1538,7 @@ func (r *postgresRepository) DueScheduledMinutesWithoutDelivery(ctx context.Cont
 // One constant, interpolated into both the claim query and InFlightCount, so the
 // two cannot disagree about what "in flight" means. It is a compile-time literal
 // with no caller input in it.
-const settledRunStatesSQL = `('completed', 'failed', 'budget_exhausted', 'idle')`
+const settledRunStatesSQL = `('completed', 'failed', 'budget_exhausted', 'terminated', 'idle')`
 
 // EnqueueWithinCeiling admits a fire only if the trigger is under its ceiling,
 // deciding and inserting under one lock so the two cannot disagree.
@@ -1399,7 +1561,7 @@ func (r *postgresRepository) EnqueueWithinCeiling(ctx context.Context, p *Pendin
 	}
 
 	admitted := false
-	txErr := storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+	txErr := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
 		var lockedID string
 		if err := tx.QueryRow(ctx,
 			`SELECT id FROM triggers WHERE id = $1 FOR UPDATE`, p.TriggerID).Scan(&lockedID); err != nil {
@@ -1641,7 +1803,7 @@ func (r *postgresRepository) SupersedeAndEnqueue(ctx context.Context, p *Pending
 	}
 
 	var superseded []PendingDelivery
-	txErr := storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+	txErr := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
 		var lockedID string
 		if err := tx.QueryRow(ctx,
 			`SELECT id FROM triggers WHERE id = $1 FOR UPDATE`, p.TriggerID).Scan(&lockedID); err != nil {
@@ -1699,7 +1861,7 @@ func (r *postgresRepository) EnqueueCoalescing(ctx context.Context, p *PendingDe
 	}
 
 	var replaced string
-	txErr := storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+	txErr := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
 		var lockedID string
 		if err := tx.QueryRow(ctx,
 			`SELECT id FROM triggers WHERE id = $1 FOR UPDATE`, p.TriggerID).Scan(&lockedID); err != nil {
@@ -1956,13 +2118,23 @@ func (r *postgresRepository) ResetConsecutiveFailures(ctx context.Context, trigg
 }
 
 func (r *postgresRepository) AutoPause(ctx context.Context, triggerID string) error {
-	_, err := r.pool.Exec(ctx, `
-		UPDATE triggers SET enabled = false, auto_paused_at = now() WHERE id = $1
-	`, triggerID)
-	if err != nil {
-		return fmt.Errorf("auto-pause trigger: %w", err)
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		var tenantID string
+		err := r.pool.QueryRow(ctx, `
+			UPDATE triggers SET enabled = false, auto_paused_at = now() WHERE id = $1 AND auto_paused_at IS NULL RETURNING tenant_id
+		`, triggerID).Scan(&tenantID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("auto-pause trigger: %w", err)
+		}
+		paused, err := r.lockTrigger(ctx, tenantID, triggerID)
+		if err != nil {
+			return err
+		}
+		return publishTrigger(ctx, r.pool, events.TriggerAutopaused, paused)
+	})
 }
 
 // GetRetention reads a tenant's chosen retention window.
@@ -2035,20 +2207,22 @@ func (r *postgresRepository) ObservedEventTypes(ctx context.Context, sourceID st
 // held in a coalescing window ages from the moment it became claimable, so a
 // long window does not read as a stalled worker.
 func (r *postgresRepository) PendingStats(ctx context.Context) (PendingStats, error) {
-	var waiting, claimed int64
+	var waiting, claimed, failing int64
 	var oldestSeconds float64
 	err := r.pool.QueryRow(ctx, `
 		SELECT count(*) FILTER (WHERE claimed_at IS NULL),
 		       count(*) FILTER (WHERE claimed_at IS NOT NULL),
-		       GREATEST(COALESCE(EXTRACT(EPOCH FROM (now() - min(GREATEST(enqueued_at, dispatch_after)) FILTER (WHERE claimed_at IS NULL))), 0), 0)
+		       GREATEST(COALESCE(EXTRACT(EPOCH FROM (now() - min(GREATEST(enqueued_at, dispatch_after)) FILTER (WHERE claimed_at IS NULL))), 0), 0),
+		       (SELECT count(*) FROM triggers WHERE consecutive_failures > 0)
 		FROM   trigger_pending_deliveries
-	`).Scan(&waiting, &claimed, &oldestSeconds)
+	`).Scan(&waiting, &claimed, &oldestSeconds, &failing)
 	if err != nil {
 		return PendingStats{}, fmt.Errorf("read pending stats: %w", err)
 	}
 	return PendingStats{
 		Waiting:            waiting,
 		Claimed:            claimed,
+		FailingTriggers:    failing,
 		OldestUnclaimedAge: time.Duration(oldestSeconds * float64(time.Second)),
 	}, nil
 }
@@ -2159,7 +2333,7 @@ func (r *postgresRepository) StartFieldsByDelivery(ctx context.Context, tenantID
 // HoldPending returns a claimed fire to the queue until delay has passed and
 // counts the hold, and records reason on the delivery, in one transaction.
 func (r *postgresRepository) HoldPending(ctx context.Context, pendingID, deliveryID string, delay time.Duration, reason string) error {
-	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE trigger_pending_deliveries
 			SET    claimed_at = NULL, dispatch_after = now() + make_interval(secs => $2), hold_count = hold_count + 1
@@ -2182,6 +2356,30 @@ func (r *postgresRepository) HoldPending(ctx context.Context, pendingID, deliver
 func (r *postgresRepository) ClearDeliveryReason(ctx context.Context, deliveryID string) error {
 	if _, err := r.pool.Exec(ctx, `UPDATE trigger_deliveries SET reason = NULL WHERE id = $1`, deliveryID); err != nil {
 		return fmt.Errorf("clear delivery reason: %w", err)
+	}
+	return nil
+}
+
+// ─── Event consumer cursor ──────────────────────────────────────────────────
+
+func (r *postgresRepository) EventCursor(ctx context.Context) (int64, error) {
+	var seq int64
+	err := r.pool.QueryRow(ctx, `SELECT last_seq FROM trigger_event_cursor`).Scan(&seq)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read event cursor: %w", err)
+	}
+	return seq, nil
+}
+
+func (r *postgresRepository) AdvanceEventCursor(ctx context.Context, seq int64) error {
+	if _, err := r.pool.Exec(ctx, `
+		INSERT INTO trigger_event_cursor (id, last_seq) VALUES (TRUE, $1)
+		ON CONFLICT (id) DO UPDATE SET last_seq = GREATEST(trigger_event_cursor.last_seq, EXCLUDED.last_seq)
+	`, seq); err != nil {
+		return fmt.Errorf("advance event cursor: %w", err)
 	}
 	return nil
 }

@@ -4,12 +4,13 @@
 
 import { TriggersPage } from './triggers-page';
 import type { AgentOption, SourceRow, TriggerRow } from '../_types';
-import type { TenantStatsRow } from '../_types/stats';
+import type { StatsRange, TenantStatsRow } from '../_types/stats';
 
 interface TriggersShellProps {
   sources: SourceRow[];
   triggers: TriggerRow[];
   stats: TenantStatsRow | null;
+  range: StatsRange;
   agents: AgentOption[];
   agentsError?: string | null;
   initialError: string | null;
@@ -19,6 +20,7 @@ export function TriggersShell({
   sources,
   triggers,
   stats,
+  range,
   agents,
   agentsError = null,
   initialError,
@@ -28,6 +30,7 @@ export function TriggersShell({
       sources={sources}
       triggers={triggers}
       stats={stats}
+      range={range}
       agents={agents}
       agentsError={agentsError}
       error={initialError}

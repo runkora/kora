@@ -104,6 +104,20 @@ export const Options: Story = {
             <Icon name="chevron-right" size="md" rotate={90} />
           </Stack>
         </Option>
+        <Option name="spin" use="Turn the icon continuously, for a loader on work in progress.">
+          <Icon name="loader" size="md" color="accent" spin />
+        </Option>
+        <Option
+          name="groupReveal"
+          use="Hide the icon until its group is hovered or holds keyboard focus, for row actions."
+        >
+          <div className="group inline-flex items-center gap-2 rounded-md border border-border-subtle px-3 py-2">
+            <Text size="supporting">Hover or tab into this row</Text>
+            <button type="button" aria-label="Copy" className="inline-flex">
+              <Icon name="copy" size="2xs" color="muted" groupReveal />
+            </button>
+          </div>
+        </Option>
         <Option
           name='label="Delete agent"'
           use="Give a screen reader a name when the icon stands alone."
