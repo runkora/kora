@@ -14,6 +14,35 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/marketplace"
 )
 
+// writeFileAtomic writes to a temporary file in the same directory and renames
+// it over path, so a concurrent reader sees the old or the new content, never a
+// truncated or half-written file. This mirrors how a ConfigMap mount is swapped.
+func writeFileAtomic(t *testing.T, path string, data []byte, perm os.FileMode) {
+	t.Helper()
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		t.Fatal(err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		t.Fatal(err)
+	}
+	if err := os.Chmod(tmpName, perm); err != nil {
+		_ = os.Remove(tmpName)
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		t.Fatal(err)
+	}
+}
+
 func writeRegistryFiles(t *testing.T, dir string, file marketplace.File, keys map[string][]byte) (string, string) {
 	t.Helper()
 	sources := filepath.Join(dir, "marketplaces", "marketplaces.json")
@@ -27,13 +56,9 @@ func writeRegistryFiles(t *testing.T, dir string, file marketplace.File, keys ma
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(sources, raw, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeFileAtomic(t, sources, raw, 0o600)
 	for name, v := range keys {
-		if err := os.WriteFile(filepath.Join(keysDir, name), v, 0o600); err != nil {
-			t.Fatal(err)
-		}
+		writeFileAtomic(t, filepath.Join(keysDir, name), v, 0o600)
 	}
 	return sources, keysDir
 }
