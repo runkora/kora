@@ -88,12 +88,12 @@ kora records every significant technical decision as an ADR. This index is the c
 - [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) — `Proposed (Amended 2026-10-27: Amendment 6 Accepted; Amendment 5 repository ID rejection superseded 2026-11-15)` · 2026-06-06
 - [Kubernetes Connection — `kubernetes` Adapter and Per-Connection Gateway CA Trust](2026-07-06-kubernetes-connection-bearer-adapter-and-gateway-ca-trust.md) — `Proposed` · 2026-07-06
 - [Connection Scope Qualifiers — Grant-Time Resource Scoping for Connectors](2026-07-22-connection-scope-qualifiers.md) — `Accepted` · 2026-07-22
-- [GitHub Connection — Category-Scoped Actions, Repository Qualifiers, and Down-Scoped Token Minting](2026-07-22-github-connection-category-scoped-actions.md) — `Accepted (Decision C superseded 2026-11-15)` · 2026-07-22
-- [GitHub GraphQL Authorised by the Granular Actions of Selected Fields](2026-09-29-github-graphql-field-classification.md) — `Accepted (Option 4 and the node-ID qualifier clause superseded 2026-11-15)` · 2026-09-29
+- [GitHub Connection — Category-Scoped Actions, Repository Qualifiers, and Down-Scoped Token Minting](2026-07-22-github-connection-category-scoped-actions.md) — `Accepted (Decisions A, B, C and D superseded 2026-11-15)` · 2026-07-22
+- [GitHub GraphQL Authorised by the Granular Actions of Selected Fields](2026-09-29-github-graphql-field-classification.md) — `Superseded by [github-connector-route-coverage](2026-11-15-github-connector-route-coverage.md)` · 2026-09-29
 - [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md) — `Accepted` · 2026-10-15
 - [Release Asset Downloads Without Connection Selection](2026-10-26-release-asset-downloads-without-connection-selection.md) — `Proposed` · 2026-10-26
 - [API Key Connection Adapter](2026-11-11-apikey-connection-adapter.md) — `Accepted` · 2026-11-11
-- [GitHub Connector Route Coverage and Repository Qualifiers for ID-Addressed Requests](2026-11-15-github-connector-route-coverage.md) — `Accepted` · 2026-11-15
+- [GitHub Connector Coverage of the GitHub API](2026-11-15-github-connector-route-coverage.md) — `Accepted` · 2026-11-15
 - [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) — `Superseded by [sandbox-environments](2026-10-03-sandbox-environments.md)` · 2026-06-14
 - [Sandbox Environments](2026-10-03-sandbox-environments.md) — `Accepted (Amended 2026-10-08)` · 2026-10-03
 - [Bundled Sandbox Images](2026-10-07-bundled-sandbox-images.md) — `Accepted` · 2026-10-07
@@ -287,7 +287,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-17 | [Agent Detail Configuration and the Shared Builder Motif](2026-07-17-agent-detail-configuration.md) | Accepted | — |
 | 2026-07-17 | [Motif Component Promotion into Hades](2026-07-17-motif-component-promotion.md) | Accepted | — |
 | 2026-07-22 | [Connection Scope Qualifiers — Grant-Time Resource Scoping for Connectors](2026-07-22-connection-scope-qualifiers.md) | Accepted | — |
-| 2026-07-22 | [GitHub Connection — Category-Scoped Actions, Repository Qualifiers, and Down-Scoped Token Minting](2026-07-22-github-connection-category-scoped-actions.md) | Accepted (Decision C superseded 2026-11-15) | — |
+| 2026-07-22 | [GitHub Connection — Category-Scoped Actions, Repository Qualifiers, and Down-Scoped Token Minting](2026-07-22-github-connection-category-scoped-actions.md) | Accepted (Decisions A, B, C and D superseded 2026-11-15) | — |
 | 2026-07-23 | [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) | Accepted | — |
 | 2026-07-28 | [OAuth2 Web-Redirect Clients: GitOps Pre-Registration via an OAuthClient CRD](2026-07-28-oauth2-web-redirect-clients.md) | Accepted | — |
 | 2026-08-03 | [Hades Wizard Component](2026-08-03-terra-wizard-component.md) | Proposed | — |
@@ -313,7 +313,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-09-18 | [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) | Accepted (Amended 2026-10-31) | — |
 | 2026-09-18 | [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) | Accepted | — |
 | 2026-09-28 | [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) | Accepted | — |
-| 2026-09-29 | [GitHub GraphQL Authorised by the Granular Actions of Selected Fields](2026-09-29-github-graphql-field-classification.md) | Accepted (Option 4 and the node-ID qualifier clause superseded 2026-11-15) | — |
+| 2026-09-29 | [GitHub GraphQL Authorised by the Granular Actions of Selected Fields](2026-09-29-github-graphql-field-classification.md) | Superseded by [github-connector-route-coverage](2026-11-15-github-connector-route-coverage.md) | — |
 | 2026-09-29 | [Run Activity Events](2026-09-29-run-activity-events.md) | Accepted | — |
 | 2026-09-29 | [Agent Run Guardrails](2026-09-29-agent-run-guardrails.md) | Accepted (Amended 2026-09-30) | — |
 | 2026-09-30 | [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) | Accepted | — |
@@ -353,5 +353,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-09 | [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) | Accepted | — |
 | 2026-11-11 | [Run Page Record: Message Senders, Trigger Event Summaries and Budget Stops](2026-11-11-run-page-record.md) | Accepted | — |
 | 2026-11-11 | [API Key Connection Adapter](2026-11-11-apikey-connection-adapter.md) | Accepted | — |
-| 2026-11-15 | [GitHub Connector Route Coverage and Repository Qualifiers for ID-Addressed Requests](2026-11-15-github-connector-route-coverage.md) | Accepted | — |
+| 2026-11-15 | [GitHub Connector Coverage of the GitHub API](2026-11-15-github-connector-route-coverage.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
