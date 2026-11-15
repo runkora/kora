@@ -89,7 +89,9 @@ The GitHub adapter and the broker will change as follows:
     *   `/orgs/{org}/...` and `/users/{user}/...` will classify by the category GitHub requires for the route, unqualified.
     *   `Query.search` will classify by the types the search selects, qualified by the `repo:` terms of its query as REST search is.
     *   `Query.repositoryOwner`, `Repository.sshUrl` and `Repository.parent` will classify as `metadata:read`.
-    *   `branchProtectionRule` will require `admin:read`.
+    *   `branchProtectionRule` will require `admin:read`, and its token will carry `administration: read` only.
+    *   `/orgs/{org}/teams`, `/orgs/{org}/members`, `/orgs/{org}/memberships` and `/orgs/{org}/invitations` will classify as `members:read` or `members:write`, unqualified. The `members` category will mint the organization Members permission.
+    *   A search query with an `OR` or `NOT` operator, a parenthesised `repo:` term, or an `org:` or `user:` term will classify unqualified.
 2.  `/repositories/{id}/...` will classify as the `/repos/{owner}/{repo}/...` path it resolves to.
 3.  A request that addresses objects by node ID will be qualified by their repository when every resolved ID belongs to one repository of the connection's owner. An ID that does not resolve, or IDs across several repositories, leave the request unqualified.
 4.  Lookup results will be cached by ID for the lifetime of the lookup token.
@@ -116,6 +118,7 @@ This decision supersedes Decision C of the category-scoped actions ADR, Option 4
 *   A request that the old catch-all allowed for an agent holding `repo:read` or `repo:write` is denied when the classifier does not recognize it. Each such request needs a classifier entry.
 *   A node-ID or repository-ID request costs a GitHub lookup on a cache miss.
 *   A new gh release that selects an unmapped field is denied until the classifier maps it.
+*   Org team and invitation routes need the GitHub App installation to hold the Members permission.
 
 ### Neutral
 
