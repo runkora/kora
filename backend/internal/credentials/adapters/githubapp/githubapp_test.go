@@ -296,6 +296,13 @@ func TestConnector_Classify(t *testing.T) {
 		{"collaborators", http.MethodPut, "https://api.github.com/repos/orbital/kora/collaborators/x", "admin:write", "kora", false},
 		{"dependabot_secrets", http.MethodGet, "https://api.github.com/repos/orbital/kora/dependabot/secrets", "admin:read", "kora", false},
 		{"releases_post", http.MethodPost, "https://api.github.com/repos/orbital/kora/releases", "contents:write", "kora", false},
+		{"zipball", http.MethodGet, "https://api.github.com/repos/orbital/kora/zipball/main", "contents:read", "kora", false},
+
+		// REST: account routes
+		{"org_repos", http.MethodGet, "https://api.github.com/orgs/orbital/repos", "metadata:read", "", false},
+		{"user_repos", http.MethodGet, "https://api.github.com/users/octocat/repos", "metadata:read", "", false},
+		{"org_repo_create", http.MethodPost, "https://api.github.com/orgs/orbital/repos", "repo:write", "", false},
+		{"org_invitations", http.MethodGet, "https://api.github.com/orgs/orbital/invitations", "repo:read", "", false},
 
 		// REST: uncategorized repo routes fall to the qualified catch-all
 		{"deployments_catchall", http.MethodGet, "https://api.github.com/repos/orbital/kora/deployments", "repo:read", "kora", false},

@@ -416,9 +416,15 @@ func classifyAPI(req *http.Request, path, owner string) (credentials.Classificat
 			return cls, nil
 		}
 		return credentials.Classification{Action: catRepo + ":" + verb}, nil
+	case "orgs", "users":
+		// GitHub serves an account's repository list with metadata read. The other
+		// account routes need organization permissions no category maps to.
+		if verb == verbRead && len(segs) == 3 && segs[2] == "repos" {
+			return credentials.Classification{Action: ActionMetadataRead}, nil
+		}
+		return credentials.Classification{Action: catRepo + ":" + verb}, nil
 	default:
-		// /orgs/* and every other root: the verb-classified catch-all,
-		// unqualified.
+		// Every other root: the verb-classified catch-all, unqualified.
 		return credentials.Classification{Action: catRepo + ":" + verb}, nil
 	}
 }
@@ -526,6 +532,7 @@ func isNumeric(s string) bool {
 var repoSubCategories = map[string]string{
 	"contents": catContents, "git": catContents, "tags": catContents,
 	"compare": catContents, "releases": catContents,
+	"readme": catContents, "tarball": catContents, "zipball": catContents,
 
 	"issues": catIssues, "labels": catIssues, "milestones": catIssues, "assignees": catIssues,
 

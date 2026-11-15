@@ -13,6 +13,7 @@ import (
 // TestClassify_GHInventory pins how every captured gh request classifies (gh 2.103.3 for
 // <command>-<n>-<operation> fixtures, 2.101.0 for the rest), so a classifier change shows as a changed row.
 func TestClassify_GHInventory(t *testing.T) {
+	prStatusCls := credentials.Classification{Action: "admin:read", AlsoRequired: []string{"checks:read", "contents:read", "pulls:read"}, Qualifier: "widgets"}
 	graphql := []struct {
 		fixture string
 		want    credentials.Classification
@@ -26,7 +27,7 @@ func TestClassify_GHInventory(t *testing.T) {
 		{"issue-edit-add-label-3-LabelAdd", cls("issues:write", "")},
 		{"issue-list-1-IssueList", cls("issues:read", "widgets")},
 		{"issue-list-search-1-SearchType_enumValues", cls("metadata:read", "")},
-		{"issue-list-search-2-anonymous", cls("repo:read", "widgets")},
+		{"issue-list-search-2-anonymous", cls("issues:read", "widgets")},
 		{"issue-view-1-IssueByNumber", credentials.Classification{Action: "issues:read", Alternates: []string{"pulls:read"}, Qualifier: "widgets"}},
 		{"issue-view-2-IssueProjectItems", cls("issues:read", "widgets")},
 		{"issue-view-project-items", cls("issues:read", "widgets")},
@@ -46,7 +47,7 @@ func TestClassify_GHInventory(t *testing.T) {
 		{"pr-checks", pullsCls("pulls:read", "widgets")},
 		{"pr-comment-1-PullRequestByNumber", pullsCls("pulls:read", "widgets")},
 		{"pr-comment-2-CommentCreate", credentials.Classification{Action: "issues:write", Alternates: []string{"pulls:write"}}},
-		{"pr-create-1-RepositoryInfo", cls("repo:read", "widgets")},
+		{"pr-create-1-RepositoryInfo", cls("contents:read", "widgets")},
 		{"pr-create-2-PullRequestForBranch", credentials.Classification{Action: "contents:read", AlsoRequired: []string{"pulls:read"}, Qualifier: "widgets"}},
 		{"pr-create-3-PullRequestCreate", pullsCls("pulls:write", "")},
 		{"pr-diff-1-PullRequestByNumber", pullsCls("pulls:read", "widgets")},
@@ -63,9 +64,9 @@ func TestClassify_GHInventory(t *testing.T) {
 		{"pr-edit-title-3-PullRequestUpdate", pullsCls("pulls:write", "")},
 		{"pr-list-1-PullRequestList", pullsCls("pulls:read", "widgets")},
 		{"pr-list-author-label-1-SearchType_enumValues", cls("metadata:read", "")},
-		{"pr-list-author-label-2-PullRequestSearch", cls("repo:read", "")},
+		{"pr-list-author-label-2-PullRequestSearch", pullsCls("pulls:read", "widgets")},
 		{"pr-list-search-1-SearchType_enumValues", cls("metadata:read", "")},
-		{"pr-list-search-2-PullRequestSearch", cls("repo:read", "")},
+		{"pr-list-search-2-PullRequestSearch", pullsCls("pulls:read", "widgets")},
 		{"pr-list", pullsCls("pulls:read", "widgets")},
 		{"pr-merge-1-PullRequest_fields2", cls("metadata:read", "")},
 		{"pr-merge-2-PullRequest_fields", cls("metadata:read", "")},
@@ -77,8 +78,8 @@ func TestClassify_GHInventory(t *testing.T) {
 		{"pr-review-comment-2-PullRequestReviewAdd", pullsCls("pulls:write", "")},
 		{"pr-status-1-PullRequest_fields", cls("metadata:read", "")},
 		{"pr-status-2-PullRequest_fields2", cls("metadata:read", "")},
-		{"pr-status-3-PullRequestStatus", cls("repo:read", "widgets")},
-		{"pr-status", cls("repo:read", "widgets")},
+		{"pr-status-3-PullRequestStatus", prStatusCls},
+		{"pr-status", prStatusCls},
 		{"pr-view-1-PullRequestByNumber", checksCls("widgets")},
 		{"pr-view-2-PullRequestProjectItems", pullsCls("pulls:read", "widgets")},
 		{"pr-view-current-branch-1-PullRequestForBranch", credentials.Classification{Action: "actions:read", AlsoRequired: []string{"checks:read", "contents:read", "pulls:read"}, Qualifier: "widgets"}},
@@ -91,8 +92,8 @@ func TestClassify_GHInventory(t *testing.T) {
 		{"release-list-1-Release_fields", cls("metadata:read", "")},
 		{"release-list-2-RepositoryReleaseList", cls("contents:read", "widgets")},
 		{"release-view-1-RepositoryReleaseByTag", cls("contents:read", "widgets")},
-		{"repo-clone-1-RepositoryInfo", cls("repo:read", "widgets")},
-		{"repo-list-1-RepositoryList", cls("repo:read", "")},
+		{"repo-clone-1-RepositoryInfo", cls("contents:read", "widgets")},
+		{"repo-list-1-RepositoryList", cls("metadata:read", "")},
 		{"repo-view-1-RepositoryInfo", cls("metadata:read", "widgets")},
 		{"repo-view", cls("metadata:read", "widgets")},
 		{"run-view-1-PullRequestForRun", pullsCls("pulls:read", "widgets")},
@@ -112,9 +113,9 @@ func TestClassify_GHInventory(t *testing.T) {
 		{"pr-checkout", "POST", "https://github.com/example-org/widgets.git/git-upload-pack", cls("contents:read", "widgets")},
 		{"pr-diff", "GET", "https://api.github.com/repos/example-org/widgets/pulls/1313", cls("pulls:read", "widgets")},
 		{"release-download", "GET", "https://api.github.com/repos/example-org/widgets/releases/tags/v1.17.0", cls("contents:read", "widgets")},
-		{"release-download", "GET", "https://api.github.com/repos/example-org/widgets/tarball/v1.17.0", cls("repo:read", "widgets")},
+		{"release-download", "GET", "https://api.github.com/repos/example-org/widgets/tarball/v1.17.0", cls("contents:read", "widgets")},
 		{"release-download", "GET", "https://codeload.github.com/example-org/widgets/tar.gz/refs/tags/v1.17.0", cls("contents:read", "widgets")},
-		{"repo-view", "GET", "https://api.github.com/repos/example-org/widgets/readme", cls("repo:read", "widgets")},
+		{"repo-view", "GET", "https://api.github.com/repos/example-org/widgets/readme", cls("contents:read", "widgets")},
 		{"run-list", "GET", "https://api.github.com/repos/example-org/widgets/actions/runs?exclude_pull_requests=true&per_page=3", cls("actions:read", "widgets")},
 		{"run-list", "GET", "https://api.github.com/repos/example-org/widgets/actions/workflows?page=1&per_page=100", cls("actions:read", "widgets")},
 		{"run-view", "GET", "https://api.github.com/repos/example-org/widgets/actions/runs/1001?exclude_pull_requests=true", cls("actions:read", "widgets")},
