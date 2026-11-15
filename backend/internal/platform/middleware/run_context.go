@@ -31,10 +31,15 @@ const RunIDHeader = "X-Kora-Run-Id"
 var runPrefixPattern = regexp.MustCompile(`^/run/([A-Za-z0-9._-]{1,128})(/.*)$`)
 
 // StripRunPrefix is mounted at the server root, ahead of the base-path mount.
-// Non-run paths pass through untouched.
+// Non-run paths pass through untouched. A run path with percent-encoding is
+// refused: decoding it could shift the segments the mesh path rules matched.
 func StripRunPrefix(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if m := runPrefixPattern.FindStringSubmatch(r.URL.Path); m != nil {
+			if r.URL.RawPath != "" {
+				writeError(w, http.StatusBadRequest, "invalid_request", "run path must not carry percent-encoding")
+				return
+			}
 			r = r.WithContext(context.WithValue(r.Context(), runIDContextKey{}, m[1]))
 			r.URL.Path = m[2]
 			r.URL.RawPath = ""

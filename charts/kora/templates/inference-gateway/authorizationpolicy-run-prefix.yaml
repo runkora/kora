@@ -1,0 +1,36 @@
+{{- if .Values.platform.spiffe.enabled }}
+{{- /*
+Refuses run-prefixed paths other than model calls. Path rules for unprefixed
+paths do not match a prefixed request. The kora MCP prefixes every call it
+makes for a run and is exempt. StripRunPrefix refuses encoded run paths.
+Istio adds "spiffe://".
+*/}}
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: kora-inference-gateway-run-prefix
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: kora-inference-gateway
+  action: DENY
+  rules:
+    - to:
+        - operation:
+            ports: ["8081"]
+            paths: ["/run/*"]
+            notPaths:
+              - "/run/{*}/v1/messages"
+              - "/run/{*}/v1/chat/completions"
+              - "/run/{*}/v1/responses"
+              - "/run/{*}/v1/embeddings"
+              - "/run/{*}/v1/systemone"
+              - "/run/{*}/v1/models"
+      from:
+        - source:
+            notPrincipals:
+              - "{{ include "kora.trustDomain" . }}/system/kora-mcp"
+{{- end }}

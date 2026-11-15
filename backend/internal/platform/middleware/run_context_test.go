@@ -93,6 +93,32 @@ func TestStripRunPrefix_NonRunPathUntouched(t *testing.T) {
 	}
 }
 
+// TestStripRunPrefix_RefusesEncodedRunPath proves a run path whose decoding
+// would move segment boundaries is refused before routing, while the same
+// encoding on a non-run path is left to the router.
+func TestStripRunPrefix_RefusesEncodedRunPath(t *testing.T) {
+	t.Parallel()
+	h := StripRunPrefix(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	cases := map[string]int{
+		"/run/run-42/v1/messages":                       http.StatusOK,
+		"/run/a%2Fv1%2Finternal%2Fdeclared/v1/messages": http.StatusBadRequest,
+		"/run/run-42/v1/internal%2Fdeclared/agents/t1":  http.StatusBadRequest,
+		"/run/run-42/v1/internal/%64eclared/agents/t1":  http.StatusBadRequest,
+		"/run/run-42/v1/%2e%2e/v1/messages":             http.StatusBadRequest,
+		"/v1/internal%2Fdeclared/agents/t1":             http.StatusOK,
+	}
+	for path, want := range cases {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != want {
+			t.Errorf("GET %s = %d, want %d", path, rec.Code, want)
+		}
+	}
+}
+
 // capturingEvaluator records the CheckInput ScopeEnforcementMiddleware builds.
 type capturingEvaluator struct {
 	got policy.CheckInput
