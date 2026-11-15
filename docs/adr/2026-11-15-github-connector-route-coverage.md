@@ -21,7 +21,7 @@ The `github_app` connector classifies each request to an action and a repository
 *   The [GraphQL field classification ADR](2026-09-29-github-graphql-field-classification.md) maps selected GraphQL fields to categories through hand-written field maps. An unmapped field needs the `repo:<verb>` umbrella, and a node-ID addressed request is unqualified.
 *   [JIT brokering Amendment 5](2026-06-06-jit-credential-brokering-egress-gateway.md) rejects resolving `/repositories/{id}` paths to a repository.
 
-GitHub publishes the permission every REST endpoint requires from a GitHub App installation token in `src/github-apps/data/fpt-2022-11-28/server-to-server-permissions.json` in the `github/docs` repository. It lists 1,023 endpoints that installation tokens can call, across 64 repository and organization permissions. GitHub publishes no equivalent data for GraphQL fields.
+GitHub publishes, for every REST operation, the alternative permission sets an installation token can use (`progAccess.permissions` in `src/rest/data/fpt-2022-11-28/*.json` in the `github/docs` repository). It lists 1,025 operations that installation tokens can call. GitHub publishes no equivalent data for GraphQL fields.
 
 The [same-host connection selection ADR](2026-10-15-same-host-connection-selection.md) added lookups that resolve node IDs and repository IDs through GitHub with a read-only lookup token.
 
@@ -107,10 +107,10 @@ The GitHub connector will change as follows.
 
 ### REST
 
-5.  A generator will build the route table from GitHub's `server-to-server-permissions.json` for API version 2022-11-28. The generated table and the generator are committed, and a test checks that every endpoint in the data classifies.
-6.  An endpoint classifies to the category of its permission at the endpoint's access level. An endpoint that needs several permissions requires every category involved.
-7.  The minted token carries exactly the GitHub permissions the endpoint needs, plus metadata.
-8.  An endpoint whose permission is in no category, or that installation tokens cannot call, is denied as unclassified.
+5.  A generator will build the route table from GitHub's REST operation data for API version 2022-11-28, pinned to one `github/docs` commit. The generated table and the generator are committed, and a test checks that every operation in the data classifies.
+6.  An endpoint classifies to the smallest of GitHub's alternative permission sets for it. Alternatives that each need one permission become alternate actions. A set that needs several permissions requires every category in it.
+7.  The minted token carries the permissions of the set the grant satisfied, plus metadata.
+8.  An endpoint that needs no permission classifies as `metadata:read`. An endpoint that needs `admin` access classifies as `write` and mints `admin` access. An endpoint whose permission is in no category is denied as unclassified.
 9.  Surfaces outside the data keep hand-written entries: git smart HTTP and git LFS (`contents`), `codeload.github.com` and `*.githubusercontent.com` (`contents`), `uploads.github.com` release assets (`contents`), and the Actions results receiver (`ci`).
 10.  A search query with an `OR` or `NOT` operator, a parenthesised `repo:` term, or an `org:` or `user:` term will classify unqualified.
 
