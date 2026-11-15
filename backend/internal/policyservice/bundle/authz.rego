@@ -496,10 +496,10 @@ delegation_covers_required_scope if {
 #                                         source PAT role attribution uses
 #   data.roles.role_scopes                role→scope mappings
 #
-# plus the vocabulary `requires` projection: a required scope with requires edges
-# (an MCP tool scope that declares them) is also satisfied on the delegator leg
-# when the person covers every scope in its transitive requires expansion — the
-# same edges expandRequires folds into agent grants at bundle compile.
+# plus the vocabulary `requires` projection: a required MCP tool scope with
+# requires edges is also satisfied on the delegator leg when the person covers
+# every scope in its transitive requires expansion — the same edges
+# expandRequires folds into agent grants at bundle compile.
 
 # Direct grants. Principal type must match the delegation token's
 # delegator_principal_type so two principal types sharing an id string can
@@ -543,8 +543,10 @@ delegator_covers_required_scope if _delegator_holds(_required_scope)
 
 # ...or the required scope projects through its vocabulary requires expansion
 # and the delegator covers EVERY scope in it — e.g. mcp:{server}:{tool}:use
-# delegates through to the person's connection:* authority.
+# delegates through to the person's connection:* authority. Only MCP tool
+# scopes project: other scopes' requires are what they confer, not their cost.
 delegator_covers_required_scope if {
+	startswith(_required_scope, "mcp:")
 	count(_required_scope_expansion) > 0
 	every required in _required_scope_expansion {
 		_delegator_holds(required)
