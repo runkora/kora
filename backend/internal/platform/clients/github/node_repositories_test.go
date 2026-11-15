@@ -14,17 +14,24 @@ import (
 
 func TestClient_NodeRepositories(t *testing.T) {
 	tests := []struct {
-		name    string
-		reply   string
-		want    map[string]Repository
-		wantErr error
+		name         string
+		reply        string
+		want         map[string]Repository
+		wantComplete bool
+		wantErr      error
 	}{
 		{
-			name: "repository shapes, a user and an unseen id",
+			name: "repository shapes, a user and an unseen id, with errors",
 			reply: `{"data":{"n0":{"name":"Widgets","owner":{"login":"Fabrikam"}},"n1":{"repository":{"name":"gadgets","owner":{"login":"contoso"}}},` +
 				`"n2":{"pullRequest":{"repository":{"name":"w","owner":{"login":"fabrikam"}}}},"n3":{"commit":{"repository":{"name":"c","owner":{"login":"fabrikam"}}}},"n4":{},"n5":null},` +
 				`"errors":[{"message":"Could not resolve to a node"}]}`,
 			want: map[string]Repository{"R_1": {"fabrikam", "widgets"}, "PR_1": {"contoso", "gadgets"}, "PRC_1": {"fabrikam", "w"}, "SC_1": {"fabrikam", "c"}},
+		},
+		{
+			name:         "no errors is complete",
+			reply:        `{"data":{"n0":{"name":"widgets","owner":{"login":"fabrikam"}},"n1":null,"n2":null,"n3":null,"n4":{},"n5":null}}`,
+			want:         map[string]Repository{"R_1": {"fabrikam", "widgets"}},
+			wantComplete: true,
 		},
 		{name: "errors without data fail", reply: `{"data":null,"errors":[{"type":"RATE_LIMITED"}]}`, wantErr: ErrGraphQLQuery},
 	}
@@ -39,15 +46,15 @@ func TestClient_NodeRepositories(t *testing.T) {
 				_, _ = io.WriteString(w, tc.reply)
 			}))
 			defer srv.Close()
-			got, err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).NodeRepositories(t.Context(), "tok", []string{"R_1", "PR_1", "PRC_1", "SC_1", "U_1", "nope"})
+			got, complete, err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).NodeRepositories(t.Context(), "tok", []string{"R_1", "PR_1", "PRC_1", "SC_1", "U_1", "nope"})
 			if tc.wantErr != nil {
 				if !errors.Is(err, tc.wantErr) {
 					t.Fatalf("err = %v, want %v", err, tc.wantErr)
 				}
 				return
 			}
-			if err != nil || len(got) != len(tc.want) {
-				t.Fatalf("got %v, err %v, want %v", got, err, tc.want)
+			if err != nil || len(got) != len(tc.want) || complete != tc.wantComplete {
+				t.Fatalf("got %v complete %v, err %v, want %v complete %v", got, complete, err, tc.want, tc.wantComplete)
 			}
 			for id, repo := range tc.want {
 				if got[id] != repo {

@@ -81,7 +81,7 @@ type API interface {
 	CreateInstallationToken(ctx context.Context, appJWT string, installationID int64, body ghclient.InstallationTokenRequest) (ghclient.InstallationToken, error)
 	ListInstallationRepositories(ctx context.Context, installationToken string) ([]string, error)
 	GetInstallationPermissions(ctx context.Context, appJWT string, installationID int64) (map[string]string, error)
-	NodeRepositories(ctx context.Context, installationToken string, ids []string) (map[string]ghclient.Repository, error)
+	NodeRepositories(ctx context.Context, installationToken string, ids []string) (map[string]ghclient.Repository, bool, error)
 	Repositories(ctx context.Context, installationToken string, ids []string) (map[string]ghclient.Repository, error)
 }
 
@@ -922,31 +922,33 @@ var lookupPermissions = map[string][]string{
 // NodeRepositories resolves node ids to the "owner/name" of their repository
 // with a read-only installation token limited to categories, the ones the
 // caller holds. Ids the token cannot see, or outside any repository, are absent.
-// See docs/adr/2026-10-15-same-host-connection-selection.md.
-func (c *connector) NodeRepositories(ctx context.Context, ids, categories []string) (map[string]string, error) {
+// complete is false when GitHub answered with errors, so absent ids may not be
+// unseen. See docs/adr/2026-10-15-same-host-connection-selection.md.
+func (c *connector) NodeRepositories(ctx context.Context, ids, categories []string) (map[string]string, bool, error) {
 	token, err := c.lookupToken(ctx, categories)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	repos, err := c.adapter.api.NodeRepositories(ctx, token, ids)
+	repos, complete, err := c.adapter.api.NodeRepositories(ctx, token, ids)
 	if err != nil {
-		return nil, fmt.Errorf("node repository lookup: %w", err)
+		return nil, false, fmt.Errorf("node repository lookup: %w", err)
 	}
-	return nameWithOwner(repos), nil
+	return nameWithOwner(repos), complete, nil
 }
 
 // Repositories resolves numeric repository ids to "owner/name" with the same
-// read-only token as NodeRepositories. Ids the token cannot see are absent.
-func (c *connector) Repositories(ctx context.Context, ids, categories []string) (map[string]string, error) {
+// read-only token as NodeRepositories. Ids the token cannot see are absent,
+// and any other failure is an error, so the result is always complete.
+func (c *connector) Repositories(ctx context.Context, ids, categories []string) (map[string]string, bool, error) {
 	token, err := c.lookupToken(ctx, categories)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	repos, err := c.adapter.api.Repositories(ctx, token, ids)
 	if err != nil {
-		return nil, fmt.Errorf("repository lookup: %w", err)
+		return nil, false, fmt.Errorf("repository lookup: %w", err)
 	}
-	return nameWithOwner(repos), nil
+	return nameWithOwner(repos), true, nil
 }
 
 func nameWithOwner(repos map[string]ghclient.Repository) map[string]string {

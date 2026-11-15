@@ -161,18 +161,18 @@ func TestConnector_NodeRepositories(t *testing.T) {
 	a.now = func() time.Time { return time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC) }
 	c := open(t, a, credentials.Connection{ID: "example|fabrikam", SecretRef: "ref", Config: mustConfig(t, config{AppID: "1", InstallationID: 42, Owner: "fabrikam"})}).(*connector)
 
-	got, err := c.NodeRepositories(t.Context(), []string{"PR_1", "garbage", "R_1"}, []string{"contents", "issues"})
+	got, complete, err := c.NodeRepositories(t.Context(), []string{"PR_1", "garbage", "R_1"}, []string{"contents", "issues"})
 	if err != nil {
 		t.Fatalf("NodeRepositories: %v", err)
 	}
-	if len(got) != 2 || got["PR_1"] != "fabrikam/widgets" || got["R_1"] != "contoso/gadgets" {
-		t.Errorf("repositories = %v, want PR_1=fabrikam/widgets R_1=contoso/gadgets", got)
+	if len(got) != 2 || got["PR_1"] != "fabrikam/widgets" || got["R_1"] != "contoso/gadgets" || complete {
+		t.Errorf("repositories = %v complete %v, want PR_1=fabrikam/widgets R_1=contoso/gadgets, incomplete from the errors", got, complete)
 	}
 	want := map[string]string{"contents": "read", "issues": "read", "metadata": "read"}
 	if len(minted.Permissions) != len(want) || minted.Permissions["contents"] != "read" || minted.Permissions["issues"] != "read" || minted.Permissions["administration"] != "" {
 		t.Errorf("lookup token permissions = %v, want %v", minted.Permissions, want)
 	}
-	if _, err := c.NodeRepositories(t.Context(), []string{"PR_1"}, []string{"contents", "issues"}); err != nil || lookups != 2 {
+	if _, _, err := c.NodeRepositories(t.Context(), []string{"PR_1"}, []string{"contents", "issues"}); err != nil || lookups != 2 {
 		t.Errorf("second lookup err %v, lookups %d", err, lookups)
 	}
 }
@@ -190,7 +190,7 @@ func TestConnector_NodeRepositoriesWithoutLookupPermissions(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	a := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
 	c := open(t, a, credentials.Connection{ID: "x", SecretRef: "ref", Config: mustConfig(t, config{AppID: "1", InstallationID: 42})}).(*connector)
-	if _, err := c.NodeRepositories(t.Context(), []string{"PR_1"}, []string{"repo"}); !errors.Is(err, errNoLookupPermissions) {
+	if _, _, err := c.NodeRepositories(t.Context(), []string{"PR_1"}, []string{"repo"}); !errors.Is(err, errNoLookupPermissions) {
 		t.Errorf("err = %v, want errNoLookupPermissions", err)
 	}
 }

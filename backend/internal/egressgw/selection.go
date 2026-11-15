@@ -23,17 +23,18 @@ import (
 type ownerScoped interface {
 	Owner() string
 	RequestOwners(req *http.Request) credentials.RequestOwners
-	NodeRepositories(ctx context.Context, ids, categories []string) (map[string]string, error)
-	Repositories(ctx context.Context, ids, categories []string) (map[string]string, error)
+	NodeRepositories(ctx context.Context, ids, categories []string) (map[string]string, bool, error)
+	Repositories(ctx context.Context, ids, categories []string) (map[string]string, bool, error)
 }
 
-// idLookup resolves one kind of id, node or repository, to "owner/name".
+// idLookup resolves one kind of id, node or repository, to "owner/name". The
+// bool reports whether an absent id is known to be unseen.
 type idLookup struct {
 	kind    string
 	subject string
 	idsAttr attribute.Key
 	failure error
-	resolve func(s ownerScoped, ctx context.Context, ids, categories []string) (map[string]string, error)
+	resolve func(s ownerScoped, ctx context.Context, ids, categories []string) (map[string]string, bool, error)
 }
 
 var (
@@ -210,32 +211,36 @@ func (b *Broker) resolveRepositories(ctx context.Context, claims *token.Platform
 	if len(misses) == 0 {
 		return resolved, nil
 	}
-	looked, err := b.lookupOwners(ctx, claims, c, s, misses, categories, lookup)
+	looked, complete, err := b.lookupOwners(ctx, claims, c, s, misses, categories, lookup)
 	if err != nil {
 		return nil, err
 	}
-	// An id this token cannot see is cached as "" to spare repeat lookups.
+	// An id this token cannot see is cached as "" to spare repeat lookups, but
+	// only when the response carried no errors that could explain its absence.
 	for _, id := range misses {
 		if looked[id] != "" {
 			resolved[id] = looked[id]
 		}
-		b.nodeOwners.put(tenantID, host, cacheConn, id, looked[id])
+		if looked[id] != "" || complete {
+			b.nodeOwners.put(tenantID, host, cacheConn, id, looked[id])
+		}
 	}
 	return resolved, nil
 }
 
 // lookupOwners runs one candidate's id lookup under its own span and
 // logs it with the run attribution. Its result never reaches the agent.
-func (b *Broker) lookupOwners(ctx context.Context, claims *token.PlatformClaims, c *credentials.Connection, s ownerScoped, ids, categories []string, lookup idLookup) (map[string]string, error) {
+func (b *Broker) lookupOwners(ctx context.Context, claims *token.PlatformClaims, c *credentials.Connection, s ownerScoped, ids, categories []string, lookup idLookup) (map[string]string, bool, error) {
 	ctx, span := tracer.Start(ctx, "egressgw.Broker.lookupOwners", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
 	span.SetAttributes(observability.ConnectionNameKey.String(c.Name), lookup.idsAttr.Int(len(ids)))
 
-	resolved, err := lookup.resolve(s, ctx, ids, categories)
+	resolved, complete, err := lookup.resolve(s, ctx, ids, categories)
 	fields := []logging.Field{
 		{Key: "connection", Value: c.Name},
 		{Key: lookup.kind + "_ids", Value: len(ids)},
 		{Key: "resolved", Value: len(resolved)},
+		{Key: "complete", Value: complete},
 		{Key: "tenant_id", Value: claims.Kora.TenantID},
 		{Key: "principal_id", Value: claims.Subject},
 		{Key: "run_id", Value: claims.Kora.Claims["run_id"]},
@@ -243,10 +248,10 @@ func (b *Broker) lookupOwners(ctx context.Context, claims *token.PlatformClaims,
 	if err != nil {
 		observability.RecordFailure(span, err, lookup.failure)
 		b.logger.Warn(ctx, lookup.kind+" id owner lookup failed", append(fields, logging.Field{Key: "error", Value: err.Error()})...)
-		return nil, err
+		return nil, false, err
 	}
 	b.logger.Info(ctx, lookup.kind+" id owner lookup", fields...)
-	return resolved, nil
+	return resolved, complete, nil
 }
 
 // openOwnerScoped opens c and returns its connector when it reports owners. A

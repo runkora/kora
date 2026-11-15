@@ -93,6 +93,26 @@ func TestClassify_ResolvedIDCacheHit(t *testing.T) {
 	}
 }
 
+// A lookup answered with errors caches what resolved but not the misses, which
+// may be failures rather than ids the token cannot see.
+func TestClassify_PartialLookupDoesNotCacheMisses(t *testing.T) {
+	conn := githubConn(t, "fabrikam-github", "fabrikam")
+	la := &lookupAdapter{visible: map[string]map[string]string{"fabrikam-github": {"PR_w": "fabrikam/widgets"}}, partial: true}
+	b := lookupBroker(&selectionPolicy{scopes: []string{"connection:fabrikam-github:pulls:widgets:read"}}, candidateConns{conn}, la)
+	connector := openQualifying(t, la, conn)
+	doc := func(id string) EgressRequest {
+		return graphqlRequest(`{"query":"{ node(id: \"` + id + `\") { ... on PullRequest { title } } }"}`)
+	}
+	for _, id := range []string{"PR_w", "PR_w", "PR_missing", "PR_missing"} {
+		if _, err := b.classify(context.Background(), acmeClaims, conn, connector, doc(id)); err != nil {
+			t.Fatalf("classify %s: %v", id, err)
+		}
+	}
+	if la.lookups != 3 {
+		t.Errorf("lookups = %d, want 3: one for PR_w, then PR_missing twice", la.lookups)
+	}
+}
+
 func openQualifying(t *testing.T, la *lookupAdapter, conn *credentials.Connection) credentials.Connector {
 	t.Helper()
 	c, err := la.Open(*conn)

@@ -29,6 +29,8 @@ type lookupAdapter struct {
 	categories [][]string
 	// qualifying opens connectors that also qualify by resolved ids.
 	qualifying bool
+	// partial reports lookups as answered with errors.
+	partial bool
 }
 
 type lookupConnector struct {
@@ -50,11 +52,11 @@ func (a *lookupAdapter) Open(conn credentials.Connection) (credentials.Connector
 	return lc, nil
 }
 
-func (c *lookupConnector) NodeRepositories(_ context.Context, ids, categories []string) (map[string]string, error) {
+func (c *lookupConnector) NodeRepositories(_ context.Context, ids, categories []string) (map[string]string, bool, error) {
 	c.adapter.lookups++
 	c.adapter.categories = append(c.adapter.categories, categories)
 	if c.adapter.err != nil {
-		return nil, c.adapter.err
+		return nil, false, c.adapter.err
 	}
 	out := map[string]string{}
 	for _, id := range ids {
@@ -62,10 +64,10 @@ func (c *lookupConnector) NodeRepositories(_ context.Context, ids, categories []
 			out[id] = owner
 		}
 	}
-	return out, nil
+	return out, !c.adapter.partial, nil
 }
 
-func (c *lookupConnector) Repositories(ctx context.Context, ids, categories []string) (map[string]string, error) {
+func (c *lookupConnector) Repositories(ctx context.Context, ids, categories []string) (map[string]string, bool, error) {
 	return c.NodeRepositories(ctx, ids, categories)
 }
 

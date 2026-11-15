@@ -84,8 +84,9 @@ func (n *nodeRepository) ref() (Repository, bool) {
 // or belongs to, using an installation token. Ids the token cannot see, and
 // ids of objects outside any repository, are absent from the result. Each id
 // is a separate aliased field, so one unresolvable id does not fail the others.
-// At most MaxNodeLookup ids are sent.
-func (c *Client) NodeRepositories(ctx context.Context, installationToken string, ids []string) (map[string]Repository, error) {
+// At most MaxNodeLookup ids are sent. complete is false when the response
+// carried errors, so an absent id may be a failure rather than unseen.
+func (c *Client) NodeRepositories(ctx context.Context, installationToken string, ids []string) (repos map[string]Repository, complete bool, err error) {
 	ids = ids[:min(len(ids), MaxNodeLookup)]
 	params := make([]string, len(ids))
 	fields := make([]string, len(ids))
@@ -101,7 +102,7 @@ func (c *Client) NodeRepositories(ctx context.Context, installationToken string,
 	}
 	payload, err := c.EncodeJSON(body)
 	if err != nil {
-		return nil, fmt.Errorf("encode node repository lookup: %w", err)
+		return nil, false, fmt.Errorf("encode node repository lookup: %w", err)
 	}
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+installationToken)
@@ -112,11 +113,11 @@ func (c *Client) NodeRepositories(ctx context.Context, installationToken string,
 	})
 	defer span.End()
 	if err != nil {
-		return nil, fmt.Errorf("node repository lookup call: %w", err)
+		return nil, false, fmt.Errorf("node repository lookup call: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+		return nil, false, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
 
 	var out struct {
@@ -124,13 +125,13 @@ func (c *Client) NodeRepositories(ctx context.Context, installationToken string,
 		Errors []json.RawMessage          `json:"errors"`
 	}
 	if err := c.DecodeJSON(span, resp, &out); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	// No data at all, with errors, is a failed query rather than unseen ids.
 	if out.Data == nil && len(out.Errors) > 0 {
-		return nil, c.RecordError(span, fmt.Errorf("%w: %s", ErrGraphQLQuery, out.Errors[0]))
+		return nil, false, c.RecordError(span, fmt.Errorf("%w: %s", ErrGraphQLQuery, out.Errors[0]))
 	}
-	repos := make(map[string]Repository, len(ids))
+	repos = make(map[string]Repository, len(ids))
 	for i, id := range ids {
 		if n := out.Data[fmt.Sprintf("n%d", i)]; n != nil {
 			if ref, ok := n.ref(); ok {
@@ -138,5 +139,5 @@ func (c *Client) NodeRepositories(ctx context.Context, installationToken string,
 			}
 		}
 	}
-	return repos, nil
+	return repos, len(out.Errors) == 0, nil
 }
