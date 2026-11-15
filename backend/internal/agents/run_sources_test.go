@@ -86,7 +86,7 @@ func TestStartRun_Sources(t *testing.T) {
 
 func TestSendMessage_Sources(t *testing.T) {
 	f, repo, _, _ := newTestService(t)
-	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRuns: 5})
 	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateIdle, Sources: []RunSource{srcSlack}})
 
 	svc := withPrincipalCtx(context.Background(), "t-1", token.PrincipalTypeService, "trigger-source:s1")
