@@ -20,7 +20,7 @@ import (
 // when KORA_TEST_DB_URL points at a database with inference_usage migrated;
 // otherwise they skip. Each test isolates itself under a random tenant.
 //
-//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora?sslmode=disable' \
+//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora_test?sslmode=disable' \
 //	  go test ./internal/inferencegw/ -run Postgres
 func testUsageRepo(t *testing.T) (*PostgresInferenceUsageRepository, *pgxpool.Pool, string) {
 	t.Helper()

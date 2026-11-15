@@ -16,7 +16,7 @@ import (
 // only when KORA_TEST_DB_URL points at a database with the kora-agents
 // migrations applied. drafts_postgres_test.go uses the same harness.
 //
-//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora?sslmode=disable' \
+//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora_test?sslmode=disable' \
 //	  go test ./internal/agents/ -run Postgres_
 
 func testEnvironmentRepo(t *testing.T) (*PostgresRepository, string) {
