@@ -465,20 +465,26 @@ func classifySearch(req *http.Request, segs []string, owner string) (credentials
 }
 
 // searchRepoQualifier returns the repository name when every repo:owner/name
-// term in q names the same repository of owner, and "" otherwise. A negated
-// -repo: term never scopes the query.
+// term in q names the same repository of owner, and "" otherwise. Any term
+// that could widen the query past that repository fails closed: NOT, OR, an
+// org: or user: term, and a repo: term that is negated, grouped or quoted.
 func searchRepoQualifier(q, owner string) string {
 	name := ""
 	for term := range strings.FieldsSeq(q) {
-		ref, ok := strings.CutPrefix(strings.ToLower(term), "repo:")
-		if !ok && strings.HasPrefix(strings.ToLower(term), "-repo:") {
-			// A negated term excludes a repository, so the query spans the rest.
+		lower := strings.ToLower(term)
+		bare := strings.TrimPrefix(strings.Trim(lower, `()"`), "-")
+		switch {
+		case lower == "not" || lower == "or",
+			strings.HasPrefix(bare, "org:"), strings.HasPrefix(bare, "user:"):
 			return ""
-		}
-		if !ok {
+		case !strings.Contains(bare, "repo:"):
 			continue
 		}
-		o, r, ok := strings.Cut(strings.Trim(ref, `"`), "/")
+		ref, ok := strings.CutPrefix(lower, "repo:")
+		if !ok || strings.ContainsAny(ref, `()"`) {
+			return ""
+		}
+		o, r, ok := strings.Cut(ref, "/")
 		if !ok || o != owner || r == "" || (name != "" && r != name) {
 			return ""
 		}

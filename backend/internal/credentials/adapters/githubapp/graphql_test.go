@@ -172,6 +172,7 @@ func TestClassifyGraphQL(t *testing.T) {
 		return string(b)
 	}
 	const repoWidgets = `repository(owner:"example-org", name:"widgets")`
+	const searchQ = `query($q:String!){ search(query:$q, type:ISSUE, first:1){ issueCount } }`
 
 	cases := []struct {
 		name   string
@@ -191,6 +192,13 @@ func TestClassifyGraphQL(t *testing.T) {
 		{name: "repository search needs metadata", body: q(`{ search(query:"repo:example-org/widgets", type:REPOSITORY, first:1){ nodes { ... on Repository { name } } } }`, nil), want: cls("metadata:read", "widgets")},
 		{name: "search of an unmapped type needs the umbrella", body: q(`{ search(query:"x", type:USER, first:1){ nodes { ... on User { login } } } }`, nil), want: cls("repo:read", "")},
 		{name: "search naming a foreign repository is unqualified", body: q(`{ search(query:"repo:evil/widgets", type:ISSUE, first:1){ issueCount } }`, nil), want: cls("metadata:read", "")},
+		{name: "search with NOT is unqualified", body: q(searchQ, map[string]any{"q": "NOT repo:example-org/widgets"}), want: cls("metadata:read", "")},
+		{name: "search with OR is unqualified", body: q(searchQ, map[string]any{"q": "repo:example-org/widgets OR is:public"}), want: cls("metadata:read", "")},
+		{name: "search with a grouped repo term is unqualified", body: q(searchQ, map[string]any{"q": "(repo:example-org/other) repo:example-org/widgets"}), want: cls("metadata:read", "")},
+		{name: "search with a quoted repo term is unqualified", body: q(searchQ, map[string]any{"q": `"repo:example-org/other" repo:example-org/widgets`}), want: cls("metadata:read", "")},
+		{name: "search with an org term is unqualified", body: q(searchQ, map[string]any{"q": "repo:example-org/widgets org:example-org"}), want: cls("metadata:read", "")},
+		{name: "search with a user term is unqualified", body: q(searchQ, map[string]any{"q": "repo:example-org/widgets user:example-org"}), want: cls("metadata:read", "")},
+		{name: "search with grouped words stays qualified", body: q(searchQ, map[string]any{"q": "( deploy ) repo:example-org/widgets"}), want: cls("metadata:read", "widgets")},
 		{name: "search naming two repositories is unqualified", body: q(`{ search(query:"repo:example-org/widgets repo:example-org/other", type:ISSUE, first:1){ issueCount } }`, nil), want: cls("metadata:read", "")},
 		{name: "search excluding a repository is unqualified", body: q(`{ search(query:"repo:example-org/widgets -repo:example-org/other", type:ISSUE, first:1){ issueCount } }`, nil), want: cls("metadata:read", "")},
 		{name: "search scoped apart from the repository lookup is unqualified", body: q(`{ `+repoWidgets+` { id } search(query:"repo:example-org/other", type:ISSUE, first:1){ issueCount } }`, nil), want: cls("metadata:read", "")},
