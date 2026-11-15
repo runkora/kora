@@ -417,16 +417,21 @@ func classifyAPI(req *http.Request, path, owner string) (credentials.Classificat
 		}
 		return credentials.Classification{Action: catRepo + ":" + verb}, nil
 	case "orgs", "users":
-		// GitHub serves an account's repository list with metadata read. The other
-		// account routes need organization permissions no category maps to.
-		if verb == verbRead && len(segs) == 3 && segs[2] == "repos" {
-			return credentials.Classification{Action: ActionMetadataRead}, nil
-		}
-		return credentials.Classification{Action: catRepo + ":" + verb}, nil
+		return classifyAccountPath(verb, segs), nil
 	default:
 		// Every other root: the verb-classified catch-all, unqualified.
 		return credentials.Classification{Action: catRepo + ":" + verb}, nil
 	}
+}
+
+// classifyAccountPath maps /orgs/{org}/... and /users/{user}/... GitHub serves
+// an account's repository list with metadata read. The other account routes
+// need organization permissions no category maps to, so they keep the catch-all.
+func classifyAccountPath(verb string, segs []string) credentials.Classification {
+	if verb == verbRead && len(segs) == 3 && segs[2] == "repos" {
+		return credentials.Classification{Action: ActionMetadataRead}
+	}
+	return credentials.Classification{Action: catRepo + ":" + verb}
 }
 
 // classifySearch maps /search/{kind} to the category that owns the searched
