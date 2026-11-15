@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -288,7 +289,7 @@ func TestConnector_Classify(t *testing.T) {
 		{"commits_get", http.MethodGet, "https://api.github.com/repos/orbital/kora/commits/abc", "contents:read", "kora", false},
 		{"commit_status", http.MethodGet, "https://api.github.com/repos/orbital/kora/commits/abc/status", "checks:read", "kora", false},
 		{"branches_get", http.MethodGet, "https://api.github.com/repos/orbital/kora/branches/main", "contents:read", "kora", false},
-		{"branch_protection", http.MethodPut, "https://api.github.com/repos/orbital/kora/branches/main/protection", "admin:write", "kora", false},
+		{"branch_protection", http.MethodPut, "https://api.github.com/repos/orbital/kora/branches/main/protection", "protection:write", "kora", false},
 		{"issues_post", http.MethodPost, "https://api.github.com/repos/orbital/kora/issues", "issues:write", "kora", false},
 		{"labels_get", http.MethodGet, "https://api.github.com/repos/orbital/kora/labels", "issues:read", "kora", false},
 		{"pulls_get", http.MethodGet, "https://api.github.com/repos/orbital/kora/pulls/1", "pulls:read", "kora", false},
@@ -452,6 +453,8 @@ func TestPermissionsFor(t *testing.T) {
 		{"admin_read", "admin:read", nil, map[string]string{"administration": "read", "repository_hooks": "read", "secrets": "read", "dependabot_secrets": "read", "metadata": "read"}},
 		{"members_read", "members:read", nil, map[string]string{"members": "read", "metadata": "read"}},
 		{"members_write", "members:write", nil, map[string]string{"members": "write", "metadata": "read"}},
+		{"protection_read", "protection:read", nil, map[string]string{"administration": "read", "metadata": "read"}},
+		{"protection_write", "protection:write", nil, map[string]string{"administration": "write", "metadata": "read"}},
 		{"ceiling_drops_and_lowers", "admin:write", map[string]string{"administration": "read", "metadata": "read"},
 			map[string]string{"administration": "read", "metadata": "read"}},
 		{"umbrella_mints_ceiling_verbatim", "repo:write", map[string]string{"contents": "write", "workflows": "write"},
@@ -777,5 +780,47 @@ func TestAdapter_Resolve_QualifierNarrowsMint(t *testing.T) {
 	}
 	if _, ok := gotBody.Permissions["contents"]; ok {
 		t.Errorf("issues:write token must not carry contents, got %v", gotBody.Permissions)
+	}
+}
+
+// A protection grant mints administration alone; an admin alternate the grant
+// also holds widens the token to the admin category.
+func TestAdapter_Resolve_ProtectionMintsAdministrationOnly(t *testing.T) {
+	var gotBody ghclient.InstallationTokenRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{"token": "ghs_tok", "expires_at": "2026-07-22T13:00:00Z"})
+	}))
+	defer srv.Close()
+
+	logger := logging.NewLoggerWithOutput(io.Discard)
+	adapter := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
+	adapter.now = func() time.Time { return time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC) }
+	conn := credentials.Connection{
+		ID: "conn-1", TenantID: "example", Name: "github", Adapter: credentials.AdapterGitHubApp,
+		SecretRef: "ref",
+		Config:    mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "orbital"}),
+	}
+
+	cases := []struct {
+		name string
+		id   credentials.CallerIdentity
+		want map[string]string
+	}{
+		{"protection only", credentials.CallerIdentity{Action: "protection:read", Qualifier: "kora"},
+			map[string]string{"administration": "read", "metadata": "read"}},
+		{"admin alternate held", credentials.CallerIdentity{Action: "protection:read", AlsoAuthorized: []string{"admin:read"}, Qualifier: "kora"},
+			map[string]string{"administration": "read", "repository_hooks": "read", "secrets": "read", "dependabot_secrets": "read", "metadata": "read"}},
+	}
+	for _, tc := range cases {
+		gotBody = ghclient.InstallationTokenRequest{}
+		if _, err := open(t, adapter, conn).Mint(context.Background(), tc.id); err != nil {
+			t.Fatalf("%s: Mint: %v", tc.name, err)
+		}
+		if !maps.Equal(gotBody.Permissions, tc.want) {
+			t.Errorf("%s: minted permissions = %v, want %v", tc.name, gotBody.Permissions, tc.want)
+		}
 	}
 }

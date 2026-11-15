@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -109,8 +110,8 @@ func TestClassifyGraphQL_GHCommands(t *testing.T) {
 		{"issue-view", credentials.Classification{Action: "issues:read", Alternates: []string{"pulls:read"}, Qualifier: "widgets"}, true, true, true},
 		{"issue-view-project-items", cls("issues:read", "widgets"), true, true, true},
 		{"repo-view", cls("metadata:read", "widgets"), true, true, true},
-		// The base ref's branchProtectionRule needs admin:read, which the code reviewer lacks.
-		{"pr-status", credentials.Classification{Action: "admin:read", AlsoRequired: []string{"checks:read", "contents:read", "pulls:read"}, Qualifier: "widgets"}, false, false, false},
+		// The base ref's branchProtectionRule needs protection:read or admin:read, which the code reviewer lacks.
+		{"pr-status", credentials.Classification{Action: "protection:read", Alternates: []string{"admin:read"}, AlsoRequired: []string{"checks:read", "contents:read", "pulls:read"}, Qualifier: "widgets"}, false, false, false},
 		{"pr-comment-2-CommentCreate", credentials.Classification{Action: "issues:write", Alternates: []string{"pulls:write"}}, false, true, false},
 		{"pr-review-comment-2-PullRequestReviewAdd", pullsCls("pulls:write", ""), false, true, false},
 		{"pr-merge-4-PullRequestMerge", cls("contents:write", ""), false, false, false},
@@ -139,6 +140,48 @@ func TestClassifyGraphQL_GHCommands(t *testing.T) {
 				t.Errorf("issues-only allowed = %v, want %v", ok, tc.issuesOnlyOK)
 			}
 		})
+	}
+}
+
+// TestClassify_BranchProtection checks that branch protection, on both
+// surfaces, is covered by a protection grant and still by a repository-qualified
+// admin grant, which no requires edge reaches.
+func TestClassify_BranchProtection(t *testing.T) {
+	base := grant{"metadata:read": nil, "contents:read": widgetsOnly, "pulls:read": widgetsOnly, "checks:read": widgetsOnly}
+	withAdmin, withProtection := grant{"admin:read": widgetsOnly, "admin:write": widgetsOnly}, grant{"protection:read": widgetsOnly, "protection:write": widgetsOnly}
+	maps.Copy(withAdmin, base)
+	maps.Copy(withProtection, base)
+
+	body, err := os.ReadFile(filepath.Join("testdata", "gh", "pr-status.json"))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	c := graphqlConnector(t)
+	requests := map[string]*http.Request{"graphql pr-status": graphqlPost(t, string(body))}
+	for _, method := range []string{http.MethodGet, http.MethodPut} {
+		req, err := http.NewRequest(method, "https://api.github.com/repos/example-org/widgets/branches/main/protection/required_status_checks", http.NoBody)
+		if err != nil {
+			t.Fatalf("build request: %v", err)
+		}
+		requests["rest "+method] = req
+	}
+	for name, req := range requests {
+		got, err := c.Classify(req)
+		if err != nil {
+			t.Fatalf("%s: Classify: %v", name, err)
+		}
+		if !strings.HasPrefix(got.Action, "protection:") || got.Qualifier != "widgets" {
+			t.Errorf("%s: classification = %+v, want protection qualified by widgets", name, got)
+		}
+		if !withAdmin.allows(got) {
+			t.Errorf("%s: repository-qualified admin grant denied %+v", name, got)
+		}
+		if !withProtection.allows(got) {
+			t.Errorf("%s: protection grant denied %+v", name, got)
+		}
+		if base.allows(got) {
+			t.Errorf("%s: grant without protection or admin allowed %+v", name, got)
+		}
 	}
 }
 
@@ -204,8 +247,8 @@ func TestClassifyGraphQL(t *testing.T) {
 		{name: "search scoped apart from the repository lookup is unqualified", body: q(`{ `+repoWidgets+` { id } search(query:"repo:example-org/other", type:ISSUE, first:1){ issueCount } }`, nil), want: cls("metadata:read", "")},
 		{name: "search query from a variable", body: q(`query($q:String!){ search(query:$q, type:ISSUE, first:1){ issueCount } }`, map[string]any{"q": "repo:example-org/widgets"}), want: cls("metadata:read", "widgets")},
 		{name: "fork parent fields classify as a repository's", body: q(`{ `+repoWidgets+` { parent { name issues(first:1){totalCount} } } }`, nil), want: cls("issues:read", "widgets")},
-		{name: "branch protection needs admin", body: q(`{ `+repoWidgets+` { defaultBranchRef { branchProtectionRule { pattern } } } }`, nil),
-			want: credentials.Classification{Action: "admin:read", AlsoRequired: []string{"contents:read"}, Qualifier: "widgets"}},
+		{name: "branch protection needs protection or admin", body: q(`{ `+repoWidgets+` { defaultBranchRef { branchProtectionRule { pattern } } } }`, nil),
+			want: credentials.Classification{Action: "protection:read", Alternates: []string{"admin:read"}, AlsoRequired: []string{"contents:read"}, Qualifier: "widgets"}},
 		{name: "owner repositories classify as repositories", body: q(`{ repositoryOwner(login:"example-org") { login repositories(first:1) { totalCount nodes { name issues(first:1){totalCount} } } } }`, nil), want: cls("issues:read", "")},
 		{name: "owner repositories are never one repository", body: q(`{ `+repoWidgets+` { id } repositoryOwner(login:"example-org") { repositories(first:1) { nodes { name } } } }`, nil), want: cls("metadata:read", "")},
 		{name: "unknown owner field needs the umbrella", body: q(`{ repositoryOwner(login:"example-org") { repository(name:"widgets") { id } } }`, nil), want: cls("repo:read", "")},

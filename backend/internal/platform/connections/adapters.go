@@ -57,6 +57,8 @@ const (
 	ActionGitHubChecksWrite   = "checks:write"
 	ActionGitHubAdminRead     = "admin:read"
 	ActionGitHubAdminWrite    = "admin:write"
+	ActionGitHubProtectRead   = "protection:read"
+	ActionGitHubProtectWrite  = "protection:write"
 	ActionGitHubMembersRead   = "members:read"
 	ActionGitHubMembersWrite  = "members:write"
 
@@ -141,13 +143,13 @@ type adapterMeta struct {
 var githubCategoryReads = []string{
 	ActionGitHubMetadataRead, ActionGitHubContentsRead, ActionGitHubIssuesRead,
 	ActionGitHubPullsRead, ActionGitHubActionsRead, ActionGitHubChecksRead, ActionGitHubAdminRead,
-	ActionGitHubMembersRead,
+	ActionGitHubProtectRead, ActionGitHubMembersRead,
 }
 
 var githubCategoryWrites = []string{
 	ActionGitHubContentsWrite, ActionGitHubIssuesWrite, ActionGitHubPullsWrite,
 	ActionGitHubActionsWrite, ActionGitHubChecksWrite, ActionGitHubAdminWrite,
-	ActionGitHubMembersWrite,
+	ActionGitHubProtectWrite, ActionGitHubMembersWrite,
 }
 
 // githubMeta is the requires edge every GitHub category action carries:
@@ -169,8 +171,10 @@ var registry = map[string]adapterMeta{
 			{Action: ActionGitHubActionsWrite, Description: "Dispatch, re-run, and cancel GitHub Actions workflows (not secrets or variables)", Requires: githubMeta},
 			{Action: ActionGitHubChecksRead, Description: "Read check runs, check suites, and commit statuses", Requires: githubMeta},
 			{Action: ActionGitHubChecksWrite, Description: "Create and update check runs, check suites, and commit statuses", Requires: githubMeta},
-			{Action: ActionGitHubAdminRead, Description: "Read repository administration: settings, webhooks, deploy keys, collaborators, branch protection, Actions secrets metadata", Requires: githubMeta},
-			{Action: ActionGitHubAdminWrite, Description: "Administer the repository: settings, webhooks, deploy keys, collaborators, branch protection, Actions/Dependabot secrets", Requires: githubMeta},
+			{Action: ActionGitHubAdminRead, Description: "Read repository administration: settings, webhooks, deploy keys, collaborators, branch protection, Actions secrets metadata", Requires: []string{ActionGitHubMetadataRead, ActionGitHubProtectRead}},
+			{Action: ActionGitHubAdminWrite, Description: "Administer the repository: settings, webhooks, deploy keys, collaborators, branch protection, Actions/Dependabot secrets", Requires: []string{ActionGitHubMetadataRead, ActionGitHubProtectWrite}},
+			{Action: ActionGitHubProtectRead, Description: "Read branch protection rules. The token carries repository administration read and nothing else of admin:read", Requires: githubMeta},
+			{Action: ActionGitHubProtectWrite, Description: "Change branch protection rules. The token carries repository administration write and nothing else of admin:write", Requires: githubMeta},
 			{Action: ActionGitHubMembersRead, Description: "Read the organization's members, memberships, pending invitations, and teams. Organization-wide, so only an unqualified grant covers it", Requires: githubMeta},
 			{Action: ActionGitHubMembersWrite, Description: "Invite and remove organization members and edit teams and team memberships. Organization-wide, so only an unqualified grant covers it", Requires: githubMeta},
 			{Action: ActionGitHubRepoRead, Description: "Catch-all read for uncategorized GitHub routes (search, GraphQL, long-tail APIs). Unqualified, it also confers every category read, admin:read included. A repository-qualified grant confers no categories", Requires: githubCategoryReads},

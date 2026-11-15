@@ -13,7 +13,7 @@ import (
 // TestClassify_GHInventory pins how every captured gh request classifies (gh 2.103.3 for
 // <command>-<n>-<operation> fixtures, 2.101.0 for the rest), so a classifier change shows as a changed row.
 func TestClassify_GHInventory(t *testing.T) {
-	prStatusCls := credentials.Classification{Action: "admin:read", AlsoRequired: []string{"checks:read", "contents:read", "pulls:read"}, Qualifier: "widgets"}
+	prStatusCls := credentials.Classification{Action: "protection:read", Alternates: []string{"admin:read"}, AlsoRequired: []string{"checks:read", "contents:read", "pulls:read"}, Qualifier: "widgets"}
 	graphql := []struct {
 		fixture string
 		want    credentials.Classification

@@ -362,15 +362,16 @@ const (
 	verbRead  = "read"
 	verbWrite = "write"
 
-	catMetadata = "metadata"
-	catContents = "contents"
-	catIssues   = "issues"
-	catPulls    = "pulls"
-	catActions  = "actions"
-	catChecks   = "checks"
-	catAdmin    = "admin"
-	catMembers  = "members" // organization-wide, never qualified
-	catRepo     = "repo"    // catch-all + legacy umbrella
+	catMetadata   = "metadata"
+	catContents   = "contents"
+	catIssues     = "issues"
+	catPulls      = "pulls"
+	catActions    = "actions"
+	catChecks     = "checks"
+	catAdmin      = "admin"
+	catProtection = "protection" // branch protection, administration alone
+	catMembers    = "members"    // organization-wide, never qualified
+	catRepo       = "repo"       // catch-all + legacy umbrella
 )
 
 // classifyAPI maps a REST/GraphQL API path (host prefix already stripped) to a
@@ -537,9 +538,15 @@ func classifyRepoPath(verb string, sub []string, qualifier string) credentials.C
 		}
 		return credentials.Classification{Action: catAdmin + ":" + verbWrite, Qualifier: qualifier}
 	}
-	cls := credentials.Classification{Action: repoSubCategory(sub) + ":" + verb, Qualifier: qualifier}
-	if sharedIssueNumberRoute(sub) {
+	category := repoSubCategory(sub)
+	cls := credentials.Classification{Action: category + ":" + verb, Qualifier: qualifier}
+	switch {
+	case sharedIssueNumberRoute(sub):
 		cls.Alternates = []string{catPulls + ":" + verb}
+	case category == catProtection:
+		// A repository-qualified admin grant gets no requires edge to protection,
+		// so admin stays an alternate that keeps covering it.
+		cls.Alternates = []string{catAdmin + ":" + verb}
 	}
 	return cls
 }
@@ -611,7 +618,7 @@ var repoSubResolvers = map[string]func(sub []string) string{
 	},
 	"branches": func(sub []string) string {
 		if len(sub) >= 3 && sub[2] == "protection" {
-			return catAdmin
+			return catProtection
 		}
 		return catContents
 	},
@@ -732,14 +739,15 @@ var permissionLevels = map[string]int{verbRead: 1, verbWrite: 2, "admin": 3}
 // actions; the umbrella itself intersects with the installation's actual
 // granted permissions rather than deriving a static union.
 var categoryPermissionKeys = map[string][]string{
-	"metadata": {"metadata"},
-	"contents": {"contents"},
-	"issues":   {"issues"},
-	"pulls":    {"pull_requests"},
-	"actions":  {"actions"},
-	"checks":   {"checks", "statuses"},
-	"admin":    {"administration", "repository_hooks", "secrets", "dependabot_secrets"},
-	"members":  {"members"},
+	"metadata":   {"metadata"},
+	"contents":   {"contents"},
+	"issues":     {"issues"},
+	"pulls":      {"pull_requests"},
+	"actions":    {"actions"},
+	"checks":     {"checks", "statuses"},
+	"admin":      {"administration", "repository_hooks", "secrets", "dependabot_secrets"},
+	"protection": {"administration"},
+	"members":    {"members"},
 }
 
 // permissionsFor derives the installation-token permission set for the
@@ -756,7 +764,7 @@ func permissionsFor(action string, ceiling map[string]string, installationPerms 
 	switch category {
 	case catMetadata:
 		derived[catMetadata] = verbRead
-	case catContents, catIssues, catPulls, catActions, catChecks, catAdmin, catMembers:
+	case catContents, catIssues, catPulls, catActions, catChecks, catAdmin, catProtection, catMembers:
 		for _, key := range categoryPermissionKeys[category] {
 			derived[key] = verb
 		}

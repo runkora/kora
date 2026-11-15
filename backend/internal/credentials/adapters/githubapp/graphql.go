@@ -46,7 +46,7 @@ var (
 	reqPulls      = requirement{catPulls + ":" + verbRead}
 	reqChecks     = requirement{catChecks + ":" + verbRead}
 	reqActions    = requirement{catActions + ":" + verbRead}
-	reqAdmin      = requirement{catAdmin + ":" + verbRead}
+	reqProtection = requirement{catProtection + ":" + verbRead, catAdmin + ":" + verbRead}
 	reqIssueOrPR  = requirement{catIssues + ":" + verbRead, catPulls + ":" + verbRead}
 	reqWContents  = requirement{ActionContentsWrite}
 	reqWIssues    = requirement{catIssues + ":" + verbWrite}
@@ -101,11 +101,12 @@ var graphqlNodeTypes = map[string]requirement{
 // graphqlNestedFields are fields that reach another category wherever they are
 // selected. GitHub refuses a pull request's statusCheckRollup to a token
 // without checks, a check suite's workflowRun without actions, and a ref's
-// branchProtectionRule without administration.
+// branchProtectionRule without administration. A repository-qualified admin
+// grant has no requires edge to protection, so admin stays an alternate.
 var graphqlNestedFields = map[string]requirement{
 	"statusCheckRollup": reqChecks, "checkSuites": reqChecks, "checkRuns": reqChecks,
 	"workflowRun": reqActions, "workflowRuns": reqActions,
-	"branchProtectionRule": reqAdmin,
+	"branchProtectionRule": reqProtection,
 }
 
 // fieldSearch is the Query field for search, which is classified and qualified
