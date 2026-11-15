@@ -93,7 +93,7 @@ The GitHub adapter and the broker will change as follows:
     *   `/orgs/{org}/teams`, `/orgs/{org}/members`, `/orgs/{org}/memberships` and `/orgs/{org}/invitations` will classify as `members:read` or `members:write`, unqualified. The `members` category will mint the organization Members permission.
     *   A search query with an `OR` or `NOT` operator, a parenthesised `repo:` term, or an `org:` or `user:` term will classify unqualified.
 2.  `/repositories/{id}/...` will classify as the `/repos/{owner}/{repo}/...` path it resolves to.
-3.  A request that addresses objects by node ID will be qualified by their repository when every resolved ID belongs to one repository of the connection's owner. An ID that does not resolve, or IDs across several repositories, leave the request unqualified.
+3.  A request that addresses objects by node ID will be qualified by their repository when every resolved ID belongs to one repository of the connection's owner. An ID that does not resolve, or IDs across several repositories, leave the request unqualified. Ids of users, bots and teams address no repository and do not affect the qualifier.
 4.  Lookup results will be cached by ID for the lifetime of the lookup token.
 5.  A request the classifier does not recognize will be denied as `unclassified`. A GraphQL field outside the maps is unrecognized. The denial will state the method and path, and the field for GraphQL.
 6.  No request will classify as `repo:read` or `repo:write`. A GraphQL body that cannot be read or parsed will be denied as `unclassified`. `repo:read` and `repo:write` will remain grantable as the legacy umbrella that requires every category action of their verb.
