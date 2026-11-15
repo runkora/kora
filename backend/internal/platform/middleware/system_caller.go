@@ -34,7 +34,7 @@ func RequireSystemCaller(component string, logger logging.Logger) Middleware {
 					logging.Field{Key: "principal_type", Value: principalType},
 					logging.Field{Key: "display_name", Value: displayName},
 				)
-				writeForbidden(w, "only "+component+" may call this endpoint")
+				writeError(w, http.StatusForbidden, "forbidden", "only "+component+" may call this endpoint")
 				return
 			}
 			next.ServeHTTP(w, r)

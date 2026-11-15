@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -53,7 +52,7 @@ func ScopeEnforcementMiddleware(eval policy.Evaluator, routes []routescopes.Rout
 					logging.Field{Key: "method", Value: r.Method},
 					logging.Field{Key: "path", Value: fullPath},
 				)
-				writeForbidden(w, "no route match")
+				writeError(w, http.StatusForbidden, "forbidden", "no route match")
 				return
 			}
 			if requiredScope == "" {
@@ -95,7 +94,7 @@ func ScopeEnforcementMiddleware(eval policy.Evaluator, routes []routescopes.Rout
 					logging.Field{Key: "error", Value: err.Error()},
 					logging.Field{Key: "required_scope", Value: requiredScope},
 				)
-				writeForbidden(w, "policy unavailable")
+				writeError(w, http.StatusForbidden, "forbidden", "policy unavailable")
 				return
 			}
 			if !result.Allow {
@@ -103,7 +102,7 @@ func ScopeEnforcementMiddleware(eval policy.Evaluator, routes []routescopes.Rout
 					logging.Field{Key: "required_scope", Value: requiredScope},
 					logging.Field{Key: "reason", Value: result.Reason},
 				)
-				writeForbidden(w, result.Reason)
+				writeError(w, http.StatusForbidden, "forbidden", result.Reason)
 				return
 			}
 
@@ -183,12 +182,4 @@ func ResolveRequiredScope(routes []routescopes.RouteScope, method, path string) 
 		return bestScope, true
 	}
 	return wildScope, wildMatched
-}
-
-// writeForbidden writes a minimal JSON 403 response. Does not import
-// platform/api to avoid the api → middleware import cycle.
-func writeForbidden(w http.ResponseWriter, reason string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusForbidden)
-	_, _ = fmt.Fprintf(w, `{"code":"forbidden","message":%q}`, reason)
 }

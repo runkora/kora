@@ -93,7 +93,7 @@ func DelegationMiddlewareWithBlocklist(logger logging.Logger, verifier *token.Ve
 
 			d, err := VerifyDelegation(r.Context(), logger, verifier, blocklist, raw)
 			if err != nil {
-				writeUnauthorized(w, DelegationRefusalMessage(err))
+				writeError(w, http.StatusUnauthorized, "unauthorized", DelegationRefusalMessage(err))
 				return
 			}
 
