@@ -973,7 +973,8 @@ test-postgres: ## Postgres-backed repository tests against the kora_test databas
 		docker exec kora-postgres createdb -U $(DB_USER) kora_test
 	@cd $(BACKEND_DIR) && APP_ENV=test DB_PASSWORD=$(DB_PASSWORD) $(GOCMD) run ./cmd/migrate up
 	@echo "$(COLOR_YELLOW)Running Postgres-backed repository tests...$(COLOR_RESET)"
-	@cd $(BACKEND_DIR) && KORA_TEST_DB_URL="postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/kora_test?sslmode=disable" $(GOTEST) -race -timeout=5m ./... -run Postgres
+	@# One package at a time: the event relay test asserts a gapless seq, which another package's event cleanup breaks.
+	@cd $(BACKEND_DIR) && KORA_TEST_DB_URL="postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/kora_test?sslmode=disable" $(GOTEST) -race -p 1 -timeout=5m ./... -run Postgres
 
 .PHONY: test
 test: ## Run unit tests with coverage (no cluster required)

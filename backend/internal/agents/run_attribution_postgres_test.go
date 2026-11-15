@@ -13,7 +13,7 @@ import (
 // KORA_TEST_DB_URL points at a database with the kora-agents migrations
 // applied; otherwise it skips. Mirrors drafts_postgres_test.go.
 //
-//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora?sslmode=disable' \
+//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora_test?sslmode=disable' \
 //	  go test ./internal/agents/ -run Postgres_RunTrigger
 func testRunRepo(t *testing.T) (*PostgresRepository, string) {
 	t.Helper()

@@ -16,7 +16,7 @@ import (
 // when KORA_TEST_DB_URL points at a migrated database; otherwise they skip.
 // Each test isolates itself under a random principal and cleans up on exit.
 //
-//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora?sslmode=disable' \
+//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora_test?sslmode=disable' \
 //	  go test ./internal/identity/ -run Postgres
 
 // testSwitchRepos connects the repositories under a random principal it deletes on cleanup.

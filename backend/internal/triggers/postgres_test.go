@@ -22,7 +22,7 @@ import (
 // (e.g. the local docker-compose Postgres after `make migrate-up`); otherwise
 // they skip. Each test isolates itself under a random tenant id and cleans up.
 //
-//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora?sslmode=disable' \
+//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora_test?sslmode=disable' \
 //	  go test ./internal/triggers/ -run Postgres
 func testRepo(t *testing.T) (*postgresRepository, string) {
 	t.Helper()

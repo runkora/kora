@@ -15,7 +15,7 @@ import (
 // otherwise they skip. Each test isolates itself under a random tenant and
 // cleans up on exit.
 //
-//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora?sslmode=disable' \
+//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora_test?sslmode=disable' \
 //	  go test ./internal/policyservice/grants/ -run Postgres
 func testGrantsRepo(t *testing.T) (Repository, string) {
 	t.Helper()

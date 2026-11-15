@@ -188,10 +188,10 @@ func testRepo(t *testing.T) (*postgresRepository, string) {
 }
 ```
 
-Run against the local Postgres that `make up` starts:
+Run against the `kora_test` database that `make test-postgres` creates and migrates on the local Postgres:
 
 ```bash
-KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora?sslmode=disable' \
+KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora_test?sslmode=disable' \
   go test ./internal/triggers/ -run Postgres
 ```
 
