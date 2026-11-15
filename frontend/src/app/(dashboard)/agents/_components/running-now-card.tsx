@@ -2,43 +2,25 @@
 
 /** @tier 3 — agents-scoped. The runs in flight right now, with the mix of states in the header. */
 
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
-  Button,
   Card,
   CardContent,
   CardFooter,
   CardHeader,
   Stack,
-  StatusDot,
   Table,
   TableBody,
   TableCell,
-  TableHead,
-  TableHeader,
   TableRoot,
   TableRow,
   Text,
 } from '@runkora/hades';
-import { RUN_STATE_DISPLAY } from '@runkora/components';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { RUNNING_ROWS } from '../_lib/spend';
-import { formatDuration, formatRelativeTime } from '../_types';
+import { formatDuration } from '../_types';
 import type { RunRow } from '../_types';
-
-export function RunStateDot({ state: name }: { state: string }) {
-  const state = RUN_STATE_DISPLAY[name];
-  return (
-    <Stack direction="horizontal" align="center" gap="snug">
-      <StatusDot
-        status={state?.status ?? 'idle'}
-        glow={state?.status === 'healthy'}
-        pulse={state?.status === 'pending'}
-      />
-      <Text size="supporting">{state?.label ?? name}</Text>
-    </Stack>
-  );
-}
+import { RunListRow } from './run-row';
 
 export interface RunningNowCardProps {
   /** The newest live runs, at most RUNNING_ROWS of them. */
@@ -57,6 +39,7 @@ export interface RunningNowCardProps {
 
 export function RunningNowCard({ runs, counts, error = null }: RunningNowCardProps) {
   const total = counts?.total ?? runs.length;
+  const router = useRouter();
 
   return (
     <Stack asChild overflow="hidden">
@@ -88,61 +71,25 @@ export function RunningNowCard({ runs, counts, error = null }: RunningNowCardPro
             </Text>
           </CardContent>
         ) : (
+          // No header row: each row explains itself, and the whole row opens the run.
           <TableRoot>
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Agent</TableHead>
-                  <TableHead>Run</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Started</TableHead>
-                  <TableHead align="right">Elapsed</TableHead>
-                  <TableHead align="right">Tool calls</TableHead>
-                  <TableHead align="right" srOnly>
-                    Actions
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
               <TableBody>
                 {runs.slice(0, RUNNING_ROWS).map((run) => {
+                  const href = APP_ROUTES.agents.run(run.agentTypeSlug, run.id);
                   return (
-                    <TableRow key={run.id}>
+                    <TableRow
+                      key={run.id}
+                      tabIndex={0}
+                      aria-label={`Open run ${run.id.slice(0, 8)}`}
+                      onClick={() => router.push(href)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && e.target === e.currentTarget) router.push(href);
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    >
                       <TableCell>
-                        <Text size="supporting" weight="emphasis">
-                          {run.agentTypeName}
-                        </Text>
-                      </TableCell>
-                      <TableCell>
-                        <Text mono size="caption" color="muted">
-                          {run.id}
-                        </Text>
-                      </TableCell>
-                      <TableCell>
-                        <RunStateDot state={run.state} />
-                      </TableCell>
-                      <TableCell>
-                        <Text size="supporting" color="muted">
-                          {formatRelativeTime(run.startedAt ?? run.createdAt)}
-                        </Text>
-                      </TableCell>
-                      <TableCell>
-                        <Text mono tabular size="supporting" align="end">
-                          {formatDuration(run.durationMs)}
-                        </Text>
-                      </TableCell>
-                      <TableCell>
-                        <Text mono tabular size="supporting" align="end">
-                          {run.toolCalls ?? '—'}
-                        </Text>
-                      </TableCell>
-                      <TableCell>
-                        <Stack direction="horizontal" justify="end">
-                          <Button variant="outline" size="sm" asChild>
-                            <Link href={APP_ROUTES.agents.run(run.agentTypeSlug, run.id)}>
-                              Open
-                            </Link>
-                          </Button>
-                        </Stack>
+                        <RunListRow row={run} showAgent time="elapsed" maxChips={1} />
                       </TableCell>
                     </TableRow>
                   );

@@ -514,6 +514,10 @@ describe('toTriggerUpdateRequest', () => {
     expect(toTriggerUpdateRequest({ name: 'renamed' })).toEqual({ name: 'renamed' });
   });
 
+  it('sends the own-run guard of an event trigger, off included', () => {
+    expect(toTriggerUpdateRequest({ ignoreOwnRuns: false })).toEqual({ ignore_own_runs: false });
+  });
+
   it('sends a sender restriction whole', () => {
     expect(toTriggerUpdateRequest({ senderRestriction: { ids: [], roles: ['MEMBER'] } })).toEqual({
       sender_restriction: { ids: [], roles: ['MEMBER'] },

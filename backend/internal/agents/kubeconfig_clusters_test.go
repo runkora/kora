@@ -2,10 +2,16 @@ package agents
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
 	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/probes"
 )
 
@@ -97,7 +103,7 @@ func TestKubeClusters_NoResolverWired(t *testing.T) {
 func TestSandboxContainerEnv_KubeClusters(t *testing.T) {
 	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "kora-system"}
 
-	env := sandboxContainerEnv(cfg, []kubeconfig.Cluster{{Name: "c", Server: "https://x:443"}}, "/workspaces/run-1", "test-exec-token")
+	env := sandboxContainerEnv(cfg, []kubeconfig.Cluster{{Name: "c", Server: "https://x:443"}}, nil, "/workspaces/run-1", "test-exec-token")
 	var got string
 	for _, e := range env {
 		if e.Name == kubeconfig.ClustersEnvVar {
@@ -112,7 +118,7 @@ func TestSandboxContainerEnv_KubeClusters(t *testing.T) {
 		t.Errorf("decoded %+v (err %v), want the one cluster", clusters, err)
 	}
 
-	for _, e := range sandboxContainerEnv(cfg, nil, "/workspaces/run-1", "test-exec-token") {
+	for _, e := range sandboxContainerEnv(cfg, nil, nil, "/workspaces/run-1", "test-exec-token") {
 		if e.Name == kubeconfig.ClustersEnvVar {
 			t.Errorf("%s must be omitted when the agent has no kubernetes connection, got %q", e.Name, e.Value)
 		}
@@ -194,5 +200,152 @@ func TestSandboxContainer_StartupProbe(t *testing.T) {
 	}
 	if rp.InitialDelaySeconds != 0 {
 		t.Errorf("readiness initial delay = %d, want 0", rp.InitialDelaySeconds)
+	}
+}
+
+// placeholderConns is a connectionResolver that also serves placeholderEnv.
+type placeholderConns struct {
+	stubConns
+	envs map[string]string
+}
+
+func (p placeholderConns) PlaceholderEnv(_ context.Context, _, name string) (string, bool, error) {
+	env, ok := p.envs[name]
+	return env, ok, nil
+}
+
+func TestPlaceholderEnvs_OnlyGrantedConnections(t *testing.T) {
+	r := NewScopeResolver(nil, placeholderConns{envs: map[string]string{"npm": "NPM_TOKEN", "other": "OTHER_TOKEN"}})
+	conn := func(n string) Connector { return Connector{Connection: n, Actions: []string{"read"}} }
+
+	got, err := r.PlaceholderEnvs(context.Background(), "t1", []Connector{conn("npm"), conn("npm"), conn("missing")})
+	if err != nil {
+		t.Fatalf("PlaceholderEnvs: %v", err)
+	}
+	if len(got) != 1 || got[0] != "NPM_TOKEN" {
+		t.Errorf("granted = %v, want only NPM_TOKEN (OTHER_TOKEN is not granted)", got)
+	}
+
+	none, err := r.PlaceholderEnvs(context.Background(), "t1", nil)
+	if err != nil || len(none) != 0 {
+		t.Errorf("no grant = (%v, %v), want none", none, err)
+	}
+	if got, _ := NewScopeResolver(nil, stubConns{}).PlaceholderEnvs(context.Background(), "t1", []Connector{conn("npm")}); got != nil {
+		t.Errorf("resolver without placeholder support = %v, want nil", got)
+	}
+}
+
+func TestSandboxContainerEnv_PlaceholderEnvs(t *testing.T) {
+	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "kora-system"}
+	value := func(env []corev1.EnvVar, name string) (string, bool) {
+		for _, e := range env {
+			if e.Name == name {
+				return e.Value, true
+			}
+		}
+		return "", false
+	}
+
+	env := sandboxContainerEnv(cfg, nil, []string{"NPM_TOKEN", "GH_TOKEN"}, "/workspaces/run-1", "exec")
+	if v, ok := value(env, "NPM_TOKEN"); !ok || v != kubeconfig.PlaceholderToken {
+		t.Errorf("NPM_TOKEN = %q (set %v), want the placeholder", v, ok)
+	}
+	n := 0
+	for _, e := range env {
+		if e.Name == "GH_TOKEN" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("GH_TOKEN set %d times, want once", n)
+	}
+
+	if _, ok := value(sandboxContainerEnv(cfg, nil, nil, "/workspaces/run-1", "exec"), "NPM_TOKEN"); ok {
+		t.Error("NPM_TOKEN set without the grant")
+	}
+}
+
+// TestCatalogPlaceholderEnv_NoRealToken locks that the catalog reads the
+// variable name only: a registry entry carrying a secret-looking value never
+// reaches the sandbox env.
+func TestCatalogPlaceholderEnv_NoRealToken(t *testing.T) {
+	const real = "real-token-must-not-leak"
+	path := filepath.Join(t.TempDir(), "connections.json")
+	registry := `[
+	 {"tenant_id":"t1","name":"npm","adapter":"apikey","base_host":"registry.npmjs.org","secret_ref":"` + real + `","config":{"placeholderEnv":"NPM_TOKEN"}},
+	 {"tenant_id":"t1","name":"plain","adapter":"apikey","base_host":"a.example.com","config":{}},
+	 {"tenant_id":"t1","name":"gh","adapter":"github_app","base_host":"github.com","config":{"placeholderEnv":"GHX"}},
+	 {"tenant_id":"t2","name":"npm2","adapter":"apikey","base_host":"b.example.com","config":{"placeholderEnv":"T2_TOKEN"}}]`
+	if err := os.WriteFile(path, []byte(registry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cat := NewConnectionCatalog(path, logging.NewLogger())
+	r := NewScopeResolver(nil, cat)
+
+	cs := []Connector{{Connection: "npm"}, {Connection: "plain"}, {Connection: "gh"}, {Connection: "npm2"}}
+	envs, err := r.PlaceholderEnvs(context.Background(), "t1", cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(envs) != 1 || envs[0] != "NPM_TOKEN" {
+		t.Fatalf("envs = %v, want only NPM_TOKEN (not unset, non-apikey or other-tenant)", envs)
+	}
+	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "kora-system"}
+	for _, e := range sandboxContainerEnv(cfg, nil, envs, "/workspaces/run-1", "exec") {
+		if strings.Contains(e.Value, real) {
+			t.Errorf("real token reached sandbox env %s", e.Name)
+		}
+	}
+}
+
+func TestSandboxContainerEnv_SkipsInvalidPlaceholderEnvs(t *testing.T) {
+	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "kora-system"}
+	for _, e := range sandboxContainerEnv(cfg, nil, []string{"LD_PRELOAD", "A=B"}, "/workspaces/r", "exec") {
+		if e.Name == "LD_PRELOAD" || e.Name == "A=B" {
+			t.Errorf("invalid name %q set", e.Name)
+		}
+	}
+}
+
+// TestCatalogPlaceholderEnv_BadConnectionSkipped locks that one connection with
+// an invalid placeholderEnv or malformed config is skipped and does not remove
+// the placeholders of the other granted connections.
+func TestCatalogPlaceholderEnv_BadConnectionSkipped(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "connections.json")
+	registry := `[
+	 {"tenant_id":"t1","name":"good1","adapter":"apikey","base_host":"a.example.com","config":{"placeholderEnv":"NPM_TOKEN"}},
+	 {"tenant_id":"t1","name":"reserved","adapter":"apikey","base_host":"b.example.com","config":{"placeholderEnv":"LD_PRELOAD"}},
+	 {"tenant_id":"t1","name":"toolong","adapter":"apikey","base_host":"c.example.com","config":{"placeholderEnv":"` + strings.Repeat("A", 129) + `"}},
+	 {"tenant_id":"t1","name":"badjson","adapter":"apikey","base_host":"d.example.com","config":"not-an-object"},
+	 {"tenant_id":"t1","name":"good2","adapter":"apikey","base_host":"e.example.com","config":{"placeholderEnv":"PYPI_TOKEN"}}]`
+	if err := os.WriteFile(path, []byte(registry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := NewScopeResolver(nil, NewConnectionCatalog(path, logging.NewLogger()))
+
+	cs := []Connector{{Connection: "good1"}, {Connection: "reserved"}, {Connection: "toolong"}, {Connection: "badjson"}, {Connection: "good2"}}
+	envs, err := r.PlaceholderEnvs(context.Background(), "t1", cs)
+	if err != nil {
+		t.Fatalf("PlaceholderEnvs: %v", err)
+	}
+	if len(envs) != 2 || envs[0] != "NPM_TOKEN" || envs[1] != "PYPI_TOKEN" {
+		t.Fatalf("envs = %v, want [NPM_TOKEN PYPI_TOKEN] with the bad connections skipped", envs)
+	}
+}
+
+// TestProvisionSandbox_SetsPlaceholderEnvs fails if ProvisionSandbox stops
+// copying the granted apikey connections' placeholderEnv names into the spec.
+func TestProvisionSandbox_SetsPlaceholderEnvs(t *testing.T) {
+	svc, repo, k8s, _ := newTestService(t)
+	svc.run.SetScopeResolver(NewScopeResolver(nil, placeholderConns{envs: map[string]string{"npm": "NPM_TOKEN", "other": "OTHER_TOKEN"}}))
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot",
+		Connectors: []Connector{{Connection: "npm", Actions: []string{"read"}}}})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
+
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if got := k8s.provisionSpec.PlaceholderEnvs; len(got) != 1 || got[0] != "NPM_TOKEN" {
+		t.Errorf("PlaceholderEnvs = %v, want [NPM_TOKEN]", got)
 	}
 }

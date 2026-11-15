@@ -128,8 +128,9 @@ type BudgetCheckRequest struct {
 	PrincipalType string
 	Roles         []string
 	RunID         string
-	// DelegatorID is the verified delegation's delegator — sourced exclusively
-	// from policy.DelegationFromContext, never from caller-asserted data. When
+	// DelegatorID is a verified delegator: the request's delegation from
+	// policy.DelegationFromContext, or the delegator a run's usage row recorded
+	// from one. Never caller-asserted data. When
 	// set, the delegator's per-window and per-run ceilings apply as additional
 	// independent constraints (delegated-agent-identity ADR, Decision 5).
 	DelegatorID string

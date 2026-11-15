@@ -6,7 +6,7 @@ import { APP_ROUTES } from '@runkora/lib/routing';
 import { toAgentTypeRow, toRunRow, indexAgentTypes } from '../../_types';
 import { CODE_REVIEWER, RAW_RUNS } from '../../_components/agents-mock-data';
 import { AgentDetailProvider } from '../_context/agent-detail-context';
-import { RecentRunsTable } from './agent-overview-cards';
+import { RecentRunsCard } from './agent-overview-cards';
 
 const push = vi.fn();
 vi.mock('next/navigation', async (orig) => ({
@@ -16,7 +16,7 @@ vi.mock('next/navigation', async (orig) => ({
 
 const agent = toAgentTypeRow(CODE_REVIEWER);
 
-describe('RecentRunsTable', () => {
+describe('RecentRunsCard', () => {
   beforeEach(() => push.mockClear());
 
   const runs = Array.from({ length: 7 }, (_, i) => ({
@@ -29,8 +29,8 @@ describe('RecentRunsTable', () => {
   }));
   const rows = runs.map((r) => toRunRow(r, indexAgentTypes([agent])));
 
-  it('shows the five newest runs and opens a run on click', async () => {
-    renderWithProviders(
+  function renderCard(onViewAll = vi.fn()) {
+    return renderWithProviders(
       <AgentDetailProvider
         initialAgent={agent}
         initialRuns={rows}
@@ -39,13 +39,33 @@ describe('RecentRunsTable', () => {
         initialError={null}
         initialStatus="success"
       >
-        <RecentRunsTable />
+        <RecentRunsCard onViewAll={onViewAll} />
       </AgentDetailProvider>,
     );
-    const shown = screen.getAllByText(/^run-\d-xx$/).map((el) => el.textContent);
-    expect(shown).toEqual(['run-6-xx', 'run-5-xx', 'run-4-xx', 'run-3-xx', 'run-2-xx']);
+  }
 
-    await userEvent.click(screen.getByText('run-6-xx'));
+  it('shows the five newest runs and opens a run on click', async () => {
+    renderCard();
+    const shown = screen
+      .getAllByRole('row', { name: /^Open run / })
+      .map((el) => el.getAttribute('aria-label'));
+    expect(shown).toEqual([
+      'Open run run-6-xx',
+      'Open run run-5-xx',
+      'Open run run-4-xx',
+      'Open run run-3-xx',
+      'Open run run-2-xx',
+    ]);
+
+    await userEvent.click(screen.getByRole('row', { name: 'Open run run-6-xx' }));
     expect(push).toHaveBeenCalledWith(APP_ROUTES.agents.run(agent.slug, 'run-6-xxxxxxxx'));
+  });
+
+  it('switches to the Runs tab from View all runs', async () => {
+    const onViewAll = vi.fn();
+    renderCard(onViewAll);
+    await userEvent.click(screen.getByRole('button', { name: /View all runs/ }));
+    expect(onViewAll).toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /Delete run/ })).not.toBeInTheDocument();
   });
 });

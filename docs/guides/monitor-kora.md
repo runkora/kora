@@ -54,6 +54,7 @@ The kora operator has no ServiceMonitor. It serves controller metrics on port 80
 | `kora_triggers_queue_depth` | Trigger deliveries waiting and claimed |
 | `kora_triggers_queue_oldest_unclaimed_age_seconds` | How long the oldest waiting delivery has waited |
 | `kora_triggers_auto_pauses_total` | Triggers paused after repeated failures |
+| `kora_triggers_events_chain_fail_open_total` | Agent events that reached the event triggers without their run's chain, because kora-agents refused the read |
 | `kora_redis_available` | Whether each service can reach Redis |
 
 Model spend and policy decisions are not metrics yet. They are in the logs, traces and the console.

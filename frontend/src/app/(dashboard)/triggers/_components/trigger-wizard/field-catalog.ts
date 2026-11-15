@@ -2,7 +2,8 @@
  * @tier 3 — triggers-scoped. The fields a trigger's prompt and filters can read.
  *
  * Webhook fields come from the provider's schema via the API; this file maps
- * them for the pickers. Scheduled and manual fields are `var.` values.
+ * them for the pickers. Scheduled and manual fields are `var.` values. Event
+ * fields come from the event type's schema via the API.
  */
 
 import { deriveFieldKey } from './wizard-state';

@@ -29,14 +29,7 @@ runner:
   landlock: enforce
 
 claude:
-  binaryPath: claude
   bare: false # bare mode restricts Claude to only Bash/Edit/Read; full tool set requires non-bare
-
-codex:
-  binaryPath: codex
-
-opencode:
-  binaryPath: opencode
 
 # inferenceGateway is the base for per-run Codex, OpenCode and summarizer URLs;
 # kora-agents overrides it with KORA_INFERENCE_GATEWAY_URL from its system namespace.

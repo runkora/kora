@@ -1,6 +1,6 @@
 # OpenCode Agent Runner
 
-**Status:** Accepted  
+**Status:** Accepted. Transport and parser sections superseded by [acp-agent-harness-protocol](2026-11-07-acp-agent-harness-protocol.md)  
 **Date:** 2026-06-04  
 **Deciders:** Platform Engineering  
 **Technical Story:** [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) implemented the Claude Code runner and explicitly deferred OpenCode. This ADR documents the subprocess model, ACP wire protocol, LLM routing, and event mapping for the OpenCode runner.

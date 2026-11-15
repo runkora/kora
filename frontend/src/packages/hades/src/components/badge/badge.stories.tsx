@@ -163,6 +163,19 @@ export const Options: Story = {
             inference:anthropic:use
           </Badge>
         </Option>
+        <Option
+          name="asChild, interactive"
+          use="A chip that opens something. Put the styles on a link or a button."
+        >
+          <div className="flex flex-wrap gap-2">
+            <Badge asChild interactive variant="secondary" size="sm" shape="pill">
+              <a href="https://github.com/example-org/platform/pull/412">PR #412</a>
+            </Badge>
+            <Badge asChild interactive variant="dim" size="sm" shape="pill">
+              <button type="button">+3</button>
+            </Badge>
+          </div>
+        </Option>
       </OptionTable>
     </div>
   ),

@@ -48,6 +48,7 @@ var (
 		"platform:analytics:read",
 		"platform:budgets:read",
 		"identity:users:read",
+		"events:read",
 	)
 )
 

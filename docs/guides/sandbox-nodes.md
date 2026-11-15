@@ -92,18 +92,22 @@ agents:
 
 ### Hold nodes open
 
-Capacity warming runs low-priority placeholder pods that hold sandbox nodes open. A new sandbox takes a placeholder's place and starts at once, and the cluster autoscaler boots a replacement node for the next one. Karpenter and the cluster autoscaler do not remove a node that holds a placeholder.
+Capacity warming runs low-priority placeholder pods that hold sandbox nodes open. A new sandbox takes a placeholder's place and starts at once, and the cluster autoscaler boots a replacement node for the next one. kora sets no node autoscaler annotations on the placeholder. A node that holds only placeholders can read as idle, so set your autoscaler's annotation through `podAnnotations`.
 
 ```yaml
 agents:
   sandboxWarming:
     mode: capacity
     replicas: 1
+    podAnnotations:
+      karpenter.sh/do-not-disrupt: "true"
+      cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
 ```
 
 - `mode`: `capacity` to turn capacity warming on, or `none` (the default) to leave it off.
 - `replicas`: the number of nodes to hold open.
 - `resources`: what each placeholder reserves. The default fits one sandbox at `defaultSize`, and a larger value warms nodes for larger environments.
+- `podAnnotations`: annotations for the placeholder pod. The example sets the Karpenter and Cluster Autoscaler annotations that stop each from removing a held node. Use the one for your autoscaler.
 - `priority`: the placeholder priority, `-10` by default. Keep it below 0 so sandboxes can replace placeholders.
 
 Placeholders follow the `agents.workloads.sandbox` placement. Set `nodeSelector`, `tolerations`, `affinity` or `topologySpreadConstraints` under `agents.sandboxWarming` to override it.

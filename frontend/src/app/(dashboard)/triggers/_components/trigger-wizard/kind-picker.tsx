@@ -5,6 +5,7 @@
 
 import { Badge, Grid, RadioCard, RadioGroup, Stack, Text } from '@runkora/hades';
 import { useBrand } from '@runkora/theme/brand-provider';
+import { useHasScope } from '../../../_components/permissions-provider';
 import { KIND_ORDER, PLANNED_KINDS, TRIGGER_KINDS } from './kinds';
 import { brandedCopy, type ConsoleKind } from './types';
 
@@ -18,6 +19,9 @@ export interface KindPickerProps {
  */
 export function KindPicker({ onSelect }: KindPickerProps) {
   const { productName } = useBrand();
+  // kora-triggers refuses an event trigger from a caller without events:read.
+  const canReadEvents = useHasScope('events:read');
+  const kinds = KIND_ORDER.filter((id) => id !== 'event' || canReadEvents);
   return (
     <Stack gap="relaxed">
       <Stack gap="snug">
@@ -27,7 +31,7 @@ export function KindPicker({ onSelect }: KindPickerProps) {
             persisting a selection. */}
         <RadioGroup value="" aria-label="Trigger kind">
           <Grid cols={3} gap="comfortable">
-            {KIND_ORDER.map((id) => {
+            {kinds.map((id) => {
               const def = TRIGGER_KINDS[id];
               return (
                 <Stack key={id} gap="tight">

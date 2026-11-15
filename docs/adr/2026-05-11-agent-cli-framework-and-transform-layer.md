@@ -1,6 +1,6 @@
 # Agent CLI Framework & Transform Layer
 
-**Status:** Accepted  
+**Status:** Accepted (Subprocess Model superseded by [acp-agent-harness-protocol](2026-11-07-acp-agent-harness-protocol.md) 2026-11-07)  
 **Date:** 2026-05-11
 **Deciders:** Platform Engineering  
 **Technical Story:** The agent control plane wraps real CLI frameworks (Claude Code, Codex, OpenCode) as subprocesses. This ADR defines the subprocess model, the transform layer interface, the kora standard event format, and the operational findings from the Claude Code spike.

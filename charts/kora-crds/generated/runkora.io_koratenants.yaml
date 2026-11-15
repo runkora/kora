@@ -99,6 +99,16 @@ spec:
                   service tenant registry.
                 minLength: 1
                 type: string
+              events:
+                description: Events configures the tenant's events. See docs/adr/2026-11-06-event-spine.md.
+                properties:
+                  retentionDays:
+                    description: |-
+                      RetentionDays is how long the tenant's events are kept. The chart value
+                      koraEvents.retention.defaultDays applies when it is unset.
+                    minimum: 1
+                    type: integer
+                type: object
               namespace:
                 description: |-
                   Namespace selects the tenant workload namespace, defaulting to

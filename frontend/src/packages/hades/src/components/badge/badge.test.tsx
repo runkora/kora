@@ -94,4 +94,26 @@ describe('Badge', () => {
       expect(screen.getByLabelText('System status: healthy')).toBeInTheDocument();
     });
   });
+
+  describe('asChild', () => {
+    it('renders its styles onto the child link', () => {
+      render(
+        <Badge asChild interactive variant="secondary">
+          <a href="https://example.com/pr/1">PR #1</a>
+        </Badge>,
+      );
+      const link = screen.getByRole('link', { name: 'PR #1' });
+      expect(link).toHaveAttribute('href', 'https://example.com/pr/1');
+      expect(link).toHaveAttribute('data-slot', 'badge');
+      expect(link.className).toContain('cursor-pointer');
+      expect(link.parentElement?.tagName).not.toBe('SPAN');
+    });
+
+    it('renders a span without asChild and no pointer without interactive', () => {
+      render(<Badge>Plain</Badge>);
+      const badge = screen.getByText('Plain');
+      expect(badge.tagName).toBe('SPAN');
+      expect(badge.className).not.toContain('cursor-pointer');
+    });
+  });
 });

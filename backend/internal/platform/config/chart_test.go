@@ -14,6 +14,7 @@ import (
 	identityConfig "github.com/runkora/kora/backend/cmd/identity/config"
 	inferenceConfig "github.com/runkora/kora/backend/cmd/inference-gateway/config"
 	agentsConfig "github.com/runkora/kora/backend/cmd/kora-agents/config"
+	eventsConfig "github.com/runkora/kora/backend/cmd/kora-events/config"
 	mcpConfig "github.com/runkora/kora/backend/cmd/kora-mcp/config"
 	triggersConfig "github.com/runkora/kora/backend/cmd/kora-triggers/config"
 	operatorConfig "github.com/runkora/kora/backend/cmd/operator/config"
@@ -37,6 +38,7 @@ var moduleLoaders = map[string]func() error{
 	"cmd/inference-gateway": loadService[inferenceConfig.Config]("cmd/inference-gateway"),
 	"cmd/operator":          loadService[operatorConfig.Config]("cmd/operator"),
 	"cmd/kora-agents":       loadService[agentsConfig.Config]("cmd/kora-agents"),
+	"cmd/kora-events":       loadService[eventsConfig.Config]("cmd/kora-events"),
 	"cmd/kora-mcp":          loadService[mcpConfig.Config]("cmd/kora-mcp"),
 	"cmd/kora-triggers":     loadService[triggersConfig.Config]("cmd/kora-triggers"),
 	"cmd/policy-gateway":    loadService[policyGatewayConfig.Config]("cmd/policy-gateway"),

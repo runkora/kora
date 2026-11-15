@@ -15,6 +15,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/brand"
 	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	inferenceclient "github.com/runkora/kora/backend/internal/platform/clients/inference"
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	smclient "github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
@@ -228,7 +229,8 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		return nil, nil, nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)
 	}
 
-	repo := agents.NewPostgresRepository(db.Pool())
+	pool := storage.NewPool(db.Pool())
+	repo := agents.NewPostgresRepository(pool)
 	// The session-manager on each agent pod authenticates its caller and checks
 	// the principal is kora-agents, so the same self-token source that bears
 	// the policy client's calls bears these.
@@ -310,6 +312,12 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	runSvc.SetDelegationBroker(broker)
 	atSvc.SetDelegationBroker(broker)
 
+	// A budget stop records the ceiling the gateway says the run reached
+	// (docs/adr/2026-11-11-run-page-record.md, Decision 6).
+	if url := cfg.Platform.InferenceGatewayURL; url != "" {
+		runSvc.SetBudgetReader(inferenceclient.NewClient(url, logger), selfToken)
+	}
+
 	// Per-route, not in the global chain below: it must run after RoutePattern
 	// has set the route on the request context. See Mux.HandleWithMiddleware.
 	apiServer.SetMetricsMiddleware(metrics.Middleware())
@@ -321,10 +329,13 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		mw.MiddlewareChain(
 			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
+			// Rewrites /run/{run_id}/… to /… with the run in context, so an agent's
+			// call through the kora MCP carries its run (event spine ADR, section 7).
+			mw.NewMiddleware(mw.StripRunPrefix),
 		),
 		controller,
 		catalogController,
-		declaredController(verifier, logger, repo, atSvc, envSvc),
+		declaredController(verifier, logger, repo, atSvc, envSvc).WithEvents(pool),
 	)
 	return server, repo, atSvc, runSvc, draftSvc, nil
 }

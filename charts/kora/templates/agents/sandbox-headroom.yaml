@@ -36,13 +36,11 @@ spec:
         {{- range $k, $v := merge (dict "app" "kora-sandbox-headroom") $warming.podLabels }}
         {{ $k }}: {{ $v | quote }}
         {{- end }}
-      # A node holding only this placeholder reads as idle, so both mainstream
-      # autoscalers are told to leave it alone. Each annotation is inert where
-      # that autoscaler is not installed. Precedence: the mesh annotation wins,
-      # then podAnnotations, then these defaults.
+      # kora ships no node autoscaler annotations. The operator sets whatever
+      # their autoscaler needs through podAnnotations. The mesh annotation wins
+      # over podAnnotations.
       annotations:
-        {{- $defaults := dict "karpenter.sh/do-not-disrupt" "true" "cluster-autoscaler.kubernetes.io/safe-to-evict" "false" }}
-        {{- range $k, $v := merge (dict "sidecar.istio.io/inject" "false") $warming.podAnnotations $defaults }}
+        {{- range $k, $v := merge (dict "sidecar.istio.io/inject" "false") $warming.podAnnotations }}
         {{ $k }}: {{ $v | quote }}
         {{- end }}
     spec:

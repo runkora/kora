@@ -1,6 +1,14 @@
 package bedrock
 
-import "testing"
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/openai/openai-go/v3"
+
+	"github.com/runkora/kora/backend/internal/inferencegw"
+)
 
 // TestInferBackendID_MantleOpenAIV1Models verifies that every openai.gpt-* model ID except gpt-oss, and every xAI Grok model ID,
 // is routed to backendMantleOpenAIV1 by both the cold-start heuristic (inferBackendID) and
@@ -153,5 +161,23 @@ func TestInferBackendID_MantleRules(t *testing.T) {
 		if got := inferBackendID(in); got != want {
 			t.Errorf("inferBackendID(%q) = %v, want %v", in, got, want)
 		}
+	}
+}
+
+// TestMantleOpenAIV1RejectsChatCompletions documents why the session-manager
+// summarizer falls back to the Responses API, not chat completions, for
+// non-Claude models: us.openai.gpt-* dispatches to backendMantleOpenAIV1, which
+// only serves POST /v1/responses.
+func TestMantleOpenAIV1RejectsChatCompletions(t *testing.T) {
+	t.Parallel()
+	const model = "us.openai.gpt-6-sol"
+	if got := inferBackendID(model); got != backendMantleOpenAIV1 {
+		t.Fatalf("inferBackendID(%q) = %v, want backendMantleOpenAIV1", model, got)
+	}
+	c := &Connector{}
+	_, err := c.ChatCompletion(context.Background(), openai.ChatCompletionNewParams{Model: model})
+	var connErr *inferencegw.ConnectorError
+	if !errors.As(err, &connErr) || connErr.Code != "INVALID_REQUEST" {
+		t.Fatalf("ChatCompletion error = %v, want INVALID_REQUEST ConnectorError", err)
 	}
 }

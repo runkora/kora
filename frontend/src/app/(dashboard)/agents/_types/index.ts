@@ -4,7 +4,9 @@
 // Raw API shapes (AgentType, Run) only appear at the service layer boundary.
 
 import { isDeclared } from '@runkora/lib/declarative';
+import { FRAMEWORK_LABELS } from '@runkora/shared/agent-frameworks';
 import type {
+  RunSource,
   AgentEnvironment,
   AgentType,
   AgentBudget,
@@ -15,6 +17,7 @@ import type {
   RunState,
   Connectivity,
   Connector,
+  TriggerKind,
 } from '@runkora/shared/api';
 
 export type {
@@ -88,8 +91,12 @@ export interface RunRow {
   startedByTrigger: {
     triggerId: string;
     triggerName: string | null;
+    /** The trigger's kind, null on runs recorded before the kind was. */
+    triggerKind: TriggerKind | null;
     deliveryId: string | null;
   } | null;
+  /** Links to what started the run; empty when none recorded. */
+  sources: RunSource[];
   /** True when the owning agent is delegated — the run acted on the starter's behalf and is private to them. */
   delegated: boolean;
   startedAt: string | null;
@@ -106,12 +113,6 @@ export interface RunRow {
 }
 
 // ── Transformers ──────────────────────────────────────────────────────────────
-
-const FRAMEWORK_LABELS: Record<string, string> = {
-  'claude-code': 'Claude Code',
-  codex: 'Codex',
-  opencode: 'OpenCode',
-};
 
 export function toAgentTypeRow(a: AgentType): AgentTypeRow {
   return {
@@ -166,9 +167,11 @@ export function toRunRow(r: RunWithAttribution, agentTypeById: Map<string, Agent
       ? {
           triggerId: r.started_by.trigger_id,
           triggerName: r.started_by.trigger_name ?? null,
+          triggerKind: r.started_by.trigger_kind ?? null,
           deliveryId: r.started_by.delivery_id ?? null,
         }
       : null,
+    sources: r.sources ?? [],
     delegated: (agent?.identityMode ?? r.identity_mode) === 'delegated',
     startedAt: r.started_at,
     completedAt: r.completed_at,

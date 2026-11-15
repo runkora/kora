@@ -92,14 +92,23 @@ spec:
                 default: true
                 type: boolean
               eventType:
+                description: |-
+                  EventType is the provider event type of a webhook trigger, or the
+                  platform event type of an event trigger.
                 minLength: 1
                 type: string
+              ignoreOwnRuns:
+                description: |-
+                  IgnoreOwnRuns skips an event about a run this trigger started or
+                  messaged. Event triggers only. Unset means true.
+                type: boolean
               kind:
                 default: webhook
                 enum:
                 - webhook
                 - scheduled
                 - manual
+                - event
                 type: string
               manual:
                 description: Manual is a manual trigger's input form.
@@ -271,13 +280,19 @@ spec:
               rule: has(self.agent) != has(self.routing)
             - message: a webhook trigger needs source and eventType.
               rule: self.kind != 'webhook' || (has(self.source) && has(self.eventType))
+            - message: an event trigger needs eventType.
+              rule: self.kind != 'event' || has(self.eventType)
             - message: a scheduled trigger needs schedule.
               rule: self.kind != 'scheduled' || has(self.schedule)
-            - message: source, eventType, match, matchContains, senderRestriction,
-                coalesce and routing apply to webhook triggers only.
-              rule: self.kind == 'webhook' || !(has(self.source) || has(self.eventType)
-                || has(self.match) || has(self.matchContains) || has(self.senderRestriction)
-                || has(self.coalesce) || has(self.routing))
+            - message: source and senderRestriction apply to webhook triggers only.
+              rule: self.kind == 'webhook' || !(has(self.source) || has(self.senderRestriction))
+            - message: eventType, match, matchContains, coalesce and routing apply
+                to webhook and event triggers only.
+              rule: self.kind in ['webhook', 'event'] || !(has(self.eventType) ||
+                has(self.match) || has(self.matchContains) || has(self.coalesce) ||
+                has(self.routing))
+            - message: ignoreOwnRuns applies to event triggers only.
+              rule: self.kind == 'event' || !has(self.ignoreOwnRuns)
             - message: schedule applies to scheduled triggers only.
               rule: self.kind == 'scheduled' || !has(self.schedule)
             - message: manual applies to manual triggers only.

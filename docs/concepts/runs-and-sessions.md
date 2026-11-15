@@ -23,17 +23,22 @@ stateDiagram-v2
     active --> failed
     idle --> failed
     active --> budget_exhausted
+    pending --> terminated
+    starting --> terminated
+    active --> terminated
+    idle --> terminated
 ```
 
 | State | Meaning | Moves to |
 | --- | --- | --- |
-| `pending` | Waiting for the agent to have capacity | `starting` when capacity frees, or `failed` after 180 seconds |
-| `starting` | Starting its session | `active`, or `failed` if it never finishes starting |
-| `active` | The agent is working | `idle` when the agent finishes its turn, `completed` when it exits cleanly, `failed` on an error, or `budget_exhausted` |
-| `idle` | The agent is waiting for the next message | `active` on a new message, `completed` after the idle timeout, or `failed` if the agent exits unexpectedly |
+| `pending` | Waiting for the agent to have capacity | `starting` when capacity frees, `failed` after 180 seconds, or `terminated` |
+| `starting` | Starting its session | `active`, `failed` if it never finishes starting, or `terminated` |
+| `active` | The agent is working | `idle` when the agent finishes its turn, `completed` when it exits cleanly, `failed` on an error, `budget_exhausted`, or `terminated` |
+| `idle` | The agent is waiting for the next message | `active` on a new message, `completed` after the idle timeout, `failed` if the agent exits unexpectedly, or `terminated` |
 | `completed` | The run ended cleanly | |
 | `failed` | The run hit an error it could not recover from | |
 | `budget_exhausted` | The run reached its budget limit | |
+| `terminated` | A person or the platform terminated the run before it ended | |
 
 An `idle` run is healthy. Its session stays alive waiting for the next message until the idle timeout completes the run, after 20 minutes for a run a person started and 5 minutes for a run a trigger started. A person who messages a triggered run moves it onto the 20 minute timeout. A `budget_exhausted` run has not failed, but has used all the budget it was given.
 
@@ -47,6 +52,14 @@ An `idle` run is healthy. Its session stays alive waiting for the next message u
 
 A delegated agent acts with the authority of the person who started the run. Messages from anyone else are refused.
 
+Terminating a live run ends it as `terminated`, and a run that already ended keeps its state. A terminated run keeps its events and stays readable by its ID. It is left out of run lists and run statistics.
+
+## Run sources
+
+A run started by a [trigger](../guides/create-a-trigger.md) links back to the event that started it, such as a GitHub pull request, a Slack message or an Alertmanager alert. When the event has them, the links also cover the pull request, repository and branch. When a trigger sends another event to the same run, that event's links are added. A run started by a person or through the API has no links.
+
+Only kora can add links to a run.
+
 ## When a run ends
 
 When a run ends, its [sandbox](sandboxes.md) and anything installed or cached inside it are deleted. If the agent stops unexpectedly, kora marks the run as `failed`.
@@ -55,3 +68,4 @@ When a run ends, its [sandbox](sandboxes.md) and anything installed or cached in
 
 - [Run and session lifecycle](../adr/2026-05-11-run-and-session-lifecycle.md)
 - [Run scheduling](../adr/2026-10-12-run-scheduling.md)
+- [Run sources](../adr/2026-11-07-run-sources.md)

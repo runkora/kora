@@ -38,6 +38,10 @@ type mockInferenceUsageRepository struct {
 	runSpend          float64
 	runTokens         int64
 	runUsageErr       error
+	runPrincipal      *RunPrincipal
+	runTenant         string            // when set, GetRunPrincipal answers this tenant only
+	personNames       map[string]string // GetPersonName answers, by principal id
+	personNameErr     error
 	lastFilter        InferenceUsageFilter // captured on each List call
 	lastAnalytics     AnalyticsFilter      // captured on each GetAnalytics call
 
@@ -158,6 +162,17 @@ func (m *mockInferenceUsageRepository) GetRunUsage(_ context.Context, _, _ strin
 	return m.runSpend, m.runTokens, m.runUsageErr
 }
 
+func (m *mockInferenceUsageRepository) GetRunPrincipal(_ context.Context, tenantID, _ string) (RunPrincipal, error) {
+	if m.runPrincipal == nil || (m.runTenant != "" && tenantID != m.runTenant) {
+		return RunPrincipal{}, ErrUsageRecordNotFound
+	}
+	return *m.runPrincipal, nil
+}
+
+func (m *mockInferenceUsageRepository) GetPersonName(_ context.Context, _, principalID string) (string, error) {
+	return m.personNames[principalID], m.personNameErr
+}
+
 func (m *mockInferenceUsageRepository) GetMonthlySpendByPrincipal(_ context.Context, _ string, _ time.Time) ([]PrincipalPeriodSpend, error) {
 	return m.periodSpends, nil
 }
@@ -248,14 +263,14 @@ func (m *mockSpendCounter) GetSpends(_ context.Context, scopes SpendScopes) (pol
 	return m.spends, nil
 }
 
-func (m *mockSpendCounter) IncrementSpends(_ context.Context, scopes SpendScopes, categories []policy.BudgetCategory, amount float64) error {
+func (m *mockSpendCounter) IncrementSpends(_ context.Context, scopes SpendScopes, categories []policy.BudgetCategory, amount float64) (policy.BudgetSpends, error) {
 	if m.incrErr != nil {
-		return m.incrErr
+		return policy.BudgetSpends{}, m.incrErr
 	}
 	m.lastIncrScopes = scopes
 	m.lastCategories = categories
 	m.incremented += amount
-	return nil
+	return m.spends, nil
 }
 
 func (m *mockSpendCounter) GetCategorySpends(_ context.Context, _ string, categories []policy.BudgetCategory) ([]float64, error) {

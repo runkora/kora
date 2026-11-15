@@ -181,6 +181,12 @@ export interface IconProps {
   rotate?: 0 | 45 | 90 | 135 | 180 | 270;
 
   /**
+   * When true, the icon turns continuously. Use on `loader` to show work in
+   * progress. It stays still for a user who asks for reduced motion.
+   */
+  spin?: boolean;
+
+  /**
    * When true, adds `shrink-0` to the wrapper span so this icon does not
    * compress inside a flex row when sibling elements compete for space.
    */
@@ -194,7 +200,8 @@ export interface IconProps {
 
   /**
    * When true, the icon wrapper is initially invisible and fades in when
-   * an ancestor element with the Tailwind `group` class is hovered.
+   * an ancestor element with the Tailwind `group` class is hovered or holds
+   * keyboard focus, so a keyboard user sees the same control a pointer user does.
    * Use this for "copy" / "action" icons inside hover-reveal rows.
    *
    * ```tsx
@@ -227,6 +234,7 @@ const Icon = React.forwardRef<HTMLSpanElement, IconProps>(
       filled = false,
       label,
       rotate,
+      spin = false,
       shrink = false,
       cursorGrab = false,
       groupReveal = false,
@@ -239,6 +247,7 @@ const Icon = React.forwardRef<HTMLSpanElement, IconProps>(
       'shrink-0 pointer-events-none',
       color && !container && ICON_COLOR[color],
       filled && 'fill-current',
+      spin && 'motion-safe:animate-spin',
     );
 
     const svgEl = <LucideIcon className={svgClasses} aria-hidden={true} data-slot="icon" />;
@@ -265,7 +274,8 @@ const Icon = React.forwardRef<HTMLSpanElement, IconProps>(
           role={label ? 'img' : undefined}
           className={
             cn(
-              groupReveal && 'opacity-0 transition-opacity group-hover:opacity-100',
+              groupReveal &&
+                'opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100',
               shrink && 'shrink-0',
               cursorGrab && 'cursor-grab active:cursor-grabbing',
             ) || undefined

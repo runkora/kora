@@ -120,8 +120,9 @@ func TestFanOut_StoresPerTriggerFields(t *testing.T) {
 			t.Fatalf("trigger %s queued %d fires, want 1", id, len(pending))
 		}
 		got := pending[0].Fields
-		if len(got) != len(paths)+len(metaFields) {
-			t.Errorf("trigger %s stored %v, want its own paths plus the meta fields", id, got)
+		// The GitHub adapter also stores the delivery's event summary.
+		if len(got) != len(paths)+len(metaFields)+1 || got[metaEventSummary] == "" {
+			t.Errorf("trigger %s stored %v, want its own paths, the meta fields and the event summary", id, got)
 		}
 		for k, v := range paths {
 			if got[k] != v {
@@ -181,7 +182,7 @@ func TestRedeliver_TruncatedPayloadResolvesNoFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
-	if _, err := f.svc.Redeliver(context.Background(), testTenant, original.ID, "user:1"); err != nil {
+	if _, err := f.svc.Redeliver(context.Background(), testTenant, original.ID, "user:1", true); err != nil {
 		t.Fatalf("Redeliver: %v", err)
 	}
 	waitFor(t, func() bool { return len(f.deps.repo.pendingFor(tr.ID)) == 1 })

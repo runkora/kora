@@ -23,7 +23,7 @@ const meta: Meta<typeof Modal> = {
 export default meta;
 type Story = StoryObj<typeof Modal>;
 
-type ModalSize = 'sm' | 'md' | 'lg' | 'builder';
+type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | 'builder';
 
 function ConfirmContent({ onClose, destructive }: { onClose: () => void; destructive?: boolean }) {
   return (
@@ -262,6 +262,9 @@ export const Overflow: Story = {
       <OpenButton label="Open long wide modal" size="lg">
         {(onClose) => <LongContent onClose={onClose} />}
       </OpenButton>
+      <OpenButton label="Open long extra wide modal" size="xl">
+        {(onClose) => <LongContent onClose={onClose} />}
+      </OpenButton>
     </div>
   ),
 };
@@ -298,6 +301,11 @@ export const Options: Story = {
         </Option>
         <Option name='size="lg" (512px wide)' use="For forms with longer labels or more fields.">
           <OpenButton label="Open wide modal" size="lg">
+            {(onClose) => <FormContent onClose={onClose} />}
+          </OpenButton>
+        </Option>
+        <Option name='size="xl" (576px wide)' use="For a detail view with long values or code.">
+          <OpenButton label="Open extra wide modal" size="xl">
             {(onClose) => <FormContent onClose={onClose} />}
           </OpenButton>
         </Option>

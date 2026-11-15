@@ -51,6 +51,7 @@ interface DeliveryDisplayRow extends DeliveryRow {
 function computeArrivedVia(d: DeliveryRow, sourceName: (id: string) => string): string {
   if (d.kind === 'scheduled') return 'schedule';
   if (d.kind === 'manual') return 'manual fire';
+  if (d.kind === 'event') return 'platform event';
   return d.sourceId === '' ? 'webhook' : sourceName(d.sourceId);
 }
 

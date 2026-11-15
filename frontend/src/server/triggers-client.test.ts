@@ -4,7 +4,7 @@ vi.mock('@runkora/server/config', () => ({
   config: { koraTriggersUrl: 'http://kora-triggers.test/api/v1' },
 }));
 
-import { listDeliveries, listTriggers } from './triggers-client';
+import { getDelivery, listDeliveries, listTriggers } from './triggers-client';
 
 function stubFetch(body: unknown) {
   const fetchMock = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(() =>
@@ -36,6 +36,14 @@ describe('triggers-client', () => {
       limit: '50',
       omit_payload: 'true',
     });
+  });
+
+  it('reads one delivery by id', async () => {
+    const fetchMock = stubFetch({ id: 'dlv 1' });
+    expect(await getDelivery('token-a', 'dlv 1')).toEqual({ id: 'dlv 1' });
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'http://kora-triggers.test/api/v1/trigger-deliveries/dlv%201',
+    );
   });
 
   it('lists triggers over the window it is given', async () => {

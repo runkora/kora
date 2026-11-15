@@ -40,6 +40,8 @@ export type {
 
 export { IconTile, iconTileVariants } from './components/icon-tile';
 export type { IconTileProps } from './components/icon-tile';
+export { Avatar, avatarVariants } from './components/avatar';
+export type { AvatarProps } from './components/avatar';
 
 export { Button, buttonVariants } from './components/button';
 export type { ButtonProps } from './components/button';
@@ -201,6 +203,13 @@ export { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from './comp
 
 export { Popover, PopoverTrigger, PopoverAnchor, PopoverContent } from './components/popover';
 export type { PopoverContentProps } from './components/popover';
+export {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from './components/dropdown-menu';
+export type { DropdownMenuContentProps, DropdownMenuItemProps } from './components/dropdown-menu';
 
 export { Tabs, TabsList, TabsTrigger, TabsContent } from './components/tabs';
 export type { TabsTriggerProps } from './components/tabs';

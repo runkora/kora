@@ -1036,7 +1036,7 @@ export function routedDelivery(c: RoutingCase): DeliveryRow {
 // at one point on them. The name says which: `<kind>-<target>[-<state>]`.
 //
 //   kind    webhook · chat · scheduled · manual
-//   target  agent (one fixed agent) · routed (kora chooses; webhook and chat only)
+//   target  agent (one fixed agent) · routed (kora chooses; webhook, chat and event only)
 //   state   unfiltered · auto-paused · source-deleted · waiting-for-secret ·
 //           managed-in-git
 //
@@ -1044,7 +1044,7 @@ export function routedDelivery(c: RoutingCase): DeliveryRow {
 // Configuration sections (event filters and senders, schedule, or neither).
 // Target decides what the Overview's Target shows. State adds a notice or alert and changes
 // what can be edited. Combinations the product cannot produce are absent: only
-// a webhook or chat trigger can be routed, and only one with a source can lose it.
+// a webhook, chat or event trigger can be routed, and only one with a source can lose it.
 //
 // Fixtures are separate from the fleet above so the fleet stays a realistic
 // list, while these stay easy to find from the name alone.

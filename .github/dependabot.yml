@@ -59,6 +59,11 @@ updates:
           - version-update:semver-major
 
   # The frontend's pnpm dependencies, on the same terms as the Go modules.
+  # The Hades workspace package still lists Storybook 8 while the app runs
+  # Storybook 10. Dependabot updates a package in every manifest of the
+  # workspace together, so an 8.x release for Hades is also written into the
+  # app's manifest, which breaks `storybook dev`. Storybook 8 releases are
+  # therefore never proposed.
   - package-ecosystem: npm
     directory: /frontend
     schedule:
@@ -70,3 +75,7 @@ updates:
       - dependency-name: "*"
         update-types:
           - version-update:semver-major
+      - dependency-name: "@storybook/*"
+        versions: ["< 10"]
+      - dependency-name: "storybook"
+        versions: ["< 10"]

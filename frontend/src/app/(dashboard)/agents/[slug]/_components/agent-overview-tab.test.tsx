@@ -28,6 +28,7 @@ function statGrid(resp: ReturnType<typeof mockOverview>) {
         overview={toAgentOverview(resp)}
         status="ready"
         onEditInstructions={() => {}}
+        onViewAllRuns={() => {}}
       />
     </AgentDetailProvider>,
   );

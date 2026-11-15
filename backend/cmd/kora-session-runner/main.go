@@ -49,8 +49,13 @@ const (
 var platformBinaries = []string{"kora-shell", "kora-runtime-mcp"}
 
 // harnessBinaries are image binaries a harness execs itself, by the harness's
-// command name. OpenCode runs ripgrep for its grep, glob and list tools.
-var harnessBinaries = map[string][]string{"opencode": {"/usr/bin/rg"}}
+// command name. OpenCode runs ripgrep for its grep, glob and list tools, and the
+// codex-acp and claude-agent-acp adapters run the pinned codex and claude they wrap.
+var harnessBinaries = map[string][]string{
+	"opencode":         {"/usr/bin/rg"},
+	"codex-acp":        {"/usr/local/bin/codex"},
+	"claude-agent-acp": {"/usr/local/bin/claude"},
+}
 
 // procFiles are the /proc files the agent may read. None describes a process:
 // runtimes read them for CPU and memory totals and kernel settings.

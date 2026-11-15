@@ -1,0 +1,126 @@
+[
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": "The"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " vast"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " ocean stretches endlessly across"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " the horizon"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": ", c"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": "radling countless mysteries"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " in"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " its deep"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " blue"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " depths"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": "."
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": "\n\nNow"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " let"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " me run that"
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": " shell command:"
+    }
+  },
+  {
+    "type": "text_block",
+    "payload": {
+      "content": "The vast ocean stretches endlessly across the horizon, cradling countless mysteries in its deep blue depths.\n\nNow let me run that shell command:"
+    }
+  },
+  {
+    "type": "tool_use",
+    "payload": {
+      "id": "toolu_bdrk_01KKncbm2hRJdShh3uftpijC",
+      "name": "Bash",
+      "input": {
+        "command": "echo hi",
+        "description": "Print \"hi\" to standard output"
+      }
+    }
+  },
+  {
+    "type": "tool_result",
+    "payload": {
+      "tool_use_id": "toolu_bdrk_01KKncbm2hRJdShh3uftpijC",
+      "content": "hi",
+      "is_error": false
+    }
+  },
+  {
+    "type": "message_complete",
+    "payload": {
+      "text": ""
+    }
+  },
+  {
+    "type": "message_stop"
+  }
+]

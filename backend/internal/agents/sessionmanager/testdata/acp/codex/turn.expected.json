@@ -1,0 +1,83 @@
+[
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": "I’ll run the requested commands and ping the MCP tool."
+    }
+  },
+  {
+    "type": "text_block",
+    "payload": {
+      "content": "I’ll run the requested commands and ping the MCP tool."
+    }
+  },
+  {
+    "type": "tool_use",
+    "payload": {
+      "id": "call_Bk4RWzpZ7YEovcBkT2rAtlPN",
+      "name": "commandExecution",
+      "input": {
+        "command": "echo hi",
+        "cwd": "/w"
+      }
+    }
+  },
+  {
+    "type": "tool_result",
+    "payload": {
+      "tool_use_id": "call_Bk4RWzpZ7YEovcBkT2rAtlPN",
+      "content": "hi\n",
+      "is_error": false
+    }
+  },
+  {
+    "type": "tool_use",
+    "payload": {
+      "id": "call_zvhkEFKrvsAMYZiLwNfxiCEB",
+      "name": "commandExecution",
+      "input": {
+        "command": "ls /nonexistent-s4",
+        "cwd": "/w"
+      }
+    }
+  },
+  {
+    "type": "tool_result",
+    "payload": {
+      "tool_use_id": "call_zvhkEFKrvsAMYZiLwNfxiCEB",
+      "content": "Exit code 1\nls: /nonexistent-s4: No such file or directory\n",
+      "is_error": true
+    }
+  },
+  {
+    "type": "tool_use",
+    "payload": {
+      "id": "call_iDvMkMqyYQKdXyWGxWJVbB4O",
+      "name": "mcp__tools__ping",
+      "input": {}
+    }
+  },
+  {
+    "type": "tool_result",
+    "payload": {
+      "tool_use_id": "call_iDvMkMqyYQKdXyWGxWJVbB4O",
+      "content": "pong from tools",
+      "is_error": false
+    }
+  },
+  {
+    "type": "text_delta",
+    "payload": {
+      "delta": "Ran `echo hi` successfully, `ls /nonexistent-s4` failed as expected, and MCP ping returned `pong from tools`."
+    }
+  },
+  {
+    "type": "message_complete",
+    "payload": {
+      "text": "Ran `echo hi` successfully, `ls /nonexistent-s4` failed as expected, and MCP ping returned `pong from tools`."
+    }
+  },
+  {
+    "type": "message_stop"
+  }
+]

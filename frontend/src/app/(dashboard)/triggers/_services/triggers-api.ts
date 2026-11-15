@@ -130,6 +130,16 @@ export async function listDeliveryPage(opts: {
   };
 }
 
+/** One delivery by id, whatever the page range. */
+export async function getDelivery(
+  id: string,
+): Promise<{ delivery: TriggerDelivery | null; error: string | null }> {
+  const res = await send<TriggerDelivery>(ApiRoute.triggerDeliveries.get(id), {
+    cache: 'no-store',
+  });
+  return { delivery: res.data, error: res.error };
+}
+
 /** The agent types a routed trigger may name, each marked runnable for the caller. */
 export async function listRoutingCandidates(): Promise<{
   candidates: TriggerRoutingCandidate[];
@@ -188,6 +198,25 @@ export async function fetchProviderEventTypes(
     cache: 'no-store',
   });
   return { eventTypes: res.data, error: res.error };
+}
+
+/** The platform event types an event trigger can listen for. */
+export async function fetchPlatformEventTypes(): Promise<{
+  eventTypes: string[];
+  error: string | null;
+}> {
+  const res = await send<string[]>(ApiRoute.triggers.eventTypes(), { cache: 'no-store' });
+  return { eventTypes: res.data ?? [], error: res.error };
+}
+
+/** A platform event type's fields and their allowed values, from the type's schema. */
+export async function fetchEventTypeFields(
+  eventType: string,
+): Promise<{ fields: TriggerField[]; error: string | null }> {
+  const res = await send<{ fields?: TriggerField[] }>(ApiRoute.eventTypes.fields(eventType), {
+    cache: 'no-store',
+  });
+  return { fields: res.data?.fields ?? [], error: res.error };
 }
 
 /** One event type's fields, from the provider's schema. */

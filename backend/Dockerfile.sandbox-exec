@@ -57,6 +57,17 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /sandbox-exec ./cmd/sandbox-exec
 
+# kustomize builds from the Go module proxy, not GitHub releases, cross-compiled
+# like sandbox-exec. go install checks it against the Go checksum database.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308 AS go-tools
+ARG KUSTOMIZE_VERSION INSTALL_KUSTOMIZE TARGETOS TARGETARCH
+RUN set -eux; \
+    mkdir /out; \
+    if [ "$INSTALL_KUSTOMIZE" = "true" ]; then \
+      CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go install "sigs.k8s.io/kustomize/kustomize/v5@v${KUSTOMIZE_VERSION}"; \
+      find "$(go env GOPATH)/bin" -type f -exec mv {} /out/ \;; \
+    fi
+
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4
 
@@ -105,20 +116,22 @@ RUN apt-get update && apt-get install -y \
     rm -rf /var/lib/apt/lists/* && \
     python --version
 
-# uv + uvx. Refresh the digests from the release's .sha256 files when bumping UV_VERSION.
-ARG UV_SHA256_AMD64=1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154
-ARG UV_SHA256_ARM64=3ccfb6af6e242433eb552f7d9676abd5412c6595c497e990d9c8cb7b5bd4d2c3
+# uv + uvx from the PyPI wheel, which carries the same binaries as the GitHub
+# release. Refresh the digests from PyPI when bumping UV_VERSION.
+ARG UV_SHA256_AMD64=52c7da0fd9056d9551124777ec77de53f0df7017daf8f98a19e947b7837416ed
+ARG UV_SHA256_ARM64=f840e640fe16591f6d71a94e8863707b7ba43c5786d1fe662868a9fb44c53e50
 RUN set -eux; \
     case "$(dpkg --print-architecture)" in \
-      amd64) ARCH='x86_64'; SHA="${UV_SHA256_AMD64}";; \
-      arm64) ARCH='aarch64'; SHA="${UV_SHA256_ARM64}";; \
+      amd64) PLATFORM='manylinux_2_17_x86_64.manylinux2014_x86_64'; SHA="${UV_SHA256_AMD64}";; \
+      arm64) PLATFORM='manylinux_2_28_aarch64'; SHA="${UV_SHA256_ARM64}";; \
       *) echo "unsupported architecture for uv: $(dpkg --print-architecture)" >&2; exit 1;; \
     esac; \
-    tarball="uv-${ARCH}-unknown-linux-gnu.tar.gz"; \
-    curl --proto '=https' --tlsv1.2 -fsSLO "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${tarball}" && \
-    echo "${SHA}  ${tarball}" | sha256sum --check && \
-    tar -xzf "${tarball}" -C /usr/local/bin --strip-components=1 "uv-${ARCH}-unknown-linux-gnu/uv" "uv-${ARCH}-unknown-linux-gnu/uvx" && \
-    rm -f "${tarball}" && \
+    wheel="uv-${UV_VERSION}-py3-none-${PLATFORM}.whl"; \
+    curl --proto '=https' --tlsv1.2 -fsSLO "https://files.pythonhosted.org/packages/py3/u/uv/${wheel}" && \
+    echo "${SHA}  ${wheel}" | sha256sum --check && \
+    python3 -m zipfile -e "${wheel}" /tmp/uv && \
+    install -m 0755 "/tmp/uv/uv-${UV_VERSION}.data/scripts/uv" "/tmp/uv/uv-${UV_VERSION}.data/scripts/uvx" /usr/local/bin/ && \
+    rm -rf "${wheel}" /tmp/uv && \
     uv --version
 
 # Bun
@@ -299,25 +312,7 @@ RUN if [ "$INSTALL_KUBECTL" = "true" ]; then \
       kubectl version --client ; \
     fi
 
-# kustomize. Digests pinned here for the same reason as kubectl's above; refresh
-# them from the release's checksums.txt when bumping KUSTOMIZE_VERSION.
-ARG KUSTOMIZE_SHA256_AMD64=029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d
-ARG KUSTOMIZE_SHA256_ARM64=0953ea3e476f66d6ddfcd911d750f5167b9365aa9491b2326398e289fef2c142
-RUN if [ "$INSTALL_KUSTOMIZE" = "true" ]; then \
-      set -eux; \
-      dpkgArch="$(dpkg --print-architecture)"; \
-      case "${dpkgArch##*-}" in \
-        amd64) ARCH='amd64'; SHA="${KUSTOMIZE_SHA256_AMD64}";; \
-        arm64) ARCH='arm64'; SHA="${KUSTOMIZE_SHA256_ARM64}";; \
-        *) echo "unsupported architecture for kustomize: ${dpkgArch}" >&2; exit 1;; \
-      esac; \
-      tarball="kustomize_v${KUSTOMIZE_VERSION}_linux_${ARCH}.tar.gz"; \
-      curl --proto '=https' --tlsv1.2 -fsSLO "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/${tarball}" && \
-      echo "${SHA}  ${tarball}" | sha256sum --check && \
-      tar -xzf "${tarball}" -C /usr/local/bin kustomize && \
-      rm -f "${tarball}" && \
-      kustomize version ; \
-    fi
+COPY --from=go-tools /out/ /usr/local/bin/
 
 # sandbox-exec gRPC server
 COPY --from=builder /sandbox-exec /usr/local/bin/sandbox-exec

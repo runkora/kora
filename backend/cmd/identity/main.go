@@ -149,15 +149,16 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		return nil, err
 	}
 
-	sessionRepo := identity.NewPostgresSessionRepository(db.Pool())
-	refreshRepo := identity.NewPostgresRefreshTokenRepository(db.Pool())
+	pool := storage.NewPool(db.Pool())
+	sessionRepo := identity.NewPostgresSessionRepository(pool)
+	refreshRepo := identity.NewPostgresRefreshTokenRepository(pool)
 	blocklist := identity.NewRedisJTIBlocklistRepository(redis)
 	authCodeRepo := identity.NewRedisAuthCodeRepository(redis.Client())
 	clientRepo := identity.NewRedisClientRepository(redis.Client())
-	patRepo := identity.NewPostgresPATRepository(db.Pool())
-	profileRepo := identity.NewPostgresUserProfileRepository(db.Pool())
-	prefsRepo := identity.NewPostgresUserPreferencesRepository(db.Pool())
-	delegationRepo := identity.NewPostgresDelegationRepository(db.Pool())
+	patRepo := identity.NewPostgresPATRepository(pool)
+	profileRepo := identity.NewPostgresUserProfileRepository(pool)
+	prefsRepo := identity.NewPostgresUserPreferencesRepository(pool)
+	delegationRepo := identity.NewPostgresDelegationRepository(pool)
 
 	// Policy service integration for PAT grant management and scope validation.
 	policySvcURL := ic.Current.PolicyServiceURL
@@ -281,6 +282,9 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 		mw.MiddlewareChain(
 			mw.TracingMiddleware(),
 			mw.LoggingMiddleware(logger),
+			// Rewrites /run/{run_id}/… to /… with the run in context, so an agent's
+			// call through the kora MCP carries its run (event spine ADR, section 7).
+			mw.NewMiddleware(mw.StripRunPrefix),
 		),
 		controllers...,
 	)
