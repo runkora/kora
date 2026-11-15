@@ -89,7 +89,7 @@ The GitHub adapter and the broker will change as follows:
     *   `/orgs/{org}/...` and `/users/{user}/...` will classify by the category GitHub requires for the route, unqualified.
     *   `Query.search` will classify by the types the search selects, qualified by the `repo:` terms of its query as REST search is.
     *   `Query.repositoryOwner`, `Repository.sshUrl` and `Repository.parent` will classify as `metadata:read`.
-    *   `branchProtectionRule` will require `admin:read`, and its token will carry `administration: read` only.
+    *   `branchProtectionRule` and `/branches/{b}/protection` will require `protection:read` or `protection:write`, which mints administration only.
     *   `/orgs/{org}/teams`, `/orgs/{org}/members`, `/orgs/{org}/memberships` and `/orgs/{org}/invitations` will classify as `members:read` or `members:write`, unqualified. The `members` category will mint the organization Members permission.
     *   A search query with an `OR` or `NOT` operator, a parenthesised `repo:` term, or an `org:` or `user:` term will classify unqualified.
 2.  `/repositories/{id}/...` will classify as the `/repos/{owner}/{repo}/...` path it resolves to.
@@ -122,7 +122,7 @@ This decision supersedes Decision C of the category-scoped actions ADR, Option 4
 
 ### Neutral
 
-*   `gh pr view` and `gh pr checks` on a pull request with Actions checks need `actions:read`. `gh pr status` needs `admin:read`.
+*   `gh pr view` and `gh pr checks` on a pull request with Actions checks need `actions:read`. `gh pr status` needs `protection:read`.
 
 ---
 
