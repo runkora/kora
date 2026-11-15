@@ -10,7 +10,7 @@ An outbound call is authorized twice. The sandbox's `opa` sidecar authorizes the
 
 ## Credential brokering
 
-Once authorized, the gateway mints a scoped, short-lived credential for the destination and injects it on the outbound leg: a GitHub App installation token, or a Kubernetes bearer token. It strips the platform token first. The agent never sees the injected credential, and the upstream system stays the authority on what it permits. A host with no matching connection falls through to passthrough, which injects nothing. Reachability was already gated at `egress:<host>:connect`.
+Once authorized, the gateway mints a scoped, short-lived credential or static secret for the destination and injects it on the outbound leg: a GitHub App installation token, a Kubernetes bearer token, or an API key. It strips the platform token first. The agent never sees the injected credential, and the upstream system stays the authority on what it permits. A host with no matching connection falls through to passthrough, which injects nothing. Reachability was already gated at `egress:<host>:connect`.
 
 ## Connections
 
