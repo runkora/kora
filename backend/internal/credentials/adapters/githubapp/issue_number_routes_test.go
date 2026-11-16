@@ -15,11 +15,10 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-// Issues and pull requests share one number sequence and GitHub serves both
-// under /issues/{n}, checking pull_requests when the target is a pull request.
-// Those routes carry pulls as an alternate so a caller holding it gets a token
-// GitHub will accept for a pull request.
-func TestClassify_IssueNumberRoutesCarryPullsAlternate(t *testing.T) {
+// GitHub serves issues and pull requests under /issues and lists pull_requests
+// as an alternative permission on the routes that accept either. Those routes
+// carry pulls as an alternate, and only those.
+func TestClassify_IssueRoutesCarryPullsAlternate(t *testing.T) {
 	a := New(nil, stubSecrets{}, logging.NewLoggerWithOutput(io.Discard))
 	conn := credentials.Connection{Config: mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "orbital"})}
 
@@ -30,19 +29,18 @@ func TestClassify_IssueNumberRoutesCarryPullsAlternate(t *testing.T) {
 		action     string
 		alternates []string
 	}{
-		{"react on an issue or PR body", http.MethodPost, "/repos/orbital/kora/issues/1054/reactions", "issues:write", []string{"pulls:write"}},
 		{"comment on the conversation", http.MethodPost, "/repos/orbital/kora/issues/1054/comments", "issues:write", []string{"pulls:write"}},
-		{"read one by number", http.MethodGet, "/repos/orbital/kora/issues/1054", "issues:read", []string{"pulls:read"}},
-		{"react on a conversation comment", http.MethodPost, "/repos/orbital/kora/issues/comments/99/reactions", "issues:write", []string{"pulls:write"}},
 		{"label by number", http.MethodPost, "/repos/orbital/kora/issues/1054/labels", "issues:write", []string{"pulls:write"}},
+		{"edit by number", http.MethodPatch, "/repos/orbital/kora/issues/1054", "issues:write", []string{"pulls:write"}},
 		{"read one event by ID", http.MethodGet, "/repos/orbital/kora/issues/events/77", "issues:read", []string{"pulls:read"}},
+		{"repository labels", http.MethodPost, "/repos/orbital/kora/labels", "issues:write", []string{"pulls:write"}},
+		{"repository-wide comments", http.MethodGet, "/repos/orbital/kora/issues/comments", "issues:read", []string{"pulls:read"}},
 
-		// No ambiguity, so no alternate.
+		// GitHub lists issues alone.
+		{"react on an issue body", http.MethodPost, "/repos/orbital/kora/issues/1054/reactions", "issues:write", nil},
+		{"read one by number", http.MethodGet, "/repos/orbital/kora/issues/1054", "issues:read", nil},
 		{"create an issue", http.MethodPost, "/repos/orbital/kora/issues", "issues:write", nil},
 		{"list issues", http.MethodGet, "/repos/orbital/kora/issues", "issues:read", nil},
-		{"repository labels", http.MethodPost, "/repos/orbital/kora/labels", "issues:write", nil},
-		{"repository-wide comments", http.MethodGet, "/repos/orbital/kora/issues/comments", "issues:read", nil},
-		{"repository-wide events", http.MethodGet, "/repos/orbital/kora/issues/events", "issues:read", nil},
 		{"pull request route", http.MethodPost, "/repos/orbital/kora/pulls/1054/reviews", "pulls:write", nil},
 	}
 	for _, tc := range cases {
@@ -65,9 +63,9 @@ func TestClassify_IssueNumberRoutesCarryPullsAlternate(t *testing.T) {
 	}
 }
 
-// mintPermissions mints through the adapter against a stubbed GitHub API and
+// mintedPermissions mints through the adapter against a stubbed GitHub API and
 // returns the permissions the installation token was requested with.
-func mintPermissions(t *testing.T, id credentials.CallerIdentity) map[string]string {
+func mintedPermissions(t *testing.T, id credentials.CallerIdentity) map[string]string {
 	t.Helper()
 	var body ghclient.InstallationTokenRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +94,7 @@ func mintPermissions(t *testing.T, id credentials.CallerIdentity) map[string]str
 // authorized it. Without it the token is exactly as narrow as before.
 func TestMint_AlsoAuthorizedWidensByExactlyThoseActions(t *testing.T) {
 	t.Run("pulls authorized", func(t *testing.T) {
-		perms := mintPermissions(t, credentials.CallerIdentity{
+		perms := mintedPermissions(t, credentials.CallerIdentity{
 			TenantID: "example", Action: "issues:write", Qualifier: "kora",
 			AlsoAuthorized: []string{"pulls:write"},
 		})
@@ -109,7 +107,7 @@ func TestMint_AlsoAuthorizedWidensByExactlyThoseActions(t *testing.T) {
 	})
 
 	t.Run("pulls not authorized", func(t *testing.T) {
-		perms := mintPermissions(t, credentials.CallerIdentity{
+		perms := mintedPermissions(t, credentials.CallerIdentity{
 			TenantID: "example", Action: "issues:write", Qualifier: "kora",
 		})
 		if perms["issues"] != "write" {
@@ -121,7 +119,7 @@ func TestMint_AlsoAuthorizedWidensByExactlyThoseActions(t *testing.T) {
 	})
 
 	t.Run("a read alternate does not lower a write", func(t *testing.T) {
-		perms := mintPermissions(t, credentials.CallerIdentity{
+		perms := mintedPermissions(t, credentials.CallerIdentity{
 			TenantID: "example", Action: "pulls:write", Qualifier: "kora",
 			AlsoAuthorized: []string{"pulls:read"},
 		})

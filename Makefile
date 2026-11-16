@@ -1338,10 +1338,11 @@ deadcode: ## Report Go functions no main package can reach
 
 HELM_DOCS_VERSION := v1.14.2
 CONTROLLER_GEN_VERSION := v0.23.0
-GENERATED := backend/internal/platform/declarative/v1alpha1/zz_generated.deepcopy.go backend/internal/operator/zz_generated.deepcopy.go backend/internal/platform/inferenceproviders/v1alpha1/zz_generated.deepcopy.go backend/internal/platform/sandboximages/v1alpha1/zz_generated.deepcopy.go charts/kora-crds/generated
+GENERATED := backend/internal/platform/declarative/v1alpha1/zz_generated.deepcopy.go backend/internal/operator/zz_generated.deepcopy.go backend/internal/platform/inferenceproviders/v1alpha1/zz_generated.deepcopy.go backend/internal/platform/sandboximages/v1alpha1/zz_generated.deepcopy.go charts/kora-crds/generated backend/internal/credentials/adapters/githubapp/routes_gen.go
 
 .PHONY: generate
-generate: ## Regenerate the CRD kinds' deepcopy functions and CRDs with controller-gen
+generate: ## Regenerate the CRD kinds' deepcopy functions and CRDs with controller-gen, and the GitHub route table
+	@cd backend && go run ./internal/credentials/adapters/githubapp/gen
 	@rm -f charts/kora-crds/generated/*.yaml
 	@cd backend && go run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION) \
 	  object crd:allowDangerousTypes=true \

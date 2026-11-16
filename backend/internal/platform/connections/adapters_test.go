@@ -12,19 +12,22 @@ import (
 // change here must be a conscious vocabulary change, not an accident.
 func TestActionNames(t *testing.T) {
 	cases := map[string][]string{
-		// Category-scoped since docs/adr/2026-07-22-github-connection-category-
-		// scoped-actions.md; repo:read/repo:write survive as the catch-all +
-		// legacy umbrella.
+		// Categories of GitHub App permissions since
+		// docs/adr/2026-11-15-github-connector-route-coverage.md; repo:read and
+		// repo:write remain while GraphQL still returns them.
 		AdapterGitHubApp: {
 			"metadata:read",
 			"contents:read", "contents:write",
+			"workflows:read", "workflows:write",
 			"issues:read", "issues:write",
 			"pulls:read", "pulls:write",
-			"actions:read", "actions:write",
-			"checks:read", "checks:write",
+			"ci:read", "ci:write",
+			"deployments:read", "deployments:write",
+			"security:read", "security:write",
+			"secrets:read", "secrets:write",
 			"admin:read", "admin:write",
-			"protection:read", "protection:write",
 			"members:read", "members:write",
+			"org_projects:read", "org_projects:write",
 			"repo:read", "repo:write",
 		},
 		AdapterKubernetesBearer: {

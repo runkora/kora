@@ -161,6 +161,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		Action:         action,
 		Qualifier:      cls.Qualifier,
 		AlsoAuthorized: also,
+		Permissions:    cls.Permissions,
 	}
 	cred, err := connector.Mint(ctx, identity)
 	if err != nil {

@@ -78,6 +78,9 @@ type CallerIdentity struct {
 	// grant also holds, and its AlsoRequired actions. Adapters widen the
 	// credential by exactly these and no others.
 	AlsoAuthorized []string
+	// Permissions is the classification's per-action upstream permissions, for
+	// adapters that mint exactly what the request needs.
+	Permissions map[string]map[string]string
 }
 
 // Sentinel errors. Callers may test for these with errors.Is.

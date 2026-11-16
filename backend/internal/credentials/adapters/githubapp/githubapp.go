@@ -5,15 +5,13 @@
 // smart-HTTP Basic credential. The long-lived App private key never leaves this
 // process.
 //
-// Classify is category-scoped: it parses the request's host family and
-// path into a route-family category (contents, issues, pulls, actions, checks,
-// admin, metadata) combined with a read/write verb class, plus the repository
-// qualifier when the path names one. GraphQL requests are classified by the
-// fields they select (graphql.go). Resolve then mints the installation token
-// narrowed to exactly the classified categories' permissions and the request's
-// repository. See docs/adr/2026-07-22-github-connection-category-scoped-actions.md,
-// docs/adr/2026-07-22-connection-scope-qualifiers.md and
-// docs/adr/2026-09-29-github-graphql-field-classification.md.
+// Classify maps a request to category actions (categoryPermissions) plus the
+// repository qualifier when the path names one. REST endpoints classify by
+// GitHub's published permission data (routes_gen.go), and the token carries
+// exactly the permissions the endpoint needs. GraphQL requests are classified
+// by the fields they select (graphql.go). See
+// docs/adr/2026-11-15-github-connector-route-coverage.md and
+// docs/adr/2026-07-22-connection-scope-qualifiers.md.
 //
 // Each connection-type lives in its own subpackage so adding a new external
 // service (AWS STS, OAuth2 client-credentials, API-key SaaS) is a new directory
@@ -24,12 +22,13 @@ package githubapp
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"net/http"
+	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -186,27 +185,33 @@ func (c *connector) Classify(req *http.Request) (credentials.Classification, err
 
 	owner := normalizeName(c.cfg.Owner)
 
-	if cls, ok, err := classifyGitSmartHTTP(req, owner); ok || err != nil {
+	if cls, ok, err := classifyGit(req, owner); ok || err != nil {
 		return cls, err
 	}
 
 	host := requestHost(req)
 	path := req.URL.Path
+	// Route templates match escaped segments, so an encoded slash in a branch
+	// name stays inside its segment.
+	escaped := req.URL.EscapedPath()
 
 	// The API surface: api.github.com serves paths at the root; a GitHub
 	// Enterprise appliance serves the same API under /api/v3 and GraphQL at
 	// /api/graphql on the shared host.
 	switch {
 	case host == "api.github.com":
-		return classifyAPI(req, path, owner)
+		return classifyAPI(req, escaped, owner)
 	case path == "/api/v3" || strings.HasPrefix(path, "/api/v3/"):
-		return classifyAPI(req, strings.TrimPrefix(path, "/api/v3"), owner)
+		return classifyAPI(req, strings.TrimPrefix(escaped, "/api/v3"), owner)
 	case path == "/api/graphql":
 		return classifyAPI(req, "/graphql", owner)
 	}
 
-	if host == resultsReceiverHost {
+	switch host {
+	case resultsReceiverHost:
 		return classifyResultsReceiver(req.Method, path)
+	case uploadsHost:
+		return classifyReleaseUpload(req.Method, escaped, owner)
 	}
 	if host == "codeload.github.com" || strings.HasSuffix(host, ".githubusercontent.com") {
 		return classifyContentHost(req.Method, path, owner)
@@ -314,6 +319,15 @@ func searchOwners(q string) []string {
 	return owners
 }
 
+// classifyGit classifies the git surfaces: smart HTTP, then LFS. ok=false
+// means the request is neither.
+func classifyGit(req *http.Request, owner string) (credentials.Classification, bool, error) {
+	if cls, ok, err := classifyGitSmartHTTP(req, owner); ok || err != nil {
+		return cls, ok, err
+	}
+	return classifyGitLFS(req, owner)
+}
+
 // classifyGitSmartHTTP recognizes the two well-known git smart-HTTP shapes:
 //
 //	GET  /{owner}/{repo}(.git)/info/refs?service=git-upload-pack    → contents:read
@@ -362,108 +376,77 @@ const (
 	verbRead  = "read"
 	verbWrite = "write"
 
-	catMetadata   = "metadata"
-	catContents   = "contents"
-	catIssues     = "issues"
-	catPulls      = "pulls"
-	catActions    = "actions"
-	catChecks     = "checks"
-	catAdmin      = "admin"
-	catProtection = "protection" // branch protection, administration alone
-	catMembers    = "members"    // organization-wide, never qualified
-	catRepo       = "repo"       // catch-all + legacy umbrella
+	catMetadata    = "metadata"
+	catContents    = "contents"
+	catWorkflows   = "workflows"
+	catIssues      = "issues"
+	catPulls       = "pulls"
+	catCI          = "ci"
+	catDeployments = "deployments"
+	catSecurity    = "security"
+	catSecrets     = "secrets"
+	catAdmin       = "admin"
+	catMembers     = "members"      // organization-wide, never qualified
+	catOrgProjects = "org_projects" // organization-wide, never qualified
+	catRepo        = "repo"         // legacy umbrella, still returned by GraphQL
 )
 
-// classifyAPI maps a REST/GraphQL API path (host prefix already stripped) to a
-// category action plus repository qualifier.
+// classifyAPI maps a REST/GraphQL API path (host prefix already stripped,
+// still escaped) to category actions plus repository qualifier. A REST
+// endpoint outside GitHub's permission data, or needing a permission no
+// category holds, is refused.
 func classifyAPI(req *http.Request, path, owner string) (credentials.Classification, error) {
-	method := req.Method
-	verb, err := verbClass(method)
-	if err != nil {
-		return credentials.Classification{}, err
-	}
 	segs := pathSegments(path)
-	if len(segs) == 0 {
-		// API root discovery.
-		if verb == verbRead {
-			return credentials.Classification{Action: ActionMetadataRead}, nil
-		}
-		return credentials.Classification{Action: ActionRepoWrite}, nil
+	method := strings.ToUpper(req.Method)
+	if method == http.MethodHead {
+		method = http.MethodGet
 	}
-
-	switch segs[0] {
-	case "graphql":
+	switch {
+	case len(segs) == 1 && segs[0] == "graphql":
 		return classifyGraphQL(req, owner)
-	case "rate_limit", "user", "installation", "app", "meta", "octocat":
-		// Identity/limit/discovery endpoints most GitHub clients probe before
-		// real work. The metadata baseline covers them.
-		if verb == verbRead {
-			return credentials.Classification{Action: ActionMetadataRead}, nil
-		}
-		return credentials.Classification{Action: ActionRepoWrite}, nil
-	case "repos":
-		if len(segs) < 3 {
-			return credentials.Classification{Action: catRepo + ":" + verb}, nil
-		}
-		qualifier := ""
-		if owner != "" {
-			if normalizeName(segs[1]) != owner {
-				return credentials.Classification{}, credentials.ErrUnsupportedAction
-			}
-			qualifier = normalizeName(segs[2])
-		}
-		return classifyRepoPath(verb, segs[3:], qualifier), nil
-	case "search":
-		if cls, ok := classifySearch(req, segs, owner); ok && verb == verbRead {
+	case len(segs) > 0 && segs[0] == "search":
+		if cls, ok := classifySearch(req, segs, owner); ok && method == http.MethodGet {
 			return cls, nil
 		}
-		return credentials.Classification{Action: catRepo + ":" + verb}, nil
-	case "orgs", "users":
-		return classifyAccountPath(verb, segs), nil
-	default:
-		// Every other root: the verb-classified catch-all, unqualified.
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
+	case len(segs) >= 2 && segs[0] == "repositories" && isDigits(segs[1]):
+		// Repository-ID paths keep the legacy catch-all until they resolve to
+		// the repository they address.
+		verb, err := verbClass(method)
+		if err != nil {
+			return credentials.Classification{}, err
+		}
 		return credentials.Classification{Action: catRepo + ":" + verb}, nil
 	}
+	return classifyREST(method, segs, owner)
 }
 
-// classifyAccountPath maps /orgs/{org}/... and /users/{user}/... GitHub serves
-// an account's repository list with metadata read, and the organization's
-// people and teams with the organization members permission. The other account
-// routes need permissions no category maps to, so they keep the catch-all.
-func classifyAccountPath(verb string, segs []string) credentials.Classification {
-	switch {
-	case verb == verbRead && len(segs) == 3 && segs[2] == "repos":
-		return credentials.Classification{Action: ActionMetadataRead}
-	case segs[0] == "orgs" && len(segs) >= 3 && orgMembersRoute(verb, segs[2:]):
-		return credentials.Classification{Action: catMembers + ":" + verb}
+// classifyREST classifies a REST endpoint by its route in GitHub's data. A
+// repository path is qualified by its repository once the owner matches.
+func classifyREST(method string, segs []string, owner string) (credentials.Classification, error) {
+	route := matchRoute(method, segs)
+	if route == nil {
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
-	return credentials.Classification{Action: catRepo + ":" + verb}
+	cls, ok := routeClassification(route)
+	if !ok {
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
+	}
+	if owner != "" && len(segs) >= 3 && segs[0] == "repos" {
+		if pathName(segs[1]) != owner {
+			return credentials.Classification{}, credentials.ErrUnsupportedAction
+		}
+		cls.Qualifier = pathName(segs[2])
+	}
+	return cls, nil
 }
 
-// orgMembersRoute reports whether sub, the path under /orgs/{org}/, is a route
-// GitHub documents under the organization members permission. Deeper routes
-// such as a member's Copilot seat or a team's Copilot settings need other
-// permissions, and a write to a team's repository needs administration.
-func orgMembersRoute(verb string, sub []string) bool {
-	switch sub[0] {
-	case "members", "memberships":
-		return len(sub) <= 2
-	case "invitations":
-		return len(sub) <= 2 || (len(sub) == 3 && sub[2] == "teams")
-	case "teams":
-		if len(sub) <= 2 {
-			return true
-		}
-		switch sub[2] {
-		case "members", "invitations", "teams":
-			return len(sub) == 3
-		case "memberships":
-			return len(sub) == 4
-		case "repos":
-			return verb == verbRead && len(sub) <= 5
-		}
+// pathName is an escaped owner or repository segment, unescaped and normalized.
+func pathName(seg string) string {
+	if s, err := url.PathUnescape(seg); err == nil {
+		seg = s
 	}
-	return false
+	return normalizeName(seg)
 }
 
 // classifySearch maps /search/{kind} to the category that owns the searched
@@ -525,130 +508,11 @@ func searchRepoQualifier(q, owner string) string {
 	return name
 }
 
-// classifyRepoPath maps the sub-path under /repos/{owner}/{repo}/ to a category
-// action. sub is the path segments after the repository; qualifier is the
-// (already owner-verified) repository name, empty when the connection declares
-// no owner.
-func classifyRepoPath(verb string, sub []string, qualifier string) credentials.Classification {
-	if len(sub) == 0 {
-		// The bare repository object: reads are metadata; PATCH edits settings
-		// and DELETE deletes the repository, so administration.
-		if verb == verbRead {
-			return credentials.Classification{Action: ActionMetadataRead, Qualifier: qualifier}
-		}
-		return credentials.Classification{Action: catAdmin + ":" + verbWrite, Qualifier: qualifier}
-	}
-	category := repoSubCategory(sub)
-	cls := credentials.Classification{Action: category + ":" + verb, Qualifier: qualifier}
-	switch {
-	case sharedIssueNumberRoute(sub):
-		cls.Alternates = []string{catPulls + ":" + verb}
-	case category == catProtection:
-		// A repository-qualified admin grant gets no requires edge to protection,
-		// so admin stays an alternate that keeps covering it.
-		cls.Alternates = []string{catAdmin + ":" + verb}
-	}
-	return cls
-}
-
-// sharedIssueNumberRoute reports whether sub addresses a single issue or pull
-// request by number, or one comment or event by ID, along with anything beneath
-// them. GitHub numbers issues and pull requests in one sequence and serves both
-// under /issues, but checks the pull_requests permission when the target is a
-// pull request, so the path alone cannot say which permission the call needs.
-// The repository-wide /issues, /issues/comments and /issues/events collections
-// are excluded: they address no single target.
-func sharedIssueNumberRoute(sub []string) bool {
-	if len(sub) < 2 || sub[0] != "issues" {
-		return false
-	}
-	if sub[1] == "comments" || sub[1] == "events" {
-		return len(sub) >= 3 && isNumeric(sub[2])
-	}
-	return isNumeric(sub[1])
-}
-
-// isNumeric reports whether s is a base-10 unsigned integer.
-func isNumeric(s string) bool {
-	_, err := strconv.ParseUint(s, 10, 64)
-	return err == nil
-}
-
-// repoSubCategories maps unconditional first segments under
-// /repos/{owner}/{repo}/ to their category. Segments whose category depends on
-// deeper path shape (commits, branches, pulls, actions, dependabot) are handled
-// in repoSubCategory.
-var repoSubCategories = map[string]string{
-	"contents": catContents, "git": catContents, "tags": catContents,
-	"compare": catContents, "releases": catContents,
-	"readme": catContents, "tarball": catContents, "zipball": catContents,
-
-	"issues": catIssues, "labels": catIssues, "milestones": catIssues, "assignees": catIssues,
-
-	"check-runs": catChecks, "check-suites": catChecks, "statuses": catChecks,
-
-	"hooks": catAdmin, "keys": catAdmin, "collaborators": catAdmin,
-}
-
-// repoSubCategory resolves the category for a non-empty sub-path under
-// /repos/{owner}/{repo}/. Unlisted route families land in the repo catch-all.
-func repoSubCategory(sub []string) string {
-	if cat, ok := repoSubCategories[sub[0]]; ok {
-		return cat
-	}
-	if resolve, ok := repoSubResolvers[sub[0]]; ok {
-		return resolve(sub)
-	}
-	return catRepo
-}
-
-// repoSubResolvers handles the route families whose category depends on deeper
-// path shape.
-var repoSubResolvers = map[string]func(sub []string) string{
-	// /commits/{ref}/{check-runs|check-suites|status|statuses} is the CI
-	// surface, not the git-data surface.
-	"commits": func(sub []string) string {
-		if len(sub) >= 3 {
-			switch sub[2] {
-			case "check-runs", "check-suites", "status", "statuses":
-				return catChecks
-			}
-		}
-		return catContents
-	},
-	"branches": func(sub []string) string {
-		if len(sub) >= 3 && sub[2] == "protection" {
-			return catProtection
-		}
-		return catContents
-	},
-	// Merging mutates contents; GitHub itself demands contents:write for it.
-	"pulls": func(sub []string) string {
-		if len(sub) >= 3 && sub[2] == "merge" {
-			return catContents
-		}
-		return catPulls
-	},
-	// Actions secrets and variables are credential-adjacent administration, so
-	// actions:* can be granted without them.
-	"actions": func(sub []string) string {
-		if len(sub) >= 2 && (sub[1] == "secrets" || sub[1] == "variables") {
-			return catAdmin
-		}
-		return catActions
-	},
-	"dependabot": func(sub []string) string {
-		if len(sub) >= 2 && sub[1] == "secrets" {
-			return catAdmin
-		}
-		return catRepo
-	},
-}
-
 // resultsReceiverHost serves Actions job logs over Twirp RPC.
 const resultsReceiverHost = "results-receiver.actions.githubusercontent.com"
 
-// classifyResultsReceiver maps the Actions results receiver to actions:read.
+// classifyResultsReceiver maps the Actions results receiver to ci:read, minting
+// the actions permission alone.
 // GET and HEAD are reads. A POST is a read only when it is a Twirp call to a
 // Get or List method. Everything else is denied. The repository is in the RPC
 // body, so the action is unqualified and needs an unqualified grant.
@@ -666,7 +530,8 @@ func classifyResultsReceiver(method, path string) (credentials.Classification, e
 	if !read {
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
-	return credentials.Classification{Action: catActions + ":" + verbRead}, nil
+	action := catCI + ":" + verbRead
+	return credentials.Classification{Action: action, Permissions: map[string]map[string]string{action: {"actions": verbRead}}}, nil
 }
 
 // classifyContentHost handles the read-only download family
@@ -685,6 +550,80 @@ func classifyContentHost(method, path, owner string) (credentials.Classification
 		qualifier = normalizeName(segs[1])
 	}
 	return credentials.Classification{Action: ActionContentsRead, Qualifier: qualifier}, nil
+}
+
+// classifyGitLFS maps the git LFS API under /{owner}/{repo}(.git)/info/lfs/. A
+// batch request reads or writes contents by its operation; listing locks reads
+// contents and every other lock call writes them. ok=false means the path is
+// not an LFS path.
+func classifyGitLFS(req *http.Request, owner string) (credentials.Classification, bool, error) {
+	segs := pathSegments(req.URL.Path)
+	if requestHost(req) == "api.github.com" || len(segs) < 5 || segs[2] != "info" || segs[3] != "lfs" {
+		return credentials.Classification{}, false, nil
+	}
+	action := ActionContentsWrite
+	switch {
+	case segs[4] == "objects" && len(segs) == 6 && segs[5] == "batch":
+		op, err := lfsBatchOperation(req)
+		if err != nil {
+			return credentials.Classification{}, true, err
+		}
+		if op == "download" {
+			action = ActionContentsRead
+		}
+	case segs[4] == "locks":
+		if req.Method == http.MethodGet && len(segs) == 5 {
+			action = ActionContentsRead
+		}
+	default:
+		return credentials.Classification{}, true, credentials.ErrUnsupportedAction
+	}
+	qualifier := ""
+	if owner != "" {
+		if normalizeName(segs[0]) != owner {
+			return credentials.Classification{}, true, credentials.ErrUnsupportedAction
+		}
+		qualifier = normalizeName(strings.TrimSuffix(segs[1], ".git"))
+	}
+	return credentials.Classification{Action: action, Qualifier: qualifier}, true, nil
+}
+
+// lfsBatchOperation reads the batch request's operation, matching the key
+// exactly as the LFS server does. The body is restored for forwarding.
+func lfsBatchOperation(req *http.Request) (string, error) {
+	buf, ok := bufferGraphQLBody(req)
+	if !ok {
+		return "", credentials.ErrUnsupportedAction
+	}
+	var body map[string]json.RawMessage
+	var op string
+	if json.Unmarshal(buf, &body) != nil || json.Unmarshal(body["operation"], &op) != nil {
+		return "", credentials.ErrUnsupportedAction
+	}
+	if op != "download" && op != "upload" {
+		return "", credentials.ErrUnsupportedAction
+	}
+	return op, nil
+}
+
+// uploadsHost serves release asset uploads.
+const uploadsHost = "uploads.github.com"
+
+// classifyReleaseUpload maps POST /repos/{owner}/{repo}/releases/{id}/assets on
+// the uploads host to contents:write on the repository. Nothing else is served.
+func classifyReleaseUpload(method, path, owner string) (credentials.Classification, error) {
+	segs := pathSegments(path)
+	if method != http.MethodPost || len(segs) != 6 || segs[0] != "repos" || segs[3] != "releases" || segs[5] != "assets" {
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
+	}
+	cls := credentials.Classification{Action: ActionContentsWrite}
+	if owner != "" {
+		if pathName(segs[1]) != owner {
+			return credentials.Classification{}, credentials.ErrUnsupportedAction
+		}
+		cls.Qualifier = pathName(segs[2])
+	}
+	return cls, nil
 }
 
 // verbClass maps an HTTP method to the read/write verb class.
@@ -733,21 +672,18 @@ func normalizeName(s string) string {
 // permissionLevels ranks GitHub App permission levels for ceiling intersection.
 var permissionLevels = map[string]int{verbRead: 1, verbWrite: 2, "admin": 3}
 
-// categoryPermissionKeys maps each category to the installation-token permission
-// keys it needs. The level minted is the action's verb class (metadata is always
-// read). The umbrella (repo:*) uses this map only for explicit per-category
-// actions; the umbrella itself intersects with the installation's actual
-// granted permissions rather than deriving a static union.
-var categoryPermissionKeys = map[string][]string{
-	"metadata":   {"metadata"},
-	"contents":   {"contents"},
-	"issues":     {"issues"},
-	"pulls":      {"pull_requests"},
-	"actions":    {"actions"},
-	"checks":     {"checks", "statuses"},
-	"admin":      {"administration", "repository_hooks", "secrets", "dependabot_secrets"},
-	"protection": {"administration"},
-	"members":    {"members"},
+// mintPermissions is the permission set for one authorized action: exactly
+// the permissions the classification named for it when it named any, else
+// everything the action's category covers. Either is capped by the ceiling.
+func mintPermissions(action string, exact map[string]map[string]string, ceiling, installationPerms map[string]string) map[string]string {
+	perms, ok := exact[action]
+	if !ok {
+		return permissionsFor(action, ceiling, installationPerms)
+	}
+	derived := maps.Clone(perms)
+	derived[catMetadata] = verbRead
+	applyCeiling(derived, ceiling)
+	return derived
 }
 
 // permissionsFor derives the installation-token permission set for the
@@ -761,11 +697,12 @@ func permissionsFor(action string, ceiling map[string]string, installationPerms 
 	category, verb := splitAction(action)
 
 	derived := map[string]string{}
-	switch category {
-	case catMetadata:
+	keys, isCategory := categoryPermissions[category]
+	switch {
+	case category == catMetadata:
 		derived[catMetadata] = verbRead
-	case catContents, catIssues, catPulls, catActions, catChecks, catAdmin, catProtection, catMembers:
-		for _, key := range categoryPermissionKeys[category] {
+	case isCategory:
+		for _, key := range keys {
 			derived[key] = verb
 		}
 	default:
@@ -931,8 +868,7 @@ var lookupPermissions = map[string][]string{
 	"contents": {"contents"},
 	"issues":   {"issues"},
 	"pulls":    {"pull_requests"},
-	"checks":   {"checks"},
-	"actions":  {"actions"},
+	"ci":       {"checks", "actions"},
 	"repo":     {"metadata", "contents", "issues", "pull_requests", "discussions", "checks", "actions"},
 }
 
@@ -1039,11 +975,11 @@ func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (cr
 		}
 	}
 
-	perms := permissionsFor(id.Action, cfg.Permissions, installationPerms)
+	perms := mintPermissions(id.Action, id.Permissions, cfg.Permissions, installationPerms)
 	// Alternates the grant also holds widen the token, each at no more than its
 	// own derived level, so the credential never exceeds what was authorized.
 	for _, alt := range id.AlsoAuthorized {
-		for key, level := range permissionsFor(alt, cfg.Permissions, installationPerms) {
+		for key, level := range mintPermissions(alt, id.Permissions, cfg.Permissions, installationPerms) {
 			if permissionLevels[level] > permissionLevels[perms[key]] {
 				perms[key] = level
 			}

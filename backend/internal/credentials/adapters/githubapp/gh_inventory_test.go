@@ -13,7 +13,7 @@ import (
 // TestClassify_GHInventory pins how every captured gh request classifies (gh 2.103.3 for
 // <command>-<n>-<operation> fixtures, 2.101.0 for the rest), so a classifier change shows as a changed row.
 func TestClassify_GHInventory(t *testing.T) {
-	prStatusCls := credentials.Classification{Action: "protection:read", Alternates: []string{"admin:read"}, AlsoRequired: []string{"checks:read", "contents:read", "pulls:read"}, Qualifier: "widgets"}
+	prStatusCls := credentials.Classification{Action: "admin:read", AlsoRequired: []string{"ci:read", "contents:read", "pulls:read"}, Qualifier: "widgets"}
 	graphql := []struct {
 		fixture string
 		want    credentials.Classification
@@ -82,9 +82,9 @@ func TestClassify_GHInventory(t *testing.T) {
 		{"pr-status", prStatusCls},
 		{"pr-view-1-PullRequestByNumber", checksCls("widgets")},
 		{"pr-view-2-PullRequestProjectItems", pullsCls("pulls:read", "widgets")},
-		{"pr-view-current-branch-1-PullRequestForBranch", credentials.Classification{Action: "actions:read", AlsoRequired: []string{"checks:read", "contents:read", "pulls:read"}, Qualifier: "widgets"}},
+		{"pr-view-current-branch-1-PullRequestForBranch", credentials.Classification{Action: "ci:read", AlsoRequired: []string{"contents:read", "pulls:read"}, Qualifier: "widgets"}},
 		{"pr-view-current-branch-2-PullRequestProjectItems", pullsCls("pulls:read", "widgets")},
-		{"pr-view-current-branch", credentials.Classification{Action: "actions:read", AlsoRequired: []string{"checks:read", "contents:read", "pulls:read"}, Qualifier: "widgets"}},
+		{"pr-view-current-branch", credentials.Classification{Action: "ci:read", AlsoRequired: []string{"contents:read", "pulls:read"}, Qualifier: "widgets"}},
 		{"pr-view-json-1-PullRequestByNumber", checksCls("widgets")},
 		{"pr-view-project-items", pullsCls("pulls:read", "widgets")},
 		{"pr-view", checksCls("widgets")},
@@ -111,18 +111,18 @@ func TestClassify_GHInventory(t *testing.T) {
 		{"git-push", "POST", "https://github.com/example-org/widgets.git/git-receive-pack", cls("contents:write", "widgets")},
 		{"pr-checkout", "GET", "https://github.com/example-org/widgets.git/info/refs?service=git-upload-pack", cls("contents:read", "widgets")},
 		{"pr-checkout", "POST", "https://github.com/example-org/widgets.git/git-upload-pack", cls("contents:read", "widgets")},
-		{"pr-diff", "GET", "https://api.github.com/repos/example-org/widgets/pulls/1313", cls("pulls:read", "widgets")},
+		{"pr-diff", "GET", "https://api.github.com/repos/example-org/widgets/pulls/1313", credentials.Classification{Action: "pulls:read", Alternates: []string{"contents:read"}, Qualifier: "widgets"}},
 		{"release-download", "GET", "https://api.github.com/repos/example-org/widgets/releases/tags/v1.17.0", cls("contents:read", "widgets")},
 		{"release-download", "GET", "https://api.github.com/repos/example-org/widgets/tarball/v1.17.0", cls("contents:read", "widgets")},
 		{"release-download", "GET", "https://codeload.github.com/example-org/widgets/tar.gz/refs/tags/v1.17.0", cls("contents:read", "widgets")},
 		{"repo-view", "GET", "https://api.github.com/repos/example-org/widgets/readme", cls("contents:read", "widgets")},
-		{"run-list", "GET", "https://api.github.com/repos/example-org/widgets/actions/runs?exclude_pull_requests=true&per_page=3", cls("actions:read", "widgets")},
-		{"run-list", "GET", "https://api.github.com/repos/example-org/widgets/actions/workflows?page=1&per_page=100", cls("actions:read", "widgets")},
-		{"run-view", "GET", "https://api.github.com/repos/example-org/widgets/actions/runs/1001?exclude_pull_requests=true", cls("actions:read", "widgets")},
-		{"run-view", "GET", "https://api.github.com/repos/example-org/widgets/actions/workflows/2002", cls("actions:read", "widgets")},
-		{"run-view", "GET", "https://api.github.com/repos/example-org/widgets/actions/runs/1001/jobs?per_page=100", cls("actions:read", "widgets")},
-		{"run-view", "GET", "https://api.github.com/repos/example-org/widgets/actions/runs/1001/artifacts?per_page=100", cls("actions:read", "widgets")},
-		{"run-view", "GET", "https://api.github.com/repos/example-org/widgets/check-runs/3003/annotations", cls("checks:read", "widgets")},
+		{"run-list", "GET", "https://api.github.com/repos/example-org/widgets/actions/runs?exclude_pull_requests=true&per_page=3", cls("ci:read", "widgets")},
+		{"run-list", "GET", "https://api.github.com/repos/example-org/widgets/actions/workflows?page=1&per_page=100", cls("ci:read", "widgets")},
+		{"run-view", "GET", "https://api.github.com/repos/example-org/widgets/actions/runs/1001?exclude_pull_requests=true", cls("ci:read", "widgets")},
+		{"run-view", "GET", "https://api.github.com/repos/example-org/widgets/actions/workflows/2002", cls("ci:read", "widgets")},
+		{"run-view", "GET", "https://api.github.com/repos/example-org/widgets/actions/runs/1001/jobs?per_page=100", cls("ci:read", "widgets")},
+		{"run-view", "GET", "https://api.github.com/repos/example-org/widgets/actions/runs/1001/artifacts?per_page=100", cls("ci:read", "widgets")},
+		{"run-view", "GET", "https://api.github.com/repos/example-org/widgets/check-runs/3003/annotations", cls("ci:read", "widgets")},
 		{"search-code", "GET", "https://api.github.com/search/code?page=1&per_page=3&q=kustomization+repo%3Aexample-org%2Fwidgets", cls("contents:read", "widgets")},
 		{"search-issues", "GET", "https://api.github.com/search/issues?advanced_search=true&page=1&per_page=3&q=%28+deploy+%29+repo%3Aexample-org%2Fwidgets+type%3Aissue", credentials.Classification{Action: "issues:read", Alternates: []string{"pulls:read"}, Qualifier: "widgets"}},
 		{"search-prs", "GET", "https://api.github.com/search/issues?advanced_search=true&page=1&per_page=3&q=%28+traefik+%29+repo%3Aexample-org%2Fwidgets+type%3Apr", credentials.Classification{Action: "issues:read", Alternates: []string{"pulls:read"}, Qualifier: "widgets"}},

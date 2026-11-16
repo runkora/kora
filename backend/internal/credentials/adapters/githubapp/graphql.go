@@ -44,9 +44,8 @@ var (
 	reqContents   = requirement{ActionContentsRead}
 	reqIssues     = requirement{catIssues + ":" + verbRead}
 	reqPulls      = requirement{catPulls + ":" + verbRead}
-	reqChecks     = requirement{catChecks + ":" + verbRead}
-	reqActions    = requirement{catActions + ":" + verbRead}
-	reqProtection = requirement{catProtection + ":" + verbRead, catAdmin + ":" + verbRead}
+	reqCI         = requirement{catCI + ":" + verbRead}
+	reqAdmin      = requirement{catAdmin + ":" + verbRead}
 	reqIssueOrPR  = requirement{catIssues + ":" + verbRead, catPulls + ":" + verbRead}
 	reqWContents  = requirement{ActionContentsWrite}
 	reqWIssues    = requirement{catIssues + ":" + verbWrite}
@@ -95,18 +94,17 @@ var graphqlNodeTypes = map[string]requirement{
 	"IssueComment": reqIssueOrPR,
 	"Commit":       reqContents, "Tree": reqContents, "Blob": reqContents, "Ref": reqContents,
 	"Tag": reqContents, "Release": reqContents,
-	"CheckRun": reqChecks, "CheckSuite": reqChecks, "StatusContext": reqChecks,
+	"CheckRun": reqCI, "CheckSuite": reqCI, "StatusContext": reqCI,
 }
 
 // graphqlNestedFields are fields that reach another category wherever they are
 // selected. GitHub refuses a pull request's statusCheckRollup to a token
 // without checks, a check suite's workflowRun without actions, and a ref's
-// branchProtectionRule without administration. A repository-qualified admin
-// grant has no requires edge to protection, so admin stays an alternate.
+// branchProtectionRule without administration.
 var graphqlNestedFields = map[string]requirement{
-	"statusCheckRollup": reqChecks, "checkSuites": reqChecks, "checkRuns": reqChecks,
-	"workflowRun": reqActions, "workflowRuns": reqActions,
-	"branchProtectionRule": reqProtection,
+	"statusCheckRollup": reqCI, "checkSuites": reqCI, "checkRuns": reqCI,
+	"workflowRun": reqCI, "workflowRuns": reqCI,
+	"branchProtectionRule": reqAdmin,
 }
 
 // fieldSearch is the Query field for search, which is classified and qualified
