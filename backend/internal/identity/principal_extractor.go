@@ -31,8 +31,3 @@ type PrincipalExtractor interface {
 // XFCCPrincipalExtractor is implemented in internal/platform/token so services
 // that must not import this package can use it.
 type XFCCPrincipalExtractor = token.XFCCPrincipalExtractor
-
-var (
-	parseXFCCSpiffeURI    = token.ParseXFCCSpiffeURI
-	principalFromSpiffeID = token.PrincipalFromSpiffeID
-)
