@@ -198,8 +198,9 @@ The example skill marketplace in `deploy/local/marketplace/` uses the local GitH
 ## Running tests
 
 ```bash
-make test              # unit tests, no cluster required
-make test-integration  # live-cluster authz tests
+make test                # unit tests, no cluster required
+make test-integration    # live-cluster authz tests
+make test-agent-scaling  # live-cluster agent scaling check
 ```
 
 `make test-integration` (`//go:build integration`) is not run by CI or `make check`. It drives the full SPIFFE SVID exchange against the running cluster and refreshes the k3d token first. Bring the environment up before running it:
@@ -209,6 +210,8 @@ make up
 make auth # test-integration refreshes an existing token
 make test-integration
 ```
+
+`make test-agent-scaling` runs `scripts/cluster/test-agent-scaling.sh` against the running cluster and is not run by CI or `make check`. It waits for the scaler to switch any agent StatefulSet still on `OrderedReady` to `Parallel` and checks its pods survive, then starts 31 Claude Code runs on an agent with a total of 30 and checks a one-step scale-up, the run over the total staying pending past 3 minutes, and scale-down to 2 pods one at a time.
 
 ### Postgres-backed repository tests
 
