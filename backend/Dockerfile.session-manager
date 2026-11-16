@@ -114,8 +114,10 @@ WORKDIR /app
 # ripgrep: OpenCode's grep, glob and list tools; it downloads rg from GitHub when none is on PATH,
 #          and the agent pod cannot reach GitHub.
 # libgcc, libstdc++: the Bun-compiled opencode, claude-agent-acp and codex-acp link them.
+# tini: PID 1. Harness children orphaned when a harness is killed reparent to PID 1; only an
+#       init reaps them, so without it they stay as zombies. It forwards signals to ./kora.
 # Toolchains (Go and the rest) live only in the sandbox image, where commands run.
-RUN apk add --no-cache ca-certificates bash git curl ripgrep libgcc libstdc++
+RUN apk add --no-cache ca-certificates bash git curl ripgrep libgcc libstdc++ tini
 
 # How Claude Code's Bash tool is routed into the sandbox:
 #   - Claude Code IGNORES $SHELL; it resolves its shell from CLAUDE_CODE_SHELL.
@@ -189,4 +191,5 @@ USER kora
 
 EXPOSE 8090
 
+ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["./kora"]

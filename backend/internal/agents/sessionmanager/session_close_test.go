@@ -90,3 +90,37 @@ func TestClose_RunnerErrorStillDrainsGoroutine(t *testing.T) {
 		t.Fatal("drain goroutine did not complete after Close returned an error (goroutine leak)")
 	}
 }
+
+// exitedRunner is a runner whose adapter has exited on its own: its event
+// stream is already closed, and Close records that it was called.
+type exitedRunner struct {
+	stubRunner
+}
+
+func (r *exitedRunner) Close() error {
+	select {
+	case <-r.closed:
+	default:
+		close(r.closed)
+	}
+	return nil
+}
+
+// A session whose adapter exits on its own, such as a killed harness, still
+// closes its runner.
+func TestDrain_ClosesRunnerWhenAdapterExits(t *testing.T) {
+	runner := &exitedRunner{stubRunner: *newStubRunner(nil)}
+	close(runner.events)
+
+	notifier := &completionNotifier{done: make(chan struct{})}
+	reg, _ := newTestRegistry(t, notifier)
+	if err := reg.Create(context.Background(), SessionConfig{RunID: "run-exited", Runner: runner}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	select {
+	case <-runner.closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("runner was not closed after its adapter exited")
+	}
+}

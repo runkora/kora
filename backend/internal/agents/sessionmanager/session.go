@@ -1082,6 +1082,9 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 	// The process is gone: stop work still bound to this session, such as a
 	// sandbox retry, before a resumed session takes over or the run ends.
 	s.cancel()
+	// Close waits on the adapter process, so a crashed or killed harness does
+	// not stay a zombie. Close is idempotent, so the explicit Close path is safe.
+	_ = s.runner.Close()
 
 	// Interrupt: subprocess exited after an interrupt. Immediately resume the
 	// session in a new process so the next message reaches a warm one. Run transitions to idle.
