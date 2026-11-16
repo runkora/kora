@@ -206,7 +206,7 @@ Grants have no update operation for scopes. Delete the grant and create a new on
 
 ## Route Registration
 
-Services declare which scope protects each route by registering with the policy service at startup. The edge gateway and each pod's OPA sidecar read these routes from the bundle. Platform services (identity, inference gateway, egress gateway, tool gateway, kora-agents, kora-triggers) register globally. Tenant-published services such as MCP servers register per-tenant routes.
+Services declare which scope protects each route by registering with the policy service at startup. The edge gateway and each pod's OPA sidecar read these routes from the bundle. Platform services register globally. Tenant-published services such as MCP servers register per-tenant routes.
 
 A platform service registers with its own platform token. `SelfTokenSource` exchanges the pod's SPIFFE SVID for that token, and the `routescopes` client sends it on the registration call:
 
