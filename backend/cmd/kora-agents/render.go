@@ -73,6 +73,7 @@ func provisionerConfig(cfg *agentsConfig.Config, patches []manifestpatch.Patch, 
 		Landlock:                   cfg.Agents.SessionManager.Landlock,
 		MinReplicas:                cfg.Agents.Scheduling.MinReplicas,
 		DrainGracePeriodSecs:       cfg.Agents.Scheduling.DrainGracePeriodSecs,
+		PressureLimit:              cfg.Agents.Scheduling.PressureLimit,
 		SandboxMount:               cfg.Agents.SandboxMount,
 		Patches:                    patches,
 	}

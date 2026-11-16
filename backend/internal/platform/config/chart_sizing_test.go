@@ -21,6 +21,16 @@ import (
 // extra helm arguments through. Needs helm and the chart's dependencies.
 func renderChart(t *testing.T, values string, extra ...string) string {
 	t.Helper()
+	out, err := helmTemplate(t, values, extra...)
+	if err != nil {
+		t.Fatalf("helm template: %v\n%s", err, out)
+	}
+	return out
+}
+
+// helmTemplate is renderChart returning the render error instead of failing the test.
+func helmTemplate(t *testing.T, values string, extra ...string) (string, error) {
+	t.Helper()
 	chart := filepath.Join("..", "..", "..", "..", "charts", "kora")
 	if _, err := exec.LookPath("helm"); err != nil {
 		t.Skip("helm not installed")
@@ -34,10 +44,7 @@ func renderChart(t *testing.T, values string, extra ...string) string {
 	}
 	args := append([]string{"template", "kora", chart, "-n", "kora-system", "-f", filepath.Join(chart, "ci", "default-values.yaml"), "-f", file}, extra...)
 	out, err := exec.Command("helm", args...).CombinedOutput()
-	if err != nil {
-		t.Fatalf("helm template: %v\n%s", err, out)
-	}
-	return string(out)
+	return string(out), err
 }
 
 // A maxSize field left unset takes the default size's value.
@@ -179,6 +186,58 @@ func TestChartSessionManagerMemory(t *testing.T) {
 			}
 			if got := resources.Limits[corev1.ResourceMemory]; got.Cmp(want) != 0 {
 				t.Errorf("memory limit = %s, want %s", got.String(), tc.want)
+			}
+		})
+	}
+}
+
+// The chart renders the memory thresholds kora-agents decodes, and rejects a
+// placement watermark at or above the pressure limit.
+func TestChartMemoryThresholds(t *testing.T) {
+	out := renderChart(t, "agents:\n  scheduling:\n    placementWatermark: 0.6\n    pressureLimit: 0.85\n    startingRunAllowance: {claudeCode: 200Mi, codex: 0.1Gi, openCode: 500Mi}\n")
+	cfg := loadRendered[agentsConfig.Config](t, out, "cmd/kora-agents")
+	if err := agentsConfig.Validate(cfg); err != nil {
+		t.Fatal(err)
+	}
+	s := cfg.Agents.Scheduling
+	if s.PlacementWatermark != 0.6 || s.PressureLimit != 0.85 {
+		t.Errorf("scheduling = watermark %v, pressure limit %v; want 0.6, 0.85", s.PlacementWatermark, s.PressureLimit)
+	}
+	a := s.StartingRunAllowance
+	for name, tc := range map[string]struct {
+		got  resource.Quantity
+		want string
+	}{"claudeCode": {a.ClaudeCode, "200Mi"}, "codex": {a.Codex, "0.1Gi"}, "openCode": {a.OpenCode, "500Mi"}} {
+		if tc.got.Cmp(resource.MustParse(tc.want)) != 0 {
+			t.Errorf("startingRunAllowance.%s = %s, want %s", name, tc.got.String(), tc.want)
+		}
+	}
+
+	for name, values := range map[string]string{
+		"watermark equals the limit": "agents:\n  scheduling: {placementWatermark: 0.9, pressureLimit: 0.9}\n",
+		"watermark above the limit":  "agents:\n  scheduling: {placementWatermark: 0.95, pressureLimit: 0.9}\n",
+		"limit at 1":                 "agents:\n  scheduling: {pressureLimit: 1}\n",
+		"watermark zero":             "agents:\n  scheduling: {placementWatermark: 0}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, err := helmTemplate(t, values)
+			if err == nil || !strings.Contains(out, "placementWatermark must be above 0 and below pressureLimit") {
+				t.Errorf("render err = %v, want the threshold check to fail it:\n%s", err, out)
+			}
+		})
+	}
+
+	for name, tc := range map[string]struct{ values, want string }{
+		"harness missing":  {"agents:\n  scheduling:\n    startingRunAllowance: {codex: null}\n", "startingRunAllowance.codex must be a positive memory quantity"},
+		"harness zero":     {"agents:\n  scheduling:\n    startingRunAllowance: {openCode: 0Mi}\n", "startingRunAllowance.openCode must be a positive memory quantity"},
+		"harness negative": {"agents:\n  scheduling:\n    startingRunAllowance: {claudeCode: -1Mi}\n", "startingRunAllowance.claudeCode must be a positive memory quantity"},
+		"scalar":           {"agents:\n  scheduling:\n    startingRunAllowance: 431Mi\n", "startingRunAllowance must be a map"},
+		"unknown harness":  {"agents:\n  scheduling:\n    startingRunAllowance: {gemini: 100Mi}\n", "startingRunAllowance.gemini: unknown harness"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, err := helmTemplate(t, tc.values)
+			if err == nil || !strings.Contains(out, tc.want) {
+				t.Errorf("render err = %v, want %q:\n%s", err, tc.want, out)
 			}
 		})
 	}
