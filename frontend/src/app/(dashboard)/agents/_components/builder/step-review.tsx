@@ -112,7 +112,7 @@ export function StepReview() {
             },
             {
               label: 'Capacity',
-              value: fields.capacityOn ? `${fields.capacity} runs / pod` : 'Service default',
+              value: fields.capacityOn ? `${fields.capacity} runs` : 'Service default',
               mono: fields.capacityOn,
             },
             {

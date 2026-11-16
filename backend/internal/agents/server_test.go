@@ -242,7 +242,7 @@ func TestHandleDeleteAgentType_NotFound(t *testing.T) {
 
 func TestHandleStartRun_Created(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
-	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRuns: 5})
 
 	w := postJSON(t, c.handleStartRun, map[string]any{
 		"tenant_id":     "t-1",
@@ -271,7 +271,7 @@ func TestHandleStartRun_MissingFields(t *testing.T) {
 
 func TestHandleStartRun_InvalidTriggerKind(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
-	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRuns: 5})
 
 	w := postJSON(t, c.handleStartRun, map[string]any{
 		"agent_type_id": at.ID,

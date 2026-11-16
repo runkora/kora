@@ -35,6 +35,7 @@ import {
 } from '../_services/agent-detail-api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import {
+  DEFAULT_MAX_CONCURRENT_RUNS,
   loopGuardrailErrors,
   loopGuardrailsPayload,
   loopGuardrailValues,
@@ -101,7 +102,7 @@ function baselineFrom(agent: AgentTypeRow | null): ConfigurationBaseline {
     connectivityMode: agent?.connectivity?.mode ?? 'none',
     connectivityHosts: (agent?.connectivity?.hosts ?? []).join('\n'),
     environments: agent?.environments ?? [],
-    maxConcurrentRuns: String(agent?.maxConcurrentRunsPerPod ?? 10),
+    maxConcurrentRuns: String(agent?.maxConcurrentRuns ?? DEFAULT_MAX_CONCURRENT_RUNS),
     loopGuardrails: loopGuardrailValues(agent?.guardrails),
     budgetLimitUSD: agent?.budget?.limit_usd ? String(agent.budget.limit_usd) : '',
     budgetCadence: agent?.budget?.reset_cadence ?? 'monthly',
@@ -252,7 +253,7 @@ export function useAgentConfiguration() {
       description: trimmedDescription,
       framework,
       system_prompt: trimmedSystemPrompt,
-      max_concurrent_runs_per_pod: maxRuns,
+      max_concurrent_runs: maxRuns,
       guardrails: loopGuardrailsPayload(loopGuardrails),
       model_id: modelId,
       mcp_tools: mcpTools,

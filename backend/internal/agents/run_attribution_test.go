@@ -13,10 +13,10 @@ import (
 func seedAutonomousAgentType(t *testing.T, repo *mockRepository, id, tenantID, slug string) AgentType {
 	t.Helper()
 	return seedAgentType(t, repo, AgentType{
-		ID:                      id,
-		TenantID:                tenantID,
-		Slug:                    slug,
-		MaxConcurrentRunsPerPod: 5,
+		ID:                id,
+		TenantID:          tenantID,
+		Slug:              slug,
+		MaxConcurrentRuns: 5,
 	})
 }
 

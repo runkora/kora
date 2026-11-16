@@ -268,10 +268,10 @@ type AgentSpec struct {
 	// Unset fields take the platform defaults.
 	Guardrails *Guardrails  `json:"guardrails,omitempty"`
 	Budget     *AgentBudget `json:"budget,omitempty"`
-	// MaxConcurrentRunsPerPod is the number of runs one agent pod holds at
-	// once. Unset takes the install default.
+	// MaxConcurrentRuns caps the agent's concurrent runs. Unset takes the
+	// install default.
 	// +kubebuilder:validation:Minimum=1
-	MaxConcurrentRunsPerPod int32 `json:"maxConcurrentRunsPerPod,omitempty"`
+	MaxConcurrentRuns int32 `json:"maxConcurrentRuns,omitempty"`
 }
 
 // AgentEnvironment attaches an Environment by name.

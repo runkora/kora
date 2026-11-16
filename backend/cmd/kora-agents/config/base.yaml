@@ -56,7 +56,7 @@ agents:
       disk: 10Gi
   # Pull secrets for the images above, rendered by the chart.
   imagePullSecrets: []
-  maxConcurrentRunsPerPod: 10
+  maxConcurrentRuns: 20
   sandboxStartupSeconds: 120
   # Sandbox provisioning guardrails, sent with every run: attempts per request,
   # the first backoff (doubling), and the budget across attempts. See

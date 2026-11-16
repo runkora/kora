@@ -70,7 +70,7 @@ func TestStartClaimed_ContinuesStartRunTrace(t *testing.T) {
 func TestSendMessage_LinksToRunTrace(t *testing.T) {
 	rec := spanRecorder()
 	svc, repo, _, _ := newTestService(t)
-	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRuns: 5})
 	const runTrace = "4bf92f3577b34da6a3ce929d0e0e4736"
 	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive,
 		TraceParent: "00-" + runTrace + "-00f067aa0ba902b7-01"})

@@ -113,6 +113,15 @@ func TestChangedFields(t *testing.T) {
 	}
 }
 
+// A change to the run total names the field under its new and old names.
+func TestChangedFields_MaxConcurrentRuns(t *testing.T) {
+	before := newAgentFields(AgentType{Slug: "triage", MaxConcurrentRuns: 20})
+	after := newAgentFields(AgentType{Slug: "triage", MaxConcurrentRuns: 30})
+	if got := events.Changed(before, after); !slices.Equal(got, []string{"max_concurrent_runs", "max_concurrent_runs_per_pod"}) {
+		t.Errorf("changed = %v", got)
+	}
+}
+
 // Every events:read holder reads the entities. They name connections and carry no prompt or configuration.
 func TestEntitiesCarryNoConfiguration(t *testing.T) {
 	at := AgentType{ID: "a1", Slug: "triage", SystemPrompt: "secret instructions", Guardrails: Guardrails{RepeatedCallWarn: new(int)},

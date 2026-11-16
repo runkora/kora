@@ -67,19 +67,19 @@ func testEnvironment(t *testing.T, r *PostgresRepository, tenant, name string) E
 
 func testAgentType(tenant string, envs ...AgentEnvironment) AgentType {
 	return AgentType{
-		ID:                      uuid.NewString(),
-		TenantID:                tenant,
-		Name:                    "Builder",
-		Slug:                    "builder-" + uuid.NewString()[:8],
-		SystemPrompt:            "build things",
-		Framework:               AgentFrameworkClaudeCode,
-		GrantScopes:             []string{"inference:invoke"},
-		MaxConcurrentRunsPerPod: 1,
-		State:                   AgentTypeStateActive,
-		ModelID:                 new("bedrock/claude-sonnet-4-5"),
-		MCPTools:                []string{"mcp:kora:use"},
-		Environments:            envs,
-		IdentityMode:            IdentityModeDelegated,
+		ID:                uuid.NewString(),
+		TenantID:          tenant,
+		Name:              "Builder",
+		Slug:              "builder-" + uuid.NewString()[:8],
+		SystemPrompt:      "build things",
+		Framework:         AgentFrameworkClaudeCode,
+		GrantScopes:       []string{"inference:invoke"},
+		MaxConcurrentRuns: 1,
+		State:             AgentTypeStateActive,
+		ModelID:           new("bedrock/claude-sonnet-4-5"),
+		MCPTools:          []string{"mcp:kora:use"},
+		Environments:      envs,
+		IdentityMode:      IdentityModeDelegated,
 	}
 }
 

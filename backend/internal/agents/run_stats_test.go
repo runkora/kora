@@ -38,7 +38,7 @@ func TestHistogramRange(t *testing.T) {
 
 func seedStatsAgent(t *testing.T, repo *mockRepository) {
 	t.Helper()
-	seedAgentType(t, repo, AgentType{ID: "at-auto", TenantID: "t1", Slug: "helper", MaxConcurrentRunsPerPod: 5})
+	seedAgentType(t, repo, AgentType{ID: "at-auto", TenantID: "t1", Slug: "helper", MaxConcurrentRuns: 5})
 }
 
 func TestAgentRunStats_VisibilityAndUnknownAgent(t *testing.T) {
