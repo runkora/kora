@@ -708,13 +708,14 @@ func (r *acpRunner) Close() error {
 		r.mu.Lock()
 		r.closing = true
 		proc, conn, sid, canClose := r.proc, r.conn, r.sessionID, r.canClose
+		gone := proc != nil && r.exited()
 		r.mu.Unlock()
 		r.cancelPending()
 		defer r.out.close()
 		if proc == nil {
 			return
 		}
-		if canClose && sid != "" {
+		if canClose && sid != "" && !gone {
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), r.cfg.CloseGrace)
 			if _, cerr := acp.SendRequest[acp.CloseSessionResponse](conn, ctx, acp.AgentMethodSessionClose, acp.CloseSessionRequest{SessionId: sid}); cerr != nil {
 				r.warn("ACP session/close failed", cerr)
