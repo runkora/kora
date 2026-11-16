@@ -170,7 +170,7 @@ A run will fail the start budget only when no pod is coming up for it: no pod is
 
 kora-agents will run a scaler loop every 5 s, independent of the claim tick. For each agent the loop reads pod memory (2 s timeout per pod, outside any lock) and then waits up to 2 s for the agent lock. A timeout skips the agent for that pass. The replica that gets the lock re-reads the pending, active and starting run counts from the database, decides from those counts and the memory reading, and calls the StatefulSet scale subresource. The scaler will:
 
-*   Scale up in one step when runs are pending, the agent is under its total, and no Ready pod has room. It adds the pending runs that fit under the total, `min(pending, total − active − starting)`, as `desiredReplicas` computes it, minus the pods already coming up. Pod `memory.max` comes from a Ready pod's report, else from the StatefulSet's container memory limit.
+*   Scale up in one step when runs are pending, the agent is under its total, and no Ready pod has room. It adds `ceil(startable × the harness's startingRunAllowance ÷ (placementWatermark × memory.max))` pods minus the pods already coming up, where `startable` is `min(pending, total − active − starting)`, up to `min(total, maxReplicas)`. Pod `memory.max` comes from a Ready pod's report, else from the StatefulSet's container memory limit.
 *   Scale down by one pod when the top pod (ordinal `replicas − 1`) is above `minReplicas` and has no active or starting run, and no run under the total is waiting. The empty-top-pod check and the scale call both happen under the lock.
 *   Scale up to `minReplicas` when the floor is raised above the live count.
 
