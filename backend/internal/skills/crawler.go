@@ -245,8 +245,23 @@ func (c *Crawler) skillFolders(ctx context.Context, m *Marketplace, tree []ghcli
 	return out
 }
 
-// findSkills returns the folders holding a SKILL.md in path order, up to
-// skillsPerMarketplace and skillMdBytesPerMarketplace.
+// skillIdentity is the folder path without a leading skills root: a top-level
+// skills/ or a top-level dot-folder followed by skills/ (.agents/skills/,
+// .claude/skills/). It is empty for a folder not under such a root, which is
+// never a copy of another skill.
+func skillIdentity(dir string) string {
+	parts := strings.Split(dir, "/")
+	switch {
+	case len(parts) > 1 && parts[0] == "skills":
+		return strings.Join(parts[1:], "/")
+	case len(parts) > 2 && strings.HasPrefix(parts[0], ".") && parts[1] == "skills":
+		return strings.Join(parts[2:], "/")
+	}
+	return ""
+}
+
+// findSkills returns the folders holding a SKILL.md in path order, one per
+// skill identity, up to skillsPerMarketplace and skillMdBytesPerMarketplace.
 func (c *Crawler) findSkills(ctx context.Context, m *Marketplace, tree []ghclient.TreeEntry) []*skillFolder {
 	var found []*skillFolder
 	for _, e := range tree {
@@ -269,7 +284,15 @@ func (c *Crawler) findSkills(ctx context.Context, m *Marketplace, tree []ghclien
 
 	folders := make([]*skillFolder, 0, len(found))
 	var budget int64
+	// The first kept folder in path order wins a skill kept under more than
+	// one skills root. Duplicates use no budget.
+	winners := make(map[string]string, len(found))
 	for _, f := range found {
+		id := skillIdentity(f.path)
+		if win, dup := winners[id]; id != "" && dup {
+			c.skip(ctx, m, f.path, "duplicate of "+win)
+			continue
+		}
 		switch {
 		case over(len(folders)+1, c.limits.SkillsPerMarketplace):
 			c.skip(ctx, m, f.path, fmt.Sprintf("over skillsPerMarketplace (%d)", c.limits.SkillsPerMarketplace))
@@ -278,6 +301,7 @@ func (c *Crawler) findSkills(ctx context.Context, m *Marketplace, tree []ghclien
 		default:
 			budget += f.size
 			folders = append(folders, f)
+			winners[id] = f.path
 		}
 	}
 	return folders
