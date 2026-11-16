@@ -41,9 +41,10 @@ type RunServiceConfig struct {
 	// ReaperInterval controls how often the reaper polls. Defaults to 5 minutes if zero.
 	// Override in tests to speed up reaper cycles.
 	ReaperInterval time.Duration
-	// StartBudget is how long a run may stay pending, measured from its
-	// created_at or from when its agent last became active, whichever is later,
-	// before the scheduler fails it. Defaults to 3 minutes.
+	// StartBudget is how long a run may stay pending with no Ready agent pod,
+	// measured from its created_at or from when its agent last became active,
+	// whichever is later, before the scheduler fails it. A run waiting for room
+	// on a Ready pod or for its agent's total does not fail. Defaults to 3 minutes.
 	StartBudget time.Duration
 	// ProvisionBudget is how long a run may wait for its agent to finish
 	// provisioning, measured from the run's created_at. Defaults to 10 minutes.
@@ -53,6 +54,12 @@ type RunServiceConfig struct {
 	StartPollInterval time.Duration
 	// WorkerConcurrency is how many runs the scheduler starts at once. Defaults to 1.
 	WorkerConcurrency int
+	// PlacementWatermark is the fraction of a pod's memory.max below which it takes a run.
+	PlacementWatermark float64
+	// StartingRunAllowances is the memory a starting run is assumed to take before the next memory reading, by harness.
+	StartingRunAllowances StartingRunAllowances
+	// StartingRunWindow is how long after its pod assignment a live run still counts as starting.
+	StartingRunWindow time.Duration
 	// DefaultEnvironmentSize sizes the built-in default environment.
 	DefaultEnvironmentSize EnvironmentSize
 	// SandboxMount tells the agent, in its brief, to work in the sandbox's local folder.
@@ -78,6 +85,7 @@ type RunService struct {
 	images     sandboxImageLookup
 	missing    missingProvisioner
 	queue      runQueue
+	placement  podPlacementStore
 	metrics    *Metrics // run outcome and duration; nil = not recorded
 	budgets    runBudgetReader
 	selfToken  ServiceTokenSource
@@ -150,6 +158,7 @@ func NewRunService(
 	images sandboxImageLookup,
 	missing missingProvisioner,
 	queue runQueue,
+	placement podPlacementStore,
 	cfg RunServiceConfig,
 	logger logging.Logger,
 ) (*RunService, error) {
@@ -157,18 +166,19 @@ func NewRunService(
 		return nil, ErrRunServiceProductNameEmpty
 	}
 	return &RunService{
-		repo:    repo,
-		atRepo:  atRepo,
-		sm:      sm,
-		k8s:     k8s,
-		pubsub:  pubsub,
-		authz:   authz,
-		envs:    envs,
-		images:  images,
-		missing: missing,
-		queue:   queue,
-		cfg:     cfg,
-		logger:  logger,
+		repo:      repo,
+		atRepo:    atRepo,
+		sm:        sm,
+		k8s:       k8s,
+		pubsub:    pubsub,
+		authz:     authz,
+		envs:      envs,
+		images:    images,
+		missing:   missing,
+		queue:     queue,
+		placement: placement,
+		cfg:       cfg,
+		logger:    logger,
 	}, nil
 }
 

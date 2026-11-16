@@ -70,8 +70,6 @@ type RunRepository interface {
 	CancelRunsByAgentType(ctx context.Context, agentTypeID string) ([]Run, error)
 	// RecordSandboxDeleted records the removal of the run's sandbox once.
 	RecordSandboxDeleted(ctx context.Context, run Run) error
-	// ActiveRunsPerPod returns active run counts keyed by pod ordinal for an agent type.
-	ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error)
 	// ReapStaleRuns ends runs stuck in transient states for longer than
 	// staleDuration and returns them in their new state:
 	//   - failed:    runs transitioned pending|starting|active → failed

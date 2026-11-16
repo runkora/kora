@@ -19,8 +19,10 @@ type k8sProvisioner interface {
 	GetAgentBudget(ctx context.Context, at AgentType, namespace string) (*AgentBudget, error)
 	WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error
 	RolloutStatefulSet(ctx context.Context, slug, namespace string) error
-	// ReadyOrdinals returns the ordinals of pods that are Ready and not terminating.
+	// ReadyOrdinals returns the ordinals of pods that are Ready, not terminating and below the current replicas.
 	ReadyOrdinals(ctx context.Context, slug, namespace string) ([]int, error)
+	// Replicas returns the StatefulSet's current spec.replicas.
+	Replicas(ctx context.Context, slug, namespace string) (int, error)
 	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, spec SandboxSpec) (Sandbox, error)
 	LookupSandbox(ctx context.Context, runID, namespace string) (Sandbox, bool, error)
 	SandboxEnvironment(ctx context.Context, runID, namespace string) (envID string, live bool, err error)
@@ -35,6 +37,7 @@ type smClient interface {
 	SendMessage(ctx context.Context, podURL, runID, content string, idleTimeoutSecs int, fromPerson bool) error
 	InterruptSession(ctx context.Context, podURL, runID string) error
 	CloseSession(ctx context.Context, podURL, runID string) error
+	Memory(ctx context.Context, podURL string) (sessionmanager.Memory, error)
 }
 
 // ── Request types ─────────────────────────────────────────────────────────────
