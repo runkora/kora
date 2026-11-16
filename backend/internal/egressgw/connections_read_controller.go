@@ -22,6 +22,8 @@ type connectionPolicyChecker interface {
 // ConnectionsReadController serves the read-only connection catalog for the
 // caller's tenant.
 //
+// The frontend picker reads its catalog from kora-agents rather than from here.
+//
 // GET /connections carries only a connection's name, adapter type, and
 // grantable actions, so it is auth-only with no scope enforcement. The list is
 // tenant-scoped from the verified token.
