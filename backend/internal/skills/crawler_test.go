@@ -333,3 +333,21 @@ func TestCrawl_DuplicatesDoNotCountTowardLimit(t *testing.T) {
 		t.Errorf("skills = %v, want %v", crawlNames(list), want)
 	}
 }
+
+// Only folders under a skills root are copies of one another, and a copy
+// skipped for a limit leaves the skill to the next copy.
+func TestCrawl_DedupeOnlyKeptCopiesUnderSkillsRoots(t *testing.T) {
+	g := repo(map[string]string{
+		"other/pdf/SKILL.md":          skillMD("pdf", "Other.", ""),
+		"skills/other/pdf/SKILL.md":   skillMD("pdf", "Rooted.", ""),
+		".agents/skills/big/SKILL.md": skillMD("big", "Big.", strings.Repeat("x", 200)),
+		".claude/skills/big/SKILL.md": skillMD("big", "Small.", ""),
+	})
+	list, err := NewCrawler(g, Limits{SkillMdBytesPerMarketplace: 150}, discard()).Crawl(context.Background(), testMarketplace(t, "example", "m"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{".claude/skills/big=big", "other/pdf=pdf", "skills/other/pdf=pdf"}; !slices.Equal(crawlNames(list), want) {
+		t.Errorf("skills = %v, want %v", crawlNames(list), want)
+	}
+}

@@ -49,7 +49,7 @@ spec:
 - `github.ref`: the branch to track, or a commit SHA to pin. kora tracks the default branch when this is left out.
 - `github.app`: the App ID, the installation ID, and the Secret key holding the App's private key. The Secret must be in the same namespace as the marketplace.
 
-Every folder with a `SKILL.md` is listed as a skill when its frontmatter has a `name` and a `description`.
+Every folder with a `SKILL.md` is listed as a skill when its frontmatter has a `name` and a `description`. A skill kept under more than one skills root, such as `.agents/skills/pdf` and `.claude/skills/pdf`, is listed once, from the first folder in path order.
 
 A `SkillMarketplace` is declarative, applied the way you manage the rest of your cluster. Commit it to your GitOps repository, or `kubectl apply` it for a quick start. To list what is registered:
 
