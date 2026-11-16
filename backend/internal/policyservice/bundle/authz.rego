@@ -20,8 +20,8 @@ _is_envoy if input.attributes.request.http
 #
 # OPA fetches the identity service JWKS on first evaluation and caches the
 # response for 5 minutes. Signature, issuer, and audience are all validated.
-# The OPA container runs as UID 1337 so its outbound traffic bypasses Envoy's
-# iptables redirect — preventing recursive ext_authz calls during JWKS fetch.
+# The OPA container does not run as UID 1337, so its outbound traffic goes
+# through Envoy; the bundle route skips ext_authz to avoid recursive calls.
 #
 # NOTE: OPA 1.15.x has a bug where io.jwt.decode_verify with the "jwks"
 # constraint silently returns undefined for RSA tokens. We work around this

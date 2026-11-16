@@ -8,9 +8,10 @@ import (
 
 type unreadableRegistry struct{}
 
-func (unreadableRegistry) TenantIDs() []string { return nil }
-func (unreadableRegistry) Err() error          { return errors.New("parse tenant registry: bad yaml") }
-func (unreadableRegistry) Loaded() bool        { return false }
+func (unreadableRegistry) TenantIDs() []string                      { return nil }
+func (unreadableRegistry) TenantForNamespace(string) (string, bool) { return "", false }
+func (unreadableRegistry) Err() error                               { return errors.New("parse tenant registry: bad yaml") }
+func (unreadableRegistry) Loaded() bool                             { return false }
 
 func TestKnownTenantIDsFailsOnAnUnreadableRegistry(t *testing.T) {
 	s := &Server{tenants: unreadableRegistry{}}

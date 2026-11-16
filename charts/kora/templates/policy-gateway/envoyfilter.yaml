@@ -13,6 +13,10 @@
 # failure_mode_allow: false — fail-closed (zero trust). Requests are denied if
 # OPA is unreachable or times out. The OPA readiness probe gates pod readiness
 # so traffic only arrives after the bundle is loaded.
+#
+# The route to policy-service for /api/v1/policy/bundles/ skips ext_authz. OPA
+# polls that path to load its bundle, so asking OPA about it first has no
+# decision to give. policy-service authorizes the path itself.
 apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
@@ -49,6 +53,28 @@ spec:
               timeout: 2s
             failure_mode_allow: false
             transport_api_version: V3
+
+    # Skip ext_authz on the outbound route to policy-service bundles. The route
+    # is added first in the service's virtual host, ahead of the catch-all.
+    - applyTo: HTTP_ROUTE
+      match:
+        context: SIDECAR_OUTBOUND
+        routeConfiguration:
+          name: "80"
+          vhost:
+            name: "kora-policy-service.{{ include "kora.systemNamespace" . }}.svc.cluster.local:80"
+      patch:
+        operation: INSERT_FIRST
+        value:
+          name: policy-bundles-no-ext-authz
+          match:
+            prefix: /api/v1/policy/bundles/
+          route:
+            cluster: "outbound|80||kora-policy-service.{{ include "kora.systemNamespace" . }}.svc.cluster.local"
+          typed_per_filter_config:
+            envoy.filters.http.ext_authz:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+              disabled: true
 
     # Add a static cluster pointing to the OPA sidecar on localhost:9191.
     - applyTo: CLUSTER

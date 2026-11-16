@@ -3,6 +3,8 @@ package operator
 import (
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -172,5 +174,47 @@ func TestServedTenants(t *testing.T) {
 	got := servedTenants([]KoraTenant{refused, owner, suspended})
 	if len(got) != 1 || got[0].Name != "acme" {
 		t.Errorf("servedTenants = %v, want only acme", got)
+	}
+}
+
+func TestBuildRegistryYAMLNamespace(t *testing.T) {
+	t0 := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
+	r := &TenantRegistry{}
+	out, err := r.buildRegistryYAML([]KoraTenant{tenantAt("acme", "acme-prod", t0), tenantAt("beta", "", t0.Add(time.Hour))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reg registryFile
+	if err := sigsyaml.Unmarshal([]byte(out), &reg); err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Tenants) != 2 || reg.Tenants[0].Namespace != "acme-prod" || reg.Tenants[1].Namespace != "kora-tenant-beta" {
+		t.Errorf("registry namespaces = %+v", reg.Tenants)
+	}
+}
+
+// A tenant refused for a namespace conflict stays in the registry but is marked,
+// so the owner of the namespace still resolves.
+func TestRegistryMarksRefusedTenantAndOwnerResolves(t *testing.T) {
+	t0 := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
+	owner := tenantAt("acme", "shared", t0)
+	refused := tenantAt("beta", "shared", t0.Add(time.Hour))
+	out, err := (&TenantRegistry{}).buildRegistryYAML([]KoraTenant{owner, refused})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reg registryFile
+	if err := sigsyaml.Unmarshal([]byte(out), &reg); err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Tenants) != 2 || reg.Tenants[0].NamespaceRefused || !reg.Tenants[1].NamespaceRefused {
+		t.Fatalf("registry = %+v", reg.Tenants)
+	}
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	if err := os.WriteFile(path, []byte(out), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := declarative.NewRegistry(path).TenantForNamespace("shared"); !ok || got != "acme" {
+		t.Errorf("TenantForNamespace(shared) = %q, %v; want acme", got, ok)
 	}
 }

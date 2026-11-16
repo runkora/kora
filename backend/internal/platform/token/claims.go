@@ -52,6 +52,9 @@ type Principal struct {
 	// DisplayName is a human-readable label for audit and UI.
 	DisplayName string `json:"display_name"`
 
+	// Namespace is the raw namespace segment of an attested tenant SPIFFE ID; empty otherwise.
+	Namespace string
+
 	// IdentitySource records the authentication mechanism used.
 	IdentitySource IdentitySource `json:"identity_source"`
 

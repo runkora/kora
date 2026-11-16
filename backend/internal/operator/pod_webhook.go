@@ -26,6 +26,10 @@ const (
 	podRoleSandbox = "sandbox"
 	nsLabelTenant  = "runkora.io/tenant"
 
+	// opaRunAsUser is the OPA sidecar's uid. It must not be 1337: Istio exempts
+	// that uid from traffic capture, so OPA's bundle poll would skip the mesh.
+	opaRunAsUser int64 = 1001
+
 	// Pod labels that activate the identity-proxy and OPA EnvoyFilters.
 	podLabelOPAPolicy     = "runkora.io/opa-policy"
 	podLabelIdentityProxy = "runkora.io/identity-proxy"
@@ -371,7 +375,7 @@ func (m *PodMutator) opaContainer() corev1.Container {
 			{Name: "opa-grpc", ContainerPort: 9191, Protocol: corev1.ProtocolTCP},
 			{Name: "opa-diag", ContainerPort: 8282, Protocol: corev1.ProtocolTCP},
 		},
-		SecurityContext: restrictedContainerSecurityContext(1337, true),
+		SecurityContext: restrictedContainerSecurityContext(opaRunAsUser, true),
 		// Checked every second until bundles load. The liveness probe restarts a
 		// hung opa once this succeeds, so the budget only bounds a stuck start.
 		StartupProbe: &corev1.Probe{

@@ -44,10 +44,14 @@ type Events struct {
 // fields services read are decoded.
 type tenant struct {
 	ID           string  `json:"id"`
+	Namespace    string  `json:"namespace"`
 	State        string  `json:"state"`
 	APIAuthoring string  `json:"apiAuthoring"`
 	Budget       *Budget `json:"budget"`
-	Events       *Events `json:"events"`
+	// NamespaceRefused is set for a tenant the operator refused for a namespace
+	// conflict. It does not own the namespace it names.
+	NamespaceRefused bool    `json:"namespaceRefused"`
+	Events           *Events `json:"events"`
 }
 
 // Registry reads the kora-tenants registry the operator writes. It re-reads
@@ -78,6 +82,40 @@ func (r *Registry) TenantIDs() []string {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+// defaultNamespacePrefix is the operator's namespace for a tenant whose
+// KoraTenant sets no spec.namespace: kora-tenant-<id>.
+const defaultNamespacePrefix = "kora-tenant-"
+
+// TenantForNamespace returns the id of the active tenant that runs in the
+// Kubernetes namespace ns. An entry with no namespace counts as
+// kora-tenant-<id>, so a registry written before the field existed keeps
+// working. It reports false for an unknown namespace, for an unloaded
+// registry, and when more than one tenant names the namespace. A tenant refused
+// for a namespace conflict is skipped, so it cannot lock out the owner.
+func (r *Registry) TenantForNamespace(ns string) (string, bool) {
+	if ns == "" {
+		return "", false
+	}
+	owner, n := "", 0
+	for id, t := range r.load() {
+		if t.NamespaceRefused {
+			continue
+		}
+		tenantNS := t.Namespace
+		if tenantNS == "" {
+			tenantNS = defaultNamespacePrefix + id
+		}
+		if tenantNS == ns {
+			owner = id
+			n++
+		}
+	}
+	if n != 1 {
+		return "", false
+	}
+	return owner, true
 }
 
 // APIAuthoringEnabled reports whether the API may write the tenant's

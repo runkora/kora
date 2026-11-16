@@ -25,12 +25,16 @@ type registryFile struct {
 
 type registryEntry struct {
 	ID           string              `json:"id"`
+	Namespace    string              `json:"namespace"`
 	DisplayName  string              `json:"displayName"`
 	State        string              `json:"state"`
 	OIDC         registryOIDC        `json:"oidc"`
 	APIAuthoring string              `json:"apiAuthoring"`
 	Budget       *declarative.Budget `json:"budget,omitempty"`
-	Events       *declarative.Events `json:"events,omitempty"`
+	// NamespaceRefused marks a tenant refused for a namespace conflict. It stays
+	// listed for login, but never owns its namespace.
+	NamespaceRefused bool                `json:"namespaceRefused,omitempty"`
+	Events           *declarative.Events `json:"events,omitempty"`
 }
 
 type registryOIDC struct {
@@ -125,6 +129,7 @@ func (r *TenantRegistry) buildRegistryYAML(tenants []KoraTenant) (string, error)
 		}
 		entries = append(entries, registryEntry{
 			ID:          t.Name,
+			Namespace:   tenantNamespace(t),
 			DisplayName: t.Spec.DisplayName,
 			State:       "active",
 			OIDC: registryOIDC{
@@ -136,7 +141,9 @@ func (r *TenantRegistry) buildRegistryYAML(tenants []KoraTenant) (string, error)
 			},
 			APIAuthoring: t.Spec.APIAuthoring,
 			Budget:       t.Spec.Budget,
-			Events:       t.Spec.Events,
+
+			NamespaceRefused: namespaceConflict(t, tenants) != "",
+			Events:           t.Spec.Events,
 		})
 	}
 
