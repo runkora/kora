@@ -1,4 +1,4 @@
-package identity
+package token
 
 import (
 	"net/http"
@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// ── parseXFCCSpiffeURI ────────────────────────────────────────────────────────
+// ── ParseXFCCSpiffeURI ────────────────────────────────────────────────────────
 
 func TestParseXFCCSpiffeURI_SimpleURI(t *testing.T) {
-	uri, err := parseXFCCSpiffeURI(`URI=spiffe://runkora.test/tenant/platform-team/agent/ci-deploy-bot`)
+	uri, err := ParseXFCCSpiffeURI(`URI=spiffe://runkora.test/tenant/platform-team/agent/ci-deploy-bot`)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -21,7 +21,7 @@ func TestParseXFCCSpiffeURI_SimpleURI(t *testing.T) {
 func TestParseXFCCSpiffeURI_MultiFieldEntry(t *testing.T) {
 	// Envoy emits: By=...;Hash=...;URI=...;DNS=...
 	xfcc := `By=spiffe://runkora.test/system/envoy-proxy;Hash=abc123;URI=spiffe://runkora.test/tenant/platform-team/agent/ci-deploy-bot;DNS=ci-deploy-bot`
-	uri, err := parseXFCCSpiffeURI(xfcc)
+	uri, err := ParseXFCCSpiffeURI(xfcc)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -31,26 +31,51 @@ func TestParseXFCCSpiffeURI_MultiFieldEntry(t *testing.T) {
 }
 
 func TestParseXFCCSpiffeURI_MultipleEntries(t *testing.T) {
-	// Multiple comma-separated XFCC entries — first URI wins.
+	// Multiple comma-separated XFCC entries: only the last (the verified peer) is read.
 	xfcc := `URI=spiffe://runkora.test/tenant/team-a/agent/bot-1,URI=spiffe://runkora.test/tenant/team-b/agent/bot-2`
-	uri, err := parseXFCCSpiffeURI(xfcc)
+	uri, err := ParseXFCCSpiffeURI(xfcc)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if uri != "spiffe://runkora.test/tenant/team-a/agent/bot-1" {
+	if uri != "spiffe://runkora.test/tenant/team-b/agent/bot-2" {
 		t.Errorf("got %q", uri)
 	}
 }
 
+func TestParseXFCCSpiffeURI_ForgedEarlierElementIgnored(t *testing.T) {
+	xfcc := `URI=spiffe://runkora.test/system/identity,By=spiffe://runkora.test/system/envoy;URI=spiffe://runkora.test/tenant/kora-tenant-a/agent/x`
+	uri, err := ParseXFCCSpiffeURI(xfcc)
+	if err != nil || uri != "spiffe://runkora.test/tenant/kora-tenant-a/agent/x" {
+		t.Errorf("got %q, %v", uri, err)
+	}
+	// A forged first element must not supply a URI when the last has none.
+	if _, err := ParseXFCCSpiffeURI(`URI=spiffe://runkora.test/system/identity,Hash=abc`); err == nil {
+		t.Error("expected error when the last element has no URI")
+	}
+}
+
+func TestParseXFCCSpiffeURI_QuotedSubjectWithCommas(t *testing.T) {
+	xfcc := `URI=spiffe://runkora.test/system/identity,Hash=abc;Subject="CN=a,O=b,C=c";URI=spiffe://runkora.test/tenant/kora-tenant-a/agent/x`
+	uri, err := ParseXFCCSpiffeURI(xfcc)
+	if err != nil || uri != "spiffe://runkora.test/tenant/kora-tenant-a/agent/x" {
+		t.Errorf("got %q, %v", uri, err)
+	}
+	// A comma inside quotes must not start a new element.
+	xfcc = `Subject="CN=a,URI=spiffe://runkora.test/system/identity";URI=spiffe://runkora.test/tenant/kora-tenant-a/agent/x`
+	if uri, err = ParseXFCCSpiffeURI(xfcc); err != nil || uri != "spiffe://runkora.test/tenant/kora-tenant-a/agent/x" {
+		t.Errorf("got %q, %v", uri, err)
+	}
+}
+
 func TestParseXFCCSpiffeURI_NoURIField(t *testing.T) {
-	_, err := parseXFCCSpiffeURI(`By=spiffe://runkora.test/system/envoy-proxy;Hash=abc123`)
+	_, err := ParseXFCCSpiffeURI(`By=spiffe://runkora.test/system/envoy-proxy;Hash=abc123`)
 	if err == nil {
 		t.Error("expected error for missing URI field")
 	}
 }
 
 func TestParseXFCCSpiffeURI_EmptyString(t *testing.T) {
-	_, err := parseXFCCSpiffeURI("")
+	_, err := ParseXFCCSpiffeURI("")
 	if err == nil {
 		t.Error("expected error for empty XFCC header")
 	}
@@ -58,16 +83,16 @@ func TestParseXFCCSpiffeURI_EmptyString(t *testing.T) {
 
 func TestParseXFCCSpiffeURI_NonSpiffeURIField(t *testing.T) {
 	// URI field present but not a SPIFFE URI — should not be returned.
-	_, err := parseXFCCSpiffeURI(`URI=https://example.com/cert`)
+	_, err := ParseXFCCSpiffeURI(`URI=https://example.com/cert`)
 	if err == nil {
 		t.Error("expected error for non-SPIFFE URI field")
 	}
 }
 
-// ── principalFromSpiffeID ─────────────────────────────────────────────────────
+// ── PrincipalFromSpiffeID ─────────────────────────────────────────────────────
 
 func TestPrincipalFromSpiffeID_SetsFields(t *testing.T) {
-	p, err := principalFromSpiffeID("spiffe://runkora.test/tenant/platform-team/agent/ci-deploy-bot")
+	p, err := PrincipalFromSpiffeID("spiffe://runkora.test/tenant/platform-team/agent/ci-deploy-bot")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -92,14 +117,14 @@ func TestPrincipalFromSpiffeID_SetsFields(t *testing.T) {
 }
 
 func TestPrincipalFromSpiffeID_NotSpiffeURI(t *testing.T) {
-	_, err := principalFromSpiffeID("https://not-spiffe/foo")
+	_, err := PrincipalFromSpiffeID("https://not-spiffe/foo")
 	if err == nil {
 		t.Error("expected error for non-SPIFFE URI")
 	}
 }
 
 func TestPrincipalFromSpiffeID_NoPathComponent(t *testing.T) {
-	_, err := principalFromSpiffeID("spiffe://trust-domain-only")
+	_, err := PrincipalFromSpiffeID("spiffe://trust-domain-only")
 	if err == nil {
 		t.Error("expected error for SPIFFE URI without path")
 	}
@@ -120,7 +145,7 @@ func TestPrincipalFromSpiffeID_SandboxNormalizesToAgent(t *testing.T) {
 	const sandboxURI = "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder/sandbox/run-9"
 	const agentURI = "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder"
 
-	p, err := principalFromSpiffeID(sandboxURI)
+	p, err := PrincipalFromSpiffeID(sandboxURI)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -159,7 +184,7 @@ func TestPrincipalFromSpiffeID_SandboxNormalizesToAgent(t *testing.T) {
 // needed); run_id must NOT appear in claims.
 func TestPrincipalFromSpiffeID_AgentPathUnchanged(t *testing.T) {
 	const agentURI = "spiffe://runkora.test/tenant/platform-team/agent/ci-deploy-bot"
-	p, err := principalFromSpiffeID(agentURI)
+	p, err := PrincipalFromSpiffeID(agentURI)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -219,7 +244,7 @@ func TestPrincipalFromSpiffeID_Namespace(t *testing.T) {
 		{"spiffe://runkora.test/system/identity", ""},
 	}
 	for _, tc := range tests {
-		p, err := principalFromSpiffeID(tc.id)
+		p, err := PrincipalFromSpiffeID(tc.id)
 		if err != nil {
 			t.Fatalf("%s: %v", tc.id, err)
 		}

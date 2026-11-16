@@ -89,10 +89,9 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 	return func(next http.Handler) http.Handler {
 		authed := authChain(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Bypass auth for GET requests to the bundle polling endpoints.
+			// Skip the JWT check for GET requests to the bundle polling endpoints.
 			if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/policy/bundles/") {
-				// Per-tenant bundles are authorized in the bundle handler from the
-				// caller's mesh identity; only the JWT check is skipped here.
+				// The bundle handler authorizes the caller from its mesh identity.
 				next.ServeHTTP(w, r)
 				return
 			}

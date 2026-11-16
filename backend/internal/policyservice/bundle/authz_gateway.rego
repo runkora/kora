@@ -235,8 +235,8 @@ _is_frontend_request if {
 # ══ INFRASTRUCTURE BYPASS ═════════════════════════════════════════════════════
 #
 # Health checks, OIDC discovery, bundle polling, and inbound webhook delivery
-# endpoints are unauthenticated by design. The gateway must allow them through
-# without JWT validation.
+# endpoints carry no JWT. The gateway must allow them through without JWT
+# validation; bundle polling is authorized by policy-service from the mesh identity.
 #
 # /api/v1/webhooks/ is the Triggers feature's inbound delivery endpoint
 # (docs/adr/2026-06-17-agent-triggers-and-webhook-ingestion.md). External

@@ -78,22 +78,27 @@ const defaultNamespacePrefix = "kora-tenant-"
 // TenantForNamespace returns the id of the active tenant that runs in the
 // Kubernetes namespace ns. An entry with no namespace counts as
 // kora-tenant-<id>, so a registry written before the field existed keeps
-// working. It reports false for an unknown namespace and for an unloaded
-// registry.
+// working. It reports false for an unknown namespace, for an unloaded
+// registry, and when more than one tenant names the namespace.
 func (r *Registry) TenantForNamespace(ns string) (string, bool) {
 	if ns == "" {
 		return "", false
 	}
+	owner, n := "", 0
 	for id, t := range r.load() {
 		tenantNS := t.Namespace
 		if tenantNS == "" {
 			tenantNS = defaultNamespacePrefix + id
 		}
 		if tenantNS == ns {
-			return id, true
+			owner = id
+			n++
 		}
 	}
-	return "", false
+	if n != 1 {
+		return "", false
+	}
+	return owner, true
 }
 
 // APIAuthoringEnabled reports whether the API may write the tenant's

@@ -10,9 +10,9 @@ import (
 	"regexp"
 	"slices"
 
-	"github.com/runkora/kora/backend/internal/identity"
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 	"github.com/runkora/kora/backend/internal/policyservice/grants"
 	"github.com/runkora/kora/backend/internal/policyservice/principalroles"
 	"github.com/runkora/kora/backend/internal/policyservice/roles"
@@ -161,8 +161,9 @@ func (s *Server) RecompileGateway(ctx context.Context) error {
 }
 
 // ServeGatewayHTTP handles GET /v1/policy/bundles/gateway.
-// Returns the compiled cross-tenant gateway bundle as application/gzip.
-// No application-level authentication is required — the OPA gateway polls this
+// Returns the compiled cross-tenant gateway bundle as
+// application/vnd.openpolicyagent.bundle.
+// No application-level authentication is required: the OPA gateway polls this
 // endpoint from inside the mesh; STRICT mTLS and the AuthorizationPolicy gate it.
 func (s *Server) ServeGatewayHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -249,15 +250,15 @@ func (s *Server) authorizeTenantCaller(r *http.Request, tenantID string) (spiffe
 	if r.Header.Get("x-forwarded-client-cert") == "" {
 		return "", isLoopback(r.RemoteAddr)
 	}
-	p, err := (&identity.XFCCPrincipalExtractor{}).Extract(r)
+	p, err := (&token.XFCCPrincipalExtractor{}).Extract(r)
 	if err != nil {
 		return "", false
 	}
 	spiffeID = p.Claims["spiffe_id"]
 	switch p.Type {
-	case identity.PrincipalTypeSystem:
+	case token.PrincipalTypeSystem:
 		return spiffeID, true
-	case identity.PrincipalTypeAgent, identity.PrincipalTypeService:
+	case token.PrincipalTypeAgent, token.PrincipalTypeService:
 		owner, found := s.tenants.TenantForNamespace(p.Namespace)
 		return spiffeID, found && owner == tenantID
 	default:
@@ -275,7 +276,7 @@ func isLoopback(remoteAddr string) bool {
 }
 
 // ServeHTTP handles GET /v1/policy/bundles/{tenant_id}.
-// Returns the compiled bundle as application/gzip. If no bundle exists yet
+// Returns the compiled bundle as application/vnd.openpolicyagent.bundle. If no bundle exists yet
 // for the tenant (no grants configured), returns 404.
 // The caller must hold a mesh identity bound to the tenant (see
 // authorizeTenantCaller); anything else gets 403 before any bundle is read.

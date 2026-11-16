@@ -144,9 +144,11 @@ tenants:
   - {id: old, state: active}
   - {id: acme, state: active, namespace: acme-prod}
   - {id: gone, state: suspended, namespace: gone-ns}
+  - {id: dup1, state: active, namespace: shared-ns}
+  - {id: dup2, state: active, namespace: shared-ns}
 `, time.Unix(1, 0))
 	r := NewRegistry(path)
-	for ns, want := range map[string]string{"kora-tenant-old": "old", "acme-prod": "acme", "kora-tenant-acme": "", "gone-ns": "", "": ""} {
+	for ns, want := range map[string]string{"shared-ns": "", "kora-tenant-old": "old", "acme-prod": "acme", "kora-tenant-acme": "", "gone-ns": "", "": ""} {
 		got, ok := r.TenantForNamespace(ns)
 		if got != want || ok != (want != "") {
 			t.Errorf("TenantForNamespace(%q) = %q, %v; want %q", ns, got, ok, want)

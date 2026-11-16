@@ -7,8 +7,7 @@
 # (GET /api/v1/policy/bundles/{tenant_id}), which are safely scoped to one
 # tenant, the gateway bundle must not be readable by pods in tenant namespaces.
 #
-# Per-tenant bundle endpoints stay reachable from all namespaces, because
-# agent pod OPA sidecars in tenant namespaces poll their own bundle. The
+# Per-tenant bundle endpoints stay reachable from all namespaces. The
 # handler (authorizeTenantCaller in backend/internal/policyservice/bundle)
 # binds each caller to its tenant from the mesh identity.
 #
