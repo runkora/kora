@@ -689,6 +689,8 @@ agents:
       podAnnotations: {}
     # Session-manager pods multiplex an agent's sessions and are long-lived.
     sessionManager:
+      # -- Memory request and limit of the session-manager container.
+      memory: 1Gi
       nodeSelector: {}
       tolerations: []
       affinity: {}
