@@ -283,7 +283,7 @@ func apiOwners(req *http.Request, segs []string) credentials.RequestOwners {
 		return graphqlOwners(req)
 	case len(segs) > 0 && segs[0] == "search":
 		return credentials.RequestOwners{Owners: searchOwners(req.URL.Query().Get("q")), Subject: subjectSearch}
-	case len(segs) >= 2 && segs[0] == "repositories" && isDigits(segs[1]):
+	case isRepositoryIDPath(segs):
 		return credentials.RequestOwners{RepoIDs: []string{segs[1]}, Subject: subjectPath}
 	case len(segs) >= 2 && (segs[0] == "repos" || segs[0] == "orgs" || segs[0] == "users"):
 		return pathOwner(segs[1])
@@ -294,6 +294,11 @@ func apiOwners(req *http.Request, segs []string) credentials.RequestOwners {
 
 func isDigits(s string) bool {
 	return s != "" && strings.Trim(s, "0123456789") == ""
+}
+
+// isRepositoryIDPath reports whether segs address /repositories/{id}/...
+func isRepositoryIDPath(segs []string) bool {
+	return len(segs) >= 2 && segs[0] == "repositories" && isDigits(segs[1])
 }
 
 func pathOwner(owner string) credentials.RequestOwners {
@@ -417,7 +422,7 @@ func classifyAPI(req *http.Request, path, owner string, repos map[string]string)
 			return cls, nil
 		}
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
-	case len(segs) >= 2 && segs[0] == "repositories" && isDigits(segs[1]):
+	case isRepositoryIDPath(segs):
 		// Repository-ID paths keep the legacy catch-all until they resolve to
 		// the repository they address.
 		verb, err := verbClass(method)
@@ -432,7 +437,7 @@ func classifyAPI(req *http.Request, path, owner string, repos map[string]string)
 // resolveRepositoryPath rewrites a /repositories/{id} path whose id resolved to
 // the /repos path it names, so it classifies with that path's owner check.
 func resolveRepositoryPath(segs []string, repos map[string]string) []string {
-	if len(segs) < 2 || segs[0] != "repositories" {
+	if !isRepositoryIDPath(segs) {
 		return segs
 	}
 	repoOwner, name, ok := strings.Cut(repos[segs[1]], "/")
