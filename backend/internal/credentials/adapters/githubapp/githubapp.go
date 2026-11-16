@@ -424,11 +424,8 @@ func classifyAPI(req *http.Request, path, owner string) (credentials.Classificat
 // classifyREST classifies a REST endpoint by its route in GitHub's data. A
 // repository path is qualified by its repository once the owner matches.
 func classifyREST(method string, segs []string, owner string) (credentials.Classification, error) {
-	// A dot segment could resolve upstream to another route or repository.
-	for _, s := range segs {
-		if name, err := url.PathUnescape(s); err != nil || name == "." || name == ".." {
-			return credentials.Classification{}, credentials.ErrUnsupportedAction
-		}
+	if hasDotSegment(segs) {
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
 	route := matchRoute(method, segs)
 	if route == nil {
@@ -445,6 +442,17 @@ func classifyREST(method string, segs []string, owner string) (credentials.Class
 		cls.Qualifier = pathName(segs[2])
 	}
 	return cls, nil
+}
+
+// hasDotSegment reports whether a path segment, escaped or not, is "." or "..",
+// which could resolve upstream to another route or repository.
+func hasDotSegment(segs []string) bool {
+	for _, s := range segs {
+		if name, err := url.PathUnescape(s); err != nil || name == "." || name == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // pathName is an escaped owner or repository segment, unescaped and normalized.
@@ -584,14 +592,26 @@ func classifyGitLFS(req *http.Request, owner string) (credentials.Classification
 	default:
 		return credentials.Classification{}, true, credentials.ErrUnsupportedAction
 	}
-	qualifier := ""
-	if owner != "" {
-		if normalizeName(segs[0]) != owner {
-			return credentials.Classification{}, true, credentials.ErrUnsupportedAction
-		}
-		qualifier = normalizeName(strings.TrimSuffix(segs[1], ".git"))
+	qualifier, ok := lfsQualifier(segs, owner)
+	if !ok {
+		return credentials.Classification{}, true, credentials.ErrUnsupportedAction
 	}
 	return credentials.Classification{Action: action, Qualifier: qualifier}, true, nil
+}
+
+// lfsQualifier is the repository an LFS path names. ok is false for a foreign
+// owner or a dot segment.
+func lfsQualifier(segs []string, owner string) (string, bool) {
+	if hasDotSegment(segs) {
+		return "", false
+	}
+	if owner == "" {
+		return "", true
+	}
+	if normalizeName(segs[0]) != owner {
+		return "", false
+	}
+	return normalizeName(strings.TrimSuffix(segs[1], ".git")), true
 }
 
 // lfsBatchOperation reads the batch request's operation, matching the key
@@ -619,7 +639,7 @@ const uploadsHost = "uploads.github.com"
 // the uploads host to contents:write on the repository. Nothing else is served.
 func classifyReleaseUpload(method, path, owner string) (credentials.Classification, error) {
 	segs := pathSegments(path)
-	if method != http.MethodPost || len(segs) != 6 || segs[0] != "repos" || segs[3] != "releases" || segs[5] != "assets" {
+	if method != http.MethodPost || len(segs) != 6 || segs[0] != "repos" || segs[3] != "releases" || segs[5] != "assets" || hasDotSegment(segs) {
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
 	cls := credentials.Classification{Action: ActionContentsWrite}

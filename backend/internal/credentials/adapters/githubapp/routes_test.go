@@ -2,7 +2,10 @@ package githubapp
 
 import (
 	"errors"
+	"maps"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -131,6 +134,10 @@ func TestClassify_RESTEdgeCases(t *testing.T) {
 		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/contents/../../../other/x/contents/a", err: true},
 		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/contents/%2e%2e/a", err: true},
 		{method: http.MethodGet, url: "https://api.github.com/rate_limit", want: cls("metadata:read", "")},
+		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/contents/", want: cls("contents:read", "widgets")},
+		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/tarball", want: cls("contents:read", "widgets")},
+		{method: http.MethodPost, url: "https://uploads.github.com/repos/example-org/widgets/releases/%2e%2e/assets", err: true},
+		{method: http.MethodGet, url: "https://github.com/example-org/%2e%2e/info/lfs/locks", err: true},
 	}
 	for _, tc := range cases {
 		req, err := http.NewRequest(tc.method, tc.url, http.NoBody)
@@ -207,6 +214,32 @@ func TestClassify_BranchNameWithSlash(t *testing.T) {
 		got, err := c.Classify(req)
 		if err != nil || got.Action != want {
 			t.Errorf("%s: classification = %+v, %v, want %s", url, got, err, want)
+		}
+	}
+}
+
+// GraphQL tokens for the checks rollup and branch protection carry the
+// permissions those fields need, not the whole ci or admin category.
+func TestMint_GraphQLNarrowsCIAndAdmin(t *testing.T) {
+	c := graphqlConnector(t)
+	want := map[string]map[string]string{
+		"pr-view":   {"actions": "read", "checks": "read", "statuses": "read", "contents": "read", "pull_requests": "read", "metadata": "read"},
+		"pr-status": {"actions": "read", "checks": "read", "statuses": "read", "administration": "read", "contents": "read", "pull_requests": "read", "metadata": "read"},
+	}
+	for fixture, perms := range want {
+		body, err := os.ReadFile(filepath.Join("testdata", "gh", fixture+".json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		cls, err := c.Classify(graphqlPost(t, string(body)))
+		if err != nil {
+			t.Fatalf("%s: Classify: %v", fixture, err)
+		}
+		got := mintedPermissions(t, credentials.CallerIdentity{
+			Action: cls.Action, Qualifier: cls.Qualifier, AlsoAuthorized: cls.AlsoRequired, Permissions: cls.Permissions,
+		})
+		if !maps.Equal(got, perms) {
+			t.Errorf("%s: minted %v, want %v", fixture, got, perms)
 		}
 	}
 }

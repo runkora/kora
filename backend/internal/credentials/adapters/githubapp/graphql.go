@@ -325,7 +325,24 @@ func (w *graphqlWalker) classification(op *ast.OperationDefinition) credentials.
 	if w.incomplete {
 		return credentials.Classification{Action: catRepo + ":" + verb}
 	}
-	return classificationFor(w.reqs)
+	cls := classificationFor(w.reqs)
+	for _, action := range append(append([]string{cls.Action}, cls.Alternates...), cls.AlsoRequired...) {
+		if perms, ok := graphqlPermissions[action]; ok {
+			if cls.Permissions == nil {
+				cls.Permissions = map[string]map[string]string{}
+			}
+			cls.Permissions[action] = perms
+		}
+	}
+	return cls
+}
+
+// graphqlPermissions are the permissions the fields behind a GraphQL
+// requirement need, where that is narrower than the whole category: a token
+// asking for a permission the installation lacks is refused.
+var graphqlPermissions = map[string]map[string]string{
+	catCI + ":" + verbRead:    {"actions": verbRead, "checks": verbRead, "statuses": verbRead},
+	catAdmin + ":" + verbRead: {"administration": verbRead},
 }
 
 // fields visits every field of a selection set, looking through inline

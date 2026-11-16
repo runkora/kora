@@ -101,15 +101,19 @@ func matchRoute(method string, segs []string) *restRoute {
 // well under it.
 const maxRouteSegments = 30
 
-// match reports whether segs fit the route. The score weights a literal by its
-// position, so an earlier literal outweighs every later one, and adds one for
-// an exact route.
+// match reports whether segs fit the route. A greedy parameter may also be
+// empty, as in a listing of the repository root's contents. The score weights a
+// literal by its position, so an earlier literal outweighs every later one, and
+// adds one for an exact route.
 func (c *compiledRoute) match(segs []string) (int, bool) {
-	if len(segs) != len(c.segs) && (!c.greedy || len(segs) < len(c.segs)) {
+	if len(segs) != len(c.segs) && (!c.greedy || len(segs) < len(c.segs)-1) {
 		return 0, false
 	}
 	score := 0
 	for i, s := range c.segs {
+		if i == len(segs) {
+			break // the empty greedy parameter
+		}
 		switch s {
 		case "":
 		case segs[i]:
