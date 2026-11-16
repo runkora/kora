@@ -9,6 +9,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
 // claimsFromContext retrieves the verified platform claims stored by AuthMiddleware.
@@ -80,8 +81,14 @@ func (c *Controller) enforceScopeCeiling(ctx context.Context, w http.ResponseWri
 }
 
 // callerEffectiveScopes resolves the effective scopes of the principal in claims.
-// Roles count for HUMAN callers only; EffectiveScopes ignores them otherwise.
 func (c *Controller) callerEffectiveScopes(ctx context.Context, claims *token.PlatformClaims) ([]string, error) {
+	scopes, _, err := c.callerEffectiveScopesWithVocab(ctx, claims)
+	return scopes, err
+}
+
+// callerEffectiveScopesWithVocab also returns the vocabulary list read to resolve them.
+// Roles count for HUMAN callers only; effectiveScopes ignores them otherwise.
+func (c *Controller) callerEffectiveScopesWithVocab(ctx context.Context, claims *token.PlatformClaims) ([]string, []*vocabulary.ScopeEntry, error) {
 	var roles []string
 	if raw := claims.Kora.Claims["roles"]; raw != "" {
 		for role := range strings.SplitSeq(raw, ",") {
@@ -90,7 +97,7 @@ func (c *Controller) callerEffectiveScopes(ctx context.Context, claims *token.Pl
 			}
 		}
 	}
-	return c.svc.EffectiveScopes(ctx, claims.Kora.TenantID, string(claims.Kora.PrincipalType), grantPrincipalID(claims), roles)
+	return c.svc.effectiveScopes(ctx, claims.Kora.TenantID, string(claims.Kora.PrincipalType), grantPrincipalID(claims), roles)
 }
 
 // grantPrincipalID is the principal ID grants are keyed on. A PAT's sub is the

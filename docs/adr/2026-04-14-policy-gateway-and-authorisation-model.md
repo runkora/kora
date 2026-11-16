@@ -1,6 +1,6 @@
 # Policy Gateway and Authorisation Model
 
-**Status:** Accepted (revised 2026-04-13)  
+**Status:** Accepted (Amended 2026-11-08)  
 **Date:** 2026-04-14
 **Deciders:** Engineering Team  
 **Technical Story:** Defining how authorisation policy is expressed, stored, distributed, and enforced across all principal-to-resource communication on the kora platform — and establishing the architectural model that governs what every principal is permitted to do.
@@ -809,4 +809,31 @@ In `internal/policyservice/api/service.go`, before persisting in `CreateGrant` (
 
 ---
 
-**Last Updated:** 2026-06-30
+## Amendment 2 (2026-11-08): Effective scopes return vocabulary entries
+
+**Status:** Accepted
+
+Touches _What can it access?_ The response describes only the caller's own effective scopes.
+
+### Context
+
+`GET /policy/effective-scopes` returns only scope strings. A scope picker also needs each scope's description from the vocabulary endpoint, and regular users lack the `platform:grants:read` scope it requires.
+
+### Decision
+
+The response gains an `entries` array next to the unchanged `scopes` array:
+
+- `entries[i]` is the entry of `scopes[i]`.
+- Each element is the scope's vocabulary entry with exactly the fields `scope`, `resource_type`, `path`, `action` and `description`.
+- A held scope with no vocabulary entry (for example an egress scope or a qualified connection scope) gets an entry holding the scope string with empty metadata: `resource_type` and `action` are `""`, `path` is `[]`, and `description` is absent.
+- The entries reuse the vocabulary list that resolves the effective scopes. Building them adds no vocabulary read.
+- `scopes` and the system-principal `403` are unchanged. The `EffectiveScopes` method the grant ceiling uses keeps its signature.
+
+### Consequences
+
+- Existing clients of the additive response need no change.
+- Regular users get descriptions of their own scopes without `platform:grants:read`.
+
+---
+
+**Last Updated:** 2026-11-08

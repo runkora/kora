@@ -12,6 +12,8 @@ import (
 // derived from its OIDC roles (HUMAN only) and explicit grants. The PAT UI
 // reads it to populate the scope selector, and kora-agents reads it with the
 // caller's bearer to keep an agent's grant within its creator's scopes.
+// The response also carries "entries": one vocabulary entry per scope, in the
+// same order, with empty metadata for a scope that has no vocabulary entry.
 func (c *Controller) handleEffectiveScopes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -27,12 +29,29 @@ func (c *Controller) handleEffectiveScopes(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	scopes, err := c.callerEffectiveScopes(ctx, claims)
+	scopes, vocab, err := c.callerEffectiveScopesWithVocab(ctx, claims)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.InternalError(platformapi.ErrCodeInternalError, "failed to resolve effective scopes", nil), err)
 		return
 	}
 
-	platformapi.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"scopes": scopes})
+	entries := make([]effectiveScopeEntry, 0, len(scopes))
+	for _, e := range EffectiveScopeEntries(scopes, vocab) {
+		entries = append(entries, effectiveScopeEntry{
+			Scope: e.Scope, ResourceType: e.ResourceType, Path: e.PathSegments, Action: e.Action, Description: e.Description,
+		})
+	}
+
+	platformapi.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"scopes": scopes, "entries": entries})
+}
+
+// effectiveScopeEntry is the wire shape of one entry. It omits the vocabulary
+// registration metadata (registered_by, created_at) that is not the caller's concern.
+type effectiveScopeEntry struct {
+	Scope        string   `json:"scope"`
+	ResourceType string   `json:"resource_type"`
+	Path         []string `json:"path"`
+	Action       string   `json:"action"`
+	Description  string   `json:"description,omitempty"`
 }

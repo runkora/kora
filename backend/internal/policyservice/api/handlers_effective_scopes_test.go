@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
@@ -55,6 +57,120 @@ func (f fixedRoles) GetByRole(_ context.Context, _, role string) (*roles.RoleEnt
 type emptyVocab struct{ vocabulary.Repository }
 
 func (emptyVocab) List(context.Context, string) ([]*vocabulary.ScopeEntry, error) { return nil, nil }
+
+type entryResponse struct {
+	Scope        string   `json:"scope"`
+	ResourceType string   `json:"resource_type"`
+	Path         []string `json:"path"`
+	Action       string   `json:"action"`
+	Description  string   `json:"description"`
+}
+
+// listedVocab returns a fixed set of entries.
+type listedVocab struct {
+	vocabulary.Repository
+	entries []*vocabulary.ScopeEntry
+	calls   *int
+}
+
+func (l listedVocab) List(context.Context, string) ([]*vocabulary.ScopeEntry, error) {
+	if l.calls != nil {
+		*l.calls++
+	}
+	return l.entries, nil
+}
+
+func getEffectiveScopes(t *testing.T, vocab vocabulary.Repository, held ...string) (rawBody []byte, scopes []string, entries []entryResponse) {
+	t.Helper()
+	svc := &Service{
+		grantRepo: principalGrants{byPrincipal: map[string][]*grants.Grant{
+			"AGENT/agent-1": {{Scopes: held}},
+		}},
+		roleRepo:  fixedRoles{},
+		vocabRepo: vocab,
+		logger:    logging.NewLoggerWithOutput(io.Discard),
+	}
+	c := &Controller{svc: svc, logger: svc.logger}
+	claims := &token.PlatformClaims{
+		RegisteredClaims: jwt.RegisteredClaims{Subject: "agent-1"},
+		Kora:             token.KoraClaims{TenantID: "t-1", PrincipalType: token.PrincipalTypeAgent},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/policy/effective-scopes", nil)
+	req = req.WithContext(token.WithClaims(req.Context(), claims))
+	rec := httptest.NewRecorder()
+	c.handleEffectiveScopes(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Scopes  []string        `json:"scopes"`
+		Entries []entryResponse `json:"entries"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	return rec.Body.Bytes(), body.Scopes, body.Entries
+}
+
+func TestHandleEffectiveScopes_EntriesCarryVocabulary(t *testing.T) {
+	calls := 0
+	vocab := listedVocab{calls: &calls, entries: []*vocabulary.ScopeEntry{{
+		Scope: "agents:types:read", ResourceType: "agents", PathSegments: []string{"types"},
+		Action: "read", Description: "Read agent types", RegisteredBy: "kora-agents",
+		CreatedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+	}}}
+	raw, scopes, entries := getEffectiveScopes(t, vocab, "agents:types:read")
+	if calls != 1 {
+		t.Errorf("vocabulary List calls = %d, want 1", calls)
+	}
+	var body struct {
+		Entries []map[string]json.RawMessage `json:"entries"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Entries) != 1 {
+		t.Fatalf("entries = %s", raw)
+	}
+	keys := slices.Sorted(maps.Keys(body.Entries[0]))
+	if want := []string{"action", "description", "path", "resource_type", "scope"}; !slices.Equal(keys, want) {
+		t.Errorf("entry keys = %v, want %v", keys, want)
+	}
+	if !slices.Equal(scopes, []string{"agents:types:read"}) {
+		t.Fatalf("scopes = %v", scopes)
+	}
+	want := entryResponse{Scope: "agents:types:read", ResourceType: "agents", Path: []string{"types"}, Action: "read", Description: "Read agent types"}
+	if len(entries) != 1 || entries[0].Scope != want.Scope || entries[0].ResourceType != want.ResourceType ||
+		!slices.Equal(entries[0].Path, want.Path) || entries[0].Action != want.Action || entries[0].Description != want.Description {
+		t.Errorf("entries = %+v, want [%+v]", entries, want)
+	}
+}
+
+func TestHandleEffectiveScopes_EntryForScopeWithoutVocabulary(t *testing.T) {
+	vocab := listedVocab{entries: []*vocabulary.ScopeEntry{{
+		Scope: "agents:types:read", ResourceType: "agents", PathSegments: []string{"types"}, Action: "read", Description: "Read agent types",
+	}}}
+	raw, scopes, entries := getEffectiveScopes(t, vocab, "agents:types:read", "egress:example.com:connect")
+	if len(entries) != len(scopes) {
+		t.Fatalf("len(entries) = %d, len(scopes) = %d", len(entries), len(scopes))
+	}
+	for i, sc := range scopes {
+		if entries[i].Scope != sc {
+			t.Errorf("entries[%d].scope = %q, want %q", i, entries[i].Scope, sc)
+		}
+	}
+	i := slices.Index(scopes, "egress:example.com:connect")
+	if i < 0 {
+		t.Fatalf("scopes = %v", scopes)
+	}
+	e := entries[i]
+	if e.ResourceType != "" || e.Action != "" || e.Description != "" || e.Path == nil || len(e.Path) != 0 {
+		t.Errorf("entry = %+v, want empty metadata with path []", e)
+	}
+	if !strings.Contains(string(raw), `"path":[]`) {
+		t.Errorf("body %s should serialise path as []", raw)
+	}
+}
 
 // Each principal gets back only what the bundle grants it. A PAT gets its own
 // grant, never its owner's grants or roles. A delegation-marked grant gives nothing.
@@ -104,13 +220,22 @@ func TestHandleEffectiveScopes_PerPrincipal(t *testing.T) {
 				t.Fatalf("status = %d, body %s", rec.Code, rec.Body.String())
 			}
 			var body struct {
-				Scopes []string `json:"scopes"`
+				Scopes  []string        `json:"scopes"`
+				Entries []entryResponse `json:"entries"`
 			}
 			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 				t.Fatal(err)
 			}
 			if !slices.Equal(body.Scopes, tt.want) {
 				t.Errorf("scopes = %v, want %v", body.Scopes, tt.want)
+			}
+			if body.Entries == nil || len(body.Entries) != len(tt.want) {
+				t.Fatalf("entries = %v, want %d non-nil entries", body.Entries, len(tt.want))
+			}
+			for i, e := range body.Entries {
+				if e.Scope != tt.want[i] {
+					t.Errorf("entries[%d].scope = %q, want %q", i, e.Scope, tt.want[i])
+				}
 			}
 		})
 	}

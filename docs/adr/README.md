@@ -47,7 +47,7 @@ kora records every significant technical decision as an ADR. This index is the c
 ### Policy & Authorization
 
 - [Universal Gateway as Policy Enforcement Point](2026-03-05-universal-gateway-policy-enforcement.md) — `Accepted` · 2026-03-05
-- [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md) — `Accepted (revised 2026-04-13)` · 2026-04-14
+- [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md) — `Accepted (Amended 2026-11-08)` · 2026-04-14
 - [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) — `Accepted (Amended 2026-10-01)` · 2026-04-14
 - [Frontend Policy Projection via BFF](2026-04-14-frontend-policy-projection.md) — `Accepted` · 2026-04-14
 - [Policy Administration Dashboard](2026-04-15-policy-administration-dashboard.md) — `Accepted (Amended 2026-10-22)` · 2026-04-15
@@ -229,7 +229,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-04-06 | [Frontend Cluster Deployment and Ingress Routing](2026-04-06-frontend-cluster-deployment-and-ingress-routing.md) | Accepted | 0034 |
 | 2026-04-14 | [Dynamic Route-Scope Registration](2026-04-14-dynamic-route-scope-registration.md) | Accepted (Amended 2026-10-01) | 0036 |
 | 2026-04-14 | [Frontend Policy Projection via BFF](2026-04-14-frontend-policy-projection.md) | Accepted | 0037 |
-| 2026-04-14 | [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md) | Accepted (revised 2026-04-13) | 0035 |
+| 2026-04-14 | [Policy Gateway and Authorisation Model](2026-04-14-policy-gateway-and-authorisation-model.md) | Accepted (Amended 2026-11-08) | 0035 |
 | 2026-04-15 | [Policy Administration Dashboard](2026-04-15-policy-administration-dashboard.md) | Accepted (Amended 2026-10-22) | 0038 |
 | 2026-04-17 | [Inference Usage Logs](2026-04-17-inference-usage-logs.md) | Accepted | 0040 |
 | 2026-04-17 | [Virtual Model Catalog and Platform Routing](2026-04-17-virtual-model-catalog-and-platform-routing.md) | Accepted | 0039 |

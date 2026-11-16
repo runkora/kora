@@ -205,6 +205,8 @@ Authorization: Bearer <human session token>
 }
 ```
 
+The response also carries an `entries` array of vocabulary entries; see [Amendment 2 of the policy gateway ADR](2026-04-14-policy-gateway-and-authorisation-model.md#amendment-2-2026-11-08-effective-scopes-return-vocabulary-entries).
+
 Resolution logic (mirrors OPA evaluation for the calling principal):
 
 1. Resolve `principal_roles` from the caller's JWT `Claims["roles"]`.
