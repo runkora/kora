@@ -109,7 +109,7 @@ The GitHub connector will change as follows.
 
 5.  A generator will build the route table from GitHub's REST operation data for API version 2022-11-28, pinned to one `github/docs` commit. The generated table and the generator are committed, and a test checks that every operation in the data classifies.
 6.  An endpoint classifies to the smallest of GitHub's alternative permission sets for it. Alternatives that each need one permission become alternate actions. A set that needs several permissions requires every category in it.
-7.  The minted token carries the permissions of the set the grant satisfied, plus metadata.
+7.  The minted token carries the permissions of the set the grant satisfied, plus metadata. A write to contents, refs or releases, and a git push, also carries `workflows` when the agent holds `workflows:write` on the repository.
 8.  An endpoint that needs no permission classifies as `metadata:read`. An endpoint that needs `admin` access classifies as `write` and mints `admin` access. An endpoint whose permission is in no category is denied as unclassified.
 9.  Surfaces outside the data keep hand-written entries: git smart HTTP and git LFS (`contents`), `codeload.github.com` and `*.githubusercontent.com` (`contents`), `uploads.github.com` release assets (`contents`), and the Actions results receiver (`ci`).
 10.  A search query with an `OR` or `NOT` operator, a parenthesised `repo:` term, or an `org:` or `user:` term will classify unqualified.
