@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
@@ -68,9 +70,13 @@ type entryResponse struct {
 type listedVocab struct {
 	vocabulary.Repository
 	entries []*vocabulary.ScopeEntry
+	calls   *int
 }
 
 func (l listedVocab) List(context.Context, string) ([]*vocabulary.ScopeEntry, error) {
+	if l.calls != nil {
+		*l.calls++
+	}
 	return l.entries, nil
 }
 
@@ -107,11 +113,29 @@ func getEffectiveScopes(t *testing.T, vocab vocabulary.Repository, held ...strin
 }
 
 func TestHandleEffectiveScopes_EntriesCarryVocabulary(t *testing.T) {
-	vocab := listedVocab{entries: []*vocabulary.ScopeEntry{{
+	calls := 0
+	vocab := listedVocab{calls: &calls, entries: []*vocabulary.ScopeEntry{{
 		Scope: "agents:types:read", ResourceType: "agents", PathSegments: []string{"types"},
 		Action: "read", Description: "Read agent types", RegisteredBy: "kora-agents",
+		CreatedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
 	}}}
-	_, scopes, entries := getEffectiveScopes(t, vocab, "agents:types:read")
+	raw, scopes, entries := getEffectiveScopes(t, vocab, "agents:types:read")
+	if calls != 1 {
+		t.Errorf("vocabulary List calls = %d, want 1", calls)
+	}
+	var body struct {
+		Entries []map[string]json.RawMessage `json:"entries"`
+	}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Entries) != 1 {
+		t.Fatalf("entries = %s", raw)
+	}
+	keys := slices.Sorted(maps.Keys(body.Entries[0]))
+	if want := []string{"action", "description", "path", "resource_type", "scope"}; !slices.Equal(keys, want) {
+		t.Errorf("entry keys = %v, want %v", keys, want)
+	}
 	if !slices.Equal(scopes, []string{"agents:types:read"}) {
 		t.Fatalf("scopes = %v", scopes)
 	}

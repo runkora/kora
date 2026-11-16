@@ -1,6 +1,6 @@
 # Policy Gateway and Authorisation Model
 
-**Status:** Accepted (revised 2026-04-13)  
+**Status:** Accepted (Amended 2026-11-08)  
 **Date:** 2026-04-14
 **Deciders:** Engineering Team  
 **Technical Story:** Defining how authorisation policy is expressed, stored, distributed, and enforced across all principal-to-resource communication on the kora platform — and establishing the architectural model that governs what every principal is permitted to do.
@@ -809,28 +809,30 @@ In `internal/policyservice/api/service.go`, before persisting in `CreateGrant` (
 
 ---
 
-## Amendment — 2026-11-08: Effective scopes return vocabulary entries
+## Amendment 2 (2026-11-08): Effective scopes return vocabulary entries
 
-**Status:** Accepted — additive change to the `GET /policy/effective-scopes` response.
+**Status:** Accepted
+
+Touches _What can it access?_ The response describes only the caller's own effective scopes.
 
 ### Context
 
-`GET /policy/effective-scopes` returns only scope strings. A scope picker needs each scope's description, and the vocabulary endpoint that holds descriptions requires `platform:grants:read`, which regular users lack (runkora/kora#447, #446).
+`GET /policy/effective-scopes` returns only scope strings. A scope picker also needs each scope's description from the vocabulary endpoint, and regular users lack the `platform:grants:read` scope it requires.
 
 ### Decision
 
 The response gains an `entries` array next to the unchanged `scopes` array:
 
-- `entries` has one element per element of `scopes`, in the same order.
-- Each element is the scope's vocabulary entry: `scope`, `resource_type`, `path`, `action` and `description`. `requires` and `registered_by` are not included.
+- `entries[i]` is the entry of `scopes[i]`.
+- Each element is the scope's vocabulary entry with exactly the fields `scope`, `resource_type`, `path`, `action` and `description`.
 - A held scope with no vocabulary entry (for example an egress scope or a qualified connection scope) gets an entry holding the scope string with empty metadata: `resource_type` and `action` are `""`, `path` is `[]`, and `description` is absent.
-- `scopes` and the system-principal `403` are unchanged. The `EffectiveScopes` service method is unchanged, because the grant ceiling check shares it.
+- The entries reuse the vocabulary list that resolves the effective scopes. Building them adds no vocabulary read.
+- `scopes` and the system-principal `403` are unchanged. The `EffectiveScopes` method the grant ceiling uses keeps its signature.
 
 ### Consequences
 
-- Existing clients keep working, since the change is additive.
-- The endpoint does one extra vocabulary read per request.
-- Regular users get descriptions without `platform:grants:read`.
+- Existing clients of the additive response need no change.
+- Regular users get descriptions of their own scopes without `platform:grants:read`.
 
 ---
 

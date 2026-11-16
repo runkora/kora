@@ -434,14 +434,11 @@ func (s *Service) GetScope(ctx context.Context, scope string) (*vocabulary.Scope
 	return s.vocabRepo.GetByScope(ctx, scope)
 }
 
-// ScopeEntries returns one vocabulary entry per input scope, in input order.
-// A scope with no vocabulary entry (for example an egress scope) gets an entry
+// EffectiveScopeEntries returns one vocabulary entry per scope, in input order,
+// built from vocab (the list that resolved the scopes, so no further read). A
+// scope with no vocabulary entry (for example an egress scope) gets an entry
 // holding the scope string with empty metadata. The result is never nil.
-func (s *Service) ScopeEntries(ctx context.Context, scopes []string) ([]*vocabulary.ScopeEntry, error) {
-	vocab, err := s.vocabRepo.List(ctx, "")
-	if err != nil {
-		return nil, fmt.Errorf("list vocabulary: %w", err)
-	}
+func EffectiveScopeEntries(scopes []string, vocab []*vocabulary.ScopeEntry) []*vocabulary.ScopeEntry {
 	byScope := make(map[string]*vocabulary.ScopeEntry, len(vocab))
 	for _, e := range vocab {
 		byScope[e.Scope] = e
@@ -460,7 +457,7 @@ func (s *Service) ScopeEntries(ctx context.Context, scopes []string) ([]*vocabul
 		}
 		entries = append(entries, &vocabulary.ScopeEntry{Scope: sc, PathSegments: []string{}})
 	}
-	return entries, nil
+	return entries
 }
 
 // EffectiveScopes returns the union of all scopes a principal holds, derived from
@@ -474,25 +471,32 @@ func (s *Service) ScopeEntries(ctx context.Context, scopes []string) ([]*vocabul
 // Grants apply to every principal type (an AGENT orchestrating the platform uses
 // its own grants regardless of type).
 func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalType, principalID string, principalRoles []string) ([]string, error) {
+	scopes, _, err := s.effectiveScopes(ctx, tenantID, principalType, principalID, principalRoles)
+	return scopes, err
+}
+
+// effectiveScopes is EffectiveScopes that also returns the vocabulary list it
+// read. The list is nil when the principal holds nothing and none was read.
+func (s *Service) effectiveScopes(ctx context.Context, tenantID, principalType, principalID string, principalRoles []string) ([]string, []*vocabulary.ScopeEntry, error) {
 	// An empty type or ID would match every grant in the tenant. The bundle grants such a principal nothing.
 	if principalType == "" || principalID == "" {
-		return []string{}, nil
+		return []string{}, nil, nil
 	}
 	grantList, _, err := s.grantRepo.List(ctx, tenantID, grants.PrincipalType(principalType), principalID, 0, 0)
 	if err != nil {
-		return nil, fmt.Errorf("list grants: %w", err)
+		return nil, nil, fmt.Errorf("list grants: %w", err)
 	}
 	// One delegation-marked grant makes the bundle refuse every autonomous allow
 	// path to the principal, its other grants and roles included.
 	if slices.ContainsFunc(grantList, func(g *grants.Grant) bool { return g.DelegationRequired }) {
-		return []string{}, nil
+		return []string{}, nil, nil
 	}
 
 	scopeSet := make(map[string]struct{})
 	builtinSet := make(map[string]struct{})
 	if grants.PrincipalType(principalType) == grants.PrincipalTypeHuman {
 		if err = s.addRoleScopes(ctx, tenantID, principalRoles, scopeSet, builtinSet); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	for _, g := range grantList {
@@ -508,7 +512,7 @@ func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalType, 
 	// too, so the ceiling matches what the bundle grants.
 	allVocab, err := s.vocabRepo.List(ctx, "")
 	if err != nil {
-		return nil, fmt.Errorf("list vocabulary for scope expansion: %w", err)
+		return nil, nil, fmt.Errorf("list vocabulary for scope expansion: %w", err)
 	}
 	expandScopeFamily(allVocab, scopeSet)
 	result := bundle.ExpandRequires(slices.Collect(maps.Keys(scopeSet)), allVocab)
@@ -520,7 +524,7 @@ func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalType, 
 		}
 	}
 	sort.Strings(result)
-	return result, nil
+	return result, allVocab, nil
 }
 
 // addRoleScopes populates scopeSet with scopes derived from the principal's OIDC
