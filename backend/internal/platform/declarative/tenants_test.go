@@ -158,3 +158,22 @@ tenants:
 		t.Error("an unset registry mapped a namespace")
 	}
 }
+
+func TestTenantForNamespaceSkipsRefusedTenant(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tenants.yaml")
+	writeRegistry(t, path, `version: v1
+tenants:
+  - {id: owner, state: active, namespace: shared-ns}
+  - {id: refused, state: active, namespace: shared-ns, namespaceRefused: true}
+  - {id: dup1, state: active, namespace: dup-ns}
+  - {id: dup2, state: active, namespace: dup-ns}
+  - {id: dup3, state: active, namespace: dup-ns, namespaceRefused: true}
+`, time.Unix(1, 0))
+	r := NewRegistry(path)
+	if got, ok := r.TenantForNamespace("shared-ns"); !ok || got != "owner" {
+		t.Errorf("TenantForNamespace(shared-ns) = %q, %v; want owner", got, ok)
+	}
+	if got, ok := r.TenantForNamespace("dup-ns"); ok {
+		t.Errorf("other duplicates must still fail closed, got %q", got)
+	}
+}

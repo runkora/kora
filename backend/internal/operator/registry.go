@@ -31,6 +31,9 @@ type registryEntry struct {
 	OIDC         registryOIDC        `json:"oidc"`
 	APIAuthoring string              `json:"apiAuthoring"`
 	Budget       *declarative.Budget `json:"budget,omitempty"`
+	// NamespaceRefused marks a tenant refused for a namespace conflict. It stays
+	// listed for login, but never owns its namespace.
+	NamespaceRefused bool `json:"namespaceRefused,omitempty"`
 }
 
 type registryOIDC struct {
@@ -137,6 +140,8 @@ func (r *TenantRegistry) buildRegistryYAML(tenants []KoraTenant) (string, error)
 			},
 			APIAuthoring: t.Spec.APIAuthoring,
 			Budget:       t.Spec.Budget,
+
+			NamespaceRefused: namespaceConflict(t, tenants) != "",
 		})
 	}
 
