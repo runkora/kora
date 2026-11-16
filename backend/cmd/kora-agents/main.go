@@ -124,7 +124,7 @@ func realMain() error {
 		return fmt.Errorf("load brand: %w", err)
 	}
 
-	server, repo, atSvc, runSvc, draftSvc, err := initServer(ctx, logger, db, storage.NewJTIBlocklist(redis), eval, idClient, selfToken, metrics, b)
+	server, repo, atSvc, runSvc, draftSvc, scaler, err := initServer(ctx, logger, db, storage.NewJTIBlocklist(redis), eval, idClient, selfToken, metrics, b)
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
 	}
@@ -135,6 +135,7 @@ func realMain() error {
 	go runSvc.StartReaper(ctx)
 	go atSvc.ApplyAll(ctx, repo)
 	runSvc.StartScheduler(ctx)
+	go scaler.Start(ctx)
 	go draftSvc.StartReaper(ctx)
 	run(ctx, logger, server, runSvc, metrics)
 	return nil
@@ -196,7 +197,7 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *stor
 	return db, rc, nil
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, blocklist mw.JTIBlocklist, eval policy.Evaluator, idClient *identityclient.Client, selfToken func(context.Context) (string, error), metrics *platformmetrics.Bootstrap, b brand.Brand) (*http.Server, *agents.PostgresRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, blocklist mw.JTIBlocklist, eval policy.Evaluator, idClient *identityclient.Client, selfToken func(context.Context) (string, error), metrics *platformmetrics.Bootstrap, b brand.Brand) (*http.Server, *agents.PostgresRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, *agents.Scaler, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := agentsConfig.Current
@@ -208,7 +209,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	// unregistered route denies every request, so a blank string took out both
 	// grant management and the entire agents API, silently.
 	if cfg.Platform.PolicyServiceURL == "" {
-		return nil, nil, nil, nil, nil, fmt.Errorf("platform.policyServiceURL is required")
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("platform.policyServiceURL is required")
 	}
 	pc := policyclient.NewClient(cfg.Platform.PolicyServiceURL, selfToken, logger)
 
@@ -216,7 +217,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 
 	patches, workloads, err := loadProvisioning(cfg, patchDir, b)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, err
 	}
 	logger.Info(ctx, "loaded provisioning config",
 		logging.Field{Key: "patch_dir", Value: patchDir},
@@ -226,7 +227,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 
 	k8s, err := agents.NewK8sProvisioner(cfg.Kubernetes.InCluster, logger, provisionerConfig(cfg, patches, workloads, b), pc)
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)
 	}
 
 	pool := storage.NewPool(db.Pool())
@@ -249,9 +250,10 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 
 	sizes := environmentSizes(cfg)
 	if validateErr := sizes.Validate(); validateErr != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", validateErr)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", validateErr)
 	}
 	allowance := cfg.Agents.Scheduling.StartingRunAllowance
+	allowances := agents.NewStartingRunAllowances(allowance.ClaudeCode, allowance.Codex, allowance.OpenCode)
 	runSvc, err := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, k8s, repo, repo, agents.RunServiceConfig{
 		DefaultEnvironmentSize: sizes.Default,
 		TenantNamespaceFn:      cfg.TenantNamespace,
@@ -266,16 +268,16 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		StartPollInterval:     time.Duration(cfg.Agents.Scheduling.PollIntervalSecs) * time.Second,
 		WorkerConcurrency:     cfg.Agents.Scheduling.WorkerConcurrency,
 		PlacementWatermark:    cfg.Agents.Scheduling.PlacementWatermark,
-		StartingRunAllowances: agents.NewStartingRunAllowances(allowance.ClaudeCode, allowance.Codex, allowance.OpenCode),
+		StartingRunAllowances: allowances,
 		StartingRunWindow:     time.Duration(cfg.Agents.Scheduling.StartingRunWindowSecs) * time.Second,
 		Brand:                 b,
 	}, logger)
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("initialize run service: %w", err)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("initialize run service: %w", err)
 	}
 	runMetrics, err := agents.NewMetrics(metrics.Meter())
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("initialize run metrics: %w", err)
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("initialize run metrics: %w", err)
 	}
 	runSvc.SetMetrics(runMetrics)
 
@@ -340,7 +342,16 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		catalogController,
 		declaredController(verifier, logger, repo, atSvc, envSvc).WithEvents(pool),
 	)
-	return server, repo, atSvc, runSvc, draftSvc, nil
+	scaler := agents.NewScaler(repo, k8s, sm, agents.ScalerConfig{
+		TenantNamespaceFn:     cfg.TenantNamespace,
+		MinReplicas:           cfg.Agents.Scheduling.MinReplicas,
+		MaxReplicas:           cfg.Agents.Scheduling.MaxReplicas,
+		PlacementWatermark:    cfg.Agents.Scheduling.PlacementWatermark,
+		StartingRunAllowances: allowances,
+		StartingRunWindow:     time.Duration(cfg.Agents.Scheduling.StartingRunWindowSecs) * time.Second,
+	}, logger)
+
+	return server, repo, atSvc, runSvc, draftSvc, scaler, nil
 }
 
 // declaredController serves the operator's declared-item endpoints for environments and agents

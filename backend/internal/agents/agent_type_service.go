@@ -528,7 +528,7 @@ func (s *AgentTypeService) provisionAgentTypeAsync(detachedCtx context.Context, 
 		)
 		// Clean up any k8s resources that were partially created before the
 		// failure. ProvisionAgentType is non-atomic — it creates ServiceAccount,
-		// StatefulSet, Service, HPA, PDB, AgentGrant, and DestinationRule in
+		// StatefulSet, Service, PDB, AgentGrant, and DestinationRule in
 		// sequence, so a failure in step N leaves steps 1..N-1 in the cluster.
 		// Without this, a DB row deletion below would strand those resources
 		// (the original sales-agent bug). DeprovisionAgentType is idempotent

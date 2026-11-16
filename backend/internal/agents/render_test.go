@@ -27,8 +27,8 @@ func TestRenderResources_ParityWithBuilders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(objs) != 6 {
-		t.Fatalf("expected 6 objects (SA, STS, Service, HPA, PDB, sandbox Pod), got %d", len(objs))
+	if len(objs) != 5 {
+		t.Fatalf("expected 5 objects (SA, STS, Service, PDB, sandbox Pod), got %d", len(objs))
 	}
 
 	// Service must include TargetPort (matches ensureHeadlessService).
@@ -51,9 +51,9 @@ func TestRenderResources_ParityWithBuilders(t *testing.T) {
 	}
 
 	// Sandbox Pod name derived from run ID.
-	pod, ok := objs[5].(*corev1.Pod)
+	pod, ok := objs[4].(*corev1.Pod)
 	if !ok {
-		t.Fatalf("objs[5] not *corev1.Pod: %T", objs[5])
+		t.Fatalf("objs[4] not *corev1.Pod: %T", objs[4])
 	}
 	if pod.Name != "sandbox-sample-run" {
 		t.Errorf("sandbox Pod.Name: got %q, want %q", pod.Name, "sandbox-sample-run")
@@ -103,9 +103,9 @@ patch: |
 		t.Errorf("StatefulSet nodeSelector: got %v", ss.Spec.Template.Spec.NodeSelector)
 	}
 
-	pod, ok := objs[5].(*corev1.Pod)
+	pod, ok := objs[4].(*corev1.Pod)
 	if !ok {
-		t.Fatalf("objs[5] not *corev1.Pod: %T", objs[5])
+		t.Fatalf("objs[4] not *corev1.Pod: %T", objs[4])
 	}
 	if len(pod.Spec.Tolerations) != 1 || pod.Spec.Tolerations[0].Key != "dedicated" {
 		t.Errorf("sandbox Pod tolerations: got %v", pod.Spec.Tolerations)
@@ -210,9 +210,9 @@ patch: |
 		t.Errorf("workspace accessModes: got %v, want ReadWriteMany", claim.Spec.AccessModes)
 	}
 
-	pod, ok := objs[5].(*corev1.Pod)
+	pod, ok := objs[4].(*corev1.Pod)
 	if !ok {
-		t.Fatalf("objs[5] not *corev1.Pod: %T", objs[5])
+		t.Fatalf("objs[4] not *corev1.Pod: %T", objs[4])
 	}
 	if got := pod.Spec.NodeSelector["workload-tier"]; got != "kora-sandbox" {
 		t.Errorf("sandbox Pod workload-tier: got %q, want kora-sandbox", got)

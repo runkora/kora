@@ -16,6 +16,8 @@ metrics:
 
 kubernetes:
   inCluster: true
+  clientQPS: 50
+  clientBurst: 100
   tenantNamespacePrefix: kora-tenant-
   systemNamespace: kora-system
   # Where the chart mounts the kora-tenants ConfigMap.
@@ -76,6 +78,7 @@ agents:
     startBudgetSecs: 180
     provisionBudgetSecs: 600
     minReplicas: 2
+    maxReplicas: 10
     drainGracePeriodSecs: 3600
     placementWatermark: 0.70
     pressureLimit: 0.90

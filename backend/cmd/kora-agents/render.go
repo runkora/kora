@@ -51,6 +51,8 @@ func loadWorkloads(path string) (workloadsFile, error) {
 // the server and -render produce the same manifests.
 func provisionerConfig(cfg *agentsConfig.Config, patches []manifestpatch.Patch, workloads workloadsFile, b brand.Brand) agents.K8sProvisionerConfig {
 	return agents.K8sProvisionerConfig{
+		ClientQPS:              cfg.Kubernetes.ClientQPS,
+		ClientBurst:            cfg.Kubernetes.ClientBurst,
 		Workloads:              workloads.Workloads,
 		Workspace:              workloads.Workspace,
 		SessionManagerImage:    cfg.Agents.SessionManagerImage,

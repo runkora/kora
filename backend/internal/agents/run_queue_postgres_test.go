@@ -412,3 +412,45 @@ func TestPostgres_AgentLock(t *testing.T) {
 		t.Fatal("the agent lock was not released")
 	}
 }
+
+// The scaler's lock is the placement lock: it is refused when placement holds it past the timeout, and
+// taken when placement releases it within the wait.
+func TestPostgres_WaitWithAgentLockSharesPlacementLock(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+
+	held, release := make(chan struct{}), make(chan struct{})
+	done := make(chan error)
+	go func() {
+		done <- r.WithAgentLock(ctx, at.ID, func(context.Context) error {
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+	<-held
+	ran, err := r.WaitWithAgentLock(ctx, at.ID, 100*time.Millisecond, func(context.Context) error { return nil })
+	if err != nil || ran {
+		t.Errorf("lock held past the timeout: ran %v, err %v; want refused", ran, err)
+	}
+	time.AfterFunc(200*time.Millisecond, func() { close(release) })
+	ran, err = r.WaitWithAgentLock(ctx, at.ID, 5*time.Second, func(context.Context) error { return nil })
+	if err != nil || !ran {
+		t.Errorf("lock released within the wait: ran %v, err %v; want taken", ran, err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+
+	// The wait's timeout is lifted once the lock is held, so fn's statements run under the default.
+	var timeout string
+	if _, err := r.WaitWithAgentLock(ctx, at.ID, time.Second, func(ctx context.Context) error {
+		return r.pool.QueryRow(ctx, `SHOW lock_timeout`).Scan(&timeout)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if timeout != "0" {
+		t.Errorf("lock_timeout inside the lock = %q, want the default 0", timeout)
+	}
+}

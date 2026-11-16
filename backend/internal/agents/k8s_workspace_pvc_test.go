@@ -36,7 +36,7 @@ func TestBuildSessionManagerStatefulSet_WorkspaceClaimIsDeletedWithTheSet(t *tes
 		t.Errorf("whenDeleted = %q, want Delete", policy.WhenDeleted)
 	}
 	if policy.WhenScaled != appsv1.RetainPersistentVolumeClaimRetentionPolicyType {
-		t.Errorf("whenScaled = %q, want Retain (HPA scale-down is not agent deletion)", policy.WhenScaled)
+		t.Errorf("whenScaled = %q, want Retain (a scale-down is not agent deletion)", policy.WhenScaled)
 	}
 
 	claimLabels := ss.Spec.VolumeClaimTemplates[0].Labels
