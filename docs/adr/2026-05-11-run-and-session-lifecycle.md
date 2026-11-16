@@ -1,6 +1,6 @@
 # Run & Session Lifecycle
 
-**Status:** Accepted (Amended 2026-10-12)
+**Status:** Accepted (Amended 2026-10-12; the Amendment 1 start budget rule superseded in part by [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) 2026-11-10)
 **Date:** 2026-05-11
 **Updated:** 2026-10-12
 **Deciders:** Platform Engineering

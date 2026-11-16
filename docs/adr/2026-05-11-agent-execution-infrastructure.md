@@ -1,6 +1,6 @@
 # Agent Execution Infrastructure
 
-**Status:** Accepted (Amended 2026-10-12)
+**Status:** Accepted (Amended 2026-10-12; the HPA scaling decision superseded in part by [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) 2026-11-10)  
 **Date:** 2026-05-11
 **Deciders:** Platform Engineering  
 **Technical Story:** Managed agent workloads must run in tenant namespaces with stable identity, governed LLM access, and efficient resource utilisation. This ADR decides how agent pods are deployed, scaled, and addressed.
