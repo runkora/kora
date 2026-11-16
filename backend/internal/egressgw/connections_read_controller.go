@@ -13,11 +13,14 @@ import (
 	platformtoken "github.com/runkora/kora/backend/internal/platform/token"
 )
 
+// connectionPolicyChecker is the part of the policy evaluator the controller
+// needs: authorizing the caller against a connection scope.
+type connectionPolicyChecker interface {
+	Check(ctx context.Context, input policy.CheckInput) (policy.Result, error)
+}
+
 // ConnectionsReadController serves the read-only connection catalog for the
 // caller's tenant.
-//
-// GET /connections is the gateway's only HTTP route. The frontend picker reads
-// its catalog from kora-agents rather than from here.
 //
 // GET /connections carries only a connection's name, adapter type, and
 // grantable actions, so it is auth-only with no scope enforcement. The list is
@@ -29,7 +32,7 @@ import (
 type ConnectionsReadController struct {
 	connRegistry connLister
 	registry     *AdapterRegistry
-	policy       policyChecker
+	policy       connectionPolicyChecker
 	verifier     *platformtoken.Verifier
 	logger       logging.Logger
 }
@@ -38,7 +41,7 @@ type ConnectionsReadController struct {
 func NewConnectionsReadController(
 	connRegistry connLister,
 	registry *AdapterRegistry,
-	pol policyChecker,
+	pol connectionPolicyChecker,
 	verifier *platformtoken.Verifier,
 	logger logging.Logger,
 ) *ConnectionsReadController {
@@ -81,9 +84,9 @@ type QualifierEnumerator interface {
 
 // handleListConnectionResources enumerates the named connection's qualifier
 // values (e.g. the GitHub installation's repositories). Tenant-scoped from the
-// verified token; a connection whose adapter has no enumerator yields 404.
-// The caller must hold the connection's baseline read scope, checked before any
-// credential is minted; otherwise 403.
+// verified token. The caller must hold the connection's baseline read scope,
+// checked before any credential is minted; otherwise 403. An adapter with no
+// baseline action also yields 403, and one with no enumerator yields 404.
 func (c *ConnectionsReadController) handleListConnectionResources(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -173,10 +176,6 @@ func (c *ConnectionsReadController) authorizeResources(w http.ResponseWriter, r 
 		Action:       verb,
 	})
 	if err != nil {
-		c.logger.Error(ctx, "policy evaluation failed",
-			logging.Field{Key: "connection", Value: conn.Name},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
 		api.ErrorResponse(ctx, w, c.logger,
 			api.InternalError(api.ErrCodeInternalError, "policy evaluation unavailable", nil), err)
 		return false
