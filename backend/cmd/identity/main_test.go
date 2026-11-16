@@ -26,8 +26,8 @@ func TestIdentityRoutes_UserDirectory(t *testing.T) {
 	}
 }
 
-// TestIdentityScopes_DeclaresUsersRead locks the scope identity publishes. Its
-// routes stay unpublished, so the directory gate is the in-process route table.
+// TestIdentityScopes_DeclaresUsersRead locks the scope that gates the user
+// directory.
 func TestIdentityScopes_DeclaresUsersRead(t *testing.T) {
 	scopes := identityScopes()
 	if len(scopes) != 1 || scopes[0].Scope != "identity:users:read" {

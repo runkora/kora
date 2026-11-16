@@ -513,34 +513,55 @@ func TestAuthChain_Delegation(t *testing.T) {
 	}
 }
 
-// A delegated run cannot create or widen a PAT.
-func TestPATHandlers_RefuseDelegated(t *testing.T) {
+// Only a person creates or widens a PAT: an agent, a service and a delegated run
+// are refused. A person's scope update reaches the lookup and gets 404.
+func TestPATHandlers_RequirePerson(t *testing.T) {
 	c, _, _, _, _, _ := newTestController(t)
-	agentClaims := &token.PlatformClaims{}
-	agentClaims.Subject = "spiffe://runkora.test/tenant/t1/agent/coder"
-	agentClaims.Kora.TenantID = "t1"
-	agentClaims.Kora.PrincipalType = token.PrincipalTypeAgent
-	d := &policy.DelegationClaims{Sub: "user-1", ActSub: agentClaims.Subject, RunID: "run-1"}
-
-	cases := []struct {
-		name    string
-		handler http.HandlerFunc
-		method  string
-		body    string
-	}{
-		{"create", c.handleCreatePAT, http.MethodPost, `{"name":"x","scopes":["inference:invoke"]}`},
-		{"update scopes", c.handleUpdatePATScopes, http.MethodPatch, `{"scopes":["inference:invoke"]}`},
+	withType := func(pt token.PrincipalType, sub string) *token.PlatformClaims {
+		claims := humanClaims("t1", sub)
+		claims.Kora.PrincipalType = pt
+		return claims
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(tc.method, "/tokens/pat-1/scopes", strings.NewReader(tc.body))
-			req.SetPathValue("id", "pat-1")
-			req = req.WithContext(policy.WithDelegation(token.WithClaims(req.Context(), agentClaims), d))
-			w := httptest.NewRecorder()
-			tc.handler(w, req)
-			if w.Code != http.StatusForbidden {
-				t.Errorf("status = %d, want 403 (body: %s)", w.Code, w.Body)
-			}
-		})
+	agent := withType(token.PrincipalTypeAgent, "spiffe://runkora.test/tenant/t1/agent/coder")
+	delegation := &policy.DelegationClaims{Sub: "user-1", ActSub: agent.Subject, RunID: "run-1"}
+
+	callers := []struct {
+		name       string
+		claims     *token.PlatformClaims
+		delegation *policy.DelegationClaims
+		create     int
+		update     int
+	}{
+		{"human", humanClaims("t1", "user-1"), nil, http.StatusCreated, http.StatusNotFound},
+		{"agent", agent, nil, http.StatusForbidden, http.StatusForbidden},
+		{"service", withType(token.PrincipalTypeService, "svc-1"), nil, http.StatusForbidden, http.StatusForbidden},
+		{"delegated run", agent, delegation, http.StatusForbidden, http.StatusForbidden},
+	}
+	for _, caller := range callers {
+		writes := []struct {
+			name    string
+			handler http.HandlerFunc
+			method  string
+			body    string
+			want    int
+		}{
+			{"create", c.handleCreatePAT, http.MethodPost, `{"name":"x","scopes":["inference:invoke"]}`, caller.create},
+			{"update scopes", c.handleUpdatePATScopes, http.MethodPatch, `{"scopes":["inference:invoke"]}`, caller.update},
+		}
+		for _, tc := range writes {
+			t.Run(caller.name+"/"+tc.name, func(t *testing.T) {
+				req := httptest.NewRequest(tc.method, "/tokens/pat-1/scopes", strings.NewReader(tc.body))
+				req.SetPathValue("id", "pat-1")
+				ctx := token.WithClaims(req.Context(), caller.claims)
+				if caller.delegation != nil {
+					ctx = policy.WithDelegation(ctx, caller.delegation)
+				}
+				w := httptest.NewRecorder()
+				tc.handler(w, req.WithContext(ctx))
+				if w.Code != tc.want {
+					t.Errorf("status = %d, want %d (body: %s)", w.Code, tc.want, w.Body)
+				}
+			})
+		}
 	}
 }

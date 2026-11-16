@@ -208,12 +208,12 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// trigger's SERVICE token, now over the mesh via the internal service-token
 	// endpoint. See docs/adr/2026-06-20-extended-trigger-types.md, Decision 1.
 
-	// Publish the identity scope vocabulary, and keep it published across
-	// policy-service restarts. No route is published: identity's callers reach
-	// it east-west, and the scope is checked in-process.
+	// Publish identity's routes and scope vocabulary, and keep them published
+	// across policy-service restarts. The edge and the agent-pod OPA sidecars
+	// admit identity calls only on these routes.
 	scopeClient := routescopes.NewClient(policySvcURL, svc.SystemToken, logger)
 	go routescopes.KeepRegistered(ctx, logger, identity.ServiceName, func(ctx context.Context) error {
-		return scopeClient.Register(ctx, identity.ServiceName, nil, identityScopes())
+		return scopeClient.Register(ctx, identity.ServiceName, identityRoutes(), identityScopes())
 	})
 
 	return []api.Controller{

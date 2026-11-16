@@ -109,7 +109,7 @@ spec:
             host: kora-triggers.{{ include "kora.systemNamespace" . }}.svc.cluster.local
             port:
               number: 80
-    # ── Identity: OAuth, device/session/exchange, JWKS ─────────────────────────
+    # ── Identity: OAuth, device/session/exchange, JWKS, PATs, users ───────────
     - match:
         - uri:
             prefix: /api/v1/identity/

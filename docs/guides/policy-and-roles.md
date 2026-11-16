@@ -206,7 +206,7 @@ Grants have no update operation for scopes. Delete the grant and create a new on
 
 ## Route Registration
 
-Services declare which scope protects each route by registering with the policy service at startup. The edge gateway and each pod's OPA sidecar read these routes from the bundle. Platform services (inference gateway, egress gateway, tool gateway, kora-agents, kora-triggers) register globally. Identity registers its scope vocabulary and no routes, and its callers reach it east-west. Tenant-published services such as MCP servers register per-tenant routes.
+Services declare which scope protects each route by registering with the policy service at startup. The edge gateway and each pod's OPA sidecar read these routes from the bundle. Platform services register globally. Tenant-published services such as MCP servers register per-tenant routes.
 
 A platform service registers with its own platform token. `SelfTokenSource` exchanges the pod's SPIFFE SVID for that token, and the `routescopes` client sends it on the registration call:
 
@@ -237,7 +237,7 @@ The service name must match the pod's `spiffe.io/component` label.
 
 A route with an empty `required_scope` needs a valid token and no scope. The service behind it holds the real check. Use one when the governing scope depends on the request body or a stored row. Register these routes with the rest of the table. The policy service marks them `authenticated_only`, and the edge and sidecar OPA admit any valid token on them.
 
-Only global registrations can carry authenticated-only routes. The policy service refuses a tenant route with an empty scope or an empty path prefix, and an empty scope declaration from any service. A path that matches no registered route is denied. A route that must stay closed to agents and north-south callers is left out of the registration: identity publishes no routes, and the policy service publishes only its scoped routes.
+Only global registrations can carry authenticated-only routes. The policy service refuses a tenant route with an empty scope or an empty path prefix, and an empty scope declaration from any service. A path that matches no registered route is denied. A route that must stay closed to agents and north-south callers is left out of the registration: the policy service publishes only its scoped routes.
 
 ### Route Matching
 
