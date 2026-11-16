@@ -90,10 +90,12 @@ func TestRouteClassification(t *testing.T) {
 		{"admin access is a write", []permissionSet{{"administration": "admin"}},
 			credentials.Classification{Action: "admin:write"}, true},
 		{"no set within the categories", []permissionSet{{"organization_self_hosted_runners": "read"}}, credentials.Classification{}, false},
+		{"a metadata alternative needs only the baseline", []permissionSet{{"metadata": "read"}, {"contents": "write"}},
+			credentials.Classification{Action: "metadata:read"}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := routeClassification(&restRoute{Sets: tc.sets})
+			got, ok := routeClassification(&restRoute{Method: http.MethodGet, Sets: tc.sets})
 			if ok != tc.ok {
 				t.Fatalf("ok = %v, want %v", ok, tc.ok)
 			}
@@ -102,9 +104,51 @@ func TestRouteClassification(t *testing.T) {
 			}
 		})
 	}
-	got, _ := routeClassification(&restRoute{Sets: []permissionSet{{"administration": "admin"}}})
+	got, _ := routeClassification(&restRoute{Method: http.MethodPut, Sets: []permissionSet{{"administration": "admin"}}})
 	if got.Permissions["admin:write"]["administration"] != "admin" {
 		t.Errorf("admin access must mint admin, got %v", got.Permissions)
+	}
+	// The metadata baseline never authorizes a write.
+	for _, sets := range [][]permissionSet{nil, {{"metadata": "read"}}} {
+		if _, ok := routeClassification(&restRoute{Method: http.MethodDelete, Sets: sets}); ok {
+			t.Errorf("DELETE needing %v classified, want refused", sets)
+		}
+	}
+}
+
+// Requests the table alone would let through on the metadata baseline, or
+// attribute to the wrong repository, are refused or narrowed.
+func TestClassify_RESTEdgeCases(t *testing.T) {
+	c := graphqlConnector(t)
+	cases := []struct {
+		method, url string
+		want        credentials.Classification
+		err         bool
+	}{
+		{method: http.MethodDelete, url: "https://api.github.com/installation/token", err: true},
+		{method: http.MethodDelete, url: "https://api.github.com/orgs/example-org/packages/container/app", err: true},
+		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/stargazers", want: cls("metadata:read", "widgets")},
+		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/contents/../../../other/x/contents/a", err: true},
+		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/contents/%2e%2e/a", err: true},
+		{method: http.MethodGet, url: "https://api.github.com/rate_limit", want: cls("metadata:read", "")},
+	}
+	for _, tc := range cases {
+		req, err := http.NewRequest(tc.method, tc.url, http.NoBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := c.Classify(req)
+		if tc.err {
+			if !errors.Is(err, credentials.ErrUnsupportedAction) {
+				t.Errorf("%s %s: err = %v, want ErrUnsupportedAction (classification %+v)", tc.method, tc.url, err, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s %s: Classify: %v", tc.method, tc.url, err)
+			continue
+		}
+		assertClassification(t, got, tc.want)
 	}
 }
 

@@ -63,7 +63,7 @@ func TestActions_NonNil(t *testing.T) {
 
 // TestEgressHosts_GitHub locks the host family a GitHub connector auto-allows.
 func TestEgressHosts_GitHub(t *testing.T) {
-	saas := []string{"github.com", "api.github.com", "codeload.github.com", "*.githubusercontent.com"}
+	saas := []string{"github.com", "api.github.com", "uploads.github.com", "codeload.github.com", "*.githubusercontent.com"}
 
 	if got := EgressHosts(AdapterGitHubApp, "github.com"); !slices.Equal(got, saas) {
 		t.Errorf("EgressHosts(github_app, github.com) = %v, want %v", got, saas)

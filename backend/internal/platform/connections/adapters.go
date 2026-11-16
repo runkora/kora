@@ -247,7 +247,7 @@ var registry = map[string]adapterMeta{
 func githubEgressHosts(baseHost string) []string {
 	h := strings.ToLower(strings.TrimSpace(baseHost))
 	if h == "" || h == "github.com" {
-		return []string{"github.com", "api.github.com", "codeload.github.com", "*.githubusercontent.com"}
+		return []string{"github.com", "api.github.com", "uploads.github.com", "codeload.github.com", "*.githubusercontent.com"}
 	}
 	return []string{h}
 }

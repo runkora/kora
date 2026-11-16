@@ -247,7 +247,7 @@ func (c *connector) RequestOwners(req *http.Request) credentials.RequestOwners {
 	host := requestHost(req)
 	segs := pathSegments(req.URL.Path)
 	switch {
-	case host == "api.github.com":
+	case host == "api.github.com" || host == uploadsHost:
 		return apiOwners(req, segs)
 	case len(segs) > 0 && segs[0] == "api":
 		// GitHub Enterprise serves REST under /api/v3 and GraphQL at /api/graphql.
@@ -424,6 +424,12 @@ func classifyAPI(req *http.Request, path, owner string) (credentials.Classificat
 // classifyREST classifies a REST endpoint by its route in GitHub's data. A
 // repository path is qualified by its repository once the owner matches.
 func classifyREST(method string, segs []string, owner string) (credentials.Classification, error) {
+	// A dot segment could resolve upstream to another route or repository.
+	for _, s := range segs {
+		if name, err := url.PathUnescape(s); err != nil || name == "." || name == ".." {
+			return credentials.Classification{}, credentials.ErrUnsupportedAction
+		}
+	}
 	route := matchRoute(method, segs)
 	if route == nil {
 		return credentials.Classification{}, credentials.ErrUnsupportedAction

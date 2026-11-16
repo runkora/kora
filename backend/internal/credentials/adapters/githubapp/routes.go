@@ -2,6 +2,7 @@ package githubapp
 
 import (
 	"maps"
+	"net/http"
 	"slices"
 	"strings"
 
@@ -77,9 +78,9 @@ var routesByMethod = func() map[string][]compiledRoute {
 	return m
 }()
 
-// matchRoute returns the most specific route for the escaped path segments:
-// the one with the most literal segments, then the one without a greedy
-// parameter.
+// matchRoute returns the most specific route for the escaped path segments: at
+// the first segment where candidates differ a literal beats a parameter, and
+// an exact route beats a greedy one.
 func matchRoute(method string, segs []string) *restRoute {
 	var best *compiledRoute
 	bestScore := -1
@@ -96,8 +97,13 @@ func matchRoute(method string, segs []string) *restRoute {
 	return best.route
 }
 
-// match reports whether segs fit the route, scored by literal segments
-// matched. A greedy route scores just under an exact one of the same literals.
+// maxRouteSegments bounds the scoring below; GitHub's longest template is
+// well under it.
+const maxRouteSegments = 30
+
+// match reports whether segs fit the route. The score weights a literal by its
+// position, so an earlier literal outweighs every later one, and adds one for
+// an exact route.
 func (c *compiledRoute) match(segs []string) (int, bool) {
 	if len(segs) != len(c.segs) && (!c.greedy || len(segs) < len(c.segs)) {
 		return 0, false
@@ -107,7 +113,7 @@ func (c *compiledRoute) match(segs []string) (int, bool) {
 		switch s {
 		case "":
 		case segs[i]:
-			score += 2
+			score += 2 << (maxRouteSegments - i)
 		default:
 			return 0, false
 		}
@@ -121,16 +127,23 @@ func (c *compiledRoute) match(segs []string) (int, bool) {
 // routeClassification reduces a route's permission sets to a classification.
 // A superset of another set is dropped. Sets of one category each become the
 // action and its alternates; otherwise the first set's categories are all
-// required. ok is false when no set falls within the categories.
+// required. An endpoint GitHub serves with metadata alone needs only the
+// baseline. ok is false when no set falls within the categories, and for a
+// write that needs only metadata, which the baseline must not authorize.
 func routeClassification(r *restRoute) (credentials.Classification, bool) {
+	metadataOnly := credentials.Classification{Action: ActionMetadataRead, Permissions: map[string]map[string]string{
+		ActionMetadataRead: {catMetadata: verbRead},
+	}}
 	if len(r.Sets) == 0 {
-		return credentials.Classification{Action: ActionMetadataRead, Permissions: map[string]map[string]string{
-			ActionMetadataRead: {catMetadata: verbRead},
-		}}, true
+		return metadataOnly, r.Method == http.MethodGet
 	}
 	var sets []map[string]permissionSet
 	for _, set := range r.Sets {
-		if grouped, ok := groupByCategory(set); ok {
+		grouped, ok := groupByCategory(set)
+		if _, baseline := grouped[ActionMetadataRead]; ok && baseline {
+			return metadataOnly, r.Method == http.MethodGet
+		}
+		if ok {
 			sets = append(sets, grouped)
 		}
 	}
