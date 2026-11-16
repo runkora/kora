@@ -765,6 +765,9 @@ type mockK8s struct {
 	rolledOutSlugs          []string
 	// noReadyPods makes ReadyOrdinals report no Ready pod.
 	noReadyPods bool
+	// livePod and livePodErr are what LivePod reports.
+	livePod    bool
+	livePodErr error
 
 	provisionAgentTypeErr   error
 	ensureAgentGrantErr     error
@@ -833,6 +836,10 @@ func (m *mockK8s) ReadyOrdinals(_ context.Context, _, _ string) ([]int, error) {
 		out[i] = i
 	}
 	return out, nil
+}
+
+func (m *mockK8s) LivePod(_ context.Context, _, _ string) (bool, error) {
+	return m.livePod, m.livePodErr
 }
 
 func (m *mockK8s) Replicas(_ context.Context, _, _ string) (int, error) {
@@ -1039,7 +1046,7 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 		logger,
 	)
 	runSvc, err := NewRunService(
-		repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo, repo,
+		repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, k8s, repo, repo,
 		RunServiceConfig{
 			DefaultEnvironmentSize: testSizes.Default,
 			TenantNamespaceFn:      func(tenantID string) string { return "kora-tenant-" + tenantID },
