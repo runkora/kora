@@ -124,6 +124,21 @@ target "kora-triggers" {
   tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-triggers:${IMAGE_TAG}"]
 }
 
+target "kora-events" {
+  inherits = ["_backend-default"]
+  args = {
+    SERVICE = "kora-events"
+  }
+  labels = {
+    "org.opencontainers.image.title" = "kora-events"
+    "org.opencontainers.image.description" = "kora events service: the event log relay, the event read API and the event streams"
+    "org.opencontainers.image.source" = REPOSITORY_URL
+    "org.opencontainers.image.url" = REPOSITORY_URL
+    "org.opencontainers.image.licenses" = "Apache-2.0"
+  }
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-events:${IMAGE_TAG}"]
+}
+
 target "kora-shell" {
   inherits = ["_backend-default"]
   args = {
@@ -331,6 +346,7 @@ group "default" {
     "backend-images",
     "kora-agents",
     "kora-triggers",
+    "kora-events",
     "kora-shell",
     "kora-mcp",
     "kora-runtime-mcp",

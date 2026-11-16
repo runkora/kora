@@ -6,6 +6,7 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/runkora/kora/backend/internal/platform/clients/korajson"
+	"github.com/runkora/kora/backend/internal/platform/harnesses"
 )
 
 // registerAgentTools wires the agents domain: the agent-type (agent definition)
@@ -79,9 +80,15 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *korajson.Client, produc
 }
 
 // agentFrameworks is the closed set of agent CLI frameworks, surfaced as a
-// JSON-Schema enum on the framework field. Mirrors the agents service source of
-// truth (internal/agents.AgentFramework constants) — keep in sync if it changes.
-var agentFrameworks = []any{"claude-code", "codex", "opencode"}
+// JSON-Schema enum on the framework field. It is the shared harness list.
+var agentFrameworks = func() []any {
+	ids := harnesses.IDs()
+	out := make([]any, len(ids))
+	for i, id := range ids {
+		out[i] = id
+	}
+	return out
+}()
 
 // agentIdentityModes is the closed set of agent identity models, surfaced as a
 // JSON-Schema enum on the identity_mode field of agents.create. Mirrors

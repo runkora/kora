@@ -56,7 +56,7 @@ var (
 // gateway over the *agent's own* authorized path.
 //
 // The call goes to {perRunBaseURL}/v1/messages — exactly where the agent
-// subprocess sends its own inference (see runner_claude.go / server.go). Because
+// subprocess sends its own inference (see server.go). Because
 // it originates from this pod, the identity-proxy sidecar injects the agent's
 // platform token, OPA authorizes it under the same grant, and the gateway
 // attributes the (tiny) cost to the run's budget via the /run/{id} path prefix.

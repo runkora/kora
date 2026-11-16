@@ -303,6 +303,9 @@ func (s *Service) fanOut(
 		return
 	}
 
+	addSourceLinks(meta, adapter, eventType, doc)
+	addEventSummary(meta, adapter, eventType, doc)
+
 	triggers, err := s.repo.ListMatchableTriggersForSource(ctx, src.ID)
 	if err != nil {
 		s.recordFailure(ctx, deliveryID, fmt.Sprintf("list triggers: %v", err))
@@ -502,13 +505,7 @@ func (s *Service) startRunForTriggerWithFields(ctx context.Context, t Trigger, d
 	if err != nil {
 		return "", err
 	}
-	var prompt string
-	if t.Kind == KindWebhook {
-		prompt = renderWebhookPrompt(t.PromptTemplate, fields)
-	} else {
-		prompt = renderTemplate(t.PromptTemplate, fields)
-	}
-	return s.startRunAs(ctx, t, tok, t.AgentTypeID, prompt, deliveryID)
+	return s.startRunAs(ctx, t, tok, t.AgentTypeID, renderPrompt(t, fields), deliveryID, chainOf(fields), sourcesFromFields(fields), eventFromFields(fields))
 }
 
 // triggerToken mints the SERVICE token a trigger's runs, messages and decision
@@ -552,9 +549,9 @@ func (s *Service) triggerToken(ctx context.Context, t Trigger) (string, error) {
 	return tok, nil
 }
 
-// startRunAs starts a run of agentTypeID under tok, attributed to the trigger
-// and delivery.
-func (s *Service) startRunAs(ctx context.Context, t Trigger, tok, agentTypeID, prompt, deliveryID string) (string, error) {
+// startRunAs starts a run of agentTypeID under tok, attributed to the trigger,
+// the delivery and the event chain.
+func (s *Service) startRunAs(ctx context.Context, t Trigger, tok, agentTypeID, prompt, deliveryID string, chain eventChain, sources []agentsclient.RunSource, event *agentsclient.RunEventSummary) (string, error) {
 	req := agentsclient.StartRunRequest{
 		AgentTypeID:    agentTypeID,
 		InitialMessage: prompt,
@@ -563,7 +560,12 @@ func (s *Service) startRunAs(ctx context.Context, t Trigger, tok, agentTypeID, p
 		// something a person recognizes.
 		TriggerID:   t.ID,
 		TriggerName: t.Name,
+		TriggerKind: t.Kind,
 		DeliveryID:  deliveryID,
+		CausedBy:    chain.causedBy,
+		ChainDepth:  chain.depth,
+		Sources:     sources,
+		Event:       event,
 	}
 
 	var run agentsclient.StartRunResponse

@@ -8,7 +8,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // UserProfileRepository defines the storage contract for user profiles.
@@ -29,11 +30,11 @@ type UserProfileRepository interface {
 // ─── PostgreSQL implementation ────────────────────────────────────────────────
 
 type postgresUserProfileRepository struct {
-	pool *pgxpool.Pool
+	pool *storage.Pool
 }
 
 // NewPostgresUserProfileRepository creates a UserProfileRepository backed by PostgreSQL.
-func NewPostgresUserProfileRepository(pool *pgxpool.Pool) UserProfileRepository {
+func NewPostgresUserProfileRepository(pool *storage.Pool) UserProfileRepository {
 	return &postgresUserProfileRepository{pool: pool}
 }
 

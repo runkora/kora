@@ -14,7 +14,7 @@ Once authorized, the gateway mints a scoped, short-lived credential for the dest
 
 ## Connections
 
-An external system is a tenant-namespaced `Connection` custom resource naming an adapter, a host, and a secret. The operator aggregates every connection and its secret across tenants into a ConfigMap and Secret the gateway mounts and hot-reloads. Adapters are the credential mechanisms: `github_app` and `k8sbearer`. Passthrough is not one of them: a connection is never needed to reach a host that requires no credential, so the gateway holds that adapter itself and the registry refuses to register it. There is no database. Connections are GitOps resources.
+An external system is a tenant-namespaced `Connection` custom resource naming an adapter, a host, and a secret. The operator aggregates every connection and its secret across tenants into a ConfigMap and Secret the gateway mounts and hot-reloads. Adapters are the credential mechanisms: `github_app`, `k8sbearer` and `apikey`. The `apikey` adapter injects a static secret for exactly the Connection's declared host, in one to eight configurable headers (`config.headers`, each a name and optional prefix; default `Authorization: Bearer <secret>`). The gateway deletes then sets each header, so it replaces a placeholder the agent sent and adds the header when absent. Authorization is coarse read/write by HTTP method; hosts without an apikey Connection stay on passthrough. Passthrough is not one of them: a connection is never needed to reach a host that requires no credential, so the gateway holds that adapter itself and the registry refuses to register it. There is no database. Connections are GitOps resources.
 
 ## ADRs
 

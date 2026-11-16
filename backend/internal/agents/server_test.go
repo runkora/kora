@@ -269,6 +269,20 @@ func TestHandleStartRun_MissingFields(t *testing.T) {
 	}
 }
 
+func TestHandleStartRun_InvalidTriggerKind(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", MaxConcurrentRunsPerPod: 5})
+
+	w := postJSON(t, c.handleStartRun, map[string]any{
+		"agent_type_id": at.ID,
+		"trigger_id":    "trig-1",
+		"trigger_kind":  "cron",
+	})
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "trigger_kind") {
+		t.Errorf("status = %d, body = %s, want 400 naming trigger_kind", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleStartRun_AgentTypeNotFound(t *testing.T) {
 	c, _, _, _ := newTestController(t)
 

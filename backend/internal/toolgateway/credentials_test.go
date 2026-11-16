@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
@@ -38,6 +40,38 @@ func TestUpstreamCredentials_ForwardIsGlobalOnly(t *testing.T) {
 			}
 			if got := h.Get(mw.DelegationTokenHeader); got != tc.wantDelegation {
 				t.Errorf("delegation = %q, want %q", got, tc.wantDelegation)
+			}
+		})
+	}
+}
+
+// Every upstream, whatever its credentials, gets the caller's run. Introspection has none.
+func TestUpstreamCredentials_ForwardsTheRunToEveryServer(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ns.exa.key"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	caller := &Caller{Bearer: "agent-token", RunID: "run-1"}
+	cases := []struct {
+		name   string
+		srv    Server
+		caller *Caller
+		want   string
+	}{
+		{"global forward", Server{CallerIdentity: callerIdentityForward}, caller, "run-1"},
+		{"tenant server", Server{TenantID: "t1"}, caller, "run-1"},
+		{"static credential", Server{AuthHeaders: []AuthHeader{{Name: "x-api-key", SecretKey: "ns.exa.key"}}}, caller, "run-1"},
+		{"no run", Server{TenantID: "t1"}, &Caller{Bearer: "agent-token"}, ""},
+		{"introspection", Server{CallerIdentity: callerIdentityForward}, nil, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, err := NewUpstreamCredentials(dir).Headers(context.Background(), tc.srv, tc.caller)
+			if err != nil {
+				t.Fatalf("Headers: %v", err)
+			}
+			if got := h.Get(mw.RunIDHeader); got != tc.want {
+				t.Errorf("%s = %q, want %q", mw.RunIDHeader, got, tc.want)
 			}
 		})
 	}

@@ -3,7 +3,8 @@ import { userEvent, within } from 'storybook/test';
 import type { AgentOverviewResponse, AgentType } from '@runkora/shared/api';
 import { AGENT_TYPES, CODE_REVIEWER } from '../../_components/agents-mock-data';
 import type { Period } from '../../_lib/spend';
-import { rowFor, runRowsFor, withRoutes } from './agent-detail-page-mock-data';
+import { rowFor, runRowsFor, runsFor, withRoutes } from './agent-detail-page-mock-data';
+import type { RunsData } from './agent-detail-page-mock-data';
 import { LONG_INSTRUCTIONS, mockOverview, mockRunStatsOnly } from './agent-overview-mock-data';
 import { AgentDetailShell } from './agent-detail-shell';
 
@@ -176,10 +177,36 @@ export const EditInstructions: Story = {
   },
 };
 
-export const Runs: Story = {
-  decorators: withRoutes(CODE_REVIEWER),
-  play: openTab('Runs'),
+/** The Overview's Recent Runs: View all runs switches to the Runs tab. */
+export const OverviewViewAllRuns: Story = {
+  ...Overview,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(
+      await within(canvasElement).findByRole('button', { name: /View all runs/ }),
+    );
+  },
 };
+
+/** The Runs tab seeded and served with one run data set. */
+const runsStory = (set: RunsData): Story => ({
+  decorators: withRoutes(CODE_REVIEWER, mockOverview, runsFor(CODE_REVIEWER, set)),
+  args: { initialRuns: runRowsFor(CODE_REVIEWER, set) },
+  play: openTab('Runs'),
+});
+
+/** Runs from pull requests, Slack, an alert, a schedule and a person, each with its source chips and starter. */
+export const Runs: Story = runsStory('default');
+
+/** Every summary far longer than the row: the title truncates, chips and time keep their place. */
+export const RunsLongTitles: Story = runsStory('long');
+
+/** Seven links on the newest run: two delivery chips, the other five behind "+5". */
+export const RunsManySources: Story = runsStory('many');
+
+/** No run has a source: the rows end with the starter and time. */
+export const RunsNoSources: Story = runsStory('none');
+
+export const RunsEmpty: Story = runsStory('empty');
 
 export const Triggers: Story = {
   decorators: withRoutes(CODE_REVIEWER),

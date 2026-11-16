@@ -25,7 +25,8 @@ type k8sProvisioner interface {
 	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, spec SandboxSpec) (Sandbox, error)
 	LookupSandbox(ctx context.Context, runID, namespace string) (Sandbox, bool, error)
 	SandboxEnvironment(ctx context.Context, runID, namespace string) (envID string, live bool, err error)
-	DeleteSandbox(ctx context.Context, runID, namespace string) error
+	// DeleteSandbox reports whether there was a pod to delete.
+	DeleteSandbox(ctx context.Context, runID, namespace string) (bool, error)
 }
 
 // smClient abstracts sessionmanager.Client so it can be replaced in tests.
@@ -113,8 +114,8 @@ type StartRunRequest struct {
 	// CreatedBy is intentionally absent: the run creator is always derived from the
 	// verified platform token in ctx, never from the request body.
 
-	// TriggerID, TriggerName and DeliveryID attribute the run to the trigger
-	// that started it. Only a SERVICE principal may set them — see
+	// TriggerID, TriggerName, TriggerKind and DeliveryID attribute the run to
+	// the trigger that started it. Only a SERVICE principal may set them — see
 	// authorizeTriggerAttribution — because a run claiming a trigger started it
 	// is an audit record, and an audit record a human caller can author about
 	// itself is worth nothing.
@@ -124,7 +125,18 @@ type StartRunRequest struct {
 	// and kora-agents does not read the triggers database.
 	TriggerID   string `json:"trigger_id,omitempty"`
 	TriggerName string `json:"trigger_name,omitempty"`
+	TriggerKind string `json:"trigger_kind,omitempty"`
 	DeliveryID  string `json:"delivery_id,omitempty"`
+
+	// CausedBy is the event that led a trigger to send this, and ChainDepth that
+	// event's depth plus one. Only a trigger may set them (docs/adr/2026-11-06-event-spine.md, section 7).
+	CausedBy   string `json:"caused_by,omitempty"`
+	ChainDepth int    `json:"chain_depth,omitempty"`
+
+	// Sources link to what started the run. Only a SERVICE principal may set them.
+	Sources []RunSource `json:"sources,omitempty"`
+	// Event summarizes the event behind the first message. Only a SERVICE principal may set it.
+	Event *RunEventSummary `json:"event,omitempty"`
 }
 
 // SendMessageRequest is the body of POST /api/v1/runs/{id}/messages.
@@ -136,6 +148,17 @@ type SendMessageRequest struct {
 	TriggerID   string `json:"trigger_id,omitempty"`
 	TriggerName string `json:"trigger_name,omitempty"`
 	DeliveryID  string `json:"delivery_id,omitempty"`
+
+	// CausedBy is the event that led a trigger to send this, and ChainDepth that
+	// event's depth plus one. Only a trigger may set them (docs/adr/2026-11-06-event-spine.md, section 7).
+	CausedBy   string `json:"caused_by,omitempty"`
+	ChainDepth int    `json:"chain_depth,omitempty"`
+
+	// Sources link to what sent the message and are appended to the run's
+	// sources. Only a SERVICE principal may set them.
+	Sources []RunSource `json:"sources,omitempty"`
+	// Event summarizes the event behind the message. Only a SERVICE principal may set it.
+	Event *RunEventSummary `json:"event,omitempty"`
 }
 
 // EffectiveAccessPreviewRequest is a draft connectivity config resolved without

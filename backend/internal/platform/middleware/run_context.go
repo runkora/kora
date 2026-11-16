@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"regexp"
 
+	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -21,16 +22,24 @@ import (
 
 type runIDContextKey struct{}
 
+// RunIDHeader carries the acting run from the tool-gateway to an upstream MCP server.
+const RunIDHeader = "X-Kora-Run-Id"
+
 // runPrefixPattern matches /run/{run_id}/rest-of-path. Run IDs are UUIDs, but
 // the pattern stays permissive on length to avoid coupling to ID format;
 // consumers treat the value as opaque.
 var runPrefixPattern = regexp.MustCompile(`^/run/([A-Za-z0-9._-]{1,128})(/.*)$`)
 
 // StripRunPrefix is mounted at the server root, ahead of the base-path mount.
-// Non-run paths pass through untouched.
+// Non-run paths pass through untouched. A run path with percent-encoding is
+// refused: decoding it could shift the segments the mesh path rules matched.
 func StripRunPrefix(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if m := runPrefixPattern.FindStringSubmatch(r.URL.Path); m != nil {
+			if r.URL.RawPath != "" {
+				writeError(w, http.StatusBadRequest, "invalid_request", "run path must not carry percent-encoding")
+				return
+			}
 			r = r.WithContext(context.WithValue(r.Context(), runIDContextKey{}, m[1]))
 			r.URL.Path = m[2]
 			r.URL.RawPath = ""
@@ -49,4 +58,21 @@ func RunIDFromContext(ctx context.Context) string {
 	}
 	runID, _ := ctx.Value(runIDContextKey{}).(string)
 	return runID
+}
+
+// ActingRunID is the run an AGENT caller acts for: the run of a per-run
+// sandbox identity, else the run its delegation is bound to, else the run
+// prefix. The caller checks that the run belongs to the agent.
+func ActingRunID(ctx context.Context) string {
+	claims, ok := token.ClaimsFromContext(ctx)
+	if !ok || claims == nil || claims.Kora.PrincipalType != token.PrincipalTypeAgent {
+		return ""
+	}
+	if id := claims.Kora.Claims["run_id"]; id != "" {
+		return id
+	}
+	if d := policy.DelegationFromContext(ctx); d != nil && d.RunID != "" {
+		return d.RunID
+	}
+	return RunIDFromContext(ctx)
 }

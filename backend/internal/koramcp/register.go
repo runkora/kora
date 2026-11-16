@@ -17,4 +17,5 @@ func registerTools(srv *sdk.Server, b Backends, jc *korajson.Client, product str
 	registerPATTools(srv, b, jc)
 	registerIdentityTools(srv, b, jc)
 	registerTriggerTools(srv, b, jc, product)
+	registerEventTools(srv, b, jc)
 }

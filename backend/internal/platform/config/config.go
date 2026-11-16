@@ -56,7 +56,7 @@ var overlayRoot = "/etc/kora/config"
 // Returns "production" if APP_ENV is unset or empty.
 // Binaries run on the host set APP_ENV=local. Chart deployments do not set it.
 //
-// Supported values by convention: "local", "production".
+// Supported values by convention: "local", "production", and "test" for `make test-postgres`.
 func Environment() string {
 	if env := os.Getenv("APP_ENV"); env != "" {
 		return env

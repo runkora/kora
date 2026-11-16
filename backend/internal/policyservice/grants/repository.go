@@ -12,7 +12,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/events"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // PrincipalType identifies the category of actor a grant applies to.
@@ -100,11 +102,11 @@ type Repository interface {
 
 // postgresRepository is the Postgres-backed implementation.
 type postgresRepository struct {
-	pool *pgxpool.Pool
+	pool *storage.Pool
 }
 
 // NewPostgresRepository creates a Repository backed by PostgreSQL.
-func NewPostgresRepository(pool *pgxpool.Pool) Repository {
+func NewPostgresRepository(pool *storage.Pool) Repository {
 	return &postgresRepository{pool: pool}
 }
 
@@ -125,15 +127,20 @@ func (r *postgresRepository) Create(ctx context.Context, g *Grant) error {
 		}
 	}
 
-	_, err = r.pool.Exec(ctx, `
-		INSERT INTO policy_grants (id, tenant_id, principal_type, principal_id, scopes, budget, delegation_required, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, g.ID, g.TenantID, string(g.PrincipalType), g.PrincipalID, scopesJSON, budgetJSON, g.DelegationRequired, g.CreatedAt)
-	if err != nil {
-		return fmt.Errorf("create grant: %w", err)
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		_, err := r.pool.Exec(ctx, `
+			INSERT INTO policy_grants (id, tenant_id, principal_type, principal_id, scopes, budget, delegation_required, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`, g.ID, g.TenantID, string(g.PrincipalType), g.PrincipalID, scopesJSON, budgetJSON, g.DelegationRequired, g.CreatedAt)
+		if err != nil {
+			return fmt.Errorf("create grant: %w", err)
+		}
+		return publish(ctx, r.pool, events.GrantCreated, g, nil)
+	})
 }
+
+// grantColumns is the column list scanGrant reads.
+const grantColumns = `id, tenant_id, principal_type, principal_id, scopes, budget, delegation_required, created_at`
 
 func (r *postgresRepository) GetByID(ctx context.Context, id string) (*Grant, error) {
 	row := r.pool.QueryRow(ctx, `
@@ -199,43 +206,57 @@ func (r *postgresRepository) UpdateBudget(ctx context.Context, id, tenantID stri
 		}
 	}
 
-	tag, err := r.pool.Exec(ctx, `
-		UPDATE policy_grants SET budget = $3 WHERE id = $1 AND tenant_id = $2
-	`, id, tenantID, budgetJSON)
-	if err != nil {
-		return fmt.Errorf("update grant budget: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrGrantNotFound
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		before, err := r.scanGrant(r.pool.QueryRow(ctx,
+			`SELECT `+grantColumns+` FROM policy_grants WHERE id = $1 AND tenant_id = $2 FOR UPDATE`, id, tenantID))
+		if err != nil {
+			return err
+		}
+		if _, err := r.pool.Exec(ctx, `UPDATE policy_grants SET budget = $2 WHERE id = $1`, id, budgetJSON); err != nil {
+			return fmt.Errorf("update grant budget: %w", err)
+		}
+		after := *before
+		after.Budget = budget
+		return publish(ctx, r.pool, events.GrantUpdated, &after, events.Changed(newEntity(before), newEntity(&after)))
+	})
 }
 
 func (r *postgresRepository) Delete(ctx context.Context, id, tenantID string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM policy_grants WHERE id = $1 AND tenant_id = $2`, id, tenantID)
-	if err != nil {
-		return fmt.Errorf("delete grant: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrGrantNotFound
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		deleted, err := r.scanGrant(r.pool.QueryRow(ctx,
+			`DELETE FROM policy_grants WHERE id = $1 AND tenant_id = $2 RETURNING `+grantColumns, id, tenantID))
+		if err != nil {
+			return err
+		}
+		return publish(ctx, r.pool, events.GrantDeleted, deleted, nil)
+	})
 }
 
 func (r *postgresRepository) PurgeScopeFromAll(ctx context.Context, scope string) error {
-	_, err := r.pool.Exec(ctx, `
-		UPDATE policy_grants
-		SET scopes = (
-			SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
-			FROM jsonb_array_elements_text(scopes) AS elem
-			WHERE elem != $1
-		)
-		WHERE scopes @> jsonb_build_array($1::text)
-	`, scope)
-	if err != nil {
-		return fmt.Errorf("purge scope from grants: %w", err)
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		rows, err := r.pool.Query(ctx, `
+			UPDATE policy_grants
+			SET scopes = (
+				SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+				FROM jsonb_array_elements_text(scopes) AS elem
+				WHERE elem != $1
+			)
+			WHERE scopes @> jsonb_build_array($1::text)
+			RETURNING `+grantColumns, scope)
+		if err != nil {
+			return fmt.Errorf("purge scope from grants: %w", err)
+		}
+		purged, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*Grant, error) { return r.scanGrant(row) })
+		if err != nil {
+			return fmt.Errorf("purge scope from grants: %w", err)
+		}
+		for _, g := range purged {
+			if err := publish(ctx, r.pool, events.GrantUpdated, g, []string{"scopes"}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (r *postgresRepository) ListDistinctTenants(ctx context.Context) ([]string, error) {

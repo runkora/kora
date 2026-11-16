@@ -96,6 +96,7 @@ func (s *Service) FireTrigger(ctx context.Context, tenantID, id, callerPrincipal
 	problems := t.ManualConfig.ValidateInputs(values)
 
 	fields := varFields(values)
+	setEventSummary(fields, manualSummary(ctx, *t, values))
 
 	// The values a person supplied are the manual kind's payload. Storing them is
 	// what makes a manual fire answerable after the fact ("what was it run
@@ -221,6 +222,7 @@ func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 		"var.trigger_id": t.ID,
 		"var.tenant_id":  t.TenantID,
 	}
+	setEventSummary(fields, scheduledSummary(t))
 
 	// Scheduled triggers default to replacing what is waiting: if the previous
 	// tick has not run yet, the newest one is the state worth acting on.
@@ -263,6 +265,20 @@ func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter De
 		nextCursor = deliveryCursor{ReceivedAt: last.ReceivedAt, ID: last.ID}.encode()
 	}
 	return deliveries, nextCursor, nil
+}
+
+// GetDelivery returns one of the tenant's deliveries with its run fan-out and
+// coalescing keys, as a listing returns it.
+func (s *Service) GetDelivery(ctx context.Context, tenantID, id string) (*Delivery, error) {
+	d, err := s.repo.GetDelivery(ctx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	one := []Delivery{*d}
+	if err := s.attachRunsAndKeys(ctx, tenantID, one); err != nil {
+		return nil, err
+	}
+	return &one[0], nil
 }
 
 // attachRunsAndKeys sets each delivery's run fan-out and coalescing keys, one
@@ -322,10 +338,14 @@ func validateDeliveryFilter(filter DeliveryFilter) error {
 // The response is 202 whenever the new delivery was recorded, including when
 // admission then refuses it. The recording is the guarantee; whether a trigger
 // ran is the new delivery's own fan-out, exactly as for a fresh arrival.
-func (s *Service) Redeliver(ctx context.Context, tenantID, deliveryID, callerPrincipalID string) (*RedeliverResponse, error) {
+func (s *Service) Redeliver(ctx context.Context, tenantID, deliveryID, callerPrincipalID string, canReadEvents bool) (*RedeliverResponse, error) {
 	original, err := s.repo.GetDelivery(ctx, tenantID, deliveryID)
 	if err != nil {
 		return nil, err
+	}
+	// Replaying an event puts the event in a run, so it needs the scope that reads it.
+	if original.Kind == KindEvent && !canReadEvents {
+		return nil, &MissingScopesError{Scopes: eventsReadScopes}
 	}
 	// Every replay pins its lineage to the root, not to the delivery being
 	// replayed, so the budget counts replays of the one original however deep
@@ -347,6 +367,8 @@ func (s *Service) Redeliver(ctx context.Context, tenantID, deliveryID, callerPri
 		return s.redeliverWebhook(ctx, tenantID, original, rootID, callerPrincipalID)
 	case KindManual:
 		return s.redeliverManual(ctx, tenantID, original, rootID, callerPrincipalID)
+	case KindEvent:
+		return s.redeliverEvent(ctx, tenantID, original, rootID, callerPrincipalID)
 	default:
 		// A scheduled tick is defined by the minute it was due. Replaying one
 		// would either collide with that minute's row or invent a fire that was
@@ -473,7 +495,9 @@ func (s *Service) redeliverManual(ctx context.Context, tenantID string, original
 	// Unlike FireTrigger, a refusal here is not returned as an error: the replay
 	// was accepted and recorded, and what admission then decided is in the
 	// delivery history the caller is already looking at.
-	_, _ = s.admitOrDerive(ctx, *t, dup.ID, varFields(values))
+	fields := varFields(values)
+	setEventSummary(fields, manualSummary(ctx, *t, values))
+	_, _ = s.admitOrDerive(ctx, *t, dup.ID, fields)
 
 	s.logger.Info(ctx, "manual fire replayed",
 		logging.Field{Key: "trigger_id", Value: t.ID},

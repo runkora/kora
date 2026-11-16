@@ -10,6 +10,7 @@ import (
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // TestEmptyTwoxxBodyIsSuccessAck covers endpoints that return a 2xx with no body
@@ -93,6 +94,28 @@ func TestStatusSentinels(t *testing.T) {
 		var forbidden *ForbiddenError
 		if errors.As(err, &forbidden) && forbidden.Message != tc.wantText {
 			t.Errorf("status %d: message = %q, want %q", tc.status, forbidden.Message, tc.wantText)
+		}
+	}
+}
+
+// A caller's run goes in front of the base URL's path, where the services'
+// StripRunPrefix reads it, and the service sees its normal path.
+func TestSendPrefixesTheRun(t *testing.T) {
+	agent := &token.PlatformClaims{Kora: token.KoraClaims{PrincipalType: token.PrincipalTypeAgent}}
+	for _, runID := range []string{"run-1", ""} {
+		var gotPath, gotRun string
+		backend := httptest.NewServer(mw.StripRunPrefix(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotPath, gotRun = r.URL.Path, mw.RunIDFromContext(token.WithClaims(r.Context(), agent))
+			w.WriteHeader(http.StatusNoContent)
+		})))
+		caller := Caller{Bearer: "tok", RunID: runID}
+		_, err := NewClient(logging.NewLogger()).Post(context.Background(), caller, backend.URL+"/api/v1/runs", "/{runID}/messages", nil, "r 2")
+		backend.Close()
+		if err != nil {
+			t.Fatalf("run %q: unexpected error: %v", runID, err)
+		}
+		if gotPath != "/api/v1/runs/r 2/messages" || gotRun != runID {
+			t.Errorf("run %q: service saw path %q and run %q", runID, gotPath, gotRun)
 		}
 	}
 }

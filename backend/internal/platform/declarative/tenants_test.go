@@ -16,14 +16,17 @@ tenants:
     oidc: {issuerURL: https://idp, clientID: c, scopes: [openid]}
     apiAuthoring: Disabled
     budget: {limitUSD: 1000, resetCadence: monthly}
+    events: {retentionDays: 90}
   - id: beta
     state: active
     apiAuthoring: Enabled
+    events: {retentionDays: 0}
   - id: refused
     state: active
     apiAuthoring: Enabled
   - id: gone
     state: suspended
+    events: {retentionDays: 7}
 `
 
 func writeRegistry(t *testing.T, path, body string, mod time.Time) {
@@ -56,6 +59,9 @@ func TestRegistry(t *testing.T) {
 	}
 	if _, ok := r.TenantBudget("beta"); ok {
 		t.Error("beta declares no budget")
+	}
+	if got := r.EventRetentionDays(); len(got) != 1 || got["acme"] != 90 {
+		t.Errorf("EventRetentionDays() = %v, want only acme at 90", got)
 	}
 	if err := r.Err(); err != nil {
 		t.Errorf("Err() = %v", err)

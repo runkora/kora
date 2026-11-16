@@ -12,6 +12,7 @@ import (
 
 	"github.com/runkora/kora/backend/internal/platform/brand"
 	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
@@ -188,10 +189,13 @@ func TestStartRun_Delegated_MintFailureFailsStart(t *testing.T) {
 	if len(sm.sessions) != 0 {
 		t.Error("no session must be created when the mint fails")
 	}
-	// The created run row is failed synchronously, not left pending.
+	// The created run row is failed synchronously, not left pending, and its event carries start_failed.
 	for _, r := range repo.runs {
 		if r.State != RunStateFailed {
 			t.Errorf("run %s state = %s, want failed", r.ID, r.State)
+		}
+		if code := repo.failureCodes[r.ID]; code != events.RunErrorStartFailed {
+			t.Errorf("run %s failure code = %q, want %s", r.ID, code, events.RunErrorStartFailed)
 		}
 	}
 }
@@ -336,9 +340,7 @@ func TestTerminateRun_RevokesDelegation(t *testing.T) {
 	if got := issuer.revokedJTIs(); len(got) != 1 || got[0] != jti {
 		t.Errorf("revoked = %v, want [%s]", got, jti)
 	}
-	if _, ok := repo.runs["run-term"]; ok {
-		t.Error("run row should be deleted after termination")
-	}
+	assertTerminated(t, repo, "run-term")
 }
 
 func TestTerminateRun_RevocationFailureDoesNotWedgeTermination(t *testing.T) {
@@ -352,9 +354,7 @@ func TestTerminateRun_RevocationFailureDoesNotWedgeTermination(t *testing.T) {
 	if err := f.TerminateRun(context.Background(), "run-term"); err != nil {
 		t.Fatalf("TerminateRun must succeed despite revoke failure, got: %v", err)
 	}
-	if _, ok := repo.runs["run-term"]; ok {
-		t.Error("run row should be deleted even when the revoke fails")
-	}
+	assertTerminated(t, repo, "run-term")
 }
 
 func TestReaper_RevokesDelegationOnReapedRuns(t *testing.T) {

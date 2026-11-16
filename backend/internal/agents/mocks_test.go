@@ -28,9 +28,11 @@ var _ smClient = (*mockSMClient)(nil)
 // ── mockRepository ────────────────────────────────────────────────────────────
 
 type mockRepository struct {
-	mu         sync.Mutex
-	agentTypes map[string]*AgentType
-	slugIndex  map[string]*AgentType // tenantID+":"+slug → AgentType
+	mu sync.Mutex
+	// failureCodes holds the run_error code each MarkRunFailed carried in its context.
+	failureCodes map[string]string
+	agentTypes   map[string]*AgentType
+	slugIndex    map[string]*AgentType // tenantID+":"+slug → AgentType
 	// deleted holds soft-deleted agent types. They leave agentTypes and slugIndex.
 	deleted map[string]*AgentType
 	runs    map[string]*Run
@@ -52,7 +54,8 @@ type mockRepository struct {
 	listRunsErr            error
 	setRunStateErr         error
 	setRunDelegationJTIErr error
-	deleteRunErr           error
+	terminateRunErr        error
+	sandboxDeleted         []string
 	activeRunsOverride     map[int]int
 	// queued lists the runs QueueRun made claimable, and released counts ReleaseRunClaim calls.
 	queued   []string
@@ -290,6 +293,17 @@ func (m *mockRepository) CreateRun(_ context.Context, r Run) error {
 	return nil
 }
 
+func (m *mockRepository) AppendRunSources(_ context.Context, runID string, sources []RunSource) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.runs[runID]
+	if !ok {
+		return ErrNotFound
+	}
+	r.Sources = mergeRunSources(r.Sources, sources)
+	return nil
+}
+
 func (m *mockRepository) GetRun(_ context.Context, id string) (*Run, error) {
 	if m.getRunErr != nil {
 		return nil, m.getRunErr
@@ -409,7 +423,7 @@ func (m *mockRepository) SetRunState(_ context.Context, id string, from, to RunS
 	if !ok {
 		return ErrNotFound
 	}
-	if r.State != from {
+	if r.State != from || r.State.Terminal() || r.DeletedAt != nil {
 		return ErrConflict
 	}
 	r.State = to
@@ -475,11 +489,15 @@ func (m *mockRepository) ReclaimStaleRunClaims(context.Context, time.Time) ([]st
 	return nil, nil
 }
 
-func (m *mockRepository) MarkRunFailed(_ context.Context, id string) error {
+func (m *mockRepository) MarkRunFailed(ctx context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if r, ok := m.runs[id]; ok {
+	if r, ok := m.runs[id]; ok && !r.State.Terminal() {
 		r.State = RunStateFailed
+		if m.failureCodes == nil {
+			m.failureCodes = map[string]string{}
+		}
+		m.failureCodes[id], _ = failureCode(ctx)
 	}
 	return nil
 }
@@ -533,24 +551,37 @@ func (m *mockRepository) SetRunDelegationJTI(_ context.Context, runID, jti strin
 	return nil
 }
 
-func (m *mockRepository) DeleteRun(_ context.Context, id string) error {
-	if m.deleteRunErr != nil {
-		return m.deleteRunErr
+func (m *mockRepository) TerminateRun(_ context.Context, id string) (*Run, error) {
+	if m.terminateRunErr != nil {
+		return nil, m.terminateRunErr
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.runs[id]; !ok {
-		return ErrNotFound
+	r, ok := m.runs[id]
+	if !ok || r.DeletedAt != nil {
+		return nil, ErrNotFound
 	}
-	delete(m.runs, id)
+	now := time.Now()
+	if !r.State.Terminal() {
+		r.State, r.CompletedAt = RunStateTerminated, &now
+	}
+	r.DeletedAt = &now
+	cp := *r
+	return &cp, nil
+}
+
+func (m *mockRepository) RecordSandboxDeleted(_ context.Context, run Run) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sandboxDeleted = append(m.sandboxDeleted, run.ID)
 	return nil
 }
 
-func (m *mockRepository) CancelRunsByAgentType(_ context.Context, agentTypeID string) ([]CancelledRun, error) {
+func (m *mockRepository) CancelRunsByAgentType(_ context.Context, agentTypeID string) ([]Run, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var cancelled []CancelledRun
-	for id, r := range m.runs {
+	var cancelled []Run
+	for _, r := range m.runs {
 		if r.AgentTypeID != agentTypeID {
 			continue
 		}
@@ -562,7 +593,7 @@ func (m *mockRepository) CancelRunsByAgentType(_ context.Context, agentTypeID st
 		default:
 			continue
 		}
-		cancelled = append(cancelled, CancelledRun{ID: id, State: r.State, DelegationJTI: r.DelegationJTI})
+		cancelled = append(cancelled, *r)
 	}
 	return cancelled, nil
 }
@@ -585,7 +616,7 @@ func (m *mockRepository) ActiveRunsPerPod(_ context.Context, agentTypeID string)
 	return counts, nil
 }
 
-func (m *mockRepository) ReapStaleRuns(_ context.Context, staleDuration time.Duration) (failed, completed []string, err error) {
+func (m *mockRepository) ReapStaleRuns(_ context.Context, staleDuration time.Duration) (reaped []Run, err error) {
 	cutoff := time.Now().Add(-staleDuration)
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -608,13 +639,14 @@ func (m *mockRepository) ReapStaleRuns(_ context.Context, staleDuration time.Dur
 		switch r.State {
 		case RunStateActive, RunStateStarting, RunStatePending:
 			r.State = RunStateFailed
-			failed = append(failed, r.ID)
 		case RunStateIdle:
 			r.State = RunStateCompleted
-			completed = append(completed, r.ID)
+		default:
+			continue
 		}
+		reaped = append(reaped, *r)
 	}
-	return failed, completed, nil
+	return reaped, nil
 }
 
 func (m *mockRepository) AppendRunEvent(_ context.Context, e RunEvent) (int64, error) {
@@ -809,14 +841,14 @@ func (m *mockK8s) SandboxEnvironment(_ context.Context, _, _ string) (string, bo
 	return m.podEnv, m.podLive, nil
 }
 
-func (m *mockK8s) DeleteSandbox(_ context.Context, runID, _ string) error {
+func (m *mockK8s) DeleteSandbox(_ context.Context, runID, _ string) (bool, error) {
 	if m.deleteSandboxErr != nil {
-		return m.deleteSandboxErr
+		return false, m.deleteSandboxErr
 	}
 	m.mu.Lock()
 	m.deletedSandboxes = append(m.deletedSandboxes, runID)
 	m.mu.Unlock()
-	return nil
+	return true, nil
 }
 
 func (m *mockK8s) GetAgentBudget(_ context.Context, _ AgentType, _ string) (*AgentBudget, error) {

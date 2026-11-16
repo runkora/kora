@@ -31,6 +31,15 @@ type Budget struct {
 	ResetCadence string `json:"resetCadence"`
 }
 
+// Events configures a tenant's events. It is declared on KoraTenant.
+type Events struct {
+	// RetentionDays is how long the tenant's events are kept. The chart value
+	// koraEvents.retention.defaultDays applies when it is unset.
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	RetentionDays int `json:"retentionDays,omitempty"`
+}
+
 // tenant is one entry of the registry file the operator writes. Only the
 // fields services read are decoded.
 type tenant struct {
@@ -41,7 +50,8 @@ type tenant struct {
 	Budget       *Budget `json:"budget"`
 	// NamespaceRefused is set for a tenant the operator refused for a namespace
 	// conflict. It does not own the namespace it names.
-	NamespaceRefused bool `json:"namespaceRefused"`
+	NamespaceRefused bool    `json:"namespaceRefused"`
+	Events           *Events `json:"events"`
 }
 
 // Registry reads the kora-tenants registry the operator writes. It re-reads
@@ -126,6 +136,17 @@ func (r *Registry) TenantBudget(tenantID string) (Budget, bool) {
 		return Budget{}, false
 	}
 	return *b, true
+}
+
+// EventRetentionDays returns the retention of every active tenant that sets one.
+func (r *Registry) EventRetentionDays() map[string]int {
+	out := map[string]int{}
+	for id, t := range r.load() {
+		if t.Events != nil && t.Events.RetentionDays > 0 {
+			out[id] = t.Events.RetentionDays
+		}
+	}
+	return out
 }
 
 // Loaded reports whether the registry holds contents from a good read.

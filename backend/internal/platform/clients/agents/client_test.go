@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -249,6 +250,37 @@ func TestRunTraceParent(t *testing.T) {
 	}
 }
 
+// RunChain reads the chain of the agent's run as the caller, and maps a refusal and an outage.
+func TestRunChain(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		body   string
+		want   RunChain
+		err    error
+	}{
+		{http.StatusOK, `{"caused_by":"ev-1","chain_depth":2,"trigger_ids":["trg-a"]}`, RunChain{CausedBy: "ev-1", ChainDepth: 2, TriggerIDs: []string{"trg-a"}}, nil},
+		{http.StatusUnauthorized, `{}`, RunChain{}, ErrUnauthorized},
+		{http.StatusForbidden, `{}`, RunChain{}, ErrForbidden},
+		{http.StatusServiceUnavailable, `{}`, RunChain{}, ErrUpstreamUnavailable},
+	} {
+		var gotURL, gotAuth string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotURL, gotAuth = r.URL.String(), r.Header.Get("Authorization")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(tc.status)
+			_, _ = w.Write([]byte(tc.body))
+		}))
+		got, err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).RunChain(context.Background(), "tok", "run-1", "t-1", "triage")
+		srv.Close()
+		if !errors.Is(err, tc.err) || !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("status %d: got %+v, %v; want %+v, %v", tc.status, got, err, tc.want, tc.err)
+		}
+		if gotURL != "/internal/runs/run-1/chain?agent=triage&tenant=t-1" || gotAuth != "Bearer tok" {
+			t.Errorf("status %d: request %s with %q", tc.status, gotURL, gotAuth)
+		}
+	}
+}
+
 func TestSendRunMessage_Success(t *testing.T) {
 	c, cap := newTestClient(t, http.StatusAccepted, "")
 
@@ -403,5 +435,85 @@ func TestListAgentTypesByIDs(t *testing.T) {
 	}
 	if len(types) != 1 || len(types[0].MCPTools) != 1 || len(types[0].EffectiveConnectors) != 1 || types[0].EffectiveConnectors[0].Connection != "gh" {
 		t.Errorf("types = %+v", types)
+	}
+}
+
+func TestSendRunMessage_Sources(t *testing.T) {
+	c, cap := newTestClient(t, http.StatusAccepted, "")
+	err := c.SendRunMessage(context.Background(), "tok", "run-1", SendRunMessageRequest{
+		Content: "more",
+		Sources: []RunSource{{Kind: "pull_request", URL: "https://github.com/o/r/pull/1", Label: "PR #1", Provider: "github"}},
+	})
+	if err != nil {
+		t.Fatalf("SendRunMessage: %v", err)
+	}
+	want := `{"content":"more","sources":[{"kind":"pull_request","url":"https://github.com/o/r/pull/1","label":"PR #1","provider":"github"}]}`
+	if strings.TrimSpace(cap.body) != want {
+		t.Errorf("body = %s, want %s", cap.body, want)
+	}
+}
+
+func TestStartRun_Sources(t *testing.T) {
+	c, cap := newTestClient(t, http.StatusCreated, `{"id":"run-1","state":"pending"}`)
+	_, err := c.StartRun(context.Background(), "tok", StartRunRequest{
+		AgentTypeID: "at-1",
+		Sources:     []RunSource{{Kind: "trigger", URL: "https://app.slack.com/client/T/C/thread/C-1", Label: "Slack thread"}},
+	})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	want := `{"agent_type_id":"at-1","sources":[{"kind":"trigger","url":"https://app.slack.com/client/T/C/thread/C-1","label":"Slack thread"}]}`
+	if strings.TrimSpace(cap.body) != want {
+		t.Errorf("body = %s, want %s", cap.body, want)
+	}
+}
+
+func TestListRuns_Sources(t *testing.T) {
+	c, _ := newTestClient(t, http.StatusOK, `{"runs":[{"id":"run-1","agent_type_id":"at-1","state":"idle","created_at":"2026-10-19T01:02:03Z","updated_at":"2026-10-19T01:05:00Z","sources":[{"kind":"repository","url":"https://github.com/o/r","label":"o/r"}]}],"limit":20}`)
+	runs, err := c.ListRuns(context.Background(), "tok", ListRunsQuery{})
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(runs) != 1 || len(runs[0].Sources) != 1 || runs[0].Sources[0].Label != "o/r" {
+		t.Errorf("runs = %+v", runs)
+	}
+}
+
+func TestStartRunAndSendRunMessage_Event(t *testing.T) {
+	event := &RunEventSummary{
+		Actor:  RunEventActor{Name: "octocat", Kind: "person"},
+		Verb:   "opened",
+		Object: RunEventObject{Label: "PR #1", URL: "https://github.com/o/r/pull/1"},
+	}
+	const wantEvent = `"event":{"actor":{"name":"octocat","kind":"person"},"verb":"opened","object":{"label":"PR #1","url":"https://github.com/o/r/pull/1"}}`
+
+	c, cap := newTestClient(t, http.StatusCreated, `{"id":"run-1","state":"pending"}`)
+	if _, err := c.StartRun(context.Background(), "tok", StartRunRequest{AgentTypeID: "at-1", Event: event}); err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if want := `{"agent_type_id":"at-1",` + wantEvent + `}`; strings.TrimSpace(cap.body) != want {
+		t.Errorf("start body = %s, want %s", cap.body, want)
+	}
+
+	c, cap = newTestClient(t, http.StatusAccepted, "")
+	if err := c.SendRunMessage(context.Background(), "tok", "run-1", SendRunMessageRequest{Content: "more", Event: event}); err != nil {
+		t.Fatalf("SendRunMessage: %v", err)
+	}
+	if want := `{"content":"more",` + wantEvent + `}`; strings.TrimSpace(cap.body) != want {
+		t.Errorf("message body = %s, want %s", cap.body, want)
+	}
+}
+
+func TestValidEventLink(t *testing.T) {
+	for link, want := range map[string]bool{
+		"https://github.com/o/r/pull/1": true,
+		"http://prometheus:9090/graph":  true,
+		"javascript:alert(1)":           false,
+		"/users/octocat":                false,
+		"":                              false,
+	} {
+		if got := ValidEventLink(link); got != want {
+			t.Errorf("ValidEventLink(%q) = %v, want %v", link, got, want)
+		}
 	}
 }

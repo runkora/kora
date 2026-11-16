@@ -30,6 +30,7 @@ import (
 const (
 	AdapterGitHubApp        = "github_app"
 	AdapterKubernetesBearer = "kubernetes"
+	AdapterAPIKey           = "apikey"
 )
 
 // Action vocabulary, shared by the gateway adapters (which classify requests
@@ -56,6 +57,11 @@ const (
 	ActionGitHubChecksWrite   = "checks:write"
 	ActionGitHubAdminRead     = "admin:read"
 	ActionGitHubAdminWrite    = "admin:write"
+
+	// API key actions are a coarse read/write pair chosen by HTTP method. See
+	// docs/adr/2026-11-11-apikey-connection-adapter.md.
+	ActionAPIKeyRead  = "read"
+	ActionAPIKeyWrite = "write"
 
 	// Kubernetes actions are resource-category-scoped, not one coarse
 	// read/write pair. See docs/adr/2026-07-06-kubernetes-connection-bearer-
@@ -112,7 +118,7 @@ type adapterMeta struct {
 	egressHosts func(baseHost string) []string
 
 	// requiresHostname, when true, rejects a base host that is a bare IP
-	// literal. Only kubernetes sets this: see ErrBaseHostMustBeHostname.
+	// literal. Set by kubernetes and apikey: see ErrBaseHostMustBeHostname.
 	requiresHostname bool
 
 	// qualifier is the adapter's grant-time resource dimension, nil when the
@@ -198,6 +204,19 @@ var registry = map[string]adapterMeta{
 		// ErrBaseHostMustBeHostname.
 		requiresHostname: true,
 	},
+	AdapterAPIKey: {
+		actions: []ActionMeta{
+			{Action: ActionAPIKeyRead, Description: "Read access to the host: GET and HEAD requests"},
+			{Action: ActionAPIKeyWrite, Description: "Write access to the host: POST, PUT, PATCH and DELETE requests"},
+		},
+		// An apikey connection serves exactly its declared host. It has no
+		// qualifier and no baseline actions.
+		egressHosts: declaredHostOnly,
+		// The sandbox's egress interception authorizes by TLS SNI, which an
+		// IP-literal destination never carries. Reject a bare IP here, as for
+		// kubernetes. See ErrBaseHostMustBeHostname.
+		requiresHostname: true,
+	},
 }
 
 // githubEgressHosts returns the hosts a GitHub App connection must reach. For
@@ -249,8 +268,8 @@ var ErrBaseHostMustBeHostname = errors.New("base_host must be a DNS hostname, no
 
 // ValidateBaseHost checks baseHost against adapter's shape requirements.
 // Unknown adapters, and adapters with no requirement, always return nil: this
-// rejects only the case an adapter has opted into, currently just kubernetes's
-// bare-IP rejection.
+// rejects only the case an adapter has opted into: today the bare-IP
+// rejection of kubernetes and apikey.
 func ValidateBaseHost(adapter, baseHost string) error {
 	m, ok := registry[adapter]
 	if !ok || !m.requiresHostname {

@@ -33,12 +33,12 @@ func AuthMiddleware(verifier *token.Verifier, logger logging.Logger) Middleware 
 	return AuthMiddlewareWithRevocation(verifier, nil, logger)
 }
 
-// writeUnauthorized writes a minimal JSON 401 response without importing
-// platform/api (which imports platform/middleware — avoiding an import cycle).
-func writeUnauthorized(w http.ResponseWriter, message string) {
+// writeError writes a minimal JSON error. platform/api imports this package,
+// so its response helpers are out of reach.
+func writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusUnauthorized)
-	_, _ = fmt.Fprintf(w, `{"code":"unauthorized","message":%q}`, message)
+	w.WriteHeader(status)
+	_, _ = fmt.Fprintf(w, `{"code":%q,"message":%q}`, code, message)
 }
 
 // RevocationChecker reports whether a token's JTI has been revoked ahead of its
@@ -70,7 +70,7 @@ func AuthMiddlewareWithRevocation(verifier *token.Verifier, revoked RevocationCh
 
 			raw := r.Header.Get("Authorization")
 			if raw == "" {
-				writeUnauthorized(w, "Authorization header required")
+				writeError(w, http.StatusUnauthorized, "unauthorized", "Authorization header required")
 				return
 			}
 
@@ -81,7 +81,7 @@ func AuthMiddlewareWithRevocation(verifier *token.Verifier, revoked RevocationCh
 				logger.Error(ctx, "platform token verification failed",
 					logging.Field{Key: "error", Value: err.Error()},
 				)
-				writeUnauthorized(w, "invalid or expired platform token")
+				writeError(w, http.StatusUnauthorized, "unauthorized", "invalid or expired platform token")
 				return
 			}
 
@@ -96,7 +96,7 @@ func AuthMiddlewareWithRevocation(verifier *token.Verifier, revoked RevocationCh
 				case blocked:
 					logger.Warn(ctx, "rejected revoked token",
 						logging.Field{Key: "jti", Value: claims.ID})
-					writeUnauthorized(w, "token has been revoked")
+					writeError(w, http.StatusUnauthorized, "unauthorized", "token has been revoked")
 					return
 				}
 			}

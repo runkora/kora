@@ -43,7 +43,7 @@ spec:
 # required even though every call goes through Envoy.
 # 3000 frontend, 8080 identity, 8081 inference-gateway, 8083 policy-service,
 # 8084 policy-gateway, 8098 skills-service, 8095 kora-mcp, 8096 tool-gateway,
-# 8097 triggers, 9090 policy-gateway ext_authz, 15006/15008 Envoy redirect/HBONE,
+# 8097 triggers, 8099 kora-events, 9090 policy-gateway ext_authz, 15006/15008 Envoy redirect/HBONE,
 # 15090 metrics.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -72,6 +72,7 @@ spec:
         - port: 8096
         - port: 8097
         - port: 8098
+        - port: 8099
         - port: 9090
         - port: 15006
         - port: 15008
@@ -92,6 +93,7 @@ spec:
         # Egress leg for the frontend BFF calling the triggers API.
         - port: 8097
         - port: 8098
+        - port: 8099
         - port: 9090
         - port: 15006
         - port: 15008
@@ -483,6 +485,9 @@ spec:
         - port: 8097
           protocol: TCP
         - port: 8098
+          protocol: TCP
+        # kora-events: the event read API and stream.
+        - port: 8099
           protocol: TCP
         - port: 9090
           protocol: TCP

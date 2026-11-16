@@ -21,7 +21,7 @@ kubernetes:
   # Where the chart mounts the kora-tenants ConfigMap.
   tenantsPath: /etc/kora/tenants.yaml
 
-# The chart renders the trust domain and the identity and policy service URLs.
+# The chart renders the trust domain and the identity, policy service and inference gateway URLs.
 platform:
   # No default: local.yaml sets runkora.test.
   trustDomain: ""

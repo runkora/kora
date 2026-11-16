@@ -24,6 +24,8 @@ import (
 // its retry budget (the chart caps agents.guardrails.sandboxProvisionBudgetSecs
 // at 600) plus the egress canary (90s, egressCanaryMaxWait). Timing out first
 // reports a sandbox that the session-manager then goes on to hand over.
+// OpenCode's MCP tool timeout (openCodeMCPTimeoutMs in the sessionmanager
+// package) must stay at or above this value.
 const provisionTimeout = 720 * time.Second
 
 func main() {
@@ -88,6 +90,10 @@ func (s *mcpServer) serve(r io.Reader, w io.Writer) error {
 		if err := json.Unmarshal(line, &req); err != nil {
 			continue
 		}
+		// A notification has no id and gets no response (JSON-RPC 2.0).
+		if req.ID == nil {
+			continue
+		}
 		resp := s.handle(req)
 		if err := enc.Encode(resp); err != nil {
 			return err
@@ -100,8 +106,6 @@ func (s *mcpServer) handle(req jsonRPCRequest) jsonRPCResponse {
 	switch req.Method {
 	case "initialize":
 		return s.handleInitialize(req)
-	case "notifications/initialized":
-		return jsonRPCResponse{} // no response needed for notifications
 	case "tools/list":
 		return s.handleToolsList(req)
 	case "tools/call":

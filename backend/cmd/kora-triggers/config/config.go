@@ -56,6 +56,12 @@ type Config struct {
 		InternalURL string `yaml:"internalURL"`
 	} `yaml:"inference"`
 
+	Events struct {
+		// InternalURL is the in-cluster base URL for kora-events, whose
+		// internal stream fires event triggers.
+		InternalURL string `yaml:"internalURL"`
+	} `yaml:"events"`
+
 	Policy struct {
 		// PolicyServiceInternalURL is the base URL for route+scope registration.
 		PolicyServiceInternalURL string `yaml:"policyServiceInternalURL"`

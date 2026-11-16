@@ -18,19 +18,20 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `inference-gateway` | OpenAI/Anthropic-compatible LLM gateway: chat/completions, embeddings, responses, model catalog, usage logs, analytics | `8081` (`/v1`); metrics `9464` | ✅ |
 | `policy-service` | Authorization data plane (PDP/PAP): grants, roles, vocabulary, route-scope store; compiles & serves OPA bundles | `8083` (`/api/v1`); metrics `9464` | ✅ |
 | `policy-gateway` | In-app authorization API (PEP): `/policy/check`, `/query`, `/scopes`, `/explain`, `/simulate` | `8084` (`/v1`); metrics `9464` | none |
-| `egress-gateway` | JIT credential broker: intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer); backed by `internal/credentials` | `8085`; metrics `9464` | none |
+| `egress-gateway` | JIT credential broker: intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer, static API key); backed by `internal/credentials` | `8085`; metrics `9464` | none |
 | `kora-mcp` | Platform-management MCP server: exposes kora's own APIs as governed MCP tools | `8095`; metrics `9464` | none |
 | `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`); metrics `9464` | ✅ |
 | `kora-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster); metrics `9464` | ✅ |
 | `kora-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097`; metrics `9464` | ✅ |
+| `kora-events` | Event spine: relays `event_outbox` into the event log, serves the event read API and streams, and deletes expired events, backed by `internal/koraevents` | `8099`; metrics `9464` | ✅ |
 | `skills-service` | Agent Skills: serves each tenant's skill Marketplaces from GitHub repositories with a Redis cache, backed by `internal/skills` | `8098` (`/v1`); metrics `9464` | none |
-| `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090`; metrics `9464` (Go-side only, no chart wiring: there is no `charts/kora/templates/session-manager/`, so no Service port, scrape annotation, or NetworkPolicy allowance) | none |
+| `session-manager` | Per-tenant StatefulSet that runs each run's agent harness (Claude Code, Codex or OpenCode) over ACP; workspace + idle lifecycle | `8090`; metrics `9464` (Go-side only, no chart wiring: there is no `charts/kora/templates/session-manager/`, so no Service port, scrape annotation, or NetworkPolicy allowance) | none |
 | `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar), projects declared resources into their owning services | health `8081`, webhook `9443` | none |
 | `identity-proxy` | Envoy `ext_proc` gRPC sidecar: injects platform Bearer tokens into agent outbound calls (SPIFFE→JWT exchange) | unix socket; health `9090` | none |
 | `sandbox-exec` | gRPC exec server inside a sandbox pod: streams stdout/stderr/exit for commands | gRPC `50051` | none |
 | `kora-runtime-mcp` | MCP server (stdio) spawned by the agent CLI: exposes the `list_environments`, `provision_sandbox` and `replace_environment` tools | stdio | none |
 | `kora-shell` | `$SHELL` shim in the agent container: streams `-c` commands to the sandbox pod and refuses them when the run has no sandbox | none | none |
-| `kora-session-runner` | Wrapper that applies Landlock, then `exec()`s the agent CLI. The agent can execute only its CLI and the CLI's helper binaries, `kora-shell` and `kora-runtime-mcp` | none | none |
+| `kora-session-runner` | Wrapper that applies Landlock, then `exec()`s the harness's ACP process (`claude-agent-acp`, `codex-acp` or `opencode acp`). The agent can execute only that process, the CLI an adapter runs, the CLI's helper binaries, `kora-shell` and `kora-runtime-mcp` | none | none |
 | `sandbox-mount` | Privileged node agent (DaemonSet): exports each sandbox's local working folder with the kernel NFS server and mounts it into the session-manager pod at `/workspaces/<run>/sandbox` | NFS `20490` (host network, `sandboxMount.port`) | none |
 | `migrate` | Schema migrations: embeds every service's `migrations/` and runs them as the chart's pre-install/pre-upgrade hook Job | none | none |
 | `example` | Reference implementation demonstrating the patterns (not production) | `8081` | ✅ |
@@ -49,8 +50,9 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `operator` | K8s reconciliation: tenant/platform controllers, Helm render, Istio templates, pod webhook, projection of declared resources |
 | `identityproxy` | `ext_proc` server, token cache, refresh loop |
 | `example` | Reference implementation, not production. Full feature layout (`models`, `repository`, `postgres`, `service`, `handlers`) with tests, demonstrating the pattern |
-| `credentials` | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, and the non-registrable `passthrough`) + `resolvers/` ([jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) |
+| `credentials` | JIT credential broker behind `egress-gateway`; `adapters/` (`githubapp`, `k8sbearer`, `apikey`, and the non-registrable `passthrough`) + `resolvers/` ([jit-credential-brokering-egress-gateway](adr/2026-06-06-jit-credential-brokering-egress-gateway.md)) |
 | `toolgateway` | Governed MCP/tool gateway behind `tool-gateway`: server catalog, MCP controller, OAuth controller, introspector ([MCP / Tool Gateway ADRs](adr/README.md#mcp--tool-gateway)) |
+| `koraevents` | The event log behind `kora-events`: outbox relay, read API, public and internal streams, retention sweep ([event spine ADR](adr/2026-11-06-event-spine.md)) |
 | `skills` | Agent Skills behind `skills-service`: Marketplace registry, per-Marketplace GitHub App tokens, crawler, Redis cache, in-memory search and the Marketplace API ([agent skills ADR](adr/2026-08-17-agent-skills.md)) |
 | `errors` | Nothing yet: an empty placeholder directory. |
 
@@ -76,6 +78,7 @@ kora/
 │   │   ├── tool-gateway/             # governed MCP/tool gateway; owns tables (migrations/)
 │   │   ├── kora-agents/              # ... owns tables (migrations/)
 │   │   ├── kora-triggers/            # ... owns tables (migrations/)
+│   │   ├── kora-events/              # event log; owns tables (migrations/)
 │   │   ├── skills-service/           # Agent Skills (no DB; Redis cache)
 │   │   ├── session-manager/          # config only
 │   │   ├── operator/                 # K8s operator (controller-runtime)
@@ -93,6 +96,7 @@ kora/
 │   │   │   ├── brand/                # Product name for every string people or agents read
 │   │   │   ├── clients/              # Typed service-to-service HTTP clients (embed httpclient.Base)
 │   │   │   ├── config/               # Generic + per-service YAML loaders
+│   │   │   ├── events/               # Event envelope, type catalog and Publish into event_outbox
 │   │   │   ├── logging/              # Logger interface + implementation (injected, never global)
 │   │   │   ├── middleware/           # Request logging, tracing, scope enforcement
 │   │   │   ├── observability/        # OTel TracerProvider + MeterProvider setup
@@ -110,6 +114,7 @@ kora/
 │   │   ├── credentials/              # ✅ feature: JIT credential broker (egress-gateway)
 │   │   ├── toolgateway/              # ✅ feature: governed MCP/tool gateway (tool-gateway)
 │   │   ├── skills/                   # ✅ feature: Agent Skills (skills-service)
+│   │   ├── koraevents/               # ✅ feature: event log (kora-events)
 │   │   ├── example/                  # reference feature
 │   │   └── errors/                   # empty placeholder
 │   │
@@ -228,7 +233,7 @@ func (r *postgresSessionRepository) Create(ctx context.Context, s *Session) erro
 }
 ```
 
-Use `errors.Is(err, pgx.ErrNoRows)` for not-found checks. `storage.WithTransaction(ctx, db, fn)` wraps a transaction.
+Use `errors.Is(err, pgx.ErrNoRows)` for not-found checks. `storage.WithTransaction(ctx, db, fn)` wraps a transaction and carries it in the context. A nested call joins the open transaction. A repository that holds a `*storage.Pool` runs its queries on the context transaction when one is open ([event spine ADR](adr/2026-11-06-event-spine.md)).
 
 ### 4. Redis access via `storage.RedisClient`
 
@@ -325,3 +330,13 @@ Create `cmd/{name}/` with its own `main.go` and (if it needs config) a `config/b
 - [opentelemetry-observability-discipline](adr/2026-03-21-opentelemetry-observability-discipline.md): OpenTelemetry observability discipline
 - [docs/contributing/configuration.md](contributing/configuration.md) · [docs/reference/secrets.md](reference/secrets.md): Configuration & secret-management reference
 - [docs/contributing/local-development.md](contributing/local-development.md): Local setup walkthrough
+
+## Adding an agent harness
+
+The supported harnesses are one Go list, `backend/internal/platform/harnesses/harnesses.go`. To add one:
+
+1. Add an entry (ID, label, description) to the list.
+2. Add its ACP profile and a `profileFor` case in `backend/internal/agents/sessionmanager/server.go`. `TestEveryHarnessHasAProfile` fails without it.
+3. Add the ID to the `+kubebuilder:validation:Enum` marker on `AgentSpec.Framework` in `declarative/v1alpha1/types.go`, then run `make generate`. `TestFrameworkEnumMatchesHarnessList` fails when the CRD enum differs.
+4. Add the adapter stage in `backend/Dockerfile.session-manager` and the entry in `harnessBinaries` in `backend/cmd/kora-session-runner/main.go`. These stay per harness.
+5. Add the harness to `frontend/src/shared/agent-frameworks.ts` by hand. The frontend list is not generated. The kora MCP enum and the agents API validation read the Go list directly.

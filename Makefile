@@ -485,7 +485,7 @@ dev-cluster-down: ## Tear down the local k3d cluster
 # Adding a new service is a one-line edit here plus an entry in redeploy.sh.
 REDEPLOY_PLATFORM_SERVICES := \
 	identity identity-proxy inference-gateway policy-service policy-gateway \
-	egress-gateway agents frontend kora-mcp tool-gateway kora-triggers skills-service migrate operator \
+	egress-gateway agents frontend kora-mcp tool-gateway kora-triggers kora-events skills-service migrate operator \
 	session-manager sandbox-mount sandbox-base
 REDEPLOY_TENANT_SERVICES := example
 
@@ -495,7 +495,7 @@ REDEPLOY_TENANT_SERVICES := example
 # operator (helm-managed â€” upgraded separately so chart/CRD changes land).
 REDEPLOY_ROLLOUT_SERVICES := \
 	identity inference-gateway policy-service policy-gateway egress-gateway \
-	agents frontend kora-mcp tool-gateway kora-triggers
+	agents frontend kora-mcp tool-gateway kora-triggers kora-events
 
 # kora-system deployments we don't build (third-party images) but still restart
 # on cluster-update so they re-read chart-managed config on the way back up.
@@ -619,7 +619,7 @@ redeploy-warm: redeploy-platform redeploy-tenant ## Pre-build every service to w
 BAKE_PLATFORM_IMAGES := \
 	kora-identity kora-identity-proxy kora-inference-gateway \
 	kora-policy-service kora-policy-gateway kora-egress-gateway \
-	kora-agents kora-frontend kora-mcp kora-tool-gateway kora-triggers kora-migrate \
+	kora-agents kora-frontend kora-mcp kora-tool-gateway kora-triggers kora-events kora-migrate \
 	kora-operator kora-session-manager kora-sandbox-mount kora-sandbox-base
 
 .PHONY: redeploy-platform-bake
@@ -908,6 +908,10 @@ redeploy-tool-gateway: ## Redeploy the tool gateway (also rolls the publisher â€
 redeploy-triggers: ## Redeploy kora-triggers (webhook ingestion, management API, scheduler)
 	@bash scripts/cluster/redeploy.sh kora-triggers $(REDEPLOY_FLAGS)
 
+.PHONY: redeploy-events
+redeploy-events: ## Redeploy kora-events (event relay, read API and streams)
+	@bash scripts/cluster/redeploy.sh kora-events $(REDEPLOY_FLAGS)
+
 .PHONY: redeploy-operator
 redeploy-operator: ## Redeploy the kora-operator (tenant lifecycle, webhooks, preflight)
 	@bash scripts/cluster/redeploy.sh operator $(REDEPLOY_FLAGS)
@@ -967,10 +971,14 @@ test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d
 		exit $$STATUS
 
 .PHONY: test-postgres
-test-postgres: ## Postgres-backed repository tests against the local Postgres. Needs the compose Postgres up. Not run by CI or `make check`.
-	@$(MIGRATE) up
+test-postgres: ## Postgres-backed repository tests against the kora_test database on the local Postgres. Needs the compose Postgres up. Not run by CI or `make check`.
+	@# A separate database keeps the cluster's queue workers from claiming the tests' rows.
+	@docker exec kora-postgres psql -U $(DB_USER) -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='kora_test'" | grep -q 1 || \
+		docker exec kora-postgres createdb -U $(DB_USER) kora_test
+	@cd $(BACKEND_DIR) && APP_ENV=test DB_PASSWORD=$(DB_PASSWORD) $(GOCMD) run ./cmd/migrate up
 	@echo "$(COLOR_YELLOW)Running Postgres-backed repository tests...$(COLOR_RESET)"
-	@cd $(BACKEND_DIR) && KORA_TEST_DB_URL="$(DB_URL)" $(GOTEST) -race -timeout=5m ./... -run Postgres
+	@# One package at a time: the event relay test asserts a gapless seq, which another package's event cleanup breaks.
+	@cd $(BACKEND_DIR) && KORA_TEST_DB_URL="postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/kora_test?sslmode=disable" $(GOTEST) -race -p 1 -timeout=5m ./... -run Postgres
 
 .PHONY: test
 test: ## Run unit tests with coverage (no cluster required)

@@ -128,7 +128,7 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *stor
 	return db, rc, nil
 }
 
-func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) ([]api.Controller, func(context.Context) error, error) {
+func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, metrics *platformmetrics.Bootstrap) ([]api.Controller, func(context.Context) error, error) {
 	// ── Provider connectors ───────────────────────────────────────────────────────────────────────────────
 	// Providers come from the InferenceProvider resources the gateway watches.
 	// The first load seeds the router; the watch keeps it current.
@@ -192,7 +192,11 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	go pricingSyncWorker.Start(ctx)
 
 	budgetCounter := inferencegw.NewRedisBudgetCounter(redis, usageRepo, logger)
-	svc := inferencegw.NewService(pol, router, pricingCache, usageRepo, budgetCounter, logger)
+	events := storage.NewPool(db.Pool())
+	svc, err := inferencegw.NewService(pol, router, pricingCache, usageRepo, budgetCounter, logger).WithEvents(events).WithMetrics(metrics.Meter())
+	if err != nil {
+		return nil, nil, fmt.Errorf("usage metrics: %w", err)
+	}
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	// Shared revoked-JTI blocklist: rejects revoked delegation tokens at the
@@ -206,7 +210,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		// The operator projects VirtualModel resources through these endpoints.
 		declarative.NewController(verifier, logger, map[string]declarative.Applier{
 			declarative.KindVirtualModels: inferencegw.NewVirtualModelApplier(catalog),
-		}),
+		}).WithEvents(events),
 	}
 	return controllers, register, nil
 }
@@ -293,6 +297,7 @@ func inferenceRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},
 		// GET /v1/budgets/principals is the tenant-wide budget status listing.
 		// The platform:budgets:* scopes are declared by the policy-service.
+		// GET /v1/budgets/runs/{id} serves kora-agents only. Its SYSTEM token passes this check and the handler checks the caller.
 		{PathPrefix: "/v1/budgets", Method: "GET", RequiredScope: "platform:budgets:read"},
 	}
 }
@@ -324,7 +329,7 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, metrics *platformmetrics.Bootstrap) (*http.Server, func(context.Context) error, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
-	controllers, register, err := initControllers(ctx, logger, db, redis)
+	controllers, register, err := initControllers(ctx, logger, db, redis, metrics)
 	if err != nil {
 		return nil, nil, err
 	}

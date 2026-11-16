@@ -93,6 +93,32 @@ func TestStripRunPrefix_NonRunPathUntouched(t *testing.T) {
 	}
 }
 
+// TestStripRunPrefix_RefusesEncodedRunPath proves a run path whose decoding
+// would move segment boundaries is refused before routing, while the same
+// encoding on a non-run path is left to the router.
+func TestStripRunPrefix_RefusesEncodedRunPath(t *testing.T) {
+	t.Parallel()
+	h := StripRunPrefix(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	cases := map[string]int{
+		"/run/run-42/v1/messages":                       http.StatusOK,
+		"/run/a%2Fv1%2Finternal%2Fdeclared/v1/messages": http.StatusBadRequest,
+		"/run/run-42/v1/internal%2Fdeclared/agents/t1":  http.StatusBadRequest,
+		"/run/run-42/v1/internal/%64eclared/agents/t1":  http.StatusBadRequest,
+		"/run/run-42/v1/%2e%2e/v1/messages":             http.StatusBadRequest,
+		"/v1/internal%2Fdeclared/agents/t1":             http.StatusOK,
+	}
+	for path, want := range cases {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != want {
+			t.Errorf("GET %s = %d, want %d", path, rec.Code, want)
+		}
+	}
+}
+
 // capturingEvaluator records the CheckInput ScopeEnforcementMiddleware builds.
 type capturingEvaluator struct {
 	got policy.CheckInput
@@ -182,5 +208,36 @@ func TestRunIDFromContext_AgentOnly(t *testing.T) {
 	hHuman.ServeHTTP(httptest.NewRecorder(), reqHuman)
 	if humanRunID != "" {
 		t.Errorf("human run id = %q, want empty (prefix ignored for non-agents)", humanRunID)
+	}
+}
+
+// The sandbox run outranks the delegation run, which outranks the run prefix,
+// and only an AGENT caller has an acting run.
+func TestActingRunID(t *testing.T) {
+	t.Parallel()
+	sandbox := runCtxAgentClaims("t1")
+	sandbox.Kora.Claims = map[string]string{"run_id": "sandbox-run"}
+	prefixed := func(ctx context.Context) context.Context {
+		return context.WithValue(ctx, runIDContextKey{}, "prefix-run")
+	}
+	delegated := func(ctx context.Context) context.Context {
+		return policy.WithDelegation(ctx, &policy.DelegationClaims{RunID: "delegation-run"})
+	}
+	cases := []struct {
+		name string
+		ctx  context.Context
+		want string
+	}{
+		{"sandbox", prefixed(delegated(token.WithClaims(context.Background(), sandbox))), "sandbox-run"},
+		{"delegation", prefixed(delegated(token.WithClaims(context.Background(), runCtxAgentClaims("t1")))), "delegation-run"},
+		{"run prefix", prefixed(token.WithClaims(context.Background(), runCtxAgentClaims("t1"))), "prefix-run"},
+		{"no run", token.WithClaims(context.Background(), runCtxAgentClaims("t1")), ""},
+		{"person", prefixed(token.WithClaims(context.Background(), runCtxHumanClaims("t1"))), ""},
+		{"no claims", prefixed(context.Background()), ""},
+	}
+	for _, tc := range cases {
+		if got := ActingRunID(tc.ctx); got != tc.want {
+			t.Errorf("%s: ActingRunID = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }

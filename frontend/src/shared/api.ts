@@ -1,3 +1,5 @@
+import type { AgentFramework } from './agent-frameworks';
+
 // ── Shared API types ─────────────────────────────────────────────────────────
 //
 // These interfaces mirror Go backend JSON response shapes exactly.
@@ -169,8 +171,8 @@ export interface ScopesExplainResponse {
 
 // ── Agents — /api/agents ──────────────────────────────────────────────────────
 
-/** Execution framework the agent type targets. Mirrors Go: agents.Framework */
-export type AgentFramework = 'claude-code' | 'codex' | 'opencode';
+/** Execution framework the agent type targets. Defined in agent-frameworks.ts. */
+export type { AgentFramework };
 
 /** Lifecycle state of an AgentType resource. Mirrors Go: agents.AgentTypeState */
 export type AgentTypeState = 'provisioning' | 'active' | 'deleting';
@@ -195,7 +197,8 @@ export type RunState =
   | 'completing'
   | 'completed'
   | 'failed'
-  | 'budget_exhausted';
+  | 'budget_exhausted'
+  | 'terminated';
 
 /**
  * An agent type's outbound egress posture — the reachability gate for its
@@ -434,6 +437,89 @@ export interface AgentBudget {
   per_run_limit_usd?: number;
 }
 
+/** Where a run came from: a link to what a trigger delivery named. Mirrors Go: agents.RunSource */
+export interface RunSource {
+  kind: 'trigger' | 'pull_request' | 'repository' | 'branch';
+  url: string;
+  label: string;
+  /** The system the link points into; picks the chip's icon. */
+  provider?: 'github' | 'slack' | 'alertmanager';
+}
+
+/** The person or agent who sent a message to a run. Absent on trigger messages and older runs. */
+export interface RunMessageSender {
+  id: string;
+  /** The sender's principal type: USER or AGENT. */
+  type: string;
+  name: string;
+}
+
+/**
+ * The event behind a trigger message, as the provider adapter summarized it at ingest.
+ * Mirrors Go: agents.RunEventSummary (docs/adr/2026-11-11-run-page-record.md).
+ */
+export interface RunEventSummary {
+  actor: { name: string; kind: 'person' | 'bot' | 'system'; url?: string };
+  /** "commented on", "opened", "fired". */
+  verb: string;
+  object: { label: string; url?: string };
+  /** Text a person wrote, such as a comment or an issue body. */
+  quote?: string;
+  preview?: {
+    title: string;
+    facts?: string[];
+    added?: number;
+    removed?: number;
+    /** `tone` is good or bad news; a neutral state such as closed or draft has none. */
+    status?: { label: string; tone?: 'ok' | 'bad' };
+  };
+}
+
+/** The budget that stopped a budget_exhausted run. */
+export interface RunBudgetStop {
+  /** The ceiling's level: principal, role_pool, tenant, run, delegator or delegator_run. */
+  scope: string;
+  /** The ceiling's id: a principal, role, tenant or run. Never shown. */
+  owner: string;
+  /** Whose budget it is, by name; empty when there is no name to give. */
+  owner_name: string;
+  /** The budget's period as the gateway sends it: weekly, monthly or run. */
+  window: string;
+  limit_usd: number;
+  /** When the budget resets; absent for a run's own ceilings. */
+  resets_at?: string;
+}
+
+/** Payload of a `human_message` run event. */
+export interface HumanMessagePayload {
+  content: string;
+  sender?: RunMessageSender;
+  /** Set on the first message of a trigger-started run. */
+  event?: RunEventSummary;
+}
+
+/** Payload of a `trigger_message` run event: a trigger's delivery sent to a working run. */
+export interface TriggerMessagePayload {
+  content: string;
+  trigger_id?: string;
+  trigger_name?: string;
+  event?: RunEventSummary;
+}
+
+/** Payload of a `run_state` run event. */
+export interface RunStatePayload {
+  state: RunState;
+  /** Set on a move to budget_exhausted when the gateway named the ceiling. */
+  budget?: RunBudgetStop;
+}
+
+/** Payload of a `sandbox_environment` run event: where the run's sandbox started. */
+export interface SandboxEnvironmentPayload {
+  action: string;
+  environment: string;
+  image: string;
+}
+
 /**
  * A single execution of an AgentType.
  * Mirrors Go: agents.Run
@@ -454,8 +540,12 @@ export interface Run {
   /** Inference totals summed over the run's requests; a live run reports its total so far. */
   usage?: {
     cost_usd: number;
+    /** Uncached input tokens. */
     input_tokens: number;
     output_tokens: number;
+    /** Cached input tokens read and written; absent from older servers. */
+    cache_read_tokens?: number;
+    cache_creation_tokens?: number;
     request_count: number;
   };
   /** LLM-generated one-sentence summary of the run's task intent, if available. */
@@ -463,14 +553,17 @@ export interface Run {
   /** The run's W3C trace ID; null when the run was not sampled. */
   trace_id?: string | null;
   /**
-   * Present when a trigger started this run. trigger_name and delivery_id are
+   * Present when a trigger started this run. trigger_name, trigger_kind and delivery_id are
    * omitted when unknown; absent entirely for human-started runs.
    */
   started_by?: {
     trigger_id: string;
     trigger_name?: string;
+    trigger_kind?: TriggerKind;
     delivery_id?: string;
   };
+  /** Links to what started the run and what later deliveries joined to it; empty when none recorded. */
+  sources?: RunSource[];
   /** The agent's identity model, slug and name, also set for a run whose agent was deleted. */
   identity_mode?: AgentIdentityMode;
   agent_slug?: string;
@@ -809,7 +902,7 @@ export interface WebhookSourceUpdateRequest {
 }
 
 /** Trigger kind discriminant. */
-export type TriggerKind = 'webhook' | 'scheduled' | 'manual';
+export type TriggerKind = 'webhook' | 'scheduled' | 'manual' | 'event';
 
 /** Cron schedule configuration for scheduled triggers. */
 export interface ScheduleConfig {
@@ -929,7 +1022,7 @@ export interface TriggerCoalesce {
 export interface Trigger {
   id: string;
   tenant_id: string;
-  /** "webhook" | "scheduled" | "manual" */
+  /** "webhook" | "scheduled" | "manual" | "event" */
   kind: TriggerKind;
   /** Present for webhook triggers only. */
   source_id?: string;
@@ -963,8 +1056,10 @@ export interface Trigger {
    * `agent_type_id` and `agent_slug`.
    */
   target_kind?: TriggerTargetKind;
-  /** Webhook only, set when `target_kind` is "routed". */
+  /** Webhook and event triggers only, set when `target_kind` is "routed". */
   routing?: TriggerRouting;
+  /** Event triggers only: skip events about runs this trigger started or messaged. */
+  ignore_own_runs?: boolean;
   enabled: boolean;
   created_at: string;
   updated_at: string;
@@ -1110,7 +1205,7 @@ export interface TriggerCreateRequest {
   name: string;
   /** Required unless `target_kind` is "routed". */
   agent_type_id?: string;
-  /** Defaults to "agent". "routed" is webhook only and needs `routing`. */
+  /** Defaults to "agent". "routed" is for webhook and event triggers and needs `routing`. */
   target_kind?: TriggerTargetKind;
   routing?: TriggerRouting;
   /**
@@ -1132,6 +1227,8 @@ export interface TriggerCreateRequest {
   sender_restriction?: SenderRestriction;
   /** Webhook only, and only with overflow `wait`. Both fields are required together. */
   coalesce?: TriggerCoalesce;
+  /** Event triggers only. Omitted, it is on. */
+  ignore_own_runs?: boolean;
   // ── Admission control (all optional; defaults per kind when omitted) ──
   /** Concurrency ceiling, 1..16. */
   max_parallel?: number;
@@ -1162,6 +1259,8 @@ export interface TriggerUpdateRequest {
   coalesce?: TriggerCoalesce | Record<string, never>;
   /** Routed triggers only. Replaces the stored routing object. */
   routing?: TriggerRouting;
+  /** Event triggers only. */
+  ignore_own_runs?: boolean;
   /**
    * Suppress a repeat of a delivery already seen. Omit to leave unchanged: a
    * PATCH that only renames a trigger must not re-arm its safety settings.
@@ -1205,7 +1304,7 @@ export interface TriggerDeliveryPage {
 export interface TriggerDelivery {
   id: string;
   tenant_id: string;
-  /** "webhook" | "scheduled" | "manual" */
+  /** "webhook" | "scheduled" | "manual" | "event" */
   kind: TriggerKind;
   /** Present for webhook deliveries. */
   source_id?: string;
@@ -1215,6 +1314,8 @@ export interface TriggerDelivery {
   trigger_name?: string;
   provider_delivery_id?: string;
   event_type?: string;
+  /** The platform event an event delivery fired on. */
+  event_id?: string;
   /**
    * What happened to the arrival itself. Derived from the per-trigger outcomes
    * in `runs` once the fan-out completes, never authored independently.
@@ -1381,4 +1482,52 @@ export interface Skill {
 export interface SkillFile {
   path: string;
   content: string;
+}
+
+// ---------------------------------------------------------------------------
+// Events domain  (kora-events, docs/adr/2026-11-06-event-spine.md)
+// ---------------------------------------------------------------------------
+
+export type EventPrincipalType = 'USER' | 'AGENT' | 'TRIGGER' | 'SYSTEM';
+
+/** One CloudEvents 1.0 event with the kora extension attributes. */
+export interface KoraEvent {
+  specversion: string;
+  id: string;
+  source: string;
+  type: string;
+  subject: string;
+  time: string;
+  datacontenttype: string;
+  koratenant: string;
+  koraprincipal: string;
+  koraprincipaltype: EventPrincipalType;
+  /** The principal's display name at publish time; empty when the claims had none. */
+  koraprincipalname?: string;
+  koradelegator?: string;
+  korarun?: string;
+  koraagent?: string;
+  koracausedby?: string;
+  korachaindepth: number;
+  koratriggers?: string[];
+  traceparent?: string;
+  data: {
+    entity: Record<string, unknown>;
+    changed?: string[];
+    entity_version?: number;
+    occurred_at: string;
+  };
+}
+
+/** One event in the log, as `GET /v1/events` and the stream return it. */
+export interface EventRecord {
+  seq: number;
+  recorded_at: string;
+  event: KoraEvent;
+}
+
+/** GET /v1/events: a page of events, newest first. */
+export interface EventPage {
+  events: EventRecord[];
+  next_cursor: string | null;
 }

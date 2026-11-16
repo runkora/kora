@@ -244,6 +244,7 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
               setConfigureSection('behaviour');
               setConfigureOpen(true);
             }}
+            onViewAllRuns={() => setTab('runs')}
           />
         </TabsContent>
         <TabsContent value="runs">

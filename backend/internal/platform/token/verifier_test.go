@@ -58,3 +58,18 @@ func mustKey(t *testing.T) *rsa.PrivateKey {
 	}
 	return key
 }
+
+// A token without exp is refused. Event streams close at exp and rely on it.
+func TestVerifierRefusesTokenWithoutExpiry(t *testing.T) {
+	key := mustKey(t)
+	v := NewStaticVerifier(&key.PublicKey, DefaultIssuer, DefaultAudience)
+	raw, err := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"sub": "person-1", "iss": DefaultIssuer, "aud": DefaultAudience,
+	}).SignedString(key)
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	if _, err := v.Verify(context.Background(), raw); err == nil {
+		t.Fatal("a token without exp verified")
+	}
+}

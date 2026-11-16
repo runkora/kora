@@ -182,7 +182,7 @@ func TestCreateRoutedTrigger_Validation(t *testing.T) {
 			r := validReq(KindScheduled)
 			r.AgentTypeID, r.TargetKind, r.Routing = "", TargetKindRouted, routingReq(nil)
 			return r
-		}(), wantErr: "webhook triggers only"},
+		}(), wantErr: "webhook and event triggers only"},
 		{name: "unknown target kind", req: routedReq(src.ID, func(r *CreateTriggerRequest) { r.TargetKind = "workflow" }), wantErr: "target_kind must be"},
 		{name: "fallback outside candidates", req: routedReq(src.ID, func(r *CreateTriggerRequest) { r.Routing.FallbackAgentTypeID = new("at-z") }), wantErr: "one of the candidates"},
 	}
@@ -982,7 +982,7 @@ func TestRedeliver_RoutedTriggerChecksEveryCandidate(t *testing.T) {
 			}
 			deps.agents.callerReadIDs()
 
-			_, err := svc.Redeliver(context.Background(), testTenant, originalID, "user:2")
+			_, err := svc.Redeliver(context.Background(), testTenant, originalID, "user:2", true)
 
 			reads := deps.agents.callerReadIDs()
 			if allow {

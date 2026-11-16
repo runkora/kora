@@ -14,8 +14,9 @@ import (
 )
 
 // ConnectionValidator rejects a Connection the egress gateway could not tell
-// apart from another Connection in the same namespace. An update is rejected
-// only for a conflict its previous version did not have. See
+// apart from another Connection in the same namespace, and an apikey
+// Connection whose config is invalid. An update is rejected only for a
+// conflict its previous version did not have. See
 // docs/adr/2026-10-15-same-host-connection-selection.md.
 type ConnectionValidator struct {
 	// Client is the manager's cached client. TenantReconciler watches every
@@ -29,6 +30,9 @@ func (v *ConnectionValidator) Handle(ctx context.Context, req admission.Request)
 	conn := &Connection{}
 	if err := v.Decoder.Decode(req, conn); err != nil {
 		return admission.Errored(http.StatusBadRequest, err)
+	}
+	if err := validateAPIKeyConfig(conn); err != nil {
+		return admission.Denied(fmt.Sprintf("connection %q: %v", cmp.Or(conn.Name, conn.GenerateName), err))
 	}
 	list := &ConnectionList{}
 	if err := v.Client.List(ctx, list, client.InNamespace(req.Namespace)); err != nil {
@@ -77,4 +81,22 @@ func createdBefore(a, b *Connection) bool {
 		return a.CreationTimestamp.Before(&b.CreationTimestamp)
 	}
 	return a.Name < b.Name
+}
+
+// validateAPIKeyConfig checks the config of an apikey Connection with the same
+// parser the gateway adapter uses, and config.placeholderEnv. Config is a
+// RawExtension with preserve-unknown-fields, so CEL in the CRD cannot read it;
+// the webhook does. Other adapters are not checked here.
+func validateAPIKeyConfig(c *Connection) error {
+	if c.Spec.Adapter != platformconns.AdapterAPIKey {
+		return nil
+	}
+	cfg, err := platformconns.ParseAPIKeyConfig(c.Spec.Config.Raw)
+	if err != nil {
+		return fmt.Errorf("apikey connections: %w", err)
+	}
+	if err := cfg.ValidatePlaceholderEnv(); err != nil {
+		return fmt.Errorf("apikey connections: %w", err)
+	}
+	return nil
 }

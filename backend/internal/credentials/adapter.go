@@ -24,9 +24,20 @@ type Credential struct {
 	Header string
 	Value  string
 
+	// Headers are further headers the gateway injects in addition to
+	// Header/Value, each replacing any client-supplied value. Adapters that
+	// need only one header leave it nil.
+	Headers []HeaderValue
+
 	// ExpiresAt is when the credential stops being valid. Zero means
 	// non-expiring (e.g. a static API key).
 	ExpiresAt time.Time
+}
+
+// HeaderValue is one fully-formed header the gateway injects.
+type HeaderValue struct {
+	Name  string
+	Value string
 }
 
 // Adapter serves one credential mechanism. It is registered once per mechanism

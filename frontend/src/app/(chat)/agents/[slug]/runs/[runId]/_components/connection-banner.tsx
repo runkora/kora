@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * @tier 3 — run-chat-scoped. Inline banner that surfaces SSE connection issues
+ * @tier 3 — run-page-scoped. Inline banner that surfaces SSE connection issues
  * so the user knows when the stream is degraded or terminally closed and can
  * manually retry. Renders nothing when the connection is healthy.
  */
@@ -26,21 +26,19 @@ export function ConnectionBanner() {
       direction="horizontal"
       align="center"
       justify="between"
+      gap="cozy"
+      shrink
       style={{
-        gap: 12,
         padding: '6px 14px',
-        flexShrink: 0,
         background: isClosed
-          ? 'color-mix(in oklch, var(--chat-error) 18%, transparent)'
-          : 'color-mix(in oklch, var(--chat-degraded) 18%, transparent)',
-        borderBottom: '1px solid var(--chat-bds)',
-        fontSize: 12,
-        color: 'var(--chat-fg)',
+          ? 'color-mix(in oklch, var(--color-status-error) 18%, transparent)'
+          : 'color-mix(in oklch, var(--color-status-degraded) 18%, transparent)',
+        borderBottom: '1px solid var(--color-border-subtle)',
       }}
       role="status"
       aria-live="polite"
     >
-      <Text as="span" style={{ fontSize: 12, color: 'var(--chat-fg)' }}>
+      <Text as="span" size="caption" color="foreground">
         {message}
       </Text>
       {isClosed && (

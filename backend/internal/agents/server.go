@@ -157,6 +157,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /internal/runs/{id}/provision-sandbox", c.handleProvisionSandbox)
 	mux.Handle("GET /internal/runs/{id}/sandbox", c.handleGetRunSandbox)
 	mux.Handle("GET /internal/runs/{id}/trace-parent", c.handleGetRunTraceParent)
+	mux.Handle("GET /internal/runs/{id}/chain", c.handleGetRunChain)
 	mux.Handle("GET /internal/runs/{id}/environments", c.handleListRunEnvironments)
 }
 
@@ -437,6 +438,12 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 			apiErr := api.ValidationError(api.ErrCodeMissingField,
 				"trigger_id is required when attributing a run to a trigger", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		case errors.Is(err, ErrRunSourcesRefused), errors.Is(err, ErrRunEventRefused):
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		case errors.Is(err, ErrInvalidChain), errors.Is(err, ErrRunSourcesInvalid), errors.Is(err, ErrRunEventInvalid), errors.Is(err, ErrTriggerKindInvalid):
+			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		case errors.Is(err, ErrDelegationUnavailable):
 			apiErr := api.InternalError(api.ErrCodeInternalError,
 				"this agent uses the delegated identity model and no delegation could be minted; the run was not started", nil)
@@ -664,6 +671,16 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, ErrTriggerAttributionIncomplete) {
 			apiErr := api.ValidationError(api.ErrCodeMissingField,
 				"trigger_id is required when attributing a message to a trigger", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrRunSourcesRefused) || errors.Is(err, ErrRunEventRefused) {
+			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, ErrInvalidChain) || errors.Is(err, ErrRunSourcesInvalid) || errors.Is(err, ErrRunEventInvalid) {
+			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
@@ -1052,8 +1069,7 @@ const traceParentCaller = "egress-gateway"
 // Any SYSTEM token is not enough: the caller must be the egress gateway.
 func (c *Controller) handleGetRunTraceParent(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims.Kora.PrincipalType != token.PrincipalTypeSystem || claims.Kora.DisplayName != traceParentCaller {
+	if !mw.IsSystemCaller(ctx, traceParentCaller) {
 		apiErr := api.ForbiddenError(api.ErrCodeForbidden, "caller is not authorized to read run trace context", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
@@ -1071,6 +1087,35 @@ func (c *Controller) handleGetRunTraceParent(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]string{"trace_parent": traceParent})
+}
+
+// runChainCaller is the SYSTEM principal allowed to read a run's chain: the
+// trigger consumer, for an event an agent caused from the run.
+const runChainCaller = "kora-triggers"
+
+// handleGetRunChain returns the chain of the run when it belongs to the agent
+// and tenant in the query, and an empty chain otherwise.
+func (c *Controller) handleGetRunChain(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if !mw.IsSystemCaller(ctx, runChainCaller) {
+		apiErr := api.ForbiddenError(api.ErrCodeForbidden, "caller is not authorized to read a run chain", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+	q := r.URL.Query()
+	chain, err := c.runs.RunChain(ctx, r.PathValue("id"), q.Get("tenant"), q.Get("agent"))
+	if err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to read the run chain", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	triggers := chain.triggers
+	if triggers == nil {
+		triggers = []string{}
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
+		"caused_by": chain.causedBy, "chain_depth": chain.depth, "trigger_ids": triggers,
+	})
 }
 
 func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Request) {
@@ -1155,7 +1200,7 @@ type sandboxEnvironmentRequest struct {
 
 // invalidAgentTypeField reports an agent-type write the request itself got wrong. The handler answers it with a 400.
 func invalidAgentTypeField(err error) bool {
-	for _, target := range []error{ErrInvalidConnectivity, ErrInvalidConnector, ErrInvalidIdentityMode, ErrInvalidGuardrails, ErrInvalidEnvironment, ErrInvalidSlug} {
+	for _, target := range []error{ErrInvalidConnectivity, ErrInvalidConnector, ErrInvalidIdentityMode, ErrInvalidFramework, ErrInvalidGuardrails, ErrInvalidEnvironment, ErrInvalidSlug} {
 		if errors.Is(err, target) {
 			return true
 		}

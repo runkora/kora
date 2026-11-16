@@ -21,6 +21,7 @@ import (
 	"github.com/runkora/kora/backend/internal/agents/sandbox/landlockmode"
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 	"github.com/runkora/kora/backend/internal/platform/brand"
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
 
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
@@ -465,6 +466,9 @@ type SandboxSpec struct {
 	PullSecret   string
 	Size         EnvironmentSize
 	KubeClusters []kubeconfig.Cluster
+	// PlaceholderEnvs names env vars set to kubeconfig.PlaceholderToken, one per
+	// granted apikey connection with config.placeholderEnv.
+	PlaceholderEnvs []string
 }
 
 // Sandbox pod annotations naming its environment.
@@ -870,7 +874,7 @@ func (p *K8sProvisioner) waitForPodGone(ctx context.Context, name, namespace str
 }
 
 // DeleteSandbox removes the sandbox pod for a run. Missing pod is silently ignored.
-func (p *K8sProvisioner) DeleteSandbox(ctx context.Context, runID, namespace string) error {
+func (p *K8sProvisioner) DeleteSandbox(ctx context.Context, runID, namespace string) (bool, error) {
 	ctx, span := agentsTracer.Start(observability.WithRun(ctx, runID), "agents.K8sProvisioner.DeleteSandbox",
 		trace.WithAttributes(semconv.K8SNamespaceNameKey.String(namespace)),
 	)
@@ -883,11 +887,15 @@ func (p *K8sProvisioner) DeleteSandbox(ctx context.Context, runID, namespace str
 		logging.Field{Key: "namespace", Value: namespace},
 	)
 	del := metav1.DeletePropagationForeground
-	if err := ignoreNotFound(p.client.CoreV1().Pods(namespace).Delete(ctx, podName, metav1.DeleteOptions{PropagationPolicy: &del})); err != nil {
-		observability.RecordFailure(span, err, errSpanDeleteSandboxPod)
-		return err
+	err := p.client.CoreV1().Pods(namespace).Delete(ctx, podName, metav1.DeleteOptions{PropagationPolicy: &del})
+	if apierrors.IsNotFound(err) {
+		return false, nil
 	}
-	return nil
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanDeleteSandboxPod)
+		return false, err
+	}
+	return true, nil
 }
 
 // defaultSandboxReadyWait bounds the pod wait when the install sets no provision guardrails.
@@ -1017,7 +1025,7 @@ func (p *K8sProvisioner) unschedulableReason(ctx context.Context, name, namespac
 // When SystemNamespace is empty (defensive; should never happen in
 // production) the CA env is omitted so the sandbox simply has no governed
 // egress.
-func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluster, workspaceDir, execToken string) []corev1.EnvVar {
+func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluster, placeholderEnvs []string, workspaceDir, execToken string) []corev1.EnvVar {
 	env := []corev1.EnvVar{
 		{Name: "SANDBOX_EXEC_PORT", Value: fmt.Sprintf("%d", cfg.SandboxGRPCPort)},
 		// This run's exec token. The agent can read it, which grants nothing it
@@ -1072,8 +1080,19 @@ func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Clu
 		// strips this header. A non-empty, obviously-non-functional placeholder lets
 		// gh issue the request (which the gateway then authenticates); the value
 		// never reaches GitHub and reads clearly as a non-secret to credential scanners.
-		corev1.EnvVar{Name: "GH_TOKEN", Value: "placeholder-credential-injected-by-kora-egress-gateway"},
+		corev1.EnvVar{Name: "GH_TOKEN", Value: kubeconfig.PlaceholderToken},
 	)
+	// apikey connections with config.placeholderEnv: the tool needs a non-empty
+	// token variable to issue the request, and the gateway injects the real one
+	// on the wire. A name already set above is not overridden.
+	for _, name := range placeholderEnvs {
+		if !platformconns.ValidPlaceholderEnvName(name) {
+			continue
+		}
+		if !slices.ContainsFunc(env, func(e corev1.EnvVar) bool { return e.Name == name }) {
+			env = append(env, corev1.EnvVar{Name: name, Value: kubeconfig.PlaceholderToken})
+		}
+	}
 	// Kubernetes connections the agent is granted. sandbox-exec renders these to
 	// $HOME/.kube/config at startup, so the agent runs `kubectl get pods` with no
 	// server URL, no kubeconfig and no token; the gateway injects the brokered
@@ -1275,7 +1294,7 @@ func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execTok
 		// gateway.md, Amendment 2). Combined with the pod's RunAsNonRoot, the
 		// agent has no path back to the network layer Envoy controls.
 		SecurityContext: restrictedContainerSecurityContext(),
-		Env:             sandboxContainerEnv(cfg, spec.KubeClusters, workspaceDir, execToken),
+		Env:             sandboxContainerEnv(cfg, spec.KubeClusters, spec.PlaceholderEnvs, workspaceDir, execToken),
 		VolumeMounts:    mounts,
 		WorkingDir:      workspaceDir,
 		// The startup probe checks every second so the pod is Ready soon after

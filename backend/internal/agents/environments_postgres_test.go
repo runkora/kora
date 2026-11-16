@@ -8,13 +8,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // Postgres integration tests for environments and their agent links. They run
 // only when KORA_TEST_DB_URL points at a database with the kora-agents
 // migrations applied. drafts_postgres_test.go uses the same harness.
 //
-//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora?sslmode=disable' \
+//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora_test?sslmode=disable' \
 //	  go test ./internal/agents/ -run Postgres_
 
 func testEnvironmentRepo(t *testing.T) (*PostgresRepository, string) {
@@ -34,12 +36,14 @@ func testEnvironmentRepo(t *testing.T) (*PostgresRepository, string) {
 	}
 	tenant := "test-" + uuid.NewString()
 	t.Cleanup(func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM event_outbox WHERE tenant_id=$1`, tenant)
+		_, _ = pool.Exec(ctx, `DELETE FROM events WHERE tenant_id=$1`, tenant)
 		_, _ = pool.Exec(ctx, `DELETE FROM runs WHERE tenant_id=$1`, tenant)
 		_, _ = pool.Exec(ctx, `DELETE FROM agent_types WHERE tenant_id=$1`, tenant)
 		_, _ = pool.Exec(ctx, `DELETE FROM environments WHERE tenant_id=$1`, tenant)
 		pool.Close()
 	})
-	return NewPostgresRepository(pool), tenant
+	return NewPostgresRepository(storage.NewPool(pool)), tenant
 }
 
 func testEnvironment(t *testing.T, r *PostgresRepository, tenant, name string) Environment {

@@ -73,7 +73,7 @@ func TestIncrementSpends_WritesDelegatorCounters(t *testing.T) {
 	rdb := &stubRedisOps{}
 	c := newBudgetCounter(rdb, &stubUsageRepo{})
 
-	err := c.IncrementSpends(context.Background(), SpendScopes{
+	_, err := c.IncrementSpends(context.Background(), SpendScopes{
 		TenantID:         "t1",
 		PrincipalID:      "agent-1",
 		DelegatorID:      "user-1",
@@ -101,7 +101,7 @@ func TestIncrementSpends_NoDelegator_NoDelegatorKeys(t *testing.T) {
 	rdb := &stubRedisOps{}
 	c := newBudgetCounter(rdb, &stubUsageRepo{})
 
-	if err := c.IncrementSpends(context.Background(), SpendScopes{
+	if _, err := c.IncrementSpends(context.Background(), SpendScopes{
 		TenantID:    "t1",
 		PrincipalID: "agent-1",
 	}, nil, 1); err != nil {

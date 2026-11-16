@@ -35,6 +35,7 @@ const (
 	AgentFrameworkClaudeCode AgentFramework = "claude-code"
 	AgentFrameworkCodex      AgentFramework = "codex"
 	AgentFrameworkOpenCode   AgentFramework = "opencode"
+	// These constants must be entries in the shared list; TestAgentFrameworkConstantsAreSupported checks it.
 )
 
 // IdentityMode is an agent type's identity model — who the agent acts as.
@@ -485,6 +486,9 @@ const (
 	// BUDGET_EXCEEDED. Distinct from failed — the run did nothing wrong; its
 	// budget ended. See docs/adr/2026-06-10-hierarchical-budget-enforcement.md.
 	RunStateBudgetExhausted RunState = "budget_exhausted"
+	// RunStateTerminated is terminal: a person or the platform terminated the run
+	// before it ended (docs/adr/2026-11-06-event-spine.md, Decision 6).
+	RunStateTerminated RunState = "terminated"
 )
 
 // AllRunStates lists every declared RunState. Pinned by a unit test so a new
@@ -499,6 +503,7 @@ func AllRunStates() []RunState {
 		RunStateCompleted,
 		RunStateFailed,
 		RunStateBudgetExhausted,
+		RunStateTerminated,
 	}
 }
 
@@ -511,7 +516,7 @@ func AllRunStates() []RunState {
 // finished a turn but keeps the session alive waiting for the next message,
 // and completing is snapshotting. The terminal states have released their
 // resources by then (RunService.transition deprovisions the sandbox on
-// completed, failed and budget_exhausted), so none of them occupies a slot;
+// completed, failed and budget_exhausted, and TerminateRun on terminated), so none of them occupies a slot;
 // budget_exhausted in particular is terminal rather than a paused run that
 // might resume.
 //
@@ -521,11 +526,17 @@ func (s RunState) OccupiesPod() (occupies, known bool) {
 	switch s {
 	case RunStatePending, RunStateStarting, RunStateActive, RunStateIdle, RunStateCompleting:
 		return true, true
-	case RunStateCompleted, RunStateFailed, RunStateBudgetExhausted:
+	case RunStateCompleted, RunStateFailed, RunStateBudgetExhausted, RunStateTerminated:
 		return false, true
 	default:
 		return false, false
 	}
+}
+
+// Terminal reports whether the run has ended.
+func (s RunState) Terminal() bool {
+	occupies, known := s.OccupiesPod()
+	return known && !occupies
 }
 
 // PodOccupyingRunStates returns the states for which OccupiesPod reports true,
@@ -580,6 +591,9 @@ type Run struct {
 	// answer "why did this happen?" at all. See the ADR on extended trigger
 	// types, US-004.
 	StartedBy *StartedByTrigger `json:"started_by,omitempty"`
+	// Sources are the links to what started the run and to what later deliveries
+	// joined to it. Empty for a run with none recorded.
+	Sources []RunSource `json:"sources"`
 	// EnvironmentID is the environment of the run's current sandbox. It is nil
 	// for the built-in default and before the first sandbox.
 	EnvironmentID *string `json:"environment_id,omitempty"`
@@ -590,6 +604,15 @@ type Run struct {
 	TraceParent string `json:"-"`
 	// TraceID is the run's trace, read from TraceParent. Nil when the run was not sampled.
 	TraceID *string `json:"trace_id"`
+	// DeletedAt is when the run was terminated. A terminated run stays readable by ID.
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	// CausedBy is the event that led a trigger to start or message the run, and
+	// ChainDepth the highest depth of those events plus one.
+	CausedBy   string `json:"caused_by,omitempty"`
+	ChainDepth int    `json:"chain_depth,omitempty"`
+	// TriggerIDs lists every trigger that started or messaged the run, or the
+	// run of an agent that started or messaged it.
+	TriggerIDs []string `json:"-"`
 	// Usage is the run's inference total so far. It is read from
 	// inference_usage when the run is served and is not a runs column. A run
 	// with no usage rows reads as zeros.
@@ -602,7 +625,10 @@ type RunUsage struct {
 	CostUSD      float64 `json:"cost_usd"`
 	InputTokens  int64   `json:"input_tokens"`
 	OutputTokens int64   `json:"output_tokens"`
-	RequestCount int64   `json:"request_count"`
+	// CacheReadTokens and CacheCreationTokens are the input tokens read from and written to the provider's prompt cache.
+	CacheReadTokens     int64 `json:"cache_read_tokens"`
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+	RequestCount        int64 `json:"request_count"`
 }
 
 // StartedByTrigger is the run's backlink to the trigger and delivery that
@@ -611,19 +637,12 @@ type RunUsage struct {
 // The name is a snapshot taken at start time, not a live lookup. A run is audit
 // history and outlives the trigger that started it, so a deleted trigger must
 // still read as something a person recognizes, and a later rename must not
-// rewrite what this run says happened.
+// rewrite what this run says happened. The kind is empty on runs that predate it.
 type StartedByTrigger struct {
 	TriggerID   string `json:"trigger_id"`
 	TriggerName string `json:"trigger_name,omitempty"`
+	TriggerKind string `json:"trigger_kind,omitempty"`
 	DeliveryID  string `json:"delivery_id,omitempty"`
-}
-
-// CancelledRun is one run ended by agent deletion. The ID names its sandbox pod. The delegation JTI,
-// set for a delegated run, is revoked because the delegation ends with the run.
-type CancelledRun struct {
-	ID            string
-	State         RunState
-	DelegationJTI *string
 }
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
@@ -660,4 +679,13 @@ type RunMessage struct {
 	SequenceNo int64
 	Content    string
 	CreatedAt  time.Time
+	// From is the trigger that sent the message, nil for a person. CausedBy and
+	// ChainDepth are the event chain it reports, and Triggers the triggers of
+	// the run an agent sent it from.
+	From       *StartedByTrigger
+	CausedBy   string
+	ChainDepth int
+	Triggers   []string
+	// Sender is the person or agent who sent the message, nil for a trigger's.
+	Sender *MessageSender
 }

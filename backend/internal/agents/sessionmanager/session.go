@@ -20,6 +20,7 @@ import (
 	"github.com/runkora/kora/backend/internal/agents/sandbox/execauth"
 	execpb "github.com/runkora/kora/backend/internal/agents/sandbox/proto"
 	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/trace"
@@ -73,12 +74,19 @@ func stopNote(product string) string {
 var (
 	ErrSessionNotFound = errors.New("session not found")
 	ErrSessionExists   = errors.New("session already exists")
+	// ErrResuming means a message arrived while the session was resuming after an
+	// interrupt and the resume did not finish within resumeWaitTimeout.
+	ErrResuming = errors.New("session is resuming")
 	// ErrDraining refuses a new session on a pod that is shutting down.
 	ErrDraining = errors.New("session-manager is draining")
 	// ErrSandboxIncomplete means kora-agents answered without both halves of the
 	// descriptor. An endpoint with no token cannot be used, so it is not cached.
 	ErrSandboxIncomplete = errors.New("sandbox response missing endpoint or exec token")
 )
+
+// resumeWaitTimeout bounds how long a message waits for a session to resume
+// after an interrupt. A variable so tests can shorten it.
+var resumeWaitTimeout = 30 * time.Second
 
 // SessionConfig holds parameters for creating a new session.
 type SessionConfig struct {
@@ -114,10 +122,13 @@ type session struct {
 	summarizeOnce    sync.Once   // ensures only the first user message triggers summarization
 	intentionalClose atomic.Bool // true when closed by timeout or explicit request
 	cutByShutdown    atomic.Bool // true when a pod drain hit its deadline, which fails the run
-	interruptClose   atomic.Bool // true when stopped by user interrupt (SIGINT) — leaves run idle, not completed
-	isIdle           atomic.Bool // true when the agent has completed a turn and is waiting for input
-	budgetExhausted  atomic.Bool // true when the runner surfaced a BUDGET_EXCEEDED rejection — run ends budget_exhausted, not failed
-	stoppedByUser    atomic.Bool // true on a session resumed after an interrupt, until the next message carries stopNote
+	interruptClose   atomic.Bool // true when stopped by user interrupt: leaves run idle, not completed
+	// handoff is set while an interrupted session's resume is in flight and closed
+	// once the registry holds the resumed session, or none. Senders wait on it.
+	handoff         atomic.Pointer[chan struct{}]
+	isIdle          atomic.Bool // true when the agent has completed a turn and is waiting for input
+	budgetExhausted atomic.Bool // true when the runner surfaced a BUDGET_EXCEEDED rejection — run ends budget_exhausted, not failed
+	stoppedByUser   atomic.Bool // true on a session resumed after an interrupt, until the next message carries stopNote
 	// idleTimeout is how long the session may sit idle, in nanoseconds. A person
 	// messaging a trigger run changes it, so it is read when the timer is armed.
 	idleTimeout atomic.Int64
@@ -292,13 +303,45 @@ func (reg *Registry) SetTriggered(runID string, triggered bool) bool {
 	return ok && s.triggered.Swap(triggered)
 }
 
-// Send delivers a user text message to an existing session.
-func (reg *Registry) Send(ctx context.Context, runID, text string) error {
+// lookupReady returns the session for runID. When the session's process exited
+// on an interrupt and its resume is in flight, it waits for the resumed session
+// to be registered, so the message does not go to the dead process. It returns
+// ErrSessionNotFound if the resume failed or was abandoned, ErrResuming if the
+// wait times out, and the context error if ctx ends first.
+func (reg *Registry) lookupReady(ctx context.Context, runID string) (*session, error) {
 	reg.mu.RLock()
 	s, ok := reg.sessions[runID]
 	reg.mu.RUnlock()
 	if !ok {
-		return ErrSessionNotFound
+		return nil, ErrSessionNotFound
+	}
+	ch := s.handoff.Load()
+	if ch == nil {
+		return s, nil
+	}
+	timer := time.NewTimer(resumeWaitTimeout)
+	defer timer.Stop()
+	select {
+	case <-*ch:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-timer.C:
+		return nil, ErrResuming
+	}
+	reg.mu.RLock()
+	s, ok = reg.sessions[runID]
+	reg.mu.RUnlock()
+	if !ok {
+		return nil, ErrSessionNotFound
+	}
+	return s, nil
+}
+
+// Send delivers a user text message to an existing session.
+func (reg *Registry) Send(ctx context.Context, runID, text string) error {
+	s, err := reg.lookupReady(ctx, runID)
+	if err != nil {
+		return err
 	}
 	// Text the agent wrote before this message is recorded before it: kora-agents
 	// records the message once this call returns, so replay keeps the live order.
@@ -388,6 +431,9 @@ func (reg *Registry) Interrupt(ctx context.Context, runID string) error {
 	s.interruptClose.Store(true)
 	if err := s.runner.Interrupt(); err != nil {
 		s.interruptClose.Store(false)
+		if errors.Is(err, ErrNoPromptInFlight) {
+			return nil
+		}
 		return fmt.Errorf("interrupt runner: %w", err)
 	}
 	reg.logger.Info(ctx, "Session interrupted",
@@ -1037,14 +1083,17 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 	// sandbox retry, before a resumed session takes over or the run ends.
 	s.cancel()
 
-	// Interrupt: subprocess exited after SIGINT — immediately restart with --resume
-	// so the next message can be delivered to a warm process. Run transitions to idle.
+	// Interrupt: subprocess exited after an interrupt. Immediately resume the
+	// session in a new process so the next message reaches a warm one. Run transitions to idle.
 	//
 	// s stays registered until the resumed session is swapped in (or we give up), so
 	// a concurrent Close() always finds a session to claim. Otherwise Close could land
 	// in the gap between removing s and re-registering newS, return ErrSessionNotFound,
 	// and leave the freshly-started runner untracked and never terminated.
 	if s.interruptClose.Load() {
+		// Senders that find s wait on this until the registry is final.
+		handoff := make(chan struct{})
+		s.handoff.Store(&handoff)
 		// Idle is reported before the resumed session starts: a message it takes
 		// right away must find its activation after this, not before.
 		if err := reg.notifier.IdleRun(bgCtx, cfg.RunID); err != nil {
@@ -1110,6 +1159,7 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 			}
 			reg.mu.Unlock()
 		}
+		close(handoff)
 		close(s.done)
 		return
 	}
@@ -1292,7 +1342,7 @@ func isBudgetExhausted(ev Event) bool {
 		return false
 	}
 	var p RunErrorPayload
-	return json.Unmarshal(ev.Payload, &p) == nil && p.Code == "budget_exhausted"
+	return json.Unmarshal(ev.Payload, &p) == nil && p.Code == events.RunErrorBudgetExhausted
 }
 
 // isStatusEvent reports events that describe the run without being turn

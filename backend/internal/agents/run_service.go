@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/clients/inference"
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/token"
@@ -79,6 +80,8 @@ type RunService struct {
 	missing    missingProvisioner
 	queue      runQueue
 	metrics    *Metrics // run outcome and duration; nil = not recorded
+	budgets    runBudgetReader
+	selfToken  ServiceTokenSource
 	// attempts and schedulerDone track the scheduler started by StartScheduler.
 	attempts      sync.WaitGroup
 	schedulerDone chan struct{}
@@ -99,6 +102,13 @@ func (s *RunService) SetScopeResolver(r *ScopeResolver) { s.resolver = r }
 // (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3). When unset,
 // starting a run of a delegated agent fails closed with ErrDelegationUnavailable.
 func (s *RunService) SetDelegationBroker(b *DelegationBroker) { s.delegation = b }
+
+// SetBudgetReader installs the gateway lookup that names the ceiling a
+// budget_exhausted run reached, called with kora-agents' own token. When unset,
+// the run_state event of a budget stop has no budget.
+func (s *RunService) SetBudgetReader(r runBudgetReader, selfToken ServiceTokenSource) {
+	s.budgets, s.selfToken = r, selfToken
+}
 
 // SetMetrics installs the instruments that record a run's outcome and duration
 // when it reaches a terminal state. When unset, nothing is recorded.
@@ -239,6 +249,16 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 	if err != nil {
 		return nil, err
 	}
+	chain, err := requestChain(ctx, s.repo, startedBy, req.CausedBy, req.ChainDepth, "")
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanAuthorizeTriggerAttribution)
+		return nil, err
+	}
+
+	sources, err := authorizeRunRecord(ctx, span, req.Sources, req.Event)
+	if err != nil {
+		return nil, err
+	}
 
 	run := Run{
 		ID:          uuid.NewString(),
@@ -253,8 +273,12 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		// Nil unless a trigger started this run, which is what its absence means
 		// everywhere downstream.
 		StartedBy:      startedBy,
+		Sources:        sources,
 		InitialMessage: req.InitialMessage,
 		TraceParent:    observability.TraceParent(ctx),
+		CausedBy:       chain.causedBy,
+		ChainDepth:     chain.depth,
+		TriggerIDs:     chain.triggers,
 	}
 	run.TraceID = observability.SampledTraceID(run.TraceParent)
 	span.SetAttributes(observability.RunIDKey.String(run.ID), observability.AgentSlugKey.String(at.Slug))
@@ -284,6 +308,12 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		}
 		mintedJTI = jti
 		run.DelegationJTI = &jti
+	}
+
+	// Recorded before the run is queued, so it is the run's first event. The
+	// starter's claims are only in this request.
+	if run.InitialMessage != "" {
+		s.emitHumanMessage(ctx, run.ID, humanMessagePayload{Content: run.InitialMessage, Sender: messageSender(ctx), Event: req.Event})
 	}
 
 	// Queued last, so the scheduler never claims a run whose delegation is not yet stored.
@@ -480,7 +510,8 @@ func (s *RunService) RunOutcomes(ctx context.Context, from, to time.Time) (RunOu
 	return out, err
 }
 
-// TerminateRun signals the session-manager to stop the subprocess and cleans up.
+// TerminateRun signals the session-manager to stop the subprocess and ends a live run as
+// terminated. The run and its events stay, and it leaves the run lists.
 // Enforces tenant scoping and authz write on the run's agent type.
 func (s *RunService) TerminateRun(ctx context.Context, id string) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.TerminateRun")
@@ -490,29 +521,43 @@ func (s *RunService) TerminateRun(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	if run.DeletedAt != nil {
+		return ErrNotFound
+	}
 	span.SetAttributes(observability.RunStateKey.String(string(run.State)))
 
+	// The state changes before the session closes. A closing session reports the run completed,
+	// and that report must lose its compare-and-swap to terminated.
+	terminated, err := s.repo.TerminateRun(ctx, id)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanTerminateRun)
+		return err
+	}
+	// A live run placed on a pod may hold a session, whatever state it was read in.
 	// An idle run still holds its session, and a draining pod waits for it.
-	if run.State == RunStateActive || run.State == RunStateStarting || run.State == RunStateIdle {
+	if terminated.State == RunStateTerminated && terminated.PodOrdinal >= 0 {
 		namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-		podURL := sessionmanager.PodURL(at.Slug, run.PodOrdinal, namespace)
-		if err := s.sm.CloseSession(ctx, podURL, id); err != nil && !errors.Is(err, sessionmanager.ErrSessionNotFound) {
-			// Pod may be gone (agent type deleted, pod crashed); log and proceed to DB cleanup.
-			s.logger.Warn(ctx, "session-manager unreachable during termination, proceeding with DB cleanup",
+		podURL := sessionmanager.PodURL(at.Slug, terminated.PodOrdinal, namespace)
+		if err = s.sm.CloseSession(ctx, podURL, id); err != nil && !errors.Is(err, sessionmanager.ErrSessionNotFound) {
+			// Pod may be gone (agent type deleted, pod crashed); log and proceed with cleanup.
+			s.logger.Warn(ctx, "session-manager unreachable during termination, proceeding with cleanup",
 				logging.Field{Key: "run_id", Value: id},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
 		}
 	}
-
-	// Termination is a terminal state: tombstone the run's delegation issuance
-	// before the row (and its recorded JTI) is deleted.
-	s.revokeRunDelegation(ctx, run)
-	s.deprovisionSandbox(ctx, run)
-	if err := s.repo.DeleteRun(ctx, id); err != nil {
-		observability.RecordFailure(span, err, errSpanDeleteRun)
-		return err
+	if terminated.State == RunStateTerminated {
+		if err := recordRunState(ctx, s.repo, s.pubsub, id, RunStateTerminated, nil); err != nil {
+			s.logger.Warn(ctx, "failed to persist run_state event",
+				logging.Field{Key: "run_id", Value: id},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+		s.metrics.recordRunTerminal(ctx, terminated, RunStateTerminated, time.Now())
 	}
+	// Termination ends the delegation and the sandbox whatever state the run was in.
+	s.revokeRunDelegation(ctx, terminated)
+	s.deprovisionSandbox(ctx, terminated)
 	return nil
 }
 
@@ -543,7 +588,11 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 		logging.Field{Key: "from", Value: string(from)},
 		logging.Field{Key: "to", Value: string(to)},
 	)
-	if err := recordRunState(ctx, s.repo, s.pubsub, runID, to); err != nil {
+	var budget *inference.RunBudget
+	if to == RunStateBudgetExhausted {
+		budget = s.reachedBudget(ctx, runID)
+	}
+	if err := recordRunState(ctx, s.repo, s.pubsub, runID, to, budget); err != nil {
 		// Log and continue. The event was still published unsequenced, and live
 		// subscribers see the transition. The DB write failure is durable
 		// state loss that we surface in traces; if we returned early here the
@@ -558,7 +607,7 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 		)
 	}
 
-	if to == RunStateCompleted || to == RunStateFailed || to == RunStateBudgetExhausted {
+	if to.Terminal() {
 		run, err := s.repo.GetRun(ctx, runID)
 		if err != nil {
 			s.logger.Warn(ctx, "get run for sandbox cleanup failed",
@@ -598,18 +647,42 @@ func (s *RunService) TransitionRunState(ctx context.Context, runID string, from,
 // deprovisionSandbox deletes the sandbox pod for a run. Best-effort — logs on
 // failure but never returns an error so callers are not blocked.
 func (s *RunService) deprovisionSandbox(ctx context.Context, run *Run) {
-	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-	if err := s.k8s.DeleteSandbox(ctx, run.ID, namespace); err != nil {
-		s.logger.Warn(ctx, "Sandbox pod deletion failed",
+	deleteRunSandbox(ctx, s.k8s, s.repo, s.logger, *run, s.cfg.TenantNamespaceFn(run.TenantID))
+}
+
+// sandboxRemover deletes a run's sandbox pod.
+type sandboxRemover interface {
+	DeleteSandbox(ctx context.Context, runID, namespace string) (bool, error)
+}
+
+// sandboxDeletionRecorder records agents.sandbox.deleted.v1.
+type sandboxDeletionRecorder interface {
+	RecordSandboxDeleted(ctx context.Context, run Run) error
+}
+
+// deleteRunSandbox deletes the run's sandbox pod and records the deletion when there was a pod. Best-effort.
+func deleteRunSandbox(ctx context.Context, k8s sandboxRemover, recorder sandboxDeletionRecorder, logger logging.Logger, run Run, namespace string) {
+	deleted, err := k8s.DeleteSandbox(ctx, run.ID, namespace)
+	if err != nil {
+		logger.Warn(ctx, "Sandbox pod deletion failed",
 			logging.Field{Key: "run_id", Value: run.ID},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 		return
 	}
-	s.logger.Info(ctx, "Sandbox pod deleted",
+	if !deleted {
+		return
+	}
+	logger.Info(ctx, "Sandbox pod deleted",
 		logging.Field{Key: "run_id", Value: run.ID},
 		logging.Field{Key: "namespace", Value: namespace},
 	)
+	if err := recorder.RecordSandboxDeleted(ctx, run); err != nil {
+		logger.Warn(ctx, "Recording the sandbox deletion failed",
+			logging.Field{Key: "run_id", Value: run.ID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
 }
 
 // PublishEvent persists a pushed event from a session-manager pod and fans it
@@ -658,31 +731,34 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 
 	content := req.Content
 	from, err := messageTrigger(ctx, req)
+	var chain runChain
+	if err == nil {
+		chain, err = requestChain(ctx, s.repo, from, req.CausedBy, req.ChainDepth, runID)
+	}
 	if err != nil {
 		observability.RecordFailure(span, err, errSpanAuthorizeTriggerAttribution)
+		return err
+	}
+	sources, err := authorizeRunRecord(ctx, span, req.Sources, req.Event)
+	if err != nil {
 		return err
 	}
 	run, at, err := s.loadRunToAct(ctx, runID)
 	if err != nil {
 		return err
 	}
-	// Steer constraint (Decision 6): only the starter may message a delegated
-	// run — tenant admins included, because the message executes with the
-	// starter's authority under the starter's name.
-	if err = checkDelegatedRunSteer(ctx, at, run); err != nil {
+	if err = checkRunAcceptsMessage(ctx, at, run); err != nil {
 		return err
 	}
-	if run.State == RunStatePending || run.State == RunStateStarting {
-		return ErrRunStarting
-	}
-	if run.State != RunStateActive && run.State != RunStateIdle {
-		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
-	}
 
-	if err = s.repo.AppendRunMessage(ctx, RunMessage{RunID: runID, Content: content}); err != nil {
+	// A trigger's SERVICE principal is never a sender, so a trigger message records none.
+	sender := messageSender(ctx)
+	if err = s.repo.AppendRunMessage(ctx, RunMessage{RunID: runID, Content: content, From: from, CausedBy: chain.causedBy, ChainDepth: chain.depth, Triggers: chain.triggers, Sender: sender}); err != nil {
 		observability.RecordFailure(span, err, errSpanAppendRunMessage)
 		return fmt.Errorf("append run message: %w", err)
 	}
+
+	s.appendJoinedSources(ctx, span, runID, sources)
 
 	// When sending to an idle run (resumed after interrupt), proactively transition
 	// idle → active so the frontend sees isBusy=true and shows the stop button
@@ -711,17 +787,66 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 	}
 
 	if from != nil {
-		s.emitTriggerMessage(ctx, runID, content, *from)
+		s.emitTriggerMessage(ctx, runID, content, *from, req.Event)
 		return nil
 	}
-	s.emitHumanMessage(ctx, runID, content)
+	s.emitHumanMessage(ctx, runID, humanMessagePayload{Content: content, Sender: sender, Event: req.Event})
 	return nil
 }
 
-// tryInitialMessage sends the initial message to the session-manager and, on
-// success, emits it to the event stream. The session-manager generates the run's
-// task summary from this first message over its own authorized inference path
-// (see internal/agents/sessionmanager/summarizer.go) and reports it back via the
+// checkRunAcceptsMessage refuses a message the run cannot take: one to a
+// delegated run from anyone but its starter, or one to a run that is starting
+// or has ended.
+func checkRunAcceptsMessage(ctx context.Context, at *AgentType, run *Run) error {
+	// Steer constraint (Decision 6): only the starter may message a delegated
+	// run — tenant admins included, because the message executes with the
+	// starter's authority under the starter's name.
+	if err := checkDelegatedRunSteer(ctx, at, run); err != nil {
+		return err
+	}
+	if run.State == RunStatePending || run.State == RunStateStarting {
+		return ErrRunStarting
+	}
+	if run.State != RunStateActive && run.State != RunStateIdle {
+		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
+	}
+	return nil
+}
+
+// authorizeRunRecord validates the sources and event summary a start or join
+// request records on the run, and returns the de-duplicated sources.
+func authorizeRunRecord(ctx context.Context, span trace.Span, sources []RunSource, event *RunEventSummary) ([]RunSource, error) {
+	sources, err := authorizeRunSources(ctx, sources)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanAuthorizeRunSources)
+		return nil, err
+	}
+	if err = authorizeRunEvent(ctx, event); err != nil {
+		observability.RecordFailure(span, err, errSpanAuthorizeRunEvent)
+		return nil, err
+	}
+	return sources, nil
+}
+
+// appendJoinedSources adds a joined delivery's links to the run. It is best-effort: the message is already stored, so a failure is logged, not returned.
+func (s *RunService) appendJoinedSources(ctx context.Context, span trace.Span, runID string, sources []RunSource) {
+	if len(sources) == 0 {
+		return
+	}
+	if err := s.repo.AppendRunSources(ctx, runID, sources); err != nil {
+		observability.RecordFailure(span, err, errSpanAppendRunSources)
+		s.logger.Warn(ctx, "failed to append run sources",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+}
+
+// tryInitialMessage sends the initial message to the session-manager. StartRun
+// already recorded it as the run's first human_message, while the starter's
+// claims were in hand. The session-manager generates the run's task summary
+// from this first message over its own authorized inference path (see
+// internal/agents/sessionmanager/summarizer.go) and reports it back via the
 // /internal/runs/{id}/summary callback. Best-effort: a send failure is logged but
 // does not abort the run.
 func (s *RunService) tryInitialMessage(ctx context.Context, podURL, runID, msg string) {
@@ -734,9 +859,7 @@ func (s *RunService) tryInitialMessage(ctx context.Context, podURL, runID, msg s
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return
 	}
-	s.emitHumanMessage(ctx, runID, msg)
 }
 
 // Event types for a message sent to a run: a person's, or a trigger's.
@@ -745,27 +868,38 @@ const (
 	eventTriggerMessage = "trigger_message"
 )
 
-// triggerMessagePayload is a trigger_message event: the content and the trigger that sent it.
+// triggerMessagePayload is a trigger_message event: the content, the trigger
+// that sent it and the event behind it.
 type triggerMessagePayload struct {
-	Content     string `json:"content"`
-	TriggerID   string `json:"trigger_id,omitempty"`
-	TriggerName string `json:"trigger_name,omitempty"`
-	DeliveryID  string `json:"delivery_id,omitempty"`
+	Content     string           `json:"content"`
+	TriggerID   string           `json:"trigger_id,omitempty"`
+	TriggerName string           `json:"trigger_name,omitempty"`
+	DeliveryID  string           `json:"delivery_id,omitempty"`
+	Event       *RunEventSummary `json:"event,omitempty"`
+}
+
+// humanMessagePayload is a human_message event: the content and who sent it.
+// A trigger-started run's first message has no sender and carries the event behind it.
+type humanMessagePayload struct {
+	Content string           `json:"content"`
+	Sender  *MessageSender   `json:"sender,omitempty"`
+	Event   *RunEventSummary `json:"event,omitempty"`
 }
 
 // emitHumanMessage persists a human message to run_events and fans it out via
 // PubSub so live SSE subscribers and future replays both see it.
-func (s *RunService) emitHumanMessage(ctx context.Context, runID, content string) {
-	s.emitMessage(ctx, runID, eventHumanMessage, map[string]string{"content": content})
+func (s *RunService) emitHumanMessage(ctx context.Context, runID string, payload humanMessagePayload) {
+	s.emitMessage(ctx, runID, eventHumanMessage, payload)
 }
 
 // emitTriggerMessage records a message a trigger sent to a run that is already working.
-func (s *RunService) emitTriggerMessage(ctx context.Context, runID, content string, from StartedByTrigger) {
+func (s *RunService) emitTriggerMessage(ctx context.Context, runID, content string, from StartedByTrigger, event *RunEventSummary) {
 	s.emitMessage(ctx, runID, eventTriggerMessage, triggerMessagePayload{
 		Content:     content,
 		TriggerID:   from.TriggerID,
 		TriggerName: from.TriggerName,
 		DeliveryID:  from.DeliveryID,
+		Event:       event,
 	})
 }
 
@@ -792,7 +926,7 @@ func (s *RunService) emitMessage(ctx context.Context, runID, eventType string, b
 	s.pubsub.Publish(runID, PushedEvent{Type: eventType, Payload: payload, SequenceNo: seqNo, At: at})
 }
 
-// InterruptRun signals the session-manager to send SIGINT to the Claude subprocess.
+// InterruptRun asks the session-manager to stop the agent's current turn.
 // Enforces tenant scoping and authz write on the run's agent type.
 func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.InterruptRun")
@@ -844,6 +978,10 @@ func (s *RunService) AuthorizeAgentCallback(ctx context.Context, runID string) e
 	if err != nil {
 		return err
 	}
+	// A terminated run takes no callbacks from the session it left behind.
+	if run.DeletedAt != nil {
+		return ErrNotFound
+	}
 	if run.TenantID != claims.Kora.TenantID {
 		return ErrForbidden
 	}
@@ -865,6 +1003,12 @@ func (s *RunService) TraceParent(ctx context.Context, runID string) (string, err
 		return "", err
 	}
 	return run.TraceParent, nil
+}
+
+// RunChain is the chain of a run of agent in tenant, empty when the run is
+// not that agent's (docs/adr/2026-11-06-event-spine.md, section 7).
+func (s *RunService) RunChain(ctx context.Context, runID, tenant, agent string) (runChain, error) {
+	return agentRunChain(ctx, s.repo, runID, tenant, agent)
 }
 
 // ErrNoSandbox reports that a run has no sandbox. Distinct from a lookup
@@ -921,6 +1065,10 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, environ
 	if err != nil {
 		return Sandbox{}, failSpan(span, errLoadRun, err)
 	}
+	// A run that ended has no sandbox to come back to.
+	if run.State.Terminal() || run.DeletedAt != nil {
+		return Sandbox{}, failSpan(span, errLoadRun, fmt.Errorf("%w: run %s", ErrNotFound, run.State))
+	}
 
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
 	// No kubeconfig beats no sandbox, so an unresolved registry still provisions.
@@ -931,9 +1079,10 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, environ
 		return Sandbox{}, err
 	}
 	spec.KubeClusters = kubeClusters
+	spec.PlaceholderEnvs = s.sandboxPlaceholderEnvs(ctx, *at)
 
 	if switching {
-		if err = s.k8s.DeleteSandbox(ctx, runID, namespace); err != nil {
+		if _, err = s.k8s.DeleteSandbox(ctx, runID, namespace); err != nil {
 			return Sandbox{}, failSpan(span, errProvisionPod, fmt.Errorf("delete sandbox: %w", err))
 		}
 		// The target is recorded before the start to keep a failed start on the requested environment.
@@ -1071,14 +1220,21 @@ func (s *RunService) StartReaper(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			failedIDs, completedIDs, err := s.repo.ReapStaleRuns(ctx, staleDuration)
+			reaped, err := s.repo.ReapStaleRuns(ctx, staleDuration)
 			if err != nil {
 				s.logger.Error(ctx, "stale run reaper failed", logging.Field{Key: "error", Value: err.Error()})
 				continue
 			}
-			total := len(failedIDs) + len(completedIDs)
-			if total == 0 {
+			if len(reaped) == 0 {
 				continue
+			}
+			var failedIDs, completedIDs []string
+			for _, run := range reaped {
+				if run.State == RunStateFailed {
+					failedIDs = append(failedIDs, run.ID)
+				} else {
+					completedIDs = append(completedIDs, run.ID)
+				}
 			}
 			s.logger.Info(ctx, "reaped stale runs",
 				logging.Field{Key: "failed_count", Value: len(failedIDs)},
@@ -1092,25 +1248,12 @@ func (s *RunService) StartReaper(ctx context.Context) {
 			// still persists+publishes the event so both live subscribers and SSE
 			// replay observe the terminal state. (A bespoke "run_failed" type was not
 			// handled by the frontend, leaving reaped runs stuck "busy".)
-			for _, id := range failedIDs {
-				s.publishReapedState(ctx, id, RunStateFailed)
-			}
-			for _, id := range completedIDs {
-				s.publishReapedState(ctx, id, RunStateCompleted)
-			}
-			for _, id := range append(append([]string{}, failedIDs...), completedIDs...) {
-				run, err := s.repo.GetRun(ctx, id)
-				if err != nil {
-					s.logger.Warn(ctx, "reaper: get run for sandbox cleanup failed",
-						logging.Field{Key: "run_id", Value: id},
-						logging.Field{Key: "error", Value: err.Error()},
-					)
-					continue
-				}
+			for _, run := range reaped {
+				s.publishReapedState(ctx, run.ID, run.State)
 				// Reaped runs reached a terminal state outside Transition —
 				// tombstone their delegation issuances here too.
-				s.revokeRunDelegation(ctx, run)
-				s.deprovisionSandbox(ctx, run)
+				s.revokeRunDelegation(ctx, &run)
+				s.deprovisionSandbox(ctx, &run)
 			}
 		}
 	}
@@ -1120,7 +1263,7 @@ func (s *RunService) StartReaper(ctx context.Context) {
 // terminal transition. ReapStaleRuns already committed the runs.state column, so
 // this only records the event (for SSE replay) and notifies live subscribers.
 func (s *RunService) publishReapedState(ctx context.Context, runID string, state RunState) {
-	if err := recordRunState(ctx, s.repo, s.pubsub, runID, state); err != nil {
+	if err := recordRunState(ctx, s.repo, s.pubsub, runID, state, nil); err != nil {
 		s.logger.Error(ctx, "reaper: failed to persist run_state event",
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "state", Value: string(state)},
@@ -1134,10 +1277,19 @@ type runEventAppender interface {
 	AppendRunEvent(ctx context.Context, e RunEvent) (int64, error)
 }
 
+// runStatePayload is a run_state event: the new state and, for a budget stop, the ceiling reached.
+type runStatePayload struct {
+	State  RunState             `json:"state"`
+	Budget *inference.RunBudget `json:"budget,omitempty"`
+}
+
 // recordRunState persists a run_state event and publishes it to live subscribers.
 // A failed write still publishes the event unsequenced, and the error goes back for the caller to log.
-func recordRunState(ctx context.Context, events runEventAppender, pubsub *PubSub, runID string, state RunState) error {
-	payload := []byte(`{"state":"` + string(state) + `"}`)
+func recordRunState(ctx context.Context, events runEventAppender, pubsub *PubSub, runID string, state RunState, budget *inference.RunBudget) error {
+	payload, err := json.Marshal(runStatePayload{State: state, Budget: budget})
+	if err != nil {
+		return fmt.Errorf("encode run_state: %w", err)
+	}
 	at := eventTime()
 	seqNo, err := events.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload, CreatedAt: at})
 	if err != nil {
@@ -1160,6 +1312,21 @@ func (s *RunService) SetRunSummary(ctx context.Context, runID, summary string) e
 		return nil
 	}
 	return s.repo.SetRunSummary(ctx, runID, summary)
+}
+
+// sandboxPlaceholderEnvs resolves the env vars the sandbox sets to the
+// credential placeholder, one per granted apikey connection that names one. A
+// failed lookup yields none: no placeholder beats no sandbox.
+func (s *RunService) sandboxPlaceholderEnvs(ctx context.Context, at AgentType) []string {
+	envs, err := s.resolver.PlaceholderEnvs(ctx, at.TenantID, at.Connectors)
+	if err != nil {
+		s.logger.Warn(ctx, "resolve placeholder env vars for sandbox",
+			logging.Field{Key: "agent_type", Value: at.Slug},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return nil
+	}
+	return envs
 }
 
 // sandboxKubeClusters resolves the Kubernetes connections whose kubeconfig the

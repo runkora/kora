@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // Postgres integration tests for the grants Repository. They run only when
@@ -15,7 +17,7 @@ import (
 // otherwise they skip. Each test isolates itself under a random tenant and
 // cleans up on exit.
 //
-//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora?sslmode=disable' \
+//	KORA_TEST_DB_URL='postgres://kora:kora@localhost:5432/kora_test?sslmode=disable' \
 //	  go test ./internal/policyservice/grants/ -run Postgres
 func testGrantsRepo(t *testing.T) (Repository, string) {
 	t.Helper()
@@ -35,9 +37,11 @@ func testGrantsRepo(t *testing.T) (Repository, string) {
 	tenant := "test-" + uuid.NewString()
 	t.Cleanup(func() {
 		_, _ = pool.Exec(ctx, `DELETE FROM policy_grants WHERE tenant_id = $1`, tenant)
+		_, _ = pool.Exec(ctx, `DELETE FROM event_outbox WHERE tenant_id = $1`, tenant)
+		_, _ = pool.Exec(ctx, `DELETE FROM events WHERE tenant_id = $1`, tenant)
 		pool.Close()
 	})
-	return NewPostgresRepository(pool), tenant
+	return NewPostgresRepository(storage.NewPool(pool)), tenant
 }
 
 func TestPostgres_PurgeScopeFromAll_Grants(t *testing.T) {

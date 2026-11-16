@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -129,7 +130,7 @@ func TestDrain_TwoEmptyTurnsFailTheRun(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("run did not end after the second empty turn")
 	}
-	if errs, _ := n.snapshot(); !slices.Equal(errs, []string{runErrorEmptyTurn}) {
+	if errs, _ := n.snapshot(); !slices.Equal(errs, []string{events.RunErrorEmptyTurn}) {
 		t.Errorf("run errors = %v, want only empty_turn", errs)
 	}
 	if sent := r.sentTexts(); len(sent) != 1 {

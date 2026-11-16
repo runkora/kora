@@ -672,8 +672,24 @@ func TestTerminateRun_ActiveRun(t *testing.T) {
 		t.Errorf("expected 1 close-session call, got %d", len(sm.closedSessions))
 	}
 	sm.mu.Unlock()
-	if _, err := repo.GetRun(context.Background(), run.ID); !errors.Is(err, ErrNotFound) {
-		t.Error("run should be deleted from repo")
+	assertTerminated(t, repo, run.ID)
+	if len(repo.sandboxDeleted) != 1 {
+		t.Errorf("sandbox deletions recorded = %v, want one", repo.sandboxDeleted)
+	}
+	if err := svc.TerminateRun(context.Background(), run.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("second terminate = %v, want ErrNotFound", err)
+	}
+}
+
+// assertTerminated checks the run is kept as terminated and marked deleted.
+func assertTerminated(t *testing.T, repo *mockRepository, id string) {
+	t.Helper()
+	run, err := repo.GetRun(context.Background(), id)
+	if err != nil {
+		t.Fatalf("terminated run must stay readable: %v", err)
+	}
+	if run.State != RunStateTerminated || run.DeletedAt == nil {
+		t.Errorf("state %s, deleted_at %v, want terminated and set", run.State, run.DeletedAt)
 	}
 }
 
@@ -690,6 +706,10 @@ func TestTerminateRun_InactiveRun_SkipsSessionClose(t *testing.T) {
 		t.Error("should not call CloseSession for a completed run")
 	}
 	sm.mu.Unlock()
+	// A run that already ended keeps its outcome.
+	if got, _ := repo.GetRun(context.Background(), run.ID); got.State != RunStateCompleted || got.DeletedAt == nil {
+		t.Errorf("state %s, deleted_at %v, want completed and set", got.State, got.DeletedAt)
+	}
 }
 
 func TestTerminateRun_SessionNotFoundContinues(t *testing.T) {
@@ -702,9 +722,7 @@ func TestTerminateRun_SessionNotFoundContinues(t *testing.T) {
 	if err := svc.TerminateRun(context.Background(), run.ID); err != nil {
 		t.Fatalf("ErrSessionNotFound should be tolerated, got: %v", err)
 	}
-	if _, err := repo.GetRun(context.Background(), run.ID); !errors.Is(err, ErrNotFound) {
-		t.Error("run should still be deleted despite session-manager returning not-found")
-	}
+	assertTerminated(t, repo, run.ID)
 }
 
 func TestTerminateRun_SMNetworkError_ContinuesToDBCleanup(t *testing.T) {
@@ -719,9 +737,7 @@ func TestTerminateRun_SMNetworkError_ContinuesToDBCleanup(t *testing.T) {
 	if err := svc.TerminateRun(context.Background(), run.ID); err != nil {
 		t.Fatalf("network error from SM should be tolerated, got: %v", err)
 	}
-	if _, err := repo.GetRun(context.Background(), run.ID); !errors.Is(err, ErrNotFound) {
-		t.Error("run should be deleted from DB despite SM network error")
-	}
+	assertTerminated(t, repo, run.ID)
 }
 
 func TestTerminateRun_NotFound(t *testing.T) {
