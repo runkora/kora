@@ -16,7 +16,8 @@ import (
 //
 // Deliberately NO create tool: agents must not be able to mint new PATs (a PAT is
 // a long-lived standing credential), so the POST /identity/tokens endpoint is not
-// exposed through this MCP surface. Agents may view, re-scope, and revoke.
+// exposed through this MCP surface. Identity accepts a re-scope only from a
+// HUMAN principal; an agent may view and revoke.
 func registerPATTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 	base := b.Identity + "/api/v1/identity/tokens"
 

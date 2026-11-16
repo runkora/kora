@@ -440,6 +440,7 @@ var (
 	ErrPATRevokeFailed             = errors.New("PAT revocation failed")
 	ErrPATScopesRequired           = errors.New("at least one scope is required")
 	ErrPATUpdateFailed             = errors.New("PAT scope update failed")
+	ErrPATPrincipalType            = errors.New("only a person can create or change a personal access token")
 	ErrUserProfileNotFound         = errors.New("user profile not found")
 	ErrDelegationNotFound          = errors.New("no active delegation issuance found")
 	ErrDelegationRunActive         = errors.New("an active delegation issuance already exists for this run")

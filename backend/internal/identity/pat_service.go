@@ -32,6 +32,10 @@ func (s *Service) CreatePAT(ctx context.Context, tenantID, userID string, userCl
 	)
 	defer span.End()
 
+	if err := requirePerson(span, userClaims); err != nil {
+		return nil, err
+	}
+
 	if len(req.Scopes) == 0 {
 		return nil, ErrPATScopesRequired
 	}
@@ -169,6 +173,16 @@ func (s *Service) ListPATs(ctx context.Context, tenantID, userID string) (*ListP
 	return &ListPATsResponse{Tokens: summaries}, nil
 }
 
+// requirePerson refuses a PAT write from anyone but a HUMAN principal. A PAT
+// minted by an agent or a service would be a long-lived credential it holds.
+func requirePerson(span trace.Span, claims *PlatformClaims) error {
+	if claims.Kora.PrincipalType != token.PrincipalTypeHuman {
+		observability.RecordFailure(span, ErrPATPrincipalType, ErrPATPrincipalType)
+		return ErrPATPrincipalType
+	}
+	return nil
+}
+
 // UpdatePATScopes replaces the scope set on an existing PAT.
 // The new scopes must be a subset of the calling user's current effective scopes.
 // The PAT must belong to the calling user — returns ErrPATNotFound otherwise.
@@ -180,6 +194,10 @@ func (s *Service) UpdatePATScopes(ctx context.Context, tenantID, userID, patID s
 		),
 	)
 	defer span.End()
+
+	if err := requirePerson(span, userClaims); err != nil {
+		return err
+	}
 
 	if len(req.Scopes) == 0 {
 		return ErrPATScopesRequired

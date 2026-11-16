@@ -87,6 +87,11 @@ func (c *Controller) handleCreatePAT(w http.ResponseWriter, r *http.Request) {
 	req.Name = name
 	resp, err := c.svc.CreatePAT(ctx, claims.Kora.TenantID, claims.Subject, claims, req)
 	if err != nil {
+		if errors.Is(err, ErrPATPrincipalType) {
+			api.ErrorResponse(ctx, w, c.logger,
+				api.ForbiddenError(api.ErrCodeForbidden, ErrPATPrincipalType.Error(), nil), nil)
+			return
+		}
 		var scopeErr *ErrPATScopesForbiddenError
 		if errors.As(err, &scopeErr) {
 			api.ErrorResponse(ctx, w, c.logger,
@@ -176,6 +181,9 @@ func (c *Controller) handleUpdatePATScopes(w http.ResponseWriter, r *http.Reques
 	if err := c.svc.UpdatePATScopes(ctx, claims.Kora.TenantID, claims.Subject, patID, claims, req); err != nil {
 		var scopeErr *ErrPATScopesForbiddenError
 		switch {
+		case errors.Is(err, ErrPATPrincipalType):
+			api.ErrorResponse(ctx, w, c.logger,
+				api.ForbiddenError(api.ErrCodeForbidden, ErrPATPrincipalType.Error(), nil), nil)
 		case errors.Is(err, ErrPATNotFound):
 			api.ErrorResponse(ctx, w, c.logger,
 				api.NotFoundError(api.ErrCodeResourceNotFound, "PAT not found", nil), nil)
