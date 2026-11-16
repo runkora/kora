@@ -170,7 +170,7 @@ A run will fail the start budget only when no pod is coming up for it: no pod is
 
 kora-agents will run a scaler loop every 5 s, independent of the claim tick. For each agent the loop reads pod memory (2 s timeout per pod, outside any lock) and then waits up to 2 s for the agent lock. A timeout skips the agent for that pass. The replica that gets the lock re-reads the pending, active and starting run counts from the database, decides from those counts and the memory reading, and calls the StatefulSet scale subresource. The scaler will:
 
-*   Scale up in one step when runs are pending, the agent is under its total, and no Ready pod has room. It adds `ceil(pending × startingRunAllowance ÷ (placementWatermark × pod memory.max))` pods minus the pods already coming up, clamped to the agent's total. Pod `memory.max` comes from a Ready pod's report, else from the StatefulSet's container memory limit.
+*   Scale up in one step when runs are pending, the agent is under its total, and no Ready pod has room. It adds the pending runs that fit under the total, `min(pending, total − active − starting)`, as `desiredReplicas` computes it, minus the pods already coming up. Pod `memory.max` comes from a Ready pod's report, else from the StatefulSet's container memory limit.
 *   Scale down by one pod when the top pod (ordinal `replicas − 1`) is above `minReplicas` and has no active or starting run, and no run under the total is waiting. The empty-top-pod check and the scale call both happen under the lock.
 *   Scale up to `minReplicas` when the floor is raised above the live count.
 
@@ -190,7 +190,7 @@ New agent StatefulSets will use `podManagementPolicy: Parallel`. A live Stateful
 
 A busy agent keeps `OrderedReady` until its first idle scaler pass. If kora-agents stops between the delete and the create, the next apply creates the StatefulSet with `max(minReplicas, 1)` replicas and removes the idle pods above that count.
 
-The recreated StatefulSet carries the template of the same apply. The controller may then roll the adopted pods in the normal way with the SIGTERM drain.
+The recreated StatefulSet carries the live spec, and the adopted pods keep their revision.
 
 ### Removed
 
@@ -217,6 +217,7 @@ kora-agents will remove the CPU and memory HPA, `MaxReplicas: 10`, the chart che
 ### Known Limits
 
 *   A spot interruption drains the pods on the node regardless of this design.
+*   During an upgrade, a pod on the previous session-manager has no memory endpoint and counts as full until it rolls.
 
 ### Possible Later Improvement
 
@@ -253,9 +254,10 @@ kora-agents will remove the CPU and memory HPA, `MaxReplicas: 10`, the chart che
     *   Consequences: the HPA handling scaling, and the HPA as one of the resources per agent type.
     *   Implementation, Resources Per Agent Type: the `HorizontalPodAutoscaler` and the 1 replica minimum.
     *   Validation: the HPA scale-up within 2 minutes.
-    *   Amendment 1: the HPA minimum of 2.
+    *   Amendment 1: the HPA minimum of 2 and the selection of any Ready pod with a free slot.
     *   The rest of Agent Execution Infrastructure stands, including the StatefulSet, the stable pod DNS and the PodDisruptionBudget.
 *   [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md): the Run Scheduling amendment's start budget rule is superseded by the start budget rule here.
+*   [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md): its hard-isolation setting `MaxConcurrentRunsPerPod: 1` is removed, and `max_concurrent_runs: 1` caps the whole agent at one run.
 *   [Config-Driven Kustomize Manifest Patches](2026-09-15-manifest-patches-configmap.md): superseded in part: the HPA as a patch target, `ensureHPA`, and replicas owned by the HPA. StatefulSet replicas are owned by the scaler.
 *   [First-Class Customisation Points for Provisioned Agent Workloads](2026-09-16-first-class-workload-placement.md): `agents.workloads` carries the session-manager memory value.
 
