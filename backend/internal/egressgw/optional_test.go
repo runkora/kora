@@ -122,3 +122,44 @@ func TestEvaluatePolicy_GraphQLHeldCategories(t *testing.T) {
 		})
 	}
 }
+
+// A read accepts its category's write on the same repository, through the same
+// policy check, so delegation still applies.
+func TestEvaluatePolicy_WriteCoversRead(t *testing.T) {
+	conn := &credentials.Connection{Name: "github"}
+	read := func(qualifier string) credentials.Classification {
+		return credentials.Classification{Action: "pulls:read", Alternates: []string{"pulls:write"}, Qualifier: qualifier}
+	}
+	writeOnly := heldScopes{"github:pulls:widgets:write"}
+	delegation := &policy.DelegationClaims{Sub: "person-1", DelegatorPrincipalType: "HUMAN", RunID: "run-1"}
+	cases := []struct {
+		name       string
+		pol        policyChecker
+		qualifier  string
+		delegation *policy.DelegationClaims
+		want       []string
+	}{
+		{name: "a write-only grant reads its repository", pol: writeOnly, qualifier: "widgets", want: []string{"pulls:write"}},
+		{name: "a write-only grant is denied on another repository", pol: writeOnly, qualifier: "gadgets"},
+		{name: "a delegator lacking the write is denied", pol: delegatorBound{agent: writeOnly}, qualifier: "widgets", delegation: delegation},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tc.delegation != nil {
+				ctx = policy.WithDelegation(ctx, tc.delegation)
+			}
+			b := NewBroker(tc.pol, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
+			got, err := b.evaluatePolicy(ctx, &token.PlatformClaims{}, conn, read(tc.qualifier), EgressRequest{Host: "api.github.com", Method: "GET"})
+			if tc.want == nil {
+				if !errors.Is(err, ErrForbidden) {
+					t.Fatalf("want ErrForbidden, got %v (authorized %v)", err, got)
+				}
+				return
+			}
+			if err != nil || !slices.Equal(got, tc.want) {
+				t.Errorf("authorized = %v (err %v), want %v", got, err, tc.want)
+			}
+		})
+	}
+}

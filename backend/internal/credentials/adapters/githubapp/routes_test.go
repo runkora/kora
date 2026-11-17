@@ -223,9 +223,9 @@ func TestClassify_RESTEdgeCases(t *testing.T) {
 		{method: http.MethodGet, url: "https://api.github.com/user/repos", err: true},
 		{method: http.MethodGet, url: "https://api.github.com/user/%63odespaces", err: true},
 		{method: http.MethodGet, url: "https://api.github.com/user/12345", want: cls("metadata:read", "")},
-		{method: http.MethodHead, url: "https://api.github.com/repos/example-org/widgets/contents/README.md", want: cls("contents:read", "widgets")},
-		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/contents/", want: cls("contents:read", "widgets")},
-		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/tarball", want: cls("contents:read", "widgets")},
+		{method: http.MethodHead, url: "https://api.github.com/repos/example-org/widgets/contents/README.md", want: readCls("contents:read", "widgets")},
+		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/contents/", want: readCls("contents:read", "widgets")},
+		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/tarball", want: readCls("contents:read", "widgets")},
 		{method: http.MethodPost, url: "https://uploads.github.com/repos/example-org/widgets/releases/%2e%2e/assets", err: true},
 		{method: http.MethodGet, url: "https://github.com/example-org/%2e%2e/info/lfs/locks", err: true},
 	}
@@ -256,11 +256,11 @@ func TestClassify_HandWrittenSurfaces(t *testing.T) {
 		want                    credentials.Classification
 		err                     bool
 	}{
-		{name: "lfs download", method: http.MethodPost, url: "https://github.com/example-org/widgets.git/info/lfs/objects/batch", body: `{"operation":"download","objects":[]}`, want: cls("contents:read", "widgets")},
+		{name: "lfs download", method: http.MethodPost, url: "https://github.com/example-org/widgets.git/info/lfs/objects/batch", body: `{"operation":"download","objects":[]}`, want: readCls("contents:read", "widgets")},
 		{name: "lfs upload", method: http.MethodPost, url: "https://github.com/example-org/widgets.git/info/lfs/objects/batch", body: `{"operation":"upload","objects":[]}`, want: cls("contents:write", "widgets")},
 		{name: "lfs operation key is exact", method: http.MethodPost, url: "https://github.com/example-org/widgets.git/info/lfs/objects/batch", body: `{"operation":"upload","Operation":"download"}`, want: cls("contents:write", "widgets")},
 		{name: "lfs unknown operation", method: http.MethodPost, url: "https://github.com/example-org/widgets.git/info/lfs/objects/batch", body: `{"operation":"delete"}`, err: true},
-		{name: "lfs list locks", method: http.MethodGet, url: "https://github.com/example-org/widgets.git/info/lfs/locks", want: cls("contents:read", "widgets")},
+		{name: "lfs list locks", method: http.MethodGet, url: "https://github.com/example-org/widgets.git/info/lfs/locks", want: readCls("contents:read", "widgets")},
 		{name: "lfs create lock", method: http.MethodPost, url: "https://github.com/example-org/widgets.git/info/lfs/locks", body: `{}`, want: cls("contents:write", "widgets")},
 		{name: "lfs verify locks", method: http.MethodPost, url: "https://github.com/example-org/widgets.git/info/lfs/locks/verify", body: `{}`, want: cls("contents:write", "widgets")},
 		{name: "lfs foreign owner", method: http.MethodGet, url: "https://github.com/evil/widgets.git/info/lfs/locks", err: true},

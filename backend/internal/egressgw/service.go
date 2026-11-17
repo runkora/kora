@@ -386,7 +386,7 @@ func hostWithoutPort(host string) string {
 // A connector that qualifies by id has the node or repository ids the request
 // names resolved first, with a lookup limited to the categories the caller holds.
 // A failed scope read or lookup returns a policy_unavailable Denial, which the
-// anonymous fallback never serves. See
+// anonymous fallback never serves, except a release asset's lookup. See
 // docs/adr/2026-11-15-github-connector-route-coverage.md.
 func (b *Broker) classify(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, connector credentials.Connector, req EgressRequest) (credentials.Classification, error) {
 	q, ok := connector.(idQualifier)
@@ -411,7 +411,12 @@ func (b *Broker) classify(ctx context.Context, claims *token.PlatformClaims, con
 	}
 	// The lookup logs its own failure.
 	resolved, err := b.resolveRepositories(ctx, claims, req.Host, conn, q, ids, categories, lookup)
-	if err != nil {
+	switch {
+	case err != nil && isReleaseAssetHost(req.Host):
+		// A release asset's signed URL needs no credential, so an unresolved id
+		// leaves it unqualified and the anonymous read fallback can still serve it.
+		return connector.Classify(req.HTTPRequest)
+	case err != nil:
 		return credentials.Classification{}, deny(DenialPolicyUnavailable, req.Host, conn, credentials.Classification{}, err)
 	}
 	// A repository the caller holds no grant on stays unresolved, so no denial names it.

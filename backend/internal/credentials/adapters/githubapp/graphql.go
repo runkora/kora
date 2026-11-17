@@ -15,8 +15,8 @@ import (
 	"github.com/runkora/kora/backend/internal/credentials"
 )
 
-// A GraphQL query needs a read grant, and a mutation a write grant, on the
-// repository the document targets. See
+// A GraphQL query needs a read or write grant, or the metadata baseline, and a
+// mutation a write grant, on the repository the document targets. See
 // docs/adr/2026-11-15-github-connector-route-coverage.md, items 11 to 14.
 
 // graphqlBodySizeLimit caps how much of a GraphQL request body is read for
@@ -42,8 +42,9 @@ var graphqlCategories = []string{catContents, catWorkflows, catIssues, catPulls,
 const fieldSearch = "search"
 
 // classifyGraphQL requires any repository category at the operation's level on
-// the repository the document targets, or for a query the metadata baseline,
-// and the broker mints every one the grant holds. The body is always restored
+// the repository the document targets, or for a query the metadata baseline;
+// ClassifyResolved adds each category's write to a query. The broker mints
+// every one the grant holds. The body is always restored
 // so the gateway forwards it byte for byte. A body that cannot be read, parsed
 // or attributed to one operation, and a subscription, are unclassified. repos
 // holds the resolved node ids.

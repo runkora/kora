@@ -184,9 +184,37 @@ func (c *connector) Classify(req *http.Request) (credentials.Classification, err
 
 // ClassifyResolved is Classify with the node and repository ids the request
 // names resolved to "owner/name" by NodeRepositories and Repositories. An id
-// absent from repos is unresolved. See
-// docs/adr/2026-11-15-github-connector-route-coverage.md.
+// absent from repos is unresolved. A read also accepts its category's write.
+// See docs/adr/2026-11-15-github-connector-route-coverage.md.
 func (c *connector) ClassifyResolved(req *http.Request, repos map[string]string) (credentials.Classification, error) {
+	cls, err := c.classify(req, repos)
+	if err != nil {
+		return credentials.Classification{}, err
+	}
+	acceptWrites(&cls)
+	return cls, nil
+}
+
+// acceptWrites adds each read action's write as an alternate, so a write grant
+// covers the read. The write mints the read's exact permissions when it has
+// them, keeping the token at read level.
+func acceptWrites(cls *credentials.Classification) {
+	for _, action := range append([]string{cls.Action}, cls.Alternates...) {
+		category, verb := splitAction(action)
+		write := category + ":" + verbWrite
+		if verb != verbRead || category == catMetadata || category == catRepo ||
+			write == cls.Action || slices.Contains(cls.Alternates, write) {
+			continue
+		}
+		cls.Alternates = append(cls.Alternates, write)
+		if perms, ok := cls.Permissions[action]; ok {
+			cls.Permissions[write] = perms
+		}
+	}
+}
+
+// classify is ClassifyResolved before reads accept writes.
+func (c *connector) classify(req *http.Request, repos map[string]string) (credentials.Classification, error) {
 	if req == nil || req.URL == nil {
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
@@ -220,6 +248,8 @@ func (c *connector) ClassifyResolved(req *http.Request, repos map[string]string)
 		return classifyResultsReceiver(req.Method, path)
 	case uploadsHost:
 		return classifyReleaseUpload(req.Method, escaped, owner)
+	case releaseAssetsHost:
+		return classifyReleaseAsset(req.Method, path, owner, repos)
 	}
 	if host == "codeload.github.com" || strings.HasSuffix(host, ".githubusercontent.com") {
 		return classifyContentHost(req.Method, path, owner)
@@ -245,9 +275,10 @@ const (
 	subjectSearch  = "search query"
 )
 
-// RequestOwners returns the accounts and node ids a request names: the path
-// owner, else the owners and node ids of a GraphQL document, else the owners of
-// a search query. See docs/adr/2026-10-15-same-host-connection-selection.md.
+// RequestOwners returns the accounts and ids a request names: the path owner,
+// else the owners and node ids of a GraphQL document, else the owners of a
+// search query, else the repository id of a /repositories/{id} path or release
+// asset. See docs/adr/2026-10-15-same-host-connection-selection.md.
 func (c *connector) RequestOwners(req *http.Request) credentials.RequestOwners {
 	if req == nil || req.URL == nil {
 		return credentials.RequestOwners{Subject: subjectPath}
@@ -267,7 +298,7 @@ func (c *connector) RequestOwners(req *http.Request) credentials.RequestOwners {
 		}
 		return credentials.RequestOwners{Subject: subjectPath}
 	case strings.HasSuffix(host, ".githubusercontent.com") && host != "raw.githubusercontent.com":
-		return credentials.RequestOwners{Subject: subjectPath}
+		return contentHostOwners(host, segs)
 	case len(segs) >= 2:
 		return pathOwner(segs[0])
 	default:
@@ -591,7 +622,7 @@ func classifyResultsReceiver(method, path string) (credentials.Classification, e
 // there; the repository qualifier is extracted when the path is owner-addressed
 // (/{owner}/{repo}/…) and the owner matches. Opaque shapes (LFS object URLs)
 // classify unqualified rather than denying, satisfiable only by an unqualified
-// contents:read grant, per the qualifier pattern's fail-closed rule.
+// contents grant, per the qualifier pattern's fail-closed rule.
 func classifyContentHost(method, path, owner string) (credentials.Classification, error) {
 	verb, err := verbClass(method)
 	if err != nil || verb != verbRead {
@@ -602,6 +633,43 @@ func classifyContentHost(method, path, owner string) (credentials.Classification
 		qualifier = normalizeName(segs[1])
 	}
 	return credentials.Classification{Action: ActionContentsRead, Qualifier: qualifier}, nil
+}
+
+// releaseAssetsHost serves the signed download of a release asset, addressed
+// by repository id.
+const releaseAssetsHost = "release-assets.githubusercontent.com"
+
+// contentHostOwners reads a content host path, which names no owner. A
+// release asset names the repository id it belongs to.
+func contentHostOwners(host string, segs []string) credentials.RequestOwners {
+	if id := releaseAssetRepoID(segs); host == releaseAssetsHost && id != "" {
+		return credentials.RequestOwners{RepoIDs: []string{id}, Subject: subjectPath}
+	}
+	return credentials.RequestOwners{Subject: subjectPath}
+}
+
+// releaseAssetRepoID returns the repository id of a release asset download path
+// (/github-production-release-asset/{repo_id}/...), or "".
+func releaseAssetRepoID(segs []string) string {
+	if len(segs) >= 3 && segs[0] == "github-production-release-asset" && isDigits(segs[1]) {
+		return segs[1]
+	}
+	return ""
+}
+
+// classifyReleaseAsset reads contents, qualified by the repository its id
+// resolves to when that is the owner's. Otherwise it stays unqualified, as on
+// the other content hosts.
+func classifyReleaseAsset(method, path, owner string, repos map[string]string) (credentials.Classification, error) {
+	cls, err := classifyContentHost(method, "/", owner)
+	if err != nil {
+		return cls, err
+	}
+	repoOwner, name, ok := strings.Cut(repos[releaseAssetRepoID(pathSegments(path))], "/")
+	if ok && owner != "" && repoOwner == owner {
+		cls.Qualifier = name
+	}
+	return cls, nil
 }
 
 // classifyGitLFS maps the git LFS API under /{owner}/{repo}(.git)/info/lfs/. A

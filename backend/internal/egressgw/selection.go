@@ -2,6 +2,7 @@ package egressgw
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -105,7 +106,8 @@ func (b *Broker) selectConnection(ctx context.Context, claims *token.PlatformCla
 	case len(held) > 1 && len(ids) > MaxNodeIDs:
 		return nil, unresolved(req.Host, candidates, true, fmt.Sprintf("the %s names more than %d %s", target.Subject, MaxNodeIDs, lookup.subject))
 	case len(held) > 1 && len(ids) > 0:
-		return b.selectByIDs(ctx, claims, req.Host, candidates, held, scoped, scopes, target, ids, lookup)
+		conn, err := b.selectByIDs(ctx, claims, req.Host, candidates, held, scoped, scopes, target, ids, lookup)
+		return conn, releaseAssetUnambiguous(req.Host, err)
 	}
 	// A signed release-asset URL carries its own authorization and names no owner.
 	// It is unresolved but not ambiguous, so only the anonymous read fallback serves it.
@@ -114,6 +116,16 @@ func (b *Broker) selectConnection(ctx context.Context, claims *token.PlatformCla
 
 // releaseAssetHost serves the signed redirect target of a GitHub release download.
 const releaseAssetHost = "release-assets.githubusercontent.com"
+
+// releaseAssetUnambiguous keeps a release asset whose repository id selects no
+// connection unambiguous, so the anonymous read fallback can still serve it.
+func releaseAssetUnambiguous(host string, err error) error {
+	var d *Denial
+	if errors.As(err, &d) && isReleaseAssetHost(host) {
+		d.ambiguous = false
+	}
+	return err
+}
 
 func isReleaseAssetHost(host string) bool {
 	return strings.EqualFold(strings.TrimSuffix(host, "."), releaseAssetHost)

@@ -32,6 +32,10 @@ func TestClassify_QualifiesByResolvedIDs(t *testing.T) {
 		r := httptest.NewRequest(http.MethodGet, "https://api.github.com"+path, nil)
 		return EgressRequest{Host: r.Host, Method: http.MethodGet, URL: r.URL, HTTPRequest: r}
 	}
+	asset := func(id string) EgressRequest {
+		r := httptest.NewRequest(http.MethodGet, "https://release-assets.githubusercontent.com/github-production-release-asset/"+id+"/abc?sig=x", nil)
+		return EgressRequest{Host: r.Host, Method: http.MethodGet, URL: r.URL, HTTPRequest: r}
+	}
 
 	tests := []struct {
 		name           string
@@ -52,6 +56,8 @@ func TestClassify_QualifiesByResolvedIDs(t *testing.T) {
 		{name: "a failed lookup fails closed", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: update("PR_w"), lookupErr: errors.New("github down"), wantErr: true, wantCategories: []string{"pulls"}},
 		{name: "a failed scope read fails closed", req: update("PR_w"), scopesErr: errors.New("opa down"), wantErr: true},
 		{name: "repository id path classifies as its repos path", scopes: []string{"connection:fabrikam-github:pulls:widgets:read"}, req: repoPath("/repositories/522/pulls/7/files?page=2"), wantQualifier: "widgets", wantAction: "pulls:read", wantCategories: []string{"pulls"}},
+		{name: "release asset is qualified by its repository id", scopes: []string{"connection:fabrikam-github:contents:widgets:read"}, req: asset("522"), wantQualifier: "widgets", wantAction: "contents:read", wantCategories: []string{"contents"}},
+		{name: "unresolved release asset stays unqualified", scopes: []string{"connection:fabrikam-github:contents:widgets:read"}, req: asset("9"), wantAction: "contents:read", wantCategories: []string{"contents"}},
 		{name: "unresolved repository id is unclassified", scopes: []string{"connection:fabrikam-github:pulls:widgets:read"}, req: repoPath("/repositories/9/pulls"), wantErr: true, wantCategories: []string{"pulls"}},
 	}
 	for _, tc := range tests {
@@ -146,6 +152,36 @@ func TestAuthorize_FailedIDResolutionIsPolicyUnavailable(t *testing.T) {
 			var d *Denial
 			if !errors.As(err, &d) || d.Reason != DenialPolicyUnavailable {
 				t.Fatalf("Authorize = %+v, err %v, want a policy_unavailable denial", dec, err)
+			}
+		})
+	}
+}
+
+// A release asset's signed URL needs no credential, so when its repository id
+// does not select or qualify a connection the anonymous read fallback serves it.
+func TestAuthorize_ReleaseAssetFallsBackToAnonymous(t *testing.T) {
+	fabrikam, contoso := githubConn(t, "fabrikam-github", "fabrikam"), githubConn(t, "contoso-github", "contoso")
+	r := httptest.NewRequest(http.MethodGet, "https://release-assets.githubusercontent.com/github-production-release-asset/522/abc?sig=x", nil)
+	req := EgressRequest{Host: r.Host, Method: http.MethodGet, URL: r.URL, HTTPRequest: r}
+	tests := []struct {
+		name    string
+		conns   candidateConns
+		scopes  []string
+		visible map[string]map[string]string
+		err     error
+	}{
+		{name: "one connection whose lookup fails", conns: candidateConns{fabrikam}, scopes: []string{"connection:fabrikam-github:contents:widgets:read"}, err: errors.New("github down")},
+		{name: "two held connections and an id neither serves", conns: candidateConns{fabrikam, contoso},
+			scopes:  []string{"connection:fabrikam-github:contents:read", "connection:contoso-github:contents:read"},
+			visible: map[string]map[string]string{"fabrikam-github": {"522": "octocat/tools"}, "contoso-github": {"522": "octocat/tools"}}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			la := &lookupAdapter{visible: tc.visible, err: tc.err, qualifying: true}
+			pol := &selectionPolicy{scopes: tc.scopes, ownEgress: true}
+			dec, err := lookupBroker(pol, tc.conns, la).Authorize(context.Background(), acmeClaims, req)
+			if err != nil || dec.Action != anonymousReadAction || dec.Credential.Token != "" {
+				t.Fatalf("Authorize = %+v, err %v, want an anonymous read", dec, err)
 			}
 		})
 	}

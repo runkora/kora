@@ -65,8 +65,15 @@ func githubConn(t *testing.T, name, owner string) *credentials.Connection {
 func selectionBroker(pol *selectionPolicy, conns candidateConns) *Broker {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	adapters := NewAdapterRegistry()
-	adapters.Register(githubapp.New(nil, nil, logger))
+	adapters.Register(githubapp.New(nil, noSecrets{}, logger))
 	return NewBroker(pol, conns, adapters, passthrough.New(), logger)
+}
+
+// noSecrets fails every secret read, so every id lookup fails.
+type noSecrets struct{}
+
+func (noSecrets) Resolve(context.Context, string) ([]byte, error) {
+	return nil, errors.New("no secrets in this test")
 }
 
 func egressRequest(method, url string) EgressRequest {
