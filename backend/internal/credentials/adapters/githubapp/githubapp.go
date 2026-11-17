@@ -127,8 +127,8 @@ func New(api API, secrets credentials.SecretResolver, logger logging.Logger) *Ad
 // Type reports the adapter type served.
 func (a *Adapter) Type() credentials.AdapterType { return credentials.AdapterGitHubApp }
 
-// Action constants returned by Classify. Sourced from the shared adapter
-// metadata table so the classifier and the published vocabulary cannot drift.
+// Action constants returned by Classify, from the shared adapter metadata table.
+// TestCategories_MatchVocabulary checks the classifier and the vocabulary agree.
 // They combine with the connection name (and optional repository qualifier) to
 // form "connection:<name>:<category>[:<repo>]:<verb>".
 const (

@@ -46,7 +46,6 @@ const (
 	ActionGitHubMetadataRead     = "metadata:read"
 	ActionGitHubContentsRead     = "contents:read"
 	ActionGitHubContentsWrite    = "contents:write"
-	ActionGitHubWorkflowsRead    = "workflows:read"
 	ActionGitHubWorkflowsWrite   = "workflows:write"
 	ActionGitHubIssuesRead       = "issues:read"
 	ActionGitHubIssuesWrite      = "issues:write"
@@ -146,7 +145,7 @@ type adapterMeta struct {
 // legacy repo:read / repo:write umbrellas confer via requires edges, keeping
 // pre-category grants behaviorally identical.
 var githubCategoryReads = []string{
-	ActionGitHubMetadataRead, ActionGitHubContentsRead, ActionGitHubWorkflowsRead, ActionGitHubIssuesRead,
+	ActionGitHubMetadataRead, ActionGitHubContentsRead, ActionGitHubIssuesRead,
 	ActionGitHubPullsRead, ActionGitHubCIRead, ActionGitHubDeploymentsRead, ActionGitHubSecurityRead,
 	ActionGitHubSecretsRead, ActionGitHubAdminRead, ActionGitHubMembersRead, ActionGitHubOrgProjectsRead,
 }
@@ -168,7 +167,6 @@ var registry = map[string]adapterMeta{
 			{Action: ActionGitHubMetadataRead, Description: "Read repository metadata, rate limits, and installation identity (probed by most GitHub clients before any real work)"},
 			{Action: ActionGitHubContentsRead, Description: "Read repository contents: clone and fetch, files, commits, branches, tags, releases and archives (GitHub contents)", Requires: githubMeta},
 			{Action: ActionGitHubContentsWrite, Description: "Write repository contents: push, file and git data writes, releases and merging pull requests (GitHub contents)", Requires: githubMeta},
-			{Action: ActionGitHubWorkflowsRead, Description: "Read GitHub Actions workflow files (GitHub workflows)", Requires: githubMeta},
 			{Action: ActionGitHubWorkflowsWrite, Description: "Change GitHub Actions workflow files (GitHub workflows)", Requires: githubMeta},
 			{Action: ActionGitHubIssuesRead, Description: "Read issues, comments, labels, milestones and assignees (GitHub issues)", Requires: githubMeta},
 			{Action: ActionGitHubIssuesWrite, Description: "Create and edit issues, comments, labels and milestones (GitHub issues)", Requires: githubMeta},

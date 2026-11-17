@@ -18,7 +18,7 @@ func TestActionNames(t *testing.T) {
 		AdapterGitHubApp: {
 			"metadata:read",
 			"contents:read", "contents:write",
-			"workflows:read", "workflows:write",
+			"workflows:write",
 			"issues:read", "issues:write",
 			"pulls:read", "pulls:write",
 			"ci:read", "ci:write",

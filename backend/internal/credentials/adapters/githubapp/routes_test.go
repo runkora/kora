@@ -11,11 +11,50 @@ import (
 	"testing"
 
 	"github.com/runkora/kora/backend/internal/credentials"
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
 )
 
-// Every endpoint in GitHub's data classifies through its own template: to the
-// categories of its permissions, or, when no permission set falls within the
-// categories, to the classification error.
+// The classifier's categories and the connection's published actions match
+// both ways, so no classification names an action no grant can hold.
+func TestCategories_MatchVocabulary(t *testing.T) {
+	declared := map[string]bool{}
+	for _, a := range platformconns.ActionNames(platformconns.AdapterGitHubApp) {
+		declared[a] = true
+	}
+	produced := map[string]bool{}
+	for i := range restRoutes {
+		if cls, ok := routeClassification(&restRoutes[i]); ok {
+			for _, a := range append(append([]string{cls.Action}, cls.Alternates...), cls.AlsoRequired...) {
+				produced[a] = true
+			}
+		}
+	}
+	for _, r := range []requirement{reqMetadata, reqContents, reqIssues, reqPulls, reqCI, reqAdmin, reqIssueOrPR, reqWContents, reqWIssues, reqWPulls, reqWIssueOrPR} {
+		for _, a := range r {
+			produced[a] = true
+		}
+	}
+	for a := range produced {
+		if !declared[a] {
+			t.Errorf("classifier returns %s, which the vocabulary does not publish", a)
+		}
+	}
+	for a := range declared {
+		if category, _ := splitAction(a); category != catMetadata && category != catRepo && categoryPermissions[category] == nil {
+			t.Errorf("vocabulary publishes %s, which no category mints", a)
+		}
+	}
+	for category := range categoryPermissions {
+		if !declared[category+":"+verbRead] && !declared[category+":"+verbWrite] {
+			t.Errorf("category %s is not published", category)
+		}
+	}
+}
+
+// Every endpoint in GitHub's data classifies through its own template, and is
+// allowed exactly when the data allows it. An allowed endpoint mints one of
+// its own permission sets: the action with its required actions together,
+// and each alternate alone.
 func TestClassify_EveryRESTEndpoint(t *testing.T) {
 	c := graphqlConnector(t)
 	for i := range restRoutes {
@@ -31,23 +70,61 @@ func TestClassify_EveryRESTEndpoint(t *testing.T) {
 			t.Errorf("%s %s matched %v", r.Method, r.Path, got)
 			continue
 		}
-		want, ok := routeClassification(r)
 		got, err := c.Classify(req)
 		switch {
-		case !ok && !errors.Is(err, credentials.ErrUnsupportedAction):
-			t.Errorf("%s %s: err = %v, want ErrUnsupportedAction for permissions %v", r.Method, r.Path, err, r.Sets)
-		case ok && err != nil:
+		case !dataAllows(r):
+			if !errors.Is(err, credentials.ErrUnsupportedAction) {
+				t.Errorf("%s %s: err = %v, want ErrUnsupportedAction for permissions %v", r.Method, r.Path, err, r.Sets)
+			}
+		case err != nil:
 			t.Errorf("%s %s: Classify: %v", r.Method, r.Path, err)
-		case ok && (got.Action != want.Action || !slices.Equal(got.AlsoRequired, want.AlsoRequired)):
-			t.Errorf("%s %s: classification = %+v, want %+v", r.Method, r.Path, got, want)
-		case ok:
-			for _, action := range append([]string{got.Action}, append(got.Alternates, got.AlsoRequired...)...) {
-				if _, minted := got.Permissions[action]; !minted {
-					t.Errorf("%s %s: no permissions for %s", r.Method, r.Path, action)
+		case got.Action == ActionMetadataRead:
+		default:
+			sets := [][]string{append([]string{got.Action}, got.AlsoRequired...)}
+			for _, alt := range got.Alternates {
+				sets = append(sets, []string{alt})
+			}
+			for _, actions := range sets {
+				minted := permissionSet{}
+				for _, a := range actions {
+					maps.Copy(minted, got.Permissions[a])
+				}
+				if !slices.ContainsFunc(r.Sets, func(s permissionSet) bool { return maps.Equal(withoutMetadata(s), minted) }) {
+					t.Errorf("%s %s: %v mints %v, not a set of %v", r.Method, r.Path, actions, minted, r.Sets)
 				}
 			}
 		}
 	}
+}
+
+// dataAllows reads GitHub's data for an endpoint: callable by installation
+// tokens, with a set every permission of which has a category, and not a write
+// that needs only metadata.
+func dataAllows(r *restRoute) bool {
+	if r.Refused {
+		return false
+	}
+	if len(r.Sets) == 0 {
+		return r.Method == http.MethodGet
+	}
+	usable := false
+	for _, s := range r.Sets {
+		inside := true
+		for perm := range withoutMetadata(s) {
+			inside = inside && permissionCategory[perm] != ""
+		}
+		if inside && len(withoutMetadata(s)) == 0 && r.Method != http.MethodGet {
+			return false
+		}
+		usable = usable || inside
+	}
+	return usable
+}
+
+func withoutMetadata(s permissionSet) permissionSet {
+	out := maps.Clone(s)
+	delete(out, catMetadata)
+	return out
 }
 
 // concretePath fills a route template: the connection's owner and a repository
@@ -139,7 +216,7 @@ func TestClassify_RESTEdgeCases(t *testing.T) {
 		{method: http.MethodGet, url: "https://api.github.com/user/repos", err: true},
 		{method: http.MethodGet, url: "https://api.github.com/user/%63odespaces", err: true},
 		{method: http.MethodGet, url: "https://api.github.com/user/12345", want: cls("metadata:read", "")},
-		{method: http.MethodGet, url: "https://api.github.com/rate_limit", want: cls("metadata:read", "")},
+		{method: http.MethodHead, url: "https://api.github.com/repos/example-org/widgets/contents/README.md", want: cls("contents:read", "widgets")},
 		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/contents/", want: cls("contents:read", "widgets")},
 		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/tarball", want: cls("contents:read", "widgets")},
 		{method: http.MethodPost, url: "https://uploads.github.com/repos/example-org/widgets/releases/%2e%2e/assets", err: true},
