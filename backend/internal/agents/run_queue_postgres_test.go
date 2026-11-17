@@ -18,7 +18,7 @@ func queueRun(t *testing.T, r *PostgresRepository, tenant, agentTypeID string, c
 	t.Helper()
 	ctx := context.Background()
 	run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: agentTypeID, InitialMessage: "do " + createdAt.String()}
-	if err := r.CreateRun(ctx, run); err != nil {
+	if _, err := r.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
 	if _, err := r.pool.Exec(ctx, `UPDATE runs SET created_at=$1, not_before=$2 WHERE id=$3`, createdAt, notBefore, run.ID); err != nil {
@@ -192,7 +192,7 @@ func TestPostgres_QueueRun(t *testing.T) {
 	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
 	ctx := context.Background()
 	run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID}
-	if err := r.CreateRun(ctx, run); err != nil {
+	if _, err := r.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
 	if got := claimOwn(t, r, tenant, time.Now()); len(got) != 0 {
@@ -257,7 +257,7 @@ func TestPostgres_RunTraceParent(t *testing.T) {
 	ids := map[string]string{}
 	for _, tp := range []string{sampled, unsampled, ""} {
 		run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, TraceParent: tp}
-		if err := r.CreateRun(ctx, run); err != nil {
+		if _, err := r.CreateRun(ctx, run); err != nil {
 			t.Fatalf("CreateRun: %v", err)
 		}
 		if err := r.QueueRun(ctx, run.ID, time.Now().UTC()); err != nil {

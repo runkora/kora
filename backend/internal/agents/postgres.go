@@ -333,7 +333,10 @@ func (r *PostgresRepository) SoftDeleteAgentType(ctx context.Context, id string)
 
 // ── Runs ──────────────────────────────────────────────────────────────────────
 
-func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
+// CreateRun inserts a pending run. A run with a trigger and a delivery id is skipped when
+// runs_trigger_delivery_key already holds that (tenant, trigger, delivery); the caller
+// then reads the first run with GetRunByDelivery. Other runs take a plain insert.
+func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) (bool, error) {
 	if run.ID == "" {
 		run.ID = uuid.NewString()
 	}
@@ -344,7 +347,7 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 	triggerIDs := append([]string{}, run.TriggerIDs...)
 	sourcesJSON, encErr := json.Marshal(mergeRunSources(nil, run.Sources))
 	if encErr != nil {
-		return fmt.Errorf("encode run sources: %w", encErr)
+		return false, fmt.Errorf("encode run sources: %w", encErr)
 	}
 	if run.StartedBy != nil {
 		triggerID = storage.NullIfZero(run.StartedBy.TriggerID)
@@ -355,12 +358,17 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 			triggerIDs = append(triggerIDs, id)
 		}
 	}
-	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
-		_, err := r.pool.Exec(ctx, `
+	conflict := ""
+	if triggerID != nil && deliveryID != nil {
+		conflict = ` ON CONFLICT ON CONSTRAINT runs_trigger_delivery_key DO NOTHING`
+	}
+	inserted := false
+	err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		tag, err := r.pool.Exec(ctx, `
 			INSERT INTO runs
 				(id, tenant_id, agent_type_id, state, pod_ordinal, created_by, created_at, updated_at,
 				 trigger_id, trigger_name, trigger_kind, delivery_id, initial_message, trace_parent, caused_by, chain_depth, trigger_ids, sources)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`+conflict,
 			run.ID, run.TenantID, run.AgentTypeID, string(RunStatePending), -1, run.CreatedBy, now, now,
 			triggerID, triggerName, triggerKind, deliveryID, run.InitialMessage, storage.NullIfZero(run.TraceParent),
 			storage.NullIfZero(run.CausedBy), run.ChainDepth, triggerIDs, sourcesJSON,
@@ -368,12 +376,27 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 		if err != nil {
 			return fmt.Errorf("insert run: %w", err)
 		}
+		if tag.RowsAffected() != 1 {
+			return nil
+		}
+		inserted = true
 		created, err := r.GetRun(ctx, run.ID)
 		if err != nil {
 			return err
 		}
 		return events.Publish(ctx, r.pool, runEvent(events.RunCreated, *created, newRunEntity(*created)))
 	})
+	if err != nil {
+		return false, err
+	}
+	return inserted, nil
+}
+
+// GetRunByDelivery returns the run a trigger delivery started, or ErrNotFound.
+func (r *PostgresRepository) GetRunByDelivery(ctx context.Context, tenantID, triggerID, deliveryID string) (*Run, error) {
+	row := r.pool.QueryRow(ctx, selectRun+` WHERE r.tenant_id=$1 AND r.trigger_id=$2 AND r.delivery_id=$3`,
+		tenantID, triggerID, deliveryID)
+	return scanRun(row)
 }
 
 // selectRun joins agent_types so every run read carries the agent's identity mode, slug and name.
@@ -671,6 +694,15 @@ func (r *PostgresRepository) MarkRunFailed(ctx context.Context, id string) error
 		}
 		return r.publishState(ctx, id, "", RunStateFailed)
 	})
+}
+
+// ReleaseRunDelivery clears delivery_id so the unique key frees up for a retry. Only a
+// failed start calls it: that run never started, and a run that did start keeps its key.
+func (r *PostgresRepository) ReleaseRunDelivery(ctx context.Context, id string) error {
+	if _, err := r.pool.Exec(ctx, `UPDATE runs SET delivery_id=NULL, updated_at=$1 WHERE id=$2`, time.Now().UTC(), id); err != nil {
+		return fmt.Errorf("release run delivery: %w", err)
+	}
+	return nil
 }
 
 // SetRunSummary writes the task summary set-once: the first summary for a run

@@ -217,8 +217,34 @@ func (s *RunService) authorizeStart(ctx context.Context, span trace.Span, req St
 	return at, nil
 }
 
+// authorizeStartRun runs StartRun's authorization steps in order: may this
+// caller start this agent, may it also say a trigger is why, is the causal chain
+// valid, and may it record the sources and event.
+func (s *RunService) authorizeStartRun(ctx context.Context, span trace.Span, req StartRunRequest, tenantID string) (*AgentType, *StartedByTrigger, runChain, []RunSource, error) {
+	at, err := s.authorizeStart(ctx, span, req, tenantID)
+	if err != nil {
+		return nil, nil, runChain{}, nil, err
+	}
+	startedBy, err := s.authorizeAttribution(ctx, span, req)
+	if err != nil {
+		return nil, nil, runChain{}, nil, err
+	}
+	chain, err := requestChain(ctx, s.repo, startedBy, req.CausedBy, req.ChainDepth, "")
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanAuthorizeTriggerAttribution)
+		return nil, nil, runChain{}, nil, err
+	}
+	sources, err := authorizeRunRecord(ctx, span, req.Sources, req.Event)
+	if err != nil {
+		return nil, nil, runChain{}, nil, err
+	}
+	return at, startedBy, chain, sources, nil
+}
+
 // StartRun writes a pending run and returns it. A RunScheduler starts it on a
-// pod (docs/adr/2026-10-12-run-scheduling.md). Tenant and created_by are
+// pod (docs/adr/2026-10-12-run-scheduling.md). A repeat call for the same trigger
+// delivery (docs/adr/2026-11-08-start-run-idempotent-on-delivery.md) starts nothing:
+// it returns the first run with AlreadyStarted set, after the same authorization. Tenant and created_by are
 // derived from the verified platform claims in ctx; request-body values are
 // ignored.
 //
@@ -252,23 +278,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		createdBy = claims.Subject
 	}
 
-	// Two separate questions, in order: may this caller start this agent, and
-	// may it also say a trigger is why.
-	at, err := s.authorizeStart(ctx, span, req, tenantID)
-	if err != nil {
-		return nil, err
-	}
-	startedBy, err := s.authorizeAttribution(ctx, span, req)
-	if err != nil {
-		return nil, err
-	}
-	chain, err := requestChain(ctx, s.repo, startedBy, req.CausedBy, req.ChainDepth, "")
-	if err != nil {
-		observability.RecordFailure(span, err, errSpanAuthorizeTriggerAttribution)
-		return nil, err
-	}
-
-	sources, err := authorizeRunRecord(ctx, span, req.Sources, req.Event)
+	at, startedBy, chain, sources, err := s.authorizeStartRun(ctx, span, req, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -303,9 +313,13 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		}
 	}
 
-	if err := s.repo.CreateRun(ctx, run); err != nil {
+	inserted, err := s.repo.CreateRun(ctx, run)
+	if err != nil {
 		observability.RecordFailure(span, err, errSpanCreateRun)
 		return nil, fmt.Errorf("create run: %w", err)
+	}
+	if !inserted {
+		return s.existingRunForDelivery(ctx, span, startedBy)
 	}
 	createdRunID = run.ID
 
@@ -344,6 +358,29 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		return stored, nil
 	}
 	return &run, nil
+}
+
+// errNoRowWithoutDelivery reports that CreateRun inserted no row for a run that has no trigger delivery.
+var errNoRowWithoutDelivery = errors.New("no row inserted for a run without a trigger delivery")
+
+// existingRunForDelivery returns the run an earlier call created for the same trigger
+// delivery. It is StartRun's dedup path, which returns before anything is minted or
+// queued; createdRunID stays empty so the failed-start cleanup cannot touch the run.
+func (s *RunService) existingRunForDelivery(ctx context.Context, span trace.Span, startedBy *StartedByTrigger) (*Run, error) {
+	if startedBy == nil {
+		return nil, fmt.Errorf("create run: %w", errNoRowWithoutDelivery)
+	}
+	existing, err := s.repo.GetRunByDelivery(ctx, tenantFromContext(ctx), startedBy.TriggerID, startedBy.DeliveryID)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanGetRun)
+		return nil, fmt.Errorf("get run by delivery: %w", err)
+	}
+	s.logger.Info(ctx, "Run already started for delivery",
+		logging.Field{Key: "run_id", Value: existing.ID},
+		logging.Field{Key: "delivery_id", Value: startedBy.DeliveryID},
+	)
+	existing.AlreadyStarted = true
+	return existing, nil
 }
 
 // loadRunForAction loads a run together with its agent type, enforcing tenant
