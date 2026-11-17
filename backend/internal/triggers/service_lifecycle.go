@@ -790,6 +790,9 @@ func applyMatchingUpdate(t *Trigger, req UpdateTriggerRequest) error {
 	if err := validateCoalesceOverflow(t.Coalesce, t.Overflow); err != nil {
 		return err
 	}
+	if err := validateMatchLists("match_condition", req.MatchCondition); err != nil {
+		return err
+	}
 	if req.MatchContains != nil {
 		if err := validateContains(req.MatchContains); err != nil {
 			return err

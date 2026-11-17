@@ -822,3 +822,68 @@ func TestCreateTrigger_ProvisioningAgentIsValidationError(t *testing.T) {
 		}
 	}
 }
+
+func TestCreateTrigger_RejectsEmptyMatchLists(t *testing.T) {
+	_, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
+	empty := map[string][]string{"repository.full_name": {}}
+	cases := map[string]struct {
+		mutate func(*CreateTriggerRequest)
+		field  string
+	}{
+		"match":          {func(r *CreateTriggerRequest) { r.MatchCondition = empty }, "match_condition"},
+		"match_contains": {func(r *CreateTriggerRequest) { r.MatchContains = empty }, "match_contains"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			req := validReq(KindWebhook)
+			req.SourceID = src.ID
+			tc.mutate(&req)
+			_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req)
+			if !errors.Is(err, ErrValidation) || !strings.Contains(err.Error(), tc.field) || !strings.Contains(err.Error(), "repository.full_name") {
+				t.Fatalf("err = %v, want ErrValidation naming %s and the key", err, tc.field)
+			}
+		})
+	}
+	// Absent and empty-map conditions are still accepted.
+	for _, m := range []map[string][]string{nil, {}} {
+		req := validReq(KindWebhook)
+		req.SourceID = src.ID
+		req.MatchCondition, req.MatchContains = m, m
+		if _, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req); err != nil {
+			t.Fatalf("create with %v: %v", m, err)
+		}
+	}
+}
+
+func TestUpdateTrigger_EmptyMatchLists(t *testing.T) {
+	_, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
+	ctx := context.Background()
+	empty := map[string][]string{"repository.full_name": {}}
+
+	tr := mustTrigger(t, deps.triggers, src.ID, map[string][]string{"action": {"opened"}}, "p")
+	for name, req := range map[string]UpdateTriggerRequest{
+		"match":          {MatchCondition: empty},
+		"match_contains": {MatchContains: empty},
+	} {
+		if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, nil, req); !errors.Is(err, ErrValidation) {
+			t.Errorf("%s: err = %v, want ErrValidation", name, err)
+		}
+	}
+	if got := deps.repo.triggers[tr.ID]; len(got.MatchCondition["action"]) != 1 || len(got.MatchContains) != 0 {
+		t.Errorf("stored trigger changed: %+v %+v", got.MatchCondition, got.MatchContains)
+	}
+
+	// A legacy stored empty list does not block a PATCH that leaves the condition alone.
+	deps.repo.triggers[tr.ID].MatchCondition = empty
+	newPrompt := "other"
+	newEvent := "issues"
+	if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, nil, UpdateTriggerRequest{PromptTemplate: &newPrompt, EventType: &newEvent}); err != nil {
+		t.Fatalf("PATCH not touching the condition: %v", err)
+	}
+	// An empty map still removes the condition.
+	if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, nil, UpdateTriggerRequest{MatchContains: map[string][]string{}}); err != nil {
+		t.Fatalf("empty map: %v", err)
+	}
+}

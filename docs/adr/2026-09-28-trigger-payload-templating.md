@@ -191,7 +191,7 @@ The catalogue depends only on the provider, and a trigger can be created with a 
 
 ### Decision 2: Delivery fields are resolved per trigger
 
-A webhook trigger names exactly one event type. Create and update reject an empty `event_type`, and `fanOut` matches event types exactly; the empty-means-any rule is removed.
+A webhook trigger names exactly one event type. Create and update reject an empty `event_type`, and `fanOut` matches event types exactly; the empty-means-any rule is removed. The same holds for a match condition: create and update reject an empty value list under a `match` or `match_contains` key, and one already stored matches nothing.
 
 A field key matches `^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)*$`, in templates and match conditions alike. A key starting `meta.` names a meta field; any other key is a path into the delivery body. Each segment is an object key; an all-digit segment applied to a list is an index. Create and update reject a malformed key or an unknown `meta.` key. The API accepts a delivery path missing from the catalogue, because the schema can lag the provider.
 
