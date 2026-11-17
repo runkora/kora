@@ -530,6 +530,9 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 			return nil, deny(DenialPolicyUnavailable, req.Host, conn, required, err)
 		}
 		if !decision.Allow {
+			decision = b.writeMeetsRead(ctx, claims, conn, action, cls.Qualifier, decision)
+		}
+		if !decision.Allow {
 			reason, label := policyDenialReason([]string{decision.Reason})
 			d := deny(reason, req.Host, conn, required, nil)
 			d.PolicyReason, d.decision = label, decision.Reason
@@ -538,6 +541,30 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 		authorized = append(authorized, action)
 	}
 	return append(authorized, b.heldOptional(ctx, claims, conn, cls)...), nil
+}
+
+// writeMeetsRead meets a required <category>:read with the same category's
+// write on the qualifier. The read stays the authorized action, so the
+// credential carries read. One that cannot be evaluated keeps the denial.
+func (b *Broker) writeMeetsRead(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, action, qualifier string, denied policy.Result) policy.Result {
+	category, verb := splitActionFragment(action)
+	if verb != "read" || category == "" {
+		return denied
+	}
+	decision, err := b.checkAction(ctx, claims, conn, category+":write", qualifier)
+	if err != nil {
+		b.logger.Warn(ctx, "policy evaluation failed for the write meeting a required read",
+			logging.Field{Key: "connection", Value: conn.Name},
+			logging.Field{Key: "action", Value: category + ":write"},
+			logging.Field{Key: "qualifier", Value: qualifier},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return denied
+	}
+	if !decision.Allow {
+		return denied
+	}
+	return decision
 }
 
 // heldOptional returns the classification's Optional actions the grant holds,

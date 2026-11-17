@@ -163,3 +163,44 @@ func TestEvaluatePolicy_WriteCoversRead(t *testing.T) {
 		})
 	}
 }
+
+// A required read is met by the same category's write on the qualifier, and
+// the read stays the authorized action so the credential carries read. This is
+// the shape of a fork, which needs admin:write and contents:read.
+func TestEvaluatePolicy_WriteMeetsRequiredRead(t *testing.T) {
+	conn := &credentials.Connection{Name: "github"}
+	fork := credentials.Classification{Action: "admin:write", AlsoRequired: []string{"contents:read"}, Qualifier: "widgets"}
+	writes := heldScopes{"github:admin:widgets:write", "github:contents:widgets:write"}
+	delegation := &policy.DelegationClaims{Sub: "person-1", DelegatorPrincipalType: "HUMAN", RunID: "run-1"}
+	cases := []struct {
+		name       string
+		pol        policyChecker
+		delegation *policy.DelegationClaims
+		want       []string
+	}{
+		{name: "the write meets the required read", pol: writes, want: []string{"admin:write", "contents:read"}},
+		{name: "the read itself still meets it", pol: heldScopes{"github:admin:widgets:write", "github:contents:widgets:read"}, want: []string{"admin:write", "contents:read"}},
+		{name: "neither held is denied", pol: heldScopes{"github:admin:widgets:write"}},
+		{name: "a write on another repository does not meet it", pol: heldScopes{"github:admin:widgets:write", "github:contents:gadgets:write"}},
+		{name: "a delegator lacking the write is denied", pol: delegatorBound{agent: writes, delegator: heldScopes{"github:admin:widgets:write"}}, delegation: delegation},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tc.delegation != nil {
+				ctx = policy.WithDelegation(ctx, tc.delegation)
+			}
+			b := NewBroker(tc.pol, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
+			got, err := b.evaluatePolicy(ctx, &token.PlatformClaims{}, conn, fork, EgressRequest{Host: "api.github.com", Method: "POST"})
+			if tc.want == nil {
+				if !errors.Is(err, ErrForbidden) {
+					t.Fatalf("want ErrForbidden, got %v (authorized %v)", err, got)
+				}
+				return
+			}
+			if err != nil || !slices.Equal(got, tc.want) {
+				t.Errorf("authorized = %v (err %v), want %v", got, err, tc.want)
+			}
+		})
+	}
+}

@@ -196,8 +196,8 @@ func (c *connector) ClassifyResolved(req *http.Request, repos map[string]string)
 }
 
 // acceptWrites adds each read action's write as an alternate, so a write grant
-// covers the read. The write mints the read's exact permissions when it has
-// them, keeping the token at read level.
+// covers the read. The write mints only the read's permissions (its exact ones,
+// else its category's at read), so the token stays at read level.
 func acceptWrites(cls *credentials.Classification) {
 	for _, action := range append([]string{cls.Action}, cls.Alternates...) {
 		category, verb := splitAction(action)
@@ -207,10 +207,35 @@ func acceptWrites(cls *credentials.Classification) {
 			continue
 		}
 		cls.Alternates = append(cls.Alternates, write)
-		if perms, ok := cls.Permissions[action]; ok {
-			cls.Permissions[write] = perms
+		read, ok := cls.Permissions[action]
+		if !ok {
+			read = permissionsFor(action, nil, nil)
+		}
+		if cls.Permissions == nil {
+			cls.Permissions = map[string]map[string]string{}
+		}
+		cls.Permissions[write] = maps.Clone(read)
+	}
+}
+
+// writeOnlyPermissions are GitHub App permissions granted only at write. A
+// read-level token leaves them out, since GitHub refuses a token asking for
+// them at read.
+var writeOnlyPermissions = map[string]bool{"workflows": true}
+
+// readsAsWrite reports whether an action's permissions are a write alternate
+// standing in for a read: a write whose every permission is read. A REST write
+// always names a permission above read.
+func readsAsWrite(action string, perms map[string]string) bool {
+	if _, verb := splitAction(action); verb != verbWrite || len(perms) == 0 {
+		return false
+	}
+	for _, level := range perms {
+		if level != verbRead {
+			return false
 		}
 	}
+	return true
 }
 
 // classify is ClassifyResolved before reads accept writes.
@@ -807,7 +832,8 @@ var permissionLevels = map[string]int{verbRead: 1, verbWrite: 2, "admin": 3}
 // mintPermissions is the permission set for one authorized action: exactly
 // the permissions the classification named for it when it named any, else
 // everything the action's category covers that the installation holds, since
-// GitHub refuses a token asking for more. Either is capped by the ceiling.
+// GitHub refuses a token asking for more. A write standing in for a read is
+// capped by the installation as well. Either is capped by the ceiling.
 func mintPermissions(action string, exact map[string]map[string]string, ceiling, installationPerms map[string]string) map[string]string {
 	perms, ok := exact[action]
 	if !ok {
@@ -820,6 +846,9 @@ func mintPermissions(action string, exact map[string]map[string]string, ceiling,
 	derived := maps.Clone(perms)
 	derived[catMetadata] = verbRead
 	applyCeiling(derived, ceiling)
+	if readsAsWrite(action, perms) && installationPerms != nil {
+		applyCeiling(derived, installationPerms)
+	}
 	return derived
 }
 
@@ -838,7 +867,9 @@ func permissionsFor(action string, ceiling map[string]string, installationPerms 
 		derived[catMetadata] = verbRead
 	case isCategory:
 		for _, key := range keys {
-			derived[key] = verb
+			if verb != verbRead || !writeOnlyPermissions[key] {
+				derived[key] = verb
+			}
 		}
 	default:
 		// The repo catch-all/umbrella (and, defensively, anything unrecognized):
@@ -910,12 +941,13 @@ func applyCeiling(derived, ceiling map[string]string) {
 }
 
 // needsInstallationPerms reports whether any action mints its category's
-// permissions rather than exact ones, which are then capped by the
-// installation's actual grants. Metadata is on every installation.
+// permissions rather than exact ones, or is a write standing in for a read,
+// which are then capped by the installation's actual grants. Metadata is on
+// every installation.
 func needsInstallationPerms(actions []string, exact map[string]map[string]string) bool {
 	for _, a := range actions {
-		_, isExact := exact[a]
-		if category, _ := splitAction(a); !isExact && category != catMetadata {
+		perms, isExact := exact[a]
+		if category, _ := splitAction(a); (!isExact && category != catMetadata) || readsAsWrite(a, perms) {
 			return true
 		}
 	}
@@ -1097,8 +1129,9 @@ func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (cr
 
 	repos := reposFor(id.Qualifier)
 
-	// An action minting its whole category, with no declared ceiling, is capped
-	// by the installation's actual grants: GitHub rejects the entire mint with
+	// An action minting its whole category, or a write standing in for a read,
+	// with no declared ceiling, is capped by the installation's actual grants:
+	// GitHub rejects the entire mint with
 	// 422 when it asks for a permission the installation lacks. The grants are
 	// cached (instPermsCacheTTL); the App JWT is only signed when that is cold.
 	actions := append([]string{id.Action}, id.AlsoAuthorized...)
