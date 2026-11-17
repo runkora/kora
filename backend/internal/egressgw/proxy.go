@@ -134,7 +134,7 @@ func (p *ProxyHandler) forward(w http.ResponseWriter, r *http.Request, upstream 
 			}
 		},
 		ModifyResponse: func(resp *http.Response) error {
-			if d.Fallback != nil && fallbackRefused(resp.StatusCode) {
+			if d.Fallback != nil && fallbackRefused(resp) {
 				// ServeHTTP only forwards a request that carries claims.
 				claims, _ := token.ClaimsFromContext(r.Context())
 				p.logger.Info(r.Context(), "egress denied: upstream refused anonymous read",
@@ -175,11 +175,18 @@ func (p *ProxyHandler) forward(w http.ResponseWriter, r *http.Request, upstream 
 // errFallbackRefused is the upstream refusing an anonymous fallback read.
 var errFallbackRefused = errors.New("upstream refused anonymous read")
 
-// fallbackRefused reports whether status refuses an anonymous read the way
+// fallbackRefused reports whether resp refuses an anonymous read the way
 // GitHub refuses a private resource, so the original denial explains it better.
-// See docs/adr/2026-11-15-github-connector-route-coverage.md.
-func fallbackRefused(status int) bool {
-	return status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusNotFound
+// A 403 for an exhausted rate limit is relayed: retrying later can succeed.
+// See docs/adr/2026-11-15-github-connector-route-coverage.md, item 20.
+func fallbackRefused(resp *http.Response) bool {
+	switch resp.StatusCode {
+	case http.StatusUnauthorized, http.StatusNotFound:
+		return true
+	case http.StatusForbidden:
+		return resp.Header.Get("X-RateLimit-Remaining") != "0"
+	}
+	return false
 }
 
 // handleBrokerError maps a Broker.Authorize sentinel to the right HTTP error

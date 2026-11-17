@@ -36,6 +36,7 @@ func TestConnector_RequestOwners_Path(t *testing.T) {
 		{"https://github.com/fabrikam", ""},
 		{"https://api.github.com/repos/contoso/gadgets/pulls", "contoso"},
 		{"https://uploads.github.com/repos/contoso/gadgets/releases/7/assets?name=a.tgz", "contoso"},
+		{"https://ghe.example.com/api/uploads/repos/contoso/gadgets/releases/7/assets?name=a.tgz", "contoso"},
 		{"https://api.github.com/orgs/fabrikam/repos", "fabrikam"},
 		{"https://api.github.com/users/octocat", "octocat"},
 		{"https://api.github.com/user", ""},

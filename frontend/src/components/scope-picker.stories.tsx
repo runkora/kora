@@ -56,16 +56,16 @@ const DESCRIBED_SCOPES: ScopeOption[] = [
   },
   { scope: 'mcp:invoke', description: 'Reach the tool gateway', resourceType: 'mcp', path: [] },
   {
-    scope: 'connection:github:repo:read',
+    scope: 'connection:github:contents:read',
     description: 'Read repository contents',
     resourceType: 'connection',
-    path: ['github', 'repo'],
+    path: ['github', 'contents'],
   },
   {
-    scope: 'connection:github:repo:write',
+    scope: 'connection:github:contents:write',
     description: 'Push to repositories',
     resourceType: 'connection',
-    path: ['github', 'repo'],
+    path: ['github', 'contents'],
   },
   {
     scope: 'agents:runs:read',
@@ -152,7 +152,7 @@ export const WithDescriptions: Story = {
   render: () => (
     <Stack maxWidth="prose">
       <Example title="Hierarchy and descriptions">
-        <Controlled options={DESCRIBED_SCOPES} initial={['connection:github:repo:read']} />
+        <Controlled options={DESCRIBED_SCOPES} initial={['connection:github:contents:read']} />
       </Example>
     </Stack>
   ),

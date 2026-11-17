@@ -70,8 +70,7 @@ type config struct {
 	// match, which is the pre-qualifier behavior.
 	Owner string `json:"owner,omitempty"`
 	// Permissions is the optional permission ceiling. When set, derived
-	// per-category permission sets are intersected with it, and the repo:*
-	// umbrella mints it verbatim.
+	// per-category permission sets are intersected with it.
 	Permissions map[string]string `json:"permissions,omitempty"`
 }
 
@@ -211,6 +210,9 @@ func (c *connector) ClassifyResolved(req *http.Request, repos map[string]string)
 		return classifyAPI(req, strings.TrimPrefix(escaped, "/api/v3"), owner, repos)
 	case path == "/api/graphql":
 		return classifyAPI(req, "/graphql", owner, repos)
+	case strings.HasPrefix(path, "/api/uploads/"):
+		// GitHub Enterprise serves the uploads host's API under /api/uploads.
+		return classifyReleaseUpload(req.Method, strings.TrimPrefix(escaped, "/api/uploads"), owner)
 	}
 
 	switch host {
@@ -254,8 +256,9 @@ func (c *connector) RequestOwners(req *http.Request) credentials.RequestOwners {
 	case host == "api.github.com" || host == uploadsHost:
 		return apiOwners(req, segs)
 	case len(segs) > 0 && segs[0] == "api":
-		// GitHub Enterprise serves REST under /api/v3 and GraphQL at /api/graphql.
-		if len(segs) > 1 && segs[1] == "v3" {
+		// GitHub Enterprise serves REST under /api/v3, uploads under
+		// /api/uploads and GraphQL at /api/graphql.
+		if len(segs) > 1 && (segs[1] == "v3" || segs[1] == "uploads") {
 			return apiOwners(req, segs[2:])
 		}
 		if len(segs) == 2 && segs[1] == "graphql" {
@@ -401,7 +404,6 @@ const (
 	catAdmin       = "admin"
 	catMembers     = "members"      // organization-wide, never qualified
 	catOrgProjects = "org_projects" // organization-wide, never qualified
-	catRepo        = "repo"         // legacy umbrella, grantable but never classified
 )
 
 // classifyAPI maps a REST/GraphQL API path (host prefix already stripped,
@@ -776,7 +778,7 @@ var permissionLevels = map[string]int{verbRead: 1, verbWrite: 2, "admin": 3}
 func mintPermissions(action string, exact map[string]map[string]string, ceiling, installationPerms map[string]string) map[string]string {
 	perms, ok := exact[action]
 	if !ok {
-		derived := permissionsFor(action, ceiling, installationPerms)
+		derived := permissionsFor(action, ceiling)
 		if installationPerms != nil {
 			applyCeiling(derived, installationPerms)
 		}
@@ -794,66 +796,16 @@ func mintPermissions(action string, exact map[string]map[string]string, ceiling,
 var writeOnlyPermissions = map[string]bool{"workflows": true}
 
 // permissionsFor derives the installation-token permission set for the
-// classified action, intersected with the connection's declared ceiling.
-// installationPerms is the App installation's actual granted permissions (from
-// GetInstallationPermissions); here it derives the repo:* umbrella's set when no
-// ceiling is declared, and mintPermissions caps every category set by it.
-func permissionsFor(action string, ceiling map[string]string, installationPerms map[string]string) map[string]string {
+// classified action's category, intersected with the connection's declared
+// ceiling. An action outside the categories mints metadata alone.
+func permissionsFor(action string, ceiling map[string]string) map[string]string {
 	category, verb := splitAction(action)
-
-	derived := map[string]string{}
-	keys, isCategory := categoryPermissions[category]
-	switch {
-	case category == catMetadata:
-		derived[catMetadata] = verbRead
-	case isCategory:
-		for _, key := range keys {
-			if verb != verbRead || !writeOnlyPermissions[key] {
-				derived[key] = verb
-			}
-		}
-	default:
-		// The repo catch-all/umbrella (and, defensively, anything unrecognized):
-		// when a ceiling is declared, mint it verbatim. Otherwise, mint the
-		// intersection of the action's verb class with the installation's actual
-		// granted permissions so the umbrella never requests a level the
-		// installation does not hold (which would 422).
-		//
-		// When installationPerms is nil or empty (no permissions fetched, only
-		// possible in unit tests that construct permissionsFor directly, or if
-		// the API returned an empty map), we return only metadata:read: the
-		// minimum implicit grant on every installation token. This is safe and
-		// explicit rather than relying on the post-loop metadata floor.
-		if len(ceiling) > 0 {
-			return maps.Clone(ceiling)
-		}
-		if len(installationPerms) == 0 {
-			return map[string]string{catMetadata: verbRead}
-		}
-		for key, grantedLevel := range installationPerms {
-			// Skip permissions with unknown level strings: permissionLevels maps
-			// only "read", "write", "admin". An unknown value maps to 0, which
-			// would silently pass the cap check and let an unrecognized level
-			// through. Omitting it is the safe default.
-			if permissionLevels[grantedLevel] == 0 {
-				continue
-			}
-			level := verb
-			if key == catMetadata {
-				level = verbRead
-			}
-			// Cap at the installation's actual grant level.
-			if permissionLevels[grantedLevel] < permissionLevels[level] {
-				level = grantedLevel
-			}
-			derived[key] = level
+	derived := map[string]string{catMetadata: verbRead}
+	for _, key := range categoryPermissions[category] {
+		if verb != verbRead || !writeOnlyPermissions[key] {
+			derived[key] = verb
 		}
 	}
-
-	if _, ok := derived[catMetadata]; !ok {
-		derived[catMetadata] = verbRead
-	}
-
 	applyCeiling(derived, ceiling)
 	return derived
 }
@@ -914,13 +866,9 @@ func reposFor(qualifier string) []string {
 	return []string{qualifier}
 }
 
-// Resolve returns a cached, or freshly minted, installation token formatted as
-// the git smart-HTTP Basic credential, narrowed to the classified category's
-// permissions and the request's repository. The raw token is also exposed on
-// the returned Credential so the gateway can reformat it as a Bearer for REST.
 // installationPermissions returns the App installation's permission set,
 // fetching from GitHub if the cached entry has expired. Results are cached for
-// instPermsCacheTTL to bound API calls across concurrent umbrella mints.
+// instPermsCacheTTL to bound API calls across concurrent mints.
 // Double-check locking: the cache is read under the lock; on miss, the API call
 // runs unlocked, then re-checks under the lock before writing, so concurrent
 // callers that both see a stale entry each make the API call but the last writer
@@ -961,20 +909,16 @@ func (a *Adapter) installationPermissions(ctx context.Context, appJWT string, in
 var errNoLookupPermissions = errors.New("installation grants no permission a node lookup can use")
 
 // lookupPermissions maps a held category to the read permissions a node id
-// lookup token may carry for it. A parent grant, which names no category ("")
-// and the legacy repo umbrella read every one.
-var lookupPermissions = func() map[string][]string {
-	every := []string{"metadata", "contents", "issues", "pull_requests", "discussions", "checks", "actions"}
-	return map[string][]string{
-		catMetadata: {"metadata"},
-		catContents: {"contents"},
-		catIssues:   {"issues"},
-		catPulls:    {"pull_requests"},
-		catCI:       {"checks", "actions"},
-		"":          every,
-		catRepo:     every,
-	}
-}()
+// lookup token may carry for it. A parent grant, which names no category (""),
+// reads every one.
+var lookupPermissions = map[string][]string{
+	catMetadata: {"metadata"},
+	catContents: {"contents"},
+	catIssues:   {"issues"},
+	catPulls:    {"pull_requests"},
+	catCI:       {"checks", "actions"},
+	"":          {"metadata", "contents", "issues", "pull_requests", "discussions", "checks", "actions"},
+}
 
 // NodeRepositories resolves node ids with a read-only installation token
 // limited to categories, the ones the caller holds, and to the repositories in
@@ -1066,6 +1010,9 @@ func (c *connector) lookupToken(ctx context.Context, categories, repos []string)
 	return token, nil
 }
 
+// Mint returns a cached or freshly minted installation token, formatted as the
+// git smart-HTTP Basic credential and narrowed to the authorized actions'
+// permissions and the request's repository.
 func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (credentials.Credential, error) {
 	a, conn, cfg := c.adapter, c.conn, c.cfg
 

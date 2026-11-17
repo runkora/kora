@@ -245,7 +245,12 @@ type EnvironmentService struct {
 	logger logging.Logger
 	// authoring can lock a tenant to its declarative resources.
 	authoring authoringSwitch
+	// resolver checks connector actions against their adapters; nil skips it.
+	resolver *ScopeResolver
 }
+
+// SetScopeResolver installs the resolver that checks connector actions.
+func (s *EnvironmentService) SetScopeResolver(r *ScopeResolver) { s.resolver = r }
 
 // NewEnvironmentService constructs an EnvironmentService.
 func NewEnvironmentService(
@@ -408,6 +413,11 @@ func (s *EnvironmentService) fromRequest(tenantID, id string, req EnvironmentReq
 func (s *EnvironmentService) validate(ctx context.Context, env Environment) error {
 	if err := env.Validate(s.cfg.EnvironmentSizes.Max); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidEnvironment, err)
+	}
+	if s.resolver != nil {
+		if err := s.resolver.ValidateConnectorActions(ctx, env.TenantID, env.Connectors); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidEnvironment, err)
+		}
 	}
 	_, err := usableSandboxImage(ctx, s.images, s.cfg.TenantNamespaceFn(env.TenantID), env.SandboxImage, ErrInvalidEnvironment, ErrInvalidEnvironment)
 	return err

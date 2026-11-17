@@ -47,7 +47,7 @@ func TestCategories_MatchVocabulary(t *testing.T) {
 		}
 	}
 	for a := range declared {
-		if category, _ := splitAction(a); category != catMetadata && category != catRepo && categoryPermissions[category] == nil {
+		if category, _ := splitAction(a); category != catMetadata && categoryPermissions[category] == nil {
 			t.Errorf("vocabulary publishes %s, which no category mints", a)
 		}
 	}
@@ -267,6 +267,9 @@ func TestClassify_HandWrittenSurfaces(t *testing.T) {
 		{name: "release asset upload", method: http.MethodPost, url: "https://uploads.github.com/repos/example-org/widgets/releases/7/assets?name=a.tgz", want: cls("contents:write", "widgets")},
 		{name: "release asset upload, foreign owner", method: http.MethodPost, url: "https://uploads.github.com/repos/evil/widgets/releases/7/assets", err: true},
 		{name: "uploads host, other path", method: http.MethodGet, url: "https://uploads.github.com/repos/example-org/widgets", err: true},
+		{name: "enterprise release asset upload", method: http.MethodPost, url: "https://ghe.example.com/api/uploads/repos/example-org/widgets/releases/7/assets?name=a.tgz", want: cls("contents:write", "widgets")},
+		{name: "enterprise release asset upload, foreign owner", method: http.MethodPost, url: "https://ghe.example.com/api/uploads/repos/evil/widgets/releases/7/assets", err: true},
+		{name: "enterprise uploads, other path", method: http.MethodGet, url: "https://ghe.example.com/api/uploads/repos/example-org/widgets", err: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

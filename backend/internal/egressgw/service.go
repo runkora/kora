@@ -649,7 +649,7 @@ func policyDenialReason(reasons []string) (DenialReason, string) {
 func deny(reason DenialReason, req EgressRequest, conn *credentials.Connection, cls credentials.Classification, cause error) *Denial {
 	d := &Denial{
 		Reason: reason, Host: req.Host, Connection: conn.Name, Action: cls.Action, Qualifier: cls.Qualifier,
-		Method: req.Method, Path: requestPath(req), cause: cause,
+		Alternates: cls.Alternates, Method: req.Method, Path: requestPath(req), cause: cause,
 	}
 	var unclassified *credentials.UnclassifiedError
 	if errors.As(cause, &unclassified) {

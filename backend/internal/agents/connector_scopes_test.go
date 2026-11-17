@@ -131,7 +131,7 @@ func TestValidateConnectors_Resources(t *testing.T) {
 		{name: "no resources", resources: nil},
 		{name: "kubernetes namespace, a different adapter's resource shape", resources: []string{"staging"}},
 		{name: "owner/repo", resources: []string{"clear-route/constellation-iac"}, wantErr: true},
-		{name: "scope separator", resources: []string{"repo:read"}, wantErr: true},
+		{name: "scope separator", resources: []string{"contents:read"}, wantErr: true},
 		{name: "wildcard", resources: []string{"*"}, wantErr: true},
 		{name: "whitespace inside", resources: []string{"two words"}, wantErr: true},
 		{name: "empty entry", resources: []string{""}, wantErr: true},

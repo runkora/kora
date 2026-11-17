@@ -33,7 +33,7 @@ const access: EffectiveAccess = {
       hosts: ['github.com', 'api.github.com', 'codeload.github.com', '*.githubusercontent.com'],
     },
   ],
-  connectors: [{ connection: 'github', actions: ['repo:read'] }],
+  connectors: [{ connection: 'github', actions: ['contents:read'] }],
   hosts: [
     '*.githubusercontent.com',
     '*.staging.internal',

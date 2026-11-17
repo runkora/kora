@@ -398,7 +398,7 @@ func (at AgentType) MCPServers() []string {
 // ValidateConnectors checks each connector names a connection, lists at least
 // one well-formed action, and names resources that can be a qualifier segment.
 // Connection names are single scope segments (no whitespace, ':' or '/');
-// actions may contain ':' (e.g. "repo:read") but not whitespace or '/';
+// actions may contain ':' (e.g. "contents:read") but not whitespace or '/';
 // resources are a single segment. Mirrors Connectivity.Validate so a bad
 // connector is rejected at config time, not silently at grant-reconcile time.
 func ValidateConnectors(connectors []Connector) error {

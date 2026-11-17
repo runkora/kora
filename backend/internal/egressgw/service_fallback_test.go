@@ -104,21 +104,26 @@ func TestProxy_AnonymousReadFallback(t *testing.T) {
 }
 
 // GitHub refusing an anonymous fallback read with 401, 403 or 404 returns the
-// original denial and none of GitHub's response; any other status is relayed.
-// See docs/adr/2026-11-15-github-connector-route-coverage.md, Decision item 8.
+// original denial and none of GitHub's response; a rate-limit 403 and any other
+// status are relayed. See docs/adr/2026-11-15-github-connector-route-coverage.md, item 20.
 func TestProxy_AnonymousReadRefusedReturnsDenial(t *testing.T) {
+	rateLimited := map[string]string{"X-RateLimit-Remaining": "0"}
 	tests := []struct {
 		name       string
 		path       string
 		upstream   int
+		headers    map[string]string
 		wantReason DenialReason
 	}{
-		{"404 on a policy-denied read", "/api/v3/repos/orbital/kora/pulls?per_page=1", http.StatusNotFound, DenialNotGranted},
-		{"401 on an unclassified clone", "/octocat/hello-world.git/info/refs?service=git-upload-pack", http.StatusUnauthorized, DenialUnclassified},
-		{"403 on an unclassified read", "/orbital/kora/releases/download/v1/x.tgz", http.StatusForbidden, DenialUnclassified},
-		{"200 is relayed", "/api/v3/repos/orbital/kora/pulls", http.StatusOK, ""},
-		{"302 is relayed", "/orbital/kora/releases/download/v1/x.tgz", http.StatusFound, ""},
-		{"500 is relayed", "/api/v3/repos/orbital/kora/pulls", http.StatusInternalServerError, ""},
+		{"404 on a policy-denied read", "/api/v3/repos/orbital/kora/pulls?per_page=1", http.StatusNotFound, nil, DenialNotGranted},
+		{"401 on an unclassified clone", "/octocat/hello-world.git/info/refs?service=git-upload-pack", http.StatusUnauthorized, nil, DenialUnclassified},
+		{"403 on an unclassified read", "/orbital/kora/releases/download/v1/x.tgz", http.StatusForbidden, nil, DenialUnclassified},
+		{"403 with remaining requests", "/api/v3/repos/orbital/kora/pulls", http.StatusForbidden, map[string]string{"X-RateLimit-Remaining": "12"}, DenialNotGranted},
+		{"rate-limit 403 is relayed", "/api/v3/repos/orbital/kora/pulls", http.StatusForbidden, rateLimited, ""},
+		{"rate-limit 404 still returns the denial", "/api/v3/repos/orbital/kora/pulls", http.StatusNotFound, rateLimited, DenialNotGranted},
+		{"200 is relayed", "/api/v3/repos/orbital/kora/pulls", http.StatusOK, nil, ""},
+		{"302 is relayed", "/orbital/kora/releases/download/v1/x.tgz", http.StatusFound, nil, ""},
+		{"500 is relayed", "/api/v3/repos/orbital/kora/pulls", http.StatusInternalServerError, nil, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -127,6 +132,7 @@ func TestProxy_AnonymousReadRefusedReturnsDenial(t *testing.T) {
 			f.repo.items["acme|github"].Config = cfg
 			f.broker.policy = &postureEvaluator{ownEgress: true}
 			f.upstreamStatus = tc.upstream
+			f.upstreamHeaders = tc.headers
 
 			client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 			req, _ := http.NewRequest(http.MethodGet, f.gateway.URL+tc.path, nil)

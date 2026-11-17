@@ -78,8 +78,8 @@ type ScopeDeclaration struct {
 	Description  string   `json:"description,omitempty"`
 	// Requires lists other scopes this scope depends on: holding this scope in a
 	// grant additionally confers the required scopes in the compiled effective
-	// set (not in the stored grant), for example the GitHub repo umbrella
-	// conferring each category scope.
+	// set (not in the stored grant), for example a GitHub category scope
+	// conferring the metadata read.
 	//
 	// nil is sent as null and means unknown: the stored set is kept. A non-nil
 	// empty slice is sent as [] and clears it. Only the owning service's

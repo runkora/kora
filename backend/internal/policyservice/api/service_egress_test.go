@@ -25,7 +25,7 @@ func TestIsStructurallyValidEgressScope(t *testing.T) {
 		{"egress::connector", false},
 
 		// rejected — not egress / wrong action / malformed
-		{"connection:github:repo:write", false},
+		{"connection:github:contents:write", false},
 		{"inference:invoke", false},
 		{"egress:api.github.com:read", false}, // wrong action
 		{"egress::connect", false},            // empty host
@@ -56,7 +56,7 @@ func TestQualifiedConnectionScopeBase(t *testing.T) {
 		wantOK   bool
 	}{
 		{"connection:github:issues:kora:write", "connection:github:issues:write", true},
-		{"connection:github:repo:my-repo.js:read", "connection:github:repo:read", true},
+		{"connection:github:contents:my-repo.js:read", "connection:github:contents:read", true},
 
 		// too shallow — unqualified shapes validate against the vocabulary directly
 		{"connection:github:issues:write", "", false},

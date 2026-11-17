@@ -36,8 +36,11 @@ type Denial struct {
 	// string, which can hold tokens.
 	Method string
 	Path   string
+	// Alternates are the other actions that would each authorize the request,
+	// such as every category at the operation's level for GraphQL.
+	Alternates []string
 	// Unrecognized is what in the request the adapter does not recognize, such
-	// as a GraphQL field, set only on an unclassified denial.
+	// as why a GraphQL body could not be read, set only on an unclassified denial.
 	Unrecognized string
 	// RequiredScope is the scope a grant must cover, set only on a not-granted
 	// denial since that is the one a grant can fix.
@@ -84,11 +87,15 @@ func (d *Denial) Unwrap() []error {
 func (d *Denial) Message(product string) string {
 	switch d.Reason {
 	case DenialNotGranted:
+		if len(d.Alternates) > 0 {
+			return fmt.Sprintf("%s egress policy denied %s: this agent is not granted %s on connection %s, nor any of %s, each of which would allow it. To allow it, grant one of them, such as %s.",
+				product, d.request(), d.actionPhrase(), d.Connection, strings.Join(d.Alternates, ", "), d.RequiredScope)
+		}
 		return fmt.Sprintf("%s egress policy denied %s: this agent is not granted %s on connection %s. To allow it, grant %s.",
 			product, d.request(), d.actionPhrase(), d.Connection, d.RequiredScope)
 	case DenialGrantNotApplied:
 		return fmt.Sprintf("%s egress policy denied %s: this agent's grant for %s on connection %s does not apply to this call (%s).",
-			product, d.Host, d.actionPhrase(), d.Connection, d.PolicyReason)
+			product, d.request(), d.actionPhrase(), d.Connection, d.PolicyReason)
 	case DenialUnclassified:
 		why := "an unsupported API shape, or a resource outside the connection"
 		if d.Unrecognized != "" {
@@ -115,6 +122,9 @@ func (d *Denial) Details() map[string]any {
 	details := map[string]any{"reason": string(d.Reason), "host": d.Host, "connection": d.Connection}
 	if len(d.Candidates) > 0 {
 		details["candidates"] = d.Candidates
+	}
+	if len(d.Alternates) > 0 {
+		details["alternates"] = d.Alternates
 	}
 	for key, value := range map[string]string{
 		"unresolved": d.Unresolved, "action": d.Action, "qualifier": d.Qualifier, "required_scope": d.RequiredScope, "policy_reason": d.PolicyReason,

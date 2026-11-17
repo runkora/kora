@@ -13,8 +13,7 @@ import (
 func TestActionNames(t *testing.T) {
 	cases := map[string][]string{
 		// Categories of GitHub App permissions since
-		// docs/adr/2026-11-15-github-connector-route-coverage.md; repo:read and
-		// repo:write remain while GraphQL still returns them.
+		// docs/adr/2026-11-15-github-connector-route-coverage.md.
 		AdapterGitHubApp: {
 			"metadata:read",
 			"contents:read", "contents:write",
@@ -28,7 +27,6 @@ func TestActionNames(t *testing.T) {
 			"admin:read", "admin:write",
 			"members:read", "members:write",
 			"org_projects:read", "org_projects:write",
-			"repo:read", "repo:write",
 		},
 		AdapterKubernetesBearer: {
 			"workloads:read", "workloads:write",

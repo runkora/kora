@@ -18,7 +18,7 @@ const maxReceivePackReport = 1 << 20
 
 // explainWorkflowRefusal is the proxy's ModifyResponse. When GitHub refuses a
 // push for lack of the workflows permission, it appends a side-band message
-// saying the refusal is deliberate, so the agent does not read it as a fault
+// naming the grant that allows it, so the agent does not read it as a fault
 // to retry. Every other response is returned untouched.
 func (p *ProxyHandler) explainWorkflowRefusal(resp *http.Response) error {
 	req := resp.Request
@@ -39,7 +39,7 @@ func (p *ProxyHandler) explainWorkflowRefusal(resp *http.Response) error {
 	}
 	_ = resp.Body.Close()
 
-	msg := fmt.Sprintf("%s: workflow files are out of scope for agent pushes. GitHub refused this push because it changes .github/workflows, and this connection does not mint the workflows permission by design. Remove the workflow change from the commit.\n",
+	msg := fmt.Sprintf("%s: GitHub refused this push because it changes .github/workflows and the token carried no workflows permission. A push carries it only when the agent holds workflows:write on the repository. Ask for that grant, or remove the workflow change from the commit.\n",
 		p.brand.ProductName())
 	body = appendSideBandMessage(body, msg)
 	resp.Body = io.NopCloser(bytes.NewReader(body))

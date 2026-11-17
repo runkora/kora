@@ -58,10 +58,10 @@ func TestAllScopes_PerConnectionScopes(t *testing.T) {
 
 	// AllScopes prepends the three static scopes,
 	// then per connection: the two covering parents (connection:<n>:read/write)
-	// plus the adapter's 24 category and umbrella actions = 26 each, 55 total.
+	// plus the adapter's 22 category actions = 24 each, 51 total.
 	// No wildcard entry: connection:<n>:* matched nothing under scope_covers
 	// and is no longer published.
-	const perConn = 26
+	const perConn = 24
 	if want := 3 + 2*perConn; len(got) != want {
 		t.Fatalf("scopes = %d, want %d (got: %v)", len(got), want, scopeStrings(got))
 	}
@@ -77,7 +77,6 @@ func TestAllScopes_PerConnectionScopes(t *testing.T) {
 		"connection:github-prod:write",
 		"connection:github-prod:issues:write",
 		"connection:github-prod:metadata:read",
-		"connection:github-prod:repo:write",
 		"connection:github-staging:contents:read",
 	} {
 		if byScope[want] != 1 {
@@ -86,25 +85,19 @@ func TestAllScopes_PerConnectionScopes(t *testing.T) {
 	}
 
 	// The connection scopes carry their tenant-friendly metadata and requires
-	// edges: the legacy repo:write umbrella confers every category write, and
-	// category actions confer the metadata read.
+	// edges: category actions confer the metadata read.
 	for _, d := range got {
-		switch d.Scope {
-		case "connection:github-prod:repo:write":
-			// Metadata matches the scope grammar: path = [name, category],
-			// action = the final verb, not path=[name], action="repo:write".
-			if d.ResourceType != "connection" || len(d.PathSegments) != 2 ||
-				d.PathSegments[0] != "github-prod" || d.PathSegments[1] != "repo" || d.Action != "write" {
-				t.Errorf("structure = %+v, want resource=connection path=[github-prod repo] action=write", d)
-			}
-			if !slices.Contains(d.Requires, "connection:github-prod:issues:write") ||
-				!slices.Contains(d.Requires, "connection:github-prod:contents:write") {
-				t.Errorf("repo:write requires = %v, want category writes conferred", d.Requires)
-			}
-		case "connection:github-prod:issues:write":
-			if !slices.Contains(d.Requires, "connection:github-prod:metadata:read") {
-				t.Errorf("issues:write requires = %v, want metadata:read conferred", d.Requires)
-			}
+		if d.Scope != "connection:github-prod:issues:write" {
+			continue
+		}
+		// Metadata matches the scope grammar: path = [name, category],
+		// action = the final verb, not path=[name], action="issues:write".
+		if d.ResourceType != "connection" || len(d.PathSegments) != 2 ||
+			d.PathSegments[0] != "github-prod" || d.PathSegments[1] != "issues" || d.Action != "write" {
+			t.Errorf("structure = %+v, want resource=connection path=[github-prod issues] action=write", d)
+		}
+		if !slices.Contains(d.Requires, "connection:github-prod:metadata:read") {
+			t.Errorf("issues:write requires = %v, want metadata:read conferred", d.Requires)
 		}
 	}
 }
@@ -141,9 +134,9 @@ func TestConnectionScopes_DedupeOnDuplicateConnectionName(t *testing.T) {
 	}
 	got := ConnectionScopes(conns, registry)
 
-	// Expect one set of unique entries: 2 covering parents + the adapter's 24
+	// Expect one set of unique entries: 2 covering parents + the adapter's 22
 	// actions: duplicates from the repeated connection name are dropped.
-	wantCount := 26
+	wantCount := 24
 	if len(got) != wantCount {
 		t.Errorf("scopes = %d, want %d (got: %v)", len(got), wantCount, scopeStrings(got))
 	}

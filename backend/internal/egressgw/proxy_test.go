@@ -148,8 +148,10 @@ type fixture struct {
 	upstreamSawMethod string
 	upstreamSawPath   string
 
-	// upstreamStatus is what the upstream stub answers with, 200 when unset.
-	upstreamStatus int
+	// upstreamStatus is what the upstream stub answers with, 200 when unset,
+	// and upstreamHeaders are added to its response.
+	upstreamStatus  int
+	upstreamHeaders map[string]string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -169,6 +171,9 @@ func newFixture(t *testing.T) *fixture {
 			status = f.upstreamStatus
 		}
 		w.Header().Set("X-Upstream", "github")
+		for k, v := range f.upstreamHeaders {
+			w.Header().Set(k, v)
+		}
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte("ok"))
 	}))
@@ -263,7 +268,7 @@ func (f *fixture) callGateway(method, path, host string) (*http.Response, error)
 func TestProxy_HappyPath_GitPush_MintsAndForwards(t *testing.T) {
 	f := newFixture(t)
 
-	// git push discovery: the path the adapter classifies as repo:write.
+	// git push discovery: the path the adapter classifies as contents:write.
 	resp, err := f.callGateway(http.MethodGet, "/kora/kora.git/info/refs?service=git-receive-pack", f.connectionHost)
 	if err != nil {
 		t.Fatalf("call: %v", err)

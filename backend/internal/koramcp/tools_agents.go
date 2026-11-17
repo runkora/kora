@@ -142,7 +142,7 @@ func guardrailsDescription(product string) string {
 // and the connection's resource-qualifier dimension (if any).
 type connectorArg struct {
 	Connection string   `json:"connection" jsonschema:"the registered connection name (e.g. github)"`
-	Actions    []string `json:"actions" jsonschema:"adapter actions to allow on this connection (e.g. contents:read, issues:write; repo:read/repo:write grant everything)"`
+	Actions    []string `json:"actions" jsonschema:"adapter actions to allow on this connection (e.g. contents:read, issues:write)"`
 	Resources  []string `json:"resources,omitempty" jsonschema:"optionally narrow the connector to specific upstream resources of the connection's qualifier dimension (e.g. bare repository names for a github connection). Omit for all resources — agents.connectors lists the dimension and any allowlist ceiling"`
 }
 

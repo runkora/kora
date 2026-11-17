@@ -229,6 +229,30 @@ func TestDeny_ScopeNamesClassifiedActionNotAlternate(t *testing.T) {
 	}
 }
 
+// A GraphQL mutation denial states that any category at write on the
+// repository allows it, not contents:write alone.
+func TestDeny_NotGrantedNamesAlternates(t *testing.T) {
+	req := FromHTTP(httptest.NewRequest(http.MethodPost, "https://api.github.com/graphql", nil))
+	d := deny(DenialNotGranted, req, &credentials.Connection{Name: "github"},
+		credentials.Classification{Action: "contents:write", Qualifier: "kora", Alternates: []string{"issues:write", "pulls:write"}}, nil)
+	want := "Example egress policy denied POST api.github.com/graphql: this agent is not granted contents:write for kora on connection github, nor any of issues:write, pulls:write, each of which would allow it. To allow it, grant one of them, such as connection:github:contents:kora:write."
+	if got := d.Message("Example"); got != want {
+		t.Errorf("Message() = %q, want %q", got, want)
+	}
+}
+
+// A held grant that did not apply, such as one missing its delegator, states
+// the request like a not-granted denial, never its query string.
+func TestDeny_GrantNotAppliedStatesRequest(t *testing.T) {
+	req := FromHTTP(httptest.NewRequest(http.MethodGet, "https://api.github.com/repos/example-org/kora/pulls?access_token=query-secret", nil))
+	d := deny(DenialGrantNotApplied, req, &credentials.Connection{Name: "github"}, credentials.Classification{Action: "pulls:read", Qualifier: "kora"}, nil)
+	d.PolicyReason = "deny:no_delegator_grant"
+	want := "Example egress policy denied GET api.github.com/repos/example-org/kora/pulls: this agent's grant for pulls:read for kora on connection github does not apply to this call (deny:no_delegator_grant)."
+	if got := d.Message("Example"); got != want {
+		t.Errorf("Message() = %q, want %q", got, want)
+	}
+}
+
 // The denial reason follows the most informative decision across the primary
 // and alternate actions, and operational results never read as a grant problem.
 func TestPolicyDenialReason(t *testing.T) {
@@ -300,7 +324,7 @@ type refusingAdapter struct{}
 
 func (refusingAdapter) Type() credentials.AdapterType { return credentials.AdapterGitHubApp }
 func (refusingAdapter) Actions() []credentials.ActionDeclaration {
-	return []credentials.ActionDeclaration{{Action: "repo:read"}}
+	return []credentials.ActionDeclaration{{Action: "contents:read"}}
 }
 func (refusingAdapter) Open(credentials.Connection) (credentials.Connector, error) {
 	return refusingConnector{}, nil
@@ -309,7 +333,7 @@ func (refusingAdapter) Open(credentials.Connection) (credentials.Connector, erro
 type refusingConnector struct{}
 
 func (refusingConnector) Classify(*http.Request) (credentials.Classification, error) {
-	return credentials.Classification{Action: "repo:read"}, nil
+	return credentials.Classification{Action: "contents:read"}, nil
 }
 func (refusingConnector) Mint(context.Context, credentials.CallerIdentity) (credentials.Credential, error) {
 	return credentials.Credential{}, credentials.ErrCredentialScopeRejected

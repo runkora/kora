@@ -81,10 +81,10 @@ func TestDeriveInferenceScopes(t *testing.T) {
 
 func TestReconcileInferenceScopes_SwapsModelScope(t *testing.T) {
 	old := "anthropic/claude-sonnet-4-6"
-	prior := append([]string{"connection:github:repo:read"}, deriveInferenceScopes(old)...)
+	prior := append([]string{"connection:github:contents:read"}, deriveInferenceScopes(old)...)
 	next := "google/gemini-flash"
 	got := reconcileInferenceScopes(prior, &next)
-	want := []string{"connection:github:repo:read", "inference:invoke", "inference:google:gemini-flash:use"}
+	want := []string{"connection:github:contents:read", "inference:invoke", "inference:google:gemini-flash:use"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Errorf("reconcileInferenceScopes swapped wrong: got %v, want %v", got, want)
 	}
