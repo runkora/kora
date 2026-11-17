@@ -838,7 +838,7 @@ func (m *mockK8s) ReadyOrdinals(_ context.Context, _, _ string) ([]int, error) {
 	return out, nil
 }
 
-func (m *mockK8s) LivePod(_ context.Context, _, _ string) (bool, error) {
+func (m *mockK8s) LivePod(_ context.Context, _, _ string, _ time.Duration) (bool, error) {
 	return m.livePod, m.livePodErr
 }
 
