@@ -38,25 +38,15 @@ func cls(action, qualifier string) credentials.Classification {
 	return credentials.Classification{Action: action, Qualifier: qualifier}
 }
 
-// readCls is a read of one category, which its write also authorizes.
-func readCls(action, qualifier string) credentials.Classification {
-	category, _ := splitAction(action)
-	return credentials.Classification{Action: action, Alternates: []string{category + ":write"}, Qualifier: qualifier}
-}
-
 // graphqlCls is a GraphQL classification: any repository category at verb on
-// the qualifier, or for a query the metadata baseline or any category's write.
+// the qualifier, or for a query the metadata baseline.
 func graphqlCls(verb, qualifier string) credentials.Classification {
-	categories := []string{"contents", "workflows", "issues", "pulls", "ci", "deployments", "security", "secrets", "admin"}
 	var alts []string
-	for _, c := range categories[1:] {
+	for _, c := range []string{"workflows", "issues", "pulls", "ci", "deployments", "security", "secrets", "admin"} {
 		alts = append(alts, c+":"+verb)
 	}
 	if verb == verbRead {
 		alts = append(alts, "metadata:read")
-		for _, c := range categories {
-			alts = append(alts, c+":write")
-		}
 	}
 	return credentials.Classification{Action: "contents:" + verb, Alternates: alts, Qualifier: qualifier}
 }

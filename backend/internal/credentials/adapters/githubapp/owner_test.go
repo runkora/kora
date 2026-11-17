@@ -165,7 +165,7 @@ func TestConnector_NodeRepositories(t *testing.T) {
 	a.now = func() time.Time { return time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC) }
 	c := open(t, a, credentials.Connection{ID: "example|fabrikam", SecretRef: "ref", Config: mustConfig(t, config{AppID: "1", InstallationID: 42, Owner: "fabrikam"})}).(*connector)
 
-	got, complete, err := c.NodeRepositories(t.Context(), []string{"PR_1", "garbage", "R_1", "U_1"}, []string{"contents", "issues"})
+	got, complete, err := c.NodeRepositories(t.Context(), []string{"PR_1", "garbage", "R_1", "U_1"}, []string{"contents", "issues"}, nil)
 	if err != nil {
 		t.Fatalf("NodeRepositories: %v", err)
 	}
@@ -176,8 +176,20 @@ func TestConnector_NodeRepositories(t *testing.T) {
 	if len(minted.Permissions) != len(want) || minted.Permissions["contents"] != "read" || minted.Permissions["issues"] != "read" || minted.Permissions["administration"] != "" {
 		t.Errorf("lookup token permissions = %v, want %v", minted.Permissions, want)
 	}
-	if _, _, err := c.NodeRepositories(t.Context(), []string{"PR_1"}, []string{"contents", "issues"}); err != nil || lookups != 2 {
+	if minted.Repositories != nil {
+		t.Errorf("unrestricted lookup token repositories = %v, want none", minted.Repositories)
+	}
+	if _, _, err := c.NodeRepositories(t.Context(), []string{"PR_1"}, []string{"contents", "issues"}, nil); err != nil || lookups != 2 {
 		t.Errorf("second lookup err %v, lookups %d", err, lookups)
+	}
+	// A caller holding only repository-qualified grants looks up with a token
+	// limited to those repositories.
+	minted = ghclient.InstallationTokenRequest{}
+	if _, _, err := c.NodeRepositories(t.Context(), []string{"PR_1"}, []string{"contents"}, []string{"widgets"}); err != nil {
+		t.Fatalf("restricted lookup: %v", err)
+	}
+	if len(minted.Repositories) != 1 || minted.Repositories[0] != "widgets" || minted.Permissions["issues"] != "" {
+		t.Errorf("restricted lookup token = %+v, want contents read on [widgets]", minted)
 	}
 }
 
@@ -194,7 +206,7 @@ func TestConnector_NodeRepositoriesWithoutLookupPermissions(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	a := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
 	c := open(t, a, credentials.Connection{ID: "x", SecretRef: "ref", Config: mustConfig(t, config{AppID: "1", InstallationID: 42})}).(*connector)
-	if _, _, err := c.NodeRepositories(t.Context(), []string{"PR_1"}, []string{"repo"}); !errors.Is(err, errNoLookupPermissions) {
+	if _, _, err := c.NodeRepositories(t.Context(), []string{"PR_1"}, []string{"repo"}, nil); !errors.Is(err, errNoLookupPermissions) {
 		t.Errorf("err = %v, want errNoLookupPermissions", err)
 	}
 }

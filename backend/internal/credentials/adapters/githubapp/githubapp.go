@@ -184,62 +184,9 @@ func (c *connector) Classify(req *http.Request) (credentials.Classification, err
 
 // ClassifyResolved is Classify with the node and repository ids the request
 // names resolved to "owner/name" by NodeRepositories and Repositories. An id
-// absent from repos is unresolved. A read also accepts its category's write.
-// See docs/adr/2026-11-15-github-connector-route-coverage.md.
+// absent from repos is unresolved. See
+// docs/adr/2026-11-15-github-connector-route-coverage.md.
 func (c *connector) ClassifyResolved(req *http.Request, repos map[string]string) (credentials.Classification, error) {
-	cls, err := c.classify(req, repos)
-	if err != nil {
-		return credentials.Classification{}, err
-	}
-	acceptWrites(&cls)
-	return cls, nil
-}
-
-// acceptWrites adds each read action's write as an alternate, so a write grant
-// covers the read. The write mints only the read's permissions (its exact ones,
-// else its category's at read), so the token stays at read level.
-func acceptWrites(cls *credentials.Classification) {
-	for _, action := range append([]string{cls.Action}, cls.Alternates...) {
-		category, verb := splitAction(action)
-		write := category + ":" + verbWrite
-		if verb != verbRead || category == catMetadata || category == catRepo ||
-			write == cls.Action || slices.Contains(cls.Alternates, write) {
-			continue
-		}
-		cls.Alternates = append(cls.Alternates, write)
-		read, ok := cls.Permissions[action]
-		if !ok {
-			read = permissionsFor(action, nil, nil)
-		}
-		if cls.Permissions == nil {
-			cls.Permissions = map[string]map[string]string{}
-		}
-		cls.Permissions[write] = maps.Clone(read)
-	}
-}
-
-// writeOnlyPermissions are GitHub App permissions granted only at write. A
-// read-level token leaves them out, since GitHub refuses a token asking for
-// them at read.
-var writeOnlyPermissions = map[string]bool{"workflows": true}
-
-// readsAsWrite reports whether an action's permissions are a write alternate
-// standing in for a read: a write whose every permission is read. A REST write
-// always names a permission above read.
-func readsAsWrite(action string, perms map[string]string) bool {
-	if _, verb := splitAction(action); verb != verbWrite || len(perms) == 0 {
-		return false
-	}
-	for _, level := range perms {
-		if level != verbRead {
-			return false
-		}
-	}
-	return true
-}
-
-// classify is ClassifyResolved before reads accept writes.
-func (c *connector) classify(req *http.Request, repos map[string]string) (credentials.Classification, error) {
 	if req == nil || req.URL == nil {
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
@@ -832,8 +779,7 @@ var permissionLevels = map[string]int{verbRead: 1, verbWrite: 2, "admin": 3}
 // mintPermissions is the permission set for one authorized action: exactly
 // the permissions the classification named for it when it named any, else
 // everything the action's category covers that the installation holds, since
-// GitHub refuses a token asking for more. A write standing in for a read is
-// capped by the installation as well. Either is capped by the ceiling.
+// GitHub refuses a token asking for more. Either is capped by the ceiling.
 func mintPermissions(action string, exact map[string]map[string]string, ceiling, installationPerms map[string]string) map[string]string {
 	perms, ok := exact[action]
 	if !ok {
@@ -846,11 +792,13 @@ func mintPermissions(action string, exact map[string]map[string]string, ceiling,
 	derived := maps.Clone(perms)
 	derived[catMetadata] = verbRead
 	applyCeiling(derived, ceiling)
-	if readsAsWrite(action, perms) && installationPerms != nil {
-		applyCeiling(derived, installationPerms)
-	}
 	return derived
 }
+
+// writeOnlyPermissions are GitHub App permissions granted only at write. A
+// read-level token leaves them out, since GitHub refuses a token asking for
+// them at read.
+var writeOnlyPermissions = map[string]bool{"workflows": true}
 
 // permissionsFor derives the installation-token permission set for the
 // classified action, intersected with the connection's declared ceiling.
@@ -941,13 +889,12 @@ func applyCeiling(derived, ceiling map[string]string) {
 }
 
 // needsInstallationPerms reports whether any action mints its category's
-// permissions rather than exact ones, or is a write standing in for a read,
-// which are then capped by the installation's actual grants. Metadata is on
-// every installation.
+// permissions rather than exact ones, which are then capped by the
+// installation's actual grants. Metadata is on every installation.
 func needsInstallationPerms(actions []string, exact map[string]map[string]string) bool {
 	for _, a := range actions {
-		perms, isExact := exact[a]
-		if category, _ := splitAction(a); (!isExact && category != catMetadata) || readsAsWrite(a, perms) {
+		_, isExact := exact[a]
+		if category, _ := splitAction(a); !isExact && category != catMetadata {
 			return true
 		}
 	}
@@ -1037,13 +984,14 @@ var lookupPermissions = func() map[string][]string {
 }()
 
 // NodeRepositories resolves node ids with a read-only installation token
-// limited to categories, the ones the caller holds. An object in a repository
+// limited to categories, the ones the caller holds, and to the repositories in
+// repos when it is not nil. An object in a repository
 // resolves to its "owner/name", and any other object to its type, such as
 // "User", which never contains a slash. Ids the token cannot see are absent.
 // complete is false when GitHub answered with errors, so absent ids may not be
 // unseen. See docs/adr/2026-10-15-same-host-connection-selection.md.
-func (c *connector) NodeRepositories(ctx context.Context, ids, categories []string) (map[string]string, bool, error) {
-	token, err := c.lookupToken(ctx, categories)
+func (c *connector) NodeRepositories(ctx context.Context, ids, categories, repos []string) (map[string]string, bool, error) {
+	token, err := c.lookupToken(ctx, categories, repos)
 	if err != nil {
 		return nil, false, err
 	}
@@ -1064,24 +1012,25 @@ func (c *connector) NodeRepositories(ctx context.Context, ids, categories []stri
 // Repositories resolves numeric repository ids to "owner/name" with the same
 // read-only token as NodeRepositories. Ids the token cannot see are absent,
 // and any other failure is an error, so the result is always complete.
-func (c *connector) Repositories(ctx context.Context, ids, categories []string) (map[string]string, bool, error) {
-	token, err := c.lookupToken(ctx, categories)
+func (c *connector) Repositories(ctx context.Context, ids, categories, repos []string) (map[string]string, bool, error) {
+	token, err := c.lookupToken(ctx, categories, repos)
 	if err != nil {
 		return nil, false, err
 	}
-	repos, err := c.adapter.api.Repositories(ctx, token, ids)
+	found, err := c.adapter.api.Repositories(ctx, token, ids)
 	if err != nil {
 		return nil, false, fmt.Errorf("repository lookup: %w", err)
 	}
-	out := make(map[string]string, len(repos))
-	for id, r := range repos {
+	out := make(map[string]string, len(found))
+	for id, r := range found {
 		out[id] = r.Owner + "/" + r.Name
 	}
 	return out, true, nil
 }
 
-// lookupToken returns a read-only installation token limited to categories.
-func (c *connector) lookupToken(ctx context.Context, categories []string) (string, error) {
+// lookupToken returns a read-only installation token limited to categories, and
+// to the named repositories when repos is not nil.
+func (c *connector) lookupToken(ctx context.Context, categories, repos []string) (string, error) {
 	a, conn, cfg := c.adapter, c.conn, c.cfg
 	pem, err := a.secrets.Resolve(ctx, conn.SecretRef)
 	if err != nil {
@@ -1109,12 +1058,12 @@ func (c *connector) lookupToken(ctx context.Context, categories []string) (strin
 	}
 
 	// Prefixed so Mint never returns a lookup token, which carries no injected header.
-	cacheKey := "lookup|" + a.cacheKey(conn.ID, nil, perms)
+	cacheKey := "lookup|" + a.cacheKey(conn.ID, repos, perms)
 	token := ""
 	if cred, ok := a.cached(cacheKey); ok {
 		token = cred.Token
 	} else {
-		tok, mintErr := a.api.CreateInstallationToken(ctx, appJWT, cfg.InstallationID, ghclient.InstallationTokenRequest{Permissions: perms})
+		tok, mintErr := a.api.CreateInstallationToken(ctx, appJWT, cfg.InstallationID, ghclient.InstallationTokenRequest{Repositories: repos, Permissions: perms})
 		if mintErr != nil {
 			return "", fmt.Errorf("mint lookup token: %w", mintErr)
 		}
@@ -1129,9 +1078,8 @@ func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (cr
 
 	repos := reposFor(id.Qualifier)
 
-	// An action minting its whole category, or a write standing in for a read,
-	// with no declared ceiling, is capped by the installation's actual grants:
-	// GitHub rejects the entire mint with
+	// An action minting its whole category, with no declared ceiling, is capped
+	// by the installation's actual grants: GitHub rejects the entire mint with
 	// 422 when it asks for a permission the installation lacks. The grants are
 	// cached (instPermsCacheTTL); the App JWT is only signed when that is cold.
 	actions := append([]string{id.Action}, id.AlsoAuthorized...)
@@ -1265,7 +1213,8 @@ func (a *Adapter) store(key string, cred credentials.Credential) {
 
 // cacheKey scopes a cached token to the connection and the exact derived
 // repository/permission set minted, so a narrower request never reuses a
-// broader token.
+// broader token. Repository names are quoted, so a comma in a grant's qualifier
+// cannot collide with a list of two.
 func (a *Adapter) cacheKey(connID string, repos []string, perms map[string]string) string {
 	rs := slices.Sorted(slices.Values(repos))
 	ps := make([]string, 0, len(perms))
@@ -1273,7 +1222,7 @@ func (a *Adapter) cacheKey(connID string, repos []string, perms map[string]strin
 		ps = append(ps, k+"="+v)
 	}
 	slices.Sort(ps)
-	return strings.Join([]string{connID, strings.Join(rs, ","), strings.Join(ps, ",")}, "|")
+	return fmt.Sprintf("%s|%q|%s", connID, rs, strings.Join(ps, ","))
 }
 
 // signAppJWT signs a GitHub App authentication JWT (RS256) with the App's

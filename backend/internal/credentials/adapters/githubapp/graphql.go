@@ -43,8 +43,8 @@ const fieldSearch = "search"
 
 // classifyGraphQL requires any repository category at the operation's level on
 // the repository the document targets, or for a query the metadata baseline;
-// ClassifyResolved adds each category's write to a query. The broker mints
-// every one the grant holds. The body is always restored
+// the broker also accepts each read's write. It mints every one the grant
+// holds. The body is always restored
 // so the gateway forwards it byte for byte. A body that cannot be read, parsed
 // or attributed to one operation, and a subscription, are unclassified. repos
 // holds the resolved node ids.

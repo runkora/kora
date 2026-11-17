@@ -47,18 +47,19 @@ func TestClassify_QualifiesByResolvedIDs(t *testing.T) {
 		wantAction     string
 		wantErr        bool
 		wantCategories []string
+		wantRepos      []string
 	}{
-		{name: "per-repository grant qualifies by the resolved repository", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: update("PR_w"), wantQualifier: "widgets", wantAction: "contents:write", wantCategories: []string{"pulls"}},
-		{name: "a user id survives the grant filter", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: reviewers, wantQualifier: "widgets", wantAction: "contents:write", wantCategories: []string{"pulls"}},
-		{name: "a repository the caller holds no grant on stays unresolved", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: update("PR_g"), wantAction: "contents:write", wantCategories: []string{"pulls"}},
+		{name: "per-repository grant qualifies by the resolved repository", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: update("PR_w"), wantQualifier: "widgets", wantAction: "contents:write", wantCategories: []string{"pulls"}, wantRepos: []string{"widgets"}},
+		{name: "a user id beside a granted repository qualifies", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: reviewers, wantQualifier: "widgets", wantAction: "contents:write", wantCategories: []string{"pulls"}, wantRepos: []string{"widgets"}},
+		{name: "an id in a private repository outside the grant stays unresolved", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: update("PR_g"), wantAction: "contents:write", wantCategories: []string{"pulls"}, wantRepos: []string{"widgets"}},
 		{name: "an unqualified grant qualifies by any resolved repository", scopes: []string{"connection:fabrikam-github:pulls:write", "connection:fabrikam-github:issues:widgets:write"}, req: update("PR_g"), wantQualifier: "gadgets", wantAction: "contents:write", wantCategories: []string{"issues", "pulls"}},
 		{name: "no grant on the connection needs no lookup", scopes: []string{"connection:other-github:pulls:write"}, req: update("PR_w"), wantAction: "contents:write"},
-		{name: "a failed lookup fails closed", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: update("PR_w"), lookupErr: errors.New("github down"), wantErr: true, wantCategories: []string{"pulls"}},
+		{name: "a failed lookup fails closed", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: update("PR_w"), lookupErr: errors.New("github down"), wantErr: true, wantCategories: []string{"pulls"}, wantRepos: []string{"widgets"}},
 		{name: "a failed scope read fails closed", req: update("PR_w"), scopesErr: errors.New("opa down"), wantErr: true},
-		{name: "repository id path classifies as its repos path", scopes: []string{"connection:fabrikam-github:pulls:widgets:read"}, req: repoPath("/repositories/522/pulls/7/files?page=2"), wantQualifier: "widgets", wantAction: "pulls:read", wantCategories: []string{"pulls"}},
-		{name: "release asset is qualified by its repository id", scopes: []string{"connection:fabrikam-github:contents:widgets:read"}, req: asset("522"), wantQualifier: "widgets", wantAction: "contents:read", wantCategories: []string{"contents"}},
-		{name: "unresolved release asset stays unqualified", scopes: []string{"connection:fabrikam-github:contents:widgets:read"}, req: asset("9"), wantAction: "contents:read", wantCategories: []string{"contents"}},
-		{name: "unresolved repository id is unclassified", scopes: []string{"connection:fabrikam-github:pulls:widgets:read"}, req: repoPath("/repositories/9/pulls"), wantErr: true, wantCategories: []string{"pulls"}},
+		{name: "repository id path classifies as its repos path", scopes: []string{"connection:fabrikam-github:pulls:widgets:read"}, req: repoPath("/repositories/522/pulls/7/files?page=2"), wantQualifier: "widgets", wantAction: "pulls:read", wantCategories: []string{"pulls"}, wantRepos: []string{"widgets"}},
+		{name: "release asset is qualified by its repository id", scopes: []string{"connection:fabrikam-github:contents:widgets:read"}, req: asset("522"), wantQualifier: "widgets", wantAction: "contents:read", wantCategories: []string{"contents"}, wantRepos: []string{"widgets"}},
+		{name: "unresolved release asset stays unqualified", scopes: []string{"connection:fabrikam-github:contents:widgets:read"}, req: asset("9"), wantAction: "contents:read", wantCategories: []string{"contents"}, wantRepos: []string{"widgets"}},
+		{name: "unresolved repository id is unclassified", scopes: []string{"connection:fabrikam-github:pulls:widgets:read"}, req: repoPath("/repositories/9/pulls"), wantErr: true, wantCategories: []string{"pulls"}, wantRepos: []string{"widgets"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -79,6 +80,10 @@ func TestClassify_QualifiesByResolvedIDs(t *testing.T) {
 			if len(tc.wantCategories) > 0 && (la.lookups != 1 || !slices.Equal(la.categories[0], tc.wantCategories)) {
 				t.Errorf("lookups = %d with categories %v, want one with %v", la.lookups, la.categories, tc.wantCategories)
 			}
+			// A caller holding only qualified grants looks up within those repositories.
+			if la.lookups == 1 && !slices.Equal(la.repos[0], tc.wantRepos) {
+				t.Errorf("lookup repositories = %v, want %v", la.repos[0], tc.wantRepos)
+			}
 		})
 	}
 }
@@ -98,6 +103,41 @@ func TestClassify_ResolvedIDCacheHit(t *testing.T) {
 	}
 	if la.lookups != 1 {
 		t.Errorf("lookups = %d, want 1", la.lookups)
+	}
+}
+
+// The cache keys an id by the lookup's repositories, so an installation-wide
+// resolution is not reused for a caller limited to other repositories.
+func TestClassify_ResolvedIDCacheKeyedByRepositories(t *testing.T) {
+	conn := githubConn(t, "fabrikam-github", "fabrikam")
+	la := &lookupAdapter{visible: map[string]map[string]string{"fabrikam-github": {"PR_g": "fabrikam/gadgets"}}}
+	pol := &selectionPolicy{scopes: []string{"connection:fabrikam-github:pulls:read"}}
+	b := lookupBroker(pol, candidateConns{conn}, la)
+	connector := openQualifying(t, la, conn)
+	doc := graphqlRequest(`{"query":"{ node(id: \"PR_g\") { id } }"}`)
+	if got, err := b.classify(context.Background(), acmeClaims, conn, connector, doc); err != nil || got.Qualifier != "gadgets" {
+		t.Fatalf("unqualified caller: classify = %+v, err %v", got, err)
+	}
+	pol.scopes = []string{"connection:fabrikam-github:pulls:widgets:read"}
+	doc = graphqlRequest(`{"query":"{ node(id: \"PR_g\") { id } }"}`)
+	if got, err := b.classify(context.Background(), acmeClaims, conn, connector, doc); err != nil || got.Qualifier != "" {
+		t.Fatalf("qualified caller: classify = %+v, err %v, want unqualified", got, err)
+	}
+	if la.lookups != 2 {
+		t.Errorf("lookups = %d, want 2", la.lookups)
+	}
+
+	// A comma inside one qualifier is not the same lookup as two qualifiers.
+	pol.scopes = []string{"connection:fabrikam-github:pulls:gadgets:read", "connection:fabrikam-github:pulls:widgets:read"}
+	if _, err := b.classify(context.Background(), acmeClaims, conn, connector, graphqlRequest(`{"query":"{ node(id: \"PR_g\") { id } }"}`)); err != nil {
+		t.Fatal(err)
+	}
+	pol.scopes = []string{"connection:fabrikam-github:pulls:gadgets,widgets:read"}
+	if got, err := b.classify(context.Background(), acmeClaims, conn, connector, graphqlRequest(`{"query":"{ node(id: \"PR_g\") { id } }"}`)); err != nil || got.Qualifier != "" {
+		t.Fatalf("comma qualifier: classify = %+v, err %v, want unqualified", got, err)
+	}
+	if la.lookups != 4 {
+		t.Errorf("lookups = %d, want 4", la.lookups)
 	}
 }
 

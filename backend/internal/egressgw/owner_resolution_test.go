@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,8 @@ type lookupAdapter struct {
 	err        error
 	lookups    int
 	categories [][]string
+	// repos records each lookup's repository restriction, nil for none.
+	repos [][]string
 	// qualifying opens connectors that also qualify by resolved ids.
 	qualifying bool
 	// partial reports lookups as answered with errors.
@@ -52,23 +55,27 @@ func (a *lookupAdapter) Open(conn credentials.Connection) (credentials.Connector
 	return lc, nil
 }
 
-func (c *lookupConnector) NodeRepositories(_ context.Context, ids, categories []string) (map[string]string, bool, error) {
+// NodeRepositories answers from visible, every repository treated as private:
+// a token limited to repos sees no object in another one, as GitHub's would.
+func (c *lookupConnector) NodeRepositories(_ context.Context, ids, categories, repos []string) (map[string]string, bool, error) {
 	c.adapter.lookups++
 	c.adapter.categories = append(c.adapter.categories, categories)
+	c.adapter.repos = append(c.adapter.repos, repos)
 	if c.adapter.err != nil {
 		return nil, false, c.adapter.err
 	}
 	out := map[string]string{}
 	for _, id := range ids {
-		if owner, ok := c.adapter.visible[c.name][id]; ok {
-			out[id] = owner
+		value, ok := c.adapter.visible[c.name][id]
+		if _, name, isRepo := strings.Cut(value, "/"); ok && (!isRepo || repos == nil || slices.Contains(repos, name)) {
+			out[id] = value
 		}
 	}
 	return out, !c.adapter.partial, nil
 }
 
-func (c *lookupConnector) Repositories(ctx context.Context, ids, categories []string) (map[string]string, bool, error) {
-	return c.NodeRepositories(ctx, ids, categories)
+func (c *lookupConnector) Repositories(ctx context.Context, ids, categories, repos []string) (map[string]string, bool, error) {
+	return c.NodeRepositories(ctx, ids, categories, repos)
 }
 
 func lookupBroker(pol *selectionPolicy, conns candidateConns, la *lookupAdapter) *Broker {

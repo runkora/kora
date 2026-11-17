@@ -17,7 +17,7 @@ import (
 
 // GitHub serves issues and pull requests under /issues and lists pull_requests
 // as an alternative permission on the routes that accept either. Those routes
-// carry pulls as an alternate, and only those; a read also accepts each write.
+// carry pulls as an alternate, and only those.
 func TestClassify_IssueRoutesCarryPullsAlternate(t *testing.T) {
 	a := New(nil, stubSecrets{}, logging.NewLoggerWithOutput(io.Discard))
 	conn := credentials.Connection{Config: mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "orbital"})}
@@ -32,15 +32,15 @@ func TestClassify_IssueRoutesCarryPullsAlternate(t *testing.T) {
 		{"comment on the conversation", http.MethodPost, "/repos/orbital/kora/issues/1054/comments", "issues:write", []string{"pulls:write"}},
 		{"label by number", http.MethodPost, "/repos/orbital/kora/issues/1054/labels", "issues:write", []string{"pulls:write"}},
 		{"edit by number", http.MethodPatch, "/repos/orbital/kora/issues/1054", "issues:write", []string{"pulls:write"}},
-		{"read one event by ID", http.MethodGet, "/repos/orbital/kora/issues/events/77", "issues:read", []string{"pulls:read", "issues:write", "pulls:write"}},
+		{"read one event by ID", http.MethodGet, "/repos/orbital/kora/issues/events/77", "issues:read", []string{"pulls:read"}},
 		{"repository labels", http.MethodPost, "/repos/orbital/kora/labels", "issues:write", []string{"pulls:write"}},
-		{"repository-wide comments", http.MethodGet, "/repos/orbital/kora/issues/comments", "issues:read", []string{"pulls:read", "issues:write", "pulls:write"}},
+		{"repository-wide comments", http.MethodGet, "/repos/orbital/kora/issues/comments", "issues:read", []string{"pulls:read"}},
 
 		// GitHub lists issues alone.
 		{"react on an issue body", http.MethodPost, "/repos/orbital/kora/issues/1054/reactions", "issues:write", nil},
-		{"read one by number", http.MethodGet, "/repos/orbital/kora/issues/1054", "issues:read", []string{"issues:write"}},
+		{"read one by number", http.MethodGet, "/repos/orbital/kora/issues/1054", "issues:read", nil},
 		{"create an issue", http.MethodPost, "/repos/orbital/kora/issues", "issues:write", nil},
-		{"list issues", http.MethodGet, "/repos/orbital/kora/issues", "issues:read", []string{"issues:write"}},
+		{"list issues", http.MethodGet, "/repos/orbital/kora/issues", "issues:read", nil},
 		{"pull request route", http.MethodPost, "/repos/orbital/kora/pulls/1054/reviews", "pulls:write", nil},
 	}
 	for _, tc := range cases {

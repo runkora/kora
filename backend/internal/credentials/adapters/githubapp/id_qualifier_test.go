@@ -11,7 +11,7 @@ import (
 
 // A request addressing objects by node id is qualified by their repository only
 // when every id resolves to one repository of the connection's owner. See
-// docs/adr/2026-11-15-github-connector-route-coverage.md, item 16.
+// docs/adr/2026-11-15-github-connector-route-coverage.md, item 17.
 func TestClassifyResolved_NodeIDs(t *testing.T) {
 	resolved := map[string]string{
 		"PR_w": "example-org/widgets", "I_w": "example-org/widgets", "LA_w": "example-org/widgets",
@@ -64,10 +64,10 @@ func TestClassifyResolved_RepositoryIDPath(t *testing.T) {
 		want        credentials.Classification
 		wantErr     error
 	}{
-		{http.MethodGet, "https://api.github.com/repositories/1/pulls/7/files?page=2", readCls("pulls:read", "widgets"), nil},
+		{http.MethodGet, "https://api.github.com/repositories/1/pulls/7/files?page=2", cls("pulls:read", "widgets"), nil},
 		{http.MethodGet, "https://api.github.com/repositories/1", cls("metadata:read", "widgets"), nil},
 		{http.MethodPost, "https://api.github.com/repositories/1/issues/3/comments", credentials.Classification{Action: "issues:write", Alternates: []string{"pulls:write"}, Qualifier: "widgets"}, nil},
-		{http.MethodGet, "https://ghe.example.com/api/v3/repositories/1/contents/README.md", readCls("contents:read", "widgets"), nil},
+		{http.MethodGet, "https://ghe.example.com/api/v3/repositories/1/contents/README.md", cls("contents:read", "widgets"), nil},
 		{http.MethodGet, "https://api.github.com/repositories/2/pulls", credentials.Classification{}, credentials.ErrUnsupportedAction},
 		{http.MethodGet, "https://api.github.com/repositories/3/pulls", credentials.Classification{}, credentials.ErrUnsupportedAction},
 	}

@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"net"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
@@ -384,9 +382,10 @@ func hostWithoutPort(host string) string {
 // docs/adr/2026-07-22-connection-scope-qualifiers.md.
 //
 // A connector that qualifies by id has the node or repository ids the request
-// names resolved first, with a lookup limited to the categories the caller holds.
-// A failed scope read or lookup returns a policy_unavailable Denial, which the
-// anonymous fallback never serves, except a release asset's lookup. See
+// names resolved first, with a lookup limited to the categories the caller holds
+// and, when every grant is qualified, to the granted repositories. A failed scope
+// read or lookup returns a policy_unavailable Denial, which the anonymous
+// fallback never serves, except a release asset's lookup. See
 // docs/adr/2026-11-15-github-connector-route-coverage.md.
 func (b *Broker) classify(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, connector credentials.Connector, req EgressRequest) (credentials.Classification, error) {
 	q, ok := connector.(idQualifier)
@@ -394,8 +393,12 @@ func (b *Broker) classify(ctx context.Context, claims *token.PlatformClaims, con
 		return connector.Classify(req.HTTPRequest)
 	}
 	ids, lookup := idsToResolve(q.RequestOwners(req.HTTPRequest))
-	if len(ids) == 0 || len(ids) > MaxNodeIDs {
+	switch {
+	case len(ids) == 0:
 		return connector.Classify(req.HTTPRequest)
+	case len(ids) > MaxNodeIDs:
+		// Too many ids to resolve leaves every one unresolved, so the request is unqualified.
+		return q.ClassifyResolved(req.HTTPRequest, map[string]string{})
 	}
 	scopes, err := b.policy.Scopes(ctx, policy.ScopesInput{Claims: claims})
 	if err != nil {
@@ -405,12 +408,12 @@ func (b *Broker) classify(ctx context.Context, claims *token.PlatformClaims, con
 		)
 		return credentials.Classification{}, deny(DenialPolicyUnavailable, req.Host, conn, credentials.Classification{}, err)
 	}
-	categories, repos := heldOnConnection(scopes, conn.Name)
+	categories, repos := grantsOn(scopes, conn.Name).qualifyingLookup()
 	if len(categories) == 0 {
 		return connector.Classify(req.HTTPRequest)
 	}
 	// The lookup logs its own failure.
-	resolved, err := b.resolveRepositories(ctx, claims, req.Host, conn, q, ids, categories, lookup)
+	resolved, err := b.resolveRepositories(ctx, claims, req.Host, conn, q, ids, categories, repos, lookup)
 	switch {
 	case err != nil && isReleaseAssetHost(req.Host):
 		// A release asset's signed URL needs no credential, so an unresolved id
@@ -418,14 +421,6 @@ func (b *Broker) classify(ctx context.Context, claims *token.PlatformClaims, con
 		return connector.Classify(req.HTTPRequest)
 	case err != nil:
 		return credentials.Classification{}, deny(DenialPolicyUnavailable, req.Host, conn, credentials.Classification{}, err)
-	}
-	// A repository the caller holds no grant on stays unresolved, so no denial names it.
-	if repos != nil {
-		// A value without a slash is an object type, such as "User", and names no repository.
-		maps.DeleteFunc(resolved, func(_, repo string) bool {
-			_, name, ok := strings.Cut(repo, "/")
-			return ok && !repos[name]
-		})
 	}
 	return q.ClassifyResolved(req.HTTPRequest, resolved)
 }
@@ -435,31 +430,6 @@ func (b *Broker) classify(ctx context.Context, claims *token.PlatformClaims, con
 type idQualifier interface {
 	ownerScoped
 	ClassifyResolved(req *http.Request, repos map[string]string) (credentials.Classification, error)
-}
-
-// heldOnConnection returns the categories the caller holds on a connection,
-// qualified or not, and the repositories its qualified grants name. repos is
-// nil when any grant on the connection is unqualified. A connection:<verb> or
-// connection:<name>:<verb> scope holds every category and is reported as
-// parentCategory.
-func heldOnConnection(scopes []string, connection string) ([]string, map[string]bool) {
-	held, repos, unqualified := map[string]bool{}, map[string]bool{}, false
-	for _, s := range scopes {
-		parts := strings.Split(s, ":")
-		switch {
-		case parts[0] != resourceType:
-		case len(parts) == 2, len(parts) == 3 && parts[1] == connection:
-			held[parentCategory], unqualified = true, true
-		case len(parts) == 4 && parts[1] == connection:
-			held[parts[2]], unqualified = true, true
-		case len(parts) == 5 && parts[1] == connection:
-			held[parts[2]], repos[strings.ToLower(parts[3])] = true, true
-		}
-	}
-	if unqualified {
-		repos = nil
-	}
-	return slices.Sorted(maps.Keys(held)), repos
 }
 
 // evaluatePolicy checks the classified call against the caller's grants and
@@ -486,6 +456,9 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 		return nil, deny(DenialPolicyUnavailable, req.Host, conn, cls, err)
 	}
 
+	if !primary.Allow {
+		primary = b.writeMeetsRead(ctx, claims, conn, cls.Action, cls.Qualifier, primary)
+	}
 	var authorized []string
 	reasons := []string{primary.Reason}
 	if primary.Allow {
@@ -503,6 +476,9 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 				logging.Field{Key: "error", Value: err.Error()},
 			)
 			continue
+		}
+		if !decision.Allow {
+			decision = b.writeMeetsRead(ctx, claims, conn, alt, cls.Qualifier, decision)
 		}
 		if decision.Allow {
 			authorized = append(authorized, alt)
@@ -543,12 +519,14 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 	return append(authorized, b.heldOptional(ctx, claims, conn, cls)...), nil
 }
 
-// writeMeetsRead meets a required <category>:read with the same category's
-// write on the qualifier. The read stays the authorized action, so the
-// credential carries read. One that cannot be evaluated keeps the denial.
+// writeMeetsRead meets a denied <category>:read on a GitHub connection with the
+// same category's write on the qualifier, per ADR 2026-11-15 item 6. The read
+// stays the authorized action, so the credential carries read. One that cannot
+// be evaluated keeps the denial. Other adapters keep their own vocabulary, and
+// the metadata baseline and the legacy repo umbrella have no write to stand in.
 func (b *Broker) writeMeetsRead(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, action, qualifier string, denied policy.Result) policy.Result {
 	category, verb := splitActionFragment(action)
-	if verb != "read" || category == "" {
+	if conn.Adapter != credentials.AdapterGitHubApp || verb != "read" || category == "" || category == "metadata" || category == "repo" {
 		return denied
 	}
 	decision, err := b.checkAction(ctx, claims, conn, category+":write", qualifier)
