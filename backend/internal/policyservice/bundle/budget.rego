@@ -24,15 +24,21 @@ import rego.v1
 #   }
 #
 # Data:
-#   data.budgets[pid]                 — grant budgets: effective_limits (per window),
+#   data.budgets["TYPE:pid"]         — grant budgets: effective_limits (per window),
 #                                       effective_per_run_limit_usd, categories
 #   data.role_budgets.role_budgets[r] — { limit_usd, reset_cadence, pooled }
 #   data.tenant_budget.tenant_budget  — { limit_usd, reset_cadence } or null
 
+# A PAT is a credential, not a principal: its calls spend and are limited as
+# the owning user (the JWT sub), so a PAT looks up the user's HUMAN budget.
+budget_type := "HUMAN" if input.principal.type == "PAT"
+
+budget_type := input.principal.type if input.principal.type != "PAT"
+
 # ── Per-principal window limits (grants ∪ held per-member role budgets) ──────
 
 window_limits[w] contains l if {
-	l := data.budgets[input.principal.id].effective_limits[w]
+	l := data.budgets[sprintf("%s:%s", [budget_type, input.principal.id])].effective_limits[w]
 }
 
 window_limits[w] contains l if {
@@ -93,7 +99,7 @@ ceilings contains c if {
 
 ceilings contains c if {
 	input.principal.run_id != ""
-	prl := data.budgets[input.principal.id].effective_per_run_limit_usd
+	prl := data.budgets[sprintf("%s:%s", [budget_type, input.principal.id])].effective_per_run_limit_usd
 	prl > 0
 	c := {
 		"scope": "run",
@@ -117,7 +123,7 @@ ceilings contains c if {
 ceilings contains c if {
 	delegator := input.delegation.delegator_id
 	delegator != ""
-	some w, l in data.budgets[delegator].effective_limits
+	some w, l in data.budgets[sprintf("HUMAN:%s", [delegator])].effective_limits
 	c := {
 		"scope": "delegator",
 		"id": delegator,
@@ -132,7 +138,7 @@ ceilings contains c if {
 	delegator := input.delegation.delegator_id
 	delegator != ""
 	input.principal.run_id != ""
-	prl := data.budgets[delegator].effective_per_run_limit_usd
+	prl := data.budgets[sprintf("HUMAN:%s", [delegator])].effective_per_run_limit_usd
 	prl > 0
 	c := {
 		"scope": "delegator_run",

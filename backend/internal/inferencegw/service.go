@@ -747,7 +747,7 @@ func (s *Service) budgetScopesFor(ctx context.Context, p principal, delegatorID 
 	// otherwise double-count a pooled role budget's per-category attribution.
 	roles = dedupeRoles(roles)
 
-	grantCats, err := s.policy.GetBudgetCategories(ctx, p.TenantID, p.PrincipalID)
+	grantCats, err := s.policy.GetBudgetCategories(ctx, p.TenantID, budgetPrincipalType(p.PrincipalType), p.PrincipalID)
 	if err != nil {
 		grantCats = nil
 	}
@@ -842,7 +842,7 @@ func (s *Service) delegatorBudgetScopes(ctx context.Context, tenantID, delegator
 		return "", nil, 0
 	}
 
-	cats, err := s.policy.GetBudgetCategories(ctx, tenantID, delegatorID)
+	cats, err := s.policy.GetBudgetCategories(ctx, tenantID, string(token.PrincipalTypeHuman), delegatorID)
 	if err != nil {
 		cats = nil
 	}
@@ -1138,12 +1138,12 @@ func (s *Service) ListBudgetPrincipals(ctx context.Context, tenantID string) (Bu
 	// window spend enforcement evaluates — not the attribution counter, which
 	// starts at zero whenever an assignment (or its period key) is new and made
 	// a fresh weekly budget look like the principal's usage had been reset.
-	weeklySpendByPid, wkErr := s.usage.GetSpendByPrincipalSince(ctx, tenantID, periodStart("weekly", now))
+	weeklySpendByKey, wkErr := s.usage.GetSpendByPrincipalSince(ctx, tenantID, periodStart("weekly", now))
 	if wkErr != nil {
 		s.logger.Warn(ctx, "budget.weekly_spend_unavailable",
 			logging.Field{Key: "error", Value: wkErr.Error()},
 		)
-		weeklySpendByPid = nil
+		weeklySpendByKey = nil
 	}
 
 	// Active role-budget holders: which principals exercised which OIDC roles
@@ -1159,48 +1159,87 @@ func (s *Service) ListBudgetPrincipals(ctx context.Context, tenantID string) (Bu
 		roleHolders = nil
 	}
 
-	// Union of all principals that appear in any source.
-	pids := make(map[string]struct{})
-	spendByPid := make(map[string]PrincipalPeriodSpend, len(spenders))
-	for _, sp := range spenders {
-		pids[sp.PrincipalID] = struct{}{}
-		spendByPid[sp.PrincipalID] = sp
-	}
-	for pid := range principalBudgets {
-		pids[pid] = struct{}{}
-	}
-	for pid, held := range roleHolders {
-		for _, role := range held {
-			if _, ok := roleBudgets[role]; ok {
-				pids[pid] = struct{}{}
-				break
-			}
-		}
-	}
+	keys, spendByKey := budgetPrincipalKeys(spenders, principalBudgets, roleHolders, roleBudgets)
 
-	for pid := range pids {
-		cats := budgetCategoriesFor(pid, principalBudgets, roleHolders, roleBudgets)
-		resp.Data = append(resp.Data, s.buildBudgetPrincipalRow(ctx, pid, cats, spendByPid[pid], weeklySpendByPid[pid]))
+	for key := range keys {
+		// Role holders come from the usage log, keyed by bare ID, so attach role
+		// categories only to the key of the type that actually spent.
+		holders := roleHolders
+		if key.Type != principalTypeFor(key.ID, spendByKey[key].PrincipalType) {
+			holders = nil
+		}
+		cats := budgetCategoriesFor(key, principalBudgets, holders, roleBudgets)
+		resp.Data = append(resp.Data, s.buildBudgetPrincipalRow(ctx, key, cats, spendByKey[key], weeklySpendByKey[key.String()]))
 	}
 
 	sortBudgetPrincipals(resp.Data)
 	return resp, nil
 }
 
+// budgetPrincipalKeys returns the union of principals that appear in any
+// source, keyed by principal type plus ID to match the bundle's budgets, and
+// the spend rows keyed the same way, so a principal only ever sees its own
+// spend. PAT spend arrives already folded into its owner's HUMAN row.
+func budgetPrincipalKeys(
+	spenders []PrincipalPeriodSpend,
+	principalBudgets map[policy.BudgetKey]policy.PrincipalBudget,
+	roleHolders map[string][]string,
+	roleBudgets map[string]policy.RoleBudget,
+) (map[policy.BudgetKey]struct{}, map[policy.BudgetKey]PrincipalPeriodSpend) {
+	keys := make(map[policy.BudgetKey]struct{})
+	humanIDs := make(map[string]struct{})
+	add := func(k policy.BudgetKey) {
+		keys[k] = struct{}{}
+		if k.Type == string(token.PrincipalTypeHuman) {
+			humanIDs[k.ID] = struct{}{}
+		}
+	}
+	spendByKey := make(map[policy.BudgetKey]PrincipalPeriodSpend, len(spenders))
+	for _, sp := range spenders {
+		k := policy.BudgetKey{Type: budgetPrincipalType(principalTypeFor(sp.PrincipalID, sp.PrincipalType)), ID: sp.PrincipalID}
+		add(k)
+		if prev, ok := spendByKey[k]; ok { // defensive: merge rows that normalise to one key
+			sp.SpendUSD += prev.SpendUSD
+			if prev.LastActiveAt.After(sp.LastActiveAt) {
+				sp.LastActiveAt = prev.LastActiveAt
+			}
+		}
+		spendByKey[k] = sp
+	}
+	for k := range principalBudgets {
+		if k.Type == string(token.PrincipalTypePAT) {
+			continue // enforcement resolves a PAT to its owner's HUMAN budget
+		}
+		add(k)
+	}
+	for pid, held := range roleHolders {
+		if _, ok := humanIDs[pid]; ok {
+			continue // attached to the existing HUMAN key via budgetCategoriesFor
+		}
+		for _, role := range held {
+			if _, ok := roleBudgets[role]; ok {
+				add(policy.BudgetKey{Type: string(token.PrincipalTypeHuman), ID: pid})
+				break
+			}
+		}
+	}
+	return keys, spendByKey
+}
+
 // budgetCategoriesFor collects every budget category applicable to the
 // principal: grant categories from the bundle plus role categories for the
 // budgeted roles the principal has exercised this period.
 func budgetCategoriesFor(
-	pid string,
-	principalBudgets map[string]policy.PrincipalBudget,
+	key policy.BudgetKey,
+	principalBudgets map[policy.BudgetKey]policy.PrincipalBudget,
 	roleHolders map[string][]string,
 	roleBudgets map[string]policy.RoleBudget,
 ) []policy.BudgetCategory {
 	var cats []policy.BudgetCategory
-	if pb, ok := principalBudgets[pid]; ok {
+	if pb, ok := principalBudgets[key]; ok {
 		cats = append(cats, pb.Categories...)
 	}
-	for _, role := range roleHolders[pid] {
+	for _, role := range roleHolders[key.ID] {
 		rb, ok := roleBudgets[role]
 		if !ok {
 			continue // counter for a role whose budget has since been removed
@@ -1225,14 +1264,14 @@ func budgetCategoriesFor(
 // shown in the per-category breakdown with their own windows.
 func (s *Service) buildBudgetPrincipalRow(
 	ctx context.Context,
-	pid string,
+	key policy.BudgetKey,
 	cats []policy.BudgetCategory,
 	sp PrincipalPeriodSpend,
 	weeklySpend float64,
 ) BudgetPrincipalStatus {
 	var catSpends []float64
 	if s.budgetCounter != nil && len(cats) > 0 {
-		if cs, csErr := s.budgetCounter.GetCategorySpends(ctx, pid, cats); csErr == nil {
+		if cs, csErr := s.budgetCounter.GetCategorySpends(ctx, key.ID, cats); csErr == nil {
 			catSpends = cs
 		}
 	}
@@ -1240,8 +1279,8 @@ func (s *Service) buildBudgetPrincipalRow(
 	catStatuses, effective, effectiveCadence, hasLimit, reached := summarizeBudgetCategories(cats, catSpends, sp.SpendUSD, weeklySpend)
 
 	row := BudgetPrincipalStatus{
-		PrincipalID:           pid,
-		PrincipalType:         principalTypeFor(pid, sp.PrincipalType),
+		PrincipalID:           key.ID,
+		PrincipalType:         key.Type,
 		Categories:            catStatuses,
 		EffectiveLimitUSD:     effective,
 		EffectiveResetCadence: effectiveCadence,
@@ -1306,6 +1345,16 @@ func summarizeBudgetCategories(cats []policy.BudgetCategory, catSpends []float64
 		}
 	}
 	return statuses, effective, effectiveCadence, hasLimit, reached
+}
+
+// budgetPrincipalType maps a credential's principal type to the type its
+// budget is keyed by. A PAT spends as its owning user, so it resolves to the
+// user's HUMAN budget — the same one their session token is held to.
+func budgetPrincipalType(t string) string {
+	if t == string(token.PrincipalTypePAT) {
+		return string(token.PrincipalTypeHuman)
+	}
+	return t
 }
 
 // principalTypeFor returns the recorded principal type, or — for synthesized

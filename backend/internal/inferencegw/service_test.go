@@ -48,10 +48,12 @@ type stubEvaluator struct {
 	// lastRoleBudgetRoles captures the roleNames passed to GetRoleBudgets.
 	lastRoleBudgetRoles []string
 	// allBudgets and allRoleBudgets are returned by ListBudgets.
-	allBudgets     map[string]policy.PrincipalBudget
+	allBudgets     map[policy.BudgetKey]policy.PrincipalBudget
 	allRoleBudgets map[string]policy.RoleBudget
 	// tenantBudget is returned by GetTenantBudget.
 	tenantBudget *policy.TenantBudget
+	// lastBudgetType captures the principal type passed to GetBudgetCategories.
+	lastBudgetType string
 }
 
 func (s *stubEvaluator) Check(_ context.Context, input policy.CheckInput) (policy.Result, error) {
@@ -115,7 +117,8 @@ func (s *stubEvaluator) GetTenantBudget(_ context.Context, _ string) (*policy.Te
 	return s.tenantBudget, nil
 }
 
-func (s *stubEvaluator) GetBudgetCategories(_ context.Context, _, principalID string) ([]policy.BudgetCategory, error) {
+func (s *stubEvaluator) GetBudgetCategories(_ context.Context, _, principalType, principalID string) ([]policy.BudgetCategory, error) {
+	s.lastBudgetType = principalType
 	if s.budgetCategoriesByPrincipal != nil {
 		return s.budgetCategoriesByPrincipal[principalID], s.budgetCategoriesErr
 	}
@@ -127,7 +130,7 @@ func (s *stubEvaluator) GetRoleBudgets(_ context.Context, _ string, roleNames []
 	return s.roleBudgets, nil
 }
 
-func (s *stubEvaluator) ListBudgets(_ context.Context, _ string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
+func (s *stubEvaluator) ListBudgets(_ context.Context, _ string) (map[policy.BudgetKey]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
 	return s.allBudgets, s.allRoleBudgets, nil
 }
 
@@ -624,6 +627,67 @@ func TestGetPersonalBudget_NoRolesInJWT_EmptyRolesToCheckBudget(t *testing.T) {
 	}
 }
 
+func TestBudgetScopesFor_PATLooksUpOwnersHumanBudget(t *testing.T) {
+	t.Parallel()
+	// A PAT's sub is the user's ID; it must resolve to the user's HUMAN budget
+	// (the one their session token is held to), never a PAT-typed key.
+	for pt, want := range map[string]string{"PAT": "HUMAN", "HUMAN": "HUMAN", "AGENT": "AGENT"} {
+		eval := &stubEvaluator{}
+		svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), &mockInferenceUsageRepository{}, &mockSpendCounter{}, logging.NewLoggerWithOutput(io.Discard))
+		svc.budgetScopesFor(context.Background(), principal{TenantID: "tenant-1", PrincipalID: "user-1", PrincipalType: pt}, "")
+		if eval.lastBudgetType != want {
+			t.Errorf("%s principal budget lookup type = %q, want %q", pt, eval.lastBudgetType, want)
+		}
+	}
+}
+
+func TestListBudgetPrincipals_SpendJoinedByTypeAndID(t *testing.T) {
+	t.Parallel()
+	// An agent and a user share an ID; only the HUMAN has a budget ($1) and has
+	// spent $5 (via PAT, folded into HUMAN). The agent spent $3 with no budget.
+	eval := &stubEvaluator{
+		allBudgets: map[policy.BudgetKey]policy.PrincipalBudget{
+			{Type: "HUMAN", ID: "same"}: {
+				Categories:      []policy.BudgetCategory{{Source: "grant", ID: "g", ResetCadence: "monthly", LimitUSD: 1}},
+				EffectiveLimits: map[string]float64{"monthly": 1},
+			},
+			// Ignored by enforcement; must not produce a second row.
+			{Type: "PAT", ID: "same"}: {
+				Categories: []policy.BudgetCategory{{Source: "grant", ID: "p", ResetCadence: "monthly", LimitUSD: 9}},
+			},
+		},
+	}
+	usage := &mockInferenceUsageRepository{
+		periodSpends: []PrincipalPeriodSpend{
+			{PrincipalID: "same", PrincipalType: "HUMAN", SpendUSD: 5},
+			{PrincipalID: "same", PrincipalType: "PAT", SpendUSD: 2},
+			{PrincipalID: "same", PrincipalType: "AGENT", SpendUSD: 3},
+		},
+	}
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, &mockSpendCounter{}, logging.NewLoggerWithOutput(io.Discard))
+	resp, err := svc.ListBudgetPrincipals(context.Background(), "tenant-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Data) != 2 {
+		t.Fatalf("got %d rows, want 2 (HUMAN and AGENT): %+v", len(resp.Data), resp.Data)
+	}
+	for _, r := range resp.Data {
+		switch r.PrincipalType {
+		case "HUMAN":
+			if r.CurrentSpendUSD != 7 || !r.SpendLimitReached {
+				t.Errorf("HUMAN row = %+v, want spend 7 (session + PAT) and limit reached", r)
+			}
+		case "AGENT":
+			if r.CurrentSpendUSD != 3 || r.SpendLimitReached || r.HasLimit {
+				t.Errorf("AGENT row = %+v, want its own spend 3 and no limit", r)
+			}
+		default:
+			t.Errorf("unexpected row type %q", r.PrincipalType)
+		}
+	}
+}
+
 func TestCheckBudget_ScopesDerivedFromConfiguration(t *testing.T) {
 	t.Parallel()
 	// Grant budgets (weekly + monthly + per-run), a pooled role, a per-member
@@ -672,8 +736,8 @@ func TestListBudgetPrincipals_MergesSourcesAndSorts(t *testing.T) {
 	//   pid-grant — grant budget $80 from the bundle, spend $40 → utilisation 0.5
 	//   pid-free  — no budget, spend $10 → has_limit=false, listed after budgeted principals
 	eval := &stubEvaluator{
-		allBudgets: map[string]policy.PrincipalBudget{
-			"pid-grant": {
+		allBudgets: map[policy.BudgetKey]policy.PrincipalBudget{
+			{Type: "HUMAN", ID: "pid-grant"}: {
 				Categories: []policy.BudgetCategory{
 					{Source: "grant", ID: "g1", ResetCadence: "monthly", LimitUSD: 80},
 				},
@@ -732,8 +796,8 @@ func TestListBudgetPrincipals_WeeklyBlockedReportedAndTypeInferred(t *testing.T)
 	// so a freshly re-windowed assignment never reads as zero usage.
 	pid := "spiffe://runkora.test/tenant/t/agent/coder"
 	eval := &stubEvaluator{
-		allBudgets: map[string]policy.PrincipalBudget{
-			pid: {
+		allBudgets: map[policy.BudgetKey]policy.PrincipalBudget{
+			{Type: "AGENT", ID: pid}: {
 				Categories:      []policy.BudgetCategory{{Source: "grant", ID: "g1", ResetCadence: "weekly", LimitUSD: 20}},
 				EffectiveLimits: map[string]float64{"weekly": 20},
 			},
@@ -741,7 +805,7 @@ func TestListBudgetPrincipals_WeeklyBlockedReportedAndTypeInferred(t *testing.T)
 	}
 	counter := &mockSpendCounter{categorySpends: []float64{0}} // stale attribution counter
 	usage := &mockInferenceUsageRepository{
-		windowSpends: map[string]float64{pid: 20}, // true ISO-week spend
+		windowSpends: map[string]float64{"AGENT:" + pid: 20}, // true ISO-week spend
 	}
 	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
 
@@ -844,5 +908,84 @@ func TestCheckBudget_FailOpenLogging(t *testing.T) {
 				t.Errorf("log = %s, want budget.fail_open at %s with reason %q", out, tt.level, tt.reason)
 			}
 		})
+	}
+}
+
+// A HUMAN grant sharing an agent's ID must not appear on the agent's row, and
+// a spender recorded as AGENT must key as AGENT and match the AGENT grant (#720).
+func TestListBudgetPrincipals_SameIDGrantsStayOnTheirOwnType(t *testing.T) {
+	t.Parallel()
+	pid := "spiffe://runkora.test/tenant/t/agent/coder"
+	eval := &stubEvaluator{
+		allBudgets: map[policy.BudgetKey]policy.PrincipalBudget{
+			{Type: "AGENT", ID: pid}: {
+				Categories:      []policy.BudgetCategory{{Source: "grant", ID: "g-agent", ResetCadence: "monthly", LimitUSD: 1}},
+				EffectiveLimits: map[string]float64{"monthly": 1},
+			},
+			{Type: "HUMAN", ID: pid}: {
+				Categories:      []policy.BudgetCategory{{Source: "grant", ID: "g-human", ResetCadence: "monthly", LimitUSD: 100}},
+				EffectiveLimits: map[string]float64{"monthly": 100},
+			},
+		},
+	}
+	usage := &mockInferenceUsageRepository{
+		periodSpends: []PrincipalPeriodSpend{{PrincipalID: pid, PrincipalType: "AGENT", SpendUSD: 0.5}},
+	}
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, &mockSpendCounter{}, logging.NewLoggerWithOutput(io.Discard))
+
+	resp, err := svc.ListBudgetPrincipals(context.Background(), "tenant-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Data) != 2 {
+		t.Fatalf("got %d rows, want AGENT and HUMAN rows: %+v", len(resp.Data), resp.Data)
+	}
+	for _, row := range resp.Data {
+		if len(row.Categories) != 1 {
+			t.Fatalf("%s row categories = %+v, want exactly one", row.PrincipalType, row.Categories)
+		}
+		switch row.PrincipalType {
+		case "AGENT":
+			if row.Categories[0].ID != "g-agent" || row.EffectiveLimitUSD != 1 {
+				t.Errorf("AGENT row = %+v, want only the agent grant", row)
+			}
+		case "HUMAN":
+			if row.Categories[0].ID != "g-human" || row.EffectiveLimitUSD != 100 {
+				t.Errorf("HUMAN row = %+v, want only the human grant", row)
+			}
+		default:
+			t.Errorf("unexpected row type %q", row.PrincipalType)
+		}
+	}
+}
+
+// Role categories attach only to the type that exercised the role, not to
+// every grant type sharing the ID.
+func TestListBudgetPrincipals_RoleCategoriesAttachToSpenderTypeOnly(t *testing.T) {
+	t.Parallel()
+	eval := &stubEvaluator{
+		allBudgets: map[policy.BudgetKey]policy.PrincipalBudget{
+			{Type: "AGENT", ID: "shared"}: {Categories: []policy.BudgetCategory{{Source: "grant", ID: "g-a", ResetCadence: "monthly", LimitUSD: 1}}, EffectiveLimits: map[string]float64{"monthly": 1}},
+			{Type: "HUMAN", ID: "shared"}: {Categories: []policy.BudgetCategory{{Source: "grant", ID: "g-h", ResetCadence: "monthly", LimitUSD: 9}}, EffectiveLimits: map[string]float64{"monthly": 9}},
+		},
+		allRoleBudgets: map[string]policy.RoleBudget{"engineer": {LimitUSD: 50, ResetCadence: "monthly"}},
+	}
+	usage := &mockInferenceUsageRepository{
+		periodSpends:      []PrincipalPeriodSpend{{PrincipalID: "shared", PrincipalType: "HUMAN", SpendUSD: 1}},
+		activeRoleHolders: map[string][]string{"shared": {"engineer"}},
+	}
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, &mockSpendCounter{}, logging.NewLoggerWithOutput(io.Discard))
+	resp, err := svc.ListBudgetPrincipals(context.Background(), "tenant-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range resp.Data {
+		hasRole := false
+		for _, c := range row.Categories {
+			hasRole = hasRole || c.Source == "role"
+		}
+		if hasRole != (row.PrincipalType == "HUMAN") {
+			t.Errorf("%s row role category present = %v, want only on HUMAN", row.PrincipalType, hasRole)
+		}
 	}
 }

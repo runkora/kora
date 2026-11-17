@@ -253,8 +253,10 @@ func normalizeCadence(c string) string {
 // that cadence (consistent with UNION for scopes); the per-run effective limit
 // is MAX across assignments carrying one.
 //
-// The returned map serializes directly to {"<principal_id>": {...}} so that
-// OPA mounts it at data.budgets and budget.rego can read data.budgets[id].
+// The returned map serializes directly to {"<TYPE>:<principal_id>": {...}} so that
+// OPA mounts it at data.budgets and budget.rego can read data.budgets["TYPE:id"].
+// Keys are policy.BudgetKey{Type, ID}.String(): keying by ID alone let a grant of
+// one principal type change the budget of another type sharing the ID (#720).
 func buildBudgets(tenantGrants []*grants.Grant, _ []*roles.RoleEntry) map[string]principalBudget {
 	doc := make(map[string]principalBudget)
 
@@ -266,7 +268,8 @@ func buildBudgets(tenantGrants []*grants.Grant, _ []*roles.RoleEntry) map[string
 		if g.Budget == nil {
 			continue
 		}
-		pb, exists := doc[g.PrincipalID]
+		key := policy.BudgetKey{Type: string(g.PrincipalType), ID: g.PrincipalID}.String()
+		pb, exists := doc[key]
 		if !exists {
 			pb = principalBudget{EffectiveLimits: make(map[string]float64)}
 		}
@@ -286,7 +289,7 @@ func buildBudgets(tenantGrants []*grants.Grant, _ []*roles.RoleEntry) map[string
 			pb.EffectivePerRunLimitUSD = g.Budget.PerRunLimitUSD
 		}
 
-		doc[g.PrincipalID] = pb
+		doc[key] = pb
 	}
 
 	// Role-level budgets: we can't resolve which principals hold which OIDC roles

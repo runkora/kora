@@ -52,7 +52,7 @@ func (e *scopedEvaluator) GetTenantBudget(_ context.Context, _ string) (*policy.
 	return nil, nil
 }
 
-func (e *scopedEvaluator) GetBudgetCategories(_ context.Context, _, _ string) ([]policy.BudgetCategory, error) {
+func (e *scopedEvaluator) GetBudgetCategories(_ context.Context, _, _, _ string) ([]policy.BudgetCategory, error) {
 	return nil, nil
 }
 
@@ -60,8 +60,8 @@ func (e *scopedEvaluator) GetRoleBudgets(_ context.Context, _ string, _ []string
 	return nil, nil
 }
 
-func (e *scopedEvaluator) ListBudgets(_ context.Context, _ string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
-	return map[string]policy.PrincipalBudget{}, map[string]policy.RoleBudget{}, nil
+func (e *scopedEvaluator) ListBudgets(_ context.Context, _ string) (map[policy.BudgetKey]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
+	return map[policy.BudgetKey]policy.PrincipalBudget{}, map[string]policy.RoleBudget{}, nil
 }
 
 func (e *scopedEvaluator) Start(_ context.Context) {}
