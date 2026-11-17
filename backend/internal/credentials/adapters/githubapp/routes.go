@@ -3,6 +3,7 @@ package githubapp
 import (
 	"maps"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -83,8 +84,17 @@ var routesByMethod = func() map[string][]compiledRoute {
 
 // matchRoute returns the most specific route for the escaped path segments: at
 // the first segment where candidates differ a literal beats a parameter, and
-// an exact route beats a greedy one.
-func matchRoute(method string, segs []string) *restRoute {
+// an exact route beats a greedy one. Literals compare against each segment
+// unescaped, since GitHub decodes /user/%63odespaces to /user/codespaces; the
+// split stays on the escaped path, so an encoded slash keeps its segment.
+func matchRoute(method string, escaped []string) *restRoute {
+	segs := make([]string, len(escaped))
+	for i, s := range escaped {
+		segs[i] = s
+		if u, err := url.PathUnescape(s); err == nil {
+			segs[i] = u
+		}
+	}
 	var best *compiledRoute
 	bestScore := -1
 	for i := range routesByMethod[method] {

@@ -137,6 +137,7 @@ func TestClassify_RESTEdgeCases(t *testing.T) {
 		{method: http.MethodGet, url: "https://api.github.com/user/codespaces", err: true},
 		{method: http.MethodGet, url: "https://api.github.com/user/emails", err: true},
 		{method: http.MethodGet, url: "https://api.github.com/user/repos", err: true},
+		{method: http.MethodGet, url: "https://api.github.com/user/%63odespaces", err: true},
 		{method: http.MethodGet, url: "https://api.github.com/user/12345", want: cls("metadata:read", "")},
 		{method: http.MethodGet, url: "https://api.github.com/rate_limit", want: cls("metadata:read", "")},
 		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/contents/", want: cls("contents:read", "widgets")},
