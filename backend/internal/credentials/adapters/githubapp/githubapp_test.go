@@ -196,7 +196,12 @@ func TestAdapter_Resolve_GitHubError(t *testing.T) {
 // the adapter-agnostic ErrCredentialScopeRejected, so the broker returns a
 // forbidden rather than a 500. See the 2026-07-22 category ADR.
 func TestAdapter_Resolve_InstallationPermissionCeiling(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The installation reports the permissions, and GitHub still refuses the mint.
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{"permissions": map[string]string{"issues": "write", "members": "read"}})
+			return
+		}
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		_, _ = w.Write([]byte(`{"message":"The level of access for permissions requested are not granted to this installation."}`))
 	}))
@@ -333,8 +338,8 @@ func TestConnector_Classify(t *testing.T) {
 		// REST: owner mismatch on the API surface is denied outright
 		{"foreign_owner_api", http.MethodGet, "https://api.github.com/repos/evil/kora", "", "", true},
 
-		// Repo-less endpoints: unqualified
-		{"graphql_no_body", http.MethodPost, "https://api.github.com/graphql", "repo:write", "", false},
+		// Repo-less endpoints: unqualified. A GraphQL request with no body is denied.
+		{"graphql_no_body", http.MethodPost, "https://api.github.com/graphql", "", "", true},
 		{"search_code", http.MethodGet, "https://api.github.com/search/code?q=x", "contents:read", "", false},
 		{"search_issues_repo", http.MethodGet, "https://api.github.com/search/issues?q=is:open+repo:orbital/kora", "issues:read", "kora", false},
 		{"search_issues_two_repos", http.MethodGet, "https://api.github.com/search/issues?q=repo:orbital/kora+repo:orbital/other", "issues:read", "", false},
@@ -358,7 +363,7 @@ func TestConnector_Classify(t *testing.T) {
 
 		// GitHub Enterprise path prefixes on the appliance host
 		{"ghe_issues", http.MethodGet, "https://ghe.example.com/api/v3/repos/orbital/kora/issues", "issues:read", "kora", false},
-		{"ghe_graphql_no_body", http.MethodPost, "https://ghe.example.com/api/graphql", "repo:write", "", false},
+		{"ghe_graphql_no_body", http.MethodPost, "https://ghe.example.com/api/graphql", "", "", true},
 
 		// Content-host family: reads only, qualified when owner-addressed
 		{"codeload", http.MethodGet, "https://codeload.github.com/orbital/kora/tar.gz/main", "contents:read", "kora", false},
@@ -372,8 +377,8 @@ func TestConnector_Classify(t *testing.T) {
 		{"results_receiver_twirp_write", http.MethodPost, "https://results-receiver.actions.githubusercontent.com/twirp/results.services.receiver.Receiver/CreateStepLogsMetadata", "", "", true},
 		{"results_receiver_delete", http.MethodDelete, "https://results-receiver.actions.githubusercontent.com/logs/1", "", "", true},
 
-		// ID-addressed pagination links stay on the unqualified catch-all
-		{"repository_id_page", http.MethodGet, "https://api.github.com/repositories/123/pulls/5/files?page=2", "repo:read", "", false},
+		// A repository-ID pagination link that did not resolve is denied
+		{"repository_id_page", http.MethodGet, "https://api.github.com/repositories/123/pulls/5/files?page=2", "", "", true},
 
 		// Anything else: verb-classified catch-all, unqualified
 		{"web_page", http.MethodGet, "https://github.com/orbital", "repo:read", "", false},
@@ -441,14 +446,9 @@ func TestPermissionsFor(t *testing.T) {
 		{"metadata", "metadata:read", nil, map[string]string{"metadata": "read"}},
 		{"contents_write", "contents:write", nil, map[string]string{"contents": "write", "metadata": "read"}},
 		{"issues_read", "issues:read", nil, map[string]string{"issues": "read", "metadata": "read"}},
-		// Pull-request tokens carry contents:read so PR create/edit can read the
-		// head/base refs (GitHub 422s "not all refs are readable" otherwise).
-		{"pulls_write", "pulls:write", nil, map[string]string{"pull_requests": "write", "contents": "read", "metadata": "read"}},
-		{"pulls_read", "pulls:read", nil, map[string]string{"pull_requests": "read", "contents": "read", "metadata": "read"}},
-		// The contents:read floor is still ceiling-bound: a connection that does
-		// not permit contents drops it.
-		{"pulls_write_ceiling_omits_contents", "pulls:write", map[string]string{"pull_requests": "write", "metadata": "read"},
-			map[string]string{"pull_requests": "write", "metadata": "read"}},
+		// A pulls token carries contents only when the grant also holds contents.
+		{"pulls_write", "pulls:write", nil, map[string]string{"pull_requests": "write", "metadata": "read"}},
+		{"pulls_read", "pulls:read", nil, map[string]string{"pull_requests": "read", "metadata": "read"}},
 		{"ci_write", "ci:write", nil, map[string]string{"actions": "write", "checks": "write", "statuses": "write", "artifact_metadata": "write", "attestations": "write", "metadata": "read"}},
 		{"admin_read", "admin:read", nil, map[string]string{"administration": "read", "repository_hooks": "read", "repository_custom_properties": "read", "repository_creation": "read", "installation_repositories": "read", "metadata": "read"}},
 		{"members_read", "members:read", nil, map[string]string{"members": "read", "metadata": "read"}},
@@ -741,6 +741,10 @@ func TestAdapter_Resolve_UmbrellaWithCeilingSkipsInstallationPermissions(t *test
 func TestAdapter_Resolve_QualifierNarrowsMint(t *testing.T) {
 	var gotBody ghclient.InstallationTokenRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{"permissions": map[string]string{"issues": "write"}})
+			return
+		}
 		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)

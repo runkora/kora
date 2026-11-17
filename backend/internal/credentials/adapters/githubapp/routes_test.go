@@ -1,11 +1,12 @@
 package githubapp
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"maps"
 	"net/http"
-	"os"
-	"path/filepath"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -29,8 +30,14 @@ func TestCategories_MatchVocabulary(t *testing.T) {
 			}
 		}
 	}
-	for _, r := range []requirement{reqMetadata, reqContents, reqIssues, reqPulls, reqCI, reqAdmin, reqIssueOrPR, reqWContents, reqWIssues, reqWPulls, reqWIssueOrPR} {
-		for _, a := range r {
+	for _, doc := range []string{`{ viewer { login } }`, `mutation { addStar(input:{starrableId:"x"}){clientMutationId} }`} {
+		body, _ := json.Marshal(map[string]string{"query": doc})
+		req := httptest.NewRequest(http.MethodPost, "https://api.github.com/graphql", bytes.NewReader(body))
+		cls, err := classifyGraphQL(req, "", nil)
+		if err != nil {
+			t.Fatalf("classify %s: %v", doc, err)
+		}
+		for _, a := range append([]string{cls.Action}, cls.Alternates...) {
 			produced[a] = true
 		}
 	}
@@ -301,28 +308,31 @@ func TestClassify_BranchNameWithSlash(t *testing.T) {
 	}
 }
 
-// GraphQL tokens for the checks rollup and branch protection carry the
-// permissions those fields need, not the whole ci or admin category.
-func TestMint_GraphQLNarrowsCIAndAdmin(t *testing.T) {
-	c := graphqlConnector(t)
-	want := map[string]map[string]string{
-		"pr-view":   {"actions": "read", "checks": "read", "statuses": "read", "contents": "read", "pull_requests": "read", "metadata": "read"},
-		"pr-status": {"actions": "read", "checks": "read", "statuses": "read", "administration": "read", "contents": "read", "pull_requests": "read", "metadata": "read"},
+// A whole-category mint asks only for what the installation holds, since
+// GitHub refuses a token asking for more. Exact REST permissions are passed
+// through as classified.
+func TestMint_CappedByInstallation(t *testing.T) {
+	installed := map[string]string{"metadata": "read", "contents": "write", "actions": "write", "checks": "read", "statuses": "read", "pull_requests": "write"}
+	cases := []struct {
+		name string
+		id   credentials.CallerIdentity
+		want map[string]string
+	}{
+		{"ci without attestations or artifact_metadata", credentials.CallerIdentity{TenantID: "example", Action: "ci:read", Qualifier: "kora"},
+			map[string]string{"actions": "read", "checks": "read", "statuses": "read", "metadata": "read"}},
+		{"a category the installation lacks is left out", credentials.CallerIdentity{TenantID: "example", Action: "pulls:read", AlsoAuthorized: []string{"issues:read", "metadata:read"}, Qualifier: "kora"},
+			map[string]string{"pull_requests": "read", "metadata": "read"}},
+		{"a write is capped at the installation's level", credentials.CallerIdentity{TenantID: "example", Action: "ci:write", Qualifier: "kora"},
+			map[string]string{"actions": "write", "checks": "read", "statuses": "read", "metadata": "read"}},
+		{"exact REST permissions are not intersected", credentials.CallerIdentity{TenantID: "example", Action: "ci:read", Qualifier: "kora",
+			Permissions: map[string]map[string]string{"ci:read": {"attestations": "read"}}},
+			map[string]string{"attestations": "read", "metadata": "read"}},
 	}
-	for fixture, perms := range want {
-		body, err := os.ReadFile(filepath.Join("testdata", "gh", fixture+".json"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		cls, err := c.Classify(graphqlPost(t, string(body)))
-		if err != nil {
-			t.Fatalf("%s: Classify: %v", fixture, err)
-		}
-		got := mintedPermissions(t, credentials.CallerIdentity{
-			Action: cls.Action, Qualifier: cls.Qualifier, AlsoAuthorized: cls.AlsoRequired, Permissions: cls.Permissions,
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mintedPermissionsOn(t, tc.id, installed); !maps.Equal(got, tc.want) {
+				t.Errorf("minted %v, want %v", got, tc.want)
+			}
 		})
-		if !maps.Equal(got, perms) {
-			t.Errorf("%s: minted %v, want %v", fixture, got, perms)
-		}
 	}
 }

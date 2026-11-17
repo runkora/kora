@@ -8,8 +8,8 @@
 // Classify maps a request to category actions (categoryPermissions) plus the
 // repository qualifier when the path names one. REST endpoints classify by
 // GitHub's published permission data (routes_gen.go), and the token carries
-// exactly the permissions the endpoint needs. GraphQL requests are classified
-// by the fields they select (graphql.go). See
+// exactly the permissions the endpoint needs. A GraphQL request needs any
+// category at its operation's level on its target repository (graphql.go). See
 // docs/adr/2026-11-15-github-connector-route-coverage.md and
 // docs/adr/2026-07-22-connection-scope-qualifiers.md.
 //
@@ -380,7 +380,11 @@ func classifyGitSmartHTTP(req *http.Request, owner string) (credentials.Classifi
 		}
 		qualifier = normalizeName(strings.TrimSuffix(segs[1], ".git"))
 	}
-	return credentials.Classification{Action: action, Qualifier: qualifier}, true, nil
+	cls := credentials.Classification{Action: action, Qualifier: qualifier}
+	if action == ActionContentsWrite {
+		cls.Optional = []string{actionWorkflowsWrite}
+	}
+	return cls, true, nil
 }
 
 // Verb classes and category names, shared by the classifier and the minting
@@ -401,7 +405,7 @@ const (
 	catAdmin       = "admin"
 	catMembers     = "members"      // organization-wide, never qualified
 	catOrgProjects = "org_projects" // organization-wide, never qualified
-	catRepo        = "repo"         // legacy umbrella, still returned by GraphQL
+	catRepo        = "repo"         // legacy umbrella grant and the unknown-host catch-all
 )
 
 // classifyAPI maps a REST/GraphQL API path (host prefix already stripped,
@@ -423,13 +427,8 @@ func classifyAPI(req *http.Request, path, owner string, repos map[string]string)
 		}
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	case isRepositoryIDPath(segs):
-		// Repository-ID paths keep the legacy catch-all until they resolve to
-		// the repository they address.
-		verb, err := verbClass(method)
-		if err != nil {
-			return credentials.Classification{}, err
-		}
-		return credentials.Classification{Action: catRepo + ":" + verb}, nil
+		// A repository id that did not resolve names no repository to classify by.
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
 	return classifyREST(method, segs, owner)
 }
@@ -461,6 +460,9 @@ func classifyREST(method string, segs []string, owner string) (credentials.Class
 	if !ok {
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
+	if offersWorkflows(route) {
+		cls.Optional = []string{actionWorkflowsWrite}
+	}
 	if owner != "" && len(segs) >= 3 && segs[0] == "repos" {
 		if pathName(segs[1]) != owner {
 			return credentials.Classification{}, credentials.ErrUnsupportedAction
@@ -468,6 +470,16 @@ func classifyREST(method string, segs []string, owner string) (credentials.Class
 		cls.Qualifier = pathName(segs[2])
 	}
 	return cls, nil
+}
+
+// actionWorkflowsWrite is optional on a contents write, so the write can also
+// change workflow files when the agent holds it. See ADR 2026-11-15 item 7.
+const actionWorkflowsWrite = catWorkflows + ":" + verbWrite
+
+// offersWorkflows reports whether GitHub's data lists a permission set for the
+// route that adds workflows:write, as it does for contents, ref and release writes.
+func offersWorkflows(r *restRoute) bool {
+	return slices.ContainsFunc(r.Sets, func(s permissionSet) bool { return s["workflows"] == verbWrite })
 }
 
 // hasDotSegment reports whether a path segment, escaped or not, is "." or "..",
@@ -726,11 +738,16 @@ var permissionLevels = map[string]int{verbRead: 1, verbWrite: 2, "admin": 3}
 
 // mintPermissions is the permission set for one authorized action: exactly
 // the permissions the classification named for it when it named any, else
-// everything the action's category covers. Either is capped by the ceiling.
+// everything the action's category covers that the installation holds, since
+// GitHub refuses a token asking for more. Either is capped by the ceiling.
 func mintPermissions(action string, exact map[string]map[string]string, ceiling, installationPerms map[string]string) map[string]string {
 	perms, ok := exact[action]
 	if !ok {
-		return permissionsFor(action, ceiling, installationPerms)
+		derived := permissionsFor(action, ceiling, installationPerms)
+		if installationPerms != nil {
+			applyCeiling(derived, installationPerms)
+		}
+		return derived
 	}
 	derived := maps.Clone(perms)
 	derived[catMetadata] = verbRead
@@ -741,10 +758,8 @@ func mintPermissions(action string, exact map[string]map[string]string, ceiling,
 // permissionsFor derives the installation-token permission set for the
 // classified action, intersected with the connection's declared ceiling.
 // installationPerms is the App installation's actual granted permissions (from
-// GetInstallationPermissions); it is used as the intersection floor for the
-// repo:* umbrella when no explicit ceiling is declared, so the umbrella can
-// never request a permission the installation does not hold. For non-umbrella
-// categories (and umbrella with a declared ceiling) installationPerms is unused.
+// GetInstallationPermissions); here it derives the repo:* umbrella's set when no
+// ceiling is declared, and mintPermissions caps every category set by it.
 func permissionsFor(action string, ceiling map[string]string, installationPerms map[string]string) map[string]string {
 	category, verb := splitAction(action)
 
@@ -795,16 +810,6 @@ func permissionsFor(action string, ceiling map[string]string, installationPerms 
 		}
 	}
 
-	// Pull-request operations also need read access to repository contents:
-	// creating or editing a PR reads the head/base branch refs, and GitHub
-	// rejects the call with 422 "not all refs are readable" when the token lacks
-	// contents:read. This is a read floor scoped to the same repository
-	// qualifier, so it never widens write access; it is still bounded by the
-	// connection ceiling below.
-	if category == catPulls && permissionLevels[derived["contents"]] < permissionLevels[verbRead] {
-		derived["contents"] = verbRead
-	}
-
 	if _, ok := derived[catMetadata]; !ok {
 		derived[catMetadata] = verbRead
 	}
@@ -836,11 +841,13 @@ func applyCeiling(derived, ceiling map[string]string) {
 	}
 }
 
-// needsInstallationPerms reports whether any action is the repo:* umbrella,
-// whose permission set is derived from the installation's actual grants.
-func needsInstallationPerms(actions []string) bool {
+// needsInstallationPerms reports whether any action mints its category's
+// permissions rather than exact ones, which are then capped by the
+// installation's actual grants. Metadata is on every installation.
+func needsInstallationPerms(actions []string, exact map[string]map[string]string) bool {
 	for _, a := range actions {
-		if category, _ := splitAction(a); category == catRepo {
+		_, isExact := exact[a]
+		if category, _ := splitAction(a); !isExact && category != catMetadata {
 			return true
 		}
 	}
@@ -914,15 +921,20 @@ func (a *Adapter) installationPermissions(ctx context.Context, appJWT string, in
 var errNoLookupPermissions = errors.New("installation grants no permission a node lookup can use")
 
 // lookupPermissions maps a held category to the read permissions a node id
-// lookup token may carry for it. The repo umbrella reads every one.
-var lookupPermissions = map[string][]string{
-	"metadata": {"metadata"},
-	"contents": {"contents"},
-	"issues":   {"issues"},
-	"pulls":    {"pull_requests"},
-	"ci":       {"checks", "actions"},
-	"repo":     {"metadata", "contents", "issues", "pull_requests", "discussions", "checks", "actions"},
-}
+// lookup token may carry for it. A parent grant, which names no category ("")
+// and the legacy repo umbrella read every one.
+var lookupPermissions = func() map[string][]string {
+	every := []string{"metadata", "contents", "issues", "pull_requests", "discussions", "checks", "actions"}
+	return map[string][]string{
+		catMetadata: {"metadata"},
+		catContents: {"contents"},
+		catIssues:   {"issues"},
+		catPulls:    {"pull_requests"},
+		catCI:       {"checks", "actions"},
+		"":          every,
+		catRepo:     every,
+	}
+}()
 
 // NodeRepositories resolves node ids with a read-only installation token
 // limited to categories, the ones the caller holds. An object in a repository
@@ -1017,16 +1029,13 @@ func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (cr
 
 	repos := reposFor(id.Qualifier)
 
-	// For the repo:* umbrella with no declared ceiling, derive the permission set
-	// by intersecting with the App installation's actual grants. This prevents
-	// the umbrella from requesting a permission the installation does not hold,
-	// which would cause GitHub to reject the entire token mint with 422.
-	// The installation's permissions are cached (instPermsCacheTTL) so the API
-	// call is amortized across mints; the App JWT is only signed when the cache
-	// is cold.
+	// An action minting its whole category, with no declared ceiling, is capped
+	// by the installation's actual grants: GitHub rejects the entire mint with
+	// 422 when it asks for a permission the installation lacks. The grants are
+	// cached (instPermsCacheTTL); the App JWT is only signed when that is cold.
 	actions := append([]string{id.Action}, id.AlsoAuthorized...)
 	var installationPerms map[string]string
-	if needsInstallationPerms(actions) && len(cfg.Permissions) == 0 {
+	if needsInstallationPerms(actions, id.Permissions) && len(cfg.Permissions) == 0 {
 		pem, err := a.secrets.Resolve(ctx, conn.SecretRef)
 		if err != nil {
 			return credentials.Credential{}, fmt.Errorf("resolve github app secret: %w", err)

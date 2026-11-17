@@ -295,17 +295,22 @@ func (b *Broker) heldCandidates(ctx context.Context, claims *token.PlatformClaim
 	return held, scopes, nil
 }
 
+// parentCategory stands for a scope that names no category, which holds every
+// category on its connection.
+const parentCategory = ""
+
 // lookupCategories returns the categories the caller holds without a repository
 // qualifier on a connection, the only ones a node id lookup may read. A
-// two-part connection:<verb> scope holds every category, as the repo umbrella.
+// connection:<verb> or connection:<name>:<verb> scope holds every category and
+// is reported as parentCategory.
 func lookupCategories(scopes []string, connection string) []string {
 	held := map[string]bool{}
 	for _, s := range scopes {
 		parts := strings.Split(s, ":")
 		switch {
 		case parts[0] != resourceType:
-		case len(parts) == 2:
-			held["repo"] = true
+		case len(parts) == 2, len(parts) == 3 && parts[1] == connection:
+			held[parentCategory] = true
 		case len(parts) == 4 && parts[1] == connection:
 			held[parts[2]] = true
 		}

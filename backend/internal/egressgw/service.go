@@ -435,7 +435,8 @@ type idQualifier interface {
 // heldOnConnection returns the categories the caller holds on a connection,
 // qualified or not, and the repositories its qualified grants name. repos is
 // nil when any grant on the connection is unqualified. A connection:<verb> or
-// connection:<name>:<verb> scope holds every category, as the repo umbrella.
+// connection:<name>:<verb> scope holds every category and is reported as
+// parentCategory.
 func heldOnConnection(scopes []string, connection string) ([]string, map[string]bool) {
 	held, repos, unqualified := map[string]bool{}, map[string]bool{}, false
 	for _, s := range scopes {
@@ -443,7 +444,7 @@ func heldOnConnection(scopes []string, connection string) ([]string, map[string]
 		switch {
 		case parts[0] != resourceType:
 		case len(parts) == 2, len(parts) == 3 && parts[1] == connection:
-			held["repo"], unqualified = true, true
+			held[parentCategory], unqualified = true, true
 		case len(parts) == 4 && parts[1] == connection:
 			held[parts[2]], unqualified = true, true
 		case len(parts) == 5 && parts[1] == connection:
@@ -466,8 +467,8 @@ func heldOnConnection(scopes []string, connection string) ([]string, map[string]
 //
 // The call is denied when the grant covers none of them, or misses any of the
 // classification's AlsoRequired actions, which are appended when all are held.
-// An evaluator error on the classified action or a required one fails closed;
-// one on an alternate drops that alternate.
+// Held Optional actions come last. An evaluator error on the classified action
+// or a required one fails closed; one on an alternate or optional drops it.
 func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, cls credentials.Classification, req EgressRequest) ([]string, error) {
 	primary, err := b.checkAction(ctx, claims, conn, cls.Action, cls.Qualifier)
 	if err != nil {
@@ -531,7 +532,30 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 		}
 		authorized = append(authorized, action)
 	}
-	return authorized, nil
+	return append(authorized, b.heldOptional(ctx, claims, conn, cls)...), nil
+}
+
+// heldOptional returns the classification's Optional actions the grant holds,
+// checked only after the request is authorized. One that cannot be evaluated
+// is treated as not held, which only narrows the credential.
+func (b *Broker) heldOptional(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, cls credentials.Classification) []string {
+	var held []string
+	for _, action := range cls.Optional {
+		decision, err := b.checkAction(ctx, claims, conn, action, cls.Qualifier)
+		if err != nil {
+			b.logger.Warn(ctx, "policy evaluation failed for optional action",
+				logging.Field{Key: "connection", Value: conn.Name},
+				logging.Field{Key: "action", Value: action},
+				logging.Field{Key: "qualifier", Value: cls.Qualifier},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			continue
+		}
+		if decision.Allow {
+			held = append(held, action)
+		}
+	}
+	return held
 }
 
 // checkAction asks the policy service whether the caller's grant covers one

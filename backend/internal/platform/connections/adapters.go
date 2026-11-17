@@ -37,8 +37,8 @@ const (
 // into these actions) and the connector picker (which offers them as grants).
 const (
 	// GitHub actions are categories of GitHub App permissions, each with a
-	// read/write pair. repo:read/repo:write remain only while the GraphQL
-	// classifier still returns them; their vocabulary entries carry Requires
+	// read/write pair. repo:read/repo:write remain as the legacy umbrella and
+	// the unknown-host catch-all; their vocabulary entries carry Requires
 	// edges to every category action. See
 	// docs/adr/2026-11-15-github-connector-route-coverage.md.
 	ActionGitHubRepoRead         = "repo:read"
@@ -186,8 +186,8 @@ var registry = map[string]adapterMeta{
 			{Action: ActionGitHubMembersWrite, Description: "Invite and remove organization members and edit teams (GitHub members). Organization-wide, so only an unqualified grant covers it", Requires: githubMeta},
 			{Action: ActionGitHubOrgProjectsRead, Description: "Read organization projects (GitHub organization_projects). Organization-wide, so only an unqualified grant covers it", Requires: githubMeta},
 			{Action: ActionGitHubOrgProjectsWrite, Description: "Edit organization projects (GitHub organization_projects). Organization-wide, so only an unqualified grant covers it", Requires: githubMeta},
-			{Action: ActionGitHubRepoRead, Description: "Legacy umbrella read, still needed for GraphQL documents outside the field maps. Unqualified, it also confers every category read. A repository-qualified grant confers no categories", Requires: githubCategoryReads},
-			{Action: ActionGitHubRepoWrite, Description: "Legacy umbrella write, still needed for GraphQL documents outside the field maps. Unqualified, it also confers every category write. A repository-qualified grant confers no categories", Requires: githubCategoryWrites},
+			{Action: ActionGitHubRepoRead, Description: "Legacy umbrella read. Unqualified, it also confers every category read. A repository-qualified grant confers no categories", Requires: githubCategoryReads},
+			{Action: ActionGitHubRepoWrite, Description: "Legacy umbrella write. Unqualified, it also confers every category write. A repository-qualified grant confers no categories", Requires: githubCategoryWrites},
 		},
 		egressHosts: githubEgressHosts,
 		qualifier: &QualifierMeta{

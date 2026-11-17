@@ -75,8 +75,8 @@ type CallerIdentity struct {
 	// credential narrowed to this resource.
 	Qualifier string
 	// AlsoAuthorized lists the classification's alternates that the caller's
-	// grant also holds, and its AlsoRequired actions. Adapters widen the
-	// credential by exactly these and no others.
+	// grant also holds, its AlsoRequired actions, and its held Optional
+	// actions. Adapters widen the credential by exactly these and no others.
 	AlsoAuthorized []string
 	// Permissions is the classification's per-action upstream permissions, for
 	// adapters that mint exactly what the request needs.

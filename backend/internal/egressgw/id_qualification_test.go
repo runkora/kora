@@ -44,15 +44,15 @@ func TestClassify_QualifiesByResolvedIDs(t *testing.T) {
 		wantErr        bool
 		wantCategories []string
 	}{
-		{name: "per-repository grant qualifies by the resolved repository", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: update("PR_w"), wantQualifier: "widgets", wantAction: "pulls:write", wantCategories: []string{"pulls"}},
-		{name: "a user id survives the grant filter", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: reviewers, wantQualifier: "widgets", wantAction: "pulls:write", wantCategories: []string{"pulls"}},
-		{name: "a repository the caller holds no grant on stays unresolved", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: update("PR_g"), wantAction: "pulls:write", wantCategories: []string{"pulls"}},
-		{name: "an unqualified grant qualifies by any resolved repository", scopes: []string{"connection:fabrikam-github:pulls:write", "connection:fabrikam-github:issues:widgets:write"}, req: update("PR_g"), wantQualifier: "gadgets", wantAction: "pulls:write", wantCategories: []string{"issues", "pulls"}},
-		{name: "no grant on the connection needs no lookup", scopes: []string{"connection:other-github:pulls:write"}, req: update("PR_w"), wantAction: "pulls:write"},
+		{name: "per-repository grant qualifies by the resolved repository", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: update("PR_w"), wantQualifier: "widgets", wantAction: "contents:write", wantCategories: []string{"pulls"}},
+		{name: "a user id survives the grant filter", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: reviewers, wantQualifier: "widgets", wantAction: "contents:write", wantCategories: []string{"pulls"}},
+		{name: "a repository the caller holds no grant on stays unresolved", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: update("PR_g"), wantAction: "contents:write", wantCategories: []string{"pulls"}},
+		{name: "an unqualified grant qualifies by any resolved repository", scopes: []string{"connection:fabrikam-github:pulls:write", "connection:fabrikam-github:issues:widgets:write"}, req: update("PR_g"), wantQualifier: "gadgets", wantAction: "contents:write", wantCategories: []string{"issues", "pulls"}},
+		{name: "no grant on the connection needs no lookup", scopes: []string{"connection:other-github:pulls:write"}, req: update("PR_w"), wantAction: "contents:write"},
 		{name: "a failed lookup fails closed", scopes: []string{"connection:fabrikam-github:pulls:widgets:write"}, req: update("PR_w"), lookupErr: errors.New("github down"), wantErr: true, wantCategories: []string{"pulls"}},
 		{name: "a failed scope read fails closed", req: update("PR_w"), scopesErr: errors.New("opa down"), wantErr: true},
 		{name: "repository id path classifies as its repos path", scopes: []string{"connection:fabrikam-github:pulls:widgets:read"}, req: repoPath("/repositories/522/pulls/7/files?page=2"), wantQualifier: "widgets", wantAction: "pulls:read", wantCategories: []string{"pulls"}},
-		{name: "unresolved repository id keeps the catch-all", scopes: []string{"connection:fabrikam-github:pulls:widgets:read"}, req: repoPath("/repositories/9/pulls"), wantAction: "repo:read", wantCategories: []string{"pulls"}},
+		{name: "unresolved repository id is unclassified", scopes: []string{"connection:fabrikam-github:pulls:widgets:read"}, req: repoPath("/repositories/9/pulls"), wantErr: true, wantCategories: []string{"pulls"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

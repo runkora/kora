@@ -63,12 +63,29 @@ func TestClassify_IssueRoutesCarryPullsAlternate(t *testing.T) {
 	}
 }
 
-// mintedPermissions mints through the adapter against a stubbed GitHub API and
-// returns the permissions the installation token was requested with.
+// mintedPermissions mints through the adapter against a stubbed GitHub API
+// whose installation holds every category permission at write, and returns the
+// permissions the installation token was requested with.
 func mintedPermissions(t *testing.T, id credentials.CallerIdentity) map[string]string {
+	t.Helper()
+	every := map[string]string{"metadata": "read"}
+	for _, perms := range categoryPermissions {
+		for _, p := range perms {
+			every[p] = "write"
+		}
+	}
+	return mintedPermissionsOn(t, id, every)
+}
+
+// mintedPermissionsOn is mintedPermissions on an installation holding installed.
+func mintedPermissionsOn(t *testing.T, id credentials.CallerIdentity, installed map[string]string) map[string]string {
 	t.Helper()
 	var body ghclient.InstallationTokenRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/app/installations/1" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"permissions": installed})
+			return
+		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
