@@ -217,6 +217,30 @@ func (s *RunService) authorizeStart(ctx context.Context, span trace.Span, req St
 	return at, nil
 }
 
+// authorizeStartRun runs StartRun's authorization steps in order: may this
+// caller start this agent, may it also say a trigger is why, is the causal chain
+// valid, and may it record the sources and event.
+func (s *RunService) authorizeStartRun(ctx context.Context, span trace.Span, req StartRunRequest, tenantID string) (*AgentType, *StartedByTrigger, runChain, []RunSource, error) {
+	at, err := s.authorizeStart(ctx, span, req, tenantID)
+	if err != nil {
+		return nil, nil, runChain{}, nil, err
+	}
+	startedBy, err := s.authorizeAttribution(ctx, span, req)
+	if err != nil {
+		return nil, nil, runChain{}, nil, err
+	}
+	chain, err := requestChain(ctx, s.repo, startedBy, req.CausedBy, req.ChainDepth, "")
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanAuthorizeTriggerAttribution)
+		return nil, nil, runChain{}, nil, err
+	}
+	sources, err := authorizeRunRecord(ctx, span, req.Sources, req.Event)
+	if err != nil {
+		return nil, nil, runChain{}, nil, err
+	}
+	return at, startedBy, chain, sources, nil
+}
+
 // StartRun writes a pending run and returns it. A RunScheduler starts it on a
 // pod (docs/adr/2026-10-12-run-scheduling.md). A repeat call for the same trigger
 // delivery (docs/adr/2026-11-08-start-run-idempotent-on-delivery.md) starts nothing:
@@ -254,23 +278,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		createdBy = claims.Subject
 	}
 
-	// Two separate questions, in order: may this caller start this agent, and
-	// may it also say a trigger is why.
-	at, err := s.authorizeStart(ctx, span, req, tenantID)
-	if err != nil {
-		return nil, err
-	}
-	startedBy, err := s.authorizeAttribution(ctx, span, req)
-	if err != nil {
-		return nil, err
-	}
-	chain, err := requestChain(ctx, s.repo, startedBy, req.CausedBy, req.ChainDepth, "")
-	if err != nil {
-		observability.RecordFailure(span, err, errSpanAuthorizeTriggerAttribution)
-		return nil, err
-	}
-
-	sources, err := authorizeRunRecord(ctx, span, req.Sources, req.Event)
+	at, startedBy, chain, sources, err := s.authorizeStartRun(ctx, span, req, tenantID)
 	if err != nil {
 		return nil, err
 	}
