@@ -501,11 +501,10 @@ func TestBudget_SameIDDifferentTypes_DoNotShareBudget(t *testing.T) {
 	agentG := grantBudget("agent-1", "g-agent", 1, "monthly")
 	humanG := grantBudget("agent-1", "g-human", 100, "monthly")
 	humanG.PrincipalType = grants.PrincipalTypeHuman
-	patG := grantBudget("agent-1", "g-pat", 7, "monthly")
-	patG.PrincipalType = grants.PrincipalTypePAT
-	pq := compileAndPrepareBudgetQuery(t, []*grants.Grant{agentG, humanG, patG}, nil, nil)
+	pq := compileAndPrepareBudgetQuery(t, []*grants.Grant{agentG, humanG}, nil, nil)
 
-	for typ, want := range map[string]float64{"AGENT": 1, "HUMAN": 100, "PAT": 7} {
+	// A PAT is a credential of its owning user: it takes the HUMAN budget.
+	for typ, want := range map[string]float64{"AGENT": 1, "HUMAN": 100, "PAT": 100} {
 		v := evalBudget(t, pq, budgetEvalInput{principalID: "agent-1", principalType: typ})
 		if len(v.ceilings) != 1 || num(t, v.ceilings[0]["limit_usd"]) != want {
 			t.Errorf("%s principal ceilings = %v, want a single %v ceiling", typ, v.ceilings, want)
@@ -514,6 +513,22 @@ func TestBudget_SameIDDifferentTypes_DoNotShareBudget(t *testing.T) {
 	// A SERVICE with the same ID has no grant and so no budget.
 	if v := evalBudget(t, pq, budgetEvalInput{principalID: "agent-1", principalType: "SERVICE"}); len(v.ceilings) != 0 {
 		t.Errorf("SERVICE principal must not pick up another type's budget, got %v", v.ceilings)
+	}
+}
+
+func TestBudget_PATRefusedLikeOwnersSession(t *testing.T) {
+	humanG := grantBudget("user-1", "g-human", 1, "monthly")
+	humanG.PrincipalType = grants.PrincipalTypeHuman
+	pq := compileAndPrepareBudgetQuery(t, []*grants.Grant{humanG}, nil, nil)
+
+	for _, typ := range []string{"HUMAN", "PAT"} {
+		v := evalBudget(t, pq, budgetEvalInput{
+			principalID: "user-1", principalType: typ,
+			principalSpends: map[string]float64{"monthly": 2},
+		})
+		if v.allow {
+			t.Errorf("%s principal over the user's $1 HUMAN budget must be refused, got %+v", typ, v)
+		}
 	}
 }
 

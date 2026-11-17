@@ -52,6 +52,8 @@ type stubEvaluator struct {
 	allRoleBudgets map[string]policy.RoleBudget
 	// tenantBudget is returned by GetTenantBudget.
 	tenantBudget *policy.TenantBudget
+	// lastBudgetType captures the principal type passed to GetBudgetCategories.
+	lastBudgetType string
 }
 
 func (s *stubEvaluator) Check(_ context.Context, input policy.CheckInput) (policy.Result, error) {
@@ -115,7 +117,8 @@ func (s *stubEvaluator) GetTenantBudget(_ context.Context, _ string) (*policy.Te
 	return s.tenantBudget, nil
 }
 
-func (s *stubEvaluator) GetBudgetCategories(_ context.Context, _, _, principalID string) ([]policy.BudgetCategory, error) {
+func (s *stubEvaluator) GetBudgetCategories(_ context.Context, _, principalType, principalID string) ([]policy.BudgetCategory, error) {
+	s.lastBudgetType = principalType
 	if s.budgetCategoriesByPrincipal != nil {
 		return s.budgetCategoriesByPrincipal[principalID], s.budgetCategoriesErr
 	}
@@ -624,6 +627,67 @@ func TestGetPersonalBudget_NoRolesInJWT_EmptyRolesToCheckBudget(t *testing.T) {
 	}
 }
 
+func TestBudgetScopesFor_PATLooksUpOwnersHumanBudget(t *testing.T) {
+	t.Parallel()
+	// A PAT's sub is the user's ID; it must resolve to the user's HUMAN budget
+	// (the one their session token is held to), never a PAT-typed key.
+	for pt, want := range map[string]string{"PAT": "HUMAN", "HUMAN": "HUMAN", "AGENT": "AGENT"} {
+		eval := &stubEvaluator{}
+		svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), &mockInferenceUsageRepository{}, &mockSpendCounter{}, logging.NewLoggerWithOutput(io.Discard))
+		svc.budgetScopesFor(context.Background(), principal{TenantID: "tenant-1", PrincipalID: "user-1", PrincipalType: pt}, "")
+		if eval.lastBudgetType != want {
+			t.Errorf("%s principal budget lookup type = %q, want %q", pt, eval.lastBudgetType, want)
+		}
+	}
+}
+
+func TestListBudgetPrincipals_SpendJoinedByTypeAndID(t *testing.T) {
+	t.Parallel()
+	// An agent and a user share an ID; only the HUMAN has a budget ($1) and has
+	// spent $5 (via PAT, folded into HUMAN). The agent spent $3 with no budget.
+	eval := &stubEvaluator{
+		allBudgets: map[policy.BudgetKey]policy.PrincipalBudget{
+			{Type: "HUMAN", ID: "same"}: {
+				Categories:      []policy.BudgetCategory{{Source: "grant", ID: "g", ResetCadence: "monthly", LimitUSD: 1}},
+				EffectiveLimits: map[string]float64{"monthly": 1},
+			},
+			// Ignored by enforcement; must not produce a second row.
+			{Type: "PAT", ID: "same"}: {
+				Categories: []policy.BudgetCategory{{Source: "grant", ID: "p", ResetCadence: "monthly", LimitUSD: 9}},
+			},
+		},
+	}
+	usage := &mockInferenceUsageRepository{
+		periodSpends: []PrincipalPeriodSpend{
+			{PrincipalID: "same", PrincipalType: "HUMAN", SpendUSD: 5},
+			{PrincipalID: "same", PrincipalType: "PAT", SpendUSD: 2},
+			{PrincipalID: "same", PrincipalType: "AGENT", SpendUSD: 3},
+		},
+	}
+	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, &mockSpendCounter{}, logging.NewLoggerWithOutput(io.Discard))
+	resp, err := svc.ListBudgetPrincipals(context.Background(), "tenant-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Data) != 2 {
+		t.Fatalf("got %d rows, want 2 (HUMAN and AGENT): %+v", len(resp.Data), resp.Data)
+	}
+	for _, r := range resp.Data {
+		switch r.PrincipalType {
+		case "HUMAN":
+			if r.CurrentSpendUSD != 7 || !r.SpendLimitReached {
+				t.Errorf("HUMAN row = %+v, want spend 7 (session + PAT) and limit reached", r)
+			}
+		case "AGENT":
+			if r.CurrentSpendUSD != 3 || r.SpendLimitReached || r.HasLimit {
+				t.Errorf("AGENT row = %+v, want its own spend 3 and no limit", r)
+			}
+		default:
+			t.Errorf("unexpected row type %q", r.PrincipalType)
+		}
+	}
+}
+
 func TestCheckBudget_ScopesDerivedFromConfiguration(t *testing.T) {
 	t.Parallel()
 	// Grant budgets (weekly + monthly + per-run), a pooled role, a per-member
@@ -741,7 +805,7 @@ func TestListBudgetPrincipals_WeeklyBlockedReportedAndTypeInferred(t *testing.T)
 	}
 	counter := &mockSpendCounter{categorySpends: []float64{0}} // stale attribution counter
 	usage := &mockInferenceUsageRepository{
-		windowSpends: map[string]float64{pid: 20}, // true ISO-week spend
+		windowSpends: map[string]float64{"AGENT:" + pid: 20}, // true ISO-week spend
 	}
 	svc := NewService(eval, buildTestRouter(nil), NewNopPricingCache(), usage, counter, logging.NewLoggerWithOutput(io.Discard))
 
