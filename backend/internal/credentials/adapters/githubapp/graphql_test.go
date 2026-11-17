@@ -42,7 +42,10 @@ func cls(action, qualifier string) credentials.Classification {
 // the qualifier, or for a query the metadata baseline.
 func graphqlCls(verb, qualifier string) credentials.Classification {
 	var alts []string
-	for _, c := range []string{"workflows", "issues", "pulls", "ci", "deployments", "security", "secrets", "admin"} {
+	if verb == verbWrite {
+		alts = append(alts, "workflows:write")
+	}
+	for _, c := range []string{"issues", "pulls", "ci", "deployments", "security", "secrets", "admin"} {
 		alts = append(alts, c+":"+verb)
 	}
 	if verb == verbRead {

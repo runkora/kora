@@ -72,6 +72,10 @@ func classifyGraphQL(req *http.Request, owner string, repos map[string]string) (
 	}
 	cls := credentials.Classification{Action: graphqlCategories[0] + ":" + verb}
 	for _, category := range graphqlCategories[1:] {
+		// GitHub grants workflows only at write.
+		if category == catWorkflows && verb == verbRead {
+			continue
+		}
 		cls.Alternates = append(cls.Alternates, category+":"+verb)
 	}
 	// The metadata baseline also allows a query, such as gh's introspection
