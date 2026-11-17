@@ -105,7 +105,7 @@ func TestProxy_AnonymousReadFallback(t *testing.T) {
 
 // GitHub refusing an anonymous fallback read with 401, 403 or 404 returns the
 // original denial and none of GitHub's response; a rate-limit 403 and any other
-// status are relayed. See docs/adr/2026-11-15-github-connector-route-coverage.md, item 20.
+// status are relayed. See docs/adr/2026-11-15-github-connector-route-coverage.md, item 21.
 func TestProxy_AnonymousReadRefusedReturnsDenial(t *testing.T) {
 	rateLimited := map[string]string{"X-RateLimit-Remaining": "0"}
 	tests := []struct {

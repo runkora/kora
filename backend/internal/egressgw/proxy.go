@@ -178,7 +178,7 @@ var errFallbackRefused = errors.New("upstream refused anonymous read")
 // fallbackRefused reports whether resp refuses an anonymous read the way
 // GitHub refuses a private resource, so the original denial explains it better.
 // A 403 for an exhausted rate limit is relayed: retrying later can succeed.
-// See docs/adr/2026-11-15-github-connector-route-coverage.md, item 20.
+// See docs/adr/2026-11-15-github-connector-route-coverage.md, item 21.
 func fallbackRefused(resp *http.Response) bool {
 	switch resp.StatusCode {
 	case http.StatusUnauthorized, http.StatusNotFound:
