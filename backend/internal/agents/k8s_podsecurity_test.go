@@ -533,6 +533,17 @@ func waiting(p *corev1.Pod, reason string) *corev1.Pod {
 	return p
 }
 
+// waitingContainer sets the named regular container, or init container when init is true, waiting with reason.
+func waitingContainer(p *corev1.Pod, name string, init bool, reason string) *corev1.Pod {
+	cs := []corev1.ContainerStatus{{Name: name, State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: reason}}}}
+	if init {
+		p.Status.InitContainerStatuses = cs
+	} else {
+		p.Status.ContainerStatuses = cs
+	}
+	return p
+}
+
 func TestLivePod(t *testing.T) {
 	const ns, slug = "kora-tenant-example", "coder"
 	ss := &appsv1.StatefulSet{
@@ -571,6 +582,12 @@ func TestLivePod(t *testing.T) {
 		{"crash looping", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodRunning, false, false), "CrashLoopBackOff")}, false},
 		{"image pull back-off", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodPending, false, false), "ImagePullBackOff")}, false},
 		{"image pull error", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodPending, false, false), "ErrImagePull")}, false},
+		{"config error", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodPending, false, false), "CreateContainerConfigError")}, false},
+		{"invalid image name", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodPending, false, false), "InvalidImageName")}, false},
+		{"sidecar image pull back-off", []runtime.Object{ss, waitingContainer(pod("coder-0", corev1.PodPending, false, false), "identity-proxy", false, "ImagePullBackOff")}, false},
+		{"init crash looping", []runtime.Object{ss, waitingContainer(pod("coder-0", corev1.PodPending, false, false), "init", true, "CrashLoopBackOff")}, false},
+		{"init pod initializing", []runtime.Object{ss, waitingContainer(pod("coder-0", corev1.PodPending, false, false), "init", true, "PodInitializing")}, true},
+		{"init creating", []runtime.Object{ss, waitingContainer(pod("coder-0", corev1.PodPending, false, false), "init", true, "ContainerCreating")}, true},
 		{"creating", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodPending, false, false), "ContainerCreating")}, true},
 		{"stuck beside pending", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodPending, false, false), "ImagePullBackOff"), pod("coder-1", corev1.PodPending, false, false)}, true},
 	} {
