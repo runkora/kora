@@ -292,6 +292,69 @@ func TestAuthz_Egress_Delegated_AgentPostureStillBounds(t *testing.T) {
 	}
 }
 
+// githubConnectionVocab is the github_app vocabulary shape: each category
+// action requires metadata:read, the repo:write umbrella requires every
+// category write, and an MCP tool requires contents:write.
+func githubConnectionVocab() []*vocabulary.ScopeEntry {
+	entry := func(scope string, requires ...string) *vocabulary.ScopeEntry {
+		parts := strings.Split(scope, ":")
+		return &vocabulary.ScopeEntry{
+			Scope:        scope,
+			ResourceType: parts[0],
+			PathSegments: parts[1 : len(parts)-1],
+			Action:       parts[len(parts)-1],
+			Requires:     requires,
+		}
+	}
+	meta := "connection:github:metadata:read"
+	return []*vocabulary.ScopeEntry{
+		entry(meta),
+		entry("connection:github:contents:write", meta),
+		entry("connection:github:issues:write", meta),
+		entry("connection:github:repo:write", "connection:github:contents:write", "connection:github:issues:write"),
+		entry("mcp:github:push_files:use", "connection:github:contents:write"),
+	}
+}
+
+// Only MCP tool scopes project through their requires expansion. Any other
+// scope must be held by the person, or the scopes it confers would let the
+// agent exceed them.
+func TestAuthz_DelegatorLeg_RequiresProjectionOnlyForMCP(t *testing.T) {
+	tests := []struct {
+		name            string
+		delegatorScopes []string
+		required        string
+		wantAllow       bool
+	}{
+		{"category action needs the category, not what it confers", []string{"connection:github:metadata:read"}, "connection:github:contents:write", false},
+		{"category action held directly", []string{"connection:github:contents:write"}, "connection:github:contents:write", true},
+		{"umbrella needs the umbrella, not every category", []string{"connection:github:contents:write", "connection:github:issues:write"}, "connection:github:repo:write", false},
+		{"umbrella held directly", []string{"connection:github:repo:write"}, "connection:github:repo:write", true},
+		{"umbrella covered by the connection parent", []string{"connection:github:write"}, "connection:github:repo:write", true},
+		{"mcp tool projects to a held connection scope", []string{"connection:github:contents:write"}, "mcp:github:push_files:use", true},
+		{"mcp tool projects to a connection scope via its umbrella", []string{"connection:github:repo:write"}, "mcp:github:push_files:use", true},
+		{"mcp tool whose connection scope the person lacks", []string{"connection:github:metadata:read"}, "mcp:github:push_files:use", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pq := compileAndPrepare(t, bundleOpts{
+				grants: []*grants.Grant{
+					delegatedAgentGrant(testAgentID, tc.required),
+					humanGrant(testDelegateID, tc.delegatorScopes...),
+				},
+				vocab: githubConnectionVocab(),
+			})
+
+			parts := strings.Split(tc.required, ":")
+			allow, reason := evalLayer2(t, pq, agentClaims(testAgentID), humanDelegation(testDelegateID),
+				parts[0], parts[1:len(parts)-1], parts[len(parts)-1])
+			if allow != tc.wantAllow {
+				t.Errorf("allow = %v, want %v (reason: %s)", allow, tc.wantAllow, reason)
+			}
+		})
+	}
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Gateway mirrors (authz_gateway.rego)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -390,6 +453,53 @@ func TestGateway_DelegatorLeg_RequiresProjection(t *testing.T) {
 			}
 			if reason != tc.wantReason {
 				t.Errorf("reason = %q, want %q", reason, tc.wantReason)
+			}
+		})
+	}
+}
+
+func TestGateway_DelegatorLeg_RequiresProjectionOnlyForMCP(t *testing.T) {
+	jwksSrv := startJWKSServer(t)
+	agentID := "spiffe://runkora.test/tenant/" + testTenantID + "/agent/projection-agent"
+	delegatorID := "user-projection"
+
+	tests := []struct {
+		name           string
+		delegatorScope string
+		required       string
+		wantAllow      bool
+	}{
+		{"category action needs the category, not what it confers", "connection:github:metadata:read", "connection:github:contents:write", false},
+		{"category action held directly", "connection:github:contents:write", "connection:github:contents:write", true},
+		{"mcp tool projects to a held connection scope", "connection:github:contents:write", "mcp:github:push_files:use", true},
+		{"mcp tool whose connection scope the person lacks", "connection:github:metadata:read", "mcp:github:push_files:use", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			pq := compileAndPrepareGateway(t, gatewayBundleOpts{
+				jwksURL:   jwksSrv.URL + "/jwks",
+				tenantIDs: []string{testTenantID},
+				vocab:     githubConnectionVocab(),
+				globalRoutes: []routes.RouteScope{
+					{PathPrefix: "/v1/projection-target", Method: "POST", RequiredScope: tc.required},
+				},
+				grants: map[string][]*grants.Grant{
+					testTenantID: {
+						{TenantID: testTenantID, PrincipalType: grants.PrincipalTypeAgent, PrincipalID: agentID, Scopes: []string{tc.required}, DelegationRequired: true},
+						{TenantID: testTenantID, PrincipalType: grants.PrincipalTypeHuman, PrincipalID: delegatorID, Scopes: []string{tc.delegatorScope}},
+					},
+				},
+			})
+
+			mainJWT := signTestJWT(t, "AGENT", testTenantID, agentID, nil)
+			delegationToken := signDelegationJWT(t, delegatorID, nil)
+
+			allow, reason := evalGateway(t, pq, "POST", "/v1/projection-target", map[string]string{
+				"authorization":           "Bearer " + mainJWT,
+				"x-kora-delegation-token": delegationToken,
+			})
+			if allow != tc.wantAllow {
+				t.Errorf("allow = %v, want %v (reason: %s)", allow, tc.wantAllow, reason)
 			}
 		})
 	}
