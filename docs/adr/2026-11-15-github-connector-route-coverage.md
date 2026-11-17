@@ -116,9 +116,9 @@ The GitHub connector will change as follows.
 
 ### GraphQL
 
-11.  A GraphQL query requires a `read` grant and a mutation requires a `write` grant on the target repository.
+11.  A GraphQL query requires a `read` grant on the target repository or the metadata baseline, and a mutation requires a `write` grant on the target repository.
 12.  The target repository comes from `repository()` arguments, resolved node IDs and search `repo:` terms, by the qualifier rules below. A document with no single target repository is authorized against unqualified grants only.
-13.  The minted token carries the GitHub permissions of every category the agent holds on the target repository at the operation's level, plus metadata.
+13.  The minted token carries the GitHub permissions of every category the agent holds on the target repository at the operation's level, limited to the permissions the installation holds, plus metadata.
 14.  A document that cannot be read, parsed or attributed to one operation, and a subscription, are denied as unclassified.
 
 ### Qualifiers
