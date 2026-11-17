@@ -424,7 +424,7 @@ func notReadyTooLong(pod *corev1.Pod, limit time.Duration, now time.Time) bool {
 	// The Ready condition is set False at scheduling, so it can predate the containers running (slow image pull).
 	// The budget starts when the containers started, so take the later of the two.
 	for _, cs := range pod.Status.ContainerStatuses {
-		if r := cs.State.Running; r != nil && r.StartedAt.Time.After(since) {
+		if r := cs.State.Running; r != nil && r.StartedAt.After(since) {
 			since = r.StartedAt.Time
 		}
 	}
