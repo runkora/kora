@@ -551,6 +551,12 @@ func readyAge(p *corev1.Pod, transition, start, created time.Duration) *corev1.P
 	return p
 }
 
+// runningSince sets the pod's session-manager container running since the given age before now.
+func runningSince(p *corev1.Pod, age time.Duration) *corev1.Pod {
+	p.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: sessionManagerContainerName, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{StartedAt: metav1.NewTime(time.Now().Add(-age))}}}}
+	return p
+}
+
 // waitingContainer sets the named regular container, or init container when init is true, waiting with reason.
 func waitingContainer(p *corev1.Pod, name string, init bool, reason string) *corev1.Pod {
 	cs := []corev1.ContainerStatus{{Name: name, State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: reason}}}}
@@ -601,6 +607,8 @@ func TestLivePod(t *testing.T) {
 		{"running, not ready, creation past limit", []runtime.Object{ss, readyAge(pod("coder-0", corev1.PodRunning, false, false), 0, 0, 2*limit)}, false},
 		{"running, not ready, creation inside limit", []runtime.Object{ss, readyAge(pod("coder-0", corev1.PodRunning, false, false), 0, 0, limit/2)}, true},
 		{"running, not ready, recent transition on old pod", []runtime.Object{ss, readyAge(pod("coder-0", corev1.PodRunning, false, false), limit/2, 3*limit, 3*limit)}, true},
+		{"running, not ready, old transition but containers just started", []runtime.Object{ss, runningSince(readyAge(pod("coder-0", corev1.PodRunning, false, false), 2*limit, 0, 0), limit/2)}, true},
+		{"running, not ready, containers started past limit", []runtime.Object{ss, runningSince(readyAge(pod("coder-0", corev1.PodRunning, false, false), 3*limit, 0, 0), 2*limit)}, false},
 		{"running, not ready, no time", []runtime.Object{ss, pod("coder-0", corev1.PodRunning, false, false)}, true},
 		{"old running not ready beside recent pending", []runtime.Object{ss, readyAge(pod("coder-0", corev1.PodRunning, false, false), 2*limit, 0, 0), readyAge(pod("coder-1", corev1.PodPending, false, false), 0, 0, limit/2)}, true},
 		{"pending past limit", []runtime.Object{ss, readyAge(pod("coder-0", corev1.PodPending, false, false), 2*limit, 2*limit, 2*limit)}, true},

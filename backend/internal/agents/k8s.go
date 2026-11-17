@@ -408,7 +408,7 @@ func podStuck(pod *corev1.Pod) bool {
 }
 
 // notReadyTooLong reports whether the pod is Running, not Ready, and has been so for longer than limit.
-// The time signal is the Ready condition's last transition, then the pod's start time, then its creation time.
+// The time signal is the later of the Ready condition's last transition and the containers' start, then the pod's start time, then its creation time.
 // With none of them set there is no signal, so the pod is not too old.
 // Pending pods are never too old, and draining pods are excluded before this check by their deletion timestamp.
 func notReadyTooLong(pod *corev1.Pod, limit time.Duration, now time.Time) bool {
@@ -419,6 +419,13 @@ func notReadyTooLong(pod *corev1.Pod, limit time.Duration, now time.Time) bool {
 	for _, c := range pod.Status.Conditions {
 		if c.Type == corev1.PodReady {
 			since = c.LastTransitionTime.Time
+		}
+	}
+	// The Ready condition is set False at scheduling, so it can predate the containers running (slow image pull).
+	// The budget starts when the containers started, so take the later of the two.
+	for _, cs := range pod.Status.ContainerStatuses {
+		if r := cs.State.Running; r != nil && r.StartedAt.Time.After(since) {
+			since = r.StartedAt.Time
 		}
 	}
 	if since.IsZero() && pod.Status.StartTime != nil {
