@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-10-15-same-host-connection-selection.md -->
 
-**Status:** Accepted  
+**Status:** Accepted (the qualified-grants lookup rule superseded by [GitHub connector route coverage](2026-11-15-github-connector-route-coverage.md))  
 **Date:** 2026-10-15  
 **Deciders:** Justin Wilkin  
 **Technical Story:** Two GitHub App connections for different GitHub organizations in one tenant.

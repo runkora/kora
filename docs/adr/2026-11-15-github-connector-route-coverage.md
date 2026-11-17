@@ -101,16 +101,16 @@ The GitHub connector will change as follows.
     *   `admin`: administration, repository_hooks, repository_custom_properties, repository_creation and installation_repositories.
     *   `members`: members.
     *   `org_projects`: organization_projects.
-2.  The repository categories can be qualified by repository. `members` and `org_projects` are organization-wide and unqualified.
+2.  The repository categories can be qualified by repository. `members` and `org_projects` are organization-wide and unqualified. `workflows` has only `write`. GitHub grants the workflows permission only at write.
 3.  `metadata` stays the baseline every grant receives.
-4.  `repo:read`, `repo:write`, `actions`, `checks` and the earlier category definitions will be removed. The covering parents `connection:<name>:read` and `connection:<name>:write` are the grant for every category. Publishing the vocabulary purges a removed action from every stored grant and role that holds it.
+4.  `repo:read`, `repo:write`, `actions`, `checks` and the earlier category definitions will be removed. The covering parents `connection:<name>:read` and `connection:<name>:write` are the grant for every category. Publishing the vocabulary purges a removed action from every grant and role stored through the API. A declared grant or role that names a removed action stays Pending until its source changes.
 
 ### REST
 
 5.  A generator will build the route table from GitHub's REST operation data for API version 2022-11-28, pinned to one `github/docs` commit. The generated table and the generator are committed, and a test checks that every operation in the data classifies.
 6.  An endpoint classifies to the smallest of GitHub's alternative permission sets for it. Alternatives that each need one permission become alternate actions. A set that needs several permissions requires every category in it. A `write` grant on a category also authorizes that category's reads, and the token for such a read carries the read permissions.
 7.  The minted token carries the permissions of the set the grant satisfied, plus metadata. A write to contents, refs or releases, and a git push, also carries `workflows` when the agent holds `workflows:write` on the repository.
-8.  An endpoint that needs no permission classifies as `metadata:read`. An endpoint that needs `admin` access classifies as `write` and mints `admin` access. An endpoint whose permission is in no category is denied as unclassified.
+8.  An endpoint that needs no permission classifies as `metadata:read` when it is a read, and is denied as unclassified when it is a write. An endpoint that needs `admin` access classifies as `write` and mints `admin` access. An endpoint whose permission is in no category is denied as unclassified.
 9.  Surfaces outside the data keep hand-written entries: git smart HTTP and git LFS (`contents`), `codeload.github.com` and `*.githubusercontent.com` (`contents`), `uploads.github.com` release assets (`contents`), and the Actions results receiver (`ci`).
 10.  A search query with an `OR` or `NOT` operator, a parenthesised `repo:` term, or an `org:` or `user:` term will classify unqualified.
 
@@ -118,7 +118,7 @@ The GitHub connector will change as follows.
 
 11.  A GraphQL query requires a `read` grant on the target repository or the metadata baseline, and a mutation requires a `write` grant on the target repository.
 12.  The target repository comes from `repository()` arguments, resolved node IDs and search `repo:` terms, by the qualifier rules below. A document with no single target repository is authorized against unqualified grants only.
-13.  The minted token carries the GitHub permissions of every category the agent holds on the target repository at the operation's level, limited to the permissions the installation holds, plus metadata.
+13.  The minted token carries the GitHub permissions of every category the agent holds on the target repository at the operation's level, limited to the permissions the installation holds, plus metadata. The organization categories `members` and `org_projects` are not minted for GraphQL.
 14.  A document that cannot be read, parsed or attributed to one operation, and a subscription, are denied as unclassified.
 
 ### Qualifiers
@@ -126,7 +126,7 @@ The GitHub connector will change as follows.
 15.  `/repositories/{id}/...` will classify as the `/repos/{owner}/{repo}/...` path it resolves to.
 16.  A release asset download from `release-assets.githubusercontent.com` is qualified by the repository its path names, through the same lookup. This supersedes the anonymous fallback in the [release asset downloads ADR](2026-10-26-release-asset-downloads-without-connection-selection.md) for that host.
 17.  A request that addresses objects by node ID will be qualified by their repository when every resolved ID belongs to one repository of the connection's owner. An ID that does not resolve, or IDs across several repositories, leave the request unqualified. Ids of users, bots and teams address no repository and do not affect the qualifier.
-18.  Lookup results will be cached by ID for the lifetime of the lookup token.
+18.  Lookup results will be cached by ID for 10 minutes. A caller that holds only repository-qualified grants on a connection resolves IDs with a lookup token restricted to those repositories. This supersedes the rule in the [same-host connection selection ADR](2026-10-15-same-host-connection-selection.md) that such a connection is not used for the lookup.
 
 ### Denials and fallback
 

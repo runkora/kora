@@ -159,7 +159,7 @@ The body is read up to 512 KiB and restored byte for byte, with `GetBody` replay
 
 ### Regression guard
 
-`backend/internal/credentials/adapters/githubapp/testdata/gh/` holds the request bodies `gh` sends for `gh pr view` (by number and for the current branch), `gh pr diff`, `gh pr checks` (including its introspection probes and the `node` status-check query), `gh pr list`, `gh issue view` and `gh repo view`, and the comment, review, merge, create-PR and create-issue mutations, captured with `GH_DEBUG=api` from gh 2.101.0 and 2.103.3. A table test classifies each one and asserts which a code-reviewer grant on one repository, the same grant on every repository, and an issues-only grant allow.
+`backend/internal/credentials/adapters/githubapp/testdata/gh/` holds the request bodies `gh` 2.101.0 sends for `gh pr view` (by number and for the current branch), `gh pr diff`, `gh pr checks` (including its introspection probes and the `node` status-check query), `gh pr list`, `gh issue view` and `gh repo view`, captured with `GH_DEBUG=api`, and the comment, review, merge, create-PR and create-issue mutations reconstructed from the gh source. A table test classifies each one and asserts which a code-reviewer grant on one repository, the same grant on every repository, and an issues-only grant allow.
 
 ---
 

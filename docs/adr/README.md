@@ -85,12 +85,12 @@ kora records every significant technical decision as an ADR. This index is the c
 - [MCP Server Registration, Deployment, and Governance](2026-03-05-mcp-server-registration-deployment-and-governance.md) — `Accepted` · 2026-03-05
 - [Scope-Gated Tool Exposure via MCP](2026-03-05-scope-gated-tool-exposure-via-mcp.md) — `Accepted` · 2026-03-05
 - [Credential-Aware Outbound Gateway](2026-03-05-credential-aware-outbound-gateway.md) — `Superseded` · 2026-03-05
-- [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) — `Proposed (Amended 2026-10-27: Amendment 6 Accepted; Amendment 5 repository ID rejection superseded 2026-11-15)` · 2026-06-06
+- [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) — `Proposed (Amended 2026-10-27: Amendment 6 Accepted; Amendment 5 repository ID rejection superseded 2026-11-15; Amendment 4 GraphQL classification superseded 2026-11-15)` · 2026-06-06
 - [Kubernetes Connection — `kubernetes` Adapter and Per-Connection Gateway CA Trust](2026-07-06-kubernetes-connection-bearer-adapter-and-gateway-ca-trust.md) — `Proposed` · 2026-07-06
 - [Connection Scope Qualifiers — Grant-Time Resource Scoping for Connectors](2026-07-22-connection-scope-qualifiers.md) — `Accepted` · 2026-07-22
 - [GitHub Connection — Category-Scoped Actions, Repository Qualifiers, and Down-Scoped Token Minting](2026-07-22-github-connection-category-scoped-actions.md) — `Accepted (Decisions A, B, C and D superseded 2026-11-15)` · 2026-07-22
 - [GitHub GraphQL Authorised by the Granular Actions of Selected Fields](2026-09-29-github-graphql-field-classification.md) — `Superseded by [github-connector-route-coverage](2026-11-15-github-connector-route-coverage.md)` · 2026-09-29
-- [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md) — `Accepted` · 2026-10-15
+- [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md) — `Accepted (qualified-grants lookup rule superseded 2026-11-15)` · 2026-10-15
 - [Release Asset Downloads Without Connection Selection](2026-10-26-release-asset-downloads-without-connection-selection.md) — `Proposed (release-assets fallback superseded 2026-11-15)` · 2026-10-26
 - [API Key Connection Adapter](2026-11-11-apikey-connection-adapter.md) — `Accepted` · 2026-11-11
 - [GitHub Connector Coverage of the GitHub API](2026-11-15-github-connector-route-coverage.md) — `Accepted` · 2026-11-15
@@ -265,7 +265,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-04 | [OpenCode Agent Runner](2026-06-04-opencode-agent-runner.md) | Accepted (Amended 2026-09-30) | — |
 | 2026-06-05 | [Inference Log Detail Modal and Failure Details Capture](2026-06-05-inference-log-details.md) | Accepted | 0050 |
 | 2026-06-05 | [LLM Cost Tracking: Pricing Pipeline, Budget Enforcement, and Quota Roles](2026-06-05-llm-cost-tracking.md) | Accepted (Decision 5 superseded 2026-06-10) | — |
-| 2026-06-06 | [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) | Proposed (Amended 2026-10-27: Amendment 6 Accepted; Amendment 5 repository ID rejection superseded 2026-11-15) | 0065 |
+| 2026-06-06 | [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) | Proposed (Amended 2026-10-27: Amendment 6 Accepted; Amendment 5 repository ID rejection superseded 2026-11-15; Amendment 4 GraphQL classification superseded 2026-11-15) | 0065 |
 | 2026-06-10 | [Budget Model Redesign: Inline JSONB on Roles/Grants, MAX Resolution, Per-Category Spend](2026-06-10-budget-model-redesign.md) | Proposed | — |
 | 2026-06-10 | [Budget Enforcement Corrections: Canonical Spend Counter, Request-Time Role Enforcement, All Principal Types, and the Budgets Management Surface](2026-06-10-budget-enforcement-corrections-and-budgets-page.md) | Proposed | — |
 | 2026-06-10 | [Hierarchical Budget Enforcement: Windows, Pools, Tenant Caps, and Per-Run Limits](2026-06-10-hierarchical-budget-enforcement.md) | Proposed | — |
@@ -329,14 +329,14 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-12 | [Run Scheduling](2026-10-12-run-scheduling.md) | Accepted (superseded in part by Demand-Driven Agent Scaling 2026-11-10) | — |
 | 2026-10-12 | [White-labelling Theme](2026-10-12-white-labelling-theme.md) | Accepted | — |
 | 2026-10-13 | [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) | Accepted | — |
-| 2026-10-15 | [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md) | Accepted | — |
+| 2026-10-15 | [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md) | Accepted (qualified-grants lookup rule superseded 2026-11-15) | — |
 | 2026-10-19 | [Trigger Routing](2026-10-19-trigger-routing.md) | Accepted | — |
-| 2026-10-19 | [Explain GitHub's Workflow-File Push Refusal at the Egress Gateway](2026-10-19-workflow-push-refusal-message.md) | Accepted | — |
+| 2026-10-19 | [Explain GitHub's Workflow-File Push Refusal at the Egress Gateway](2026-10-19-workflow-push-refusal-message.md) | Accepted (repo:write opt-in superseded 2026-11-15) | — |
 | 2026-10-20 | [Chat Command Triggers](2026-10-20-chat-command-triggers.md) | Accepted | — |
 | 2026-10-20 | [Non-Text Model Discovery on Compatible Providers](2026-10-20-compatible-non-text-model-discovery.md) | Accepted | — |
 | 2026-10-20 | [Per-Run Cost on the Run Record](2026-10-20-run-cost-on-run-record.md) | Proposed | — |
 | 2026-10-19 | [Repository Id Owner Selection in the Egress Gateway](2026-10-19-repository-id-owner-selection.md) | Accepted | — |
-| 2026-10-20 | [Actions Results Receiver Classification](2026-10-20-actions-results-receiver-classification.md) | Accepted | — |
+| 2026-10-20 | [Actions Results Receiver Classification](2026-10-20-actions-results-receiver-classification.md) | Accepted (actions:read classification superseded 2026-11-15) | — |
 | 2026-10-22 | [MCP Server Static Credentials](2026-10-22-mcp-server-static-credentials.md) | Accepted | — |
 | 2026-10-24 | [Declarative Resources](2026-10-24-declarative-resources.md) | Accepted | — |
 | 2026-10-26 | [Tenant Claim Binding and Shared Email Domains](2026-10-26-tenant-claim-binding-and-shared-email-domains.md) | Accepted (Amended 2026-11-04) | — |
