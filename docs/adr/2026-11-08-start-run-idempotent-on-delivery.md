@@ -67,7 +67,7 @@ The key the issue proposes.
 - A re-dispatched delivery starts exactly one run.
 
 ### Negative
-- The migration fails if `runs` already holds two rows with the same non-null (tenant, trigger, delivery). The migration does not delete rows. If any exist they must be resolved by hand before it is applied.
+- The migration clears `delivery_id` on duplicate runs that already exist: for each (tenant, trigger, delivery) it keeps the delivery id on the oldest run (by `created_at`, then `id`) and sets it to NULL on the others. No run is deleted. The cleared runs lose their delivery link, so a later lookup by that delivery resolves to the oldest run only.
 
 ### Neutral
 - `CreateRun` reports whether it inserted a row, and the repository gains `GetRunByDelivery`.

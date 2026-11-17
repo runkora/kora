@@ -334,7 +334,7 @@ func (r *PostgresRepository) SoftDeleteAgentType(ctx context.Context, id string)
 // ── Runs ──────────────────────────────────────────────────────────────────────
 
 // CreateRun inserts a pending run. A run with a trigger and a delivery id is skipped when
-// idx_runs_trigger_delivery already holds that (tenant, trigger, delivery); the caller
+// runs_trigger_delivery_key already holds that (tenant, trigger, delivery); the caller
 // then reads the first run with GetRunByDelivery. Other runs take a plain insert.
 func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) (bool, error) {
 	if run.ID == "" {
@@ -360,7 +360,7 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) (bool, erro
 	}
 	conflict := ""
 	if triggerID != nil && deliveryID != nil {
-		conflict = ` ON CONFLICT (tenant_id, trigger_id, delivery_id) WHERE delivery_id IS NOT NULL DO NOTHING`
+		conflict = ` ON CONFLICT ON CONSTRAINT runs_trigger_delivery_key DO NOTHING`
 	}
 	inserted := false
 	err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
