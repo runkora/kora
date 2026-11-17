@@ -133,6 +133,11 @@ func TestClassify_RESTEdgeCases(t *testing.T) {
 		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/stargazers", want: cls("metadata:read", "widgets")},
 		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/contents/../../../other/x/contents/a", err: true},
 		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/contents/%2e%2e/a", err: true},
+		// Endpoints installation tokens cannot call never fall to /user/{account_id}.
+		{method: http.MethodGet, url: "https://api.github.com/user/codespaces", err: true},
+		{method: http.MethodGet, url: "https://api.github.com/user/emails", err: true},
+		{method: http.MethodGet, url: "https://api.github.com/user/repos", err: true},
+		{method: http.MethodGet, url: "https://api.github.com/user/12345", want: cls("metadata:read", "")},
 		{method: http.MethodGet, url: "https://api.github.com/rate_limit", want: cls("metadata:read", "")},
 		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/contents/", want: cls("contents:read", "widgets")},
 		{method: http.MethodGet, url: "https://api.github.com/repos/example-org/widgets/tarball", want: cls("contents:read", "widgets")},

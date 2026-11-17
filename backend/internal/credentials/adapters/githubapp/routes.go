@@ -9,13 +9,16 @@ import (
 	"github.com/runkora/kora/backend/internal/credentials"
 )
 
-// restRoute is one REST endpoint installation tokens can call, from GitHub's
-// published permission data (routes_gen.go). Any one of Sets, held in full,
-// authorizes the call; an endpoint with no sets needs only metadata.
+// restRoute is one REST endpoint from GitHub's published permission data
+// (routes_gen.go). Any one of Sets, held in full, authorizes the call; an
+// endpoint with no sets needs only metadata. Refused marks an endpoint
+// installation tokens cannot call: it stays in the table so a request for it
+// never falls through to a broader template.
 type restRoute struct {
-	Method string
-	Path   string
-	Sets   []permissionSet
+	Method  string
+	Path    string
+	Sets    []permissionSet
+	Refused bool
 }
 
 // permissionSet maps GitHub App permission keys to an access level.
@@ -135,6 +138,9 @@ func (c *compiledRoute) match(segs []string) (int, bool) {
 // baseline. ok is false when no set falls within the categories, and for a
 // write that needs only metadata, which the baseline must not authorize.
 func routeClassification(r *restRoute) (credentials.Classification, bool) {
+	if r.Refused {
+		return credentials.Classification{}, false
+	}
 	metadataOnly := credentials.Classification{Action: ActionMetadataRead, Permissions: map[string]map[string]string{
 		ActionMetadataRead: {catMetadata: verbRead},
 	}}

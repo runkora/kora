@@ -36,12 +36,15 @@ const (
 	permissionsFile = "src/github-apps/data/fpt-2022-11-28/server-to-server-permissions.json"
 )
 
-// route is one endpoint an installation token can call. Sets are GitHub's
-// alternative permission sets: any one set, held in full, authorizes the call.
+// route is one REST endpoint. Sets are GitHub's alternative permission sets:
+// any one set, held in full, authorizes the call. Refused marks an endpoint
+// installation tokens cannot call, kept so it is never served by a broader
+// template.
 type route struct {
-	Method string              `json:"method"`
-	Path   string              `json:"path"`
-	Sets   []map[string]string `json:"sets"`
+	Method  string              `json:"method"`
+	Path    string              `json:"path"`
+	Sets    []map[string]string `json:"sets"`
+	Refused bool                `json:"refused,omitempty"`
 }
 
 type data struct {
@@ -106,7 +109,7 @@ func render(d data) ([]byte, error) {
 			}
 			b.WriteString("}, ")
 		}
-		b.WriteString("}},\n")
+		fmt.Fprintf(&b, "}, %t},\n", r.Refused)
 	}
 	b.WriteString("}\n")
 	src, err := format.Source(b.Bytes())
@@ -190,11 +193,15 @@ func collect(node any, keys map[string]string, seen map[string]route) {
 
 func addOperation(op map[string]any, path string, keys map[string]string, seen map[string]route) {
 	access, _ := op["progAccess"].(map[string]any)
-	if s2s, _ := access["serverToServer"].(bool); !s2s {
-		return
-	}
 	verb, _ := op["verb"].(string)
 	r := route{Method: strings.ToUpper(verb), Path: path, Sets: []map[string]string{}}
+	if s2s, _ := access["serverToServer"].(bool); !s2s {
+		if _, ok := seen[r.Method+" "+r.Path]; !ok {
+			r.Refused = true
+			seen[r.Method+" "+r.Path] = r
+		}
+		return
+	}
 	sets, _ := access["permissions"].([]any)
 	for _, s := range sets {
 		raw, _ := s.(map[string]any)
