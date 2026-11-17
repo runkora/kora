@@ -375,14 +375,16 @@ func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace stri
 // LivePod reports whether the agent has a pod that is not terminating or finished, Ready or not.
 // A pod still coming up, such as one waiting for a node, keeps a run queued past the start budget.
 // A pod with any container, init container or sidecar included, that keeps failing to start is not coming up.
-func (p *K8sProvisioner) LivePod(ctx context.Context, slug, namespace string) (bool, error) {
+// A Running pod that has been not Ready for longer than notReadyLimit is not coming up either.
+func (p *K8sProvisioner) LivePod(ctx context.Context, slug, namespace string, notReadyLimit time.Duration) (bool, error) {
 	_, pods, err := p.agentPods(ctx, slug, namespace)
 	if err != nil {
 		return false, err
 	}
+	now := time.Now()
 	for _, pod := range pods {
 		finished := pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed
-		if pod.DeletionTimestamp == nil && !finished && !podStuck(&pod) {
+		if pod.DeletionTimestamp == nil && !finished && !podStuck(&pod) && !notReadyTooLong(&pod, notReadyLimit, now) {
 			return true, nil
 		}
 	}
@@ -393,7 +395,7 @@ func (p *K8sProvisioner) LivePod(ctx context.Context, slug, namespace string) (b
 var stuckWaitingReasons = []string{"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "CreateContainerConfigError", "InvalidImageName"}
 
 // podStuck reports whether any init or regular container of the pod is waiting for one of stuckWaitingReasons.
-// A Running pod that is not Ready is not stuck: without a time signal it may only be slow to pass its readiness probe.
+// A Running pod that is not Ready is handled by notReadyTooLong, by time, and not by podStuck.
 func podStuck(pod *corev1.Pod) bool {
 	for _, statuses := range [][]corev1.ContainerStatus{pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses} {
 		for _, cs := range statuses {
@@ -403,6 +405,29 @@ func podStuck(pod *corev1.Pod) bool {
 		}
 	}
 	return false
+}
+
+// notReadyTooLong reports whether the pod is Running, not Ready, and has been so for longer than limit.
+// The time signal is the Ready condition's last transition, then the pod's start time, then its creation time.
+// With none of them set there is no signal, so the pod is not too old.
+// Pending pods are never too old, and draining pods are excluded before this check by their deletion timestamp.
+func notReadyTooLong(pod *corev1.Pod, limit time.Duration, now time.Time) bool {
+	if pod.Status.Phase != corev1.PodRunning || podReady(pod) {
+		return false
+	}
+	var since time.Time
+	for _, c := range pod.Status.Conditions {
+		if c.Type == corev1.PodReady {
+			since = c.LastTransitionTime.Time
+		}
+	}
+	if since.IsZero() && pod.Status.StartTime != nil {
+		since = pod.Status.StartTime.Time
+	}
+	if since.IsZero() {
+		since = pod.CreationTimestamp.Time
+	}
+	return !since.IsZero() && now.Sub(since) > limit
 }
 
 // agentPods returns the agent's StatefulSet and its pods, a nil StatefulSet when it does not exist.

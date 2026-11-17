@@ -255,14 +255,14 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 
 // livePods tells the start budget whether the agent has a pod that is not terminating or finished.
 type livePods interface {
-	LivePod(ctx context.Context, slug, namespace string) (bool, error)
+	LivePod(ctx context.Context, slug, namespace string, notReadyLimit time.Duration) (bool, error)
 }
 
 // waitsPastBudget reports whether a run with no Ready pod stays queued past the start budget:
 // a pod is coming up for it, or the agent is at its total (docs/adr/2026-11-09-demand-driven-agent-scaling.md).
 // A pod that turned Ready since placement looked also counts.
 func (s *RunService) waitsPastBudget(ctx context.Context, at *AgentType, namespace string) (bool, error) {
-	up, err := s.pods.LivePod(ctx, at.Slug, namespace)
+	up, err := s.pods.LivePod(ctx, at.Slug, namespace, s.startBudget())
 	if err != nil {
 		return false, fmt.Errorf("look up agent pods: %w", err)
 	}
