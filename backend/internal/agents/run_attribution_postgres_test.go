@@ -163,7 +163,7 @@ func TestPostgres_RunSources(t *testing.T) {
 	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
 
 	run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, CreatedBy: "trigger:t", Sources: []RunSource{srcSlack, srcPR}}
-	if err := r.CreateRun(ctx, run); err != nil {
+	if _, err := r.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
 	if err := r.AppendRunSources(ctx, run.ID, []RunSource{srcPR, srcRepo}); err != nil {
@@ -184,7 +184,7 @@ func TestPostgres_RunSources(t *testing.T) {
 	}
 
 	none := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, CreatedBy: "user-1"}
-	if err := r.CreateRun(ctx, none); err != nil {
+	if _, err := r.CreateRun(ctx, none); err != nil {
 		t.Fatalf("CreateRun(none): %v", err)
 	}
 	gotNone, _ := r.GetRun(ctx, none.ID)
@@ -216,7 +216,7 @@ func TestPostgres_RunMessageSender(t *testing.T) {
 	ctx := context.Background()
 	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
 	run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, CreatedBy: "user-1"}
-	if err := r.CreateRun(ctx, run); err != nil {
+	if _, err := r.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
 	sender := &MessageSender{ID: "user-1", Type: "USER", Name: "Dev User"}

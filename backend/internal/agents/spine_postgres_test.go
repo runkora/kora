@@ -191,7 +191,7 @@ func TestPostgres_TriggerMessageExtendsTheChain(t *testing.T) {
 	ctx := context.Background()
 	first, deeper := uuid.NewString(), uuid.NewString()
 	run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, StartedBy: &StartedByTrigger{TriggerID: "trg-a"}, CausedBy: first, ChainDepth: 1}
-	if err := r.CreateRun(ctx, run); err != nil {
+	if _, err := r.CreateRun(ctx, run); err != nil {
 		t.Fatal(err)
 	}
 	for _, m := range []RunMessage{
@@ -227,7 +227,7 @@ func TestPostgres_AgentInheritedChain(t *testing.T) {
 	ctx := context.Background()
 	cause := uuid.NewString()
 	run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, StartedBy: &StartedByTrigger{TriggerID: "trg-a"}, CausedBy: cause, ChainDepth: 2, TriggerIDs: []string{"trg-a", "trg-b"}}
-	if err := r.CreateRun(ctx, run); err != nil {
+	if _, err := r.CreateRun(ctx, run); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := r.GetRun(ctx, run.ID); !slices.Equal(got.TriggerIDs, []string{"trg-a", "trg-b"}) {
