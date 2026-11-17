@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-10-26-release-asset-downloads-without-connection-selection.md -->
 
-**Status:** Proposed  
+**Status:** Proposed (the anonymous fallback for `release-assets.githubusercontent.com` superseded by [GitHub connector route coverage](2026-11-15-github-connector-route-coverage.md))  
 **Date:** 2026-10-26  
 **Deciders:** Justin Wilkin  
 **Technical Story:** [#790](https://github.com/runkora/kora/issues/790)

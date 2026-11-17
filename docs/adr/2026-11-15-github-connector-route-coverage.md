@@ -103,12 +103,12 @@ The GitHub connector will change as follows.
     *   `org_projects`: organization_projects.
 2.  The repository categories can be qualified by repository. `members` and `org_projects` are organization-wide and unqualified.
 3.  `metadata` stays the baseline every grant receives.
-4.  `repo:read`, `repo:write`, `actions`, `checks` and the earlier category definitions will be removed. The covering parents `connection:<name>:read` and `connection:<name>:write` are the grant for every category.
+4.  `repo:read`, `repo:write`, `actions`, `checks` and the earlier category definitions will be removed. The covering parents `connection:<name>:read` and `connection:<name>:write` are the grant for every category. Publishing the vocabulary purges a removed action from every stored grant and role that holds it.
 
 ### REST
 
 5.  A generator will build the route table from GitHub's REST operation data for API version 2022-11-28, pinned to one `github/docs` commit. The generated table and the generator are committed, and a test checks that every operation in the data classifies.
-6.  An endpoint classifies to the smallest of GitHub's alternative permission sets for it. Alternatives that each need one permission become alternate actions. A set that needs several permissions requires every category in it.
+6.  An endpoint classifies to the smallest of GitHub's alternative permission sets for it. Alternatives that each need one permission become alternate actions. A set that needs several permissions requires every category in it. A `write` grant on a category also authorizes that category's reads, and the token for such a read carries the read permissions.
 7.  The minted token carries the permissions of the set the grant satisfied, plus metadata. A write to contents, refs or releases, and a git push, also carries `workflows` when the agent holds `workflows:write` on the repository.
 8.  An endpoint that needs no permission classifies as `metadata:read`. An endpoint that needs `admin` access classifies as `write` and mints `admin` access. An endpoint whose permission is in no category is denied as unclassified.
 9.  Surfaces outside the data keep hand-written entries: git smart HTTP and git LFS (`contents`), `codeload.github.com` and `*.githubusercontent.com` (`contents`), `uploads.github.com` release assets (`contents`), and the Actions results receiver (`ci`).
@@ -124,14 +124,15 @@ The GitHub connector will change as follows.
 ### Qualifiers
 
 15.  `/repositories/{id}/...` will classify as the `/repos/{owner}/{repo}/...` path it resolves to.
-16.  A request that addresses objects by node ID will be qualified by their repository when every resolved ID belongs to one repository of the connection's owner. An ID that does not resolve, or IDs across several repositories, leave the request unqualified. Ids of users, bots and teams address no repository and do not affect the qualifier.
-17.  Lookup results will be cached by ID for the lifetime of the lookup token.
+16.  A release asset download from `release-assets.githubusercontent.com` is qualified by the repository its path names, through the same lookup. This supersedes the anonymous fallback in the [release asset downloads ADR](2026-10-26-release-asset-downloads-without-connection-selection.md) for that host.
+17.  A request that addresses objects by node ID will be qualified by their repository when every resolved ID belongs to one repository of the connection's owner. An ID that does not resolve, or IDs across several repositories, leave the request unqualified. Ids of users, bots and teams address no repository and do not affect the qualifier.
+18.  Lookup results will be cached by ID for the lifetime of the lookup token.
 
 ### Denials and fallback
 
-18.  A request the connector does not recognize will be denied as `unclassified`. The denial will state the method and path, and never the query string.
-19.  Every `not_granted` denial will state the method and path of the request.
-20.  An anonymous fallback read that GitHub answers with 401, 403 or 404 will return the original denial. A 403 that reports an exhausted rate limit is relayed.
+19.  A request the connector does not recognize will be denied as `unclassified`. The denial will state the method and path, and never the query string.
+20.  Every `not_granted` denial will state the method and path of the request.
+21.  An anonymous fallback read that GitHub answers with 401, 403 or 404 will return the original denial. A 403 that reports an exhausted rate limit is relayed.
 
 This decision supersedes the [category-scoped actions ADR](2026-07-22-github-connection-category-scoped-actions.md) Decisions A, B, C and D, the [GraphQL field classification ADR](2026-09-29-github-graphql-field-classification.md), and the "Resolve repository IDs for paginated links" rejection in JIT brokering Amendment 5.
 
