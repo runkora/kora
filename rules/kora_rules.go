@@ -341,10 +341,11 @@ func noHttpErrorInHandler(m dsl.Matcher) {
 //
 //	api.JSON(ctx, w, logger, http.StatusNoContent, nil)
 func noDirectWriteHeader(m dsl.Matcher) {
-	// Restricted to receivers implementing http.ResponseWriter so this does not
-	// false-positive on unrelated WriteHeader methods (e.g. archive/tar.Writer).
+	// Matches values typed http.ResponseWriter only; a handler that wraps w in a concrete type is not flagged.
+	// Type.Is avoids Implements, which type-checks net/http from source for every linted package.
+	m.Import("net/http")
 	m.Match(`$w.WriteHeader($code)`).
-		Where(m["w"].Type.Implements(`net/http.ResponseWriter`)).
+		Where(m["w"].Type.Is(`http.ResponseWriter`)).
 		Report(`docs/adr/2026-02-17-controller-based-http-routing.md: use api.JSON or api.ErrorResponse instead of calling WriteHeader directly — ` +
 			`a bare WriteHeader writes no JSON envelope, records nothing on the OTel span, and emits no structured log line. ` +
 			`See docs/adr/2026-02-17-controller-based-http-routing.md`)
@@ -358,11 +359,13 @@ const (
 
 // noProductNameLiteral bans "kora" and "orbit" string literals, primarily so a white-labelled install never shows them.
 func noProductNameLiteral(m dsl.Matcher) {
+	// Type.Is exempts log messages without type-checking the logging package for every linted package.
+	m.Import("github.com/runkora/kora/backend/internal/platform/logging")
 	m.Match(`$recv.$method($*_, $s, $*_)`).
 		Where(m.File().PkgPath.Matches(speakingPackages) &&
 			m["s"].Node.Is("BasicLit") &&
 			m["s"].Text.Matches(productNameWord) &&
-			!m["recv"].Type.Implements(`github.com/runkora/kora/backend/internal/platform/logging.Logger`)).
+			!m["recv"].Type.Is(`logging.Logger`)).
 		At(m["s"]).
 		Report(`docs/adr/2026-10-12-white-labelling-theme.md: the product name must come from internal/platform/brand, not a literal — ` +
 			`a white-labelled install must never show the kora name in text its people or agents read. ` +
