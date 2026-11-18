@@ -128,7 +128,7 @@ These scopes administer the tenant or confer authority beyond the holder. Keep t
 
 *   `platform:grants:write`, `platform:roles:write`, and `platform:catalog:write`.
 *   `agents:types:write`, `agents:runs:write`, and `agents:environments:write`.
-*   Any `connection:<name>:write` parent, GitHub `admin:write` and `repo:write`, and Kubernetes `secrets` and `rbac:write`.
+*   Any `connection:<name>:write` parent, GitHub `admin:write`, `members:write`, `secrets:write` and `repo:write`, and Kubernetes `secrets` and `rbac:write`.
 *   `mcp:<server>:use` on a server with write tools.
 
 ## Managing Roles

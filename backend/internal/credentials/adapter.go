@@ -137,6 +137,11 @@ type Classification struct {
 	// denies unless the grant holds every one, and mints the credential for
 	// all of them.
 	AlsoRequired []string
+	// Permissions optionally names, per action, the upstream permissions and
+	// levels the request needs, so the credential carries exactly those rather
+	// than everything the action's category covers. The broker passes it to
+	// Mint unchanged.
+	Permissions map[string]map[string]string
 }
 
 // ActionDeclaration describes one action an adapter can classify. The Action

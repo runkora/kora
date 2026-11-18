@@ -44,8 +44,8 @@ var (
 	reqContents   = requirement{ActionContentsRead}
 	reqIssues     = requirement{catIssues + ":" + verbRead}
 	reqPulls      = requirement{catPulls + ":" + verbRead}
-	reqChecks     = requirement{catChecks + ":" + verbRead}
-	reqActions    = requirement{catActions + ":" + verbRead}
+	reqCI         = requirement{catCI + ":" + verbRead}
+	reqAdmin      = requirement{catAdmin + ":" + verbRead}
 	reqIssueOrPR  = requirement{catIssues + ":" + verbRead, catPulls + ":" + verbRead}
 	reqWContents  = requirement{ActionContentsWrite}
 	reqWIssues    = requirement{catIssues + ":" + verbWrite}
@@ -54,7 +54,8 @@ var (
 )
 
 // graphqlRootFields maps top-level query fields that need no repository to
-// their requirement. repository, node and nodes are walked instead.
+// their requirement. repository, repositoryOwner, search, node and nodes are
+// walked instead.
 var graphqlRootFields = map[string]requirement{
 	"viewer": reqMetadata, "rateLimit": reqMetadata,
 	"__typename": reqMetadata, "__schema": reqMetadata, "__type": reqMetadata,
@@ -73,7 +74,8 @@ var graphqlRepositoryFields = map[string]requirement{
 	"release": reqContents, "releases": reqContents, "latestRelease": reqContents,
 
 	"__typename": reqMetadata, "id": reqMetadata, "databaseId": reqMetadata, "name": reqMetadata,
-	"nameWithOwner": reqMetadata, "owner": reqMetadata, "url": reqMetadata, "description": reqMetadata,
+	"nameWithOwner": reqMetadata, "owner": reqMetadata, "url": reqMetadata, "sshUrl": reqMetadata,
+	"description": reqMetadata,
 	"homepageUrl": reqMetadata, "visibility": reqMetadata, "isPrivate": reqMetadata,
 	"isArchived": reqMetadata, "isFork": reqMetadata, "isTemplate": reqMetadata, "isEmpty": reqMetadata,
 	"hasIssuesEnabled": reqMetadata, "hasWikiEnabled": reqMetadata, "hasProjectsEnabled": reqMetadata,
@@ -92,15 +94,33 @@ var graphqlNodeTypes = map[string]requirement{
 	"IssueComment": reqIssueOrPR,
 	"Commit":       reqContents, "Tree": reqContents, "Blob": reqContents, "Ref": reqContents,
 	"Tag": reqContents, "Release": reqContents,
-	"CheckRun": reqChecks, "CheckSuite": reqChecks, "StatusContext": reqChecks,
+	"CheckRun": reqCI, "CheckSuite": reqCI, "StatusContext": reqCI,
 }
 
 // graphqlNestedFields are fields that reach another category wherever they are
 // selected. GitHub refuses a pull request's statusCheckRollup to a token
-// without checks, and a check suite's workflowRun without actions.
+// without checks, a check suite's workflowRun without actions, and a ref's
+// branchProtectionRule without administration.
 var graphqlNestedFields = map[string]requirement{
-	"statusCheckRollup": reqChecks, "checkSuites": reqChecks, "checkRuns": reqChecks,
-	"workflowRun": reqActions, "workflowRuns": reqActions,
+	"statusCheckRollup": reqCI, "checkSuites": reqCI, "checkRuns": reqCI,
+	"workflowRun": reqCI, "workflowRuns": reqCI,
+	"branchProtectionRule": reqAdmin,
+}
+
+// fieldSearch is the Query field for search, which is classified and qualified
+// by its own rules.
+const fieldSearch = "search"
+
+// graphqlOwnerScalars are the fields of RepositoryOwner that describe the
+// account itself.
+var graphqlOwnerScalars = map[string]bool{
+	"__typename": true, "id": true, "login": true, "url": true, "avatarUrl": true, "resourcePath": true,
+}
+
+// graphqlConnectionFields are the paging fields of a connection and its edges,
+// which carry no category of their own.
+var graphqlConnectionFields = map[string]bool{
+	"__typename": true, "cursor": true, "pageInfo": true, "totalCount": true,
 }
 
 // graphqlMutationFields maps mutations to the write they perform, matching the
@@ -305,7 +325,24 @@ func (w *graphqlWalker) classification(op *ast.OperationDefinition) credentials.
 	if w.incomplete {
 		return credentials.Classification{Action: catRepo + ":" + verb}
 	}
-	return classificationFor(w.reqs)
+	cls := classificationFor(w.reqs)
+	for _, action := range append(append([]string{cls.Action}, cls.Alternates...), cls.AlsoRequired...) {
+		if perms, ok := graphqlPermissions[action]; ok {
+			if cls.Permissions == nil {
+				cls.Permissions = map[string]map[string]string{}
+			}
+			cls.Permissions[action] = perms
+		}
+	}
+	return cls
+}
+
+// graphqlPermissions are the permissions the fields behind a GraphQL
+// requirement need, where that is narrower than the whole category: a token
+// asking for a permission the installation lacks is refused.
+var graphqlPermissions = map[string]map[string]string{
+	catCI + ":" + verbRead:    {"actions": verbRead, "checks": verbRead, "statuses": verbRead},
+	catAdmin + ":" + verbRead: {"administration": verbRead},
 }
 
 // fields visits every field of a selection set, looking through inline
@@ -366,14 +403,73 @@ func (w *graphqlWalker) queryField(f *ast.Field) {
 	case "node", "nodes":
 		w.require(reqMetadata, true)
 		w.nodeSelections(f.SelectionSet)
+	case fieldSearch:
+		w.require(reqMetadata, true)
+		w.fields(f.SelectionSet, w.searchField)
+	case "repositoryOwner":
+		w.require(reqMetadata, true)
+		w.fields(f.SelectionSet, w.repositoryOwnerField)
 	default:
 		r, ok := graphqlRootFields[f.Name]
 		w.require(r, ok)
 	}
 }
 
-// repositoryField classifies a field of Repository.
+// connectionField classifies a field of a connection: its nodes and edge nodes
+// by node, and its paging fields as metadata. ok is false for any other field.
+func (w *graphqlWalker) connectionField(f *ast.Field, node func(ast.SelectionSet)) bool {
+	switch f.Name {
+	case "nodes":
+		node(f.SelectionSet)
+	case "edges":
+		w.fields(f.SelectionSet, func(e *ast.Field) {
+			if e.Name == "node" {
+				node(e.SelectionSet)
+				return
+			}
+			w.require(reqMetadata, graphqlConnectionFields[e.Name])
+		})
+	default:
+		if !graphqlConnectionFields[f.Name] {
+			return false
+		}
+		w.require(reqMetadata, true)
+	}
+	return true
+}
+
+// searchField classifies a field of a search connection. Its results are a
+// union classified like a node lookup, by the types they select.
+func (w *graphqlWalker) searchField(f *ast.Field) {
+	if !w.connectionField(f, w.nodeSelections) {
+		w.require(reqMetadata, f.Name == "issueCount" || f.Name == "repositoryCount")
+	}
+}
+
+// repositoryOwnerField classifies a field of RepositoryOwner. The repositories
+// it lists are walked as repositories, so a field reaching their issues or
+// contents needs that category.
+func (w *graphqlWalker) repositoryOwnerField(f *ast.Field) {
+	if f.Name != "repositories" {
+		w.require(reqMetadata, graphqlOwnerScalars[f.Name])
+		return
+	}
+	repos := func(set ast.SelectionSet) { w.fields(set, w.repositoryField) }
+	w.fields(f.SelectionSet, func(c *ast.Field) {
+		if !w.connectionField(c, repos) {
+			w.require(nil, false)
+		}
+	})
+}
+
+// repositoryField classifies a field of Repository. A fork's parent is itself
+// a Repository, so its fields are classified the same way.
 func (w *graphqlWalker) repositoryField(f *ast.Field) {
+	if f.Name == "parent" {
+		w.require(reqMetadata, true)
+		w.fields(f.SelectionSet, w.repositoryField)
+		return
+	}
 	r, ok := graphqlRepositoryFields[f.Name]
 	w.require(r, ok)
 }
@@ -477,16 +573,17 @@ func classificationFor(reqs []requirement) credentials.Classification {
 }
 
 // qualifier attributes the operation to a repository of the connection's
-// owner, denying a repository() call that names another owner. It returns ""
+// owner, from its repository() calls and the repo: terms of its searches,
+// denying a repository() call that names another owner. It returns ""
 // when the operation names no repository, several, or one it cannot pin down,
 // including any node or nodes lookup; only an unqualified grant covers that.
 func (w *graphqlWalker) qualifier(op *ast.OperationDefinition, owner string) (string, error) {
 	refs := repoRefs{names: map[string]bool{}, owner: owner}
 	w.spreads, w.incomplete = 0, false
 	// A root node lookup names objects by global ID, whose repository is not
-	// decoded.
+	// decoded, and repositoryOwner lists every repository of an account.
 	w.fields(op.SelectionSet, func(f *ast.Field) {
-		refs.unattributed = refs.unattributed || f.Name == "node" || f.Name == "nodes"
+		refs.unattributed = refs.unattributed || f.Name == "node" || f.Name == "nodes" || f.Name == "repositoryOwner"
 	})
 	w.collectRefs(op.SelectionSet, &refs)
 	switch {
@@ -509,7 +606,8 @@ type repoRefs struct {
 	owner        string
 }
 
-// collectRefs walks the whole operation, every depth, for repository() calls.
+// collectRefs walks the whole operation, every depth, for repository() calls
+// and searches.
 func (w *graphqlWalker) collectRefs(set ast.SelectionSet, refs *repoRefs) {
 	w.fields(set, func(f *ast.Field) {
 		// A repository field without arguments is the related object's own
@@ -517,8 +615,23 @@ func (w *graphqlWalker) collectRefs(set ast.SelectionSet, refs *repoRefs) {
 		if f.Name == "repository" && len(f.Arguments) > 0 {
 			w.repositoryRef(f, refs)
 		}
+		if f.Name == fieldSearch {
+			w.searchRef(f, refs)
+		}
 		w.collectRefs(f.SelectionSet, refs)
 	})
+}
+
+// searchRef records the repository a search query is scoped to, by the same
+// rule as REST search. A query not scoped to one repository of the owner
+// leaves the operation unattributed.
+func (w *graphqlWalker) searchRef(f *ast.Field, refs *repoRefs) {
+	q, _ := w.argument(f, "query").(string)
+	if name := searchRepoQualifier(q, refs.owner); name != "" {
+		refs.names[name] = true
+		return
+	}
+	refs.unattributed = true
 }
 
 // repositoryRef records a repository(owner:, name:) call.
@@ -596,7 +709,7 @@ func (w *graphqlWalker) collectOwners(set ast.SelectionSet, owners, ids map[stri
 				owners[normalizeName(owner)] = true
 			}
 		}
-		if f.Name == "search" {
+		if f.Name == fieldSearch {
 			if q, _ := w.argument(f, "query").(string); q != "" {
 				for _, owner := range searchOwners(q) {
 					owners[owner] = true

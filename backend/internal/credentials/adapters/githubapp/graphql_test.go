@@ -72,13 +72,13 @@ var (
 	codeReviewer = grant{
 		"metadata:read": nil, "contents:read": widgetsOnly, "pulls:read": widgetsOnly,
 		"pulls:write": widgetsOnly, "issues:read": widgetsOnly, "issues:write": widgetsOnly,
-		"checks:read": widgetsOnly, "actions:read": widgetsOnly,
+		"ci:read": widgetsOnly,
 	}
 	// codeReviewerAllRepos is the same attachment without a repository
 	// qualifier, which also covers unqualified requests.
 	codeReviewerAllRepos = grant{
 		"metadata:read": nil, "contents:read": nil, "pulls:read": nil,
-		"pulls:write": nil, "issues:read": nil, "issues:write": nil, "checks:read": nil, "actions:read": nil,
+		"pulls:write": nil, "issues:read": nil, "issues:write": nil, "ci:read": nil,
 	}
 	issuesOnly = grant{"metadata:read": nil, "issues:read": widgetsOnly, "issues:write": widgetsOnly}
 )
@@ -99,7 +99,7 @@ func TestClassifyGraphQL_GHCommands(t *testing.T) {
 	}{
 		{"pr-view", checksCls("widgets"), true, true, false},
 		{"pr-view-project-items", pullsCls("pulls:read", "widgets"), true, true, false},
-		{"pr-view-current-branch", credentials.Classification{Action: "actions:read", AlsoRequired: []string{"checks:read", "contents:read", "pulls:read"}, Qualifier: "widgets"}, true, true, false},
+		{"pr-view-current-branch", credentials.Classification{Action: "ci:read", AlsoRequired: []string{"contents:read", "pulls:read"}, Qualifier: "widgets"}, true, true, false},
 		{"pr-diff", pullsCls("pulls:read", "widgets"), true, true, false},
 		{"pr-checks", pullsCls("pulls:read", "widgets"), true, true, false},
 		{"pr-checks-introspect-pull-request", cls("metadata:read", ""), true, true, true},
@@ -109,8 +109,8 @@ func TestClassifyGraphQL_GHCommands(t *testing.T) {
 		{"issue-view", credentials.Classification{Action: "issues:read", Alternates: []string{"pulls:read"}, Qualifier: "widgets"}, true, true, true},
 		{"issue-view-project-items", cls("issues:read", "widgets"), true, true, true},
 		{"repo-view", cls("metadata:read", "widgets"), true, true, true},
-		// search has no category to check against, so it keeps the umbrella.
-		{"pr-status", cls("repo:read", "widgets"), false, false, false},
+		// The base ref's branchProtectionRule needs admin:read, which the code reviewer lacks.
+		{"pr-status", credentials.Classification{Action: "admin:read", AlsoRequired: []string{"ci:read", "contents:read", "pulls:read"}, Qualifier: "widgets"}, false, false, false},
 		{"pr-comment-2-CommentCreate", credentials.Classification{Action: "issues:write", Alternates: []string{"pulls:write"}}, false, true, false},
 		{"pr-review-comment-2-PullRequestReviewAdd", pullsCls("pulls:write", ""), false, true, false},
 		{"pr-merge-4-PullRequestMerge", cls("contents:write", ""), false, false, false},
@@ -155,7 +155,7 @@ func pullsCls(action, qualifier string) credentials.Classification {
 // checksCls is a pull request classification that also selects the checks
 // rollup and its workflow runs.
 func checksCls(qualifier string) credentials.Classification {
-	return credentials.Classification{Action: "actions:read", AlsoRequired: []string{"checks:read", "pulls:read", "contents:read"}, Qualifier: qualifier}
+	return credentials.Classification{Action: "ci:read", AlsoRequired: []string{"pulls:read", "contents:read"}, Qualifier: qualifier}
 }
 
 func assertClassification(t *testing.T, got, want credentials.Classification) {
@@ -172,6 +172,7 @@ func TestClassifyGraphQL(t *testing.T) {
 		return string(b)
 	}
 	const repoWidgets = `repository(owner:"example-org", name:"widgets")`
+	const searchQ = `query($q:String!){ search(query:$q, type:ISSUE, first:1){ issueCount } }`
 
 	cases := []struct {
 		name   string
@@ -186,7 +187,23 @@ func TestClassifyGraphQL(t *testing.T) {
 		{name: "ambiguous field alongside another category", body: q(`{ `+repoWidgets+` { object(expression:"HEAD"){id} issueOrPullRequest(number:2){__typename} } }`, nil),
 			want: credentials.Classification{Action: "issues:read", Alternates: []string{"pulls:read"}, AlsoRequired: []string{"contents:read"}, Qualifier: "widgets"}},
 		{name: "unknown repository field needs the umbrella", body: q(`{ `+repoWidgets+` { pullRequest(number:1){id} deployments(first:1){totalCount} } }`, nil), want: cls("repo:read", "widgets")},
-		{name: "unknown root field needs the umbrella", body: q(`{ search(query:"x", type:ISSUE, first:1){issueCount} }`, nil), want: cls("repo:read", "")},
+		{name: "search classifies by the types it selects", body: q(`{ search(query:"repo:example-org/widgets", type:ISSUE, first:1){ issueCount edges { cursor node { ... on Issue { title } ... on PullRequest { title } } } } }`, nil),
+			want: credentials.Classification{Action: "issues:read", AlsoRequired: []string{"pulls:read", "contents:read"}, Qualifier: "widgets"}},
+		{name: "repository search needs metadata", body: q(`{ search(query:"repo:example-org/widgets", type:REPOSITORY, first:1){ nodes { ... on Repository { name } } } }`, nil), want: cls("metadata:read", "widgets")},
+		{name: "search of an unmapped type needs the umbrella", body: q(`{ search(query:"x", type:USER, first:1){ nodes { ... on User { login } } } }`, nil), want: cls("repo:read", "")},
+		{name: "search naming a foreign repository is unqualified", body: q(`{ search(query:"repo:evil/widgets", type:ISSUE, first:1){ issueCount } }`, nil), want: cls("metadata:read", "")},
+		{name: "search with NOT is unqualified", body: q(searchQ, map[string]any{"q": "NOT repo:example-org/widgets"}), want: cls("metadata:read", "")},
+		{name: "search naming two repositories is unqualified", body: q(`{ search(query:"repo:example-org/widgets repo:example-org/other", type:ISSUE, first:1){ issueCount } }`, nil), want: cls("metadata:read", "")},
+		{name: "search excluding a repository is unqualified", body: q(`{ search(query:"repo:example-org/widgets -repo:example-org/other", type:ISSUE, first:1){ issueCount } }`, nil), want: cls("metadata:read", "")},
+		{name: "search scoped apart from the repository lookup is unqualified", body: q(`{ `+repoWidgets+` { id } search(query:"repo:example-org/other", type:ISSUE, first:1){ issueCount } }`, nil), want: cls("metadata:read", "")},
+		{name: "search query from a variable", body: q(`query($q:String!){ search(query:$q, type:ISSUE, first:1){ issueCount } }`, map[string]any{"q": "repo:example-org/widgets"}), want: cls("metadata:read", "widgets")},
+		{name: "fork parent fields classify as a repository's", body: q(`{ `+repoWidgets+` { parent { name issues(first:1){totalCount} } } }`, nil), want: cls("issues:read", "widgets")},
+		{name: "branch protection needs admin", body: q(`{ `+repoWidgets+` { defaultBranchRef { branchProtectionRule { pattern } } } }`, nil),
+			want: credentials.Classification{Action: "admin:read", AlsoRequired: []string{"contents:read"}, Qualifier: "widgets"}},
+		{name: "owner repositories classify as repositories", body: q(`{ repositoryOwner(login:"example-org") { login repositories(first:1) { totalCount nodes { name issues(first:1){totalCount} } } } }`, nil), want: cls("issues:read", "")},
+		{name: "owner repositories are never one repository", body: q(`{ `+repoWidgets+` { id } repositoryOwner(login:"example-org") { repositories(first:1) { nodes { name } } } }`, nil), want: cls("metadata:read", "")},
+		{name: "unknown owner field needs the umbrella", body: q(`{ repositoryOwner(login:"example-org") { repository(name:"widgets") { id } } }`, nil), want: cls("repo:read", "")},
+		{name: "unknown root field needs the umbrella", body: q(`{ enterprise(slug:"x"){id} }`, nil), want: cls("repo:read", "")},
 		{name: "field names are case sensitive", body: q(`{ REPOSITORY(OWNER:"evil", NAME:"widgets") { id } }`, nil), want: cls("repo:read", "")},
 		{name: "labelable mutation on a discussion needs the umbrella", body: q(`mutation { addLabelsToLabelable(input:{labelableId:"D_kwDORRWKBs4AAAAB", labelIds:[]}){clientMutationId} }`, nil), want: cls("repo:write", "")},
 		{name: "labelable mutation on an issue needs issues:write", body: q(`mutation { addLabelsToLabelable(input:{labelableId:"I_kwDORRWKBs6RNDWJ", labelIds:[]}){clientMutationId} }`, nil), want: cls("issues:write", "")},

@@ -37,10 +37,10 @@ func (g grantEvaluator) Scopes(context.Context, policy.ScopesInput) ([]string, e
 	return nil, nil
 }
 
-// reactOnPR authorizes the 👀 reaction on PR 1054 for a caller whose grant is
+// commentOnPR authorizes a comment on PR 1054 for a caller whose grant is
 // eval, and returns the decision, the permissions the installation token was
 // requested with, and how many tokens were minted.
-func reactOnPR(t *testing.T, eval grantEvaluator) (Decision, map[string]string, int, error) {
+func commentOnPR(t *testing.T, eval grantEvaluator) (Decision, map[string]string, int, error) {
 	t.Helper()
 	logger := logging.NewLoggerWithOutput(io.Discard)
 
@@ -66,7 +66,7 @@ func reactOnPR(t *testing.T, eval grantEvaluator) (Decision, map[string]string, 
 	registry.Register(githubapp.New(ghclient.NewClient(gh.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger))
 	broker := NewBroker(eval, repo, registry, passthrough.New(), logger)
 
-	u, _ := url.Parse("https://api.github.com/repos/clear-route/constellation-iac/issues/1054/reactions")
+	u, _ := url.Parse("https://api.github.com/repos/clear-route/constellation-iac/issues/1054/comments")
 	httpReq, _ := http.NewRequest(http.MethodPost, u.String(), nil)
 	dec, err := broker.Authorize(context.Background(),
 		claimsFor("acme", "spiffe://runkora.test/tenant/kora-tenant-acme/agent/code-reviewer", "run-1"),
@@ -96,7 +96,7 @@ func TestAuthorize_IssueNumberRouteFollowsTheGrant(t *testing.T) {
 			for _, a := range tc.held {
 				held[a] = true
 			}
-			dec, perms, mints, err := reactOnPR(t, grantEvaluator{held: held})
+			dec, perms, mints, err := commentOnPR(t, grantEvaluator{held: held})
 
 			if tc.wantForbidden {
 				if !errors.Is(err, ErrForbidden) {
@@ -126,7 +126,7 @@ func TestAuthorize_IssueNumberRouteFollowsTheGrant(t *testing.T) {
 // An evaluator error on the classified action still fails closed, exactly as
 // before alternates existed, even when an alternate would have been allowed.
 func TestAuthorize_PrimaryEvaluationErrorFailsClosed(t *testing.T) {
-	_, _, mints, err := reactOnPR(t, grantEvaluator{
+	_, _, mints, err := commentOnPR(t, grantEvaluator{
 		held: map[string]bool{"pulls:write": true},
 		errs: map[string]error{"issues:write": errors.New("policy service unavailable")},
 	})
@@ -141,7 +141,7 @@ func TestAuthorize_PrimaryEvaluationErrorFailsClosed(t *testing.T) {
 // An evaluator error on an alternate only drops that alternate. The request
 // proceeds under the classified action with no widening.
 func TestAuthorize_AlternateEvaluationErrorDoesNotWiden(t *testing.T) {
-	dec, perms, _, err := reactOnPR(t, grantEvaluator{
+	dec, perms, _, err := commentOnPR(t, grantEvaluator{
 		held: map[string]bool{"issues:write": true},
 		errs: map[string]error{"pulls:write": errors.New("policy service unavailable")},
 	})

@@ -36,27 +36,35 @@ const (
 // Action vocabulary, shared by the gateway adapters (which classify requests
 // into these actions) and the connector picker (which offers them as grants).
 const (
-	// GitHub actions are category-scoped since the 2026-07-22 category ADR:
-	// each category is a route family of the GitHub surface with its own
-	// read/write pair. repo:read/repo:write survive as the catch-all for
-	// uncategorized routes and as the legacy umbrella (their vocabulary
-	// entries carry Requires edges to every category action). See
-	// docs/adr/2026-07-22-github-connection-category-scoped-actions.md.
-	ActionGitHubRepoRead      = "repo:read"
-	ActionGitHubRepoWrite     = "repo:write"
-	ActionGitHubMetadataRead  = "metadata:read"
-	ActionGitHubContentsRead  = "contents:read"
-	ActionGitHubContentsWrite = "contents:write"
-	ActionGitHubIssuesRead    = "issues:read"
-	ActionGitHubIssuesWrite   = "issues:write"
-	ActionGitHubPullsRead     = "pulls:read"
-	ActionGitHubPullsWrite    = "pulls:write"
-	ActionGitHubActionsRead   = "actions:read"
-	ActionGitHubActionsWrite  = "actions:write"
-	ActionGitHubChecksRead    = "checks:read"
-	ActionGitHubChecksWrite   = "checks:write"
-	ActionGitHubAdminRead     = "admin:read"
-	ActionGitHubAdminWrite    = "admin:write"
+	// GitHub actions are categories of GitHub App permissions, each with a
+	// read/write pair. repo:read/repo:write remain only while the GraphQL
+	// classifier still returns them; their vocabulary entries carry Requires
+	// edges to every category action. See
+	// docs/adr/2026-11-15-github-connector-route-coverage.md.
+	ActionGitHubRepoRead         = "repo:read"
+	ActionGitHubRepoWrite        = "repo:write"
+	ActionGitHubMetadataRead     = "metadata:read"
+	ActionGitHubContentsRead     = "contents:read"
+	ActionGitHubContentsWrite    = "contents:write"
+	ActionGitHubWorkflowsWrite   = "workflows:write"
+	ActionGitHubIssuesRead       = "issues:read"
+	ActionGitHubIssuesWrite      = "issues:write"
+	ActionGitHubPullsRead        = "pulls:read"
+	ActionGitHubPullsWrite       = "pulls:write"
+	ActionGitHubCIRead           = "ci:read"
+	ActionGitHubCIWrite          = "ci:write"
+	ActionGitHubDeploymentsRead  = "deployments:read"
+	ActionGitHubDeploymentsWrite = "deployments:write"
+	ActionGitHubSecurityRead     = "security:read"
+	ActionGitHubSecurityWrite    = "security:write"
+	ActionGitHubSecretsRead      = "secrets:read"
+	ActionGitHubSecretsWrite     = "secrets:write"
+	ActionGitHubAdminRead        = "admin:read"
+	ActionGitHubAdminWrite       = "admin:write"
+	ActionGitHubMembersRead      = "members:read"
+	ActionGitHubMembersWrite     = "members:write"
+	ActionGitHubOrgProjectsRead  = "org_projects:read"
+	ActionGitHubOrgProjectsWrite = "org_projects:write"
 
 	// API key actions are a coarse read/write pair chosen by HTTP method. See
 	// docs/adr/2026-11-11-apikey-connection-adapter.md.
@@ -138,12 +146,14 @@ type adapterMeta struct {
 // pre-category grants behaviorally identical.
 var githubCategoryReads = []string{
 	ActionGitHubMetadataRead, ActionGitHubContentsRead, ActionGitHubIssuesRead,
-	ActionGitHubPullsRead, ActionGitHubActionsRead, ActionGitHubChecksRead, ActionGitHubAdminRead,
+	ActionGitHubPullsRead, ActionGitHubCIRead, ActionGitHubDeploymentsRead, ActionGitHubSecurityRead,
+	ActionGitHubSecretsRead, ActionGitHubAdminRead, ActionGitHubMembersRead, ActionGitHubOrgProjectsRead,
 }
 
 var githubCategoryWrites = []string{
-	ActionGitHubContentsWrite, ActionGitHubIssuesWrite, ActionGitHubPullsWrite,
-	ActionGitHubActionsWrite, ActionGitHubChecksWrite, ActionGitHubAdminWrite,
+	ActionGitHubContentsWrite, ActionGitHubWorkflowsWrite, ActionGitHubIssuesWrite,
+	ActionGitHubPullsWrite, ActionGitHubCIWrite, ActionGitHubDeploymentsWrite, ActionGitHubSecurityWrite,
+	ActionGitHubSecretsWrite, ActionGitHubAdminWrite, ActionGitHubMembersWrite, ActionGitHubOrgProjectsWrite,
 }
 
 // githubMeta is the requires edge every GitHub category action carries:
@@ -155,20 +165,29 @@ var registry = map[string]adapterMeta{
 	AdapterGitHubApp: {
 		actions: []ActionMeta{
 			{Action: ActionGitHubMetadataRead, Description: "Read repository metadata, rate limits, and installation identity (probed by most GitHub clients before any real work)"},
-			{Action: ActionGitHubContentsRead, Description: "Read repository contents: clone/fetch, contents/commits/branches/tags/releases APIs, raw and archive downloads", Requires: githubMeta},
-			{Action: ActionGitHubContentsWrite, Description: "Write repository contents: push, contents/git-data/releases writes, and merging pull requests", Requires: githubMeta},
-			{Action: ActionGitHubIssuesRead, Description: "Read issues, issue comments, labels, milestones, and assignees", Requires: githubMeta},
-			{Action: ActionGitHubIssuesWrite, Description: "Create and edit issues, issue comments, labels, and milestones", Requires: githubMeta},
-			{Action: ActionGitHubPullsRead, Description: "Read pull requests, reviews, and review comments", Requires: githubMeta},
-			{Action: ActionGitHubPullsWrite, Description: "Create and edit pull requests and reviews (merging is contents:write)", Requires: githubMeta},
-			{Action: ActionGitHubActionsRead, Description: "Read GitHub Actions workflows, runs, jobs, and artifacts (not secrets or variables)", Requires: githubMeta},
-			{Action: ActionGitHubActionsWrite, Description: "Dispatch, re-run, and cancel GitHub Actions workflows (not secrets or variables)", Requires: githubMeta},
-			{Action: ActionGitHubChecksRead, Description: "Read check runs, check suites, and commit statuses", Requires: githubMeta},
-			{Action: ActionGitHubChecksWrite, Description: "Create and update check runs, check suites, and commit statuses", Requires: githubMeta},
-			{Action: ActionGitHubAdminRead, Description: "Read repository administration: settings, webhooks, deploy keys, collaborators, branch protection, Actions secrets metadata", Requires: githubMeta},
-			{Action: ActionGitHubAdminWrite, Description: "Administer the repository: settings, webhooks, deploy keys, collaborators, branch protection, Actions/Dependabot secrets", Requires: githubMeta},
-			{Action: ActionGitHubRepoRead, Description: "Catch-all read for uncategorized GitHub routes (search, GraphQL, long-tail APIs). Unqualified, it also confers every category read, admin:read included. A repository-qualified grant confers no categories", Requires: githubCategoryReads},
-			{Action: ActionGitHubRepoWrite, Description: "Catch-all write for uncategorized GitHub routes. Unqualified, it also confers every category write, admin:write included. A repository-qualified grant confers no categories", Requires: githubCategoryWrites},
+			{Action: ActionGitHubContentsRead, Description: "Read repository contents: clone and fetch, files, commits, branches, tags, releases and archives (GitHub contents)", Requires: githubMeta},
+			{Action: ActionGitHubContentsWrite, Description: "Write repository contents: push, file and git data writes, releases and merging pull requests (GitHub contents)", Requires: githubMeta},
+			{Action: ActionGitHubWorkflowsWrite, Description: "Change GitHub Actions workflow files (GitHub workflows)", Requires: githubMeta},
+			{Action: ActionGitHubIssuesRead, Description: "Read issues, comments, labels, milestones and assignees (GitHub issues)", Requires: githubMeta},
+			{Action: ActionGitHubIssuesWrite, Description: "Create and edit issues, comments, labels and milestones (GitHub issues)", Requires: githubMeta},
+			{Action: ActionGitHubPullsRead, Description: "Read pull requests, reviews and review comments (GitHub pull_requests)", Requires: githubMeta},
+			{Action: ActionGitHubPullsWrite, Description: "Create and edit pull requests and reviews (GitHub pull_requests)", Requires: githubMeta},
+			{Action: ActionGitHubCIRead, Description: "Read workflow runs, jobs, logs, artifacts, check runs and commit statuses (GitHub actions, checks, statuses, artifact_metadata, attestations)", Requires: githubMeta},
+			{Action: ActionGitHubCIWrite, Description: "Dispatch and re-run workflows, and write check runs and commit statuses (GitHub actions, checks, statuses, artifact_metadata, attestations)", Requires: githubMeta},
+			{Action: ActionGitHubDeploymentsRead, Description: "Read deployments, environments and Pages (GitHub deployments, environments, pages)", Requires: githubMeta},
+			{Action: ActionGitHubDeploymentsWrite, Description: "Create deployments and change environments and Pages (GitHub deployments, environments, pages)", Requires: githubMeta},
+			{Action: ActionGitHubSecurityRead, Description: "Read code scanning, Dependabot and secret scanning alerts and security advisories (GitHub security_events, vulnerability_alerts, secret_scanning_alerts, repository_advisories, code_quality)", Requires: githubMeta},
+			{Action: ActionGitHubSecurityWrite, Description: "Update security alerts and advisories (GitHub security_events, vulnerability_alerts, secret_scanning_alerts, repository_advisories, code_quality)", Requires: githubMeta},
+			{Action: ActionGitHubSecretsRead, Description: "Read Actions, Dependabot and agent secret names and variables (GitHub secrets, actions_variables, dependabot_secrets, agent_secrets, agent_variables)", Requires: githubMeta},
+			{Action: ActionGitHubSecretsWrite, Description: "Set Actions, Dependabot and agent secrets and variables (GitHub secrets, actions_variables, dependabot_secrets, agent_secrets, agent_variables)", Requires: githubMeta},
+			{Action: ActionGitHubAdminRead, Description: "Read repository settings, webhooks, collaborators, branch protection and custom properties (GitHub administration, repository_hooks, repository_custom_properties, repository_creation, installation_repositories)", Requires: githubMeta},
+			{Action: ActionGitHubAdminWrite, Description: "Administer the repository: settings, webhooks, collaborators, branch protection, custom properties and repository creation (GitHub administration, repository_hooks, repository_custom_properties, repository_creation, installation_repositories)", Requires: githubMeta},
+			{Action: ActionGitHubMembersRead, Description: "Read the organization's members, invitations and teams (GitHub members). Organization-wide, so only an unqualified grant covers it", Requires: githubMeta},
+			{Action: ActionGitHubMembersWrite, Description: "Invite and remove organization members and edit teams (GitHub members). Organization-wide, so only an unqualified grant covers it", Requires: githubMeta},
+			{Action: ActionGitHubOrgProjectsRead, Description: "Read organization projects (GitHub organization_projects). Organization-wide, so only an unqualified grant covers it", Requires: githubMeta},
+			{Action: ActionGitHubOrgProjectsWrite, Description: "Edit organization projects (GitHub organization_projects). Organization-wide, so only an unqualified grant covers it", Requires: githubMeta},
+			{Action: ActionGitHubRepoRead, Description: "Legacy umbrella read, still needed for GraphQL documents outside the field maps. Unqualified, it also confers every category read. A repository-qualified grant confers no categories", Requires: githubCategoryReads},
+			{Action: ActionGitHubRepoWrite, Description: "Legacy umbrella write, still needed for GraphQL documents outside the field maps. Unqualified, it also confers every category write. A repository-qualified grant confers no categories", Requires: githubCategoryWrites},
 		},
 		egressHosts: githubEgressHosts,
 		qualifier: &QualifierMeta{
@@ -226,7 +245,7 @@ var registry = map[string]adapterMeta{
 func githubEgressHosts(baseHost string) []string {
 	h := strings.ToLower(strings.TrimSpace(baseHost))
 	if h == "" || h == "github.com" {
-		return []string{"github.com", "api.github.com", "codeload.github.com", "*.githubusercontent.com"}
+		return []string{"github.com", "api.github.com", "uploads.github.com", "codeload.github.com", "*.githubusercontent.com"}
 	}
 	return []string{h}
 }
