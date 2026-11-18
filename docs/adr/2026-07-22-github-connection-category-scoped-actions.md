@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-07-22-github-connection-category-scoped-actions.md -->
 
-**Status:** Accepted
+**Status:** Accepted (Decisions A, B, C and D superseded by [GitHub connector route coverage](2026-11-15-github-connector-route-coverage.md))
 **Date:** 2026-07-22
 **Deciders:** Platform Engineering
 **Technical Story:** Extends the `github_app` adapter from the [JIT Credential Brokering ADR](2026-06-06-jit-credential-brokering-egress-gateway.md) beyond its coarse `repo:read`/`repo:write` pair, following the resource-category precedent set by the [Kubernetes adapter's Amendment 1](2026-07-06-kubernetes-connection-bearer-adapter-and-gateway-ca-trust.md#amendment-1--2026-07-06-resource-category-verb-taxonomy).
