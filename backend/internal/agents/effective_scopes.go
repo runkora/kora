@@ -59,6 +59,33 @@ type ScopeResolver struct {
 	conns connectionResolver
 }
 
+// ValidateConnectorActions rejects a GitHub connector action its connection's
+// adapter does not publish, so a removed action fails the write rather than the
+// grant reconcile. The covering parents read and write are accepted. A
+// connection the registry does not list yet is not checked.
+func (r *ScopeResolver) ValidateConnectorActions(ctx context.Context, tenantID string, connectors []Connector) error {
+	if r.conns == nil {
+		return nil
+	}
+	for _, c := range connectors {
+		adapter, _, ok, err := r.conns.ResolveConnection(ctx, tenantID, c.Connection)
+		if err != nil {
+			return fmt.Errorf("resolve connection %q: %w", c.Connection, err)
+		}
+		if !ok || adapter != platformconns.AdapterGitHubApp {
+			continue
+		}
+		known := platformconns.ActionNames(adapter)
+		for _, a := range c.Actions {
+			if a != "read" && a != "write" && !slices.Contains(known, a) {
+				return fmt.Errorf("%w: connector %q action %q is not a %s action; use one of %s",
+					ErrInvalidConnector, c.Connection, a, adapter, strings.Join(known, ", "))
+			}
+		}
+	}
+	return nil
+}
+
 // NewScopeResolver constructs a resolver. Either dependency may be nil — a nil
 // environmentLookup skips environment expansion, a nil connectionResolver skips
 // connector auto-egress — so a partially-wired deployment degrades gracefully to

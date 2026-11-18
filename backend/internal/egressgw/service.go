@@ -133,7 +133,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		return b.policyDenied(ctx, span, claims, conn, req, unavailable)
 	}
 	if err != nil {
-		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, deny(DenialUnclassified, req.Host, conn, credentials.Classification{}, err))
+		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, deny(DenialUnclassified, req, conn, credentials.Classification{}, err))
 	}
 	span.SetAttributes(
 		observability.EgressActionKey.String(cls.Action),
@@ -182,7 +182,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 				logging.Field{Key: "principal_id", Value: claims.Subject},
 			)
 			refused := credentials.Classification{Action: action, Qualifier: cls.Qualifier}
-			return Decision{}, deny(DenialCredentialRefused, req.Host, conn, refused, err)
+			return Decision{}, deny(DenialCredentialRefused, req, conn, refused, err)
 		}
 		return Decision{}, fmt.Errorf("mint credential: %w", err)
 	}
@@ -278,7 +278,7 @@ func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claim
 	)
 	// The connection is kept for its upstream CA trust. With no credential the
 	// proxy injects nothing and strips the agent's Authorization header.
-	return Decision{Connection: conn, Action: anonymousReadAction}, nil
+	return Decision{Connection: conn, Action: anonymousReadAction, Fallback: denial}, nil
 }
 
 // logDenial records a refused call once, after the fallback has declined it.
@@ -406,7 +406,7 @@ func (b *Broker) classify(ctx context.Context, claims *token.PlatformClaims, con
 			logging.Field{Key: "connection", Value: conn.Name},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return credentials.Classification{}, deny(DenialPolicyUnavailable, req.Host, conn, credentials.Classification{}, err)
+		return credentials.Classification{}, deny(DenialPolicyUnavailable, req, conn, credentials.Classification{}, err)
 	}
 	categories, repos := grantsOn(scopes, conn.Name).qualifyingLookup()
 	if len(categories) == 0 {
@@ -420,7 +420,7 @@ func (b *Broker) classify(ctx context.Context, claims *token.PlatformClaims, con
 		// leaves it unqualified and the anonymous read fallback can still serve it.
 		return connector.Classify(req.HTTPRequest)
 	case err != nil:
-		return credentials.Classification{}, deny(DenialPolicyUnavailable, req.Host, conn, credentials.Classification{}, err)
+		return credentials.Classification{}, deny(DenialPolicyUnavailable, req, conn, credentials.Classification{}, err)
 	}
 	return q.ClassifyResolved(req.HTTPRequest, resolved)
 }
@@ -453,7 +453,7 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 			logging.Field{Key: "qualifier", Value: cls.Qualifier},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return nil, deny(DenialPolicyUnavailable, req.Host, conn, cls, err)
+		return nil, deny(DenialPolicyUnavailable, req, conn, cls, err)
 	}
 
 	if !primary.Allow {
@@ -488,7 +488,7 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 
 	if len(authorized) == 0 {
 		reason, label := policyDenialReason(reasons)
-		d := deny(reason, req.Host, conn, cls, nil)
+		d := deny(reason, req, conn, cls, nil)
 		d.PolicyReason, d.decision = label, primary.Reason
 		return nil, d
 	}
@@ -503,14 +503,14 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 				logging.Field{Key: "qualifier", Value: cls.Qualifier},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
-			return nil, deny(DenialPolicyUnavailable, req.Host, conn, required, err)
+			return nil, deny(DenialPolicyUnavailable, req, conn, required, err)
 		}
 		if !decision.Allow {
 			decision = b.writeMeetsRead(ctx, claims, conn, action, cls.Qualifier, decision)
 		}
 		if !decision.Allow {
 			reason, label := policyDenialReason([]string{decision.Reason})
-			d := deny(reason, req.Host, conn, required, nil)
+			d := deny(reason, req, conn, required, nil)
 			d.PolicyReason, d.decision = label, decision.Reason
 			return nil, d
 		}
@@ -644,9 +644,17 @@ func policyDenialReason(reasons []string) (DenialReason, string) {
 	return DenialPolicyUnavailable, ""
 }
 
-// deny builds the caller-facing Denial for a refused call.
-func deny(reason DenialReason, host string, conn *credentials.Connection, cls credentials.Classification, cause error) *Denial {
-	d := &Denial{Reason: reason, Host: host, Connection: conn.Name, Action: cls.Action, Qualifier: cls.Qualifier, cause: cause}
+// deny builds the caller-facing Denial for a refused call, carrying what an
+// UnclassifiedError cause names.
+func deny(reason DenialReason, req EgressRequest, conn *credentials.Connection, cls credentials.Classification, cause error) *Denial {
+	d := &Denial{
+		Reason: reason, Host: req.Host, Connection: conn.Name, Action: cls.Action, Qualifier: cls.Qualifier,
+		Alternates: cls.Alternates, Method: req.Method, Path: requestPath(req), cause: cause,
+	}
+	var unclassified *credentials.UnclassifiedError
+	if errors.As(cause, &unclassified) {
+		d.Unrecognized = unclassified.Detail
+	}
 	if reason == DenialNotGranted {
 		segments, verb := scopePath(conn, cls.Action, cls.Qualifier)
 		d.RequiredScope = policy.DeriveRequiredScope(resourceType, segments, verb)

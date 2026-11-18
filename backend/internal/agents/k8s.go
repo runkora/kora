@@ -1605,67 +1605,79 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 	delegationRequired := at.IsDelegated()
 
 	// Walk existing grants: keep the first whose SCOPES and delegation marker
-	// match (budget is reconciled separately), delete the rest. Remember the
+	// match (budget is reconciled separately); the rest are stale. Remember the
 	// kept grant's budget so an unspecified desired budget survives.
 	var keepID string
 	var keptBudget *policyclient.BudgetAssignment
+	var stale []policyclient.Grant
 	for _, g := range existing {
 		if keepID == "" && grantMatchesDesired(g, effectiveScopes, delegationRequired) {
 			keepID = g.ID
 			keptBudget = g.Budget
 			continue
 		}
-		if delErr := p.policyClient.DeleteGrant(ctx, g.ID); delErr != nil {
-			p.logger.Warn(ctx, "delete stale agent grant failed",
-				logging.Field{Key: "grant_id", Value: g.ID},
-				logging.Field{Key: "error", Value: delErr.Error()},
-			)
-		} else {
-			p.logger.Info(ctx, "stale agent grant deleted",
-				logging.Field{Key: "grant_id", Value: g.ID},
-				logging.Field{Key: "principal_id", Value: principalID},
-			)
-		}
+		stale = append(stale, g)
 	}
+
+	// No scope-matching grant: create one before deleting the stale ones, so a
+	// refused create leaves the agent its previous authorization. It carries the
+	// desired budget or, when unspecified, the budget of a grant it replaces.
+	if keepID == "" {
+		createBudget := clientBudget(at.Budget)
+		if at.Budget == nil {
+			createBudget = firstBudget(existing)
+		}
+		if _, err := p.policyClient.CreateGrant(ctx, grantTenantID, "AGENT", principalID, effectiveScopes, createBudget, delegationRequired); err != nil {
+			observability.RecordFailure(span, err, errSpanCreateAgentGrant)
+			return fmt.Errorf("create agent grant for %s: %w", principalID, err)
+		}
+		p.logger.Info(ctx, "agent grant created",
+			logging.Field{Key: "principal_id", Value: principalID},
+			logging.Field{Key: "tenant_id", Value: grantTenantID},
+		)
+		p.deleteStaleGrants(ctx, principalID, stale)
+		return nil
+	}
+	p.deleteStaleGrants(ctx, principalID, stale)
 
 	// A scope-matching grant exists: reconcile only the budget, in place. This
 	// avoids a delete+create window that would briefly leave the agent with no
 	// authorization, and preserves the grant ID (and its attribution counters).
 	// at.Budget == nil means "leave budget unchanged".
-	if keepID != "" {
-		if at.Budget != nil && !budgetMatches(at.Budget, keptBudget) {
-			if err := p.policyClient.UpdateGrantBudget(ctx, keepID, clientBudget(at.Budget)); err != nil {
-				observability.RecordFailure(span, err, errSpanUpdateAgentGrantBudget)
-				return fmt.Errorf("update agent grant budget for %s: %w", principalID, err)
-			}
-			p.logger.Info(ctx, "agent grant budget updated",
-				logging.Field{Key: "principal_id", Value: principalID},
-				logging.Field{Key: "grant_id", Value: keepID},
-			)
-			return nil
+	if at.Budget != nil && !budgetMatches(at.Budget, keptBudget) {
+		if err := p.policyClient.UpdateGrantBudget(ctx, keepID, clientBudget(at.Budget)); err != nil {
+			observability.RecordFailure(span, err, errSpanUpdateAgentGrantBudget)
+			return fmt.Errorf("update agent grant budget for %s: %w", principalID, err)
 		}
-		p.logger.Info(ctx, "agent grant up to date",
+		p.logger.Info(ctx, "agent grant budget updated",
 			logging.Field{Key: "principal_id", Value: principalID},
 			logging.Field{Key: "grant_id", Value: keepID},
 		)
 		return nil
 	}
-
-	// No scope-matching grant: create one, carrying the desired budget (or, when
-	// unspecified, preserving the budget of a grant we just deleted).
-	createBudget := clientBudget(at.Budget)
-	if at.Budget == nil {
-		createBudget = firstBudget(existing)
-	}
-	if _, err := p.policyClient.CreateGrant(ctx, grantTenantID, "AGENT", principalID, effectiveScopes, createBudget, delegationRequired); err != nil {
-		observability.RecordFailure(span, err, errSpanCreateAgentGrant)
-		return fmt.Errorf("create agent grant for %s: %w", principalID, err)
-	}
-	p.logger.Info(ctx, "agent grant created",
+	p.logger.Info(ctx, "agent grant up to date",
 		logging.Field{Key: "principal_id", Value: principalID},
-		logging.Field{Key: "tenant_id", Value: grantTenantID},
+		logging.Field{Key: "grant_id", Value: keepID},
 	)
 	return nil
+}
+
+// deleteStaleGrants removes grants a reconcile replaced. A failed delete is
+// logged and retried by the next reconcile.
+func (p *K8sProvisioner) deleteStaleGrants(ctx context.Context, principalID string, stale []policyclient.Grant) {
+	for _, g := range stale {
+		if delErr := p.policyClient.DeleteGrant(ctx, g.ID); delErr != nil {
+			p.logger.Warn(ctx, "delete stale agent grant failed",
+				logging.Field{Key: "grant_id", Value: g.ID},
+				logging.Field{Key: "error", Value: delErr.Error()},
+			)
+			continue
+		}
+		p.logger.Info(ctx, "stale agent grant deleted",
+			logging.Field{Key: "grant_id", Value: g.ID},
+			logging.Field{Key: "principal_id", Value: principalID},
+		)
+	}
 }
 
 // grantMatchesDesired reports whether an existing grant already reflects the

@@ -609,7 +609,7 @@ func TestConnectorsDiscoveryAndForwarding(t *testing.T) {
 
 	call("tools/call", map[string]any{"name": "agents.create", "arguments": map[string]any{
 		"name": "C", "slug": "c", "model_id": "anthropic/claude-sonnet-4-6",
-		"connectors":   []any{map[string]any{"connection": "github", "actions": []any{"repo:read"}}},
+		"connectors":   []any{map[string]any{"connection": "github", "actions": []any{"contents:read"}}},
 		"connectivity": map[string]any{"mode": "whitelist", "hosts": []any{"api.github.com"}},
 	}})
 	if gotPath != "/api/v1/agent-types" {

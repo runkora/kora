@@ -86,8 +86,8 @@ const scopesPerConnectionHint = 3
 // Each connection emits one declaration per action its adapter can classify,
 // carrying the adapter's requires edges resolved to full same-connection
 // scopes. It also emits the covering parents "connection:<name>:read" and
-// "connection:<name>:write", which the scope_covers prefix rule makes the
-// umbrella over every category and qualifier beneath them. The result is sorted
+// "connection:<name>:write", which the scope_covers prefix rule makes cover
+// every category and qualifier beneath them. The result is sorted
 // by Scope so registration is order-stable.
 //
 // A connection whose adapter is not registered is skipped. The broker rejects
@@ -130,7 +130,7 @@ func ConnectionScopes(conns []*credentials.Connection, registry *AdapterRegistry
 				segs, verb := connectionScopeParts(conn.Name, r)
 				requires = append(requires, policy.DeriveRequiredScope(resourceType, segs, verb))
 			}
-			// An adapter action fragment ("issues:write", "repo:read", "use")
+			// An adapter action fragment ("issues:write", "contents:read", "use")
 			// carries its own category. Split it so the stored PathSegments and
 			// Action match the scope grammar the platform's ScopeCovers rule
 			// uses (last segment = action, middle = path): "issues:write"

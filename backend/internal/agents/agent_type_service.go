@@ -207,6 +207,15 @@ func validateIdentityModeUpdate(at *AgentType, mode *IdentityMode) error {
 	return nil
 }
 
+// validateConnectors checks the connectors' shape and that each GitHub action
+// is one its adapter publishes.
+func (s *AgentTypeService) validateConnectors(ctx context.Context, tenantID string, connectors []Connector) error {
+	if err := ValidateConnectors(connectors); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidConnector, err)
+	}
+	return s.scopeResolver().ValidateConnectorActions(ctx, tenantID, connectors)
+}
+
 // validateAgentTypeUpdate runs the partial-update field validations
 // (connectivity posture, connectors, environment reference). Extracted from
 // UpdateAgentType to keep that method's cyclomatic complexity in check.
@@ -230,8 +239,8 @@ func (s *AgentTypeService) validateAgentTypeUpdate(ctx context.Context, at *Agen
 		}
 	}
 	if req.Connectors != nil {
-		if vErr := ValidateConnectors(req.Connectors); vErr != nil {
-			return fmt.Errorf("%w: %w", ErrInvalidConnector, vErr)
+		if vErr := s.validateConnectors(ctx, at.TenantID, req.Connectors); vErr != nil {
+			return vErr
 		}
 	}
 	if req.Guardrails != nil {
@@ -343,8 +352,8 @@ func (s *AgentTypeService) validateAgentTypeCreate(ctx context.Context, req Crea
 
 	// Connectors: credential connections this agent may use, and for which
 	// actions. Compiles to connection:<name>:<action> grants alongside egress.
-	if err := ValidateConnectors(req.Connectors); err != nil {
-		return out, fmt.Errorf("%w: %w", ErrInvalidConnector, err)
+	if err := s.validateConnectors(ctx, tenantFromContext(ctx), req.Connectors); err != nil {
+		return out, err
 	}
 	if req.Guardrails != nil {
 		if err := req.Guardrails.Validate(); err != nil {

@@ -100,7 +100,7 @@ func TestResolveConnection_OwnerResolution(t *testing.T) {
 	contoso := githubConn(t, "contoso-github", "contoso")
 	fabrikam := githubConn(t, "fabrikam-github", "fabrikam")
 	both := candidateConns{contoso, fabrikam}
-	holdsBoth := []string{"connection:contoso-github:repo:read", "connection:fabrikam-github:repo:read"}
+	holdsBoth := []string{"connection:contoso-github:read", "connection:fabrikam-github:read"}
 	visible := map[string]map[string]string{
 		"contoso-github":  {"PR_contoso": "contoso/r", "R_public": "fabrikam/r", "U_1": "User"},
 		"fabrikam-github": {"PR_fabrikam": "fabrikam/r", "R_public": "fabrikam/r", "522": "fabrikam/r"},
@@ -174,7 +174,7 @@ func TestResolveConnection_OwnerResolution(t *testing.T) {
 func TestResolveConnection_NodeOwnerCacheHit(t *testing.T) {
 	both := candidateConns{githubConn(t, "contoso-github", "contoso"), githubConn(t, "fabrikam-github", "fabrikam")}
 	la := &lookupAdapter{visible: map[string]map[string]string{"contoso-github": {"PR_contoso": "contoso/r"}}}
-	b := lookupBroker(&selectionPolicy{scopes: []string{"connection:contoso-github:repo:read", "connection:fabrikam-github:repo:read"}}, both, la)
+	b := lookupBroker(&selectionPolicy{scopes: []string{"connection:contoso-github:read", "connection:fabrikam-github:read"}}, both, la)
 	for range 2 {
 		conn, _, err := b.resolveConnection(context.Background(), acmeClaims, graphqlRequest(`{"query":"{ node(id: \"PR_contoso\") { id } }"}`))
 		if err != nil || conn.Name != "contoso-github" {
@@ -200,8 +200,8 @@ func TestResolveConnection_NodeOwnersDoNotLeak(t *testing.T) {
 		"fabrikam-github": {"PR_fabrikam": "fabrikam/r", "R_contosopublic": "contoso/r"},
 		"acme-github":     {"PR_acme": "acme/r"},
 	}
-	holdsAll := []string{"connection:contoso-github:repo:read", "connection:fabrikam-github:repo:read", "connection:acme-github:repo:read"}
-	holdsFabrikamAcme := []string{"connection:fabrikam-github:repo:read", "connection:acme-github:repo:read"}
+	holdsAll := []string{"connection:contoso-github:read", "connection:fabrikam-github:read", "connection:acme-github:read"}
+	holdsFabrikamAcme := []string{"connection:fabrikam-github:read", "connection:acme-github:read"}
 	la := &lookupAdapter{visible: visible}
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	la.Adapter = githubapp.New(nil, nil, logger)
@@ -256,7 +256,7 @@ func TestResolveConnection_NodeOwnersDoNotLeak(t *testing.T) {
 
 func TestResolveConnection_OwnerResolutionEdges(t *testing.T) {
 	both := candidateConns{githubConn(t, "contoso-github", "contoso"), githubConn(t, "fabrikam-github", "fabrikam")}
-	holdsBoth := []string{"connection:contoso-github:repo:read", "connection:fabrikam-github:repo:read"}
+	holdsBoth := []string{"connection:contoso-github:read", "connection:fabrikam-github:read"}
 	many := make([]string, MaxNodeIDs+1)
 	for i := range many {
 		many[i] = fmt.Sprintf("PR_%d", i)
@@ -301,7 +301,7 @@ func TestResolveConnection_OwnerResolutionEdges(t *testing.T) {
 func TestResolveConnection_UnseenNodeIDCached(t *testing.T) {
 	both := candidateConns{githubConn(t, "contoso-github", "contoso"), githubConn(t, "fabrikam-github", "fabrikam")}
 	la := &lookupAdapter{}
-	b := lookupBroker(&selectionPolicy{scopes: []string{"connection:contoso-github:repo:read", "connection:fabrikam-github:repo:read"}}, both, la)
+	b := lookupBroker(&selectionPolicy{scopes: []string{"connection:contoso-github:read", "connection:fabrikam-github:read"}}, both, la)
 	for range 3 {
 		if _, _, err := b.resolveConnection(context.Background(), acmeClaims, graphqlRequest(`{"query":"{ node(id: \"nope\") { id } }"}`)); err == nil {
 			t.Fatal("want an unresolved denial")

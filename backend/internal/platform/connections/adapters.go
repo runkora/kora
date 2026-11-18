@@ -37,12 +37,8 @@ const (
 // into these actions) and the connector picker (which offers them as grants).
 const (
 	// GitHub actions are categories of GitHub App permissions, each with a
-	// read/write pair. repo:read/repo:write remain as the legacy umbrella and
-	// the unknown-host catch-all; their vocabulary entries carry Requires
-	// edges to every category action. See
-	// docs/adr/2026-11-15-github-connector-route-coverage.md.
-	ActionGitHubRepoRead         = "repo:read"
-	ActionGitHubRepoWrite        = "repo:write"
+	// read/write pair. connection:<name>:read and :write cover every category.
+	// See docs/adr/2026-11-15-github-connector-route-coverage.md.
 	ActionGitHubMetadataRead     = "metadata:read"
 	ActionGitHubContentsRead     = "contents:read"
 	ActionGitHubContentsWrite    = "contents:write"
@@ -93,7 +89,7 @@ const (
 )
 
 // ActionMeta describes one grantable action an adapter classifies requests into.
-// Action is the scope fragment (e.g. "repo:read") that becomes
+// Action is the scope fragment (e.g. "contents:read") that becomes
 // connection:<name>:<action>; Description is human-facing for the picker and the
 // policy-service scope vocabulary.
 type ActionMeta struct {
@@ -103,8 +99,8 @@ type ActionMeta struct {
 	// Requires lists sibling action fragments this action confers when granted.
 	// The scope publisher resolves each fragment to the full same-connection
 	// scope (connection:<name>:<fragment>) and publishes it as the vocabulary
-	// entry's requires edge, expanded at bundle compile. Used for the legacy
-	// repo:read/repo:write umbrella bridge and the metadata:read discovery edge.
+	// entry's requires edge, expanded at bundle compile. Used for the
+	// metadata:read discovery edge.
 	Requires []string
 }
 
@@ -141,21 +137,6 @@ type adapterMeta struct {
 	baselineActions []string
 }
 
-// githubCategoryReads / githubCategoryWrites are the category actions the
-// legacy repo:read / repo:write umbrellas confer via requires edges, keeping
-// pre-category grants behaviorally identical.
-var githubCategoryReads = []string{
-	ActionGitHubMetadataRead, ActionGitHubContentsRead, ActionGitHubIssuesRead,
-	ActionGitHubPullsRead, ActionGitHubCIRead, ActionGitHubDeploymentsRead, ActionGitHubSecurityRead,
-	ActionGitHubSecretsRead, ActionGitHubAdminRead, ActionGitHubMembersRead, ActionGitHubOrgProjectsRead,
-}
-
-var githubCategoryWrites = []string{
-	ActionGitHubContentsWrite, ActionGitHubWorkflowsWrite, ActionGitHubIssuesWrite,
-	ActionGitHubPullsWrite, ActionGitHubCIWrite, ActionGitHubDeploymentsWrite, ActionGitHubSecurityWrite,
-	ActionGitHubSecretsWrite, ActionGitHubAdminWrite, ActionGitHubMembersWrite, ActionGitHubOrgProjectsWrite,
-}
-
 // githubMeta is the requires edge every GitHub category action carries:
 // gh/Octokit/most SDKs probe metadata endpoints before real work, so any
 // category grant auto-confers the metadata reads.
@@ -186,8 +167,6 @@ var registry = map[string]adapterMeta{
 			{Action: ActionGitHubMembersWrite, Description: "Invite and remove organization members and edit teams (GitHub members). Organization-wide, so only an unqualified grant covers it", Requires: githubMeta},
 			{Action: ActionGitHubOrgProjectsRead, Description: "Read organization projects (GitHub organization_projects). Organization-wide, so only an unqualified grant covers it", Requires: githubMeta},
 			{Action: ActionGitHubOrgProjectsWrite, Description: "Edit organization projects (GitHub organization_projects). Organization-wide, so only an unqualified grant covers it", Requires: githubMeta},
-			{Action: ActionGitHubRepoRead, Description: "Legacy umbrella read. Unqualified, it also confers every category read. A repository-qualified grant confers no categories", Requires: githubCategoryReads},
-			{Action: ActionGitHubRepoWrite, Description: "Legacy umbrella write. Unqualified, it also confers every category write. A repository-qualified grant confers no categories", Requires: githubCategoryWrites},
 		},
 		egressHosts: githubEgressHosts,
 		qualifier: &QualifierMeta{
@@ -325,7 +304,7 @@ func Actions(adapter string) []ActionMeta {
 }
 
 // ActionNames returns just the action fragments for adapter (e.g.
-// ["repo:read", "repo:write"]). Empty (non-nil) for an unknown adapter.
+// ["contents:read", "contents:write"]). Empty (non-nil) for an unknown adapter.
 func ActionNames(adapter string) []string {
 	m, ok := registry[adapter]
 	if !ok {

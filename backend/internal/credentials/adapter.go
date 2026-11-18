@@ -75,7 +75,7 @@ type Adapter interface {
 // reads raw JSON.
 type Connector interface {
 	// Classify inspects req and returns the policy action this call requires
-	// (e.g. "repo:write", "workloads:read") plus, for a connection with a
+	// (e.g. "contents:write", "workloads:read") plus, for a connection with a
 	// qualifier dimension, the resource the request names (e.g. the
 	// repository). The broker builds the required scope
 	// connection:<name>:<category>[:<qualifier>]:<verb> from the result. A

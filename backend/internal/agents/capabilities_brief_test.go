@@ -11,7 +11,7 @@ func TestRenderCapabilitiesBrief_Whitelist(t *testing.T) {
 	access := &EffectiveAccess{
 		Hosts: []string{"*.clearroute.io", "api.github.com", "github.com", "pypi.org", "proxy.golang.org"},
 		Connectors: []Connector{
-			{Connection: "github", Actions: []string{"repo:read", "repo:write"}},
+			{Connection: "github", Actions: []string{"contents:read", "contents:write"}},
 		},
 		ConnectorEgress: []ConnectorEgress{
 			{Connection: "github", Adapter: "github_app", Hosts: []string{"github.com", "api.github.com", "codeload.github.com", "*.githubusercontent.com"}},
@@ -26,7 +26,7 @@ func TestRenderCapabilitiesBrief_Whitelist(t *testing.T) {
 		"  - pypi.org",
 		"## Credentials — injected for you",
 		"do not look for API tokens",
-		"github (repo:read, repo:write)",
+		"github (contents:read, contents:write)",
 		"are authenticated automatically",
 		"## Sandbox",
 		"mcp__runtime__provision_sandbox",

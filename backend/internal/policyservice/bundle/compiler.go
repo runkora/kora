@@ -479,8 +479,8 @@ func marshalBudgetDocs(tenantGrants []*grants.Grant, roleEntries []*roles.RoleEn
 // buildBundle constructs the .tar.gz bytes for a tenant's OPA bundle.
 // requiresFromVocab builds the scope→requires adjacency used to expand grants.
 // A grant holding a scope with requires confers those scopes in the compiled
-// effective set (never the stored grant), for example the GitHub repo umbrella
-// conferring each category scope. Empty for ordinary scopes.
+// effective set (never the stored grant), for example a GitHub category scope
+// conferring the metadata read. Empty for ordinary scopes.
 func requiresFromVocab(vocabEntries []*vocabulary.ScopeEntry) map[string][]string {
 	m := make(map[string][]string)
 	for _, e := range vocabEntries {

@@ -108,3 +108,15 @@ var (
 	// to a client-facing forbidden, distinct from an internal mint failure.
 	ErrCredentialScopeRejected = errors.New("upstream refused to issue a credential for the requested scope")
 )
+
+// UnclassifiedError is an ErrUnsupportedAction that names what in the request
+// the adapter does not recognize, such as a GraphQL field. The broker shows
+// Detail in the denial, so it must hold only the caller's own request.
+type UnclassifiedError struct {
+	Detail string
+}
+
+func (e *UnclassifiedError) Error() string { return ErrUnsupportedAction.Error() + ": " + e.Detail }
+
+// Unwrap lets errors.Is match ErrUnsupportedAction.
+func (e *UnclassifiedError) Unwrap() error { return ErrUnsupportedAction }

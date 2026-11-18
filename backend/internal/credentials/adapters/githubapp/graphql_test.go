@@ -77,6 +77,8 @@ func TestClassifyGraphQL(t *testing.T) {
 		verb      string
 		qualifier string
 		denied    bool
+		// unclassified is the Detail the request is denied with.
+		unclassified string
 	}{
 		{name: "a query reads its repository", body: q(`{ `+repoWidgets+` { issues(first:1){totalCount} pullRequests(first:1){totalCount} } }`, nil), verb: read, qualifier: "widgets"},
 		{name: "a mutation writes", body: q(`mutation { mergePullRequest(input:{pullRequestId:"PR_x"}){clientMutationId} }`, nil), verb: write},
@@ -103,17 +105,17 @@ func TestClassifyGraphQL(t *testing.T) {
 		{name: "foreign owner in a nested repository is denied", body: q(`{ viewer { repository(owner:"evil", name:"x") { id } } }`, nil), denied: true},
 		{name: "foreign owner hidden in a variable default is denied", body: q(`query($o:String="evil"){ repository(owner:$o, name:"widgets") { id } }`, nil), denied: true},
 		{name: "foreign owner inside a fragment is denied", body: q(`query { ...F } fragment F on Query { repository(owner:"evil", name:"widgets") { id } }`, nil), denied: true},
-		{name: "case variant envelope key is denied", body: `{"query":"{ repository(owner:\"evil\",name:\"x\"){ id } }","QUERY":"{ viewer { login } }"}`, denied: true},
-		{name: "case variant operationName is denied", body: `{"query":"query B { viewer { login } } mutation A { mergePullRequest(input:{}){clientMutationId} }","operationName":"A","OperationName":"B"}`, denied: true},
-		{name: "no body is denied", body: "", denied: true},
-		{name: "malformed JSON is denied", body: "not json", denied: true},
-		{name: "empty query is denied", body: `{"query":""}`, denied: true},
-		{name: "unparseable document is denied", body: q(`{ repository(owner:"example-org" { id }`, nil), denied: true},
-		{name: "two operations without a name are denied", body: q(`query A { viewer { login } } query B { viewer { login } }`, nil), denied: true},
-		{name: "unknown operation name is denied", body: `{"query":"query A { viewer { login } }","operationName":"Z"}`, denied: true},
-		{name: "two operations sharing the name are denied", body: `{"query":"query M { viewer { login } } mutation M { mergePullRequest(input:{}){clientMutationId} }","operationName":"M"}`, denied: true},
-		{name: "subscription is denied", body: q(`subscription { viewer { login } }`, nil), denied: true},
-		{name: "token limit is denied", body: q(`{ viewer { `+strings.Repeat("login ", graphqlTokenLimit)+`} }`, nil), denied: true},
+		{name: "case variant envelope key is denied", body: `{"query":"{ repository(owner:\"evil\",name:\"x\"){ id } }","QUERY":"{ viewer { login } }"}`, unclassified: "GraphQL body is not a valid request envelope"},
+		{name: "case variant operationName is denied", body: `{"query":"query B { viewer { login } } mutation A { mergePullRequest(input:{}){clientMutationId} }","operationName":"A","OperationName":"B"}`, unclassified: "GraphQL body is not a valid request envelope"},
+		{name: "no body is denied", body: "", unclassified: "GraphQL request has no body"},
+		{name: "malformed JSON is denied", body: "not json", unclassified: "GraphQL body is not a valid request envelope"},
+		{name: "empty query is denied", body: `{"query":""}`, unclassified: "GraphQL body has no query"},
+		{name: "unparseable document is denied", body: q(`{ repository(owner:"example-org" { id }`, nil), unclassified: "GraphQL query does not parse"},
+		{name: "two operations without a name are denied", body: q(`query A { viewer { login } } query B { viewer { login } }`, nil), unclassified: "GraphQL document names no single operation to run"},
+		{name: "unknown operation name is denied", body: `{"query":"query A { viewer { login } }","operationName":"Z"}`, unclassified: "GraphQL document names no single operation to run"},
+		{name: "two operations sharing the name are denied", body: `{"query":"query M { viewer { login } } mutation M { mergePullRequest(input:{}){clientMutationId} }","operationName":"M"}`, unclassified: "GraphQL document names no single operation to run"},
+		{name: "subscription is denied", body: q(`subscription { viewer { login } }`, nil), unclassified: "GraphQL subscriptions are not supported"},
+		{name: "token limit is denied", body: q(`{ viewer { `+strings.Repeat("login ", graphqlTokenLimit)+`} }`, nil), unclassified: "GraphQL query does not parse"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -128,11 +130,24 @@ func TestClassifyGraphQL(t *testing.T) {
 				}
 				return
 			}
+			if tc.unclassified != "" {
+				assertUnclassified(t, err, tc.unclassified)
+				return
+			}
 			if err != nil {
 				t.Fatalf("Classify: %v", err)
 			}
 			assertClassification(t, got, graphqlCls(tc.verb, tc.qualifier))
 		})
+	}
+}
+
+// assertUnclassified checks that err denies the request as unclassified, stating detail.
+func assertUnclassified(t *testing.T, err error, detail string) {
+	t.Helper()
+	var unclassified *credentials.UnclassifiedError
+	if !errors.As(err, &unclassified) || !errors.Is(err, credentials.ErrUnsupportedAction) || unclassified.Detail != detail {
+		t.Errorf("err = %v, want an UnclassifiedError stating %q", err, detail)
 	}
 }
 
@@ -205,9 +220,8 @@ func TestClassifyGraphQL_OversizedBodyForwardedIntact(t *testing.T) {
 	body := `{"query":"{ viewer { login } }","padding":"` + strings.Repeat("x", graphqlBodySizeLimit+4096) + `"}`
 	c := graphqlConnector(t)
 	req := graphqlPost(t, body)
-	if _, err := c.Classify(req); !errors.Is(err, credentials.ErrUnsupportedAction) {
-		t.Fatalf("err = %v, want ErrUnsupportedAction", err)
-	}
+	_, err := c.Classify(req)
+	assertUnclassified(t, err, "GraphQL body over 512 KiB")
 	forwarded, err := io.ReadAll(req.Body)
 	if err != nil {
 		t.Fatalf("read forwarded body: %v", err)

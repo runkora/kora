@@ -305,6 +305,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	k8s.SetScopeResolver(resolver)
 	atSvc.SetEnvironmentLookup(repo)
 	atSvc.SetScopeResolver(resolver)
+	envSvc.SetScopeResolver(resolver)
 	// An autonomous agent's grant may not exceed the scopes of whoever creates or changes it.
 	atSvc.SetCallerScopes(pc)
 	runSvc.SetScopeResolver(resolver)
