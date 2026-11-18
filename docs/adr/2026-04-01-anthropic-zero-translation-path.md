@@ -38,7 +38,7 @@ The root cause is structural: the `ChatCompletionRequest`/`ChatCompletionRespons
 ### Non-Goals
 
 - Removing the `ChatCompletion`/`ChatCompletionStream` OpenAI dialect path — it remains the primary path for non-Anthropic models.
-- Cross-dialect failover (automatically retrying an Anthropic request via the OpenAI path on a different provider) — deferred; not lossless.
+- Cross-dialect failover (automatically retrying an Anthropic request via the OpenAI path on a different provider) remains out of scope because it is not lossless. The [Messages to Chat Completions translation](2026-11-16-messages-to-chat-completions-translation.md) ADR permits connector-local translation for listed non-Claude Bedrock models, not failover to another dialect.
 - Operator-visible dialect selection — the dialect is determined by which endpoint the client called.
 
 ---
@@ -254,7 +254,8 @@ Touches *How does it connect?* The gateway changes what it sends upstream for on
 *   A model whose family is `anthropic` (`inferencegw.InferFamily`) or whose id contains `claude` is forwarded unchanged.
 *   A request with no trailing system message is forwarded unchanged. A request whose trailing system messages follow an assistant turn is forwarded unchanged.
 *   System messages earlier in the conversation are forwarded unchanged.
-*   The Bedrock, Vertex AI and Azure messages paths are unchanged. Bedrock and Vertex AI refuse non-Claude models on this path, and the Azure Anthropic endpoint hosts only Claude models.
+*   At the time of this amendment, the Bedrock, Vertex AI and Azure Messages paths were unchanged. Bedrock refused non-Claude models then. The later [Messages to Chat Completions translation](2026-11-16-messages-to-chat-completions-translation.md) ADR enables listed Bedrock models and reuses this fold. Vertex AI still refuses non-Claude models on this path; the Azure Anthropic endpoint hosts only Claude models.
+*   The `compatible` connector continues to use this fold even after the implementation moves to the convert package.
 
 **Consequences.**
 
@@ -281,4 +282,4 @@ Touches *How does it connect?* The gateway changes what it sends upstream for on
 
 ---
 
-**Last Updated:** 2026-10-07 (Amendment 1: trailing system messages fold for non-Anthropic models)
+**Last Updated:** 2026-11-17 (Cross-dialect failover pointer; Amendment 1 Bedrock refusal marked historical)

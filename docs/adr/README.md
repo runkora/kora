@@ -61,6 +61,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Inference Gateway Architecture](2026-04-01-inference-gateway-architecture.md) — `Accepted` · 2026-04-01
 - [Provider Model Catalog and Alias Routing](2026-04-01-provider-model-catalog-and-alias-routing.md) — `Accepted (Amended 2025-07-22)` · 2026-04-01
 - [Anthropic Zero-Translation Path](2026-04-01-anthropic-zero-translation-path.md) — `Accepted (Amended 2026-10-07)` · 2026-04-01
+- [Anthropic Messages to Chat Completions Translation for Non-Claude Bedrock Models](2026-11-16-messages-to-chat-completions-translation.md) — `Proposed` · 2026-11-16
 - [Model Capability Taxonomy](2026-04-01-model-capability-taxonomy.md) — `Accepted (Amended 2026-10-10)` · 2026-04-01
 - [Virtual Model Catalog and Platform Routing](2026-04-17-virtual-model-catalog-and-platform-routing.md) — `Accepted` · 2026-04-17
 - [Inference Usage Logs](2026-04-17-inference-usage-logs.md) — `Accepted` · 2026-04-17
@@ -350,4 +351,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-07 | [Run Sources](2026-11-07-run-sources.md) | Accepted | — |
 | 2026-11-11 | [Run Page Record: Message Senders, Trigger Event Summaries and Budget Stops](2026-11-11-run-page-record.md) | Accepted | — |
 | 2026-11-11 | [API Key Connection Adapter](2026-11-11-apikey-connection-adapter.md) | Accepted | — |
+| 2026-11-16 | [Anthropic Messages to Chat Completions Translation for Non-Claude Bedrock Models](2026-11-16-messages-to-chat-completions-translation.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
