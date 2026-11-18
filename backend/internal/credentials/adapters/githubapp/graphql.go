@@ -15,12 +15,12 @@ import (
 	"github.com/runkora/kora/backend/internal/credentials"
 )
 
-// GraphQL requests are authorized by the granular actions of the fields they
-// select. See docs/adr/2026-09-29-github-graphql-field-classification.md.
+// A GraphQL query needs a read or write grant, or the metadata baseline, and a
+// mutation a write grant, on the repository the document targets. See
+// docs/adr/2026-11-15-github-connector-route-coverage.md, items 11 to 14.
 
 // graphqlBodySizeLimit caps how much of a GraphQL request body is read for
-// classification. A larger body falls back to the umbrella write but is still
-// forwarded whole.
+// classification. A larger body is denied as unclassified.
 const graphqlBodySizeLimit = 512 * 1024
 
 // graphqlTokenLimit bounds the parser's work on a hostile document. gh's
@@ -34,168 +34,60 @@ type graphqlRequest struct {
 	OperationName string         `json:"operationName"`
 }
 
-// requirement is what one selected field needs: any one of its actions.
-type requirement []string
+// graphqlCategories are the repository categories a GraphQL token can carry.
+// contents comes first, as the action a denial reports.
+var graphqlCategories = []string{catContents, catWorkflows, catIssues, catPulls, catCI, catDeployments, catSecurity, catSecrets, catAdmin}
 
-// Requirements per selected field. The first action is the one reported when
-// a field is ambiguous between issues and pull requests; either satisfies it.
-var (
-	reqMetadata   = requirement{ActionMetadataRead}
-	reqContents   = requirement{ActionContentsRead}
-	reqIssues     = requirement{catIssues + ":" + verbRead}
-	reqPulls      = requirement{catPulls + ":" + verbRead}
-	reqCI         = requirement{catCI + ":" + verbRead}
-	reqAdmin      = requirement{catAdmin + ":" + verbRead}
-	reqIssueOrPR  = requirement{catIssues + ":" + verbRead, catPulls + ":" + verbRead}
-	reqWContents  = requirement{ActionContentsWrite}
-	reqWIssues    = requirement{catIssues + ":" + verbWrite}
-	reqWPulls     = requirement{catPulls + ":" + verbWrite}
-	reqWIssueOrPR = requirement{catIssues + ":" + verbWrite, catPulls + ":" + verbWrite}
-)
-
-// graphqlRootFields maps top-level query fields that need no repository to
-// their requirement. repository, repositoryOwner, search, node and nodes are
-// walked instead.
-var graphqlRootFields = map[string]requirement{
-	"viewer": reqMetadata, "rateLimit": reqMetadata,
-	"__typename": reqMetadata, "__schema": reqMetadata, "__type": reqMetadata,
-}
-
-// graphqlRepositoryFields maps the fields of Repository to their requirement,
-// mirroring the REST route families under /repos/{owner}/{repo}/.
-var graphqlRepositoryFields = map[string]requirement{
-	"pullRequest": reqPulls, "pullRequests": reqPulls,
-
-	"issue": reqIssues, "issues": reqIssues, "label": reqIssues, "labels": reqIssues,
-	"milestone": reqIssues, "milestones": reqIssues, "assignableUsers": reqIssues,
-	"issueOrPullRequest": reqIssueOrPR,
-
-	"object": reqContents, "ref": reqContents, "refs": reqContents, "defaultBranchRef": reqContents,
-	"release": reqContents, "releases": reqContents, "latestRelease": reqContents,
-
-	"__typename": reqMetadata, "id": reqMetadata, "databaseId": reqMetadata, "name": reqMetadata,
-	"nameWithOwner": reqMetadata, "owner": reqMetadata, "url": reqMetadata, "sshUrl": reqMetadata,
-	"description": reqMetadata,
-	"homepageUrl": reqMetadata, "visibility": reqMetadata, "isPrivate": reqMetadata,
-	"isArchived": reqMetadata, "isFork": reqMetadata, "isTemplate": reqMetadata, "isEmpty": reqMetadata,
-	"hasIssuesEnabled": reqMetadata, "hasWikiEnabled": reqMetadata, "hasProjectsEnabled": reqMetadata,
-	"hasDiscussionsEnabled": reqMetadata, "viewerPermission": reqMetadata,
-	"createdAt": reqMetadata, "updatedAt": reqMetadata, "pushedAt": reqMetadata,
-	"mergeCommitAllowed": reqMetadata, "squashMergeAllowed": reqMetadata,
-	"rebaseMergeAllowed": reqMetadata, "deleteBranchOnMerge": reqMetadata,
-}
-
-// graphqlNodeTypes maps the type conditions a node or nodes lookup selects
-// to their requirement. Repository is walked with graphqlRepositoryFields.
-var graphqlNodeTypes = map[string]requirement{
-	"PullRequest": reqPulls, "PullRequestReview": reqPulls, "PullRequestReviewComment": reqPulls,
-	"PullRequestReviewThread": reqPulls, "PullRequestCommit": reqPulls,
-	"Issue": reqIssues, "Label": reqIssues, "Milestone": reqIssues,
-	"IssueComment": reqIssueOrPR,
-	"Commit":       reqContents, "Tree": reqContents, "Blob": reqContents, "Ref": reqContents,
-	"Tag": reqContents, "Release": reqContents,
-	"CheckRun": reqCI, "CheckSuite": reqCI, "StatusContext": reqCI,
-}
-
-// graphqlNestedFields are fields that reach another category wherever they are
-// selected. GitHub refuses a pull request's statusCheckRollup to a token
-// without checks, a check suite's workflowRun without actions, and a ref's
-// branchProtectionRule without administration.
-var graphqlNestedFields = map[string]requirement{
-	"statusCheckRollup": reqCI, "checkSuites": reqCI, "checkRuns": reqCI,
-	"workflowRun": reqCI, "workflowRuns": reqCI,
-	"branchProtectionRule": reqAdmin,
-}
-
-// fieldSearch is the Query field for search, which is classified and qualified
-// by its own rules.
+// fieldSearch is the Query field for search, which is qualified by its own rules.
 const fieldSearch = "search"
 
-// graphqlOwnerScalars are the fields of RepositoryOwner that describe the
-// account itself.
-var graphqlOwnerScalars = map[string]bool{
-	"__typename": true, "id": true, "login": true, "url": true, "avatarUrl": true, "resourcePath": true,
-}
-
-// graphqlConnectionFields are the paging fields of a connection and its edges,
-// which carry no category of their own.
-var graphqlConnectionFields = map[string]bool{
-	"__typename": true, "cursor": true, "pageInfo": true, "totalCount": true,
-}
-
-// graphqlMutationFields maps mutations to the write they perform, matching the
-// REST classification of the same operation (merging is contents:write).
-// Labelable and Lockable mutations are classified separately, by the target
-// node ID, since the same mutations also accept discussions.
-var graphqlMutationFields = map[string]requirement{
-	"createPullRequest": reqWPulls, "updatePullRequest": reqWPulls, "closePullRequest": reqWPulls,
-	"reopenPullRequest": reqWPulls, "markPullRequestReadyForReview": reqWPulls,
-	"convertPullRequestToDraft": reqWPulls, "updatePullRequestBranch": reqWPulls,
-	"addPullRequestReview": reqWPulls, "submitPullRequestReview": reqWPulls,
-	"deletePullRequestReview": reqWPulls, "dismissPullRequestReview": reqWPulls,
-	"addPullRequestReviewComment": reqWPulls, "addPullRequestReviewThread": reqWPulls,
-	"resolveReviewThread": reqWPulls, "unresolveReviewThread": reqWPulls,
-	"requestReviews": reqWPulls, "requestReviewsByLogin": reqWPulls,
-	"mergePullRequest": reqWContents,
-
-	"createIssue": reqWIssues, "updateIssue": reqWIssues, "closeIssue": reqWIssues,
-	"reopenIssue": reqWIssues, "addSubIssue": reqWIssues, "removeSubIssue": reqWIssues,
-
-	"addComment": reqWIssueOrPR, "updateIssueComment": reqWIssueOrPR, "deleteIssueComment": reqWIssueOrPR,
-	"addAssigneesToAssignable": reqWIssueOrPR, "removeAssigneesFromAssignable": reqWIssueOrPR,
-	"replaceActorsForAssignable": reqWIssueOrPR,
-}
-
-// graphqlLabelableMutations maps a Labelable or Lockable mutation to the
-// input field holding its target's node ID. The same mutations also accept a
-// discussion's node ID, which carries no category, so these are classified by
-// the ID's type prefix (graphqlNodeIDPrefixes) rather than a static
-// requirement.
-var graphqlLabelableMutations = map[string]string{
-	"addLabelsToLabelable": "labelableId", "removeLabelsFromLabelable": "labelableId",
-	"lockLockable": "lockableId", "unlockLockable": "lockableId",
-}
-
-// graphqlNodeIDPrefixes maps a GitHub global node ID's type prefix to the
-// requirement of a Labelable or Lockable mutation targeting it. A prefix
-// outside this map, including a discussion's "D_", is unknown and needs the
-// umbrella.
-var graphqlNodeIDPrefixes = map[string]requirement{
-	"I_":  reqWIssues,
-	"PR_": reqWPulls,
-}
-
-// classifyGraphQL maps a GraphQL request to the granular actions of the fields
-// it selects and the repository it names. The body is always restored so the
-// gateway forwards it byte for byte. A body that cannot be read, parsed, or
-// attributed to one operation classifies as the unqualified umbrella write.
-func classifyGraphQL(req *http.Request, owner string) (credentials.Classification, error) {
-	fallback := credentials.Classification{Action: ActionRepoWrite}
-
+// classifyGraphQL requires any repository category at the operation's level on
+// the repository the document targets, or for a query the metadata baseline;
+// the broker also accepts each read's write. It mints every one the grant
+// holds. The body is always restored
+// so the gateway forwards it byte for byte. A body that cannot be read, parsed
+// or attributed to one operation, and a subscription, are unclassified. repos
+// holds the resolved node ids.
+func classifyGraphQL(req *http.Request, owner string, repos map[string]string) (credentials.Classification, error) {
 	buf, ok := bufferGraphQLBody(req)
 	if !ok {
-		return fallback, nil
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
 	gql, ok := decodeGraphQLRequest(buf)
 	if !ok || gql.Query == "" {
-		return fallback, nil
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
 	doc, err := parser.ParseQueryWithTokenLimit(&ast.Source{Input: gql.Query}, graphqlTokenLimit)
 	if err != nil {
-		return fallback, nil
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
 	op := selectOperation(doc, gql.OperationName)
 	if op == nil || op.Operation == ast.Subscription {
-		return fallback, nil
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
 
-	w := &graphqlWalker{doc: doc, vars: operationVariables(op, gql.Variables), active: map[string]bool{}}
-	cls := w.classification(op)
-
+	verb := verbRead
+	if op.Operation == ast.Mutation {
+		verb = verbWrite
+	}
+	cls := credentials.Classification{Action: graphqlCategories[0] + ":" + verb}
+	for _, category := range graphqlCategories[1:] {
+		// GitHub grants workflows only at write.
+		if category == catWorkflows && verb == verbRead {
+			continue
+		}
+		cls.Alternates = append(cls.Alternates, category+":"+verb)
+	}
+	// The metadata baseline also allows a query, such as gh's introspection
+	// probes; the token then carries only what else the grant holds.
+	if verb == verbRead {
+		cls.Alternates = append(cls.Alternates, ActionMetadataRead)
+	}
 	if owner == "" {
 		return cls, nil
 	}
-	qualifier, err := w.qualifier(op, owner)
+	w := &graphqlWalker{doc: doc, vars: operationVariables(op, gql.Variables), active: map[string]bool{}}
+	qualifier, err := w.qualifier(op, owner, repos)
 	if err != nil {
 		return credentials.Classification{}, err
 	}
@@ -267,10 +159,15 @@ func (b *chainedBody) Read(p []byte) (int, error) { return b.r.Read(p) }
 func (b *chainedBody) Close() error               { return b.c.Close() }
 
 // selectOperation returns the operation GitHub will execute: the named one, or
-// the only one. nil when that is ambiguous, which GitHub also rejects.
+// the only one. nil when that is ambiguous, including two operations sharing
+// the name, which GitHub also rejects.
 func selectOperation(doc *ast.QueryDocument, name string) *ast.OperationDefinition {
 	if name != "" {
-		return doc.Operations.ForName(name)
+		named := slices.DeleteFunc(slices.Clone(doc.Operations), func(op *ast.OperationDefinition) bool { return op.Name != name })
+		if len(named) != 1 {
+			return nil
+		}
+		return named[0]
 	}
 	if len(doc.Operations) != 1 {
 		return nil
@@ -306,43 +203,7 @@ type graphqlWalker struct {
 	active  map[string]bool
 	spreads int
 
-	reqs       []requirement
 	incomplete bool
-}
-
-// classification collects the requirement of every top-level field and turns
-// them into the broker's classification. Any field outside the maps makes the
-// whole request need the umbrella, as before this classification existed.
-func (w *graphqlWalker) classification(op *ast.OperationDefinition) credentials.Classification {
-	verb := verbRead
-	if op.Operation == ast.Mutation {
-		verb = verbWrite
-		w.fields(op.SelectionSet, w.mutationField)
-	} else {
-		w.fields(op.SelectionSet, w.queryField)
-	}
-	w.nestedFields(op.SelectionSet)
-	if w.incomplete {
-		return credentials.Classification{Action: catRepo + ":" + verb}
-	}
-	cls := classificationFor(w.reqs)
-	for _, action := range append(append([]string{cls.Action}, cls.Alternates...), cls.AlsoRequired...) {
-		if perms, ok := graphqlPermissions[action]; ok {
-			if cls.Permissions == nil {
-				cls.Permissions = map[string]map[string]string{}
-			}
-			cls.Permissions[action] = perms
-		}
-	}
-	return cls
-}
-
-// graphqlPermissions are the permissions the fields behind a GraphQL
-// requirement need, where that is narrower than the whole category: a token
-// asking for a permission the installation lacks is refused.
-var graphqlPermissions = map[string]map[string]string{
-	catCI + ":" + verbRead:    {"actions": verbRead, "checks": verbRead, "statuses": verbRead},
-	catAdmin + ":" + verbRead: {"administration": verbRead},
 }
 
 // fields visits every field of a selection set, looking through inline
@@ -360,17 +221,6 @@ func (w *graphqlWalker) fields(set ast.SelectionSet, visit func(*ast.Field)) {
 	}
 }
 
-// nestedFields adds the requirement of every graphqlNestedFields field at any
-// depth.
-func (w *graphqlWalker) nestedFields(set ast.SelectionSet) {
-	w.fields(set, func(f *ast.Field) {
-		if r, ok := graphqlNestedFields[f.Name]; ok {
-			w.require(r, true)
-		}
-		w.nestedFields(f.SelectionSet)
-	})
-}
-
 // spread expands a named fragment into the current context.
 func (w *graphqlWalker) spread(name string, expand func(*ast.FragmentDefinition)) {
 	w.spreads++
@@ -384,208 +234,27 @@ func (w *graphqlWalker) spread(name string, expand func(*ast.FragmentDefinition)
 	delete(w.active, name)
 }
 
-// require records a field's requirement; a field outside the maps makes the
-// request need the umbrella.
-func (w *graphqlWalker) require(r requirement, known bool) {
-	if !known {
-		w.incomplete = true
-		return
-	}
-	w.reqs = append(w.reqs, r)
-}
-
-// queryField classifies a top-level query field.
-func (w *graphqlWalker) queryField(f *ast.Field) {
-	switch f.Name {
-	case "repository":
-		w.require(reqMetadata, true)
-		w.fields(f.SelectionSet, w.repositoryField)
-	case "node", "nodes":
-		w.require(reqMetadata, true)
-		w.nodeSelections(f.SelectionSet)
-	case fieldSearch:
-		w.require(reqMetadata, true)
-		w.fields(f.SelectionSet, w.searchField)
-	case "repositoryOwner":
-		w.require(reqMetadata, true)
-		w.fields(f.SelectionSet, w.repositoryOwnerField)
-	default:
-		r, ok := graphqlRootFields[f.Name]
-		w.require(r, ok)
-	}
-}
-
-// connectionField classifies a field of a connection: its nodes and edge nodes
-// by node, and its paging fields as metadata. ok is false for any other field.
-func (w *graphqlWalker) connectionField(f *ast.Field, node func(ast.SelectionSet)) bool {
-	switch f.Name {
-	case "nodes":
-		node(f.SelectionSet)
-	case "edges":
-		w.fields(f.SelectionSet, func(e *ast.Field) {
-			if e.Name == "node" {
-				node(e.SelectionSet)
-				return
-			}
-			w.require(reqMetadata, graphqlConnectionFields[e.Name])
-		})
-	default:
-		if !graphqlConnectionFields[f.Name] {
-			return false
-		}
-		w.require(reqMetadata, true)
-	}
-	return true
-}
-
-// searchField classifies a field of a search connection. Its results are a
-// union classified like a node lookup, by the types they select.
-func (w *graphqlWalker) searchField(f *ast.Field) {
-	if !w.connectionField(f, w.nodeSelections) {
-		w.require(reqMetadata, f.Name == "issueCount" || f.Name == "repositoryCount")
-	}
-}
-
-// repositoryOwnerField classifies a field of RepositoryOwner. The repositories
-// it lists are walked as repositories, so a field reaching their issues or
-// contents needs that category.
-func (w *graphqlWalker) repositoryOwnerField(f *ast.Field) {
-	if f.Name != "repositories" {
-		w.require(reqMetadata, graphqlOwnerScalars[f.Name])
-		return
-	}
-	repos := func(set ast.SelectionSet) { w.fields(set, w.repositoryField) }
-	w.fields(f.SelectionSet, func(c *ast.Field) {
-		if !w.connectionField(c, repos) {
-			w.require(nil, false)
-		}
-	})
-}
-
-// repositoryField classifies a field of Repository. A fork's parent is itself
-// a Repository, so its fields are classified the same way.
-func (w *graphqlWalker) repositoryField(f *ast.Field) {
-	if f.Name == "parent" {
-		w.require(reqMetadata, true)
-		w.fields(f.SelectionSet, w.repositoryField)
-		return
-	}
-	r, ok := graphqlRepositoryFields[f.Name]
-	w.require(r, ok)
-}
-
-// mutationField classifies a top-level mutation.
-func (w *graphqlWalker) mutationField(f *ast.Field) {
-	if f.Name == "__typename" {
-		return
-	}
-	if idField, ok := graphqlLabelableMutations[f.Name]; ok {
-		w.require(w.labelableRequirement(f, idField))
-		return
-	}
-	r, ok := graphqlMutationFields[f.Name]
-	w.require(r, ok)
-}
-
-// labelableRequirement classifies a Labelable or Lockable mutation by the
-// type prefix of its target's node ID, read from the mutation's input
-// object. An ID that is not a string, or whose prefix is not in
-// graphqlNodeIDPrefixes (including a discussion's "D_"), is unknown.
-func (w *graphqlWalker) labelableRequirement(f *ast.Field, idField string) (requirement, bool) {
-	input, _ := w.argument(f, "input").(map[string]any)
-	id, _ := input[idField].(string)
-	for prefix, r := range graphqlNodeIDPrefixes {
-		if strings.HasPrefix(id, prefix) {
-			return r, true
-		}
-	}
-	return nil, false
-}
-
-// nodeSelections classifies a node lookup by the types it selects. Fields on
-// the Node interface itself (id, __typename) need only metadata.
-func (w *graphqlWalker) nodeSelections(set ast.SelectionSet) {
-	for _, sel := range set {
-		switch s := sel.(type) {
-		case *ast.Field:
-			w.require(reqMetadata, s.Name == "id" || s.Name == "__typename")
-		case *ast.InlineFragment:
-			w.nodeType(s.TypeCondition, s.SelectionSet)
-		case *ast.FragmentSpread:
-			w.spread(s.Name, func(frag *ast.FragmentDefinition) { w.nodeType(frag.TypeCondition, frag.SelectionSet) })
-		}
-	}
-}
-
-// nodeType classifies a node lookup's type condition.
-func (w *graphqlWalker) nodeType(typeCondition string, set ast.SelectionSet) {
-	switch typeCondition {
-	case "", "Node":
-		w.nodeSelections(set)
-	case "Repository":
-		w.fields(set, w.repositoryField)
-	default:
-		r, ok := graphqlNodeTypes[typeCondition]
-		w.require(r, ok)
-	}
-}
-
-// classificationFor reduces the collected requirements to one classification:
-// every single-action requirement is required, and one ambiguous requirement
-// becomes the action and its alternate. Any further ambiguous requirement is
-// held to its first action, which only narrows what is allowed.
-func classificationFor(reqs []requirement) credentials.Classification {
-	strict := map[string]bool{}
-	for _, r := range reqs {
-		if len(r) == 1 {
-			strict[r[0]] = true
-		}
-	}
-	var choice requirement
-	for _, r := range reqs {
-		if len(r) == 1 || slices.ContainsFunc(r, func(a string) bool { return strict[a] }) {
-			continue
-		}
-		if choice == nil {
-			choice = r
-		} else if !slices.Equal(choice, r) {
-			strict[r[0]] = true
-		}
-	}
-	// Metadata is minted with every category, so it is only required alone.
-	if len(strict) > 1 || choice != nil {
-		delete(strict, ActionMetadataRead)
-	}
-	required := slices.Sorted(maps.Keys(strict))
-	// A pull request token carries contents:read (see permissionsFor), and a
-	// nested selection can use it, so GraphQL requires the grant to hold it.
-	if (strict[catPulls+":"+verbRead] || strict[catPulls+":"+verbWrite]) && !strict[ActionContentsRead] {
-		required = append(required, ActionContentsRead)
-	}
-
-	if choice != nil {
-		return credentials.Classification{Action: choice[0], Alternates: choice[1:], AlsoRequired: required}
-	}
-	if len(required) == 0 {
-		return credentials.Classification{Action: ActionMetadataRead}
-	}
-	return credentials.Classification{Action: required[0], AlsoRequired: required[1:]}
-}
-
 // qualifier attributes the operation to a repository of the connection's
 // owner, from its repository() calls and the repo: terms of its searches,
-// denying a repository() call that names another owner. It returns ""
-// when the operation names no repository, several, or one it cannot pin down,
-// including any node or nodes lookup; only an unqualified grant covers that.
-func (w *graphqlWalker) qualifier(op *ast.OperationDefinition, owner string) (string, error) {
+// and the repositories its node ids resolve to in repos, denying a
+// repository() call that names another owner. It returns "" when the operation
+// names no repository, several, or one it cannot pin down, including a node id
+// that is unresolved or outside the owner; only an unqualified grant covers that.
+// With repos nil, node ids are ignored and any node lookup is unqualified.
+func (w *graphqlWalker) qualifier(op *ast.OperationDefinition, owner string, repos map[string]string) (string, error) {
 	refs := repoRefs{names: map[string]bool{}, owner: owner}
 	w.spreads, w.incomplete = 0, false
-	// A root node lookup names objects by global ID, whose repository is not
-	// decoded, and repositoryOwner lists every repository of an account.
+	// repositoryOwner lists every repository of an account, and a node lookup
+	// is unattributed unless its literal ids were resolved.
 	w.fields(op.SelectionSet, func(f *ast.Field) {
-		refs.unattributed = refs.unattributed || f.Name == "node" || f.Name == "nodes" || f.Name == "repositoryOwner"
+		refs.unattributed = refs.unattributed || f.Name == "repositoryOwner" ||
+			(f.Name == "node" && (repos == nil || !w.stringIDs(f, "id"))) ||
+			(f.Name == "nodes" && (repos == nil || !w.stringIDs(f, "ids")))
 	})
 	w.collectRefs(op.SelectionSet, &refs)
+	if repos != nil {
+		w.nodeIDRefs(op, repos, &refs)
+	}
 	switch {
 	case refs.foreign:
 		return "", credentials.ErrUnsupportedAction
@@ -596,6 +265,37 @@ func (w *graphqlWalker) qualifier(op *ast.OperationDefinition, owner string) (st
 		return name, nil
 	}
 	return "", nil
+}
+
+// nodeIDRefs records the repository of every node id the operation names. An
+// account id addresses no repository and is skipped; any other id outside one
+// of the owner's repositories leaves the operation unattributed.
+func (w *graphqlWalker) nodeIDRefs(op *ast.OperationDefinition, repos map[string]string, refs *repoRefs) {
+	ids := map[string]bool{}
+	w.collectOwners(op.SelectionSet, map[string]bool{}, ids)
+	for id := range ids {
+		repoOwner, name, ok := strings.Cut(repos[id], "/")
+		if !ok && graphqlAccountTypes[repos[id]] {
+			continue
+		}
+		if !ok || repoOwner != refs.owner {
+			refs.unattributed = true
+			return
+		}
+		refs.names[name] = true
+	}
+}
+
+// stringIDs reports whether a node or nodes argument is one or more non-empty
+// strings, the only ids collectNodeIDs records.
+func (w *graphqlWalker) stringIDs(f *ast.Field, arg string) bool {
+	switch v := w.argument(f, arg).(type) {
+	case string:
+		return v != ""
+	case []any:
+		return len(v) > 0 && !slices.ContainsFunc(v, func(id any) bool { s, _ := id.(string); return s == "" })
+	}
+	return false
 }
 
 // repoRefs is every repository an operation names.
@@ -665,6 +365,11 @@ func (w *graphqlWalker) argument(f *ast.Field, name string) any {
 var graphqlOwnerFields = map[string]string{
 	"repository": "owner", "organization": "login", "repositoryOwner": "login", "user": "login",
 }
+
+// graphqlAccountTypes are the resolved node types that name a person or team,
+// such as an assignee or reviewer. They address no repository, so they do not
+// affect the qualifier; any other type outside a repository leaves it unset.
+var graphqlAccountTypes = map[string]bool{"User": true, "Bot": true, "Team": true, "Mannequin": true}
 
 // graphqlNonNodeIDs are arguments and input fields whose names end in Id or Ids
 // but hold no node id in the GitHub schema.

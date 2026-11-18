@@ -2,6 +2,7 @@ package egressgw
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -23,22 +24,23 @@ import (
 type ownerScoped interface {
 	Owner() string
 	RequestOwners(req *http.Request) credentials.RequestOwners
-	NodeOwners(ctx context.Context, ids, categories []string) (map[string]string, error)
-	RepoOwners(ctx context.Context, ids, categories []string) (map[string]string, error)
+	NodeRepositories(ctx context.Context, ids, categories, repos []string) (map[string]string, bool, error)
+	Repositories(ctx context.Context, ids, categories, repos []string) (map[string]string, bool, error)
 }
 
-// idLookup resolves one kind of id, node or repository, to owners.
+// idLookup resolves one kind of id, node or repository, to "owner/name". The
+// bool reports whether an absent id is known to be unseen.
 type idLookup struct {
 	kind    string
 	subject string
 	idsAttr attribute.Key
 	failure error
-	resolve func(s ownerScoped, ctx context.Context, ids, categories []string) (map[string]string, error)
+	resolve func(s ownerScoped, ctx context.Context, ids, categories, repos []string) (map[string]string, bool, error)
 }
 
 var (
-	nodeLookup = idLookup{kind: "node", idsAttr: observability.EgressNodeIDCountKey, subject: "node ids", failure: errSpanNodeOwnerLookup, resolve: ownerScoped.NodeOwners}
-	repoLookup = idLookup{kind: "repository", idsAttr: observability.EgressRepositoryIDCountKey, subject: "repository ids", failure: errSpanRepositoryOwnerLookup, resolve: ownerScoped.RepoOwners}
+	nodeLookup = idLookup{kind: "node", idsAttr: observability.EgressNodeIDCountKey, subject: "node ids", failure: errSpanNodeOwnerLookup, resolve: ownerScoped.NodeRepositories}
+	repoLookup = idLookup{kind: "repository", idsAttr: observability.EgressRepositoryIDCountKey, subject: "repository ids", failure: errSpanRepositoryOwnerLookup, resolve: ownerScoped.Repositories}
 )
 
 // idsToResolve returns the ids the request names for an owner lookup, node ids
@@ -104,7 +106,8 @@ func (b *Broker) selectConnection(ctx context.Context, claims *token.PlatformCla
 	case len(held) > 1 && len(ids) > MaxNodeIDs:
 		return nil, unresolved(req.Host, candidates, true, fmt.Sprintf("the %s names more than %d %s", target.Subject, MaxNodeIDs, lookup.subject))
 	case len(held) > 1 && len(ids) > 0:
-		return b.selectByIDs(ctx, claims, req.Host, candidates, held, scoped, scopes, target, ids, lookup)
+		conn, err := b.selectByIDs(ctx, claims, req.Host, candidates, held, scoped, scopes, target, ids, lookup)
+		return conn, releaseAssetUnambiguous(req.Host, err)
 	}
 	// A signed release-asset URL carries its own authorization and names no owner.
 	// It is unresolved but not ambiguous, so only the anonymous read fallback serves it.
@@ -113,6 +116,16 @@ func (b *Broker) selectConnection(ctx context.Context, claims *token.PlatformCla
 
 // releaseAssetHost serves the signed redirect target of a GitHub release download.
 const releaseAssetHost = "release-assets.githubusercontent.com"
+
+// releaseAssetUnambiguous keeps a release asset whose repository id selects no
+// connection unambiguous, so the anonymous read fallback can still serve it.
+func releaseAssetUnambiguous(host string, err error) error {
+	var d *Denial
+	if errors.As(err, &d) && isReleaseAssetHost(host) {
+		d.ambiguous = false
+	}
+	return err
+}
 
 func isReleaseAssetHost(host string) bool {
 	return strings.EqualFold(strings.TrimSuffix(host, "."), releaseAssetHost)
@@ -167,61 +180,83 @@ func (b *Broker) selectByIDs(ctx context.Context, claims *token.PlatformClaims, 
 // cached owner counts only for the same connection and categories. Ids no held
 // candidate can see are ignored.
 func (b *Broker) resolveOwners(ctx context.Context, claims *token.PlatformClaims, host string, held []*credentials.Connection, scoped map[*credentials.Connection]ownerScoped, scopes, ids []string, lookup idLookup) ([]string, error) {
-	tenantID := claims.Kora.TenantID
 	found := map[string]bool{}
 	pending := slices.Clone(ids)
 	for _, c := range held {
 		s, ok := scoped[c]
-		categories := lookupCategories(scopes, c.Name)
+		categories := grantsOn(scopes, c.Name).selectionCategories()
 		if len(pending) == 0 || !ok || len(categories) == 0 {
 			continue
 		}
-		cacheConn := lookup.kind + "|" + c.Name + "|" + strings.Join(categories, ",")
-		resolved := map[string]string{}
-		var misses []string
-		for _, id := range pending {
-			owner, hit := b.nodeOwners.get(tenantID, host, cacheConn, id)
-			switch {
-			case !hit:
-				misses = append(misses, id)
-			case owner != "":
-				resolved[id] = owner
-			}
+		resolved, err := b.resolveRepositories(ctx, claims, host, c, s, pending, categories, nil, lookup)
+		if err != nil {
+			return nil, err
 		}
-		if len(misses) > 0 {
-			looked, err := b.lookupOwners(ctx, claims, c, s, misses, categories, lookup)
-			if err != nil {
-				return nil, err
-			}
-			// An id this token cannot see is cached as "" to spare repeat lookups.
-			for _, id := range misses {
-				resolved[id] = looked[id]
-				b.nodeOwners.put(tenantID, host, cacheConn, id, looked[id])
-			}
-		}
+		// Only an "owner/name" value has an owner; an object type such as "User" has none.
 		pending = slices.DeleteFunc(pending, func(id string) bool {
-			owner := resolved[id]
-			if owner != "" {
+			owner, _, ok := strings.Cut(resolved[id], "/")
+			if ok && owner != "" {
 				found[owner] = true
 			}
-			return owner != ""
+			return ok && owner != ""
 		})
 	}
 	return slices.Sorted(maps.Keys(found)), nil
 }
 
+// resolveRepositories resolves ids to "owner/name" with one connection's lookup
+// token for categories, limited to repos when repos is not nil, through the
+// cache. A cached entry counts only for the same connection, categories and
+// repositories. Ids the token cannot see are absent.
+func (b *Broker) resolveRepositories(ctx context.Context, claims *token.PlatformClaims, host string, c *credentials.Connection, s ownerScoped, ids, categories, repos []string, lookup idLookup) (map[string]string, error) {
+	tenantID := claims.Kora.TenantID
+	// Quoting each category and repository keeps a comma in a qualifier from
+	// colliding with a list of two.
+	cacheConn := fmt.Sprintf("%s|%s|%q|%q", lookup.kind, c.Name, categories, repos)
+	resolved := map[string]string{}
+	var misses []string
+	for _, id := range ids {
+		repo, hit := b.nodeOwners.get(tenantID, host, cacheConn, id)
+		switch {
+		case !hit:
+			misses = append(misses, id)
+		case repo != "":
+			resolved[id] = repo
+		}
+	}
+	if len(misses) == 0 {
+		return resolved, nil
+	}
+	looked, complete, err := b.lookupOwners(ctx, claims, c, s, misses, categories, repos, lookup)
+	if err != nil {
+		return nil, err
+	}
+	// An id this token cannot see is cached as "" to spare repeat lookups, but
+	// only when the response carried no errors that could explain its absence.
+	for _, id := range misses {
+		if looked[id] != "" {
+			resolved[id] = looked[id]
+		}
+		if looked[id] != "" || complete {
+			b.nodeOwners.put(tenantID, host, cacheConn, id, looked[id])
+		}
+	}
+	return resolved, nil
+}
+
 // lookupOwners runs one candidate's id lookup under its own span and
 // logs it with the run attribution. Its result never reaches the agent.
-func (b *Broker) lookupOwners(ctx context.Context, claims *token.PlatformClaims, c *credentials.Connection, s ownerScoped, ids, categories []string, lookup idLookup) (map[string]string, error) {
+func (b *Broker) lookupOwners(ctx context.Context, claims *token.PlatformClaims, c *credentials.Connection, s ownerScoped, ids, categories, repos []string, lookup idLookup) (map[string]string, bool, error) {
 	ctx, span := tracer.Start(ctx, "egressgw.Broker.lookupOwners", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
 	span.SetAttributes(observability.ConnectionNameKey.String(c.Name), lookup.idsAttr.Int(len(ids)))
 
-	resolved, err := lookup.resolve(s, ctx, ids, categories)
+	resolved, complete, err := lookup.resolve(s, ctx, ids, categories, repos)
 	fields := []logging.Field{
 		{Key: "connection", Value: c.Name},
 		{Key: lookup.kind + "_ids", Value: len(ids)},
 		{Key: "resolved", Value: len(resolved)},
+		{Key: "complete", Value: complete},
 		{Key: "tenant_id", Value: claims.Kora.TenantID},
 		{Key: "principal_id", Value: claims.Subject},
 		{Key: "run_id", Value: claims.Kora.Claims["run_id"]},
@@ -229,10 +264,10 @@ func (b *Broker) lookupOwners(ctx context.Context, claims *token.PlatformClaims,
 	if err != nil {
 		observability.RecordFailure(span, err, lookup.failure)
 		b.logger.Warn(ctx, lookup.kind+" id owner lookup failed", append(fields, logging.Field{Key: "error", Value: err.Error()})...)
-		return nil, err
+		return nil, false, err
 	}
 	b.logger.Info(ctx, lookup.kind+" id owner lookup", fields...)
-	return resolved, nil
+	return resolved, complete, nil
 }
 
 // openOwnerScoped opens c and returns its connector when it reports owners. A
@@ -275,22 +310,51 @@ func (b *Broker) heldCandidates(ctx context.Context, claims *token.PlatformClaim
 	return held, scopes, nil
 }
 
-// lookupCategories returns the categories the caller holds without a repository
-// qualifier on a connection, the only ones a node id lookup may read. A
-// two-part connection:<verb> scope holds every category, as the repo umbrella.
-func lookupCategories(scopes []string, connection string) []string {
-	held := map[string]bool{}
+// parentCategory stands for a scope that names no category, which holds every
+// category on its connection.
+const parentCategory = ""
+
+// connectionGrants is what a caller's scopes hold on one connection: the
+// categories held without a repository qualifier, the categories held for
+// named repositories, and those repositories. A connection:<verb> or
+// connection:<name>:<verb> scope holds every category, as parentCategory.
+type connectionGrants struct {
+	unqualified, qualified, repos map[string]bool
+}
+
+func grantsOn(scopes []string, connection string) connectionGrants {
+	g := connectionGrants{unqualified: map[string]bool{}, qualified: map[string]bool{}, repos: map[string]bool{}}
 	for _, s := range scopes {
 		parts := strings.Split(s, ":")
 		switch {
 		case parts[0] != resourceType:
-		case len(parts) == 2:
-			held["repo"] = true
+		case len(parts) == 2, len(parts) == 3 && parts[1] == connection:
+			g.unqualified[parentCategory] = true
 		case len(parts) == 4 && parts[1] == connection:
-			held[parts[2]] = true
+			g.unqualified[parts[2]] = true
+		case len(parts) == 5 && parts[1] == connection:
+			g.qualified[parts[2]], g.repos[strings.ToLower(parts[3])] = true, true
 		}
 	}
-	return slices.Sorted(maps.Keys(held))
+	return g
+}
+
+// selectionCategories are the categories a selection lookup may read: only
+// those held without a repository qualifier, over the whole installation.
+func (g connectionGrants) selectionCategories() []string {
+	return slices.Sorted(maps.Keys(g.unqualified))
+}
+
+// qualifyingLookup returns the categories and repositories a classification
+// lookup may read: every held category, over the whole installation when any
+// grant is unqualified, else over the granted repositories only.
+func (g connectionGrants) qualifyingLookup() ([]string, []string) {
+	categories := maps.Clone(g.unqualified)
+	maps.Copy(categories, g.qualified)
+	if len(g.unqualified) > 0 {
+		return slices.Sorted(maps.Keys(categories)), nil
+	}
+	return slices.Sorted(maps.Keys(categories)), slices.Sorted(maps.Keys(g.repos))
 }
 
 // unresolved builds the denial for a request no single candidate serves. part

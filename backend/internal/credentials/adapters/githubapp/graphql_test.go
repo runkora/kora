@@ -5,8 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -36,132 +34,30 @@ func graphqlPost(t *testing.T, body string) *http.Request {
 	return req
 }
 
-// grant models an agent's connector attachment the way the policy service
-// evaluates it: each action is held unqualified (nil) or for listed
-// repositories, and an unqualified hold covers every repository.
-type grant map[string][]string
-
-func (g grant) holds(action, qualifier string) bool {
-	repos, ok := g[action]
-	if !ok {
-		return false
-	}
-	return repos == nil || (qualifier != "" && slices.Contains(repos, qualifier))
-}
-
-// allows mirrors the broker: the action or one alternate, and every
-// AlsoRequired action.
-func (g grant) allows(cls credentials.Classification) bool {
-	any := g.holds(cls.Action, cls.Qualifier)
-	for _, alt := range cls.Alternates {
-		any = any || g.holds(alt, cls.Qualifier)
-	}
-	for _, req := range cls.AlsoRequired {
-		if !g.holds(req, cls.Qualifier) {
-			return false
-		}
-	}
-	return any
-}
-
-var (
-	widgetsOnly = []string{"widgets"}
-
-	// codeReviewer is the code-reviewer agent's attachment: granular actions
-	// on one repository, plus the unqualified metadata baseline.
-	codeReviewer = grant{
-		"metadata:read": nil, "contents:read": widgetsOnly, "pulls:read": widgetsOnly,
-		"pulls:write": widgetsOnly, "issues:read": widgetsOnly, "issues:write": widgetsOnly,
-		"ci:read": widgetsOnly,
-	}
-	// codeReviewerAllRepos is the same attachment without a repository
-	// qualifier, which also covers unqualified requests.
-	codeReviewerAllRepos = grant{
-		"metadata:read": nil, "contents:read": nil, "pulls:read": nil,
-		"pulls:write": nil, "issues:read": nil, "issues:write": nil, "ci:read": nil,
-	}
-	issuesOnly = grant{"metadata:read": nil, "issues:read": widgetsOnly, "issues:write": widgetsOnly}
-)
-
-// TestClassifyGraphQL_GHCommands replays the GraphQL documents the gh CLI
-// sends (testdata/gh, captured with GH_DEBUG=api from gh 2.101.0, and the
-// mutations from gh 2.103.3) against a code-reviewer
-// grant on one repository, the same grant on every repository, and an
-// issues-only grant. Requests addressed by node ID are unqualified, so only the
-// unqualified grant covers them.
-func TestClassifyGraphQL_GHCommands(t *testing.T) {
-	cases := []struct {
-		fixture      string
-		want         credentials.Classification
-		reviewerOK   bool
-		allReposOK   bool
-		issuesOnlyOK bool
-	}{
-		{"pr-view", checksCls("widgets"), true, true, false},
-		{"pr-view-project-items", pullsCls("pulls:read", "widgets"), true, true, false},
-		{"pr-view-current-branch", credentials.Classification{Action: "ci:read", AlsoRequired: []string{"contents:read", "pulls:read"}, Qualifier: "widgets"}, true, true, false},
-		{"pr-diff", pullsCls("pulls:read", "widgets"), true, true, false},
-		{"pr-checks", pullsCls("pulls:read", "widgets"), true, true, false},
-		{"pr-checks-introspect-pull-request", cls("metadata:read", ""), true, true, true},
-		{"pr-checks-introspect-workflow-run", cls("metadata:read", ""), true, true, true},
-		{"pr-checks-status", checksCls(""), false, true, false},
-		{"pr-list", pullsCls("pulls:read", "widgets"), true, true, false},
-		{"issue-view", credentials.Classification{Action: "issues:read", Alternates: []string{"pulls:read"}, Qualifier: "widgets"}, true, true, true},
-		{"issue-view-project-items", cls("issues:read", "widgets"), true, true, true},
-		{"repo-view", cls("metadata:read", "widgets"), true, true, true},
-		// The base ref's branchProtectionRule needs admin:read, which the code reviewer lacks.
-		{"pr-status", credentials.Classification{Action: "admin:read", AlsoRequired: []string{"ci:read", "contents:read", "pulls:read"}, Qualifier: "widgets"}, false, false, false},
-		{"pr-comment-2-CommentCreate", credentials.Classification{Action: "issues:write", Alternates: []string{"pulls:write"}}, false, true, false},
-		{"pr-review-comment-2-PullRequestReviewAdd", pullsCls("pulls:write", ""), false, true, false},
-		{"pr-merge-4-PullRequestMerge", cls("contents:write", ""), false, false, false},
-		{"pr-create-3-PullRequestCreate", pullsCls("pulls:write", ""), false, true, false},
-		{"issue-create-2-IssueCreate", cls("issues:write", ""), false, true, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.fixture, func(t *testing.T) {
-			body, err := os.ReadFile(filepath.Join("testdata", "gh", tc.fixture+".json"))
-			if err != nil {
-				t.Fatalf("read fixture: %v", err)
-			}
-			c := graphqlConnector(t)
-			got, err := c.Classify(graphqlPost(t, string(body)))
-			if err != nil {
-				t.Fatalf("Classify: %v", err)
-			}
-			assertClassification(t, got, tc.want)
-			if ok := codeReviewer.allows(got); ok != tc.reviewerOK {
-				t.Errorf("code-reviewer allowed = %v, want %v", ok, tc.reviewerOK)
-			}
-			if ok := codeReviewerAllRepos.allows(got); ok != tc.allReposOK {
-				t.Errorf("code-reviewer on all repositories allowed = %v, want %v", ok, tc.allReposOK)
-			}
-			if ok := issuesOnly.allows(got); ok != tc.issuesOnlyOK {
-				t.Errorf("issues-only allowed = %v, want %v", ok, tc.issuesOnlyOK)
-			}
-		})
-	}
-}
-
 func cls(action, qualifier string) credentials.Classification {
 	return credentials.Classification{Action: action, Qualifier: qualifier}
 }
 
-// pullsCls is a pull request classification, which also requires the
-// contents:read its token carries.
-func pullsCls(action, qualifier string) credentials.Classification {
-	return credentials.Classification{Action: action, AlsoRequired: []string{"contents:read"}, Qualifier: qualifier}
-}
-
-// checksCls is a pull request classification that also selects the checks
-// rollup and its workflow runs.
-func checksCls(qualifier string) credentials.Classification {
-	return credentials.Classification{Action: "ci:read", AlsoRequired: []string{"pulls:read", "contents:read"}, Qualifier: qualifier}
+// graphqlCls is a GraphQL classification: any repository category at verb on
+// the qualifier, or for a query the metadata baseline.
+func graphqlCls(verb, qualifier string) credentials.Classification {
+	var alts []string
+	if verb == verbWrite {
+		alts = append(alts, "workflows:write")
+	}
+	for _, c := range []string{"issues", "pulls", "ci", "deployments", "security", "secrets", "admin"} {
+		alts = append(alts, c+":"+verb)
+	}
+	if verb == verbRead {
+		alts = append(alts, "metadata:read")
+	}
+	return credentials.Classification{Action: "contents:" + verb, Alternates: alts, Qualifier: qualifier}
 }
 
 func assertClassification(t *testing.T, got, want credentials.Classification) {
 	t.Helper()
-	if got.Action != want.Action || got.Qualifier != want.Qualifier ||
-		!slices.Equal(got.Alternates, want.Alternates) || !slices.Equal(got.AlsoRequired, want.AlsoRequired) {
+	if got.Action != want.Action || got.Qualifier != want.Qualifier || !slices.Equal(got.Alternates, want.Alternates) ||
+		!slices.Equal(got.AlsoRequired, want.AlsoRequired) || !slices.Equal(got.Optional, want.Optional) {
 		t.Errorf("classification = %+v, want %+v", got, want)
 	}
 }
@@ -173,87 +69,59 @@ func TestClassifyGraphQL(t *testing.T) {
 	}
 	const repoWidgets = `repository(owner:"example-org", name:"widgets")`
 	const searchQ = `query($q:String!){ search(query:$q, type:ISSUE, first:1){ issueCount } }`
+	read, write := verbRead, verbWrite
 
 	cases := []struct {
-		name   string
-		body   string
-		want   credentials.Classification
-		denied bool
+		name      string
+		body      string
+		verb      string
+		qualifier string
+		denied    bool
 	}{
-		{name: "repository scalars need metadata", body: q(`{ `+repoWidgets+` { id nameWithOwner } }`, nil), want: cls("metadata:read", "widgets")},
-		{name: "fields of two categories need both", body: q(`{ `+repoWidgets+` { issues(first:1){totalCount} pullRequests(first:1){totalCount} } }`, nil),
-			want: credentials.Classification{Action: "issues:read", AlsoRequired: []string{"pulls:read", "contents:read"}, Qualifier: "widgets"}},
-		{name: "ambiguous field satisfied by a strict one", body: q(`{ `+repoWidgets+` { issue(number:1){id} issueOrPullRequest(number:2){__typename} } }`, nil), want: cls("issues:read", "widgets")},
-		{name: "ambiguous field alongside another category", body: q(`{ `+repoWidgets+` { object(expression:"HEAD"){id} issueOrPullRequest(number:2){__typename} } }`, nil),
-			want: credentials.Classification{Action: "issues:read", Alternates: []string{"pulls:read"}, AlsoRequired: []string{"contents:read"}, Qualifier: "widgets"}},
-		{name: "unknown repository field needs the umbrella", body: q(`{ `+repoWidgets+` { pullRequest(number:1){id} deployments(first:1){totalCount} } }`, nil), want: cls("repo:read", "widgets")},
-		{name: "search classifies by the types it selects", body: q(`{ search(query:"repo:example-org/widgets", type:ISSUE, first:1){ issueCount edges { cursor node { ... on Issue { title } ... on PullRequest { title } } } } }`, nil),
-			want: credentials.Classification{Action: "issues:read", AlsoRequired: []string{"pulls:read", "contents:read"}, Qualifier: "widgets"}},
-		{name: "repository search needs metadata", body: q(`{ search(query:"repo:example-org/widgets", type:REPOSITORY, first:1){ nodes { ... on Repository { name } } } }`, nil), want: cls("metadata:read", "widgets")},
-		{name: "search of an unmapped type needs the umbrella", body: q(`{ search(query:"x", type:USER, first:1){ nodes { ... on User { login } } } }`, nil), want: cls("repo:read", "")},
-		{name: "search naming a foreign repository is unqualified", body: q(`{ search(query:"repo:evil/widgets", type:ISSUE, first:1){ issueCount } }`, nil), want: cls("metadata:read", "")},
-		{name: "search with NOT is unqualified", body: q(searchQ, map[string]any{"q": "NOT repo:example-org/widgets"}), want: cls("metadata:read", "")},
-		{name: "search naming two repositories is unqualified", body: q(`{ search(query:"repo:example-org/widgets repo:example-org/other", type:ISSUE, first:1){ issueCount } }`, nil), want: cls("metadata:read", "")},
-		{name: "search excluding a repository is unqualified", body: q(`{ search(query:"repo:example-org/widgets -repo:example-org/other", type:ISSUE, first:1){ issueCount } }`, nil), want: cls("metadata:read", "")},
-		{name: "search scoped apart from the repository lookup is unqualified", body: q(`{ `+repoWidgets+` { id } search(query:"repo:example-org/other", type:ISSUE, first:1){ issueCount } }`, nil), want: cls("metadata:read", "")},
-		{name: "search query from a variable", body: q(`query($q:String!){ search(query:$q, type:ISSUE, first:1){ issueCount } }`, map[string]any{"q": "repo:example-org/widgets"}), want: cls("metadata:read", "widgets")},
-		{name: "fork parent fields classify as a repository's", body: q(`{ `+repoWidgets+` { parent { name issues(first:1){totalCount} } } }`, nil), want: cls("issues:read", "widgets")},
-		{name: "branch protection needs admin", body: q(`{ `+repoWidgets+` { defaultBranchRef { branchProtectionRule { pattern } } } }`, nil),
-			want: credentials.Classification{Action: "admin:read", AlsoRequired: []string{"contents:read"}, Qualifier: "widgets"}},
-		{name: "owner repositories classify as repositories", body: q(`{ repositoryOwner(login:"example-org") { login repositories(first:1) { totalCount nodes { name issues(first:1){totalCount} } } } }`, nil), want: cls("issues:read", "")},
-		{name: "owner repositories are never one repository", body: q(`{ `+repoWidgets+` { id } repositoryOwner(login:"example-org") { repositories(first:1) { nodes { name } } } }`, nil), want: cls("metadata:read", "")},
-		{name: "unknown owner field needs the umbrella", body: q(`{ repositoryOwner(login:"example-org") { repository(name:"widgets") { id } } }`, nil), want: cls("repo:read", "")},
-		{name: "unknown root field needs the umbrella", body: q(`{ enterprise(slug:"x"){id} }`, nil), want: cls("repo:read", "")},
-		{name: "field names are case sensitive", body: q(`{ REPOSITORY(OWNER:"evil", NAME:"widgets") { id } }`, nil), want: cls("repo:read", "")},
-		{name: "labelable mutation on a discussion needs the umbrella", body: q(`mutation { addLabelsToLabelable(input:{labelableId:"D_kwDORRWKBs4AAAAB", labelIds:[]}){clientMutationId} }`, nil), want: cls("repo:write", "")},
-		{name: "labelable mutation on an issue needs issues:write", body: q(`mutation { addLabelsToLabelable(input:{labelableId:"I_kwDORRWKBs6RNDWJ", labelIds:[]}){clientMutationId} }`, nil), want: cls("issues:write", "")},
-		{name: "unlabel mutation on an issue needs issues:write", body: q(`mutation { removeLabelsFromLabelable(input:{labelableId:"I_kwDORRWKBs6RNDWJ", labelIds:[]}){clientMutationId} }`, nil), want: cls("issues:write", "")},
-		{name: "labelable mutation on a pull request needs pulls:write", body: q(`mutation { addLabelsToLabelable(input:{labelableId:"PR_kwDORRWKBs8AAAABFbAsiQ", labelIds:[]}){clientMutationId} }`, nil), want: pullsCls("pulls:write", "")},
-		{name: "lockable mutation on an issue needs issues:write", body: q(`mutation { lockLockable(input:{lockableId:"I_kwDORRWKBs6RNDWJ"}){clientMutationId} }`, nil), want: cls("issues:write", "")},
-		{name: "unlock mutation on a pull request needs pulls:write", body: q(`mutation { unlockLockable(input:{lockableId:"PR_kwDORRWKBs8AAAABFbAsiQ"}){clientMutationId} }`, nil), want: pullsCls("pulls:write", "")},
-		{name: "labelable mutation with no ID needs the umbrella", body: q(`mutation { addLabelsToLabelable(input:{labelIds:[]}){clientMutationId} }`, nil), want: cls("repo:write", "")},
-		{name: "unknown mutation needs the umbrella", body: q(`mutation { deleteIssue(input:{issueId:"x"}){clientMutationId} }`, nil), want: cls("repo:write", "")},
-		{name: "viewer is metadata", body: q(`{ viewer { login } }`, nil), want: cls("metadata:read", "")},
-		{name: "node without a type condition is metadata", body: q(`{ node(id:"PR_kwDORRWKBs8AAAABFbAsiQ") { id __typename } }`, nil), want: cls("metadata:read", "")},
-		{name: "node of an unmapped type needs the umbrella", body: q(`{ node(id:"PR_kwDORRWKBs8AAAABFbAsiQ") { ... on Discussion { title } } }`, nil), want: cls("repo:read", "")},
-		{name: "node repository walks repository fields", body: q(`{ node(id:"R_kgDORRWKBg") { ... on Repository { pullRequests(first:1){totalCount} } } }`, nil), want: pullsCls("pulls:read", "")},
-		{name: "nodes by fragment spread", body: q(`query { nodes(ids:["I_kwDORRWKBs8AAAABTb6V6w"]) { ...F } } fragment F on Issue { title }`, nil), want: cls("issues:read", "")},
-		{name: "variables resolve owner and name", body: q(`query($o:String!,$n:String!){ repository(owner:$o,name:$n){ issues(first:1){totalCount} } }`, map[string]any{"o": "Example-Org", "n": "Widgets"}), want: cls("issues:read", "widgets")},
-		{name: "two repositories are unqualified", body: q(`{ a: `+repoWidgets+` { id } b: repository(owner:"example-org", name:"tools") { id } }`, nil), want: cls("metadata:read", "")},
-		{name: "repository without a string owner is unqualified", body: q(`query($o:String){ repository(owner:$o, name:"widgets") { id } }`, nil), want: cls("metadata:read", "")},
-		{name: "mutation by node ID is unqualified", body: q(`mutation { requestReviews(input:{pullRequestId:"PR_kwDORRWKBs8AAAABFbAsiQ", userIds:["U_kgDOBlrQ6Q"], teamIds:["T_kwDOBlrQ6c4AvZ86"]}){clientMutationId} }`, nil), want: pullsCls("pulls:write", "")},
-		{name: "named operation is selected", body: `{"query":"query A { viewer { login } } mutation B { mergePullRequest(input:{pullRequestId:\"PR_kwDORRWKBs8AAAABFbAsiQ\"}){clientMutationId} }","operationName":"B"}`, want: cls("contents:write", "")},
+		{name: "a query reads its repository", body: q(`{ `+repoWidgets+` { issues(first:1){totalCount} pullRequests(first:1){totalCount} } }`, nil), verb: read, qualifier: "widgets"},
+		{name: "a mutation writes", body: q(`mutation { mergePullRequest(input:{pullRequestId:"PR_x"}){clientMutationId} }`, nil), verb: write},
+		{name: "any field is accepted", body: q(`{ `+repoWidgets+` { deployments(first:1){totalCount} vulnerabilityAlerts(first:1){totalCount} } }`, nil), verb: read, qualifier: "widgets"},
+		{name: "introspection is a query", body: q(`{ __type(name:"WorkflowRun") { fields { name } } }`, nil), verb: read},
+		{name: "viewer is a query", body: q(`{ viewer { login } }`, nil), verb: read},
+		{name: "search is qualified by its repo term", body: q(`{ search(query:"repo:example-org/widgets", type:ISSUE, first:1){ issueCount } }`, nil), verb: read, qualifier: "widgets"},
+		{name: "search naming a foreign repository is unqualified", body: q(`{ search(query:"repo:evil/widgets", type:ISSUE, first:1){ issueCount } }`, nil), verb: read},
+		{name: "search with NOT is unqualified", body: q(searchQ, map[string]any{"q": "NOT repo:example-org/widgets"}), verb: read},
+		{name: "search naming two repositories is unqualified", body: q(`{ search(query:"repo:example-org/widgets repo:example-org/other", type:ISSUE, first:1){ issueCount } }`, nil), verb: read},
+		{name: "search scoped apart from the repository lookup is unqualified", body: q(`{ `+repoWidgets+` { id } search(query:"repo:example-org/other", type:ISSUE, first:1){ issueCount } }`, nil), verb: read},
+		{name: "search query from a variable", body: q(searchQ, map[string]any{"q": "repo:example-org/widgets"}), verb: read, qualifier: "widgets"},
+		{name: "owner repositories are never one repository", body: q(`{ `+repoWidgets+` { id } repositoryOwner(login:"example-org") { repositories(first:1) { nodes { name } } } }`, nil), verb: read},
+		{name: "variables resolve owner and name", body: q(`query($o:String!,$n:String!){ repository(owner:$o,name:$n){ id } }`, map[string]any{"o": "Example-Org", "n": "Widgets"}), verb: read, qualifier: "widgets"},
+		{name: "two repositories are unqualified", body: q(`{ a: `+repoWidgets+` { id } b: repository(owner:"example-org", name:"tools") { id } }`, nil), verb: read},
+		{name: "repository without a string owner is unqualified", body: q(`query($o:String){ repository(owner:$o, name:"widgets") { id } }`, nil), verb: read},
+		{name: "a node lookup with no resolution is unqualified", body: q(`{ node(id:"PR_x") { id } }`, nil), verb: read},
+		{name: "undefined fragment is unqualified", body: q(`{ `+repoWidgets+` { ...Missing } }`, nil), verb: read},
+		{name: "fragment cycle is unqualified", body: q(`query { `+repoWidgets+` { ...A } } fragment A on Repository { id ...B } fragment B on Repository { name ...A }`, nil), verb: read},
+		{name: "named operation is selected", body: `{"query":"query A { viewer { login } } mutation B { mergePullRequest(input:{pullRequestId:\"PR_x\"}){clientMutationId} }","operationName":"B"}`, verb: write},
 
 		{name: "foreign owner is denied", body: q(`{ repository(owner:"evil", name:"widgets") { id } }`, nil), denied: true},
 		{name: "foreign owner in a second alias is denied", body: q(`{ a: `+repoWidgets+` { id } b: repository(owner:"evil", name:"widgets") { id } }`, nil), denied: true},
 		{name: "foreign owner in a nested repository is denied", body: q(`{ viewer { repository(owner:"evil", name:"x") { id } } }`, nil), denied: true},
 		{name: "foreign owner hidden in a variable default is denied", body: q(`query($o:String="evil"){ repository(owner:$o, name:"widgets") { id } }`, nil), denied: true},
 		{name: "foreign owner inside a fragment is denied", body: q(`query { ...F } fragment F on Query { repository(owner:"evil", name:"widgets") { id } }`, nil), denied: true},
-
-		{name: "fragment spread into two contexts is classified in both", body: q(`query { node(id:"RE_kwDORRWKBs4Xqs06"){ ...F } `+repoWidgets+` { ...F } } fragment F on Node { ... on Release { name description } }`, nil), want: cls("contents:read", "")},
-		{name: "fragment spread into two contexts, reversed", body: q(`query { `+repoWidgets+` { ...F } node(id:"RE_kwDORRWKBs4Xqs06"){ ...F } } fragment F on Node { ... on Release { name description } }`, nil), want: cls("contents:read", "")},
-		{name: "case variant envelope key fails closed", body: `{"query":"{ repository(owner:\"evil\",name:\"x\"){ id } }","QUERY":"{ viewer { login } }"}`, want: cls("repo:write", "")},
-		{name: "case variant operationName fails closed", body: `{"query":"query B { viewer { login } } mutation A { mergePullRequest(input:{}){clientMutationId} }","operationName":"A","OperationName":"B"}`, want: cls("repo:write", "")},
-
-		{name: "no body fails closed", body: "", want: cls("repo:write", "")},
-		{name: "malformed JSON fails closed", body: "not json", want: cls("repo:write", "")},
-		{name: "empty query fails closed", body: `{"query":""}`, want: cls("repo:write", "")},
-		{name: "unparseable document fails closed", body: q(`{ repository(owner:"example-org" { id }`, nil), want: cls("repo:write", "")},
-		{name: "two anonymous operations fail closed", body: q(`query A { viewer { login } } query B { viewer { login } }`, nil), want: cls("repo:write", "")},
-		{name: "unknown operation name fails closed", body: `{"query":"query A { viewer { login } }","operationName":"Z"}`, want: cls("repo:write", "")},
-		{name: "subscription fails closed", body: q(`subscription { viewer { login } }`, nil), want: cls("repo:write", "")},
-		{name: "undefined fragment needs the unqualified umbrella", body: q(`{ `+repoWidgets+` { ...Missing } }`, nil), want: cls("repo:read", "")},
-		{name: "fragment cycle needs the unqualified umbrella", body: q(`query { `+repoWidgets+` { ...A } } fragment A on Repository { id ...B } fragment B on Repository { name ...A }`, nil), want: cls("repo:read", "")},
-		{name: "token limit fails closed", body: q(`{ viewer { `+strings.Repeat("login ", graphqlTokenLimit)+`} }`, nil), want: cls("repo:write", "")},
+		{name: "case variant envelope key is denied", body: `{"query":"{ repository(owner:\"evil\",name:\"x\"){ id } }","QUERY":"{ viewer { login } }"}`, denied: true},
+		{name: "case variant operationName is denied", body: `{"query":"query B { viewer { login } } mutation A { mergePullRequest(input:{}){clientMutationId} }","operationName":"A","OperationName":"B"}`, denied: true},
+		{name: "no body is denied", body: "", denied: true},
+		{name: "malformed JSON is denied", body: "not json", denied: true},
+		{name: "empty query is denied", body: `{"query":""}`, denied: true},
+		{name: "unparseable document is denied", body: q(`{ repository(owner:"example-org" { id }`, nil), denied: true},
+		{name: "two operations without a name are denied", body: q(`query A { viewer { login } } query B { viewer { login } }`, nil), denied: true},
+		{name: "unknown operation name is denied", body: `{"query":"query A { viewer { login } }","operationName":"Z"}`, denied: true},
+		{name: "two operations sharing the name are denied", body: `{"query":"query M { viewer { login } } mutation M { mergePullRequest(input:{}){clientMutationId} }","operationName":"M"}`, denied: true},
+		{name: "subscription is denied", body: q(`subscription { viewer { login } }`, nil), denied: true},
+		{name: "token limit is denied", body: q(`{ viewer { `+strings.Repeat("login ", graphqlTokenLimit)+`} }`, nil), denied: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := graphqlConnector(t)
 			req := graphqlPost(t, tc.body)
 			if tc.body == "" {
 				req.Body = http.NoBody
 			}
-			got, err := c.Classify(req)
+			got, err := graphqlConnector(t).Classify(req)
 			if tc.denied {
 				if !errors.Is(err, credentials.ErrUnsupportedAction) {
 					t.Fatalf("want ErrUnsupportedAction, got err=%v cls=%+v", err, got)
@@ -263,7 +131,7 @@ func TestClassifyGraphQL(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Classify: %v", err)
 			}
-			assertClassification(t, got, tc.want)
+			assertClassification(t, got, graphqlCls(tc.verb, tc.qualifier))
 		})
 	}
 }
@@ -273,11 +141,11 @@ func TestClassifyGraphQL(t *testing.T) {
 func TestClassifyGraphQL_NoDeclaredOwner(t *testing.T) {
 	a := New(nil, stubSecrets{}, logging.NewLoggerWithOutput(io.Discard))
 	c := open(t, a, validConn(t))
-	got, err := c.Classify(graphqlPost(t, `{"query":"{ node(id:\"PR_kwDORRWKBs8AAAABFbAsiQ\") { ... on PullRequest { title } } }"}`))
+	got, err := c.Classify(graphqlPost(t, `{"query":"{ repository(owner:\"example-org\", name:\"widgets\") { id } }"}`))
 	if err != nil {
 		t.Fatalf("Classify: %v", err)
 	}
-	assertClassification(t, got, pullsCls("pulls:read", ""))
+	assertClassification(t, got, graphqlCls(verbRead, ""))
 }
 
 // TestClassifyGraphQL_BodyPreservation verifies that Classify leaves the full
@@ -332,16 +200,14 @@ func TestClassifyGraphQL_ClosesOriginalBody(t *testing.T) {
 	}
 }
 
-// An oversized body fails closed to the umbrella write but is forwarded whole.
+// An oversized body is denied, and left whole for the anonymous fallback.
 func TestClassifyGraphQL_OversizedBodyForwardedIntact(t *testing.T) {
 	body := `{"query":"{ viewer { login } }","padding":"` + strings.Repeat("x", graphqlBodySizeLimit+4096) + `"}`
 	c := graphqlConnector(t)
 	req := graphqlPost(t, body)
-	got, err := c.Classify(req)
-	if err != nil {
-		t.Fatalf("Classify: %v", err)
+	if _, err := c.Classify(req); !errors.Is(err, credentials.ErrUnsupportedAction) {
+		t.Fatalf("err = %v, want ErrUnsupportedAction", err)
 	}
-	assertClassification(t, got, cls("repo:write", ""))
 	forwarded, err := io.ReadAll(req.Body)
 	if err != nil {
 		t.Fatalf("read forwarded body: %v", err)
@@ -360,43 +226,5 @@ func TestClassifyGraphQL_GHEPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Classify: %v", err)
 	}
-	assertClassification(t, got, pullsCls("pulls:read", "widgets"))
-}
-
-// A pull request token carries contents:read, so a pulls-only grant must not
-// reach file contents through a nested selection.
-func TestClassifyGraphQL_PullsNeedContentsForNestedReads(t *testing.T) {
-	c := graphqlConnector(t)
-	got, err := c.Classify(graphqlPost(t, `{"query":"{ repository(owner:\"example-org\",name:\"widgets\"){ pullRequests(first:1){ nodes { repository { object(expression:\"HEAD:secrets.env\"){ ... on Blob { text } } } } } } }"}`))
-	if err != nil {
-		t.Fatalf("Classify: %v", err)
-	}
-	pullsOnly := grant{"metadata:read": nil, "pulls:read": widgetsOnly, "pulls:write": widgetsOnly}
-	if pullsOnly.allows(got) {
-		t.Errorf("pulls-only grant allowed %+v, which mints contents:read", got)
-	}
-	if !codeReviewer.allows(got) {
-		t.Errorf("code-reviewer grant denied %+v", got)
-	}
-}
-
-// GitHub refuses statusCheckRollup to a token without checks, and its workflow
-// runs without actions, so gh pr view needs both while gh pr diff does not.
-func TestClassifyGraphQL_StatusCheckRollupNeedsChecks(t *testing.T) {
-	noChecks := grant{
-		"metadata:read": nil, "contents:read": widgetsOnly, "pulls:read": widgetsOnly, "issues:read": widgetsOnly,
-	}
-	for fixture, want := range map[string]bool{"pr-view": false, "pr-diff": true} {
-		body, err := os.ReadFile(filepath.Join("testdata", "gh", fixture+".json"))
-		if err != nil {
-			t.Fatalf("read fixture: %v", err)
-		}
-		got, err := graphqlConnector(t).Classify(graphqlPost(t, string(body)))
-		if err != nil {
-			t.Fatalf("Classify %s: %v", fixture, err)
-		}
-		if ok := noChecks.allows(got); ok != want {
-			t.Errorf("%s: grant without checks allowed = %v, want %v", fixture, ok, want)
-		}
-	}
+	assertClassification(t, got, graphqlCls(verbRead, "widgets"))
 }

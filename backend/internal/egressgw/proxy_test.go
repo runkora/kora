@@ -282,8 +282,9 @@ func TestProxy_HappyPath_GitPush_MintsAndForwards(t *testing.T) {
 	// Policy was actually consulted with the action the adapter classified.
 	f.eval.mu.Lock()
 	defer f.eval.mu.Unlock()
-	if len(f.eval.calls) != 1 {
-		t.Fatalf("policy.Check calls = %d, want 1", len(f.eval.calls))
+	// The second check is the optional workflows:write a push may also carry.
+	if len(f.eval.calls) != 2 {
+		t.Fatalf("policy.Check calls = %d, want 2", len(f.eval.calls))
 	}
 	// A git push classifies as contents:write since the category taxonomy; the
 	// broker splits the fragment so the required scope is
