@@ -516,7 +516,13 @@ func (r *PostgresRepository) SetRunState(ctx context.Context, id string, from, t
 		if tag.RowsAffected() == 0 {
 			return ErrConflict
 		}
-		return r.publishState(ctx, id, from, to)
+		if err := r.publishState(ctx, id, from, to); err != nil {
+			return err
+		}
+		if !to.Terminal() {
+			return nil
+		}
+		return r.enqueueGradeJobs(ctx, id)
 	})
 }
 
@@ -692,7 +698,10 @@ func (r *PostgresRepository) MarkRunFailed(ctx context.Context, id string) error
 		if tag.RowsAffected() == 0 {
 			return nil
 		}
-		return r.publishState(ctx, id, "", RunStateFailed)
+		if err := r.publishState(ctx, id, "", RunStateFailed); err != nil {
+			return err
+		}
+		return r.enqueueGradeJobs(ctx, id)
 	})
 }
 
@@ -780,7 +789,14 @@ func (r *PostgresRepository) TerminateRun(ctx context.Context, id string) (*Run,
 		if run.State == RunStateTerminated {
 			changed = []string{"state", "completed_at", "deleted_at"}
 		}
-		return events.Publish(ctx, r.pool, runEvent(events.RunTerminated, *run, newRunEntity(*run), changed...))
+		if err := events.Publish(ctx, r.pool, runEvent(events.RunTerminated, *run, newRunEntity(*run), changed...)); err != nil {
+			return err
+		}
+		// A run that had already ended was queued for grading when it ended.
+		if run.State != RunStateTerminated {
+			return nil
+		}
+		return r.enqueueGradeJobs(ctx, id)
 	})
 	return run, err
 }
@@ -825,6 +841,7 @@ func (r *PostgresRepository) endRuns(ctx context.Context, update string, args ..
 		return nil, err
 	}
 	// The rows are read before the events are written, which share the transaction's connection.
+	ids := make([]string, 0, len(ended))
 	for _, run := range ended {
 		lastError, err := r.lastRunError(ctx, run)
 		if err != nil {
@@ -835,6 +852,10 @@ func (r *PostgresRepository) endRuns(ctx context.Context, update string, args ..
 				return nil, err
 			}
 		}
+		ids = append(ids, run.ID)
+	}
+	if err := r.enqueueGradeJobs(ctx, ids...); err != nil {
+		return nil, err
 	}
 	return ended, nil
 }

@@ -322,6 +322,10 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	// (docs/adr/2026-11-11-run-page-record.md, Decision 6).
 	if url := cfg.Platform.InferenceGatewayURL; url != "" {
 		runSvc.SetBudgetReader(inferenceclient.NewClient(url, logger), selfToken)
+		// Ended runs are graded as the tenant's grading principal (docs/adr/2026-11-19-graders.md).
+		grader := agents.NewGraderPrincipal(pc, idClient, logger)
+		decisions := inferenceclient.NewClientWithTimeout(url, logger, agents.GradeClientTimeout)
+		go agents.NewGradeWorker(repo, grader, decisions, agents.GradeWorkerConfig{WindowTokens: cfg.Agents.Grading.WindowTokens}, logger).Start(ctx)
 	}
 
 	// Per-route, not in the global chain below: it must run after RoutePattern

@@ -241,6 +241,29 @@ func TestSystemOne_StatusMapping(t *testing.T) {
 	}
 }
 
+// A 403 for a reached spending ceiling is ErrBudgetExceeded, which still matches ErrForbidden.
+// Any other 403 is not ErrBudgetExceeded.
+func TestSystemOne_BudgetExceeded(t *testing.T) {
+	for _, tc := range []struct {
+		body   string
+		budget bool
+	}{
+		{`{"code":"BUDGET_EXCEEDED","message":"the tenant spending ceiling has been reached"}`, true},
+		{`{"code":"forbidden","message":"no model scope"}`, false},
+		{`not json`, false},
+	} {
+		srv, _ := newTestServer(t, http.StatusForbidden, tc.body)
+		c := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+		_, err := c.SystemOne(context.Background(), "tok", routingRequest())
+		if got := errors.Is(err, ErrBudgetExceeded); got != tc.budget || !errors.Is(err, ErrForbidden) {
+			t.Errorf("%s: err = %v, want budget %v and forbidden", tc.body, err, tc.budget)
+		}
+		if err != nil && !strings.Contains(err.Error(), tc.body) {
+			t.Errorf("%s: err = %v, want the gateway's body kept", tc.body, err)
+		}
+	}
+}
+
 func TestSystemOne_TimeoutIsUpstreamUnavailable(t *testing.T) {
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
