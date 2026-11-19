@@ -1,6 +1,6 @@
 # Declarative resources
 
-In kora, the models, environments, agents, trigger sources, triggers and roles a tenant runs can live in a Git repository as Kubernetes resources. The kora operator applies each resource, and the item runs as if you had built it in the console. The console marks declared items as managed in Git and shows no edit controls for them.
+In kora, the models, environments, agents, trigger sources, triggers, Graders and roles a tenant runs can live in a Git repository as Kubernetes resources. The kora operator applies each resource, and the item runs as if you had built it in the console. The console marks declared items as managed in Git and shows no edit controls for them.
 
 The following guide assumes kora is installed and your tenant exists. See [Tenants](tenants.md) to create one. The [kora examples repository](https://github.com/runkora/examples) holds complete repositories for one tenant and for several tenants.
 
@@ -187,6 +187,50 @@ spec:
 
 Set `kind: scheduled` with a `schedule`, `kind: manual` with `manual.inputs`, or `kind: event` with an `eventType` such as `agents.run.failed.v1`, for the other kinds. An event trigger also takes `match`, `matchContains` and `ignoreOwnRuns`. A trigger names one `agent` or a `routing` block of candidate agents. Every agent it starts must be an autonomous `Agent` resource. See [Create a trigger](create-a-trigger.md) for filters, prompts and routing.
 
+## Grade an agent's runs
+
+A `Grader` asks fixed questions about each run of one agent when the run ends. A decision model on the System One API answers them from the run's recorded events.
+
+```yaml
+apiVersion: runkora.io/v1alpha1
+kind: Grader
+metadata:
+  name: code-reviewer-review
+spec:
+  agent: code-reviewer
+  description: Checks that a review reports correctness problems.
+  model: { family: typesafe, name: jev-1-14 }
+  minPassRate: 90%
+  appliesWhen: Was the agent asked to review a pull request?
+  questions:
+    - name: posted-review
+      type: boolean
+      question: Did the agent post a review through its own tool calls?
+      expect: true
+    - name: findings
+      type: scale
+      question: How many correctness problems did the review report?
+      levels:
+        - { name: no-review, description: No review was posted }
+        - { name: none-found, description: No correctness problems }
+        - { name: some, description: One or more correctness problems }
+      accept: [none-found, some]
+      skipOn: [no-review]
+```
+
+A question's `type` is `boolean`, `choice` or `scale`. A `boolean` sets `expect`. A `choice` lists `options` and a `scale` lists `levels`, lowest first. Both set `accept`, and can set `skipOn` for answers that mean the question has no subject on the run. A `scale` needs a `skipOn` level. kora adds a `none` option to every `choice`. `threshold` sets the pass and fail band, 0.7 and 0.3 by default, and a question can set its own. `minPassRate` is optional.
+
+A run passes when every question that is not skipped passes. The Grader passes when its last 30 graded runs pass at `minPassRate` or above. Under 15 graded runs it reads "not enough runs". A Grader without `minPassRate` reads "no minimum" at any count. A change to `model`, `threshold`, `appliesWhen` or `questions` is a new version, and regrades the last 30 graded runs. A Grader grades runs that end after it is applied.
+
+Anyone who can read an agent's runs can read its grades. A delegated agent's Graders also need `agents:delegated:read`, because their counts include runs other people started. kora-agents serves the grades:
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /api/v1/runs/{id}/grades` | The run's grade per Grader: the current version's, or the newest version that graded the run. Each grade has its status, verdict, model, input tokens, cost, state cap and answers with their question text. A run that has not ended has none. |
+| `GET /api/v1/agent-types/{id}/graders` | Each Grader of the agent with its passed and graded counts over the current version's last 30 graded runs, its `too_large` count and its status: `passing`, `failing`, `not_enough_runs` or `no_minimum`. Failing Graders come first, then by pass rate, lowest first. |
+| `GET /api/v1/agent-types/{id}/graders/{name}` | The same counts, the version's spec, and per question the failed and uncertain runs of the window. |
+| `GET /api/v1/runs?grader=&question=&verdict=` | Runs with a grade on the Grader's current version. `verdict` is the run's verdict, or with `question` that question's answer verdict. |
+
 ## Grant access with a role
 
 A `PolicyRole` grants scopes to every user in the tenant whose identity provider role claim matches `role`.
@@ -234,7 +278,7 @@ Virtual models have one switch for the platform. Set the `kora` chart value `inf
 ## Check status
 
 ```bash
-kubectl get environments,agents.runkora.io,triggersources,triggers.runkora.io,policyroles -n kora-tenant-example
+kubectl get environments,agents.runkora.io,triggersources,triggers.runkora.io,graders,policyroles -n kora-tenant-example
 kubectl describe agents.runkora.io code-reviewer -n kora-tenant-example
 ```
 
