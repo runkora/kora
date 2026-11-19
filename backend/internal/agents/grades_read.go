@@ -319,6 +319,16 @@ func runGradeOf(g storedGrade) (RunGrade, error) {
 	return out, nil
 }
 
+// find returns the named question, or nil.
+func (v graderVersion) find(name string) *v1alpha1.GraderQuestion {
+	for i := range v.Questions {
+		if v.Questions[i].Name == name {
+			return &v.Questions[i]
+		}
+	}
+	return nil
+}
+
 // answerProbabilities reads a stored choice or scale answer's distribution. A scale's is keyed
 // by level index from 0 and comes back keyed by level name. A boolean has none.
 func answerProbabilities(q v1alpha1.GraderQuestion, raw json.RawMessage) (map[string]float64, error) {
