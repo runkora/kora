@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -266,13 +267,17 @@ func (r *PostgresRepository) runEndRecorded(ctx context.Context, runID string) (
 // version. It is the whole set the grading principal's grant may hold.
 func (r *PostgresRepository) graderModelScopes(ctx context.Context, tenantID string) ([]string, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT DISTINCT 'inference:' || (v.spec->'model'->>'family') || ':' || (v.spec->'model'->>'name') || ':use'
+		SELECT DISTINCT v.spec->'model'->>'family', v.spec->'model'->>'name'
 		FROM graders g JOIN grader_versions v ON v.version = g.current_version
-		WHERE g.tenant_id = $1 ORDER BY 1`, tenantID)
+		WHERE g.tenant_id = $1 ORDER BY 1, 2`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("list grader models: %w", err)
 	}
-	scopes, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	scopes, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
+		var family, name string
+		err := row.Scan(&family, &name)
+		return modelUseScope(family, name), err
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list grader models: %w", err)
 	}
@@ -281,7 +286,7 @@ func (r *PostgresRepository) graderModelScopes(ctx context.Context, tenantID str
 
 // terminalRunStates are the states a run ends in.
 func terminalRunStates() []RunState {
-	return []RunState{RunStateCompleted, RunStateFailed, RunStateBudgetExhausted, RunStateTerminated}
+	return slices.DeleteFunc(AllRunStates(), func(s RunState) bool { return !s.Terminal() })
 }
 
 // gradeState returns the run's stored snapshot, or nil when none is stored.

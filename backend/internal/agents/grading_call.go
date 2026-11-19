@@ -47,7 +47,7 @@ func (v graderVersion) modelName() string { return v.Model.Family + "/" + v.Mode
 // gradingSpec is the version in the form grading.Score reads.
 func (v graderVersion) gradingSpec() grading.GraderSpec {
 	spec := grading.GraderSpec{
-		Threshold:   &grading.Threshold{Pass: v.Threshold.Pass, Fail: v.Threshold.Fail},
+		Threshold:   grading.Threshold(v.Threshold),
 		AppliesWhen: v.AppliesWhen,
 		Questions:   make([]grading.Question, len(v.Questions)),
 	}
@@ -60,7 +60,7 @@ func (v graderVersion) gradingSpec() grading.GraderSpec {
 			gq.Options = append(gq.Options, a.Name)
 		}
 		if q.Threshold != nil {
-			gq.Threshold = &grading.Threshold{Pass: q.Threshold.Pass, Fail: q.Threshold.Fail}
+			gq.Threshold = new(grading.Threshold(*q.Threshold))
 		}
 		spec.Questions[i] = gq
 	}
@@ -156,16 +156,25 @@ func (v graderVersion) scoreInput(answers map[string]inference.Answer) (*float64
 		case grading.Choice:
 			out[q.Name] = grading.Answer{Dist: a.Probabilities}
 		case grading.Scale:
-			dist := make(map[string]float64, len(a.Probabilities))
-			for k, p := range a.Probabilities {
-				i, err := strconv.Atoi(k)
-				if err != nil || i < 0 || i >= len(q.Levels) {
-					return nil, nil, fmt.Errorf("question %s: %w: level %q", q.Name, grading.ErrBadAnswer, k)
-				}
-				dist[q.Levels[i].Name] = p
+			dist, err := levelDist(q, a.Probabilities)
+			if err != nil {
+				return nil, nil, err
 			}
 			out[q.Name] = grading.Answer{Dist: dist}
 		}
 	}
 	return applies, out, nil
+}
+
+// levelDist rekeys a score answer's probabilities from level index, counted from 0, to level name.
+func levelDist(q v1alpha1.GraderQuestion, probs map[string]float64) (map[string]float64, error) {
+	dist := make(map[string]float64, len(probs))
+	for k, p := range probs {
+		i, err := strconv.Atoi(k)
+		if err != nil || i < 0 || i >= len(q.Levels) {
+			return nil, fmt.Errorf("question %s: %w: level %q", q.Name, grading.ErrBadAnswer, k)
+		}
+		dist[q.Levels[i].Name] = p
+	}
+	return dist, nil
 }

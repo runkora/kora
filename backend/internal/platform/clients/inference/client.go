@@ -31,6 +31,13 @@ const tracerName = "github.com/runkora/kora/backend/internal/platform/clients/in
 // delivery needs a quick answer.
 const defaultTimeout = 15 * time.Second
 
+// Read limits on an error body that is checked for its code. A budget refusal names each
+// breached ceiling, so its body can run long.
+const (
+	maxErrorCodeBody   = 512
+	maxBudgetErrorBody = 8 << 10
+)
+
 // CodeBudgetNotReached is the gateway's 404 code for a run whose ceilings are all below their limits.
 const CodeBudgetNotReached = "budget_not_reached"
 
@@ -221,8 +228,7 @@ func (c *Client) SystemOne(ctx context.Context, bearer string, req SystemOneRequ
 		return SystemOneResponse{}, c.HandleErrorResponse(span, resp, ErrModelNotFound)
 	case code == http.StatusForbidden:
 		// A spending ceiling holds until its window resets. A caller does not retry it.
-		// The gateway's message names each breached ceiling, so the body can run long.
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxBudgetErrorBody))
 		resp.Body = io.NopCloser(bytes.NewReader(raw))
 		if errorCode(raw) == codeBudgetExceeded {
 			return SystemOneResponse{}, c.HandleErrorResponse(span, resp, ErrBudgetExceeded)
@@ -310,7 +316,7 @@ func (c *Client) RunBudget(ctx context.Context, bearer, tenantID, runID string) 
 	case code == http.StatusNotFound:
 		// Only the gateway's own answer means no ceiling is reached. A 404 from a
 		// gateway without the route, or for a run with no usage, is unexpected.
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorCodeBody))
 		if errorCode(raw) == CodeBudgetNotReached {
 			return RunBudget{}, ErrBudgetNotReached
 		}
