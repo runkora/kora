@@ -86,14 +86,16 @@ func NewDeclaredReconcilers(c client.Client, reader client.Reader, clients Decla
 		},
 	}
 	out := make([]*DeclaredReconciler, len(kinds))
+	byKind := make(map[string]*DeclaredReconciler, len(kinds))
 	for i, k := range kinds {
 		out[i] = &DeclaredReconciler{Client: c, Reader: reader, Logger: logger, kind: k}
+		byKind[k.kind] = out[i]
 	}
 	// Triggers and Graders reconcile when a resource they reference changes,
 	// including its status. A recreated Agent or TriggerSource has a new id the
 	// trigger or Grader must follow. Agents wait for their references on the
 	// 30-second requeue.
-	sources, triggers, graders := out[3], out[4], out[6]
+	sources, triggers, graders := byKind[declarative.KindTriggerSources], byKind[declarative.KindTriggers], byKind[declarative.KindGraders]
 	// A rotated or deleted signing Secret reaches its TriggerSources at once.
 	sources.kind.watches = []declaredWatch{{obj: &corev1.Secret{}, mapper: sources.enqueueSecretUsers}}
 	triggers.kind.watches = []declaredWatch{

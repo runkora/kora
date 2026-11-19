@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"sync"
@@ -575,5 +576,24 @@ func TestAMissingAgentNamedTwiceIsReportedOnce(t *testing.T) {
 	h.reconcile(t, declarative.KindTriggers, trig)
 	if c := declaredCondition(t, trig, condResolvedRefs); c.Message != `Agent "ghost" not found or not Ready.` {
 		t.Errorf("ResolvedRefs = %q", c.Message)
+	}
+}
+
+// Each kind's reference watches sit on that kind's reconciler.
+func TestNewDeclaredReconcilers_WatchesByKind(t *testing.T) {
+	h := newHarness(t)
+	want := map[string][]string{
+		declarative.KindTriggerSources: {"*v1.Secret"},
+		declarative.KindTriggers:       {"*v1alpha1.Agent", "*v1alpha1.TriggerSource", "*v1alpha1.VirtualModel"},
+		declarative.KindGraders:        {"*v1alpha1.Agent", "*v1alpha1.VirtualModel"},
+	}
+	for kind, r := range h.recs {
+		var got []string
+		for _, w := range r.kind.watches {
+			got = append(got, fmt.Sprintf("%T", w.obj))
+		}
+		if !slices.Equal(got, want[kind]) {
+			t.Errorf("%s watches %v, want %v", kind, got, want[kind])
+		}
 	}
 }
