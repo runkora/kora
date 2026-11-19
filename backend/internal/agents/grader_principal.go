@@ -50,8 +50,8 @@ func graderPrincipalID(tenantID string) string {
 	return "grader:" + tenantID
 }
 
-// Ensure leaves the tenant's grading principal with one grant holding inference:invoke,
-// modelScopes and every model scope it already held.
+// Ensure leaves the tenant's grading principal with one grant holding inference:invoke and
+// exactly modelScopes, the use scopes of the tenant's live Graders. An empty set removes every grant.
 // Ensure never sets a budget. A replacement grant keeps any budget the old grant carried.
 func (g *GraderPrincipal) Ensure(ctx context.Context, tenantID string, modelScopes []string) error {
 	if tenantID == "" {
@@ -67,7 +67,10 @@ func (g *GraderPrincipal) Ensure(ctx context.Context, tenantID string, modelScop
 	if err != nil {
 		return fmt.Errorf("list grader grants: %w", err)
 	}
-	want := graderScopes(existing, modelScopes)
+	if len(modelScopes) == 0 {
+		return g.deleteGrants(ctx, existing)
+	}
+	want := graderScopes(modelScopes)
 
 	var keepID string
 	var stale []policyclient.Grant
@@ -94,6 +97,18 @@ func (g *GraderPrincipal) Ensure(ctx context.Context, tenantID string, modelScop
 	return nil
 }
 
+// deleteGrants removes every grading grant. A failed delete is returned, so the caller retries
+// rather than leave model access in place.
+func (g *GraderPrincipal) deleteGrants(ctx context.Context, grants []policyclient.Grant) error {
+	var errs []error
+	for _, gr := range grants {
+		if err := g.grants.DeleteGrant(ctx, gr.ID); err != nil && !errors.Is(err, policyclient.ErrGrantNotFound) {
+			errs = append(errs, fmt.Errorf("delete grader grant %s: %w", gr.ID, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // Token mints a short-lived SERVICE token for the tenant's grading principal.
 func (g *GraderPrincipal) Token(ctx context.Context, tenantID string) (string, error) {
 	if tenantID == "" {
@@ -107,22 +122,14 @@ func (g *GraderPrincipal) Token(ctx context.Context, tenantID string) (string, e
 	return tok, nil
 }
 
-// graderScopes is inference:invoke plus the union of the requested model scopes and those already granted.
-// Any other scope on an existing grant is dropped, so the grant can only ever reach inference.
-func graderScopes(existing []policyclient.Grant, modelScopes []string) []string {
+// graderScopes is inference:invoke plus the requested model scopes, without duplicates.
+// Scopes on existing grants are not carried over, so a model no Grader uses loses access.
+func graderScopes(modelScopes []string) []string {
 	out := []string{graderInvokeScope}
-	add := func(s string) {
-		if isModelUseScope(s) && !slices.Contains(out, s) {
+	for _, s := range modelScopes {
+		if !slices.Contains(out, s) {
 			out = append(out, s)
 		}
-	}
-	for _, gr := range existing {
-		for _, s := range gr.Scopes {
-			add(s)
-		}
-	}
-	for _, s := range modelScopes {
-		add(s)
 	}
 	return out
 }

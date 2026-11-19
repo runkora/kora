@@ -26,6 +26,7 @@ type fakeGraderGrants struct {
 	next      int
 	creates   int
 	refuse    bool
+	deleteErr error
 	listedFor []string
 }
 
@@ -52,6 +53,9 @@ func (f *fakeGraderGrants) CreateGrant(_ context.Context, tenantID, principalTyp
 }
 
 func (f *fakeGraderGrants) DeleteGrant(_ context.Context, grantID string) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	f.grants = slices.DeleteFunc(f.grants, func(g policyclient.Grant) bool { return g.ID == grantID })
 	return nil
 }
@@ -103,7 +107,7 @@ func TestGraderPrincipalEnsure_Idempotent(t *testing.T) {
 	f.only(t)
 }
 
-func TestGraderPrincipalEnsure_UnionKeepsBudget(t *testing.T) {
+func TestGraderPrincipalEnsure_ReplacesScopesKeepsBudget(t *testing.T) {
 	budget := &policyclient.BudgetAssignment{LimitUSD: 20, ResetCadence: "monthly"}
 	f := &fakeGraderGrants{grants: []policyclient.Grant{{
 		ID: "old", TenantID: "acme", PrincipalType: "SERVICE", PrincipalID: "grader:acme",
@@ -111,27 +115,56 @@ func TestGraderPrincipalEnsure_UnionKeepsBudget(t *testing.T) {
 	}}}
 	gp := NewGraderPrincipal(f, nil, logging.NewLoggerWithOutput(io.Discard))
 
-	// A new Grader model adds its scope. The older model's scope stays.
-	if err := gp.Ensure(context.Background(), "acme", []string{scopeJev2}); err != nil {
+	// The grant holds exactly the given models. A model no Grader names any more loses its scope.
+	for _, want := range [][]string{{scopeJev, scopeJev2}, {scopeJev2}} {
+		if err := gp.Ensure(context.Background(), "acme", want); err != nil {
+			t.Fatal(err)
+		}
+		g := f.only(t)
+		if !scopeSetsEqual(g.Scopes, append([]string{"inference:invoke"}, want...)) {
+			t.Fatalf("scopes = %v, want invoke plus %v", g.Scopes, want)
+		}
+		if g.Budget != budget {
+			t.Fatalf("budget = %+v, want the old grant's budget kept", g.Budget)
+		}
+	}
+	if f.creates != 2 {
+		t.Fatalf("creates = %d, want 2", f.creates)
+	}
+	// The same set again changes nothing.
+	if err := gp.Ensure(context.Background(), "acme", []string{scopeJev2, scopeJev2}); err != nil {
 		t.Fatal(err)
 	}
-	g := f.only(t)
-	if g.ID == "old" {
-		t.Fatal("grant was not replaced")
+	if f.creates != 2 {
+		t.Fatalf("creates = %d after a repeated set, want 2", f.creates)
 	}
-	if !scopeSetsEqual(g.Scopes, []string{"inference:invoke", scopeJev, scopeJev2}) {
-		t.Fatalf("scopes = %v", g.Scopes)
-	}
-	if g.Budget != budget {
-		t.Fatalf("budget = %+v, want the old grant's budget kept", g.Budget)
-	}
+}
 
-	// Asking for a subset changes nothing.
-	if err := gp.Ensure(context.Background(), "acme", []string{scopeJev}); err != nil {
-		t.Fatal(err)
+func TestGraderPrincipalEnsure_EmptySetRemovesGrants(t *testing.T) {
+	f := &fakeGraderGrants{grants: []policyclient.Grant{
+		{ID: "a", TenantID: "acme", PrincipalType: "SERVICE", PrincipalID: "grader:acme", Scopes: []string{"inference:invoke", scopeJev}},
+		{ID: "b", TenantID: "acme", PrincipalType: "SERVICE", PrincipalID: "grader:acme", Scopes: []string{"inference:invoke", scopeJev2}},
+	}}
+	gp := NewGraderPrincipal(f, nil, logging.NewLoggerWithOutput(io.Discard))
+
+	for range 2 {
+		if err := gp.Ensure(context.Background(), "acme", nil); err != nil {
+			t.Fatal(err)
+		}
+		if len(f.grants) != 0 || f.creates != 0 {
+			t.Fatalf("grants = %+v creates = %d, want none", f.grants, f.creates)
+		}
 	}
-	if f.creates != 1 {
-		t.Fatalf("creates = %d, want 1", f.creates)
+}
+
+func TestGraderPrincipalEnsure_EmptySetReportsFailedDelete(t *testing.T) {
+	f := &fakeGraderGrants{deleteErr: errors.New("unavailable"), grants: []policyclient.Grant{
+		{ID: "a", TenantID: "acme", PrincipalType: "SERVICE", PrincipalID: "grader:acme", Scopes: []string{"inference:invoke", scopeJev}},
+	}}
+	gp := NewGraderPrincipal(f, nil, logging.NewLoggerWithOutput(io.Discard))
+
+	if err := gp.Ensure(context.Background(), "acme", nil); err == nil {
+		t.Fatal("expected a failed delete to fail Ensure")
 	}
 }
 
@@ -142,11 +175,11 @@ func TestGraderPrincipalEnsure_MergesDuplicatesAndDropsForeignScopes(t *testing.
 	}}
 	gp := NewGraderPrincipal(f, nil, logging.NewLoggerWithOutput(io.Discard))
 
-	if err := gp.Ensure(context.Background(), "acme", nil); err != nil {
+	if err := gp.Ensure(context.Background(), "acme", []string{scopeJev}); err != nil {
 		t.Fatal(err)
 	}
 	g := f.only(t)
-	if !scopeSetsEqual(g.Scopes, []string{"inference:invoke", scopeJev, scopeJev2}) {
+	if !scopeSetsEqual(g.Scopes, []string{"inference:invoke", scopeJev}) {
 		t.Fatalf("scopes = %v", g.Scopes)
 	}
 }
