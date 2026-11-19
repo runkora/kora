@@ -9,7 +9,8 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-import { GraderPage, GradersList } from './agent-grades';
+import { GradersList } from './grader-list';
+import { GraderPage } from './grader-page';
 import { graderFleet } from './agent-grades-mock-data';
 
 const fleet = graderFleet();

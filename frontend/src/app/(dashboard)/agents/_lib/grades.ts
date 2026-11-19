@@ -55,6 +55,9 @@ export const GRADER_STATUS_LABEL: Record<GraderStatus, string> = {
   not_enough_runs: 'Not enough runs',
 };
 
+/** A Grader's visible name: its description, or its name without one. */
+export const graderName = (g: { name: string; description: string }) => g.description || g.name;
+
 /** A pass rate in whole percent; null with no graded runs. */
 export const passRate = (passed: number, graded: number) =>
   graded ? Math.round((passed / graded) * 100) : null;
