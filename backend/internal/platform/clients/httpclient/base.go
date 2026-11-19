@@ -117,7 +117,7 @@ type Base struct {
 	tracer     trace.Tracer
 }
 
-// Option customises the transport of a Base built by New.
+// Option customizes the transport of a Base built by New.
 type Option func(*http.Transport)
 
 // WithDisableKeepAlives makes every call open its own connection and close it
