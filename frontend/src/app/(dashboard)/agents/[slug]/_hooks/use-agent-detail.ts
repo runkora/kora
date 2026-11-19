@@ -86,11 +86,6 @@ export function useAgentDetail(
   const [stateCounts, setStateCounts] = useState<RunStateCounts | null>(initialStateCounts);
   const [runFilter, setRunFilterState] = useState<RunFilter>('all');
   const [gradeFilter, setGradeFilterState] = useState<GradeFilter | null>(null);
-  // The filters as last set, so setGradeFilter stays stable and the page's URL effect runs once per URL.
-  const filters = useRef<{ run: RunFilter; grade: GradeFilter | null }>({
-    run: 'all',
-    grade: null,
-  });
   const [status, setStatus] = useState<DetailStatus>(initialStatus);
   const [error, setError] = useState<string | null>(initialError);
   // Bumped by every first-page load, so a page requested under an older filter is dropped.
@@ -164,26 +159,22 @@ export function useAgentDetail(
 
   const setRunFilter = useCallback(
     (filter: RunFilter) => {
-      filters.current.run = filter;
       setRunFilterState(filter);
-      void loadFirstPage(filter, filters.current.grade);
+      void loadFirstPage(filter, gradeFilter);
     },
-    [loadFirstPage],
+    [loadFirstPage, gradeFilter],
   );
 
   const setGradeFilter = useCallback(
     (grade: GradeFilter | null) => {
-      if (sameGradeFilter(grade, filters.current.grade)) return;
-      filters.current.grade = grade;
+      if (sameGradeFilter(grade, gradeFilter)) return;
       setGradeFilterState(grade);
       // Graded runs have ended, so a grade filter reads them under every state.
-      if (grade) {
-        filters.current.run = 'all';
-        setRunFilterState('all');
-      }
-      void loadFirstPage(filters.current.run, grade);
+      const run = grade ? 'all' : runFilter;
+      setRunFilterState(run);
+      void loadFirstPage(run, grade);
     },
-    [loadFirstPage],
+    [loadFirstPage, gradeFilter, runFilter],
   );
 
   const loadMoreRuns = useCallback(async () => {

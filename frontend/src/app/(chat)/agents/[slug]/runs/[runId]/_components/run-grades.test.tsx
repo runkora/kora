@@ -16,7 +16,7 @@ describe('RailGrades', () => {
     expect(screen.getByText('Pass')).toBeInTheDocument();
     expect(screen.getByText('read-callers')).toBeInTheDocument();
     expect(screen.getByText('0.09')).toBeInTheDocument();
-    expect(screen.getByLabelText('fail')).toBeInTheDocument();
+    expect(screen.getByLabelText('Fail')).toBeInTheDocument();
   });
 
   it('shows the distribution of an uncertain choice answer', () => {
@@ -50,19 +50,19 @@ describe('RailGrades', () => {
     expect(screen.getByText('Applies p 0.08')).toBeInTheDocument();
   });
 
-  it("counts a not applicable grade in the footnote and names a too large grade's cap", () => {
-    const [outcome, safety] = RUN_GRADES.notApplicable;
-    ended([
-      outcome!,
-      { ...safety!, status: 'too_large', verdict: null, answers: [], state_cap: 500 },
-    ]);
+  it('counts a not applicable grade in the footnote and names no cap for a too large grade', () => {
+    const [outcome] = RUN_GRADES.notApplicable;
+    const [, tooLarge] = RUN_GRADES.tooLarge;
+    ended([outcome!, tooLarge!]);
     expect(screen.getByText('jev-1-14 · 24k input tokens · $0.001')).toBeInTheDocument();
-    expect(screen.getByText('Tool results capped at 500 characters')).toBeInTheDocument();
+    expect(screen.queryByText(/Tool result/)).toBeNull();
   });
 
   it('labels too large and error grades', () => {
     ended(RUN_GRADES.tooLarge);
     expect(screen.getAllByText('Too large to grade')).toHaveLength(2);
+    // A too-large state was not graded, so the footnote names no model call and no cap.
+    expect(screen.queryByText(/input tokens|Tool result/)).toBeNull();
     ended(RUN_GRADES.error);
     expect(screen.getByText('Grading failed')).toBeInTheDocument();
   });

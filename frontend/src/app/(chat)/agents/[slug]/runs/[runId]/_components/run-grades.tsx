@@ -42,14 +42,19 @@ function VerdictBadge({ grade }: { grade: RunGrade }) {
 const capText = (cap: number) =>
   cap === 0
     ? 'Tool result bodies left out'
-    : `Tool results capped at ${cap.toLocaleString()} characters`;
+    : `Tool results capped at ${cap.toLocaleString('en-GB')} characters`;
 
 /** Model, input tokens and cost summed over the Graders that called the model, and any state cap. */
 function Footnote({ grades }: { grades: RunGrade[] }) {
   // A too-large state was never sent; any other grade with tokens made the call.
   const called = grades.filter((g) => g.status !== 'too_large' && g.input_tokens !== null);
+  // A too-large grade was not graded, so its cap describes no state the model read.
   const caps = [
-    ...new Set(grades.flatMap((g) => (g.state_cap === null ? [] : [g.state_cap]))),
+    ...new Set(
+      grades.flatMap((g) =>
+        g.state_cap === null || g.status === 'too_large' ? [] : [g.state_cap],
+      ),
+    ),
   ].sort((a, b) => b - a);
   if (!called.length && !caps.length) return null;
   const models = [...new Set(called.map((g) => g.model_served ?? g.model))].join(', ');
@@ -84,7 +89,12 @@ function RailQuestion({ a }: { a: GradeAnswer }) {
         <TooltipTrigger asChild>
           <Stack direction="horizontal" align="center" justify="between" gap="snug" tabIndex={0}>
             <Stack direction="horizontal" align="center" gap="snug" minWidth="none">
-              <Icon name={icon.name} size="xs" color={icon.color} label={a.verdict} />
+              <Icon
+                name={icon.name}
+                size="xs"
+                color={icon.color}
+                label={VERDICT_LABEL[a.verdict]}
+              />
               <Text size="supporting" mono truncate>
                 {a.question}
               </Text>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchPeriodRead } from '@runkora/app/(dashboard)/agents/_services/agents-api';
 import { useAgentGraders } from '@runkora/app/(dashboard)/agents/[slug]/_hooks/use-agent-graders';
 import { ApiRoute } from '@runkora/lib/routing';
@@ -29,9 +29,12 @@ export function useRunGrades(
     if (ended === false) sawLive.current = true;
   }, [ended]);
   const graders = useAgentGraders(agentTypeId);
-  // The Graders a run that ended on the page waits on. Null until the list is read.
+  const names = useMemo(() => graders.data?.map((g) => g.name) ?? null, [graders.data]);
+  // The Graders a run that ended on the page waits on, read by the polling below. Null until the list is read.
   const graderNames = useRef<string[] | null>(null);
-  graderNames.current = graders.data ? graders.data.map((g) => g.name) : null;
+  useEffect(() => {
+    graderNames.current = names;
+  }, [names]);
   useEffect(() => {
     if (!ended) return;
     let current = true;
@@ -55,5 +58,5 @@ export function useRunGrades(
     };
   }, [runId, ended]);
   if (ended) return read?.runId === runId ? { ended: true, grades: read.grades } : null;
-  return graders.data ? { ended: false, graders: graders.data.map((g) => g.name) } : null;
+  return names ? { ended: false, graders: names } : null;
 }

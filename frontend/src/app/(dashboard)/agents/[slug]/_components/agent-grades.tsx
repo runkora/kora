@@ -25,9 +25,6 @@ import {
   SegmentedControl,
   Stack,
   Text,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
   type DataTableColumn,
 } from '@runkora/hades';
 import { APP_ROUTES } from '@runkora/lib/routing/routes';
@@ -49,14 +46,8 @@ import {
   passesOn,
 } from '../../_lib/grades';
 import { useAgentGrader, useAgentGraders } from '../_hooks/use-agent-graders';
-
-const time = (iso: string) =>
-  new Date(iso).toLocaleString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+import { shortRelativeTime } from '../../_components/run-row';
+import { formatRelativeTime } from '../../_types';
 
 /** Runs listed before "Show all". */
 const RUNS_SHOWN = 5;
@@ -122,10 +113,10 @@ function RunList({ runs, slug }: { runs: GraderFlaggedRun[]; slug: string }) {
     {
       id: 'time',
       header: 'Started',
-      gridWidth: '8rem',
+      gridWidth: '4rem',
       cell: (r) => (
-        <Text size="supporting" color="subtle" tabular>
-          {time(r.started_at)}
+        <Text size="supporting" color="subtle" tabular title={formatRelativeTime(r.started_at)}>
+          {shortRelativeTime(r.started_at)}
         </Text>
       ),
     },
@@ -288,7 +279,7 @@ export function GradersList({
       rowLabel={(g) => `Open ${graderName(g)}`}
       searchFn={(g, q) => matches(g, q.toLowerCase())}
       searchPlaceholder="Search Graders…"
-      emptyMessage={`No ${FILTER_LABEL[filter].toLowerCase()} Graders`}
+      emptyMessage="No Graders match this filter."
       quickFilters={
         <SegmentedControl
           aria-label="Grader status"
@@ -323,9 +314,9 @@ function SpecLink({ grader }: { grader: GraderDetail }) {
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Anchor href="#" size="sm" onClick={(e) => e.preventDefault()}>
+        <Button variant="ghost" size="sm">
           View spec
-        </Anchor>
+        </Button>
       </PopoverTrigger>
       <PopoverContent wide>
         <Stack gap="cozy">
@@ -376,7 +367,7 @@ const counts = (q: GraderQuestion) =>
     .filter(Boolean)
     .join(' · ');
 
-/** One row per question with its pass condition and verdict counts; a row with runs opens to them. */
+/** One row per question with its pass condition and verdict counts; a row opens to its runs. */
 function Questions({ grader, slug }: { grader: GraderDetail; slug: string }) {
   const rows = grader.questions;
   const single = rows.length === 1;
@@ -390,12 +381,7 @@ function Questions({ grader, slug }: { grader: GraderDetail; slug: string }) {
       wrap: true,
       cell: (q) => (
         <Stack gap="tight" minWidth="none">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Text size="supporting">{q.question}</Text>
-            </TooltipTrigger>
-            <TooltipContent>{q.name}</TooltipContent>
-          </Tooltip>
+          <Text size="supporting">{q.question}</Text>
           <Text size="caption" color="subtle">
             {passesOn(q)}
           </Text>
@@ -409,23 +395,18 @@ function Questions({ grader, slug }: { grader: GraderDetail; slug: string }) {
       header: 'Verdicts',
       gridWidth: '13rem',
       align: 'right',
-      cell: (q) =>
-        q.runs.length ? (
-          <Stack direction="horizontal" align="center" justify="end" gap="snug">
-            <Text size="supporting" tabular>
-              {counts(q)}
-            </Text>
-            <Icon
-              name={open.has(q.name) ? 'chevron-down' : 'chevron-right'}
-              size="xs"
-              color="subtle"
-            />
-          </Stack>
-        ) : (
-          <Text size="supporting" color="subtle">
-            No failed or uncertain runs
+      cell: (q) => (
+        <Stack direction="horizontal" align="center" justify="end" gap="snug">
+          <Text size="supporting" tabular>
+            {counts(q)}
           </Text>
-        ),
+          <Icon
+            name={open.has(q.name) ? 'chevron-down' : 'chevron-right'}
+            size="xs"
+            color="subtle"
+          />
+        </Stack>
+      ),
     });
   return (
     <DataTable
@@ -437,8 +418,7 @@ function Questions({ grader, slug }: { grader: GraderDetail; slug: string }) {
       noun="questions"
       expandedKeys={open}
       onExpandedChange={(key, expanded) => {
-        // A question with no failed or uncertain runs has nothing to open.
-        if (single || !rows.find((q) => q.name === key)?.runs.length) return;
+        if (single) return;
         setOpen((s) => {
           const next = new Set(s);
           if (expanded) next.add(key);
@@ -457,11 +437,15 @@ function Questions({ grader, slug }: { grader: GraderDetail; slug: string }) {
                     <AllFailedLink slug={slug} grader={grader.name} question={q.name} />
                   )}
                 </Stack>
-              ) : null
+              ) : (
+                <Text size="supporting" color="subtle">
+                  No failed or uncertain runs
+                </Text>
+              )
       }
       toolbarTitle={
         <Text size="supporting" weight="emphasis">
-          Questions
+          What it asks
         </Text>
       }
       toolbarActions={<SpecLink grader={grader} />}
@@ -495,7 +479,7 @@ export function GraderPage({
         </Stack>
         {grader.status === 'not_enough_runs' ? (
           <Text size="supporting" tabular>
-            {grader.graded} graded runs · not enough runs
+            {grader.graded} graded runs
             <TooLarge n={grader.too_large} />
           </Text>
         ) : (
@@ -557,8 +541,19 @@ function BackButton({ onBack }: { onBack: () => void }) {
   );
 }
 
-function ReadError({ message }: { message: string }) {
-  return <EmptyState icon="triangle-alert" title="Failed to load Graders" description={message} />;
+function ReadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <EmptyState
+      icon="triangle-alert"
+      title="Failed to load Graders"
+      description={message}
+      action={
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          Retry
+        </Button>
+      }
+    />
+  );
 }
 
 /** The Grader page, read from the API. */
@@ -573,7 +568,7 @@ function GraderRead({
   slug: string;
   onBack: () => void;
 }) {
-  const { data, error, loading } = useAgentGrader(agentTypeId, name);
+  const { data, error, loading, reload } = useAgentGrader(agentTypeId, name);
   if (data) return <GraderPage grader={data} slug={slug} onBack={onBack} />;
   return (
     <Stack gap="comfortable">
@@ -583,7 +578,7 @@ function GraderRead({
           Loading Grader…
         </Text>
       ) : (
-        <ReadError message={error ?? 'Grader not found'} />
+        <ReadError message={error ?? 'Grader not found'} onRetry={reload} />
       )}
     </Stack>
   );
@@ -603,7 +598,7 @@ export function AgentGradesTab({
   onGrader: (name: string | undefined) => void;
 }) {
   // The list is read only while it shows.
-  const { data, error, loading } = useAgentGraders(grader ? undefined : agentTypeId);
+  const { data, error, loading, reload } = useAgentGraders(grader ? undefined : agentTypeId);
   if (grader)
     return (
       <GraderRead
@@ -620,6 +615,6 @@ export function AgentGradesTab({
         Loading Graders…
       </Text>
     );
-  if (error) return <ReadError message={error} />;
+  if (error) return <ReadError message={error} onRetry={reload} />;
   return <GradersList graders={data ?? []} onOpen={onGrader} />;
 }

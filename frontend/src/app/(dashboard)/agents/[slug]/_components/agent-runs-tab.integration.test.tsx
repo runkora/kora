@@ -249,8 +249,7 @@ describe('Agent runs tab', () => {
     ).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'Clear filter' }));
+    // The page reads the filter from the URL, so clearing it navigates.
     expect(replace).toHaveBeenCalledWith('/agents/code-reviewer?tab=runs', { scroll: false });
-    await waitFor(() => expect(queries).toHaveLength(2));
-    expect(queries[1].has('grader')).toBe(false);
   });
 });

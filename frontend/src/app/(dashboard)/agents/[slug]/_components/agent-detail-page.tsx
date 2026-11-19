@@ -5,7 +5,7 @@
  * Runs tab `grader`, `question` and `verdict` filter runs by grade, and on the Grades tab
  * `grader` opens that Grader. */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { AgentOverviewResponse } from '@runkora/shared/api';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -64,25 +64,15 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
 
   const [startRunOpen, setStartRunOpen] = useState(false);
   const canReadTriggers = useHasScope('triggers:read');
-  const [tab, setTabState] = useState(
-    () => viewOf(new URLSearchParams(search), canReadTriggers).tab,
+  // The URL holds the tab, the open Grader and the runs' grade filter.
+  const { tab, grader, gradeFilter } = useMemo(
+    () => viewOf(new URLSearchParams(search), canReadTriggers),
+    [search, canReadTriggers],
   );
-  const [grader, setGraderState] = useState(
-    () => viewOf(new URLSearchParams(search), canReadTriggers).grader,
-  );
-  // A link to this page with new params, such as a Grader's failed runs, moves the page to them.
-  const [seenSearch, setSeenSearch] = useState(search);
-  if (seenSearch !== search) {
-    const view = viewOf(new URLSearchParams(search), canReadTriggers);
-    setSeenSearch(search);
-    setTabState(view.tab);
-    setGraderState(view.grader);
-  }
-  // The runs' grade filter follows the URL; the same filter again is not reloaded.
+  // The hook skips a grade filter equal to the one it holds, so the same URL is not reloaded.
   useEffect(() => {
-    setGradeFilter(viewOf(new URLSearchParams(search), canReadTriggers).gradeFilter);
-  }, [search, canReadTriggers, setGradeFilter]);
-  // Tab and Grader changes go into the URL, so the same link followed again still moves the page.
+    setGradeFilter(gradeFilter);
+  }, [gradeFilter, setGradeFilter]);
   // Opening or leaving a Grader adds a history entry, so Back returns to where the reader was.
   const show = (next: string, nextGrader?: string) => {
     const query = new URLSearchParams({ tab: next });
@@ -90,8 +80,6 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
     const href = `${pathname}?${query}`;
     if (next === 'grades' && nextGrader !== grader) router.push(href, { scroll: false });
     else router.replace(href, { scroll: false });
-    setTabState(next);
-    setGraderState(nextGrader);
   };
   const setTab = (next: string) => show(next);
   // The Configure modal, and the rail step it opens on.

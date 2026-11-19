@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { userEvent, within } from 'storybook/test';
+import { expect, userEvent, within } from 'storybook/test';
+import { getRouter } from '@storybook/nextjs/navigation.mock';
 import type { AgentOverviewResponse, AgentType } from '@runkora/shared/api';
 import { AGENT_TYPES, CODE_REVIEWER } from '../../_components/agents-mock-data';
 import type { Period } from '../../_lib/spend';
@@ -35,13 +36,10 @@ const meta: Meta<typeof AgentDetailShell> = {
 export default meta;
 type Story = StoryObj<typeof AgentDetailShell>;
 
-/** Opens a tab by its visible name once the page has rendered. */
-const openTab =
-  (name: string): NonNullable<Story['play']> =>
-  async ({ canvasElement }) => {
-    const tab = await within(canvasElement).findByRole('tab', { name });
-    await userEvent.click(tab);
-  };
+/** The page opened at `query`; the page reads its tab, Grader and grade filter from the URL. */
+const atQuery = (query: Record<string, string>): Story['parameters'] => ({
+  nextjs: { appDirectory: true, navigation: { pathname: '/agents/code-reviewer', query } },
+});
 
 /** Picks a period in the header control. */
 const openPeriod =
@@ -178,13 +176,16 @@ export const EditInstructions: Story = {
   },
 };
 
-/** The Overview's Recent Runs: View all runs switches to the Runs tab. */
+/** The Overview's Recent Runs: View all runs moves the URL to the Runs tab. */
 export const OverviewViewAllRuns: Story = {
   ...Overview,
   play: async ({ canvasElement }) => {
     await userEvent.click(
       await within(canvasElement).findByRole('button', { name: /View all runs/ }),
     );
+    await expect(getRouter().replace).toHaveBeenCalledWith('/agents/code-reviewer?tab=runs', {
+      scroll: false,
+    });
   },
 };
 
@@ -192,7 +193,7 @@ export const OverviewViewAllRuns: Story = {
 const runsStory = (set: RunsData): Story => ({
   decorators: withRoutes(CODE_REVIEWER, mockOverview, runsFor(CODE_REVIEWER, set)),
   args: { initialRuns: runRowsFor(CODE_REVIEWER, set) },
-  play: openTab('Runs'),
+  parameters: atQuery({ tab: 'runs' }),
 });
 
 /** Runs from pull requests, Slack, an alert, a schedule and a person, each with its source chips and starter. */
@@ -211,7 +212,7 @@ export const RunsEmpty: Story = runsStory('empty');
 
 export const Triggers: Story = {
   decorators: withRoutes(CODE_REVIEWER),
-  play: openTab('Triggers'),
+  parameters: atQuery({ tab: 'triggers' }),
 };
 
 const RELEASE_NOTES = AGENT_TYPES[3] ?? CODE_REVIEWER;
@@ -258,9 +259,7 @@ const gradesStory = (
   extra: Partial<Story> = {},
 ): Story => ({
   decorators: withRoutes(CODE_REVIEWER, mockOverview, runsFor(CODE_REVIEWER), fleet),
-  parameters: {
-    nextjs: { appDirectory: true, navigation: { pathname: '/agents/code-reviewer', query } },
-  },
+  parameters: atQuery(query),
   ...extra,
 });
 

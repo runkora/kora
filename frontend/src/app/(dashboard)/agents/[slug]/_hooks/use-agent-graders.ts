@@ -9,30 +9,38 @@ export interface Read<T> {
   data: T | null;
   error: string | null;
   loading: boolean;
+  /** Reads again, for a retry after an error. */
+  reload: () => void;
 }
 
-/** Reads `load` while `key` is set, again when `key` changes, keeping only the latest answer. */
+/** Reads `load` while `key` is set, again when `key` changes or on reload, keeping only the latest answer. */
 function useRead<T>(
   key: string | null,
   load: () => Promise<{ data: T | null; error: string | null }>,
 ): Read<T> {
-  const [read, setRead] = useState<Read<T> & { key: string | null }>({
+  // Bumped by reload; a new attempt is a new read key, so it shows as loading.
+  const [attempt, setAttempt] = useState(0);
+  const reload = useCallback(() => setAttempt((n) => n + 1), []);
+  const readKey = key === null ? null : `${attempt}:${key}`;
+  const [read, setRead] = useState<Omit<Read<T>, 'reload'> & { key: string | null }>({
     key: null,
     data: null,
     error: null,
     loading: true,
   });
   useEffect(() => {
-    if (!key) return;
+    if (!readKey) return;
     let current = true;
     void load().then(({ data, error }) => {
-      if (current) setRead({ key, data, error, loading: false });
+      if (current) setRead({ key: readKey, data, error, loading: false });
     });
     return () => {
       current = false;
     };
-  }, [key, load]);
-  return read.key === key ? read : { data: null, error: null, loading: true };
+  }, [readKey, load]);
+  return read.key === readKey
+    ? { data: read.data, error: read.error, loading: read.loading, reload }
+    : { data: null, error: null, loading: true, reload };
 }
 
 /** The agent's Graders, failing first. */

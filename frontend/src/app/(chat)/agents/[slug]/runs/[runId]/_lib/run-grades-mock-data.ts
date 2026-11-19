@@ -86,6 +86,13 @@ const ungraded = (status: RunGrade['status'], over: Partial<RunGrade> = {}): Par
   ...over,
 });
 
+const TOO_LARGE: Partial<RunGrade> = {
+  state_cap: 0,
+  input_tokens: null,
+  cost_usd: null,
+  model_served: null,
+};
+
 /** The run's grades per state. */
 export const RUN_GRADES = {
   pass: [
@@ -109,9 +116,10 @@ export const RUN_GRADES = {
     safety({ state_cap: 2000, input_tokens: 226_400, cost_usd: 0.009 }),
   ],
   notApplicable: [outcome([], ungraded('not_applicable', { applies_p: 0.08 })), safety()],
+  // kora-agents stores a too-large grade with cap 0 and no call, so no tokens or cost.
   tooLarge: [
-    outcome([], ungraded('too_large', { applies_p: null, input_tokens: 268_000, cost_usd: 0 })),
-    safety(ungraded('too_large', { input_tokens: 268_000, cost_usd: 0 })),
+    outcome([], ungraded('too_large', { applies_p: null, ...TOO_LARGE })),
+    safety(ungraded('too_large', TOO_LARGE)),
   ],
   error: [
     outcome([], ungraded('error', { applies_p: null, input_tokens: null, cost_usd: null })),
