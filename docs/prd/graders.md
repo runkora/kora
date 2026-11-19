@@ -87,7 +87,8 @@ None at this time.
 **Acceptance Criteria:**
 
 *   [ ] A run is graded when it ends as completed, failed, budget exhausted or terminated.
-*   [ ] A run that ended on its budget is graded. Grading is paid from the tenant grading budget.
+*   [ ] A run that ended on its budget is graded.
+*   [ ] Grading is paid through its own principal. The principal has no budget of its own. The tenant ceiling bounds it.
 *   [ ] Grading cost is not part of the agent's cost.
 *   [ ] One System One call answers `appliesWhen` and every question of one Grader for one run.
 *   [ ] The grade records the input tokens, the served model and the cost.
@@ -220,7 +221,7 @@ Every string is a stored fact or a label for one. The copy uses the spec's vocab
 *   The `Grader` resource, its validation and its versions.
 *   `agent_config` on each run: a digest of the effective agent config at run start.
 *   Grading at run end, the state snapshot, the System One call and the stored grades.
-*   The tenant grading budget and the grading principal.
+*   The grading principal.
 *   Regrading on a new Grader version.
 *   Run grades in the run rail.
 *   The agent's Grades tab.
@@ -248,7 +249,7 @@ Every string is a stored fact or a label for one. The copy uses the spec's vocab
 *   A grade's `status` is `graded`, `not_applicable`, `applies_uncertain`, `too_large` or `error`. `verdict` is set when `status` is `graded`.
 *   An answer's verdict is `pass`, `fail`, `uncertain` or `skipped`. p is empty when skipped.
 *   A grade records the tool result cap it used, or none.
-*   A grade refused on the grading budget or the tenant ceiling is recorded as `error`.
+*   A grade refused on the tenant ceiling is recorded as `error`.
 *   Every view shows the count of `too_large` runs.
 *   Reading a run's grades needs permission to read the run.
 
@@ -271,9 +272,7 @@ None at this time.
 
 ## Open Questions
 
-1.  **Grading budget default:** who sets the first limit and cadence of the tenant grading budget, and whether a default applies.
-    - **Status:** Open
-    - **Owner:** Justin Wilkin
+None at this time.
 
 ---
 
