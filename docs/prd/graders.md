@@ -149,10 +149,10 @@ None at this time.
 **Acceptance Criteria:**
 
 *   [ ] The Grader page shows the Grader's status first.
-*   [ ] "What it asks" lists each question with its pass condition and a View spec link.
+*   [ ] One line under the header gives the spec: "Applies when" when set, the threshold, the model and the short version.
+*   [ ] "What it asks" lists each question with its type, pass condition, skipOn and any threshold of its own.
 *   [ ] The questions form an accordion sorted by failed plus uncertain count.
-*   [ ] A question shows its type: Yes/No, Choice or Scale.
-*   [ ] An expanded question lists every possible answer with a pass tick, marks skipOn levels "skips the question", and counts the window's runs that had each as the most likely answer.
+*   [ ] An expanded question lists every possible answer with a pass tick beside its name, marks skipOn levels "skips the question", and counts the window's runs that had each as the most likely answer.
 *   [ ] A question expands to its failed and uncertain runs: at most 5, then Show all, up to 30.
 *   [ ] "All failed runs for this question" opens the agent's Runs tab filtered by that grade.
 
