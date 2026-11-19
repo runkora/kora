@@ -24,22 +24,24 @@ func TestPostgres_SetRunAgentConfig(t *testing.T) {
 		t.Fatalf("a new run has agent_config %q, want none", *run.AgentConfig)
 	}
 
-	// A set digest is kept until it is cleared.
-	for _, step := range []struct{ set, want string }{{"first", "first"}, {"second", "first"}, {"", ""}, {"second", "second"}} {
-		if step.set == "" {
-			err = r.ClearRunAgentConfig(ctx, run.ID)
-		} else {
-			err = r.SetRunAgentConfig(ctx, run.ID, step.set)
+	// Init writes only an unset digest. Set replaces it.
+	for _, step := range []struct {
+		replace      bool
+		digest, want string
+	}{{false, "first", "first"}, {false, "second", "first"}, {true, "second", "second"}, {false, "third", "second"}} {
+		write := r.InitRunAgentConfig
+		if step.replace {
+			write = r.SetRunAgentConfig
 		}
-		if err != nil {
-			t.Fatalf("write agent_config %q: %v", step.set, err)
+		if err := write(ctx, run.ID, step.digest); err != nil {
+			t.Fatalf("write agent_config %q: %v", step.digest, err)
 		}
 		got, err := r.GetRun(ctx, run.ID)
 		if err != nil {
 			t.Fatalf("GetRun: %v", err)
 		}
-		if (step.want == "") != (got.AgentConfig == nil) || (got.AgentConfig != nil && *got.AgentConfig != step.want) {
-			t.Errorf("after %q agent_config = %v, want %q", step.set, got.AgentConfig, step.want)
+		if got.AgentConfig == nil || *got.AgentConfig != step.want {
+			t.Errorf("after %+v agent_config = %v, want %q", step, got.AgentConfig, step.want)
 		}
 	}
 	listed, err := r.ListRuns(ctx, tenant, RunListQuery{Limit: 10, Scope: RunScope{AgentTypeIDs: []string{at.ID}}})

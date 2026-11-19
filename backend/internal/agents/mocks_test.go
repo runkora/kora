@@ -575,7 +575,7 @@ func (m *mockRepository) SetRunEnvironment(_ context.Context, runID string, envi
 	return nil
 }
 
-func (m *mockRepository) SetRunAgentConfig(_ context.Context, runID, digest string) error {
+func (m *mockRepository) InitRunAgentConfig(_ context.Context, runID, digest string) error {
 	if m.setRunAgentConfigErr != nil {
 		return m.setRunAgentConfigErr
 	}
@@ -587,11 +587,11 @@ func (m *mockRepository) SetRunAgentConfig(_ context.Context, runID, digest stri
 	return nil
 }
 
-func (m *mockRepository) ClearRunAgentConfig(_ context.Context, runID string) error {
+func (m *mockRepository) SetRunAgentConfig(_ context.Context, runID, digest string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if r, ok := m.runs[runID]; ok {
-		r.AgentConfig = nil
+		r.AgentConfig = &digest
 	}
 	return nil
 }

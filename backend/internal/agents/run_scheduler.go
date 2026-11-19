@@ -154,22 +154,23 @@ func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.T
 		return
 	}
 
-	// The digest is stored before the session exists, so every run that reaches the agent carries one.
-	// An earlier attempt's digest is kept: a conflict below means that attempt's session runs.
+	// A digest is stored before the session exists, so every run that reaches the agent carries one.
+	// An earlier attempt's digest is kept until this attempt's session is created.
 	access := s.briefAccess(ctx, *at, run.ID)
-	if err := s.repo.SetRunAgentConfig(ctx, run.ID, agentConfigDigest(*at, access, runGuardrails(s.cfg.SandboxGuardrails, at.Guardrails), s.cfg.SandboxMount, s.cfg.Brand.ProductName())); err != nil {
+	digest := agentConfigDigest(*at, access, runGuardrails(s.cfg.SandboxGuardrails, at.Guardrails), s.cfg.SandboxMount, s.cfg.Brand.ProductName())
+	if err := s.repo.InitRunAgentConfig(ctx, run.ID, digest); err != nil {
 		s.releaseStart(ctx, span, run.ID, claimedAt, err)
 		return
 	}
 	podURL := sessionmanager.PodURL(at.Slug, pod, namespace)
 	err := s.sm.CreateSession(ctx, podURL, s.sessionRequest(run, *at, access))
 	switch {
-	case err == nil, errors.Is(err, sessionmanager.ErrSessionConflict):
-		// Sessions are keyed by run ID, so a conflict means an earlier attempt landed.
+	case err == nil:
+		s.recordAgentConfig(ctx, run.ID, digest)
+	case errors.Is(err, sessionmanager.ErrSessionConflict):
+		// Sessions are keyed by run ID, so a conflict means an earlier attempt landed. Its digest stays.
 	case isRetryableSessionError(err) || ctx.Err() != nil:
-		if s.closeSession(ctx, podURL, run.ID) {
-			s.clearAgentConfig(ctx, run.ID)
-		}
+		s.closeSession(ctx, podURL, run.ID)
 		s.releaseStart(ctx, span, run.ID, claimedAt, fmt.Errorf("create session on pod %d: %w", pod, err))
 		return
 	default:
@@ -184,7 +185,6 @@ func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.T
 		case errors.Is(err, ErrConflict), errors.Is(err, ErrNotFound):
 			// Terminated while the session was created.
 		case closed:
-			s.clearAgentConfig(ctx, run.ID)
 			s.releaseStart(ctx, span, run.ID, claimedAt, fmt.Errorf("set run active: %w", err))
 		default:
 			// A retry on another pod would leave two live sessions for one run.
@@ -488,10 +488,10 @@ func (s *RunService) closeSession(ctx context.Context, podURL, runID string) boo
 	return true
 }
 
-// clearAgentConfig drops the digest of an attempt whose session is gone, so the next attempt records its own.
-func (s *RunService) clearAgentConfig(ctx context.Context, runID string) {
-	if err := s.repo.ClearRunAgentConfig(context.WithoutCancel(ctx), runID); err != nil {
-		s.logger.Warn(ctx, "clear run agent config failed",
+// recordAgentConfig stores the digest of the session this attempt created. The session exists, so a failed write does not stop the start.
+func (s *RunService) recordAgentConfig(ctx context.Context, runID, digest string) {
+	if err := s.repo.SetRunAgentConfig(context.WithoutCancel(ctx), runID, digest); err != nil {
+		s.logger.Warn(ctx, "set run agent config failed",
 			logging.Field{Key: "run_id", Value: runID}, logging.Field{Key: "error", Value: err.Error()})
 	}
 }

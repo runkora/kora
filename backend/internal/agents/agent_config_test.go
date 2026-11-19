@@ -172,7 +172,7 @@ func TestStartClaimed_AgentConfigWriteFailureReleases(t *testing.T) {
 	}
 }
 
-// A retry keeps the first digest while the first attempt's session may run, and records its own once that session is closed.
+// A retry that creates its session stores its own digest. A retry that conflicts keeps the digest of the earlier session.
 func TestStartClaimed_RetryAgentConfig(t *testing.T) {
 	lost := &net.OpError{Op: "read", Net: "tcp", Err: syscall.ECONNRESET}
 	for _, tc := range []struct {
@@ -181,7 +181,8 @@ func TestStartClaimed_RetryAgentConfig(t *testing.T) {
 		second   error
 		wantNew  bool
 	}{
-		{"session closed", nil, nil, true},
+		{"new session", nil, nil, true},
+		{"close failed then new session", errors.New("pod unreachable"), nil, true},
 		{"close failed then conflict", errors.New("pod unreachable"), fmt.Errorf("%w: status 409", sessionmanager.ErrSessionConflict), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
