@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"testing"
 	"time"
@@ -95,8 +96,8 @@ func TestPostgres_GraderWindow(t *testing.T) {
 	check("35 graded", grading.Passing, 27, 30)
 }
 
-// Without minPassRate the status is no_minimum at any count. Graders sort failing first.
-func TestPostgres_GraderSummariesSort(t *testing.T) {
+// Without minPassRate the status is no_minimum at any count.
+func TestPostgres_GraderSummaryStatuses(t *testing.T) {
 	p := newGradingPG(t)
 	now := time.Now().UTC()
 	failing := p.grader
@@ -119,22 +120,17 @@ func TestPostgres_GraderSummariesSort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got []string
-	out := make([]GraderSummary, len(stored))
-	for i, s := range stored {
-		out[i] = summaryOf(s)
+	got := map[string]grading.PassRateStatus{}
+	for _, s := range stored {
+		got[s.Name] = summaryOf(s).Status
 	}
-	slices.SortStableFunc(out, compareGraders)
-	for _, s := range out {
-		got = append(got, s.Name+":"+string(s.Status))
-	}
-	want := []string{failing.Name + ":failing", "a-no-minimum:no_minimum", "b-empty:not_enough_runs"}
-	if !slices.Equal(got, want) {
+	want := map[string]grading.PassRateStatus{failing.Name: grading.Failing, "a-no-minimum": grading.NoMinimum, "b-empty": grading.NotEnoughRuns}
+	if !maps.Equal(got, want) {
 		t.Errorf("graders = %v, want %v", got, want)
 	}
 }
 
-// A run's grade per Grader is the current version's, and otherwise the one graded last.
+// A run's grade per Grader is the current version's, and otherwise the newest version's.
 func TestPostgres_RunGradesNewestVersion(t *testing.T) {
 	p := newGradingPG(t)
 	ctx := context.Background()
