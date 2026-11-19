@@ -275,8 +275,8 @@ func (r *PostgresRepository) graderModelScopes(ctx context.Context, tenantID str
 	}
 	scopes, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
 		var family, name string
-		err := row.Scan(&family, &name)
-		return modelUseScope(family, name), err
+		scanErr := row.Scan(&family, &name)
+		return modelUseScope(family, name), scanErr
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list grader models: %w", err)
