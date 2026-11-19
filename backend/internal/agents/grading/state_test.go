@@ -169,6 +169,24 @@ func TestBuildStateCapNeverCutsMessagesOrInputs(t *testing.T) {
 	}
 }
 
+// A tool_result with no payload survives capping as it survives the uncapped state.
+func TestBuildStateCapKeepsEmptyResult(t *testing.T) {
+	events := []Event{
+		{Seq: 1, Type: "tool_result"},
+		result(2, strings.Repeat("r", 6000)),
+	}
+	s, err := buildState(events, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Cap == Uncapped || s.TooLarge {
+		t.Fatalf("got cap %d too_large %v, want a capped state that fits", s.Cap, s.TooLarge)
+	}
+	if got := parseState(t, s); len(got) != 2 || got[0].Payload != nil {
+		t.Errorf("state %+v, want the empty result kept with no payload", got)
+	}
+}
+
 func TestCapResultMarker(t *testing.T) {
 	tests := []struct {
 		name        string

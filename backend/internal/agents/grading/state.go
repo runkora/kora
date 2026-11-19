@@ -147,6 +147,10 @@ func serialize(events []Event, c Cap) ([]byte, error) {
 // content_capped and content_chars, its length before the cut. Other fields,
 // including the 64 KiB truncation marker, are kept.
 func capResult(payload json.RawMessage, c Cap) (json.RawMessage, error) {
+	// An empty payload has no body to cut. The uncapped state keeps it the same way.
+	if len(payload) == 0 {
+		return payload, nil
+	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &fields); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrBadPayload, err)
