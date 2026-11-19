@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@runkora/test-utils';
 
@@ -106,10 +106,7 @@ describe('GraderPage', () => {
   it('labels each question with its type, and an open question lists its answers with counts', async () => {
     const grader = fleet.detail['summary-accurate']!;
     renderWithProviders(<GraderPage grader={grader} slug="code-reviewer" onBack={vi.fn()} />);
-    expect(screen.getAllByText('Yes/No · Passes on Yes')).toHaveLength(3);
-    expect(
-      screen.getByText('Scale · Passes on One or two sentences, Three or four sentences'),
-    ).toBeInTheDocument();
+    expect(screen.getAllByText('Yes/No · Passes on Yes')).toHaveLength(2);
     // summary-correct is open first: Yes passes on 25 runs, No on 5.
     const table = screen
       .getByText('Runs (last 30)')
@@ -123,7 +120,8 @@ describe('GraderPage', () => {
 
     await userEvent.click(screen.getByText('How long is the summary?'));
     const skip = screen.getByText('There is no summary').closest('[role="row"]') as HTMLElement;
-    expect(within(skip).getByText('skips the question')).toBeInTheDocument();
+    expect(within(skip).getByText('· skips the question', { exact: false })).toBeInTheDocument();
+    expect(within(skip).queryByLabelText('Passes')).toBeNull();
     expect(within(skip).getByText('0')).toBeInTheDocument();
   });
 
@@ -136,7 +134,7 @@ describe('GraderPage', () => {
     expect(screen.getByText('Runs (last 30)')).toBeInTheDocument();
   });
 
-  it('opens the spec from View spec by click and by keyboard', async () => {
+  it('shows the spec inline: the Grader line and each question line', () => {
     renderWithProviders(
       <GraderPage
         grader={fleet.detail['summary-accurate']!}
@@ -144,37 +142,28 @@ describe('GraderPage', () => {
         onBack={vi.fn()}
       />,
     );
-    const button = screen.getByRole('button', { name: 'View spec' });
-    await userEvent.click(button);
-    const spec = await screen.findByRole('dialog');
+    expect(screen.queryByRole('button', { name: 'View spec' })).toBeNull();
     expect(
-      within(spec).getByText('Scale · Passes on One or two sentences, Three or four sentences'),
-    ).toBeInTheDocument();
-    expect(
-      within(spec).getByText(
-        'Levels: There is no summary, One or two sentences, Three or four sentences, Five or more sentences',
-      ),
-    ).toBeInTheDocument();
-    expect(within(spec).getByText('Skips on There is no summary')).toBeInTheDocument();
-    expect(
-      within(spec).getByText(
-        'Options: A database migration, A public API change, A config change, No part is named',
+      screen.getByText(
+        'Applies when: Did the review include a summary of the change? · Threshold pass 0.7, fail 0.3 · Model typesafe/jev-1-14 · Version 5edcd13',
       ),
     ).toBeInTheDocument();
     expect(
-      within(spec).getByText('Threshold pass 0.7 · fail 0.3 · Version 5edcd13 · jev-1-14'),
+      screen.getByText(
+        'Scale · Passes on One or two sentences, Three or four sentences · Skips on There is no summary',
+      ),
     ).toBeInTheDocument();
-    await userEvent.keyboard('{Escape}');
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(
+      screen.getByText('Yes/No · Passes on Yes · Threshold pass 0.9, fail 0.1'),
+    ).toBeInTheDocument();
+  });
 
-    button.focus();
-    await userEvent.keyboard('{Enter}');
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    await userEvent.keyboard('{Escape}');
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    button.focus();
-    await userEvent.keyboard(' ');
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  it('leaves Applies when out of the Grader line when it is unset', () => {
+    renderWithProviders(
+      <GraderPage grader={fleet.detail['ci-read']!} slug="code-reviewer" onBack={vi.fn()} />,
+    );
+    expect(screen.getByText(/^Threshold pass 0.7, fail 0.3 · Model /)).toBeInTheDocument();
+    expect(screen.queryByText(/Applies when/)).toBeNull();
   });
 
   it('shows five runs and then all of them', async () => {

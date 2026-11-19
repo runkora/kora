@@ -15,11 +15,6 @@ import {
   DataTable,
   Heading,
   Icon,
-  List,
-  ListItem,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
   Stack,
   Text,
   type DataTableColumn,
@@ -150,79 +145,32 @@ function RunList({ runs, slug }: { runs: GraderFlaggedRun[]; slug: string }) {
   );
 }
 
-/** "pass 0.7 · fail 0.3". */
-const band = (t: { pass: number; fail: number }) => `pass ${t.pass} · fail ${t.fail}`;
+/** "Threshold pass 0.7, fail 0.3". */
+const band = (t: { pass: number; fail: number }) => `Threshold pass ${t.pass}, fail ${t.fail}`;
 
-/** A question's options or levels as the spec lists them, with its skipOn and threshold. */
-function SpecAnswers({ q }: { q: GraderQuestion }) {
-  const answers = q.options ?? q.levels;
-  return (
-    <>
-      {answers && (
-        <Text size="caption" color="muted">
-          {q.options ? 'Options' : 'Levels'}:{' '}
-          {answers.map((a) => a.description || a.name).join(', ')}
-        </Text>
-      )}
-      {q.skip_on?.length ? (
-        <Text size="caption" color="subtle">
-          Skips on{' '}
-          {q.skip_on.map((n) => answers?.find((a) => a.name === n)?.description || n).join(', ')}
-        </Text>
-      ) : null}
-      {q.threshold && (
-        <Text size="caption" color="subtle" tabular>
-          Threshold {band(q.threshold)}
-        </Text>
-      )}
-    </>
-  );
-}
+/** The Grader's own spec fields: appliesWhen when set, threshold, model and short version. */
+const specLine = (g: GraderDetail) =>
+  [
+    g.applies_when && `Applies when: ${g.applies_when}`,
+    band(g.threshold),
+    `Model ${g.model}`,
+    `Version ${g.version.slice(0, 7)}`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
-/** The spec's fields: `appliesWhen`, each question with its type, answers and pass condition, the threshold, version and model. */
-function SpecLink({ grader }: { grader: GraderDetail }) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm">
-          View spec
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent wide>
-        <Stack gap="cozy">
-          {grader.applies_when && (
-            <Stack gap="tight">
-              <Text size="caption" color="subtle">
-                Applies when
-              </Text>
-              <Text size="supporting">{grader.applies_when}</Text>
-            </Stack>
-          )}
-          <List gap="cozy">
-            {grader.questions.map((q) => (
-              <ListItem key={q.name}>
-                <Stack gap="tight">
-                  <Text size="caption" mono>
-                    {q.name}
-                  </Text>
-                  <Text size="supporting" color="muted">
-                    {q.question}
-                  </Text>
-                  <Text size="caption" color="subtle">
-                    {QUESTION_TYPE_LABEL[q.type]} · {passesOn(q)}
-                  </Text>
-                  <SpecAnswers q={q} />
-                </Stack>
-              </ListItem>
-            ))}
-          </List>
-          <Text size="caption" color="subtle" tabular>
-            Threshold {band(grader.threshold)} · Version {grader.version} · {grader.model}
-          </Text>
-        </Stack>
-      </PopoverContent>
-    </Popover>
-  );
+/** "Scale · Passes on …", then its skipOn and its own threshold when set. */
+function questionLine(q: GraderQuestion): string {
+  const answers = q.options ?? q.levels ?? [];
+  const skips = (q.skip_on ?? []).map((n) => answers.find((a) => a.name === n)?.description || n);
+  return [
+    QUESTION_TYPE_LABEL[q.type],
+    passesOn(q),
+    skips.length && `Skips on ${skips.join(', ')}`,
+    q.threshold && band(q.threshold),
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 const PAGE_BADGE = {
@@ -242,23 +190,29 @@ const counts = (q: GraderQuestion) =>
 function Answers({ q }: { q: GraderQuestion }) {
   const columns: DataTableColumn<GraderAnswerCount>[] = [
     {
-      id: 'answer',
-      header: 'Answer',
-      gridWidth: 'minmax(0, 1fr)',
-      cell: (a) => <Text size="supporting">{answerLabel(q, a)}</Text>,
-    },
-    {
       id: 'passes',
       header: '',
-      gridWidth: '10rem',
+      gridWidth: '1.5rem',
       cell: (a) =>
         a.passes ? (
           <Icon name="circle-check" size="sm" color="status-healthy" label="Passes" />
-        ) : a.skips ? (
-          <Text size="supporting" color="subtle">
-            skips the question
-          </Text>
         ) : null,
+    },
+    {
+      id: 'answer',
+      header: 'Answer',
+      gridWidth: 'minmax(0, 1fr)',
+      cell: (a) => (
+        <Text size="supporting">
+          {answerLabel(q, a)}
+          {a.skips && (
+            <Text as="span" size="supporting" color="subtle">
+              {' '}
+              · skips the question
+            </Text>
+          )}
+        </Text>
+      ),
     },
     {
       id: 'count',
@@ -304,7 +258,7 @@ function Questions({ grader, slug }: { grader: GraderDetail; slug: string }) {
         <Stack gap="tight" minWidth="none">
           <Text size="supporting">{q.question}</Text>
           <Text size="caption" color="subtle">
-            {QUESTION_TYPE_LABEL[q.type]} · {passesOn(q)}
+            {questionLine(q)}
           </Text>
         </Stack>
       ),
@@ -368,7 +322,6 @@ function Questions({ grader, slug }: { grader: GraderDetail; slug: string }) {
           What it asks
         </Text>
       }
-      toolbarActions={<SpecLink grader={grader} />}
     />
   );
 }
@@ -397,6 +350,9 @@ export function GraderPage({
             {grader.name}
           </Text>
         </Stack>
+        <Text size="caption" color="subtle" tabular>
+          {specLine(grader)}
+        </Text>
         {grader.status === 'not_enough_runs' ? (
           <Text size="supporting" tabular>
             {grader.graded} graded runs

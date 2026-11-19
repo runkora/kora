@@ -207,12 +207,13 @@ const yesNo = (yes: number, no: number): GraderAnswerCount[] => [
   answer('no', '', no),
 ];
 
-const SPEC = { model: 'jev-1-14', threshold: { pass: 0.7, fail: 0.3 } };
+const SPEC = { model: 'typesafe/jev-1-14', threshold: { pass: 0.7, fail: 0.3 } };
 
 const DETAILS: GraderDetail[] = [
   {
     ...SUMMARIES[2]!,
     ...SPEC,
+    applies_when: 'Did the review include a summary of the change?',
     questions: [
       {
         name: 'summary-correct',
@@ -254,6 +255,7 @@ const DETAILS: GraderDetail[] = [
         type: 'boolean',
         question: 'Does the summary mention only files in the diff?',
         expect: true,
+        threshold: { pass: 0.9, fail: 0.1 },
         answers: yesNo(29, 1),
         failed: 1,
         uncertain: 1,
