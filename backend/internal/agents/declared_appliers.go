@@ -479,7 +479,7 @@ func (a *GraderApplier) agentID(ctx context.Context, item declarative.Item, slug
 // sameGrader reports whether a stored row already holds every field of g but its id.
 func sameGrader(row, g Grader) bool {
 	rate, gRate := row.MinPassRate, g.MinPassRate
-	row.ID, row.MinPassRate, g.MinPassRate = "", nil, nil
+	row.ID, row.AgentSlug, row.MinPassRate, g.AgentSlug, g.MinPassRate = "", "", nil, "", nil
 	return row == g && (rate == nil) == (gRate == nil) && (rate == nil || *rate == *gRate)
 }
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,6 +21,8 @@ type Grader struct {
 	TenantID    string
 	Name        string
 	AgentTypeID string
+	// AgentSlug is read from the agent's row for events. Writes ignore it.
+	AgentSlug   string
 	Description string
 	// MinPassRate is a percent. Nil means the Grader has no minimum.
 	MinPassRate *int
@@ -71,8 +74,9 @@ func parseMinPassRate(s string) (*int, error) {
 	return &n, nil
 }
 
-// normalizeGrader checks the apply rules the CRD's CEL leaves to kora, and adds the none option
-// to each choice. The input spec is not changed.
+// normalizeGrader checks the apply rules the CRD's CEL leaves to kora and puts the spec in the
+// form the version hashes: each choice gets the none option, accept and skipOn are sorted sets,
+// and a question threshold equal to the Grader's is dropped. The input spec is not changed.
 func normalizeGrader(spec v1alpha1.GraderSpec) (v1alpha1.GraderSpec, error) {
 	if spec.Threshold == (v1alpha1.Threshold{}) {
 		spec.Threshold = defaultThreshold
@@ -87,6 +91,10 @@ func normalizeGrader(spec v1alpha1.GraderSpec) (v1alpha1.GraderSpec, error) {
 		nq, err := normalizeQuestion(q)
 		if err != nil {
 			return spec, fmt.Errorf("%w: question %q: %w", ErrInvalidGrader, q.Name, err)
+		}
+		// A question band equal to the Grader's judges the same, so it hashes as unset.
+		if nq.Threshold != nil && *nq.Threshold == spec.Threshold {
+			nq.Threshold = nil
 		}
 		questions[i] = nq
 	}
@@ -121,7 +129,20 @@ func normalizeQuestion(q v1alpha1.GraderQuestion) (v1alpha1.GraderQuestion, erro
 	if err != nil {
 		return q, err
 	}
-	return q, checkAnswerSets(q.Type, noun, len(names), accept, skip)
+	if err := checkAnswerSets(q.Type, noun, len(names), accept, skip); err != nil {
+		return q, err
+	}
+	// accept and skipOn are sets. Their order must not change the version.
+	q.Accept, q.SkipOn = sortedNames(accept), sortedNames(skip)
+	return q, nil
+}
+
+// sortedNames returns the names of set in order, or nil for an empty set.
+func sortedNames(set map[string]bool) []string {
+	if len(set) == 0 {
+		return nil
+	}
+	return slices.Sorted(maps.Keys(set))
 }
 
 // checkAnswerSets checks accept and skipOn against each other and against the count of answers.

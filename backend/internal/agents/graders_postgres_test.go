@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/runkora/kora/backend/internal/platform/declarative"
+	"github.com/runkora/kora/backend/internal/platform/events"
 )
 
 // A Grader upserts by tenant and name, keeps its id across a recreated resource, stores each
@@ -77,6 +78,27 @@ func TestPostgres_DeclaredGraders(t *testing.T) {
 	}
 	if err := r.DeleteGrader(ctx, tenant, "reviews"); err != nil {
 		t.Errorf("deleting a missing grader = %v", err)
+	}
+
+	// Each write records one event in its transaction, and an update lists what changed.
+	var graderEvents []events.Envelope
+	for _, e := range recorded(t, r, tenant) {
+		if e.Type.Category() == "agents.grader" {
+			graderEvents = append(graderEvents, e)
+		}
+	}
+	want := []events.Type{events.GraderCreated, events.GraderUpdated, events.GraderUpdated, events.GraderDeleted}
+	if got := eventTypes(graderEvents); !slices.Equal(got, want) {
+		t.Fatalf("grader events = %v, want %v", got, want)
+	}
+	if got := graderEvents[1].Data.Changed; !slices.Equal(got, []string{"min_pass_rate", "repository"}) {
+		t.Errorf("takeover changed = %v", got)
+	}
+	if got := graderEvents[2].Data.Changed; !slices.Equal(got, []string{"version"}) {
+		t.Errorf("new version changed = %v", got)
+	}
+	if e := graderEvents[3]; e.Subject != "graders/reviews" || e.Agent != at.Slug {
+		t.Errorf("deleted event subject %q agent %q", e.Subject, e.Agent)
 	}
 
 	// A hard-deleted agent takes its Grader with it.

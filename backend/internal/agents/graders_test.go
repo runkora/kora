@@ -151,7 +151,21 @@ func TestGraderVersion(t *testing.T) {
 	same.Description, same.MinPassRate, same.Agent = "Other words.", "50%", "other"
 	unset := base
 	unset.Threshold = v1alpha1.Threshold{}
-	for name, s := range map[string]v1alpha1.GraderSpec{"description, minPassRate and agent": same, "an unset threshold": unset} {
+	reordered := graderSpec(boolean("a"), choice("b", []string{"x", "y"}, []string{"y", "x"}, nil))
+	sorted := graderSpec(boolean("a"), choice("b", []string{"x", "y"}, []string{"x", "y"}, nil))
+	if version(reordered) != version(sorted) {
+		t.Error("reordering accept changed the version")
+	}
+	skipA := graderSpec(scale("s", []string{"n", "m", "y"}, []string{"y"}, []string{"n", "m"}))
+	skipB := graderSpec(scale("s", []string{"n", "m", "y"}, []string{"y"}, []string{"m", "n"}))
+	if version(skipA) != version(skipB) {
+		t.Error("reordering skipOn changed the version")
+	}
+	equalBand := graderSpec(boolean("a"), choice("b", []string{"x"}, []string{"x"}, nil))
+	equalBand.Questions[0].Threshold = &v1alpha1.Threshold{Pass: 0.7, Fail: 0.3}
+	for name, s := range map[string]v1alpha1.GraderSpec{
+		"description, minPassRate and agent": same, "an unset threshold": unset, "a question threshold equal to the Grader's": equalBand,
+	} {
 		if version(s) != v {
 			t.Errorf("%s changed the version", name)
 		}

@@ -37,6 +37,9 @@ const (
 	EnvironmentCreated Type = "agents.environment.created.v1"
 	EnvironmentUpdated Type = "agents.environment.updated.v1"
 	EnvironmentDeleted Type = "agents.environment.deleted.v1"
+	GraderCreated      Type = "agents.grader.created.v1"
+	GraderUpdated      Type = "agents.grader.updated.v1"
+	GraderDeleted      Type = "agents.grader.deleted.v1"
 
 	DeliveryFailed    Type = "triggers.delivery.failed.v1"
 	DeliveryDenied    Type = "triggers.delivery.denied.v1"
@@ -105,6 +108,9 @@ var catalog = map[Type]entry{
 	EnvironmentCreated: {kind[EnvironmentPayload](), "An environment was created."},
 	EnvironmentUpdated: {kind[EnvironmentPayload](), "An environment was changed."},
 	EnvironmentDeleted: {kind[EnvironmentPayload](), "An environment was deleted."},
+	GraderCreated:      {kind[GraderPayload](), "A Grader was created."},
+	GraderUpdated:      {kind[GraderPayload](), "A Grader was changed."},
+	GraderDeleted:      {kind[GraderPayload](), "A Grader was deleted."},
 
 	DeliveryFailed:    {kind[DeliveryPayload](), "A fire could not start its run."},
 	DeliveryDenied:    {kind[DeliveryPayload](), "A fire was refused for lack of permission."},
