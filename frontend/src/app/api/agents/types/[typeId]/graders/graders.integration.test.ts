@@ -139,4 +139,9 @@ describe('GET /api/agents/types/{typeId}/graders/{name}', () => {
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ code: 'resource_not_found', message: 'grader not found' });
   });
+
+  it('returns 401 without a valid session', async () => {
+    vi.mocked(isSessionValid).mockReturnValue(false);
+    expect((await detail('at-1', 'review-outcome')).status).toBe(401);
+  });
 });

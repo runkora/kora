@@ -75,14 +75,14 @@ function Footnote({ grades }: { grades: RunGrade[] }) {
   );
 }
 
-/** One rail line per question: verdict icon, name, p. The question text is on hover. */
+/** One rail line per question: verdict icon, name, p. The question text is on hover or focus. */
 function RailQuestion({ a }: { a: GradeAnswer }) {
   const icon = VERDICT_ICON[a.verdict];
   return (
     <Stack gap="tight">
       <Tooltip>
         <TooltipTrigger asChild>
-          <Stack direction="horizontal" align="center" justify="between" gap="snug">
+          <Stack direction="horizontal" align="center" justify="between" gap="snug" tabIndex={0}>
             <Stack direction="horizontal" align="center" gap="snug" minWidth="none">
               <Icon name={icon.name} size="xs" color={icon.color} label={a.verdict} />
               <Text size="supporting" mono truncate>

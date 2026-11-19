@@ -15,19 +15,23 @@ export type RunGrades = { ended: true; grades: RunGrade[] } | { ended: false; gr
 
 /**
  * The run's grades once it has ended. Before then the API has none, so the rail names the agent's
- * Graders instead. A failed read shows nothing.
+ * Graders instead. `ended` is null while the run's state is unknown. A failed read shows nothing.
  */
 export function useRunGrades(
   runId: string,
   agentTypeId: string | undefined,
-  ended: boolean,
+  ended: boolean | null,
 ): RunGrades | null {
   const [read, setRead] = useState<{ runId: string; grades: RunGrade[] } | null>(null);
   // Set once the page has seen the run live; grading finishes after the run ends.
   const sawLive = useRef(false);
   useEffect(() => {
-    if (!ended) sawLive.current = true;
+    if (ended === false) sawLive.current = true;
   }, [ended]);
+  const graders = useAgentGraders(agentTypeId);
+  // The Graders a run that ended on the page waits on. Null until the list is read.
+  const graderNames = useRef<string[] | null>(null);
+  graderNames.current = graders.data ? graders.data.map((g) => g.name) : null;
   useEffect(() => {
     if (!ended) return;
     let current = true;
@@ -37,9 +41,12 @@ export function useRunGrades(
       void fetchPeriodRead<RunGradesResponse>(ApiRoute.runs.grades(runId)).then(({ data }) => {
         if (!current) return;
         if (data) setRead({ runId, grades: data.grades });
-        // A run that ended on this page reads again until its first grade lands.
-        if (sawLive.current && !data?.grades.length && ++tries < RETRIES)
-          timer = setTimeout(load, RETRY_MS);
+        // A run that ended on this page reads again until every Grader has a grade.
+        const graded = new Set(data?.grades.map((g) => g.grader));
+        const waiting = graderNames.current
+          ? graderNames.current.some((name) => !graded.has(name))
+          : graded.size === 0;
+        if (sawLive.current && waiting && ++tries < RETRIES) timer = setTimeout(load, RETRY_MS);
       });
     load();
     return () => {
@@ -47,7 +54,6 @@ export function useRunGrades(
       clearTimeout(timer);
     };
   }, [runId, ended]);
-  const graders = useAgentGraders(ended ? undefined : agentTypeId);
   if (ended) return read?.runId === runId ? { ended: true, grades: read.grades } : null;
   return graders.data ? { ended: false, graders: graders.data.map((g) => g.name) } : null;
 }

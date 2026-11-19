@@ -279,7 +279,11 @@ function Spend({ run }: { run: RunView }) {
 /** The run's grades, read once it has ended. */
 function Grades({ run }: { run: RunView }) {
   const ctx = useRunContext();
-  const grades = useRunGrades(run.id, ctx.agentType?.id, ENDED.has(ctx.runState ?? 'pending'));
+  const grades = useRunGrades(
+    run.id,
+    ctx.agentType?.id,
+    ctx.runState === null ? null : ENDED.has(ctx.runState),
+  );
   return <RailGrades grades={grades} />;
 }
 
