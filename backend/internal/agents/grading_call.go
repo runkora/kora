@@ -44,16 +44,6 @@ func thresholdless(v graderVersion) ([]byte, error) {
 // modelName is the version's model as the catalog names it.
 func (v graderVersion) modelName() string { return v.Model.Family + "/" + v.Model.Name }
 
-// find returns the named question, or nil.
-func (v graderVersion) find(name string) *v1alpha1.GraderQuestion {
-	for i := range v.Questions {
-		if v.Questions[i].Name == name {
-			return &v.Questions[i]
-		}
-	}
-	return nil
-}
-
 // gradingSpec is the version in the form grading.Score reads.
 func (v graderVersion) gradingSpec() grading.GraderSpec {
 	spec := grading.GraderSpec{

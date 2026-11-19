@@ -47,11 +47,13 @@ func testGraderVersion(t *testing.T) graderVersion {
 // question is the named question of v, for a test to change.
 func (v graderVersion) question(t *testing.T, name string) *v1alpha1.GraderQuestion {
 	t.Helper()
-	q := v.find(name)
-	if q == nil {
-		t.Fatalf("no question %q", name)
+	for i := range v.Questions {
+		if v.Questions[i].Name == name {
+			return &v.Questions[i]
+		}
 	}
-	return q
+	t.Fatalf("no question %q", name)
+	return nil
 }
 
 // Each question type maps to its System One type: boolean to noul, choice to choice with each
