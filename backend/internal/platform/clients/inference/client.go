@@ -27,9 +27,9 @@ import (
 
 const tracerName = "github.com/runkora/kora/backend/internal/platform/clients/inference"
 
-// DefaultTimeout bounds a call made through NewClient. Routing a trigger
+// defaultTimeout bounds a call made through NewClient. Routing a trigger
 // delivery needs a quick answer.
-const DefaultTimeout = 15 * time.Second
+const defaultTimeout = 15 * time.Second
 
 // CodeBudgetNotReached is the gateway's 404 code for a run whose ceilings are all below their limits.
 const CodeBudgetNotReached = "budget_not_reached"
@@ -44,12 +44,14 @@ const (
 	QuestionTypeScore = "score"
 )
 
-// Headers of a System One call. The gateway reads headerDecisionTimeout and
-// sets the other two on its answer.
+// Headers of a System One call, shared with the gateway.
 const (
-	headerDecisionTimeout = "X-Kora-Decision-Timeout"
-	headerUsageID         = "X-Kora-Usage-Id"
-	headerCostUSD         = "X-Kora-Cost-USD"
+	// HeaderDecisionTimeout raises the gateway's per-attempt timeout, in whole seconds, up to its configured maximum.
+	HeaderDecisionTimeout = "X-Kora-Decision-Timeout"
+	// HeaderUsageID ties an answer to its usage row. The body is the upstream's, so this travels as a header.
+	HeaderUsageID = "X-Kora-Usage-Id"
+	// HeaderCostUSD is the answer's cost. It is absent when the model has no price, so absence means unknown.
+	HeaderCostUSD = "X-Kora-Cost-USD"
 )
 
 // errBothCriteria is returned when a question sets both Criteria and Levels.
@@ -84,14 +86,14 @@ type Client struct {
 
 // NewClient creates a Client targeting the inference gateway base URL,
 // e.g. "http://kora-inference-gateway.kora-system.svc.cluster.local", with
-// DefaultTimeout. The returned client is safe for concurrent use and should be
+// defaultTimeout. The returned client is safe for concurrent use and should be
 // shared across calls.
 func NewClient(baseURL string, logger logging.Logger) *Client {
-	return NewClientWithTimeout(baseURL, logger, DefaultTimeout)
+	return NewClientWithTimeout(baseURL, logger, defaultTimeout)
 }
 
 // NewClientWithTimeout is NewClient with its own bound on each call. A call
-// over a large state needs longer than DefaultTimeout.
+// over a large state needs longer than defaultTimeout.
 func NewClientWithTimeout(baseURL string, logger logging.Logger, timeout time.Duration) *Client {
 	return &Client{
 		Base:    httpclient.New(tracerName, logger, timeout),
@@ -230,15 +232,15 @@ func systemOneHeader(bearer string, timeout time.Duration) http.Header {
 	header.Set("Authorization", "Bearer "+bearer)
 	if timeout > 0 {
 		secs := int64((timeout + time.Second - 1) / time.Second)
-		header.Set(headerDecisionTimeout, strconv.FormatInt(secs, 10))
+		header.Set(HeaderDecisionTimeout, strconv.FormatInt(secs, 10))
 	}
 	return header
 }
 
 // readUsageHeaders copies the usage row's id and cost from the gateway's headers.
 func (c *Client) readUsageHeaders(ctx context.Context, resp *http.Response, out *SystemOneResponse) {
-	out.UsageID = resp.Header.Get(headerUsageID)
-	cost := resp.Header.Get(headerCostUSD)
+	out.UsageID = resp.Header.Get(HeaderUsageID)
+	cost := resp.Header.Get(HeaderCostUSD)
 	if cost == "" {
 		return
 	}

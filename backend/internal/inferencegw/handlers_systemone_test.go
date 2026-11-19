@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/runkora/kora/backend/internal/platform/clients/inference"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
@@ -248,20 +249,20 @@ func TestHandleSystemOne(t *testing.T) {
 				if row.PriceUnknown != tt.wantUnknown {
 					t.Errorf("price_unknown = %v, want %v", row.PriceUnknown, tt.wantUnknown)
 				}
-				if got := rec.Header().Get(headerUsageID); got == "" || got != row.ID {
-					t.Errorf("%s = %q, want the row id %q", headerUsageID, got, row.ID)
+				if got := rec.Header().Get(inference.HeaderUsageID); got == "" || got != row.ID {
+					t.Errorf("%s = %q, want the row id %q", inference.HeaderUsageID, got, row.ID)
 				}
-				_, hasCost := rec.Header()[headerCostUSD]
-				if got := rec.Header().Get(headerCostUSD); tt.wantUnknown && hasCost {
-					t.Errorf("%s = %q, want no header for an unpriced model", headerCostUSD, got)
+				_, hasCost := rec.Header()[inference.HeaderCostUSD]
+				if got := rec.Header().Get(inference.HeaderCostUSD); tt.wantUnknown && hasCost {
+					t.Errorf("%s = %q, want no header for an unpriced model", inference.HeaderCostUSD, got)
 				} else if !tt.wantUnknown && got != strconv.FormatFloat(row.EstimatedCostUSD, 'f', 10, 64) {
-					t.Errorf("%s = %q, want the row cost %v", headerCostUSD, got, row.EstimatedCostUSD)
+					t.Errorf("%s = %q, want the row cost %v", inference.HeaderCostUSD, got, row.EstimatedCostUSD)
 				}
 			} else {
 				if row.ErrorCode == nil || *row.ErrorCode != tt.wantErrCode {
 					t.Errorf("error code = %v, want %s", row.ErrorCode, tt.wantErrCode)
 				}
-				if rec.Header().Get(headerUsageID) != "" || rec.Header().Get(headerCostUSD) != "" {
+				if rec.Header().Get(inference.HeaderUsageID) != "" || rec.Header().Get(inference.HeaderCostUSD) != "" {
 					t.Errorf("usage headers on a failure: %v", rec.Header())
 				}
 			}
@@ -292,7 +293,7 @@ func TestHandleSystemOne_DecisionTimeoutHeader(t *testing.T) {
 				decisionModel(VirtualModelRoute{Provider: "typesafe", ModelID: "jev-latest"}), nil)
 			header := http.Header{}
 			if tt.value != nil {
-				header[headerDecisionTimeout] = tt.value
+				header[inference.HeaderDecisionTimeout] = tt.value
 			}
 			rec := env.postWithHeader(systemOneBody, header)
 
@@ -300,7 +301,7 @@ func TestHandleSystemOne_DecisionTimeoutHeader(t *testing.T) {
 				t.Fatalf("status = %d, want %d: %s", rec.Code, tt.wantStatus, rec.Body)
 			}
 			if tt.wantStatus != 200 {
-				if len(stub.calls) != 0 || !strings.Contains(rec.Body.String(), headerDecisionTimeout) {
+				if len(stub.calls) != 0 || !strings.Contains(rec.Body.String(), inference.HeaderDecisionTimeout) {
 					t.Errorf("calls = %d, body = %s", len(stub.calls), rec.Body)
 				}
 				return
@@ -324,11 +325,11 @@ func TestHandleSystemOne_UnwrittenUsageRowHasNoID(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
 	}
-	if got := rec.Header().Get(headerUsageID); got != "" {
-		t.Errorf("%s = %q, want none without a row", headerUsageID, got)
+	if got := rec.Header().Get(inference.HeaderUsageID); got != "" {
+		t.Errorf("%s = %q, want none without a row", inference.HeaderUsageID, got)
 	}
-	if got := rec.Header().Get(headerCostUSD); got != "0.0420000000" {
-		t.Errorf("%s = %q, want 0.0420000000", headerCostUSD, got)
+	if got := rec.Header().Get(inference.HeaderCostUSD); got != "0.0420000000" {
+		t.Errorf("%s = %q, want 0.0420000000", inference.HeaderCostUSD, got)
 	}
 }
 
