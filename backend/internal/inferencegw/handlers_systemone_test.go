@@ -251,7 +251,10 @@ func TestHandleSystemOne(t *testing.T) {
 				if got := rec.Header().Get(headerUsageID); got == "" || got != row.ID {
 					t.Errorf("%s = %q, want the row id %q", headerUsageID, got, row.ID)
 				}
-				if got := rec.Header().Get(headerCostUSD); got != strconv.FormatFloat(row.EstimatedCostUSD, 'f', 10, 64) {
+				_, hasCost := rec.Header()[headerCostUSD]
+				if got := rec.Header().Get(headerCostUSD); tt.wantUnknown && hasCost {
+					t.Errorf("%s = %q, want no header for an unpriced model", headerCostUSD, got)
+				} else if !tt.wantUnknown && got != strconv.FormatFloat(row.EstimatedCostUSD, 'f', 10, 64) {
 					t.Errorf("%s = %q, want the row cost %v", headerCostUSD, got, row.EstimatedCostUSD)
 				}
 			} else {

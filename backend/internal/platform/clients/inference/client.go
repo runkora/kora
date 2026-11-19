@@ -145,6 +145,7 @@ func (q Question) MarshalJSON() ([]byte, error) {
 
 // SystemOneResponse is the decision model's answer, passed through by the
 // gateway. UsageID and CostUSD come from the gateway's response headers.
+// CostUSD is nil when the gateway sent no cost, which means the model has no price.
 // UsageID names the inference_usage row and is empty when the gateway could
 // not write it.
 type SystemOneResponse struct {
@@ -152,7 +153,7 @@ type SystemOneResponse struct {
 	Answers map[string]Answer `json:"answers"`
 	Usage   Usage             `json:"usage"`
 	UsageID string            `json:"-"`
-	CostUSD float64           `json:"-"`
+	CostUSD *float64          `json:"-"`
 }
 
 // Answer is the answer to one question.
@@ -242,10 +243,11 @@ func readUsageHeaders(resp *http.Response, out *SystemOneResponse) error {
 	if cost == "" {
 		return nil
 	}
-	var err error
-	if out.CostUSD, err = strconv.ParseFloat(cost, 64); err != nil {
+	v, err := strconv.ParseFloat(cost, 64)
+	if err != nil {
 		return fmt.Errorf("parse %s: %w", headerCostUSD, err)
 	}
+	out.CostUSD = &v
 	return nil
 }
 

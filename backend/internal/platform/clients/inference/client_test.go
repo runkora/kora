@@ -131,7 +131,7 @@ func TestSystemOne_NoulAndScore(t *testing.T) {
 	if a.Type != QuestionTypeScore || a.Score != 2.13 || a.Confidence != 0.8 || a.Probabilities["2"] != 0.85 || a.Legend["0"] != "One round" {
 		t.Errorf("score answer = %+v", a)
 	}
-	if out.UsageID != "5d0c8e0e-0000-4000-8000-000000000001" || out.CostUSD != 0.001250214 {
+	if out.UsageID != "5d0c8e0e-0000-4000-8000-000000000001" || out.CostUSD == nil || *out.CostUSD != 0.001250214 {
 		t.Errorf("usage id = %q, cost = %v", out.UsageID, out.CostUSD)
 	}
 }
@@ -162,11 +162,23 @@ func TestSystemOne_DecisionTimeoutHeader(t *testing.T) {
 	}
 }
 
-func TestSystemOne_WithoutUsageHeaders(t *testing.T) {
+func TestSystemOne_NoCostHeaderIsUnknownCost(t *testing.T) {
 	srv, _ := newTestServer(t, http.StatusOK, `{"answers":{}}`)
 	out, err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).SystemOne(context.Background(), "tok", routingRequest())
-	if err != nil || out.UsageID != "" || out.CostUSD != 0 {
+	if err != nil || out.UsageID != "" || out.CostUSD != nil {
 		t.Errorf("out = %+v, err = %v", out, err)
+	}
+}
+
+func TestSystemOne_ZeroCostIsKnown(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Kora-Cost-USD", "0.0000000000")
+		_, _ = io.WriteString(w, `{"answers":{}}`)
+	}))
+	t.Cleanup(srv.Close)
+	out, err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).SystemOne(context.Background(), "tok", routingRequest())
+	if err != nil || out.CostUSD == nil || *out.CostUSD != 0 {
+		t.Errorf("cost = %v, err = %v, want a known zero", out.CostUSD, err)
 	}
 }
 

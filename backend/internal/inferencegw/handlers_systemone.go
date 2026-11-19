@@ -20,7 +20,8 @@ import (
 const systemOneMaxBody = 10 << 20
 
 // Response headers that tie a System One answer to its usage row. They are
-// headers because the body is the upstream's, passed through unchanged.
+// headers because the body is the upstream's, passed through unchanged. The
+// cost header is absent when the model has no price, so absence means unknown.
 const (
 	headerUsageID = "X-Kora-Usage-Id"
 	headerCostUSD = "X-Kora-Cost-USD"
@@ -84,8 +85,10 @@ func (c *Controller) handleSystemOne(w http.ResponseWriter, r *http.Request) {
 	if result.UsageID != "" {
 		w.Header().Set(headerUsageID, result.UsageID)
 	}
-	// Ten decimals, the scale of inference_usage.estimated_cost_usd.
-	w.Header().Set(headerCostUSD, strconv.FormatFloat(result.CostUSD, 'f', 10, 64))
+	if result.CostUSD != nil {
+		// Ten decimals, the scale of inference_usage.estimated_cost_usd.
+		w.Header().Set(headerCostUSD, strconv.FormatFloat(*result.CostUSD, 'f', 10, 64))
+	}
 	if _, err := w.Write(result.Body); err != nil {
 		c.logger.Error(ctx, "failed to write systemone response",
 			logging.Field{Key: "error", Value: err.Error()},

@@ -1975,7 +1975,9 @@ func (s *Service) SystemOne(ctx context.Context, model string, body []byte, time
 		CreatedAt:                    start.UTC(),
 	}
 
-	result.CostUSD = rec.EstimatedCostUSD
+	if !rec.PriceUnknown {
+		result.CostUSD = &rec.EstimatedCostUSD
+	}
 	if writeErr := s.writeUsage(ctx, rec); writeErr != nil {
 		s.logger.Error(ctx, "failed to write inference usage record",
 			logging.Field{Key: "error", Value: writeErr.Error()},

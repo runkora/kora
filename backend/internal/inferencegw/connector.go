@@ -94,14 +94,15 @@ type SystemOneRequest struct {
 // SystemOneResult is a successful System One response. Body is the upstream
 // body unchanged. The token counts come from its usage object and are zero
 // when the upstream sends none. The service sets CostUSD to the call's
-// estimated cost, and UsageID to the usage row's ID once the row is written.
+// estimated cost, nil when the model has no price, and UsageID to the usage
+// row's ID once the row is written.
 type SystemOneResult struct {
 	Body         []byte
 	StatusCode   int
 	InputTokens  int64
 	OutputTokens int64
 	UsageID      string
-	CostUSD      float64
+	CostUSD      *float64
 }
 
 // SystemOneConnector is the System One decision surface of a provider. It is
