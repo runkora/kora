@@ -156,7 +156,7 @@ func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.T
 
 	// The digest is stored before the session exists, so every run that reaches the agent carries one.
 	access := s.briefAccess(ctx, *at, run.ID)
-	if err := s.repo.SetRunAgentConfig(ctx, run.ID, agentConfigDigest(*at, access, s.cfg.SandboxMount, s.cfg.Brand.ProductName())); err != nil {
+	if err := s.repo.SetRunAgentConfig(ctx, run.ID, agentConfigDigest(*at, access, runGuardrails(s.cfg.SandboxGuardrails, at.Guardrails), s.cfg.SandboxMount, s.cfg.Brand.ProductName())); err != nil {
 		s.releaseStart(ctx, span, run.ID, claimedAt, err)
 		return
 	}

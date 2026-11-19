@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+
+	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 )
 
 // agentConfig is the effective agent config a run starts with, in canonical form for agentConfigDigest.
@@ -16,6 +18,7 @@ type agentConfig struct {
 	Environments []AgentEnvironment `json:"environments"`
 	Framework    string             `json:"framework"`
 	GrantScopes  []string           `json:"grant_scopes"`
+	Guardrails   map[string]int     `json:"guardrails"`
 	MCPTools     []string           `json:"mcp_tools"`
 	Model        string             `json:"model"`
 	Skills       []string           `json:"skills"`
@@ -34,8 +37,9 @@ type agentConfigBrief struct {
 
 // agentConfigDigest is the sha256 hex of the config a run of at starts with (docs/adr/2026-11-19-graders.md).
 // It hashes the brief's inputs and not the rendered brief, which names the run's workspace dir.
-// A nil access means the run starts without the brief. Skills stay empty until skills attach to agents.
-func agentConfigDigest(at AgentType, access *EffectiveAccess, sandboxMount bool, product string) string {
+// A nil access means the run starts without the brief. Guardrails are the ones the session request sends.
+// Skills stay empty until skills attach to agents.
+func agentConfigDigest(at AgentType, access *EffectiveAccess, guardrails sessionmanager.RunGuardrails, sandboxMount bool, product string) string {
 	envs := append([]AgentEnvironment{}, at.Environments...)
 	slices.SortStableFunc(envs, func(a, b AgentEnvironment) int { return strings.Compare(a.EnvironmentID, b.EnvironmentID) })
 	cfg := agentConfig{
@@ -43,6 +47,16 @@ func agentConfigDigest(at AgentType, access *EffectiveAccess, sandboxMount bool,
 		Environments: envs,
 		Framework:    string(at.Framework),
 		GrantScopes:  sortedStrings(at.EffectiveGrantScopes()),
+		// A map encodes with sorted keys.
+		Guardrails: map[string]int{
+			"repeated_call_pause":            guardrails.RepeatedCallPause,
+			"repeated_call_warn":             guardrails.RepeatedCallWarn,
+			"sandbox_provision_attempts":     guardrails.SandboxProvisionAttempts,
+			"sandbox_provision_backoff_secs": guardrails.SandboxProvisionBackoffSecs,
+			"sandbox_provision_budget_secs":  guardrails.SandboxProvisionBudgetSecs,
+			"wait_rearm_pause":               guardrails.WaitRearmPause,
+			"wait_rearm_warn":                guardrails.WaitRearmWarn,
+		},
 		MCPTools:     sortedStrings(at.MCPTools),
 		Skills:       []string{},
 		SystemPrompt: at.SystemPrompt,

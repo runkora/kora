@@ -5,6 +5,8 @@ import (
 	"errors"
 	"regexp"
 	"testing"
+
+	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 )
 
 func digestAgent() AgentType {
@@ -29,12 +31,17 @@ func digestAccess() *EffectiveAccess {
 	}
 }
 
+// digestGuardrails resolves at's guardrails as the session request does, with fixed sandbox settings.
+func digestGuardrails(at AgentType) sessionmanager.RunGuardrails {
+	return runGuardrails(SandboxGuardrails{ProvisionAttempts: 3}, at.Guardrails)
+}
+
 func TestAgentConfigDigest_StableAndOrderFree(t *testing.T) {
-	want := agentConfigDigest(digestAgent(), digestAccess(), true, "Kora")
+	want := agentConfigDigest(digestAgent(), digestAccess(), digestGuardrails(digestAgent()), true, "Kora")
 	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(want) {
 		t.Fatalf("digest %q is not sha256 hex", want)
 	}
-	if got := agentConfigDigest(digestAgent(), digestAccess(), true, "Kora"); got != want {
+	if got := agentConfigDigest(digestAgent(), digestAccess(), digestGuardrails(digestAgent()), true, "Kora"); got != want {
 		t.Errorf("the same config hashed to %s and %s", want, got)
 	}
 
@@ -46,13 +53,13 @@ func TestAgentConfigDigest_StableAndOrderFree(t *testing.T) {
 	at.Environments = []AgentEnvironment{{EnvironmentID: "env-a", IsDefault: true}, {EnvironmentID: "env-b"}}
 	access.Hosts = []string{"a.example.com", "b.example.com"}
 	access.ConnectorEgress[0].Hosts = []string{"api.github.com", "github.com"}
-	if got := agentConfigDigest(at, access, true, "Kora"); got != want {
+	if got := agentConfigDigest(at, access, digestGuardrails(at), true, "Kora"); got != want {
 		t.Errorf("reordered lists changed the digest")
 	}
 }
 
 func TestAgentConfigDigest_ChangesWithEachInput(t *testing.T) {
-	base := agentConfigDigest(digestAgent(), digestAccess(), true, "Kora")
+	base := agentConfigDigest(digestAgent(), digestAccess(), digestGuardrails(digestAgent()), true, "Kora")
 	other := "kora/opus"
 	for _, tc := range []struct {
 		name   string
@@ -80,6 +87,10 @@ func TestAgentConfigDigest_ChangesWithEachInput(t *testing.T) {
 		{"default environment", func(at *AgentType, _ **EffectiveAccess, _ *bool, _ *string) {
 			at.Environments[0].IsDefault, at.Environments[1].IsDefault = true, false
 		}},
+		{"guardrails", func(at *AgentType, _ **EffectiveAccess, _ *bool, _ *string) {
+			warn := DefaultRepeatedCallWarn + 1
+			at.Guardrails.RepeatedCallWarn = &warn
+		}},
 		{"no brief", func(_ *AgentType, access **EffectiveAccess, _ *bool, _ *string) { *access = nil }},
 		{"brief hosts", func(_ *AgentType, access **EffectiveAccess, _ *bool, _ *string) {
 			(*access).Hosts = []string{"a.example.com"}
@@ -97,7 +108,7 @@ func TestAgentConfigDigest_ChangesWithEachInput(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			at, access, mount, product := digestAgent(), digestAccess(), true, "Kora"
 			tc.change(&at, &access, &mount, &product)
-			if agentConfigDigest(at, access, mount, product) == base {
+			if agentConfigDigest(at, access, digestGuardrails(at), mount, product) == base {
 				t.Errorf("changing the %s kept the digest", tc.name)
 			}
 		})
@@ -106,10 +117,10 @@ func TestAgentConfigDigest_ChangesWithEachInput(t *testing.T) {
 
 // Fields that are not config, like the agent's name or state, do not move the digest.
 func TestAgentConfigDigest_IgnoresNonConfigFields(t *testing.T) {
-	base := agentConfigDigest(digestAgent(), digestAccess(), true, "Kora")
+	base := agentConfigDigest(digestAgent(), digestAccess(), digestGuardrails(digestAgent()), true, "Kora")
 	at := digestAgent()
 	at.Name, at.Description, at.State, at.MaxConcurrentRuns = "Renamed", "New text", AgentTypeStateProvisioning, 9
-	if agentConfigDigest(at, digestAccess(), true, "Kora") != base {
+	if agentConfigDigest(at, digestAccess(), digestGuardrails(at), true, "Kora") != base {
 		t.Error("a non-config field changed the digest")
 	}
 }
