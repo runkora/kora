@@ -121,20 +121,25 @@ func normalizeQuestion(q v1alpha1.GraderQuestion) (v1alpha1.GraderQuestion, erro
 	if err != nil {
 		return q, err
 	}
+	return q, checkAnswerSets(q.Type, noun, len(names), accept, skip)
+}
+
+// checkAnswerSets checks accept and skipOn against each other and against the count of answers.
+func checkAnswerSets(qType, noun string, answers int, accept, skip map[string]bool) error {
 	for name := range accept {
 		if skip[name] {
-			return q, fmt.Errorf("%q is in both accept and skipOn", name)
+			return fmt.Errorf("%q is in both accept and skipOn", name)
 		}
 	}
 	switch {
-	case len(skip) == len(names):
-		return q, fmt.Errorf("skipOn lists every %s", noun)
-	case q.Type == "scale" && len(skip) == 0:
-		return q, errors.New("a scale needs a level for runs where the question has no subject, listed in skipOn")
-	case q.Type == "choice" && len(accept) == len(names):
-		return q, errors.New("accept lists every option, including none")
+	case len(skip) == answers:
+		return fmt.Errorf("skipOn lists every %s", noun)
+	case qType == "scale" && len(skip) == 0:
+		return errors.New("a scale needs a level for runs where the question has no subject, listed in skipOn")
+	case qType == "choice" && len(accept) == answers:
+		return errors.New("accept lists every option, including none")
 	}
-	return q, nil
+	return nil
 }
 
 // answerSet returns the distinct names of list, each of which must name an option or level.
