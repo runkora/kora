@@ -17,6 +17,7 @@ cmd/inference-gateway:
     policyServiceURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-policy-service") | toJson }}
   providers:
     namespace: {{ include "kora.systemNamespace" . | toJson }}
+    maxDecisionTimeoutSecs: {{ .Values.inferenceGateway.maxDecisionTimeoutSecs }}
   catalog:
     apiAuthoring: {{ .Values.inferenceGateway.catalog.apiAuthoring }}
 {{ include "kora.observabilityConfigModule" . }}

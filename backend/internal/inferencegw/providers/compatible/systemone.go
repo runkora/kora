@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/runkora/kora/backend/internal/inferencegw"
 	"github.com/runkora/kora/backend/internal/inferencegw/providers/convert"
@@ -63,12 +64,15 @@ func (c *Connector) SystemOne(ctx context.Context, req inferencegw.SystemOneRequ
 		header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 
-	_, span, resp, err := c.decide.Do(ctx, httpclient.Request{
+	timeout := c.decisionTimeout(req.Timeout)
+	attemptCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	_, span, resp, err := c.decide.Do(attemptCtx, httpclient.Request{
 		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/systemone", Header: header, Body: bytes.NewReader(body),
 	})
 	defer span.End()
 	if err != nil {
-		return nil, c.transportError(ctx, err)
+		return nil, c.transportError(ctx, err, timeout)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -85,7 +89,7 @@ func (c *Connector) SystemOne(ctx context.Context, req inferencegw.SystemOneRequ
 	out, err := io.ReadAll(io.LimitReader(resp.Body, maxSystemOneBody))
 	if err != nil {
 		observability.RecordFailure(span, fmt.Errorf("%w: %w", errSystemOneReadBody, err), errSystemOneReadBody)
-		return nil, c.transportError(ctx, err)
+		return nil, c.transportError(ctx, err, timeout)
 	}
 	if len(out) >= maxSystemOneBody {
 		observability.RecordFailure(span, errSystemOneTooLarge, errSystemOneTooLarge)
@@ -100,19 +104,28 @@ func (c *Connector) SystemOne(ctx context.Context, req inferencegw.SystemOneRequ
 	return &inferencegw.SystemOneResult{Body: out, StatusCode: resp.StatusCode, InputTokens: in, OutputTokens: outTokens}, nil
 }
 
+// decisionTimeout is the attempt's deadline: the request's own timeout capped
+// at maxDecisionTimeout, or defaultDecisionTimeout when it sets none.
+func (c *Connector) decisionTimeout(requested time.Duration) time.Duration {
+	if requested <= 0 {
+		return defaultDecisionTimeout
+	}
+	return min(requested, c.maxDecisionTimeout)
+}
+
 // transportError classifies a failure to complete the request. When the
 // caller's context is still live, a deadline is the decision timeout firing:
 // the upstream was too slow, so it is a retryable provider error. A cancelled
 // caller, or any other failure, keeps the shared classification.
-func (c *Connector) transportError(ctx context.Context, err error) error {
+func (c *Connector) transportError(ctx context.Context, err error, timeout time.Duration) error {
 	var netErr net.Error
 	if ctx.Err() == nil && (errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout())) {
 		return &inferencegw.ConnectorError{
 			Provider:        c.name,
 			Code:            "PROVIDER_ERROR",
 			Retryable:       true,
-			Underlying:      fmt.Errorf("no response within %s: %w", decisionTimeout, err),
-			ProviderMessage: fmt.Sprintf("provider %s did not answer within %s", c.name, decisionTimeout),
+			Underlying:      fmt.Errorf("no response within %s: %w", timeout, err),
+			ProviderMessage: fmt.Sprintf("provider %s did not answer within %s", c.name, timeout),
 		}
 	}
 	return convert.MapOpenAIError(c.name, err)

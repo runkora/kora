@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/policy"
@@ -79,7 +82,12 @@ func newSystemOneEnv(t *testing.T, eval policy.Evaluator, conns map[ProviderName
 }
 
 func (e systemOneEnv) post(body string) *httptest.ResponseRecorder {
+	return e.postWithHeader(body, nil)
+}
+
+func (e systemOneEnv) postWithHeader(body string, header http.Header) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/systemone", strings.NewReader(body))
+	maps.Copy(req.Header, header)
 	req = req.WithContext(token.WithClaims(req.Context(), testClaims("tenant-1")))
 	rec := httptest.NewRecorder()
 	e.handler(rec, req)
@@ -240,10 +248,84 @@ func TestHandleSystemOne(t *testing.T) {
 				if row.PriceUnknown != tt.wantUnknown {
 					t.Errorf("price_unknown = %v, want %v", row.PriceUnknown, tt.wantUnknown)
 				}
-			} else if row.ErrorCode == nil || *row.ErrorCode != tt.wantErrCode {
-				t.Errorf("error code = %v, want %s", row.ErrorCode, tt.wantErrCode)
+				if got := rec.Header().Get(headerUsageID); got == "" || got != row.ID {
+					t.Errorf("%s = %q, want the row id %q", headerUsageID, got, row.ID)
+				}
+				if got := rec.Header().Get(headerCostUSD); got != strconv.FormatFloat(row.EstimatedCostUSD, 'f', 10, 64) {
+					t.Errorf("%s = %q, want the row cost %v", headerCostUSD, got, row.EstimatedCostUSD)
+				}
+			} else {
+				if row.ErrorCode == nil || *row.ErrorCode != tt.wantErrCode {
+					t.Errorf("error code = %v, want %s", row.ErrorCode, tt.wantErrCode)
+				}
+				if rec.Header().Get(headerUsageID) != "" || rec.Header().Get(headerCostUSD) != "" {
+					t.Errorf("usage headers on a failure: %v", rec.Header())
+				}
 			}
 		})
+	}
+}
+
+func TestHandleSystemOne_DecisionTimeoutHeader(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		value       []string
+		wantStatus  int
+		wantTimeout time.Duration
+	}{
+		{"absent keeps the connector default", nil, 200, 0},
+		{"whole seconds reach the connector", []string{"60"}, 200, time.Minute},
+		{"not a number", []string{"1m"}, 400, 0},
+		{"zero", []string{"0"}, 400, 0},
+		{"negative", []string{"-5"}, 400, 0},
+		{"overflows a Duration", []string{"18446744074"}, 400, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			stub := &systemOneStub{result: &SystemOneResult{Body: []byte(upstreamBody)}}
+			env := newSystemOneEnv(t, allow(), map[ProviderName]ProviderConnector{"typesafe": stub},
+				decisionModel(VirtualModelRoute{Provider: "typesafe", ModelID: "jev-latest"}), nil)
+			header := http.Header{}
+			if tt.value != nil {
+				header[headerDecisionTimeout] = tt.value
+			}
+			rec := env.postWithHeader(systemOneBody, header)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d: %s", rec.Code, tt.wantStatus, rec.Body)
+			}
+			if tt.wantStatus != 200 {
+				if len(stub.calls) != 0 || !strings.Contains(rec.Body.String(), headerDecisionTimeout) {
+					t.Errorf("calls = %d, body = %s", len(stub.calls), rec.Body)
+				}
+				return
+			}
+			if got := stub.calls[0].Timeout; got != tt.wantTimeout {
+				t.Errorf("connector timeout = %s, want %s", got, tt.wantTimeout)
+			}
+		})
+	}
+}
+
+func TestHandleSystemOne_UnwrittenUsageRowHasNoID(t *testing.T) {
+	t.Parallel()
+	stub := &systemOneStub{result: &SystemOneResult{Body: []byte(upstreamBody), InputTokens: 1_000_000}}
+	env := newSystemOneEnv(t, allow(), map[ProviderName]ProviderConnector{"typesafe": stub},
+		decisionModel(VirtualModelRoute{Provider: "typesafe", ModelID: "jev-latest"}),
+		[]ModelPricing{{Provider: "typesafe", ModelID: "jev-latest", InputCostPerMillion: 0.042}})
+	env.usage.createErr = errors.New("database down")
+	rec := env.post(systemOneBody)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
+	}
+	if got := rec.Header().Get(headerUsageID); got != "" {
+		t.Errorf("%s = %q, want none without a row", headerUsageID, got)
+	}
+	if got := rec.Header().Get(headerCostUSD); got != "0.0420000000" {
+		t.Errorf("%s = %q, want 0.0420000000", headerCostUSD, got)
 	}
 }
 

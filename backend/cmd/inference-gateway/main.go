@@ -136,7 +136,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	if err != nil {
 		return nil, nil, fmt.Errorf("kubernetes config: %w", err)
 	}
-	providers, err := registry.NewWatcher(ctx, restCfg, igc.Current.Providers.Namespace, logger)
+	providers, err := registry.NewWatcher(ctx, restCfg, igc.Current.Providers.Namespace, igc.Current.Providers.MaxDecisionTimeout(), logger)
 	if err != nil {
 		return nil, nil, err
 	}
