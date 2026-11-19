@@ -13,16 +13,16 @@ import (
 // agentConfig is the effective agent config a run starts with, in canonical form for agentConfigDigest.
 // Fields are in key order and every list is sorted, so equal configs encode to equal bytes.
 type agentConfig struct {
-	Brief        *agentConfigBrief  `json:"brief"`
-	Connectors   []Connector        `json:"connectors"`
-	Environments []AgentEnvironment `json:"environments"`
-	Framework    string             `json:"framework"`
-	GrantScopes  []string           `json:"grant_scopes"`
-	Guardrails   map[string]int     `json:"guardrails"`
-	MCPTools     []string           `json:"mcp_tools"`
-	Model        string             `json:"model"`
-	Skills       []string           `json:"skills"`
-	SystemPrompt string             `json:"system_prompt"`
+	Brief        *agentConfigBrief            `json:"brief"`
+	Connectors   []Connector                  `json:"connectors"`
+	Environments []AgentEnvironment           `json:"environments"`
+	Framework    string                       `json:"framework"`
+	GrantScopes  []string                     `json:"grant_scopes"`
+	Guardrails   sessionmanager.RunGuardrails `json:"guardrails"`
+	MCPTools     []string                     `json:"mcp_tools"`
+	Model        string                       `json:"model"`
+	Skills       []string                     `json:"skills"`
+	SystemPrompt string                       `json:"system_prompt"`
 }
 
 // agentConfigBrief holds what the runtime-environment brief is rendered from, except the run's workspace dir.
@@ -47,16 +47,7 @@ func agentConfigDigest(at AgentType, access *EffectiveAccess, guardrails session
 		Environments: envs,
 		Framework:    string(at.Framework),
 		GrantScopes:  sortedStrings(at.EffectiveGrantScopes()),
-		// A map encodes with sorted keys.
-		Guardrails: map[string]int{
-			"repeated_call_pause":            guardrails.RepeatedCallPause,
-			"repeated_call_warn":             guardrails.RepeatedCallWarn,
-			"sandbox_provision_attempts":     guardrails.SandboxProvisionAttempts,
-			"sandbox_provision_backoff_secs": guardrails.SandboxProvisionBackoffSecs,
-			"sandbox_provision_budget_secs":  guardrails.SandboxProvisionBudgetSecs,
-			"wait_rearm_pause":               guardrails.WaitRearmPause,
-			"wait_rearm_warn":                guardrails.WaitRearmWarn,
-		},
+		Guardrails:   guardrails,
 		MCPTools:     sortedStrings(at.MCPTools),
 		Skills:       []string{},
 		SystemPrompt: at.SystemPrompt,
@@ -78,7 +69,7 @@ func agentConfigDigest(at AgentType, access *EffectiveAccess, guardrails session
 			SandboxMount:   sandboxMount,
 		}
 	}
-	// Marshal cannot fail: the config holds only strings, bools, slices and string-keyed maps.
+	// Marshal cannot fail: the config holds only strings, ints, bools, slices and string-keyed maps.
 	b, _ := json.Marshal(cfg)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
