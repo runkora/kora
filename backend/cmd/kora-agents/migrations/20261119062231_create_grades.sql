@@ -61,6 +61,8 @@ CREATE TABLE grades (
     verdict TEXT CHECK (verdict IN ('pass', 'fail', 'uncertain')),
     -- NULL when the model has no price.
     cost_usd NUMERIC,
+    -- The version whose grade a regrade or recompute read. NULL on a run's first grade.
+    source_version TEXT,
     CONSTRAINT grades_pkey PRIMARY KEY (id),
     CONSTRAINT grades_grader_version_run_key UNIQUE (grader_id, version, run_id),
     CONSTRAINT grades_verdict_when_graded CHECK ((status = 'graded') = (verdict IS NOT NULL))
