@@ -45,10 +45,12 @@ describe('AgentGradesTab', () => {
     serveFleet();
     renderWithProviders(<Tab />);
     expect(screen.getByText('Loading Graders…')).toBeInTheDocument();
-    await userEvent.click(await screen.findByText('no-push'));
-    expect(await screen.findByRole('heading', { name: titleOf('no-push') })).toBeInTheDocument();
+    await userEvent.click(await screen.findByText('summary-accurate'));
+    expect(
+      await screen.findByRole('heading', { name: titleOf('summary-accurate') }),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /All Graders/ }));
-    expect(await screen.findByText('no-push')).toBeInTheDocument();
+    expect(await screen.findByText('summary-accurate')).toBeInTheDocument();
   });
 
   it('shows the API error when the list fails', async () => {
@@ -77,16 +79,16 @@ describe('AgentGradesTab', () => {
   });
 
   it('shows the Grader opened last when an earlier read answers late', async () => {
-    serveFleet('no-push');
+    serveFleet('summary-accurate');
     renderWithProviders(<Tab />);
-    await userEvent.click(await screen.findByText('no-push'));
+    await userEvent.click(await screen.findByText('summary-accurate'));
     await userEvent.click(screen.getByRole('button', { name: /All Graders/ }));
-    await userEvent.click(await screen.findByText('tone'));
-    expect(await screen.findByRole('heading', { name: titleOf('tone') })).toBeInTheDocument();
+    await userEvent.click(await screen.findByText('ci-read'));
+    expect(await screen.findByRole('heading', { name: titleOf('ci-read') })).toBeInTheDocument();
     await new Promise((resolve) => setTimeout(resolve, 400));
     await waitFor(() =>
-      expect(screen.queryByRole('heading', { name: titleOf('no-push') })).toBeNull(),
+      expect(screen.queryByRole('heading', { name: titleOf('summary-accurate') })).toBeNull(),
     );
-    expect(screen.getByRole('heading', { name: titleOf('tone') })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: titleOf('ci-read') })).toBeInTheDocument();
   });
 });

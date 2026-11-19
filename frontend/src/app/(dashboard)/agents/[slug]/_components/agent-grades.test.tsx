@@ -62,18 +62,15 @@ describe('GradersList', () => {
 
 describe('GraderPage', () => {
   it('lists questions with counts and links their failed runs to the Runs tab', () => {
-    const grader = fleet.detail['reads-callers']!;
+    const grader = fleet.detail['summary-accurate']!;
     renderWithProviders(<GraderPage grader={grader} slug="code-reviewer" onBack={vi.fn()} />);
-    expect(
-      screen.getByText(`${grader.passed} of the last ${grader.graded} runs passed`, {
-        exact: false,
-      }),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/needs 90%/)).toBeInTheDocument();
+    expect(screen.getByText('17 of the last 30 runs passed', { exact: false })).toBeInTheDocument();
+    expect(screen.getByText(/needs 80%/)).toBeInTheDocument();
+    expect(screen.getByText('What it asks')).toBeInTheDocument();
     const link = screen.getAllByRole('link', { name: /All failed runs for this question/ })[0];
     expect(link).toHaveAttribute(
       'href',
-      `/agents/code-reviewer?tab=runs&grader=reads-callers&question=${grader.questions[0]!.name}&verdict=fail`,
+      '/agents/code-reviewer?tab=runs&grader=summary-accurate&question=summary-correct&verdict=fail',
     );
   });
 
@@ -93,7 +90,7 @@ describe('GraderPage', () => {
   });
 
   it('counts runs too large to grade and says when a question has no failed or uncertain runs', async () => {
-    const base = fleet.detail['reads-callers']!;
+    const base = fleet.detail['summary-accurate']!;
     const quiet = { ...base.questions[0]!, failed: 0, uncertain: 0, runs: [] };
     const grader = { ...base, too_large: 2, questions: [base.questions[1]!, quiet] };
     renderWithProviders(<GraderPage grader={grader} slug="code-reviewer" onBack={vi.fn()} />);
@@ -105,14 +102,18 @@ describe('GraderPage', () => {
 
   it('reads "not enough runs" under the minimum count', () => {
     renderWithProviders(
-      <GraderPage grader={fleet.detail['security-flags']!} slug="code-reviewer" onBack={vi.fn()} />,
+      <GraderPage
+        grader={{ ...fleet.detail['ci-read']!, status: 'not_enough_runs', passed: 5, graded: 5 }}
+        slug="code-reviewer"
+        onBack={vi.fn()}
+      />,
     );
     expect(screen.getByText('Not enough runs')).toBeInTheDocument();
     expect(screen.queryByText(/· not enough runs/)).toBeNull();
   });
 
   it('shows five runs and then all of them', async () => {
-    const base = fleet.detail['reads-callers']!;
+    const base = fleet.detail['summary-accurate']!;
     const runs = Array.from({ length: 7 }, (_, i) => ({
       run_id: `run-${i}`,
       title: `Run ${i}`,

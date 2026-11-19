@@ -87,14 +87,12 @@ const GRADE_STATES = [
 export const Grades: StoryObj = {
   decorators: runStory(GRADE_STATES.map((s) => s.run)),
   render: () => (
-    <Stack style={{ padding: 32, background: 'var(--color-background)', minHeight: '100vh' }}>
+    // Hades has no prop for the background, fixed column widths or cell alignment.
+    <Stack padding="loose" minHeight="screen" style={{ background: 'var(--color-background)' }}>
       <Grid
-        style={{
-          gridTemplateColumns: 'repeat(4, 320px)',
-          columnGap: 40,
-          rowGap: 32,
-          alignItems: 'start',
-        }}
+        gapX="spacious"
+        gapY="loose"
+        style={{ gridTemplateColumns: 'repeat(4, 320px)', alignItems: 'start' }}
       >
         {GRADE_STATES.map((s) => (
           <Stack key={s.label} gap="snug">
