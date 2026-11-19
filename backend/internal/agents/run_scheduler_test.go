@@ -1,17 +1,20 @@
 package agents
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"slices"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -401,5 +404,91 @@ func TestWaitScheduler_WaitsForAttemptInFlight(t *testing.T) {
 
 	if len(sm.sessions) != 1 {
 		t.Errorf("sessions = %d, want the start in flight to finish", len(sm.sessions))
+	}
+}
+
+// firstMessageErrs makes the first sends fail with each error in turn, then succeed.
+type firstMessageErrs struct {
+	*mockSMClient
+	errs []error
+}
+
+func (f *firstMessageErrs) SendMessage(ctx context.Context, podURL, runID, content string, idle int, fromPerson bool) error {
+	f.mu.Lock()
+	n := f.sendMessageCalls
+	f.mu.Unlock()
+	if n < len(f.errs) {
+		f.mu.Lock()
+		f.sendMessageCalls++
+		f.mu.Unlock()
+		return f.errs[n]
+	}
+	return f.mockSMClient.SendMessage(ctx, podURL, runID, content, idle, fromPerson)
+}
+
+func TestStartClaimed_InitialMessageRetries(t *testing.T) {
+	old := initialMessageBackoff
+	initialMessageBackoff = time.Millisecond
+	t.Cleanup(func() { initialMessageBackoff = old })
+	boom := errors.New("pod unreachable")
+
+	for _, tc := range []struct {
+		name         string
+		msg          string
+		errs         []error
+		cancel       bool
+		wantState    RunState
+		wantCalls    int
+		wantClosed   int
+		wantErrorLog bool
+	}{
+		{name: "fails once then succeeds", msg: "fix the build", errs: []error{boom},
+			wantState: RunStateActive, wantCalls: 2},
+		{name: "fails every time", msg: "fix the build", errs: []error{boom, boom, boom, boom},
+			wantState: RunStateFailed, wantCalls: 3, wantClosed: 1, wantErrorLog: true},
+		{name: "an empty message sends nothing", msg: "",
+			wantState: RunStateActive},
+		{name: "a canceled context ends the retries", msg: "fix the build", errs: []error{boom, boom, boom}, cancel: true,
+			wantState: RunStateFailed, wantCalls: 1, wantClosed: 1, wantErrorLog: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, repo, _, sm := schedulerService(t)
+			var logs bytes.Buffer
+			f.run.logger = logging.NewLoggerWithOutput(&logs)
+			f.run.sm = &firstMessageErrs{mockSMClient: sm, errs: tc.errs}
+			run, err := f.run.StartRun(startCtx(), StartRunRequest{AgentTypeID: "at-1", InitialMessage: tc.msg})
+			if err != nil {
+				t.Fatalf("StartRun: %v", err)
+			}
+			ctx := context.Background()
+			if tc.cancel {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+			claimed, claimedAt := claimRun(repo, run.ID)
+			f.run.startClaimed(ctx, claimed, claimedAt)
+
+			if got := repo.runs[run.ID].State; got != tc.wantState {
+				t.Errorf("state = %s, want %s", got, tc.wantState)
+			}
+			if sm.sendMessageCalls != tc.wantCalls || len(sm.closedSessions) != tc.wantClosed {
+				t.Errorf("send calls = %d, closed = %d, want %d and %d", sm.sendMessageCalls, len(sm.closedSessions), tc.wantCalls, tc.wantClosed)
+			}
+			if tc.wantState == RunStateFailed {
+				if errs := runErrors(t, repo, run.ID); len(errs) != 1 || errs[0]["code"] != "start_failed" {
+					t.Errorf("run errors = %v, want one start_failed", errs)
+				}
+			}
+			hasErrLog := false
+			for _, line := range strings.Split(logs.String(), "\n") {
+				if strings.Contains(line, `"level":"error"`) && strings.Contains(line, `"run_id":"`+run.ID+`"`) && strings.Contains(line, `"pod_ordinal"`) {
+					hasErrLog = true
+				}
+			}
+			if hasErrLog != tc.wantErrorLog {
+				t.Errorf("error log with run_id and pod_ordinal = %v, want %v; logs: %s", hasErrLog, tc.wantErrorLog, logs.String())
+			}
+		})
 	}
 }
