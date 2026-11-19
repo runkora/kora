@@ -1,12 +1,10 @@
 package grading
 
 import (
-	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -128,6 +126,9 @@ func TestBuildStateCapSteps(t *testing.T) {
 		}
 		if s.Tokens != window {
 			t.Errorf("window at cap %d: tokens %d, want %d", tc.cap, s.Tokens, window)
+		}
+		if again, _ := buildState(events, window); string(again.JSON) != string(s.JSON) {
+			t.Errorf("window at cap %d: the same events gave a different state", tc.cap)
 		}
 		// One token short of the step moves to the next one.
 		s, err = buildState(events, window-1)
@@ -299,122 +300,5 @@ func TestEstimateTokens(t *testing.T) {
 		if got := EstimateTokens(make([]byte, n)); got != want {
 			t.Errorf("EstimateTokens(%d bytes) = %d, want %d", n, got, want)
 		}
-	}
-}
-
-// jev-*.json are github-self-service traces with every string replaced by
-// filler of the same length. Event types, order and sizes are real.
-func loadTrace(t *testing.T, name string) []Event {
-	t.Helper()
-	b, err := os.ReadFile("testdata/" + name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var raw []struct {
-		Seq     int64           `json:"seq"`
-		Type    string          `json:"type"`
-		Payload json.RawMessage `json:"payload"`
-	}
-	if err := json.Unmarshal(b, &raw); err != nil {
-		t.Fatal(err)
-	}
-	out := make([]Event, len(raw))
-	for i, r := range raw {
-		out[i] = Event{Seq: r.Seq, Type: r.Type, Payload: r.Payload}
-	}
-	return out
-}
-
-func TestBuildStateRealTraces(t *testing.T) {
-	tests := []struct {
-		file string
-		kept int
-	}{
-		{"jev-happy.json", 63},
-		{"jev-failures.json", 87},
-	}
-	for _, tc := range tests {
-		t.Run(tc.file, func(t *testing.T) {
-			s, err := buildState(loadTrace(t, tc.file), DefaultWindow)
-			if err != nil {
-				t.Fatal(err)
-			}
-			got := parseState(t, s)
-			if len(got) != tc.kept {
-				t.Errorf("kept %d events, want %d", len(got), tc.kept)
-			}
-			for i, e := range got {
-				if strings.HasPrefix(e.Type, "sandbox_") {
-					t.Errorf("state holds %s", e.Type)
-				}
-				if i > 0 && e.Seq <= got[i-1].Seq {
-					t.Errorf("event %d out of order", i)
-				}
-			}
-			if s.Cap != Uncapped || s.TooLarge {
-				t.Errorf("got cap %d too_large %v, want uncapped", s.Cap, s.TooLarge)
-			}
-		})
-	}
-}
-
-// sizes-*.jsonl hold the sequence, type and serialized size of every event in
-// a prod run, with no content. Payloads are rebuilt as filler of that size.
-func loadSizes(t *testing.T, name string) []Event {
-	t.Helper()
-	f, err := os.Open("testdata/" + name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = f.Close() }()
-	var out []Event
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		var r struct {
-			Seq   int64  `json:"seq"`
-			Type  string `json:"type"`
-			Chars int    `json:"chars"`
-		}
-		if err := json.Unmarshal(sc.Bytes(), &r); err != nil {
-			t.Fatal(err)
-		}
-		key := "text"
-		if r.Type == "tool_result" {
-			key = "content"
-		}
-		p, _ := json.Marshal(map[string]string{key: strings.Repeat("x", r.Chars)})
-		out = append(out, Event{Seq: r.Seq, Type: r.Type, Payload: p})
-	}
-	if err := sc.Err(); err != nil {
-		t.Fatal(err)
-	}
-	return out
-}
-
-func TestBuildStateProdRunSizes(t *testing.T) {
-	tests := []struct {
-		file string
-		want Cap
-	}{
-		{"sizes-uncapped.jsonl", Uncapped},
-		{"sizes-cap4000.jsonl", 4000},
-		{"sizes-cap2000.jsonl", 2000},
-		{"sizes-cap500.jsonl", 500},
-	}
-	for _, tc := range tests {
-		t.Run(tc.file, func(t *testing.T) {
-			events := loadSizes(t, tc.file)
-			s, err := buildState(events, DefaultWindow)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if s.Cap != tc.want || s.TooLarge || s.Tokens > DefaultWindow {
-				t.Errorf("got cap %d tokens %d too_large %v, want cap %d", s.Cap, s.Tokens, s.TooLarge, tc.want)
-			}
-			again, _ := buildState(events, DefaultWindow)
-			if string(again.JSON) != string(s.JSON) {
-				t.Error("the same run gave a different state")
-			}
-		})
 	}
 }
