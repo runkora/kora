@@ -33,7 +33,7 @@ var mintServiceTokenCallers = map[string]func(MintServiceTokenRequest) error{
 	"kora-triggers": func(MintServiceTokenRequest) error { return nil },
 	// kora-agents mints only the request tenant's grading principal (docs/adr/2026-11-19-graders.md).
 	"kora-agents": func(req MintServiceTokenRequest) error {
-		if req.PrincipalID != "grader:"+req.TenantID {
+		if req.PrincipalID != token.GraderPrincipalID(req.TenantID) {
 			return fmt.Errorf("%w: kora-agents may only mint grader:<tenant_id>, not %q", ErrCallerNotPermitted, req.PrincipalID)
 		}
 		return nil

@@ -19,7 +19,10 @@ const graderTokenTTL = 5 * time.Minute
 // graderInvokeScope lets the grading principal call the inference gateway at all.
 const graderInvokeScope = "inference:invoke"
 
-var errInvalidGraderScope = errors.New("grader grant scope must be a model use scope")
+var (
+	errInvalidGraderScope   = errors.New("grader grant scope must be a model use scope")
+	errGraderTenantRequired = errors.New("grader principal: tenant id is required")
+)
 
 // graderGrants is the part of the policy client the grading principal writes with.
 type graderGrants interface {
@@ -46,23 +49,19 @@ func NewGraderPrincipal(grants graderGrants, minter serviceTokenMinter, logger l
 	return &GraderPrincipal{grants: grants, minter: minter, logger: logger}
 }
 
-func graderPrincipalID(tenantID string) string {
-	return "grader:" + tenantID
-}
-
 // Ensure leaves the tenant's grading principal with one grant holding inference:invoke and
 // exactly modelScopes, the use scopes of the tenant's live Graders. An empty set removes every grant.
 // Ensure never sets a budget. A replacement grant keeps any budget the old grant carried.
 func (g *GraderPrincipal) Ensure(ctx context.Context, tenantID string, modelScopes []string) error {
 	if tenantID == "" {
-		return errors.New("grader principal: tenant id is required")
+		return errGraderTenantRequired
 	}
 	for _, s := range modelScopes {
 		if !isModelUseScope(s) {
 			return fmt.Errorf("%w: %q", errInvalidGraderScope, s)
 		}
 	}
-	principalID := graderPrincipalID(tenantID)
+	principalID := token.GraderPrincipalID(tenantID)
 	existing, err := g.grants.ListGrants(ctx, tenantID, string(token.PrincipalTypeService), principalID)
 	if err != nil {
 		return fmt.Errorf("list grader grants: %w", err)
@@ -105,9 +104,9 @@ func (g *GraderPrincipal) deleteGrants(ctx context.Context, grants []policyclien
 // Token mints a short-lived SERVICE token for the tenant's grading principal.
 func (g *GraderPrincipal) Token(ctx context.Context, tenantID string) (string, error) {
 	if tenantID == "" {
-		return "", errors.New("grader principal: tenant id is required")
+		return "", errGraderTenantRequired
 	}
-	id := graderPrincipalID(tenantID)
+	id := token.GraderPrincipalID(tenantID)
 	tok, err := g.minter.MintServiceToken(ctx, tenantID, id, id, graderTokenTTL)
 	if err != nil {
 		return "", fmt.Errorf("mint grader token: %w", err)
