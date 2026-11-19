@@ -89,7 +89,7 @@ export function gradeRunsHref(slug: string, filter: GradeFilter): string {
   return `${APP_ROUTES.agents.detail(slug)}?${query}`;
 }
 
-const isVerdict = (v: string | null): v is AnswerVerdict => v !== null && v in VERDICT_LABEL;
+const isVerdict = (v: string | null): v is AnswerVerdict => v !== null && Object.hasOwn(VERDICT_LABEL, v);
 
 /** The Runs tab's grade filter from the page URL; null without a Grader. */
 export function gradeFilterOf(params: URLSearchParams): GradeFilter | null {

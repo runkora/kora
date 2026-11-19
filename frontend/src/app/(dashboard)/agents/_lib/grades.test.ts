@@ -83,4 +83,9 @@ describe('grade filter URL', () => {
       verdict: undefined,
     });
   });
+
+  it('drops a verdict that names an inherited object key', () => {
+    expect(gradeFilterOf(new URLSearchParams('grader=g&verdict=constructor'))?.verdict).toBeUndefined();
+    expect(gradeFilterOf(new URLSearchParams('grader=g&verdict=toString'))?.verdict).toBeUndefined();
+  });
 });
