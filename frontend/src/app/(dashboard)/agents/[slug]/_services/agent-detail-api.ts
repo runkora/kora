@@ -3,9 +3,11 @@
 import { writeErrorMessage } from '@runkora/lib/declarative';
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import type {
+  AgentGradersResponse,
   AgentInsightsPeriod,
   AgentOverviewResponse,
   AgentType,
+  GraderDetail,
   EffectiveAccess,
   EffectiveAccessPreviewRequest,
   UpdateAgentTypeRequest,
@@ -160,3 +162,13 @@ export async function updateAgentType(
 
 export const fetchAgentOverview = (slug: string, period: AgentInsightsPeriod) =>
   fetchPeriodRead<AgentOverviewResponse>(ApiRoute.agentTypes.overview(slug, period));
+
+// ── Graders ───────────────────────────────────────────────────────────────────
+
+/** The agent's Graders, failing first. */
+export const fetchAgentGraders = (agentTypeId: string) =>
+  fetchPeriodRead<AgentGradersResponse>(ApiRoute.agentTypes.graders(agentTypeId));
+
+/** One Grader with its spec and its questions' failed and uncertain runs. */
+export const fetchAgentGrader = (agentTypeId: string, name: string) =>
+  fetchPeriodRead<GraderDetail>(ApiRoute.agentTypes.grader(agentTypeId, name));

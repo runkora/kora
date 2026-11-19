@@ -13,6 +13,7 @@ import {
   deleteRun as apiDeleteRun,
 } from '../_services/agent-detail-api';
 import { fetchStartRun } from '../../_services/agents-api';
+import type { GradeFilter } from '../../_services/agents-api';
 import type { RunStateCounts } from '@runkora/shared/api';
 import { DEFAULT_PERIOD } from '../../_lib/spend';
 import { RUNS_PAGE_SIZE } from '../../_types';
@@ -40,6 +41,10 @@ export interface AgentDetailStateShape {
   runFilter: RunFilter;
   /** Switches the filter and loads its first page. */
   setRunFilter: (filter: RunFilter) => void;
+  /** The runs' grade filter from the URL, applied with `runFilter`; null for none. */
+  gradeFilter: GradeFilter | null;
+  /** Switches the grade filter and loads its first page; the same filter again does nothing. A filter resets `runFilter` to all. */
+  setGradeFilter: (filter: GradeFilter | null) => void;
   /** Appends the next page of runs. */
   loadMoreRuns: () => Promise<void>;
   status: DetailStatus;
@@ -80,6 +85,12 @@ export function useAgentDetail(
   const [recentRuns, setRecentRuns] = useState<RunRow[]>(initialRuns);
   const [stateCounts, setStateCounts] = useState<RunStateCounts | null>(initialStateCounts);
   const [runFilter, setRunFilterState] = useState<RunFilter>('all');
+  const [gradeFilter, setGradeFilterState] = useState<GradeFilter | null>(null);
+  // The filters as last set, so setGradeFilter stays stable and the page's URL effect runs once per URL.
+  const filters = useRef<{ run: RunFilter; grade: GradeFilter | null }>({
+    run: 'all',
+    grade: null,
+  });
   const [status, setStatus] = useState<DetailStatus>(initialStatus);
   const [error, setError] = useState<string | null>(initialError);
   // Bumped by every first-page load, so a page requested under an older filter is dropped.
@@ -110,7 +121,7 @@ export function useAgentDetail(
   }, [agentId, agentState]);
 
   const loadFirstPage = useCallback(
-    async (filter: RunFilter) => {
+    async (filter: RunFilter, grade: GradeFilter | null) => {
       if (!agent) return;
       const gen = ++generation.current;
       // The previous filter's cursor must not page the new one.
@@ -119,6 +130,7 @@ export function useAgentDetail(
       setError(null);
       const result = await fetchAgentRuns(agent, {
         states: RUN_FILTER_STATES[filter],
+        grade,
         limit: RUNS_PAGE_SIZE,
       });
       if (gen !== generation.current) return;
@@ -133,7 +145,7 @@ export function useAgentDetail(
         loadingMore: false,
         loadMoreError: null,
       });
-      if (filter === 'all') setRecentRuns(result.data);
+      if (filter === 'all' && !grade) setRecentRuns(result.data);
       setStatus('success');
     },
     [agent],
@@ -147,13 +159,29 @@ export function useAgentDetail(
   }, [agent]);
 
   const refresh = useCallback(async () => {
-    await Promise.all([loadFirstPage(runFilter), refreshCounts()]);
-  }, [loadFirstPage, refreshCounts, runFilter]);
+    await Promise.all([loadFirstPage(runFilter, gradeFilter), refreshCounts()]);
+  }, [loadFirstPage, refreshCounts, runFilter, gradeFilter]);
 
   const setRunFilter = useCallback(
     (filter: RunFilter) => {
+      filters.current.run = filter;
       setRunFilterState(filter);
-      void loadFirstPage(filter);
+      void loadFirstPage(filter, filters.current.grade);
+    },
+    [loadFirstPage],
+  );
+
+  const setGradeFilter = useCallback(
+    (grade: GradeFilter | null) => {
+      if (sameGradeFilter(grade, filters.current.grade)) return;
+      filters.current.grade = grade;
+      setGradeFilterState(grade);
+      // Graded runs have ended, so a grade filter reads them under every state.
+      if (grade) {
+        filters.current.run = 'all';
+        setRunFilterState('all');
+      }
+      void loadFirstPage(filters.current.run, grade);
     },
     [loadFirstPage],
   );
@@ -165,6 +193,7 @@ export function useAgentDetail(
     setRuns((prev) => ({ ...prev, loadingMore: true, loadMoreError: null }));
     const result = await fetchAgentRuns(agent, {
       states: RUN_FILTER_STATES[runFilter],
+      grade: gradeFilter,
       limit: RUNS_PAGE_SIZE,
       cursor: runs.nextCursor,
     });
@@ -181,7 +210,7 @@ export function useAgentDetail(
             loadMoreError: null,
           },
     );
-  }, [agent, runs.nextCursor, runFilter]);
+  }, [agent, runs.nextCursor, runFilter, gradeFilter]);
 
   const deleteAgent = useCallback(async (): Promise<boolean> => {
     if (!agent) return false;
@@ -219,6 +248,8 @@ export function useAgentDetail(
     stateCounts,
     runFilter,
     setRunFilter,
+    gradeFilter,
+    setGradeFilter,
     loadMoreRuns,
     status,
     error,
@@ -229,3 +260,6 @@ export function useAgentDetail(
     startRun,
   };
 }
+
+const sameGradeFilter = (a: GradeFilter | null, b: GradeFilter | null) =>
+  a?.grader === b?.grader && a?.question === b?.question && a?.verdict === b?.verdict;

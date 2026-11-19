@@ -349,6 +349,15 @@ export const ApiRoute = {
       period: AgentInsightsPeriod,
     ): `${typeof API_BASE}/agents/types/overview/${string}?period=${AgentInsightsPeriod}` =>
       `${API_BASE}/agents/types/overview/${encodeURIComponent(slug)}?period=${period}`,
+    /** GET: the agent's Graders with their standing over their last 30 graded runs. */
+    graders: (id: string): `${typeof API_BASE}/agents/types/${string}/graders` =>
+      `${API_BASE}/agents/types/${id}/graders`,
+    /** GET: one Grader's standing, spec and its questions' failed and uncertain runs. */
+    grader: (
+      id: string,
+      name: string,
+    ): `${typeof API_BASE}/agents/types/${string}/graders/${string}` =>
+      `${API_BASE}/agents/types/${id}/graders/${encodeURIComponent(name)}`,
     /**
      * `/api/agents/types/drafts`
      *
@@ -480,6 +489,9 @@ export const ApiRoute = {
       `${API_BASE}/agents/runs/${runId}/messages`,
     events: (runId: string): `${typeof API_BASE}/agents/runs/${string}/events` =>
       `${API_BASE}/agents/runs/${runId}/events`,
+    /** GET: the run's grade per Grader; none until the run has ended. */
+    grades: (runId: string): `${typeof API_BASE}/agents/runs/${string}/grades` =>
+      `${API_BASE}/agents/runs/${runId}/grades`,
   },
 
   /**
@@ -608,6 +620,8 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['agentTypes']['effectiveAccess']>
   | ReturnType<(typeof ApiRoute)['agentTypes']['previewEffectiveAccess']>
   | ReturnType<(typeof ApiRoute)['agentTypes']['overview']>
+  | ReturnType<(typeof ApiRoute)['agentTypes']['graders']>
+  | ReturnType<(typeof ApiRoute)['agentTypes']['grader']>
   | ReturnType<(typeof ApiRoute)['environments']['list']>
   | ReturnType<(typeof ApiRoute)['environments']['create']>
   | ReturnType<(typeof ApiRoute)['environments']['detail']>
@@ -620,4 +634,5 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['runs']['terminate']>
   | ReturnType<(typeof ApiRoute)['runs']['messages']>
   | ReturnType<(typeof ApiRoute)['runs']['events']>
+  | ReturnType<(typeof ApiRoute)['runs']['grades']>
   | string; // analyticsMe, analytics, analyticsPrincipals, analyticsPrincipalById include dynamic query strings

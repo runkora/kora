@@ -10,10 +10,13 @@ import 'server-only';
 import { config } from './config';
 import { ApiError } from './client';
 import type {
+  AgentGradersResponse,
   AgentInsightsPeriod,
   AgentRunStats,
   EffectiveAccess,
   EffectiveAccessPreviewRequest,
+  GraderDetail,
+  RunGradesResponse,
   RunsPage,
 } from '@runkora/shared/api';
 
@@ -107,6 +110,40 @@ export async function listRuns(
   params: URLSearchParams,
 ): Promise<RunsPage | undefined> {
   return request<RunsPage>(`/api/v1/runs?${params.toString()}`, accessToken);
+}
+
+/** The run's grade per Grader. kora-agents applies the run read check. */
+export async function fetchRunGrades(
+  accessToken: string,
+  runId: string,
+): Promise<RunGradesResponse | undefined> {
+  return request<RunGradesResponse>(
+    `/api/v1/runs/${encodeURIComponent(runId)}/grades`,
+    accessToken,
+  );
+}
+
+/** The agent's Graders with their standing. */
+export async function fetchAgentGraders(
+  accessToken: string,
+  agentTypeId: string,
+): Promise<AgentGradersResponse | undefined> {
+  return request<AgentGradersResponse>(
+    `/api/v1/agent-types/${encodeURIComponent(agentTypeId)}/graders`,
+    accessToken,
+  );
+}
+
+/** One Grader of the agent with its spec and flagged runs. */
+export async function fetchAgentGrader(
+  accessToken: string,
+  agentTypeId: string,
+  name: string,
+): Promise<GraderDetail | undefined> {
+  return request<GraderDetail>(
+    `/api/v1/agent-types/${encodeURIComponent(agentTypeId)}/graders/${encodeURIComponent(name)}`,
+    accessToken,
+  );
 }
 
 /** Run stats across every agent type whose runs the caller may read. */

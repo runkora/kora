@@ -6,6 +6,7 @@ import type { Period } from '../../_lib/spend';
 import { rowFor, runRowsFor, runsFor, withRoutes } from './agent-detail-page-mock-data';
 import type { RunsData } from './agent-detail-page-mock-data';
 import { LONG_INSTRUCTIONS, mockOverview, mockRunStatsOnly } from './agent-overview-mock-data';
+import { graderFleet } from './agent-grades-mock-data';
 import { AgentDetailShell } from './agent-detail-shell';
 
 type OverviewFor = (slug: string, period: Period) => AgentOverviewResponse;
@@ -247,3 +248,48 @@ export const NotFound: Story = {
   decorators: withRoutes(CODE_REVIEWER),
   args: { initialAgent: null, initialRuns: [], initialStatus: 'not_found', initialOverview: null },
 };
+
+// ── Grades ───────────────────────────────────────────────────────────────────
+
+/** A story that opens the page at `query`, with `fleet` as the agent's Graders. */
+const gradesStory = (
+  query: Record<string, string>,
+  fleet = graderFleet(),
+  extra: Partial<Story> = {},
+): Story => ({
+  decorators: withRoutes(CODE_REVIEWER, mockOverview, runsFor(CODE_REVIEWER), fleet),
+  parameters: {
+    nextjs: { appDirectory: true, navigation: { pathname: '/agents/code-reviewer', query } },
+  },
+  ...extra,
+});
+
+/** The Grades tab: twelve Graders, failing first. */
+export const Grades: Story = gradesStory({ tab: 'grades' });
+
+/** Forty Graders: paged, searchable and filtered by status. */
+export const GradesManyGraders: Story = gradesStory({ tab: 'grades' }, graderFleet('many'));
+
+/** An agent with no Graders. */
+export const GradesNoGraders: Story = gradesStory({ tab: 'grades' }, graderFleet('none'));
+
+/** The Failing quick filter. */
+export const GradesFailing: Story = gradesStory({ tab: 'grades' }, graderFleet('many'), {
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByRole('button', { name: /^Failing/ }));
+  },
+});
+
+/** One Grader with five questions; the most failed question is open on its runs. */
+export const GraderPage: Story = gradesStory({ tab: 'grades', grader: 'summary-accurate' });
+
+/** One Grader with a single question: its failed or uncertain runs follow the question. */
+export const GraderPageOneQuestion: Story = gradesStory({ tab: 'grades', grader: 'ci-read' });
+
+/** The Runs tab filtered to one question's failed runs, as the Grader page links to it. */
+export const RunsFilteredByGrade: Story = gradesStory({
+  tab: 'runs',
+  grader: 'reads-callers',
+  question: 'read-callers',
+  verdict: 'fail',
+});

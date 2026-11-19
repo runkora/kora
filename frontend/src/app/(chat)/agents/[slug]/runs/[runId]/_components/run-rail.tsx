@@ -2,7 +2,7 @@
 
 /**
  * @tier 3 — run-page-scoped. The run page's right rail: the people involved, the run's links,
- * what it runs on and what it spent.
+ * what it runs on, what it spent and its grades.
  */
 
 import {
@@ -20,6 +20,7 @@ import {
 import { isSafeUrl } from '@runkora/lib/safe-url';
 import { sourceIcon } from '@runkora/components';
 import {
+  ENDED,
   harnessLabel,
   participantsOf,
   tokensLine,
@@ -27,6 +28,9 @@ import {
   type RunView,
 } from '../_lib/run-view';
 import { branchName, LINE } from '../_lib/run-styles';
+import { useRunContext } from '../_context/run-context';
+import { useRunGrades } from '../_hooks/use-run-grades';
+import { RailGrades } from './run-grades';
 import { SystemMark } from './trigger-event';
 
 function Label({ children, aside }: { children: React.ReactNode; aside?: string }) {
@@ -55,7 +59,7 @@ function Mark({ p }: { p: Participant }) {
 const plural = (n: number, one: string, many: string) => (n ? `${n} ${n === 1 ? one : many}` : '');
 
 /** People as an overlapping row of marks that opens to how each took part. */
-export function PeopleStack({ run }: { run: RunView }) {
+function PeopleStack({ run }: { run: RunView }) {
   const ps = participantsOf(run);
   if (!ps.length) return null;
   const count = (k: Participant['kind']) => ps.filter((p) => p.kind === k).length;
@@ -122,7 +126,7 @@ export function PeopleStack({ run }: { run: RunView }) {
 
 // ── Links ────────────────────────────────────────────────────────────────────
 
-export function Links({ run }: { run: RunView }) {
+function Links({ run }: { run: RunView }) {
   if (!run.sources.length) return null;
   return (
     <Stack gap="cozy">
@@ -201,7 +205,7 @@ function LeadIcon({ name }: { name: IconName }) {
   );
 }
 
-export function RunsOn({ run }: { run: RunView }) {
+function RunsOn({ run }: { run: RunView }) {
   const r = run.record;
   const [provider, model] = run.model.includes('/') ? run.model.split('/') : ['', run.model];
   const image = r?.sandbox?.image.split('/').pop() ?? '';
@@ -253,7 +257,7 @@ export function RunsOn({ run }: { run: RunView }) {
   );
 }
 
-export function Spend({ run }: { run: RunView }) {
+function Spend({ run }: { run: RunView }) {
   const r = run.record;
   if (!r) return null;
   return (
@@ -272,8 +276,15 @@ export function Spend({ run }: { run: RunView }) {
   );
 }
 
+/** The run's grades, read once it has ended. */
+function Grades({ run }: { run: RunView }) {
+  const ctx = useRunContext();
+  const grades = useRunGrades(run.id, ctx.agentType?.id, ENDED.has(ctx.runState ?? 'pending'));
+  return <RailGrades grades={grades} />;
+}
+
 /**
- * The rail: everyone involved, links, runtime and spend. As a sheet it
+ * The rail: everyone involved, links, runtime, spend and grades. As a sheet it
  * fills the panel it opens in instead of standing beside the thread.
  */
 export function RunRail({ run, sheet }: { run: RunView; sheet?: boolean }) {
@@ -295,6 +306,7 @@ export function RunRail({ run, sheet }: { run: RunView; sheet?: boolean }) {
       <Links run={run} />
       <RunsOn run={run} />
       <Spend run={run} />
+      <Grades run={run} />
     </Stack>
   );
 }

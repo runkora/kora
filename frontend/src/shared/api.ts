@@ -701,6 +701,126 @@ export interface RunsPageResponse {
   next_cursor: string | null;
 }
 
+// ── Graders — docs/adr/2026-11-19-graders.md ─────────────────────────────────
+
+/** A run's or a question's verdict. */
+export type GradeVerdict = 'pass' | 'fail' | 'uncertain';
+
+/** A question's answer verdict. `skipped` means the question had no subject on the run. */
+export type AnswerVerdict = GradeVerdict | 'skipped';
+
+/** How grading ended for one run. `verdict` is set only when `graded`. */
+export type GradeStatus = 'graded' | 'not_applicable' | 'applies_uncertain' | 'too_large' | 'error';
+
+/** A Grader's standing against its `minPassRate` over its last 30 graded runs. */
+export type GraderStatus = 'passing' | 'failing' | 'not_enough_runs' | 'no_minimum';
+
+export type GraderQuestionType = 'boolean' | 'choice' | 'scale';
+
+/** One question's answer on one run. Mirrors Go: agents.GradeAnswer. */
+export interface GradeAnswer {
+  question: string;
+  type: GraderQuestionType;
+  /** The question text. */
+  text: string;
+  /** The probability that the expected answer holds; null when skipped. */
+  p: number | null;
+  verdict: AnswerVerdict;
+  /** A choice or scale answer's probability per option or level name. */
+  probabilities?: Record<string, number>;
+}
+
+/** A run's grade on one Grader. Mirrors Go: agents.RunGrade. */
+export interface RunGrade {
+  grader: string;
+  description: string;
+  version: string;
+  model: string;
+  status: GradeStatus;
+  verdict: GradeVerdict | null;
+  applies_p: number | null;
+  /** The tool_result cap in characters. 0 is no bodies. Null is not capped. */
+  state_cap: number | null;
+  input_tokens: number | null;
+  model_served: string | null;
+  /** Null when the model has no price. */
+  cost_usd: number | null;
+  graded_at: string;
+  answers: GradeAnswer[];
+}
+
+/** GET /api/agents/runs/{runId}/grades */
+export interface RunGradesResponse {
+  grades: RunGrade[];
+}
+
+/** A Grader's standing over its current version's last 30 graded runs. Mirrors Go: agents.GraderSummary. */
+export interface GraderSummary {
+  name: string;
+  description: string;
+  /** A percent. Null means the Grader has no minimum. */
+  min_pass_rate: number | null;
+  version: string;
+  status: GraderStatus;
+  passed: number;
+  graded: number;
+  too_large: number;
+}
+
+/** GET /api/agents/types/{typeId}/graders */
+export interface AgentGradersResponse {
+  graders: GraderSummary[];
+}
+
+/** A pass/fail band. */
+export interface GraderThreshold {
+  pass: number;
+  fail: number;
+}
+
+/** A choice option or a scale level. */
+export interface GraderAnswerOption {
+  name: string;
+  description: string;
+}
+
+/** A run whose answer to one question was fail or uncertain. */
+export interface GraderFlaggedRun {
+  run_id: string;
+  /** The run's summary; null until one is written. */
+  title: string | null;
+  started_at: string;
+  verdict: GradeVerdict;
+}
+
+/** One question of a Grader's version spec with its window counts. */
+export interface GraderQuestion {
+  name: string;
+  type: GraderQuestionType;
+  question: string;
+  expect?: boolean;
+  options?: GraderAnswerOption[];
+  levels?: GraderAnswerOption[];
+  accept?: string[];
+  skip_on?: string[];
+  threshold?: GraderThreshold;
+  failed: number;
+  uncertain: number;
+  /** The window's runs that failed or were uncertain on this question, newest first. */
+  runs: GraderFlaggedRun[];
+}
+
+/**
+ * GET /api/agents/types/{typeId}/graders/{name}. Questions come most failed and uncertain first.
+ * Mirrors Go: agents.GraderDetail.
+ */
+export interface GraderDetail extends GraderSummary {
+  model: string;
+  threshold: GraderThreshold;
+  applies_when?: string;
+  questions: GraderQuestion[];
+}
+
 /**
  * GET /api/agents/types/overview/{slug}?period=24h|7d|30d|90d
  *

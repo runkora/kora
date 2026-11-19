@@ -12,6 +12,7 @@ import type {
   AgentRunStats,
   AgentType,
   AgentTypeDraft,
+  AnswerVerdict,
   ConnectionCatalogEntry,
   CreateAgentTypeRequest,
   Environment,
@@ -44,7 +45,7 @@ export async function fetchAgentTypes(): Promise<{ data: AgentTypeRow[]; error: 
 }
 
 // ── fetchPeriodRead ──
-// A period-keyed BFF read: the Agents page rollups or one agent's overview. Never throws;
+// A BFF read: the Agents page rollups, one agent's overview or its Graders. Never throws;
 // on error `data` is null.
 
 export async function fetchPeriodRead<T>(
@@ -71,9 +72,17 @@ export const fetchAgentInsights = (period: AgentInsightsPeriod) =>
 
 // ── fetchRuns ─────────────────────────────────────────────────────────────────
 
+/** Runs graded on a Grader's current version; with `question`, by that question's answer verdict. */
+export interface GradeFilter {
+  grader: string;
+  question?: string;
+  verdict?: AnswerVerdict;
+}
+
 /** A page of runs to read: filters, page size and the previous page's cursor. */
 export interface RunPageQuery {
   states?: readonly RunState[];
+  grade?: GradeFilter | null;
   limit?: number;
   cursor?: string | null;
 }
@@ -82,6 +91,11 @@ export interface RunPageQuery {
 export function runPageSearch(query: RunPageQuery): string {
   const params = new URLSearchParams();
   if (query.states?.length) params.set('state', query.states.join(','));
+  if (query.grade) {
+    params.set('grader', query.grade.grader);
+    if (query.grade.question) params.set('question', query.grade.question);
+    if (query.grade.verdict) params.set('verdict', query.grade.verdict);
+  }
   if (query.limit) params.set('limit', String(query.limit));
   if (query.cursor) params.set('cursor', query.cursor);
   const qs = params.toString();

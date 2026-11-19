@@ -78,6 +78,18 @@ describe('GET /api/agents/runs', () => {
     });
   });
 
+  it('forwards the grade filter', async () => {
+    const query = captureUpstream({ runs: [], next_cursor: null, limit: 50 });
+
+    await get('?grader=review-outcome&question=read-callers&verdict=fail');
+
+    expect(Object.fromEntries(query())).toEqual({
+      grader: 'review-outcome',
+      question: 'read-callers',
+      verdict: 'fail',
+    });
+  });
+
   it('joins repeated state keys into one list', async () => {
     const query = captureUpstream({ runs: [], next_cursor: null, limit: 50 });
     await get('?state=failed&state=pending');
