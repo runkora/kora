@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -31,7 +30,7 @@ type gradeReader interface {
 	agentGrader(ctx context.Context, tenantID, agentTypeID, name string) (*storedGrader, error)
 }
 
-// SetGradeReader installs the storage the Grader reads use.
+// SetGradeReader installs the storage the Grader reads use. When unset, every Grader read is ErrNotFound.
 func (s *RunService) SetGradeReader(r gradeReader) { s.grades = r }
 
 // storedGrade is one grades row with its Grader, its version spec and its answers.
@@ -60,7 +59,8 @@ type storedGrader struct {
 	Version     string
 	Spec        []byte
 	TooLarge    int
-	Window      []windowRun
+	// Window is the newest graded runs, at most grading.PassRateWindow of them.
+	Window []windowRun
 }
 
 // windowRun is one graded run of a Grader's window.
@@ -171,6 +171,9 @@ type FlaggedRun struct {
 func (s *RunService) RunGrades(ctx context.Context, runID string) ([]RunGrade, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.RunGrades", trace.WithAttributes(observability.RunIDKey.String(runID)))
 	defer span.End()
+	if s.grades == nil {
+		return nil, ErrNotFound
+	}
 	run, at, err := s.loadRunForAction(ctx, runID, "read")
 	if err != nil {
 		return nil, err
@@ -199,6 +202,9 @@ func (s *RunService) RunGrades(ctx context.Context, runID string) ([]RunGrade, e
 func (s *RunService) AgentGraders(ctx context.Context, agentTypeID string) ([]GraderSummary, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.AgentGraders", trace.WithAttributes(observability.AgentIDKey.String(agentTypeID)))
 	defer span.End()
+	if s.grades == nil {
+		return nil, ErrNotFound
+	}
 	at, err := s.gradedAgent(ctx, agentTypeID)
 	if err != nil {
 		return nil, err
@@ -220,6 +226,9 @@ func (s *RunService) AgentGraders(ctx context.Context, agentTypeID string) ([]Gr
 func (s *RunService) AgentGrader(ctx context.Context, agentTypeID, name string) (*GraderDetail, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.AgentGrader", trace.WithAttributes(observability.AgentIDKey.String(agentTypeID)))
 	defer span.End()
+	if s.grades == nil {
+		return nil, ErrNotFound
+	}
 	at, err := s.gradedAgent(ctx, agentTypeID)
 	if err != nil {
 		return nil, err
@@ -285,7 +294,7 @@ func runGradeOf(g storedGrade) (RunGrade, error) {
 	for _, a := range g.Answers {
 		q := v.find(a.Question)
 		if q == nil {
-			return RunGrade{}, fmt.Errorf("grade of %s answers question %q, which version %s does not have", g.Grader, a.Question, g.Version)
+			return RunGrade{}, fmt.Errorf("%w: grade of %s answers question %q, which version %s does not have", grading.ErrBadAnswer, g.Grader, a.Question, g.Version)
 		}
 		probs, err := answerProbabilities(*q, a.Raw)
 		if err != nil {
@@ -294,16 +303,6 @@ func runGradeOf(g storedGrade) (RunGrade, error) {
 		out.Answers = append(out.Answers, GradeAnswer{Question: q.Name, Type: q.Type, Text: q.Question, P: a.P, Verdict: a.Verdict, Probabilities: probs})
 	}
 	return out, nil
-}
-
-// find returns the named question, or nil.
-func (v graderVersion) find(name string) *v1alpha1.GraderQuestion {
-	for i := range v.Questions {
-		if v.Questions[i].Name == name {
-			return &v.Questions[i]
-		}
-	}
-	return nil
 }
 
 // answerProbabilities reads a stored choice or scale answer's distribution. A scale's is keyed
@@ -321,15 +320,7 @@ func answerProbabilities(q v1alpha1.GraderQuestion, raw json.RawMessage) (map[st
 	if q.Type == string(grading.Choice) {
 		return a.Probabilities, nil
 	}
-	out := make(map[string]float64, len(a.Probabilities))
-	for k, p := range a.Probabilities {
-		i, err := strconv.Atoi(k)
-		if err != nil || i < 0 || i >= len(q.Levels) {
-			return nil, fmt.Errorf("answer to %s has level %q", q.Name, k)
-		}
-		out[q.Levels[i].Name] = p
-	}
-	return out, nil
+	return levelDist(q, a.Probabilities)
 }
 
 // summaryOf reads a Grader's window with grading.Window.
@@ -381,15 +372,13 @@ func detailOf(g storedGrader) (*GraderDetail, error) {
 		Threshold:   ThresholdView{Pass: v.Threshold.Pass, Fail: v.Threshold.Fail},
 		AppliesWhen: v.AppliesWhen, Questions: make([]GraderQuestion, len(v.Questions)),
 	}
-	// The window is grading.Window's: its latest PassRateWindow runs.
-	window := g.Window[:min(len(g.Window), grading.PassRateWindow)]
 	for i, q := range v.Questions {
 		gq := GraderQuestion{Name: q.Name, Type: q.Type, Question: q.Question, Expect: q.Expect,
 			Options: answerOptions(q.Options), Levels: answerOptions(q.Levels), Accept: q.Accept, SkipOn: q.SkipOn, Runs: []FlaggedRun{}}
 		if q.Threshold != nil {
 			gq.Threshold = &ThresholdView{Pass: q.Threshold.Pass, Fail: q.Threshold.Fail}
 		}
-		for _, r := range window {
+		for _, r := range g.Window {
 			verdict := r.Answers[q.Name]
 			switch grading.Verdict(verdict) {
 			case grading.Fail:

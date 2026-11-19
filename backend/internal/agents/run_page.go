@@ -25,7 +25,8 @@ var (
 	ErrInvalidRunCursor = errors.New("invalid run cursor")
 	// ErrInvalidRunState is returned for a state filter naming no run state.
 	ErrInvalidRunState = errors.New("invalid run state")
-	// ErrInvalidGradeFilter is returned for a grader, question or verdict filter that cannot match.
+	// ErrInvalidGradeFilter is returned for a malformed grader, question and verdict combination.
+	// An unknown grader or question is accepted and matches no run.
 	ErrInvalidGradeFilter = errors.New("invalid grade filter")
 )
 

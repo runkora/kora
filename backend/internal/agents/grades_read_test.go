@@ -105,6 +105,23 @@ func TestGradeReads_Authz(t *testing.T) {
 	}
 }
 
+// A service built without a grade reader reads every Grader as not found instead of panicking.
+func TestGradeReads_NoReader(t *testing.T) {
+	svc, repo, _, _ := newTestServiceWithEval(t, coversEvaluator{granted: []string{"agents:runs:read"}})
+	seedAgentType(t, repo, AgentType{ID: "at-auto", TenantID: "t1", Slug: "helper"})
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t1", AgentTypeID: "at-auto", State: RunStateCompleted})
+	ctx := patCtx("t1")
+	if _, err := svc.run.AgentGraders(ctx, "at-auto"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("AgentGraders = %v, want ErrNotFound", err)
+	}
+	if _, err := svc.run.AgentGrader(ctx, "at-auto", "g"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("AgentGrader = %v, want ErrNotFound", err)
+	}
+	if _, err := svc.run.RunGrades(ctx, "run-1"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("RunGrades = %v, want ErrNotFound", err)
+	}
+}
+
 // An agent of another tenant reads as not found.
 func TestGradeReads_OtherTenant(t *testing.T) {
 	svc, repo, _, _ := newTestServiceWithEval(t, coversEvaluator{granted: []string{"agents:runs:read"}})
