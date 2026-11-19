@@ -44,7 +44,6 @@ type gradeStore interface {
 	deferGradeJob(ctx context.Context, id string, at time.Time) error
 	dropGradeJob(ctx context.Context, id string) error
 	graderVersionSpec(ctx context.Context, version string) ([]byte, error)
-	graderModelScopes(ctx context.Context, tenantID string) ([]string, error)
 	runEndRecorded(ctx context.Context, runID string) (bool, error)
 	gradeState(ctx context.Context, runID string) (*grading.Snapshot, error)
 	putGradeState(ctx context.Context, tenantID, runID string, s grading.Snapshot) (grading.Snapshot, error)
@@ -54,9 +53,9 @@ type gradeStore interface {
 	ListRunEvents(ctx context.Context, runID string, afterSeqNo int64) ([]RunEvent, error)
 }
 
-// gradingPrincipal is the tenant's grading principal. *GraderPrincipal implements it.
-type gradingPrincipal interface {
-	Ensure(ctx context.Context, tenantID string, modelScopes []string) error
+// graderTokens mints the tenant's grading token. *GraderPrincipal implements it. The Grader
+// applier owns the grant, so the worker never writes it.
+type graderTokens interface {
 	Token(ctx context.Context, tenantID string) (string, error)
 }
 
@@ -78,7 +77,7 @@ type GradeWorkerConfig struct {
 // GradeWorker grades ended runs. Every kora-agents replica runs one.
 type GradeWorker struct {
 	store     gradeStore
-	principal gradingPrincipal
+	principal graderTokens
 	decisions decisionClient
 	cfg       GradeWorkerConfig
 	logger    logging.Logger
@@ -91,7 +90,7 @@ func NewGradeWorker(store *PostgresRepository, principal *GraderPrincipal, decis
 	return newGradeWorker(store, principal, decisions, cfg, logger)
 }
 
-func newGradeWorker(store gradeStore, principal gradingPrincipal, decisions decisionClient, cfg GradeWorkerConfig, logger logging.Logger) *GradeWorker {
+func newGradeWorker(store gradeStore, principal graderTokens, decisions decisionClient, cfg GradeWorkerConfig, logger logging.Logger) *GradeWorker {
 	if cfg.WindowTokens <= 0 {
 		cfg.WindowTokens = grading.DefaultWindow
 	}
@@ -353,16 +352,8 @@ func deref(s *grading.Snapshot) grading.Snapshot {
 	return *s
 }
 
-// call makes the System One call as the tenant's grading principal. The grant is set to the
-// models of the tenant's live Graders, so a model no Grader asks any more is not kept.
+// call makes the System One call as the tenant's grading principal.
 func (w *GradeWorker) call(ctx context.Context, tenantID string, req inference.SystemOneRequest) (inference.SystemOneResponse, error) {
-	scopes, err := w.store.graderModelScopes(ctx, tenantID)
-	if err != nil {
-		return inference.SystemOneResponse{}, err
-	}
-	if err = w.principal.Ensure(ctx, tenantID, scopes); err != nil {
-		return inference.SystemOneResponse{}, err
-	}
 	tok, err := w.token(ctx, tenantID)
 	if err != nil {
 		return inference.SystemOneResponse{}, err

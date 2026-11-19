@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -23,7 +22,6 @@ import (
 type fakeGradeStore struct {
 	mu       sync.Mutex
 	queue    []gradeJob
-	scopes   []string
 	specs    map[string][]byte
 	run      *Run
 	events   []RunEvent
@@ -57,9 +55,6 @@ func (f *fakeGradeStore) graderVersionSpec(_ context.Context, v string) ([]byte,
 		return s, nil
 	}
 	return nil, ErrNotFound
-}
-func (f *fakeGradeStore) graderModelScopes(context.Context, string) ([]string, error) {
-	return f.scopes, nil
 }
 func (f *fakeGradeStore) runEndRecorded(context.Context, string) (bool, error) { return f.ended, nil }
 func (f *fakeGradeStore) gradeState(context.Context, string) (*grading.Snapshot, error) {
@@ -168,7 +163,6 @@ func newGradeFixture(t *testing.T) *gradeFixture {
 			},
 			ended:  true,
 			grades: map[string]*gradeRecord{},
-			scopes: []string{"inference:other:model:use", "inference:typesafe:jev-1-14:use"},
 		},
 		principal: &fakeGradingPrincipal{},
 		decisions: &fakeDecisions{resp: inference.SystemOneResponse{
@@ -233,9 +227,6 @@ func TestGradeWorker_Grades(t *testing.T) {
 	req := f.decisions.calls[0]
 	if req.Model != "typesafe/jev-1-14" || req.DecisionTimeout != 60*time.Second || len(req.Questions) != 5 || f.decisions.bears[0] != "grader-token" {
 		t.Errorf("request model %q timeout %v questions %d bearer %q", req.Model, req.DecisionTimeout, len(req.Questions), f.decisions.bears[0])
-	}
-	if len(f.principal.ensured) != 1 || !slices.Equal(f.principal.ensured[0], f.store.scopes) {
-		t.Errorf("ensured = %v, want the scopes of every live Grader's model %v", f.principal.ensured, f.store.scopes)
 	}
 }
 

@@ -403,10 +403,15 @@ type declaredGraderStore interface {
 	graderModelScopes(ctx context.Context, tenantID string) ([]string, error)
 }
 
+// graderGrant sets the tenant's grading grant. *GraderPrincipal implements it.
+type graderGrant interface {
+	Ensure(ctx context.Context, tenantID string, modelScopes []string) error
+}
+
 // GraderApplier applies declared Graders.
 type GraderApplier struct {
 	store     declaredGraderStore
-	principal gradingPrincipal
+	principal graderGrant
 }
 
 // NewGraderApplier returns the declarative.Applier for KindGraders. principal is the tenant's
@@ -415,7 +420,7 @@ func NewGraderApplier(store declaredGraderStore, principal *GraderPrincipal) *Gr
 	return newGraderApplier(store, principal)
 }
 
-func newGraderApplier(store declaredGraderStore, principal gradingPrincipal) *GraderApplier {
+func newGraderApplier(store declaredGraderStore, principal graderGrant) *GraderApplier {
 	return &GraderApplier{store: store, principal: principal}
 }
 
