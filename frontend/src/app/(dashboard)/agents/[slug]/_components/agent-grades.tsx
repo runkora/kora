@@ -2,7 +2,7 @@
 
 /**
  * @tier 3 · agents/[slug]-scoped. The Grades tab. `GradersList` shows each Grader's pass rate over
- * its last 30 graded runs against its `minPassRate`, failing first. `GraderPage` shows one Grader's
+ * its last `WINDOW` graded runs against its `minPassRate`, failing first. `GraderPage` shows one Grader's
  * questions and their failed or uncertain runs. Every string is a stored field or a count of them.
  */
 
@@ -35,7 +35,7 @@ import type {
   GraderStatus,
   GraderSummary,
 } from '@runkora/shared/api';
-import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../../../triggers/_types/pagination';
+import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '@runkora/lib/pagination';
 import {
   GRADER_STATUS_LABEL,
   VERDICT_BADGE,
@@ -90,6 +90,16 @@ function AllFailedLink({
           All failed runs for this question →
         </NextLink>
       </Anchor>
+    </Stack>
+  );
+}
+
+/** A question's failed or uncertain runs, and the link to all its failed runs when it has any. */
+function QuestionRuns({ grader, q, slug }: { grader: string; q: GraderQuestion; slug: string }) {
+  return (
+    <Stack gap="snug">
+      <RunList runs={q.runs} slug={slug} />
+      {q.failed > 0 && <AllFailedLink slug={slug} grader={grader} question={q.name} />}
     </Stack>
   );
 }
@@ -277,7 +287,7 @@ export function GradersList({
       noun="Graders"
       onRowClick={(g) => onOpen(g.name)}
       rowLabel={(g) => `Open ${graderName(g)}`}
-      searchFn={(g, q) => matches(g, q.toLowerCase())}
+      searchFn={matches}
       searchPlaceholder="Search Graders…"
       emptyMessage="No Graders match this filter."
       quickFilters={
@@ -431,12 +441,7 @@ function Questions({ grader, slug }: { grader: GraderDetail; slug: string }) {
           ? undefined
           : (q) =>
               q.runs.length ? (
-                <Stack gap="snug">
-                  <RunList runs={q.runs} slug={slug} />
-                  {q.failed > 0 && (
-                    <AllFailedLink slug={slug} grader={grader.name} question={q.name} />
-                  )}
-                </Stack>
+                <QuestionRuns grader={grader.name} q={q} slug={slug} />
               ) : (
                 <Text size="supporting" color="subtle">
                   No failed or uncertain runs
@@ -504,12 +509,7 @@ export function GraderPage({
 
       {only &&
         (only.runs.length ? (
-          <Stack gap="snug">
-            <RunList runs={only.runs} slug={slug} />
-            {only.failed > 0 && (
-              <AllFailedLink slug={slug} grader={grader.name} question={only.name} />
-            )}
-          </Stack>
+          <QuestionRuns grader={grader.name} q={only} slug={slug} />
         ) : (
           <Text size="supporting" color="muted" tabular>
             No failed or uncertain runs in the last {grader.graded}

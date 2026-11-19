@@ -712,7 +712,7 @@ export type AnswerVerdict = GradeVerdict | 'skipped';
 /** How grading ended for one run. `verdict` is set only when `graded`. */
 export type GradeStatus = 'graded' | 'not_applicable' | 'applies_uncertain' | 'too_large' | 'error';
 
-/** A Grader's standing against its `minPassRate` over its last 30 graded runs. */
+/** A Grader's standing against its `minPassRate` over its window of graded runs. */
 export type GraderStatus = 'passing' | 'failing' | 'not_enough_runs' | 'no_minimum';
 
 export type GraderQuestionType = 'boolean' | 'choice' | 'scale';
@@ -754,7 +754,7 @@ export interface RunGradesResponse {
   grades: RunGrade[];
 }
 
-/** A Grader's standing over its current version's last 30 graded runs. Mirrors Go: agents.GraderSummary. */
+/** A Grader's standing over its current version's window of graded runs. Mirrors Go: agents.GraderSummary. */
 export interface GraderSummary {
   name: string;
   description: string;

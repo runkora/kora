@@ -5,7 +5,7 @@ import type { GraderDetail, GraderSummary } from '@runkora/shared/api';
 import { fetchAgentGrader, fetchAgentGraders } from '../_services/agent-detail-api';
 
 /** A read's result: `data` is null while loading and on error. */
-export interface Read<T> {
+interface Read<T> {
   data: T | null;
   error: string | null;
   loading: boolean;

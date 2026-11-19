@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_PAGE_SIZE, PAGE_SIZES, pageWindow } from './pagination';
-
-describe('page sizes', () => {
-  it('offers the sizes the list is designed around, smallest first', () => {
-    expect(PAGE_SIZES).toEqual([12, 25, 50]);
-    expect(DEFAULT_PAGE_SIZE).toBe(12);
-  });
-});
+import { pageWindow } from './pagination';
 
 describe('pageWindow', () => {
   it('slices the first page', () => {

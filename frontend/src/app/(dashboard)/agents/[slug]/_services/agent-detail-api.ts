@@ -14,7 +14,7 @@ import type {
 } from '@runkora/shared/api';
 import { toAgentTypeRow } from '../../_types';
 import type { AgentTypeRow } from '../../_types';
-import { fetchPeriodRead, fetchRunPage, runPageSearch } from '../../_services/agents-api';
+import { fetchRead, fetchRunPage, runPageSearch } from '../../_services/agents-api';
 import type { RunPageQuery } from '../../_services/agents-api';
 
 // ── fetchAgentDetail ──────────────────────────────────────────────────────────
@@ -161,14 +161,14 @@ export async function updateAgentType(
 // ── fetchAgentOverview ────────────────────────────────────────────────────────
 
 export const fetchAgentOverview = (slug: string, period: AgentInsightsPeriod) =>
-  fetchPeriodRead<AgentOverviewResponse>(ApiRoute.agentTypes.overview(slug, period));
+  fetchRead<AgentOverviewResponse>(ApiRoute.agentTypes.overview(slug, period));
 
 // ── Graders ───────────────────────────────────────────────────────────────────
 
 /** The agent's Graders, failing first. */
 export const fetchAgentGraders = (agentTypeId: string) =>
-  fetchPeriodRead<AgentGradersResponse>(ApiRoute.agentTypes.graders(agentTypeId));
+  fetchRead<AgentGradersResponse>(ApiRoute.agentTypes.graders(agentTypeId));
 
 /** One Grader with its spec and its questions' failed and uncertain runs. */
 export const fetchAgentGrader = (agentTypeId: string, name: string) =>
-  fetchPeriodRead<GraderDetail>(ApiRoute.agentTypes.grader(agentTypeId, name));
+  fetchRead<GraderDetail>(ApiRoute.agentTypes.grader(agentTypeId, name));

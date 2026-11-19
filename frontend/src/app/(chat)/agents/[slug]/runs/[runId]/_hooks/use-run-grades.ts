@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchPeriodRead } from '@runkora/app/(dashboard)/agents/_services/agents-api';
+import { fetchRead } from '@runkora/app/(dashboard)/agents/_services/agents-api';
 import { useAgentGraders } from '@runkora/app/(dashboard)/agents/[slug]/_hooks/use-agent-graders';
 import { ApiRoute } from '@runkora/lib/routing';
 import type { RunGrade, RunGradesResponse } from '@runkora/shared/api';
@@ -41,7 +41,7 @@ export function useRunGrades(
     let timer: ReturnType<typeof setTimeout> | undefined;
     let tries = 0;
     const load = () =>
-      void fetchPeriodRead<RunGradesResponse>(ApiRoute.runs.grades(runId)).then(({ data }) => {
+      void fetchRead<RunGradesResponse>(ApiRoute.runs.grades(runId)).then(({ data }) => {
         if (!current) return;
         if (data) setRead({ runId, grades: data.grades });
         // A run that ended on this page reads again until every Grader has a grade.

@@ -349,7 +349,7 @@ export const ApiRoute = {
       period: AgentInsightsPeriod,
     ): `${typeof API_BASE}/agents/types/overview/${string}?period=${AgentInsightsPeriod}` =>
       `${API_BASE}/agents/types/overview/${encodeURIComponent(slug)}?period=${period}`,
-    /** GET: the agent's Graders with their standing over their last 30 graded runs. */
+    /** GET: the agent's Graders with their standing over their window of graded runs. */
     graders: (id: string): `${typeof API_BASE}/agents/types/${string}/graders` =>
       `${API_BASE}/agents/types/${id}/graders`,
     /** GET: one Grader's standing, spec and its questions' failed and uncertain runs. */

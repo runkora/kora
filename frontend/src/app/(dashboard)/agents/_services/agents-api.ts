@@ -44,13 +44,11 @@ export async function fetchAgentTypes(): Promise<{ data: AgentTypeRow[]; error: 
   return { data: (body.data ?? []).map(toAgentTypeRow), error: null };
 }
 
-// ── fetchPeriodRead ──
-// A BFF read: the Agents page rollups, one agent's overview or its Graders. Never throws;
-// on error `data` is null.
+// ── fetchRead ──
+// A BFF read: the Agents page rollups, one agent's overview, its Graders or a run's grades.
+// Never throws; on error `data` is null.
 
-export async function fetchPeriodRead<T>(
-  url: string,
-): Promise<{ data: T | null; error: string | null }> {
+export async function fetchRead<T>(url: string): Promise<{ data: T | null; error: string | null }> {
   let res: Response;
   try {
     res = await fetch(url, { cache: 'no-store' });
@@ -68,7 +66,7 @@ export async function fetchPeriodRead<T>(
 }
 
 export const fetchAgentInsights = (period: AgentInsightsPeriod) =>
-  fetchPeriodRead<AgentInsightsResponse>(ApiRoute.agentInsights.window(period));
+  fetchRead<AgentInsightsResponse>(ApiRoute.agentInsights.window(period));
 
 // ── fetchRuns ─────────────────────────────────────────────────────────────────
 
@@ -146,7 +144,7 @@ export const fetchRuns = (agentTypes: AgentTypeRow[], query: RunPageQuery = {}) 
 export async function fetchRunStats(
   period: AgentInsightsPeriod,
 ): Promise<{ data: AgentRunStats | null; error: string | null }> {
-  const result = await fetchPeriodRead<{ data: AgentRunStats | null }>(ApiRoute.runs.stats(period));
+  const result = await fetchRead<{ data: AgentRunStats | null }>(ApiRoute.runs.stats(period));
   return { data: result.data?.data ?? null, error: result.error };
 }
 

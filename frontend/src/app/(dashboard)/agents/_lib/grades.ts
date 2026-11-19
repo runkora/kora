@@ -13,7 +13,7 @@ import type {
 } from '@runkora/shared/api';
 import type { GradeFilter } from '../_services/agents-api';
 
-/** A Grader's standing is read over its last `WINDOW` graded runs. */
+/** A Grader's standing is read over its last `WINDOW` graded runs, kora-agents' `PassRateWindow`. */
 export const WINDOW = 30;
 
 export const VERDICT_LABEL: Record<AnswerVerdict, string> = {
@@ -75,7 +75,7 @@ export function gradeRunsHref(slug: string, filter: GradeFilter): string {
   return `${APP_ROUTES.agents.detail(slug)}?${query}`;
 }
 
-const VERDICTS: ReadonlySet<string> = new Set(['pass', 'fail', 'uncertain', 'skipped']);
+const isVerdict = (v: string | null): v is AnswerVerdict => v !== null && v in VERDICT_LABEL;
 
 /** The Runs tab's grade filter from the page URL; null without a Grader. */
 export function gradeFilterOf(params: URLSearchParams): GradeFilter | null {
@@ -84,6 +84,6 @@ export function gradeFilterOf(params: URLSearchParams): GradeFilter | null {
   const question = params.get('question') || undefined;
   const verdict = params.get('verdict');
   // kora-agents reads `skipped` only for a question.
-  const known = verdict && VERDICTS.has(verdict) && (verdict !== 'skipped' || question);
-  return { grader, question, verdict: known ? (verdict as AnswerVerdict) : undefined };
+  const known = isVerdict(verdict) && (verdict !== 'skipped' || !!question);
+  return { grader, question, verdict: known ? verdict : undefined };
 }
