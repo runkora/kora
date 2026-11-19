@@ -87,14 +87,7 @@ func (g *GraderPrincipal) Ensure(ctx context.Context, tenantID string, modelScop
 			return fmt.Errorf("create grader grant: %w", err)
 		}
 	}
-	for _, gr := range stale {
-		if delErr := g.grants.DeleteGrant(ctx, gr.ID); delErr != nil && !errors.Is(delErr, policyclient.ErrGrantNotFound) {
-			g.logger.Warn(ctx, "delete stale grader grant failed",
-				logging.Field{Key: "grant_id", Value: gr.ID},
-				logging.Field{Key: "error", Value: delErr.Error()})
-		}
-	}
-	return nil
+	return g.deleteGrants(ctx, stale)
 }
 
 // deleteGrants removes every grading grant. A failed delete is returned, so the caller retries

@@ -168,6 +168,28 @@ func TestGraderPrincipalEnsure_EmptySetReportsFailedDelete(t *testing.T) {
 	}
 }
 
+func TestGraderPrincipalEnsure_ReportsFailedStaleDelete(t *testing.T) {
+	f := &fakeGraderGrants{deleteErr: errors.New("unavailable"), grants: []policyclient.Grant{
+		{ID: "old", TenantID: "acme", PrincipalType: "SERVICE", PrincipalID: "grader:acme", Scopes: []string{"inference:invoke", scopeJev}},
+	}}
+	gp := NewGraderPrincipal(f, nil, logging.NewLoggerWithOutput(io.Discard))
+
+	if err := gp.Ensure(context.Background(), "acme", []string{scopeJev2}); err == nil {
+		t.Fatal("expected a failed stale delete to fail Ensure")
+	}
+}
+
+func TestGraderPrincipalEnsure_StaleGrantAlreadyGone(t *testing.T) {
+	f := &fakeGraderGrants{deleteErr: policyclient.ErrGrantNotFound, grants: []policyclient.Grant{
+		{ID: "old", TenantID: "acme", PrincipalType: "SERVICE", PrincipalID: "grader:acme", Scopes: []string{"inference:invoke", scopeJev}},
+	}}
+	gp := NewGraderPrincipal(f, nil, logging.NewLoggerWithOutput(io.Discard))
+
+	if err := gp.Ensure(context.Background(), "acme", []string{scopeJev2}); err != nil {
+		t.Fatalf("a grant already gone is not a failure: %v", err)
+	}
+}
+
 func TestGraderPrincipalEnsure_MergesDuplicatesAndDropsForeignScopes(t *testing.T) {
 	f := &fakeGraderGrants{grants: []policyclient.Grant{
 		{ID: "a", TenantID: "acme", PrincipalType: "SERVICE", PrincipalID: "grader:acme", Scopes: []string{"inference:invoke", scopeJev}},
