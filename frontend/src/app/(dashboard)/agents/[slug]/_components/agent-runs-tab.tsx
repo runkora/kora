@@ -68,8 +68,8 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
   } = useAgentDetailContext();
   const router = useRouter();
   const pathname = usePathname();
-  // The page reads the grade filter from the URL, so clearing it is a navigation.
-  const clearGradeFilter = () => router.replace(`${pathname}?tab=runs`, { scroll: false });
+  // The page reads the grade filter from the URL, so clearing it rewrites the query.
+  const clearGradeFilter = () => window.history.replaceState(null, '', `${pathname}?tab=runs`);
 
   const [deleteTarget, setDeleteTarget] = useState<RunRow | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);

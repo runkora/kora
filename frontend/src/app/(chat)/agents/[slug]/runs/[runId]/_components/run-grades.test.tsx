@@ -64,6 +64,13 @@ describe('RailGrades', () => {
     expect(screen.getByText('Applies p 0.50')).toBeInTheDocument();
   });
 
+  it('names no cap for an error grade that kept one', () => {
+    const [first, second] = RUN_GRADES.error;
+    ended([{ ...first!, state_cap: 2000 }, second!]);
+    expect(screen.getByText('Grading failed')).toBeInTheDocument();
+    expect(screen.queryByText(/Tool result/)).toBeNull();
+  });
+
   it('labels too large and error grades', () => {
     ended(RUN_GRADES.tooLarge);
     expect(screen.getAllByText('Too large to grade')).toHaveLength(2);

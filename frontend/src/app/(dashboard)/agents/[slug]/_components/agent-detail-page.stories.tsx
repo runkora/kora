@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { expect, userEvent, within } from 'storybook/test';
-import { getRouter } from '@storybook/nextjs/navigation.mock';
+import { expect, spyOn, userEvent, within } from 'storybook/test';
 import type { AgentOverviewResponse, AgentType } from '@runkora/shared/api';
 import { AGENT_TYPES, CODE_REVIEWER } from '../../_components/agents-mock-data';
 import type { Period } from '../../_lib/spend';
@@ -180,12 +179,13 @@ export const EditInstructions: Story = {
 export const OverviewViewAllRuns: Story = {
   ...Overview,
   play: async ({ canvasElement }) => {
+    // Storybook's search params do not follow the history API, so the story checks the write.
+    const replace = spyOn(window.history, 'replaceState').mockImplementation(() => undefined);
     await userEvent.click(
       await within(canvasElement).findByRole('button', { name: /View all runs/ }),
     );
-    await expect(getRouter().replace).toHaveBeenCalledWith('/agents/code-reviewer?tab=runs', {
-      scroll: false,
-    });
+    await expect(replace).toHaveBeenCalledWith(null, '', '/agents/code-reviewer?tab=runs');
+    replace.mockRestore();
   },
 };
 

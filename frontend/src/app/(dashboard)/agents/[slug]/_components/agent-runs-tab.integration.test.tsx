@@ -5,9 +5,8 @@ import { http, HttpResponse } from 'msw';
 import { renderWithProviders, server } from '@runkora/test-utils';
 import type { RunStateCounts } from '@runkora/shared/api';
 
-const { replace } = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn(), replace, refresh: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
   usePathname: () => '/agents/code-reviewer',
   useSearchParams: () => new URLSearchParams(),
 }));
@@ -248,8 +247,10 @@ describe('Agent runs tab', () => {
       screen.getByText('Grader review-outcome · Question read-callers · Fail'),
     ).toBeInTheDocument();
 
+    const replace = vi.spyOn(window.history, 'replaceState').mockImplementation(() => undefined);
     await userEvent.click(screen.getByRole('button', { name: 'Clear filter' }));
     // The page reads the filter from the URL, so clearing it navigates.
-    expect(replace).toHaveBeenCalledWith('/agents/code-reviewer?tab=runs', { scroll: false });
+    expect(replace).toHaveBeenCalledWith(null, '', '/agents/code-reviewer?tab=runs');
+    replace.mockRestore();
   });
 });

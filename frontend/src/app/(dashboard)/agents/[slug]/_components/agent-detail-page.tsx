@@ -73,13 +73,14 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
   useEffect(() => {
     setGradeFilter(gradeFilter);
   }, [gradeFilter, setGradeFilter]);
-  // Opening or leaving a Grader adds a history entry, so Back returns to where the reader was.
+  // The history API changes only the query, which Next syncs into useSearchParams without a server
+  // request. Opening or leaving a Grader adds a history entry, so Back returns to where the reader was.
   const show = (next: string, nextGrader?: string) => {
     const query = new URLSearchParams({ tab: next });
     if (nextGrader) query.set('grader', nextGrader);
     const href = `${pathname}?${query}`;
-    if (next === 'grades' && nextGrader !== grader) router.push(href, { scroll: false });
-    else router.replace(href, { scroll: false });
+    if (next === 'grades' && nextGrader !== grader) window.history.pushState(null, '', href);
+    else window.history.replaceState(null, '', href);
   };
   const setTab = (next: string) => show(next);
   // The Configure modal, and the rail step it opens on.

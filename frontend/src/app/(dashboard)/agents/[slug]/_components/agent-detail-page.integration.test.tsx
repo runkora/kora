@@ -1,12 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { renderWithProviders, server } from '@runkora/test-utils';
 
-const nav = vi.hoisted(() => ({ search: '', push: vi.fn(), replace: vi.fn() }));
+const nav = vi.hoisted(() => ({ search: '' }));
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: nav.push, replace: nav.replace, refresh: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
   usePathname: () => '/agents/code-reviewer',
   useSearchParams: () => new URLSearchParams(nav.search),
 }));
@@ -53,6 +53,8 @@ const page = () => (
 );
 
 describe('AgentDetailPage URL', () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it('opens the Grader the URL names, then follows a link to its failed runs', async () => {
     const runQueries = serve();
     nav.search = 'tab=grades&grader=summary-accurate';
@@ -75,17 +77,27 @@ describe('AgentDetailPage URL', () => {
     // The same URL again does not read the runs again.
     rerender(page());
     expect(runQueries).toHaveLength(1);
+
+    // A URL without the grade filter reads the runs again without it.
+    nav.search = 'tab=runs';
+    rerender(page());
+    await waitFor(() => expect(runQueries).toHaveLength(2));
+    expect(runQueries[1]!.has('grader')).toBe(false);
+    expect(runQueries[1]!.has('question')).toBe(false);
+    expect(runQueries[1]!.has('verdict')).toBe(false);
+    expect(screen.queryByText(/^Grader summary-accurate/)).toBeNull();
   });
 
   it('pushes a history entry to open a Grader and replaces it to switch tabs', async () => {
     serve();
+    // The page writes the query through the history API, which Next syncs into useSearchParams.
+    const push = vi.spyOn(window.history, 'pushState').mockImplementation(() => undefined);
+    const replace = vi.spyOn(window.history, 'replaceState').mockImplementation(() => undefined);
     nav.search = 'tab=grades';
     renderWithProviders(page());
     await userEvent.click(await screen.findByText('ci-read'));
-    expect(nav.push).toHaveBeenCalledWith('/agents/code-reviewer?tab=grades&grader=ci-read', {
-      scroll: false,
-    });
+    expect(push).toHaveBeenCalledWith(null, '', '/agents/code-reviewer?tab=grades&grader=ci-read');
     await userEvent.click(screen.getByRole('tab', { name: /Runs/ }));
-    expect(nav.replace).toHaveBeenCalledWith('/agents/code-reviewer?tab=runs', { scroll: false });
+    expect(replace).toHaveBeenCalledWith(null, '', '/agents/code-reviewer?tab=runs');
   });
 });

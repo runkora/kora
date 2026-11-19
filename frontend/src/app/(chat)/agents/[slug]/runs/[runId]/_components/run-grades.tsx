@@ -48,12 +48,10 @@ const capText = (cap: number) =>
 function Footnote({ grades }: { grades: RunGrade[] }) {
   // A too-large state was never sent; any other grade with tokens made the call.
   const called = grades.filter((g) => g.status !== 'too_large' && g.input_tokens !== null);
-  // A too-large grade was not graded, so its cap describes no state the model read.
+  // Only a graded run's cap describes a state the model read; too_large and error grades keep a cap too.
   const caps = [
     ...new Set(
-      grades.flatMap((g) =>
-        g.state_cap === null || g.status === 'too_large' ? [] : [g.state_cap],
-      ),
+      grades.flatMap((g) => (g.status === 'graded' && g.state_cap !== null ? [g.state_cap] : [])),
     ),
   ].sort((a, b) => b - a);
   if (!called.length && !caps.length) return null;
