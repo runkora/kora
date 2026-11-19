@@ -44,7 +44,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 |---------|------|
 | `identity` | Sessions, refresh tokens, PATs, user profiles, JTI blocklist, tenant registry, principal extraction |
 | `inferencegw` | Inference router, providers, catalog, usage, analytics, virtual models; OpenAI/Anthropic/embeddings/responses handlers |
-| `agents` | Agent control plane: types, runs, sessions, pubsub, k8s, authz; sub-packages `sandbox/`, `sessionmanager/` |
+| `agents` | Agent control plane: types, runs, sessions, pubsub, k8s, authz; sub-packages `grading/`, `sandbox/`, `sessionmanager/` |
 | `policyservice` | Authz data plane; sub-packages `api/`, `bundle/`, `grants/`, `principalroles/`, `roles/`, `routes/`, `tenantbudget/`, `vocabulary/` |
 | `policygw` | Policy-gateway HTTP transport (delegates evaluation to policy-service) |
 | `operator` | K8s reconciliation: tenant/platform controllers, Helm render, Istio templates, pod webhook, projection of declared resources |
@@ -106,7 +106,7 @@ kora/
 │   │   │
 │   │   ├── identity/                 # ✅ feature: identity & auth
 │   │   ├── inferencegw/              # ✅ feature: inference gateway (+ providers/ subtree)
-│   │   ├── agents/                   # ✅ feature: agent control plane (+ sandbox/, sessionmanager/)
+│   │   ├── agents/                   # ✅ feature: agent control plane (+ grading/, sandbox/, sessionmanager/)
 │   │   ├── policyservice/            # ✅ feature: authz data plane (subpackage-per-concern)
 │   │   ├── policygw/                 # ✅ feature: policy-gateway transport
 │   │   ├── operator/                 # ✅ feature: k8s reconciliation
