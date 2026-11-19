@@ -228,7 +228,7 @@ Anyone who can read an agent's runs can read its grades. A delegated agent's Gra
 | --- | --- |
 | `GET /api/v1/runs/{id}/grades` | The run's grade per Grader: the current version's, or the newest version that graded the run. Each grade has its status, verdict, model, input tokens, cost, state cap and answers with their question text. A run that has not ended has none. |
 | `GET /api/v1/agent-types/{id}/graders` | Each Grader of the agent with its passed and graded counts over the current version's last 30 graded runs, its `too_large` count and its status: `passing`, `failing`, `not_enough_runs` or `no_minimum`. Failing Graders come first, then by pass rate, lowest first. Graders with no graded runs come last. |
-| `GET /api/v1/agent-types/{id}/graders/{name}` | The same counts, the version's spec, and per question the failed and uncertain runs of the window. |
+| `GET /api/v1/agent-types/{id}/graders/{name}` | The same counts, the version's spec, and per question the failed and uncertain runs of the window. Per question it also lists every answer in spec order: yes and no, a choice's options with `none`, or a scale's levels lowest first. Each answer says whether it passes or skips the question, and counts the window's runs whose stored probabilities make it the most likely answer. A tie goes to the answer first in spec order. A yes or no answer is yes at p 0.5 or above. |
 | `GET /api/v1/runs?grader=&question=&verdict=` | Runs with a grade on the Grader's current version. `verdict` is the run's verdict, or with `question` that question's answer verdict. |
 
 ## Grant access with a role
