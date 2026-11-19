@@ -12,9 +12,9 @@ import (
 )
 
 // The internal service-token endpoint exists so that a platform component which
-// starts work on behalf of a tenant principal — today only kora-triggers — can
-// obtain that principal's short-lived token without holding any signing key.
-// identity remains the sole token authority.
+// starts work on behalf of a tenant principal (kora-triggers for trigger runs,
+// kora-agents for grading) can obtain that principal's short-lived token without
+// holding any signing key. identity remains the sole token authority.
 //
 // It authenticates exactly like POST /identity/exchange: by the caller's
 // mesh-attested SPIFFE identity in the Envoy-injected XFCC header. No shared
@@ -29,8 +29,12 @@ import (
 // as safe as this list is short. A caller here can act as any SERVICE principal
 // in any tenant, bounded only by that principal's grants. Adding an entry is a
 // security decision, not a wiring detail.
+//
+// kora-agents mints the per-tenant grading principal grader:<tenant>
+// (docs/adr/2026-11-19-graders.md).
 var mintServiceTokenCallers = map[string]struct{}{
 	"kora-triggers": {},
+	"kora-agents":   {},
 }
 
 // maxServiceTokenTTL caps the lifetime a caller may request. Trigger tokens are

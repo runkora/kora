@@ -23,8 +23,18 @@ func TestAssertMintCallerPermitted(t *testing.T) {
 			permitted: true,
 		},
 		{
-			name:      "system component not on the allowlist",
+			name:      "kora-agents minting the grading principal",
 			caller:    &Principal{Type: token.PrincipalTypeSystem, DisplayName: "kora-agents"},
+			permitted: true,
+		},
+		{
+			name:      "system component not on the allowlist",
+			caller:    &Principal{Type: token.PrincipalTypeSystem, DisplayName: "tool-gateway"},
+			permitted: false,
+		},
+		{
+			name:      "agent impersonating kora-agents",
+			caller:    &Principal{Type: token.PrincipalTypeAgent, DisplayName: "kora-agents", TenantID: "acme"},
 			permitted: false,
 		},
 		{
@@ -78,7 +88,7 @@ func TestAssertMintCallerPermitted(t *testing.T) {
 func TestMintServiceTokenCallers_AllowlistIsMinimal(t *testing.T) {
 	t.Parallel()
 
-	want := map[string]struct{}{"kora-triggers": {}}
+	want := map[string]struct{}{"kora-triggers": {}, "kora-agents": {}}
 
 	if len(mintServiceTokenCallers) != len(want) {
 		t.Fatalf("mint allowlist changed: got %v, want %v — adding a caller here grants it the ability to act as any SERVICE principal in any tenant", mintServiceTokenCallers, want)
