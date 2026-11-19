@@ -404,7 +404,7 @@ func (r *PostgresRepository) GetRunByDelivery(ctx context.Context, tenantID, tri
 const selectRun = `SELECT ` + runColumns + ` FROM runs r JOIN agent_types at ON at.id = r.agent_type_id`
 
 const runColumns = `
-	r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode, at.slug, at.name,
+	r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, r.agent_config, at.identity_mode, at.slug, at.name,
 	r.trigger_id, r.trigger_name, r.trigger_kind, r.delivery_id, r.environment_id, r.trace_parent, r.deleted_at, r.caused_by, r.chain_depth, r.trigger_ids, r.sources`
 
 // GetRun returns the run, a terminated one included.
@@ -732,6 +732,16 @@ func (r *PostgresRepository) SetRunDelegationJTI(ctx context.Context, runID, jti
 	)
 	if err != nil {
 		return fmt.Errorf("set run delegation jti: %w", err)
+	}
+	return nil
+}
+
+// SetRunAgentConfig records the run's agent config digest. Each start attempt overwrites it
+// with the config it sends. Zero rows affected (run gone) is not an error.
+func (r *PostgresRepository) SetRunAgentConfig(ctx context.Context, runID, digest string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE runs SET agent_config=$1, updated_at=$2 WHERE id=$3`, digest, time.Now().UTC(), runID)
+	if err != nil {
+		return fmt.Errorf("set run agent config: %w", err)
 	}
 	return nil
 }
@@ -1178,7 +1188,7 @@ func scanRun(s scanner, extra ...any) (*Run, error) {
 	err := s.Scan(append([]any{
 		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodOrdinal,
 		&r.CreatedBy, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
-		&r.Summary, &r.DelegationJTI, &identityMode, &r.AgentSlug, &r.AgentName,
+		&r.Summary, &r.DelegationJTI, &r.AgentConfig, &identityMode, &r.AgentSlug, &r.AgentName,
 		&triggerID, &triggerName, &triggerKind, &deliveryID, &r.EnvironmentID, &traceParent,
 		&r.DeletedAt, &causedBy, &r.ChainDepth, &r.TriggerIDs, &sourcesJSON,
 	}, extra...)...)

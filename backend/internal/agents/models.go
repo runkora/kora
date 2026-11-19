@@ -589,6 +589,9 @@ type Run struct {
 	// Decision 3). Nil for autonomous runs. kora-agents revokes the issuance
 	// by this JTI when the run reaches a terminal state.
 	DelegationJTI *string `json:"delegation_jti,omitempty"`
+	// AgentConfig is the sha256 hex digest of the agent's effective config when the run started
+	// (docs/adr/2026-11-19-graders.md). Nil for a run that never reached a session attempt.
+	AgentConfig *string `json:"agent_config"`
 	// IdentityMode is the agent type's identity model, denormalized onto run
 	// reads (repository queries join agent_types) so every run surface can show
 	// the governance posture — and attribute created_by accordingly — without a

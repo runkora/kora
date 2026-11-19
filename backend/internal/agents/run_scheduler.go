@@ -154,8 +154,14 @@ func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.T
 		return
 	}
 
+	// The digest is stored before the session exists, so every run that reaches the agent carries one.
+	access := s.briefAccess(ctx, *at, run.ID)
+	if err := s.repo.SetRunAgentConfig(ctx, run.ID, agentConfigDigest(*at, access, s.cfg.SandboxMount, s.cfg.Brand.ProductName())); err != nil {
+		s.releaseStart(ctx, span, run.ID, claimedAt, err)
+		return
+	}
 	podURL := sessionmanager.PodURL(at.Slug, pod, namespace)
-	err := s.sm.CreateSession(ctx, podURL, s.sessionRequest(ctx, run, *at))
+	err := s.sm.CreateSession(ctx, podURL, s.sessionRequest(run, *at, access))
 	switch {
 	case err == nil, errors.Is(err, sessionmanager.ErrSessionConflict):
 		// Sessions are keyed by run ID, so a conflict means an earlier attempt landed.
@@ -276,8 +282,8 @@ func (s *RunService) waitsPastBudget(ctx context.Context, at *AgentType, namespa
 	return counts.atTotal(at.MaxConcurrentRuns), nil
 }
 
-// sessionRequest is the session-manager request for a run of at.
-func (s *RunService) sessionRequest(ctx context.Context, run Run, at AgentType) sessionmanager.CreateSessionRequest {
+// sessionRequest is the session-manager request for a run of at, with the brief for access.
+func (s *RunService) sessionRequest(run Run, at AgentType, access *EffectiveAccess) sessionmanager.CreateSessionRequest {
 	req := sessionmanager.CreateSessionRequest{
 		RunID:       run.ID,
 		AgentTypeID: run.AgentTypeID,
@@ -287,7 +293,7 @@ func (s *RunService) sessionRequest(ctx context.Context, run Run, at AgentType) 
 		// One governed MCP endpoint per server the agent has tool grants on.
 		MCPServers: at.MCPServers(),
 		// The agent's own prompt plus the runtime-environment brief.
-		SystemPrompt: s.systemPromptWithBrief(ctx, at, run.ID),
+		SystemPrompt: s.systemPromptWithBrief(at, access, run.ID),
 		Guardrails:   runGuardrails(s.cfg.SandboxGuardrails, at.Guardrails),
 		// Chosen by how the run started; the session-manager arms its idle timer with it.
 		IdleTimeoutSecs: s.cfg.IdleTimeouts.ForRun(run.StartedBy),

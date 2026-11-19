@@ -552,6 +552,8 @@ export interface Run {
   summary?: string | null;
   /** The run's W3C trace ID; null when the run was not sampled. */
   trace_id?: string | null;
+  /** sha256 hex digest of the agent's effective config when the run started; null before its first start attempt. */
+  agent_config?: string | null;
   /**
    * Present when a trigger started this run. trigger_name, trigger_kind and delivery_id are
    * omitted when unknown; absent entirely for human-started runs.

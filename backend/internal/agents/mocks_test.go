@@ -56,6 +56,7 @@ type mockRepository struct {
 	listRunsErr            error
 	setRunStateErr         error
 	setRunDelegationJTIErr error
+	setRunAgentConfigErr   error
 	terminateRunErr        error
 	sandboxDeleted         []string
 	// queued lists the runs QueueRun made claimable, and released counts ReleaseRunClaim calls.
@@ -571,6 +572,18 @@ func (m *mockRepository) SetRunEnvironment(_ context.Context, runID string, envi
 		return ErrNotFound
 	}
 	r.EnvironmentID = environmentID
+	return nil
+}
+
+func (m *mockRepository) SetRunAgentConfig(_ context.Context, runID, digest string) error {
+	if m.setRunAgentConfigErr != nil {
+		return m.setRunAgentConfigErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r, ok := m.runs[runID]; ok {
+		r.AgentConfig = &digest
+	}
 	return nil
 }
 
