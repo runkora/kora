@@ -147,14 +147,19 @@ func TestPostgres_RunGradesNewestVersion(t *testing.T) {
 	p.writeGrade(t, first, first.CurrentVersion, runID, now, now.Add(-time.Hour), "graded", "pass", map[string]string{"opened-pr": "pass"})
 	p.writeGrade(t, first, oldVersion, runID, now, now, "graded", "fail", map[string]string{"opened-pr": "fail"})
 
-	// A Grader whose current version has not graded the run shows its latest graded version.
+	// A Grader whose current version has not graded the run shows the newest version that did.
+	// The older version's late job graded after the newer one and still loses.
 	second := p.putGrader(t, "second", testGraderVersion(t))
 	olderVersion := second.CurrentVersion
 	second = p.putGrader(t, "second", testGraderVersion(t))
 	newerVersion := second.CurrentVersion
 	second = p.putGrader(t, "second", testGraderVersion(t))
-	p.writeGrade(t, second, olderVersion, runID, now, now.Add(-2*time.Hour), "graded", "fail", nil)
+	if _, err := p.r.pool.Exec(ctx, `UPDATE grader_versions SET created_at = now() - CASE version WHEN $1 THEN interval '2 days' ELSE interval '1 day' END
+		WHERE version IN ($1, $2)`, olderVersion, newerVersion); err != nil {
+		t.Fatal(err)
+	}
 	p.writeGrade(t, second, newerVersion, runID, now, now.Add(-time.Hour), "not_applicable", "", nil)
+	p.writeGrade(t, second, olderVersion, runID, now, now, "graded", "fail", nil)
 
 	// A Grader without a grade for the run has no entry.
 	p.putGrader(t, "third", testGraderVersion(t))

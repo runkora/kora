@@ -11,7 +11,8 @@ import (
 )
 
 // runGrades picks one grade per Grader of the agent: the current version's when it graded the
-// run, and otherwise the one graded last. Grades of a deleted Grader are left out.
+// run, and otherwise the newest version's. Version age orders them, so a late job of an older
+// version never wins. Grades of a deleted Grader are left out.
 func (r *PostgresRepository) runGrades(ctx context.Context, tenantID, agentTypeID, runID string) ([]storedGrade, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT DISTINCT ON (g.name) gr.id, g.name, g.description, gr.version, v.spec, gr.status, gr.verdict, gr.applies_p::float8,
@@ -20,7 +21,7 @@ func (r *PostgresRepository) runGrades(ctx context.Context, tenantID, agentTypeI
 		JOIN grades gr ON gr.grader_id = g.id AND gr.run_id = $3 AND gr.tenant_id = g.tenant_id
 		JOIN grader_versions v ON v.version = gr.version
 		WHERE g.tenant_id = $1 AND g.agent_type_id = $2
-		ORDER BY g.name, gr.version = g.current_version DESC, gr.graded_at DESC`, tenantID, agentTypeID, runID)
+		ORDER BY g.name, gr.version = g.current_version DESC, v.created_at DESC, gr.graded_at DESC`, tenantID, agentTypeID, runID)
 	if err != nil {
 		return nil, fmt.Errorf("query run grades: %w", err)
 	}

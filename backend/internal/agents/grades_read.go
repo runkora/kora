@@ -22,7 +22,7 @@ import (
 // gradeReader is the storage the Grader reads use.
 type gradeReader interface {
 	// runGrades returns the run's grade per Grader of the agent, on the Grader's current version
-	// when it has one and otherwise the latest graded.
+	// when it has one and otherwise on the newest version that graded the run.
 	runGrades(ctx context.Context, tenantID, agentTypeID, runID string) ([]storedGrade, error)
 	// agentGraders returns each Grader of the agent with its window.
 	agentGraders(ctx context.Context, tenantID, agentTypeID string) ([]storedGrader, error)
