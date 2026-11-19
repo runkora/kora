@@ -160,7 +160,7 @@ func TestStartClaimed_RecordsAgentConfig(t *testing.T) {
 // A failed digest write leaves the run queued and creates no session.
 func TestStartClaimed_AgentConfigWriteFailureReleases(t *testing.T) {
 	f, repo, _, sm := schedulerService(t)
-	repo.setRunAgentConfigErr = errors.New("connection reset")
+	repo.initRunAgentConfigErr = errors.New("connection reset")
 	run, err := f.run.StartRun(startCtx(), StartRunRequest{AgentTypeID: "at-1"})
 	if err != nil {
 		t.Fatalf("StartRun: %v", err)
@@ -169,6 +169,21 @@ func TestStartClaimed_AgentConfigWriteFailureReleases(t *testing.T) {
 	f.run.startClaimed(context.Background(), claimed, claimedAt)
 	if repo.runs[run.ID].State != RunStatePending || repo.released != 1 || len(sm.sessions) != 0 {
 		t.Errorf("state=%s released=%d sessions=%d, want pending, 1, 0", repo.runs[run.ID].State, repo.released, len(sm.sessions))
+	}
+}
+
+// A failed write after the session exists keeps the start and the digest stored before the session.
+func TestStartClaimed_AgentConfigReplaceFailureKeepsStart(t *testing.T) {
+	f, repo, _, sm := schedulerService(t)
+	repo.setRunAgentConfigErr = errors.New("connection reset")
+	run, err := f.run.StartRun(startCtx(), StartRunRequest{AgentTypeID: "at-1"})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	claimed, claimedAt := claimRun(repo, run.ID)
+	f.run.startClaimed(context.Background(), claimed, claimedAt)
+	if got := repo.runs[run.ID]; got.State != RunStateActive || got.AgentConfig == nil || len(sm.sessions) != 1 {
+		t.Errorf("state=%s agent_config=%v sessions=%d, want active, a digest, 1", got.State, got.AgentConfig, len(sm.sessions))
 	}
 }
 

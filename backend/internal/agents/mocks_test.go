@@ -56,6 +56,7 @@ type mockRepository struct {
 	listRunsErr            error
 	setRunStateErr         error
 	setRunDelegationJTIErr error
+	initRunAgentConfigErr  error
 	setRunAgentConfigErr   error
 	terminateRunErr        error
 	sandboxDeleted         []string
@@ -576,8 +577,8 @@ func (m *mockRepository) SetRunEnvironment(_ context.Context, runID string, envi
 }
 
 func (m *mockRepository) InitRunAgentConfig(_ context.Context, runID, digest string) error {
-	if m.setRunAgentConfigErr != nil {
-		return m.setRunAgentConfigErr
+	if m.initRunAgentConfigErr != nil {
+		return m.initRunAgentConfigErr
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -588,6 +589,9 @@ func (m *mockRepository) InitRunAgentConfig(_ context.Context, runID, digest str
 }
 
 func (m *mockRepository) SetRunAgentConfig(_ context.Context, runID, digest string) error {
+	if m.setRunAgentConfigErr != nil {
+		return m.setRunAgentConfigErr
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if r, ok := m.runs[runID]; ok {
