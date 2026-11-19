@@ -120,12 +120,15 @@ func scanStoredGrader(row pgx.Row) (storedGrader, string, error) {
 }
 
 // graderWindow returns the version's latest graded runs, newest first, read through
-// idx_grades_window. With answers it adds each run's fail and uncertain answers and its title.
+// idx_grades_window. With answers it adds each run's fail and uncertain answers, every stored
+// answer as returned, and its title.
 func (r *PostgresRepository) graderWindow(ctx context.Context, graderID, version string, answers bool) ([]windowRun, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT w.id, w.run_id, w.run_started_at, w.verdict, ru.summary,
 		       COALESCE((SELECT jsonb_object_agg(a.question, a.verdict) FROM grade_answers a
-		                 WHERE $4 AND a.grade_id = w.id AND a.verdict IN ('fail', 'uncertain')), '{}'::jsonb)
+		                 WHERE $4 AND a.grade_id = w.id AND a.verdict IN ('fail', 'uncertain')), '{}'::jsonb),
+		       COALESCE((SELECT jsonb_object_agg(a.question, a.raw) FROM grade_answers a
+		                 WHERE $4 AND a.grade_id = w.id), '{}'::jsonb)
 		FROM (SELECT id, run_id, run_started_at, verdict FROM grades
 		      WHERE grader_id = $1 AND version = $2 AND status = 'graded'
 		      ORDER BY run_started_at DESC, run_id DESC LIMIT $3) w
@@ -137,7 +140,7 @@ func (r *PostgresRepository) graderWindow(ctx context.Context, graderID, version
 	out, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (windowRun, error) {
 		var w windowRun
 		var id, verdict string
-		scanErr := row.Scan(&id, &w.RunID, &w.StartedAt, &verdict, &w.Title, &w.Answers)
+		scanErr := row.Scan(&id, &w.RunID, &w.StartedAt, &verdict, &w.Title, &w.Answers, &w.Raw)
 		w.Verdict = grading.Verdict(verdict)
 		return w, scanErr
 	})

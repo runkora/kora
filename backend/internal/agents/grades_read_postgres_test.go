@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"slices"
 	"testing"
@@ -216,6 +217,55 @@ func TestPostgres_AgentGraderDetail(t *testing.T) {
 	}
 	if _, err := p.r.agentGrader(ctx, p.tenant, uuid.NewString(), g.Name); err != ErrNotFound {
 		t.Errorf("another agent's grader = %v, want ErrNotFound", err)
+	}
+}
+
+// Each answer counts the window's runs whose stored probabilities make it the most likely. A tie goes to
+// the answer first in spec order, a skipped answer still counts, and a grade with no stored answer does not.
+func TestPostgres_AgentGraderAnswerCounts(t *testing.T) {
+	p := newGradingPG(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	g := p.grader
+	answer := func(runID, question, raw, verdict string) {
+		t.Helper()
+		if _, err := p.r.pool.Exec(ctx, `INSERT INTO grade_answers (grade_id, question, raw, p, verdict)
+			SELECT id, $2, $3::jsonb, NULL, $4 FROM grades WHERE run_id = $1`, runID, question, raw, verdict); err != nil {
+			t.Fatalf("insert answer: %v", err)
+		}
+	}
+	tie := p.writeGrade(t, g, g.CurrentVersion, "", now, now, "graded", "pass", nil)
+	answer(tie, "opened-pr", `{"type":"noul","noul":0.5}`, "uncertain")
+	answer(tie, "organization", `{"type":"choice","choice":"core","probabilities":{"sandbox":0.4,"core":0.4,"none":0.2}}`, "pass")
+	answer(tie, "rounds", `{"type":"score","score":0,"probabilities":{"0":0.9,"1":0.1}}`, "skipped")
+	clear := p.writeGrade(t, g, g.CurrentVersion, "", now.Add(-time.Minute), now, "graded", "fail", nil)
+	answer(clear, "opened-pr", `{"type":"noul","noul":0.1}`, "fail")
+	answer(clear, "organization", `{"type":"choice","choice":"none","probabilities":{"sandbox":0.1,"core":0.1,"none":0.8}}`, "fail")
+	answer(clear, "rounds", `{"type":"score","score":2,"probabilities":{"1":0.3,"2":0.7}}`, "fail")
+	p.writeGrade(t, g, g.CurrentVersion, "", now.Add(-2*time.Minute), now, "graded", "pass", nil)
+
+	stored, err := p.r.agentGrader(ctx, p.tenant, p.agent.ID, g.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := detailOf(*stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]string{}
+	for _, q := range d.Questions {
+		for _, a := range q.Answers {
+			counts[q.Name] += fmt.Sprintf("%s=%d pass=%v skip=%v;", a.Name, a.Count, a.Passes, a.Skips)
+		}
+	}
+	want := map[string]string{
+		"opened-pr":    "yes=1 pass=true skip=false;no=1 pass=false skip=false;",
+		"pushed-main":  "yes=0 pass=false skip=false;no=0 pass=true skip=false;",
+		"organization": "sandbox=1 pass=true skip=false;core=0 pass=true skip=false;none=1 pass=false skip=false;",
+		"rounds":       "no-pr=1 pass=false skip=true;one=0 pass=true skip=false;two=1 pass=false skip=false;",
+	}
+	if !maps.Equal(counts, want) {
+		t.Errorf("answers = %v, want %v", counts, want)
 	}
 }
 

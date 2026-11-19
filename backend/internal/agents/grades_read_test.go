@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -316,5 +317,32 @@ func TestHandleListRuns_GradeFilter(t *testing.T) {
 		if code, _ := listRuns(t, c, q); code != http.StatusOK {
 			t.Errorf("%s gave %d, want 200", q, code)
 		}
+	}
+}
+
+// An answer counts under its most likely answer, a tie goes to the first in spec order, a run with no
+// stored answer is not counted, and an unreadable answer is ErrBadAnswer.
+func TestAnswerCounts(t *testing.T) {
+	v := testGraderVersion(t)
+	org := v.find("organization")
+	window := []windowRun{
+		{Raw: map[string]json.RawMessage{"organization": json.RawMessage(`{"probabilities":{"core":0.5,"sandbox":0.5}}`)}},
+		{Raw: map[string]json.RawMessage{"organization": json.RawMessage(`{"probabilities":{"none":0.9,"core":0.1}}`)}},
+		{},
+	}
+	got, err := answerCounts(*org, window)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, a := range got {
+		names = append(names, fmt.Sprintf("%s=%d", a.Name, a.Count))
+	}
+	if want := []string{"sandbox=1", "core=0", "none=1"}; !slices.Equal(names, want) {
+		t.Errorf("counts = %v, want %v", names, want)
+	}
+	bad := []windowRun{{Raw: map[string]json.RawMessage{"organization": json.RawMessage(`{"probabilities":`)}}}
+	if _, err := answerCounts(*org, bad); !errors.Is(err, grading.ErrBadAnswer) {
+		t.Errorf("bad answer = %v, want ErrBadAnswer", err)
 	}
 }

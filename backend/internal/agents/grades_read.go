@@ -70,6 +70,8 @@ type windowRun struct {
 	StartedAt time.Time
 	Verdict   grading.Verdict
 	Answers   map[string]string
+	// Raw is each stored answer as returned, keyed by question. It is read only for the Grader detail.
+	Raw map[string]json.RawMessage
 }
 
 // RunGrade is a run's grade on one Grader. Fields the pipeline did not record are null.
@@ -145,8 +147,10 @@ type GraderQuestion struct {
 	Accept    []string       `json:"accept,omitempty"`
 	SkipOn    []string       `json:"skip_on,omitempty"`
 	Threshold *ThresholdView `json:"threshold,omitempty"`
-	Failed    int            `json:"failed"`
-	Uncertain int            `json:"uncertain"`
+	// Answers are every answer the question can get, in spec order, with the window's count of each.
+	Answers   []AnswerCount `json:"answers"`
+	Failed    int           `json:"failed"`
+	Uncertain int           `json:"uncertain"`
 	// Runs are the window's runs that failed or were uncertain on this question, newest first.
 	Runs []FlaggedRun `json:"runs"`
 }
@@ -155,6 +159,16 @@ type GraderQuestion struct {
 type AnswerOption struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+}
+
+// AnswerCount is one answer a question can get. Count is how many of the window's runs had it as
+// the most likely answer, from the stored probabilities. A run with no stored answer is not counted.
+type AnswerCount struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Passes      bool   `json:"passes"`
+	Skips       bool   `json:"skips"`
+	Count       int    `json:"count"`
 }
 
 // FlaggedRun is a run whose answer to one question was fail or uncertain.
@@ -378,6 +392,9 @@ func detailOf(g storedGrader) (*GraderDetail, error) {
 		if q.Threshold != nil {
 			gq.Threshold = &ThresholdView{Pass: q.Threshold.Pass, Fail: q.Threshold.Fail}
 		}
+		if gq.Answers, err = answerCounts(q, g.Window); err != nil {
+			return nil, err
+		}
 		for _, r := range g.Window {
 			verdict := r.Answers[q.Name]
 			switch grading.Verdict(verdict) {
@@ -396,6 +413,70 @@ func detailOf(g storedGrader) (*GraderDetail, error) {
 		return cmp.Or(cmp.Compare(b.Failed+b.Uncertain, a.Failed+a.Uncertain), cmp.Compare(a.Name, b.Name))
 	})
 	return d, nil
+}
+
+// answerCounts lists q's answers in spec order and counts each window run under its most likely
+// answer. A boolean's answers are yes and no, and yes is most likely at p 0.5 or above. A tie goes
+// to the answer first in spec order.
+func answerCounts(q v1alpha1.GraderQuestion, window []windowRun) ([]AnswerCount, error) {
+	var out []AnswerCount
+	if q.Type == string(grading.Boolean) {
+		expect := q.Expect != nil && *q.Expect
+		out = []AnswerCount{{Name: "yes", Passes: expect}, {Name: "no", Passes: !expect}}
+	} else {
+		for _, a := range answersOf(q) {
+			out = append(out, AnswerCount{Name: a.Name, Description: a.Description,
+				Passes: slices.Contains(q.Accept, a.Name), Skips: slices.Contains(q.SkipOn, a.Name)})
+		}
+	}
+	for _, r := range window {
+		raw, ok := r.Raw[q.Name]
+		if !ok {
+			continue
+		}
+		i, err := likeliest(q, raw, out)
+		if err != nil {
+			return nil, err
+		}
+		if i >= 0 {
+			out[i].Count++
+		}
+	}
+	return out, nil
+}
+
+// likeliest is the index in answers of a stored answer's most likely answer, or -1 when it has no probabilities.
+func likeliest(q v1alpha1.GraderQuestion, raw json.RawMessage, answers []AnswerCount) (int, error) {
+	var a struct {
+		Noul          *float64           `json:"noul"`
+		Probabilities map[string]float64 `json:"probabilities"`
+	}
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return -1, fmt.Errorf("%w: decode answer to %s: %w", grading.ErrBadAnswer, q.Name, err)
+	}
+	if q.Type == string(grading.Boolean) {
+		switch {
+		case a.Noul == nil:
+			return -1, nil
+		case *a.Noul >= 0.5:
+			return 0, nil
+		}
+		return 1, nil
+	}
+	dist := a.Probabilities
+	if q.Type == string(grading.Scale) {
+		var err error
+		if dist, err = levelDist(q, a.Probabilities); err != nil {
+			return -1, err
+		}
+	}
+	best := -1
+	for i, ans := range answers {
+		if p, ok := dist[ans.Name]; ok && (best < 0 || p > dist[answers[best].Name]) {
+			best = i
+		}
+	}
+	return best, nil
 }
 
 func answerOptions(in []v1alpha1.GraderAnswer) []AnswerOption {
