@@ -327,7 +327,11 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		runSvc.SetBudgetReader(inferenceclient.NewClient(url, logger), selfToken)
 		// Ended runs are graded as the tenant's grading principal (docs/adr/2026-11-19-graders.md).
 		decisions := inferenceclient.NewClientWithTimeout(url, logger, agents.GradeClientTimeout)
-		go agents.NewGradeWorker(repo, grader, decisions, agents.GradeWorkerConfig{WindowTokens: cfg.Agents.Grading.WindowTokens}, logger).Start(ctx)
+		go agents.NewGradeWorker(repo, grader, decisions, agents.GradeWorkerConfig{
+			WindowTokens: cfg.Agents.Grading.WindowTokens,
+			Concurrency:  cfg.Agents.Grading.Concurrency,
+			PollInterval: time.Duration(cfg.Agents.Grading.PollIntervalSecs) * time.Second,
+		}, logger).Start(ctx)
 	}
 
 	// Per-route, not in the global chain below: it must run after RoutePattern

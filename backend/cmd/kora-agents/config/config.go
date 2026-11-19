@@ -172,6 +172,10 @@ type Config struct {
 		Grading struct {
 			// WindowTokens is the decision model's input window that a run's state is fitted to.
 			WindowTokens int `yaml:"windowTokens"`
+			// Concurrency is how many grade jobs one replica grades at once.
+			Concurrency int `yaml:"concurrency"`
+			// PollIntervalSecs is how often the worker claims due grade jobs.
+			PollIntervalSecs int `yaml:"pollIntervalSecs"`
 		} `yaml:"grading"`
 	} `yaml:"agents"`
 }

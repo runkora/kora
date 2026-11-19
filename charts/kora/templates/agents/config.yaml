@@ -34,6 +34,10 @@ kora-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md).
     {{- fail (printf "agents.scheduling.startingRunAllowance.%s must be a positive memory quantity" $harness) }}
   {{- end }}
 {{- end }}
+{{- $grading := .Values.agents.grading }}
+{{- if or (lt (int $grading.windowTokens) 1) (lt (int $grading.concurrency) 1) (lt (int $grading.pollIntervalSecs) 1) }}
+  {{- fail "agents.grading: windowTokens, concurrency and pollIntervalSecs must be at least 1" }}
+{{- end }}
 {{- $idle := .Values.agents.idleTimeout }}
 {{- if or (lt (int $idle.manualSecs) 1) (lt (int $idle.triggerSecs) 1) }}
   {{- fail "agents.idleTimeout: manualSecs and triggerSecs must be at least 1" }}
@@ -77,6 +81,10 @@ cmd/kora-agents:
     idleTimeout:
       manualSecs: {{ $idle.manualSecs | int }}
       triggerSecs: {{ $idle.triggerSecs | int }}
+    grading:
+      windowTokens: {{ $grading.windowTokens | int }}
+      concurrency: {{ $grading.concurrency | int }}
+      pollIntervalSecs: {{ $grading.pollIntervalSecs | int }}
     scheduling:
       workerConcurrency: {{ $scheduling.workerConcurrency | int }}
       pollIntervalSecs: {{ $scheduling.pollIntervalSecs | int }}

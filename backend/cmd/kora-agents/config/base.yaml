@@ -71,9 +71,11 @@ agents:
   idleTimeout:
     manualSecs: 1200
     triggerSecs: 300
-  # The grading worker fits each run's state to the decision model's input window, in tokens.
+  # Grading worker. See the chart's agents.grading.
   grading:
     windowTokens: 247000
+    concurrency: 4
+    pollIntervalSecs: 2
   # Run scheduler. See the chart's agents.scheduling.
   scheduling:
     workerConcurrency: 16
