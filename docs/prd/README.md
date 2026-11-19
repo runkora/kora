@@ -60,4 +60,5 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Run Tracing](run-tracing.md) | Approved | [one-trace-per-run](../adr/2026-10-31-one-trace-per-run.md) |
 | [Event Spine](event-spine.md) | Approved | [event-spine](../adr/2026-11-06-event-spine.md) |
 | [Run Page](run-page.md) | Approved | [run-page-record](../adr/2026-11-11-run-page-record.md) |
+| [Graders](graders.md) | In Review | [graders](../adr/2026-11-19-graders.md) |
 
