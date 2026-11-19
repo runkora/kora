@@ -264,6 +264,9 @@ func TestGraderReferences(t *testing.T) {
 	if reqs := h.recs[declarative.KindGraders].kind.watches[0].mapper(context.Background(), a); len(reqs) != 2 {
 		t.Errorf("an Agent change enqueues %v, want both Graders", reqs)
 	}
+	if reqs := h.recs[declarative.KindGraders].enqueueGraderModelUsers(context.Background(), vm); len(reqs) != 1 || reqs[0].Name != "g" {
+		t.Errorf("a model change enqueues %v, want g", reqs)
+	}
 }
 
 func TestVirtualModelRules(t *testing.T) {

@@ -658,7 +658,7 @@ type GraderSpec struct {
 	// Threshold is the default band for appliesWhen and every question.
 	// +optional
 	// +kubebuilder:default={pass: 0.7, fail: 0.3}
-	Threshold Threshold `json:"threshold"`
+	Threshold Threshold `json:"threshold,omitzero"`
 	// MinPassRate is the share of graded runs that must pass, such as 90%.
 	// +kubebuilder:validation:Pattern=`^[0-9]{1,3}%$`
 	// +kubebuilder:validation:MaxLength=4

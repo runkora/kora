@@ -101,7 +101,10 @@ func NewDeclaredReconcilers(c client.Client, reader client.Reader, clients Decla
 		{obj: &dv1.TriggerSource{}, mapper: triggers.enqueueNamespace(&dv1.TriggerList{})},
 		{obj: &dv1.VirtualModel{}, mapper: triggers.enqueueModelUsers},
 	}
-	graders.kind.watches = []declaredWatch{{obj: &dv1.Agent{}, mapper: graders.enqueueNamespace(&dv1.GraderList{})}}
+	graders.kind.watches = []declaredWatch{
+		{obj: &dv1.Agent{}, mapper: graders.enqueueNamespace(&dv1.GraderList{})},
+		{obj: &dv1.VirtualModel{}, mapper: graders.enqueueGraderModelUsers},
+	}
 	return out
 }
 
@@ -553,6 +556,27 @@ func (r *DeclaredReconciler) enqueueModelUsers(ctx context.Context, obj client.O
 	var reqs []reconcile.Request
 	for i := range list.Items {
 		if rt := list.Items[i].Spec.Routing; rt != nil && rt.Model.Family == vm.Spec.Family && rt.Model.Name == vm.Spec.Name {
+			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+		}
+	}
+	return reqs
+}
+
+// enqueueGraderModelUsers maps a VirtualModel change to the Graders that use
+// its family and name.
+func (r *DeclaredReconciler) enqueueGraderModelUsers(ctx context.Context, obj client.Object) []reconcile.Request {
+	vm, ok := obj.(*dv1.VirtualModel)
+	if !ok {
+		return nil
+	}
+	list := &dv1.GraderList{}
+	if err := r.List(ctx, list); err != nil {
+		r.Logger.Error(ctx, "list VirtualModel users", logging.Field{Key: "error", Value: err.Error()})
+		return nil
+	}
+	var reqs []reconcile.Request
+	for i := range list.Items {
+		if m := list.Items[i].Spec.Model; m.Family == vm.Spec.Family && m.Name == vm.Spec.Name {
 			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
 		}
 	}
