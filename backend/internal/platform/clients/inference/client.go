@@ -126,14 +126,15 @@ type Question struct {
 // MarshalJSON writes Criteria or Levels as criteria. System One reads a map
 // for a choice question and an ordered list for a score question.
 func (q Question) MarshalJSON() ([]byte, error) {
-	if q.Criteria != nil && q.Levels != nil {
+	if len(q.Criteria) > 0 && len(q.Levels) > 0 {
 		return nil, errBothCriteria
 	}
+	// An empty map or list is omitted, as the map field was before.
 	var criteria any
 	switch {
-	case q.Criteria != nil:
+	case len(q.Criteria) > 0:
 		criteria = q.Criteria
-	case q.Levels != nil:
+	case len(q.Levels) > 0:
 		criteria = q.Levels
 	}
 	return json.Marshal(struct {
@@ -204,9 +205,7 @@ func (c *Client) SystemOne(ctx context.Context, bearer string, req SystemOneRequ
 		if err := c.DecodeJSON(span, resp, &out); err != nil {
 			return SystemOneResponse{}, fmt.Errorf("decode systemone response: %w", err)
 		}
-		if err := readUsageHeaders(resp, &out); err != nil {
-			return SystemOneResponse{}, err
-		}
+		c.readUsageHeaders(ctx, resp, &out)
 		return out, nil
 	case code == http.StatusBadRequest || code == http.StatusUnprocessableEntity:
 		return SystemOneResponse{}, c.HandleErrorResponse(span, resp, ErrInvalidRequest)
@@ -237,18 +236,20 @@ func systemOneHeader(bearer string, timeout time.Duration) http.Header {
 }
 
 // readUsageHeaders copies the usage row's id and cost from the gateway's headers.
-func readUsageHeaders(resp *http.Response, out *SystemOneResponse) error {
+func (c *Client) readUsageHeaders(ctx context.Context, resp *http.Response, out *SystemOneResponse) {
 	out.UsageID = resp.Header.Get(headerUsageID)
 	cost := resp.Header.Get(headerCostUSD)
 	if cost == "" {
-		return nil
+		return
 	}
 	v, err := strconv.ParseFloat(cost, 64)
 	if err != nil {
-		return fmt.Errorf("parse %s: %w", headerCostUSD, err)
+		// The gateway has billed the call, so the answer is kept and the cost is unknown.
+		c.Logger().Warn(ctx, "unparsable System One cost header",
+			logging.Field{Key: "value", Value: cost}, logging.Field{Key: "error", Value: err.Error()})
+		return
 	}
 	out.CostUSD = &v
-	return nil
 }
 
 // RunBudget is the spending ceiling that stopped a run. Owner is the id the

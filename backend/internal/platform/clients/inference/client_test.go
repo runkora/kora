@@ -185,12 +185,25 @@ func TestSystemOne_ZeroCostIsKnown(t *testing.T) {
 func TestSystemOne_MalformedCostHeader(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Kora-Cost-USD", "not-a-number")
-		_, _ = io.WriteString(w, `{"answers":{}}`)
+		_, _ = io.WriteString(w, `{"answers":{"q":{"type":"noul","noul":0.9}}}`)
 	}))
 	t.Cleanup(srv.Close)
-	_, err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).SystemOne(context.Background(), "tok", routingRequest())
-	if err == nil || !strings.Contains(err.Error(), "X-Kora-Cost-USD") {
-		t.Errorf("err = %v, want a cost header parse error", err)
+	out, err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).SystemOne(context.Background(), "tok", routingRequest())
+	if err != nil || out.CostUSD != nil || out.Answers["q"].Noul != 0.9 {
+		t.Errorf("answers = %v, cost = %v, err = %v, want the answer kept with no cost", out.Answers, out.CostUSD, err)
+	}
+}
+
+func TestQuestion_OmitsEmptyCriteria(t *testing.T) {
+	for _, q := range []Question{
+		{Type: QuestionTypeChoice, Criteria: map[string]string{}},
+		{Type: QuestionTypeScore, Levels: []string{}},
+		{Type: QuestionTypeChoice, Criteria: map[string]string{}, Levels: []string{}},
+	} {
+		b, err := json.Marshal(q)
+		if err != nil || strings.Contains(string(b), "criteria") {
+			t.Errorf("Marshal(%+v) = %s, %v, want no criteria", q, b, err)
+		}
 	}
 }
 
