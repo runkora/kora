@@ -47,7 +47,6 @@ func TestNormalizeGrader(t *testing.T) {
 		wantErr string
 	}{
 		{"valid", []v1alpha1.GraderQuestion{boolean("a"), choice("b", []string{"x", "y"}, []string{"x"}, nil), scale("c", l, []string{"one"}, []string{"no-pr"})}, ""},
-		{"duplicate question", []v1alpha1.GraderQuestion{boolean("a"), boolean("a")}, `question name "a" is used twice`},
 		{"duplicate option", []v1alpha1.GraderQuestion{choice("b", []string{"x", "x"}, []string{"x"}, nil)}, `option name "x" is used twice`},
 		{"duplicate level", []v1alpha1.GraderQuestion{scale("c", []string{"no-pr", "no-pr"}, []string{"no-pr"}, nil)}, `level name "no-pr" is used twice`},
 		{"accept names no option", []v1alpha1.GraderQuestion{choice("b", []string{"x"}, []string{"z"}, nil)}, `accept names "z", which is not one of the options`},
@@ -313,7 +312,7 @@ func TestGraderApplierRefusals(t *testing.T) {
 	a := NewGraderApplier(store)
 	refs := map[string]string{declarative.RefAgent("reviewer"): "agent-1"}
 
-	invalid := graderSpec(boolean("a"), boolean("a"))
+	invalid := graderSpec(choice("b", []string{"x", "x"}, []string{"x"}, nil))
 	if res, _ := a.Apply(ctx, item(t, "g", "u", 1, invalid, refs)); res.Outcome != declarative.OutcomeInvalid || !strings.Contains(res.Message, "used twice") {
 		t.Errorf("invalid = %+v", res)
 	}

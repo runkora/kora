@@ -265,7 +265,7 @@ func TestGraderReferences(t *testing.T) {
 	if reqs := h.recs[declarative.KindGraders].kind.watches[0].mapper(context.Background(), a); len(reqs) != 2 {
 		t.Errorf("an Agent change enqueues %v, want both Graders", reqs)
 	}
-	if reqs := h.recs[declarative.KindGraders].enqueueGraderModelUsers(context.Background(), vm); len(reqs) != 1 || reqs[0].Name != "g" {
+	if reqs := h.recs[declarative.KindGraders].enqueueModelUsers(&dv1.GraderList{}, graderModel)(context.Background(), vm); len(reqs) != 1 || reqs[0].Name != "g" {
 		t.Errorf("a model change enqueues %v, want g", reqs)
 	}
 }
@@ -452,7 +452,7 @@ func TestDependentWatches(t *testing.T) {
 	h := newHarness(t, a, routed, other)
 	vm := &dv1.VirtualModel{ObjectMeta: meta0(systemNamespace, "m", 0), Spec: dv1.VirtualModelSpec{Family: "f", Name: "n"}}
 
-	reqs := h.recs[declarative.KindTriggers].enqueueModelUsers(context.Background(), vm)
+	reqs := h.recs[declarative.KindTriggers].enqueueModelUsers(&dv1.TriggerList{}, triggerModel)(context.Background(), vm)
 	if len(reqs) != 1 || reqs[0].Name != "t" {
 		t.Errorf("model users = %v", reqs)
 	}

@@ -101,11 +101,11 @@ func NewDeclaredReconcilers(c client.Client, reader client.Reader, clients Decla
 	triggers.kind.watches = []declaredWatch{
 		{obj: &dv1.Agent{}, mapper: triggers.enqueueNamespace(&dv1.TriggerList{})},
 		{obj: &dv1.TriggerSource{}, mapper: triggers.enqueueNamespace(&dv1.TriggerList{})},
-		{obj: &dv1.VirtualModel{}, mapper: triggers.enqueueModelUsers},
+		{obj: &dv1.VirtualModel{}, mapper: triggers.enqueueModelUsers(&dv1.TriggerList{}, triggerModel)},
 	}
 	graders.kind.watches = []declaredWatch{
 		{obj: &dv1.Agent{}, mapper: graders.enqueueNamespace(&dv1.GraderList{})},
-		{obj: &dv1.VirtualModel{}, mapper: graders.enqueueGraderModelUsers},
+		{obj: &dv1.VirtualModel{}, mapper: graders.enqueueModelUsers(&dv1.GraderList{}, graderModel)},
 	}
 	return out
 }
@@ -543,44 +543,38 @@ func (r *DeclaredReconciler) enqueueNamespace(list client.ObjectList) func(conte
 	}
 }
 
-// enqueueModelUsers maps a VirtualModel change to the Triggers that route
-// with its family and name.
-func (r *DeclaredReconciler) enqueueModelUsers(ctx context.Context, obj client.Object) []reconcile.Request {
-	vm, ok := obj.(*dv1.VirtualModel)
-	if !ok {
-		return nil
-	}
-	list := &dv1.TriggerList{}
-	if err := r.List(ctx, list); err != nil {
-		r.Logger.Error(ctx, "list VirtualModel users", logging.Field{Key: "error", Value: err.Error()})
-		return nil
-	}
-	var reqs []reconcile.Request
-	for i := range list.Items {
-		if rt := list.Items[i].Spec.Routing; rt != nil && rt.Model.Family == vm.Spec.Family && rt.Model.Name == vm.Spec.Name {
-			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+// enqueueModelUsers maps a VirtualModel change to every resource of this kind
+// whose modelOf names its family and name. modelOf returns nil for a resource with no model.
+func (r *DeclaredReconciler) enqueueModelUsers(list client.ObjectList, modelOf func(client.Object) *dv1.ModelRef) func(context.Context, client.Object) []reconcile.Request {
+	return func(ctx context.Context, obj client.Object) []reconcile.Request {
+		vm, ok := obj.(*dv1.VirtualModel)
+		if !ok {
+			return nil
 		}
+		l := list.DeepCopyObject().(client.ObjectList)
+		if err := r.List(ctx, l); err != nil {
+			r.Logger.Error(ctx, "list VirtualModel users", logging.Field{Key: "error", Value: err.Error()})
+			return nil
+		}
+		var reqs []reconcile.Request
+		_ = meta.EachListItem(l, func(o runtime.Object) error {
+			co := o.(client.Object)
+			if m := modelOf(co); m != nil && m.Family == vm.Spec.Family && m.Name == vm.Spec.Name {
+				reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(co)})
+			}
+			return nil
+		})
+		return reqs
 	}
-	return reqs
 }
 
-// enqueueGraderModelUsers maps a VirtualModel change to the Graders that use
-// its family and name.
-func (r *DeclaredReconciler) enqueueGraderModelUsers(ctx context.Context, obj client.Object) []reconcile.Request {
-	vm, ok := obj.(*dv1.VirtualModel)
-	if !ok {
-		return nil
+// triggerModel is a Trigger's routing model.
+func triggerModel(o client.Object) *dv1.ModelRef {
+	if rt := o.(*dv1.Trigger).Spec.Routing; rt != nil {
+		return &rt.Model
 	}
-	list := &dv1.GraderList{}
-	if err := r.List(ctx, list); err != nil {
-		r.Logger.Error(ctx, "list VirtualModel users", logging.Field{Key: "error", Value: err.Error()})
-		return nil
-	}
-	var reqs []reconcile.Request
-	for i := range list.Items {
-		if m := list.Items[i].Spec.Model; m.Family == vm.Spec.Family && m.Name == vm.Spec.Name {
-			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
-		}
-	}
-	return reqs
+	return nil
 }
+
+// graderModel is a Grader's decision model.
+func graderModel(o client.Object) *dv1.ModelRef { return &o.(*dv1.Grader).Spec.Model }

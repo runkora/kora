@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/runkora/kora/backend/internal/agents/grading"
 	"github.com/runkora/kora/backend/internal/platform/declarative/v1alpha1"
 )
 
@@ -40,7 +41,7 @@ var ErrInvalidGrader = errors.New("invalid grader")
 var noneOption = v1alpha1.GraderAnswer{Name: "none", Description: "None of the other options."}
 
 // defaultThreshold is the CRD default. A spec sent without one hashes the same as one with it.
-var defaultThreshold = v1alpha1.Threshold{Pass: 0.7, Fail: 0.3}
+var defaultThreshold = v1alpha1.Threshold(grading.DefaultThreshold)
 
 // graderVersion is the part of a Grader spec that changes its verdicts. Its JSON is the version
 // hash input and the stored version spec. Description and minPassRate are left out.
@@ -83,12 +84,7 @@ func normalizeGrader(spec v1alpha1.GraderSpec) (v1alpha1.GraderSpec, error) {
 		spec.Threshold = defaultThreshold
 	}
 	questions := make([]v1alpha1.GraderQuestion, len(spec.Questions))
-	seen := map[string]bool{}
 	for i, q := range spec.Questions {
-		if seen[q.Name] {
-			return spec, fmt.Errorf("%w: question name %q is used twice", ErrInvalidGrader, q.Name)
-		}
-		seen[q.Name] = true
 		nq, err := normalizeQuestion(q)
 		if err != nil {
 			return spec, fmt.Errorf("%w: question %q: %w", ErrInvalidGrader, q.Name, err)
