@@ -47,7 +47,7 @@ const time = (iso: string) =>
 
 /** A Grader is judged on its last `WINDOW` graded runs, whatever the agent config. */
 const WINDOW = 30;
-/** Below this many graded runs in the window, a Grader is not judged. */
+/** Below this many graded runs in the window, a Grader reads "Not enough runs". */
 const MIN_RUNS = 15;
 /** A question uncertain on at least this share of the window shows its uncertain count. */
 const UNCERTAIN_SHOWN = 0.15;
@@ -116,8 +116,8 @@ function RateText({ s }: { s: GraderState }) {
   );
 }
 
-/** "14 graded runs · needs 15 to judge" */
-const fewText = (s: GraderState) => `${s.recent.length} graded runs · needs ${MIN_RUNS} to judge`;
+/** "14 graded runs · not enough runs" */
+const fewText = (s: GraderState) => `${s.recent.length} graded runs · not enough runs`;
 
 // ── Runs ─────────────────────────────────────────────────────────────────────
 
@@ -228,8 +228,8 @@ function RunList({ runs, slug }: { runs: FlaggedRun[]; slug: string }) {
 const STATUS_ICON = {
   failing: { name: 'circle-x', color: 'status-error', label: 'Failing' },
   passing: { name: 'circle-check', color: 'status-healthy', label: 'Passing' },
-  none: { name: 'minus', color: 'subtle', label: 'No minPassRate' },
-  few: { name: 'clock', color: 'subtle', label: 'Not judged' },
+  none: { name: 'minus', color: 'subtle', label: 'No minimum' },
+  few: { name: 'clock', color: 'subtle', label: 'Not enough runs' },
 } as const;
 
 type Filter = 'all' | 'failing' | 'passing' | 'none';
@@ -278,7 +278,7 @@ const COLUMNS: DataTableColumn<GraderState>[] = [
     cell: (s) =>
       s.status === 'few' ? (
         <Text size="supporting" color="subtle" tabular>
-          Needs {MIN_RUNS} to judge
+          Not enough runs
         </Text>
       ) : (
         <RateText s={s} />
@@ -417,8 +417,8 @@ function SpecLink({ spec }: { spec: GraderSpec }) {
 const PAGE_STATUS = {
   failing: { badge: 'error', text: 'Failing' },
   passing: { badge: 'healthy', text: 'Passing' },
-  none: { badge: 'muted', text: 'No minPassRate' },
-  few: { badge: 'muted', text: 'Not judged' },
+  none: { badge: 'muted', text: 'No minimum' },
+  few: { badge: 'muted', text: 'Not enough runs' },
 } as const;
 
 interface QuestionRow {
