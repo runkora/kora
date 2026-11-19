@@ -206,7 +206,7 @@ A run passes when every question that is not skipped passes. Any failed question
 *   Each Grader has a page with its status, "What it asks" and the question accordion.
 *   The agent's Runs tab accepts a filter by Grader, question and verdict.
 
-The designs are in Storybook under `Proposed/Graders/Run page` and `Proposed/Graders/Agent page`.
+The designs are in Storybook: the Grades story of `Pages/Agents/Run/Rail`, and the Grades, Grader page and RunsFilteredByGrade stories of `Pages/Agents/Detail`.
 
 ### Copy
 
