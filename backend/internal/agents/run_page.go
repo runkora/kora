@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/runkora/kora/backend/internal/agents/grading"
 )
 
 // GET /api/v1/runs page sizes, the same bounds as the run events endpoint.
@@ -23,6 +25,8 @@ var (
 	ErrInvalidRunCursor = errors.New("invalid run cursor")
 	// ErrInvalidRunState is returned for a state filter naming no run state.
 	ErrInvalidRunState = errors.New("invalid run state")
+	// ErrInvalidGradeFilter is returned for a grader, question or verdict filter that cannot match.
+	ErrInvalidGradeFilter = errors.New("invalid grade filter")
 )
 
 // liveRunStates are the states of a run that is in flight: queued, starting,
@@ -104,6 +108,8 @@ type RunListQuery struct {
 	CreatedBefore time.Time
 	// StartedByTrigger narrows to runs a trigger started.
 	StartedByTrigger bool
+	// Grade narrows to runs graded by a Grader's current version; nil means no grade filter.
+	Grade *GradeFilter
 	// After is the previous page's cursor; nil is the first page.
 	After *runCursor
 	Limit int
@@ -130,4 +136,59 @@ func parseRunStates(raw string) ([]RunState, error) {
 		out = append(out, s)
 	}
 	return out, nil
+}
+
+// GradeFilter keeps runs whose grade on the named Grader's current version matches. With a
+// question it matches that question's answer verdict, and otherwise the run's verdict. An empty
+// Verdict matches any.
+type GradeFilter struct {
+	Grader   string
+	Question string
+	Verdict  string
+}
+
+// parseGradeFilter reads the grader, question and verdict filters. Question and verdict need a
+// grader. A run verdict is pass, fail or uncertain. An answer verdict can also be skipped.
+func parseGradeFilter(grader, question, verdict string) (*GradeFilter, error) {
+	if grader == "" {
+		if question != "" || verdict != "" {
+			return nil, fmt.Errorf("%w: question and verdict need grader", ErrInvalidGradeFilter)
+		}
+		return nil, nil
+	}
+	switch grading.Verdict(verdict) {
+	case "", grading.Pass, grading.Fail, grading.Uncertain:
+	case grading.Skipped:
+		if question == "" {
+			return nil, fmt.Errorf("%w: verdict skipped needs question", ErrInvalidGradeFilter)
+		}
+	default:
+		return nil, fmt.Errorf("%w: verdict must be pass, fail, uncertain or skipped", ErrInvalidGradeFilter)
+	}
+	return &GradeFilter{Grader: grader, Question: question, Verdict: verdict}, nil
+}
+
+// appendGradeFilter adds the filter to a run query (runs as r) as an EXISTS over the current
+// version's grades and answers.
+func appendGradeFilter(query string, args []any, f *GradeFilter) (string, []any) {
+	if f == nil {
+		return query, args
+	}
+	args = append(args, f.Grader)
+	sub := fmt.Sprintf(`SELECT 1 FROM graders gf JOIN grades gg ON gg.grader_id = gf.id AND gg.version = gf.current_version
+		WHERE gf.tenant_id = r.tenant_id AND gf.agent_type_id = r.agent_type_id AND gf.name = $%d AND gg.run_id = r.id`, len(args))
+	switch {
+	case f.Question != "":
+		args = append(args, f.Question)
+		ans := fmt.Sprintf(`SELECT 1 FROM grade_answers ga WHERE ga.grade_id = gg.id AND ga.question = $%d`, len(args))
+		if f.Verdict != "" {
+			args = append(args, f.Verdict)
+			ans += fmt.Sprintf(` AND ga.verdict = $%d`, len(args))
+		}
+		sub += ` AND EXISTS (` + ans + `)`
+	case f.Verdict != "":
+		args = append(args, f.Verdict)
+		sub += fmt.Sprintf(` AND gg.verdict = $%d`, len(args))
+	}
+	return query + ` AND EXISTS (` + sub + `)`, args
 }
