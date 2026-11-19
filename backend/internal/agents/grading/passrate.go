@@ -3,8 +3,8 @@ package grading
 // PassRateWindow is how many of a Grader's latest graded runs minPassRate reads.
 const PassRateWindow = 30
 
-// MinGradedRuns is the fewest graded runs in the window that give a status.
-const MinGradedRuns = 15
+// minGradedRuns is the fewest graded runs in the window that give a status.
+const minGradedRuns = 15
 
 // PassRateStatus is a Grader's standing against its minPassRate.
 type PassRateStatus string
@@ -36,7 +36,7 @@ func Window(minPassRate *float64, verdicts []Verdict) PassRate {
 	switch {
 	case minPassRate == nil:
 		r.Status = NoMinimum
-	case r.Graded < MinGradedRuns:
+	case r.Graded < minGradedRuns:
 		r.Status = NotEnoughRuns
 	case float64(r.Passed) >= *minPassRate*float64(r.Graded)-epsilon:
 		r.Status = Passing

@@ -38,11 +38,9 @@ type Question struct {
 
 // GraderSpec holds the Grader fields that grading reads.
 type GraderSpec struct {
-	Threshold   *Threshold
+	Threshold   Threshold
 	AppliesWhen string
 	Questions   []Question
-	// MinPassRate is a fraction, so 90% is 0.9. Nil means no minimum.
-	MinPassRate *float64
 }
 
 // Answer is the model's answer to one question. P is a boolean's probability
@@ -111,10 +109,7 @@ func band(p float64, t Threshold) Verdict {
 // Score grades a run from its answers. applies is the appliesWhen answer and
 // is ignored when the spec has no appliesWhen.
 func Score(spec GraderSpec, applies *float64, answers map[string]Answer) (Grade, error) {
-	t := DefaultThreshold
-	if spec.Threshold != nil {
-		t = *spec.Threshold
-	}
+	t := spec.Threshold
 	if spec.AppliesWhen != "" {
 		if applies == nil {
 			return Grade{}, fmt.Errorf("appliesWhen: %w", ErrMissingAnswer)

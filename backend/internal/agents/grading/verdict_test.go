@@ -32,7 +32,6 @@ func roundsQ() Question {
 	}
 }
 
-//go:fix inline
 func TestBand(t *testing.T) {
 	tests := []struct {
 		p    float64
@@ -150,6 +149,7 @@ func TestScoreQuestionBadAnswer(t *testing.T) {
 
 func TestScore(t *testing.T) {
 	spec := GraderSpec{
+		Threshold:   DefaultThreshold,
 		AppliesWhen: "Did the requester ask for a new repository?",
 		Questions:   []Question{boolQ("opened-pr", true), boolQ("pushed-main", false), roundsQ()},
 	}
@@ -176,21 +176,21 @@ func TestScore(t *testing.T) {
 			map[string]Answer{"opened-pr": {P: 0.9}, "pushed-main": {P: 0.1}, "rounds": passRounds}, Graded, Pass, 3},
 		{"applies at fail is not applicable", spec, new(0.3), nil, NotApplicable, "", 0},
 		{"applies between is applies_uncertain", spec, new(0.5), nil, AppliesUncertain, "", 0},
-		{"applies uses the grader threshold", GraderSpec{Threshold: &Threshold{Pass: 0.95, Fail: 0.05}, AppliesWhen: "a?", Questions: spec.Questions},
+		{"applies uses the grader threshold", GraderSpec{Threshold: Threshold{Pass: 0.95, Fail: 0.05}, AppliesWhen: "a?", Questions: spec.Questions},
 			new(0.9), nil, AppliesUncertain, "", 0},
-		{"no appliesWhen grades every run", GraderSpec{Questions: []Question{boolQ("opened-pr", true)}}, nil,
+		{"no appliesWhen grades every run", GraderSpec{Threshold: DefaultThreshold, Questions: []Question{boolQ("opened-pr", true)}}, nil,
 			map[string]Answer{"opened-pr": {P: 0.9}}, Graded, Pass, 1},
-		{"a skipped question and a failed one fail", GraderSpec{Questions: []Question{roundsQ(), boolQ("opened-pr", true)}}, nil,
+		{"a skipped question and a failed one fail", GraderSpec{Threshold: DefaultThreshold, Questions: []Question{roundsQ(), boolQ("opened-pr", true)}}, nil,
 			map[string]Answer{"rounds": skippedRounds, "opened-pr": {P: 0.1}}, Graded, Fail, 2},
-		{"skip check uses the question threshold", GraderSpec{Questions: []Question{
+		{"skip check uses the question threshold", GraderSpec{Threshold: DefaultThreshold, Questions: []Question{
 			func() Question { q := roundsQ(); q.Threshold = &Threshold{Pass: 0.9, Fail: 0.1}; return q }(),
 		}}, nil, map[string]Answer{"rounds": {Dist: map[string]float64{"no-pr": 0.8, "two": 0.2}}}, Graded, Uncertain, 1},
-		{"every question skipped is not applicable", GraderSpec{Questions: []Question{roundsQ()}}, nil,
+		{"every question skipped is not applicable", GraderSpec{Threshold: DefaultThreshold, Questions: []Question{roundsQ()}}, nil,
 			map[string]Answer{"rounds": skippedRounds}, NotApplicable, "", 1},
-		{"grader threshold is the question default", GraderSpec{Threshold: &Threshold{Pass: 0.95, Fail: 0.05}, Questions: []Question{boolQ("opened-pr", true)}}, nil,
+		{"grader threshold is the question default", GraderSpec{Threshold: Threshold{Pass: 0.95, Fail: 0.05}, Questions: []Question{boolQ("opened-pr", true)}}, nil,
 			map[string]Answer{"opened-pr": {P: 0.9}}, Graded, Uncertain, 1},
 		{"question threshold overrides the grader", GraderSpec{
-			Threshold: &Threshold{Pass: 0.95, Fail: 0.05},
+			Threshold: Threshold{Pass: 0.95, Fail: 0.05},
 			Questions: []Question{{Name: "q", Type: Boolean, Expect: true, Threshold: &Threshold{Pass: 0.8, Fail: 0.2}}},
 		}, nil, map[string]Answer{"q": {P: 0.9}}, Graded, Pass, 1},
 	}
@@ -213,14 +213,14 @@ func TestScore(t *testing.T) {
 }
 
 func TestScoreErrors(t *testing.T) {
-	spec := GraderSpec{AppliesWhen: "a?", Questions: []Question{boolQ("q", true)}}
+	spec := GraderSpec{Threshold: DefaultThreshold, AppliesWhen: "a?", Questions: []Question{boolQ("q", true)}}
 	if _, err := Score(spec, nil, map[string]Answer{"q": {P: 1}}); !errors.Is(err, ErrMissingAnswer) {
 		t.Errorf("no appliesWhen answer: err %v, want ErrMissingAnswer", err)
 	}
 	if _, err := Score(spec, new(float64(1)), nil); !errors.Is(err, ErrMissingAnswer) {
 		t.Errorf("no question answer: err %v, want ErrMissingAnswer", err)
 	}
-	bad := GraderSpec{Questions: []Question{roundsQ()}}
+	bad := GraderSpec{Threshold: DefaultThreshold, Questions: []Question{roundsQ()}}
 	if _, err := Score(bad, nil, map[string]Answer{"rounds": {}}); !errors.Is(err, ErrBadAnswer) {
 		t.Errorf("bad answer: err %v, want ErrBadAnswer", err)
 	}
