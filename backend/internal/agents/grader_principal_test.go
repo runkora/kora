@@ -123,7 +123,7 @@ func TestGraderPrincipalEnsure_UnionKeepsBudget(t *testing.T) {
 		t.Fatalf("scopes = %v", g.Scopes)
 	}
 	if g.Budget != budget {
-		t.Fatalf("budget = %+v, want the assigned grading budget carried over", g.Budget)
+		t.Fatalf("budget = %+v, want the old grant's budget kept", g.Budget)
 	}
 
 	// Asking for a subset changes nothing.

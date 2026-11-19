@@ -34,7 +34,7 @@ type serviceTokenMinter interface {
 }
 
 // GraderPrincipal owns each tenant's grading SERVICE principal grader:<tenant>.
-// Grading spend lands on it, so the grant's budget is the tenant grading budget.
+// Like a trigger principal it has no budget of its own. The tenant ceiling bounds its spend.
 type GraderPrincipal struct {
 	grants graderGrants
 	minter serviceTokenMinter
@@ -52,7 +52,7 @@ func graderPrincipalID(tenantID string) string {
 
 // Ensure leaves the tenant's grading principal with one grant holding inference:invoke,
 // modelScopes and every model scope it already held.
-// A replacement grant carries the old grant's budget, so an assigned grading budget survives a new model.
+// Ensure never sets a budget. A replacement grant keeps any budget the old grant carried.
 func (g *GraderPrincipal) Ensure(ctx context.Context, tenantID string, modelScopes []string) error {
 	if tenantID == "" {
 		return errors.New("grader principal: tenant id is required")
