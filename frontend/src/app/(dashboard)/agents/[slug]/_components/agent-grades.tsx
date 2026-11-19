@@ -58,8 +58,6 @@ const time = (iso: string) =>
     minute: '2-digit',
   });
 
-/** A question uncertain on at least this share of the window shows its uncertain count. */
-const UNCERTAIN_SHOWN = 0.15;
 /** Runs listed before "Show all". */
 const RUNS_SHOWN = 5;
 
@@ -249,6 +247,7 @@ const COLUMNS: DataTableColumn<GraderSummary>[] = [
     cell: (g) => (
       <Text size="supporting" color="muted" tabular>
         {g.graded}
+        {g.too_large > 0 && ` · ${g.too_large} too large`}
       </Text>
     ),
   },
@@ -400,11 +399,6 @@ function Questions({ grader, slug }: { grader: GraderDetail; slug: string }) {
           <Text size="caption" color="subtle">
             {passesOn(q)}
           </Text>
-          {grader.graded > 0 && q.uncertain / grader.graded >= UNCERTAIN_SHOWN && (
-            <Text size="caption" color="status-degraded" tabular>
-              Uncertain on {q.uncertain} of {grader.graded} runs
-            </Text>
-          )}
         </Stack>
       ),
     },
@@ -429,7 +423,7 @@ function Questions({ grader, slug }: { grader: GraderDetail; slug: string }) {
           </Stack>
         ) : (
           <Text size="supporting" color="subtle">
-            All pass
+            No failed or uncertain runs
           </Text>
         ),
     });
@@ -502,6 +496,7 @@ export function GraderPage({
         {grader.status === 'not_enough_runs' ? (
           <Text size="supporting" tabular>
             {grader.graded} graded runs · not enough runs
+            <TooLarge n={grader.too_large} />
           </Text>
         ) : (
           <Text size="supporting" tabular>
@@ -516,6 +511,7 @@ export function GraderPage({
                 · needs {grader.min_pass_rate}%
               </Text>
             )}
+            <TooLarge n={grader.too_large} />
           </Text>
         )}
       </Stack>
@@ -536,6 +532,17 @@ export function GraderPage({
           </Text>
         ))}
     </Stack>
+  );
+}
+
+/** " · 2 too large to grade": the window's runs whose state did not fit the model. */
+function TooLarge({ n }: { n: number }) {
+  if (!n) return null;
+  return (
+    <Text as="span" size="supporting" color="subtle">
+      {' '}
+      · {n} too large to grade
+    </Text>
   );
 }
 

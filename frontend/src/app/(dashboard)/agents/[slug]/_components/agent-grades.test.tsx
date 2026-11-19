@@ -30,6 +30,15 @@ describe('GradersList', () => {
     expect(within(tone).queryByText(/needs/)).toBeNull();
   });
 
+  it('adds the too large count to the graded runs', () => {
+    const [first, ...rest] = fleet.list;
+    renderWithProviders(
+      <GradersList graders={[{ ...first!, too_large: 1 }, ...rest]} onOpen={vi.fn()} />,
+    );
+    const row = screen.getByText(first!.name).closest('[role="row"]') as HTMLElement;
+    expect(within(row).getByText(`${first!.graded} · 1 too large`)).toBeInTheDocument();
+  });
+
   it('filters to failing Graders', async () => {
     renderWithProviders(<GradersList graders={fleet.list} onOpen={vi.fn()} />);
     await userEvent.click(screen.getByRole('button', { name: /^Failing/ }));
@@ -80,6 +89,16 @@ describe('GraderPage', () => {
       expect(
         screen.getByText(`No failed or uncertain runs in the last ${grader.graded}`),
       ).toBeInTheDocument();
+  });
+
+  it('counts runs too large to grade and says when a question has no failed or uncertain runs', () => {
+    const base = fleet.detail['reads-callers']!;
+    const quiet = { ...base.questions[0]!, failed: 0, uncertain: 0, runs: [] };
+    const grader = { ...base, too_large: 2, questions: [base.questions[1]!, quiet] };
+    renderWithProviders(<GraderPage grader={grader} slug="code-reviewer" onBack={vi.fn()} />);
+    expect(screen.getByText(/· 2 too large to grade/)).toBeInTheDocument();
+    expect(screen.getByText('No failed or uncertain runs')).toBeInTheDocument();
+    expect(screen.queryByText(/Uncertain on/)).toBeNull();
   });
 
   it('reads "not enough runs" under the minimum count', () => {
