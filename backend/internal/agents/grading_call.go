@@ -44,11 +44,6 @@ func thresholdless(v graderVersion) ([]byte, error) {
 // modelName is the version's model as the catalog names it.
 func (v graderVersion) modelName() string { return v.Model.Family + "/" + v.Model.Name }
 
-// modelScope is the scope that lets the grading principal call the version's model.
-func (v graderVersion) modelScope() string {
-	return "inference:" + v.Model.Family + ":" + v.Model.Name + ":use"
-}
-
 // gradingSpec is the version in the form grading.Score reads.
 func (v graderVersion) gradingSpec() grading.GraderSpec {
 	spec := grading.GraderSpec{

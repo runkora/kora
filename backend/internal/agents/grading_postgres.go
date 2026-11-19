@@ -65,7 +65,9 @@ type gradeRecord struct {
 	AppliesP     *float64
 	Verdict      *string
 	CostUSD      *float64
-	Answers      []gradeAnswer
+	// SourceVersion is the version whose grade a regrade or recompute read. Empty on a first grade.
+	SourceVersion string
+	Answers       []gradeAnswer
 }
 
 // gradeAnswer is one grade_answers row. P is nil when the question was skipped.
@@ -260,6 +262,23 @@ func (r *PostgresRepository) runEndRecorded(ctx context.Context, runID string) (
 	return ok, nil
 }
 
+// graderModelScopes is the use scope of each model a tenant's Graders ask at their current
+// version. It is the whole set the grading principal's grant may hold.
+func (r *PostgresRepository) graderModelScopes(ctx context.Context, tenantID string) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT DISTINCT 'inference:' || (v.spec->'model'->>'family') || ':' || (v.spec->'model'->>'name') || ':use'
+		FROM graders g JOIN grader_versions v ON v.version = g.current_version
+		WHERE g.tenant_id = $1 ORDER BY 1`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("list grader models: %w", err)
+	}
+	scopes, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("list grader models: %w", err)
+	}
+	return scopes, nil
+}
+
 // terminalRunStates are the states a run ends in.
 func terminalRunStates() []RunState {
 	return []RunState{RunStateCompleted, RunStateFailed, RunStateBudgetExhausted, RunStateTerminated}
@@ -297,21 +316,25 @@ func (r *PostgresRepository) putGradeState(ctx context.Context, tenantID, runID 
 }
 
 const gradeColumns = `tenant_id, grader_id, version, run_id, agent_type_id, agent_config, run_outcome, run_started_at,
-	state_hash, state_cap, input_tokens, model_served, usage_id, status, applies_raw, applies_p, verdict, cost_usd`
+	state_hash, state_cap, input_tokens, model_served, usage_id, status, applies_raw, applies_p, verdict, cost_usd, source_version`
 
 // getGrade returns a run's grade on one Grader version with its answers.
 func (r *PostgresRepository) getGrade(ctx context.Context, graderID, version, runID string) (*gradeRecord, error) {
 	var g gradeRecord
 	var id string
+	var sourceVersion *string
 	err := r.pool.QueryRow(ctx, `SELECT id, `+gradeColumns+` FROM grades WHERE grader_id = $1 AND version = $2 AND run_id = $3`,
 		graderID, version, runID).Scan(&id, &g.TenantID, &g.GraderID, &g.Version, &g.RunID, &g.AgentTypeID, &g.AgentConfig,
 		&g.RunOutcome, &g.RunStartedAt, &g.StateHash, &g.StateCap, &g.InputTokens, &g.ModelServed, &g.UsageID, &g.Status,
-		&g.AppliesRaw, &g.AppliesP, &g.Verdict, &g.CostUSD)
+		&g.AppliesRaw, &g.AppliesP, &g.Verdict, &g.CostUSD, &sourceVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get grade: %w", err)
+	}
+	if sourceVersion != nil {
+		g.SourceVersion = *sourceVersion
 	}
 	rows, err := r.pool.Query(ctx, `SELECT question, raw, p, verdict FROM grade_answers WHERE grade_id = $1 ORDER BY question`, id)
 	if err != nil {
@@ -347,17 +370,18 @@ func (r *PostgresRepository) finishGradeJob(ctx context.Context, jobID string, g
 		var id string
 		err = r.pool.QueryRow(ctx, `
 			INSERT INTO grades (id, graded_at, `+gradeColumns+`)
-			VALUES ($1, now(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+			VALUES ($1, now(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, NULLIF($20, ''))
 			ON CONFLICT (grader_id, version, run_id) DO UPDATE SET
 				graded_at = now(), agent_type_id = EXCLUDED.agent_type_id, agent_config = EXCLUDED.agent_config,
 				run_outcome = EXCLUDED.run_outcome, run_started_at = EXCLUDED.run_started_at, state_hash = EXCLUDED.state_hash,
 				state_cap = EXCLUDED.state_cap, input_tokens = EXCLUDED.input_tokens, model_served = EXCLUDED.model_served,
 				usage_id = EXCLUDED.usage_id, status = EXCLUDED.status, applies_raw = EXCLUDED.applies_raw,
-				applies_p = EXCLUDED.applies_p, verdict = EXCLUDED.verdict, cost_usd = EXCLUDED.cost_usd
+				applies_p = EXCLUDED.applies_p, verdict = EXCLUDED.verdict, cost_usd = EXCLUDED.cost_usd,
+				source_version = EXCLUDED.source_version
 			RETURNING id`,
 			uuid.NewString(), g.TenantID, g.GraderID, g.Version, g.RunID, g.AgentTypeID, g.AgentConfig, g.RunOutcome,
 			g.RunStartedAt, g.StateHash, g.StateCap, g.InputTokens, g.ModelServed, g.UsageID, g.Status, nullJSON(g.AppliesRaw),
-			g.AppliesP, g.Verdict, g.CostUSD).Scan(&id)
+			g.AppliesP, g.Verdict, g.CostUSD, g.SourceVersion).Scan(&id)
 		if err != nil {
 			return fmt.Errorf("write grade: %w", err)
 		}

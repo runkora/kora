@@ -73,8 +73,8 @@ func TestGraderVersion_DecisionQuestions(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("questions = %+v\nwant %+v", got, want)
 	}
-	if v.modelName() != "typesafe/jev-1-14" || v.modelScope() != "inference:typesafe:jev-1-14:use" {
-		t.Errorf("model = %q, scope %q", v.modelName(), v.modelScope())
+	if v.modelName() != "typesafe/jev-1-14" {
+		t.Errorf("model = %q", v.modelName())
 	}
 
 	// Without appliesWhen the request asks only the questions.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,7 @@ import (
 type fakeGradeStore struct {
 	mu       sync.Mutex
 	queue    []gradeJob
+	scopes   []string
 	specs    map[string][]byte
 	run      *Run
 	events   []RunEvent
@@ -55,6 +57,9 @@ func (f *fakeGradeStore) graderVersionSpec(_ context.Context, v string) ([]byte,
 		return s, nil
 	}
 	return nil, ErrNotFound
+}
+func (f *fakeGradeStore) graderModelScopes(context.Context, string) ([]string, error) {
+	return f.scopes, nil
 }
 func (f *fakeGradeStore) runEndRecorded(context.Context, string) (bool, error) { return f.ended, nil }
 func (f *fakeGradeStore) gradeState(context.Context, string) (*grading.Snapshot, error) {
@@ -163,6 +168,7 @@ func newGradeFixture(t *testing.T) *gradeFixture {
 			},
 			ended:  true,
 			grades: map[string]*gradeRecord{},
+			scopes: []string{"inference:other:model:use", "inference:typesafe:jev-1-14:use"},
 		},
 		principal: &fakeGradingPrincipal{},
 		decisions: &fakeDecisions{resp: inference.SystemOneResponse{
@@ -228,8 +234,8 @@ func TestGradeWorker_Grades(t *testing.T) {
 	if req.Model != "typesafe/jev-1-14" || req.DecisionTimeout != 60*time.Second || len(req.Questions) != 5 || f.decisions.bears[0] != "grader-token" {
 		t.Errorf("request model %q timeout %v questions %d bearer %q", req.Model, req.DecisionTimeout, len(req.Questions), f.decisions.bears[0])
 	}
-	if len(f.principal.ensured) != 1 || f.principal.ensured[0][0] != "inference:typesafe:jev-1-14:use" {
-		t.Errorf("ensured = %v, want the model's use scope", f.principal.ensured)
+	if len(f.principal.ensured) != 1 || !slices.Equal(f.principal.ensured[0], f.store.scopes) {
+		t.Errorf("ensured = %v, want the scopes of every live Grader's model %v", f.principal.ensured, f.store.scopes)
 	}
 }
 
@@ -352,15 +358,19 @@ func TestGradeWorker_RegradeAndRecompute(t *testing.T) {
 	if len(f.decisions.calls) != 1 {
 		t.Errorf("recompute calls = %d, want none beyond the first grade", len(f.decisions.calls)-1)
 	}
-	if g.Verdict == nil || *g.Verdict != "uncertain" || g.Version != "v2" || *g.UsageID != "usage-1" || g.RunOutcome != "completed" {
-		t.Errorf("recompute = verdict %v version %q usage %v outcome %q", g.Verdict, g.Version, g.UsageID, g.RunOutcome)
+	if g.Verdict == nil || *g.Verdict != "uncertain" || g.Version != "v2" || g.RunOutcome != "completed" || g.SourceVersion != "v1" {
+		t.Errorf("recompute = verdict %v version %q outcome %q source %q", g.Verdict, g.Version, g.RunOutcome, g.SourceVersion)
+	}
+	// No call means no usage, and a known zero cost.
+	if g.UsageID != nil || g.InputTokens != nil || g.ModelServed != nil || g.CostUSD == nil || *g.CostUSD != 0 {
+		t.Errorf("recompute usage %v tokens %v model %v cost %v, want none and cost 0", g.UsageID, g.InputTokens, g.ModelServed, g.CostUSD)
 	}
 
 	f.store.finished = nil
 	f.worker.process(context.Background(), gradeJob{ID: "job-3", TenantID: "acme", GraderID: "grader-1", Version: "v2", RunID: "run-1",
 		Kind: gradeJobRegrade, SourceVersion: "v1", Attempts: 1})
 	g = f.finished(t)
-	if len(f.decisions.calls) != 2 || *g.StateHash != *src.StateHash || g.AgentTypeID != "agent-1" {
+	if len(f.decisions.calls) != 2 || *g.StateHash != *src.StateHash || g.AgentTypeID != "agent-1" || *g.UsageID != "usage-1" || g.SourceVersion != "v1" {
 		t.Errorf("regrade calls %d hash %v agent %q, want one more call on the stored snapshot", len(f.decisions.calls), g.StateHash, g.AgentTypeID)
 	}
 }

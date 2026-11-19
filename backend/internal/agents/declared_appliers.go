@@ -400,16 +400,37 @@ type declaredGraderStore interface {
 	PutGrader(ctx context.Context, g Grader, versionSpec []byte) (*Grader, error)
 	DeleteGrader(ctx context.Context, tenantID, name string) error
 	ListDeclaredGraders(ctx context.Context, tenantID string) ([]declarative.Declared, error)
+	graderModelScopes(ctx context.Context, tenantID string) ([]string, error)
 }
 
 // GraderApplier applies declared Graders.
 type GraderApplier struct {
-	store declaredGraderStore
+	store     declaredGraderStore
+	principal gradingPrincipal
 }
 
-// NewGraderApplier returns the declarative.Applier for KindGraders.
-func NewGraderApplier(store declaredGraderStore) *GraderApplier {
-	return &GraderApplier{store: store}
+// NewGraderApplier returns the declarative.Applier for KindGraders. principal is the tenant's
+// grading principal, whose grant follows the models the tenant's Graders ask.
+func NewGraderApplier(store declaredGraderStore, principal *GraderPrincipal) *GraderApplier {
+	return newGraderApplier(store, principal)
+}
+
+func newGraderApplier(store declaredGraderStore, principal gradingPrincipal) *GraderApplier {
+	return &GraderApplier{store: store, principal: principal}
+}
+
+// syncGrant sets the grading grant to the models of the tenant's Graders. It runs on every
+// Grader apply and delete, so a removed model leaves the grant at once. A failure fails the
+// apply, and the operator retries it.
+func (a *GraderApplier) syncGrant(ctx context.Context, tenantID string) error {
+	scopes, err := a.store.graderModelScopes(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	if err := a.principal.Ensure(ctx, tenantID, scopes); err != nil {
+		return fmt.Errorf("sync grading grant: %w", err)
+	}
+	return nil
 }
 
 // Apply validates the spec, stores its version and points the Grader named item.Name at it. A
@@ -447,11 +468,18 @@ func (a *GraderApplier) Apply(ctx context.Context, item declarative.Item) (decla
 		return declarative.Result{}, fmt.Errorf("get grader %q: %w", item.Name, err)
 	}
 	if row != nil && sameGrader(*row, g) {
+		// The grant is synced again, so a sync that failed after the write is retried here.
+		if syncErr := a.syncGrant(ctx, item.TenantID); syncErr != nil {
+			return declarative.Result{}, syncErr
+		}
 		return declarative.Result{Outcome: declarative.OutcomeProjected, ID: row.ID, Ready: true}, nil
 	}
 	stored, err := a.store.PutGrader(ctx, g, versionSpec)
 	if err != nil {
 		return declarative.Result{}, fmt.Errorf("apply grader %q: %w", item.Name, err)
+	}
+	if err := a.syncGrant(ctx, item.TenantID); err != nil {
+		return declarative.Result{}, err
 	}
 	return declarative.Result{Outcome: declarative.OutcomeProjected, ID: stored.ID, Ready: true}, nil
 }
@@ -483,9 +511,12 @@ func sameGrader(row, g Grader) bool {
 	return row == g && (rate == nil) == (gRate == nil) && (rate == nil || *rate == *gRate)
 }
 
-// Delete deletes the declared Grader.
+// Delete deletes the declared Grader and sets the grading grant to the models left.
 func (a *GraderApplier) Delete(ctx context.Context, tenantID, name string) error {
-	return a.store.DeleteGrader(ctx, tenantID, name)
+	if err := a.store.DeleteGrader(ctx, tenantID, name); err != nil {
+		return err
+	}
+	return a.syncGrant(ctx, tenantID)
 }
 
 // List returns the tenant's declared Graders.

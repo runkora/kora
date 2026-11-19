@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"slices"
 	"testing"
 	"time"
 
@@ -442,7 +443,37 @@ func TestPostgres_RecomputeFromAnswers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recomputed grade: %v", err)
 	}
-	if *got.Verdict != "uncertain" || *got.StateHash != *first.StateHash || *got.UsageID != "usage-1" || len(got.Answers) != 4 {
-		t.Errorf("recomputed = %+v, want uncertain from the same state and usage", got)
+	if *got.Verdict != "uncertain" || *got.StateHash != *first.StateHash || len(got.Answers) != 4 || got.SourceVersion != p.grader.CurrentVersion {
+		t.Errorf("recomputed = %+v, want uncertain from the same state, sourced from the first version", got)
+	}
+	if got.UsageID != nil || got.CostUSD == nil || *got.CostUSD != 0 {
+		t.Errorf("recomputed usage %v cost %v, want no usage and cost 0", got.UsageID, got.CostUSD)
+	}
+	// The recompute adds nothing to the run's grading cost summed across versions.
+	var total float64
+	if err := p.r.pool.QueryRow(ctx, `SELECT sum(cost_usd) FROM grades WHERE run_id = $1`, runID).Scan(&total); err != nil || total != 0.001 {
+		t.Errorf("cost across versions = %v, %v, want the first grade's 0.001", total, err)
+	}
+}
+
+// The grading grant's scopes are the models of the tenant's Graders at their current versions.
+func TestPostgres_GraderModelScopes(t *testing.T) {
+	p := newGradingPG(t)
+	ctx := context.Background()
+	other := testGraderVersion(t)
+	other.Model = v1alpha1.ModelRef{Family: "typesafe", Name: "jev-2"}
+	p.putGrader(t, "other-model", other)
+	p.putGrader(t, "same-model", testGraderVersion(t))
+
+	got, err := p.r.graderModelScopes(ctx, p.tenant)
+	want := []string{"inference:typesafe:jev-1-14:use", "inference:typesafe:jev-2:use"}
+	if err != nil || !slices.Equal(got, want) {
+		t.Errorf("scopes = %v, %v, want %v", got, err, want)
+	}
+	if err := p.r.DeleteGrader(ctx, p.tenant, "other-model"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := p.r.graderModelScopes(ctx, p.tenant); !slices.Equal(got, want[:1]) {
+		t.Errorf("after delete = %v, want %v", got, want[:1])
 	}
 }

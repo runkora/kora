@@ -250,6 +250,23 @@ func (f *fakeGraderStore) DeleteGrader(_ context.Context, _, name string) error 
 	return nil
 }
 
+// graderModelScopes reads each live Grader's model from its stored version, as the repository does.
+func (f *fakeGraderStore) graderModelScopes(context.Context, string) ([]string, error) {
+	var out []string
+	for _, g := range f.graders {
+		v, err := parseGraderVersion(f.versions[g.CurrentVersion])
+		if err != nil {
+			return nil, err
+		}
+		s := "inference:" + v.Model.Family + ":" + v.Model.Name + ":use"
+		if !slices.Contains(out, s) {
+			out = append(out, s)
+		}
+	}
+	slices.Sort(out)
+	return out, nil
+}
+
 func (f *fakeGraderStore) ListDeclaredGraders(context.Context, string) ([]declarative.Declared, error) {
 	var out []declarative.Declared
 	for _, g := range f.graders {
@@ -261,7 +278,8 @@ func (f *fakeGraderStore) ListDeclaredGraders(context.Context, string) ([]declar
 func TestGraderApplier(t *testing.T) {
 	ctx := context.Background()
 	store := newFakeGraderStore()
-	a := NewGraderApplier(store)
+	principal := &fakeGradingPrincipal{}
+	a := newGraderApplier(store, principal)
 	refs := map[string]string{declarative.RefAgent("reviewer"): "agent-1"}
 	spec := graderSpec(boolean("a"), choice("b", []string{"x"}, []string{"x"}, nil))
 	spec.MinPassRate = "90%"
@@ -306,10 +324,57 @@ func TestGraderApplier(t *testing.T) {
 	}
 }
 
+// Every apply and delete sets the grading grant to exactly the models the tenant's Graders ask.
+// A model no Grader asks any more leaves the grant.
+func TestGraderApplierSyncsGrant(t *testing.T) {
+	ctx := context.Background()
+	store := newFakeGraderStore()
+	principal := &fakeGradingPrincipal{}
+	a := newGraderApplier(store, principal)
+	refs := map[string]string{declarative.RefAgent("reviewer"): "agent-1"}
+	last := func() []string { return principal.ensured[len(principal.ensured)-1] }
+
+	first := graderSpec(boolean("a"))
+	if _, err := a.Apply(ctx, item(t, "one", "u1", 1, first, refs)); err != nil {
+		t.Fatal(err)
+	}
+	second := graderSpec(boolean("a"))
+	second.Model = v1alpha1.ModelRef{Family: "typesafe", Name: "jev-2"}
+	if _, err := a.Apply(ctx, item(t, "two", "u2", 1, second, refs)); err != nil {
+		t.Fatal(err)
+	}
+	if got := last(); len(got) != 2 {
+		t.Errorf("two models: grant scopes %v, want both", got)
+	}
+
+	// Moving the second Grader to the first's model drops jev-2.
+	second.Model = first.Model
+	if _, err := a.Apply(ctx, item(t, "two", "u2", 2, second, refs)); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"inference:" + first.Model.Family + ":" + first.Model.Name + ":use"}
+	if got := last(); !slices.Equal(got, want) {
+		t.Errorf("after the model change: grant scopes %v, want %v", got, want)
+	}
+
+	if err := a.Delete(ctx, applierTenant, "one"); err != nil {
+		t.Fatal(err)
+	}
+	if got := last(); !slices.Equal(got, want) {
+		t.Errorf("one Grader left on the model: grant scopes %v, want %v", got, want)
+	}
+	if err := a.Delete(ctx, applierTenant, "two"); err != nil {
+		t.Fatal(err)
+	}
+	if got := last(); len(got) != 0 {
+		t.Errorf("no Graders: grant scopes %v, want none", got)
+	}
+}
+
 func TestGraderApplierRefusals(t *testing.T) {
 	ctx := context.Background()
 	store := newFakeGraderStore()
-	a := NewGraderApplier(store)
+	a := newGraderApplier(store, &fakeGradingPrincipal{})
 	refs := map[string]string{declarative.RefAgent("reviewer"): "agent-1"}
 
 	invalid := graderSpec(choice("b", []string{"x", "x"}, []string{"x"}, nil))

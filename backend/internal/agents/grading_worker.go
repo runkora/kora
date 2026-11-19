@@ -44,6 +44,7 @@ type gradeStore interface {
 	deferGradeJob(ctx context.Context, id string, at time.Time) error
 	dropGradeJob(ctx context.Context, id string) error
 	graderVersionSpec(ctx context.Context, version string) ([]byte, error)
+	graderModelScopes(ctx context.Context, tenantID string) ([]string, error)
 	runEndRecorded(ctx context.Context, runID string) (bool, error)
 	gradeState(ctx context.Context, runID string) (*grading.Snapshot, error)
 	putGradeState(ctx context.Context, tenantID, runID string, s grading.Snapshot) (grading.Snapshot, error)
@@ -269,7 +270,7 @@ func (w *GradeWorker) ask(ctx context.Context, job gradeJob, version graderVersi
 	}
 	req.State = json.RawMessage(state.JSON)
 
-	resp, err := w.call(ctx, job.TenantID, version, req)
+	resp, err := w.call(ctx, job.TenantID, req)
 	if errors.Is(err, inference.ErrBudgetExceeded) {
 		// The tenant ceiling holds until its window resets, so the grade records error now.
 		r := base.withStatus(gradeStatusError)
@@ -309,6 +310,7 @@ func (w *GradeWorker) base(ctx context.Context, job gradeJob) (gradeRecord, *gra
 		return g, nil, err
 	}
 	g.AgentTypeID, g.AgentConfig, g.RunOutcome, g.RunStartedAt = src.AgentTypeID, src.AgentConfig, src.RunOutcome, src.RunStartedAt
+	g.SourceVersion = job.SourceVersion
 	return g, src, nil
 }
 
@@ -351,9 +353,14 @@ func deref(s *grading.Snapshot) grading.Snapshot {
 	return *s
 }
 
-// call makes the System One call as the tenant's grading principal.
-func (w *GradeWorker) call(ctx context.Context, tenantID string, version graderVersion, req inference.SystemOneRequest) (inference.SystemOneResponse, error) {
-	if err := w.principal.Ensure(ctx, tenantID, []string{version.modelScope()}); err != nil {
+// call makes the System One call as the tenant's grading principal. The grant is set to the
+// models of the tenant's live Graders, so a model no Grader asks any more is not kept.
+func (w *GradeWorker) call(ctx context.Context, tenantID string, req inference.SystemOneRequest) (inference.SystemOneResponse, error) {
+	scopes, err := w.store.graderModelScopes(ctx, tenantID)
+	if err != nil {
+		return inference.SystemOneResponse{}, err
+	}
+	if err = w.principal.Ensure(ctx, tenantID, scopes); err != nil {
 		return inference.SystemOneResponse{}, err
 	}
 	tok, err := w.token(ctx, tenantID)
@@ -433,8 +440,8 @@ func scored(version graderVersion, base gradeRecord, answers map[string]inferenc
 
 // recompute rescores the source grade's stored answers under the version's thresholds.
 func recompute(version graderVersion, base gradeRecord, src *gradeRecord) outcome {
-	base.StateHash, base.StateCap, base.InputTokens = src.StateHash, src.StateCap, src.InputTokens
-	base.ModelServed, base.UsageID, base.CostUSD = src.ModelServed, src.UsageID, src.CostUSD
+	// A recompute makes no call, so it has no usage and costs a known zero. source_version names the grade it read.
+	base.StateHash, base.StateCap, base.CostUSD = src.StateHash, src.StateCap, new(0.0)
 	answers := make(map[string]inference.Answer, len(src.Answers)+1)
 	if len(src.AppliesRaw) > 0 {
 		var a inference.Answer
