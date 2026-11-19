@@ -137,7 +137,7 @@ None at this time.
 *   [ ] The columns are status, description, the pass rate with its minimum (such as "52% passed · needs 90%") and graded runs.
 *   [ ] Failing rows come first.
 *   [ ] The list has search, the quick filters Failing, Passing and No minimum, and paging of 12, 25 or 50 rows.
-*   [ ] A Grader with under 15 graded runs reads "Not enough runs", with or without `minPassRate`.
+*   [ ] A Grader with `minPassRate` and under 15 graded runs reads "Not enough runs".
 *   [ ] A Grader without `minPassRate` reads "No minimum" and shows its pass rate with no passing or failing status.
 
 ### US-006: Find the runs a question failed
@@ -197,7 +197,7 @@ A run passes when every question that is not skipped passes. Any failed question
 
 ### Pass Rate
 
-`threshold` judges one answer on one run. `minPassRate` judges the Grader across runs. The window is the Grader's last 30 graded runs. The pass rate is passed runs divided by graded runs. Uncertain runs count in the denominator. The Grader is passing when the pass rate is at or above `minPassRate`, and failing below it. The window ignores `agent_config`. Under 15 graded runs the Grader reads "Not enough runs".
+`threshold` judges one answer on one run. `minPassRate` judges the Grader across runs. The window is the Grader's last 30 graded runs. The pass rate is passed runs divided by graded runs. Uncertain runs count in the denominator. The Grader is passing when the pass rate is at or above `minPassRate`, and failing below it. The window ignores `agent_config`. A Grader with `minPassRate` and under 15 graded runs reads "Not enough runs".
 
 ### User Experience
 
