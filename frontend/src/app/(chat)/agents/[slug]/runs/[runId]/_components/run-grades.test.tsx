@@ -58,6 +58,12 @@ describe('RailGrades', () => {
     expect(screen.queryByText(/Tool result/)).toBeNull();
   });
 
+  it('labels a grade whose appliesWhen is uncertain', () => {
+    ended(RUN_GRADES.appliesUncertain);
+    expect(screen.getByText('Applies: uncertain')).toBeInTheDocument();
+    expect(screen.getByText('Applies p 0.50')).toBeInTheDocument();
+  });
+
   it('labels too large and error grades', () => {
     ended(RUN_GRADES.tooLarge);
     expect(screen.getAllByText('Too large to grade')).toHaveLength(2);

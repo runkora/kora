@@ -116,6 +116,7 @@ export const RUN_GRADES = {
     safety({ state_cap: 2000, input_tokens: 226_400, cost_usd: 0.009 }),
   ],
   notApplicable: [outcome([], ungraded('not_applicable', { applies_p: 0.08 })), safety()],
+  appliesUncertain: [outcome([], ungraded('applies_uncertain', { applies_p: 0.5 })), safety()],
   // kora-agents stores a too-large grade with cap 0 and no call, so no tokens or cost.
   tooLarge: [
     outcome([], ungraded('too_large', { applies_p: null, ...TOO_LARGE })),

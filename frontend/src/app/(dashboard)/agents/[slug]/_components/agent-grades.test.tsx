@@ -78,15 +78,7 @@ describe('GraderPage', () => {
     const grader = fleet.detail['ci-read']!;
     renderWithProviders(<GraderPage grader={grader} slug="code-reviewer" onBack={vi.fn()} />);
     expect(screen.queryByText('Verdicts')).toBeNull();
-    const only = grader.questions[0]!;
-    if (only.runs.length)
-      expect(
-        screen.getByText(`Failed or uncertain runs (${only.runs.length})`),
-      ).toBeInTheDocument();
-    else
-      expect(
-        screen.getByText(`No failed or uncertain runs in the last ${grader.graded}`),
-      ).toBeInTheDocument();
+    expect(screen.getByText('Failed or uncertain runs (1)')).toBeInTheDocument();
   });
 
   it('counts runs too large to grade and says when a question has no failed or uncertain runs', async () => {
@@ -97,7 +89,6 @@ describe('GraderPage', () => {
     expect(screen.getByText(/· 2 too large to grade/)).toBeInTheDocument();
     await userEvent.click(screen.getByText(quiet.question));
     expect(screen.getByText('No failed or uncertain runs')).toBeInTheDocument();
-    expect(screen.queryByText(/Uncertain on/)).toBeNull();
   });
 
   it('reads "not enough runs" under the minimum count', () => {

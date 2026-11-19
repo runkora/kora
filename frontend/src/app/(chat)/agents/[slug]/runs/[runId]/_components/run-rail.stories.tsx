@@ -78,6 +78,7 @@ const GRADE_STATES = [
   { label: 'Uncertain', run: graded('uncertain') },
   { label: 'Capped', run: graded('capped') },
   { label: 'Not applicable', run: graded('notApplicable') },
+  { label: 'Applies: uncertain', run: graded('appliesUncertain') },
   { label: 'Too large', run: graded('tooLarge') },
   { label: 'Error', run: graded('error') },
   { label: 'Not graded yet', run: runningRun() },

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { delay, http, HttpResponse } from 'msw';
@@ -41,6 +41,8 @@ function Tab() {
 }
 
 describe('AgentGradesTab', () => {
+  afterEach(() => vi.useRealTimers());
+
   it('loads the list, opens a Grader and goes back', async () => {
     serveFleet();
     renderWithProviders(<Tab />);
@@ -79,13 +81,15 @@ describe('AgentGradesTab', () => {
   });
 
   it('shows the Grader opened last when an earlier read answers late', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     serveFleet('summary-accurate');
     renderWithProviders(<Tab />);
     await userEvent.click(await screen.findByText('summary-accurate'));
     await userEvent.click(screen.getByRole('button', { name: /All Graders/ }));
     await userEvent.click(await screen.findByText('ci-read'));
     expect(await screen.findByRole('heading', { name: titleOf('ci-read') })).toBeInTheDocument();
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    // The late read answers after 300ms.
+    await vi.advanceTimersByTimeAsync(400);
     await waitFor(() =>
       expect(screen.queryByRole('heading', { name: titleOf('summary-accurate') })).toBeNull(),
     );
