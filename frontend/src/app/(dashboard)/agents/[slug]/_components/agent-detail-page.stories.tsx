@@ -279,10 +279,10 @@ export const GradesFailing: Story = gradesStory({ tab: 'grades' }, graderFleet('
   },
 });
 
-/** One Grader with five questions; the most failed question is open on its runs. */
+/** One Grader with five questions, one a choice and one a scale; the most failed question is open on its answers and runs. */
 export const GraderPage: Story = gradesStory({ tab: 'grades', grader: 'summary-accurate' });
 
-/** One Grader with a single question: its failed or uncertain runs follow the question. */
+/** One Grader with a single question: its answers and its failed or uncertain runs follow the question. */
 export const GraderPageOneQuestion: Story = gradesStory({ tab: 'grades', grader: 'ci-read' });
 
 /** The Runs tab filtered to one question's failed runs, as the Grader page links to it. */

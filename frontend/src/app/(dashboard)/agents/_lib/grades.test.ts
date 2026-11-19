@@ -6,6 +6,7 @@ const question = (over: Partial<GraderQuestion>): GraderQuestion => ({
   name: 'q',
   type: 'boolean',
   question: 'Q?',
+  answers: [],
   failed: 0,
   uncertain: 0,
   runs: [],

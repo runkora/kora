@@ -1,10 +1,11 @@
 /**
  * Story data for the Grades tab: twelve Graders of one agent as the list endpoint answers them,
  * failing first, and the detail of two of them. `summary-accurate` has five questions, one a choice
- * and one a scale. `ci-read` has one question.
+ * and one a scale. `ci-read` has one question. Each question's answer counts cover the 30 graded runs.
  */
 
 import type {
+  GraderAnswerCount,
   GraderDetail,
   GraderFlaggedRun,
   GraderStatus,
@@ -186,6 +187,26 @@ const run = (
   verdict,
 });
 
+/** A choice option or scale level with its window count; `passes` or `skips` marks accept or skipOn. */
+const answer = (
+  name: string,
+  description: string,
+  count: number,
+  role?: 'passes' | 'skips',
+): GraderAnswerCount => ({
+  name,
+  description,
+  passes: role === 'passes',
+  skips: role === 'skips',
+  count,
+});
+
+/** A boolean's answers for `expect: true`, with the window's yes and no counts. */
+const yesNo = (yes: number, no: number): GraderAnswerCount[] => [
+  answer('yes', '', yes, 'passes'),
+  answer('no', '', no),
+];
+
 const SPEC = { model: 'jev-1-14', threshold: { pass: 0.7, fail: 0.3 } };
 
 const DETAILS: GraderDetail[] = [
@@ -198,6 +219,7 @@ const DETAILS: GraderDetail[] = [
         type: 'boolean',
         question: 'Does the summary match the diff?',
         expect: true,
+        answers: yesNo(25, 5),
         failed: 2,
         uncertain: 7,
         runs: [
@@ -232,6 +254,7 @@ const DETAILS: GraderDetail[] = [
         type: 'boolean',
         question: 'Does the summary mention only files in the diff?',
         expect: true,
+        answers: yesNo(29, 1),
         failed: 1,
         uncertain: 1,
         runs: [
@@ -249,6 +272,7 @@ const DETAILS: GraderDetail[] = [
         type: 'boolean',
         question: 'Does the review start with a summary of the change?',
         expect: true,
+        answers: yesNo(30, 0),
         failed: 0,
         uncertain: 1,
         runs: [
@@ -272,6 +296,12 @@ const DETAILS: GraderDetail[] = [
         ],
         accept: ['short', 'medium'],
         skip_on: ['no-summary'],
+        answers: [
+          answer('no-summary', 'There is no summary', 0, 'skips'),
+          answer('short', 'One or two sentences', 18, 'passes'),
+          answer('medium', 'Three or four sentences', 11, 'passes'),
+          answer('long', 'Five or more sentences', 1),
+        ],
         failed: 1,
         uncertain: 0,
         runs: [
@@ -289,6 +319,12 @@ const DETAILS: GraderDetail[] = [
           { name: 'none', description: 'No part is named' },
         ],
         accept: ['migration', 'api', 'config'],
+        answers: [
+          answer('migration', 'A database migration', 9, 'passes'),
+          answer('api', 'A public API change', 14, 'passes'),
+          answer('config', 'A config change', 7, 'passes'),
+          answer('none', 'No part is named', 0),
+        ],
         failed: 0,
         uncertain: 0,
         runs: [],
@@ -304,6 +340,7 @@ const DETAILS: GraderDetail[] = [
         type: 'boolean',
         question: 'Did the agent read the CI checks for the pull request?',
         expect: true,
+        answers: yesNo(29, 1),
         failed: 1,
         uncertain: 0,
         runs: [

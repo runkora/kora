@@ -8,6 +8,7 @@ import type {
   AnswerVerdict,
   GradeStatus,
   GraderQuestion,
+  GraderQuestionType,
   GraderStatus,
   GradeVerdict,
 } from '@runkora/shared/api';
@@ -57,6 +58,16 @@ export const GRADER_STATUS_LABEL: Record<GraderStatus, string> = {
 
 /** A Grader's visible name: its description, or its name without one. */
 export const graderName = (g: { name: string; description: string }) => g.description || g.name;
+
+export const QUESTION_TYPE_LABEL: Record<GraderQuestionType, string> = {
+  boolean: 'Yes/No',
+  choice: 'Choice',
+  scale: 'Scale',
+};
+
+/** An answer as the pass condition names it: Yes or No for a boolean, else its description or name. */
+export const answerLabel = (q: GraderQuestion, a: { name: string; description: string }) =>
+  q.type === 'boolean' ? (a.name === 'yes' ? 'Yes' : 'No') : a.description || a.name;
 
 /** A pass rate in whole percent; null with no graded runs. */
 export const passRate = (passed: number, graded: number) =>

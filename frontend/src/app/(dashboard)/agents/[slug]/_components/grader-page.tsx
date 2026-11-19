@@ -26,6 +26,7 @@ import {
 } from '@runkora/hades';
 import { APP_ROUTES } from '@runkora/lib/routing/routes';
 import type {
+  GraderAnswerCount,
   GraderDetail,
   GraderFlaggedRun,
   GraderQuestion,
@@ -38,6 +39,9 @@ import {
   gradeRunsHref,
   graderName,
   passesOn,
+  QUESTION_TYPE_LABEL,
+  WINDOW,
+  answerLabel,
 } from '../../_lib/grades';
 import { shortRelativeTime } from '../../_components/run-row';
 import { formatRelativeTime } from '../../_types';
@@ -146,7 +150,36 @@ function RunList({ runs, slug }: { runs: GraderFlaggedRun[]; slug: string }) {
   );
 }
 
-/** The spec's fields: `appliesWhen`, each question with its pass condition, version and model. */
+/** "pass 0.7 · fail 0.3". */
+const band = (t: { pass: number; fail: number }) => `pass ${t.pass} · fail ${t.fail}`;
+
+/** A question's options or levels as the spec lists them, with its skipOn and threshold. */
+function SpecAnswers({ q }: { q: GraderQuestion }) {
+  const answers = q.options ?? q.levels;
+  return (
+    <>
+      {answers && (
+        <Text size="caption" color="muted">
+          {q.options ? 'Options' : 'Levels'}:{' '}
+          {answers.map((a) => a.description || a.name).join(', ')}
+        </Text>
+      )}
+      {q.skip_on?.length ? (
+        <Text size="caption" color="subtle">
+          Skips on{' '}
+          {q.skip_on.map((n) => answers?.find((a) => a.name === n)?.description || n).join(', ')}
+        </Text>
+      ) : null}
+      {q.threshold && (
+        <Text size="caption" color="subtle" tabular>
+          Threshold {band(q.threshold)}
+        </Text>
+      )}
+    </>
+  );
+}
+
+/** The spec's fields: `appliesWhen`, each question with its type, answers and pass condition, the threshold, version and model. */
 function SpecLink({ grader }: { grader: GraderDetail }) {
   return (
     <Popover>
@@ -176,14 +209,15 @@ function SpecLink({ grader }: { grader: GraderDetail }) {
                     {q.question}
                   </Text>
                   <Text size="caption" color="subtle">
-                    {passesOn(q)}
+                    {QUESTION_TYPE_LABEL[q.type]} · {passesOn(q)}
                   </Text>
+                  <SpecAnswers q={q} />
                 </Stack>
               </ListItem>
             ))}
           </List>
           <Text size="caption" color="subtle" tabular>
-            Version {grader.version} · {grader.model}
+            Threshold {band(grader.threshold)} · Version {grader.version} · {grader.model}
           </Text>
         </Stack>
       </PopoverContent>
@@ -204,7 +238,57 @@ const counts = (q: GraderQuestion) =>
     .filter(Boolean)
     .join(' · ');
 
-/** One row per question with its pass condition and verdict counts; a row opens to its runs. */
+/** Every answer a question can get, whether it passes or skips, and how many window runs had it. */
+function Answers({ q }: { q: GraderQuestion }) {
+  const columns: DataTableColumn<GraderAnswerCount>[] = [
+    {
+      id: 'answer',
+      header: 'Answer',
+      gridWidth: 'minmax(0, 1fr)',
+      cell: (a) => <Text size="supporting">{answerLabel(q, a)}</Text>,
+    },
+    {
+      id: 'passes',
+      header: '',
+      gridWidth: '10rem',
+      cell: (a) =>
+        a.passes ? (
+          <Icon name="circle-check" size="sm" color="status-healthy" label="Passes" />
+        ) : a.skips ? (
+          <Text size="supporting" color="subtle">
+            skips the question
+          </Text>
+        ) : null,
+    },
+    {
+      id: 'count',
+      header: `Runs (last ${WINDOW})`,
+      gridWidth: '8rem',
+      align: 'right',
+      cell: (a) => (
+        <Text size="supporting" tabular>
+          {a.count}
+        </Text>
+      ),
+    },
+  ];
+  return (
+    <DataTable
+      data={q.answers}
+      columns={columns}
+      getRowKey={(a) => a.name}
+      columnToggle={false}
+      noun="answers"
+      toolbarTitle={
+        <Text size="supporting" weight="emphasis">
+          Answers
+        </Text>
+      }
+    />
+  );
+}
+
+/** One row per question with its type, pass condition and verdict counts; a row opens to its answers and runs. */
 function Questions({ grader, slug }: { grader: GraderDetail; slug: string }) {
   const rows = grader.questions;
   const single = rows.length === 1;
@@ -220,7 +304,7 @@ function Questions({ grader, slug }: { grader: GraderDetail; slug: string }) {
         <Stack gap="tight" minWidth="none">
           <Text size="supporting">{q.question}</Text>
           <Text size="caption" color="subtle">
-            {passesOn(q)}
+            {QUESTION_TYPE_LABEL[q.type]} · {passesOn(q)}
           </Text>
         </Stack>
       ),
@@ -266,14 +350,18 @@ function Questions({ grader, slug }: { grader: GraderDetail; slug: string }) {
       renderExpanded={
         single
           ? undefined
-          : (q) =>
-              q.runs.length ? (
-                <QuestionRuns grader={grader.name} q={q} slug={slug} />
-              ) : (
-                <Text size="supporting" color="subtle">
-                  No failed or uncertain runs
-                </Text>
-              )
+          : (q) => (
+              <Stack gap="snug">
+                <Answers q={q} />
+                {q.runs.length ? (
+                  <QuestionRuns grader={grader.name} q={q} slug={slug} />
+                ) : (
+                  <Text size="supporting" color="subtle">
+                    No failed or uncertain runs
+                  </Text>
+                )}
+              </Stack>
+            )
       }
       toolbarTitle={
         <Text size="supporting" weight="emphasis">
@@ -334,6 +422,7 @@ export function GraderPage({
 
       <Questions grader={grader} slug={slug} />
 
+      {only && <Answers q={only} />}
       {only &&
         (only.runs.length ? (
           <QuestionRuns grader={grader.name} q={only} slug={slug} />

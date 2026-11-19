@@ -784,6 +784,17 @@ export interface GraderAnswerOption {
   description: string;
 }
 
+/** One answer a question can get, with how many of the window's runs had it as the most likely answer. Mirrors Go: agents.AnswerCount. */
+export interface GraderAnswerCount {
+  /** `yes` or `no` for a boolean; otherwise an option or level name. */
+  name: string;
+  /** Empty for a boolean's answers. */
+  description: string;
+  passes: boolean;
+  skips: boolean;
+  count: number;
+}
+
 /** A run whose answer to one question was fail or uncertain. */
 export interface GraderFlaggedRun {
   run_id: string;
@@ -804,6 +815,8 @@ export interface GraderQuestion {
   accept?: string[];
   skip_on?: string[];
   threshold?: GraderThreshold;
+  /** Every answer in spec order: yes and no, the options including none, or the levels lowest first. */
+  answers: GraderAnswerCount[];
   failed: number;
   uncertain: number;
   /** The window's runs that failed or were uncertain on this question, newest first. */
