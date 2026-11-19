@@ -51,6 +51,13 @@ describe('AgentGradesTab', () => {
     expect(
       await screen.findByRole('heading', { name: titleOf('summary-accurate') }),
     ).toBeInTheDocument();
+    // The open question lists the API's answers with their window counts.
+    expect(screen.getByText('Runs (last 30)')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Choice · Passes on A database migration, A public API change, A config change',
+      ),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /All Graders/ }));
     expect(await screen.findByText('summary-accurate')).toBeInTheDocument();
   });

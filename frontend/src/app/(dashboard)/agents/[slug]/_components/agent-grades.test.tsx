@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@runkora/test-utils';
 
@@ -101,6 +101,80 @@ describe('GraderPage', () => {
     );
     expect(screen.getByText('Not enough runs')).toBeInTheDocument();
     expect(screen.queryByText(/· not enough runs/)).toBeNull();
+  });
+
+  it('labels each question with its type, and an open question lists its answers with counts', async () => {
+    const grader = fleet.detail['summary-accurate']!;
+    renderWithProviders(<GraderPage grader={grader} slug="code-reviewer" onBack={vi.fn()} />);
+    expect(screen.getAllByText('Yes/No · Passes on Yes')).toHaveLength(3);
+    expect(
+      screen.getByText('Scale · Passes on One or two sentences, Three or four sentences'),
+    ).toBeInTheDocument();
+    // summary-correct is open first: Yes passes on 25 runs, No on 5.
+    const table = screen
+      .getByText('Runs (last 30)')
+      .closest('[role="table"], [role="grid"]') as HTMLElement;
+    const yes = within(table).getByText('Yes').closest('[role="row"]') as HTMLElement;
+    expect(within(yes).getByLabelText('Passes')).toBeInTheDocument();
+    expect(within(yes).getByText('25')).toBeInTheDocument();
+    const no = within(table).getByText('No').closest('[role="row"]') as HTMLElement;
+    expect(within(no).queryByLabelText('Passes')).toBeNull();
+    expect(within(no).getByText('5')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByText('How long is the summary?'));
+    const skip = screen.getByText('There is no summary').closest('[role="row"]') as HTMLElement;
+    expect(within(skip).getByText('skips the question')).toBeInTheDocument();
+    expect(within(skip).getByText('0')).toBeInTheDocument();
+  });
+
+  it('lists the answers of a single question', () => {
+    renderWithProviders(
+      <GraderPage grader={fleet.detail['ci-read']!} slug="code-reviewer" onBack={vi.fn()} />,
+    );
+    const yes = screen.getByText('Yes').closest('[role="row"]') as HTMLElement;
+    expect(within(yes).getByText('29')).toBeInTheDocument();
+    expect(screen.getByText('Runs (last 30)')).toBeInTheDocument();
+  });
+
+  it('opens the spec from View spec by click and by keyboard', async () => {
+    renderWithProviders(
+      <GraderPage
+        grader={fleet.detail['summary-accurate']!}
+        slug="code-reviewer"
+        onBack={vi.fn()}
+      />,
+    );
+    const button = screen.getByRole('button', { name: 'View spec' });
+    await userEvent.click(button);
+    const spec = await screen.findByRole('dialog');
+    expect(
+      within(spec).getByText('Scale · Passes on One or two sentences, Three or four sentences'),
+    ).toBeInTheDocument();
+    expect(
+      within(spec).getByText(
+        'Levels: There is no summary, One or two sentences, Three or four sentences, Five or more sentences',
+      ),
+    ).toBeInTheDocument();
+    expect(within(spec).getByText('Skips on There is no summary')).toBeInTheDocument();
+    expect(
+      within(spec).getByText(
+        'Options: A database migration, A public API change, A config change, No part is named',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(spec).getByText('Threshold pass 0.7 · fail 0.3 · Version 5edcd13 · jev-1-14'),
+    ).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    button.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    button.focus();
+    await userEvent.keyboard(' ');
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 
   it('shows five runs and then all of them', async () => {
