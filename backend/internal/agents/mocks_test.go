@@ -581,8 +581,17 @@ func (m *mockRepository) SetRunAgentConfig(_ context.Context, runID, digest stri
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if r, ok := m.runs[runID]; ok {
+	if r, ok := m.runs[runID]; ok && r.AgentConfig == nil {
 		r.AgentConfig = &digest
+	}
+	return nil
+}
+
+func (m *mockRepository) ClearRunAgentConfig(_ context.Context, runID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r, ok := m.runs[runID]; ok {
+		r.AgentConfig = nil
 	}
 	return nil
 }

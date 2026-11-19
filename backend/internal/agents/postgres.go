@@ -736,12 +736,21 @@ func (r *PostgresRepository) SetRunDelegationJTI(ctx context.Context, runID, jti
 	return nil
 }
 
-// SetRunAgentConfig records the run's agent config digest. Each start attempt overwrites it
-// with the config it sends. Zero rows affected (run gone) is not an error.
+// SetRunAgentConfig records the run's agent config digest when none is set.
+// Zero rows affected (run gone) is not an error.
 func (r *PostgresRepository) SetRunAgentConfig(ctx context.Context, runID, digest string) error {
-	_, err := r.pool.Exec(ctx, `UPDATE runs SET agent_config=$1, updated_at=$2 WHERE id=$3`, digest, time.Now().UTC(), runID)
+	_, err := r.pool.Exec(ctx, `UPDATE runs SET agent_config=COALESCE(agent_config, $1), updated_at=$2 WHERE id=$3`, digest, time.Now().UTC(), runID)
 	if err != nil {
 		return fmt.Errorf("set run agent config: %w", err)
+	}
+	return nil
+}
+
+// ClearRunAgentConfig removes the run's agent config digest. Zero rows affected (run gone) is not an error.
+func (r *PostgresRepository) ClearRunAgentConfig(ctx context.Context, runID string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE runs SET agent_config=NULL, updated_at=$1 WHERE id=$2`, time.Now().UTC(), runID)
+	if err != nil {
+		return fmt.Errorf("clear run agent config: %w", err)
 	}
 	return nil
 }

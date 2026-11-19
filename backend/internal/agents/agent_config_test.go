@@ -3,7 +3,10 @@ package agents
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"regexp"
+	"syscall"
 	"testing"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
@@ -166,5 +169,47 @@ func TestStartClaimed_AgentConfigWriteFailureReleases(t *testing.T) {
 	f.run.startClaimed(context.Background(), claimed, claimedAt)
 	if repo.runs[run.ID].State != RunStatePending || repo.released != 1 || len(sm.sessions) != 0 {
 		t.Errorf("state=%s released=%d sessions=%d, want pending, 1, 0", repo.runs[run.ID].State, repo.released, len(sm.sessions))
+	}
+}
+
+// A retry keeps the first digest while the first attempt's session may run, and records its own once that session is closed.
+func TestStartClaimed_RetryAgentConfig(t *testing.T) {
+	lost := &net.OpError{Op: "read", Net: "tcp", Err: syscall.ECONNRESET}
+	for _, tc := range []struct {
+		name     string
+		closeErr error
+		second   error
+		wantNew  bool
+	}{
+		{"session closed", nil, nil, true},
+		{"close failed then conflict", errors.New("pod unreachable"), fmt.Errorf("%w: status 409", sessionmanager.ErrSessionConflict), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, repo, _, sm := schedulerService(t)
+			sm.closeSessionErr = tc.closeErr
+			f.run.sm = &scriptedSM{mockSMClient: sm, errs: []error{lost, tc.second}}
+			run, err := f.run.StartRun(startCtx(), StartRunRequest{AgentTypeID: "at-1"})
+			if err != nil {
+				t.Fatalf("StartRun: %v", err)
+			}
+			claimed, claimedAt := claimRun(repo, run.ID)
+			f.run.startClaimed(context.Background(), claimed, claimedAt)
+			first := repo.runs[run.ID].AgentConfig
+
+			// The agent's prompt changes between the two attempts.
+			repo.mu.Lock()
+			repo.agentTypes["at-1"].SystemPrompt += " Edited."
+			repo.mu.Unlock()
+			claimed, claimedAt = claimRun(repo, run.ID)
+			f.run.startClaimed(context.Background(), claimed, claimedAt)
+			got := repo.runs[run.ID].AgentConfig
+
+			if repo.runs[run.ID].State != RunStateActive || got == nil {
+				t.Fatalf("state=%s agent_config=%v, want active with a digest", repo.runs[run.ID].State, got)
+			}
+			if changed := first == nil || *got != *first; changed != tc.wantNew {
+				t.Errorf("digest changed = %v, want %v", changed, tc.wantNew)
+			}
+		})
 	}
 }

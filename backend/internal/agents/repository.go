@@ -71,8 +71,10 @@ type RunRepository interface {
 	// run at start (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3),
 	// so terminal-state transitions can revoke it.
 	SetRunDelegationJTI(ctx context.Context, runID, jti string) error
-	// SetRunAgentConfig records the digest of the agent config a start attempt sends.
+	// SetRunAgentConfig records the digest of the agent config a start attempt sends, when none is set.
 	SetRunAgentConfig(ctx context.Context, runID, digest string) error
+	// ClearRunAgentConfig removes the digest once a failed attempt's session is closed.
+	ClearRunAgentConfig(ctx context.Context, runID string) error
 	// TerminateRun ends a live run as terminated and marks the run deleted. It returns the run.
 	TerminateRun(ctx context.Context, id string) (*Run, error)
 	// CancelRunsByAgentType moves every unfinished run of an agent type to a terminal state and
