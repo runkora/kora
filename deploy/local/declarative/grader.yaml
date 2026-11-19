@@ -1,0 +1,65 @@
+# A decision model on the local OpenRouter provider and a Grader for the gitops-reviewer agent.
+# The provider must serve the systemone API before the Grader's questions can be answered.
+apiVersion: runkora.io/v1alpha1
+kind: VirtualModel
+metadata:
+  name: gitops-jev
+  namespace: kora-system
+  annotations:
+    runkora.io/repository: github.com/runkora/kora
+spec:
+  family: gitops
+  name: jev
+  displayName: GitOps Jev
+  description: Declared in deploy/local/declarative.
+  routes:
+    - provider: compatible:openrouter
+      modelID: typesafe/jev-1.14
+---
+apiVersion: runkora.io/v1alpha1
+kind: Grader
+metadata:
+  name: gitops-reviewer-review
+  namespace: kora-tenant-example
+  annotations:
+    runkora.io/repository: github.com/runkora/kora
+spec:
+  agent: gitops-reviewer
+  description: Checks that a review reports correctness problems before style.
+  model: {family: gitops, name: jev}
+  threshold: {pass: 0.7, fail: 0.3}
+  minPassRate: 90%
+  appliesWhen: Was the agent asked to review a pull request?
+  questions:
+    - name: posted-review
+      type: boolean
+      question: Did the agent post a review through its own tool calls?
+      expect: true
+    - name: pushed-commit
+      type: boolean
+      question: Did the agent push a commit to the pull request branch?
+      expect: false
+      threshold: {pass: 0.9, fail: 0.1}
+    - name: first-finding
+      type: choice
+      question: What kind of finding did the review report first?
+      options:
+        - name: correctness
+          description: A correctness problem
+        - name: style
+          description: A style problem
+      accept: [correctness]
+    - name: findings
+      type: scale
+      question: How many correctness problems did the review report?
+      levels:
+        - name: no-review
+          description: No review was posted
+        - name: none-found
+          description: No correctness problems
+        - name: one-or-two
+          description: One or two correctness problems
+        - name: three-or-more
+          description: Three or more correctness problems
+      accept: [none-found, one-or-two, three-or-more]
+      skipOn: [no-review]

@@ -355,12 +355,13 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	return server, repo, atSvc, runSvc, draftSvc, scaler, nil
 }
 
-// declaredController serves the operator's declared-item endpoints for environments and agents
-// (docs/adr/2026-10-24-declarative-resources.md).
+// declaredController serves the operator's declared-item endpoints for environments, agents and
+// graders (docs/adr/2026-10-24-declarative-resources.md).
 func declaredController(verifier *token.Verifier, logger logging.Logger, repo *agents.PostgresRepository, atSvc *agents.AgentTypeService, envSvc *agents.EnvironmentService) *declarative.Controller {
 	return declarative.NewController(verifier, logger, map[string]declarative.Applier{
 		declarative.KindEnvironments: agents.NewEnvironmentApplier(repo, envSvc),
 		declarative.KindAgents:       agents.NewAgentApplier(repo, atSvc),
+		declarative.KindGraders:      agents.NewGraderApplier(repo),
 	})
 }
 

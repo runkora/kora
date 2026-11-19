@@ -103,7 +103,7 @@ func newHarness(t *testing.T, objs ...client.Object) *harness {
 		&acme,
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kora-tenant-acme"}},
 	}
-	statusTypes := []client.Object{&dv1.VirtualModel{}, &dv1.Environment{}, &dv1.Agent{}, &dv1.TriggerSource{}, &dv1.Trigger{}, &dv1.PolicyRole{}}
+	statusTypes := []client.Object{&dv1.VirtualModel{}, &dv1.Environment{}, &dv1.Agent{}, &dv1.TriggerSource{}, &dv1.Trigger{}, &dv1.PolicyRole{}, &dv1.Grader{}}
 	c := fake.NewClientBuilder().WithScheme(NewScheme()).WithObjects(append(base, objs...)...).WithStatusSubresource(statusTypes...).Build()
 	h := &harness{c: c, clients: map[string]*fakeDeclared{}, recs: map[string]*DeclaredReconciler{}}
 	for _, svc := range []string{"agents", "triggers", "policy", "inference"} {
@@ -237,6 +237,32 @@ func TestTriggerReferences(t *testing.T) {
 	h.reconcile(t, declarative.KindTriggers, missing)
 	if c := declaredCondition(t, missing, condResolvedRefs); c.Message != `Agent "ghost" not found or not Ready.` {
 		t.Errorf("ResolvedRefs = %+v", c)
+	}
+}
+
+// A Grader resolves its Agent and model, and a change to the Agent, such as a
+// recreated one with a new id, reconciles the Graders in its namespace.
+func TestGraderReferences(t *testing.T) {
+	ns := "kora-tenant-acme"
+	vm := &dv1.VirtualModel{ObjectMeta: meta0(systemNamespace, "jev", 0), Spec: dv1.VirtualModelSpec{Family: "typesafe", Name: "jev"}, Status: readyStatus("vm")}
+	a := &dv1.Agent{ObjectMeta: meta0(ns, "a", 0), Status: readyStatus("a1")}
+	g := &dv1.Grader{ObjectMeta: meta0(ns, "g", 0), Spec: dv1.GraderSpec{Agent: "a", Model: dv1.ModelRef{Family: "typesafe", Name: "jev"}}}
+	missing := &dv1.Grader{ObjectMeta: meta0(ns, "g2", 0), Spec: dv1.GraderSpec{Agent: "ghost", Model: dv1.ModelRef{Family: "typesafe", Name: "none"}}}
+	h := newHarness(t, vm, a, g, missing)
+
+	h.reconcile(t, declarative.KindGraders, g)
+	if got := h.clients["agents"].last(t); got.Refs["agent/a"] != "a1" || got.Name != "g" {
+		t.Errorf("item = %+v", got)
+	}
+	if ready := declaredCondition(t, g, condReady); ready.Status != metav1.ConditionTrue || g.Status.ID != "id-g" {
+		t.Errorf("status = %+v", g.Status)
+	}
+	h.reconcile(t, declarative.KindGraders, missing)
+	if c := declaredCondition(t, missing, condResolvedRefs); c.Message != `Agent "ghost", VirtualModel "typesafe/none" not found or not Ready.` {
+		t.Errorf("ResolvedRefs = %+v", c)
+	}
+	if reqs := h.recs[declarative.KindGraders].kind.watches[0].mapper(context.Background(), a); len(reqs) != 2 {
+		t.Errorf("an Agent change enqueues %v, want both Graders", reqs)
 	}
 }
 

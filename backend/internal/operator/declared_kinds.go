@@ -77,15 +77,23 @@ func NewDeclaredReconcilers(c client.Client, reader client.Reader, clients Decla
 			client:  clients.PolicyService,
 			prepare: preparePolicyRole,
 		},
+		{
+			kind:    declarative.KindGraders,
+			newObj:  func() client.Object { return &dv1.Grader{} },
+			newList: func() client.ObjectList { return &dv1.GraderList{} },
+			client:  clients.Agents,
+			prepare: prepareGrader,
+		},
 	}
 	out := make([]*DeclaredReconciler, len(kinds))
 	for i, k := range kinds {
 		out[i] = &DeclaredReconciler{Client: c, Reader: reader, Logger: logger, kind: k}
 	}
-	// Triggers reconcile when a resource they reference changes, including its
-	// status. A recreated Agent or TriggerSource has a new id the trigger must
-	// follow. Agents wait for their references on the 30-second requeue.
-	sources, triggers := out[3], out[4]
+	// Triggers and Graders reconcile when a resource they reference changes,
+	// including its status. A recreated Agent or TriggerSource has a new id the
+	// trigger or Grader must follow. Agents wait for their references on the
+	// 30-second requeue.
+	sources, triggers, graders := out[3], out[4], out[6]
 	// A rotated or deleted signing Secret reaches its TriggerSources at once.
 	sources.kind.watches = []declaredWatch{{obj: &corev1.Secret{}, mapper: sources.enqueueSecretUsers}}
 	triggers.kind.watches = []declaredWatch{
@@ -93,6 +101,7 @@ func NewDeclaredReconcilers(c client.Client, reader client.Reader, clients Decla
 		{obj: &dv1.TriggerSource{}, mapper: triggers.enqueueNamespace(&dv1.TriggerList{})},
 		{obj: &dv1.VirtualModel{}, mapper: triggers.enqueueModelUsers},
 	}
+	graders.kind.watches = []declaredWatch{{obj: &dv1.Agent{}, mapper: graders.enqueueNamespace(&dv1.GraderList{})}}
 	return out
 }
 
@@ -110,6 +119,8 @@ func declaredStatus(obj client.Object) *dv1.Status {
 	case *dv1.Trigger:
 		return &o.Status
 	case *dv1.PolicyRole:
+		return &o.Status
+	case *dv1.Grader:
 		return &o.Status
 	}
 	panic(fmt.Sprintf("declaredStatus: unexpected %T", obj))
@@ -364,6 +375,23 @@ func prepareTrigger(ctx context.Context, r *DeclaredReconciler, obj client.Objec
 		}
 	}
 	p.missing, p.refs, p.spec = f.missing, f.ids, t.Spec
+	return p, nil
+}
+
+func prepareGrader(ctx context.Context, r *DeclaredReconciler, obj client.Object) (prepared, error) {
+	g := obj.(*dv1.Grader)
+	p, err := r.tenantOrRefusal(ctx, g)
+	if err != nil || p.refusal != nil {
+		return p, err
+	}
+	var f refs
+	if err := f.declared(ctx, r, "Agent", declarative.RefAgent(g.Spec.Agent), g.Namespace, g.Spec.Agent, &dv1.Agent{}); err != nil {
+		return p, err
+	}
+	if err := f.model(ctx, r, g.Spec.Model); err != nil {
+		return p, err
+	}
+	p.missing, p.refs, p.spec = f.missing, f.ids, g.Spec
 	return p, nil
 }
 

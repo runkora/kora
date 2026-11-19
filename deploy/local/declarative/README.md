@@ -9,7 +9,7 @@ Apply them in any order:
 ```bash
 kubectl apply -f deploy/local/declarative/
 kubectl get virtualmodels -n kora-system
-kubectl get environments,agents.runkora.io,triggersources,triggers.runkora.io,policyroles -n kora-tenant-example
+kubectl get environments,agents.runkora.io,triggersources,triggers.runkora.io,policyroles,graders -n kora-tenant-example
 ```
 
 Each resource reports `Ready=True` once the resources it references are `Ready`. `kubectl delete -f deploy/local/declarative/` removes them.
