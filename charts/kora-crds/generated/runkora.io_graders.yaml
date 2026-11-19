@@ -92,6 +92,8 @@ spec:
                 - name
                 type: object
               questions:
+                description: Questions are keyed by name, so the API server rejects
+                  a repeated name.
                 items:
                   description: GraderQuestion asks one fact about a run.
                   properties:
@@ -209,8 +211,12 @@ spec:
                   - message: a scale has 2 to 10 levels.
                     rule: '!has(self.levels) || (size(self.levels) >= 2 && size(self.levels)
                       <= 10)'
+                maxItems: 32
                 minItems: 1
                 type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               threshold:
                 default:
                   fail: 0.3

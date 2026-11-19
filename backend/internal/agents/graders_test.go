@@ -161,6 +161,10 @@ func TestGraderVersion(t *testing.T) {
 	if version(skipA) != version(skipB) {
 		t.Error("reordering skipOn changed the version")
 	}
+	questionsReversed := graderSpec(choice("b", []string{"x"}, []string{"x"}, nil), boolean("a"))
+	if version(questionsReversed) != v {
+		t.Error("reordering questions changed the version")
+	}
 	equalBand := graderSpec(boolean("a"), choice("b", []string{"x"}, []string{"x"}, nil))
 	equalBand.Questions[0].Threshold = &v1alpha1.Threshold{Pass: 0.7, Fail: 0.3}
 	for name, s := range map[string]v1alpha1.GraderSpec{
@@ -180,7 +184,6 @@ func TestGraderVersion(t *testing.T) {
 		"question threshold": func(s *v1alpha1.GraderSpec) {
 			s.Questions[0].Threshold = &v1alpha1.Threshold{Pass: 0.9, Fail: 0.1}
 		},
-		"question order": func(s *v1alpha1.GraderSpec) { slices.Reverse(s.Questions) },
 	}
 	for name, change := range changed {
 		s := graderSpec(boolean("a"), choice("b", []string{"x"}, []string{"x"}, nil))

@@ -666,7 +666,11 @@ type GraderSpec struct {
 	// AppliesWhen is a yes/no question. Unset applies to every run.
 	// +kubebuilder:validation:MinLength=1
 	AppliesWhen string `json:"appliesWhen,omitempty"`
+	// Questions are keyed by name, so the API server rejects a repeated name.
 	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=32
+	// +listType=map
+	// +listMapKey=name
 	Questions []GraderQuestion `json:"questions"`
 }
 

@@ -75,8 +75,9 @@ func parseMinPassRate(s string) (*int, error) {
 }
 
 // normalizeGrader checks the apply rules the CRD's CEL leaves to kora and puts the spec in the
-// form the version hashes: each choice gets the none option, accept and skipOn are sorted sets,
-// and a question threshold equal to the Grader's is dropped. The input spec is not changed.
+// form the version hashes: questions are sorted by name, each choice gets the none option, accept
+// and skipOn are sorted sets, and a question threshold equal to the Grader's is dropped. The input
+// spec is not changed.
 func normalizeGrader(spec v1alpha1.GraderSpec) (v1alpha1.GraderSpec, error) {
 	if spec.Threshold == (v1alpha1.Threshold{}) {
 		spec.Threshold = defaultThreshold
@@ -98,6 +99,8 @@ func normalizeGrader(spec v1alpha1.GraderSpec) (v1alpha1.GraderSpec, error) {
 		}
 		questions[i] = nq
 	}
+	// Questions are a map keyed by name, so their order is not part of the version.
+	slices.SortFunc(questions, func(a, b v1alpha1.GraderQuestion) int { return strings.Compare(a.Name, b.Name) })
 	spec.Questions = questions
 	return spec, nil
 }
