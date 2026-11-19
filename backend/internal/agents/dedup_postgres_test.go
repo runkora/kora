@@ -48,7 +48,7 @@ func TestPostgres_StartRunDedupesOnDelivery(t *testing.T) {
 		t.Errorf("other trigger = %v, %v; want inserted", ins, err)
 	}
 	// No delivery id: both insert.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if ins, err := r.CreateRun(ctx, dedupRun(tenant, at.ID, "trig-1", "")); err != nil || !ins {
 			t.Errorf("no delivery #%d = %v, %v; want inserted", i, ins, err)
 		}

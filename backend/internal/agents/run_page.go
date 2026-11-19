@@ -168,6 +168,14 @@ func parseGradeFilter(grader, question, verdict string) (*GradeFilter, error) {
 	return &GradeFilter{Grader: grader, Question: question, Verdict: verdict}, nil
 }
 
+// gradeFilterField names the field a rejected grade filter is missing or has wrong.
+func gradeFilterField(grader string) string {
+	if grader == "" {
+		return "grader"
+	}
+	return "verdict"
+}
+
 // appendGradeFilter adds the filter to a run query (runs as r) as an EXISTS over the current
 // version's grades and answers.
 func appendGradeFilter(query string, args []any, f *GradeFilter) (string, []any) {

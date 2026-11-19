@@ -528,7 +528,7 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.Grade, err = parseGradeFilter(q.Get("grader"), q.Get("question"), q.Get("verdict")); err != nil {
-		apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), map[string]any{"field": "verdict"})
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), map[string]any{"field": gradeFilterField(q.Get("grader"))})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}

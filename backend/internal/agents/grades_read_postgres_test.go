@@ -241,10 +241,16 @@ func TestPostgres_ListRunsGradeFilter(t *testing.T) {
 		{"skipped answer", GradeFilter{Grader: g.Name, Question: "rounds", Verdict: "skipped"}, []string{failed}},
 		{"answered question", GradeFilter{Grader: g.Name, Question: "rounds"}, []string{failed}},
 		{"unknown grader", GradeFilter{Grader: "missing"}, nil},
+		{"with the other filters", GradeFilter{Grader: g.Name, Verdict: "fail"}, []string{failed}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			runs, err := p.r.ListRuns(ctx, p.tenant, RunListQuery{Scope: RunScope{AgentTypeIDs: []string{p.agent.ID}, Vis: RunVisibility{SeeAll: true}},
-				Grade: &tc.filter, Limit: 10})
+			q := RunListQuery{Scope: RunScope{AgentTypeIDs: []string{p.agent.ID}, Vis: RunVisibility{SeeAll: true}}, Grade: &tc.filter, Limit: 10}
+			if tc.name == "with the other filters" {
+				// The filter's placeholders follow the scope's and come before the time bounds, cursor and limit.
+				q.States, q.CreatedAfter, q.CreatedBefore = []RunState{RunStateCompleted}, now.Add(-time.Hour), now.Add(time.Hour)
+				q.After = &runCursor{CreatedAt: now.Add(time.Hour), ID: "z"}
+			}
+			runs, err := p.r.ListRuns(ctx, p.tenant, q)
 			if err != nil {
 				t.Fatal(err)
 			}

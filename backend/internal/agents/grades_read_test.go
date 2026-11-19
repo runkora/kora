@@ -110,8 +110,16 @@ func TestGradeReads_OtherTenant(t *testing.T) {
 	svc, repo, _, _ := newTestServiceWithEval(t, coversEvaluator{granted: []string{"agents:runs:read"}})
 	seedAgentType(t, repo, AgentType{ID: "at-auto", TenantID: "t2", Slug: "helper"})
 	svc.run.SetGradeReader(&fakeGradeReader{})
-	if _, err := svc.run.AgentGraders(patCtx("t1"), "at-auto"); !errors.Is(err, ErrNotFound) {
+	seedRun(t, repo, Run{ID: "run-1", TenantID: "t2", AgentTypeID: "at-auto", State: RunStateCompleted})
+	ctx := patCtx("t1")
+	if _, err := svc.run.AgentGraders(ctx, "at-auto"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("AgentGraders = %v, want ErrNotFound", err)
+	}
+	if _, err := svc.run.AgentGrader(ctx, "at-auto", "g"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("AgentGrader = %v, want ErrNotFound", err)
+	}
+	if _, err := svc.run.RunGrades(ctx, "run-1"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("RunGrades = %v, want ErrNotFound", err)
 	}
 }
 
