@@ -91,6 +91,7 @@ type RunService struct {
 	metrics    *Metrics // run outcome and duration; nil = not recorded
 	budgets    runBudgetReader
 	selfToken  ServiceTokenSource
+	grades     gradeReader
 	// attempts and schedulerDone track the scheduler started by StartScheduler.
 	attempts      sync.WaitGroup
 	schedulerDone chan struct{}

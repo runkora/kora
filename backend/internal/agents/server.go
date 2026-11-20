@@ -130,6 +130,8 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /api/v1/agent-types", c.handleListAgentTypes)
 	mux.Handle("GET /api/v1/agent-types/{id}", c.handleGetAgentType)
 	mux.Handle("GET /api/v1/agent-types/{id}/effective-access", c.handleGetEffectiveAccess)
+	mux.Handle("GET /api/v1/agent-types/{id}/graders", c.handleAgentGraders)
+	mux.Handle("GET /api/v1/agent-types/{id}/graders/{name}", c.handleAgentGrader)
 	mux.Handle("PATCH /api/v1/agent-types/{id}", c.handleUpdateAgentType)
 	mux.Handle("DELETE /api/v1/agent-types/{id}", c.handleDeleteAgentType)
 	mux.Handle("POST /api/v1/environments", c.handleCreateEnvironment)
@@ -149,6 +151,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /api/v1/runs/{id}/messages", c.handleSendMessage)
 	mux.Handle("POST /api/v1/runs/{id}/interrupt", c.handleInterruptRun)
 	mux.Handle("GET /api/v1/runs/{id}/events", c.handleRunEvents)
+	mux.Handle("GET /api/v1/runs/{id}/grades", c.handleRunGrades)
 
 	// Internal — session-manager callbacks (Istio AuthorizationPolicy restricts these)
 	mux.Handle("POST /internal/runs/{id}/state", c.handleRunStateCallback)
@@ -522,6 +525,11 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	default:
 		apiErr := api.ValidationError(api.ErrCodeInvalidField, "started_by must be trigger", map[string]any{"field": "started_by"})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+	if p.Grade, err = parseGradeFilter(q.Get("grader"), q.Get("question"), q.Get("verdict")); err != nil {
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), map[string]any{"field": gradeFilterField(q.Get("grader"))})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
 	agentTypeIDs := slices.DeleteFunc(slices.Clone(q["agent_type_id"]), func(id string) bool { return id == "" })

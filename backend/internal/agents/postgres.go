@@ -425,6 +425,7 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, q Ru
 		// Matches scanRun, which reads a run as trigger-started only when trigger_id is non-empty.
 		query += " AND r.trigger_id <> ''"
 	}
+	query, args = appendGradeFilter(query, args, q.Grade)
 	if !q.CreatedAfter.IsZero() {
 		args = append(args, q.CreatedAfter)
 		query += fmt.Sprintf(" AND r.created_at >= $%d", len(args))

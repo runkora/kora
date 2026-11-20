@@ -280,6 +280,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("initialize run metrics: %w", err)
 	}
 	runSvc.SetMetrics(runMetrics)
+	runSvc.SetGradeReader(repo)
 
 	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, atSvc, tenants, agents.EnvironmentServiceConfig{
 		TenantNamespaceFn: cfg.TenantNamespace,

@@ -47,6 +47,7 @@ var (
 	errSpanPatchStatefulsetForRollout     = errors.New("patch statefulset for rollout")
 	errSpanProvisionK8sResources          = errors.New("provision k8s resources")
 	errSpanQueueRun                       = errors.New("queue run")
+	errSpanReadGrades                     = errors.New("read grades")
 	errSpanReconcileAgentGrant            = errors.New("reconcile agent grant")
 	errSpanReplaceDeadSandboxPod          = errors.New("replace dead sandbox pod")
 	errSpanResolveEffectiveConnectors     = errors.New("resolve effective connectors")
