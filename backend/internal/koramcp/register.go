@@ -11,6 +11,7 @@ func registerTools(srv *sdk.Server, b Backends, jc *korajson.Client, product str
 	registerAgentTools(srv, b, jc, product)
 	registerEnvironmentTools(srv, b, jc, product)
 	registerRunTools(srv, b, jc)
+	registerGraderTools(srv, b, jc)
 	registerModelTools(srv, b, jc, product)
 	registerPolicyTools(srv, b, jc)
 	registerBudgetTools(srv, b, jc)

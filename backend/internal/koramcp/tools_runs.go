@@ -25,6 +25,8 @@ func registerRunTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 		"List agent runs in the caller's tenant, newest first, optionally filtered to one agent type, to run states, or to a time window. "+
 			"created_after (inclusive) and created_before (exclusive) are RFC 3339 timestamps bounding when runs were created; "+
 			"keep the same window while paging. "+
+			"grader (a Grader name), question and verdict (pass, fail, uncertain, or skipped with question) filter to runs "+
+			"by their grades, as on the REST runs list: question and verdict need grader, and a combination REST rejects is rejected here. "+
 			"Paginated: it returns at most `limit` runs plus `next_cursor`. Fetch the next page by calling again with "+
 			"cursor = the previous next_cursor and the same filters; next_cursor is null on the last page. "+
 			usageDescription,
@@ -109,6 +111,9 @@ type listRunsArgs struct {
 	State         string `json:"state,omitempty" jsonschema:"comma-separated run states to filter to (optional), e.g. pending,starting,active,completing"`
 	CreatedAfter  string `json:"created_after,omitempty" jsonschema:"only runs created at or after this RFC 3339 timestamp (optional)"`
 	CreatedBefore string `json:"created_before,omitempty" jsonschema:"only runs created before this RFC 3339 timestamp (optional)"`
+	Grader        string `json:"grader,omitempty" jsonschema:"only runs graded by this Grader name (optional) — call graders.list for names"`
+	Question      string `json:"question,omitempty" jsonschema:"only runs where this Grader question matches verdict (optional, needs grader)"`
+	Verdict       string `json:"verdict,omitempty" jsonschema:"grade verdict to match: pass, fail or uncertain; skipped needs question (optional, needs grader)"`
 	Cursor        string `json:"cursor,omitempty" jsonschema:"the previous response's next_cursor, to fetch the next page"`
 	Limit         int    `json:"limit,omitempty" jsonschema:"max runs to return (default 50, max 200)"`
 }
@@ -122,6 +127,9 @@ func listRunsQuery(a listRunsArgs) url.Values {
 		"state":          a.State,
 		"created_after":  a.CreatedAfter,
 		"created_before": a.CreatedBefore,
+		"grader":         a.Grader,
+		"question":       a.Question,
+		"verdict":        a.Verdict,
 		"cursor":         a.Cursor,
 	} {
 		if value != "" {
