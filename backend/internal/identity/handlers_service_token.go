@@ -12,9 +12,9 @@ import (
 )
 
 // The internal service-token endpoint exists so that a platform component which
-// starts work on behalf of a tenant principal — today only kora-triggers — can
-// obtain that principal's short-lived token without holding any signing key.
-// identity remains the sole token authority.
+// starts work on behalf of a tenant principal (kora-triggers for trigger runs,
+// kora-agents for grading) can obtain that principal's short-lived token without
+// holding any signing key. identity remains the sole token authority.
 //
 // It authenticates exactly like POST /identity/exchange: by the caller's
 // mesh-attested SPIFFE identity in the Envoy-injected XFCC header. No shared
@@ -23,14 +23,21 @@ import (
 // See docs/adr/2026-06-20-extended-trigger-types.md, Decision 1.
 
 // mintServiceTokenCallers is the allowlist of system components permitted to
-// mint a SERVICE token for an arbitrary tenant principal.
+// mint a SERVICE token, each with the rule for which principals it may name.
 //
 // This endpoint issues a token for a principal the caller names, so it is only
-// as safe as this list is short. A caller here can act as any SERVICE principal
-// in any tenant, bounded only by that principal's grants. Adding an entry is a
-// security decision, not a wiring detail.
-var mintServiceTokenCallers = map[string]struct{}{
-	"kora-triggers": {},
+// as safe as this list is short and these rules are narrow. Adding an entry or
+// widening a rule is a security decision, not a wiring detail.
+var mintServiceTokenCallers = map[string]func(MintServiceTokenRequest) error{
+	// kora-triggers mints any SERVICE principal in any tenant, bounded only by that principal's grants.
+	"kora-triggers": func(MintServiceTokenRequest) error { return nil },
+	// kora-agents mints only the request tenant's grading principal (docs/adr/2026-11-19-graders.md).
+	"kora-agents": func(req MintServiceTokenRequest) error {
+		if req.PrincipalID != token.GraderPrincipalID(req.TenantID) {
+			return fmt.Errorf("%w: kora-agents may only mint grader:<tenant_id>, not %q", ErrCallerNotPermitted, req.PrincipalID)
+		}
+		return nil
+	},
 }
 
 // maxServiceTokenTTL caps the lifetime a caller may request. Trigger tokens are
@@ -97,6 +104,16 @@ func (c *Controller) handleMintServiceToken(w http.ResponseWriter, r *http.Reque
 	if req.TenantID == "" || req.PrincipalID == "" {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.BadRequestError(api.ErrCodeValidationFailed, "tenant_id and principal_id are required", nil), nil)
+		return
+	}
+
+	if permErr := mintServiceTokenCallers[caller.DisplayName](req); permErr != nil {
+		c.logger.Warn(ctx, "service-token mint rejected: principal not permitted for caller",
+			logging.Field{Key: "caller", Value: caller.DisplayName},
+			logging.Field{Key: "tenant_id", Value: req.TenantID},
+			logging.Field{Key: "principal_id", Value: req.PrincipalID})
+		api.ErrorResponse(ctx, w, c.logger,
+			api.ForbiddenError(api.ErrCodeForbidden, "caller not permitted to mint this principal", nil), permErr)
 		return
 	}
 

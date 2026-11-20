@@ -21,6 +21,11 @@ const (
 	PrincipalTypePAT     PrincipalType = "PAT"
 )
 
+// GraderPrincipalID is the id of a tenant's grading SERVICE principal (docs/adr/2026-11-19-graders.md).
+func GraderPrincipalID(tenantID string) string {
+	return "grader:" + tenantID
+}
+
 // IdentitySource records how the principal's identity was established.
 type IdentitySource string
 
