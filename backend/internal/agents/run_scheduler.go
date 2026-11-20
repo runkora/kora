@@ -154,11 +154,21 @@ func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.T
 		return
 	}
 
+	// A digest is stored before the session exists, so every run that reaches the agent carries one.
+	// An earlier attempt's digest is kept until this attempt's session is created.
+	access := s.briefAccess(ctx, *at, run.ID)
+	digest := agentConfigDigest(*at, access, runGuardrails(s.cfg.SandboxGuardrails, at.Guardrails), s.cfg.SandboxMount, s.cfg.Brand.ProductName())
+	if err := s.repo.InitRunAgentConfig(ctx, run.ID, digest); err != nil {
+		s.releaseStart(ctx, span, run.ID, claimedAt, err)
+		return
+	}
 	podURL := sessionmanager.PodURL(at.Slug, pod, namespace)
-	err := s.sm.CreateSession(ctx, podURL, s.sessionRequest(ctx, run, *at))
+	err := s.sm.CreateSession(ctx, podURL, s.sessionRequest(run, *at, access))
 	switch {
-	case err == nil, errors.Is(err, sessionmanager.ErrSessionConflict):
-		// Sessions are keyed by run ID, so a conflict means an earlier attempt landed.
+	case err == nil:
+		s.recordAgentConfig(ctx, run.ID, digest)
+	case errors.Is(err, sessionmanager.ErrSessionConflict):
+		// Sessions are keyed by run ID, so a conflict means an earlier attempt landed. Its digest stays.
 	case isRetryableSessionError(err) || ctx.Err() != nil:
 		s.closeSession(ctx, podURL, run.ID)
 		s.releaseStart(ctx, span, run.ID, claimedAt, fmt.Errorf("create session on pod %d: %w", pod, err))
@@ -276,8 +286,8 @@ func (s *RunService) waitsPastBudget(ctx context.Context, at *AgentType, namespa
 	return counts.atTotal(at.MaxConcurrentRuns), nil
 }
 
-// sessionRequest is the session-manager request for a run of at.
-func (s *RunService) sessionRequest(ctx context.Context, run Run, at AgentType) sessionmanager.CreateSessionRequest {
+// sessionRequest is the session-manager request for a run of at, with the brief for access.
+func (s *RunService) sessionRequest(run Run, at AgentType, access *EffectiveAccess) sessionmanager.CreateSessionRequest {
 	req := sessionmanager.CreateSessionRequest{
 		RunID:       run.ID,
 		AgentTypeID: run.AgentTypeID,
@@ -287,7 +297,7 @@ func (s *RunService) sessionRequest(ctx context.Context, run Run, at AgentType) 
 		// One governed MCP endpoint per server the agent has tool grants on.
 		MCPServers: at.MCPServers(),
 		// The agent's own prompt plus the runtime-environment brief.
-		SystemPrompt: s.systemPromptWithBrief(ctx, at, run.ID),
+		SystemPrompt: s.systemPromptWithBrief(at, access, run.ID),
 		Guardrails:   runGuardrails(s.cfg.SandboxGuardrails, at.Guardrails),
 		// Chosen by how the run started; the session-manager arms its idle timer with it.
 		IdleTimeoutSecs: s.cfg.IdleTimeouts.ForRun(run.StartedBy),
@@ -476,6 +486,14 @@ func (s *RunService) closeSession(ctx context.Context, podURL, runID string) boo
 		return false
 	}
 	return true
+}
+
+// recordAgentConfig stores the digest of the session this attempt created. The session exists, so a failed write does not stop the start.
+func (s *RunService) recordAgentConfig(ctx context.Context, runID, digest string) {
+	if err := s.repo.SetRunAgentConfig(context.WithoutCancel(ctx), runID, digest); err != nil {
+		s.logger.Warn(ctx, "set run agent config failed",
+			logging.Field{Key: "run_id", Value: runID}, logging.Field{Key: "error", Value: err.Error()})
+	}
 }
 
 // runIsActive reports whether a run is active. A transition can commit and still return an error.

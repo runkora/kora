@@ -123,13 +123,11 @@ func (s *RunService) SetBudgetReader(r runBudgetReader, selfToken ServiceTokenSo
 // when it reaches a terminal state. When unset, nothing is recorded.
 func (s *RunService) SetMetrics(m *Metrics) { s.metrics = m }
 
-// systemPromptWithBrief returns the agent's system prompt with the runtime-
-// environment brief appended (governed network + injected credentials), so the
-// agent works with its guardrails rather than around them. Best-effort: a nil
-// resolver or a resolution error yields the prompt unchanged — it never blocks a run.
-func (s *RunService) systemPromptWithBrief(ctx context.Context, at AgentType, runID string) string {
+// briefAccess resolves the access the runtime-environment brief describes.
+// Best-effort: a nil resolver, a resolution error or no access yields nil, and the run starts without the brief.
+func (s *RunService) briefAccess(ctx context.Context, at AgentType, runID string) *EffectiveAccess {
 	if s.resolver == nil {
-		return at.SystemPrompt
+		return nil
 	}
 	access, err := s.resolver.EffectiveAccess(ctx, at)
 	if err != nil {
@@ -137,8 +135,15 @@ func (s *RunService) systemPromptWithBrief(ctx context.Context, at AgentType, ru
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return at.SystemPrompt
+		return nil
 	}
+	return access
+}
+
+// systemPromptWithBrief returns the agent's system prompt with the runtime-
+// environment brief for access appended (governed network + injected credentials), so the
+// agent works with its guardrails rather than around them. A nil access yields the prompt unchanged.
+func (s *RunService) systemPromptWithBrief(at AgentType, access *EffectiveAccess, runID string) string {
 	if access == nil {
 		return at.SystemPrompt
 	}
