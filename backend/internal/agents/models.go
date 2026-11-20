@@ -309,9 +309,14 @@ func (at AgentType) ConnectorScopes() []string {
 func deriveInferenceScopes(modelID string) []string {
 	scopes := []string{"inference:invoke"}
 	if parts := strings.Split(modelID, "/"); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-		scopes = append(scopes, "inference:"+parts[0]+":"+parts[1]+":use")
+		scopes = append(scopes, modelUseScope(parts[0], parts[1]))
 	}
 	return scopes
+}
+
+// modelUseScope is the scope the inference gateway checks to call the model family/name.
+func modelUseScope(family, name string) string {
+	return "inference:" + family + ":" + name + ":use"
 }
 
 // hasInferenceScope reports whether any scope is an inference:* scope. An explicit

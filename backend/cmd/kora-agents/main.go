@@ -318,10 +318,20 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	runSvc.SetDelegationBroker(broker)
 	atSvc.SetDelegationBroker(broker)
 
+	// The grading principal's grant follows the models of each tenant's Graders.
+	grader := agents.NewGraderPrincipal(pc, idClient, logger)
+
 	// A budget stop records the ceiling the gateway says the run reached
 	// (docs/adr/2026-11-11-run-page-record.md, Decision 6).
 	if url := cfg.Platform.InferenceGatewayURL; url != "" {
 		runSvc.SetBudgetReader(inferenceclient.NewClient(url, logger), selfToken)
+		// Ended runs are graded as the tenant's grading principal (docs/adr/2026-11-19-graders.md).
+		decisions := inferenceclient.NewClientWithTimeout(url, logger, agents.GradeClientTimeout)
+		go agents.NewGradeWorker(repo, grader, decisions, agents.GradeWorkerConfig{
+			WindowTokens: cfg.Agents.Grading.WindowTokens,
+			Concurrency:  cfg.Agents.Grading.Concurrency,
+			PollInterval: time.Duration(cfg.Agents.Grading.PollIntervalSecs) * time.Second,
+		}, logger).Start(ctx)
 	}
 
 	// Per-route, not in the global chain below: it must run after RoutePattern
@@ -341,7 +351,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		),
 		controller,
 		catalogController,
-		declaredController(verifier, logger, repo, atSvc, envSvc).WithEvents(pool),
+		declaredController(verifier, logger, repo, atSvc, envSvc, grader).WithEvents(pool),
 	)
 	scaler := agents.NewScaler(repo, k8s, sm, agents.ScalerConfig{
 		TenantNamespaceFn:     cfg.TenantNamespace,
@@ -357,11 +367,11 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 
 // declaredController serves the operator's declared-item endpoints for environments, agents and
 // graders (docs/adr/2026-10-24-declarative-resources.md).
-func declaredController(verifier *token.Verifier, logger logging.Logger, repo *agents.PostgresRepository, atSvc *agents.AgentTypeService, envSvc *agents.EnvironmentService) *declarative.Controller {
+func declaredController(verifier *token.Verifier, logger logging.Logger, repo *agents.PostgresRepository, atSvc *agents.AgentTypeService, envSvc *agents.EnvironmentService, grader *agents.GraderPrincipal) *declarative.Controller {
 	return declarative.NewController(verifier, logger, map[string]declarative.Applier{
 		declarative.KindEnvironments: agents.NewEnvironmentApplier(repo, envSvc),
 		declarative.KindAgents:       agents.NewAgentApplier(repo, atSvc),
-		declarative.KindGraders:      agents.NewGraderApplier(repo),
+		declarative.KindGraders:      agents.NewGraderApplier(repo, grader),
 	})
 }
 

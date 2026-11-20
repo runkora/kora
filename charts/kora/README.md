@@ -40,6 +40,9 @@ Kubernetes: `>=1.34.0-0`
 | agents.extraEnv | list | `[]` |  |
 | agents.extraVolumeMounts | list | `[]` |  |
 | agents.extraVolumes | list | `[]` |  |
+| agents.grading.concurrency | int | `4` | Grade jobs one kora-agents replica grades at once. |
+| agents.grading.pollIntervalSecs | int | `2` | Seconds between polls for due grade jobs. |
+| agents.grading.windowTokens | int | `247000` | Decision model input window, in tokens, that a run's state is fitted to. |
 | agents.guardrails.sandboxProvisionAttempts | int | `3` | Re-provisioning attempts when a run's sandbox dies. |
 | agents.guardrails.sandboxProvisionBackoffSecs | int | `5` | Seconds before the second attempt; doubles for each attempt after. |
 | agents.guardrails.sandboxProvisionBudgetSecs | int | `600` | Seconds across all attempts. At most 600, so the agent's tools still hear the outcome. |

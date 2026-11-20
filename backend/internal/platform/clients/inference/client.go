@@ -31,6 +31,13 @@ const tracerName = "github.com/runkora/kora/backend/internal/platform/clients/in
 // delivery needs a quick answer.
 const defaultTimeout = 15 * time.Second
 
+// Read limits on an error body that is checked for its code. A budget refusal names each
+// breached ceiling, so its body can run long.
+const (
+	maxErrorCodeBody   = 512
+	maxBudgetErrorBody = 8 << 10
+)
+
 // CodeBudgetNotReached is the gateway's 404 code for a run whose ceilings are all below their limits.
 const CodeBudgetNotReached = "budget_not_reached"
 
@@ -76,7 +83,13 @@ var (
 	ErrUnexpectedStatus = errors.New("unexpected status from inference gateway")
 	// ErrBudgetNotReached is returned when the gateway answers 404 with CodeBudgetNotReached.
 	ErrBudgetNotReached = errors.New("no spending ceiling of the run is reached")
+	// ErrBudgetExceeded is returned when the gateway answers 403 with codeBudgetExceeded.
+	// It wraps ErrForbidden, so a caller that checks only ErrForbidden still matches it.
+	ErrBudgetExceeded = fmt.Errorf("%w: a spending ceiling is reached", ErrForbidden)
 )
+
+// codeBudgetExceeded is the gateway's 403 code for a call refused by a spending ceiling.
+const codeBudgetExceeded = "BUDGET_EXCEEDED"
 
 // Client calls the inference gateway.
 type Client struct {
@@ -213,7 +226,15 @@ func (c *Client) SystemOne(ctx context.Context, bearer string, req SystemOneRequ
 		return SystemOneResponse{}, c.HandleErrorResponse(span, resp, ErrInvalidRequest)
 	case code == http.StatusNotFound:
 		return SystemOneResponse{}, c.HandleErrorResponse(span, resp, ErrModelNotFound)
-	case code == http.StatusUnauthorized || code == http.StatusForbidden:
+	case code == http.StatusForbidden:
+		// A spending ceiling holds until its window resets. A caller does not retry it.
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxBudgetErrorBody))
+		resp.Body = io.NopCloser(bytes.NewReader(raw))
+		if errorCode(raw) == codeBudgetExceeded {
+			return SystemOneResponse{}, c.HandleErrorResponse(span, resp, ErrBudgetExceeded)
+		}
+		return SystemOneResponse{}, c.HandleErrorResponse(span, resp, ErrForbidden)
+	case code == http.StatusUnauthorized:
 		return SystemOneResponse{}, c.HandleErrorResponse(span, resp, ErrForbidden)
 	case code == http.StatusTooManyRequests:
 		return SystemOneResponse{}, c.HandleErrorResponse(span, resp, ErrRateLimited)
@@ -295,11 +316,8 @@ func (c *Client) RunBudget(ctx context.Context, bearer, tenantID, runID string) 
 	case code == http.StatusNotFound:
 		// Only the gateway's own answer means no ceiling is reached. A 404 from a
 		// gateway without the route, or for a run with no usage, is unexpected.
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		var body struct {
-			Code string `json:"code"`
-		}
-		if json.Unmarshal(raw, &body) == nil && body.Code == CodeBudgetNotReached {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorCodeBody))
+		if errorCode(raw) == CodeBudgetNotReached {
 			return RunBudget{}, ErrBudgetNotReached
 		}
 		// The error keeps the gateway's message, read once above.
@@ -312,4 +330,15 @@ func (c *Client) RunBudget(ctx context.Context, bearer, tenantID, runID string) 
 	default:
 		return RunBudget{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
+}
+
+// errorCode is the code of a gateway error body, or "" when the body is not one.
+func errorCode(raw []byte) string {
+	var body struct {
+		Code string `json:"code"`
+	}
+	if json.Unmarshal(raw, &body) != nil {
+		return ""
+	}
+	return body.Code
 }

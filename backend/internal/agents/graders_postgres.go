@@ -61,6 +61,11 @@ func (r *PostgresRepository) PutGrader(ctx context.Context, g Grader, versionSpe
 		if out, err = r.GetGraderByName(ctx, g.TenantID, g.Name); err != nil {
 			return err
 		}
+		if before != nil && before.CurrentVersion != out.CurrentVersion {
+			if err := r.regradeOnNewVersion(ctx, out.ID, before.CurrentVersion, out.CurrentVersion); err != nil {
+				return err
+			}
+		}
 		if before == nil {
 			return events.Publish(ctx, r.pool, graderEvent(events.GraderCreated, *out, nil))
 		}
@@ -71,6 +76,19 @@ func (r *PostgresRepository) PutGrader(ctx context.Context, g Grader, versionSpe
 		return events.Publish(ctx, r.pool, graderEvent(events.GraderUpdated, *out, changed))
 	})
 	return out, err
+}
+
+// regradeOnNewVersion queues the regrade of a Grader that moved from one version to another.
+func (r *PostgresRepository) regradeOnNewVersion(ctx context.Context, graderID, from, to string) error {
+	fromSpec, err := r.graderVersionSpec(ctx, from)
+	if err != nil {
+		return err
+	}
+	toSpec, err := r.graderVersionSpec(ctx, to)
+	if err != nil {
+		return err
+	}
+	return r.enqueueRegrade(ctx, graderID, from, to, fromSpec, toSpec)
 }
 
 // DeleteGrader deletes a tenant's Grader and records a deleted event. Its versions stay. A

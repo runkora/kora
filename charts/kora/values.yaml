@@ -629,6 +629,14 @@ agents:
     manualSecs: 1200
     # -- Seconds a run a trigger started may stay idle. Shorter, because nobody is watching it.
     triggerSecs: 300
+  # The grading worker in each kora-agents replica grades ended runs against their agent's Graders.
+  grading:
+    # -- Decision model input window, in tokens, that a run's state is fitted to.
+    windowTokens: 247000
+    # -- Grade jobs one kora-agents replica grades at once.
+    concurrency: 4
+    # -- Seconds between polls for due grade jobs.
+    pollIntervalSecs: 2
   # The run scheduler in each kora-agents replica starts pending runs on agent pods.
   scheduling:
     # -- Runs one kora-agents replica starts at once.

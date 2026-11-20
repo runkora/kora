@@ -168,6 +168,15 @@ type Config struct {
 		// /workspaces/<run>/sandbox, mounted into the session-manager pod by the
 		// sandbox-mount node agent (docs/adr/2026-10-08-sandbox-workspace-mount.md).
 		SandboxMount bool `yaml:"sandboxMount"`
+		// Grading configures the grading worker (docs/adr/2026-11-19-graders.md).
+		Grading struct {
+			// WindowTokens is the decision model's input window that a run's state is fitted to.
+			WindowTokens int `yaml:"windowTokens"`
+			// Concurrency is how many grade jobs one replica grades at once.
+			Concurrency int `yaml:"concurrency"`
+			// PollIntervalSecs is how often the worker claims due grade jobs.
+			PollIntervalSecs int `yaml:"pollIntervalSecs"`
+		} `yaml:"grading"`
 	} `yaml:"agents"`
 }
 
