@@ -55,7 +55,7 @@ function Mark({ p }: { p: Participant }) {
 const plural = (n: number, one: string, many: string) => (n ? `${n} ${n === 1 ? one : many}` : '');
 
 /** People as an overlapping row of marks that opens to how each took part. */
-function PeopleStack({ run }: { run: RunView }) {
+export function PeopleStack({ run }: { run: RunView }) {
   const ps = participantsOf(run);
   if (!ps.length) return null;
   const count = (k: Participant['kind']) => ps.filter((p) => p.kind === k).length;
@@ -122,7 +122,7 @@ function PeopleStack({ run }: { run: RunView }) {
 
 // ── Links ────────────────────────────────────────────────────────────────────
 
-function Links({ run }: { run: RunView }) {
+export function Links({ run }: { run: RunView }) {
   if (!run.sources.length) return null;
   return (
     <Stack gap="cozy">
@@ -201,7 +201,7 @@ function LeadIcon({ name }: { name: IconName }) {
   );
 }
 
-function RunsOn({ run }: { run: RunView }) {
+export function RunsOn({ run }: { run: RunView }) {
   const r = run.record;
   const [provider, model] = run.model.includes('/') ? run.model.split('/') : ['', run.model];
   const image = r?.sandbox?.image.split('/').pop() ?? '';
@@ -253,7 +253,7 @@ function RunsOn({ run }: { run: RunView }) {
   );
 }
 
-function Spend({ run }: { run: RunView }) {
+export function Spend({ run }: { run: RunView }) {
   const r = run.record;
   if (!r) return null;
   return (
