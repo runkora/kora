@@ -121,6 +121,7 @@ var accessNouns = map[string]string{
 	"policy.scopes":            "your effective scopes",
 	"budgets.":                 "budgets",
 	"triggers.":                "triggers",
+	"graders.":                 "graders",
 	"runs.":                    "runs",
 	"identity.":                "the user directory",
 	"pats.":                    "API keys",
