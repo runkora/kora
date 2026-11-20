@@ -17,7 +17,6 @@ import (
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/runkora/kora/backend/internal/inferencegw"
-	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
@@ -239,12 +238,32 @@ func TestSystemOneTransportFailureIsRetryable(t *testing.T) {
 }
 
 func TestSystemOneTimeouts(t *testing.T) {
-	if discoveryTimeout != 30*time.Second || decisionTimeout != 15*time.Second {
-		t.Fatalf("timeouts = %s discovery, %s decision", discoveryTimeout, decisionTimeout)
+	if discoveryTimeout != 30*time.Second || defaultDecisionTimeout != 15*time.Second {
+		t.Fatalf("timeouts = %s discovery, %s decision", discoveryTimeout, defaultDecisionTimeout)
 	}
 	c := newSysOne(t, "https://x/v1", "", ip.APISystemOne)
 	if c.http == c.decide {
 		t.Error("discovery and decision calls share a client")
+	}
+	capped, err := New(Config{BaseURL: "https://x/v1", APIs: []ip.API{ip.APISystemOne}, MaxDecisionTimeout: time.Minute},
+		"compatible:ts", logging.NewLoggerWithOutput(io.Discard))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		conn            *Connector
+		requested, want time.Duration
+	}{
+		{c, 0, 15 * time.Second},
+		{c, time.Minute, 15 * time.Second},
+		{capped, 0, 15 * time.Second},
+		{capped, 5 * time.Second, 5 * time.Second},
+		{capped, time.Minute, time.Minute},
+		{capped, time.Hour, time.Minute},
+	} {
+		if got := tc.conn.decisionTimeout(tc.requested); got != tc.want {
+			t.Errorf("max %s, requested %s: timeout = %s, want %s", tc.conn.maxDecisionTimeout, tc.requested, got, tc.want)
+		}
 	}
 
 	release := make(chan struct{})
@@ -260,27 +279,30 @@ func TestSystemOneTimeouts(t *testing.T) {
 	cases := []struct {
 		name          string
 		ctx           func() (context.Context, context.CancelFunc)
+		timeout       time.Duration
 		wantCode      string
 		wantRetryable bool
 	}{
-		{"slow upstream hits the decision timeout", func() (context.Context, context.CancelFunc) {
+		{"slow upstream hits the requested timeout", func() (context.Context, context.CancelFunc) {
 			return context.WithCancel(context.Background())
-		}, "PROVIDER_ERROR", true},
+		}, 100 * time.Millisecond, "PROVIDER_ERROR", true},
 		{"caller deadline is not retried", func() (context.Context, context.CancelFunc) {
 			return context.WithTimeout(context.Background(), 20*time.Millisecond)
-		}, "CANCELED", false},
+		}, 0, "CANCELED", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			c := newSysOne(t, slow.URL+"/v1", "", ip.APISystemOne)
-			c.decide = httpclient.New("kora.compatible", logging.NewLoggerWithOutput(io.Discard), 100*time.Millisecond)
 			ctx, cancel := tc.ctx()
 			defer cancel()
 			start := time.Now()
-			_, err := c.SystemOne(ctx, inferencegw.SystemOneRequest{Body: []byte(`{"model":"m"}`), Model: "m"})
+			_, err := c.SystemOne(ctx, inferencegw.SystemOneRequest{Body: []byte(`{"model":"m"}`), Model: "m", Timeout: tc.timeout})
 			var ce *inferencegw.ConnectorError
 			if !errors.As(err, &ce) || ce.Code != tc.wantCode || ce.Retryable != tc.wantRetryable {
 				t.Fatalf("err = %+v, want %s retryable=%v", err, tc.wantCode, tc.wantRetryable)
+			}
+			if tc.wantRetryable && ce.ProviderMessage != "provider compatible:ts did not answer within 100ms" {
+				t.Errorf("message = %q", ce.ProviderMessage)
 			}
 			if elapsed := time.Since(start); elapsed > 2*time.Second {
 				t.Errorf("failed after %s, want the deadline to fire", elapsed)

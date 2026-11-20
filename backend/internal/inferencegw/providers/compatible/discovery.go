@@ -20,8 +20,9 @@ import (
 const (
 	// discoveryTimeout bounds GET <baseURL>/models.
 	discoveryTimeout = 30 * time.Second
-	// decisionTimeout bounds POST <baseURL>/systemone. Decisions should be quick.
-	decisionTimeout = 15 * time.Second
+	// defaultDecisionTimeout bounds POST <baseURL>/systemone when the request
+	// sets no timeout of its own.
+	defaultDecisionTimeout = 15 * time.Second
 )
 
 // errListModelsStatus is returned when the model list answers with a non-2xx status.

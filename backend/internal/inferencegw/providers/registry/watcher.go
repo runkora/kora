@@ -56,11 +56,15 @@ type Watcher struct {
 	informers informerSource
 	namespace string
 	logger    logging.Logger
+	// maxDecisionTimeout caps the System One timeout a caller may ask a
+	// compatible provider for.
+	maxDecisionTimeout time.Duration
 }
 
 // NewWatcher starts a cache of InferenceProviders and of Secrets labeled
-// ip.SecretLabel in namespace, and waits for it to sync.
-func NewWatcher(ctx context.Context, cfg *rest.Config, namespace string, logger logging.Logger) (*Watcher, error) {
+// ip.SecretLabel in namespace, and waits for it to sync. maxDecisionTimeout
+// caps the System One timeout a caller may ask a compatible provider for.
+func NewWatcher(ctx context.Context, cfg *rest.Config, namespace string, maxDecisionTimeout time.Duration, logger logging.Logger) (*Watcher, error) {
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
 		return nil, fmt.Errorf("register core types: %w", err)
@@ -82,7 +86,7 @@ func NewWatcher(ctx context.Context, cfg *rest.Config, namespace string, logger 
 	if err != nil {
 		return nil, fmt.Errorf("create provider status client: %w", err)
 	}
-	w := &Watcher{reader: c, status: cl.Status(), informers: c, namespace: namespace, logger: logger}
+	w := &Watcher{reader: c, status: cl.Status(), informers: c, namespace: namespace, logger: logger, maxDecisionTimeout: maxDecisionTimeout}
 	// Registering the informers before the cache starts makes the sync wait cover them.
 	for _, obj := range []client.Object{&ip.InferenceProvider{}, &corev1.Secret{}} {
 		if _, err := c.GetInformer(ctx, obj); err != nil {
@@ -112,7 +116,7 @@ func (w *Watcher) Load(ctx context.Context) (map[inferencegw.ProviderName]infere
 	}
 	for i := range list.Items {
 		p := &list.Items[i]
-		conn, info, err := buildConnector(ctx, p, w.secret, w.logger)
+		conn, info, err := buildConnector(ctx, p, w.secret, w.maxDecisionTimeout, w.logger)
 		infos = append(infos, info)
 		if conn != nil {
 			connectors[info.Name] = conn

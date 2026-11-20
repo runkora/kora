@@ -283,6 +283,7 @@ Kubernetes: `>=1.34.0-0`
 | inferenceGateway.image.registry | string | `""` |  |
 | inferenceGateway.image.repository | string | `"kora-inference-gateway"` |  |
 | inferenceGateway.image.tag | string | `""` |  |
+| inferenceGateway.maxDecisionTimeoutSecs | int | `60` | Most seconds a POST /v1/systemone caller may give each upstream attempt with the X-Kora-Decision-Timeout header. Callers that do not set it get 15, and a value below 15 acts as 15. |
 | inferenceGateway.nodeSelector | object | `{}` |  |
 | inferenceGateway.podAnnotations | object | `{}` |  |
 | inferenceGateway.podDisruptionBudget.enabled | bool | `true` |  |

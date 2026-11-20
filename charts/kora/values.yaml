@@ -400,6 +400,10 @@ inferenceGateway:
   # pod's terminationGracePeriodSeconds and the Istio sidecar's
   # terminationDrainDuration are derived from it.
   shutdownTimeoutSecs: 120
+  # -- Most seconds a POST /v1/systemone caller may give each upstream attempt
+  # with the X-Kora-Decision-Timeout header. Callers that do not set it get 15,
+  # and a value below 15 acts as 15.
+  maxDecisionTimeoutSecs: 60
   # Created only when replicas > 1, as for the OPA gateway.
   podDisruptionBudget:
     enabled: true

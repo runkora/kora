@@ -1884,9 +1884,10 @@ func (s *Service) Embeddings(
 
 // SystemOne handles a POST /v1/systemone request end-to-end. body is the
 // caller's JSON object, forwarded to the connector with only its model
-// rewritten; the upstream body is returned unchanged. Usage is priced from the
-// catalog: input tokens at the input price, output tokens at the output price.
-func (s *Service) SystemOne(ctx context.Context, model string, body []byte) (*SystemOneResult, error) {
+// rewritten; the upstream body is returned unchanged. timeout is the caller's
+// per-attempt timeout, zero for the connector's default. Usage is priced from
+// the catalog: input tokens at the input price, output tokens at the output price.
+func (s *Service) SystemOne(ctx context.Context, model string, body []byte, timeout time.Duration) (*SystemOneResult, error) {
 	ctx, span := tracer.Start(ctx, "chat",
 		trace.WithAttributes(observability.GenAIOperationNameKey.String("chat"), observability.GenAIRequestModelKey.String(model)),
 	)
@@ -1927,7 +1928,7 @@ func (s *Service) SystemOne(ctx context.Context, model string, body []byte) (*Sy
 
 	result, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, CapabilityDecision, "retrying after retryable provider error",
 		func(c ProviderConnector, target RouteTarget) (*SystemOneResult, error) {
-			return c.SystemOne(ctx, SystemOneRequest{Body: body, Model: target.ModelID})
+			return c.SystemOne(ctx, SystemOneRequest{Body: body, Model: target.ModelID, Timeout: timeout})
 		})
 
 	latencyMS := int(time.Since(start).Milliseconds())
@@ -1974,12 +1975,16 @@ func (s *Service) SystemOne(ctx context.Context, model string, body []byte) (*Sy
 		CreatedAt:                    start.UTC(),
 	}
 
+	if !rec.PriceUnknown {
+		result.CostUSD = &rec.EstimatedCostUSD
+	}
 	if writeErr := s.writeUsage(ctx, rec); writeErr != nil {
 		s.logger.Error(ctx, "failed to write inference usage record",
 			logging.Field{Key: "error", Value: writeErr.Error()},
 			logging.Field{Key: "usage_id", Value: rec.ID},
 		)
 	} else {
+		result.UsageID = rec.ID
 		s.incrementSpend(ctx, p.TenantID, p.PrincipalID, rec.EstimatedCostUSD)
 	}
 

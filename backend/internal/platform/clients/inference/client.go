@@ -18,23 +18,44 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-const (
-	tracerName = "github.com/runkora/kora/backend/internal/platform/clients/inference"
-	// clientTimeout matches the gateway's per-attempt decision timeout.
-	clientTimeout = 15 * time.Second
-)
+const tracerName = "github.com/runkora/kora/backend/internal/platform/clients/inference"
+
+// defaultTimeout bounds a call made through NewClient. Routing a trigger
+// delivery needs a quick answer.
+const defaultTimeout = 15 * time.Second
 
 // CodeBudgetNotReached is the gateway's 404 code for a run whose ceilings are all below their limits.
 const CodeBudgetNotReached = "budget_not_reached"
 
-// QuestionTypeChoice is a question answered by one option out of its criteria.
-const QuestionTypeChoice = "choice"
+// System One question types.
+const (
+	// QuestionTypeNoul is a yes or no question.
+	QuestionTypeNoul = "noul"
+	// QuestionTypeChoice is a question answered by one option out of its criteria.
+	QuestionTypeChoice = "choice"
+	// QuestionTypeScore is a question answered by one of its ordered levels.
+	QuestionTypeScore = "score"
+)
+
+// Headers of a System One call, shared with the gateway.
+const (
+	// HeaderDecisionTimeout raises the gateway's per-attempt timeout, in whole seconds, up to its configured maximum.
+	HeaderDecisionTimeout = "X-Kora-Decision-Timeout"
+	// HeaderUsageID ties an answer to its usage row. The body is the upstream's, so this travels as a header.
+	HeaderUsageID = "X-Kora-Usage-Id"
+	// HeaderCostUSD is the answer's cost. It is absent when the model has no price, so absence means unknown.
+	HeaderCostUSD = "X-Kora-Cost-USD"
+)
+
+// errBothCriteria is returned when a question sets both Criteria and Levels.
+var errBothCriteria = errors.New("a question sets criteria or levels, not both")
 
 var (
 	// ErrInvalidRequest is returned when the gateway or the decision model
@@ -64,13 +85,16 @@ type Client struct {
 }
 
 // NewClient creates a Client targeting the inference gateway base URL,
-// e.g. "http://kora-inference-gateway.kora-system.svc.cluster.local". The
-// returned client is safe for concurrent use and should be shared across calls.
+// e.g. "http://kora-inference-gateway.kora-system.svc.cluster.local", with
+// defaultTimeout. The returned client is safe for concurrent use and should be
+// shared across calls.
 func NewClient(baseURL string, logger logging.Logger) *Client {
-	return newClient(baseURL, logger, clientTimeout)
+	return NewClientWithTimeout(baseURL, logger, defaultTimeout)
 }
 
-func newClient(baseURL string, logger logging.Logger, timeout time.Duration) *Client {
+// NewClientWithTimeout is NewClient with its own bound on each call. A call
+// over a large state needs longer than defaultTimeout.
+func NewClientWithTimeout(baseURL string, logger logging.Logger, timeout time.Duration) *Client {
 	return &Client{
 		Base:    httpclient.New(tracerName, logger, timeout),
 		baseURL: baseURL,
@@ -83,28 +107,71 @@ type SystemOneRequest struct {
 	// State is the content the questions are asked about, encoded as JSON.
 	State     any                 `json:"state"`
 	Questions map[string]Question `json:"questions"`
+	// DecisionTimeout asks the gateway for a longer timeout on each upstream
+	// attempt, rounded up to whole seconds. The gateway caps it at its
+	// configured maximum. Zero keeps the gateway's 15 second default. The
+	// gateway retries up to four attempts, so a client timeout at or below
+	// DecisionTimeout leaves no time for a retry.
+	DecisionTimeout time.Duration `json:"-"`
 }
 
-// Question is one typed question. Criteria maps each option name to its
-// description; the model never sees the question id.
+// Question is one typed question. The model never sees the question id.
 type Question struct {
-	Type         string            `json:"type"`
-	Instructions string            `json:"instructions"`
-	Criteria     map[string]string `json:"criteria,omitempty"`
+	Type         string
+	Instructions string
+	// Criteria maps each option name of a choice question to its description.
+	Criteria map[string]string
+	// Levels are the descriptions of a score question's levels, lowest first.
+	Levels []string
 }
 
-// SystemOneResponse is the decision model's answer, passed through by the gateway.
+// MarshalJSON writes Criteria or Levels as criteria. System One reads a map
+// for a choice question and an ordered list for a score question.
+func (q Question) MarshalJSON() ([]byte, error) {
+	if len(q.Criteria) > 0 && len(q.Levels) > 0 {
+		return nil, errBothCriteria
+	}
+	// An empty map or list is omitted, as the map field was before.
+	var criteria any
+	switch {
+	case len(q.Criteria) > 0:
+		criteria = q.Criteria
+	case len(q.Levels) > 0:
+		criteria = q.Levels
+	}
+	return json.Marshal(struct {
+		Type         string `json:"type"`
+		Instructions string `json:"instructions"`
+		Criteria     any    `json:"criteria,omitempty"`
+	}{q.Type, q.Instructions, criteria})
+}
+
+// SystemOneResponse is the decision model's answer, passed through by the
+// gateway. UsageID and CostUSD come from the gateway's response headers.
+// CostUSD is nil when the gateway sent no cost, which means the model has no price.
+// UsageID names the inference_usage row and is empty when the gateway could
+// not write it.
 type SystemOneResponse struct {
 	Model   string            `json:"model"`
 	Answers map[string]Answer `json:"answers"`
 	Usage   Usage             `json:"usage"`
+	UsageID string            `json:"-"`
+	CostUSD *float64          `json:"-"`
 }
 
-// Answer is the answer to one question. For a choice question, Choice is the
-// option with the highest probability and Probabilities covers every option.
+// Answer is the answer to one question.
+//
+// A noul answer sets only Noul, the probability of yes. A choice answer sets
+// Choice, the most probable option, and Probabilities keyed by option name. A
+// score answer sets Score, the answered level index from 0, and Probabilities
+// and Legend keyed by level index. Score is fractional when the probability is
+// spread over levels.
 type Answer struct {
 	Type          string             `json:"type"`
+	Noul          float64            `json:"noul"`
 	Choice        string             `json:"choice"`
+	Score         float64            `json:"score"`
+	Legend        map[string]string  `json:"legend"`
 	Probabilities map[string]float64 `json:"probabilities"`
 	Confidence    float64            `json:"confidence"`
 }
@@ -122,12 +189,8 @@ func (c *Client) SystemOne(ctx context.Context, bearer string, req SystemOneRequ
 	if err != nil {
 		return SystemOneResponse{}, fmt.Errorf("encode systemone request: %w", err)
 	}
-	header := http.Header{}
-	header.Set("Content-Type", "application/json")
-	header.Set("Authorization", "Bearer "+bearer)
-
 	_, span, resp, err := c.Do(ctx, httpclient.Request{
-		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/v1/systemone", Header: header, Body: body,
+		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/v1/systemone", Header: systemOneHeader(bearer, req.DecisionTimeout), Body: body,
 	})
 	defer span.End()
 	if errors.Is(err, httpclient.ErrBuildRequest) {
@@ -144,6 +207,7 @@ func (c *Client) SystemOne(ctx context.Context, bearer string, req SystemOneRequ
 		if err := c.DecodeJSON(span, resp, &out); err != nil {
 			return SystemOneResponse{}, fmt.Errorf("decode systemone response: %w", err)
 		}
+		c.readUsageHeaders(ctx, resp, &out)
 		return out, nil
 	case code == http.StatusBadRequest || code == http.StatusUnprocessableEntity:
 		return SystemOneResponse{}, c.HandleErrorResponse(span, resp, ErrInvalidRequest)
@@ -158,6 +222,36 @@ func (c *Client) SystemOne(ctx context.Context, bearer string, req SystemOneRequ
 	default:
 		return SystemOneResponse{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
+}
+
+// systemOneHeader is the request header of a System One call. A positive
+// timeout is sent in whole seconds, rounded up.
+func systemOneHeader(bearer string, timeout time.Duration) http.Header {
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	header.Set("Authorization", "Bearer "+bearer)
+	if timeout > 0 {
+		secs := int64((timeout + time.Second - 1) / time.Second)
+		header.Set(HeaderDecisionTimeout, strconv.FormatInt(secs, 10))
+	}
+	return header
+}
+
+// readUsageHeaders copies the usage row's id and cost from the gateway's headers.
+func (c *Client) readUsageHeaders(ctx context.Context, resp *http.Response, out *SystemOneResponse) {
+	out.UsageID = resp.Header.Get(HeaderUsageID)
+	cost := resp.Header.Get(HeaderCostUSD)
+	if cost == "" {
+		return
+	}
+	v, err := strconv.ParseFloat(cost, 64)
+	if err != nil {
+		// The gateway has billed the call, so the answer is kept and the cost is unknown.
+		c.Logger().Warn(ctx, "unparsable System One cost header",
+			logging.Field{Key: "value", Value: cost}, logging.Field{Key: "error", Value: err.Error()})
+		return
+	}
+	out.CostUSD = &v
 }
 
 // RunBudget is the spending ceiling that stopped a run. Owner is the id the

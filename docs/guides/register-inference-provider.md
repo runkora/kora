@@ -238,7 +238,8 @@ curl -s https://<gateway>/v1/systemone \
 ```
 
 - The route does not stream, and the request body limit is 10 MB.
-- A call times out after 15 seconds. A timeout, a 429 or a 5xx from the endpoint fails over to the next route in the virtual model.
+- Each attempt times out after 15 seconds. A caller may set `X-Kora-Decision-Timeout` in whole seconds, up to `inferenceGateway.maxDecisionTimeoutSecs` (60 by default). A value that is not a positive whole number returns 400. A timeout, a 429 or a 5xx from the endpoint fails over to the next route in the virtual model.
+- A successful response carries the usage row's ID in `X-Kora-Usage-Id` and its estimated cost in `X-Kora-Cost-USD`. `X-Kora-Cost-USD` is absent when the model has no price.
 - An endpoint 400 or 422 returns with the endpoint's message. An endpoint 401 or 403 returns 503 `provider_error`.
 - Errors use the gateway's envelope (`code`, `message`).
 
