@@ -1,11 +1,13 @@
 'use client';
 
-/** @tier 3 · agents/[slug]-scoped. Detail page: identity header + three tabs and the Configure modal
- * (docs/adr/2026-07-17-agent-detail-configuration.md §1). */
+/** @tier 3 · agents/[slug]-scoped. Detail page: identity header, the tabs and the Configure modal
+ * (docs/adr/2026-07-17-agent-detail-configuration.md §1). The URL's `tab` picks the tab; on the
+ * Runs tab `grader`, `question` and `verdict` filter runs by grade, and on the Grades tab
+ * `grader` opens that Grader. */
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { AgentOverviewResponse } from '@runkora/shared/api';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   Badge,
   Button,
@@ -34,6 +36,20 @@ import { AgentConfigureModal } from './agent-configure-modal';
 import { AgentTriggersTab } from './agent-triggers-tab';
 import { StartRunModal } from '../../_components/start-run-modal';
 import { useHasScope } from '../../../_components/permissions-provider';
+import { AgentGradesTab } from './agent-grades';
+import { gradeFilterOf } from '../../_lib/grades';
+
+/** The tab, the open Grader and the runs' grade filter a URL names. Triggers needs `triggers:read`. */
+function viewOf(params: URLSearchParams, canReadTriggers: boolean) {
+  const named = params.get('tab') ?? '';
+  const tabs = ['overview', 'runs', 'grades', ...(canReadTriggers ? ['triggers'] : [])];
+  const tab = tabs.includes(named) ? named : 'overview';
+  return {
+    tab,
+    grader: tab === 'grades' ? (params.get('grader') ?? undefined) : undefined,
+    gradeFilter: tab === 'runs' ? gradeFilterOf(params) : null,
+  };
+}
 
 interface AgentDetailPageProps {
   /** The default window's overview, fetched by the server render so first paint has data. */
@@ -41,12 +57,32 @@ interface AgentDetailPageProps {
 }
 
 export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
-  const { agent, status, error } = useAgentDetailContext();
+  const { agent, status, error, setGradeFilter } = useAgentDetailContext();
   const router = useRouter();
+  const pathname = usePathname();
+  const search = useSearchParams()?.toString() ?? '';
 
   const [startRunOpen, setStartRunOpen] = useState(false);
-  const [tab, setTab] = useState('overview');
   const canReadTriggers = useHasScope('triggers:read');
+  // The URL holds the tab, the open Grader and the runs' grade filter.
+  const { tab, grader, gradeFilter } = useMemo(
+    () => viewOf(new URLSearchParams(search), canReadTriggers),
+    [search, canReadTriggers],
+  );
+  // The hook skips a grade filter equal to the one it holds, so the same URL is not reloaded.
+  useEffect(() => {
+    setGradeFilter(gradeFilter);
+  }, [gradeFilter, setGradeFilter]);
+  // The history API changes only the query, which Next syncs into useSearchParams without a server
+  // request. Opening or leaving a Grader adds a history entry, so Back returns to where the reader was.
+  const show = (next: string, nextGrader?: string) => {
+    const query = new URLSearchParams({ tab: next });
+    if (nextGrader) query.set('grader', nextGrader);
+    const href = `${pathname}?${query}`;
+    if (next === 'grades' && nextGrader !== grader) window.history.pushState(null, '', href);
+    else window.history.replaceState(null, '', href);
+  };
+  const setTab = (next: string) => show(next);
   // The Configure modal, and the rail step it opens on.
   const [configureOpen, setConfigureOpen] = useState(false);
   const [configureSection, setConfigureSection] = useState<string | undefined>();
@@ -230,6 +266,9 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
           <TabsTrigger value="runs" icon="play">
             Runs
           </TabsTrigger>
+          <TabsTrigger value="grades" icon="file-check">
+            Grades
+          </TabsTrigger>
           {canReadTriggers && (
             <TabsTrigger value="triggers" icon="zap">
               Triggers
@@ -255,6 +294,14 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
             <AgentTriggersTab />
           </TabsContent>
         )}
+        <TabsContent value="grades">
+          <AgentGradesTab
+            agentTypeId={agent.id}
+            slug={agent.slug}
+            grader={grader}
+            onGrader={(name) => show('grades', name)}
+          />
+        </TabsContent>
       </Tabs>
 
       <AgentConfigureModal

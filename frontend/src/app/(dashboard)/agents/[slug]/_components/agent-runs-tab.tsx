@@ -3,7 +3,7 @@
 /** @tier 3 — agents/[slug]-scoped. The agent detail page's Runs tab: a list of run rows. */
 
 import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   Button,
   DataTable,
@@ -25,12 +25,25 @@ import { RUN_FILTER_STATES } from '../_hooks/use-agent-detail';
 import type { RunFilter } from '../_hooks/use-agent-detail';
 import type { RunRow } from '../../_types';
 import { RunListRow } from '../../_components/run-row';
+import { VERDICT_LABEL } from '../../_lib/grades';
+import type { GradeFilter } from '../../_services/agents-api';
 
 /** How many runs a filter matches, from the server's counts; undefined without them. */
 function filterCount(counts: RunStateCounts | null, filter: RunFilter): number | undefined {
   if (!counts) return undefined;
   if (filter === 'all') return counts.total;
   return RUN_FILTER_STATES[filter].reduce((n, state) => n + (counts.by_state[state] ?? 0), 0);
+}
+
+/** The grade filter's stored fields: "Grader review-outcome · Question read-callers · Fail". */
+function gradeFilterText(f: GradeFilter): string {
+  return [
+    `Grader ${f.grader}`,
+    f.question && `Question ${f.question}`,
+    f.verdict && VERDICT_LABEL[f.verdict],
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -46,6 +59,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
     stateCounts,
     runFilter,
     setRunFilter,
+    gradeFilter,
     loadMoreRuns,
     status,
     error,
@@ -53,6 +67,9 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
     deleteRun,
   } = useAgentDetailContext();
   const router = useRouter();
+  const pathname = usePathname();
+  // The page reads the grade filter from the URL, so clearing it rewrites the query.
+  const clearGradeFilter = () => window.history.replaceState(null, '', `${pathname}?tab=runs`);
 
   const [deleteTarget, setDeleteTarget] = useState<RunRow | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -71,6 +88,8 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
   };
 
   const canRun = !!agent?.canRun;
+  // The counts cover every run of the agent, not the runs a grade filter reads.
+  const counts = gradeFilter ? null : stateCounts;
   const columns = useMemo<DataTableColumn<RunRow>[]>(
     () => [
       {
@@ -115,9 +134,21 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {/* Delegated agents run on behalf of their starter, so their runs are
           private — make that legible rather than leaving lists mysteriously short. */}
       {agent?.identityMode === 'delegated' && <DelegatedRunNotice />}
+      {gradeFilter && (
+        <Stack direction="horizontal" align="center" gap="snug">
+          <Text size="supporting" tabular>
+            {gradeFilterText(gradeFilter)}
+          </Text>
+          <Button variant="ghost" size="sm" onClick={clearGradeFilter}>
+            <Icon name="close" size="xs" />
+            Clear filter
+          </Button>
+        </Stack>
+      )}
       {/* Show EmptyState when there are no runs and no error */}
       {status !== 'error' &&
       runFilter === 'all' &&
+      !gradeFilter &&
       runs.rows.length === 0 &&
       status !== 'loading' ? (
         <EmptyState
@@ -156,14 +187,14 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
               value={runFilter}
               onChange={(v) => setRunFilter(v as RunFilter)}
               options={[
-                { value: 'all', label: 'All', count: filterCount(stateCounts, 'all') },
-                { value: 'active', label: 'Active', count: filterCount(stateCounts, 'active') },
+                { value: 'all', label: 'All', count: filterCount(counts, 'all') },
+                { value: 'active', label: 'Active', count: filterCount(counts, 'active') },
                 {
                   value: 'completed',
                   label: 'Completed',
-                  count: filterCount(stateCounts, 'completed'),
+                  count: filterCount(counts, 'completed'),
                 },
-                { value: 'failed', label: 'Failed', count: filterCount(stateCounts, 'failed') },
+                { value: 'failed', label: 'Failed', count: filterCount(counts, 'failed') },
               ]}
             />
           }
@@ -182,7 +213,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
           emptyMessage={
             status === 'loading'
               ? 'Loading runs…'
-              : runFilter === 'all'
+              : runFilter === 'all' && !gradeFilter
                 ? 'No runs yet.'
                 : 'No runs match this filter.'
           }

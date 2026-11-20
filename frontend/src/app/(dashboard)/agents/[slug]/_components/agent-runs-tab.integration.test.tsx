@@ -11,7 +11,10 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-import { AgentDetailProvider } from '../_context/agent-detail-context';
+import { useEffect } from 'react';
+import { Button } from '@runkora/hades';
+import { AgentDetailProvider, useAgentDetailContext } from '../_context/agent-detail-context';
+import type { GradeFilter } from '../../_services/agents-api';
 import { AgentRunsTab } from './agent-runs-tab';
 import { CODE_REVIEWER } from '../../_components/agents-mock-data';
 import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../../_types';
@@ -42,7 +45,18 @@ const COUNTS: RunStateCounts = {
   longest_live_ms: 0,
 };
 
-function renderTab(firstPage: ReturnType<typeof rawRuns>, nextCursor: string | null) {
+/** Applies a grade filter on mount, as the page does from its URL. */
+function WithGradeFilter({ filter }: { filter: GradeFilter }) {
+  const { setGradeFilter } = useAgentDetailContext();
+  useEffect(() => setGradeFilter(filter), [setGradeFilter, filter]);
+  return null;
+}
+
+function renderTab(
+  firstPage: ReturnType<typeof rawRuns>,
+  nextCursor: string | null,
+  gradeFilter?: GradeFilter,
+) {
   const rows = firstPage.map((r) => toRunRow(r as never, indexAgentTypes([agent])));
   renderWithProviders(
     <AgentDetailProvider
@@ -53,6 +67,7 @@ function renderTab(firstPage: ReturnType<typeof rawRuns>, nextCursor: string | n
       initialError={null}
       initialStatus="success"
     >
+      {gradeFilter && <WithGradeFilter filter={gradeFilter} />}
       <AgentRunsTab onStartRun={vi.fn()} />
     </AgentDetailProvider>,
   );
@@ -175,5 +190,67 @@ describe('Agent runs tab', () => {
     expect(queries[0].get('state')).toBe('failed,budget_exhausted');
     expect(queries[0].has('cursor')).toBe(false);
     expect(screen.queryByRole('button', { name: 'Load more runs' })).not.toBeInTheDocument();
+  });
+
+  it('reads a grade filter under every state and hides the counts of all runs', async () => {
+    const queries = serveRuns({
+      'failed,budget_exhausted:': { data: rawRuns(10, 11, 'failed'), next_cursor: null },
+      ':': { data: rawRuns(20, 21, 'failed'), next_cursor: null },
+    });
+    function PickGradeFilter() {
+      const { setGradeFilter } = useAgentDetailContext();
+      return (
+        <Button onClick={() => setGradeFilter({ grader: 'g', verdict: 'fail' })}>apply</Button>
+      );
+    }
+    const rows = rawRuns(0, 3).map((r) => toRunRow(r as never, indexAgentTypes([agent])));
+    renderWithProviders(
+      <AgentDetailProvider
+        initialAgent={agent}
+        initialRuns={rows}
+        initialNextCursor={null}
+        initialStateCounts={COUNTS}
+        initialError={null}
+        initialStatus="success"
+      >
+        <PickGradeFilter />
+        <AgentRunsTab onStartRun={vi.fn()} />
+      </AgentDetailProvider>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /Failed/ }));
+    await waitFor(() => expect(screen.getByText('Task 10')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: 'apply' }));
+
+    await waitFor(() => expect(screen.getByText('Task 20')).toBeInTheDocument());
+    expect(queries[1].has('state')).toBe(false);
+    expect(queries[1].get('grader')).toBe('g');
+    expect(screen.getByRole('button', { name: /^All/ })).toHaveTextContent(/^All$/);
+  });
+
+  it('reads runs by grade and clears the filter from the URL', async () => {
+    const queries = serveRuns({
+      ':': { data: rawRuns(20, 21, 'failed'), next_cursor: null },
+    });
+    const filter: GradeFilter = {
+      grader: 'review-outcome',
+      question: 'read-callers',
+      verdict: 'fail',
+    };
+    renderTab(rawRuns(0, 3), null, filter);
+
+    await waitFor(() => expect(screen.getByText('Task 20')).toBeInTheDocument());
+    expect(queries[0].get('grader')).toBe('review-outcome');
+    expect(queries[0].get('question')).toBe('read-callers');
+    expect(queries[0].get('verdict')).toBe('fail');
+    expect(
+      screen.getByText('Grader review-outcome · Question read-callers · Fail'),
+    ).toBeInTheDocument();
+
+    const replace = vi.spyOn(window.history, 'replaceState').mockImplementation(() => undefined);
+    await userEvent.click(screen.getByRole('button', { name: 'Clear filter' }));
+    // The page reads the filter from the URL, so clearing it navigates.
+    expect(replace).toHaveBeenCalledWith(null, '', '/agents/code-reviewer?tab=runs');
+    replace.mockRestore();
   });
 });
