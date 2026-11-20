@@ -24,6 +24,7 @@ var kinds = []struct {
 	{"generated/runkora.io_triggersources.yaml", &TriggerSource{}},
 	{"generated/runkora.io_triggers.yaml", &Trigger{}},
 	{"generated/runkora.io_policyroles.yaml", &PolicyRole{}},
+	{"generated/runkora.io_graders.yaml", &Grader{}},
 }
 
 // TestExampleManifestsValidate checks the local examples in
@@ -31,7 +32,7 @@ var kinds = []struct {
 // schemas and the Go types. Snippets without apiVersion are skipped.
 func TestExampleManifestsValidate(t *testing.T) {
 	sources := map[string]string{}
-	for _, f := range []string{"agent.yaml", "policy-role.yaml", "triggers.yaml", "virtual-model.yaml"} {
+	for _, f := range []string{"agent.yaml", "grader.yaml", "policy-role.yaml", "triggers.yaml", "virtual-model.yaml"} {
 		raw, err := os.ReadFile("../../../../../deploy/local/declarative/" + f)
 		if err != nil {
 			t.Fatal(err)
@@ -73,8 +74,8 @@ func TestExampleManifestsValidate(t *testing.T) {
 			checked++
 		}
 	}
-	if checked < 7 {
-		t.Errorf("checked %d manifests, want the 7 local examples at least", checked)
+	if checked < 8 {
+		t.Errorf("checked %d manifests, want the 8 local examples at least", checked)
 	}
 }
 
@@ -143,6 +144,14 @@ func TestSchemaRejections(t *testing.T) {
 		{"generated/runkora.io_policyroles.yaml", "system role with a tenant", "{tenant: acme, role: admins, scopes: ['platform:catalog:write']}", false},
 		{"generated/runkora.io_policyroles.yaml", "empty tenant", "{tenant: '', scopes: [a]}", true},
 		{"generated/runkora.io_policyroles.yaml", "pooled weekly", "{scopes: [a], budget: {limitUSD: 10, resetCadence: weekly, pooled: true}}", false},
+		{"generated/runkora.io_graders.yaml", "no questions", "{agent: a, description: d, model: {family: f, name: m}, questions: []}", true},
+		{"generated/runkora.io_graders.yaml", "unknown type", "{agent: a, description: d, model: {family: f, name: m}, questions: [{name: q, type: number, question: Q}]}", true},
+		{"generated/runkora.io_graders.yaml", "threshold above 1", "{agent: a, description: d, model: {family: f, name: m}, threshold: {pass: 1.5, fail: 0.3}, questions: [{name: q, type: boolean, question: Q, expect: true}]}", true},
+		{"generated/runkora.io_graders.yaml", "fractional pass rate", "{agent: a, description: d, model: {family: f, name: m}, minPassRate: 90.5%, questions: [{name: q, type: boolean, question: Q, expect: true}]}", true},
+		{"generated/runkora.io_graders.yaml", "every type", `{agent: a, description: d, model: {family: f, name: m}, minPassRate: 90%, appliesWhen: 'A?', questions: [
+			{name: b, type: boolean, question: Q, expect: false, threshold: {pass: 0.9, fail: 0.1}},
+			{name: c, type: choice, question: Q, options: [{name: x, description: X}], accept: [x]},
+			{name: s, type: scale, question: Q, levels: [{name: lo, description: Lo}, {name: hi, description: Hi}], accept: [hi], skipOn: [lo]}]}`, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.file+"/"+tc.name, func(t *testing.T) {

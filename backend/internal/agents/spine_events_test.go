@@ -269,6 +269,7 @@ func TestSpinePayloads_MatchSchema(t *testing.T) {
 	at := AgentType{ID: "at-1", Slug: "triage", Name: "Triage", ModelID: &model, State: AgentTypeStateActive,
 		Environments: []AgentEnvironment{{EnvironmentID: "env-1"}}, Connectors: []Connector{{Connection: "github"}}}
 	env := Environment{ID: "env-1", Slug: "go", Name: "Go", SandboxImage: "img", Size: EnvironmentSize{CPU: "1", Memory: "1Gi", Disk: "5Gi"}}
+	grader := Grader{ID: "g1", TenantID: "t1", Name: "reviews", AgentTypeID: "a1", AgentSlug: "reviewer", Description: "d", MinPassRate: new(90), CurrentVersion: "v1"}
 	failed, _ := stateEvent(RunStateActive, run, events.RunErrorSandboxLost)
 	warned, _ := activityEvent(Run{ID: run.ID, TenantID: "t1", State: RunStateActive},
 		RunEvent{EventType: "guardrail_warning", Payload: []byte(`{"kind":"repeated_call","count":5,"tool":"Bash"}`)})
@@ -279,12 +280,15 @@ func TestSpinePayloads_MatchSchema(t *testing.T) {
 	for _, ev := range []events.Event{
 		failed, warned, errored, ready, skipped, sandboxDeletedEvent(run), messageEvent(run, &StartedByTrigger{TriggerID: "trg"}),
 		agentEvent(events.AgentUpdated, at, nil), environmentEvent(events.EnvironmentUpdated, env, nil),
+		graderEvent(events.GraderUpdated, grader, nil),
 	} {
 		if err := events.ValidatePayload(ev.Type, ev.Entity); err != nil {
 			t.Errorf("%s: %v", ev.Type, err)
 		}
 	}
-	for typ, fields := range map[events.Type]any{events.AgentUpdated: newAgentFields(at), events.EnvironmentUpdated: newEnvironmentFields(env)} {
+	for typ, fields := range map[events.Type]any{
+		events.AgentUpdated: newAgentFields(at), events.EnvironmentUpdated: newEnvironmentFields(env), events.GraderUpdated: newGraderEntity(grader),
+	} {
 		for _, name := range events.Changed(map[string]any{}, fields) {
 			if !slices.Contains(events.Changeable(typ), name) {
 				t.Errorf("%s: changed field %q is not in the schema", typ, name)

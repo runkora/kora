@@ -244,3 +244,14 @@ func knownOr(v string, values []string, unknown string) string {
 	}
 	return unknown
 }
+
+func newGraderEntity(g Grader) events.GraderPayload {
+	return events.GraderPayload{
+		ID: g.ID, Name: g.Name, AgentID: g.AgentTypeID, Agent: g.AgentSlug, Description: g.Description,
+		MinPassRate: g.MinPassRate, Version: g.CurrentVersion, Repository: g.Repository,
+	}
+}
+
+func graderEvent(t events.Type, g Grader, changed []string) events.Event {
+	return events.Event{Type: t, Tenant: g.TenantID, Subject: "graders/" + g.Name, Agent: g.AgentSlug, Entity: newGraderEntity(g), Changed: changed}
+}

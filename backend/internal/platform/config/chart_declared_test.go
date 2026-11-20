@@ -132,11 +132,11 @@ func TestOperatorJoinsTheMesh(t *testing.T) {
 	}
 }
 
-// TestOperatorAccess checks the operator may read the six kinds and patch
+// TestOperatorAccess checks the operator may read the seven kinds and patch
 // their status, and that kora-triggers admits it only on the declared paths.
 func TestOperatorAccess(t *testing.T) {
 	docs := renderDocs(t, "templates/operator/clusterrole.yaml", "templates/triggers/authorizationpolicy.yaml")
-	kinds := []string{"virtualmodels", "environments", "agents", "triggersources", "triggers", "policyroles"}
+	kinds := []string{"virtualmodels", "environments", "agents", "triggersources", "triggers", "policyroles", "graders"}
 	granted := map[string][]any{}
 	operatorRule := false
 	for _, d := range docs {

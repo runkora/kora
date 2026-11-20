@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"sync"
@@ -103,7 +104,7 @@ func newHarness(t *testing.T, objs ...client.Object) *harness {
 		&acme,
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kora-tenant-acme"}},
 	}
-	statusTypes := []client.Object{&dv1.VirtualModel{}, &dv1.Environment{}, &dv1.Agent{}, &dv1.TriggerSource{}, &dv1.Trigger{}, &dv1.PolicyRole{}}
+	statusTypes := []client.Object{&dv1.VirtualModel{}, &dv1.Environment{}, &dv1.Agent{}, &dv1.TriggerSource{}, &dv1.Trigger{}, &dv1.PolicyRole{}, &dv1.Grader{}}
 	c := fake.NewClientBuilder().WithScheme(NewScheme()).WithObjects(append(base, objs...)...).WithStatusSubresource(statusTypes...).Build()
 	h := &harness{c: c, clients: map[string]*fakeDeclared{}, recs: map[string]*DeclaredReconciler{}}
 	for _, svc := range []string{"agents", "triggers", "policy", "inference"} {
@@ -237,6 +238,35 @@ func TestTriggerReferences(t *testing.T) {
 	h.reconcile(t, declarative.KindTriggers, missing)
 	if c := declaredCondition(t, missing, condResolvedRefs); c.Message != `Agent "ghost" not found or not Ready.` {
 		t.Errorf("ResolvedRefs = %+v", c)
+	}
+}
+
+// A Grader resolves its Agent and model, and a change to the Agent, such as a
+// recreated one with a new id, reconciles the Graders in its namespace.
+func TestGraderReferences(t *testing.T) {
+	ns := "kora-tenant-acme"
+	vm := &dv1.VirtualModel{ObjectMeta: meta0(systemNamespace, "jev", 0), Spec: dv1.VirtualModelSpec{Family: "typesafe", Name: "jev"}, Status: readyStatus("vm")}
+	a := &dv1.Agent{ObjectMeta: meta0(ns, "a", 0), Status: readyStatus("a1")}
+	g := &dv1.Grader{ObjectMeta: meta0(ns, "g", 0), Spec: dv1.GraderSpec{Agent: "a", Model: dv1.ModelRef{Family: "typesafe", Name: "jev"}}}
+	missing := &dv1.Grader{ObjectMeta: meta0(ns, "g2", 0), Spec: dv1.GraderSpec{Agent: "ghost", Model: dv1.ModelRef{Family: "typesafe", Name: "none"}}}
+	h := newHarness(t, vm, a, g, missing)
+
+	h.reconcile(t, declarative.KindGraders, g)
+	if got := h.clients["agents"].last(t); got.Refs["agent/a"] != "a1" || got.Name != "g" {
+		t.Errorf("item = %+v", got)
+	}
+	if ready := declaredCondition(t, g, condReady); ready.Status != metav1.ConditionTrue || g.Status.ID != "id-g" {
+		t.Errorf("status = %+v", g.Status)
+	}
+	h.reconcile(t, declarative.KindGraders, missing)
+	if c := declaredCondition(t, missing, condResolvedRefs); c.Message != `Agent "ghost", VirtualModel "typesafe/none" not found or not Ready.` {
+		t.Errorf("ResolvedRefs = %+v", c)
+	}
+	if reqs := h.recs[declarative.KindGraders].kind.watches[0].mapper(context.Background(), a); len(reqs) != 2 {
+		t.Errorf("an Agent change enqueues %v, want both Graders", reqs)
+	}
+	if reqs := h.recs[declarative.KindGraders].enqueueModelUsers(&dv1.GraderList{}, graderModel)(context.Background(), vm); len(reqs) != 1 || reqs[0].Name != "g" {
+		t.Errorf("a model change enqueues %v, want g", reqs)
 	}
 }
 
@@ -422,7 +452,7 @@ func TestDependentWatches(t *testing.T) {
 	h := newHarness(t, a, routed, other)
 	vm := &dv1.VirtualModel{ObjectMeta: meta0(systemNamespace, "m", 0), Spec: dv1.VirtualModelSpec{Family: "f", Name: "n"}}
 
-	reqs := h.recs[declarative.KindTriggers].enqueueModelUsers(context.Background(), vm)
+	reqs := h.recs[declarative.KindTriggers].enqueueModelUsers(&dv1.TriggerList{}, triggerModel)(context.Background(), vm)
 	if len(reqs) != 1 || reqs[0].Name != "t" {
 		t.Errorf("model users = %v", reqs)
 	}
@@ -546,5 +576,24 @@ func TestAMissingAgentNamedTwiceIsReportedOnce(t *testing.T) {
 	h.reconcile(t, declarative.KindTriggers, trig)
 	if c := declaredCondition(t, trig, condResolvedRefs); c.Message != `Agent "ghost" not found or not Ready.` {
 		t.Errorf("ResolvedRefs = %q", c.Message)
+	}
+}
+
+// Each kind's reference watches sit on that kind's reconciler.
+func TestNewDeclaredReconcilers_WatchesByKind(t *testing.T) {
+	h := newHarness(t)
+	want := map[string][]string{
+		declarative.KindTriggerSources: {"*v1.Secret"},
+		declarative.KindTriggers:       {"*v1alpha1.Agent", "*v1alpha1.TriggerSource", "*v1alpha1.VirtualModel"},
+		declarative.KindGraders:        {"*v1alpha1.Agent", "*v1alpha1.VirtualModel"},
+	}
+	for kind, r := range h.recs {
+		var got []string
+		for _, w := range r.kind.watches {
+			got = append(got, fmt.Sprintf("%T", w.obj))
+		}
+		if !slices.Equal(got, want[kind]) {
+			t.Errorf("%s watches %v, want %v", kind, got, want[kind])
+		}
 	}
 }

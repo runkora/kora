@@ -77,21 +77,35 @@ func NewDeclaredReconcilers(c client.Client, reader client.Reader, clients Decla
 			client:  clients.PolicyService,
 			prepare: preparePolicyRole,
 		},
+		{
+			kind:    declarative.KindGraders,
+			newObj:  func() client.Object { return &dv1.Grader{} },
+			newList: func() client.ObjectList { return &dv1.GraderList{} },
+			client:  clients.Agents,
+			prepare: prepareGrader,
+		},
 	}
 	out := make([]*DeclaredReconciler, len(kinds))
+	byKind := make(map[string]*DeclaredReconciler, len(kinds))
 	for i, k := range kinds {
 		out[i] = &DeclaredReconciler{Client: c, Reader: reader, Logger: logger, kind: k}
+		byKind[k.kind] = out[i]
 	}
-	// Triggers reconcile when a resource they reference changes, including its
-	// status. A recreated Agent or TriggerSource has a new id the trigger must
-	// follow. Agents wait for their references on the 30-second requeue.
-	sources, triggers := out[3], out[4]
+	// Triggers and Graders reconcile when a resource they reference changes,
+	// including its status. A recreated Agent or TriggerSource has a new id the
+	// trigger or Grader must follow. Agents wait for their references on the
+	// 30-second requeue.
+	sources, triggers, graders := byKind[declarative.KindTriggerSources], byKind[declarative.KindTriggers], byKind[declarative.KindGraders]
 	// A rotated or deleted signing Secret reaches its TriggerSources at once.
 	sources.kind.watches = []declaredWatch{{obj: &corev1.Secret{}, mapper: sources.enqueueSecretUsers}}
 	triggers.kind.watches = []declaredWatch{
 		{obj: &dv1.Agent{}, mapper: triggers.enqueueNamespace(&dv1.TriggerList{})},
 		{obj: &dv1.TriggerSource{}, mapper: triggers.enqueueNamespace(&dv1.TriggerList{})},
-		{obj: &dv1.VirtualModel{}, mapper: triggers.enqueueModelUsers},
+		{obj: &dv1.VirtualModel{}, mapper: triggers.enqueueModelUsers(&dv1.TriggerList{}, triggerModel)},
+	}
+	graders.kind.watches = []declaredWatch{
+		{obj: &dv1.Agent{}, mapper: graders.enqueueNamespace(&dv1.GraderList{})},
+		{obj: &dv1.VirtualModel{}, mapper: graders.enqueueModelUsers(&dv1.GraderList{}, graderModel)},
 	}
 	return out
 }
@@ -110,6 +124,8 @@ func declaredStatus(obj client.Object) *dv1.Status {
 	case *dv1.Trigger:
 		return &o.Status
 	case *dv1.PolicyRole:
+		return &o.Status
+	case *dv1.Grader:
 		return &o.Status
 	}
 	panic(fmt.Sprintf("declaredStatus: unexpected %T", obj))
@@ -367,6 +383,23 @@ func prepareTrigger(ctx context.Context, r *DeclaredReconciler, obj client.Objec
 	return p, nil
 }
 
+func prepareGrader(ctx context.Context, r *DeclaredReconciler, obj client.Object) (prepared, error) {
+	g := obj.(*dv1.Grader)
+	p, err := r.tenantOrRefusal(ctx, g)
+	if err != nil || p.refusal != nil {
+		return p, err
+	}
+	var f refs
+	if err := f.declared(ctx, r, "Agent", declarative.RefAgent(g.Spec.Agent), g.Namespace, g.Spec.Agent, &dv1.Agent{}); err != nil {
+		return p, err
+	}
+	if err := f.model(ctx, r, g.Spec.Model); err != nil {
+		return p, err
+	}
+	p.missing, p.refs, p.spec = f.missing, f.ids, g.Spec
+	return p, nil
+}
+
 // delegatedBinding refuses a Trigger that names a delegated Agent. Only a
 // person may start a delegated agent's runs. The operator refuses the binding
 // before kora-triggers sees the trigger.
@@ -510,23 +543,38 @@ func (r *DeclaredReconciler) enqueueNamespace(list client.ObjectList) func(conte
 	}
 }
 
-// enqueueModelUsers maps a VirtualModel change to the Triggers that route
-// with its family and name.
-func (r *DeclaredReconciler) enqueueModelUsers(ctx context.Context, obj client.Object) []reconcile.Request {
-	vm, ok := obj.(*dv1.VirtualModel)
-	if !ok {
-		return nil
-	}
-	list := &dv1.TriggerList{}
-	if err := r.List(ctx, list); err != nil {
-		r.Logger.Error(ctx, "list VirtualModel users", logging.Field{Key: "error", Value: err.Error()})
-		return nil
-	}
-	var reqs []reconcile.Request
-	for i := range list.Items {
-		if rt := list.Items[i].Spec.Routing; rt != nil && rt.Model.Family == vm.Spec.Family && rt.Model.Name == vm.Spec.Name {
-			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+// enqueueModelUsers maps a VirtualModel change to every resource of this kind
+// whose modelOf names its family and name. modelOf returns nil for a resource with no model.
+func (r *DeclaredReconciler) enqueueModelUsers(list client.ObjectList, modelOf func(client.Object) *dv1.ModelRef) func(context.Context, client.Object) []reconcile.Request {
+	return func(ctx context.Context, obj client.Object) []reconcile.Request {
+		vm, ok := obj.(*dv1.VirtualModel)
+		if !ok {
+			return nil
 		}
+		l := list.DeepCopyObject().(client.ObjectList)
+		if err := r.List(ctx, l); err != nil {
+			r.Logger.Error(ctx, "list VirtualModel users", logging.Field{Key: "error", Value: err.Error()})
+			return nil
+		}
+		var reqs []reconcile.Request
+		_ = meta.EachListItem(l, func(o runtime.Object) error {
+			co := o.(client.Object)
+			if m := modelOf(co); m != nil && m.Family == vm.Spec.Family && m.Name == vm.Spec.Name {
+				reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(co)})
+			}
+			return nil
+		})
+		return reqs
 	}
-	return reqs
 }
+
+// triggerModel is a Trigger's routing model.
+func triggerModel(o client.Object) *dv1.ModelRef {
+	if rt := o.(*dv1.Trigger).Spec.Routing; rt != nil {
+		return &rt.Model
+	}
+	return nil
+}
+
+// graderModel is a Grader's decision model.
+func graderModel(o client.Object) *dv1.ModelRef { return &o.(*dv1.Grader).Spec.Model }
