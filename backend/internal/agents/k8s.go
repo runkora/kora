@@ -447,8 +447,8 @@ type statefulSetView struct {
 	// MemoryLimitBytes is the session-manager container's memory limit, the scaler's fallback for memory.max.
 	MemoryLimitBytes int64
 	Parallel         bool
-	// Ready holds the ReadyOrdinals. Terminating counts the draining pods below the replicas, whose
-	// replacements cannot start until they exit.
+	// Ready holds the ReadyOrdinals. Terminating counts the draining pods below the replicas.
+	// A replacement at a draining pod's ordinal cannot start until that pod exits.
 	Ready       []int
 	Terminating int
 }
