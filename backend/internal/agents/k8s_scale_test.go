@@ -11,6 +11,7 @@ import (
 	autoscalingv1 "k8s.io/api/autoscaling/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -45,7 +46,7 @@ func TestBuildStatefulSetUsesParallel(t *testing.T) {
 	}
 }
 
-// Apply creates a missing StatefulSet at max(minReplicas, 1) and leaves a live one's replicas alone.
+// Apply creates a missing StatefulSet at max(minReplicas, 1).
 func TestEnsureStatefulSetReplicas(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 	ctx := context.Background()
@@ -57,7 +58,6 @@ func TestEnsureStatefulSetReplicas(t *testing.T) {
 	}{
 		{"create at the floor", 2, nil, 2},
 		{"create with a zero floor", 0, nil, 1},
-		{"re-apply keeps the live replicas", 2, liveStatefulSet(at, 5, appsv1.ParallelPodManagement), 5},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := podSecurityProvisioner()
@@ -200,5 +200,348 @@ func TestAgentStatefulSetCountsTerminatingPods(t *testing.T) {
 	}
 	if !slices.Equal(view.Ready, []int{1}) || view.Terminating != 1 {
 		t.Errorf("ready %v, terminating %d; want [1] and 1: coder-2 is above the replicas", view.Ready, view.Terminating)
+	}
+}
+
+// defaultTemplate stands in for API defaulting of a pod template.
+func defaultTemplate(t *corev1.PodTemplateSpec) {
+	for i := range t.Spec.Containers {
+		t.Spec.Containers[i].TerminationMessagePath = corev1.TerminationMessagePathDefault
+	}
+}
+
+// dryRunReactor answers a server-side dry run with the defaulted object without storing it, as the API
+// server does, and counts the stored updates.
+func dryRunReactor(client *fake.Clientset, writes *int) {
+	client.PrependReactor("update", "statefulsets", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		u, ok := a.(k8stesting.UpdateActionImpl)
+		if !ok || a.GetSubresource() != "" {
+			return false, nil, nil
+		}
+		if len(u.GetUpdateOptions().DryRun) > 0 {
+			dry := u.GetObject().DeepCopyObject().(*appsv1.StatefulSet)
+			defaultTemplate(&dry.Spec.Template)
+			return true, dry, nil
+		}
+		*writes++
+		return false, nil, nil
+	})
+}
+
+// An apply that changes the pod template adds one pod on the new revision and holds the old pods,
+// in one write. At maxReplicas, or with an unchanged template, there is no hold.
+func TestEnsureStatefulSetSurge(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name          string
+		replicas      int32
+		partition     int32
+		unchanged     bool
+		wantReplicas  int32
+		wantPartition int32
+	}{
+		{"changed template below maxReplicas", 2, 0, false, 3, 2},
+		{"changed template at maxReplicas", 4, 0, false, 4, 0},
+		{"a hold at maxReplicas starts the roll", 4, 3, false, 4, 0},
+		{"unchanged template", 2, 0, true, 2, 0},
+		{"unchanged template during a hold", 3, 2, true, 3, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := podSecurityProvisioner()
+			p.cfg.MaxReplicas = 4
+			live := liveStatefulSet(at, tc.replicas, appsv1.ParallelPodManagement)
+			live.Spec.UpdateStrategy = appsv1.StatefulSetUpdateStrategy{
+				Type:          appsv1.RollingUpdateStatefulSetStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{Partition: &tc.partition},
+			}
+			if tc.unchanged {
+				rendered, err := p.applyStatefulSetPatches(p.buildSessionManagerStatefulSet(at, scaleTestNS, agentTypeLabels(at)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				live.Spec.Template = rendered.Spec.Template
+				defaultTemplate(&live.Spec.Template)
+			}
+			client := fake.NewSimpleClientset(live)
+			writes := 0
+			dryRunReactor(client, &writes)
+			p.client = client
+			if err := p.ensureStatefulSet(ctx, at, scaleTestNS, agentTypeLabels(at), metav1.OwnerReference{}, true); err != nil {
+				t.Fatal(err)
+			}
+			got, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if *got.Spec.Replicas != tc.wantReplicas || specPartition(got) != int(tc.wantPartition) || writes != 1 {
+				t.Errorf("replicas %d, partition %d, writes %d; want %d, %d and 1 write",
+					*got.Spec.Replicas, specPartition(got), writes, tc.wantReplicas, tc.wantPartition)
+			}
+		})
+	}
+}
+
+// A scaler that shares no state with the apply keeps the hold and the surge pod until that pod is Ready,
+// then releases the hold. The hold lives only on the StatefulSet.
+func TestScalerReleasesApplyHold(t *testing.T) {
+	at := AgentType{ID: "a", Slug: "coder", TenantID: "acme", MaxConcurrentRuns: 30}
+	ctx := context.Background()
+	p := podSecurityProvisioner()
+	p.cfg.MaxReplicas = 10
+	client := fake.NewSimpleClientset(liveStatefulSet(at, 1, appsv1.ParallelPodManagement))
+	writes := 0
+	dryRunReactor(client, &writes)
+	p.client = client
+	if err := p.ensureStatefulSet(ctx, at, scaleTestNS, agentTypeLabels(at), metav1.OwnerReference{}, true); err != nil {
+		t.Fatal(err)
+	}
+	pod := func(name string, ready corev1.ConditionStatus) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: scaleTestNS, Labels: podLabels(at)},
+			Status:     corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: ready}}},
+		}
+	}
+	if _, err := client.CoreV1().Pods(scaleTestNS).Create(ctx, pod("coder-0", corev1.ConditionTrue), metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if writes != 1 {
+		t.Fatalf("apply made %d writes, want 1", writes)
+	}
+	surge, err := client.CoreV1().Pods(scaleTestNS).Create(ctx, pod("coder-1", corev1.ConditionFalse), metav1.CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := func() (replicas, partition int) {
+		ss, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return specReplicas(ss), specPartition(ss)
+	}
+	f := &scalerFake{t: t, memory: fullPod}
+	q := resource.MustParse("180Mi")
+	scaler := NewScaler(f, p, f, ScalerConfig{
+		TenantNamespaceFn: func(string) string { return scaleTestNS }, MinReplicas: 1, MaxReplicas: 10,
+		PlacementWatermark: 0.70, StartingRunAllowances: NewStartingRunAllowances(q, q, q),
+	}, p.logger)
+
+	if err := scaler.scale(ctx, at); err != nil {
+		t.Fatal(err)
+	}
+	if replicas, partition := state(); replicas != 2 || partition != 1 {
+		t.Fatalf("replicas %d, partition %d with the surge pod not Ready; want 2 and the hold of 1", replicas, partition)
+	}
+	surge.Status.Conditions[0].Status = corev1.ConditionTrue
+	if _, err := client.CoreV1().Pods(scaleTestNS).UpdateStatus(ctx, surge, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := scaler.scale(ctx, at); err != nil {
+		t.Fatal(err)
+	}
+	if replicas, partition := state(); replicas != 2 || partition != 0 {
+		t.Errorf("replicas %d, partition %d with the surge pod Ready; want 2 and 0", replicas, partition)
+	}
+}
+
+// A roll is under way while the controller has not seen a spec change or the revisions differ. OnDelete never rolls.
+func TestRolling(t *testing.T) {
+	ss := func(strategy appsv1.StatefulSetUpdateStrategyType, gen, observed int64, current, update string) *appsv1.StatefulSet {
+		return &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Generation: gen},
+			Spec:       appsv1.StatefulSetSpec{UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: strategy}},
+			Status:     appsv1.StatefulSetStatus{ObservedGeneration: observed, CurrentRevision: current, UpdateRevision: update},
+		}
+	}
+	ru, od := appsv1.RollingUpdateStatefulSetStrategyType, appsv1.OnDeleteStatefulSetStrategyType
+	for _, tc := range []struct {
+		name string
+		ss   *appsv1.StatefulSet
+		want bool
+	}{
+		{"settled", ss(ru, 2, 2, "r1", "r1"), false},
+		{"spec change not observed", ss(ru, 3, 2, "r1", "r1"), true},
+		{"revisions differ", ss(ru, 2, 2, "r1", "r2"), true},
+		{"OnDelete", ss(od, 3, 2, "r1", "r2"), false},
+	} {
+		if got := rolling(tc.ss); got != tc.want {
+			t.Errorf("%s: rolling = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// An OnDelete StatefulSet takes no partition: its template still applies with no surge pod.
+func TestEnsureStatefulSetOnDeleteNoSurge(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ctx := context.Background()
+	p := podSecurityProvisioner()
+	p.cfg.MaxReplicas = 4
+	live := liveStatefulSet(at, 1, appsv1.ParallelPodManagement)
+	live.Spec.UpdateStrategy.Type = appsv1.OnDeleteStatefulSetStrategyType
+	client := fake.NewSimpleClientset(live)
+	p.client = client
+	if err := p.ensureStatefulSet(ctx, at, scaleTestNS, agentTypeLabels(at), metav1.OwnerReference{}, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *got.Spec.Replicas != 1 || got.Spec.UpdateStrategy.RollingUpdate != nil || got.Spec.Template.Spec.Containers[0].Image == "live" {
+		t.Errorf("replicas %d, rollingUpdate %v, image %q; want 1, none and the rendered image",
+			*got.Spec.Replicas, got.Spec.UpdateStrategy.RollingUpdate, got.Spec.Template.Spec.Containers[0].Image)
+	}
+}
+
+// ReleaseRollHold refuses a partition that moved since the read and sets a current one to 0.
+func TestReleaseRollHold(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ctx := context.Background()
+	live := liveStatefulSet(at, 2, appsv1.ParallelPodManagement)
+	live.Spec.UpdateStrategy.RollingUpdate = &appsv1.RollingUpdateStatefulSetStrategy{Partition: new(int32(1))}
+	client := fake.NewSimpleClientset(live)
+	p := &K8sProvisioner{client: client}
+	if err := p.ReleaseRollHold(ctx, at.Slug, scaleTestNS, 2); !errors.Is(err, errPartitionMoved) {
+		t.Errorf("stale partition: err %v, want errPartitionMoved", err)
+	}
+	if err := p.ReleaseRollHold(ctx, at.Slug, scaleTestNS, 1); err != nil {
+		t.Fatal(err)
+	}
+	got, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if specPartition(got) != 0 {
+		t.Errorf("partition %d, want 0", specPartition(got))
+	}
+}
+
+// A framework or model change restarts the pods through the surge: one write adds a pod and holds the old ones.
+func TestRolloutStatefulSetSurges(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name                        string
+		maxReplicas                 int32
+		wantReplicas, wantPartition int32
+	}{
+		{"below maxReplicas", 4, 2, 1},
+		{"at maxReplicas", 1, 1, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			live := liveStatefulSet(at, 1, appsv1.ParallelPodManagement)
+			live.Spec.UpdateStrategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
+			client := fake.NewSimpleClientset(live)
+			writes := 0
+			dryRunReactor(client, &writes)
+			p := podSecurityProvisioner()
+			p.cfg.MaxReplicas = tc.maxReplicas
+			p.client = client
+			if err := p.RolloutStatefulSet(ctx, at.Slug, scaleTestNS); err != nil {
+				t.Fatal(err)
+			}
+			got, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] == "" || *got.Spec.Replicas != tc.wantReplicas ||
+				specPartition(got) != int(tc.wantPartition) || writes != 1 {
+				t.Errorf("restartedAt %q, replicas %d, partition %d, writes %d; want set, %d, %d and 1 write",
+					got.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"], *got.Spec.Replicas, specPartition(got), writes,
+					tc.wantReplicas, tc.wantPartition)
+			}
+		})
+	}
+}
+
+// conflictOnce fails the first stored update of a StatefulSet with a conflict, as a concurrent scaler write would.
+func conflictOnce(client *fake.Clientset) {
+	failed := false
+	client.PrependReactor("update", "statefulsets", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		u, ok := a.(k8stesting.UpdateActionImpl)
+		if failed || !ok || a.GetSubresource() != "" || len(u.GetUpdateOptions().DryRun) > 0 {
+			return false, nil, nil
+		}
+		failed = true
+		return true, nil, apierrors.NewConflict(schema.GroupResource{Group: "apps", Resource: "statefulsets"}, "coder", errors.New("changed"))
+	})
+}
+
+// A restart from a framework or model change is kept on a later apply, which then sees no template change.
+func TestEnsureStatefulSetKeepsRestartedAt(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ctx := context.Background()
+	p := podSecurityProvisioner()
+	p.cfg.MaxReplicas = 4
+	rendered, err := p.applyStatefulSetPatches(p.buildSessionManagerStatefulSet(at, scaleTestNS, agentTypeLabels(at)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := liveStatefulSet(at, 1, appsv1.ParallelPodManagement)
+	live.Spec.UpdateStrategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
+	live.Spec.Template = rendered.Spec.Template
+	defaultTemplate(&live.Spec.Template)
+	live.Spec.Template.Annotations[annotationRestartedAt] = "2026-11-21T10:00:00Z"
+	client := fake.NewSimpleClientset(live)
+	writes := 0
+	dryRunReactor(client, &writes)
+	p.client = client
+	if err := p.ensureStatefulSet(ctx, at, scaleTestNS, agentTypeLabels(at), metav1.OwnerReference{}, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.Template.Annotations[annotationRestartedAt] != "2026-11-21T10:00:00Z" || *got.Spec.Replicas != 1 || specPartition(got) != 0 {
+		t.Errorf("restartedAt %q, replicas %d, partition %d; want the live restart kept and no surge",
+			got.Spec.Template.Annotations[annotationRestartedAt], *got.Spec.Replicas, specPartition(got))
+	}
+}
+
+// A conflicting write is retried, and the retry reads the StatefulSet again: the surge is applied once.
+func TestStatefulSetWritesRetryOnConflict(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ctx := context.Background()
+	for name, write := range map[string]func(p *K8sProvisioner) error{
+		"apply": func(p *K8sProvisioner) error {
+			return p.ensureStatefulSet(ctx, at, scaleTestNS, agentTypeLabels(at), metav1.OwnerReference{}, true)
+		},
+		"rollout": func(p *K8sProvisioner) error { return p.RolloutStatefulSet(ctx, at.Slug, scaleTestNS) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			live := liveStatefulSet(at, 1, appsv1.ParallelPodManagement)
+			live.Spec.UpdateStrategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
+			client := fake.NewSimpleClientset(live)
+			writes := 0
+			dryRunReactor(client, &writes)
+			conflictOnce(client)
+			p := podSecurityProvisioner()
+			p.cfg.MaxReplicas = 4
+			p.client = client
+			if err := write(p); err != nil {
+				t.Fatal(err)
+			}
+			got, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if *got.Spec.Replicas != 2 || specPartition(got) != 1 || writes != 1 {
+				t.Errorf("replicas %d, partition %d, stored writes %d; want 2, 1 and 1 after one conflict", *got.Spec.Replicas, specPartition(got), writes)
+			}
+		})
+	}
+}
+
+// A conflict on the release is a moved partition, which the scaler leaves to its next pass.
+func TestReleaseRollHoldConflict(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	live := liveStatefulSet(at, 2, appsv1.ParallelPodManagement)
+	live.Spec.UpdateStrategy.RollingUpdate = &appsv1.RollingUpdateStatefulSetStrategy{Partition: new(int32(1))}
+	client := fake.NewSimpleClientset(live)
+	conflictOnce(client)
+	p := &K8sProvisioner{client: client}
+	if err := p.ReleaseRollHold(context.Background(), at.Slug, scaleTestNS, 1); !errors.Is(err, errPartitionMoved) {
+		t.Errorf("conflicting release: err %v, want errPartitionMoved", err)
 	}
 }

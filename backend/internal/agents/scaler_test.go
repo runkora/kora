@@ -1,8 +1,11 @@
 package agents
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -100,6 +103,8 @@ func TestDesiredReplicas(t *testing.T) {
 			in.counts.Pending, in.counts.Active = 5, 2
 		}), 4},
 		{"raised floor scales up to it", base(func(in *scaleInput) { in.floor = 4 }), 4},
+		{"no scale down during a roll", base(func(in *scaleInput) { in.replicas = 5; in.rolling = true }), 5},
+		{"a roll still scales up", base(func(in *scaleInput) { in.counts.Pending = 20; in.rolling = true }), 8},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := desiredReplicas(tc.in); got != tc.want {
@@ -134,6 +139,8 @@ type scalerFake struct {
 
 	scaledTo   int
 	switched   bool
+	released   int
+	releaseErr error
 	readLocked []bool
 }
 
@@ -186,6 +193,11 @@ func (f *scalerFake) ScaleStatefulSet(_ context.Context, _, _ string, from, to i
 	}
 	f.scaledTo = to
 	return nil
+}
+
+func (f *scalerFake) ReleaseRollHold(_ context.Context, _, _ string, partition int) error {
+	f.released = partition
+	return f.releaseErr
 }
 
 func (f *scalerFake) SwitchToParallel(context.Context, string, string) error {
@@ -300,6 +312,56 @@ func TestScalerSwitchesOnlyAnIdleAgentToParallel(t *testing.T) {
 			}
 			if f.switched != tc.want {
 				t.Errorf("switched = %v, want %v", f.switched, tc.want)
+			}
+		})
+	}
+}
+
+// A roll held for a surge pod is released once that pod is Ready, and the agent keeps its pods until then.
+func TestScalerRollHold(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		view         statefulSetView
+		ready        []int
+		wantRelease  int
+		wantScaledTo int
+	}{
+		{"surge pod Ready", statefulSetView{Replicas: 3, Partition: 2, Parallel: true}, []int{0, 1, 2}, 2, 0},
+		{"surge pod not Ready yet", statefulSetView{Replicas: 3, Partition: 2, Parallel: true}, []int{0, 1}, 0, 0},
+		// An older scaler removed the surge pod: no pod at the partition ordinal will come.
+		{"surge pod scaled away", statefulSetView{Replicas: 2, Partition: 2, Parallel: true}, []int{0, 1}, 2, 0},
+		{"roll under way", statefulSetView{Replicas: 3, Rolling: true, Parallel: true}, []int{0, 2}, 0, 0},
+		{"roll done", statefulSetView{Replicas: 3, Parallel: true}, []int{0, 1, 2}, 0, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &scalerFake{t: t, view: tc.view, ready: tc.ready, memory: fullPod}
+			if err := newTestScaler(f).scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}); err != nil {
+				t.Fatal(err)
+			}
+			if f.released != tc.wantRelease || f.scaledTo != tc.wantScaledTo {
+				t.Errorf("released partition %d, scaled to %d; want %d and %d", f.released, f.scaledTo, tc.wantRelease, tc.wantScaledTo)
+			}
+		})
+	}
+}
+
+// A partition that moved under the release is left to the next pass, and only a real failure is logged.
+func TestScaleAgentSwallowsMovedPartition(t *testing.T) {
+	for name, tc := range map[string]struct {
+		err    error
+		logged bool
+	}{
+		"moved partition": {errPartitionMoved, false},
+		"real failure":    {errors.New("api down"), true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &scalerFake{t: t, view: statefulSetView{Replicas: 2, Partition: 1, Parallel: true}, ready: []int{0, 1}, memory: fullPod, releaseErr: tc.err}
+			s := newTestScaler(f)
+			var out bytes.Buffer
+			s.logger = logging.NewLoggerWithOutput(&out)
+			s.scaleAgent(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30})
+			if got := strings.Contains(out.String(), "scale agent failed"); got != tc.logged {
+				t.Errorf("logged failure = %v, want %v", got, tc.logged)
 			}
 		})
 	}

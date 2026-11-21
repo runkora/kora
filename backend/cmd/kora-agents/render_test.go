@@ -262,3 +262,13 @@ func testConfig() *agentsConfig.Config {
 	cfg.Agents.Environments.DefaultSize = agentsConfig.EnvironmentSize{CPU: "2", Memory: "4Gi", Disk: "10Gi"}
 	return cfg
 }
+
+// The surge needs the scaler's ceiling. A zero MaxReplicas would turn it off with no error.
+func TestProvisionerConfig_ReplicaBounds(t *testing.T) {
+	cfg := testConfig()
+	cfg.Agents.Scheduling.MinReplicas, cfg.Agents.Scheduling.MaxReplicas = 1, 7
+	got := provisionerConfig(cfg, nil, workloadsFile{}, brand.MustNew("kora"))
+	if got.MinReplicas != 1 || got.MaxReplicas != 7 {
+		t.Errorf("MinReplicas %d, MaxReplicas %d; want 1 and 7 from agents.scheduling", got.MinReplicas, got.MaxReplicas)
+	}
+}

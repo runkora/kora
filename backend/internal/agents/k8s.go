@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -29,6 +28,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	policyv1 "k8s.io/api/policy/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,13 +36,13 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/retry"
 
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -133,6 +133,8 @@ type K8sProvisionerConfig struct {
 	Landlock string
 	// MinReplicas is the session-manager pod count each agent starts with and the scaler's floor.
 	MinReplicas int32
+	// MaxReplicas is the scaler's ceiling. An apply that changes the pod template of an agent below it adds a surge pod.
+	MaxReplicas int32
 	// DrainGracePeriodSecs is how long a terminating session-manager pod may wait for its runs to end.
 	DrainGracePeriodSecs int64
 	// PressureLimit is the session-manager's KORA_PRESSURE_LIMIT: the fraction of memory.max at which it kills its newest run.
@@ -447,15 +449,19 @@ type statefulSetView struct {
 	// MemoryLimitBytes is the session-manager container's memory limit, the scaler's fallback for memory.max.
 	MemoryLimitBytes int64
 	Parallel         bool
+	// Partition is the RollingUpdate partition. Rolling is true while a spec change is unobserved or the revisions differ.
+	Partition int
+	Rolling   bool
 	// Ready holds the ReadyOrdinals. Terminating counts the draining pods below the replicas.
 	// A replacement at a draining pod's ordinal cannot start until that pod exits.
 	Ready       []int
 	Terminating int
 }
 
-// Scale errors: the replicas changed since the scaler read them, or the target is out of range.
+// Scale errors: the replicas or the partition changed since the scaler read them, or the target is out of range.
 var (
 	errReplicasMoved   = errors.New("statefulset replicas changed since they were read")
+	errPartitionMoved  = errors.New("statefulset partition changed since it was read")
 	errReplicasInvalid = errors.New("statefulset replicas out of range")
 )
 
@@ -465,7 +471,11 @@ func (p *K8sProvisioner) AgentStatefulSet(ctx context.Context, slug, namespace s
 	if ss == nil || err != nil {
 		return statefulSetView{}, false, err
 	}
-	view = statefulSetView{Replicas: specReplicas(ss), Parallel: ss.Spec.PodManagementPolicy == appsv1.ParallelPodManagement}
+	view = statefulSetView{
+		Replicas: specReplicas(ss), Parallel: ss.Spec.PodManagementPolicy == appsv1.ParallelPodManagement,
+		Partition: specPartition(ss),
+		Rolling:   rolling(ss),
+	}
 	view.Ready, view.Terminating = podOrdinals(ss, pods, slug)
 	for _, c := range ss.Spec.Template.Spec.Containers {
 		if c.Name == sessionManagerContainerName {
@@ -493,6 +503,26 @@ func (p *K8sProvisioner) ScaleStatefulSet(ctx context.Context, slug, namespace s
 		return errReplicasMoved
 	} else if err != nil {
 		return fmt.Errorf("update statefulset scale %s/%s: %w", namespace, slug, err)
+	}
+	return nil
+}
+
+// ReleaseRollHold sets the RollingUpdate partition to 0 while it is still partition. RollingUpdate then
+// replaces the old pods (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 1).
+func (p *K8sProvisioner) ReleaseRollHold(ctx context.Context, slug, namespace string, partition int) error {
+	sets := p.client.AppsV1().StatefulSets(namespace)
+	ss, err := sets.Get(ctx, slug, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
+	}
+	if specPartition(ss) != partition {
+		return errPartitionMoved
+	}
+	ss.Spec.UpdateStrategy.RollingUpdate.Partition = new(int32(0))
+	if _, err := sets.Update(ctx, ss, metav1.UpdateOptions{}); apierrors.IsConflict(err) {
+		return errPartitionMoved
+	} else if err != nil {
+		return fmt.Errorf("release roll hold of statefulset %s/%s: %w", namespace, slug, err)
 	}
 	return nil
 }
@@ -551,6 +581,23 @@ func (p *K8sProvisioner) SwitchToParallel(ctx context.Context, slug, namespace s
 	return nil
 }
 
+// rolling reports a RollingUpdate whose spec change is unobserved or whose pods are not all on the update revision.
+// An OnDelete StatefulSet keeps differing revisions until its pods are deleted by hand.
+func rolling(ss *appsv1.StatefulSet) bool {
+	if ss.Spec.UpdateStrategy.Type == appsv1.OnDeleteStatefulSetStrategyType {
+		return false
+	}
+	return ss.Status.ObservedGeneration < ss.Generation || ss.Status.CurrentRevision != ss.Status.UpdateRevision
+}
+
+// specPartition is the StatefulSet's RollingUpdate partition. Unset means 0.
+func specPartition(ss *appsv1.StatefulSet) int {
+	if ru := ss.Spec.UpdateStrategy.RollingUpdate; ru != nil && ru.Partition != nil {
+		return int(*ru.Partition)
+	}
+	return 0
+}
+
 // specReplicas is the StatefulSet's spec.replicas. Unset means 1.
 func specReplicas(ss *appsv1.StatefulSet) int {
 	if ss.Spec.Replicas == nil {
@@ -583,11 +630,8 @@ func (p *K8sProvisioner) WaitForStatefulSetReady(ctx context.Context, slug, name
 	})
 }
 
-// RolloutStatefulSet triggers a rolling restart of the StatefulSet for the
-// given slug by patching the pod template with a restartedAt annotation.
-// This is equivalent to `kubectl rollout restart statefulset/<slug>` and
-// ensures that pods pick up new configuration (e.g. a changed framework or
-// model_id) without requiring a manual recycle.
+// RolloutStatefulSet restarts the agent's pods for a changed framework or model_id with a restartedAt annotation.
+// It is a template change and takes a surge pod (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 1).
 func (p *K8sProvisioner) RolloutStatefulSet(ctx context.Context, slug, namespace string) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.K8sProvisioner.RolloutStatefulSet",
 		trace.WithAttributes(
@@ -597,29 +641,28 @@ func (p *K8sProvisioner) RolloutStatefulSet(ctx context.Context, slug, namespace
 	)
 	defer span.End()
 
-	type patchAnnotations struct {
-		Spec struct {
-			Template struct {
-				Metadata struct {
-					Annotations map[string]string `json:"annotations"`
-				} `json:"metadata"`
-			} `json:"template"`
-		} `json:"spec"`
-	}
-	var p2 patchAnnotations
-	p2.Spec.Template.Metadata.Annotations = map[string]string{
-		"kubectl.kubernetes.io/restartedAt": time.Now().UTC().Format(time.RFC3339),
-	}
-	data, err := json.Marshal(p2)
+	restartedAt := time.Now().UTC().Format(time.RFC3339)
+	sets := p.client.AppsV1().StatefulSets(namespace)
+	// A scaler write between the read and the update conflicts. The roll is retried rather than lost.
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		ss, err := sets.Get(ctx, slug, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		live := *ss.Spec.Template.DeepCopy()
+		if ss.Spec.Template.Annotations == nil {
+			ss.Spec.Template.Annotations = map[string]string{}
+		}
+		ss.Spec.Template.Annotations[annotationRestartedAt] = restartedAt
+		if err = p.surgeTemplateChange(ctx, ss, live); err != nil {
+			return err
+		}
+		_, err = sets.Update(ctx, ss, metav1.UpdateOptions{})
+		return err
+	})
 	if err != nil {
-		observability.RecordFailure(span, err, errSpanMarshalRolloutPatch)
-		return fmt.Errorf("marshal rollout patch: %w", err)
-	}
-	if _, err := p.client.AppsV1().StatefulSets(namespace).Patch(
-		ctx, slug, types.StrategicMergePatchType, data, metav1.PatchOptions{},
-	); err != nil {
 		observability.RecordFailure(span, err, errSpanPatchStatefulsetForRollout)
-		return fmt.Errorf("patch statefulset %s/%s for rollout: %w", namespace, slug, err)
+		return fmt.Errorf("update statefulset %s/%s for rollout: %w", namespace, slug, err)
 	}
 	return nil
 }
@@ -1889,33 +1932,77 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	// Replace the existing pod template with the rendered one so a patch change
 	// reaches existing agents on the next reconcile, keeping only the live
 	// session-manager image, which redeploy pins by digest. Replicas belong to
-	// the scaler, and the selector, VolumeClaimTemplates and pod management
-	// policy are immutable, so those stay create-only.
-	existing, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, ss.Name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("get existing statefulset: %w", err)
-	}
-	// Only a deliberate local redeploy pin keeps the live image; otherwise the
-	// rendered image applies so an upgrade moves the agent to the release.
-	var liveImage string
-	if existing.Annotations[annotationImagePinned] == "true" {
-		for _, c := range existing.Spec.Template.Spec.Containers {
-			if c.Name == sessionManagerContainerName {
-				liveImage = c.Image
+	// the scaler, apart from the surge pod of a template change. The selector,
+	// VolumeClaimTemplates and pod management policy are immutable and stay create-only.
+	// A scaler write between the read and the update conflicts. The apply is retried rather than lost.
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, ss.Name, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("get existing statefulset: %w", err)
+		}
+		// Only a deliberate local redeploy pin keeps the live image; otherwise the
+		// rendered image applies so an upgrade moves the agent to the release.
+		var liveImage string
+		if existing.Annotations[annotationImagePinned] == "true" {
+			for _, c := range existing.Spec.Template.Spec.Containers {
+				if c.Name == sessionManagerContainerName {
+					liveImage = c.Image
+				}
 			}
 		}
-	}
-	existing.Spec.Template = ss.Spec.Template
-	for i, c := range existing.Spec.Template.Spec.Containers {
-		if c.Name == sessionManagerContainerName && liveImage != "" {
-			existing.Spec.Template.Spec.Containers[i].Image = liveImage
+		liveTemplate := existing.Spec.Template
+		existing.Spec.Template = *ss.Spec.Template.DeepCopy()
+		for i, c := range existing.Spec.Template.Spec.Containers {
+			if c.Name == sessionManagerContainerName && liveImage != "" {
+				existing.Spec.Template.Spec.Containers[i].Image = liveImage
+			}
 		}
+		// The restart of a framework or model change stays, or every later apply would roll the pods again.
+		if restartedAt, ok := liveTemplate.Annotations[annotationRestartedAt]; ok {
+			if existing.Spec.Template.Annotations == nil {
+				existing.Spec.Template.Annotations = map[string]string{}
+			}
+			existing.Spec.Template.Annotations[annotationRestartedAt] = restartedAt
+		}
+		// Backfill the KoraTenant owner reference on the existing StatefulSet.
+		// See docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md.
+		applyOwnerRef(&existing.ObjectMeta, owner)
+		if err = p.surgeTemplateChange(ctx, existing, liveTemplate); err != nil {
+			return err
+		}
+		_, err = p.client.AppsV1().StatefulSets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
+		return err
+	})
+}
+
+// surgeTemplateChange adds one pod for a changed template and holds the old pods on their revision until it is
+// Ready. At maxReplicas the roll starts at once (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 1).
+func (p *K8sProvisioner) surgeTemplateChange(ctx context.Context, ss *appsv1.StatefulSet, live corev1.PodTemplateSpec) error {
+	// The API server rejects a partition on an OnDelete StatefulSet.
+	if ss.Spec.UpdateStrategy.Type == appsv1.OnDeleteStatefulSetStrategyType {
+		return nil
 	}
-	// Backfill the KoraTenant owner reference on the existing StatefulSet.
-	// See docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md.
-	applyOwnerRef(&existing.ObjectMeta, owner)
-	_, err = p.client.AppsV1().StatefulSets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
-	return err
+	// The live template is stored with API defaults. A server-side dry run defaults the rendered one the same way.
+	dry, err := p.client.AppsV1().StatefulSets(ss.Namespace).Update(ctx, ss, metav1.UpdateOptions{DryRun: []string{metav1.DryRunAll}})
+	if err != nil {
+		return fmt.Errorf("dry-run statefulset update: %w", err)
+	}
+	if apiequality.Semantic.DeepEqual(dry.Spec.Template, live) {
+		return nil
+	}
+	replicas, partition := int32(1), int32(0)
+	if ss.Spec.Replicas != nil {
+		replicas = *ss.Spec.Replicas
+	}
+	if replicas < p.cfg.MaxReplicas {
+		replicas, partition = replicas+1, replicas
+	}
+	ss.Spec.Replicas = &replicas
+	if ss.Spec.UpdateStrategy.RollingUpdate == nil {
+		ss.Spec.UpdateStrategy.RollingUpdate = &appsv1.RollingUpdateStatefulSetStrategy{}
+	}
+	ss.Spec.UpdateStrategy.RollingUpdate.Partition = &partition
+	return nil
 }
 
 // deletedAgentPodGrace is the grace period of an agent pod deleted with its agent.
@@ -1947,6 +2034,9 @@ func drainGracePeriod(secs int64) *int64 {
 // annotationImagePinned marks a StatefulSet whose session-manager image a local
 // redeploy pinned on purpose; ensureStatefulSet keeps the live image then.
 const annotationImagePinned = "runkora.io/session-manager-image-pinned"
+
+// annotationRestartedAt is the pod template annotation RolloutStatefulSet sets to restart the agent's pods.
+const annotationRestartedAt = "kubectl.kubernetes.io/restartedAt"
 
 // sessionManagerContainerName is the session-manager container in every agent StatefulSet pod.
 const sessionManagerContainerName = "session-manager"
