@@ -100,6 +100,8 @@ func TestDesiredReplicas(t *testing.T) {
 			in.counts.Pending, in.counts.Active = 5, 2
 		}), 4},
 		{"raised floor scales up to it", base(func(in *scaleInput) { in.floor = 4 }), 4},
+		{"no scale down during a roll", base(func(in *scaleInput) { in.replicas = 5; in.rolling = true }), 5},
+		{"a roll still scales up", base(func(in *scaleInput) { in.counts.Pending = 20; in.rolling = true }), 8},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := desiredReplicas(tc.in); got != tc.want {
@@ -134,6 +136,7 @@ type scalerFake struct {
 
 	scaledTo   int
 	switched   bool
+	released   int
 	readLocked []bool
 }
 
@@ -185,6 +188,11 @@ func (f *scalerFake) ScaleStatefulSet(_ context.Context, _, _ string, from, to i
 		f.t.Errorf("scale from %d, want the read replicas %d", from, f.view.Replicas)
 	}
 	f.scaledTo = to
+	return nil
+}
+
+func (f *scalerFake) ReleaseRollHold(_ context.Context, _, _ string, partition int) error {
+	f.released = partition
 	return nil
 }
 
@@ -300,6 +308,32 @@ func TestScalerSwitchesOnlyAnIdleAgentToParallel(t *testing.T) {
 			}
 			if f.switched != tc.want {
 				t.Errorf("switched = %v, want %v", f.switched, tc.want)
+			}
+		})
+	}
+}
+
+// A roll held for a surge pod is released once that pod is Ready, and the agent keeps its pods until then.
+func TestScalerRollHold(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		view         statefulSetView
+		ready        []int
+		wantRelease  int
+		wantScaledTo int
+	}{
+		{"surge pod Ready", statefulSetView{Replicas: 3, Partition: 2, Parallel: true}, []int{0, 1, 2}, 2, 0},
+		{"surge pod not Ready yet", statefulSetView{Replicas: 3, Partition: 2, Parallel: true}, []int{0, 1}, 0, 0},
+		{"roll under way", statefulSetView{Replicas: 3, Rolling: true, Parallel: true}, []int{0, 2}, 0, 0},
+		{"roll done", statefulSetView{Replicas: 3, Parallel: true}, []int{0, 1, 2}, 0, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &scalerFake{t: t, view: tc.view, ready: tc.ready, memory: fullPod}
+			if err := newTestScaler(f).scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}); err != nil {
+				t.Fatal(err)
+			}
+			if f.released != tc.wantRelease || f.scaledTo != tc.wantScaledTo {
+				t.Errorf("released partition %d, scaled to %d; want %d and %d", f.released, f.scaledTo, tc.wantRelease, tc.wantScaledTo)
 			}
 		})
 	}
