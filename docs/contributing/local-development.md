@@ -211,7 +211,7 @@ make auth # test-integration refreshes an existing token
 make test-integration
 ```
 
-`make test-agent-scaling` runs `scripts/cluster/test-agent-scaling.sh` against the running cluster and is not run by CI or `make check`. It waits for the scaler to switch any agent StatefulSet still on `OrderedReady` to `Parallel` and checks its pods survive, then starts 31 Claude Code runs on an agent with a total of 30 and checks a one-step scale-up, the run over the total staying pending past 3 minutes, and scale-down to 2 pods one at a time.
+`make test-agent-scaling` runs `scripts/cluster/test-agent-scaling.sh` against the running cluster and is not run by CI or `make check`. It waits for the scaler to switch any agent StatefulSet still on `OrderedReady` to `Parallel` and checks its pods survive, then starts 31 Claude Code runs on an agent with a total of 30 and checks a one-step scale-up, the run over the total staying pending past 3 minutes, and scale-down to 1 pod one at a time.
 
 ### Postgres-backed repository tests
 
