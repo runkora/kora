@@ -87,6 +87,47 @@ func TestDesiredReplicas(t *testing.T) {
 			in.counts.Pending = 1
 			in.ready, in.terminating = []int{1}, 1
 		}), 3},
+		// An evicted pod drains for up to drainGracePeriodSecs, and its ordinal takes no new pod until it exits.
+		{"an evicted only pod with an idle run gets a replacement", base(func(in *scaleInput) {
+			in.replicas, in.floor, in.topRuns = 1, 1, 1
+			in.counts.Active = 1
+			in.ready, in.readings, in.terminating = nil, nil, 1
+		}), 2},
+		{"an evicted only pod with no run gets a replacement", base(func(in *scaleInput) {
+			in.replicas, in.floor = 1, 1
+			in.ready, in.readings, in.terminating = nil, nil, 1
+		}), 2},
+		{"an evicted pod's replacement stays within the total", base(func(in *scaleInput) {
+			in.replicas, in.floor, in.total = 1, 1, 1
+			in.ready, in.readings, in.terminating = nil, nil, 1
+		}), 1},
+		{"keep the empty replacement while the evicted pod drains", base(func(in *scaleInput) {
+			in.floor = 1
+			in.ready, in.terminating = []int{1}, 1
+		}), 2},
+		{"a surge roll adds no pod for its draining pod", base(func(in *scaleInput) {
+			in.floor, in.rolling = 1, true
+			in.ready, in.terminating = []int{1}, 1
+		}), 2},
+		{"keep the replacement while the evicted pod's successor comes up", base(func(in *scaleInput) {
+			in.floor = 1
+			in.ready = []int{1}
+		}), 2},
+		{"keep an empty top pod above a crashlooping pod", base(func(in *scaleInput) {
+			in.replicas = 3
+			in.ready = []int{0, 2}
+		}), 3},
+		{"a node drain at a floor of 2 replaces both pods", base(func(in *scaleInput) {
+			in.ready, in.terminating = nil, 2
+		}), 4},
+		{"the floor holds when the total is below it", base(func(in *scaleInput) {
+			in.total = 1
+			in.ready, in.terminating = []int{1}, 1
+		}), 2},
+		{"remove a top pod that never got Ready", base(func(in *scaleInput) {
+			in.replicas, in.floor = 7, 1
+			in.ready = nil
+		}), 6},
 		{"scale down an empty top pod", base(func(in *scaleInput) { in.replicas = 5 }), 4},
 		{"keep a busy top pod", base(func(in *scaleInput) { in.replicas = 5; in.topRuns = 1 }), 5},
 		{"never below the floor", base(func(in *scaleInput) {}), 2},
