@@ -202,7 +202,7 @@ A sandbox pod reaches these in-cluster hosts:
 *   `kora-policy-service` on port 80: OPA bundle polling (`kora-opa-config` in `backend/internal/operator/tenant_controller.go`). The `opa-policy-ext-authz` EnvoyFilter patches route config `80` at the virtual host `kora-policy-service.<system namespace>.svc.cluster.local:80`.
 *   `kora-egress-gateway` on port 8085: the `egress-transparent-encap` internal listener routes to its `outbound|8085` cluster, and `egress-gateway-connect-outbound` patches the `allow_any` virtual host of route config `8085`.
 
-The sandbox exports no telemetry: the webhook clears the identity-proxy OTLP endpoint on sandbox pods. `sandbox-exec` makes no in-cluster call. DNS and xDS do not use Envoy clusters.
+The sandbox exports no telemetry: the webhook clears the identity-proxy OTLP endpoint on sandbox pods. `sandbox-exec` makes no in-cluster call. xDS does not use an Envoy cluster. Envoy captures DNS over TCP and routes it through the kube-dns listener.
 
 The mesh runs `outboundTrafficPolicy: ALLOW_ANY` (`istio.outboundTrafficPolicy`). Istio renders the `allow_any` virtual host only in that mode. External TCP from a sandbox to a port without a dedicated listener takes `virtualOutbound`, where `egress-transparent-encap` patches 5 to 7 tunnel it to the egress gateway. TLS on `:443` takes the `0.0.0.0_443` listener (patches 3 and 4) when an in-scope Service creates that listener, and patch 7 otherwise. Both tunnel `CONNECT <sni>:443`. A `git clone` or package install reaches the egress gateway whichever in-cluster hosts the proxy knows.
 
@@ -211,18 +211,18 @@ Two kora-system workloads call into tenant namespaces. The chart's NetworkPolici
 *   kora-agents calls each session-manager on port 8090 through the agent's headless Service (`backend/internal/platform/clients/sessionmanager/client.go`).
 *   The tool-gateway proxy and publisher call MCPServer endpoints in tenant namespaces. Both Deployments carry `app: kora-tool-gateway`.
 
-The other kora-system workloads reach kora-system Services, istiod, the collector, and external hosts. External hosts go through Envoy passthrough under `ALLOW_ANY`. Under `REGISTRY_ONLY` they need ServiceEntries. The chart (`serviceentries.yaml`) and the operator (inference providers, `exportTo: ["."]`) create these in kora-system.
+The other kora-system workloads reach kora-system Services, the Kubernetes API, kube-dns, istiod, the collector, and external hosts. External hosts go through Envoy passthrough under `ALLOW_ANY`. Under `REGISTRY_ONLY` they need ServiceEntries. The chart (`serviceentries.yaml`) and the operator (inference providers, `exportTo: ["."]`) create these in kora-system.
 
 ### Decision: Sandbox Sidecar (PR 1)
 
-The operator reconciles an Istio Sidecar `sandbox-egress` in every tenant namespace beside `agent-egress`. It selects `runkora.io/role: sandbox` and lists three `egress.hosts`: the Service FQDNs of `kora-identity`, `kora-policy-service` and `kora-egress-gateway` in the system namespace. It sets no `outboundTrafficPolicy` and inherits the mesh mode. `REGISTRY_ONLY` would remove the `allow_any` virtual host that `egress-gateway-connect-outbound` patches. `ALLOW_ANY` would open port 80 passthrough on a mesh that runs `REGISTRY_ONLY`. The operator creates and merge-patches it the same way as `agent-egress`.
+The operator reconciles an Istio Sidecar `sandbox-egress` in every tenant namespace beside `agent-egress`. It selects `runkora.io/role: sandbox` and lists four `egress.hosts`: the Service FQDNs of `kora-identity`, `kora-policy-service` and `kora-egress-gateway` in the system namespace, and of `kube-dns` in `kube-system`. It sets no `outboundTrafficPolicy` and inherits the mesh mode. `REGISTRY_ONLY` would remove the `allow_any` virtual host that `egress-gateway-connect-outbound` patches. `ALLOW_ANY` would open port 80 passthrough on a mesh that runs `REGISTRY_ONLY`. The operator creates and merge-patches it the same way as `agent-egress`.
 
 ### Decision: kora-system Sidecars (PR 2)
 
-**Option O1 (chosen):** The chart renders Sidecars in kora-system. A namespace default Sidecar with no workload selector lists `./*`, `<istio namespace>/*` and the collector. The collector entry is `<collectorNamespace>/*` when `global.observability.collectorNamespace` is set, and `*/<collector host>` for an external collector. Two workload Sidecars select `app: kora-agents` and `app: kora-tool-gateway` and list `*/*`. A Sidecar with a workload selector takes precedence over the namespace default.
+**Option O1 (chosen):** The chart renders Sidecars in kora-system. A namespace default Sidecar with no workload selector lists `./*`, `<istio namespace>/*`, the `kubernetes` Service in `default`, the `kube-dns` Service in `kube-system`, and the collector. The collector entry is `<collectorNamespace>/*` when `global.observability.collectorNamespace` is set. Otherwise it is `*/<endpoint host>`, with a `.svc` host expanded to `.svc.cluster.local`. Two workload Sidecars select `app: kora-agents` and `app: kora-tool-gateway` and list `*/*`. A Sidecar with a workload selector takes precedence over the namespace default.
 
 *   **Pros:** Every other kora-system proxy stops receiving tenant Services, and its config no longer grows with the agent count. The change is chart-only.
-*   **Cons:** kora-agents and the tool-gateway keep the full config and still grow with the agent count. A kora-system workload that starts calling a tenant namespace or another in-cluster namespace needs a Sidecar entry. Without one, an `ALLOW_ANY` mesh sends the call through passthrough with no Istio mTLS or DestinationRule, and a `REGISTRY_ONLY` mesh refuses it.
+*   **Cons:** kora-agents and the tool-gateway keep the full config and still grow with the agent count. A call from another kora-system workload to a `.svc` host in another namespace leaves the mesh registry. This covers an in-cluster inference provider and an in-cluster brokered upstream. An `ALLOW_ANY` mesh sends the call through passthrough with no Istio mTLS or DestinationRule, and a `REGISTRY_ONLY` mesh refuses it. A destination with STRICT mTLS then resets the call.
 
 **Option O2 (rejected):** kora-agents sets `networking.istio.io/exportTo: ".,<system namespace>"` on each agent headless Service and an `exportTo` on each agent DestinationRule, and the operator narrows the MCPServer DestinationRule from `["*"]`. `exportTo` is per namespace. Every kora-system proxy still receives every agent Service. It only hides agent Services from the unscoped pods of other tenant namespaces. MCPServer Services are tenant-authored, and kora does not set their `exportTo`.
 
@@ -245,7 +245,7 @@ The operator reconciles an Istio Sidecar `sandbox-egress` in every tenant namesp
 #### Neutral
 
 *   A sandbox connection to an unlisted in-cluster Service is still refused. On port 80 it takes `allow_any` passthrough and the NetworkPolicy drops it. On other ports it tunnels as `CONNECT <ip>:<port>` and the sandbox OPA applies IP posture.
-*   TLS from a sandbox on `:443` takes the Amendment 6 SNI chain on `virtualOutbound`. TLS with no SNI on `:443` takes the catch-all and IP posture.
+*   TLS from a sandbox on `:443` takes the Amendment 6 SNI chain on `virtualOutbound`. TLS on `:443` with no SNI, or with an SNI that is not a plain DNS name, takes the catch-all and IP posture.
 
 ### Implementation
 

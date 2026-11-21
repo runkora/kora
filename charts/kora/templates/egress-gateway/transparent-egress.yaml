@@ -32,9 +32,10 @@
 # HCM is what re-runs those existing filters on it. The identity-proxy and OPA
 # binaries take no part in it; this is Envoy config alone, scoped to sandbox pods.
 #
-# Scope: mesh services (kora-system, kube-dns, istiod, …) have their own
-# dedicated outbound listeners that match the original destination first, so
-# platform-internal mTLS traffic is untouched. Only external egress is rewritten.
+# Scope: the services in the sandbox's `sandbox-egress` Sidecar (identity,
+# policy-service, the egress gateway, kube-dns) have their own dedicated
+# outbound listeners that match the original destination first. Every other
+# destination, in-cluster or external, is rewritten.
 #
 # Coverage (Amendment 2 "Protocols"): ALL outbound TCP is intercepted and
 # OPA-gated, in two places:

@@ -155,6 +155,7 @@ func TestSandboxEgressSidecar(t *testing.T) {
 		systemNamespace + "/kora-identity." + systemNamespace + ".svc.cluster.local",
 		systemNamespace + "/kora-policy-service." + systemNamespace + ".svc.cluster.local",
 		systemNamespace + "/kora-egress-gateway." + systemNamespace + ".svc.cluster.local",
+		"kube-system/kube-dns.kube-system.svc.cluster.local",
 	}
 	if !slices.Equal(hosts, want) {
 		t.Errorf("hosts = %v, want %v", hosts, want)
