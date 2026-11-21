@@ -196,14 +196,15 @@ type scaleInput struct {
 	watermark float64
 }
 
-// desiredReplicas raises the replicas to the floor, adds the pods the startable pending runs need in
-// one step when no Ready pod has room, or removes the top pod when it is empty, nothing waits and no roll is on.
-// It never adds pods past the agent's total or maxReplicas.
+// desiredReplicas raises the replicas until the floor of pods are not terminating, adds the pods the
+// startable pending runs need in one step when no Ready pod has room, or removes the top pod when it is
+// empty, nothing waits, no roll is on and keepsReadyFloor holds. It never adds pods past
+// the agent's total or maxReplicas, other than to reach the floor.
 func desiredReplicas(in scaleInput) int {
-	if in.replicas < in.floor {
-		return in.floor
-	}
 	ceiling := min(in.total, in.maxReplicas)
+	if floor := floorReplicas(in, ceiling); floor > in.replicas {
+		return floor
+	}
 	// Runs over the agent's total cannot start, so they need no pod.
 	startable := min(in.counts.Pending, in.total-in.counts.Active-in.counts.Starting)
 	// Pods above the ceiling, after it was lowered, are never needed for a waiting run. A pod at the
@@ -219,10 +220,34 @@ func desiredReplicas(in scaleInput) int {
 		add := podsFor(startable, in.allowance, in.watermark, in.memoryMax) - comingUp
 		return max(in.replicas, min(in.replicas+add, ceiling))
 	}
-	if in.replicas > in.floor && in.topRuns == 0 && !in.rolling {
+	if keepsReadyFloor(in) && in.topRuns == 0 && !in.rolling {
 		return in.replicas - 1
 	}
 	return in.replicas
+}
+
+// floorReplicas is the replicas that keep the floor of pods not terminating. A draining pod holds its
+// ordinal until it exits, so its replacement goes above the replicas, up to the ceiling.
+func floorReplicas(in scaleInput, ceiling int) int {
+	short := in.floor - (in.replicas - in.terminating)
+	return max(in.floor, min(in.replicas+short, ceiling))
+}
+
+// keepsReadyFloor reports whether removing the top pod keeps the floor of pods not terminating, and
+// keeps the floor of Ready pods below it when the top pod is Ready. A top pod that never got Ready
+// costs no Ready pod and is removed.
+func keepsReadyFloor(in scaleInput) bool {
+	top := in.replicas - 1
+	if top-in.terminating < in.floor {
+		return false
+	}
+	readyBelow := 0
+	for _, ord := range in.ready {
+		if ord < top {
+			readyBelow++
+		}
+	}
+	return readyBelow >= in.floor || !slices.Contains(in.ready, top)
 }
 
 // podsFor is ceil(runs × allowance ÷ (watermark × memory.max)): the pods that runs fill to the watermark.
