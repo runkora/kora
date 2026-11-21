@@ -3,16 +3,22 @@
 # them all. See docs/adr/2026-09-30-agent-pod-egress-lockdown.md, Amendment 1.
 {{- $ns := include "kora.systemNamespace" . }}
 {{- $obs := .Values.global.observability }}
-{{- $hosts := list "./*" (printf "%s/*" .Values.istio.namespace) }}
+{{- /* The Kubernetes API and kube-dns stay in scope for a REGISTRY_ONLY mesh. */}}
+{{- $hosts := list "./*" (printf "%s/*" .Values.istio.namespace) "default/kubernetes.default.svc.cluster.local" "kube-system/kube-dns.kube-system.svc.cluster.local" }}
 {{- if $obs.collectorNamespace }}
 {{- $hosts = append $hosts (printf "%s/*" $obs.collectorNamespace) }}
 {{- else if $obs.otlpEndpoint }}
-{{- /* The install's ServiceEntry for an external collector, in whichever namespace it lives. */}}
-{{- $hosts = append $hosts (printf "*/%s" (regexReplaceAll ":[0-9]+$" (urlParse $obs.otlpEndpoint).host "")) }}
+{{- /* The collector Service, or the install's ServiceEntry for an external collector in whichever namespace it lives. */}}
+{{- $host := regexReplaceAll ":[0-9]+$" (urlParse $obs.otlpEndpoint).host "" }}
+{{- if hasSuffix ".svc" $host }}{{ $host = printf "%s.cluster.local" $host }}{{ end }}
+{{- if regexMatch "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$" $host }}
+{{- $hosts = append $hosts (printf "*/%s" $host) }}
+{{- end }}
 {{- end }}
 ---
-# The namespace default: the system namespace, Istio and the collector. A call
-# to any other host leaves through the mesh's outbound traffic policy.
+# The namespace default: the system namespace, Istio, the Kubernetes API,
+# kube-dns and the collector. A call to any other host leaves through the
+# mesh's outbound traffic policy.
 apiVersion: networking.istio.io/v1
 kind: Sidecar
 metadata:

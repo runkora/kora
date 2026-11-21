@@ -24,6 +24,12 @@ type sidecar struct {
 	} `json:"spec"`
 }
 
+// baseSystemHosts are the namespace default's hosts without a collector.
+var baseSystemHosts = []string{
+	"./*", "istio-system/*",
+	"default/kubernetes.default.svc.cluster.local", "kube-system/kube-dns.kube-system.svc.cluster.local",
+}
+
 // renderSidecars renders the chart and returns its Sidecars by name.
 func renderSidecars(t *testing.T, values string) map[string]sidecar {
 	t.Helper()
@@ -53,8 +59,8 @@ func TestChartSystemSidecars(t *testing.T) {
 	if def.Metadata.Namespace != "kora-system" || def.Spec.WorkloadSelector != nil {
 		t.Errorf("default = %+v, want a namespace default in kora-system", def)
 	}
-	if hosts := def.Spec.Egress[0].Hosts; !slices.Equal(hosts, []string{"./*", "istio-system/*"}) {
-		t.Errorf("default hosts = %v, want [./* istio-system/*]", hosts)
+	if hosts := def.Spec.Egress[0].Hosts; !slices.Equal(hosts, baseSystemHosts) {
+		t.Errorf("default hosts = %v, want %v", hosts, baseSystemHosts)
 	}
 	for _, app := range []string{"kora-agents", "kora-tool-gateway"} {
 		s := got[app]
@@ -67,15 +73,23 @@ func TestChartSystemSidecars(t *testing.T) {
 	}
 }
 
-// The namespace default adds the collector: its namespace when it runs in the cluster, or its host otherwise.
+// The namespace default adds the collector: its namespace when it runs in the cluster, or its host otherwise. An
+// endpoint with no usable host adds nothing.
 func TestChartSystemSidecarCollector(t *testing.T) {
-	for values, want := range map[string]string{
-		"global:\n  observability:\n    otlpEndpoint: http://lgtm.observability.svc:4317\n    collectorNamespace: observability\n": "observability/*",
-		"global:\n  observability:\n    otlpEndpoint: https://otel.example.com:4317\n":                                             "*/otel.example.com",
+	for _, tc := range []struct{ endpoint, namespace, want string }{
+		{"http://lgtm.observability.svc:4317", "observability", "observability/*"},
+		{"https://otel.example.com:4317", "", "*/otel.example.com"},
+		{"http://otel-collector.observability.svc:4317", "", "*/otel-collector.observability.svc.cluster.local"},
+		{"otel.example.com:4317", "", ""},
+		{"http://[fd00::1]:4317", "", ""},
 	} {
-		hosts := renderSidecars(t, values)["default"].Spec.Egress[0].Hosts
-		if !slices.Equal(hosts, []string{"./*", "istio-system/*", want}) {
-			t.Errorf("hosts = %v, want the collector entry %q", hosts, want)
+		values := "global:\n  observability:\n    otlpEndpoint: \"" + tc.endpoint + "\"\n    collectorNamespace: \"" + tc.namespace + "\"\n"
+		want := slices.Clone(baseSystemHosts)
+		if tc.want != "" {
+			want = append(want, tc.want)
+		}
+		if hosts := renderSidecars(t, values)["default"].Spec.Egress[0].Hosts; !slices.Equal(hosts, want) {
+			t.Errorf("%s: hosts = %v, want %v", tc.endpoint, hosts, want)
 		}
 	}
 }
