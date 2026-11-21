@@ -191,6 +191,49 @@ func TestChartSessionManagerMemory(t *testing.T) {
 	}
 }
 
+// The rendered agents.workloads reaches the session-manager container as the
+// CPU request: 250m by default or the configured value, with a 2 CPU limit.
+func TestChartSessionManagerCPU(t *testing.T) {
+	for name, tc := range map[string]struct{ values, want string }{
+		"default":    {"{}\n", "250m"},
+		"configured": {"agents:\n  workloads:\n    sessionManager:\n      cpu: 50m\n", "50m"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := renderChart(t, tc.values, "--show-only", "templates/agents/workloads-configmap.yaml")
+			var cm corev1.ConfigMap
+			if err := yaml.Unmarshal([]byte(out), &cm); err != nil {
+				t.Fatal(err)
+			}
+			var file struct {
+				Workloads agents.WorkloadsConfig `json:"workloads"`
+			}
+			if err := yaml.Unmarshal([]byte(cm.Data["workloads.yaml"]), &file); err != nil {
+				t.Fatal(err)
+			}
+			if file.Workloads.SessionManager.CPU == nil {
+				t.Fatal("chart rendered no agents.workloads.sessionManager.cpu")
+			}
+			objs, err := agents.RenderResources(agents.K8sProvisionerConfig{Workloads: file.Workloads}, agents.AgentType{ID: "a", Slug: "coder", TenantID: "t"}, "tenant-t", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var resources corev1.ResourceRequirements
+			for _, obj := range objs {
+				if ss, ok := obj.(*appsv1.StatefulSet); ok {
+					resources = ss.Spec.Template.Spec.Containers[0].Resources
+				}
+			}
+			want := resource.MustParse(tc.want)
+			if got := resources.Requests[corev1.ResourceCPU]; got.Cmp(want) != 0 {
+				t.Errorf("cpu request = %s, want %s", got.String(), tc.want)
+			}
+			if got, limit := resources.Limits[corev1.ResourceCPU], resource.MustParse("2"); got.Cmp(limit) != 0 {
+				t.Errorf("cpu limit = %s, want 2", got.String())
+			}
+		})
+	}
+}
+
 // The chart renders the memory thresholds kora-agents decodes, and rejects a
 // placement watermark at or above the pressure limit.
 func TestChartMemoryThresholds(t *testing.T) {

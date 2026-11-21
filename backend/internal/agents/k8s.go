@@ -2077,12 +2077,12 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 							},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:              resource.MustParse("250m"),
+									corev1.ResourceCPU:              *sessionManager.CPU,
 									corev1.ResourceMemory:           *sessionManager.Memory,
 									corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralRequest),
 								},
 								Limits: corev1.ResourceList{
-									corev1.ResourceCPU:              resource.MustParse("2"),
+									corev1.ResourceCPU:              resource.MustParse(sessionManagerCPULimit),
 									corev1.ResourceMemory:           *sessionManager.Memory,
 									corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralLimit),
 								},

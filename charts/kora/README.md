@@ -115,6 +115,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.workloads.sandbox.tolerations | list | `[]` |  |
 | agents.workloads.sandbox.topologySpreadConstraints | list | `[]` |  |
 | agents.workloads.sessionManager.affinity | object | `{}` |  |
+| agents.workloads.sessionManager.cpu | string | `"250m"` | CPU request of the session-manager container. The limit stays at 2 CPU, so a value above 2 fails kora-agents' startup. Nodes fill on requests, not use: lowering it fits more agents per node. |
 | agents.workloads.sessionManager.memory | string | `"1Gi"` | Memory request and limit of the session-manager container. |
 | agents.workloads.sessionManager.nodeSelector | object | `{}` |  |
 | agents.workloads.sessionManager.podAnnotations | object | `{}` |  |

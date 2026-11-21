@@ -719,6 +719,10 @@ agents:
     sessionManager:
       # -- Memory request and limit of the session-manager container.
       memory: 1Gi
+      # -- CPU request of the session-manager container. The limit stays at 2 CPU,
+      # so a value above 2 fails kora-agents' startup. Nodes fill on requests, not
+      # use: lowering it fits more agents per node.
+      cpu: 250m
       nodeSelector: {}
       tolerations: []
       affinity: {}
