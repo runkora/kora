@@ -176,7 +176,7 @@ The StatefulSet replicas will be set only on create, to `max(minReplicas, 1)`. R
 
 kora-agents' Kubernetes client runs at 50 QPS with a burst of 100.
 
-Scale-down is not an eviction, and the `minAvailable: 1` PodDisruptionBudget does not block it. The defaults carry no Karpenter or Cluster Autoscaler annotations. Operators add them through `agents.workloads.common.podAnnotations` or `agents.manifestPatches`.
+Scale-down is not an eviction, and the PodDisruptionBudget does not block it. The defaults carry no Karpenter or Cluster Autoscaler annotations. Operators add them through `agents.workloads.common.podAnnotations` or `agents.manifestPatches`.
 
 ### Parallel Pod Management
 
@@ -272,6 +272,7 @@ With a floor of 1, a roll today leaves the agent with no pod for new runs:
 
 *   [Run Scheduling](2026-10-12-run-scheduling.md): the `minReplicas` value of 2.
 *   [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) Amendment 1: a minimum of 2 replicas.
+*   [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md): the PDB `minAvailable: 1`. At a floor of 1 the PodDisruptionBudget is `maxUnavailable: 1`.
 
 ---
 
