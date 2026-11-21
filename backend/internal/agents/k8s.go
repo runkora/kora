@@ -450,7 +450,7 @@ type statefulSetView struct {
 	// MemoryLimitBytes is the session-manager container's memory limit, the scaler's fallback for memory.max.
 	MemoryLimitBytes int64
 	Parallel         bool
-	// Partition is the RollingUpdate partition. Rolling is true while the current and update revisions differ.
+	// Partition is the RollingUpdate partition. Rolling is true while a spec change is unobserved or the revisions differ.
 	Partition int
 	Rolling   bool
 	// Ready holds the ReadyOrdinals. Terminating counts the draining pods below the replicas.
@@ -474,7 +474,8 @@ func (p *K8sProvisioner) AgentStatefulSet(ctx context.Context, slug, namespace s
 	}
 	view = statefulSetView{
 		Replicas: specReplicas(ss), Parallel: ss.Spec.PodManagementPolicy == appsv1.ParallelPodManagement,
-		Partition: specPartition(ss), Rolling: ss.Status.CurrentRevision != ss.Status.UpdateRevision,
+		Partition: specPartition(ss),
+		Rolling:   ss.Status.ObservedGeneration < ss.Generation || ss.Status.CurrentRevision != ss.Status.UpdateRevision,
 	}
 	view.Ready, view.Terminating = podOrdinals(ss, pods, slug)
 	for _, c := range ss.Spec.Template.Spec.Containers {
@@ -507,8 +508,8 @@ func (p *K8sProvisioner) ScaleStatefulSet(ctx context.Context, slug, namespace s
 	return nil
 }
 
-// ReleaseRollHold sets the RollingUpdate partition to 0, only while it is still partition, so the
-// roll held for a surge pod replaces the old pods (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 1).
+// ReleaseRollHold sets the RollingUpdate partition to 0 while it is still partition. RollingUpdate then
+// replaces the old pods (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 1).
 func (p *K8sProvisioner) ReleaseRollHold(ctx context.Context, slug, namespace string, partition int) error {
 	sets := p.client.AppsV1().StatefulSets(namespace)
 	ss, err := sets.Get(ctx, slug, metav1.GetOptions{})
@@ -1960,9 +1961,8 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	return err
 }
 
-// surgeTemplateChange holds the roll of a changed pod template behind one new pod: the partition keeps
-// the live pods on their revision until the scaler sees the new pod Ready. At maxReplicas the roll
-// starts at once (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 1).
+// surgeTemplateChange adds one pod for a changed template and holds the old pods on their revision until it is
+// Ready. At maxReplicas the roll starts at once (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 1).
 func (p *K8sProvisioner) surgeTemplateChange(ctx context.Context, ss *appsv1.StatefulSet, live corev1.PodTemplateSpec) error {
 	// The API server rejects a partition on an OnDelete StatefulSet.
 	if ss.Spec.UpdateStrategy.Type == appsv1.OnDeleteStatefulSetStrategyType {
