@@ -1,6 +1,6 @@
 # Demand-Driven Agent Scaling
 
-**Status:** Accepted  
+**Status:** Accepted (Amended 2026-11-21)  
 **Date:** 2026-11-09  
 **Deciders:** Justin Wilkin  
 **Technical Story:** An agent's concurrency becomes a total across its pods, and agent pods scale on run demand.  
@@ -54,7 +54,7 @@ Working set is `memory.current` minus `inactive_file` from `memory.stat`. The ku
 *   Node provisioning.
 *   One pod per run (a topology for its own ADR).
 *   A per-agent pod memory size.
-*   A change to the `minReplicas` floor.
+*   A change to the `minReplicas` floor (see Amendment 1).
 *   CPU and sidecar resources.
 *   Dropping the old database column and the old changed-field name.
 
@@ -172,11 +172,11 @@ kora-agents will run a scaler loop every 5 s, independent of the claim tick. For
 *   Scale down by one pod when the top pod (ordinal `replicas − 1`) is above `minReplicas` and has no active or starting run, and no run under the total is waiting. The empty-top-pod check and the scale call both happen under the lock.
 *   Scale up to `minReplicas` when the floor is raised above the live count.
 
-The StatefulSet replicas will be set only on create, to `max(minReplicas, 1)`. Re-applying an agent keeps the live `spec.replicas`.
+The StatefulSet replicas will be set only on create, to `max(minReplicas, 1)`. Re-applying an agent keeps the live `spec.replicas`, apart from the surge pod in Amendment 1.
 
 kora-agents' Kubernetes client runs at 50 QPS with a burst of 100.
 
-Scale-down is not an eviction, and the `minAvailable: 1` PodDisruptionBudget does not block it. The defaults carry no Karpenter or Cluster Autoscaler annotations. Operators add them through `agents.workloads.common.podAnnotations` or `agents.manifestPatches`.
+Scale-down is not an eviction, and the PodDisruptionBudget does not block it. The defaults carry no Karpenter or Cluster Autoscaler annotations. Operators add them through `agents.workloads.common.podAnnotations` or `agents.manifestPatches`.
 
 ### Parallel Pod Management
 
@@ -233,6 +233,49 @@ kora-agents will remove the CPU and memory HPA, `MaxReplicas: 10`, the chart che
 
 ---
 
+## Amendment 1 (2026-11-21): One-Pod Floor and Surge Rollout
+
+**Status:** Accepted
+
+Each agent keeps a floor of 2 session-manager pods so that one pod takes new runs while the other drains during a roll. At 57 agents the floor reserves 114Gi of pod memory.
+
+With a floor of 1, a roll today leaves the agent with no pod for new runs:
+
+1.  RollingUpdate deletes the only pod, and the pod drains for up to `drainGracePeriodSecs` (default 3600).
+2.  The scaler counts the draining pod as coming up and adds no pod.
+3.  The start budget does not count a terminating pod, and new runs fail after 3 minutes.
+
+### Considered Options
+
+*   **Surge before the roll (chosen):** kora-agents adds one pod on the new revision and holds the roll until that pod is Ready.
+*   **`OnDelete` updates ordered by kora-agents (rejected):** kora-agents would have to order every pod deletion itself. [Run Scheduling](2026-10-12-run-scheduling.md) rejected the same design as more complex than RollingUpdate with a drain.
+*   **Scale on demand during the roll (rejected):** The scaler would add a pod only when a run waits. Every run during a roll would wait for a pod to start, and an agent with no runs would get no pod on the new revision.
+
+### Decision
+
+*   The `minReplicas` default will be 1.
+*   When an apply, or a framework or model change, changes the pod template of a live StatefulSet, kora-agents will set `rollingUpdate.partition` to the live replicas and raise the replicas by one in the same write. The new pod starts on the new revision, and the existing pods keep the old revision.
+*   When the pod at the partition ordinal is Ready, the scaler will set the partition to 0. RollingUpdate then replaces the old pods one at a time, and each pod drains as before.
+*   The scaler will also set the partition to 0 when it is at or above the replicas.
+*   An agent at `maxReplicas` will get no surge pod. Its roll starts at once.
+*   The scaler will not scale down while the partition is above 0 or the StatefulSet's current revision differs from its update revision, or while the StatefulSet controller has not yet seen the latest spec.
+*   After the roll, the scale-down rule removes empty top pods down to the floor.
+*   A terminating pod will not count as coming up in the scaler.
+
+### Consequences
+
+*   **Positive:** The default floor reserves 57Gi at 57 agents. Existing agents scale down to 1 pod through the scale-down rule.
+*   **Negative:** A pod that crashes or loses its node leaves the agent with no pod for new runs until its replacement is Ready. Runs wait in `pending` while the replacement is coming up.
+*   **Neutral:** A roll still takes up to `drainGracePeriodSecs` per old pod.
+
+### Superseded
+
+*   [Run Scheduling](2026-10-12-run-scheduling.md): the `minReplicas` value of 2.
+*   [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) Amendment 1: a minimum of 2 replicas.
+*   [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md): the PDB `minAvailable: 1`. At a floor of 1 the PodDisruptionBudget is `maxUnavailable: 1`.
+
+---
+
 ## Related Decisions
 
 *   [Run Scheduling](2026-10-12-run-scheduling.md): superseded in part. This ADR supersedes these parts of it:
@@ -242,7 +285,7 @@ kora-agents will remove the CPU and memory HPA, `MaxReplicas: 10`, the chart che
     *   Considered Options, Session-Manager Workload: the StatefulSet held at 2 pods.
     *   Decision, Agent Resources: the HPA minimum and the StatefulSet replicas of 2.
     *   Consequences: runs beyond a pod's free slots failing when the start budget runs out, a run that finds no pod within the start budget ending `failed`, and `pending` held for up to the start budget.
-    *   The rest of Run Scheduling stands, including the durable queue, the drain and the `minReplicas` value of 2.
+    *   The rest of Run Scheduling stands, including the durable queue and the drain. Amendment 1 supersedes the `minReplicas` value of 2.
 *   [Database Migrations](2026-09-10-database-migrations.md): Decision 5, the compatibility contract.
 *   [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md): superseded in part. This ADR supersedes these parts of it:
     *   Decision Drivers: HPA on resource metrics over session-count scaling.
@@ -261,4 +304,4 @@ kora-agents will remove the CPU and memory HPA, `MaxReplicas: 10`, the chart che
 
 ---
 
-**Last Updated:** 2026-11-10
+**Last Updated:** 2026-11-21 (Amendment 1: one-pod floor and surge rollout)
