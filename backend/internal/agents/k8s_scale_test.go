@@ -305,6 +305,9 @@ func TestRollHoldSurvivesRestart(t *testing.T) {
 	if _, err := client.CoreV1().Pods(scaleTestNS).Create(ctx, pod("coder-0", corev1.ConditionTrue), metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
+	if writes != 1 {
+		t.Fatalf("apply made %d writes, want 1", writes)
+	}
 	surge, err := client.CoreV1().Pods(scaleTestNS).Create(ctx, pod("coder-1", corev1.ConditionFalse), metav1.CreateOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -364,5 +367,51 @@ func TestRolling(t *testing.T) {
 		if got := rolling(tc.ss); got != tc.want {
 			t.Errorf("%s: rolling = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// An OnDelete StatefulSet takes no partition: its template still applies with no surge pod.
+func TestEnsureStatefulSetOnDeleteNoSurge(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ctx := context.Background()
+	p := podSecurityProvisioner()
+	p.cfg.MaxReplicas = 4
+	live := liveStatefulSet(at, 1, appsv1.ParallelPodManagement)
+	live.Spec.UpdateStrategy.Type = appsv1.OnDeleteStatefulSetStrategyType
+	client := fake.NewSimpleClientset(live)
+	p.client = client
+	if err := p.ensureStatefulSet(ctx, at, scaleTestNS, agentTypeLabels(at), metav1.OwnerReference{}, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *got.Spec.Replicas != 1 || got.Spec.UpdateStrategy.RollingUpdate != nil || got.Spec.Template.Spec.Containers[0].Image == "live" {
+		t.Errorf("replicas %d, rollingUpdate %v, image %q; want 1, none and the rendered image",
+			*got.Spec.Replicas, got.Spec.UpdateStrategy.RollingUpdate, got.Spec.Template.Spec.Containers[0].Image)
+	}
+}
+
+// ReleaseRollHold refuses a partition that moved since the read and sets a current one to 0.
+func TestReleaseRollHold(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ctx := context.Background()
+	live := liveStatefulSet(at, 2, appsv1.ParallelPodManagement)
+	live.Spec.UpdateStrategy.RollingUpdate = &appsv1.RollingUpdateStatefulSetStrategy{Partition: new(int32(1))}
+	client := fake.NewSimpleClientset(live)
+	p := &K8sProvisioner{client: client}
+	if err := p.ReleaseRollHold(ctx, at.Slug, scaleTestNS, 2); !errors.Is(err, errPartitionMoved) {
+		t.Errorf("stale partition: err %v, want errPartitionMoved", err)
+	}
+	if err := p.ReleaseRollHold(ctx, at.Slug, scaleTestNS, 1); err != nil {
+		t.Fatal(err)
+	}
+	got, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if specPartition(got) != 0 {
+		t.Errorf("partition %d, want 0", specPartition(got))
 	}
 }

@@ -113,15 +113,15 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	if err != nil || !found {
 		return err
 	}
-	allowance, err := s.cfg.StartingRunAllowances.For(at.Framework)
-	if err != nil {
-		return err
-	}
 	// A Ready surge pod releases the held roll. A hold left by a restart is released here too.
 	if ss.Partition > 0 && slices.Contains(ss.Ready, ss.Partition) {
 		s.logger.Info(ctx, "releasing agent roll hold",
 			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "partition", Value: ss.Partition})
 		return s.cluster.ReleaseRollHold(ctx, at.Slug, namespace, ss.Partition)
+	}
+	allowance, err := s.cfg.StartingRunAllowances.For(at.Framework)
+	if err != nil {
+		return err
 	}
 	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, ss.Ready)
 	ran, err := s.store.WaitWithAgentLock(ctx, at.ID, scalerLockTimeout, func(ctx context.Context) error {
