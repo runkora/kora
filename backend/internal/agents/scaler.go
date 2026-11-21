@@ -117,7 +117,7 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	if err != nil {
 		return err
 	}
-	// The surge pod is Ready, so the held roll may replace the old pods. A hold left by a restart is released here too.
+	// A Ready surge pod releases the held roll. A hold left by a restart is released here too.
 	if ss.Partition > 0 && slices.Contains(ss.Ready, ss.Partition) {
 		s.logger.Info(ctx, "releasing agent roll hold",
 			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "partition", Value: ss.Partition})

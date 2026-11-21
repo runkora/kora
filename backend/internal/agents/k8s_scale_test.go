@@ -204,7 +204,15 @@ func TestAgentStatefulSetCountsTerminatingPods(t *testing.T) {
 	}
 }
 
-// dryRunReactor answers a server-side dry run without storing it, as the API server does, and counts the stored updates.
+// defaultTemplate stands in for API defaulting of a pod template.
+func defaultTemplate(t *corev1.PodTemplateSpec) {
+	for i := range t.Spec.Containers {
+		t.Spec.Containers[i].TerminationMessagePath = corev1.TerminationMessagePathDefault
+	}
+}
+
+// dryRunReactor answers a server-side dry run with the defaulted object without storing it, as the API
+// server does, and counts the stored updates.
 func dryRunReactor(client *fake.Clientset, writes *int) {
 	client.PrependReactor("update", "statefulsets", func(a k8stesting.Action) (bool, runtime.Object, error) {
 		u, ok := a.(k8stesting.UpdateActionImpl)
@@ -212,7 +220,9 @@ func dryRunReactor(client *fake.Clientset, writes *int) {
 			return false, nil, nil
 		}
 		if len(u.GetUpdateOptions().DryRun) > 0 {
-			return true, u.GetObject(), nil
+			dry := u.GetObject().DeepCopyObject().(*appsv1.StatefulSet)
+			defaultTemplate(&dry.Spec.Template)
+			return true, dry, nil
 		}
 		*writes++
 		return false, nil, nil
@@ -251,6 +261,7 @@ func TestEnsureStatefulSetSurge(t *testing.T) {
 					t.Fatal(err)
 				}
 				live.Spec.Template = rendered.Spec.Template
+				defaultTemplate(&live.Spec.Template)
 			}
 			client := fake.NewSimpleClientset(live)
 			writes := 0
