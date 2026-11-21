@@ -282,9 +282,9 @@ func TestEnsureStatefulSetSurge(t *testing.T) {
 	}
 }
 
-// A hold the apply left is released by a scaler that never saw the apply, as after a restart, once the
-// surge pod is Ready, and not before.
-func TestRollHoldSurvivesRestart(t *testing.T) {
+// A scaler that shares no state with the apply keeps the hold and the surge pod until that pod is Ready,
+// then releases the hold. The hold lives only on the StatefulSet.
+func TestScalerReleasesApplyHold(t *testing.T) {
 	at := AgentType{ID: "a", Slug: "coder", TenantID: "acme", MaxConcurrentRuns: 30}
 	ctx := context.Background()
 	p := podSecurityProvisioner()
@@ -312,12 +312,12 @@ func TestRollHoldSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	partition := func() int {
+	state := func() (replicas, partition int) {
 		ss, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
-		return specPartition(ss)
+		return specReplicas(ss), specPartition(ss)
 	}
 	f := &scalerFake{t: t, memory: fullPod}
 	q := resource.MustParse("180Mi")
@@ -329,8 +329,8 @@ func TestRollHoldSurvivesRestart(t *testing.T) {
 	if err := scaler.scale(ctx, at); err != nil {
 		t.Fatal(err)
 	}
-	if got := partition(); got != 1 {
-		t.Fatalf("partition %d with the surge pod not Ready, want the hold of 1", got)
+	if replicas, partition := state(); replicas != 2 || partition != 1 {
+		t.Fatalf("replicas %d, partition %d with the surge pod not Ready; want 2 and the hold of 1", replicas, partition)
 	}
 	surge.Status.Conditions[0].Status = corev1.ConditionTrue
 	if _, err := client.CoreV1().Pods(scaleTestNS).UpdateStatus(ctx, surge, metav1.UpdateOptions{}); err != nil {
@@ -339,8 +339,8 @@ func TestRollHoldSurvivesRestart(t *testing.T) {
 	if err := scaler.scale(ctx, at); err != nil {
 		t.Fatal(err)
 	}
-	if got := partition(); got != 0 {
-		t.Errorf("partition %d with the surge pod Ready, want 0", got)
+	if replicas, partition := state(); replicas != 2 || partition != 0 {
+		t.Errorf("replicas %d, partition %d with the surge pod Ready; want 2 and 0", replicas, partition)
 	}
 }
 
@@ -451,5 +451,97 @@ func TestRolloutStatefulSetSurges(t *testing.T) {
 					tc.wantReplicas, tc.wantPartition)
 			}
 		})
+	}
+}
+
+// conflictOnce fails the first stored update of a StatefulSet with a conflict, as a concurrent scaler write would.
+func conflictOnce(client *fake.Clientset) {
+	failed := false
+	client.PrependReactor("update", "statefulsets", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		u, ok := a.(k8stesting.UpdateActionImpl)
+		if failed || !ok || a.GetSubresource() != "" || len(u.GetUpdateOptions().DryRun) > 0 {
+			return false, nil, nil
+		}
+		failed = true
+		return true, nil, apierrors.NewConflict(schema.GroupResource{Group: "apps", Resource: "statefulsets"}, "coder", errors.New("changed"))
+	})
+}
+
+// A restart from a framework or model change is kept on a later apply, which then sees no template change.
+func TestEnsureStatefulSetKeepsRestartedAt(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ctx := context.Background()
+	p := podSecurityProvisioner()
+	p.cfg.MaxReplicas = 4
+	rendered, err := p.applyStatefulSetPatches(p.buildSessionManagerStatefulSet(at, scaleTestNS, agentTypeLabels(at)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := liveStatefulSet(at, 1, appsv1.ParallelPodManagement)
+	live.Spec.UpdateStrategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
+	live.Spec.Template = rendered.Spec.Template
+	defaultTemplate(&live.Spec.Template)
+	live.Spec.Template.Annotations[annotationRestartedAt] = "2026-11-21T10:00:00Z"
+	client := fake.NewSimpleClientset(live)
+	writes := 0
+	dryRunReactor(client, &writes)
+	p.client = client
+	if err := p.ensureStatefulSet(ctx, at, scaleTestNS, agentTypeLabels(at), metav1.OwnerReference{}, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Spec.Template.Annotations[annotationRestartedAt] != "2026-11-21T10:00:00Z" || *got.Spec.Replicas != 1 || specPartition(got) != 0 {
+		t.Errorf("restartedAt %q, replicas %d, partition %d; want the live restart kept and no surge",
+			got.Spec.Template.Annotations[annotationRestartedAt], *got.Spec.Replicas, specPartition(got))
+	}
+}
+
+// A conflicting write is retried, and the retry reads the StatefulSet again: the surge is applied once.
+func TestStatefulSetWritesRetryOnConflict(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ctx := context.Background()
+	for name, write := range map[string]func(p *K8sProvisioner) error{
+		"apply": func(p *K8sProvisioner) error {
+			return p.ensureStatefulSet(ctx, at, scaleTestNS, agentTypeLabels(at), metav1.OwnerReference{}, true)
+		},
+		"rollout": func(p *K8sProvisioner) error { return p.RolloutStatefulSet(ctx, at.Slug, scaleTestNS) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			live := liveStatefulSet(at, 1, appsv1.ParallelPodManagement)
+			live.Spec.UpdateStrategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
+			client := fake.NewSimpleClientset(live)
+			writes := 0
+			dryRunReactor(client, &writes)
+			conflictOnce(client)
+			p := podSecurityProvisioner()
+			p.cfg.MaxReplicas = 4
+			p.client = client
+			if err := write(p); err != nil {
+				t.Fatal(err)
+			}
+			got, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if *got.Spec.Replicas != 2 || specPartition(got) != 1 || writes != 1 {
+				t.Errorf("replicas %d, partition %d, stored writes %d; want 2, 1 and 1 after one conflict", *got.Spec.Replicas, specPartition(got), writes)
+			}
+		})
+	}
+}
+
+// A conflict on the release is a moved partition, which the scaler leaves to its next pass.
+func TestReleaseRollHoldConflict(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	live := liveStatefulSet(at, 2, appsv1.ParallelPodManagement)
+	live.Spec.UpdateStrategy.RollingUpdate = &appsv1.RollingUpdateStatefulSetStrategy{Partition: new(int32(1))}
+	client := fake.NewSimpleClientset(live)
+	conflictOnce(client)
+	p := &K8sProvisioner{client: client}
+	if err := p.ReleaseRollHold(context.Background(), at.Slug, scaleTestNS, 1); !errors.Is(err, errPartitionMoved) {
+		t.Errorf("conflicting release: err %v, want errPartitionMoved", err)
 	}
 }

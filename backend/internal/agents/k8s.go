@@ -653,7 +653,7 @@ func (p *K8sProvisioner) RolloutStatefulSet(ctx context.Context, slug, namespace
 		if ss.Spec.Template.Annotations == nil {
 			ss.Spec.Template.Annotations = map[string]string{}
 		}
-		ss.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = restartedAt
+		ss.Spec.Template.Annotations[annotationRestartedAt] = restartedAt
 		if err = p.surgeTemplateChange(ctx, ss, live); err != nil {
 			return err
 		}
@@ -1934,35 +1934,45 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	// session-manager image, which redeploy pins by digest. Replicas belong to
 	// the scaler, apart from the surge pod of a template change. The selector,
 	// VolumeClaimTemplates and pod management policy are immutable and stay create-only.
-	existing, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, ss.Name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("get existing statefulset: %w", err)
-	}
-	// Only a deliberate local redeploy pin keeps the live image; otherwise the
-	// rendered image applies so an upgrade moves the agent to the release.
-	var liveImage string
-	if existing.Annotations[annotationImagePinned] == "true" {
-		for _, c := range existing.Spec.Template.Spec.Containers {
-			if c.Name == sessionManagerContainerName {
-				liveImage = c.Image
+	// A scaler write between the read and the update conflicts. The apply is retried rather than lost.
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, ss.Name, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("get existing statefulset: %w", err)
+		}
+		// Only a deliberate local redeploy pin keeps the live image; otherwise the
+		// rendered image applies so an upgrade moves the agent to the release.
+		var liveImage string
+		if existing.Annotations[annotationImagePinned] == "true" {
+			for _, c := range existing.Spec.Template.Spec.Containers {
+				if c.Name == sessionManagerContainerName {
+					liveImage = c.Image
+				}
 			}
 		}
-	}
-	liveTemplate := existing.Spec.Template
-	existing.Spec.Template = ss.Spec.Template
-	for i, c := range existing.Spec.Template.Spec.Containers {
-		if c.Name == sessionManagerContainerName && liveImage != "" {
-			existing.Spec.Template.Spec.Containers[i].Image = liveImage
+		liveTemplate := existing.Spec.Template
+		existing.Spec.Template = *ss.Spec.Template.DeepCopy()
+		for i, c := range existing.Spec.Template.Spec.Containers {
+			if c.Name == sessionManagerContainerName && liveImage != "" {
+				existing.Spec.Template.Spec.Containers[i].Image = liveImage
+			}
 		}
-	}
-	// Backfill the KoraTenant owner reference on the existing StatefulSet.
-	// See docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md.
-	applyOwnerRef(&existing.ObjectMeta, owner)
-	if err = p.surgeTemplateChange(ctx, existing, liveTemplate); err != nil {
+		// The restart of a framework or model change stays, or every later apply would roll the pods again.
+		if restartedAt, ok := liveTemplate.Annotations[annotationRestartedAt]; ok {
+			if existing.Spec.Template.Annotations == nil {
+				existing.Spec.Template.Annotations = map[string]string{}
+			}
+			existing.Spec.Template.Annotations[annotationRestartedAt] = restartedAt
+		}
+		// Backfill the KoraTenant owner reference on the existing StatefulSet.
+		// See docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md.
+		applyOwnerRef(&existing.ObjectMeta, owner)
+		if err = p.surgeTemplateChange(ctx, existing, liveTemplate); err != nil {
+			return err
+		}
+		_, err = p.client.AppsV1().StatefulSets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
 		return err
-	}
-	_, err = p.client.AppsV1().StatefulSets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
-	return err
+	})
 }
 
 // surgeTemplateChange adds one pod for a changed template and holds the old pods on their revision until it is
@@ -2024,6 +2034,9 @@ func drainGracePeriod(secs int64) *int64 {
 // annotationImagePinned marks a StatefulSet whose session-manager image a local
 // redeploy pinned on purpose; ensureStatefulSet keeps the live image then.
 const annotationImagePinned = "runkora.io/session-manager-image-pinned"
+
+// annotationRestartedAt is the pod template annotation RolloutStatefulSet sets to restart the agent's pods.
+const annotationRestartedAt = "kubectl.kubernetes.io/restartedAt"
 
 // sessionManagerContainerName is the session-manager container in every agent StatefulSet pod.
 const sessionManagerContainerName = "session-manager"
