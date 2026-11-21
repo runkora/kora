@@ -82,7 +82,7 @@ agents:
     pollIntervalSecs: 1
     startBudgetSecs: 180
     provisionBudgetSecs: 600
-    minReplicas: 2
+    minReplicas: 1
     maxReplicas: 10
     drainGracePeriodSecs: 3600
     placementWatermark: 0.70

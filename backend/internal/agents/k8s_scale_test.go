@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"slices"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -174,5 +175,30 @@ func TestScaleStatefulSet(t *testing.T) {
 	})
 	if err := p.ScaleStatefulSet(ctx, "coder", scaleTestNS, 5, 6); !errors.Is(err, errReplicasMoved) {
 		t.Errorf("conflicting scale: err %v, want errReplicasMoved", err)
+	}
+}
+
+// The scaler's view counts the draining pods below the replicas and leaves them out of Ready.
+func TestAgentStatefulSetCountsTerminatingPods(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	now := metav1.Now()
+	pod := func(name string, terminating bool) *corev1.Pod {
+		p := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: scaleTestNS, Labels: podLabels(at)},
+			Status:     corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
+		}
+		if terminating {
+			p.DeletionTimestamp = &now
+		}
+		return p
+	}
+	p := &K8sProvisioner{client: fake.NewSimpleClientset(liveStatefulSet(at, 2, appsv1.ParallelPodManagement),
+		pod("coder-0", true), pod("coder-1", false), pod("coder-2", true))}
+	view, found, err := p.AgentStatefulSet(context.Background(), at.Slug, scaleTestNS)
+	if err != nil || !found {
+		t.Fatalf("found %v, err %v", found, err)
+	}
+	if !slices.Equal(view.Ready, []int{1}) || view.Terminating != 1 {
+		t.Errorf("ready %v, terminating %d; want [1] and 1: coder-2 is above the replicas", view.Ready, view.Terminating)
 	}
 }

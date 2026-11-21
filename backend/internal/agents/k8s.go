@@ -354,22 +354,29 @@ func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace stri
 	if ss == nil || err != nil {
 		return nil, err
 	}
-	var out []int
+	ready, _ := podOrdinals(ss, pods, slug)
+	return ready, nil
+}
+
+// podOrdinals returns the sorted ordinals of the Ready, non-terminating pods below the current
+// replicas, and the count of terminating pods below them. A pod at or above the replicas is being scaled away.
+func podOrdinals(ss *appsv1.StatefulSet, pods []corev1.Pod, slug string) (ready []int, terminating int) {
 	for _, pod := range pods {
-		if pod.DeletionTimestamp != nil || !podReady(&pod) {
-			continue
-		}
 		n, ok := strings.CutPrefix(pod.Name, slug+"-")
 		if !ok {
 			continue
 		}
-		// A pod at or above the current replicas is being scaled away.
-		if ord, convErr := strconv.Atoi(n); convErr == nil && ord < specReplicas(ss) {
-			out = append(out, ord)
+		ord, err := strconv.Atoi(n)
+		switch {
+		case err != nil || ord >= specReplicas(ss):
+		case pod.DeletionTimestamp != nil:
+			terminating++
+		case podReady(&pod):
+			ready = append(ready, ord)
 		}
 	}
-	sort.Ints(out)
-	return out, nil
+	sort.Ints(ready)
+	return ready, terminating
 }
 
 // LivePod reports whether the agent has a pod that is not terminating or finished, Ready or not.
@@ -434,12 +441,16 @@ func (p *K8sProvisioner) Replicas(ctx context.Context, slug, namespace string) (
 	return specReplicas(ss), nil
 }
 
-// statefulSetView is what the scaler reads of an agent's StatefulSet.
+// statefulSetView is what the scaler reads of an agent's StatefulSet and its pods.
 type statefulSetView struct {
 	Replicas int
 	// MemoryLimitBytes is the session-manager container's memory limit, the scaler's fallback for memory.max.
 	MemoryLimitBytes int64
 	Parallel         bool
+	// Ready holds the ReadyOrdinals. Terminating counts the draining pods below the replicas, whose
+	// replacements cannot start until they exit.
+	Ready       []int
+	Terminating int
 }
 
 // Scale errors: the replicas changed since the scaler read them, or the target is out of range.
@@ -450,14 +461,12 @@ var (
 
 // AgentStatefulSet reads the scaler's view of an agent's StatefulSet. found is false when it does not exist.
 func (p *K8sProvisioner) AgentStatefulSet(ctx context.Context, slug, namespace string) (view statefulSetView, found bool, err error) {
-	ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		return statefulSetView{}, false, nil
-	}
-	if err != nil {
-		return statefulSetView{}, false, fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
+	ss, pods, err := p.agentPods(ctx, slug, namespace)
+	if ss == nil || err != nil {
+		return statefulSetView{}, false, err
 	}
 	view = statefulSetView{Replicas: specReplicas(ss), Parallel: ss.Spec.PodManagementPolicy == appsv1.ParallelPodManagement}
+	view.Ready, view.Terminating = podOrdinals(ss, pods, slug)
 	for _, c := range ss.Spec.Template.Spec.Containers {
 		if c.Name == sessionManagerContainerName {
 			view.MemoryLimitBytes = c.Resources.Limits.Memory().Value()

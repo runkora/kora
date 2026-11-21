@@ -73,6 +73,16 @@ func TestDesiredReplicas(t *testing.T) {
 			in.counts.Pending = 3
 			in.ready, in.readings = nil, nil
 		}), 2},
+		// A draining pod is not coming up: one pending run on a 1-pod agent mid-roll needs a new pod.
+		{"a terminating pod is not coming up", base(func(in *scaleInput) {
+			in.counts.Pending = 1
+			in.replicas, in.floor = 1, 1
+			in.ready, in.readings, in.terminating = nil, nil, 1
+		}), 2},
+		{"a terminating pod beside a Ready full pod", base(func(in *scaleInput) {
+			in.counts.Pending = 1
+			in.ready, in.terminating = []int{1}, 1
+		}), 3},
 		{"scale down an empty top pod", base(func(in *scaleInput) { in.replicas = 5 }), 4},
 		{"keep a busy top pod", base(func(in *scaleInput) { in.replicas = 5; in.topRuns = 1 }), 5},
 		{"never below the floor", base(func(in *scaleInput) {}), 2},
@@ -164,11 +174,9 @@ func (f *scalerFake) ActiveRunsPerPod(context.Context, string) (map[int]int, err
 }
 
 func (f *scalerFake) AgentStatefulSet(context.Context, string, string) (statefulSetView, bool, error) {
-	return f.view, true, nil
-}
-
-func (f *scalerFake) ReadyOrdinals(context.Context, string, string) ([]int, error) {
-	return f.ready, nil
+	view := f.view
+	view.Ready = f.ready
+	return view, true, nil
 }
 
 func (f *scalerFake) ScaleStatefulSet(_ context.Context, _, _ string, from, to int) error {
