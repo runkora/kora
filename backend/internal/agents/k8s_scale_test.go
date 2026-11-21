@@ -11,6 +11,7 @@ import (
 	autoscalingv1 "k8s.io/api/autoscaling/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -200,5 +201,131 @@ func TestAgentStatefulSetCountsTerminatingPods(t *testing.T) {
 	}
 	if !slices.Equal(view.Ready, []int{1}) || view.Terminating != 1 {
 		t.Errorf("ready %v, terminating %d; want [1] and 1: coder-2 is above the replicas", view.Ready, view.Terminating)
+	}
+}
+
+// dryRunReactor answers a server-side dry run without storing it, as the API server does, and counts the stored updates.
+func dryRunReactor(client *fake.Clientset, writes *int) {
+	client.PrependReactor("update", "statefulsets", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		u, ok := a.(k8stesting.UpdateActionImpl)
+		if !ok || a.GetSubresource() != "" {
+			return false, nil, nil
+		}
+		if len(u.GetUpdateOptions().DryRun) > 0 {
+			return true, u.GetObject(), nil
+		}
+		*writes++
+		return false, nil, nil
+	})
+}
+
+// An apply that changes the pod template adds one pod on the new revision and holds the old pods,
+// in one write. At maxReplicas, or with an unchanged template, there is no hold.
+func TestEnsureStatefulSetSurge(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name          string
+		replicas      int32
+		partition     int32
+		unchanged     bool
+		wantReplicas  int32
+		wantPartition int32
+	}{
+		{"changed template below maxReplicas", 2, 0, false, 3, 2},
+		{"changed template at maxReplicas", 4, 0, false, 4, 0},
+		{"a hold at maxReplicas starts the roll", 4, 3, false, 4, 0},
+		{"unchanged template", 2, 0, true, 2, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := podSecurityProvisioner()
+			p.cfg.MaxReplicas = 4
+			live := liveStatefulSet(at, tc.replicas, appsv1.ParallelPodManagement)
+			live.Spec.UpdateStrategy = appsv1.StatefulSetUpdateStrategy{
+				Type:          appsv1.RollingUpdateStatefulSetStrategyType,
+				RollingUpdate: &appsv1.RollingUpdateStatefulSetStrategy{Partition: &tc.partition},
+			}
+			if tc.unchanged {
+				rendered, err := p.applyStatefulSetPatches(p.buildSessionManagerStatefulSet(at, scaleTestNS, agentTypeLabels(at)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				live.Spec.Template = rendered.Spec.Template
+			}
+			client := fake.NewSimpleClientset(live)
+			writes := 0
+			dryRunReactor(client, &writes)
+			p.client = client
+			if err := p.ensureStatefulSet(ctx, at, scaleTestNS, agentTypeLabels(at), metav1.OwnerReference{}, true); err != nil {
+				t.Fatal(err)
+			}
+			got, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if *got.Spec.Replicas != tc.wantReplicas || specPartition(got) != int(tc.wantPartition) || writes != 1 {
+				t.Errorf("replicas %d, partition %d, writes %d; want %d, %d and 1 write",
+					*got.Spec.Replicas, specPartition(got), writes, tc.wantReplicas, tc.wantPartition)
+			}
+		})
+	}
+}
+
+// A hold the apply left is released by a scaler that never saw the apply, as after a restart, once the
+// surge pod is Ready, and not before.
+func TestRollHoldSurvivesRestart(t *testing.T) {
+	at := AgentType{ID: "a", Slug: "coder", TenantID: "acme", MaxConcurrentRuns: 30}
+	ctx := context.Background()
+	p := podSecurityProvisioner()
+	p.cfg.MaxReplicas = 10
+	client := fake.NewSimpleClientset(liveStatefulSet(at, 1, appsv1.ParallelPodManagement))
+	writes := 0
+	dryRunReactor(client, &writes)
+	p.client = client
+	if err := p.ensureStatefulSet(ctx, at, scaleTestNS, agentTypeLabels(at), metav1.OwnerReference{}, true); err != nil {
+		t.Fatal(err)
+	}
+	pod := func(name string, ready corev1.ConditionStatus) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: scaleTestNS, Labels: podLabels(at)},
+			Status:     corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: ready}}},
+		}
+	}
+	if _, err := client.CoreV1().Pods(scaleTestNS).Create(ctx, pod("coder-0", corev1.ConditionTrue), metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	surge, err := client.CoreV1().Pods(scaleTestNS).Create(ctx, pod("coder-1", corev1.ConditionFalse), metav1.CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	partition := func() int {
+		ss, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return specPartition(ss)
+	}
+	f := &scalerFake{t: t, memory: fullPod}
+	q := resource.MustParse("180Mi")
+	scaler := NewScaler(f, p, f, ScalerConfig{
+		TenantNamespaceFn: func(string) string { return scaleTestNS }, MinReplicas: 1, MaxReplicas: 10,
+		PlacementWatermark: 0.70, StartingRunAllowances: NewStartingRunAllowances(q, q, q),
+	}, p.logger)
+
+	if err := scaler.scale(ctx, at); err != nil {
+		t.Fatal(err)
+	}
+	if got := partition(); got != 1 {
+		t.Fatalf("partition %d with the surge pod not Ready, want the hold of 1", got)
+	}
+	surge.Status.Conditions[0].Status = corev1.ConditionTrue
+	if _, err := client.CoreV1().Pods(scaleTestNS).UpdateStatus(ctx, surge, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := scaler.scale(ctx, at); err != nil {
+		t.Fatal(err)
+	}
+	if got := partition(); got != 0 {
+		t.Errorf("partition %d with the surge pod Ready, want 0", got)
 	}
 }
