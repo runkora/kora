@@ -3,7 +3,7 @@
 # (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 1) with a real Claude Code harness.
 #
 # It creates an agent at the floor of 1 pod and sets an extra environment variable on its
-# StatefulSet. The kora-agents apply at startup removes it, so a restarted kora-agents pod changes
+# StatefulSet. The kora-agents apply at startup removes it. A restarted kora-agents pod then changes
 # the pod template through a real apply. With a run idle on the old pod, it asserts:
 #   1. the apply raises the replicas by one and sets the partition to the old replicas in one write;
 #   2. the surge pod is Ready before the old pod starts terminating;
@@ -90,7 +90,7 @@ agent=$(api POST /api/v1/agent-types -d "$(jq -n --arg slug "$slug" --arg model 
 k wait --for=create "statefulset/$slug" --timeout=180s >/dev/null
 k rollout status "statefulset/$slug" --timeout=300s >/dev/null
 [[ $(k get statefulset "$slug" -o jsonpath='{.spec.replicas}') == 1 ]] || fail "agent $slug did not start at 1 pod"
-# The apply renders no such variable, so the next apply changes the pod template back.
+# The apply renders no such variable. The next apply changes the pod template back.
 k set env "statefulset/$slug" -c session-manager KORA_SURGE_CHECK=1 >/dev/null
 k rollout status "statefulset/$slug" --timeout=300s >/dev/null
 old_uid=$(pod_uid "$slug-0")
@@ -115,8 +115,8 @@ wait_for "the watches to start" test -s "$sts_log" -a -s "$pods_log"
 echo "== Roll"
 kubectl --context "$CONTEXT" -n "$SYSTEM_NS" delete pod -l app=kora-agents --wait=false >/dev/null
 echo "restarted kora-agents; its apply at startup changes the pod template of $slug"
-wait_for "the apply to change the pod template" \
-  test "$(k get statefulset "$slug" -o jsonpath='{.status.updateRevision}')" != "$old_revision"
+revision_changed() { [[ $(k get statefulset "$slug" -o jsonpath='{.status.updateRevision}') != "$old_revision" ]]; }
+wait_for "the apply to change the pod template" revision_changed
 # The first event is the state before the roll. Each later event is one write.
 read -r gen from to pfrom pto < <(awk 'NR == 1 {g = $1; r = $2; p = $3 + 0} NR > 1 && $2 != r {print $1 - g, r, $2, p, $3 + 0; exit}' "$sts_log") ||
   fail "no write raised the replicas"
@@ -145,7 +145,8 @@ answered() { (( $(last_seq "$old_run" "$seq") > seq )) && run_idle "$old_run"; }
 wait_for "the run on the draining pod to finish a turn" answered
 pod_terminating "$slug-0" && [[ $(pod_uid "$slug-0") == "$old_uid" ]] || fail "$slug-0 stopped draining before the turn"
 api DELETE "/api/v1/runs/$old_run" >/dev/null
-wait_for "the old pod's run to end" test "$(run_field "$old_run" state)" != idle
+run_ended() { [[ $(run_field "$old_run" state) != idle ]]; }
+wait_for "the old pod's run to end" run_ended
 state=$(run_field "$old_run" state)
 [[ $state == terminated ]] || fail "the old pod's run ended $state, want terminated"
 echo "PASS 4: run $old_run finished a turn on the draining $slug-0 and ended $state"
