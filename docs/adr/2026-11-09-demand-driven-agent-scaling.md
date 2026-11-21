@@ -172,7 +172,7 @@ kora-agents will run a scaler loop every 5 s, independent of the claim tick. For
 *   Scale down by one pod when the top pod (ordinal `replicas − 1`) is above `minReplicas` and has no active or starting run, and no run under the total is waiting. The empty-top-pod check and the scale call both happen under the lock.
 *   Scale up to `minReplicas` when the floor is raised above the live count.
 
-The StatefulSet replicas will be set only on create, to `max(minReplicas, 1)`. Re-applying an agent keeps the live `spec.replicas`.
+The StatefulSet replicas will be set only on create, to `max(minReplicas, 1)`. Re-applying an agent keeps the live `spec.replicas`, apart from the surge pod in Amendment 1.
 
 kora-agents' Kubernetes client runs at 50 QPS with a burst of 100.
 
@@ -254,11 +254,11 @@ With a floor of 1, a roll today leaves the agent with no pod for new runs:
 ### Decision
 
 *   The `minReplicas` default will be 1.
-*   When an apply changes the pod template of a live StatefulSet, kora-agents will set `rollingUpdate.partition` to the live replicas and raise the replicas by one in the same write. The new pod starts on the new revision, and the existing pods keep the old revision.
+*   When an apply, or a framework or model change, changes the pod template of a live StatefulSet, kora-agents will set `rollingUpdate.partition` to the live replicas and raise the replicas by one in the same write. The new pod starts on the new revision, and the existing pods keep the old revision.
 *   When the pod at the partition ordinal is Ready, the scaler will set the partition to 0. RollingUpdate then replaces the old pods one at a time, and each pod drains as before.
 *   The scaler will also set the partition to 0 when it is at or above the replicas.
 *   An agent at `maxReplicas` will get no surge pod. Its roll starts at once.
-*   The scaler will not scale down while the partition is above 0 or the StatefulSet's current revision differs from its update revision.
+*   The scaler will not scale down while the partition is above 0 or the StatefulSet's current revision differs from its update revision, or while the StatefulSet controller has not yet seen the latest spec.
 *   After the roll, the scale-down rule removes empty top pods down to the floor.
 *   A terminating pod will not count as coming up in the scaler.
 
