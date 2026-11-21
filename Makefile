@@ -974,6 +974,10 @@ test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d
 test-agent-scaling: auth-refresh-k3d ## Live-cluster agent scaling check: the Parallel switch, a one-step scale-up for 31 runs over a total of 30, and scale-down to the floor. Not run by CI or `make check`.
 	@bash scripts/cluster/test-agent-scaling.sh
 
+.PHONY: test-agent-surge-rollout
+test-agent-surge-rollout: auth-refresh-k3d ## Live-cluster surge rollout check: a template change on a 1-pod agent adds a Ready pod before the old pod drains, and the agent returns to 1 pod. Restarts kora-agents. Not run by CI or `make check`.
+	@bash scripts/cluster/test-agent-surge-rollout.sh
+
 .PHONY: test-postgres
 test-postgres: ## Postgres-backed repository tests against the kora_test database on the local Postgres. Needs the compose Postgres up. Not run by CI or `make check`.
 	@# A separate database keeps the cluster's queue workers from claiming the tests' rows.
