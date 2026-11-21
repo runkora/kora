@@ -647,8 +647,8 @@ agents:
     startBudgetSecs: 180
     # -- Seconds a run may wait for its agent to finish provisioning before it fails.
     provisionBudgetSecs: 600
-    # -- Session-manager pods each agent runs at least. A roll replaces one while the other takes new runs. kora-agents adds pods above it as runs need them and removes empty ones.
-    minReplicas: 2
+    # -- Session-manager pods each agent runs at least. kora-agents adds pods above it as runs need them and removes empty ones.
+    minReplicas: 1
     # -- Session-manager pods each agent runs at most. kora-agents never adds pods past it or the agent's total of concurrent runs.
     maxReplicas: 10
     # -- Seconds a terminating session-manager pod waits for its runs to end before it is stopped.

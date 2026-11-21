@@ -3,7 +3,6 @@ package agents
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math"
 	"time"
 
@@ -35,7 +34,6 @@ type scalerStore interface {
 // scalerCluster is the StatefulSet access the scaler needs.
 type scalerCluster interface {
 	AgentStatefulSet(ctx context.Context, slug, namespace string) (statefulSetView, bool, error)
-	ReadyOrdinals(ctx context.Context, slug, namespace string) ([]int, error)
 	ScaleStatefulSet(ctx context.Context, slug, namespace string, from, to int) error
 	SwitchToParallel(ctx context.Context, slug, namespace string) error
 }
@@ -117,13 +115,9 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	if err != nil {
 		return err
 	}
-	ready, err := s.cluster.ReadyOrdinals(ctx, at.Slug, namespace)
-	if err != nil {
-		return fmt.Errorf("list ready pods: %w", err)
-	}
-	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, ready)
+	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, ss.Ready)
 	ran, err := s.store.WaitWithAgentLock(ctx, at.ID, scalerLockTimeout, func(ctx context.Context) error {
-		return s.scaleLocked(ctx, at, namespace, ss, ready, readings, allowance.Value())
+		return s.scaleLocked(ctx, at, namespace, ss, readings, allowance.Value())
 	})
 	if err == nil && !ran {
 		s.logger.Debug(ctx, "scaler skipped agent for this pass",
@@ -135,7 +129,7 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 // scaleLocked runs under the agent lock: it re-counts the runs, then switches an idle agent to
 // Parallel pod management or moves its replicas toward demand.
 func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string, ss statefulSetView,
-	ready []int, readings map[int]sessionmanager.Memory, allowance int64) error {
+	readings map[int]sessionmanager.Memory, allowance int64) error {
 	counts, err := s.store.AgentRunCounts(ctx, at.ID)
 	if err != nil {
 		return err
@@ -156,8 +150,8 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 	}
 	want := desiredReplicas(scaleInput{
 		replicas: ss.Replicas, floor: int(max(s.cfg.MinReplicas, 1)), total: at.MaxConcurrentRuns, maxReplicas: int(s.cfg.MaxReplicas),
-		counts: counts, ready: ready, readings: readings, starting: starting,
-		topRuns: occupied[ss.Replicas-1], memoryMax: memoryMax(ready, readings, ss.MemoryLimitBytes),
+		counts: counts, ready: ss.Ready, terminating: ss.Terminating, readings: readings, starting: starting,
+		topRuns: occupied[ss.Replicas-1], memoryMax: memoryMax(ss.Ready, readings, ss.MemoryLimitBytes),
 		allowance: allowance, watermark: s.cfg.PlacementWatermark,
 	})
 	if want == ss.Replicas {
@@ -170,7 +164,7 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 		logging.Field{Key: "agent_type_id", Value: at.ID},
 		logging.Field{Key: "from", Value: ss.Replicas}, logging.Field{Key: "to", Value: want},
 		logging.Field{Key: "pending", Value: counts.Pending}, logging.Field{Key: "starting", Value: counts.Starting},
-		logging.Field{Key: "active", Value: counts.Active}, logging.Field{Key: "ready", Value: len(ready)})
+		logging.Field{Key: "active", Value: counts.Active}, logging.Field{Key: "ready", Value: len(ss.Ready)})
 	return nil
 }
 
@@ -179,8 +173,10 @@ type scaleInput struct {
 	replicas, floor, total, maxReplicas int
 	counts                              AgentRunCounts
 	ready                               []int
-	readings                            map[int]sessionmanager.Memory
-	starting                            map[int]int
+	// terminating counts the draining pods below the replicas. They are not coming up.
+	terminating int
+	readings    map[int]sessionmanager.Memory
+	starting    map[int]int
 	// topRuns counts the runs on the top pod, ordinal replicas-1.
 	topRuns   int
 	memoryMax int64
@@ -207,7 +203,7 @@ func desiredReplicas(in scaleInput) int {
 		if _, ok := firstPodWithRoom(in.ready, in.replicas, in.readings, in.starting, in.allowance, in.watermark); ok {
 			return in.replicas
 		}
-		comingUp := in.replicas - len(in.ready)
+		comingUp := in.replicas - len(in.ready) - in.terminating
 		add := podsFor(startable, in.allowance, in.watermark, in.memoryMax) - comingUp
 		return max(in.replicas, min(in.replicas+add, ceiling))
 	}
