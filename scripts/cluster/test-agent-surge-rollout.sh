@@ -30,7 +30,7 @@ k() { kubectl --context "$CONTEXT" -n "$NS" "$@"; }
 api() {
   local method=$1 path=$2
   shift 2
-  curl -sfk -X "$method" -H "Authorization: Bearer $(jq -r .access_token /tmp/kora_credentials.json)" \
+  curl -sSfk -X "$method" -H "Authorization: Bearer $(jq -r .access_token /tmp/kora_credentials.json)" \
     -H 'Content-Type: application/json' "$API$path" "$@"
 }
 
