@@ -1976,7 +1976,10 @@ func (p *K8sProvisioner) surgeTemplateChange(ctx context.Context, ss *appsv1.Sta
 	if apiequality.Semantic.DeepEqual(dry.Spec.Template, live) {
 		return nil
 	}
-	replicas, partition := int32(specReplicas(ss)), int32(0)
+	replicas, partition := int32(1), int32(0)
+	if ss.Spec.Replicas != nil {
+		replicas = *ss.Spec.Replicas
+	}
 	if replicas < p.cfg.MaxReplicas {
 		replicas, partition = replicas+1, replicas
 	}
