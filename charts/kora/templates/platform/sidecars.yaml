@@ -1,0 +1,42 @@
+# Istio Sidecars that keep tenant namespace Services out of the system
+# namespace's proxies. Each agent adds Services, and an unscoped proxy holds
+# them all. See docs/adr/2026-09-30-agent-pod-egress-lockdown.md, Amendment 1.
+{{- $ns := include "kora.systemNamespace" . }}
+{{- $obs := .Values.global.observability }}
+{{- $hosts := list "./*" (printf "%s/*" .Values.istio.namespace) }}
+{{- if $obs.collectorNamespace }}
+{{- $hosts = append $hosts (printf "%s/*" $obs.collectorNamespace) }}
+{{- else if $obs.otlpEndpoint }}
+{{- /* The install's ServiceEntry for an external collector, in whichever namespace it lives. */}}
+{{- $hosts = append $hosts (printf "*/%s" (regexReplaceAll ":[0-9]+$" (urlParse $obs.otlpEndpoint).host "")) }}
+{{- end }}
+---
+# The namespace default: the system namespace, Istio and the collector. A call
+# to any other host leaves through the mesh's outbound traffic policy.
+apiVersion: networking.istio.io/v1
+kind: Sidecar
+metadata:
+  name: default
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  egress:
+    - hosts: {{ toJson $hosts }}
+{{- /* kora-agents and the tool-gateway call into tenant namespaces and keep every host. A workload Sidecar takes precedence over the namespace default. */}}
+{{- range $app := list "kora-agents" "kora-tool-gateway" }}
+---
+apiVersion: networking.istio.io/v1
+kind: Sidecar
+metadata:
+  name: {{ $app }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kora.labels" $ | nindent 4 }}
+spec:
+  workloadSelector:
+    labels:
+      app: {{ $app }}
+  egress:
+    - hosts: ["*/*"]
+{{- end }}
