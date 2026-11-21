@@ -18,7 +18,7 @@
 #
 # Usage: scripts/cluster/test-agent-scaling.sh (or make test-agent-scaling)
 # Needs make auth (/tmp/kora_credentials.json). KORA_KUBE_CONTEXT defaults to k3d-kora-local,
-# MODEL to anthropic/claude-haiku-4-5, and FLOOR to the chart's agents minReplicas of 2.
+# MODEL to anthropic/claude-haiku-4-5, and FLOOR to the chart's agents minReplicas of 1.
 set -euo pipefail
 
 API=${KORA_API:-https://api.local.runkora.io}
@@ -26,7 +26,7 @@ NS=${TENANT_NAMESPACE:-kora-tenant-example}
 CONTEXT=${KORA_KUBE_CONTEXT:-k3d-kora-local}
 MODEL=${MODEL:-anthropic/claude-haiku-4-5}
 TOTAL=${TOTAL:-30}
-FLOOR=${FLOOR:-2}
+FLOOR=${FLOOR:-1}
 OLD_BUDGET_SECS=180
 # An idle run blocks the switch, and a person's idle run lasts 1200 s by default.
 SWITCH_TIMEOUT_SECS=${SWITCH_TIMEOUT_SECS:-1500}
