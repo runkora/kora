@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -37,13 +36,13 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/retry"
 
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -631,11 +630,8 @@ func (p *K8sProvisioner) WaitForStatefulSetReady(ctx context.Context, slug, name
 	})
 }
 
-// RolloutStatefulSet triggers a rolling restart of the StatefulSet for the
-// given slug by patching the pod template with a restartedAt annotation.
-// This is equivalent to `kubectl rollout restart statefulset/<slug>` and
-// ensures that pods pick up new configuration (e.g. a changed framework or
-// model_id) without requiring a manual recycle.
+// RolloutStatefulSet restarts the agent's pods for a changed framework or model_id with a restartedAt annotation.
+// It is a template change and takes a surge pod (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 1).
 func (p *K8sProvisioner) RolloutStatefulSet(ctx context.Context, slug, namespace string) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.K8sProvisioner.RolloutStatefulSet",
 		trace.WithAttributes(
@@ -645,29 +641,28 @@ func (p *K8sProvisioner) RolloutStatefulSet(ctx context.Context, slug, namespace
 	)
 	defer span.End()
 
-	type patchAnnotations struct {
-		Spec struct {
-			Template struct {
-				Metadata struct {
-					Annotations map[string]string `json:"annotations"`
-				} `json:"metadata"`
-			} `json:"template"`
-		} `json:"spec"`
-	}
-	var p2 patchAnnotations
-	p2.Spec.Template.Metadata.Annotations = map[string]string{
-		"kubectl.kubernetes.io/restartedAt": time.Now().UTC().Format(time.RFC3339),
-	}
-	data, err := json.Marshal(p2)
+	restartedAt := time.Now().UTC().Format(time.RFC3339)
+	sets := p.client.AppsV1().StatefulSets(namespace)
+	// A scaler write between the read and the update conflicts. The roll is retried rather than lost.
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		ss, err := sets.Get(ctx, slug, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+		live := *ss.Spec.Template.DeepCopy()
+		if ss.Spec.Template.Annotations == nil {
+			ss.Spec.Template.Annotations = map[string]string{}
+		}
+		ss.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = restartedAt
+		if err = p.surgeTemplateChange(ctx, ss, live); err != nil {
+			return err
+		}
+		_, err = sets.Update(ctx, ss, metav1.UpdateOptions{})
+		return err
+	})
 	if err != nil {
-		observability.RecordFailure(span, err, errSpanMarshalRolloutPatch)
-		return fmt.Errorf("marshal rollout patch: %w", err)
-	}
-	if _, err := p.client.AppsV1().StatefulSets(namespace).Patch(
-		ctx, slug, types.StrategicMergePatchType, data, metav1.PatchOptions{},
-	); err != nil {
 		observability.RecordFailure(span, err, errSpanPatchStatefulsetForRollout)
-		return fmt.Errorf("patch statefulset %s/%s for rollout: %w", namespace, slug, err)
+		return fmt.Errorf("update statefulset %s/%s for rollout: %w", namespace, slug, err)
 	}
 	return nil
 }
