@@ -340,3 +340,29 @@ func TestRollHoldSurvivesRestart(t *testing.T) {
 		t.Errorf("partition %d with the surge pod Ready, want 0", got)
 	}
 }
+
+// A roll is under way while the controller has not seen a spec change or the revisions differ. OnDelete never rolls.
+func TestRolling(t *testing.T) {
+	ss := func(strategy appsv1.StatefulSetUpdateStrategyType, gen, observed int64, current, update string) *appsv1.StatefulSet {
+		return &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Generation: gen},
+			Spec:       appsv1.StatefulSetSpec{UpdateStrategy: appsv1.StatefulSetUpdateStrategy{Type: strategy}},
+			Status:     appsv1.StatefulSetStatus{ObservedGeneration: observed, CurrentRevision: current, UpdateRevision: update},
+		}
+	}
+	ru, od := appsv1.RollingUpdateStatefulSetStrategyType, appsv1.OnDeleteStatefulSetStrategyType
+	for _, tc := range []struct {
+		name string
+		ss   *appsv1.StatefulSet
+		want bool
+	}{
+		{"settled", ss(ru, 2, 2, "r1", "r1"), false},
+		{"spec change not observed", ss(ru, 3, 2, "r1", "r1"), true},
+		{"revisions differ", ss(ru, 2, 2, "r1", "r2"), true},
+		{"OnDelete", ss(od, 3, 2, "r1", "r2"), false},
+	} {
+		if got := rolling(tc.ss); got != tc.want {
+			t.Errorf("%s: rolling = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
