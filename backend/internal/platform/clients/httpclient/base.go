@@ -117,15 +117,36 @@ type Base struct {
 	tracer     trace.Tracer
 }
 
+// Option customizes the transport of a Base built by New.
+type Option func(*http.Transport)
+
+// WithDisableKeepAlives makes every call open its own connection and close it
+// afterwards. Use it for peers whose IP can move to another workload, such as
+// pods, where a reused connection reaches the previous holder of the IP.
+func WithDisableKeepAlives() Option {
+	return func(t *http.Transport) { t.DisableKeepAlives = true }
+}
+
 // New constructs a Base with a configured HTTP client, tracer, and logger.
 //
 // tracerName is the Go import path of the consuming client's package, the
 // instrumentation scope name in OTel traces.
 //
 // timeout is applied to every outbound HTTP call made via Do.
-func New(tracerName string, logger logging.Logger, timeout time.Duration) *Base {
+//
+// With no opts the client uses the default transport. Otherwise it uses a
+// clone of http.DefaultTransport with opts applied.
+func New(tracerName string, logger logging.Logger, timeout time.Duration, opts ...Option) *Base {
+	client := &http.Client{Timeout: timeout}
+	if len(opts) > 0 {
+		transport := http.DefaultTransport.(*http.Transport).Clone() //nolint:forcetypeassert // stdlib default is always *http.Transport
+		for _, opt := range opts {
+			opt(transport)
+		}
+		client.Transport = transport
+	}
 	return &Base{
-		httpClient: &http.Client{Timeout: timeout},
+		httpClient: client,
 		logger:     logger,
 		tracer:     otel.Tracer(tracerName),
 	}

@@ -78,7 +78,9 @@ type Client struct {
 // source could only ever produce 401s.
 func NewClient(logger logging.Logger, tokenFunc TokenFunc) *Client {
 	return &Client{
-		Base:      httpclient.New(tracerName, logger, clientTimeout),
+		// No keep-alives: agent pod IPs are reused, and a pooled connection to a
+		// pod's old IP would reach whichever pod holds the IP now.
+		Base:      httpclient.New(tracerName, logger, clientTimeout, httpclient.WithDisableKeepAlives()),
 		tokenFunc: tokenFunc,
 	}
 }
