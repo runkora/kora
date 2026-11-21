@@ -1899,18 +1899,20 @@ func (p *K8sProvisioner) ensureServiceAccount(ctx context.Context, name, namespa
 	// Sync patched labels/annotations onto an existing ServiceAccount so a
 	// patch (e.g. an IRSA role-arn annotation) takes effect on reconcile, not
 	// only for freshly-created agent types.
-	existing, err := p.client.CoreV1().ServiceAccounts(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("get existing serviceaccount: %w", err)
-	}
-	existing.Labels = sa.Labels
-	existing.Annotations = sa.Annotations
-	// Backfill owner refs on the existing object so upgraded clusters gain
-	// GitOps observability + native GC on the next reconcile
-	// (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
-	applyOwnerRef(&existing.ObjectMeta, owner)
-	_, err = p.client.CoreV1().ServiceAccounts(namespace).Update(ctx, existing, metav1.UpdateOptions{})
-	return err
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing, err := p.client.CoreV1().ServiceAccounts(namespace).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("get existing serviceaccount: %w", err)
+		}
+		existing.Labels = sa.Labels
+		existing.Annotations = sa.Annotations
+		// Backfill owner refs on the existing object so upgraded clusters gain
+		// GitOps observability + native GC on the next reconcile
+		// (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
+		applyOwnerRef(&existing.ObjectMeta, owner)
+		_, err = p.client.CoreV1().ServiceAccounts(namespace).Update(ctx, existing, metav1.UpdateOptions{})
+		return err
+	})
 }
 
 func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, namespace string, labels map[string]string, owner metav1.OwnerReference, update bool) error {
@@ -2270,19 +2272,21 @@ func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namesp
 	if !update {
 		return nil
 	}
-	existing, err := p.client.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("get existing service: %w", err)
-	}
-	existing.Labels = svc.Labels
-	existing.Annotations = svc.Annotations
-	// ClusterIP and the selector are immutable or protected; ports are the
-	// mutable part of the spec a patch can change.
-	existing.Spec.Ports = svc.Spec.Ports
-	existing.Spec.PublishNotReadyAddresses = svc.Spec.PublishNotReadyAddresses
-	applyOwnerRef(&existing.ObjectMeta, owner)
-	_, err = p.client.CoreV1().Services(namespace).Update(ctx, existing, metav1.UpdateOptions{})
-	return err
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing, err := p.client.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("get existing service: %w", err)
+		}
+		existing.Labels = svc.Labels
+		existing.Annotations = svc.Annotations
+		// ClusterIP and the selector are immutable or protected; ports are the
+		// mutable part of the spec a patch can change.
+		existing.Spec.Ports = svc.Spec.Ports
+		existing.Spec.PublishNotReadyAddresses = svc.Spec.PublishNotReadyAddresses
+		applyOwnerRef(&existing.ObjectMeta, owner)
+		_, err = p.client.CoreV1().Services(namespace).Update(ctx, existing, metav1.UpdateOptions{})
+		return err
+	})
 }
 
 // buildPDB keeps one session-manager pod up. With a single replica,
@@ -2320,20 +2324,23 @@ func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, 
 	if !update {
 		return nil
 	}
-	existing, err := p.client.PolicyV1().PodDisruptionBudgets(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("get existing pdb: %w", err)
-	}
-	existing.Labels = pdb.Labels
-	existing.Annotations = pdb.Annotations
-	existing.Spec.MinAvailable = pdb.Spec.MinAvailable
-	existing.Spec.MaxUnavailable = pdb.Spec.MaxUnavailable
-	// spec.selector is immutable on PodDisruptionBudget; a patch changing it
-	// only takes effect on a fresh PDB (delete + recreate), not on this
-	// update path.
-	applyOwnerRef(&existing.ObjectMeta, owner)
-	_, err = p.client.PolicyV1().PodDisruptionBudgets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
-	return err
+	// The disruption controller writes the budget's status as pods change, which conflicts with this update.
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing, err := p.client.PolicyV1().PodDisruptionBudgets(namespace).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("get existing pdb: %w", err)
+		}
+		existing.Labels = pdb.Labels
+		existing.Annotations = pdb.Annotations
+		existing.Spec.MinAvailable = pdb.Spec.MinAvailable
+		existing.Spec.MaxUnavailable = pdb.Spec.MaxUnavailable
+		// spec.selector is immutable on PodDisruptionBudget; a patch changing it
+		// only takes effect on a fresh PDB (delete + recreate), not on this
+		// update path.
+		applyOwnerRef(&existing.ObjectMeta, owner)
+		_, err = p.client.PolicyV1().PodDisruptionBudgets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
+		return err
+	})
 }
 
 // ensureDestinationRule creates an Istio DestinationRule in the system namespace
