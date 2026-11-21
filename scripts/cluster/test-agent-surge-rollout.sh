@@ -25,14 +25,18 @@ CONTEXT=${KORA_KUBE_CONTEXT:-k3d-kora-local}
 MODEL=${MODEL:-anthropic/claude-haiku-4-5}
 MODEL2=${MODEL2:-anthropic/claude-sonnet-5}
 TIMEOUT_SECS=${TIMEOUT_SECS:-600}
+# One hung API or kubectl call fails that call. wait_for then retries it until TIMEOUT_SECS.
+CALL_TIMEOUT_SECS=${CALL_TIMEOUT_SECS:-30}
 PROMPT='Reply with the single word ok. Do not use any tools.'
 
-k() { kubectl --context "$CONTEXT" -n "$NS" "$@"; }
+k() { kubectl --context "$CONTEXT" -n "$NS" --request-timeout="${CALL_TIMEOUT_SECS}s" "$@"; }
+# kw runs the kubectl waits, which watch and carry their own --timeout.
+kw() { kubectl --context "$CONTEXT" -n "$NS" "$@"; }
 
 api() {
   local method=$1 path=$2
   shift 2
-  curl -sSfk -X "$method" -H "Authorization: Bearer $(jq -r .access_token /tmp/kora_credentials.json)" \
+  curl -sSfk --max-time "$CALL_TIMEOUT_SECS" -X "$method" -H "Authorization: Bearer $(jq -r .access_token /tmp/kora_credentials.json)" \
     -H 'Content-Type: application/json' "$API$path" "$@"
 }
 
@@ -89,12 +93,12 @@ agent=$(api POST /api/v1/agent-types -d "$(jq -n --arg slug "$slug" --arg model 
   --arg scope "inference:${provider}:${name}:use" \
   '{name: $slug, slug: $slug, framework: "claude-code", model_id: $model, system_prompt: "Answer in one word.",
     identity_mode: "autonomous", grant_scopes: ["inference:invoke", $scope], connectivity: {mode: "none"}}')" | jq -r .id)
-k wait --for=create "statefulset/$slug" --timeout=180s >/dev/null
-k rollout status "statefulset/$slug" --timeout=300s >/dev/null
+kw wait --for=create "statefulset/$slug" --timeout=180s >/dev/null
+kw rollout status "statefulset/$slug" --timeout=300s >/dev/null
 [[ $(k get statefulset "$slug" -o jsonpath='{.spec.replicas}') == 1 ]] || fail "agent $slug did not start at 1 pod"
 # The apply renders no such variable. The next apply changes the pod template back.
 k set env "statefulset/$slug" -c session-manager KORA_SURGE_CHECK=1 >/dev/null
-k rollout status "statefulset/$slug" --timeout=300s >/dev/null
+kw rollout status "statefulset/$slug" --timeout=300s >/dev/null
 old_uid=$(pod_uid "$slug-0")
 old_revision=$(k get statefulset "$slug" -o jsonpath='{.status.updateRevision}')
 echo "agent $slug is up with 1 pod ($slug-0, revision $old_revision)"
@@ -115,7 +119,7 @@ pods_pid=$!
 wait_for "the watches to start" test -s "$sts_log" -a -s "$pods_log"
 
 echo "== Roll"
-kubectl --context "$CONTEXT" -n "$SYSTEM_NS" delete pod -l app=kora-agents --wait=false >/dev/null
+kubectl --context "$CONTEXT" -n "$SYSTEM_NS" --request-timeout="${CALL_TIMEOUT_SECS}s" delete pod -l app=kora-agents --wait=false >/dev/null
 echo "restarted kora-agents; its apply at startup changes the pod template of $slug"
 revision_changed() { [[ $(k get statefulset "$slug" -o jsonpath='{.status.updateRevision}') != "$old_revision" ]]; }
 wait_for "the apply to change the pod template" revision_changed
