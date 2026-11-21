@@ -415,3 +415,41 @@ func TestReleaseRollHold(t *testing.T) {
 		t.Errorf("partition %d, want 0", specPartition(got))
 	}
 }
+
+// A framework or model change restarts the pods through the surge: one write adds a pod and holds the old ones.
+func TestRolloutStatefulSetSurges(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name                        string
+		maxReplicas                 int32
+		wantReplicas, wantPartition int32
+	}{
+		{"below maxReplicas", 4, 2, 1},
+		{"at maxReplicas", 1, 1, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			live := liveStatefulSet(at, 1, appsv1.ParallelPodManagement)
+			live.Spec.UpdateStrategy.Type = appsv1.RollingUpdateStatefulSetStrategyType
+			client := fake.NewSimpleClientset(live)
+			writes := 0
+			dryRunReactor(client, &writes)
+			p := podSecurityProvisioner()
+			p.cfg.MaxReplicas = tc.maxReplicas
+			p.client = client
+			if err := p.RolloutStatefulSet(ctx, at.Slug, scaleTestNS); err != nil {
+				t.Fatal(err)
+			}
+			got, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] == "" || *got.Spec.Replicas != tc.wantReplicas ||
+				specPartition(got) != int(tc.wantPartition) || writes != 1 {
+				t.Errorf("restartedAt %q, replicas %d, partition %d, writes %d; want set, %d, %d and 1 write",
+					got.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"], *got.Spec.Replicas, specPartition(got), writes,
+					tc.wantReplicas, tc.wantPartition)
+			}
+		})
+	}
+}
