@@ -267,6 +267,48 @@ func TestBuildStatefulSet_SessionManagerMemoryIsRequestAndLimit(t *testing.T) {
 	}
 }
 
+// The configured cpu is the session-manager request, the limit stays 2 CPU, and
+// an unset value takes the chart default.
+func TestBuildStatefulSet_SessionManagerCPURequest(t *testing.T) {
+	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "example"}
+	fifty := resource.MustParse("50m")
+	for name, tc := range map[string]struct {
+		cpu  *resource.Quantity
+		want string
+	}{
+		"configured": {&fifty, "50m"},
+		"unset":      {nil, "250m"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := splitPoolConfig()
+			cfg.Workloads.SessionManager.CPU = tc.cpu
+			p := &K8sProvisioner{cfg: cfg}
+
+			ss := p.buildSessionManagerStatefulSet(at, "tenant-example", agentTypeLabels(at))
+
+			resources := ss.Spec.Template.Spec.Containers[0].Resources
+			want := resource.MustParse(tc.want)
+			if got := resources.Requests[corev1.ResourceCPU]; got.Cmp(want) != 0 {
+				t.Errorf("cpu request = %s, want %s", got.String(), tc.want)
+			}
+			if got, limit := resources.Limits[corev1.ResourceCPU], resource.MustParse("2"); got.Cmp(limit) != 0 {
+				t.Errorf("cpu limit = %s, want 2", got.String())
+			}
+		})
+	}
+}
+
+// An unset cpu yields 250m, and a configured one is kept.
+func TestForSessionManager_CPUDefault(t *testing.T) {
+	if got := (WorkloadsConfig{}).ForSessionManager().CPU; got == nil || got.String() != "250m" {
+		t.Errorf("unset cpu = %v, want 250m", got)
+	}
+	cfg := WorkloadsConfig{SessionManager: SessionManagerCustomization{CPU: new(resource.MustParse("50m"))}}
+	if got := cfg.ForSessionManager().CPU; got == nil || got.String() != "50m" {
+		t.Errorf("configured cpu = %v, want 50m", got)
+	}
+}
+
 // A nodeSelector on one side and required node affinity on the other separates
 // the pods just as surely as two different selectors.
 func TestSplitAcrossNodes_MixedForms(t *testing.T) {
@@ -343,6 +385,12 @@ func TestWorkloadsConfig_ValidateRejectsPlatformKeys(t *testing.T) {
 		},
 		"negative session-manager memory": {
 			SessionManager: SessionManagerCustomization{Memory: new(resource.MustParse("-1Gi"))},
+		},
+		"zero session-manager cpu": {
+			SessionManager: SessionManagerCustomization{CPU: new(resource.MustParse("0"))},
+		},
+		"session-manager cpu above the limit": {
+			SessionManager: SessionManagerCustomization{CPU: new(resource.MustParse("2100m"))},
 		},
 		"istio interception opt-out": {
 			SessionManager: SessionManagerCustomization{WorkloadCustomization: WorkloadCustomization{PodAnnotations: map[string]string{"sidecar.istio.io/interceptionMode": "NONE"}}},

@@ -34,11 +34,22 @@ type SessionManagerCustomization struct {
 	WorkloadCustomization
 	// Memory is both the request and the limit of the session-manager container.
 	Memory *resource.Quantity `json:"memory,omitempty"`
+	// CPU is the request of the session-manager container. The limit stays at
+	// sessionManagerCPULimit.
+	CPU *resource.Quantity `json:"cpu,omitempty"`
 }
 
 // defaultSessionManagerMemory applies when no workloads file sets memory, such
 // as local development without the mount. It matches the chart default.
 const defaultSessionManagerMemory = "1Gi"
+
+// defaultSessionManagerCPU applies when no workloads file sets cpu. It matches
+// the chart default.
+const defaultSessionManagerCPU = "250m"
+
+// sessionManagerCPULimit is the session-manager container's CPU limit, and the
+// ceiling for its request.
+const sessionManagerCPULimit = "2"
 
 // WorkloadsConfig is the full set of workload customizations. Common applies to
 // both workloads; the per-workload entries win on a key both set.
@@ -95,6 +106,10 @@ func (w WorkloadsConfig) ForSessionManager() SessionManagerCustomization {
 	if out.Memory == nil {
 		memory := resource.MustParse(defaultSessionManagerMemory)
 		out.Memory = &memory
+	}
+	if out.CPU == nil {
+		cpu := resource.MustParse(defaultSessionManagerCPU)
+		out.CPU = &cpu
 	}
 	return out
 }
@@ -188,11 +203,20 @@ func requireCoLocation(spec *corev1.PodSpec, podName string) {
 		spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution, term)
 }
 
-// Validate rejects a non-positive session-manager memory and configuration
+// Validate rejects a non-positive session-manager memory or a CPU outside (0, limit] and configuration
 // that would break the pod identity or mesh wiring the platform owns.
 func (w WorkloadsConfig) Validate() error {
 	if m := w.SessionManager.Memory; m != nil && m.Sign() <= 0 {
 		return fmt.Errorf("agents.workloads.sessionManager.memory is %s, want a positive quantity", m.String())
+	}
+	if c := w.SessionManager.CPU; c != nil {
+		limit := resource.MustParse(sessionManagerCPULimit)
+		if c.Sign() <= 0 {
+			return fmt.Errorf("agents.workloads.sessionManager.cpu is %s, want a positive quantity", c.String())
+		}
+		if c.Cmp(limit) > 0 {
+			return fmt.Errorf("agents.workloads.sessionManager.cpu is %s, want at most the %s CPU limit", c.String(), limit.String())
+		}
 	}
 	// Ordered, so a file with several problems always reports the same one.
 	for _, workload := range []struct {
