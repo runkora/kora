@@ -9,12 +9,13 @@
 #   2. the surge pod is Ready before the old pod starts terminating;
 #   3. a run started while the old pod drains lands on the surge pod and completes its turn;
 #   4. the run on the old pod completes a turn while the pod drains, and ends terminated, not failed;
-#   5. after the runs end, the agent is back to 1 pod on the new revision.
+#   5. after the runs end, the agent is back to 1 pod on the new revision;
+#   6. a model change to MODEL2 adds a surge pod in one write, and the agent returns to 1 pod.
 # The agent and its runs are deleted at the end.
 #
 # Usage: scripts/cluster/test-agent-surge-rollout.sh (or make test-agent-surge-rollout)
-# Needs make auth (/tmp/kora_credentials.json). KORA_KUBE_CONTEXT defaults to k3d-kora-local and
-# MODEL to anthropic/claude-haiku-4-5. It restarts the kora-agents pods.
+# Needs make auth (/tmp/kora_credentials.json). KORA_KUBE_CONTEXT defaults to k3d-kora-local, MODEL to
+# anthropic/claude-haiku-4-5 and MODEL2 to anthropic/claude-sonnet-5. It restarts the kora-agents pods.
 set -euo pipefail
 
 API=${KORA_API:-https://api.local.runkora.io}
@@ -22,6 +23,7 @@ NS=${TENANT_NAMESPACE:-kora-tenant-example}
 SYSTEM_NS=${SYSTEM_NAMESPACE:-kora-system}
 CONTEXT=${KORA_KUBE_CONTEXT:-k3d-kora-local}
 MODEL=${MODEL:-anthropic/claude-haiku-4-5}
+MODEL2=${MODEL2:-anthropic/claude-sonnet-5}
 TIMEOUT_SECS=${TIMEOUT_SECS:-600}
 PROMPT='Reply with the single word ok. Do not use any tools.'
 
@@ -165,6 +167,19 @@ at_floor() {
 wait_for "the agent to return to 1 pod" at_floor
 if [[ $(pod_uid "$slug-0") == "$old_uid" ]] || ! pod_ready "$slug-0"; then fail "$slug-0 was not replaced on the new revision"; fi
 echo "PASS 5: the agent is back to 1 pod, $slug-0 on revision $(k get statefulset "$slug" -o jsonpath='{.status.updateRevision}')"
+
+echo "== Model change"
+# A model change restarts the pods through a template annotation, and takes a surge pod the same way.
+before=$(wc -l <"$sts_log" | tr -d ' ')
+api PATCH "/api/v1/agent-types/$agent" -d "$(jq -n --arg m "$MODEL2" '{model_id: $m}')" >/dev/null
+surged() { [[ $(k get statefulset "$slug" -o jsonpath='{.spec.replicas}') == 2 ]]; }
+wait_for "the model change to add a surge pod" surged
+read -r gen from to pfrom pto < <(awk -v b="$before" 'NR == b {g = $1; r = $2; p = $3 + 0} NR > b && $2 != r {print $1 - g, r, $2, p, $3 + 0; exit}' "$sts_log") ||
+  fail "no write raised the replicas after the model change"
+(( gen == 1 && from == 1 && to == 2 && pfrom == 0 && pto == 1 )) ||
+  fail "the model change took the replicas $from to $to and the partition $pfrom to $pto in $gen writes, want 1 to 2 and 0 to 1 in one"
+wait_for "the agent to return to 1 pod after the model change" at_floor
+echo "PASS 6: the model change raised the replicas from 1 to 2 and set the partition to 1 in one write, and the agent is back to 1 pod"
 
 echo "StatefulSet writes (generation, replicas, partition):"
 sed 's/^/  /' "$sts_log"
