@@ -174,7 +174,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [Install and Distribution Model: Published Charts and a Tenant-Only Operator](2026-09-04-install-and-distribution-model.md) — `Proposed (Amended 2026-10-24: Amendment 1 Accepted)` · 2026-09-04
 - [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md) — `Accepted (Amended 2026-10-02, 2026-10-12)` · 2026-09-04
 - [Database Migrations](2026-09-10-database-migrations.md) — `Proposed` · 2026-09-10
-- [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) — `Accepted (Amended 2026-11-22: Amendment 1 Proposed)` · 2026-09-30
+- [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) — `Accepted (Amended 2026-11-22: Amendment 1 Accepted)` · 2026-09-30
 - [Declarative Resources](2026-10-24-declarative-resources.md) — `Accepted` · 2026-10-24
 
 ### Frontend & Design System
@@ -318,7 +318,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-09-29 | [GitHub GraphQL Authorised by the Granular Actions of Selected Fields](2026-09-29-github-graphql-field-classification.md) | Superseded by [github-connector-route-coverage](2026-11-15-github-connector-route-coverage.md) | — |
 | 2026-09-29 | [Run Activity Events](2026-09-29-run-activity-events.md) | Accepted | — |
 | 2026-09-29 | [Agent Run Guardrails](2026-09-29-agent-run-guardrails.md) | Accepted (Amended 2026-09-30) | — |
-| 2026-09-30 | [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) | Accepted (Amended 2026-11-22: Amendment 1 Proposed) | — |
+| 2026-09-30 | [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) | Accepted (Amended 2026-11-22: Amendment 1 Accepted) | — |
 | 2026-10-01 | [CRD-Driven Inference Providers](2026-10-01-crd-inference-providers.md) | Accepted (Amended 2026-10-02) | — |
 | 2026-10-03 | [Sandbox Environments](2026-10-03-sandbox-environments.md) | Accepted (Amended 2026-10-08) | — |
 | 2026-10-06 | [Rendered Service Config Files](2026-10-06-rendered-service-config-files.md) | Accepted | — |

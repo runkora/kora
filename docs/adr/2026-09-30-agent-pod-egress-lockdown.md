@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-09-30-agent-pod-egress-lockdown.md  (decision date + slug; no sequential number) -->
 
-**Status:** Accepted (Amended 2026-11-22: Amendment 1 Proposed)
+**Status:** Accepted (Amended 2026-11-22: Amendment 1 Accepted)
 **Date:** 2026-09-30
 **Deciders:** Justin Wilkin
 **Technical Story:** The agent pod (session-manager, the agent CLI it spawns, and the injected identity-proxy and OPA sidecars) can reach any host. Implements, for agent pods, the "external egress via gateway only" constraint of [2026-03-05: Service Mesh and Network Enforcement Infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md), which was never built for them.
@@ -180,7 +180,7 @@ On the local cluster, for Claude Code, Codex and OpenCode runs:
 
 ## Amendment 1 (2026-11-22): Scope the sandbox and kora-system proxies
 
-**Status:** Proposed
+**Status:** Accepted
 
 Touches Decision 2 and the Non-Goal that left the sandbox pod unchanged. It changes *How does it connect?* for the sandbox pod and the kora-system workloads: the set of hosts each proxy is programmed with. NetworkPolicies, AuthorizationPolicies, OPA and the egress gateway are unchanged. *Who is this agent?* and *What can it access?* are unchanged.
 
@@ -217,9 +217,9 @@ The other kora-system workloads reach kora-system Services, istiod, the collecto
 
 The operator reconciles an Istio Sidecar `sandbox-egress` in every tenant namespace beside `agent-egress`. It selects `runkora.io/role: sandbox` and lists three `egress.hosts`: the Service FQDNs of `kora-identity`, `kora-policy-service` and `kora-egress-gateway` in the system namespace. It sets no `outboundTrafficPolicy` and inherits the mesh mode. `REGISTRY_ONLY` would remove the `allow_any` virtual host that `egress-gateway-connect-outbound` patches. `ALLOW_ANY` would open port 80 passthrough on a mesh that runs `REGISTRY_ONLY`. The operator creates and merge-patches it the same way as `agent-egress`.
 
-### Options for kora-system (PR 2)
+### Decision: kora-system Sidecars (PR 2)
 
-**Option O1 (recommended):** The chart renders Sidecars in kora-system. A namespace default Sidecar with no workload selector lists `./*`, `<istio namespace>/*` and the collector. The collector entry is `<collectorNamespace>/*` when `global.observability.collectorNamespace` is set, and `*/<collector host>` for an external collector. A new value `istio.systemEgressHosts` appends hosts for in-cluster dependencies in other namespaces. Two workload Sidecars select `app: kora-agents` and `app: kora-tool-gateway` and list `*/*`. A Sidecar with a workload selector takes precedence over the namespace default.
+**Option O1 (chosen):** The chart renders Sidecars in kora-system. A namespace default Sidecar with no workload selector lists `./*`, `<istio namespace>/*` and the collector. The collector entry is `<collectorNamespace>/*` when `global.observability.collectorNamespace` is set, and `*/<collector host>` for an external collector. Two workload Sidecars select `app: kora-agents` and `app: kora-tool-gateway` and list `*/*`. A Sidecar with a workload selector takes precedence over the namespace default.
 
 *   **Pros:** Every other kora-system proxy stops receiving tenant Services, and its config no longer grows with the agent count. The change is chart-only.
 *   **Cons:** kora-agents and the tool-gateway keep the full config and still grow with the agent count. A kora-system workload that starts calling a tenant namespace or another in-cluster namespace needs a Sidecar entry. Without one, an `ALLOW_ANY` mesh sends the call through passthrough with no Istio mTLS or DestinationRule, and a `REGISTRY_ONLY` mesh refuses it.
@@ -228,7 +228,7 @@ The operator reconciles an Istio Sidecar `sandbox-egress` in every tenant namesp
 
 **Option O3 (rejected):** O1 and O2 together. O2 adds hiding of agent Services from MCP server pods in other tenant namespaces. That gain does not reduce any measured proxy and adds code to kora-agents and the operator.
 
-The recommendation is O1. The trade-off is that kora-agents and the tool-gateway still scale with the agent count, and a new kora-system caller into another namespace needs a Sidecar entry.
+**Chosen Option:** O1. The trade-off is that kora-agents and the tool-gateway still scale with the agent count, and a new kora-system caller into another meshed namespace needs a Sidecar entry. A dependency outside the mesh keeps working through passthrough under `ALLOW_ANY`. On Constellation prod the only meshed namespaces are kora-system and the tenant namespaces, and RDS, monitoring and the collector run outside the mesh.
 
 ### Consequences
 
@@ -250,7 +250,7 @@ The recommendation is O1. The trade-off is that kora-agents and the tool-gateway
 ### Implementation
 
 *   `backend/internal/operator/tenant_netpol.go`: `ensureSandboxEgressSidecar`, reconciled after `ensureAgentEgressSidecar` in `tenant_controller.go`. Both share one create-then-patch helper in `tenant_agent_egress.go`.
-*   PR 2 (O1): `charts/kora/templates/platform/sidecars.yaml` and the `istio.systemEgressHosts` value.
+*   PR 2 (O1): `charts/kora/templates/platform/sidecars.yaml`.
 
 ### Validation
 
