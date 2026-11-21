@@ -1,6 +1,6 @@
 # Demand-Driven Agent Scaling
 
-**Status:** Accepted (Amended 2026-11-21)  
+**Status:** Accepted (Amended 2026-11-22)  
 **Date:** 2026-11-09  
 **Deciders:** Justin Wilkin  
 **Technical Story:** An agent's concurrency becomes a total across its pods, and agent pods scale on run demand.  
@@ -278,7 +278,7 @@ With a floor of 1, a roll today leaves the agent with no pod for new runs:
 
 ## Amendment 2 (2026-11-22): Cached Reads and a Parallel Scaler Pass
 
-**Status:** Proposed
+**Status:** Accepted
 
 The scaler checks every active agent in sequence every 5 s. Each check reads the agent's StatefulSet with a GET and its pods with a LIST from the API server. It then reads memory from each Ready pod and runs up to 8 Postgres queries.
 
@@ -310,12 +310,13 @@ The design target is 960 agents. At 960 agents a pending run waits up to 46 s fo
 *   kora-agents will run one shared informer factory over all namespaces with the label selector `runkora.io/agent-type`. The selector matches agent StatefulSets and session-manager pods. Sandbox pods do not carry the label. The scaler reads each agent from its tenant namespace in the cache.
 *   The selector is `runkora.io/agent-type` and not `runkora.io/managed-agent`. Only pods carry `runkora.io/managed-agent`, and only pods created since 2026-10-09. A manifest patch cannot remove `runkora.io/agent-type`.
 *   The cache strips `managedFields` from every object. It keeps only the name, namespace, UID, resource version, labels, deletion timestamp and conditions of a pod.
-*   The scaler waits for the first full list before its first pass.
+*   The scaler waits for the first full list before its first pass. kora-agents logs an error each minute the cache has not synced.
 *   The scaler's view of an agent comes from the cache: replicas, pod management policy, partition, `rolling`, Ready ordinals, terminating pods and the container memory limit.
 *   The writes read fresh from the API server as before. `ScaleStatefulSet` compares the live replicas from the scale subresource. `ReleaseRollHold` compares the live partition. `SwitchToParallel` reads the live StatefulSet and deletes it with a resource version precondition.
-*   A scale-down will also send the resource version of the cached StatefulSet with the scale update. The API server refuses it with a conflict if the StatefulSet changed after the cache saw it. The scaler decides again on the next pass.
-*   The pass will check up to `agents.scheduling.scalerConcurrency` agents at once (default 4). Each check still takes the agent lock. A pass ends when every agent is checked. The next pass starts on the next tick after that.
+*   A scale-down will also send the resource version of the cached StatefulSet with the scale update. A scale-down with no version fails. The API server refuses it with a conflict if the StatefulSet changed after the cache saw it. The scaler decides again on the next pass.
+*   The pass will check up to `agents.scheduling.scalerConcurrency` agents at once (default 4). Each check still takes the agent lock. A pass ends when every agent is checked. Passes do not overlap.
 *   The ClusterRole will gain `list` and `watch` on `statefulsets` and `watch` on `pods`.
+*   The chart value `agents.database.maxConnections` (default 25) will set the Postgres pool of each kora-agents replica. `scalerConcurrency`, `scheduling.workerConcurrency` (16) and `grading.concurrency` (4) must fit within it. Operators size it to their Postgres `max_connections` across all kora-agents replicas.
 *   Placement, the start budget and the run scheduler keep their live reads.
 *   The 50 QPS client limit stays. It now covers the writes and the run scheduler's reads.
 
@@ -325,7 +326,7 @@ The cache lags the API server by the watch delay. A stale view can only show an 
 
 *   **Scale-up:** A stale replica count fails the replicas compare. A pod that became Ready after the cache saw it counts as coming up, and no extra pod is added for it.
 *   **Scale-down:** The empty top pod check reads the runs table under the agent lock. The cache supplies the replicas and `rolling`. An apply that starts a surge raises the replicas and the partition in one write, and the replicas compare refuses a scale-down from the old count. A spec change that leaves the replicas, such as a roll of an agent at `maxReplicas`, changes the resource version. The resource version precondition refuses a scale-down decided before that change. A status change since the cache read refuses it too, and the next pass retries.
-*   **Roll hold:** A stale partition fails the live partition compare in `ReleaseRollHold`. A release needs the surge pod Ready in the cache. A cache that has not yet seen it Ready delays the release by one pass.
+*   **Roll hold:** A stale partition fails the live partition compare in `ReleaseRollHold`. A release needs the pod at the partition ordinal Ready in the cache, with its `controller-revision-hash` on the update revision of an observed spec. An old-revision pod still at that ordinal does not release the hold. A cache that has not yet seen the surge pod Ready delays the release by one pass.
 *   **Parallel switch:** A stale `OrderedReady` view makes `SwitchToParallel` read the live StatefulSet, which is already `Parallel`. The switch then does nothing.
 *   **Missing StatefulSet:** An agent whose StatefulSet is not in the cache is skipped for the pass, as a missing StatefulSet is today.
 
@@ -334,14 +335,15 @@ The cache lags the API server by the watch delay. A stale view can only show an 
 *   **Positive:** A pass makes no API read per agent. With 10 ms per agent for the memory reads and Postgres, a pass over 960 agents at a bound of 4 takes about 2.4 s. That is under the 5 s tick.
 *   **Positive:** A slow memory read or a lock wait on one agent no longer delays every agent after it.
 *   **Negative:** kora-agents holds the agent StatefulSets and trimmed pods in memory. A StatefulSet measured 11.3 KB on the local cluster with `managedFields` stripped, and a trimmed pod 3.8 KB. At 960 agents with 2 pods each the cache holds about 18 MB. Untrimmed objects would take about 170 MB against the kora-agents limit of 256Mi.
-*   **Negative:** Up to `scalerConcurrency` Postgres connections serve the scaler at once. The production pool has 25 connections. At the default of 4, the scaler, 16 run scheduler workers and 4 grading workers peak at 24 of the 25.
+*   **Negative:** Up to `scalerConcurrency` Postgres connections serve the scaler at once. The production pool has 25 connections. At the default of 4, the scaler, 16 run scheduler workers and 4 grading workers peak at 24 of the 25. The HTTP API and the other background loops share the same pool, and an acquire past the limit waits.
 *   **Negative:** Each kora-agents replica holds a watch on agent StatefulSets and pods across the cluster.
 
 ### Validation
 
-*   A unit test runs a scaler pass over many agents against a fake clientset and counts the API reads after the cache sync. It expects none.
+*   A unit test reads the scaler's view of many agents against a fake clientset and counts the API reads after the cache sync. It expects none.
 *   A unit test shows a pass checks agents concurrently up to the bound and never above it.
 *   A unit test shows a scale-down sends the cached resource version and treats a conflict as moved replicas.
+*   A unit test shows only a Ready surge pod on the update revision releases a roll hold.
 *   A chart test covers the new ClusterRole verbs and the `scalerConcurrency` bound.
 *   The local cluster checks for agent scaling and the surge rollout pass with the cache.
 

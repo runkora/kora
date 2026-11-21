@@ -7,8 +7,8 @@ kora-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md).
   {{- fail "agents.guardrails: sandboxProvisionAttempts, sandboxProvisionBackoffSecs and sandboxProvisionBudgetSecs must be at least 1, and sandboxProvisionBudgetSecs at most 600" }}
 {{- end }}
 {{- $scheduling := .Values.agents.scheduling }}
-{{- if or (lt (int $scheduling.workerConcurrency) 1) (lt (int $scheduling.pollIntervalSecs) 1) (lt (int $scheduling.startBudgetSecs) 1) (lt (int $scheduling.provisionBudgetSecs) 1) (lt (int $scheduling.startingRunWindowSecs) 1) }}
-  {{- fail "agents.scheduling: workerConcurrency, pollIntervalSecs, startBudgetSecs, provisionBudgetSecs and startingRunWindowSecs must be at least 1" }}
+{{- if or (lt (int $scheduling.workerConcurrency) 1) (lt (int $scheduling.scalerConcurrency) 1) (lt (int $scheduling.pollIntervalSecs) 1) (lt (int $scheduling.startBudgetSecs) 1) (lt (int $scheduling.provisionBudgetSecs) 1) (lt (int $scheduling.startingRunWindowSecs) 1) }}
+  {{- fail "agents.scheduling: workerConcurrency, scalerConcurrency, pollIntervalSecs, startBudgetSecs, provisionBudgetSecs and startingRunWindowSecs must be at least 1" }}
 {{- end }}
 {{- if lt (int $scheduling.drainGracePeriodSecs) 61 }}
   {{- fail "agents.scheduling.drainGracePeriodSecs must be at least 61: the session-manager's 30 s shutdown timeout plus its 30 s drainMargin (cmd/session-manager/config/config.go)" }}
@@ -33,6 +33,9 @@ kora-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md).
   {{- if not (regexMatch "^([1-9][0-9]*(\\.[0-9]+)?|0\\.[0-9]*[1-9][0-9]*)(Ki|Mi|Gi|Ti|k|M|G|T)?$" (index $allowance $harness | toString)) }}
     {{- fail (printf "agents.scheduling.startingRunAllowance.%s must be a positive memory quantity" $harness) }}
   {{- end }}
+{{- end }}
+{{- if lt (int .Values.agents.database.maxConnections) 1 }}
+  {{- fail "agents.database.maxConnections must be at least 1" }}
 {{- end }}
 {{- $grading := .Values.agents.grading }}
 {{- if or (lt (int $grading.windowTokens) 1) (lt (int $grading.concurrency) 1) (lt (int $grading.pollIntervalSecs) 1) }}
@@ -87,6 +90,7 @@ cmd/kora-agents:
       pollIntervalSecs: {{ $grading.pollIntervalSecs | int }}
     scheduling:
       workerConcurrency: {{ $scheduling.workerConcurrency | int }}
+      scalerConcurrency: {{ $scheduling.scalerConcurrency | int }}
       pollIntervalSecs: {{ $scheduling.pollIntervalSecs | int }}
       startBudgetSecs: {{ $scheduling.startBudgetSecs | int }}
       provisionBudgetSecs: {{ $scheduling.provisionBudgetSecs | int }}
@@ -105,7 +109,7 @@ cmd/kora-agents:
       landlock: {{ .Values.agents.landlock | quote }}
     sandboxMount: {{ .Values.sandboxMount.enabled }}
 {{ include "kora.observabilityConfigModule" . }}
-{{ include "kora.storageConfigModule" (dict "root" . "redisClient" true) }}
+{{ include "kora.storageConfigModule" (dict "root" . "redisClient" true "maxConnections" .Values.agents.database.maxConnections) }}
 {{ include "kora.tokenConfigModule" . }}
 {{ include "kora.brandConfigModule" . }}
 {{- end }}

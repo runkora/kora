@@ -361,6 +361,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		PlacementWatermark:    cfg.Agents.Scheduling.PlacementWatermark,
 		StartingRunAllowances: allowances,
 		StartingRunWindow:     time.Duration(cfg.Agents.Scheduling.StartingRunWindowSecs) * time.Second,
+		Concurrency:           cfg.Agents.Scheduling.ScalerConcurrency,
 	}, logger)
 
 	return server, repo, atSvc, runSvc, draftSvc, scaler, nil

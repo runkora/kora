@@ -1,6 +1,7 @@
 package agentsConfig
 
 import (
+	"errors"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -80,6 +81,7 @@ func TestValidate_RequiresTrustDomainInCluster(t *testing.T) {
 func validConfig() *Config {
 	cfg := &Config{}
 	cfg.Agents.Scheduling.MinReplicas, cfg.Agents.Scheduling.MaxReplicas = 2, 10
+	cfg.Agents.Scheduling.ScalerConcurrency = 4
 	cfg.Agents.Scheduling.StartingRunAllowance = StartingRunAllowance{
 		ClaudeCode: resource.MustParse("220Mi"), Codex: resource.MustParse("60Mi"), OpenCode: resource.MustParse("440Mi"),
 	}
@@ -96,6 +98,17 @@ func TestValidate_MaxReplicas(t *testing.T) {
 		cfg.Agents.Scheduling.MinReplicas, cfg.Agents.Scheduling.MaxReplicas = tc.min, tc.max
 		if err := Validate(cfg); (err == nil) != tc.valid {
 			t.Errorf("min %d max %d: Validate error = %v, want valid %v", tc.min, tc.max, err, tc.valid)
+		}
+	}
+}
+
+// A scaler concurrency below 1 would check no agent.
+func TestValidate_ScalerConcurrency(t *testing.T) {
+	for _, n := range []int{0, -1} {
+		cfg := validConfig()
+		cfg.Agents.Scheduling.ScalerConcurrency = n
+		if err := Validate(cfg); !errors.Is(err, errScalerConcurrency) {
+			t.Errorf("scalerConcurrency %d: Validate error = %v, want errScalerConcurrency", n, err)
 		}
 	}
 }

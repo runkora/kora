@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -136,6 +137,10 @@ type scalerFake struct {
 	view     statefulSetView
 	ready    []int
 	memory   func(ctx context.Context, podURL string) (sessionmanager.Memory, error)
+	agents   []AgentType
+	// inFlight and maxInFlight count the concurrent AgentStatefulSet reads. hold delays each read.
+	inFlight, maxInFlight int
+	hold                  time.Duration
 
 	scaledTo   int
 	switched   bool
@@ -152,7 +157,9 @@ func (f *scalerFake) mustHold(call string) {
 	}
 }
 
-func (f *scalerFake) ListActiveAgentTypes(context.Context) ([]AgentType, error) { return nil, nil }
+func (f *scalerFake) ListActiveAgentTypes(context.Context) ([]AgentType, error) { return f.agents, nil }
+
+func (f *scalerFake) SyncWorkloadCache(context.Context) error { return nil }
 
 func (f *scalerFake) WaitWithAgentLock(ctx context.Context, _ string, _ time.Duration, fn func(ctx context.Context) error) (bool, error) {
 	if f.busy {
@@ -181,15 +188,23 @@ func (f *scalerFake) ActiveRunsPerPod(context.Context, string) (map[int]int, err
 }
 
 func (f *scalerFake) AgentStatefulSet(context.Context, string, string) (statefulSetView, bool, error) {
+	f.mu.Lock()
+	f.inFlight++
+	f.maxInFlight = max(f.maxInFlight, f.inFlight)
+	f.mu.Unlock()
+	time.Sleep(f.hold)
+	f.mu.Lock()
+	f.inFlight--
+	f.mu.Unlock()
 	view := f.view
 	view.Ready = f.ready
 	return view, true, nil
 }
 
-func (f *scalerFake) ScaleStatefulSet(_ context.Context, _, _ string, from, to int) error {
+func (f *scalerFake) ScaleStatefulSet(_ context.Context, _, _ string, from, to int, resourceVersion string) error {
 	f.mustHold("ScaleStatefulSet")
-	if from != f.view.Replicas {
-		f.t.Errorf("scale from %d, want the read replicas %d", from, f.view.Replicas)
+	if from != f.view.Replicas || resourceVersion != f.view.ResourceVersion {
+		f.t.Errorf("scale from %d at version %q, want the read replicas %d and version %q", from, resourceVersion, f.view.Replicas, f.view.ResourceVersion)
 	}
 	f.scaledTo = to
 	return nil
@@ -279,7 +294,7 @@ func TestScalerSkipsWhenAnotherReplicaHoldsTheLock(t *testing.T) {
 }
 
 func TestScalerScalesDownOnePodAtATime(t *testing.T) {
-	f := &scalerFake{t: t, view: statefulSetView{Replicas: 5, Parallel: true}, ready: []int{0, 1, 2, 3, 4}, memory: fullPod}
+	f := &scalerFake{t: t, view: statefulSetView{ResourceVersion: "41", Replicas: 5, Parallel: true}, ready: []int{0, 1, 2, 3, 4}, memory: fullPod}
 	if err := newTestScaler(f).scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}); err != nil {
 		t.Fatal(err)
 	}
@@ -292,6 +307,23 @@ func TestScalerScalesDownOnePodAtATime(t *testing.T) {
 	}
 	if f.scaledTo != 0 {
 		t.Errorf("scaled a busy top pod away, to %d", f.scaledTo)
+	}
+}
+
+// A pass checks every agent, up to the concurrency bound at once and never more.
+func TestScalerPassIsBounded(t *testing.T) {
+	f := &scalerFake{t: t, busy: true, view: statefulSetView{Replicas: 2, Parallel: true}, ready: []int{0, 1}, memory: fullPod, hold: 20 * time.Millisecond}
+	for i := range 12 {
+		f.agents = append(f.agents, AgentType{ID: fmt.Sprint(i), Slug: fmt.Sprintf("agent-%d", i), MaxConcurrentRuns: 30})
+	}
+	s := newTestScaler(f)
+	s.cfg.Concurrency = 3
+	s.pass(context.Background())
+	if f.maxInFlight != 3 {
+		t.Errorf("at most %d agents checked at once, want 3", f.maxInFlight)
+	}
+	if len(f.readLocked) != 24 {
+		t.Errorf("%d memory reads, want 2 for each of the 12 agents", len(f.readLocked))
 	}
 }
 
@@ -326,7 +358,9 @@ func TestScalerRollHold(t *testing.T) {
 		wantRelease  int
 		wantScaledTo int
 	}{
-		{"surge pod Ready", statefulSetView{Replicas: 3, Partition: 2, Parallel: true}, []int{0, 1, 2}, 2, 0},
+		{"surge pod Ready", statefulSetView{Replicas: 3, Partition: 2, Parallel: true, SurgeReady: true}, []int{0, 1, 2}, 2, 0},
+		// A Ready pod at the partition ordinal on the old revision is not the surge pod.
+		{"old pod at the partition", statefulSetView{Replicas: 3, Partition: 2, Parallel: true}, []int{0, 1, 2}, 0, 0},
 		{"surge pod not Ready yet", statefulSetView{Replicas: 3, Partition: 2, Parallel: true}, []int{0, 1}, 0, 0},
 		// An older scaler removed the surge pod: no pod at the partition ordinal will come.
 		{"surge pod scaled away", statefulSetView{Replicas: 2, Partition: 2, Parallel: true}, []int{0, 1}, 2, 0},
@@ -355,7 +389,7 @@ func TestScaleAgentSwallowsMovedPartition(t *testing.T) {
 		"real failure":    {errors.New("api down"), true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			f := &scalerFake{t: t, view: statefulSetView{Replicas: 2, Partition: 1, Parallel: true}, ready: []int{0, 1}, memory: fullPod, releaseErr: tc.err}
+			f := &scalerFake{t: t, view: statefulSetView{Replicas: 2, Partition: 1, Parallel: true, SurgeReady: true}, ready: []int{0, 1}, memory: fullPod, releaseErr: tc.err}
 			s := newTestScaler(f)
 			var out bytes.Buffer
 			s.logger = logging.NewLoggerWithOutput(&out)

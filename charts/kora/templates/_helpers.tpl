@@ -404,6 +404,7 @@ internal/platform/observability:
 {{/*
 Storage config module. Take the root context, or (dict "root" . "redisClient" true)
 in the workloads that open a Redis client, which also get the CA file path.
+A "maxConnections" key in the dict sets that workload's Postgres pool size.
 */}}
 {{- define "kora.storageConfigModule" -}}
 {{- $root := .root | default . }}
@@ -415,6 +416,9 @@ internal/platform/storage:
     user: {{ $root.Values.config.db.user | toJson }}
     sslMode: {{ $root.Values.global.postgres.sslMode | toJson }}
     captureQueryText: {{ eq (toString $root.Values.global.postgres.captureQueryText) "true" }}
+    {{- with .maxConnections }}
+    maxConnections: {{ . | int }}
+    {{- end }}
   redis:
     host: {{ required "config.redis.host must be set" $root.Values.config.redis.host | toJson }}
     port: {{ $root.Values.config.redis.port | int }}
