@@ -475,7 +475,7 @@ func (p *K8sProvisioner) AgentStatefulSet(ctx context.Context, slug, namespace s
 	view = statefulSetView{
 		Replicas: specReplicas(ss), Parallel: ss.Spec.PodManagementPolicy == appsv1.ParallelPodManagement,
 		Partition: specPartition(ss),
-		Rolling:   ss.Status.ObservedGeneration < ss.Generation || ss.Status.CurrentRevision != ss.Status.UpdateRevision,
+		Rolling:   rolling(ss),
 	}
 	view.Ready, view.Terminating = podOrdinals(ss, pods, slug)
 	for _, c := range ss.Spec.Template.Spec.Containers {
@@ -580,6 +580,15 @@ func (p *K8sProvisioner) SwitchToParallel(ctx context.Context, slug, namespace s
 		return fmt.Errorf("recreate statefulset %s/%s: %w", namespace, slug, err)
 	}
 	return nil
+}
+
+// rolling reports a RollingUpdate whose spec change is unobserved or whose pods are not all on the update revision.
+// An OnDelete StatefulSet keeps differing revisions until its pods are deleted by hand.
+func rolling(ss *appsv1.StatefulSet) bool {
+	if ss.Spec.UpdateStrategy.Type == appsv1.OnDeleteStatefulSetStrategyType {
+		return false
+	}
+	return ss.Status.ObservedGeneration < ss.Generation || ss.Status.CurrentRevision != ss.Status.UpdateRevision
 }
 
 // specPartition is the StatefulSet's RollingUpdate partition. Unset means 0.
