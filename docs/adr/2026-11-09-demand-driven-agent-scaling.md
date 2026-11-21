@@ -54,7 +54,7 @@ Working set is `memory.current` minus `inactive_file` from `memory.stat`. The ku
 *   Node provisioning.
 *   One pod per run (a topology for its own ADR).
 *   A per-agent pod memory size.
-*   A change to the `minReplicas` floor.
+*   A change to the `minReplicas` floor (see Amendment 1).
 *   CPU and sidecar resources.
 *   Dropping the old database column and the old changed-field name.
 
@@ -284,7 +284,7 @@ With a floor of 1, a roll today leaves the agent with no pod for new runs:
     *   Considered Options, Session-Manager Workload: the StatefulSet held at 2 pods.
     *   Decision, Agent Resources: the HPA minimum and the StatefulSet replicas of 2.
     *   Consequences: runs beyond a pod's free slots failing when the start budget runs out, a run that finds no pod within the start budget ending `failed`, and `pending` held for up to the start budget.
-    *   The rest of Run Scheduling stands, including the durable queue, the drain and the `minReplicas` value of 2.
+    *   The rest of Run Scheduling stands, including the durable queue and the drain. Amendment 1 supersedes the `minReplicas` value of 2.
 *   [Database Migrations](2026-09-10-database-migrations.md): Decision 5, the compatibility contract.
 *   [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md): superseded in part. This ADR supersedes these parts of it:
     *   Decision Drivers: HPA on resource metrics over session-count scaling.
