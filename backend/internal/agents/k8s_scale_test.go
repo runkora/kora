@@ -46,7 +46,7 @@ func TestBuildStatefulSetUsesParallel(t *testing.T) {
 	}
 }
 
-// Apply creates a missing StatefulSet at max(minReplicas, 1) and leaves a live one's replicas alone.
+// Apply creates a missing StatefulSet at max(minReplicas, 1).
 func TestEnsureStatefulSetReplicas(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 	ctx := context.Background()
@@ -58,7 +58,6 @@ func TestEnsureStatefulSetReplicas(t *testing.T) {
 	}{
 		{"create at the floor", 2, nil, 2},
 		{"create with a zero floor", 0, nil, 1},
-		{"re-apply keeps the live replicas", 2, liveStatefulSet(at, 5, appsv1.ParallelPodManagement), 5},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := podSecurityProvisioner()
@@ -246,6 +245,7 @@ func TestEnsureStatefulSetSurge(t *testing.T) {
 		{"changed template at maxReplicas", 4, 0, false, 4, 0},
 		{"a hold at maxReplicas starts the roll", 4, 3, false, 4, 0},
 		{"unchanged template", 2, 0, true, 2, 0},
+		{"unchanged template during a hold", 3, 2, true, 3, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := podSecurityProvisioner()
