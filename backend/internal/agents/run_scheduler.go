@@ -24,6 +24,8 @@ const (
 	defaultStartPollInterval = time.Second
 	// startAttemptTimeout bounds one attempt to start a claimed run.
 	startAttemptTimeout = 30 * time.Second
+	// initialMessageAttempts is how many times the run's first message is sent before the run fails.
+	initialMessageAttempts = 3
 	// staleRunClaimWindow outlasts an attempt, so only a dead worker's claim goes stale.
 	staleRunClaimWindow = 2 * startAttemptTimeout
 	// reclaimEvery is how many polls pass between stale-claim sweeps.
@@ -192,7 +194,17 @@ func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.T
 		}
 		return
 	}
-	s.tryInitialMessage(ctx, podURL, run.ID, run.InitialMessage)
+	if err := s.tryInitialMessage(ctx, podURL, run.ID, run.InitialMessage); err != nil {
+		// A run with a session and no task would sit active with zero requests.
+		s.logger.Error(ctx, "initial message could not be delivered; failing the run",
+			logging.Field{Key: "run_id", Value: run.ID},
+			logging.Field{Key: "pod_ordinal", Value: pod},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		s.closeSession(ctx, podURL, run.ID)
+		s.failStart(ctx, span, err, run.ID, RunStateActive, "The agent could not take the run's first message.")
+		return
+	}
 	s.logger.Info(ctx, "Run started",
 		logging.Field{Key: "run_id", Value: run.ID},
 		logging.Field{Key: "agent_type_id", Value: run.AgentTypeID},
@@ -262,6 +274,10 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 	s.releaseStart(ctx, span, run.ID, claimedAt, err)
 	return nil, "", 0, false
 }
+
+// initialMessageBackoff is the wait before the first retry of the run's first
+// message. It doubles per retry. Tests shorten it.
+var initialMessageBackoff = 250 * time.Millisecond
 
 // livePods tells the start budget whether the agent has a pod that is not terminating or finished.
 type livePods interface {

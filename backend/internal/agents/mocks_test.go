@@ -1006,6 +1006,7 @@ type mockSMClient struct {
 
 	createSessionErr    error
 	sendMessageErr      error
+	sendMessageCalls    int
 	interruptSessionErr error
 	closeSessionErr     error
 	// memory serves Memory by pod URL. A pod not in it reports an empty 1Gi pod.
@@ -1025,6 +1026,9 @@ func (m *mockSMClient) CreateSession(_ context.Context, _ string, req sessionman
 }
 
 func (m *mockSMClient) SendMessage(_ context.Context, _, _, content string, idleTimeoutSecs int, fromPerson bool) error {
+	m.mu.Lock()
+	m.sendMessageCalls++
+	m.mu.Unlock()
 	if m.sendMessageErr != nil {
 		return m.sendMessageErr
 	}

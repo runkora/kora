@@ -903,19 +903,41 @@ func (s *RunService) appendJoinedSources(ctx context.Context, span trace.Span, r
 // claims were in hand. The session-manager generates the run's task summary
 // from this first message over its own authorized inference path (see
 // internal/agents/sessionmanager/summarizer.go) and reports it back via the
-// /internal/runs/{id}/summary callback. Best-effort: a send failure is logged but
-// does not abort the run.
-func (s *RunService) tryInitialMessage(ctx context.Context, podURL, runID, msg string) {
+// /internal/runs/{id}/summary callback.
+//
+// The message is the run's task, so a failed send is retried with backoff, up
+// to initialMessageAttempts tries, and the last error is returned. A send that
+// reached the pod but lost its reply may be delivered twice. Session-manager
+// sends are not idempotent, and a duplicated task is far less harmful than a
+// run with no task. Retries stop when ctx ends.
+func (s *RunService) tryInitialMessage(ctx context.Context, podURL, runID, msg string) error {
 	if msg == "" {
-		return
+		return nil
 	}
-	// The first message is the run's task, not a person's turn: the timeout set at creation stands.
-	if err := s.sm.SendMessage(ctx, podURL, runID, msg, 0, false); err != nil {
-		s.logger.Warn(ctx, "failed to send initial message",
+	var err error
+	backoff := initialMessageBackoff
+	for attempt := 1; attempt <= initialMessageAttempts; attempt++ {
+		// The first message is the run's task, not a person's turn: the timeout set at creation stands.
+		if err = s.sm.SendMessage(ctx, podURL, runID, msg, 0, false); err == nil {
+			return nil
+		}
+		if ctx.Err() != nil || attempt == initialMessageAttempts {
+			break
+		}
+		s.logger.Warn(ctx, "failed to send initial message; retrying",
 			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "attempt", Value: attempt},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+		case <-timer.C:
+		}
+		backoff *= 2
 	}
+	return err
 }
 
 // Event types for a message sent to a run: a person's, or a trigger's.
