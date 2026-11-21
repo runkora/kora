@@ -324,6 +324,8 @@ func TestScalerRollHold(t *testing.T) {
 	}{
 		{"surge pod Ready", statefulSetView{Replicas: 3, Partition: 2, Parallel: true}, []int{0, 1, 2}, 2, 0},
 		{"surge pod not Ready yet", statefulSetView{Replicas: 3, Partition: 2, Parallel: true}, []int{0, 1}, 0, 0},
+		// An older scaler removed the surge pod: no pod at the partition ordinal will come.
+		{"surge pod scaled away", statefulSetView{Replicas: 2, Partition: 2, Parallel: true}, []int{0, 1}, 2, 0},
 		{"roll under way", statefulSetView{Replicas: 3, Rolling: true, Parallel: true}, []int{0, 2}, 0, 0},
 		{"roll done", statefulSetView{Replicas: 3, Parallel: true}, []int{0, 1, 2}, 0, 2},
 	} {
