@@ -113,7 +113,11 @@ func agentEgressPolicy(ns, tenantName string, collector AgentCollector) *network
 // pod's Envoy refuse any other host at once, instead of the NetworkPolicy
 // leaving the connection to time out.
 func (r *TenantReconciler) ensureAgentEgressSidecar(ctx context.Context, tenant *KoraTenant) error {
-	desired := agentEgressSidecar(tenantNamespace(tenant), tenant.Name, r.Collector)
+	return r.ensureSidecar(ctx, agentEgressSidecar(tenantNamespace(tenant), tenant.Name, r.Collector))
+}
+
+// ensureSidecar creates the Sidecar, or merge-patches an existing one so config changes reach existing tenants.
+func (r *TenantReconciler) ensureSidecar(ctx context.Context, desired *unstructured.Unstructured) error {
 	err := r.Create(ctx, desired)
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
@@ -127,7 +131,7 @@ func (r *TenantReconciler) ensureAgentEgressSidecar(ctx context.Context, tenant 
 func agentEgressSidecar(ns, tenantName string, collector AgentCollector) *unstructured.Unstructured {
 	hosts := make([]any, 0, len(agentPlatformServices)+1)
 	for _, svc := range agentPlatformServices {
-		hosts = append(hosts, fmt.Sprintf("%s/%s.%s.svc.cluster.local", systemNamespace, svc.app, systemNamespace))
+		hosts = append(hosts, systemServiceHost(svc.app))
 	}
 	switch {
 	case collector.inCluster():
@@ -146,6 +150,11 @@ func agentEgressSidecar(ns, tenantName string, collector AgentCollector) *unstru
 	}}
 	sidecar.SetGroupVersionKind(sidecarGVK)
 	return sidecar
+}
+
+// systemServiceHost is a Sidecar egress host for a system-namespace Service.
+func systemServiceHost(app string) string {
+	return fmt.Sprintf("%s/%s.%s.svc.cluster.local", systemNamespace, app, systemNamespace)
 }
 
 func tenantPolicyLabels(tenantName string) map[string]string {
