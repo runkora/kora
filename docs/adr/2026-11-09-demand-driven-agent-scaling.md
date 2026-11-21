@@ -256,6 +256,7 @@ With a floor of 1, a roll today leaves the agent with no pod for new runs:
 *   The `minReplicas` default will be 1.
 *   When an apply changes the pod template of a live StatefulSet, kora-agents will set `rollingUpdate.partition` to the live replicas and raise the replicas by one in the same write. The new pod starts on the new revision, and the existing pods keep the old revision.
 *   When the pod at the partition ordinal is Ready, the scaler will set the partition to 0. RollingUpdate then replaces the old pods one at a time, and each pod drains as before.
+*   The scaler will also set the partition to 0 when it is at or above the replicas.
 *   An agent at `maxReplicas` will get no surge pod. Its roll starts at once.
 *   The scaler will not scale down while the partition is above 0 or the StatefulSet's current revision differs from its update revision.
 *   After the roll, the scale-down rule removes empty top pods down to the floor.
