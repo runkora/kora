@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"slices"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -35,6 +36,7 @@ type scalerStore interface {
 type scalerCluster interface {
 	AgentStatefulSet(ctx context.Context, slug, namespace string) (statefulSetView, bool, error)
 	ScaleStatefulSet(ctx context.Context, slug, namespace string, from, to int) error
+	ReleaseRollHold(ctx context.Context, slug, namespace string, partition int) error
 	SwitchToParallel(ctx context.Context, slug, namespace string) error
 }
 
@@ -96,8 +98,8 @@ func (s *Scaler) scaleAgent(ctx context.Context, at AgentType) {
 	err := s.scale(ctx, at)
 	switch {
 	case err == nil:
-	case errors.Is(err, errReplicasMoved):
-		// Another scaler pass or an operator changed the replicas. The next pass decides again.
+	case errors.Is(err, errReplicasMoved), errors.Is(err, errPartitionMoved):
+		// Another scaler pass, an apply or an operator changed the StatefulSet. The next pass decides again.
 	default:
 		observability.RecordFailure(span, err, errScaleAgent)
 		s.logger.Warn(ctx, "scale agent failed",
@@ -110,6 +112,13 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	ss, found, err := s.cluster.AgentStatefulSet(ctx, at.Slug, namespace)
 	if err != nil || !found {
 		return err
+	}
+	// A Ready surge pod releases the held roll, as does a hold with no surge pod left to wait for.
+	// A hold left by a restart is released here too.
+	if ss.Partition > 0 && (ss.Partition >= ss.Replicas || slices.Contains(ss.Ready, ss.Partition)) {
+		s.logger.Info(ctx, "releasing agent roll hold",
+			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "partition", Value: ss.Partition})
+		return s.cluster.ReleaseRollHold(ctx, at.Slug, namespace, ss.Partition)
 	}
 	allowance, err := s.cfg.StartingRunAllowances.For(at.Framework)
 	if err != nil {
@@ -150,7 +159,8 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 	}
 	want := desiredReplicas(scaleInput{
 		replicas: ss.Replicas, floor: int(max(s.cfg.MinReplicas, 1)), total: at.MaxConcurrentRuns, maxReplicas: int(s.cfg.MaxReplicas),
-		counts: counts, ready: ss.Ready, terminating: ss.Terminating, readings: readings, starting: starting,
+		counts: counts, ready: ss.Ready, terminating: ss.Terminating, rolling: ss.Partition > 0 || ss.Rolling,
+		readings: readings, starting: starting,
 		topRuns: occupied[ss.Replicas-1], memoryMax: memoryMax(ss.Ready, readings, ss.MemoryLimitBytes),
 		allowance: allowance, watermark: s.cfg.PlacementWatermark,
 	})
@@ -175,8 +185,10 @@ type scaleInput struct {
 	ready                               []int
 	// terminating counts the draining pods below the replicas. They are not coming up.
 	terminating int
-	readings    map[int]sessionmanager.Memory
-	starting    map[int]int
+	// rolling holds scale-down while a roll is held or under way.
+	rolling  bool
+	readings map[int]sessionmanager.Memory
+	starting map[int]int
 	// topRuns counts the runs on the top pod, ordinal replicas-1.
 	topRuns   int
 	memoryMax int64
@@ -185,7 +197,7 @@ type scaleInput struct {
 }
 
 // desiredReplicas raises the replicas to the floor, adds the pods the startable pending runs need in
-// one step when no Ready pod has room, or removes the top pod when it is empty and nothing waits.
+// one step when no Ready pod has room, or removes the top pod when it is empty, nothing waits and no roll is on.
 // It never adds pods past the agent's total or maxReplicas.
 func desiredReplicas(in scaleInput) int {
 	if in.replicas < in.floor {
@@ -207,7 +219,7 @@ func desiredReplicas(in scaleInput) int {
 		add := podsFor(startable, in.allowance, in.watermark, in.memoryMax) - comingUp
 		return max(in.replicas, min(in.replicas+add, ceiling))
 	}
-	if in.replicas > in.floor && in.topRuns == 0 {
+	if in.replicas > in.floor && in.topRuns == 0 && !in.rolling {
 		return in.replicas - 1
 	}
 	return in.replicas
