@@ -1,6 +1,6 @@
 # Run Scheduling
 
-**Status:** Accepted (the HPA, the free-slot pod selection and the start budget rule superseded in part by [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) 2026-11-10)  
+**Status:** Accepted (the HPA, the free-slot pod selection and the start budget rule superseded in part by [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) 2026-11-10; the `minReplicas` value of 2 superseded in part by [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) 2026-11-21)  
 **Date:** 2026-10-12  
 **Deciders:** Justin Wilkin  
 **Technical Story:** [#495](https://github.com/clear-route/orbit/issues/495), [#496](https://github.com/clear-route/orbit/issues/496)  
