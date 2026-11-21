@@ -314,7 +314,7 @@ The design target is 960 agents. At 960 agents a pending run waits up to 46 s fo
 *   The scaler's view of an agent comes from the cache: replicas, pod management policy, partition, `rolling`, Ready ordinals, terminating pods and the container memory limit.
 *   The writes read fresh from the API server as before. `ScaleStatefulSet` compares the live replicas from the scale subresource. `ReleaseRollHold` compares the live partition. `SwitchToParallel` reads the live StatefulSet and deletes it with a resource version precondition.
 *   A scale-down will also send the resource version of the cached StatefulSet with the scale update. The API server refuses it with a conflict if the StatefulSet changed after the cache saw it. The scaler decides again on the next pass.
-*   The pass will check up to `agents.scheduling.scalerConcurrency` agents at once (default 8). Each check still takes the agent lock. A pass ends when every agent is checked. The next pass starts on the next tick after that.
+*   The pass will check up to `agents.scheduling.scalerConcurrency` agents at once (default 4). Each check still takes the agent lock. A pass ends when every agent is checked. The next pass starts on the next tick after that.
 *   The ClusterRole will gain `list` and `watch` on `statefulsets` and `watch` on `pods`.
 *   Placement, the start budget and the run scheduler keep their live reads.
 *   The 50 QPS client limit stays. It now covers the writes and the run scheduler's reads.
@@ -331,10 +331,10 @@ The cache lags the API server by the watch delay. A stale view can only show an 
 
 ### Consequences
 
-*   **Positive:** A pass makes no API read per agent. With 10 ms per agent for the memory reads and Postgres, a pass over 960 agents at a bound of 8 takes about 1.2 s.
+*   **Positive:** A pass makes no API read per agent. With 10 ms per agent for the memory reads and Postgres, a pass over 960 agents at a bound of 4 takes about 2.4 s. That is under the 5 s tick.
 *   **Positive:** A slow memory read or a lock wait on one agent no longer delays every agent after it.
 *   **Negative:** kora-agents holds the agent StatefulSets and trimmed pods in memory. A StatefulSet measured 11.3 KB on the local cluster with `managedFields` stripped, and a trimmed pod 3.8 KB. At 960 agents with 2 pods each the cache holds about 18 MB. Untrimmed objects would take about 170 MB against the kora-agents limit of 256Mi.
-*   **Negative:** Up to `scalerConcurrency` Postgres connections serve the scaler at once. The production pool has 25 connections, shared with 16 run scheduler workers and 4 grading workers.
+*   **Negative:** Up to `scalerConcurrency` Postgres connections serve the scaler at once. The production pool has 25 connections. At the default of 4, the scaler, 16 run scheduler workers and 4 grading workers peak at 24 of the 25.
 *   **Negative:** Each kora-agents replica holds a watch on agent StatefulSets and pods across the cluster.
 
 ### Validation
