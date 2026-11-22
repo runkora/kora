@@ -140,12 +140,18 @@ func agentEgressSidecar(ns, tenantName string, collector AgentCollector) *unstru
 		// The install's ServiceEntry for the collector, in whichever namespace it lives.
 		hosts = append(hosts, "*/"+collector.Host)
 	}
+	sidecar := tenantSidecar(ns, agentEgressName, tenantName, agentPodLabels, hosts)
+	sidecar.Object["spec"].(map[string]any)["outboundTrafficPolicy"] = map[string]any{"mode": "REGISTRY_ONLY"}
+	return sidecar
+}
+
+// tenantSidecar is an operator-owned Sidecar in a tenant namespace that limits the selected pods' Envoy to hosts.
+func tenantSidecar(ns, name, tenantName string, selector map[string]string, hosts []any) *unstructured.Unstructured {
 	sidecar := &unstructured.Unstructured{Object: map[string]any{
-		"metadata": map[string]any{"name": agentEgressName, "namespace": ns, "labels": toAnyMap(tenantPolicyLabels(tenantName))},
+		"metadata": map[string]any{"name": name, "namespace": ns, "labels": toAnyMap(tenantPolicyLabels(tenantName))},
 		"spec": map[string]any{
-			"workloadSelector":      map[string]any{"labels": toAnyMap(agentPodLabels)},
-			"outboundTrafficPolicy": map[string]any{"mode": "REGISTRY_ONLY"},
-			"egress":                []any{map[string]any{"hosts": hosts}},
+			"workloadSelector": map[string]any{"labels": toAnyMap(selector)},
+			"egress":           []any{map[string]any{"hosts": hosts}},
 		},
 	}}
 	sidecar.SetGroupVersionKind(sidecarGVK)

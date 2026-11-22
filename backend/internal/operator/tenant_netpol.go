@@ -221,15 +221,7 @@ func sandboxEgressSidecar(ns, tenantName string) *unstructured.Unstructured {
 		hosts = append(hosts, systemServiceHost(app))
 	}
 	hosts = append(hosts, sandboxDNSHost)
-	sidecar := &unstructured.Unstructured{Object: map[string]any{
-		"metadata": map[string]any{"name": sandboxEgressSidecarName, "namespace": ns, "labels": toAnyMap(tenantPolicyLabels(tenantName))},
-		"spec": map[string]any{
-			"workloadSelector": map[string]any{"labels": map[string]any{podLabelRole: podRoleSandbox}},
-			"egress":           []any{map[string]any{"hosts": hosts}},
-		},
-	}}
-	sidecar.SetGroupVersionKind(sidecarGVK)
-	return sidecar
+	return tenantSidecar(ns, sandboxEgressSidecarName, tenantName, map[string]string{podLabelRole: podRoleSandbox}, hosts)
 }
 
 // ensureSandboxIngressPolicy reconciles the NetworkPolicy that decides who may
