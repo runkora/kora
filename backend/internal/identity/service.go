@@ -696,8 +696,9 @@ func (s *Service) ExchangeSVID(ctx context.Context, r *http.Request) (*SessionRe
 		observability.PrincipalIdentitySourceKey.String(string(principal.IdentitySource)),
 	)
 
-	// Any workload that can label a pod in a tenant namespace gets an agent SVID for any slug.
 	// A slug with no live agent record is refused (docs/adr/2026-03-05-spiffe-spire-workload-attestation.md, step 6).
+	// A pod created with a live agent's slug still gets that agent's identity.
+	// The cold-tier admission policy closes that with a create rule (docs/adr/2026-11-22-agent-cold-tier.md D3, runkora/kora#1084).
 	if principal.Type == PrincipalTypeAgent {
 		live, err := s.agents.AgentLive(ctx, principal.TenantID, principal.DisplayName)
 		if err != nil {

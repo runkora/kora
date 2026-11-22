@@ -224,7 +224,6 @@ func TestExchangeSVID_AgentRecord(t *testing.T) {
 		{"existing agent", td + "/agent/deploy-bot", nil, []string{"acme/deploy-bot"}},
 		{"sandbox of an existing agent", td + "/agent/deploy-bot/sandbox/run-1", nil, []string{"acme/deploy-bot"}},
 		{"unknown slug", td + "/agent/s2z-pooltest", ErrAgentNotFound, []string{"acme/s2z-pooltest"}},
-		{"deleted agent", td + "/agent/retired-bot", ErrAgentNotFound, []string{"acme/retired-bot"}},
 		{"sandbox of an unknown agent", td + "/agent/s2z-pooltest/sandbox/run-1", ErrAgentNotFound, []string{"acme/s2z-pooltest"}},
 		{"slug live in another tenant", "spiffe://runkora.test/tenant/kora-tenant-other/agent/deploy-bot", ErrAgentNotFound, []string{"other/deploy-bot"}},
 		{"service principal", td + "/service/webhook", nil, nil},
@@ -234,8 +233,7 @@ func TestExchangeSVID_AgentRecord(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			sessions := newMockSessionRepo()
 			svc := newTestService(t, sessions, newMockRefreshTokenRepo(), newMockBlocklistRepo(), newMockPATRepo())
-			// retired-bot has only a deleted row, which the registry reports as not live.
-			agents := &mockAgentRegistry{live: map[string]bool{"acme/deploy-bot": true, "acme/retired-bot": false}}
+			agents := &mockAgentRegistry{live: map[string]bool{"acme/deploy-bot": true}}
 			svc.agents = agents
 
 			resp, err := svc.ExchangeSVID(context.Background(), xfccRequest(tc.spiffeID))

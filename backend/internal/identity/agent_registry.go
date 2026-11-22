@@ -8,7 +8,6 @@ import (
 )
 
 // AgentRegistry reports whether a slug names a live agent in a tenant.
-// ExchangeSVID needs it because the agent slug in an SVID comes from a pod label.
 type AgentRegistry interface {
 	AgentLive(ctx context.Context, tenantID, slug string) (bool, error)
 }

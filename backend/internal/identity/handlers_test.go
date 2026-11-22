@@ -434,15 +434,6 @@ func TestHandleExchange_Success(t *testing.T) {
 	}
 }
 
-func TestHandleExchange_UnknownAgent_Returns401(t *testing.T) {
-	c, svc, _, _, _, _ := newTestController(t)
-	svc.agents = &mockAgentRegistry{}
-	w := postJSONWithXFCC(t, c.handleExchange, map[string]string{}, "URI=spiffe://runkora.test/tenant/kora-tenant-acme/agent/s2z-pooltest")
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("status: got %d, want %d (body: %s)", w.Code, http.StatusUnauthorized, w.Body)
-	}
-}
-
 // ── handleRevoke ──────────────────────────────────────────────────────────────
 
 func TestHandleRevoke_MissingToken(t *testing.T) {

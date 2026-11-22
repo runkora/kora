@@ -52,11 +52,11 @@ const (
 	// testAgentID is the agent principal the evaluator tests check.
 	testAgentID = "spiffe://runkora.test/tenant/kora-tenant-example/agent/example"
 
-	// skipAgentGrantSeeding explains why the tests that seed an AGENT grant are
-	// skipped. Only a SYSTEM caller may write AGENT grants, and ensureGrant
-	// sends the user's token, so the write returns 403 until the suite has a
-	// way to seed one. Tracked in runkora/kora#713.
-	skipAgentGrantSeeding = "AGENT grants are written by SYSTEM callers only; the user token ensureGrant sends is refused with 403. See runkora/kora#713"
+	// skipAgentGrantSeeding explains why the tests that seed an AGENT or SERVICE
+	// grant are skipped. Only a SYSTEM caller may write those grants, and
+	// ensureGrant sends the user's token, so the write returns 403 until the
+	// suite has a way to seed one. Tracked in runkora/kora#713.
+	skipAgentGrantSeeding = "AGENT and SERVICE grants are written by SYSTEM callers only; the user token ensureGrant sends is refused with 403. See runkora/kora#713"
 )
 
 func policyServiceURL(t *testing.T) string {
