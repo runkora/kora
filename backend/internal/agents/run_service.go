@@ -1028,7 +1028,7 @@ func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 	// Interrupt steers the run (it redirects the agent mid-turn), so it follows
 	// the same starter-only rule as SendMessage. Terminate does not: it follows
 	// the visibility rule in loadRunForAction.
-	if err := checkDelegatedRunSteer(ctx, at, run); err != nil {
+	if err = checkDelegatedRunSteer(ctx, at, run); err != nil {
 		return err
 	}
 	if run.State != RunStateActive {
@@ -1040,7 +1040,7 @@ func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 		observability.RecordFailure(span, err, errSpanInterruptSession)
 		return fmt.Errorf("target pod %d: %w", run.PodOrdinal, err)
 	}
-	if err := s.sm.InterruptSession(ctx, target, runID); err != nil {
+	if err = s.sm.InterruptSession(ctx, target, runID); err != nil {
 		observability.RecordFailure(span, err, errSpanInterruptSession)
 		return fmt.Errorf("interrupt session on pod %d: %w", run.PodOrdinal, err)
 	}
