@@ -1,9 +1,11 @@
 # A tenant pod's agent identity comes from its spiffe.io/agent label. The label
 # may be set on a running pod only once: by kora-agents, on a pool pod, in the
-# same write that takes the pod out of the pool. Afterwards it never changes,
-# and a pod never serves a second agent. The other labels that select a SPIFFE
-# ID never change on an existing pod. Only the ReplicaSet controller creates
-# a pool pod, and no update adds runkora.io/pool to a pod
+# same write that takes the pod out of the pool and sets app to the agent slug.
+# Afterwards it never changes, and a pod never serves a second agent. app and
+# runkora.io/managed-agent never change on a bound pod, and the other labels
+# that select a SPIFFE ID never change on an existing pod. Only the ReplicaSet
+# controller creates a pool pod, for the session-manager-pool ReplicaSet and
+# with no agent label, and no update adds runkora.io/pool to a pod
 # (docs/adr/2026-11-22-agent-cold-tier.md). The rules cover pod subresources too.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -28,6 +30,8 @@ spec:
       expression: "oldObject != null && has(oldObject.metadata.labels) && 'spiffe.io/agent' in oldObject.metadata.labels ? 'set:' + oldObject.metadata.labels['spiffe.io/agent'] : 'unset'"
     - name: newAgent
       expression: "has(object.metadata.labels) && 'spiffe.io/agent' in object.metadata.labels ? 'set:' + object.metadata.labels['spiffe.io/agent'] : 'unset'"
+    - name: newApp
+      expression: "has(object.metadata.labels) && 'app' in object.metadata.labels ? 'set:' + object.metadata.labels['app'] : 'unset'"
     - name: oldPool
       expression: "oldObject != null && has(oldObject.metadata.labels) && 'runkora.io/pool' in oldObject.metadata.labels"
     - name: newPool
@@ -35,21 +39,33 @@ spec:
     # The other labels that select a SPIFFE ID in clusterspiffeids.yaml.
     - name: frozen
       expression: "['spiffe.io/service', 'spiffe.io/component', 'runkora.io/role', 'runkora.io/agent-slug', 'runkora.io/run-id']"
+    # The labels that put a bound pod under its AuthorizationPolicy and the agent egress lockdown.
+    - name: frozenWhenBound
+      expression: "['app', 'runkora.io/managed-agent']"
   validations:
     - expression: >-
         request.operation != 'UPDATE' || variables.oldAgent == variables.newAgent ||
-        (variables.oldAgent == 'unset' && variables.newAgent != 'set:' && variables.oldPool && !variables.newPool &&
+        (variables.oldAgent == 'unset' && variables.newAgent != 'set:' && variables.newApp == variables.newAgent &&
+        variables.oldPool && !variables.newPool &&
         request.userInfo.username == 'system:serviceaccount:{{ include "kora.systemNamespace" . }}:kora-agents')
-      message: spiffe.io/agent can be set only once, by kora-agents, on a pool pod as it leaves the pool.
+      message: spiffe.io/agent can be set only once, by kora-agents, on a pool pod as it leaves the pool, with app set to the same slug.
     - expression: >-
         request.operation != 'UPDATE' || variables.frozen.all(k,
         (has(oldObject.metadata.labels) && k in oldObject.metadata.labels) == (has(object.metadata.labels) && k in object.metadata.labels) &&
         (!(has(object.metadata.labels) && k in object.metadata.labels) || oldObject.metadata.labels[k] == object.metadata.labels[k]))
       message: The labels that select a SPIFFE ID cannot change on an existing pod.
     - expression: >-
+        request.operation != 'UPDATE' || variables.oldAgent == 'unset' || variables.frozenWhenBound.all(k,
+        (has(oldObject.metadata.labels) && k in oldObject.metadata.labels) == (has(object.metadata.labels) && k in object.metadata.labels) &&
+        (!(has(object.metadata.labels) && k in object.metadata.labels) || oldObject.metadata.labels[k] == object.metadata.labels[k]))
+      message: app and runkora.io/managed-agent cannot change on a bound pod.
+    - expression: >-
         request.operation != 'CREATE' || !variables.newPool ||
-        request.userInfo.username == 'system:serviceaccount:kube-system:replicaset-controller'
-      message: Only the ReplicaSet controller creates a pod with runkora.io/pool.
+        (request.userInfo.username == 'system:serviceaccount:kube-system:replicaset-controller' &&
+        variables.newAgent == 'unset' &&
+        has(object.metadata.ownerReferences) && object.metadata.ownerReferences.exists(o,
+        o.kind == 'ReplicaSet' && o.name.startsWith('session-manager-pool-')))
+      message: Only the ReplicaSet controller creates a pod with runkora.io/pool, for the session-manager-pool ReplicaSet and with no agent label.
     - expression: "request.operation != 'UPDATE' || !variables.newPool || variables.oldPool"
       message: runkora.io/pool cannot be added to an existing pod.
 ---
@@ -63,8 +79,9 @@ spec:
   policyName: kora-agent-bind
   validationActions: ["Deny"]
 ---
-# kora-agents patches pods only to bind a pool pod. Its pod updates stay in
-# tenant namespaces and leave the pod spec as it is.
+# kora-agents updates a pod only to bind a pool pod, in PR 6 of
+# docs/adr/2026-11-22-agent-cold-tier.md. Its pod updates stay on pool pods in
+# tenant namespaces and change only the bind labels and the owner references.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -82,11 +99,29 @@ spec:
   matchConditions:
     - name: kora-agents
       expression: "request.userInfo.username == 'system:serviceaccount:{{ include "kora.systemNamespace" . }}:kora-agents'"
+  variables:
+    # The labels a bind sets or removes: the agent identity, the pool label and the agent Service selector.
+    - name: bindLabels
+      expression: "['spiffe.io/agent', 'runkora.io/pool', 'app', 'runkora.io/agent-type']"
   validations:
     - expression: "has(namespaceObject.metadata.labels) && 'runkora.io/role' in namespaceObject.metadata.labels && namespaceObject.metadata.labels['runkora.io/role'] == 'tenant'"
       message: kora-agents updates pods only in tenant namespaces.
+    - expression: "has(oldObject.metadata.labels) && 'runkora.io/pool' in oldObject.metadata.labels"
+      message: kora-agents updates only pool pods.
     - expression: "object.spec == oldObject.spec"
       message: kora-agents does not change a pod's spec.
+    - expression: >-
+        has(object.metadata.annotations) == has(oldObject.metadata.annotations) &&
+        (!has(object.metadata.annotations) || object.metadata.annotations == oldObject.metadata.annotations) &&
+        has(object.metadata.finalizers) == has(oldObject.metadata.finalizers) &&
+        (!has(object.metadata.finalizers) || object.metadata.finalizers == oldObject.metadata.finalizers)
+      message: kora-agents does not change a pod's annotations or finalizers.
+    - expression: >-
+        (!has(oldObject.metadata.labels) || oldObject.metadata.labels.all(k, k in variables.bindLabels ||
+        (has(object.metadata.labels) && k in object.metadata.labels && object.metadata.labels[k] == oldObject.metadata.labels[k]))) &&
+        (!has(object.metadata.labels) || object.metadata.labels.all(k, k in variables.bindLabels ||
+        (has(oldObject.metadata.labels) && k in oldObject.metadata.labels)))
+      message: kora-agents changes only the bind labels on a pod.
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
