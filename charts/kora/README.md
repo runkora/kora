@@ -35,7 +35,6 @@ Kubernetes: `>=1.34.0-0`
 | agents.config.sessionManagerDigest | string | `""` |  |
 | agents.config.sessionManagerImage | string | `""` |  |
 | agents.configOverrides | object | `{}` | Raw config merged last over kora-agents' rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. e.g. {cmd/kora-agents: {drafts: {retentionDays: 7}}} |
-| agents.database.maxConnections | int | `25` | Postgres connections in each kora-agents replica's pool. It must cover scheduling.scalerConcurrency, scheduling.workerConcurrency and grading.concurrency, and the API shares it. Size it to Postgres max_connections across all kora-agents replicas. |
 | agents.environments.defaultSize | object | `{"cpu":"2","disk":"10Gi","memory":"4Gi"}` | Size for an environment that sets none, and for the built-in default. |
 | agents.environments.maxSize | object | `{}` | Largest size an environment may request. An unset field takes the value of `defaultSize`. Raise it to what a sandbox node holds: see docs/guides/sandbox-nodes.md. |
 | agents.extraEnv | list | `[]` |  |
@@ -95,7 +94,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.scheduling.pollIntervalSecs | int | `1` | Seconds between polls for pending runs, and before a run with no free pod is tried again. |
 | agents.scheduling.pressureLimit | float | `0.9` | Fraction of the memory limit at which the session-manager kills its most recently started run. Above placementWatermark. |
 | agents.scheduling.provisionBudgetSecs | int | `600` | Seconds a run may wait for its agent to finish provisioning before it fails. |
-| agents.scheduling.scalerConcurrency | int | `4` | Agents one kora-agents replica's scaler checks at once. Each check may hold a Postgres connection, beside workerConcurrency and agents.grading.concurrency. |
+| agents.scheduling.scalerConcurrency | int | `4` | Agents one kora-agents replica's scaler checks at once. Each check may hold a Postgres connection from the pool of 25, beside workerConcurrency and agents.grading.concurrency. agents.configOverrides sets the pool: `{internal/platform/storage: {postgres: {maxConnections: N}}}`. |
 | agents.scheduling.startBudgetSecs | int | `180` | Seconds a run may stay pending with no agent pod Ready or coming up before it fails. A run waiting for a pod that is not Ready yet, for room on a Ready pod or for its agent's total of concurrent runs does not fail. |
 | agents.scheduling.startingRunAllowance.claudeCode | string | `"220Mi"` | Memory a Claude Code run is assumed to take between its start and the next memory reading. |
 | agents.scheduling.startingRunAllowance.codex | string | `"60Mi"` | The same for a Codex run. |

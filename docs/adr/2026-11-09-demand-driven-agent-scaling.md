@@ -317,7 +317,7 @@ The design target is 960 agents. At 960 agents a pending run waits up to 46 s fo
 *   A scale-down will also send the resource version of the cached StatefulSet with the scale update. A scale-down with no version fails. The API server refuses it with a conflict if the StatefulSet changed after the cache saw it. The scaler decides again on the next pass.
 *   The pass will check up to `agents.scheduling.scalerConcurrency` agents at once (default 4). Each check still takes the agent lock. A pass ends when every agent is checked. Passes do not overlap.
 *   The ClusterRole will gain `list` and `watch` on `statefulsets` and `watch` on `pods`.
-*   The chart value `agents.database.maxConnections` (default 25) will set the Postgres pool of each kora-agents replica. `scalerConcurrency`, `scheduling.workerConcurrency` (16) and `grading.concurrency` (4) must fit within it. Operators size it to their Postgres `max_connections` across all kora-agents replicas.
+*   `scalerConcurrency`, `scheduling.workerConcurrency` (16) and `grading.concurrency` (4) must fit within the kora-agents Postgres pool of 25. Operators set the pool with `agents.configOverrides: {internal/platform/storage: {postgres: {maxConnections: N}}}` and size it to their Postgres `max_connections` across all kora-agents replicas.
 *   Placement, the start budget and the run scheduler keep their live reads.
 *   The 50 QPS client limit stays. It now covers the writes and the run scheduler's reads.
 
@@ -347,7 +347,6 @@ The cache lags the API server by the watch delay. A stale view can only show an 
 *   A unit test shows a scale-down sends the cached resource version and treats a conflict as moved replicas.
 *   A unit test shows only a Ready surge pod on the update revision releases a roll hold.
 *   A chart test covers the new ClusterRole verbs and the `scalerConcurrency` bound.
-*   A chart test shows `agents.database.maxConnections` reaches the kora-agents storage config and no other workload's.
 *   The local cluster checks for agent scaling and the surge rollout pass with the cache.
 
 ### Superseded

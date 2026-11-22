@@ -34,9 +34,6 @@ kora-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md).
     {{- fail (printf "agents.scheduling.startingRunAllowance.%s must be a positive memory quantity" $harness) }}
   {{- end }}
 {{- end }}
-{{- if lt (int .Values.agents.database.maxConnections) 1 }}
-  {{- fail "agents.database.maxConnections must be at least 1" }}
-{{- end }}
 {{- $grading := .Values.agents.grading }}
 {{- if or (lt (int $grading.windowTokens) 1) (lt (int $grading.concurrency) 1) (lt (int $grading.pollIntervalSecs) 1) }}
   {{- fail "agents.grading: windowTokens, concurrency and pollIntervalSecs must be at least 1" }}
@@ -109,7 +106,7 @@ cmd/kora-agents:
       landlock: {{ .Values.agents.landlock | quote }}
     sandboxMount: {{ .Values.sandboxMount.enabled }}
 {{ include "kora.observabilityConfigModule" . }}
-{{ include "kora.storageConfigModule" (dict "root" . "redisClient" true "maxConnections" .Values.agents.database.maxConnections) }}
+{{ include "kora.storageConfigModule" (dict "root" . "redisClient" true) }}
 {{ include "kora.tokenConfigModule" . }}
 {{ include "kora.brandConfigModule" . }}
 {{- end }}

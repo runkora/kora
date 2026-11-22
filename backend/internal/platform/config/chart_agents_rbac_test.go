@@ -7,8 +7,6 @@ import (
 
 	rbacv1 "k8s.io/api/rbac/v1"
 	"sigs.k8s.io/yaml"
-
-	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // agentsClusterRoleVerbs renders the chart and returns the kora-agents ClusterRole's verbs on group/resource.
@@ -70,44 +68,6 @@ func TestChartScalerConcurrencyBound(t *testing.T) {
 	out, err := helmTemplate(t, "agents:\n  scheduling: {scalerConcurrency: 0}\n")
 	if err == nil || !strings.Contains(out, "scalerConcurrency") {
 		t.Errorf("scalerConcurrency 0: render err = %v, want the bound check to fail it", err)
-	}
-}
-
-// agents.database.maxConnections sizes the kora-agents pool only. Other workloads keep the embedded pool size.
-func TestChartAgentsDatabaseMaxConnections(t *testing.T) {
-	out := renderChart(t, "agents:\n  database: {maxConnections: 7}\n")
-	pools := map[string]int32{}
-	for doc := range strings.SplitSeq(out, "\n---\n") {
-		var cm struct {
-			Metadata struct{ Name string } `json:"metadata"`
-			Data     map[string]string     `json:"data"`
-		}
-		if err := yaml.Unmarshal([]byte(doc), &cm); err != nil {
-			t.Fatal(err)
-		}
-		rendered, ok := cm.Data["internal.platform.storage.yaml"]
-		if !ok {
-			continue
-		}
-		var cfg storage.StorageConfig
-		if err := yaml.Unmarshal([]byte(rendered), &cfg); err != nil {
-			t.Fatal(err)
-		}
-		pools[cm.Metadata.Name] = cfg.Postgres.MaxConnections
-	}
-	if pools["kora-agents-config"] != 7 {
-		t.Errorf("kora-agents maxConnections = %d, want 7", pools["kora-agents-config"])
-	}
-	if _, ok := pools["kora-identity-config"]; !ok {
-		t.Fatal("no kora-identity storage config rendered")
-	}
-	for name, n := range pools {
-		if name != "kora-agents-config" && n != 0 {
-			t.Errorf("%s renders maxConnections %d, want none", name, n)
-		}
-	}
-	if out, err := helmTemplate(t, "agents:\n  database: {maxConnections: 0}\n"); err == nil || !strings.Contains(out, "maxConnections must be at least 1") {
-		t.Errorf("maxConnections 0: render err = %v, want the bound check to fail it", err)
 	}
 }
 
