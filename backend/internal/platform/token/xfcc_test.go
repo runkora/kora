@@ -265,6 +265,7 @@ func TestPoolNamespace(t *testing.T) {
 		{"spiffe://runkora.test/tenant//pool/p", "", false},
 		{"spiffe://runkora.test/tenant/kora-tenant-a/pool/", "", false},
 		{"spiffe://runkora.test/system/pool", "", false},
+		{"spiffe:///tenant/kora-tenant-a/pool/p", "", false},
 		{"https://runkora.test/tenant/kora-tenant-a/pool/p", "", false},
 	}
 	for _, tc := range tests {

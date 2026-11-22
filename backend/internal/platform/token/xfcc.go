@@ -85,8 +85,8 @@ func PoolNamespace(spiffeID string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	_, path, ok := strings.Cut(withoutScheme, "/")
-	if !ok {
+	trustDomain, path, ok := strings.Cut(withoutScheme, "/")
+	if !ok || trustDomain == "" {
 		return "", false
 	}
 	segments := strings.Split(path, "/")

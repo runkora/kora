@@ -243,7 +243,8 @@ func (s *Server) Recompile(ctx context.Context, tenantID string, vocabEntries []
 // header, which the Envoy sidecar sets from the verified peer certificate. A
 // system component may read any tenant. A tenant workload may read only the
 // bundle of the tenant its namespace maps to in the tenant registry, which
-// also covers tenants with a custom spec.namespace. A request with no header is
+// also covers tenants with a custom spec.namespace. An unbound pool pod may read
+// the bundle of its own namespace's tenant. A request with no header is
 // allowed only from loopback (policy-service's own evaluator, which has no
 // sidecar hop). Everything else, including an unloaded registry, is denied.
 func (s *Server) authorizeTenantCaller(r *http.Request, tenantID string) (spiffeID string, ok bool) {

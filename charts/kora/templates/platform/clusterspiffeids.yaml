@@ -62,9 +62,10 @@ spec:
       - key: spiffe.io/agent
         operator: Exists
 ---
-# A session-manager pool pod before it is bound to an agent. The bind sets
-# spiffe.io/agent and removes runkora.io/pool, and kora-tenant-agent takes over
-# (docs/adr/2026-11-22-agent-cold-tier.md).
+# A session-manager pool pod before it is bound to an agent. A pod that carries
+# spiffe.io/agent gets kora-tenant-agent, and the bind in a later change of
+# docs/adr/2026-11-22-agent-cold-tier.md sets it. The exclusions keep the
+# service and sandbox entries from also matching a pool pod.
 apiVersion: spire.spiffe.io/v1alpha1
 kind: ClusterSPIFFEID
 metadata:
@@ -83,6 +84,11 @@ spec:
         operator: Exists
       - key: spiffe.io/agent
         operator: DoesNotExist
+      - key: spiffe.io/service
+        operator: DoesNotExist
+      - key: runkora.io/role
+        operator: NotIn
+        values: [sandbox]
 ---
 # One identity per run: every credential the egress gateway mints is tied to
 # the run that asked for it. The principal extractor normalises this back to

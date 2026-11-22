@@ -23,8 +23,11 @@ func TestChartPoolSPIFFEIDExcludesBoundPods(t *testing.T) {
 		m := e.(map[string]any)
 		exprs[m["key"].(string)] = m["operator"].(string)
 	}
-	if exprs["runkora.io/pool"] != "Exists" || exprs["spiffe.io/agent"] != "DoesNotExist" {
-		t.Errorf("pool pod selector = %v, want runkora.io/pool Exists and spiffe.io/agent DoesNotExist", exprs)
+	want := map[string]string{"runkora.io/pool": "Exists", "spiffe.io/agent": "DoesNotExist", "spiffe.io/service": "DoesNotExist", "runkora.io/role": "NotIn"}
+	for k, op := range want {
+		if exprs[k] != op {
+			t.Errorf("pool pod selector %s = %q, want %q", k, exprs[k], op)
+		}
 	}
 	if got := field(pool, "spec", "namespaceSelector", "matchLabels", "runkora.io/role"); got != "tenant" {
 		t.Errorf("pool namespace selector role = %v, want tenant", got)

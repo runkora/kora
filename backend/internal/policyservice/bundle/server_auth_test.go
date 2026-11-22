@@ -75,6 +75,8 @@ func TestServeHTTPBindsTenantCallerToItsTenant(t *testing.T) {
 		{"pool pod own tenant", "a", uri("/tenant/kora-tenant-a/pool/pool-abc12"), 200},
 		{"pool pod other tenant", "b", uri("/tenant/kora-tenant-a/pool/pool-abc12"), 403},
 		{"pool pod unknown namespace", "a", uri("/tenant/nowhere/pool/pool-abc12"), 403},
+		{"pool pod trailing segment", "a", uri("/tenant/kora-tenant-a/pool/pool-abc12/extra"), 403},
+		{"forged earlier pool element", "a", uri("/tenant/kora-tenant-a/pool/p") + "," + uri("/tenant/kora-tenant-b/pool/p"), 403},
 		{"malformed xfcc", "a", "garbage", 403},
 		{"no xfcc from pod", "a", "", 403},
 	}
