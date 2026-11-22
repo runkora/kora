@@ -562,6 +562,7 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 		nil,
 		nil,
 		nil,
+		allAgentsLive{},
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -640,6 +641,7 @@ tenants:
 		nil,
 		nil,
 		nil,
+		allAgentsLive{},
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -711,6 +713,7 @@ func newFullTestServiceWithPolicy(t *testing.T) (
 		nil,
 		nil,
 		nil,
+		allAgentsLive{},
 		policy,
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -1076,6 +1079,7 @@ func newTestControllerWithProfiles(t *testing.T) (
 		profiles,
 		nil,
 		nil,
+		allAgentsLive{},
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -1138,6 +1142,7 @@ tenants:
 		nil,
 		nil,
 		nil,
+		allAgentsLive{},
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -1232,6 +1237,7 @@ func newTestControllerWithPrefs(t *testing.T) (*Controller, *mockUserPreferences
 		nil,
 		prefsRepo,
 		nil,
+		allAgentsLive{},
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -1241,4 +1247,21 @@ func newTestControllerWithPrefs(t *testing.T) (*Controller, *mockUserPreferences
 		t.Fatalf("newTestControllerWithPrefs: %v", err)
 	}
 	return NewController(svc, &mockPolicyEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard)), prefsRepo
+}
+
+// allAgentsLive reports every agent slug live, for tests that do not exercise the agent check.
+type allAgentsLive struct{}
+
+func (allAgentsLive) AgentLive(context.Context, string, string) (bool, error) { return true, nil }
+
+// mockAgentRegistry reports the agents in live, keyed "<tenant>/<slug>", and records each lookup.
+type mockAgentRegistry struct {
+	live    map[string]bool
+	err     error
+	lookups []string
+}
+
+func (m *mockAgentRegistry) AgentLive(_ context.Context, tenantID, slug string) (bool, error) {
+	m.lookups = append(m.lookups, tenantID+"/"+slug)
+	return m.live[tenantID+"/"+slug], m.err
 }

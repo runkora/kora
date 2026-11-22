@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -209,6 +210,90 @@ func TestExchangeSVID_SessionPersistError(t *testing.T) {
 	_, err := svc.ExchangeSVID(context.Background(), r)
 	if err == nil {
 		t.Fatal("expected error when session persistence fails")
+	}
+}
+
+func TestExchangeSVID_AgentRecord(t *testing.T) {
+	const td = "spiffe://runkora.test/tenant/kora-tenant-acme"
+	tests := []struct {
+		name       string
+		spiffeID   string
+		wantErr    error
+		wantLookup []string
+	}{
+		{"existing agent", td + "/agent/deploy-bot", nil, []string{"acme/deploy-bot"}},
+		{"sandbox of an existing agent", td + "/agent/deploy-bot/sandbox/run-1", nil, []string{"acme/deploy-bot"}},
+		{"unknown slug", td + "/agent/s2z-pooltest", ErrAgentNotFound, []string{"acme/s2z-pooltest"}},
+		{"deleted agent", td + "/agent/retired-bot", ErrAgentNotFound, []string{"acme/retired-bot"}},
+		{"sandbox of an unknown agent", td + "/agent/s2z-pooltest/sandbox/run-1", ErrAgentNotFound, []string{"acme/s2z-pooltest"}},
+		{"slug live in another tenant", "spiffe://runkora.test/tenant/kora-tenant-other/agent/deploy-bot", ErrAgentNotFound, []string{"other/deploy-bot"}},
+		{"service principal", td + "/service/webhook", nil, nil},
+		{"system principal", "spiffe://runkora.test/system/kora-agents", nil, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sessions := newMockSessionRepo()
+			svc := newTestService(t, sessions, newMockRefreshTokenRepo(), newMockBlocklistRepo(), newMockPATRepo())
+			// retired-bot has only a deleted row, which the registry reports as not live.
+			agents := &mockAgentRegistry{live: map[string]bool{"acme/deploy-bot": true, "acme/retired-bot": false}}
+			svc.agents = agents
+
+			resp, err := svc.ExchangeSVID(context.Background(), xfccRequest(tc.spiffeID))
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("ExchangeSVID err = %v, want %v", err, tc.wantErr)
+			}
+			if !slices.Equal(agents.lookups, tc.wantLookup) {
+				t.Errorf("lookups = %v, want %v", agents.lookups, tc.wantLookup)
+			}
+			sessions.mu.Lock()
+			count := len(sessions.sessions)
+			sessions.mu.Unlock()
+			if tc.wantErr != nil {
+				if resp != nil || count != 0 {
+					t.Errorf("refused exchange returned %v and persisted %d sessions", resp, count)
+				}
+				return
+			}
+			if resp == nil || resp.AccessToken == "" || count != 1 {
+				t.Errorf("exchange returned %v and persisted %d sessions, want a token and 1 session", resp, count)
+			}
+		})
+	}
+}
+
+func TestExchangeSVID_UnknownAgentSpan(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previous)
+		_ = provider.Shutdown(context.Background())
+	})
+	svc := newTestService(t, newMockSessionRepo(), newMockRefreshTokenRepo(), newMockBlocklistRepo(), newMockPATRepo())
+	svc.agents = &mockAgentRegistry{}
+
+	if _, err := svc.ExchangeSVID(context.Background(), xfccRequest("spiffe://runkora.test/tenant/kora-tenant-acme/agent/s2z-pooltest")); !errors.Is(err, ErrAgentNotFound) {
+		t.Fatalf("ExchangeSVID err = %v, want ErrAgentNotFound", err)
+	}
+	spans := recorder.Ended()
+	if len(spans) != 1 || spans[0].Status().Code != codes.Error || spans[0].Status().Description != errSpanAgentNotFound.Error() {
+		t.Fatalf("want one span with status %q, got %d spans", errSpanAgentNotFound, len(spans))
+	}
+}
+
+func TestExchangeSVID_AgentLookupError(t *testing.T) {
+	sessions := newMockSessionRepo()
+	svc := newTestService(t, sessions, newMockRefreshTokenRepo(), newMockBlocklistRepo(), newMockPATRepo())
+	lookupErr := errors.New("db unavailable")
+	svc.agents = &mockAgentRegistry{err: lookupErr}
+
+	_, err := svc.ExchangeSVID(context.Background(), xfccRequest("spiffe://runkora.test/tenant/kora-tenant-acme/agent/deploy-bot"))
+	if !errors.Is(err, lookupErr) {
+		t.Fatalf("ExchangeSVID err = %v, want %v", err, lookupErr)
+	}
+	if len(sessions.sessions) != 0 {
+		t.Errorf("persisted %d sessions, want 0", len(sessions.sessions))
 	}
 }
 

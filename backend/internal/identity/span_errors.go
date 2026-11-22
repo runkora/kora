@@ -7,6 +7,7 @@ var (
 	errSpanOIDCNotConfiguredForTenant          = errors.New("OIDC not configured for tenant")
 	errSpanAccessDenied                        = errors.New("access_denied")
 	errSpanAccessTokenRevocationFailed         = errors.New("access_token revocation failed")
+	errSpanAgentNotFound                       = errors.New("agent not found")
 	errSpanAgentSessionCreationFailed          = errors.New("agent session creation failed")
 	errSpanBlocklistOperationFailed            = errors.New("blocklist operation failed")
 	errSpanClaimsExtractionFailed              = errors.New("claims extraction failed")

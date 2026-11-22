@@ -37,8 +37,9 @@ spec:
     metadata:
       labels:
         app: kora-example
-        # Selects the kora-tenant-agent ClusterSPIFFEID: .../agent/example.
-        spiffe.io/agent: example
+        # Selects the kora-tenant-service ClusterSPIFFEID: .../service/example.
+        # It is not an agent. identity refuses an agent SVID with no agent record.
+        spiffe.io/service: example
     spec:
       serviceAccountName: kora-example
       # Tenant namespaces enforce restricted Pod Security.

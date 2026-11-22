@@ -51,6 +51,7 @@ func newWatcherTestService(t *testing.T) *Service {
 		nil,
 		nil,
 		nil,
+		allAgentsLive{},
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
