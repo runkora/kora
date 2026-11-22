@@ -6,11 +6,9 @@
 # cluster specific, so the committed copy carries a placeholder.
 #
 # baseHost is the k3d server's own hostname, which CoreDNS resolves from its
-# NodeHosts entries and which is on the API server certificate. It is
-# deliberately not kubernetes.default.svc.cluster.local: that is a mesh
-# service, so a sandbox's sidecar routes it inside the mesh and the traffic
-# never reaches the egress chokepoint. A bare IP is rejected as well, since TLS
-# to an IP literal carries no SNI for the interceptor to match.
+# NodeHosts entries and which is on the API server certificate. A bare IP is
+# rejected, since TLS to an IP literal carries no SNI for the interceptor to
+# match.
 #
 # The API server listens on 6443, and the gateway may only dial 443 by default.
 # egressGateway.upstreamPorts in deploy/reference/values/kora.local.yaml opens

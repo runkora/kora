@@ -116,7 +116,11 @@ func agentEgressPolicy(ns, tenantName string, collector AgentCollector) *network
 // pod's Envoy refuse any other host at once, instead of the NetworkPolicy
 // leaving the connection to time out.
 func (r *TenantReconciler) ensureAgentEgressSidecar(ctx context.Context, tenant *KoraTenant) error {
-	desired := agentEgressSidecar(tenantNamespace(tenant), tenant.Name, r.Collector)
+	return r.ensureSidecar(ctx, agentEgressSidecar(tenantNamespace(tenant), tenant.Name, r.Collector))
+}
+
+// ensureSidecar creates the Sidecar, or merge-patches an existing one so config changes reach existing tenants.
+func (r *TenantReconciler) ensureSidecar(ctx context.Context, desired *unstructured.Unstructured) error {
 	err := r.Create(ctx, desired)
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
@@ -130,7 +134,7 @@ func (r *TenantReconciler) ensureAgentEgressSidecar(ctx context.Context, tenant 
 func agentEgressSidecar(ns, tenantName string, collector AgentCollector) *unstructured.Unstructured {
 	hosts := make([]any, 0, len(agentPlatformServices)+2)
 	for _, svc := range agentPlatformServices {
-		hosts = append(hosts, fmt.Sprintf("%s/%s.%s.svc.cluster.local", systemNamespace, svc.app, systemNamespace))
+		hosts = append(hosts, systemServiceHost(svc.app))
 	}
 	hosts = append(hosts, kubeDNSHost)
 	switch {
@@ -140,16 +144,27 @@ func agentEgressSidecar(ns, tenantName string, collector AgentCollector) *unstru
 		// The install's ServiceEntry for the collector, in whichever namespace it lives.
 		hosts = append(hosts, "*/"+collector.Host)
 	}
+	sidecar := tenantSidecar(ns, agentEgressName, tenantName, agentPodLabels, hosts)
+	sidecar.Object["spec"].(map[string]any)["outboundTrafficPolicy"] = map[string]any{"mode": "REGISTRY_ONLY"}
+	return sidecar
+}
+
+// tenantSidecar is an operator-owned Sidecar in a tenant namespace that limits the selected pods' Envoy to hosts.
+func tenantSidecar(ns, name, tenantName string, selector map[string]string, hosts []any) *unstructured.Unstructured {
 	sidecar := &unstructured.Unstructured{Object: map[string]any{
-		"metadata": map[string]any{"name": agentEgressName, "namespace": ns, "labels": toAnyMap(tenantPolicyLabels(tenantName))},
+		"metadata": map[string]any{"name": name, "namespace": ns, "labels": toAnyMap(tenantPolicyLabels(tenantName))},
 		"spec": map[string]any{
-			"workloadSelector":      map[string]any{"labels": toAnyMap(agentPodLabels)},
-			"outboundTrafficPolicy": map[string]any{"mode": "REGISTRY_ONLY"},
-			"egress":                []any{map[string]any{"hosts": hosts}},
+			"workloadSelector": map[string]any{"labels": toAnyMap(selector)},
+			"egress":           []any{map[string]any{"hosts": hosts}},
 		},
 	}}
 	sidecar.SetGroupVersionKind(sidecarGVK)
 	return sidecar
+}
+
+// systemServiceHost is a Sidecar egress host for a system-namespace Service.
+func systemServiceHost(app string) string {
+	return fmt.Sprintf("%s/%s.%s.svc.cluster.local", systemNamespace, app, systemNamespace)
 }
 
 func tenantPolicyLabels(tenantName string) map[string]string {
