@@ -13,8 +13,11 @@ type admission struct {
 	op, user, namespaceRole string
 	old, new                map[string]any // labels; old is nil for a CREATE
 	oldSpec, newSpec        string
-	oldNote, newNote        string // an annotation value, none when empty
-	owner                   string // the controller ReplicaSet of a created pod
+	oldNote, newNote        string         // an annotation value, none when empty
+	owner                   string         // the controller ReplicaSet of a created pod
+	notController           bool           // the owner reference is not the controller
+	kind                    string         // the request kind, Pod when empty
+	obj, oldObj             map[string]any // a whole object, in place of the pod built from the fields above
 }
 
 // admissionPolicy renders a ValidatingAdmissionPolicy from the agents bind
@@ -69,7 +72,7 @@ func admissionPolicy(t *testing.T, name string) func(admission) bool {
 			names = append(names, item.(map[string]any)["name"].(string))
 		}
 	}
-	pod := func(labels map[string]any, spec, note, owner string) any {
+	pod := func(labels map[string]any, spec, note, owner string, notController bool) any {
 		meta := map[string]any{"name": "p"}
 		if labels != nil {
 			meta["labels"] = labels
@@ -78,7 +81,7 @@ func admissionPolicy(t *testing.T, name string) func(admission) bool {
 			meta["annotations"] = map[string]any{"note": note}
 		}
 		if owner != "" {
-			meta["ownerReferences"] = []any{map[string]any{"kind": "ReplicaSet", "name": owner}}
+			meta["ownerReferences"] = []any{map[string]any{"kind": "ReplicaSet", "name": owner, "controller": !notController}}
 		}
 		return map[string]any{"metadata": meta, "spec": map[string]any{"serviceAccountName": spec}}
 	}
@@ -90,15 +93,25 @@ func admissionPolicy(t *testing.T, name string) func(admission) bool {
 		return out.Value() == true
 	}
 	return func(a admission) bool {
+		kind := a.kind
+		if kind == "" {
+			kind = "Pod"
+		}
 		in := map[string]any{
-			"object":          pod(a.new, a.newSpec, a.newNote, a.owner),
+			"object":          pod(a.new, a.newSpec, a.newNote, a.owner, a.notController),
 			"oldObject":       nil,
-			"request":         map[string]any{"operation": a.op, "userInfo": map[string]any{"username": a.user}},
+			"request":         map[string]any{"operation": a.op, "kind": map[string]any{"kind": kind}, "userInfo": map[string]any{"username": a.user}},
 			"namespaceObject": map[string]any{"metadata": map[string]any{"labels": map[string]any{"runkora.io/role": a.namespaceRole}}},
 			"variables":       map[string]any{},
 		}
 		if a.op == "UPDATE" {
-			in["oldObject"] = pod(a.old, a.oldSpec, a.oldNote, "")
+			in["oldObject"] = pod(a.old, a.oldSpec, a.oldNote, "", false)
+		}
+		if a.obj != nil {
+			in["object"], in["oldObject"] = a.obj, nil
+			if a.oldObj != nil {
+				in["oldObject"] = a.oldObj
+			}
 		}
 		for _, c := range conditions {
 			if !eval(c, in) {
@@ -144,6 +157,7 @@ func TestChartBindPolicy(t *testing.T) {
 		return out
 	}
 	const poolRS = "session-manager-pool-7c9d"
+	newPool := with(pool, "pod-template-hash", "7c9d")
 	tests := []struct {
 		name string
 		a    admission
@@ -168,11 +182,14 @@ func TestChartBindPolicy(t *testing.T) {
 		{"other label change on a bound pod", admission{op: "UPDATE", user: "anyone", old: bound, new: with(bound, "x", "y")}, true},
 		{"pod with no labels", admission{op: "UPDATE", user: "anyone"}, true},
 		{"pool pod leaves the pool unbound", admission{op: "UPDATE", user: "anyone", old: pool, new: without(pool, "runkora.io/pool")}, true},
-		{"pool pod created by the ReplicaSet controller", admission{op: "CREATE", user: rsCtrl, new: pool, owner: poolRS}, true},
-		{"pool pod from another ReplicaSet", admission{op: "CREATE", user: rsCtrl, new: pool, owner: "other-7c9d"}, false},
-		{"pool pod with no owner", admission{op: "CREATE", user: rsCtrl, new: pool}, false},
-		{"pool pod created with an agent label", admission{op: "CREATE", user: rsCtrl, new: with(pool, "spiffe.io/agent", "reviewer"), owner: poolRS}, false},
-		{"pool pod created by another account", admission{op: "CREATE", user: koraAgents, new: pool, owner: poolRS}, false},
+		{"pool pod created by the ReplicaSet controller", admission{op: "CREATE", user: rsCtrl, new: newPool, newSpec: "session-manager-pool", owner: poolRS}, true},
+		{"pool pod from another ReplicaSet", admission{op: "CREATE", user: rsCtrl, new: newPool, newSpec: "session-manager-pool", owner: "other-7c9d"}, false},
+		{"pool pod from a look-alike ReplicaSet name", admission{op: "CREATE", user: rsCtrl, new: newPool, newSpec: "session-manager-pool", owner: "session-manager-pool-evil"}, false},
+		{"pool pod whose owner is not its controller", admission{op: "CREATE", user: rsCtrl, new: newPool, newSpec: "session-manager-pool", owner: poolRS, notController: true}, false},
+		{"pool pod with another ServiceAccount", admission{op: "CREATE", user: rsCtrl, new: newPool, newSpec: "default", owner: poolRS}, false},
+		{"pool pod with no owner", admission{op: "CREATE", user: rsCtrl, new: newPool, newSpec: "session-manager-pool"}, false},
+		{"pool pod created with an agent label", admission{op: "CREATE", user: rsCtrl, new: with(newPool, "spiffe.io/agent", "reviewer"), newSpec: "session-manager-pool", owner: poolRS}, false},
+		{"pool pod created by another account", admission{op: "CREATE", user: koraAgents, new: newPool, newSpec: "session-manager-pool", owner: poolRS}, false},
 		{"agent pod created by the StatefulSet controller", admission{op: "CREATE", user: "system:serviceaccount:kube-system:statefulset-controller", new: bound}, true},
 	}
 	for _, tc := range tests {
@@ -223,6 +240,67 @@ func TestChartKoraAgentsPodUpdatePolicy(t *testing.T) {
 		{"spec change", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: pool, new: pool, oldSpec: "sa", newSpec: "other"}, false},
 		{"update outside tenant namespaces", admission{op: "UPDATE", user: koraAgents, namespaceRole: "", old: pool, new: bound, oldSpec: "sa", newSpec: "sa"}, false},
 		{"another account", admission{op: "UPDATE", user: "anyone", namespaceRole: "", old: bound, new: bound, oldSpec: "sa", newSpec: "other"}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := allowed(tc.a); got != tc.want {
+				t.Errorf("allowed = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestChartPoolWorkloadPolicy(t *testing.T) {
+	allowed := admissionPolicy(t, "kora-agent-pool-workloads")
+	const deployCtrl = "system:serviceaccount:kube-system:deployment-controller"
+	workload := func(name string, poolTemplate bool, owner string) map[string]any {
+		labels := map[string]any{"app": "x"}
+		if poolTemplate {
+			labels["runkora.io/pool"] = "true"
+		}
+		meta := map[string]any{"name": name}
+		if owner != "" {
+			meta["ownerReferences"] = []any{map[string]any{"kind": "Deployment", "name": owner, "controller": true}}
+		}
+		return map[string]any{"metadata": meta, "spec": map[string]any{"template": map[string]any{"metadata": map[string]any{"labels": labels}}}}
+	}
+	tests := []struct {
+		name string
+		a    admission
+		want bool
+	}{
+		{"pool Deployment by kora-agents", admission{op: "CREATE", kind: "Deployment", user: koraAgents, obj: workload("session-manager-pool", true, "")}, true},
+		{"pool Deployment by an admin", admission{op: "CREATE", kind: "Deployment", user: "admin", obj: workload("session-manager-pool", true, "")}, false},
+		{"pool template in another Deployment", admission{op: "CREATE", kind: "Deployment", user: koraAgents, obj: workload("mcp", true, "")}, false},
+		{"look-alike Deployment name", admission{op: "CREATE", kind: "Deployment", user: "admin", obj: workload("session-manager-pool-x", false, "")}, false},
+		{"other Deployment", admission{op: "CREATE", kind: "Deployment", user: "admin", obj: workload("mcp", false, "")}, true},
+		{"pool ReplicaSet by the Deployment controller", admission{op: "CREATE", kind: "ReplicaSet", user: deployCtrl, obj: workload("session-manager-pool-7c9d", true, "session-manager-pool")}, true},
+		{"pool ReplicaSet for another Deployment", admission{op: "CREATE", kind: "ReplicaSet", user: deployCtrl, obj: workload("session-manager-pool-7c9d", true, "mcp")}, false},
+		{"pool ReplicaSet by an admin", admission{op: "CREATE", kind: "ReplicaSet", user: "admin", obj: workload("session-manager-pool-7c9d", true, "session-manager-pool")}, false},
+		{"replica change on a pool ReplicaSet", admission{op: "UPDATE", kind: "ReplicaSet", user: "admin", obj: workload("session-manager-pool-7c9d", true, "session-manager-pool"), oldObj: workload("session-manager-pool-7c9d", true, "session-manager-pool")}, true},
+		{"template change on the pool Deployment by an admin", admission{op: "UPDATE", kind: "Deployment", user: "admin", obj: workload("session-manager-pool", false, ""), oldObj: workload("session-manager-pool", true, "")}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := allowed(tc.a); got != tc.want {
+				t.Errorf("allowed = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestChartKoraAgentsDeploymentPolicy(t *testing.T) {
+	allowed := admissionPolicy(t, "kora-agents-deployments")
+	dep := func(name string) map[string]any { return map[string]any{"metadata": map[string]any{"name": name}} }
+	tests := []struct {
+		name string
+		a    admission
+		want bool
+	}{
+		{"pool in a tenant namespace", admission{op: "CREATE", kind: "Deployment", user: koraAgents, namespaceRole: "tenant", obj: dep("session-manager-pool")}, true},
+		{"pool outside tenant namespaces", admission{op: "CREATE", kind: "Deployment", user: koraAgents, obj: dep("session-manager-pool")}, false},
+		{"another Deployment", admission{op: "CREATE", kind: "Deployment", user: koraAgents, namespaceRole: "tenant", obj: dep("mcp")}, false},
+		{"another account", admission{op: "CREATE", kind: "Deployment", user: "admin", obj: dep("mcp")}, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

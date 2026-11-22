@@ -4,8 +4,8 @@
 # Afterwards it never changes, and a pod never serves a second agent. app and
 # runkora.io/managed-agent never change on a bound pod, and the other labels
 # that select a SPIFFE ID never change on an existing pod. Only the ReplicaSet
-# controller creates a pool pod, for the session-manager-pool ReplicaSet and
-# with no agent label, and no update adds runkora.io/pool to a pod
+# controller creates a pool pod, for the session-manager-pool ReplicaSet, as the
+# pool ServiceAccount and with no agent label, and no update adds runkora.io/pool to a pod
 # (docs/adr/2026-11-22-agent-cold-tier.md). The rules cover pod subresources too.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -63,9 +63,12 @@ spec:
         request.operation != 'CREATE' || !variables.newPool ||
         (request.userInfo.username == 'system:serviceaccount:kube-system:replicaset-controller' &&
         variables.newAgent == 'unset' &&
+        object.spec.serviceAccountName == 'session-manager-pool' &&
+        'pod-template-hash' in object.metadata.labels &&
         has(object.metadata.ownerReferences) && object.metadata.ownerReferences.exists(o,
-        o.kind == 'ReplicaSet' && o.name.startsWith('session-manager-pool-')))
-      message: Only the ReplicaSet controller creates a pod with runkora.io/pool, for the session-manager-pool ReplicaSet and with no agent label.
+        o.kind == 'ReplicaSet' && has(o.controller) && o.controller &&
+        o.name == 'session-manager-pool-' + object.metadata.labels['pod-template-hash']))
+      message: Only the ReplicaSet controller creates a pod with runkora.io/pool, as the pool ServiceAccount, controlled by the session-manager-pool ReplicaSet and with no agent label.
     - expression: "request.operation != 'UPDATE' || !variables.newPool || variables.oldPool"
       message: runkora.io/pool cannot be added to an existing pod.
 ---
@@ -131,4 +134,89 @@ metadata:
     {{- include "kora.labels" . | nindent 4 }}
 spec:
   policyName: kora-agents-pod-updates
+  validationActions: ["Deny"]
+---
+# Only kora-agents writes the pool Deployment, and only the Deployment
+# controller writes its ReplicaSets. A workload that is not the pool cannot
+# carry a pool pod template (docs/adr/2026-11-22-agent-cold-tier.md).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: kora-agent-pool-workloads
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        runkora.io/role: tenant
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments", "replicasets"]
+  variables:
+    - name: poolTemplate
+      expression: "has(object.spec.template.metadata.labels) && 'runkora.io/pool' in object.spec.template.metadata.labels"
+    - name: poolName
+      expression: "object.metadata.name == 'session-manager-pool' || object.metadata.name.startsWith('session-manager-pool-')"
+    # An update that leaves the pod template alone, such as a replica or owner change, is not checked.
+    - name: templateWrite
+      expression: "request.operation == 'CREATE' || object.spec.template != oldObject.spec.template"
+  validations:
+    - expression: >-
+        request.kind.kind != 'Deployment' || !variables.templateWrite || !(variables.poolTemplate || variables.poolName) ||
+        (object.metadata.name == 'session-manager-pool' &&
+        request.userInfo.username == 'system:serviceaccount:{{ include "kora.systemNamespace" . }}:kora-agents')
+      message: Only kora-agents writes a pool Deployment, and it is named session-manager-pool.
+    - expression: >-
+        request.kind.kind != 'ReplicaSet' || !variables.templateWrite || !(variables.poolTemplate || variables.poolName) ||
+        (request.userInfo.username == 'system:serviceaccount:kube-system:deployment-controller' &&
+        has(object.metadata.ownerReferences) && object.metadata.ownerReferences.exists(o,
+        o.kind == 'Deployment' && has(o.controller) && o.controller && o.name == 'session-manager-pool'))
+      message: Only the Deployment controller writes a pool ReplicaSet, for the session-manager-pool Deployment.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: kora-agent-pool-workloads
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  policyName: kora-agent-pool-workloads
+  validationActions: ["Deny"]
+---
+# kora-agents writes one kind of Deployment: the pool in a tenant namespace.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: kora-agents-deployments
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["deployments"]
+  matchConditions:
+    - name: kora-agents
+      expression: "request.userInfo.username == 'system:serviceaccount:{{ include "kora.systemNamespace" . }}:kora-agents'"
+  validations:
+    - expression: >-
+        object.metadata.name == 'session-manager-pool' && has(namespaceObject.metadata.labels) &&
+        'runkora.io/role' in namespaceObject.metadata.labels && namespaceObject.metadata.labels['runkora.io/role'] == 'tenant'
+      message: kora-agents writes only the session-manager-pool Deployment in a tenant namespace.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: kora-agents-deployments
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  policyName: kora-agents-deployments
   validationActions: ["Deny"]
