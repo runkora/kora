@@ -129,14 +129,7 @@ func (p *K8sProvisioner) grow(ctx context.Context, pod *corev1.Pod) error {
 // Before the cache syncs, after a kora-agents start, it reads the pod live and grows it with no wait.
 func (p *K8sProvisioner) WakePod(ctx context.Context, slug, namespace string, ordinal int) error {
 	if !p.workloads.Core().V1().Pods().Informer().HasSynced() {
-		pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, slug+"-"+strconv.Itoa(ordinal), metav1.GetOptions{})
-		if apierrors.IsNotFound(err) || (err == nil && !podWarm(pod)) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("read pod %s/%s-%d: %w", namespace, slug, ordinal, err)
-		}
-		return p.grow(ctx, pod)
+		return p.wakeUncached(ctx, slug, namespace, ordinal)
 	}
 	pod, found, err := p.cachedAgentPod(slug, namespace, ordinal)
 	if err != nil || !found || (!podWarm(pod) && !resizePending(pod)) {
@@ -147,8 +140,25 @@ func (p *K8sProvisioner) WakePod(ctx context.Context, slug, namespace string, or
 			return err
 		}
 	}
+	return p.waitGrown(ctx, slug, namespace, ordinal)
+}
+
+// wakeUncached grows a warm pod read from the API server, with no wait.
+func (p *K8sProvisioner) wakeUncached(ctx context.Context, slug, namespace string, ordinal int) error {
+	pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, slug+"-"+strconv.Itoa(ordinal), metav1.GetOptions{})
+	if apierrors.IsNotFound(err) || (err == nil && !podWarm(pod)) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read pod %s/%s-%d: %w", namespace, slug, ordinal, err)
+	}
+	return p.grow(ctx, pod)
+}
+
+// waitGrown waits on the cache up to growTimeout for the pod's applied requests to match its full spec.
+func (p *K8sProvisioner) waitGrown(ctx context.Context, slug, namespace string, ordinal int) error {
 	released := false
-	err = wait.PollUntilContextTimeout(ctx, growPollInterval, growTimeout, true, func(ctx context.Context) (bool, error) {
+	err := wait.PollUntilContextTimeout(ctx, growPollInterval, growTimeout, true, func(ctx context.Context) (bool, error) {
 		cached, found, readErr := p.cachedAgentPod(slug, namespace, ordinal)
 		if readErr != nil || !found {
 			return false, readErr
