@@ -19,6 +19,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/brand"
 	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/harnesses"
+	identityproxyclient "github.com/runkora/kora/backend/internal/platform/clients/identityproxy"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/observability"
@@ -248,8 +249,14 @@ func (c *Controller) handleMemory(w http.ResponseWriter, r *http.Request) {
 func (c *Controller) handleBound(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// kora-agents polls this route during a bind, and a 503 is the expected answer until the token lands.
-	if err := c.cfg.Token.TokenReady(ctx); err != nil {
+	err := c.cfg.Token.TokenReady(ctx)
+	switch {
+	case errors.Is(err, identityproxyclient.ErrNoToken):
 		api.JSON(ctx, w, c.logger, http.StatusServiceUnavailable, map[string]string{"status": "unbound"})
+		return
+	case err != nil:
+		apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "the pod cannot reach its identity-proxy", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]string{"status": "bound"})

@@ -2270,7 +2270,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								},
 								PeriodSeconds:    1,
 								TimeoutSeconds:   2,
-								FailureThreshold: 5,
+								FailureThreshold: 10,
 							},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{

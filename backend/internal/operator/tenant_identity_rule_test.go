@@ -1,6 +1,14 @@
 package operator
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+)
 
 func TestAgentIdentityRule(t *testing.T) {
 	prev := trustDomain
@@ -53,4 +61,36 @@ func field(m any, path ...string) any {
 		m = mm[p]
 	}
 	return m
+}
+
+// The rule is created, and a later reconcile patches it back to the rendered spec.
+func TestEnsureAgentIdentityRule_CreateThenPatch(t *testing.T) {
+	ctx := context.Background()
+	c := fake.NewClientBuilder().WithScheme(NewScheme()).Build()
+	r := &TenantReconciler{Client: c}
+	tenant := &KoraTenant{ObjectMeta: metav1.ObjectMeta{Name: "acme"}}
+	if err := r.ensureAgentIdentityRule(ctx, tenant); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	get := func() *unstructured.Unstructured {
+		rule := &unstructured.Unstructured{}
+		rule.SetGroupVersionKind(destinationRuleGVK)
+		if err := c.Get(ctx, client.ObjectKey{Namespace: tenantNamespace(tenant), Name: agentIdentityRuleName}, rule); err != nil {
+			t.Fatalf("get rule: %v", err)
+		}
+		return rule
+	}
+	rule := get()
+	if err := unstructured.SetNestedField(rule.Object, int64(100), "spec", "trafficPolicy", "connectionPool", "http", "maxRequestsPerConnection"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Update(ctx, rule); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ensureAgentIdentityRule(ctx, tenant); err != nil {
+		t.Fatalf("patch: %v", err)
+	}
+	if n, _, _ := unstructured.NestedInt64(get().Object, "spec", "trafficPolicy", "connectionPool", "http", "maxRequestsPerConnection"); n != 1 {
+		t.Errorf("maxRequestsPerConnection after reconcile = %d, want 1", n)
+	}
 }

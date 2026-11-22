@@ -33,8 +33,8 @@ func TestSessionManagerReadinessProbe(t *testing.T) {
 			continue
 		}
 		rp := c.ReadinessProbe
-		if rp == nil || rp.InitialDelaySeconds != 0 || rp.PeriodSeconds != 1 || rp.TimeoutSeconds != 2 || rp.FailureThreshold != 5 || rp.HTTPGet == nil || rp.HTTPGet.Path != "/health" {
-			t.Errorf("readiness probe = %+v, want GET /health at once and every second, 2s timeout, 5 failures", rp)
+		if rp == nil || rp.InitialDelaySeconds != 0 || rp.PeriodSeconds != 1 || rp.TimeoutSeconds != 2 || rp.FailureThreshold != 10 || rp.HTTPGet == nil || rp.HTTPGet.Path != "/health" {
+			t.Errorf("readiness probe = %+v, want GET /health at once and every second, 2s timeout, 10 failures", rp)
 		}
 		return
 	}

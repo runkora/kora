@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	identityproxyclient "github.com/runkora/kora/backend/internal/platform/clients/identityproxy"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -20,8 +21,9 @@ func TestHandleBound(t *testing.T) {
 		err  error
 		want int
 	}{
-		"token held": {nil, http.StatusOK},
-		"no token":   {errors.New("identity-proxy holds no platform token"), http.StatusServiceUnavailable},
+		"token held":          {nil, http.StatusOK},
+		"no token":            {identityproxyclient.ErrNoToken, http.StatusServiceUnavailable},
+		"sidecar unreachable": {errors.New("dial tcp 127.0.0.1:9090: connection refused"), http.StatusServiceUnavailable},
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := &Controller{logger: logging.NewLoggerWithOutput(io.Discard), cfg: ControllerConfig{Token: tokenStub{tc.err}}}
