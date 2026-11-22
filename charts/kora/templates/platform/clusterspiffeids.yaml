@@ -5,6 +5,7 @@
 #   System component:  spiffe://<trust-domain>/system/<spiffe.io/component>
 #   Tenant service:    spiffe://<trust-domain>/tenant/<namespace>/service/<spiffe.io/service>
 #   Tenant agent:      spiffe://<trust-domain>/tenant/<namespace>/agent/<spiffe.io/agent>
+#   Pool pod:          spiffe://<trust-domain>/tenant/<namespace>/pool/<pod name>
 #   Sandbox run:       spiffe://<trust-domain>/tenant/<namespace>/agent/<slug>/sandbox/<run-id>
 {{- $trustDomain := include "kora.trustDomain" . }}
 {{- $ns := include "kora.systemNamespace" . }}
@@ -60,6 +61,28 @@ spec:
     matchExpressions:
       - key: spiffe.io/agent
         operator: Exists
+---
+# A session-manager pool pod before it is bound to an agent. The bind sets
+# spiffe.io/agent and removes runkora.io/pool, and kora-tenant-agent takes over
+# (docs/adr/2026-11-22-agent-cold-tier.md).
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: kora-tenant-pool
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  className: {{ .Values.spire.className }}
+  spiffeIDTemplate: "spiffe://{{ $trustDomain }}/tenant/{{ `{{ .PodMeta.Namespace }}` }}/pool/{{ `{{ .PodMeta.Name }}` }}"
+  namespaceSelector:
+    matchLabels:
+      runkora.io/role: tenant
+  podSelector:
+    matchExpressions:
+      - key: runkora.io/pool
+        operator: Exists
+      - key: spiffe.io/agent
+        operator: DoesNotExist
 ---
 # One identity per run: every credential the egress gateway mints is tied to
 # the run that asked for it. The principal extractor normalises this back to

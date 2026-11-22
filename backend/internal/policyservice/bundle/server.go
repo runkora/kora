@@ -252,7 +252,7 @@ func (s *Server) authorizeTenantCaller(r *http.Request, tenantID string) (spiffe
 	}
 	p, err := (&token.XFCCPrincipalExtractor{}).Extract(r)
 	if err != nil {
-		return "", false
+		return s.authorizePoolCaller(r, tenantID)
 	}
 	spiffeID = p.Claims["spiffe_id"]
 	switch p.Type {
@@ -264,6 +264,21 @@ func (s *Server) authorizeTenantCaller(r *http.Request, tenantID string) (spiffe
 	default:
 		return spiffeID, false
 	}
+}
+
+// authorizePoolCaller lets a pool pod load its own tenant's bundle before it
+// is bound to an agent (docs/adr/2026-11-22-agent-cold-tier.md).
+func (s *Server) authorizePoolCaller(r *http.Request, tenantID string) (string, bool) {
+	spiffeID, err := token.ParseXFCCSpiffeURI(r.Header.Get("x-forwarded-client-cert"))
+	if err != nil {
+		return "", false
+	}
+	namespace, ok := token.PoolNamespace(spiffeID)
+	if !ok {
+		return spiffeID, false
+	}
+	owner, found := s.tenants.TenantForNamespace(namespace)
+	return spiffeID, found && owner == tenantID
 }
 
 // isLoopback reports whether the host of a RemoteAddr is 127.0.0.1 or ::1.
