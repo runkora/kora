@@ -82,6 +82,7 @@ func TestChartSystemSidecarCollector(t *testing.T) {
 		{"http://otel-collector.observability.svc:4317", "", "*/otel-collector.observability.svc.cluster.local"},
 		{"otel.example.com:4317", "", ""},
 		{"http://[fd00::1]:4317", "", ""},
+		{"", "", ""},
 	} {
 		values := "global:\n  observability:\n    otlpEndpoint: \"" + tc.endpoint + "\"\n    collectorNamespace: \"" + tc.namespace + "\"\n"
 		want := slices.Clone(baseSystemHosts)
