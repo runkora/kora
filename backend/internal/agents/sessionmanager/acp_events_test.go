@@ -183,7 +183,7 @@ func TestACPEvents_ToolProgressIsThrottled(t *testing.T) {
 	tr.now = func() time.Time { return now }
 	inProgress := acp.ToolCallStatusInProgress
 	update := func() {
-		tr.handleSessionUpdate(acp.SessionUpdate{ToolCallUpdate: &acp.SessionToolCallUpdate{ToolCallId: "c1", Status: &inProgress}}, "")
+		tr.handleSessionUpdate(acp.SessionUpdate{ToolCallUpdate: &acp.SessionToolCallUpdate{ToolCallId: "c1", Status: acp.PatchSet(inProgress)}}, "")
 	}
 	update() // tool_use
 	now = now.Add(time.Second)
@@ -223,7 +223,7 @@ func TestACPEvents_CancelClosesRunningCalls(t *testing.T) {
 	}, func(acpTurnEnd) acpTurnVerdict { return acpTurnVerdict{} })
 	inProgress, completed := acp.ToolCallStatusInProgress, acp.ToolCallStatusCompleted
 	update := func(id string, status *acp.ToolCallStatus) {
-		tr.handleSessionUpdate(acp.SessionUpdate{ToolCallUpdate: &acp.SessionToolCallUpdate{ToolCallId: acp.ToolCallId(id), Status: status}}, "")
+		tr.handleSessionUpdate(acp.SessionUpdate{ToolCallUpdate: &acp.SessionToolCallUpdate{ToolCallId: acp.ToolCallId(id), Status: acp.PatchFromPtr(status)}}, "")
 	}
 	update("c1", &inProgress)
 	update("c2", &inProgress)
@@ -384,7 +384,7 @@ func TestACPEvents_TurnVerdict(t *testing.T) {
 // tool_use waits while the profile marks the input as streaming, and then
 // carries the full input.
 func TestACPEvents_StreamingInputWaits(t *testing.T) {
-	prof := &fakeACPProfile{view: func(c *acpToolCall, u acp.ToolCallUpdate) acpToolView {
+	prof := &fakeACPProfile{view: func(c *acpToolCall, u acpToolUpdate) acpToolView {
 		v := acpDefaultToolView(c, u)
 		v.Streaming = u.Content == nil
 		return v

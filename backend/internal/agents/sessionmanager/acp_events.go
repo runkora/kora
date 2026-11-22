@@ -48,7 +48,7 @@ type acpTranslator struct {
 	emitFn    func(EventType, any)
 	classify  func(acpTurnEnd) acpTurnVerdict
 	hadText   bool // text_block recorded this turn
-	view      func(*acpToolCall, acp.ToolCallUpdate) acpToolView
+	view      func(*acpToolCall, acpToolUpdate) acpToolView
 	now       func() time.Time
 }
 
@@ -124,12 +124,83 @@ func (t *acpTranslator) handleSessionUpdate(u acp.SessionUpdate, session string)
 			status = acp.ToolCallStatusPending // the spec's default for a new call
 		}
 		kind := c.Kind
-		t.toolCall(acp.ToolCallUpdate{ToolCallId: c.ToolCallId, Title: &c.Title, Kind: &kind, Status: &status, RawInput: c.RawInput, RawOutput: c.RawOutput, Content: c.Content, Meta: c.Meta}, parent)
+		t.toolCall(acpToolUpdate{ToolCallId: c.ToolCallId, Title: &c.Title, Kind: &kind, Status: &status, RawInput: decodeACPRaw(c.RawInput), RawOutput: decodeACPRaw(c.RawOutput), Content: c.Content, Meta: metaMap(c.Meta)}, parent)
 	case u.ToolCallUpdate != nil:
 		c := u.ToolCallUpdate
-		t.toolCall(acp.ToolCallUpdate{ToolCallId: c.ToolCallId, Title: c.Title, Kind: c.Kind, Status: c.Status, RawInput: c.RawInput, RawOutput: c.RawOutput, Content: c.Content, Meta: c.Meta}, parent)
+		t.toolCall(newACPToolUpdate(c), parent)
 	}
 	return true
+}
+
+// acpToolUpdate is a tool call update with the optional fields as pointers and
+// the raw input and output decoded, the shape the profiles read. The SDK models
+// an update's optional fields as acp.Patch values holding raw JSON.
+type acpToolUpdate struct {
+	ToolCallId acp.ToolCallId
+	Title      *string
+	Kind       *acp.ToolKind
+	Status     *acp.ToolCallStatus
+	RawInput   any
+	RawOutput  any
+	Content    []acp.ToolCallContent
+	Meta       map[string]any
+}
+
+func newACPToolUpdate(c *acp.SessionToolCallUpdate) acpToolUpdate {
+	return newACPToolUpdateFrom(acp.ToolCallUpdate{
+		Meta: c.Meta, Content: c.Content, Kind: c.Kind, Locations: c.Locations, Name: c.Name,
+		RawInput: c.RawInput, RawOutput: c.RawOutput, Status: c.Status, Title: c.Title, ToolCallId: c.ToolCallId,
+	})
+}
+
+func newACPToolUpdateFrom(c acp.ToolCallUpdate) acpToolUpdate {
+	u := acpToolUpdate{
+		ToolCallId: c.ToolCallId,
+		Title:      c.Title.Ptr(),
+		Kind:       c.Kind.Ptr(),
+		Status:     c.Status.Ptr(),
+	}
+	if v, ok := c.RawInput.Value(); ok {
+		u.RawInput = decodeACPRaw(v)
+	}
+	if v, ok := c.RawOutput.Value(); ok {
+		u.RawOutput = decodeACPRaw(v)
+	}
+	if v, ok := c.Content.Value(); ok {
+		u.Content = v
+	}
+	if v, ok := c.Meta.Value(); ok {
+		u.Meta = metaMap(v)
+	}
+	return u
+}
+
+// metaMap decodes each value of an ACP _meta member, and drops one that is not
+// valid JSON.
+func metaMap(m acp.Meta) map[string]any {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, raw := range m {
+		if v := decodeACPRaw(raw); v != nil {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// decodeACPRaw decodes a raw JSON value, and returns nil for an empty or
+// invalid one.
+func decodeACPRaw(b json.RawMessage) any {
+	if len(b) == 0 {
+		return nil
+	}
+	var v any
+	if err := json.Unmarshal(b, &v); err != nil {
+		return nil
+	}
+	return v
 }
 
 func (t *acpTranslator) setRoot(session string) {
@@ -155,7 +226,7 @@ func (t *acpTranslator) subagent(child string, view acpToolView, result string) 
 // carry forward, since adapters stream the input over several updates after the
 // pending one, and tool_use waits for the first update past pending that has a
 // complete input (one the view does not mark streaming) or a running status.
-func (t *acpTranslator) toolCall(u acp.ToolCallUpdate, parent string) {
+func (t *acpTranslator) toolCall(u acpToolUpdate, parent string) {
 	id := string(u.ToolCallId)
 	c, ok := t.tools[id]
 	if !ok {
@@ -196,7 +267,7 @@ func (t *acpTranslator) toolCall(u acp.ToolCallUpdate, parent string) {
 // carry keeps the first title, the name, the parent and the latest non-empty
 // input of a call. The first title names the tool; OpenCode retitles a shell
 // call with its command once the input arrives.
-func (c *acpToolCall) carry(u acp.ToolCallUpdate) {
+func (c *acpToolCall) carry(u acpToolUpdate) {
 	if u.Title != nil && c.title == "" {
 		c.title = *u.Title
 	}
