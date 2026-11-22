@@ -159,7 +159,9 @@ kora's identity, policy, and inference infrastructure already supports agents as
 
 ---
 
-### US-006: BYOC Agent Discovery and Visibility
+### US-006: BYOC Agent Discovery and Visibility (Retired 2026-11-22)
+
+**Retired:** BYOC agent identity is retired ([BYOC ADR, Amendment 1](../adr/2026-05-11-byoc-agent-discovery-and-observability.md)). Only pods that kora-agents creates carry an agent identity. kora-identity refuses an agent SVID with no agent record ([#1080](https://github.com/runkora/kora/pull/1080)). A tenant workload uses `spiffe.io/service` and gets a service principal. The admission policy in the Agent Cold Tier ADR lets only kora-agents set `spiffe.io/agent` ([#1084](https://github.com/runkora/kora/pull/1084)). The acceptance criteria below are withdrawn.
 
 **As a** platform operator or tenant user,  
 **I want** tenant-deployed agents to appear automatically in the agent portal,  
