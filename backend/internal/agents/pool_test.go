@@ -29,7 +29,10 @@ func TestBuildTenantPool(t *testing.T) {
 		t.Errorf("selector = %v, want only %s", sel, poolLabel)
 	}
 	labels := dep.Spec.Template.Labels
-	for k, v := range poolPodLabels("acme") {
+	for k, v := range map[string]string{
+		poolLabel: "true", "runkora.io/tenant": "acme", "runkora.io/managed-agent": "true",
+		"spiffe.io/spire-managed-identity": "true", "runkora.io/identity-proxy": "enabled",
+	} {
 		if labels[k] != v {
 			t.Errorf("pod label %s = %q, want %q", k, labels[k], v)
 		}
@@ -63,39 +66,6 @@ func TestBuildTenantPool(t *testing.T) {
 	}
 	if image != p.cfg.SessionManagerImage {
 		t.Errorf("session-manager image = %q, want %q", image, p.cfg.SessionManagerImage)
-	}
-}
-
-// The pool is created with its ServiceAccount, and an update replaces its
-// pod template and replicas.
-func TestEnsureTenantPool(t *testing.T) {
-	const ns = "kora-tenant-acme"
-	p := podSecurityProvisioner()
-	p.cfg.PoolSize = 2
-	p.client = fake.NewSimpleClientset()
-	ctx := context.Background()
-	if err := p.ensureTenantPool(ctx, "acme", ns, metav1.OwnerReference{}, false); err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	if _, err := p.client.CoreV1().ServiceAccounts(ns).Get(ctx, poolName, metav1.GetOptions{}); err != nil {
-		t.Errorf("pool service account: %v", err)
-	}
-	p.cfg.PoolSize = 4
-	p.cfg.SessionManagerImage = "ghcr.io/runkora/kora-session-manager:2.0.0"
-	if err := p.ensureTenantPool(ctx, "acme", ns, metav1.OwnerReference{}, true); err != nil {
-		t.Fatalf("update: %v", err)
-	}
-	dep, err := p.client.AppsV1().Deployments(ns).Get(ctx, poolName, metav1.GetOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if *dep.Spec.Replicas != 4 {
-		t.Errorf("replicas = %d, want 4", *dep.Spec.Replicas)
-	}
-	for _, c := range dep.Spec.Template.Spec.Containers {
-		if c.Name == sessionManagerContainerName && c.Image != p.cfg.SessionManagerImage {
-			t.Errorf("image = %q, want %q", c.Image, p.cfg.SessionManagerImage)
-		}
 	}
 }
 
@@ -139,7 +109,7 @@ patch: |
 // The pool's AuthorizationPolicy admits only kora-agents to pool pods, the pool
 // carries the owner reference, an apply with update false leaves an existing pool
 // alone, and an unchanged render makes no further API call.
-func TestEnsureTenantPool_PolicyOwnerAndNoRepeat(t *testing.T) {
+func TestEnsureTenantPool(t *testing.T) {
 	const ns = "kora-tenant-acme"
 	p := podSecurityProvisioner()
 	p.cfg.PoolSize = 2
@@ -166,13 +136,27 @@ func TestEnsureTenantPool_PolicyOwnerAndNoRepeat(t *testing.T) {
 	if len(dep.OwnerReferences) != 1 || dep.OwnerReferences[0].Kind != "KoraTenant" {
 		t.Errorf("owner references = %v", dep.OwnerReferences)
 	}
+	if _, err := cs.CoreV1().ServiceAccounts(ns).Get(ctx, poolName, metav1.GetOptions{}); err != nil {
+		t.Errorf("pool service account: %v", err)
+	}
+
+	// A deleted pool policy comes back on the next apply, whatever the render.
+	if err := p.dynamicClient.Resource(authorizationPolicyGVR).Namespace(ns).Delete(ctx, agentAuthorizationPolicyName(poolName), metav1.DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.ensureTenantPool(ctx, "acme", ns, owner, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.dynamicClient.Resource(authorizationPolicyGVR).Namespace(ns).Get(ctx, agentAuthorizationPolicyName(poolName), metav1.GetOptions{}); err != nil {
+		t.Errorf("pool policy after a delete and an apply: %v", err)
+	}
 
 	calls := len(cs.Actions())
 	if err := p.ensureTenantPool(ctx, "acme", ns, owner, true); err != nil {
 		t.Fatal(err)
 	}
 	if n := len(cs.Actions()); n != calls {
-		t.Errorf("an unchanged render made %d API calls", n-calls)
+		t.Errorf("an unchanged render made %d Deployment or ServiceAccount calls", n-calls)
 	}
 
 	p.cfg.PoolSize = 5
@@ -183,11 +167,17 @@ func TestEnsureTenantPool_PolicyOwnerAndNoRepeat(t *testing.T) {
 		t.Errorf("replicas after an apply with update false = %d, want 2", *dep.Spec.Replicas)
 	}
 	// The pool left alone is not remembered, and the next update writes it.
+	p.cfg.SessionManagerImage = "ghcr.io/runkora/kora-session-manager:2.0.0"
 	if err := p.ensureTenantPool(ctx, "acme", ns, owner, true); err != nil {
 		t.Fatal(err)
 	}
 	if dep, _ = cs.AppsV1().Deployments(ns).Get(ctx, poolName, metav1.GetOptions{}); *dep.Spec.Replicas != 5 {
 		t.Errorf("replicas after the next update = %d, want 5", *dep.Spec.Replicas)
+	}
+	for _, c := range dep.Spec.Template.Spec.Containers {
+		if c.Name == sessionManagerContainerName && c.Image != p.cfg.SessionManagerImage {
+			t.Errorf("image = %q, want %q", c.Image, p.cfg.SessionManagerImage)
+		}
 	}
 }
 

@@ -404,6 +404,11 @@ pin_workload() {
     kubectl rollout restart "$workload" -n "$NAMESPACE"
   fi
   kubectl rollout status "$workload" -n "$NAMESPACE" --timeout=180s
+  # Pool pods run the :latest tag this push replaced. Their ReplicaSet recreates
+  # them on it (docs/adr/2026-11-22-agent-cold-tier.md).
+  if [ "$IMAGE" = "kora-session-manager" ]; then
+    kubectl delete pods -l runkora.io/pool=true -n "$NAMESPACE" --ignore-not-found --wait=false
+  fi
   ok "$workload updated to $IMAGE:$GIT_SHA"
 }
 

@@ -116,6 +116,13 @@ func TestProvisionAgentType_SetsTenantOwnerReferenceOnEveryObject(t *testing.T) 
 	}
 	assertTenantOwnerRef(t, svc.OwnerReferences, tenantID)
 
+	// The tenant pool comes with the agent (docs/adr/2026-11-22-agent-cold-tier.md).
+	pool, err := typed.AppsV1().Deployments(ns).Get(context.Background(), poolName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get pool deployment: %v", err)
+	}
+	assertTenantOwnerRef(t, pool.OwnerReferences, tenantID)
+
 	// The scaler owns the replicas. No HPA is created.
 	if _, err := typed.AutoscalingV2().HorizontalPodAutoscalers(ns).Get(context.Background(), "coder", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
 		t.Errorf("get hpa: err = %v, want not found", err)

@@ -166,7 +166,8 @@ type K8sProvisioner struct {
 	growTimeout time.Duration
 	// poolsApplied maps a tenant namespace to the hash of the pool Deployment last
 	// reconciled there. Every agent apply reconciles the pool, and an unchanged
-	// render makes no API call.
+	// render makes no Deployment or ServiceAccount call. A pool Deployment deleted
+	// by hand comes back when the render changes or kora-agents restarts.
 	poolsApplied sync.Map
 }
 

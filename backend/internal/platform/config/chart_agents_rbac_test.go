@@ -93,3 +93,12 @@ func TestChartAgentsClusterRolePoolDeployments(t *testing.T) {
 		t.Errorf("deployments verbs = %v, want [create get update]", got)
 	}
 }
+
+func TestChartPoolSizeBounds(t *testing.T) {
+	if out, err := helmTemplate(t, "agents:\n  pool: {size: -1}\n"); err == nil || !strings.Contains(out, "agents.pool.size must be at least 0") {
+		t.Errorf("size -1: render err = %v, want the bounds check to fail it", err)
+	}
+	if _, err := helmTemplate(t, "agents:\n  pool: {size: 0}\n"); err != nil {
+		t.Errorf("size 0: render err = %v, want it accepted", err)
+	}
+}

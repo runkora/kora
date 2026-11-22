@@ -12,8 +12,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
-
-	"github.com/runkora/kora/backend/internal/agents/sandbox/folder"
 )
 
 // poolName names each tenant's Deployment, ServiceAccount and
@@ -24,18 +22,6 @@ const poolName = "session-manager-pool"
 // poolLabel marks an unbound pool pod. The pool ClusterSPIFFEID gives such a
 // pod a pool SPIFFE ID, and removing the label releases it from the ReplicaSet.
 const poolLabel = "runkora.io/pool"
-
-// poolPodLabels are the labels of an unbound pool pod. The agent egress
-// lockdown, the sidecar injection and the SPIRE entry select them.
-func poolPodLabels(tenantID string) map[string]string {
-	return map[string]string{
-		poolLabel:                          "true",
-		"runkora.io/tenant":                tenantID,
-		folder.ManagedAgentLabel:           "true",
-		"spiffe.io/spire-managed-identity": "true",
-		"runkora.io/identity-proxy":        "enabled",
-	}
-}
 
 // agentOnlyPodLabels name the agent a pod serves. A pool pod carries none of them until the bind.
 var agentOnlyPodLabels = []string{"app", "spiffe.io/agent", "runkora.io/agent-type"}
@@ -51,14 +37,13 @@ func (p *K8sProvisioner) buildTenantPool(tenantID, namespace string) (appsv1.Dep
 		return appsv1.Deployment{}, err
 	}
 	template := ss.Spec.Template
+	// The agent pod labels the template keeps put the pool pod under the agent
+	// egress lockdown, the sidecar injection and the SPIRE entry.
 	podLabels := maps.Clone(template.Labels)
 	for _, k := range agentOnlyPodLabels {
 		delete(podLabels, k)
 	}
-	if podLabels == nil {
-		podLabels = map[string]string{}
-	}
-	maps.Copy(podLabels, poolPodLabels(tenantID))
+	podLabels[poolLabel] = "true"
 	template.Labels = podLabels
 	template.Spec.ServiceAccountName = poolName
 	for _, claim := range ss.Spec.VolumeClaimTemplates {
@@ -94,15 +79,16 @@ func (p *K8sProvisioner) ensureTenantPool(ctx context.Context, tenantID, namespa
 	if err != nil {
 		return fmt.Errorf("encode pool deployment: %w", err)
 	}
+	// The policy is ensured on every apply. A deleted policy would leave pool pods open to any mesh caller.
+	if err = p.ensureSessionManagerPolicy(ctx, agentAuthorizationPolicyName(poolName), namespace, map[string]any{poolLabel: "true"}, owner, update); err != nil {
+		return fmt.Errorf("ensure pool authorizationpolicy: %w", err)
+	}
 	key, sum := namespace, sha256.Sum256(rendered)
 	if last, ok := p.poolsApplied.Load(key); ok && last == sum {
 		return nil
 	}
 	if err = p.ensureServiceAccount(ctx, poolName, namespace, dep.Labels, owner, update); err != nil {
 		return fmt.Errorf("ensure pool serviceaccount: %w", err)
-	}
-	if err = p.ensureSessionManagerPolicy(ctx, agentAuthorizationPolicyName(poolName), namespace, map[string]any{poolLabel: "true"}, owner, update); err != nil {
-		return fmt.Errorf("ensure pool authorizationpolicy: %w", err)
 	}
 	written, err := p.applyTenantPool(ctx, dep, owner, update)
 	if err != nil {
