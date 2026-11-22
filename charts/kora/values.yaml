@@ -29,8 +29,9 @@ global:
     # Fraction of root traces sampled, 0.0 to 1.0.
     samplingRate: ""
     # The namespace running that collector, when it runs in this cluster.
-    # Setting it opens the egress the export needs, on the endpoint's port, and
-    # only takes effect while networkPolicy.enabled is true. Agent pods may
+    # Setting it opens the egress the export needs, on the endpoint's port,
+    # while networkPolicy.enabled is true. It also adds the namespace to the
+    # kora-system Sidecar whatever networkPolicy.enabled is. Agent pods may
     # export to this namespace, or to the externalServices entry serving the
     # endpoint's port, whatever networkPolicy.enabled is. For a collector
     # outside the cluster, leave this empty and add its CIDR and port to
