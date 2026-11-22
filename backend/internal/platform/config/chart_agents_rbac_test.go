@@ -33,10 +33,11 @@ func agentsClusterRoleVerbs(t *testing.T, group, resource string) []string {
 
 // kora-agents gets, creates and deletes run pods, lists a StatefulSet's
 // pods to find the Ready ones before a run starts (internal/agents/k8s.go),
-// and watches them into the scaler's cache.
+// watches them into the scaler's cache, and will patch a pool pod's labels to
+// bind it (docs/adr/2026-11-22-agent-cold-tier.md, PR 6).
 func TestChartAgentsClusterRoleGrantsPodVerbs(t *testing.T) {
 	verbs := agentsClusterRoleVerbs(t, "", "pods")
-	for _, want := range []string{"get", "list", "watch", "create", "delete"} {
+	for _, want := range []string{"get", "list", "watch", "create", "delete", "patch"} {
 		if !slices.Contains(verbs, want) {
 			t.Errorf("kora-agents ClusterRole pod verbs = %v, missing %q", verbs, want)
 		}

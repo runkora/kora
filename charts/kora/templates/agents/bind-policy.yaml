@@ -1,0 +1,46 @@
+# A tenant pod's agent identity comes from its spiffe.io/agent label. The label
+# may be set on a running pod only once: by kora-agents, on a pool pod, in the
+# same write that takes the pod out of the pool. Afterwards it never changes,
+# and a pod never serves a second agent (docs/adr/2026-11-22-agent-cold-tier.md).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: kora-agent-bind
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        runkora.io/role: tenant
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["UPDATE"]
+        resources: ["pods"]
+  variables:
+    - name: oldAgent
+      expression: "has(oldObject.metadata.labels) && 'spiffe.io/agent' in oldObject.metadata.labels ? oldObject.metadata.labels['spiffe.io/agent'] : ''"
+    - name: newAgent
+      expression: "has(object.metadata.labels) && 'spiffe.io/agent' in object.metadata.labels ? object.metadata.labels['spiffe.io/agent'] : ''"
+    - name: oldPool
+      expression: "has(oldObject.metadata.labels) && 'runkora.io/pool' in oldObject.metadata.labels"
+    - name: newPool
+      expression: "has(object.metadata.labels) && 'runkora.io/pool' in object.metadata.labels"
+  validations:
+    - expression: >-
+        variables.oldAgent == variables.newAgent ||
+        (variables.oldAgent == '' && variables.oldPool && !variables.newPool &&
+        request.userInfo.username == 'system:serviceaccount:{{ include "kora.systemNamespace" . }}:kora-agents')
+      message: spiffe.io/agent can be set only once, by kora-agents, on a pool pod as it leaves the pool.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: kora-agent-bind
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  policyName: kora-agent-bind
+  validationActions: ["Deny"]
