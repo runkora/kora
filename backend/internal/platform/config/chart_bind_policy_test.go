@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"maps"
 	"testing"
 
 	"github.com/google/cel-go/cel"
@@ -125,9 +126,7 @@ func TestChartBindPolicy(t *testing.T) {
 	bound := map[string]any{"spiffe.io/agent": "reviewer", "runkora.io/managed-agent": "true"}
 	with := func(base map[string]any, k, v string) map[string]any {
 		out := map[string]any{}
-		for key, val := range base {
-			out[key] = val
-		}
+		maps.Copy(out, base)
 		out[k] = v
 		return out
 	}
