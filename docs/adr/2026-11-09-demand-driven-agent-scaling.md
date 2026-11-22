@@ -357,6 +357,155 @@ The cache lags the API server by the watch delay. A stale view can only show an 
 
 ---
 
+## Amendment 3 (2026-11-22): Warm Residency for Idle Agents
+
+**Status:** Proposed
+
+An agent with no run keeps its floor pod at full size. After `clear-route/kora-platform#90` an idle agent pod requests about 300m CPU and 1.25Gi of memory:
+
+*   session-manager: 250m and 1Gi.
+*   istio-proxy: 20m and 128Mi.
+*   opa: 20m and 64Mi.
+*   identity-proxy: 10m and 32Mi.
+
+A t3a.large kora node has 1930m CPU and about 6.1Gi of allocatable memory. Memory limits it to about 4 agent pods and CPU to about 6. Prod's 48 agents peaked at 12 concurrent runs and averaged 3.8 over the 7 days to 2026-11-21. The design target is 960 agents and 240 concurrent runs at 20x. Cron triggers start runs in synchronised bursts.
+
+An idle session-manager pod has a median working set of 10Mi. The ACP child process holds a run's memory. The session-manager starts it per run (`backend/internal/agents/sessionmanager/server.go:335`) and it exits when the run closes (`acp_runner.go:709`).
+
+A spike on k3s 1.36.5 measured in-place resize of the session-manager through the `resize` subresource:
+
+*   A shrink and a grow between 1Gi and 128Mi each applied in 0.24s to 0.63s with no container restart.
+*   A grow on a node with no room stayed `PodResizePending` with reason `Deferred`. Karpenter adds no node for a Deferred resize. The grow applied 0.32s after room freed.
+*   A memory limit decrease below usage was refused with `cannot decrease memory limits` and no OOM kill. The kubelet applied it on its own retry 18s after usage dropped.
+*   File page cache from workspace writes counts as usage and blocks a limit decrease. A write to the pod cgroup's `memory.reclaim` from the node cleared it in 0.11s. Reclaim plus shrink took 0.20s to 0.44s.
+
+Prod runs EKS 1.36 and kora-local runs k3s 1.36.4. In-place resize is stable from Kubernetes 1.35.
+
+### Goals
+
+*   An idle agent's pods reserve a fraction of a hot pod's CPU and memory.
+*   A run for an idle agent reaches a full-size pod with no pod start.
+*   A grow that cannot fit its node still starts the run on a new pod within a bound.
+
+### Considered Options
+
+#### What Shrinks
+
+*   **Requests only (chosen):** kora-agents lowers the session-manager's CPU and memory requests and keeps its limits. The kubelet checks usage only against a memory limit decrease. A request decrease does not wait on page cache. The pod's `memory.max` stays at the full size. Placement, the scaler's `memoryMax` and the pressure kill read the same limit as on a hot pod.
+*   **Requests and limits with a page-cache reclaim (rejected):** kora-agents lowers both and a node agent clears the page cache before the shrink. A warm pod reports a 128Mi `memory.max`, and placement would count it as full. A kora-agents replica on the previous release dispatches with no grow during a rolling upgrade, and its run would hit the pressure kill at about 115Mi. The shrink also depends on a privileged node agent.
+*   **Memory request only (rejected):** CPU stays at 250m. At 20x the warm pods alone need 216 CPU cores, and the pool needs about 160 nodes by CPU.
+
+#### Idle Threshold
+
+*   **5 minutes (chosen):** The scaler shrinks an agent's pods 5 minutes after its last run completed. A follow-up run within 5 minutes finds a hot pod.
+*   **Next scaler pass (rejected):** Every run that follows another within seconds pays a grow and its chance of a Deferred grow.
+*   **30 minutes (rejected):** The design's warm-to-cold threshold. A hot-to-warm threshold of 30 minutes keeps more pods at full size for little gain. A grow takes under 1s.
+
+#### Idle Clock
+
+*   **`max(completed_at)` of the agent's runs (chosen):** The scaler reads it under the agent lock when the agent has no pod-occupying run. A new partial index on `runs (agent_type_id, completed_at DESC) WHERE completed_at IS NOT NULL` serves it. Every kora-agents replica reads the same time, and a restart keeps it.
+*   **In-memory first idle pass per replica (rejected):** A kora-agents restart restarts every agent's clock. Each replica holds a different clock.
+*   **Idle time in the session-manager memory report (rejected):** It changes the session-manager API. A pod on the previous session-manager reports no idle time during an upgrade.
+
+#### Warm Size
+
+*   **128Mi and 25m for the session-manager (chosen):** A warm agent pod requests about 352Mi and 75m. 128Mi is about 12 times the idle median working set. A warm pod that uses more than its request is an early eviction target under node memory pressure.
+*   **64Mi and 10m (rejected):** It saves 0.06Gi per warm pod. The prod data has no idle working set percentile per pod without a run.
+*   **256Mi and 50m (rejected):** A warm pod requests about 480Mi. At 20x the pool needs about 18 more nodes.
+
+#### Where the Grow Happens
+
+*   **In dispatch, after `AssignPod` and before `CreateSession` (chosen):** `startClaimed` reads the assigned pod from the workload cache. For a warm pod, kora-agents patches the `resize` subresource back to the full requests and waits on the cache until `status.containerStatuses[].resources` shows them. A hot pod costs no API call. A wake costs one patch.
+*   **Live GET and a watch per dispatch (rejected):** A wake costs three API calls. At 16 workers a cron burst exceeds the 50 QPS client limit at about 16 wakes per second per replica.
+*   **In the scaler pass (rejected):** A run waits up to 5s for the next pass and the time of the pass.
+
+#### Page-Cache Clear
+
+*   **No clear (chosen):** The chosen shrink lowers requests only and does not wait on page cache.
+*   **sandbox-mount writes `memory.reclaim` (rejected):** This design goes with the rejected limit shrink. The sandbox-mount DaemonSet already runs privileged on every kora node and watches session-manager pods. It would write `memory.reclaim` for a session-manager pod on its node whose memory limit in the spec is below the limit in `status.containerStatuses[].resources`. It would need no new API. Kubernetes RBAC on `pods/resize` would authorize the request, and only kora-agents holds it. If sandbox-mount is unavailable the shrink stays pending until the page cache drops. The pod would keep its full size and the scheduler would keep counting it.
+
+#### Node Reserve
+
+*   **Per-node reserve DaemonSet at priority 0 (chosen):** The chart runs a DaemonSet `kora-agent-wake-reserve` on the session-manager nodes. Each pod holds one wake: 225m CPU and 896Mi, the difference between the full and warm sizes. Its PriorityClass has value 0 and `preemptionPolicy: Never`. A new session-manager pod at priority 0 cannot preempt it, and a pending new pod triggers Karpenter. Karpenter counts DaemonSet pods in the size of a new node. When a grow is Deferred, kora-agents deletes the reserve pod on that node. The DaemonSet controller recreates it, and it waits until the node has room again.
+*   **No reserve (rejected):** Karpenter consolidation packs nodes. Most wakes on a packed node would be Deferred and take the fallback of about 35s.
+*   **Reserve at priority -10 (rejected):** The `sandbox-headroom` placeholder uses -10. Every new session-manager pod on a full node would preempt the reserve, and Karpenter would add no node until the reserve is gone.
+*   **Overprovisioning Deployment (rejected):** A grow needs room on its own node. A Deployment does not keep one placeholder on each node.
+*   **Two wakes per node (rejected):** At 20x it needs about 36 more nodes than one wake.
+
+#### Deferred Fallback
+
+*   **Release after 5s and scale up (chosen):** A grow not applied 5s after the patch releases the run. A pod with a pending resize counts as full in placement and in the scaler. The next placement goes to another pod with room, or the scaler adds pods by the existing scale-up rule. The pending grow stays. The kubelet applies it when the node has room, and the idle shrink later returns the pod to warm.
+*   **Revert the grow (rejected):** The pod would look warm with room again. Placement would pick it and wait another 5s on each attempt.
+*   **Dispatch scales the StatefulSet (rejected):** The scaler owns the replicas under the agent lock.
+
+### Decision
+
+kora-agents will shrink the session-manager requests of an idle agent's pods in place and grow them back in dispatch before the run's session is created.
+
+*   An agent is idle when it has no run in `pending`, `starting`, `active`, `idle` or `completing` (`RunState.OccupiesPod`) and its last run completed at least `agents.scheduling.warmAfterSecs` ago (default 300). An agent with no completed run counts from its `activated_at`. A value of 0 turns the warm tier off.
+*   Under the agent lock, the scaler will patch the `resize` subresource of each hot, Ready pod of an idle agent to the warm requests. The warm requests are `agents.workloads.sessionManager.warm.cpu` (default 25m) and `agents.workloads.sessionManager.warm.memory` (default 128Mi). The limits are unchanged.
+*   A pod is warm when its session-manager memory request in the spec is below its memory limit. The full requests are the memory limit and `agents.workloads.sessionManager.cpu`. No annotation or database row records the tier.
+*   The workload cache will also keep each pod's node name, its session-manager requests and limits in the spec, and its session-manager resources in the status.
+*   `startClaimed` will grow an assigned warm pod before `CreateSession` and wait on the cache up to 5s for the full requests in `status.containerStatuses[].resources`.
+*   A grow that reports `PodResizePending` with reason `Deferred` or `Infeasible` deletes the wake-reserve pod on the pod's node once. A grow not applied within 5s releases the run with `ReleaseRunClaim`.
+*   Placement and the scaler will count a pod with a pending resize as having no room.
+*   The scaler will grow any warm pod that has a pod-occupying run, with no wait. This covers a run placed by a kora-agents replica on the previous release and a kora-agents restart between `AssignPod` and the grow.
+*   The pod template keeps the full requests. A pod that a roll, a crash of the pod, an eviction or a scale-up creates starts at full size and shrinks after the threshold. A container restart inside a warm pod keeps the warm requests. A resize does not change a pod's `controller-revision-hash`.
+*   The floor, the Ready floor and the scale-down rule count warm pods as Ready pods. The scale-down rule still removes empty top pods. The shrink applies to the pods that remain.
+*   A surge pod (Amendment 1) starts at full size. A roll replaces warm pods with full-size pods. The roll hold and its release do not read a pod's tier.
+*   The ClusterRole will gain `patch` on `pods/resize`. kora-agents already deletes pods.
+*   The chart will run the wake reserve when `agents.wakeReserve.enabled` is true (default true), with `agents.wakeReserve.resources` (default 225m and 896Mi). It uses the session-manager node selector, tolerations and affinity.
+
+### Sizing
+
+The sizing counts the peak concurrent agents as hot and every other agent as warm. A node holds 5.0Gi and 1.8 cores of agent pods. The prod data has no distribution of the gap between one agent's runs. Agents inside the 5 minute threshold add hot pods above these counts.
+
+| Agents (peak hot) | No warm tier | Warm, no reserve | Warm, 1-wake reserve | Warm, 2-wake reserve |
+|---|---|---|---|---|
+| 48 (12) | 12 nodes | 6 nodes | 7 nodes | 9 nodes |
+| 480 (120) | 120 nodes | 55 nodes | 67 nodes | 85 nodes |
+| 960 (240) | 240 nodes | 110 nodes | 133 nodes | 169 nodes |
+
+*   Memory sets each warm figure. At 20x with the chosen sizes the pods need 126 cores against 133 nodes × 1.575 cores after the reserve.
+*   Without the CPU shrink, 960 agents need 288 cores and about 160 nodes.
+*   At 20x with one wake reserved, each node holds about 5 warm pods. A cron burst that wakes more agents on one node than its free room and one reserve fall back to new pods. A fallback takes the 5s bound, up to one 5s scaler pass and a pod start of p50 24s (p90 33s), plus a node start when no node has room.
+*   A wake costs one patch. At the 50 QPS client limit one kora-agents replica patches about 50 wakes per second beside its other calls.
+
+### Consequences
+
+*   **Positive:** A wake on a node with room takes under 1s and keeps the pod, its SVID and its mesh connections.
+*   **Positive:** No privileged component takes part in the shrink or the grow.
+*   **Negative:** A warm pod's memory limit stays at 1Gi against a 128Mi request. The node is overcommitted by the gap on every warm pod. Only a run grows a session-manager's working set, and dispatch grows the pod before the run.
+*   **Negative:** The wake reserve holds 896Mi and 225m on every session-manager node.
+*   **Negative:** A synchronised burst on a packed node takes the fallback for every wake past the reserve.
+*   **Negative:** A Deferred grow left pending holds its full size on the node in the scheduler's count until the kubelet applies it.
+*   **Neutral:** The scaler reads `max(completed_at)` for each agent with no pod-occupying run on every pass while any of its pods is hot.
+
+### Open Questions
+
+*   Does the kubelet apply a memory request decrease while page cache keeps usage above the new request? The spike tested limit decreases only.
+*   Does the scheduler count a Deferred grow at its new size and keep the recreated reserve pod pending? The cluster check of a Deferred grow will confirm it.
+
+### Possible Later Improvement
+
+*   The scaler could grow agents with a cron trigger due within the next minute. A Deferred grow would then fall back before the burst.
+*   The sidecars could shrink in place as well. Their requests are 224Mi of a warm pod's 352Mi.
+
+### Validation
+
+*   Unit tests cover the idle rule, the warm check, the shrink patch, the grow and its wait, the reserve deletion, the 5s release, a pending resize counted as full, the scaler's grow of an occupied warm pod and the cache trim.
+*   A Postgres test covers the last completed run query and its index.
+*   Chart tests cover the wake reserve, its PriorityClass and the new ClusterRole verb.
+*   A local cluster check shows an idle agent shrinks after the threshold, a run grows the pod before its session with no restart or OOM kill, a pod with page cache in its workspace still shrinks, and a Deferred grow falls back to a new pod within the bound.
+*   The local cluster checks for agent scaling, the surge rollout and eviction pass.
+
+### Superseded
+
+*   Decision, Pod Memory: the request equal to the limit, for the session-manager of a warm pod. A hot pod keeps it.
+*   Non-Goals: CPU resources, for the session-manager CPU request of a warm pod.
+
+---
+
 ## Related Decisions
 
 *   [Run Scheduling](2026-10-12-run-scheduling.md): superseded in part. This ADR supersedes these parts of it:
@@ -385,4 +534,4 @@ The cache lags the API server by the watch delay. A stale view can only show an 
 
 ---
 
-**Last Updated:** 2026-11-22 (Amendment 2: cached reads and a parallel scaler pass)
+**Last Updated:** 2026-11-22 (Amendment 3: warm residency for idle agents)
