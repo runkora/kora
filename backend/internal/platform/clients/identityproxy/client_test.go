@@ -24,6 +24,10 @@ func TestTokenReady(t *testing.T) {
 	if err := c.TokenReady(t.Context()); !errors.Is(err, ErrNoToken) {
 		t.Errorf("TokenReady with no token = %v, want ErrNoToken", err)
 	}
+	status = http.StatusInternalServerError
+	if err := c.TokenReady(t.Context()); !errors.Is(err, ErrUnexpectedStatus) {
+		t.Errorf("TokenReady on a 500 = %v, want ErrUnexpectedStatus", err)
+	}
 	status = http.StatusOK
 	if err := c.TokenReady(t.Context()); err != nil {
 		t.Errorf("TokenReady with a token = %v, want nil", err)

@@ -230,9 +230,12 @@ type tokenExchanger interface {
 	Exchange(ctx context.Context) (token string, expiry time.Time, err error)
 }
 
-// boundBackoffInitial is the first retry interval of the exchange after a bind.
+// After a bind the exchange retries every boundRetryInterval for boundRetryWindow.
 // identity-proxy can see the agent SVID before Envoy holds the agent certificate.
-const boundBackoffInitial = 200 * time.Millisecond
+const (
+	boundRetryInterval = 200 * time.Millisecond
+	boundRetryWindow   = 10 * time.Second
+)
 
 // Server wraps the gRPC server and manages its lifecycle.
 type Server struct {
@@ -289,10 +292,11 @@ func NewServer(
 
 // Start performs the startup sequence:
 //
-//  1. Starts the HTTP health server on port 9090 immediately. It always returns
-//     200 so Istio's PostStart hook succeeds and iptables intercept is configured
+//  1. Starts the HTTP health server on port 9090 immediately. Every path but
+//     /tokenz returns 200 so Istio's PostStart hook succeeds and iptables intercept is configured
 //     before we attempt the exchange call. Istio probes this via
-//     /app-health/identity-proxy/readyz → localhost:9090/healthz.
+//     /app-health/identity-proxy/readyz → localhost:9090/healthz. /tokenz
+//     returns 200 only while the cache holds a token.
 //
 //  2. Binds the Unix domain socket and starts the gRPC ext_proc server in
 //     the background. The socket must exist before step 3 so the
@@ -305,6 +309,7 @@ func NewServer(
 //     HTTP call would be RST by Envoy because it has no cert to present.
 //
 //  4. Obtains the initial platform token (exponential backoff up to ReadyTimeout).
+//     A pool pod first marks gRPC health SERVING and waits for its agent SVID.
 //
 //  5. Marks gRPC health SERVING.
 //
@@ -391,7 +396,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// A pool pod serves with no token until kora-agents binds it to an agent,
 	// then exchanges on the agent SVID (docs/adr/2026-11-22-agent-cold-tier.md).
-	backoff := s.cfg.BackoffInitial
+	var fixedUntil time.Time
 	if s.refresher.awaitPool(ctx, s.cfg.ReadyTimeout) {
 		s.health.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 		s.logger.Info(ctx, "identity-proxy serving a pool pod with no token until the bind")
@@ -400,13 +405,13 @@ func (s *Server) Start(ctx context.Context) error {
 			return fmt.Errorf("waiting for the bind: %w", err)
 		}
 		s.logger.Info(ctx, "pod bound to an agent, exchanging the agent SVID")
-		backoff = boundBackoffInitial
+		fixedUntil = time.Now().Add(boundRetryWindow)
 	}
 
 	// Step 4: obtain the initial token. The Processor returns an empty CONTINUE
 	// for any ext_proc calls arriving before the cache is warm, so the window
 	// where requests go without an Authorization header is brief.
-	if err := s.waitForInitialToken(ctx, backoff); err != nil {
+	if err := s.waitForInitialToken(ctx, fixedUntil); err != nil {
 		s.grpc.GracefulStop()
 		return fmt.Errorf("initial token acquisition failed: %w", err)
 	}
@@ -501,13 +506,16 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 // exceeded. It uses the same exponential-backoff logic as Refresher so
 // transient failures at startup (e.g. identity service not yet ready) are
 // handled gracefully.
-func (s *Server) waitForInitialToken(ctx context.Context, backoff time.Duration) error {
+//
+// Until fixedUntil it retries every boundRetryInterval, then it backs off.
+func (s *Server) waitForInitialToken(ctx context.Context, fixedUntil time.Time) error {
 	ctx, span := s.tracer.Start(ctx, "identityproxy.WaitForInitialToken",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	defer span.End()
 
 	deadline := time.Now().Add(s.cfg.ReadyTimeout)
+	backoff := s.cfg.BackoffInitial
 
 	for {
 		token, expiry, err := s.exchanger.Exchange(ctx)
@@ -525,21 +533,19 @@ func (s *Server) waitForInitialToken(ctx context.Context, backoff time.Duration)
 		}
 		span.RecordError(err)
 
+		wait := boundRetryInterval
+		if !time.Now().Before(fixedUntil) {
+			wait, backoff = backoff, min(backoff*2, s.cfg.BackoffMax)
+		}
 		s.logger.Warn(ctx, "initial exchange failed, retrying",
 			logging.Field{Key: "error", Value: err.Error()},
-			logging.Field{Key: "backoff_ms", Value: backoff.Milliseconds()},
+			logging.Field{Key: "backoff_ms", Value: wait.Milliseconds()},
 		)
-
 		select {
 		case <-ctx.Done():
 			observability.RecordFailure(span, ctx.Err(), errContextCanceled)
 			return ctx.Err()
-		case <-time.After(backoff):
-		}
-
-		backoff *= 2
-		if backoff > s.cfg.BackoffMax {
-			backoff = s.cfg.BackoffMax
+		case <-time.After(wait):
 		}
 	}
 }

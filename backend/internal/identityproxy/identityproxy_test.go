@@ -182,7 +182,7 @@ func TestServer_WaitForInitialToken_ImmediateSuccess(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := srv.waitForInitialToken(ctx, testConfig().BackoffInitial); err != nil {
+	if err := srv.waitForInitialToken(ctx, time.Time{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	tok, _, ok := cache.Get()
@@ -204,7 +204,7 @@ func TestServer_WaitForInitialToken_RetriesAndSucceeds(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := srv.waitForInitialToken(ctx, testConfig().BackoffInitial); err != nil {
+	if err := srv.waitForInitialToken(ctx, time.Time{}); err != nil {
 		t.Fatalf("unexpected error after retries: %v", err)
 	}
 	if exc.calls.Load() != 3 {
@@ -229,7 +229,7 @@ func TestServer_WaitForInitialToken_ContextCancelled(t *testing.T) {
 		cancel()
 	}()
 
-	err := srv.waitForInitialToken(ctx, testConfig().BackoffInitial)
+	err := srv.waitForInitialToken(ctx, time.Time{})
 	if err == nil {
 		t.Fatal("expected error when context is cancelled")
 	}

@@ -20,8 +20,12 @@ const (
 	LocalURL = "http://127.0.0.1:9090"
 )
 
-// ErrNoToken is returned while identity-proxy holds no platform token.
-var ErrNoToken = errors.New("identity-proxy holds no platform token")
+var (
+	// ErrNoToken is returned while identity-proxy holds no platform token.
+	ErrNoToken = errors.New("identity-proxy holds no platform token")
+	// ErrUnexpectedStatus is returned for any other status than 200 or 503.
+	ErrUnexpectedStatus = errors.New("unexpected status from identity-proxy")
+)
 
 // Client calls the identity-proxy health server.
 type Client struct {
@@ -43,8 +47,12 @@ func (c *Client) TokenReady(ctx context.Context) error {
 		return err
 	}
 	defer resp.Body.Close()
+	// A 503 is the expected answer until the token lands. It does not fail the span.
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		return ErrNoToken
+	}
 	if resp.StatusCode != http.StatusOK {
-		return c.HandleErrorResponse(span, resp, ErrNoToken)
+		return c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
 	return nil
 }

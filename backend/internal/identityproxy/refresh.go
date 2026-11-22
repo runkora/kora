@@ -54,10 +54,8 @@ type svidState struct {
 // observe records an SVID and reports whether it is a pool SVID.
 func (s *svidState) observe(c *workloadapi.X509Context) bool {
 	pool := false
-	if c != nil {
-		if svid := c.DefaultSVID(); svid != nil {
-			_, pool = token.PoolNamespace(svid.ID.String())
-		}
+	if c != nil && len(c.SVIDs) > 0 {
+		_, pool = token.PoolNamespace(c.DefaultSVID().ID.String())
 	}
 	s.once.Do(func() {
 		s.mu.Lock()

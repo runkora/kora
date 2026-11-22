@@ -247,9 +247,9 @@ func (c *Controller) handleMemory(w http.ResponseWriter, r *http.Request) {
 // the 200 adds that the agent token is in place (docs/adr/2026-11-22-agent-cold-tier.md).
 func (c *Controller) handleBound(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	// kora-agents polls this route during a bind, and a 503 is the expected answer until the token lands.
 	if err := c.cfg.Token.TokenReady(ctx); err != nil {
-		apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "the pod holds no agent token yet", nil)
-		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		api.JSON(ctx, w, c.logger, http.StatusServiceUnavailable, map[string]string{"status": "unbound"})
 		return
 	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]string{"status": "bound"})

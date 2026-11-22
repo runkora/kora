@@ -102,3 +102,20 @@ func TestHandleTokenz(t *testing.T) {
 		t.Errorf("/tokenz with a token = %d, want 200", code)
 	}
 }
+
+// After a bind the exchange retries at a fixed interval inside the window.
+func TestServer_WaitForInitialToken_FixedRetryAfterBind(t *testing.T) {
+	cache := NewTokenCache()
+	exc := &stubExchanger{failN: 2, token: "agent-token"}
+	cfg := testConfig()
+	cfg.BackoffInitial = 5 * time.Second
+	srv := NewServer(cache, nil, exc, NewRefresher(cache, exc, discardLogger(), cfg), discardLogger(), cfg)
+
+	start := time.Now()
+	if err := srv.waitForInitialToken(t.Context(), time.Now().Add(boundRetryWindow)); err != nil {
+		t.Fatalf("waitForInitialToken: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed < 2*boundRetryInterval || elapsed > 2*time.Second {
+		t.Errorf("two retries took %s, want about %s", elapsed, 2*boundRetryInterval)
+	}
+}
