@@ -114,6 +114,48 @@ func TestAgentStatefulSetMakesNoAPIRead(t *testing.T) {
 	}
 }
 
+// LivePodOrdinals reads the pods from the API server with one LIST, not from a cache that lags a terminating pod.
+func TestLivePodOrdinalsReadsLive(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ready := func(name string) *corev1.Pod {
+		return &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: scaleTestNS, Labels: podLabels(at)},
+			Status:     corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
+		}
+	}
+	ss := liveStatefulSet(at, 2, appsv1.ParallelPodManagement)
+	now := metav1.Now()
+	draining := ready("coder-0")
+	draining.DeletionTimestamp = &now
+	client := fake.NewSimpleClientset(ss, draining, ready("coder-1"))
+	// The cache holds the StatefulSet and both pods as Ready: it has not seen coder-0 start terminating.
+	p := &K8sProvisioner{client: client, workloads: newWorkloadCache(client)}
+	for _, obj := range []any{ss, ready("coder-0"), ready("coder-1")} {
+		var err error
+		if _, isSet := obj.(*appsv1.StatefulSet); isSet {
+			err = p.workloads.Apps().V1().StatefulSets().Informer().GetIndexer().Add(obj)
+		} else {
+			err = p.workloads.Core().V1().Pods().Informer().GetIndexer().Add(obj)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if view, _, _ := p.AgentStatefulSet(t.Context(), at.Slug, scaleTestNS); len(view.Ready) != 2 || view.Terminating != 0 {
+		t.Fatalf("cached view: ready %v, terminating %d; want the lagging [0 1] and 0", view.Ready, view.Terminating)
+	}
+	got, terminating, err := p.LivePodOrdinals(t.Context(), at.Slug, scaleTestNS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0] != 1 || terminating != 1 {
+		t.Errorf("live read: ready %v, terminating %d; want [1] and 1", got, terminating)
+	}
+	if actions := client.Actions(); len(actions) != 1 || actions[0].GetVerb() != "list" {
+		t.Errorf("API calls = %v, want one pod list", actions)
+	}
+}
+
 // A cache the API server never lists for returns when ctx ends, with the sync error.
 func TestSyncWorkloadCacheStopsWithContext(t *testing.T) {
 	client := fake.NewSimpleClientset()

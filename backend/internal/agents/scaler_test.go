@@ -182,6 +182,9 @@ type scalerFake struct {
 	// inFlight and maxInFlight count the concurrent AgentStatefulSet reads. hold delays each read.
 	inFlight, maxInFlight int
 	hold                  time.Duration
+	// live is what LivePodOrdinals reads. Nil reads the cached view.
+	live      *livePodRead
+	liveReads int
 
 	scaledTo   int
 	switched   bool
@@ -254,6 +257,20 @@ func (f *scalerFake) ScaleStatefulSet(_ context.Context, _, _ string, from, to i
 func (f *scalerFake) ReleaseRollHold(_ context.Context, _, _ string, partition int, _ string) error {
 	f.released = partition
 	return f.releaseErr
+}
+
+type livePodRead struct {
+	ready       []int
+	terminating int
+}
+
+func (f *scalerFake) LivePodOrdinals(context.Context, string, string) ([]int, int, error) {
+	f.mustHold("LivePodOrdinals")
+	f.liveReads++
+	if f.live == nil {
+		return f.ready, f.view.Terminating, nil
+	}
+	return f.live.ready, f.live.terminating, nil
 }
 
 func (f *scalerFake) SwitchToParallel(context.Context, string, string) error {
@@ -365,6 +382,28 @@ func TestScalerPassIsBounded(t *testing.T) {
 	}
 	if len(f.readLocked) != 24 {
 		t.Errorf("%d memory reads, want 2 for each of the 12 agents", len(f.readLocked))
+	}
+}
+
+// A cache that has not seen pod 0 start terminating shows two Ready pods. The live read before the
+// scale-down shows the top pod is the only one left above the floor, and the scaler keeps it.
+func TestScalerScaleDownReadsPodsLive(t *testing.T) {
+	f := &scalerFake{t: t, view: statefulSetView{ResourceVersion: "41", Replicas: 2, Parallel: true}, ready: []int{0, 1}, memory: fullPod,
+		live: &livePodRead{ready: []int{1}, terminating: 1}}
+	s := newTestScaler(f)
+	s.cfg.MinReplicas = 1
+	if err := s.scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}); err != nil {
+		t.Fatal(err)
+	}
+	if f.liveReads != 1 || f.scaledTo != 0 {
+		t.Errorf("live reads %d, scaled to %d; want one read and no scale-down below the floor", f.liveReads, f.scaledTo)
+	}
+	f.live = nil
+	if err := s.scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}); err != nil {
+		t.Fatal(err)
+	}
+	if f.scaledTo != 1 {
+		t.Errorf("scaled to %d with no pod terminating, want 1", f.scaledTo)
 	}
 }
 

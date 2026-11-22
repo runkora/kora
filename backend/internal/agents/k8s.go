@@ -511,6 +511,22 @@ func (p *K8sProvisioner) AgentStatefulSet(_ context.Context, slug, namespace str
 	return view, true, nil
 }
 
+// LivePodOrdinals lists the agent's pods from the API server and returns their Ready ordinals and
+// terminating count below the cached StatefulSet's replicas. The scaler reads them before a scale-down.
+func (p *K8sProvisioner) LivePodOrdinals(ctx context.Context, slug, namespace string) (ready []int, terminating int, err error) {
+	ss, err := p.workloads.Apps().V1().StatefulSets().Lister().StatefulSets(namespace).Get(slug)
+	if err != nil {
+		return nil, 0, fmt.Errorf("read cached statefulset %s/%s: %w", namespace, slug, err)
+	}
+	sel := labels.SelectorFromSet(ss.Spec.Selector.MatchLabels).String()
+	pods, err := p.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: sel})
+	if err != nil {
+		return nil, 0, fmt.Errorf("list pods for %s/%s: %w", namespace, slug, err)
+	}
+	ready, terminating = podOrdinals(ss, pods.Items, slug)
+	return ready, terminating, nil
+}
+
 // surgeReady reports whether the pod at the partition ordinal is Ready and on the update revision of a
 // spec the controller has observed. An old-revision pod still at that ordinal does not release the hold.
 func surgeReady(ss *appsv1.StatefulSet, pods []corev1.Pod, slug string, ready []int) bool {

@@ -41,6 +41,7 @@ type scalerCluster interface {
 	ScaleStatefulSet(ctx context.Context, slug, namespace string, from, to int, resourceVersion string) error
 	ReleaseRollHold(ctx context.Context, slug, namespace string, partition int, resourceVersion string) error
 	SwitchToParallel(ctx context.Context, slug, namespace string) error
+	LivePodOrdinals(ctx context.Context, slug, namespace string) (ready []int, terminating int, err error)
 }
 
 // ScalerConfig holds the scaler's settings.
@@ -179,13 +180,22 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 	if err != nil {
 		return err
 	}
-	want := desiredReplicas(scaleInput{
+	in := scaleInput{
 		replicas: ss.Replicas, floor: int(max(s.cfg.MinReplicas, 1)), total: at.MaxConcurrentRuns, maxReplicas: int(s.cfg.MaxReplicas),
 		counts: counts, ready: ss.Ready, terminating: ss.Terminating, rolling: ss.Partition > 0 || ss.Rolling,
 		readings: readings, starting: starting,
 		topRuns: occupied[ss.Replicas-1], memoryMax: memoryMax(ss.Ready, readings, ss.MemoryLimitBytes),
 		allowance: allowance, watermark: s.cfg.PlacementWatermark,
-	})
+	}
+	want := desiredReplicas(in)
+	// The cache can miss a pod that started terminating, and the StatefulSet version does not change with it.
+	// A scale-down decides the floor and the empty top pod again from a live read of the pods.
+	if want < ss.Replicas {
+		if in.ready, in.terminating, err = s.cluster.LivePodOrdinals(ctx, at.Slug, namespace); err != nil {
+			return err
+		}
+		want = desiredReplicas(in)
+	}
 	if want == ss.Replicas {
 		return nil
 	}
@@ -196,7 +206,7 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 		logging.Field{Key: "agent_type_id", Value: at.ID},
 		logging.Field{Key: "from", Value: ss.Replicas}, logging.Field{Key: "to", Value: want},
 		logging.Field{Key: "pending", Value: counts.Pending}, logging.Field{Key: "starting", Value: counts.Starting},
-		logging.Field{Key: "active", Value: counts.Active}, logging.Field{Key: "ready", Value: len(ss.Ready)})
+		logging.Field{Key: "active", Value: counts.Active}, logging.Field{Key: "ready", Value: len(in.ready)})
 	return nil
 }
 
