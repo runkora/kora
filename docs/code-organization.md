@@ -21,7 +21,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `egress-gateway` | JIT credential broker: intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer, static API key); backed by `internal/credentials` | `8085`; metrics `9464` | none |
 | `kora-mcp` | Platform-management MCP server: exposes kora's own APIs as governed MCP tools | `8095`; metrics `9464` | none |
 | `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`); metrics `9464` | ✅ |
-| `kora-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster); metrics `9464` | ✅ |
+| `kora-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration | `8080` (in-cluster); metrics `9464` | ✅ |
 | `kora-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097`; metrics `9464` | ✅ |
 | `kora-events` | Event spine: relays `event_outbox` into the event log, serves the event read API and streams, and deletes expired events, backed by `internal/koraevents` | `8099`; metrics `9464` | ✅ |
 | `skills-service` | Agent Skills: serves each tenant's skill Marketplaces from GitHub repositories with a Redis cache, backed by `internal/skills` | `8098` (`/v1`); metrics `9464` | none |

@@ -5,6 +5,8 @@
 **Deciders:** Platform Engineering  
 **Technical Story:** Managed agent workloads must run in tenant namespaces with stable identity, governed LLM access, and efficient resource utilisation. This ADR decides how agent pods are deployed, scaled, and addressed.
 
+**Note (2026-11-22):** The BYOC statements in this ADR no longer hold. [BYOC ADR, Amendment 1](2026-05-11-byoc-agent-discovery-and-observability.md) retires BYOC agent identity.
+
 ---
 
 ## Context
