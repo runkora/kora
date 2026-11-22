@@ -7,5 +7,5 @@ CREATE INDEX idx_runs_agent_completed ON runs (agent_type_id, completed_at DESC)
 
 -- +goose Down
 -- +goose StatementBegin
-DROP INDEX idx_runs_agent_completed;
+DROP INDEX IF EXISTS idx_runs_agent_completed;
 -- +goose StatementEnd

@@ -180,6 +180,9 @@ func (p *K8sProvisioner) waitGrown(ctx context.Context, slug, namespace string, 
 
 // releaseWakeReserve deletes the wake-reserve pods on node. A failure is logged. The grow keeps waiting.
 func (p *K8sProvisioner) releaseWakeReserve(ctx context.Context, node string) {
+	if node == "" {
+		return
+	}
 	pods := p.client.CoreV1().Pods(p.cfg.SystemNamespace)
 	list, err := pods.List(ctx, metav1.ListOptions{LabelSelector: wakeReserveSelector, FieldSelector: fields.OneTermEqualSelector("spec.nodeName", node).String()})
 	if err != nil {

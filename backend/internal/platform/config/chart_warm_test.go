@@ -44,10 +44,9 @@ func TestChartWarmTier(t *testing.T) {
 	}
 }
 
-// The wake reserve runs on the session-manager nodes at priority 0 with no preemption, holds one grow by default,
-// and is off when disabled.
-func TestChartWakeReserve(t *testing.T) {
-	values := "agents:\n  workloads:\n    sessionManager:\n      nodeSelector: {workload-tier: kora}\n      tolerations: [{key: workload-tier, operator: Equal, value: kora, effect: NoSchedule}]\n"
+// renderWakeReserve renders the wake-reserve DaemonSet and PriorityClass over values.
+func renderWakeReserve(t *testing.T, values string) (appsv1.DaemonSet, schedulingv1.PriorityClass) {
+	t.Helper()
 	out := renderChart(t, values, "--show-only", "templates/agents/wake-reserve.yaml")
 	var ds appsv1.DaemonSet
 	var pc schedulingv1.PriorityClass
@@ -63,6 +62,30 @@ func TestChartWakeReserve(t *testing.T) {
 			}
 		}
 	}
+	return ds, pc
+}
+
+// The wake reserve copies only the session-manager's node affinity, and with no placement set it has none.
+func TestChartWakeReservePlacement(t *testing.T) {
+	values := "agents:\n  workloads:\n    sessionManager:\n      affinity:\n" +
+		"        nodeAffinity: {requiredDuringSchedulingIgnoredDuringExecution: {nodeSelectorTerms: [{matchExpressions: [{key: tier, operator: In, values: [kora]}]}]}}\n" +
+		"        podAntiAffinity: {preferredDuringSchedulingIgnoredDuringExecution: [{weight: 1, podAffinityTerm: {topologyKey: kubernetes.io/hostname, labelSelector: {matchLabels: {app: coder}}}}]}\n"
+	ds, _ := renderWakeReserve(t, values)
+	a := ds.Spec.Template.Spec.Affinity
+	if a == nil || a.NodeAffinity == nil || a.PodAffinity != nil || a.PodAntiAffinity != nil {
+		t.Errorf("reserve affinity = %+v, want the node affinity only", a)
+	}
+	ds, _ = renderWakeReserve(t, "{}\n")
+	if spec := ds.Spec.Template.Spec; spec.Affinity != nil || spec.NodeSelector != nil || spec.Tolerations != nil {
+		t.Errorf("reserve placement with none set = %v, %v, %v; want none", spec.Affinity, spec.NodeSelector, spec.Tolerations)
+	}
+}
+
+// The wake reserve runs on the session-manager nodes at priority 0 with no preemption, holds one grow by default,
+// and is off when disabled.
+func TestChartWakeReserve(t *testing.T) {
+	values := "agents:\n  workloads:\n    sessionManager:\n      nodeSelector: {workload-tier: kora}\n      tolerations: [{key: workload-tier, operator: Equal, value: kora, effect: NoSchedule}]\n"
+	ds, pc := renderWakeReserve(t, values)
 	if pc.Value != 0 || pc.PreemptionPolicy == nil || *pc.PreemptionPolicy != corev1.PreemptNever {
 		t.Errorf("PriorityClass value %d, preemption %v; want 0 and Never", pc.Value, pc.PreemptionPolicy)
 	}
@@ -75,6 +98,17 @@ func TestChartWakeReserve(t *testing.T) {
 	}
 	if len(spec.Containers) != 1 {
 		t.Fatalf("reserve containers = %d, want 1", len(spec.Containers))
+	}
+	c := spec.Containers[0]
+	if !strings.Contains(c.Image, "kora-session-manager") {
+		t.Errorf("reserve image = %q, want the session-manager image", c.Image)
+	}
+	if spec.AutomountServiceAccountToken == nil || *spec.AutomountServiceAccountToken ||
+		spec.SecurityContext == nil || spec.SecurityContext.RunAsNonRoot == nil || !*spec.SecurityContext.RunAsNonRoot ||
+		c.SecurityContext == nil || c.SecurityContext.AllowPrivilegeEscalation == nil || *c.SecurityContext.AllowPrivilegeEscalation ||
+		c.SecurityContext.Capabilities == nil || !slices.Contains(c.SecurityContext.Capabilities.Drop, "ALL") {
+		t.Errorf("reserve security: token %v, pod %+v, container %+v; want no token, non-root, no escalation and ALL dropped",
+			spec.AutomountServiceAccountToken, spec.SecurityContext, c.SecurityContext)
 	}
 	res := spec.Containers[0].Resources
 	for name, want := range map[corev1.ResourceName]string{corev1.ResourceCPU: "225m", corev1.ResourceMemory: "896Mi"} {

@@ -268,3 +268,13 @@ func TestWakePodBeforeCacheSync(t *testing.T) {
 		})
 	}
 }
+
+// A pod with no node yet has no reserve to release, and no pod list is made.
+func TestReleaseWakeReserveWithNoNode(t *testing.T) {
+	client := fake.NewClientset()
+	p := &K8sProvisioner{client: client, logger: logging.NewLoggerWithOutput(io.Discard)}
+	p.releaseWakeReserve(context.Background(), "")
+	if n := len(client.Actions()); n != 0 {
+		t.Errorf("API actions = %d, want none", n)
+	}
+}
