@@ -100,12 +100,15 @@ Kubernetes: `>=1.34.0-0`
 | agents.scheduling.startingRunAllowance.codex | string | `"60Mi"` | The same for a Codex run. |
 | agents.scheduling.startingRunAllowance.openCode | string | `"440Mi"` | The same for an OpenCode run. |
 | agents.scheduling.startingRunWindowSecs | int | `30` | Seconds after its pod assignment that a live run still counts at the starting allowance, because its memory grows after it leaves starting. |
+| agents.scheduling.warmAfterSecs | int | `300` | Seconds after an agent's last run completed before its idle session-manager pods shrink to `agents.workloads.sessionManager.warm`. A run grows the pod back before it starts. 0 keeps every pod at full size. Needs Kubernetes 1.35 or later. |
 | agents.scheduling.workerConcurrency | int | `16` | Runs one kora-agents replica starts at once. |
 | agents.serviceAccount.annotations | object | `{}` |  |
 | agents.tenantConnectionsConfigMapName | string | `"kora-tenant-connections"` |  |
 | agents.tenantsConfigMap | string | `"kora-tenants"` | Operator-owned tenant registry ConfigMap; the service reads each tenant's authoring switch from it. |
 | agents.tolerations | list | `[]` |  |
 | agents.topologySpreadConstraints | list | `[]` |  |
+| agents.wakeReserve.enabled | bool | `true` | Run the wake-reserve DaemonSet on the session-manager nodes. |
+| agents.wakeReserve.resources | object | `{"cpu":"225m","memory":"896Mi"}` | Capacity each node holds for a grow. The default is one grow: the session-manager's full requests less its warm requests. Resize it when either changes. |
 | agents.workloads.common.podAnnotations | object | `{}` |  |
 | agents.workloads.common.podLabels | object | `{}` |  |
 | agents.workloads.sandbox.affinity | object | `{}` |  |
@@ -124,6 +127,8 @@ Kubernetes: `>=1.34.0-0`
 | agents.workloads.sessionManager.priorityClassName | string | `""` |  |
 | agents.workloads.sessionManager.tolerations | list | `[]` |  |
 | agents.workloads.sessionManager.topologySpreadConstraints | list | `[]` |  |
+| agents.workloads.sessionManager.warm.cpu | string | `"25m"` | CPU request of a warm session-manager. At most `cpu`. |
+| agents.workloads.sessionManager.warm.memory | string | `"128Mi"` | Memory request of a warm session-manager. Below `memory`. |
 | agents.workspace.accessModes[0] | string | `"ReadWriteOnce"` |  |
 | agents.workspace.size | string | `"10Gi"` |  |
 | agents.workspace.storageClassName | string | `""` |  |

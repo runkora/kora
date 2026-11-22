@@ -31,18 +31,31 @@ func newWorkloadCache(client kubernetes.Interface) informers.SharedInformerFacto
 		informers.WithTransform(trimCached))
 }
 
-// trimCached drops what the scaler never reads: managedFields from every object, and all of a pod
-// but its identity, labels, deletion and conditions. It keeps the cache small at many agents.
+// trimCached drops what the scaler and the grow never read: managedFields from every object, and all of a
+// pod but its identity, labels, deletion, node, conditions and session-manager resources. It keeps the cache
+// small at many agents.
 func trimCached(obj any) (any, error) {
 	switch o := obj.(type) {
 	case *corev1.Pod:
-		return &corev1.Pod{
+		pod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: o.Name, Namespace: o.Namespace, UID: o.UID, ResourceVersion: o.ResourceVersion,
 				Labels: o.Labels, DeletionTimestamp: o.DeletionTimestamp,
 			},
+			Spec:   corev1.PodSpec{NodeName: o.Spec.NodeName},
 			Status: corev1.PodStatus{Conditions: o.Status.Conditions},
-		}, nil
+		}
+		for _, c := range o.Spec.Containers {
+			if c.Name == sessionManagerContainerName {
+				pod.Spec.Containers = []corev1.Container{{Name: c.Name, Resources: c.Resources}}
+			}
+		}
+		for _, cs := range o.Status.ContainerStatuses {
+			if cs.Name == sessionManagerContainerName {
+				pod.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: cs.Name, Resources: cs.Resources}}
+			}
+		}
+		return pod, nil
 	case metav1.Object:
 		o.SetManagedFields(nil)
 	}

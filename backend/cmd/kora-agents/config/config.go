@@ -138,6 +138,8 @@ type Config struct {
 			StartingRunAllowance StartingRunAllowance `yaml:"startingRunAllowance"`
 			// StartingRunWindowSecs is how long after its pod assignment a live run still counts as starting.
 			StartingRunWindowSecs int `yaml:"startingRunWindowSecs"`
+			// WarmAfterSecs is how long an agent stays idle before its pods shrink to the warm requests. Zero turns the warm tier off.
+			WarmAfterSecs int `yaml:"warmAfterSecs"`
 		} `yaml:"scheduling"`
 		// ConnectionRegistryPath is the mounted connections.json file rendered by
 		// the operator's ConnectionAggregator into the kora-tenant-connections
@@ -194,6 +196,9 @@ var errMaxReplicas = errors.New("agents.scheduling.maxReplicas must be at least 
 
 // errScalerConcurrency means the scaler could check no agent.
 var errScalerConcurrency = errors.New("agents.scheduling.scalerConcurrency must be at least 1")
+
+// errWarmAfter means a negative idle threshold.
+var errWarmAfter = errors.New("agents.scheduling.warmAfterSecs must be at least 0")
 
 // errStartingRunAllowance means a harness has no positive starting-run allowance.
 var errStartingRunAllowance = errors.New("agents.scheduling.startingRunAllowance: claudeCode, codex and openCode must each be a positive quantity")
@@ -277,6 +282,9 @@ func Validate(cfg *Config) error {
 	}
 	if cfg.Agents.Scheduling.ScalerConcurrency < 1 {
 		return errScalerConcurrency
+	}
+	if cfg.Agents.Scheduling.WarmAfterSecs < 0 {
+		return errWarmAfter
 	}
 	a := cfg.Agents.Scheduling.StartingRunAllowance
 	for _, q := range []resource.Quantity{a.ClaudeCode, a.Codex, a.OpenCode} {

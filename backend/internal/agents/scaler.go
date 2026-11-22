@@ -31,6 +31,8 @@ type scalerStore interface {
 	AgentRunCounts(ctx context.Context, agentTypeID string) (AgentRunCounts, error)
 	StartingRunsPerPod(ctx context.Context, agentTypeID string, assignedSince time.Time) (map[int]int, error)
 	ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error)
+	// LastRunCompletedAt is the completion time of the agent's latest completed run, zero when it has none.
+	LastRunCompletedAt(ctx context.Context, agentTypeID string) (time.Time, error)
 }
 
 // scalerCluster is the StatefulSet access the scaler needs. AgentStatefulSet reads a cache that
@@ -42,6 +44,9 @@ type scalerCluster interface {
 	ReleaseRollHold(ctx context.Context, slug, namespace string, partition int, resourceVersion string) error
 	SwitchToParallel(ctx context.Context, slug, namespace string) error
 	LivePodOrdinals(ctx context.Context, slug, namespace string) (ready []int, terminating int, err error)
+	// ShrinkPod and GrowPod set a pod's session-manager requests to the warm or the full size.
+	ShrinkPod(ctx context.Context, slug, namespace string, ordinal int) error
+	GrowPod(ctx context.Context, slug, namespace string, ordinal int) error
 }
 
 // ScalerConfig holds the scaler's settings.
@@ -56,6 +61,8 @@ type ScalerConfig struct {
 	StartingRunWindow     time.Duration
 	// Concurrency is how many agents one pass checks at once. Each check may hold a Postgres connection.
 	Concurrency int
+	// WarmAfter is how long an agent stays idle before its pods shrink to the warm size. Zero keeps them full.
+	WarmAfter time.Duration
 }
 
 // Scaler sets each agent's StatefulSet replicas from its runs and pod memory
@@ -149,7 +156,8 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	if err != nil {
 		return err
 	}
-	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, ss.Ready)
+	// A pod with a pending resize has no reading and counts as full, so a stuck grow gets a new pod.
+	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, withoutOrdinals(ss.Ready, ss.Resizing))
 	ran, err := s.store.WaitWithAgentLock(ctx, at.ID, scalerLockTimeout, func(ctx context.Context) error {
 		return s.scaleLocked(ctx, at, namespace, ss, readings, allowance.Value())
 	})
@@ -198,17 +206,59 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 		}
 		want = desiredReplicas(in)
 	}
-	if want == ss.Replicas {
+	if want != ss.Replicas {
+		if err := s.cluster.ScaleStatefulSet(ctx, at.Slug, namespace, ss.Replicas, want, ss.ResourceVersion); err != nil {
+			return err
+		}
+		s.logger.Info(ctx, "scaled agent pods",
+			logging.Field{Key: "agent_type_id", Value: at.ID},
+			logging.Field{Key: "from", Value: ss.Replicas}, logging.Field{Key: "to", Value: want},
+			logging.Field{Key: "pending", Value: counts.Pending}, logging.Field{Key: "starting", Value: counts.Starting},
+			logging.Field{Key: "active", Value: counts.Active}, logging.Field{Key: "ready", Value: len(in.ready)})
+	}
+	return s.settleResidency(ctx, at, namespace, ss, counts, occupied, want)
+}
+
+// settleResidency grows a warm pod that holds a run, and shrinks the other Ready pods below want once the
+// agent has been idle for WarmAfter (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 3).
+// A run placed with no grow, by a previous kora-agents release or before a restart, gets its pod grown here.
+func (s *Scaler) settleResidency(ctx context.Context, at AgentType, namespace string, ss statefulSetView,
+	counts AgentRunCounts, occupied map[int]int, want int) error {
+	if counts.Starting+counts.Active > 0 {
+		for _, ord := range ss.Warm {
+			if occupied[ord] > 0 {
+				if err := s.cluster.GrowPod(ctx, at.Slug, namespace, ord); err != nil {
+					return err
+				}
+				s.logger.Info(ctx, "grew warm agent pod that holds a run",
+					logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod_ordinal", Value: ord})
+			}
+		}
 		return nil
 	}
-	if err := s.cluster.ScaleStatefulSet(ctx, at.Slug, namespace, ss.Replicas, want, ss.ResourceVersion); err != nil {
+	// A grow still pending on a full node shrinks back too, so the pod stops counting as full.
+	hot := slices.DeleteFunc(withoutOrdinals(ss.Ready, ss.Warm), func(ord int) bool { return ord >= want })
+	if s.cfg.WarmAfter <= 0 || counts.Pending > 0 || len(hot) == 0 {
+		return nil
+	}
+	last, err := s.store.LastRunCompletedAt(ctx, at.ID)
+	if err != nil {
 		return err
 	}
-	s.logger.Info(ctx, "scaled agent pods",
-		logging.Field{Key: "agent_type_id", Value: at.ID},
-		logging.Field{Key: "from", Value: ss.Replicas}, logging.Field{Key: "to", Value: want},
-		logging.Field{Key: "pending", Value: counts.Pending}, logging.Field{Key: "starting", Value: counts.Starting},
-		logging.Field{Key: "active", Value: counts.Active}, logging.Field{Key: "ready", Value: len(in.ready)})
+	idleSince := at.ActivatedAt
+	if last.After(idleSince) {
+		idleSince = last
+	}
+	if time.Since(idleSince) < s.cfg.WarmAfter {
+		return nil
+	}
+	for _, ord := range hot {
+		if err := s.cluster.ShrinkPod(ctx, at.Slug, namespace, ord); err != nil {
+			return err
+		}
+		s.logger.Info(ctx, "shrank idle agent pod to warm",
+			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod_ordinal", Value: ord})
+	}
 	return nil
 }
 

@@ -36,7 +36,8 @@ func waitCached(t *testing.T, cached func() bool) {
 	}
 }
 
-// The cache keeps a pod's identity, labels, deletion and conditions, and no object's managedFields.
+// The cache keeps a pod's identity, labels, deletion, node, conditions and session-manager resources, and no
+// object's managedFields.
 func TestTrimCached(t *testing.T) {
 	now := metav1.Now()
 	managed := []metav1.ManagedFieldsEntry{{Manager: "kubelet"}}
@@ -45,8 +46,17 @@ func TestTrimCached(t *testing.T) {
 			Name: "coder-0", Namespace: scaleTestNS, UID: "u", ResourceVersion: "9", Labels: map[string]string{agentTypeLabel: "a"},
 			DeletionTimestamp: &now, Annotations: map[string]string{"sidecar.istio.io/status": "big"}, ManagedFields: managed,
 		},
-		Spec:   corev1.PodSpec{Containers: []corev1.Container{{Name: sessionManagerContainerName}}},
-		Status: corev1.PodStatus{Phase: corev1.PodRunning, Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
+		Spec: corev1.PodSpec{NodeName: "node-a", Containers: []corev1.Container{
+			{Name: sessionManagerContainerName, Image: "sm", Resources: smResources("25m", "128Mi")},
+			{Name: "other", Image: "other"},
+		}},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning, Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: sessionManagerContainerName, Image: "sm", Resources: new(smResources("250m", "1Gi"))},
+				{Name: "other", Image: "other"},
+			},
+		},
 	}
 	out, err := trimCached(pod)
 	if err != nil {
@@ -57,7 +67,12 @@ func TestTrimCached(t *testing.T) {
 		got.Labels[agentTypeLabel] != "a" || got.DeletionTimestamp == nil || !podReady(got) {
 		t.Errorf("trimmed pod lost a field the scaler reads: %+v", got)
 	}
-	if got.Annotations != nil || got.ManagedFields != nil || len(got.Spec.Containers) != 0 || got.Status.Phase != "" {
+	if got.Spec.NodeName != "node-a" || !podWarm(got) || !resizePending(got) {
+		t.Errorf("trimmed pod lost the node or session-manager resources the grow reads: %+v", got)
+	}
+	if got.Annotations != nil || got.ManagedFields != nil || got.Status.Phase != "" ||
+		len(got.Spec.Containers) != 1 || got.Spec.Containers[0].Image != "" ||
+		len(got.Status.ContainerStatuses) != 1 || got.Status.ContainerStatuses[0].Image != "" {
 		t.Errorf("trimmed pod kept fields the scaler never reads: %+v", got)
 	}
 	ss := liveStatefulSet(AgentType{Slug: "coder"}, 1, appsv1.ParallelPodManagement)

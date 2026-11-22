@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -195,6 +196,9 @@ type scalerFake struct {
 	released   int
 	releaseErr error
 	readLocked []bool
+	// lastCompleted is what LastRunCompletedAt reports. shrunk and grown record the resized ordinals.
+	lastCompleted time.Time
+	shrunk, grown []int
 }
 
 func (f *scalerFake) mustHold(call string) {
@@ -298,6 +302,23 @@ func (f *scalerFake) LivePodOrdinals(context.Context, string, string) ([]int, in
 func (f *scalerFake) SwitchToParallel(context.Context, string, string) error {
 	f.mustHold("SwitchToParallel")
 	f.switched = true
+	return nil
+}
+
+func (f *scalerFake) LastRunCompletedAt(context.Context, string) (time.Time, error) {
+	f.mustHold("LastRunCompletedAt")
+	return f.lastCompleted, nil
+}
+
+func (f *scalerFake) ShrinkPod(_ context.Context, _, _ string, ordinal int) error {
+	f.mustHold("ShrinkPod")
+	f.shrunk = append(f.shrunk, ordinal)
+	return nil
+}
+
+func (f *scalerFake) GrowPod(_ context.Context, _, _ string, ordinal int) error {
+	f.mustHold("GrowPod")
+	f.grown = append(f.grown, ordinal)
 	return nil
 }
 
@@ -532,5 +553,83 @@ func TestScaleAgentSwallowsMovedPartition(t *testing.T) {
 				t.Errorf("logged failure = %v, want %v", got, tc.logged)
 			}
 		})
+	}
+}
+
+// warmScaler is newTestScaler with a 5 minute WarmAfter.
+func warmScaler(f *scalerFake) *Scaler {
+	s := newTestScaler(f)
+	s.cfg.WarmAfter = 5 * time.Minute
+	return s
+}
+
+func emptyPod(context.Context, string) (sessionmanager.Memory, error) {
+	return sessionmanager.Memory{WorkingSetBytes: 10 * mi, LimitBytes: 1024 * mi}, nil
+}
+
+// An idle agent's hot Ready pods, and a pod whose grow is still pending, shrink once its last run completed
+// WarmAfter ago, and not before, not while a run waits, not when WarmAfter is zero, and not again once warm.
+func TestScalerShrinksIdleAgent(t *testing.T) {
+	old, recent := time.Now().Add(-10*time.Minute), time.Now().Add(-time.Minute)
+	for _, tc := range []struct {
+		name     string
+		mutate   func(f *scalerFake, s *Scaler)
+		activate time.Time
+		want     []int
+	}{
+		{"idle past the threshold", func(*scalerFake, *Scaler) {}, old, []int{0, 1}},
+		{"last run inside the threshold", func(f *scalerFake, _ *Scaler) { f.lastCompleted = recent }, old, nil},
+		{"never ran and activated inside the threshold", func(f *scalerFake, _ *Scaler) { f.lastCompleted = time.Time{} }, recent, nil},
+		{"never ran and activated long ago", func(f *scalerFake, _ *Scaler) { f.lastCompleted = time.Time{} }, old, []int{0, 1}},
+		{"a run waits", func(f *scalerFake, _ *Scaler) { f.counts.Pending = 1 }, old, nil},
+		{"warm tier off", func(_ *scalerFake, s *Scaler) { s.cfg.WarmAfter = 0 }, old, nil},
+		{"already warm", func(f *scalerFake, _ *Scaler) { f.view.Warm, f.view.Resizing = []int{0, 1}, []int{1} }, old, nil},
+		{"a grow left pending shrinks back", func(f *scalerFake, _ *Scaler) { f.view.Warm, f.view.Resizing = []int{0}, []int{1} }, old, []int{1}},
+		{"a pod being scaled away", func(f *scalerFake, _ *Scaler) { f.view.Replicas, f.ready = 3, []int{0, 1, 2} }, old, []int{0, 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &scalerFake{t: t, view: statefulSetView{Replicas: 2, Parallel: true}, ready: []int{0, 1}, memory: emptyPod, lastCompleted: old}
+			s := warmScaler(f)
+			tc.mutate(f, s)
+			if err := s.scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 20, ActivatedAt: tc.activate}); err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(f.shrunk, tc.want) || len(f.grown) != 0 {
+				t.Errorf("shrunk %v and grew %v, want shrunk %v", f.shrunk, f.grown, tc.want)
+			}
+		})
+	}
+}
+
+// A warm pod that holds a run grows without a wait, and an empty warm pod of a busy agent stays warm.
+func TestScalerGrowsOccupiedWarmPod(t *testing.T) {
+	f := &scalerFake{
+		t: t, counts: AgentRunCounts{Active: 1}, occupied: map[int]int{1: 1},
+		view: statefulSetView{Replicas: 2, Parallel: true, Warm: []int{0, 1}}, ready: []int{0, 1}, memory: emptyPod,
+	}
+	if err := warmScaler(f).scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 20}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(f.grown, []int{1}) || len(f.shrunk) != 0 {
+		t.Errorf("grew %v and shrunk %v, want grew [1]", f.grown, f.shrunk)
+	}
+}
+
+// A pod with a pending resize counts as full, so a waiting run gets a new pod.
+func TestScalerCountsResizingPodFull(t *testing.T) {
+	f := &scalerFake{
+		t: t, counts: AgentRunCounts{Pending: 1},
+		view: statefulSetView{Replicas: 1, Parallel: true, Resizing: []int{0}}, ready: []int{0}, memory: emptyPod,
+	}
+	s := warmScaler(f)
+	s.cfg.MinReplicas = 1
+	if err := s.scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 20}); err != nil {
+		t.Fatal(err)
+	}
+	if f.scaledTo != 2 {
+		t.Errorf("scaled to %d, want 2", f.scaledTo)
+	}
+	if len(f.readLocked) != 0 {
+		t.Errorf("memory reads = %d, want none of the resizing pod", len(f.readLocked))
 	}
 }

@@ -449,10 +449,12 @@ kora-agents will shrink the session-manager requests of an idle agent's pods in 
 *   A pod is warm when its session-manager memory request in the spec is below its memory limit. The full requests are the memory limit and `agents.workloads.sessionManager.cpu`. No annotation or database row records the tier.
 *   The workload cache will also keep each pod's node name, its session-manager requests and limits in the spec, and its session-manager resources in the status.
 *   `startClaimed` will grow an assigned warm pod before `CreateSession` and wait on the cache up to 5s for the full requests in `status.containerStatuses[].resources`.
-*   A grow that reports `PodResizePending` with reason `Deferred` or `Infeasible` deletes the wake-reserve pod on the pod's node once. A grow not applied within 5s releases the run with `ReleaseRunClaim`.
-*   Placement and the scaler will count a pod with a pending resize as having no room.
+*   Before the cache syncs after a kora-agents start, `startClaimed` reads the pod live and grows it with no wait.
+*   A cache that has not yet seen a shrink shows the pod as hot. The run then starts on the warm pod, and the scaler grows the pod on its next pass.
+*   A grow that reports `PodResizePending` with reason `Deferred` deletes the wake-reserve pod on the pod's node once. A grow not applied within 5s releases the run with `ReleaseRunClaim`.
+*   Placement and the scaler will count a pod with a pending resize as having no room. Once the agent is idle past the threshold, the scaler shrinks a pod whose grow is still pending.
 *   The scaler will grow any warm pod that has a pod-occupying run, with no wait. This covers a run placed by a kora-agents replica on the previous release and a kora-agents restart between `AssignPod` and the grow.
-*   The pod template keeps the full requests. A pod that a roll, a crash of the pod, an eviction or a scale-up creates starts at full size and shrinks after the threshold. A container restart inside a warm pod keeps the warm requests. A resize does not change a pod's `controller-revision-hash`.
+*   The pod template keeps the full requests. A pod that a roll, a crash of the pod, an eviction or a scale-up creates starts at full size and shrinks once the agent is idle past the threshold. A container restart inside a warm pod keeps the warm requests. A resize does not change a pod's `controller-revision-hash`.
 *   The floor, the Ready floor and the scale-down rule count warm pods as Ready pods. The scale-down rule still removes empty top pods. The shrink applies to the pods that remain.
 *   A surge pod (Amendment 1) starts at full size. A roll replaces warm pods with full-size pods. The roll hold and its release do not read a pod's tier.
 *   The ClusterRole will gain `patch` on `pods/resize`. kora-agents already deletes pods.
@@ -480,7 +482,9 @@ The sizing counts the peak concurrent agents as hot and every other agent as war
 *   **Negative:** A warm pod's memory limit stays at 1Gi against a 128Mi request. The node is overcommitted by the gap on every warm pod. Only a run grows a session-manager's working set, and dispatch grows the pod before the run.
 *   **Negative:** The wake reserve holds 896Mi and 225m on every session-manager node.
 *   **Negative:** A synchronised burst on a packed node takes the fallback for every wake past the reserve.
-*   **Negative:** A Deferred grow left pending holds its full size on the node in the scheduler's count until the kubelet applies it.
+*   **Negative:** A Deferred grow left pending holds its full size on the node in the scheduler's count until the kubelet applies it or the idle shrink reverts it.
+*   **Negative:** A Deferred wake holds a start worker for up to 5s.
+*   **Negative:** A released run goes to the next warm pod with room. Each warm pod on a full node costs another 5s before the scaler adds a pod.
 *   **Neutral:** The scaler reads `max(completed_at)` for each agent with no pod-occupying run on every pass while any of its pods is hot.
 
 ### Open Questions

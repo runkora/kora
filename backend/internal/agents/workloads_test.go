@@ -309,6 +309,21 @@ func TestForSessionManager_CPUDefault(t *testing.T) {
 	}
 }
 
+// Unset warm requests yield 25m and 128Mi, and configured ones are kept.
+func TestForSessionManager_WarmDefault(t *testing.T) {
+	warm := (WorkloadsConfig{}).ForSessionManager().Warm
+	if warm.CPU.String() != "25m" || warm.Memory.String() != "128Mi" {
+		t.Errorf("unset warm = %v and %v, want 25m and 128Mi", warm.CPU, warm.Memory)
+	}
+	cfg := WorkloadsConfig{SessionManager: SessionManagerCustomization{Warm: WarmRequests{CPU: new(resource.MustParse("10m")), Memory: new(resource.MustParse("64Mi"))}}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("configured warm requests rejected: %v", err)
+	}
+	if warm := cfg.ForSessionManager().Warm; warm.CPU.String() != "10m" || warm.Memory.String() != "64Mi" {
+		t.Errorf("configured warm = %v and %v, want 10m and 64Mi", warm.CPU, warm.Memory)
+	}
+}
+
 // A nodeSelector on one side and required node affinity on the other separates
 // the pods just as surely as two different selectors.
 func TestSplitAcrossNodes_MixedForms(t *testing.T) {
@@ -391,6 +406,18 @@ func TestWorkloadsConfig_ValidateRejectsPlatformKeys(t *testing.T) {
 		},
 		"session-manager cpu above the limit": {
 			SessionManager: SessionManagerCustomization{CPU: new(resource.MustParse("2100m"))},
+		},
+		"warm memory at the full memory": {
+			SessionManager: SessionManagerCustomization{Warm: WarmRequests{Memory: new(resource.MustParse("1Gi"))}},
+		},
+		"zero warm memory": {
+			SessionManager: SessionManagerCustomization{Warm: WarmRequests{Memory: new(resource.MustParse("0"))}},
+		},
+		"warm cpu above the full cpu": {
+			SessionManager: SessionManagerCustomization{Warm: WarmRequests{CPU: new(resource.MustParse("300m"))}},
+		},
+		"zero warm cpu": {
+			SessionManager: SessionManagerCustomization{Warm: WarmRequests{CPU: new(resource.MustParse("0"))}},
 		},
 		"istio interception opt-out": {
 			SessionManager: SessionManagerCustomization{WorkloadCustomization: WorkloadCustomization{PodAnnotations: map[string]string{"sidecar.istio.io/interceptionMode": "NONE"}}},

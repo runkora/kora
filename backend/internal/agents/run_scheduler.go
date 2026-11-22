@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sync"
 	"time"
 
@@ -154,6 +155,13 @@ func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.T
 	at, namespace, pod, ok := s.placeRun(ctx, span, run, claimedAt)
 	if !ok {
 		return
+	}
+	// A warm pod grows to its full requests before it takes the run. A grow past its bound releases the run.
+	if s.waker != nil {
+		if err := s.waker.WakePod(ctx, at.Slug, namespace, pod); err != nil {
+			s.releaseStart(ctx, span, run.ID, claimedAt, fmt.Errorf("grow agent pod %d: %w", pod, err))
+			return
+		}
 	}
 
 	// A digest is stored before the session exists, so every run that reaches the agent carries one.
@@ -352,7 +360,7 @@ const memoryReadTimeout = 2 * time.Second
 // the agent lock. A slow pod must never hold it, and the lock is taken only when a pod
 // has room by that reading.
 func (s *RunService) assignPod(ctx context.Context, run Run, claimedAt time.Time, at *AgentType, namespace string) (int, error) {
-	ready, err := s.k8s.ReadyOrdinals(ctx, at.Slug, namespace)
+	ready, resizing, err := s.k8s.ReadyOrdinals(ctx, at.Slug, namespace)
 	if err != nil {
 		return 0, fmt.Errorf("list ready pods: %w", err)
 	}
@@ -363,7 +371,8 @@ func (s *RunService) assignPod(ctx context.Context, run Run, claimedAt time.Time
 	if err != nil {
 		return 0, err
 	}
-	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, ready)
+	// A pod with a pending resize has no reading and counts as full. A grow stuck on a full node waits there.
+	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, withoutOrdinals(ready, resizing))
 	// A run for an agent whose pods are all full is released here. Many such runs at once would
 	// otherwise queue on the agent lock. The lock re-checks.
 	starting, err := s.placement.StartingRunsPerPod(ctx, at.ID, time.Now().Add(-s.cfg.StartingRunWindow))
@@ -407,6 +416,16 @@ func (s *RunService) assignLocked(ctx context.Context, run Run, claimedAt time.T
 		return ord, s.placement.AssignPod(ctx, run.ID, claimedAt, ord)
 	}
 	return 0, errNoFreePod
+}
+
+// withoutOrdinals returns the ordinals in ords that are not in drop.
+func withoutOrdinals(ords, drop []int) []int {
+	return slices.DeleteFunc(slices.Clone(ords), func(ord int) bool { return slices.Contains(drop, ord) })
+}
+
+// podWaker grows a warm agent pod before a run is sent to it (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 3).
+type podWaker interface {
+	WakePod(ctx context.Context, slug, namespace string, ordinal int) error
 }
 
 // podMemoryReader reads one pod's memory report.

@@ -947,6 +947,20 @@ func (r *PostgresRepository) StartingRunsPerPod(ctx context.Context, agentTypeID
 	return collectPodCounts(rows)
 }
 
+// LastRunCompletedAt returns the completion time of the agent's latest completed run, zero when it has none.
+// idx_runs_agent_completed serves it.
+func (r *PostgresRepository) LastRunCompletedAt(ctx context.Context, agentTypeID string) (time.Time, error) {
+	var last *time.Time
+	if err := r.pool.QueryRow(ctx, `SELECT max(completed_at) FROM runs WHERE agent_type_id = $1 AND completed_at IS NOT NULL`,
+		agentTypeID).Scan(&last); err != nil {
+		return time.Time{}, fmt.Errorf("read last completed run: %w", err)
+	}
+	if last == nil {
+		return time.Time{}, nil
+	}
+	return *last, nil
+}
+
 // agentLockKey keys the advisory lock that placement and the scaler take on an agent.
 func agentLockKey(agentTypeID string) string { return "agent/" + agentTypeID }
 

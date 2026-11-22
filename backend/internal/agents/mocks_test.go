@@ -830,6 +830,8 @@ type mockK8s struct {
 	deprovisionAgentTypeErr error
 	// readyPods is how many pods ReadyOrdinals reports. Zero means one.
 	readyPods int
+	// resizing is the ordinals ReadyOrdinals reports with a pending resize.
+	resizing []int
 	// replicas is what Replicas reports. Zero means the ReadyOrdinals count.
 	replicas              int
 	sandboxEndpoint       string
@@ -882,16 +884,16 @@ func (m *mockK8s) DeprovisionAgentType(_ context.Context, at AgentType, _ string
 	return nil
 }
 
-func (m *mockK8s) ReadyOrdinals(_ context.Context, _, _ string) ([]int, error) {
+func (m *mockK8s) ReadyOrdinals(_ context.Context, _, _ string) (ready, resizing []int, err error) {
 	if m.noReadyPods {
-		return nil, nil
+		return nil, nil, nil
 	}
 	n := max(m.readyPods, 1)
 	out := make([]int, n)
 	for i := range out {
 		out[i] = i
 	}
-	return out, nil
+	return out, m.resizing, nil
 }
 
 func (m *mockK8s) LivePod(_ context.Context, _, _ string) (bool, error) {
