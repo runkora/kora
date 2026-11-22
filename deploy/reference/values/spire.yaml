@@ -2,8 +2,9 @@
 # chart default. The trust domain and cluster name are injected by the Helmfile
 # from the shared environment facts (global.spire.trustDomain, clusterName).
 spire-server:
-  # A bound pool pod receives its agent SVID about 1s after the bind with a 1s
-  # entry cache reload. The default reload is 5s (docs/adr/2026-11-22-agent-cold-tier.md).
+  # With this 1s entry cache reload and the agent's 1s sync, a bound pool pod
+  # holds its agent SVID about 2s after the bind. The default reload is 5s
+  # (docs/adr/2026-11-22-agent-cold-tier.md).
   experimental:
     enabled: true
     cacheReloadInterval: 1s
