@@ -19,7 +19,7 @@ const watermarkBytes = int64(testWatermark * testPodMemory)
 func podMemory(slug string, workingSets map[int]int64) map[string]sessionmanager.Memory {
 	out := make(map[string]sessionmanager.Memory, len(workingSets))
 	for ord, ws := range workingSets {
-		out[sessionmanager.PodURL(slug, ord, "kora-tenant-t1")] = sessionmanager.Memory{WorkingSetBytes: ws, LimitBytes: testPodMemory}
+		out[testPod(slug, ord, "kora-tenant-t1").URL] = sessionmanager.Memory{WorkingSetBytes: ws, LimitBytes: testPodMemory}
 	}
 	return out
 }
@@ -151,9 +151,9 @@ func TestAssignPod_FullPodsSkipTheLock(t *testing.T) {
 // Pods whose memory read times out count as full, and the reads run at once.
 func TestAssignPod_MemoryReadTimeout(t *testing.T) {
 	f, repo, _, sm, at, run := placementEnv(t, 3, 3)
-	fast := sessionmanager.PodURL("bot", 2, "kora-tenant-t1")
+	fast := testPod("bot", 2, "kora-tenant-t1")
 	var lockedDuringRead atomic.Bool
-	sm.memoryFn = func(ctx context.Context, podURL string) (sessionmanager.Memory, error) {
+	sm.memoryFn = func(ctx context.Context, podURL sessionmanager.Pod) (sessionmanager.Memory, error) {
 		if repo.agentLockHeld.Load() {
 			lockedDuringRead.Store(true)
 		}

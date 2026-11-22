@@ -51,7 +51,7 @@ func TestTrimCached(t *testing.T) {
 			{Name: "other", Image: "other"},
 		}},
 		Status: corev1.PodStatus{
-			Phase: corev1.PodRunning, Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+			Phase: corev1.PodRunning, PodIP: "10.0.0.1", Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
 			ContainerStatuses: []corev1.ContainerStatus{
 				{Name: sessionManagerContainerName, Image: "sm", Resources: new(smResources("250m", "1Gi"))},
 				{Name: "other", Image: "other"},
@@ -64,7 +64,7 @@ func TestTrimCached(t *testing.T) {
 	}
 	got := out.(*corev1.Pod)
 	if got.Name != "coder-0" || got.Namespace != scaleTestNS || got.UID != "u" || got.ResourceVersion != "9" ||
-		got.Labels[agentTypeLabel] != "a" || got.DeletionTimestamp == nil || !podReady(got) {
+		got.Labels[agentTypeLabel] != "a" || got.DeletionTimestamp == nil || !podReady(got) || got.Status.PodIP != "10.0.0.1" {
 		t.Errorf("trimmed pod lost a field the scaler reads: %+v", got)
 	}
 	if got.Spec.NodeName != "node-a" || !podWarm(got, smResources("250m", "1Gi").Requests) || !resizePending(got) {
@@ -93,7 +93,7 @@ func agentWorkloads(n int) *fake.Clientset {
 		at := AgentType{ID: fmt.Sprintf("id-%d", i), Slug: fmt.Sprintf("agent-%d", i), TenantID: "acme"}
 		objs = append(objs, liveStatefulSet(at, 1, appsv1.ParallelPodManagement), &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{Name: at.Slug + "-0", Namespace: scaleTestNS, Labels: podLabels(at)},
-			Status:     corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
+			Status:     corev1.PodStatus{PodIP: "10.0.0.1", Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
 		})
 	}
 	return fake.NewSimpleClientset(objs...)
@@ -135,7 +135,7 @@ func TestLivePodOrdinalsReadsLive(t *testing.T) {
 	ready := func(name string) *corev1.Pod {
 		return &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: scaleTestNS, Labels: podLabels(at)},
-			Status:     corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
+			Status:     corev1.PodStatus{PodIP: "10.0.0.1", Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
 		}
 	}
 	ss := liveStatefulSet(at, 2, appsv1.ParallelPodManagement)

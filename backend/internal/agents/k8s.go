@@ -369,17 +369,36 @@ func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace stri
 	return podOrdinals(ss, pods, slug), nil
 }
 
+// errNoPodIP is returned for an agent pod that has no IP.
+var errNoPodIP = errors.New("agent pod has no IP")
+
+// PodIP returns the IP of the agent pod at ordinal. Session-manager calls go to
+// the pod IP with the agent Service as Host header (docs/adr/2026-11-22-agent-cold-tier.md).
+func (p *K8sProvisioner) PodIP(ctx context.Context, slug string, ordinal int, namespace string) (string, error) {
+	name := fmt.Sprintf("%s-%d", slug, ordinal)
+	pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("get pod %s/%s: %w", namespace, name, err)
+	}
+	if pod.Status.PodIP == "" {
+		return "", fmt.Errorf("%w: %s/%s", errNoPodIP, namespace, name)
+	}
+	return pod.Status.PodIP, nil
+}
+
 // ordinals sorts an agent's pods below the current replicas. A pod at or above the replicas is being scaled away.
 type ordinals struct {
-	// ready holds the Ready, non-terminating pods, and terminating counts the draining ones.
+	// ready holds the Ready, non-terminating pods with an IP, and terminating counts the draining ones.
 	ready       []int
 	terminating int
 	// warm and resizing hold the non-terminating pods whose session-manager is warm or has a pending resize.
 	warm, resizing []int
+	// ips maps each ready ordinal to its pod IP.
+	ips map[int]string
 }
 
 func podOrdinals(ss *appsv1.StatefulSet, pods []corev1.Pod, slug string) ordinals {
-	var o ordinals
+	o := ordinals{ips: map[int]string{}}
 	for _, pod := range pods {
 		n, ok := strings.CutPrefix(pod.Name, slug+"-")
 		if !ok {
@@ -393,8 +412,10 @@ func podOrdinals(ss *appsv1.StatefulSet, pods []corev1.Pod, slug string) ordinal
 			o.terminating++
 			continue
 		}
-		if podReady(&pod) {
+		// A Ready pod with no IP yet cannot be called.
+		if podReady(&pod) && pod.Status.PodIP != "" {
 			o.ready = append(o.ready, ord)
+			o.ips[ord] = pod.Status.PodIP
 		}
 		if podWarm(&pod, templateRequests(ss)) {
 			o.warm = append(o.warm, ord)
@@ -490,6 +511,8 @@ type statefulSetView struct {
 	SurgeReady bool
 	// Warm and Resizing hold the pods whose session-manager is warm or has a pending resize (Amendment 3).
 	Warm, Resizing []int
+	// IPs maps each Ready ordinal to its pod IP.
+	IPs map[int]string
 }
 
 // Scale errors: the replicas, the partition or, for a scale-down, any part of the StatefulSet changed since
@@ -526,7 +549,7 @@ func (p *K8sProvisioner) AgentStatefulSet(_ context.Context, slug, namespace str
 		Rolling:   rolling(ss),
 	}
 	o := podOrdinals(ss, pods, slug)
-	view.Ready, view.Terminating, view.Warm, view.Resizing = o.ready, o.terminating, o.warm, o.resizing
+	view.Ready, view.Terminating, view.Warm, view.Resizing, view.IPs = o.ready, o.terminating, o.warm, o.resizing, o.ips
 	view.SurgeReady = surgeReady(ss, pods, slug, view.Ready)
 	for _, c := range ss.Spec.Template.Spec.Containers {
 		if c.Name == sessionManagerContainerName {

@@ -20,8 +20,10 @@ type k8sProvisioner interface {
 	WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error
 	RolloutStatefulSet(ctx context.Context, slug, namespace string) error
 	// ReadyOrdinals returns the ordinals of pods that are Ready, not terminating and below the current replicas,
-	// and of the warm pods and the pods with a pending session-manager resize.
+	// and of the warm pods and the pods with a pending session-manager resize, with each Ready pod's IP.
 	ReadyOrdinals(ctx context.Context, slug, namespace string) (ordinals, error)
+	// PodIP returns the IP of the agent pod at ordinal, Ready or draining.
+	PodIP(ctx context.Context, slug string, ordinal int, namespace string) (string, error)
 	// Replicas returns the StatefulSet's current spec.replicas.
 	Replicas(ctx context.Context, slug, namespace string) (int, error)
 	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, spec SandboxSpec) (Sandbox, error)
@@ -33,12 +35,12 @@ type k8sProvisioner interface {
 
 // smClient abstracts sessionmanager.Client so it can be replaced in tests.
 type smClient interface {
-	CreateSession(ctx context.Context, podURL string, req sessionmanager.CreateSessionRequest) error
+	CreateSession(ctx context.Context, pod sessionmanager.Pod, req sessionmanager.CreateSessionRequest) error
 	// idleTimeoutSecs, when above zero, replaces the session's idle timeout from this message on.
-	SendMessage(ctx context.Context, podURL, runID, content string, idleTimeoutSecs int, fromPerson bool) error
-	InterruptSession(ctx context.Context, podURL, runID string) error
-	CloseSession(ctx context.Context, podURL, runID string) error
-	Memory(ctx context.Context, podURL string) (sessionmanager.Memory, error)
+	SendMessage(ctx context.Context, pod sessionmanager.Pod, runID, content string, idleTimeoutSecs int, fromPerson bool) error
+	InterruptSession(ctx context.Context, pod sessionmanager.Pod, runID string) error
+	CloseSession(ctx context.Context, pod sessionmanager.Pod, runID string) error
+	Memory(ctx context.Context, pod sessionmanager.Pod) (sessionmanager.Memory, error)
 }
 
 // ── Request types ─────────────────────────────────────────────────────────────

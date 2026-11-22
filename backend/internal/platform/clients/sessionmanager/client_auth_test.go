@@ -38,34 +38,34 @@ func TestClient_SendsBearerOnEverySessionCall(t *testing.T) {
 	tests := []struct {
 		name   string
 		status int
-		call   func(c *Client, url string) error
+		call   func(c *Client, pod Pod) error
 	}{
 		{
 			name:   "CreateSession",
 			status: http.StatusCreated,
-			call: func(c *Client, url string) error {
-				return c.CreateSession(context.Background(), url, CreateSessionRequest{RunID: "run-1"})
+			call: func(c *Client, pod Pod) error {
+				return c.CreateSession(context.Background(), pod, CreateSessionRequest{RunID: "run-1"})
 			},
 		},
 		{
 			name:   "SendMessage",
 			status: http.StatusAccepted,
-			call: func(c *Client, url string) error {
-				return c.SendMessage(context.Background(), url, "run-1", "hello", 0, false)
+			call: func(c *Client, pod Pod) error {
+				return c.SendMessage(context.Background(), pod, "run-1", "hello", 0, false)
 			},
 		},
 		{
 			name:   "InterruptSession",
 			status: http.StatusAccepted,
-			call: func(c *Client, url string) error {
-				return c.InterruptSession(context.Background(), url, "run-1")
+			call: func(c *Client, pod Pod) error {
+				return c.InterruptSession(context.Background(), pod, "run-1")
 			},
 		},
 		{
 			name:   "CloseSession",
 			status: http.StatusNoContent,
-			call: func(c *Client, url string) error {
-				return c.CloseSession(context.Background(), url, "run-1")
+			call: func(c *Client, pod Pod) error {
+				return c.CloseSession(context.Background(), pod, "run-1")
 			},
 		},
 	}
@@ -75,7 +75,7 @@ func TestClient_SendsBearerOnEverySessionCall(t *testing.T) {
 			srv, got := captureAuth(t, tc.status)
 			c := NewClient(logger, staticToken("tok-123"))
 
-			if err := tc.call(c, srv.URL); err != nil {
+			if err := tc.call(c, Pod{URL: srv.URL}); err != nil {
 				t.Fatalf("%s: %v", tc.name, err)
 			}
 			if *got != "Bearer tok-123" {
@@ -94,7 +94,7 @@ func TestClient_TokenErrorFailsTheCall(t *testing.T) {
 		return "", sentinel
 	})
 
-	err := c.CreateSession(context.Background(), srv.URL, CreateSessionRequest{RunID: "run-1"})
+	err := c.CreateSession(context.Background(), Pod{URL: srv.URL}, CreateSessionRequest{RunID: "run-1"})
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("err = %v, want it to wrap %v", err, sentinel)
 	}
@@ -105,14 +105,32 @@ func TestClient_TokenErrorFailsTheCall(t *testing.T) {
 
 // A nil TokenFunc is the local-dev escape hatch and must not panic.
 
-func TestPodURL_TargetsTheSessionManagerPort(t *testing.T) {
-	got := PodURL("coder", 0, "kora-tenant-acme")
-	want := "http://coder-0.coder.kora-tenant-acme.svc.cluster.local:8090"
+func TestPodAt_TargetsThePodIPWithTheAgentServiceAsHost(t *testing.T) {
+	got := PodAt("10.42.1.7", "coder", "kora-tenant-acme")
+	want := Pod{URL: "http://10.42.1.7:8090", Host: "coder.kora-tenant-acme.svc.cluster.local:8090"}
 	if got != want {
-		t.Errorf("PodURL = %q, want %q", got, want)
+		t.Errorf("PodAt = %+v, want %+v", got, want)
 	}
-	if !strings.HasSuffix(got, "8090") {
-		t.Errorf("PodURL must target the port the AuthorizationPolicy restricts")
+	if !strings.HasSuffix(got.URL, "8090") {
+		t.Errorf("PodAt must target the port the AuthorizationPolicy restricts")
+	}
+}
+
+// Every call carries the agent Service as Host header. The header routes the
+// call to the Envoy cluster that pins the agent SPIFFE ID.
+func TestClient_SendsTheAgentServiceAsHost(t *testing.T) {
+	var host string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host = r.Host
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	c := NewClient(logging.NewLoggerWithOutput(io.Discard), staticToken("tok"))
+	if err := c.CloseSession(context.Background(), Pod{URL: srv.URL, Host: "coder.kora-tenant-acme.svc.cluster.local:8090"}, "run-1"); err != nil {
+		t.Fatal(err)
+	}
+	if host != "coder.kora-tenant-acme.svc.cluster.local:8090" {
+		t.Errorf("Host = %q, want the agent Service", host)
 	}
 }
 
@@ -138,7 +156,7 @@ func TestClient_SendMessageIdleTimeout(t *testing.T) {
 			t.Cleanup(srv.Close)
 			c := NewClient(logging.NewLoggerWithOutput(io.Discard), staticToken("tok"))
 
-			if err := c.SendMessage(context.Background(), srv.URL, "run-1", "hi", tc.secs, tc.person); err != nil {
+			if err := c.SendMessage(context.Background(), Pod{URL: srv.URL}, "run-1", "hi", tc.secs, tc.person); err != nil {
 				t.Fatalf("SendMessage: %v", err)
 			}
 			if got := strings.TrimSpace(string(body)); got != tc.want {
@@ -156,7 +174,7 @@ func TestClient_Memory(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	got, err := NewClient(logging.NewLoggerWithOutput(io.Discard), staticToken("tok-123")).Memory(context.Background(), srv.URL)
+	got, err := NewClient(logging.NewLoggerWithOutput(io.Discard), staticToken("tok-123")).Memory(context.Background(), Pod{URL: srv.URL})
 	if err != nil {
 		t.Fatal(err)
 	}

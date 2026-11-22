@@ -75,7 +75,7 @@ type scriptedSM struct {
 	onCreate func()
 }
 
-func (s *scriptedSM) CreateSession(ctx context.Context, url string, req sessionmanager.CreateSessionRequest) error {
+func (s *scriptedSM) CreateSession(ctx context.Context, url sessionmanager.Pod, req sessionmanager.CreateSessionRequest) error {
 	s.calls++
 	if s.onCreate != nil {
 		s.onCreate()
@@ -439,7 +439,7 @@ type firstMessageErrs struct {
 	errs []error
 }
 
-func (f *firstMessageErrs) SendMessage(ctx context.Context, podURL, runID, content string, idle int, fromPerson bool) error {
+func (f *firstMessageErrs) SendMessage(ctx context.Context, podURL sessionmanager.Pod, runID, content string, idle int, fromPerson bool) error {
 	f.mu.Lock()
 	n := f.sendMessageCalls
 	f.mu.Unlock()

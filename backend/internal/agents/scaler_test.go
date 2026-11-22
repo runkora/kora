@@ -180,7 +180,7 @@ type scalerFake struct {
 	occupied map[int]int
 	view     statefulSetView
 	ready    []int
-	memory   func(ctx context.Context, podURL string) (sessionmanager.Memory, error)
+	memory   func(ctx context.Context, pod sessionmanager.Pod) (sessionmanager.Memory, error)
 	agents   []AgentType
 	// inFlight and maxInFlight count the concurrent AgentStatefulSet reads. With gate set, each read
 	// signals entered and waits for gate.
@@ -269,6 +269,10 @@ func (f *scalerFake) AgentStatefulSet(context.Context, string, string) (stateful
 	f.mu.Unlock()
 	view := f.view
 	view.Ready = f.ready
+	view.IPs = map[int]string{}
+	for _, ord := range f.ready {
+		view.IPs[ord] = testPodIP(ord)
+	}
 	return view, true, nil
 }
 
@@ -326,7 +330,7 @@ func (f *scalerFake) GrowPod(_ context.Context, _, _ string, ordinal int) error 
 	return nil
 }
 
-func (f *scalerFake) Memory(ctx context.Context, podURL string) (sessionmanager.Memory, error) {
+func (f *scalerFake) Memory(ctx context.Context, podURL sessionmanager.Pod) (sessionmanager.Memory, error) {
 	f.mu.Lock()
 	f.readLocked = append(f.readLocked, f.locked)
 	f.mu.Unlock()
@@ -344,7 +348,7 @@ func newTestScaler(f *scalerFake) *Scaler {
 	}, logging.NewLoggerWithOutput(io.Discard))
 }
 
-func fullPod(context.Context, string) (sessionmanager.Memory, error) {
+func fullPod(context.Context, sessionmanager.Pod) (sessionmanager.Memory, error) {
 	return sessionmanager.Memory{WorkingSetBytes: 720 * mi, LimitBytes: 1024 * mi}, nil
 }
 
@@ -366,8 +370,8 @@ func TestScalerScalesUnderTheAgentLock(t *testing.T) {
 // A pod whose memory read blocks past the timeout is read with no lock held and counts as full.
 func TestScalerMemoryTimeoutHoldsNoLock(t *testing.T) {
 	f := &scalerFake{t: t, counts: AgentRunCounts{Pending: 1}, view: statefulSetView{Replicas: 2, Parallel: true}, ready: []int{0, 1}}
-	f.memory = func(ctx context.Context, podURL string) (sessionmanager.Memory, error) {
-		if podURL == sessionmanager.PodURL("coder", 0, scaleTestNS) {
+	f.memory = func(ctx context.Context, podURL sessionmanager.Pod) (sessionmanager.Memory, error) {
+		if podURL == testPod("coder", 0, scaleTestNS) {
 			return fullPod(ctx, podURL)
 		}
 		<-ctx.Done()
@@ -567,7 +571,7 @@ func warmScaler(f *scalerFake) *Scaler {
 	return s
 }
 
-func emptyPod(context.Context, string) (sessionmanager.Memory, error) {
+func emptyPod(context.Context, sessionmanager.Pod) (sessionmanager.Memory, error) {
 	return sessionmanager.Memory{WorkingSetBytes: 10 * mi, LimitBytes: 1024 * mi}, nil
 }
 
