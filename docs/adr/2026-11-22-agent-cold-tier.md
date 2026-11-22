@@ -76,14 +76,14 @@ The spike files are in the orbit scratch folder `scale-to-zero/` (`findings.md`,
     *   **PDB:** The per-agent PDB is removed (D1b).
     *   **Eviction (#1074):** A terminating pod does not count toward the agent's pods. The next scaler pass binds a pool pod for its runs in about 2s.
     *   **Warm tier:** The warm shrink and grow act on a pod by name. A warm pod idle past the cold threshold is deleted.
-    *   **Sizing at 20x:** With 120 to 240 hot pods at 1.25Gi, 100 to 200 warm pods at 0.35Gi and 40 pool pods at 0.35Gi (20 tenants), pods reserve about 200Gi to 384Gi (33 to 63 t3a.large). The warm count uses the 12 hot to 10 warm ratio in the residency design and is an estimate. Per agent the cluster holds a Service, a DestinationRule and an AuthorizationPolicy. Per tenant it holds a pool Deployment and its ServiceAccount.
+    *   **Sizing at 20x:** With 120 to 240 hot pods at 1.25Gi, 100 to 200 warm pods at 0.35Gi and 40 pool pods at 0.35Gi (20 tenants), pods reserve about 200Gi to 384Gi (33 to 63 t3a.large). The warm count uses the 12 hot to 10 warm ratio in the residency design and is an estimate. Per agent the cluster holds a Service, a DestinationRule and an AuthorizationPolicy. Per tenant it holds a pool Deployment, its ServiceAccount and AuthorizationPolicy, and the `agent-identity-exchange` DestinationRule.
     *   **Trade-off:** It is the largest change of the three, and every place that reads `pod_ordinal` or the StatefulSet changes. Per-agent pod patches end (see Consequences).
 
 ### D1b. Disruption Budget
 
 *   **No per-agent PDB (chosen):** An eviction deletes the pod, the session-manager drains, and the scaler binds a replacement. Two pods of one agent on one drained node are evicted together. Their runs drain in place, and new runs go to the replacement.
 *   **Integer `minAvailable` PDB (rejected):** A bare pod allows only an integer `minAvailable`. At `minAvailable: 1` a one-pod agent blocks every node drain and Karpenter consolidation.
-*   **Keep `maxUnavailable: 1` (rejected):** Over pods with no controller it refuses every eviction (spike C4).
+*   **Keep `maxUnavailable: 1` (rejected):** Over pods with no controller it refuses every eviction (`cold-tier-spike.md`, C4).
 
 ### D2. Run-to-Pod Addressing
 
@@ -102,13 +102,16 @@ The pool ID will not be a principal. `token.PoolNamespace` in `backend/internal/
 
 kora-agents will gain `patch` on pods. Two ValidatingAdmissionPolicies in the chart will hold rule 3 at admission:
 
-*   **Bind:** On a tenant pod, a change to `spiffe.io/agent` is allowed only from kora-agents, only when the old pod carries `runkora.io/pool` and no `spiffe.io/agent`, only to a non-empty value, and only together with the removal of `runkora.io/pool`. Any later change or removal of `spiffe.io/agent` is refused.
+*   **Bind:** On a tenant pod, a change to `spiffe.io/agent` is allowed only from kora-agents, only when the old pod carries `runkora.io/pool` and no `spiffe.io/agent`, only to a non-empty value, only with `app` set to the same slug, and only together with the removal of `runkora.io/pool`. Any later change or removal of `spiffe.io/agent` is refused. `app` and `runkora.io/managed-agent` cannot change on a bound pod.
 *   **Other identity labels:** `spiffe.io/service`, `spiffe.io/component`, `runkora.io/role`, `runkora.io/agent-slug` and `runkora.io/run-id` cannot change on an existing tenant pod.
-*   **Pool provenance:** Only the ReplicaSet controller creates a pod with `runkora.io/pool`, and no update adds the label to an existing pod. kora-agents will also bind only a pod whose controller is the tenant pool's ReplicaSet.
+*   **Pool provenance:** Only the ReplicaSet controller creates a pod with `runkora.io/pool`. The pod must run as the pool ServiceAccount, carry no agent label, and have a controller owner reference to `session-manager-pool-<pod-template-hash>`. No update adds the label to an existing pod. Only kora-agents writes a Deployment with a pool name or a pool pod template, and only the Deployment controller writes a pool ReplicaSet for the `session-manager-pool` Deployment. Before it binds, kora-agents will check the owner ReplicaSet's UID and that its controller is the tenant's pool Deployment (PR 6).
 *   **Subresources:** The rules cover pod subresources such as `pods/status`.
-*   **kora-agents pod updates:** A kora-agents pod update is allowed only in a tenant namespace and only with the pod spec unchanged. The bind's in-place grow (W1) goes through `pods/resize`. A later change grants that verb.
+*   **kora-agents pod updates:** A kora-agents pod update is allowed only on a pool pod in a tenant namespace. It may change only the bind labels (`spiffe.io/agent`, `runkora.io/pool`, `app`, `runkora.io/agent-type`) and the owner references, and leaves the spec, the annotations and the finalizers unchanged. The bind's in-place grow (W1) goes through `pods/resize`. A later change grants that verb.
+*   **kora-agents Deployments:** kora-agents writes only the `session-manager-pool` Deployment, and only in a tenant namespace.
 
 A pod created with `spiffe.io/agent` already set gets that agent's SVID. Today the StatefulSet controller creates agent pods this way, and kora-agents can create pods with any labels. A CREATE rule for `spiffe.io/agent` is not part of this decision. After the O3 cutover no workload creates a pod with the label, and a rule that refuses it on CREATE would close the gap. It is the same gap as the one left by the kora-identity fix for agents with no record: a pod labelled with a live agent's slug gets that agent's token.
+
+The policies and the SPIRE entries select tenant namespaces by the same `runkora.io/role: tenant` label. A principal that can change that namespace label can step around both. Only the operator and cluster admins hold namespace patch.
 
 A tenant AuthorizationPolicy `agent-session-manager-pool-callers` lets only kora-agents call the session-manager port of a pool pod and lets anyone read `GET /health`. The bind sets `app` to the agent slug, and the agent's own policy then covers the pod. The pool name `session-manager-pool` is a reserved agent slug.
 
@@ -116,8 +119,8 @@ Against the identity rules, SPIRE attests the bound pod from kubelet pod data (r
 
 ### D4. Sidecars in a Pool Pod
 
-*   **identity-proxy pool mode (chosen):** When its SVID is a pool ID, identity-proxy will mark itself SERVING with no token and make no exchange. On the first agent SVID it will exchange at a fixed 200ms retry for up to 10s and then fall back to the current backoff. Against the rules: the first token follows an attested agent SVID (rule 1), the token stays in memory (rule 2), and kora-identity keys the token on the SPIFFE ID in XFCC (rule 4).
-*   **New connection per exchange toward kora-identity (chosen):** The operator will reconcile a DestinationRule in each tenant namespace for `kora-identity` with a workload selector on agent pods and `maxRequestsPerConnection: 1`. identity-proxy can see the agent SVID before Envoy holds the agent certificate. A first exchange on a pool certificate would pin that connection. Each exchange then pays one TLS handshake, and exchanges happen at token refresh. The limit must sit in the same traffic policy level as the `tls` block (spike C1).
+*   **identity-proxy pool mode (chosen):** When its SVID is a pool ID, identity-proxy will mark itself SERVING with no token and make no exchange. On the first agent SVID it will exchange at a fixed 200ms retry for up to 10s and then fall back to the current backoff. identity-proxy records the SPIFFE ID of the bind. A later SVID with another ID revokes the token cache for the rest of the process and stops identity-proxy, and the container restarts with the new identity. Against the rules: the first token follows an attested agent SVID (rule 1), the token stays in memory (rule 2), a pod drops its token when its identity changes (rule 3), and kora-identity keys the token on the SPIFFE ID in XFCC (rule 4).
+*   **New connection per exchange toward kora-identity (chosen):** The operator will reconcile a DestinationRule in each tenant namespace for `kora-identity` with a workload selector on agent pods and `maxRequestsPerConnection: 1`. identity-proxy can see the agent SVID before Envoy holds the agent certificate. A first exchange on a pool certificate would pin that connection. Each exchange then pays one TLS handshake, and exchanges happen at token refresh. The limit must sit in the same traffic policy level as the `tls` block (`cold-tier-spike.md`, C1).
 *   **Patch the chart `kora-identity-client-policy` rule (rejected):** The rule applies to every caller of kora-identity, including kora-system services.
 *   **identity-proxy polls Envoy admin `/certs` (rejected):** It ties identity-proxy to the Envoy admin API.
 *   **policy-service serves the tenant bundle to a pool principal (chosen):** opa loads the bundle during the pool phase. Its connection to policy-service keeps the pool identity after the bind, and the bundle it fetches is the same tenant bundle. No new-connection rule is needed toward policy-service. Against the rules: the bundle holds tenant grants and no secret (rule 2), and opa decides on the agent token's principal (rule 4).
@@ -127,7 +130,7 @@ Against the identity rules, SPIRE attests the bound pod from kubelet pod data (r
 
 A pool pod will make no other mesh call before the bind. `backend/cmd/session-manager/main.go` makes no outbound call at startup.
 
-The session-manager readiness probe will run at once and every second. The session-manager will gain a bound check: `GET /health/bound` returns 200 when identity-proxy holds a token. kora-agents calls it through the A1 path. A 200 proves Envoy serves the agent certificate and identity-proxy holds the agent token.
+The session-manager readiness probe will run at once and every second with a 2s timeout, and turns the pod NotReady after 10 failures. The session-manager will gain a bound check: `GET /health/bound` returns 200 when identity-proxy holds a token. kora-agents calls it through the A1 path. A 200 proves Envoy serves the agent certificate and identity-proxy holds the agent token.
 
 ### D5. Pool Sizing, Burst and Wake
 
@@ -207,7 +210,7 @@ The build is 8 stacked PRs, in this order, and each one is testable on its own:
 2.  **identity-proxy pool mode and the bound check:** Add pool mode, the operator-managed kora-identity DestinationRule, the readiness probe change and `GET /health/bound`. Test: a pool pod on kora-local turns Ready, and after a relabel the bound check returns 200. Record the relabel-to-bound time.
 3.  **Admission policy and pod patch:** Add the ValidatingAdmissionPolicy and the `patch` verb. Test: chart tests, and on kora-local a relabel of a bound pod and a relabel by another account are refused.
 4.  **A1 addressing:** Call each session-manager at its pod IP with the agent Service as Host header. Placement and the scaler read the IPs with the Ready pods, and run calls read the pod's IP by its StatefulSet name. StatefulSet pods are still the only pods. PR 6 stores the pod name on the run and reads the IP from the informer cache. Test: a run and a follow-up message on kora-local, and a call to a wrong-identity IP returns 503.
-5.  **Tenant pool:** kora-agents reconciles the pool Deployment from the agent pod template, with the generic ephemeral workspace and `agents.pool.size`. kora-agents owns the pod template, and the operator does not reconcile the pool. Pool pods run at full size until the warm tier lands. The bound check returns 503 while the token is pending and logs an error when the session-manager cannot reach identity-proxy. Test: pool pods Ready on kora-local and the pool refills after a manual release.
+5.  **Tenant pool:** kora-agents reconciles the pool Deployment from the agent pod template, with the generic ephemeral workspace and `agents.pool.size`. kora-agents owns the pod template, and the operator does not reconcile the pool. Pool pods run at full size until the warm tier lands. Test: pool pods Ready on kora-local and the pool refills after a manual release.
 6.  **O3 cutover:** The bind becomes the only way an agent gets a pod. The workspace claim name moves to `<pod>-workspaces` with the StatefulSet claims. Remove the StatefulSet, the PDB, the per-agent ServiceAccount and the partition surge. The scaler, placement, the drain and the warm tier act on pod names. Test: `test-agent-scaling.sh`, the surge roll and `test-agent-eviction.sh` rewritten for bound pods, and a sandbox run on a bound pod.
 7.  **Cold transition and wake:** Floor 0, `coldAfterSecs`, the "waking agent" event, the empty-pool fallback and the start budget rule. Test: an agent goes cold on kora-local, and a message wakes it. Record the wake time.
 8.  **Scheduled pre-wake:** kora-triggers calls kora-agents ahead of each schedule fire. Test: a schedule on kora-local whose agent is bound before the fire.
