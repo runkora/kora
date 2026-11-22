@@ -246,7 +246,7 @@ func claudeLastResult(msgs []acpAdapterMessage) (result *claudeOutputWrapper, bu
 
 // IsQuestion is false: bypass mode sends no permission requests. An MCP
 // server's question arrives as elicitation/create.
-func (p *claudeProfile) IsQuestion(acp.ToolCallUpdate) bool { return false }
+func (p *claudeProfile) IsQuestion(acpToolUpdate) bool { return false }
 
 // AdapterSignal reads provider retries, the background task set and the end of
 // a turn from the raw SDK messages.
@@ -268,7 +268,7 @@ func (p *claudeProfile) AdapterSignal(msg acpAdapterMessage) acpSignal {
 
 // ToolView names a call by Claude's tool name and reads its result from
 // rawOutput. An update without content carries input that is still streaming.
-func (p *claudeProfile) ToolView(c *acpToolCall, u acp.ToolCallUpdate) acpToolView {
+func (p *claudeProfile) ToolView(c *acpToolCall, u acpToolUpdate) acpToolView {
 	out := ""
 	if u.RawOutput != nil {
 		if b, err := json.Marshal(u.RawOutput); err == nil {

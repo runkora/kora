@@ -251,10 +251,10 @@ type fakeACPProfile struct {
 	caps     map[string]any
 	mode     string
 	meta     map[string]any
-	question func(acp.ToolCallUpdate) bool
+	question func(acpToolUpdate) bool
 	signal   func(acpAdapterMessage) acpSignal
 	verdict  func(acpTurnEnd) acpTurnVerdict
-	view     func(*acpToolCall, acp.ToolCallUpdate) acpToolView
+	view     func(*acpToolCall, acpToolUpdate) acpToolView
 	prepErr  error
 
 	mu    sync.Mutex
@@ -296,7 +296,7 @@ func (p *fakeACPProfile) classify(turn acpTurnEnd) string {
 	return ""
 }
 
-func (p *fakeACPProfile) IsQuestion(t acp.ToolCallUpdate) bool {
+func (p *fakeACPProfile) IsQuestion(t acpToolUpdate) bool {
 	return p.question != nil && p.question(t)
 }
 
@@ -307,7 +307,7 @@ func (p *fakeACPProfile) AdapterSignal(m acpAdapterMessage) acpSignal {
 	return p.signal(m)
 }
 
-func (p *fakeACPProfile) ToolView(c *acpToolCall, u acp.ToolCallUpdate) acpToolView {
+func (p *fakeACPProfile) ToolView(c *acpToolCall, u acpToolUpdate) acpToolView {
 	if p.view != nil {
 		return p.view(c, u)
 	}

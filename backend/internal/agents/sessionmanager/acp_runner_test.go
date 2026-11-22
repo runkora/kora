@@ -12,8 +12,6 @@ import (
 	"testing/iotest"
 	"time"
 
-	acp "github.com/coder/acp-go-sdk"
-
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -288,7 +286,7 @@ func TestACPRunner_InterruptAnswersPendingQuestionCancelled(t *testing.T) {
 		a.waitMethod("session/cancel")
 		a.respond(id, map[string]any{"stopReason": "cancelled"})
 	}
-	prof := &fakeACPProfile{question: func(u acp.ToolCallUpdate) bool { return u.Title != nil && *u.Title == "AskUserQuestion" }}
+	prof := &fakeACPProfile{question: func(u acpToolUpdate) bool { return u.Title != nil && *u.Title == "AskUserQuestion" }}
 	r := startACP(t, a, prof, nil)
 	prompt(t, r, "ask")
 	ch := <-respCh
@@ -336,7 +334,7 @@ func TestACPRunner_OrdinaryPermissionIsAutoAllowed(t *testing.T) {
 
 func TestACPRunner_SendToolResultResolvesPermissionQuestion(t *testing.T) {
 	a := newFakeACPAgent(t)
-	r := startACP(t, a, &fakeACPProfile{question: func(acp.ToolCallUpdate) bool { return true }}, nil)
+	r := startACP(t, a, &fakeACPProfile{question: func(acpToolUpdate) bool { return true }}, nil)
 	ch := a.request("session/request_permission", map[string]any{
 		"sessionId": "sess-1", "toolCall": map[string]any{"toolCallId": "q1"},
 		"options": []map[string]string{{"optionId": "opt-a", "name": "Alpha", "kind": "allow_once"}, {"optionId": "opt-b", "name": "Beta", "kind": "allow_once"}},

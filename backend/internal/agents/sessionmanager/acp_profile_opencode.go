@@ -121,13 +121,13 @@ func (p *openCodeProfile) ClassifyError(turn acpTurnEnd) acpTurnVerdict {
 }
 
 // IsQuestion is false: every OpenCode permission request is auto-allowed.
-func (p *openCodeProfile) IsQuestion(acp.ToolCallUpdate) bool { return false }
+func (p *openCodeProfile) IsQuestion(acpToolUpdate) bool { return false }
 
 // AdapterSignal reads nothing: OpenCode sends no retry or background-work signals.
 func (p *openCodeProfile) AdapterSignal(acpAdapterMessage) acpSignal { return acpSignal{} }
 
 // ToolView is the default: OpenCode's titles and rawOutput are what kora records.
-func (p *openCodeProfile) ToolView(c *acpToolCall, u acp.ToolCallUpdate) acpToolView {
+func (p *openCodeProfile) ToolView(c *acpToolCall, u acpToolUpdate) acpToolView {
 	return acpDefaultToolView(c, u)
 }
 

@@ -155,7 +155,7 @@ func (p *codexProfile) details(e *codexError) string {
 }
 
 // IsQuestion is false: Codex asks no questions in full-access mode.
-func (p *codexProfile) IsQuestion(acp.ToolCallUpdate) bool { return false }
+func (p *codexProfile) IsQuestion(acpToolUpdate) bool { return false }
 
 // AdapterSignal reads a stream retry with the counts from the message
 // ("Reconnecting... 2/5"). Without them the translator counts the turn's retries.
@@ -175,7 +175,7 @@ func (p *codexProfile) AdapterSignal(msg acpAdapterMessage) acpSignal {
 
 // ToolView rebuilds the App Server item behind a codex-acp tool call and records
 // it through the App Server item mapping.
-func (p *codexProfile) ToolView(c *acpToolCall, u acp.ToolCallUpdate) acpToolView {
+func (p *codexProfile) ToolView(c *acpToolCall, u acpToolUpdate) acpToolView {
 	if delta, _ := u.Meta["terminal_output_delta"].(map[string]any); delta != nil {
 		data, _ := delta["data"].(string)
 		c.output.WriteString(data)
@@ -195,7 +195,7 @@ func (p *codexProfile) ToolView(c *acpToolCall, u acp.ToolCallUpdate) acpToolVie
 // codexACPItem is the App Server item behind a codex-acp call: its own fields
 // from rawInput, an MCP result from rawOutput, and the exit code from
 // terminal_exit or, for a read, search or list command, rawOutput.
-func codexACPItem(c *acpToolCall, u acp.ToolCallUpdate) (codexItem, bool) {
+func codexACPItem(c *acpToolCall, u acpToolUpdate) (codexItem, bool) {
 	var it codexItem
 	decodeAs(c.input, &it)
 	decodeAs(u.RawOutput, &it)
@@ -232,7 +232,7 @@ func codexDiffChanges(content []acp.ToolCallContent) []map[string]any {
 	for _, c := range content {
 		if d := c.Diff; d != nil && !seen[d.Path] {
 			seen[d.Path] = true
-			kind, _ := d.Meta["kind"].(string)
+			kind, _ := metaMap(d.Meta)["kind"].(string)
 			changes = append(changes, map[string]any{"path": d.Path, "kind": map[string]string{"type": kind}})
 		}
 	}

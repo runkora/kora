@@ -285,11 +285,15 @@ func (r *acpRunner) openSession(ctx context.Context, workDir string) error {
 	if sp.MCPServers == nil {
 		sp.MCPServers = []acp.McpServer{}
 	}
+	spMeta, err := acp.NewMeta(sp.Meta)
+	if err != nil {
+		return fmt.Errorf("session meta: %w", err)
+	}
 	sid := acp.SessionId(r.cfg.ResumeSessionID)
 	switch {
 	case sid == "":
 		res, err := acp.SendRequest[acp.NewSessionResponse](r.conn, ctx, acp.AgentMethodSessionNew,
-			acp.NewSessionRequest{Cwd: sp.CWD, McpServers: sp.MCPServers, Meta: sp.Meta})
+			acp.NewSessionRequest{Cwd: sp.CWD, McpServers: sp.MCPServers, Meta: spMeta})
 		if err != nil {
 			return fmt.Errorf("session/new: %w", err)
 		}
@@ -298,7 +302,7 @@ func (r *acpRunner) openSession(ctx context.Context, workDir string) error {
 		}
 	case agentCaps.SessionCapabilities.Resume != nil:
 		if _, err := acp.SendRequest[acp.ResumeSessionResponse](r.conn, ctx, acp.AgentMethodSessionResume,
-			acp.ResumeSessionRequest{SessionId: sid, Cwd: sp.CWD, McpServers: sp.MCPServers, Meta: sp.Meta}); err != nil {
+			acp.ResumeSessionRequest{SessionId: sid, Cwd: sp.CWD, McpServers: sp.MCPServers, Meta: spMeta}); err != nil {
 			return fmt.Errorf("session/resume: %w", err)
 		}
 	case agentCaps.LoadSession:
@@ -306,7 +310,7 @@ func (r *acpRunner) openSession(ctx context.Context, workDir string) error {
 		// translator is back to empty before the first prompt.
 		r.tr.setReplaying(true)
 		_, err := acp.SendRequest[acp.LoadSessionResponse](r.conn, ctx, acp.AgentMethodSessionLoad,
-			acp.LoadSessionRequest{SessionId: sid, Cwd: sp.CWD, McpServers: sp.MCPServers, Meta: sp.Meta})
+			acp.LoadSessionRequest{SessionId: sid, Cwd: sp.CWD, McpServers: sp.MCPServers, Meta: spMeta})
 		r.tr.setReplaying(false)
 		if err != nil {
 			return fmt.Errorf("session/load: %w", err)
@@ -322,7 +326,7 @@ func (r *acpRunner) openSession(ctx context.Context, workDir string) error {
 			return fmt.Errorf("set mode %q: %w", sp.Mode, err)
 		}
 	}
-	steering, _ := init.Meta["steering"].(map[string]any)
+	steering, _ := metaMap(init.Meta)["steering"].(map[string]any)
 	r.tr.setRoot(string(sid))
 	r.mu.Lock()
 	r.sessionID = sid
@@ -448,7 +452,8 @@ func (r *acpRunner) onPermission(ctx context.Context, params json.RawMessage) (a
 		return nil, acp.NewInvalidParams(err.Error())
 	}
 	cancelled := acp.RequestPermissionResponse{Outcome: acp.NewRequestPermissionOutcomeCancelled()}
-	if r.cfg.Profile.IsQuestion(req.ToolCall) {
+	call := newACPToolUpdateFrom(req.ToolCall)
+	if r.cfg.Profile.IsQuestion(call) {
 		return r.awaitAnswer(ctx, string(req.ToolCall.ToolCallId), &acpPending{
 			cancelled: cancelled,
 			answer: func(content string) (any, error) {
@@ -463,8 +468,8 @@ func (r *acpRunner) onPermission(ctx context.Context, params json.RawMessage) (a
 		})
 	}
 	title := ""
-	if req.ToolCall.Title != nil {
-		title = *req.ToolCall.Title
+	if call.Title != nil {
+		title = *call.Title
 	}
 	for _, kind := range []acp.PermissionOptionKind{acp.PermissionOptionKindAllowAlways, acp.PermissionOptionKindAllowOnce} {
 		for _, o := range req.Options {

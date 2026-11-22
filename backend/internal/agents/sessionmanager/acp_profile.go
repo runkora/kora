@@ -27,13 +27,13 @@ type acpProfile interface {
 	ClassifyError(turn acpTurnEnd) acpTurnVerdict
 	// IsQuestion marks a permission request as a question for the human,
 	// answered through SendToolResult instead of auto-allowed.
-	IsQuestion(tool acp.ToolCallUpdate) bool
+	IsQuestion(tool acpToolUpdate) bool
 	// AdapterSignal reads provider retries, background work and the end of the
 	// agent's own turn from an adapter message.
 	AdapterSignal(msg acpAdapterMessage) acpSignal
 	// ToolView is kora's name, input and result for a tool call, given what its
 	// updates carried so far and the latest update u. It runs once per update.
-	ToolView(c *acpToolCall, u acp.ToolCallUpdate) acpToolView
+	ToolView(c *acpToolCall, u acpToolUpdate) acpToolView
 }
 
 // acpToolView is a tool call as kora records it. Output and IsError matter once
@@ -51,7 +51,7 @@ type acpToolView struct {
 // acpDefaultToolView names the call by its first title (or Claude's tool name),
 // records its latest input and reads the result from rawOutput or the content
 // blocks. Profiles whose adapter needs nothing else use it.
-func acpDefaultToolView(c *acpToolCall, u acp.ToolCallUpdate) acpToolView {
+func acpDefaultToolView(c *acpToolCall, u acpToolUpdate) acpToolView {
 	out, failed := acpToolOutput(u.Content, u.RawOutput)
 	return acpToolView{Name: c.toolName(), Input: c.input, Output: out, IsError: failed}
 }
