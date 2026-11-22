@@ -211,15 +211,15 @@ Two kora-system workloads call into tenant namespaces. The chart's NetworkPolici
 *   kora-agents calls each session-manager on port 8090 through the agent's headless Service (`backend/internal/platform/clients/sessionmanager/client.go`).
 *   The tool-gateway proxy and publisher call MCPServer endpoints in tenant namespaces. Both Deployments carry `app: kora-tool-gateway`.
 
-The other kora-system workloads reach kora-system Services, the Kubernetes API, kube-dns, istiod, the collector, and external hosts. External hosts go through Envoy passthrough under `ALLOW_ANY`. Under `REGISTRY_ONLY` they need ServiceEntries. The chart (`serviceentries.yaml`) and the operator (inference providers, `exportTo: ["."]`) create these in kora-system.
+The other kora-system workloads reach kora-system Services, the Kubernetes API, kube-dns, istiod, the collector, and external hosts. External hosts go through Envoy passthrough under `ALLOW_ANY`. Under `REGISTRY_ONLY` they need ServiceEntries. The chart (`serviceentries.yaml`) and the operator (inference providers and external MCP servers, `exportTo: ["."]`) create these in kora-system.
 
-### Decision: Sandbox Sidecar (PR 1)
+### Decision: Sandbox Sidecar
 
 The operator reconciles an Istio Sidecar `sandbox-egress` in every tenant namespace beside `agent-egress`. It selects `runkora.io/role: sandbox` and lists four `egress.hosts`: the Service FQDNs of `kora-identity`, `kora-policy-service` and `kora-egress-gateway` in the system namespace, and of `kube-dns` in `kube-system`. It sets no `outboundTrafficPolicy` and inherits the mesh mode. `REGISTRY_ONLY` would remove the `allow_any` virtual host that `egress-gateway-connect-outbound` patches. `ALLOW_ANY` would open port 80 passthrough on a mesh that runs `REGISTRY_ONLY`. The operator creates and merge-patches it the same way as `agent-egress`.
 
-### Decision: kora-system Sidecars (PR 2)
+### Decision: kora-system Sidecars
 
-**Option O1 (chosen):** The chart renders Sidecars in kora-system. A namespace default Sidecar with no workload selector lists `./*`, `<istio namespace>/*`, the `kubernetes` Service in `default`, the `kube-dns` Service in `kube-system`, and the collector. The collector entry is `<collectorNamespace>/*` when `global.observability.collectorNamespace` is set. Otherwise it is `*/<endpoint host>`, with a `.svc` host expanded to `.svc.cluster.local`. Two workload Sidecars select `app: kora-agents` and `app: kora-tool-gateway` and list `*/*`. A Sidecar with a workload selector takes precedence over the namespace default.
+**Option O1 (chosen):** The chart renders Sidecars in kora-system. A namespace default Sidecar with no workload selector lists `./*`, `<istio namespace>/*`, the `kubernetes` Service in `default`, the `kube-dns` Service in `kube-system`, and the collector. The collector entry is `<collectorNamespace>/*` when `global.observability.collectorNamespace` is set. Otherwise it is `*/<endpoint host>`, with a `.svc` host expanded to `.svc.cluster.local`. A collector endpoint with no DNS host adds no entry. The default also lists `<namespace>/*` for a `config.db.host` or `config.redis.host` of the form `<name>.<namespace>.svc`. Two workload Sidecars select `app: kora-agents` and `app: kora-tool-gateway` and list `*/*`. A Sidecar with a workload selector takes precedence over the namespace default.
 
 *   **Pros:** Every other kora-system proxy stops receiving tenant Services, and its config no longer grows with the agent count. The change is chart-only.
 *   **Cons:** kora-agents and the tool-gateway keep the full config and still grow with the agent count. A call from another kora-system workload to a `.svc` host in another namespace leaves the mesh registry. This covers an in-cluster inference provider and an in-cluster brokered upstream. An `ALLOW_ANY` mesh sends the call through passthrough with no Istio mTLS or DestinationRule, and a `REGISTRY_ONLY` mesh refuses it. A destination with STRICT mTLS then resets the call.
@@ -245,12 +245,12 @@ The operator reconciles an Istio Sidecar `sandbox-egress` in every tenant namesp
 #### Neutral
 
 *   A sandbox connection to an unlisted in-cluster Service is still refused. On port 80 it takes `allow_any` passthrough and the NetworkPolicy drops it. On other ports it tunnels as `CONNECT <ip>:<port>` and the sandbox OPA applies IP posture.
-*   TLS from a sandbox on `:443` takes the Amendment 6 SNI chain on `virtualOutbound`. TLS on `:443` with no SNI, or with an SNI that is not a plain DNS name, takes the catch-all and IP posture.
+*   TLS from a sandbox on `:443` takes the SNI chain on `virtualOutbound` from [JIT Credential Brokering Egress Gateway, Amendment 6](2026-06-06-jit-credential-brokering-egress-gateway.md#amendment-6-2026-10-27-tls-on-non-443-ports-tunnels-by-sni-and-dialled-port). TLS on `:443` with no SNI, or with an SNI that is not a plain DNS name, takes the catch-all and IP posture.
 
 ### Implementation
 
-*   `backend/internal/operator/tenant_netpol.go`: `ensureSandboxEgressSidecar`, reconciled after `ensureAgentEgressSidecar` in `tenant_controller.go`. Both share one create-then-patch helper in `tenant_agent_egress.go`.
-*   PR 2 (O1): `charts/kora/templates/platform/sidecars.yaml`.
+*   `backend/internal/operator/tenant_netpol.go`: `ensureSandboxEgressSidecar`, reconciled after `ensureAgentEgressSidecar` in `tenant_controller.go`. Both share one builder and one create-then-patch helper in `tenant_agent_egress.go`.
+*   kora-system Sidecars: `charts/kora/templates/platform/sidecars.yaml`.
 
 ### Validation
 
@@ -258,7 +258,7 @@ On the local cluster:
 
 *   `pilot-agent request GET clusters` on a sandbox pod and a kora-system pod before and after.
 *   A run with a sandbox: a model call, `git clone` of a public GitHub repository through the egress gateway, a sandbox exec, a loaded OPA bundle and an identity-proxy token.
-*   For PR 2: a run end to end through kora-agents and the session-manager, a governed MCP tool call through the tool-gateway, and an inference gateway model call.
+*   For the kora-system Sidecars: a run end to end through kora-agents and the session-manager, a governed MCP tool call through the tool-gateway, and an inference gateway model call.
 
 ---
 
