@@ -23,7 +23,8 @@ const agentEgressName = "agent-egress"
 // agentPodLabels select agent pods; kora-agents sets them on every one.
 var agentPodLabels = map[string]string{"runkora.io/managed-agent": "true"}
 
-// kubeDNSHost keeps a dedicated listener for DNS over TCP. Under REGISTRY_ONLY the lookup otherwise reaches no upstream.
+// kubeDNSHost keeps a dedicated listener for DNS over TCP in the agent and sandbox Sidecars. Without it an agent pod's
+// lookup goes to the blackhole cluster and a sandbox's tunnels to the egress gateway.
 const kubeDNSHost = "kube-system/kube-dns.kube-system.svc.cluster.local"
 
 // sidecarGVK is Istio's, which is not in the operator's scheme.
