@@ -370,7 +370,7 @@ An agent with no run keeps its floor pod at full size. After `clear-route/kora-p
 
 A t3a.large kora node has 1930m CPU and about 6.1Gi of allocatable memory. Memory limits it to about 4 agent pods and CPU to about 6. Prod's 48 agents peaked at 12 concurrent runs and averaged 3.8 over the 7 days to 2026-11-21. The design target is 960 agents and 240 concurrent runs at 20x. Cron triggers start runs in synchronised bursts.
 
-An idle session-manager pod has a median working set of 10Mi. The ACP child process holds a run's memory. The session-manager starts it per run (`backend/internal/agents/sessionmanager/server.go:335`) and it exits when the run closes (`acp_runner.go:709`).
+An idle session-manager pod has a median working set of 10Mi. The ACP child process holds a run's memory. The session-manager starts it per run, and it exits when the run closes (`backend/internal/agents/sessionmanager`).
 
 A spike on k3s 1.36.5 measured in-place resize of the session-manager through the `resize` subresource:
 
@@ -379,7 +379,7 @@ A spike on k3s 1.36.5 measured in-place resize of the session-manager through th
 *   A memory limit decrease below usage was refused with `cannot decrease memory limits` and no OOM kill. The kubelet applied it on its own retry 18s after usage dropped.
 *   File page cache from workspace writes counts as usage and blocks a limit decrease. A write to the pod cgroup's `memory.reclaim` from the node cleared it in 0.11s. Reclaim plus shrink took 0.20s to 0.44s.
 
-Prod runs EKS 1.36 and kora-local runs k3s 1.36.4. In-place resize is stable from Kubernetes 1.35.
+Prod runs EKS 1.36 and kora-local runs k3s 1.36.4. In-place pod resize is on by default from Kubernetes 1.33 and GA in 1.35. The chart supports Kubernetes 1.34 and later.
 
 A check on kora-local (k3s 1.36.4) on 2026-11-22 lowered the requests of a pod with 400Mi of page cache. The pod had a 1Gi memory limit and 413Mi of `memory.current`. Its requests went from 250m and 1Gi to 25m and 128Mi in 0.18s, and the grow back took 0.18s. The container did not restart, the pod was not evicted, and `memory.max` stayed at 1Gi.
 
@@ -399,7 +399,7 @@ A check on kora-local (k3s 1.36.4) on 2026-11-22 lowered the requests of a pod w
 
 #### Idle Threshold
 
-*   **5 minutes (chosen):** The scaler shrinks an agent's pods 5 minutes after its last run completed. A follow-up run within 5 minutes finds a hot pod.
+*   **5 minutes (chosen):** The scaler shrinks an agent's pods 5 minutes after its last run ended. A follow-up run within 5 minutes finds a hot pod.
 *   **Next scaler pass (rejected):** Every run that follows another within seconds pays a grow and its chance of a Deferred grow.
 *   **30 minutes (rejected):** The design's warm-to-cold threshold. A hot-to-warm threshold of 30 minutes keeps more pods at full size for little gain. A grow takes under 1s.
 
@@ -444,31 +444,31 @@ A check on kora-local (k3s 1.36.4) on 2026-11-22 lowered the requests of a pod w
 
 kora-agents will shrink the session-manager requests of an idle agent's pods in place and grow them back in dispatch before the run's session is created.
 
-*   An agent is idle when it has no run in `pending`, `starting`, `active`, `idle` or `completing` (`RunState.OccupiesPod`) and its last run completed at least `agents.scheduling.warmAfterSecs` ago (default 300). An agent with no completed run counts from its `activated_at`. A value of 0 turns the warm tier off.
-*   Under the agent lock, the scaler will patch the `resize` subresource of each hot, Ready pod of an idle agent to the warm requests. The warm requests are `agents.workloads.sessionManager.warm.cpu` (default 25m) and `agents.workloads.sessionManager.warm.memory` (default 128Mi). The limits are unchanged.
-*   A pod is warm when its session-manager memory request in the spec is below its memory limit. The full requests are the memory limit and `agents.workloads.sessionManager.cpu`. No annotation or database row records the tier.
+*   An agent is idle when it has no run in `pending`, `starting`, `active`, `idle` or `completing` (`RunState.OccupiesPod`) and its last run ended at least `agents.scheduling.warmAfterSecs` ago (default 300). Every terminal run state stamps `completed_at`, `budget_exhausted` included. An agent with no ended run counts from its `activated_at`.
+*   A value of 0 turns the warm tier off. The scaler then grows every warm pod back.
+*   Under the agent lock, the scaler will patch the `resize` subresource of each hot, Ready pod of an idle agent to the warm requests and wait up to 1s for its own cache to show the shrink. The warm requests are `agents.workloads.sessionManager.warm.cpu` (default 25m) and `agents.workloads.sessionManager.warm.memory` (default 128Mi). A warm request above the pod's full request stays at the full request. The limits are unchanged.
+*   A shrink the API server refuses for good (not found, forbidden, method not supported or invalid) is logged once. The pod stays at full size and is not tried again.
+*   A pod's full requests are its StatefulSet template's session-manager requests, capped by the pod's own limits. A pod is warm when its session-manager memory request is below its full memory request, and a grow restores the full requests. A manifest patch on the template's requests changes both. No annotation or database row records the tier.
 *   The workload cache will also keep each pod's node name, its session-manager requests and limits in the spec, and its session-manager resources in the status.
-*   `startClaimed` will grow an assigned warm pod before `CreateSession` and wait on the cache up to 5s for the full requests in `status.containerStatuses[].resources`.
+*   `startClaimed` will grow an assigned warm pod before `CreateSession` and wait on the cache up to 5s for the full requests in `status.containerStatuses[].resources`. Placement's live pod list also marks the pod warm. A pod that list shows warm grows even when the cache still shows it hot.
 *   Before the cache syncs after a kora-agents start, `startClaimed` reads the pod live and grows it with no wait.
-*   A cache that has not yet seen a shrink shows the pod as hot. The run then starts on the warm pod, and the scaler grows the pod on its next pass.
+*   A shrink by another kora-agents replica after placement listed the pods, which that replica's cache has not seen yet, leaves the pod looking hot. The run then starts on the warm pod, and the scaler grows the pod on its next pass.
 *   A grow that reports `PodResizePending` with reason `Deferred` deletes the wake-reserve pod on the pod's node once. A grow not applied within 5s releases the run with `ReleaseRunClaim`.
 *   Placement and the scaler will count a pod with a pending resize as having no room. Once the agent is idle past the threshold, the scaler shrinks a pod whose grow is still pending.
-*   The scaler will grow any warm pod that has a pod-occupying run, with no wait. This covers a run placed by a kora-agents replica on the previous release and a kora-agents restart between `AssignPod` and the grow.
+*   The scaler will grow any warm pod that has a pod-occupying run, with no wait. This covers a run placed by a kora-agents replica on the previous release and a kora-agents restart between `AssignPod` and the grow. A scaler grow of a pod with a pending grow held as `Deferred` deletes the wake-reserve pod on its node.
 *   The pod template keeps the full requests. A pod that a roll, a crash of the pod, an eviction or a scale-up creates starts at full size and shrinks once the agent is idle past the threshold. A container restart inside a warm pod keeps the warm requests. A resize does not change a pod's `controller-revision-hash`.
 *   The floor, the Ready floor and the scale-down rule count warm pods as Ready pods. The scale-down rule still removes empty top pods. The shrink applies to the pods that remain.
 *   A surge pod (Amendment 1) starts at full size. A roll replaces warm pods with full-size pods. The roll hold and its release do not read a pod's tier.
 *   The ClusterRole will gain `patch` on `pods/resize`. kora-agents already deletes pods.
-*   The chart will run the wake reserve when `agents.wakeReserve.enabled` is true (default true), with `agents.wakeReserve.resources` (default 225m and 896Mi). It uses the session-manager node selector, tolerations and affinity.
+*   The chart will run the wake reserve when `agents.wakeReserve.enabled` is true (default true), `agents.scheduling.warmAfterSecs` is above 0, and a node selector or required node affinity pins the session-manager pool. It uses `agents.wakeReserve.resources` (default 225m and 896Mi) and the session-manager node selector, tolerations and node affinity.
 
 ### Sizing
 
 The sizing counts the peak concurrent agents as hot and every other agent as warm. A node holds 5.0Gi and 1.8 cores of agent pods. The prod data has no distribution of the gap between one agent's runs. Agents inside the 5 minute threshold add hot pods above these counts.
 
-| Agents (peak hot) | No warm tier | Warm, no reserve | Warm, 1-wake reserve | Warm, 2-wake reserve |
-|---|---|---|---|---|
-| 48 (12) | 12 nodes | 6 nodes | 7 nodes | 9 nodes |
-| 480 (120) | 120 nodes | 55 nodes | 67 nodes | 85 nodes |
-| 960 (240) | 240 nodes | 110 nodes | 133 nodes | 169 nodes |
+*   **48 agents, 12 hot:** 12 nodes with no warm tier, 6 warm with no reserve, 7 with a one-wake reserve and 9 with a two-wake reserve.
+*   **480 agents, 120 hot:** 120 nodes with no warm tier, 55 warm with no reserve, 67 with a one-wake reserve and 85 with a two-wake reserve.
+*   **960 agents, 240 hot:** 240 nodes with no warm tier, 110 warm with no reserve, 133 with a one-wake reserve and 169 with a two-wake reserve.
 
 *   Memory sets each warm figure. At 20x with the chosen sizes the pods need 126 cores against 133 nodes × 1.575 cores after the reserve.
 *   Without the CPU shrink, 960 agents need 288 cores and about 160 nodes.
@@ -485,11 +485,16 @@ The sizing counts the peak concurrent agents as hot and every other agent as war
 *   **Negative:** A Deferred grow left pending holds its full size on the node in the scheduler's count until the kubelet applies it or the idle shrink reverts it.
 *   **Negative:** A Deferred wake holds a start worker for up to 5s.
 *   **Negative:** A released run goes to the next warm pod with room. Each warm pod on a full node costs another 5s before the scaler adds a pod.
+*   **Negative:** A rollback to a kora-agents release without the warm tier leaves warm pods at their warm requests until they are recreated. That release neither grows them nor counts them.
 *   **Neutral:** The scaler reads `max(completed_at)` for each agent with no pod-occupying run on every pass while any of its pods is hot.
 
-### Open Questions
+### Cluster Checks
 
-*   Does the scheduler count a Deferred grow at its new size and keep the recreated reserve pod pending? The cluster check of a Deferred grow will confirm it.
+A check on kora-local on 2026-11-22 confirmed the Deferred handling:
+
+*   With a filler pod leaving 300Mi free on the node, the grow was Deferred. kora-agents deleted the node's wake-reserve pod, the grow applied, and the run turned active 2.2s after it was created.
+*   The recreated reserve pod stayed Pending while the grown pod held the room. The scheduler counted the Deferred grow at its new size.
+*   With the reserve's room also taken, the grow stayed Deferred. The run was released after 5s, the scaler added a pod, and the run turned active on the new pod 38.8s after it was created.
 
 ### Possible Later Improvement
 
