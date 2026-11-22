@@ -36,7 +36,7 @@ Set these in kora's values when your mesh differs from the defaults:
 
 - `istio.namespace`: where istiod and the `istio-cni-node` DaemonSet run, `istio-system` by default.
 - `istio.revision`: the Istio revision kora's namespaces use. With a revision, label `kora-system` with `istio.io/rev=<revision>` in place of `istio-injection=enabled`.
-- `istio.outboundTrafficPolicy: REGISTRY_ONLY`: for a mesh that blocks unregistered hosts. The chart then registers an external Postgres or Redis host, and the operator registers [model providers](register-inference-provider.md#network-access) and external MCP servers. Register the OIDC issuer and other external hosts yourself.
+- `istio.outboundTrafficPolicy: REGISTRY_ONLY`: for a mesh that blocks unregistered hosts. The chart then registers an external Postgres or Redis host, and the operator registers [model providers](register-inference-provider.md#network-access) and external MCP servers. Register the OIDC issuer and other external hosts yourself. Under `REGISTRY_ONLY`, kora-system proxies do not see ServiceEntries outside `kora-system` and the Istio namespace.
 
 ## SPIRE
 
