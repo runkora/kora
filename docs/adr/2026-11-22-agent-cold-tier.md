@@ -94,7 +94,7 @@ The spike files are in the orbit scratch folder `scale-to-zero/` (`findings.md`,
 
 ### D3. Pool Identity and SPIRE Entry
 
-*   **I1, `ClusterSPIFFEID` per pod (chosen):** A chart `ClusterSPIFFEID` gives each pool pod `spiffe://<td>/tenant/<ns>/pool/<pod>` when it carries `runkora.io/pool` and no `spiffe.io/agent`. The bind sets `spiffe.io/agent`, and the existing `kora-tenant-agent` entry takes over. The SPIRE server runs with `cacheReloadInterval: 1s` and `eventsBasedCache: true`. The trade-off is a swap 0.3s to 0.7s slower than I2.
+*   **I1, `ClusterSPIFFEID` per pod (chosen):** A chart `ClusterSPIFFEID` gives each pool pod `spiffe://<td>/tenant/<ns>/pool/<pod>` when it carries `runkora.io/pool` and no `spiffe.io/agent`. The bind sets `spiffe.io/agent`, and the existing `kora-tenant-agent` entry takes over. The SPIRE server runs with `cacheReloadInterval: 1s` and `eventsBasedCache: true`, and the SPIRE agent with `syncInterval: 1s`. On kora-local with the server settings alone, Envoy held the agent certificate 2.8s to 6.3s after the bind. With the agent sync added it took 1.7s to 2.0s. The trade-off is a swap 0.3s to 0.7s slower than I2.
 *   **I2, `ClusterStaticEntry` per agent created ahead of the bind (rejected):** An entry per agent selects `k8s:ns:<ns>` and a bind label, with a node alias as parent. In the spike Envoy held the agent certificate 0.6s to 1.0s after the patch with this variant. kora-agents would need write access to a cluster-scoped entry type that can hold any SPIFFE ID, including system IDs. It also adds 960 entries and a node alias to keep current.
 *   **One pool ID per tenant (rejected):** `/tenant/<ns>/pool` would make every pool pod in a tenant the same principal in logs and audit.
 
@@ -193,7 +193,7 @@ O3 gives every agent pod one creation path. The bind then serves the cold wake, 
 
 The build is 8 stacked PRs, in this order, and each one is testable on its own:
 
-1.  **Pool principal and SPIRE settings:** Parse the pool ID in `token.PoolNamespace` and let policy-service serve its own tenant's bundle to it. Every principal check keeps refusing it. Add the pool `ClusterSPIFFEID` and the SPIRE server cache settings to the chart. Test: unit tests, and a pool pod on kora-local whose opa loads the bundle.
+1.  **Pool principal and SPIRE settings:** Parse the pool ID in `token.PoolNamespace` and let policy-service serve its own tenant's bundle to it. Every principal check keeps refusing it. Add the pool `ClusterSPIFFEID` to the chart and the SPIRE server cache and agent sync settings to the reference values. Test: unit tests, and a pool pod on kora-local whose opa loads the bundle.
 2.  **identity-proxy pool mode and the bound check:** Add pool mode, the operator-managed kora-identity DestinationRule, the readiness probe change and `GET /health/bound`. Test: a pool pod on kora-local turns Ready, and after a relabel the bound check returns 200. Record the relabel-to-bound time.
 3.  **Admission policy and pod patch:** Add the ValidatingAdmissionPolicy and the `patch` verb. Test: chart tests, and on kora-local a relabel of a bound pod and a relabel by another account are refused.
 4.  **A1 addressing:** Store the pod name on the run, resolve the IP from the informer cache, and call with the agent Service as Host header. StatefulSet pods are still the only pods. Test: a run and a follow-up message on kora-local, and a call to a wrong-identity IP returns 503.
