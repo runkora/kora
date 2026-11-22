@@ -268,7 +268,7 @@ The `run_events` table is also the source of truth for run resume (not v1) — a
 
 ### Session Routing
 
-New sessions are routed to any available pod for the agent type. Existing sessions are pinned to the pod where they were created — the subprocess and worktree are local to that pod. The `kora-agents` service stores `run_id → pod_ordinal` in its database and routes subsequent requests via the pod's stable StatefulSet DNS name. Routing is cross-namespace (kora-system → kora-tenant-{id}), secured by Istio mTLS.
+New sessions are routed to any available pod for the agent type. Existing sessions are pinned to the pod where they were created — the subprocess and worktree are local to that pod. The `kora-agents` service stores `run_id → pod_ordinal` in its database and routes subsequent requests to the pod's IP with the agent's headless Service as Host header ([Agent Cold Tier](../adr/2026-11-22-agent-cold-tier.md)). Routing is cross-namespace (kora-system → kora-tenant-{id}), secured by Istio mTLS.
 
 ### Tenant Workloads
 
@@ -286,7 +286,7 @@ kora-agents service
    │  Postgres SELECT (event replay on connect)
    │  POST (session claim + message relay)
    ▼
-session-manager (in agent pod, via StatefulSet DNS)
+session-manager (in agent pod, at its pod IP)
    │  reads stdout
    ▼
 transform layer (per-framework)

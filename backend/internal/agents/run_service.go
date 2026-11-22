@@ -839,7 +839,8 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
 	target, err := s.podTarget(ctx, at.Slug, run.PodOrdinal, namespace)
 	if err != nil {
-		return err
+		observability.RecordFailure(span, err, errSpanForwardMessageToSessionManager)
+		return fmt.Errorf("target pod %d: %w", run.PodOrdinal, err)
 	}
 	// A person's message makes the turn manual: a trigger run takes the manual idle timeout from here on.
 	// A trigger's message sends zero, which leaves the run's timeout as it is.
@@ -1036,7 +1037,8 @@ func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
 	target, err := s.podTarget(ctx, at.Slug, run.PodOrdinal, namespace)
 	if err != nil {
-		return err
+		observability.RecordFailure(span, err, errSpanInterruptSession)
+		return fmt.Errorf("target pod %d: %w", run.PodOrdinal, err)
 	}
 	if err := s.sm.InterruptSession(ctx, target, runID); err != nil {
 		observability.RecordFailure(span, err, errSpanInterruptSession)

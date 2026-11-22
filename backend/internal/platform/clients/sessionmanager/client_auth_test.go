@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -126,11 +128,18 @@ func TestClient_SendsTheAgentServiceAsHost(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := NewClient(logging.NewLoggerWithOutput(io.Discard), staticToken("tok"))
-	if err := c.CloseSession(context.Background(), Pod{URL: srv.URL, Host: "coder.kora-tenant-acme.svc.cluster.local:8090"}, "run-1"); err != nil {
-		t.Fatal(err)
-	}
-	if host != "coder.kora-tenant-acme.svc.cluster.local:8090" {
-		t.Errorf("Host = %q, want the agent Service", host)
+	// The second call runs under a parent span, the path that opens a client span.
+	traced := trace.ContextWithSpanContext(context.Background(), trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID: trace.TraceID{1}, SpanID: trace.SpanID{1}, TraceFlags: trace.FlagsSampled,
+	}))
+	for _, ctx := range []context.Context{context.Background(), traced} {
+		host = ""
+		if err := c.CloseSession(ctx, Pod{URL: srv.URL, Host: "coder.kora-tenant-acme.svc.cluster.local:8090"}, "run-1"); err != nil {
+			t.Fatal(err)
+		}
+		if host != "coder.kora-tenant-acme.svc.cluster.local:8090" {
+			t.Errorf("Host = %q, want the agent Service", host)
+		}
 	}
 }
 

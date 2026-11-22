@@ -814,7 +814,9 @@ func (m *mockRepository) SetRunSummary(_ context.Context, runID, summary string)
 // ── mockK8s ───────────────────────────────────────────────────────────────────
 
 type mockK8s struct {
-	mu                      sync.Mutex
+	mu sync.Mutex
+	// podIPErr makes PodIP fail.
+	podIPErr                error
 	provisionedAgentTypes   []string
 	provisionedMissing      []string
 	deprovisionedAgentTypes []string
@@ -900,6 +902,9 @@ func (m *mockK8s) ReadyOrdinals(_ context.Context, _, _ string) (ordinals, error
 }
 
 func (m *mockK8s) PodIP(_ context.Context, _ string, ordinal int, _ string) (string, error) {
+	if m.podIPErr != nil {
+		return "", m.podIPErr
+	}
 	return testPodIP(ordinal), nil
 }
 

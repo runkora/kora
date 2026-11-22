@@ -39,8 +39,8 @@ type Config struct {
 	Kubernetes struct {
 		// InCluster uses the pod's service account token. Set false for local dev.
 		InCluster bool `yaml:"inCluster"`
-		// ClientQPS and ClientBurst rate-limit the Kubernetes client. Each run placement and scaler
-		// pass makes API calls, and client-go's defaults of 5 and 10 throttle a burst of runs.
+		// ClientQPS and ClientBurst rate-limit the Kubernetes client. Each run placement, scaler pass,
+		// message, interrupt and terminate makes API calls, and client-go's defaults of 5 and 10 throttle a burst of runs.
 		ClientQPS   float32 `yaml:"clientQPS"`
 		ClientBurst int     `yaml:"clientBurst"`
 		// TenantNamespacePrefix is prepended to tenant IDs to form namespace names.
