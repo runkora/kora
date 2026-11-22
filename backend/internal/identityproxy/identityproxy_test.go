@@ -182,7 +182,7 @@ func TestServer_WaitForInitialToken_ImmediateSuccess(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := srv.waitForInitialToken(ctx); err != nil {
+	if err := srv.waitForInitialToken(ctx, testConfig().BackoffInitial); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	tok, _, ok := cache.Get()
@@ -204,7 +204,7 @@ func TestServer_WaitForInitialToken_RetriesAndSucceeds(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := srv.waitForInitialToken(ctx); err != nil {
+	if err := srv.waitForInitialToken(ctx, testConfig().BackoffInitial); err != nil {
 		t.Fatalf("unexpected error after retries: %v", err)
 	}
 	if exc.calls.Load() != 3 {
@@ -229,7 +229,7 @@ func TestServer_WaitForInitialToken_ContextCancelled(t *testing.T) {
 		cancel()
 	}()
 
-	err := srv.waitForInitialToken(ctx)
+	err := srv.waitForInitialToken(ctx, testConfig().BackoffInitial)
 	if err == nil {
 		t.Fatal("expected error when context is cancelled")
 	}
@@ -338,8 +338,7 @@ func TestSVIDWatcher_OnX509ContextUpdate_KeepsValidTokenUntilSwap(t *testing.T) 
 	r := NewRefresher(cache, exc, discardLogger(), testConfig())
 	watcher := r.OnSVIDRotation(context.Background())
 
-	// Simulate a SVID rotation. Passing nil is safe: OnX509ContextUpdate ignores
-	// its X509Context argument entirely.
+	// Simulate a SVID rotation. A nil X509Context counts as an agent SVID.
 	watcher.OnX509ContextUpdate(nil)
 
 	// Wait until the background re-exchange is in flight (blocked in Exchange).

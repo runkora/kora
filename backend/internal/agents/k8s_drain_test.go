@@ -23,6 +23,24 @@ func TestSessionManagerScaleAndDrain(t *testing.T) {
 	}
 }
 
+// The session-manager readiness probe runs at once and every second.
+func TestSessionManagerReadinessProbe(t *testing.T) {
+	p := podSecurityProvisioner()
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ss := p.buildSessionManagerStatefulSet(at, "kora-tenant-acme", podLabels(at))
+	for _, c := range ss.Spec.Template.Spec.Containers {
+		if c.Name != sessionManagerContainerName {
+			continue
+		}
+		rp := c.ReadinessProbe
+		if rp == nil || rp.InitialDelaySeconds != 0 || rp.PeriodSeconds != 1 || rp.HTTPGet == nil || rp.HTTPGet.Path != "/health" {
+			t.Errorf("readiness probe = %+v, want GET /health at once and every second", rp)
+		}
+		return
+	}
+	t.Fatal("no session-manager container")
+}
+
 // The headless Service keeps a draining pod in DNS, including on an existing Service.
 func TestHeadlessService_PublishesNotReadyAddresses(t *testing.T) {
 	const ns, name = "kora-tenant-acme", "coder"

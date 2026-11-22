@@ -2259,6 +2259,8 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								{Name: "KORA_TERMINATION_GRACE_PERIOD_SECS", Value: strconv.FormatInt(p.cfg.DrainGracePeriodSecs, 10)},
 								{Name: "KORA_PRESSURE_LIMIT", Value: strconv.FormatFloat(p.cfg.PressureLimit, 'f', -1, 64)},
 							},
+							// The pod turns Ready within a second of the session-manager serving
+							// (docs/adr/2026-11-22-agent-cold-tier.md).
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
@@ -2266,8 +2268,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 										Port: intstr.FromString("http"),
 									},
 								},
-								InitialDelaySeconds: 5,
-								PeriodSeconds:       10,
+								PeriodSeconds: 1,
 							},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{

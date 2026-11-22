@@ -230,6 +230,10 @@ type tokenExchanger interface {
 	Exchange(ctx context.Context) (token string, expiry time.Time, err error)
 }
 
+// boundBackoffInitial is the first retry interval of the exchange after a bind.
+// identity-proxy can see the agent SVID before Envoy holds the agent certificate.
+const boundBackoffInitial = 200 * time.Millisecond
+
 // Server wraps the gRPC server and manages its lifecycle.
 type Server struct {
 	grpc       *grpc.Server
@@ -312,7 +316,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// readiness probe succeeds while the gRPC socket and token are being set up.
 	httpSrv := &http.Server{
 		Addr:              s.cfg.HealthAddr,
-		Handler:           http.HandlerFunc(s.handleHealthz),
+		Handler:           s.healthMux(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {
@@ -385,10 +389,24 @@ func (s *Server) Start(ctx context.Context) error {
 	// the exchange call.
 	close(s.envoyReady)
 
+	// A pool pod serves with no token until kora-agents binds it to an agent,
+	// then exchanges on the agent SVID (docs/adr/2026-11-22-agent-cold-tier.md).
+	backoff := s.cfg.BackoffInitial
+	if s.refresher.awaitPool(ctx, s.cfg.ReadyTimeout) {
+		s.health.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+		s.logger.Info(ctx, "identity-proxy serving a pool pod with no token until the bind")
+		if err := s.refresher.awaitBind(ctx); err != nil {
+			s.grpc.GracefulStop()
+			return fmt.Errorf("waiting for the bind: %w", err)
+		}
+		s.logger.Info(ctx, "pod bound to an agent, exchanging the agent SVID")
+		backoff = boundBackoffInitial
+	}
+
 	// Step 4: obtain the initial token. The Processor returns an empty CONTINUE
 	// for any ext_proc calls arriving before the cache is warm, so the window
 	// where requests go without an Authorization header is brief.
-	if err := s.waitForInitialToken(ctx); err != nil {
+	if err := s.waitForInitialToken(ctx, backoff); err != nil {
 		s.grpc.GracefulStop()
 		return fmt.Errorf("initial token acquisition failed: %w", err)
 	}
@@ -447,6 +465,26 @@ func (s *Server) waitForEnvoy(ctx context.Context) error {
 	}
 }
 
+// healthMux serves /tokenz for the session-manager's bound check and the
+// health response on every other path for the sidecar probes.
+func (s *Server) healthMux() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleHealthz)
+	mux.HandleFunc("/tokenz", s.handleTokenz)
+	return mux
+}
+
+// handleTokenz returns 200 while the cache holds a platform token and 503
+// otherwise. A bound pool pod is ready for a run once it holds the agent token
+// (docs/adr/2026-11-22-agent-cold-tier.md).
+func (s *Server) handleTokenz(w http.ResponseWriter, r *http.Request) {
+	if _, _, ok := s.cache.Get(); !ok {
+		api.JSON(r.Context(), w, s.logger, http.StatusServiceUnavailable, map[string]string{"status": "no token"})
+		return
+	}
+	api.JSON(r.Context(), w, s.logger, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // handleHealthz serves the HTTP health endpoint on port 9090.
 // Always returns 200 — the process is alive and the ext_proc gRPC server is
 // listening. Istio's PostStart hook probes this to determine when it is safe
@@ -463,14 +501,13 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 // exceeded. It uses the same exponential-backoff logic as Refresher so
 // transient failures at startup (e.g. identity service not yet ready) are
 // handled gracefully.
-func (s *Server) waitForInitialToken(ctx context.Context) error {
+func (s *Server) waitForInitialToken(ctx context.Context, backoff time.Duration) error {
 	ctx, span := s.tracer.Start(ctx, "identityproxy.WaitForInitialToken",
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	defer span.End()
 
 	deadline := time.Now().Add(s.cfg.ReadyTimeout)
-	backoff := s.cfg.BackoffInitial
 
 	for {
 		token, expiry, err := s.exchanger.Exchange(ctx)

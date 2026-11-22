@@ -67,6 +67,14 @@ type ControllerConfig struct {
 
 	// Memory reads the pod's working set and memory limit for GET /memory.
 	Memory memoryReader
+
+	// Token reports whether the pod's identity-proxy holds a platform token for GET /health/bound.
+	Token tokenReader
+}
+
+// tokenReader reports whether the pod's identity-proxy holds a platform token.
+type tokenReader interface {
+	TokenReady(ctx context.Context) error
 }
 
 // Controller implements the session-manager's internal HTTP API.
@@ -184,6 +192,7 @@ func isLoopbackRequest(r *http.Request) bool {
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /health", c.handleHealth)
 	mux.Handle("GET /memory", c.handleMemory)
+	mux.Handle("GET /health/bound", c.handleBound)
 	mux.Handle("POST /session", c.handleCreateSession)
 	mux.Handle("POST /session/{runID}/messages", c.handleSendMessage)
 	mux.Handle("POST /session/{runID}/tool-results", c.handleSendToolResult)
@@ -230,6 +239,20 @@ func (c *Controller) handleMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, report)
+}
+
+// handleBound serves GET /health/bound: 200 once the pod's identity-proxy holds
+// a platform token. kora-agents calls it on a pod it has just bound to an agent.
+// The call reaches the pod only when Envoy presents the agent certificate, and
+// the 200 adds that the agent token is in place (docs/adr/2026-11-22-agent-cold-tier.md).
+func (c *Controller) handleBound(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if err := c.cfg.Token.TokenReady(ctx); err != nil {
+		apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "the pod holds no agent token yet", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]string{"status": "bound"})
 }
 
 // CreateSessionRequest is the body for POST /session.

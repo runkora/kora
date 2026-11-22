@@ -2,6 +2,7 @@ package identityproxy
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // Refresher manages proactive token renewal.
@@ -35,6 +37,38 @@ type Refresher struct {
 	tracer     trace.Tracer
 	cfg        Config
 	envoyReady <-chan struct{} // closed by Server once Envoy is ready
+	svid       svidState
+}
+
+// svidState records the pod's SVIDs. A pool pod holds a pool SVID until
+// kora-agents binds it to an agent (docs/adr/2026-11-22-agent-cold-tier.md).
+type svidState struct {
+	once      sync.Once
+	boundOnce sync.Once
+	seen      chan struct{} // closed on the first SVID
+	bound     chan struct{} // closed on the first SVID that is not a pool SVID
+	mu        sync.Mutex
+	pool      bool // the first SVID was a pool SVID
+}
+
+// observe records an SVID and reports whether it is a pool SVID.
+func (s *svidState) observe(c *workloadapi.X509Context) bool {
+	pool := false
+	if c != nil {
+		if svid := c.DefaultSVID(); svid != nil {
+			_, pool = token.PoolNamespace(svid.ID.String())
+		}
+	}
+	s.once.Do(func() {
+		s.mu.Lock()
+		s.pool = pool
+		s.mu.Unlock()
+		close(s.seen)
+	})
+	if !pool {
+		s.boundOnce.Do(func() { close(s.bound) })
+	}
+	return pool
 }
 
 // NewRefresher constructs a Refresher. The envoyReady gate is injected by
@@ -47,6 +81,32 @@ func NewRefresher(cache *TokenCache, exchanger tokenExchanger, logger logging.Lo
 		logger:    logger,
 		tracer:    otel.Tracer("github.com/runkora/kora/backend/internal/identityproxy"),
 		cfg:       cfg,
+		svid:      svidState{seen: make(chan struct{}), bound: make(chan struct{})},
+	}
+}
+
+// awaitPool waits up to timeout for the first SVID and reports whether it is a
+// pool SVID. With no SVID by then it reports false, the agent pod's path.
+func (r *Refresher) awaitPool(ctx context.Context, timeout time.Duration) bool {
+	select {
+	case <-r.svid.seen:
+	case <-time.After(timeout):
+		return false
+	case <-ctx.Done():
+		return false
+	}
+	r.svid.mu.Lock()
+	defer r.svid.mu.Unlock()
+	return r.svid.pool
+}
+
+// awaitBind waits for the first SVID that is not a pool SVID.
+func (r *Refresher) awaitBind(ctx context.Context) error {
+	select {
+	case <-r.svid.bound:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -160,7 +220,14 @@ type svidWatcher struct {
 // fail-closed denied them for lack of an egress scope, and the sandbox Envoy
 // reset the connection — surfacing to agents as intermittent "Connection reset
 // by peer" on git clone and other egress. Keep the valid token until the swap.
-func (w *svidWatcher) OnX509ContextUpdate(_ *workloadapi.X509Context) {
+//
+// A pool SVID gets no exchange: kora-identity refuses the pool ID, and a pool
+// pod holds no token until the bind.
+func (w *svidWatcher) OnX509ContextUpdate(c *workloadapi.X509Context) {
+	if w.refresher.svid.observe(c) {
+		w.refresher.logger.Info(w.ctx, "pool SVID received, no token until the pod is bound to an agent")
+		return
+	}
 	w.refresher.logger.Info(w.ctx, "SVID rotated — re-exchanging platform token (serving current token until replaced)")
 	go w.refresher.exchangeWithBackoff(w.ctx)
 }
