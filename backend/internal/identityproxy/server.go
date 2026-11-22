@@ -56,6 +56,9 @@ var (
 	errEnvoyReadyTimeout   = errors.New("timed out waiting for Envoy to become ready")
 	errContextCanceled     = errors.New("context canceled")
 	errInitialTokenTimeout = errors.New("timed out waiting for initial token")
+	// errIdentityChanged stops identity-proxy when its SPIFFE ID differs from the
+	// one the pod was bound to. The container restarts with the new identity.
+	errIdentityChanged = errors.New("the pod's SPIFFE ID changed after the bind")
 )
 
 // istioReadyURL is the Istio pilot-agent health endpoint that returns 200
@@ -362,7 +365,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// leaving the socket at 0o644 or 0o600. Envoy (UID 1337) runs as a
 	// different user, so we must chmod the socket to 0o666 explicitly to
 	// allow it to connect.
-	if err := os.Chmod(s.cfg.SocketPath, 0o666); err != nil {
+	if err = os.Chmod(s.cfg.SocketPath, 0o666); err != nil {
 		return fmt.Errorf("chmod socket %s: %w", s.cfg.SocketPath, err)
 	}
 
@@ -385,7 +388,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// has received all xDS configuration (listeners, clusters, and its SPIRE-
 	// issued mTLS certificate). Without this, the exchange call to kora-identity
 	// is RST by Envoy because it has no client cert to present for mTLS.
-	if err := s.waitForEnvoy(ctx); err != nil {
+	if err = s.waitForEnvoy(ctx); err != nil {
 		s.grpc.GracefulStop()
 		return fmt.Errorf("waiting for Envoy: %w", err)
 	}
@@ -394,24 +397,16 @@ func (s *Server) Start(ctx context.Context) error {
 	// the exchange call.
 	close(s.envoyReady)
 
-	// A pool pod serves with no token until kora-agents binds it to an agent,
-	// then exchanges on the agent SVID (docs/adr/2026-11-22-agent-cold-tier.md).
-	var fixedUntil time.Time
-	if s.refresher.awaitPool(ctx, s.cfg.ReadyTimeout) {
-		s.health.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
-		s.logger.Info(ctx, "identity-proxy serving a pool pod with no token until the bind")
-		if err := s.refresher.awaitBind(ctx); err != nil {
-			s.grpc.GracefulStop()
-			return fmt.Errorf("waiting for the bind: %w", err)
-		}
-		s.logger.Info(ctx, "pod bound to an agent, exchanging the agent SVID")
-		fixedUntil = time.Now().Add(boundRetryWindow)
+	fixedUntil, err := s.servePool(ctx)
+	if err != nil {
+		s.grpc.GracefulStop()
+		return err
 	}
 
 	// Step 4: obtain the initial token. The Processor returns an empty CONTINUE
 	// for any ext_proc calls arriving before the cache is warm, so the window
 	// where requests go without an Authorization header is brief.
-	if err := s.waitForInitialToken(ctx, fixedUntil); err != nil {
+	if err = s.waitForInitialToken(ctx, fixedUntil); err != nil {
 		s.grpc.GracefulStop()
 		return fmt.Errorf("initial token acquisition failed: %w", err)
 	}
@@ -423,7 +418,29 @@ func (s *Server) Start(ctx context.Context) error {
 	// Step 6: background token refresh.
 	go s.refresher.Run(ctx)
 
-	return <-grpcErr
+	select {
+	case err := <-grpcErr:
+		return err
+	case <-s.refresher.svid.changed:
+		s.grpc.GracefulStop()
+		return errIdentityChanged
+	}
+}
+
+// servePool serves a pool pod with no token until kora-agents binds it to an
+// agent (docs/adr/2026-11-22-agent-cold-tier.md). It returns the end of the
+// fixed retry window for the first exchange, zero for an agent pod.
+func (s *Server) servePool(ctx context.Context) (time.Time, error) {
+	if !s.refresher.awaitPool(ctx, s.cfg.ReadyTimeout) {
+		return time.Time{}, nil
+	}
+	s.health.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+	s.logger.Info(ctx, "identity-proxy serving a pool pod with no token until the bind")
+	if err := s.refresher.awaitBind(ctx); err != nil {
+		return time.Time{}, fmt.Errorf("waiting for the bind: %w", err)
+	}
+	s.logger.Info(ctx, "pod bound to an agent, exchanging the agent SVID")
+	return time.Now().Add(boundRetryWindow), nil
 }
 
 // waitForEnvoy polls localhost:15021/healthz/ready until Envoy signals it is

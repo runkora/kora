@@ -1,5 +1,5 @@
 // Package identityproxy is the session-manager's client for the identity-proxy
-// sidecar in its own pod. The sidecar's health server listens on loopback port 9090.
+// sidecar in its own pod. The client calls the sidecar's health server on loopback port 9090.
 package identityproxy
 
 import (

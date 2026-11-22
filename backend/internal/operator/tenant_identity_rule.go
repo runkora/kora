@@ -2,12 +2,16 @@ package operator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// errNoTrustDomain means no trust domain is set to pin kora-identity's SPIFFE ID.
+var errNoTrustDomain = errors.New("the agent identity DestinationRule needs a trust domain to pin kora-identity: set global.trustDomain")
 
 // agentIdentityRuleName is the DestinationRule that gives each agent pod's
 // token exchange its own connection to kora-identity.
@@ -20,7 +24,7 @@ const agentIdentityRuleName = "agent-identity-exchange"
 // (docs/adr/2026-11-22-agent-cold-tier.md).
 func (r *TenantReconciler) ensureAgentIdentityRule(ctx context.Context, tenant *KoraTenant) error {
 	if trustDomain == "" {
-		return fmt.Errorf("the agent identity DestinationRule needs a trust domain to pin kora-identity: set global.trustDomain")
+		return errNoTrustDomain
 	}
 	desired := agentIdentityRule(tenantNamespace(tenant), tenant.Name)
 	err := r.Create(ctx, desired)

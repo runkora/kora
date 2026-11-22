@@ -46,6 +46,13 @@ func (c *TokenCache) Get() (token string, expiry time.Time, ok bool) {
 	return c.token, c.expiry, true
 }
 
+// Clear drops the cached token.
+func (c *TokenCache) Clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.token, c.expiry = "", time.Time{}
+}
+
 // IsExpiringSoon reports whether the cached token will expire within threshold.
 // Used by the background refresh goroutine to decide whether to re-exchange
 // proactively (the ADR specifies expiry − 60 seconds as the threshold).
