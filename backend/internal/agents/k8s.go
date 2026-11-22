@@ -2652,16 +2652,16 @@ func (p *K8sProvisioner) deleteOwnDestinationRule(ctx context.Context, name, slu
 
 func agentTypeLabels(at AgentType) map[string]string {
 	return map[string]string{
-		"app":                   at.Slug,
-		"runkora.io/agent-type": at.ID,
-		"runkora.io/tenant":     at.TenantID,
+		"app":               at.Slug,
+		agentTypeLabel:      at.ID,
+		"runkora.io/tenant": at.TenantID,
 	}
 }
 
 func podLabels(at AgentType) map[string]string {
 	return map[string]string{
 		"app":                           at.Slug,
-		"runkora.io/agent-type":         at.ID,
+		agentTypeLabel:                  at.ID,
 		"runkora.io/tenant":             at.TenantID,
 		sandboxfolder.ManagedAgentLabel: "true",
 		// slug used so the SPIFFE ID is human-readable:

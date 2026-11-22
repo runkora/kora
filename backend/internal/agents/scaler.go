@@ -123,6 +123,8 @@ func (s *Scaler) scaleAgent(ctx context.Context, at AgentType) {
 	case errors.Is(err, errReplicasMoved), errors.Is(err, errPartitionMoved):
 		// Another scaler pass, an apply, an operator or the controller's status write changed the StatefulSet.
 		// The next pass decides again.
+		s.logger.Debug(ctx, "agent StatefulSet changed since the scaler read it",
+			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "error", Value: err.Error()})
 	default:
 		observability.RecordFailure(span, err, errScaleAgent)
 		s.logger.Warn(ctx, "scale agent failed",

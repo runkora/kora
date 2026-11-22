@@ -176,6 +176,10 @@ func TestScaleStatefulSet(t *testing.T) {
 	if err := p.ScaleStatefulSet(ctx, "coder", scaleTestNS, 5, 4, "6"); !errors.Is(err, errReplicasMoved) || replicas != 5 {
 		t.Errorf("scale-down from a stale version: err %v, replicas %d; want errReplicasMoved and no change", err, replicas)
 	}
+	// An empty version would make the update unconditional.
+	if err := p.ScaleStatefulSet(ctx, "coder", scaleTestNS, 5, 4, ""); !errors.Is(err, errReplicasInvalid) || replicas != 5 {
+		t.Errorf("scale-down with no version: err %v, replicas %d; want errReplicasInvalid and no change", err, replicas)
+	}
 	if err := p.ScaleStatefulSet(ctx, "coder", scaleTestNS, 5, 4, "7"); err != nil || replicas != 4 {
 		t.Fatalf("scale-down from the live version: err %v, replicas %d", err, replicas)
 	}
@@ -578,12 +582,17 @@ func TestStatefulSetWritesRetryOnConflict(t *testing.T) {
 func TestReleaseRollHoldConflict(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 	live := liveStatefulSet(at, 2, appsv1.ParallelPodManagement)
+	live.ResourceVersion = "7"
 	live.Spec.UpdateStrategy.RollingUpdate = &appsv1.RollingUpdateStatefulSetStrategy{Partition: new(int32(1))}
 	client := fake.NewSimpleClientset(live)
 	conflictOnce(client)
 	p := &K8sProvisioner{client: client}
-	if err := p.ReleaseRollHold(context.Background(), at.Slug, scaleTestNS, 1, ""); !errors.Is(err, errPartitionMoved) {
+	if err := p.ReleaseRollHold(context.Background(), at.Slug, scaleTestNS, 1, "7"); !errors.Is(err, errPartitionMoved) {
 		t.Errorf("conflicting release: err %v, want errPartitionMoved", err)
+	}
+	// The conflict fires once, so the version check passed and the first call reached the update.
+	if err := p.ReleaseRollHold(context.Background(), at.Slug, scaleTestNS, 1, "7"); err != nil {
+		t.Errorf("release after the conflict: %v", err)
 	}
 }
 
