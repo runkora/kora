@@ -24,6 +24,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -195,6 +196,32 @@ func sandboxEgressPolicy(ns, tenantName string) *networkingv1.NetworkPolicy {
 			},
 		},
 	}
+}
+
+// sandboxEgressSidecarName is the Istio Sidecar that scopes a sandbox proxy.
+const sandboxEgressSidecarName = "sandbox-egress"
+
+// sandboxSystemServices are the system-namespace Services a sandbox's Envoy routes to. Every other Service stays
+// out of its config, which otherwise grows with the agent count (docs/adr/2026-09-30-agent-pod-egress-lockdown.md, Amendment 1).
+var sandboxSystemServices = []string{"kora-identity", "kora-policy-service", egressGatewayServiceName}
+
+// sandboxDNSHost keeps a dedicated listener for DNS over TCP. Without it the lookup tunnels to the egress gateway.
+const sandboxDNSHost = "kube-system/kube-dns.kube-system.svc.cluster.local"
+
+// ensureSandboxEgressSidecar reconciles the Sidecar that limits a sandbox proxy to the Services it calls.
+func (r *TenantReconciler) ensureSandboxEgressSidecar(ctx context.Context, tenant *KoraTenant) error {
+	return r.ensureSidecar(ctx, sandboxEgressSidecar(tenantNamespace(tenant), tenant.Name))
+}
+
+// sandboxEgressSidecar inherits the mesh outbound mode. The egress-gateway EnvoyFilter patches the allow_any
+// virtual host that only ALLOW_ANY renders, and REGISTRY_ONLY on the mesh must keep blocking port 80.
+func sandboxEgressSidecar(ns, tenantName string) *unstructured.Unstructured {
+	hosts := make([]any, 0, len(sandboxSystemServices)+1)
+	for _, app := range sandboxSystemServices {
+		hosts = append(hosts, systemServiceHost(app))
+	}
+	hosts = append(hosts, sandboxDNSHost)
+	return tenantSidecar(ns, sandboxEgressSidecarName, tenantName, map[string]string{podLabelRole: podRoleSandbox}, hosts)
 }
 
 // ensureSandboxIngressPolicy reconciles the NetworkPolicy that decides who may

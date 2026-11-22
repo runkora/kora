@@ -11,8 +11,8 @@
 #     │  (iptables → sandbox istio-proxy; agent is non-root, no NET_ADMIN, so
 #     │   it cannot escape this interception)
 #     ▼
-#   listener 0.0.0.0_443, TLS filter chain (added by patch 4)
-#     │  tls_inspector (patch 3) parses the ClientHello → SNI = example.com
+#   listener virtualOutbound, TLS filter chain kora-egress-tls (patches 6, 7)
+#     │  tls_inspector (patch 6) parses the ClientHello → SNI = example.com
 #     │  tcp_proxy tunneling_config wraps the raw bytes in a GENERATED
 #     │  CONNECT example.com:443 and sends it to the internal listener.
 #     ▼
@@ -32,22 +32,26 @@
 # HCM is what re-runs those existing filters on it. The identity-proxy and OPA
 # binaries take no part in it; this is Envoy config alone, scoped to sandbox pods.
 #
-# Scope: mesh services (kora-system, kube-dns, istiod, …) have their own
-# dedicated outbound listeners that match the original destination first, so
-# platform-internal mTLS traffic is untouched. Only external egress is rewritten.
+# Scope: the services in the sandbox's `sandbox-egress` Sidecar (identity,
+# policy-service, the egress gateway, kube-dns) have their own dedicated
+# outbound listeners that match the original destination first. Plain HTTP to
+# a port one of them serves over HTTP (80, 8085) takes that port's `allow_any`
+# passthrough route, and `sandbox-egress-to-gateway` drops it. Every other TCP
+# destination, in-cluster or external, is rewritten.
 #
 # Coverage (Amendment 2 "Protocols"): ALL outbound TCP is intercepted and
 # OPA-gated, in two places:
-#   - :443 (patch 3/4) tunnels using the TLS SNI as the CONNECT host, so
-#     hostname posture (*.example.com) works for HTTPS.
-#   - TLS with an SNI on a port without a dedicated listener (patch 6/7)
+#   - :443 tunnels using the TLS SNI as the CONNECT host, so hostname posture
+#     (*.example.com) works for HTTPS. A sandbox has no 0.0.0.0_443 listener
+#     under `sandbox-egress`, so this runs on virtualOutbound (patch 6/7).
+#     Patches 3 and 4 apply only where a 0.0.0.0_443 listener exists.
+#   - TLS with an SNI on any other port without a dedicated listener (patch 6/7)
 #     tunnels using the SNI and the dialled port as the CONNECT host, so
 #     hostname posture works there too. A hostname grant covers every port.
 #   - all remaining TCP (patch 5) is the virtualOutbound catch-all: it tunnels
 #     using the ORIGINAL destination (ip:port) as the CONNECT host, so posture
 #     for raw TCP and for TLS to an IP literal is IP-based (fail-closed for
-#     hostname whitelists). Empty-SNI TLS on :443 tunnels with an empty host
-#     and is fail-closed.
+#     hostname whitelists). This includes TLS on :443 with no SNI.
 # A DENIED connection is reset at this sandbox's OPA before reaching the gateway
 # (no data leaves the pod). The gateway TLS-intercepts :443 and registered
 # connections and raw-relays every other ALLOWED connection. UDP is not CONNECT-tunnellable (DNS→CoreDNS only; deny the rest).
