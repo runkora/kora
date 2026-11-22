@@ -15,9 +15,16 @@
 {{- $hosts = append $hosts (printf "*/%s" $host) }}
 {{- end }}
 {{- end }}
+{{- /* A .svc Postgres or Redis is a mesh Service with no ServiceEntry (serviceentries.yaml). Its namespace stays in scope. */}}
+{{- range $h := list .Values.config.db.host .Values.config.redis.host }}
+{{- if regexMatch "^[^.]+[.][^.]+[.]svc([.]cluster[.]local)?$" $h }}
+{{- $hosts = append $hosts (printf "%s/*" (index (splitList "." $h) 1)) }}
+{{- end }}
+{{- end }}
+{{- $hosts = uniq $hosts }}
 ---
 # The namespace default: the system namespace, Istio, the Kubernetes API,
-# kube-dns and the collector. A call to any other host leaves through the
+# kube-dns, the collector and an in-cluster Postgres or Redis. A call to any other host leaves through the
 # mesh's outbound traffic policy.
 apiVersion: networking.istio.io/v1
 kind: Sidecar

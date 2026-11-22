@@ -93,3 +93,23 @@ func TestChartSystemSidecarCollector(t *testing.T) {
 		}
 	}
 }
+
+// The namespace default keeps the namespace of a .svc Postgres or Redis, which the chart registers no ServiceEntry for.
+// Other hosts add nothing.
+func TestChartSystemSidecarDatabaseAndRedis(t *testing.T) {
+	for _, tc := range []struct {
+		db, redis string
+		want      []string
+	}{
+		{"pg.data.svc", "redis.cache.svc.cluster.local", []string{"data/*", "cache/*"}},
+		{"pg.data.svc", "redis.data.svc", []string{"data/*"}},
+		{"postgres.example.internal", "kora-redis", nil},
+		{"pg.svc", "a.svcs.example.com", nil},
+	} {
+		values := "config:\n  db:\n    host: " + tc.db + "\n  redis:\n    host: " + tc.redis + "\n"
+		want := append(slices.Clone(baseSystemHosts), tc.want...)
+		if hosts := renderSidecars(t, values)["default"].Spec.Egress[0].Hosts; !slices.Equal(hosts, want) {
+			t.Errorf("db %s, redis %s: hosts = %v, want %v", tc.db, tc.redis, hosts, want)
+		}
+	}
+}
