@@ -152,13 +152,13 @@ func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.T
 	)
 	defer span.End()
 
-	at, namespace, pod, ok := s.placeRun(ctx, span, run, claimedAt)
+	at, namespace, pod, warm, ok := s.placeRun(ctx, span, run, claimedAt)
 	if !ok {
 		return
 	}
 	// A warm pod grows to its full requests before it takes the run. A grow past its bound releases the run.
 	if s.waker != nil {
-		if err := s.waker.WakePod(ctx, at.Slug, namespace, pod); err != nil {
+		if err := s.waker.WakePod(ctx, at.Slug, namespace, pod, warm); err != nil {
 			s.releaseStart(ctx, span, run.ID, claimedAt, fmt.Errorf("grow agent pod %d: %w", pod, err))
 			return
 		}
@@ -220,44 +220,44 @@ func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.T
 	)
 }
 
-// placeRun checks the run's agent, picks a pod and assigns it under the claim.
-// It reports false when the run was released, failed or taken by another worker.
-func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, claimedAt time.Time) (*AgentType, string, int, bool) {
+// placeRun checks the run's agent, picks a pod and assigns it under the claim, and reports whether its pod
+// list showed the pod warm. It reports false when the run was released, failed or taken by another worker.
+func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, claimedAt time.Time) (at *AgentType, namespace string, pod int, warm, ok bool) {
 	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
 	if errors.Is(err, ErrNotFound) {
 		s.failStart(ctx, span, errStartFailed, run.ID, RunStatePending, "The agent no longer exists.")
-		return nil, "", 0, false
+		return nil, "", 0, false, false
 	}
 	if err != nil {
 		s.releaseStart(ctx, span, run.ID, claimedAt, fmt.Errorf("get agent type: %w", err))
-		return nil, "", 0, false
+		return nil, "", 0, false, false
 	}
 	// The agent can change while the run waits. Re-check what the start depends on.
 	switch at.State {
 	case AgentTypeStateDeleting:
 		s.failStart(ctx, span, errStartFailed, run.ID, RunStatePending, "The agent is being deleted.")
-		return nil, "", 0, false
+		return nil, "", 0, false, false
 	case AgentTypeStateProvisioning:
 		if time.Since(run.CreatedAt) > s.provisionBudget() {
 			s.failStart(ctx, span, errStartFailed, run.ID, RunStatePending, fmt.Sprintf("The agent did not finish provisioning within %s.", s.provisionBudget()))
-			return nil, "", 0, false
+			return nil, "", 0, false, false
 		}
 		s.releaseStart(ctx, span, run.ID, claimedAt, errAgentProvisioning)
-		return nil, "", 0, false
+		return nil, "", 0, false, false
 	}
-	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
-	pod, err := s.assignPod(ctx, run, claimedAt, at, namespace)
+	namespace = s.cfg.TenantNamespaceFn(at.TenantID)
+	pod, warm, err = s.assignPod(ctx, run, claimedAt, at, namespace)
 	switch {
 	case err == nil:
-		return at, namespace, pod, true
+		return at, namespace, pod, warm, true
 	case errors.Is(err, ErrConflict):
 		// The run was terminated, or another worker holds it now.
 		s.logger.Info(ctx, "run left the queue before its pod was assigned", logging.Field{Key: "run_id", Value: run.ID})
-		return nil, "", 0, false
+		return nil, "", 0, false, false
 	case !errors.Is(err, errNoReadyPod):
 		// Full pods and the agent's total keep the run queued with no time limit.
 		s.releaseStart(ctx, span, run.ID, claimedAt, err)
-		return nil, "", 0, false
+		return nil, "", 0, false, false
 	}
 	// Only a run with no Ready pod is charged the start budget. Provisioning time is not part of it.
 	budgetStart := run.CreatedAt
@@ -268,11 +268,11 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 		waits, waitErr := s.waitsPastBudget(ctx, at, namespace)
 		if waitErr != nil {
 			s.releaseStart(ctx, span, run.ID, claimedAt, waitErr)
-			return nil, "", 0, false
+			return nil, "", 0, false, false
 		}
 		if !waits {
 			s.failStart(ctx, span, errStartFailed, run.ID, RunStatePending, fmt.Sprintf("No agent pod could take the run within %s.", s.startBudget()))
-			return nil, "", 0, false
+			return nil, "", 0, false, false
 		}
 	}
 	// Missing resources, after a cluster reset for example, leave no Ready pod. Create them only then.
@@ -280,7 +280,7 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 		err = fmt.Errorf("ensure agent infrastructure: %w", provErr)
 	}
 	s.releaseStart(ctx, span, run.ID, claimedAt, err)
-	return nil, "", 0, false
+	return nil, "", 0, false, false
 }
 
 // initialMessageBackoff is the wait before the first retry of the run's first
@@ -359,37 +359,38 @@ const memoryReadTimeout = 2 * time.Second
 // (docs/adr/2026-11-09-demand-driven-agent-scaling.md). Pod memory is read before
 // the agent lock. A slow pod must never hold it, and the lock is taken only when a pod
 // has room by that reading.
-func (s *RunService) assignPod(ctx context.Context, run Run, claimedAt time.Time, at *AgentType, namespace string) (int, error) {
-	ready, resizing, err := s.k8s.ReadyOrdinals(ctx, at.Slug, namespace)
+func (s *RunService) assignPod(ctx context.Context, run Run, claimedAt time.Time, at *AgentType, namespace string) (pod int, warm bool, err error) {
+	pods, err := s.k8s.ReadyOrdinals(ctx, at.Slug, namespace)
 	if err != nil {
-		return 0, fmt.Errorf("list ready pods: %w", err)
+		return 0, false, fmt.Errorf("list ready pods: %w", err)
 	}
+	ready := pods.ready
 	if len(ready) == 0 {
-		return 0, errNoReadyPod
+		return 0, false, errNoReadyPod
 	}
 	allowance, err := s.cfg.StartingRunAllowances.For(at.Framework)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	// A pod with a pending resize has no reading and counts as full. A grow stuck on a full node waits there.
-	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, withoutOrdinals(ready, resizing))
+	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, withoutOrdinals(ready, pods.resizing))
 	// A run for an agent whose pods are all full is released here. Many such runs at once would
 	// otherwise queue on the agent lock. The lock re-checks.
 	starting, err := s.placement.StartingRunsPerPod(ctx, at.ID, time.Now().Add(-s.cfg.StartingRunWindow))
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	// ReadyOrdinals already left out the ordinals at or above the replicas, so no bound is applied here.
 	if _, ok := firstPodWithRoom(ready, math.MaxInt, readings, starting, allowance.Value(), s.cfg.PlacementWatermark); !ok {
-		return 0, errNoFreePod
+		return 0, false, errNoFreePod
 	}
-	pod := -1
+	pod = -1
 	err = s.placement.WithAgentLock(ctx, at.ID, func(ctx context.Context) error {
 		var lockedErr error
 		pod, lockedErr = s.assignLocked(ctx, run, claimedAt, at, namespace, ready, readings, allowance.Value())
 		return lockedErr
 	})
-	return pod, err
+	return pod, slices.Contains(pods.warm, pod), err
 }
 
 // assignLocked runs under the agent lock: it re-counts the agent's runs, checks the total and
@@ -424,8 +425,9 @@ func withoutOrdinals(ords, drop []int) []int {
 }
 
 // podWaker grows a warm agent pod before a run is sent to it (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 3).
+// warm reports whether placement's pod list showed the pod warm.
 type podWaker interface {
-	WakePod(ctx context.Context, slug, namespace string, ordinal int) error
+	WakePod(ctx context.Context, slug, namespace string, ordinal int, warm bool) error
 }
 
 // podMemoryReader reads one pod's memory report.

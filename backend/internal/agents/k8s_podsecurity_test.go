@@ -516,7 +516,8 @@ func TestReadyOrdinals(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := podSecurityProvisioner()
 			p.client = fake.NewSimpleClientset(tc.objs...)
-			got, _, err := p.ReadyOrdinals(context.Background(), slug, ns)
+			o, err := p.ReadyOrdinals(context.Background(), slug, ns)
+			got := o.ready
 			if err != nil {
 				t.Fatalf("ReadyOrdinals: %v", err)
 			}

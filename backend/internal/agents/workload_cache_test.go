@@ -67,7 +67,7 @@ func TestTrimCached(t *testing.T) {
 		got.Labels[agentTypeLabel] != "a" || got.DeletionTimestamp == nil || !podReady(got) {
 		t.Errorf("trimmed pod lost a field the scaler reads: %+v", got)
 	}
-	if got.Spec.NodeName != "node-a" || !podWarm(got) || !resizePending(got) {
+	if got.Spec.NodeName != "node-a" || !podWarm(got, smResources("250m", "1Gi").Requests) || !resizePending(got) {
 		t.Errorf("trimmed pod lost the node or session-manager resources the grow reads: %+v", got)
 	}
 	if got.Annotations != nil || got.ManagedFields != nil || got.Status.Phase != "" ||

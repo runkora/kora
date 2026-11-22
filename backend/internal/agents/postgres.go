@@ -498,7 +498,8 @@ func (r *PostgresRepository) SetRunState(ctx context.Context, id string, from, t
 	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
 		var tag interface{ RowsAffected() int64 }
 		var err error
-		if to == RunStateCompleted || to == RunStateFailed {
+		// Every terminal state stamps completed_at. The scaler's idle clock reads it.
+		if to.Terminal() {
 			tag, err = r.pool.Exec(ctx, `
 				UPDATE runs SET state=$1, completed_at=$2, updated_at=$2
 				WHERE id=$3 AND state=$4 AND deleted_at IS NULL AND state IN (`+podOccupancySQLList()+`)`,

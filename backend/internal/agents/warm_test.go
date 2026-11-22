@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,6 +28,13 @@ func smResources(cpu, memory string) corev1.ResourceRequirements {
 	}
 }
 
+// residencyStatefulSet is the coder StatefulSet with a session-manager template of the given resources.
+func residencyStatefulSet(replicas int32, template corev1.ResourceRequirements) *appsv1.StatefulSet {
+	ss := liveStatefulSet(AgentType{Slug: "coder", TenantID: "acme"}, replicas, appsv1.ParallelPodManagement)
+	ss.Spec.Template.Spec.Containers[0].Resources = template
+	return ss
+}
+
 // residencyPod is an agent pod whose session-manager has the spec requests and the applied requests.
 func residencyPod(name string, spec, applied corev1.ResourceRequirements) *corev1.Pod {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
@@ -42,6 +50,7 @@ func residencyPod(name string, spec, applied corev1.ResourceRequirements) *corev
 
 func TestResidencyOfPod(t *testing.T) {
 	full, warm := smResources("250m", "1Gi"), smResources("25m", "128Mi")
+	template := full.Requests
 	deferred := residencyPod("coder-0", full, warm)
 	deferred.Status.Conditions = append(deferred.Status.Conditions, corev1.PodCondition{Type: corev1.PodResizePending, Status: corev1.ConditionTrue, Reason: "Deferred"})
 	infeasible := residencyPod("coder-0", full, warm)
@@ -63,9 +72,15 @@ func TestResidencyOfPod(t *testing.T) {
 		{"grow infeasible", infeasible, false, true, false},
 		{"grow in progress", inProgress, false, true, false},
 		{"no applied resources yet", noStatus, true, false, false},
+		// A manifest patch may set a request below the limit. The pod is hot at its template's requests.
+		{"patched request below the limit", residencyPod("coder-0", smResources("250m", "512Mi"), smResources("250m", "512Mi")), false, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := podWarm(tc.pod); got != tc.warm {
+			tmpl := template
+			if tc.name == "patched request below the limit" {
+				tmpl = smResources("250m", "512Mi").Requests
+			}
+			if got := podWarm(tc.pod, tmpl); got != tc.warm {
 				t.Errorf("podWarm = %v, want %v", got, tc.warm)
 			}
 			if got := resizePending(tc.pod); got != tc.resizing {
@@ -90,6 +105,7 @@ func warmProvisioner(t *testing.T, objs ...runtime.Object) (*K8sProvisioner, *fa
 		return false, nil, nil
 	})
 	p := cachedProvisioner(t, client)
+	p.growTimeout = 300 * time.Millisecond
 	p.logger = logging.NewLoggerWithOutput(io.Discard)
 	p.cfg.SystemNamespace = "kora-system"
 	return p, client, &patches
@@ -112,9 +128,10 @@ func resizeRequests(t *testing.T, patch string) corev1.ResourceList {
 	return body.Spec.Containers[0].Resources.Requests
 }
 
-// A shrink sets the warm requests and a grow the configured CPU and the pod's memory limit. Neither sets limits.
+// A shrink sets the warm requests and a grow the template's requests, a patched CPU included. Neither sets limits.
 func TestShrinkAndGrowPod(t *testing.T) {
-	p, _, patches := warmProvisioner(t, residencyPod("coder-0", smResources("25m", "128Mi"), smResources("25m", "128Mi")))
+	patched := smResources("400m", "1Gi")
+	p, _, patches := warmProvisioner(t, residencyStatefulSet(1, patched), residencyPod("coder-0", patched, patched))
 	ctx := context.Background()
 	if err := p.ShrinkPod(ctx, "coder", scaleTestNS, 0); err != nil {
 		t.Fatal(err)
@@ -128,16 +145,39 @@ func TestShrinkAndGrowPod(t *testing.T) {
 	if got := resizeRequests(t, (*patches)[0]); got.Cpu().String() != "25m" || got.Memory().String() != "128Mi" {
 		t.Errorf("shrink requests = %v, want 25m and 128Mi", got)
 	}
-	if got := resizeRequests(t, (*patches)[1]); got.Cpu().String() != "250m" || got.Memory().String() != "1Gi" {
-		t.Errorf("grow requests = %v, want 250m and 1Gi", got)
+	if got := resizeRequests(t, (*patches)[1]); got.Cpu().String() != "400m" || got.Memory().String() != "1Gi" {
+		t.Errorf("grow requests = %v, want the template's 400m and 1Gi", got)
+	}
+}
+
+// A template at or below the warm memory is never shrunk, and a grow of a pod a roll has not reached stays
+// within its own limits.
+func TestShrinkAndGrowBounds(t *testing.T) {
+	small := smResources("20m", "100Mi")
+	p, _, patches := warmProvisioner(t, residencyStatefulSet(1, small), residencyPod("coder-0", small, small))
+	if err := p.ShrinkPod(context.Background(), "coder", scaleTestNS, 0); err != nil || len(*patches) != 0 {
+		t.Errorf("shrink of a small template: %v and %d patches, want none", err, len(*patches))
+	}
+	bigger := corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m"), corev1.ResourceMemory: resource.MustParse("2Gi")}}
+	old := residencyPod("coder-0", smResources("25m", "128Mi"), smResources("25m", "128Mi"))
+	p, _, patches = warmProvisioner(t, residencyStatefulSet(1, bigger), old)
+	if err := p.GrowPod(context.Background(), "coder", scaleTestNS, 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(*patches) != 1 {
+		t.Fatalf("resize patches = %d, want 1", len(*patches))
+	}
+	if got := resizeRequests(t, (*patches)[0]); got.Memory().String() != "1Gi" {
+		t.Errorf("grow memory = %v, want the pod's 1Gi limit", got.Memory())
 	}
 }
 
 // A hot pod and a pod the cache does not hold take no grow.
 func TestWakePodSkipsHotPod(t *testing.T) {
-	p, _, patches := warmProvisioner(t, residencyPod("coder-0", smResources("250m", "1Gi"), smResources("250m", "1Gi")))
+	full := smResources("250m", "1Gi")
+	p, _, patches := warmProvisioner(t, residencyStatefulSet(2, full), residencyPod("coder-0", full, full))
 	for _, ord := range []int{0, 1} {
-		if err := p.WakePod(context.Background(), "coder", scaleTestNS, ord); err != nil {
+		if err := p.WakePod(context.Background(), "coder", scaleTestNS, ord, false); err != nil {
 			t.Fatalf("ordinal %d: %v", ord, err)
 		}
 	}
@@ -150,8 +190,8 @@ func TestWakePodSkipsHotPod(t *testing.T) {
 func applyResize(t *testing.T, p *K8sProvisioner, client *fake.Clientset, name string) {
 	t.Helper()
 	waitCached(t, func() bool {
-		pod, found, _ := p.cachedAgentPod("coder", scaleTestNS, 0)
-		return found && !podWarm(pod)
+		pod, template, found, _ := p.cachedAgentPod("coder", scaleTestNS, 0)
+		return found && !podWarm(pod, template)
 	})
 	pod, err := client.CoreV1().Pods(scaleTestNS).Get(context.Background(), name, metav1.GetOptions{})
 	if err != nil {
@@ -166,9 +206,10 @@ func applyResize(t *testing.T, p *K8sProvisioner, client *fake.Clientset, name s
 
 // A warm pod grows and WakePod returns once the applied requests are full.
 func TestWakePodGrowsWarmPod(t *testing.T) {
-	p, client, patches := warmProvisioner(t, residencyPod("coder-0", smResources("25m", "128Mi"), smResources("25m", "128Mi")))
+	p, client, patches := warmProvisioner(t, residencyStatefulSet(1, smResources("250m", "1Gi")),
+		residencyPod("coder-0", smResources("25m", "128Mi"), smResources("25m", "128Mi")))
 	go applyResize(t, p, client, "coder-0")
-	if err := p.WakePod(context.Background(), "coder", scaleTestNS, 0); err != nil {
+	if err := p.WakePod(context.Background(), "coder", scaleTestNS, 0, false); err != nil {
 		t.Fatal(err)
 	}
 	if len(*patches) != 1 {
@@ -178,8 +219,6 @@ func TestWakePodGrowsWarmPod(t *testing.T) {
 
 // A Deferred grow deletes the wake reserve on its node once and only there, and times out if room never frees.
 func TestWakePodDeferredReleasesReserveAndTimesOut(t *testing.T) {
-	growTimeout = 300 * time.Millisecond
-	t.Cleanup(func() { growTimeout = 5 * time.Second })
 	reserve := func(name, node string) *corev1.Pod {
 		return &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "kora-system", Labels: map[string]string{"app": "kora-agent-wake-reserve"}},
@@ -188,7 +227,8 @@ func TestWakePodDeferredReleasesReserveAndTimesOut(t *testing.T) {
 	}
 	deferred := residencyPod("coder-0", smResources("250m", "1Gi"), smResources("25m", "128Mi"))
 	deferred.Status.Conditions = append(deferred.Status.Conditions, corev1.PodCondition{Type: corev1.PodResizePending, Status: corev1.ConditionTrue, Reason: "Deferred"})
-	p, client, patches := warmProvisioner(t, deferred, reserve("reserve-a", "node-a"), reserve("reserve-b", "node-b"))
+	p, client, patches := warmProvisioner(t, residencyStatefulSet(1, smResources("250m", "1Gi")), deferred,
+		reserve("reserve-a", "node-a"), reserve("reserve-b", "node-b"))
 	var deletes int
 	client.PrependReactor("delete", "pods", func(k8stesting.Action) (bool, runtime.Object, error) {
 		deletes++
@@ -201,7 +241,7 @@ func TestWakePodDeferredReleasesReserveAndTimesOut(t *testing.T) {
 		}
 		return true, &corev1.PodList{Items: []corev1.Pod{*reserve("reserve-a", "node-a")}}, nil
 	})
-	err := p.WakePod(context.Background(), "coder", scaleTestNS, 0)
+	err := p.WakePod(context.Background(), "coder", scaleTestNS, 0, false)
 	if !errors.Is(err, errGrowTimeout) {
 		t.Fatalf("WakePod = %v, want errGrowTimeout", err)
 	}
@@ -222,16 +262,15 @@ func TestWakePodDeferredReleasesReserveAndTimesOut(t *testing.T) {
 // ReadyOrdinals, from the live client, and the scaler's view, from the cache, list a pod with a pending resize
 // and the warm pods.
 func TestOrdinalsResidency(t *testing.T) {
-	at := AgentType{Slug: "coder", TenantID: "acme"}
 	full, warm := smResources("250m", "1Gi"), smResources("25m", "128Mi")
-	p, _, _ := warmProvisioner(t, liveStatefulSet(at, 3, "Parallel"),
+	p, _, _ := warmProvisioner(t, residencyStatefulSet(3, full),
 		residencyPod("coder-0", full, full), residencyPod("coder-1", warm, warm), residencyPod("coder-2", full, warm))
-	ready, resizing, err := p.ReadyOrdinals(context.Background(), "coder", scaleTestNS)
+	o, err := p.ReadyOrdinals(context.Background(), "coder", scaleTestNS)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(ready, []int{0, 1, 2}) || !slices.Equal(resizing, []int{2}) {
-		t.Errorf("ReadyOrdinals = %v, %v; want [0 1 2] and [2]", ready, resizing)
+	if !slices.Equal(o.ready, []int{0, 1, 2}) || !slices.Equal(o.warm, []int{1}) || !slices.Equal(o.resizing, []int{2}) {
+		t.Errorf("ReadyOrdinals = %+v; want ready [0 1 2], warm [1] and resizing [2]", o)
 	}
 	view, found, err := p.AgentStatefulSet(context.Background(), "coder", scaleTestNS)
 	if err != nil || !found {
@@ -252,14 +291,14 @@ func TestWakePodBeforeCacheSync(t *testing.T) {
 		"hot":  {residencyPod("coder-0", smResources("250m", "1Gi"), smResources("250m", "1Gi")), false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			client := fake.NewClientset(tc.pod)
+			client := fake.NewClientset(residencyStatefulSet(1, smResources("250m", "1Gi")), tc.pod)
 			var patches int
 			client.PrependReactor("patch", "pods", func(k8stesting.Action) (bool, runtime.Object, error) {
 				patches++
 				return false, nil, nil
 			})
 			p := &K8sProvisioner{client: client, workloads: newWorkloadCache(client), logger: logging.NewLoggerWithOutput(io.Discard)}
-			if err := p.WakePod(context.Background(), "coder", scaleTestNS, 0); err != nil {
+			if err := p.WakePod(context.Background(), "coder", scaleTestNS, 0, false); err != nil {
 				t.Fatal(err)
 			}
 			if (patches == 1) != tc.grows {
@@ -276,5 +315,44 @@ func TestReleaseWakeReserveWithNoNode(t *testing.T) {
 	p.releaseWakeReserve(context.Background(), "")
 	if n := len(client.Actions()); n != 0 {
 		t.Errorf("API actions = %d, want none", n)
+	}
+}
+
+// A pod placement listed as warm grows even when the cache has not seen the shrink yet.
+func TestWakePodLiveWarmOverStaleCache(t *testing.T) {
+	full := smResources("250m", "1Gi")
+	p, client, patches := warmProvisioner(t, residencyStatefulSet(1, full), residencyPod("coder-0", full, full))
+	// The live pod is warm. The cache still shows it hot because the reactor answers only the live GET.
+	client.PrependReactor("get", "pods", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, residencyPod("coder-0", smResources("25m", "128Mi"), smResources("25m", "128Mi")), nil
+	})
+	if err := p.WakePod(context.Background(), "coder", scaleTestNS, 0, true); err != nil {
+		t.Fatal(err)
+	}
+	if len(*patches) != 1 {
+		t.Fatalf("resize patches = %d, want 1", len(*patches))
+	}
+	if got := resizeRequests(t, (*patches)[0]); got.Memory().String() != "1Gi" {
+		t.Errorf("grow memory = %v, want 1Gi", got.Memory())
+	}
+}
+
+// The scaler's grow of a pod whose grow is held as Deferred frees the wake reserve on its node.
+func TestGrowPodDeferredReleasesReserve(t *testing.T) {
+	deferred := residencyPod("coder-0", smResources("250m", "1Gi"), smResources("25m", "128Mi"))
+	deferred.Status.Conditions = append(deferred.Status.Conditions, corev1.PodCondition{Type: corev1.PodResizePending, Status: corev1.ConditionTrue, Reason: corev1.PodReasonDeferred})
+	reserve := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "reserve-a", Namespace: "kora-system", Labels: map[string]string{"app": "kora-agent-wake-reserve"}},
+		Spec:       corev1.PodSpec{NodeName: "node-a"},
+	}
+	p, client, patches := warmProvisioner(t, residencyStatefulSet(1, smResources("250m", "1Gi")), deferred, reserve)
+	if err := p.GrowPod(context.Background(), "coder", scaleTestNS, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CoreV1().Pods("kora-system").Get(context.Background(), "reserve-a", metav1.GetOptions{}); err == nil {
+		t.Error("the reserve on the pod's node still exists")
+	}
+	if len(*patches) != 0 {
+		t.Errorf("resize patches = %d, want none for a grow already requested", len(*patches))
 	}
 }

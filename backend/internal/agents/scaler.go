@@ -5,6 +5,8 @@ import (
 	"errors"
 	"math"
 	"slices"
+	"strconv"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -73,6 +75,8 @@ type Scaler struct {
 	sm      podMemoryReader
 	cfg     ScalerConfig
 	logger  logging.Logger
+	// refused holds the pods whose shrink the API server refused for good.
+	refused sync.Map
 }
 
 // NewScaler builds a scaler. Start runs it.
@@ -221,24 +225,27 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 
 // settleResidency grows a warm pod that holds a run, and shrinks the other Ready pods below want once the
 // agent has been idle for WarmAfter (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 3).
-// A run placed with no grow, by a previous kora-agents release or before a restart, gets its pod grown here.
+// A run placed with no grow, by a previous kora-agents release or a stale cache, gets its pod grown here,
+// and a held grow frees the wake reserve. With the warm tier off, every warm pod grows.
 func (s *Scaler) settleResidency(ctx context.Context, at AgentType, namespace string, ss statefulSetView,
 	counts AgentRunCounts, occupied map[int]int, want int) error {
-	if counts.Starting+counts.Active > 0 {
-		for _, ord := range ss.Warm {
-			if occupied[ord] > 0 {
-				if err := s.cluster.GrowPod(ctx, at.Slug, namespace, ord); err != nil {
-					return err
-				}
-				s.logger.Info(ctx, "grew warm agent pod that holds a run",
-					logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod_ordinal", Value: ord})
+	if counts.Starting+counts.Active > 0 || s.cfg.WarmAfter <= 0 {
+		for _, ord := range slices.Concat(ss.Warm, ss.Resizing) {
+			if occupied[ord] == 0 && s.cfg.WarmAfter > 0 {
+				continue
+			}
+			if err := s.cluster.GrowPod(ctx, at.Slug, namespace, ord); err != nil {
+				return err
 			}
 		}
 		return nil
 	}
 	// A grow still pending on a full node shrinks back too, so the pod stops counting as full.
-	hot := slices.DeleteFunc(withoutOrdinals(ss.Ready, ss.Warm), func(ord int) bool { return ord >= want })
-	if s.cfg.WarmAfter <= 0 || counts.Pending > 0 || len(hot) == 0 {
+	hot := slices.DeleteFunc(withoutOrdinals(ss.Ready, ss.Warm), func(ord int) bool {
+		_, refused := s.refused.Load(podKey(namespace, at.Slug, ord))
+		return ord >= want || refused
+	})
+	if counts.Pending > 0 || len(hot) == 0 {
 		return nil
 	}
 	last, err := s.store.LastRunCompletedAt(ctx, at.ID)
@@ -252,14 +259,34 @@ func (s *Scaler) settleResidency(ctx context.Context, at AgentType, namespace st
 	if time.Since(idleSince) < s.cfg.WarmAfter {
 		return nil
 	}
+	return s.shrink(ctx, at, namespace, hot)
+}
+
+// shrink sets each of the agent's hot pods to the warm requests. A pod whose shrink the API server refuses
+// for good is logged once and left at full size.
+func (s *Scaler) shrink(ctx context.Context, at AgentType, namespace string, hot []int) error {
 	for _, ord := range hot {
-		if err := s.cluster.ShrinkPod(ctx, at.Slug, namespace, ord); err != nil {
+		err := s.cluster.ShrinkPod(ctx, at.Slug, namespace, ord)
+		switch {
+		case err == nil:
+			s.logger.Info(ctx, "shrank idle agent pod to warm",
+				logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod_ordinal", Value: ord})
+		case resizeRefused(err):
+			// The cluster or the pod cannot resize in place. The pod stays at full size and is not tried again.
+			s.refused.Store(podKey(namespace, at.Slug, ord), struct{}{})
+			s.logger.Warn(ctx, "agent pod cannot resize in place; it stays at full size",
+				logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod_ordinal", Value: ord},
+				logging.Field{Key: "error", Value: err.Error()})
+		default:
 			return err
 		}
-		s.logger.Info(ctx, "shrank idle agent pod to warm",
-			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod_ordinal", Value: ord})
 	}
 	return nil
+}
+
+// podKey identifies an agent pod across scaler passes.
+func podKey(namespace, slug string, ordinal int) string {
+	return namespace + "/" + slug + "-" + strconv.Itoa(ordinal)
 }
 
 // scaleInput is what one scaling decision reads.

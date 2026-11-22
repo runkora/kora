@@ -488,3 +488,19 @@ func TestPostgres_LastRunCompletedAt(t *testing.T) {
 		t.Errorf("idx_runs_agent_completed exists = %v, %v; want true", indexed, err)
 	}
 }
+
+// A run that ends budget_exhausted stamps completed_at, so it resets the scaler's idle clock.
+func TestPostgres_BudgetExhaustedStampsCompletedAt(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+	id := queueRun(t, r, tenant, at.ID, time.Now().UTC(), nil)
+	setRunState(t, r, id, RunStateActive, 0)
+	if err := r.SetRunState(ctx, id, RunStateActive, RunStateBudgetExhausted); err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.LastRunCompletedAt(ctx, at.ID)
+	if err != nil || got.IsZero() {
+		t.Errorf("LastRunCompletedAt after budget_exhausted = %v, %v; want a time", got, err)
+	}
+}

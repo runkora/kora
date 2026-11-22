@@ -122,7 +122,7 @@ func TestAssignPod(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, repo, k8s, sm, at, run := placementEnv(t, 3, 3)
 			tc.setup(repo, k8s, sm)
-			pod, err := f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1")
+			pod, _, err := f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1")
 			if !errors.Is(err, tc.err) {
 				t.Fatalf("assignPod error = %v, want %v", err, tc.err)
 			}
@@ -140,7 +140,7 @@ func TestAssignPod(t *testing.T) {
 func TestAssignPod_FullPodsSkipTheLock(t *testing.T) {
 	f, repo, _, sm, at, run := placementEnv(t, 2, 3)
 	sm.memory = fullPods("bot", 0, 1)
-	if _, err := f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1"); !errors.Is(err, errNoFreePod) {
+	if _, _, err := f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1"); !errors.Is(err, errNoFreePod) {
 		t.Fatalf("assignPod error = %v, want %v", err, errNoFreePod)
 	}
 	if n := repo.agentLockCalls.Load(); n != 0 {
@@ -165,7 +165,7 @@ func TestAssignPod_MemoryReadTimeout(t *testing.T) {
 	}
 
 	start := time.Now()
-	pod, err := f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1")
+	pod, _, err := f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1")
 	if err != nil || pod != 2 {
 		t.Fatalf("assignPod = %d, %v; want pod 2", pod, err)
 	}
@@ -192,7 +192,7 @@ func TestAssignPod_TotalHoldsAcrossPods(t *testing.T) {
 	errs := make([]error, len(runs))
 	for i, run := range runs {
 		wg.Go(func() {
-			_, errs[i] = f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1")
+			_, _, errs[i] = f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1")
 		})
 	}
 	wg.Wait()

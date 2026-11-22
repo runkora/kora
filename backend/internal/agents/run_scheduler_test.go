@@ -122,10 +122,12 @@ type startClaimedEnv struct {
 type fakeWaker struct {
 	err  error
 	woke []int
+	warm []bool
 }
 
-func (w *fakeWaker) WakePod(_ context.Context, _, _ string, ordinal int) error {
+func (w *fakeWaker) WakePod(_ context.Context, _, _ string, ordinal int, warm bool) error {
 	w.woke = append(w.woke, ordinal)
+	w.warm = append(w.warm, warm)
 	return w.err
 }
 
@@ -517,10 +519,12 @@ func TestStartClaimed_InitialMessageRetries(t *testing.T) {
 	}
 }
 
-// The pod placement picked is the pod that grows, before its session is created.
+// The pod placement picked is the pod that grows, with the warm state from placement's pod list, before its
+// session is created.
 func TestStartClaimed_GrowsAssignedPod(t *testing.T) {
 	f, repo, k8s, sm := schedulerService(t)
 	k8s.readyPods = 2
+	k8s.warm = []int{1}
 	sm.memory = fullPods("bot", 0)
 	w := &fakeWaker{}
 	f.run.SetPodWaker(w)
@@ -530,7 +534,7 @@ func TestStartClaimed_GrowsAssignedPod(t *testing.T) {
 	}
 	claimed, claimedAt := claimRun(repo, run.ID)
 	f.run.startClaimed(context.Background(), claimed, claimedAt)
-	if !slices.Equal(w.woke, []int{1}) || len(sm.sessions) != 1 {
-		t.Errorf("woke %v with %d sessions, want pod 1 woken and one session", w.woke, len(sm.sessions))
+	if !slices.Equal(w.woke, []int{1}) || !slices.Equal(w.warm, []bool{true}) || len(sm.sessions) != 1 {
+		t.Errorf("woke %v warm %v with %d sessions, want pod 1 woken as warm and one session", w.woke, w.warm, len(sm.sessions))
 	}
 }

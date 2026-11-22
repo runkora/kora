@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -199,6 +201,8 @@ type scalerFake struct {
 	// lastCompleted is what LastRunCompletedAt reports. shrunk and grown record the resized ordinals.
 	lastCompleted time.Time
 	shrunk, grown []int
+	// shrinkErr is what ShrinkPod returns.
+	shrinkErr error
 }
 
 func (f *scalerFake) mustHold(call string) {
@@ -313,7 +317,7 @@ func (f *scalerFake) LastRunCompletedAt(context.Context, string) (time.Time, err
 func (f *scalerFake) ShrinkPod(_ context.Context, _, _ string, ordinal int) error {
 	f.mustHold("ShrinkPod")
 	f.shrunk = append(f.shrunk, ordinal)
-	return nil
+	return f.shrinkErr
 }
 
 func (f *scalerFake) GrowPod(_ context.Context, _, _ string, ordinal int) error {
@@ -604,14 +608,46 @@ func TestScalerShrinksIdleAgent(t *testing.T) {
 // A warm pod that holds a run grows without a wait, and an empty warm pod of a busy agent stays warm.
 func TestScalerGrowsOccupiedWarmPod(t *testing.T) {
 	f := &scalerFake{
-		t: t, counts: AgentRunCounts{Active: 1}, occupied: map[int]int{1: 1},
-		view: statefulSetView{Replicas: 2, Parallel: true, Warm: []int{0, 1}}, ready: []int{0, 1}, memory: emptyPod,
+		t: t, counts: AgentRunCounts{Active: 2}, occupied: map[int]int{1: 1, 2: 1},
+		view: statefulSetView{Replicas: 3, Parallel: true, Warm: []int{0, 1}, Resizing: []int{2}}, ready: []int{0, 1, 2}, memory: emptyPod,
 	}
 	if err := warmScaler(f).scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 20}); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(f.grown, []int{1}) || len(f.shrunk) != 0 {
-		t.Errorf("grew %v and shrunk %v, want grew [1]", f.grown, f.shrunk)
+	// Pod 2's grow is pending. GrowPod frees the wake reserve when the kubelet holds it as Deferred.
+	if !slices.Equal(f.grown, []int{1, 2}) || len(f.shrunk) != 0 {
+		t.Errorf("grew %v and shrunk %v, want grew [1 2]", f.grown, f.shrunk)
+	}
+}
+
+// With the warm tier off, every warm pod grows back, held or not.
+func TestScalerGrowsWarmPodsWithTheTierOff(t *testing.T) {
+	f := &scalerFake{t: t, view: statefulSetView{Replicas: 2, Parallel: true, Warm: []int{0}, Resizing: []int{1}}, ready: []int{0, 1}, memory: emptyPod}
+	s := newTestScaler(f)
+	if err := s.scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 20}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(f.grown, []int{0, 1}) || len(f.shrunk) != 0 {
+		t.Errorf("grew %v and shrunk %v, want grew [0 1]", f.grown, f.shrunk)
+	}
+}
+
+// A shrink the API server refuses for good is logged once, and the pod is not tried again.
+func TestScalerSkipsPodAfterRefusedShrink(t *testing.T) {
+	var logs bytes.Buffer
+	f := &scalerFake{t: t, view: statefulSetView{Replicas: 1, Parallel: true}, ready: []int{0}, memory: emptyPod,
+		lastCompleted: time.Now().Add(-time.Hour),
+		shrinkErr:     apierrors.NewNotFound(schema.GroupResource{Resource: "pods/resize"}, "coder-0")}
+	s := warmScaler(f)
+	s.cfg.MinReplicas = 1
+	s.logger = logging.NewLoggerWithOutput(&logs)
+	for range 3 {
+		if err := s.scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 20}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(f.shrunk) != 1 || strings.Count(logs.String(), "cannot resize in place") != 1 {
+		t.Errorf("shrinks %v and %d warnings, want one of each", f.shrunk, strings.Count(logs.String(), "cannot resize in place"))
 	}
 }
 

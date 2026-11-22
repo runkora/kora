@@ -158,6 +158,8 @@ type K8sProvisioner struct {
 	scopeResolver *ScopeResolver
 	// workloads caches the agent StatefulSets and pods the scaler reads. SyncWorkloadCache starts it.
 	workloads informers.SharedInformerFactory
+	// growTimeout bounds a warm pod's grow before dispatch. Zero means defaultGrowTimeout.
+	growTimeout time.Duration
 }
 
 // SetScopeResolver installs the resolver that adds the attached environments' egress and connectors to an agent's grant.
@@ -357,14 +359,14 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 
 // ReadyOrdinals returns the Ready, non-terminating pod ordinals below the current replicas. A pod on
 // either revision counts: one a roll has not reached still takes runs (docs/adr/2026-10-12-run-scheduling.md).
-// resizing holds the pods whose session-manager has a pending resize. Placement counts them as full.
-func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace string) (ready, resizing []int, err error) {
+// It also lists the warm pods, and the pods whose session-manager has a pending resize. Placement counts
+// a resizing pod as full.
+func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace string) (ordinals, error) {
 	ss, pods, err := p.agentPods(ctx, slug, namespace)
 	if ss == nil || err != nil {
-		return nil, nil, err
+		return ordinals{}, err
 	}
-	o := podOrdinals(ss, pods, slug)
-	return o.ready, o.resizing, nil
+	return podOrdinals(ss, pods, slug), nil
 }
 
 // ordinals sorts an agent's pods below the current replicas. A pod at or above the replicas is being scaled away.
@@ -394,7 +396,7 @@ func podOrdinals(ss *appsv1.StatefulSet, pods []corev1.Pod, slug string) ordinal
 		if podReady(&pod) {
 			o.ready = append(o.ready, ord)
 		}
-		if podWarm(&pod) {
+		if podWarm(&pod, templateRequests(ss)) {
 			o.warm = append(o.warm, ord)
 		}
 		if resizePending(&pod) {
