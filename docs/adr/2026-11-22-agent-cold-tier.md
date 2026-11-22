@@ -100,7 +100,15 @@ The spike files are in the orbit scratch folder `scale-to-zero/` (`findings.md`,
 
 The pool ID will not be a principal. `token.PoolNamespace` in `backend/internal/platform/token/xfcc.go` parses it, and policy-service accepts it for its own tenant's bundle. `PrincipalFromSpiffeID` refuses it, and kora-identity and every other service build principals with that function.
 
-kora-agents will gain `patch` on pods. A ValidatingAdmissionPolicy in the chart will allow a change to `spiffe.io/agent` on a tenant pod only from kora-agents, only when the old pod carries `runkora.io/pool` and no `spiffe.io/agent`, and only together with the removal of `runkora.io/pool`. It will refuse any later change or removal of `spiffe.io/agent`. This holds rule 3 at admission.
+kora-agents will gain `patch` on pods. Two ValidatingAdmissionPolicies in the chart will hold rule 3 at admission:
+
+*   **Bind:** On a tenant pod, a change to `spiffe.io/agent` is allowed only from kora-agents, only when the old pod carries `runkora.io/pool` and no `spiffe.io/agent`, only to a non-empty value, and only together with the removal of `runkora.io/pool`. Any later change or removal of `spiffe.io/agent` is refused.
+*   **Other identity labels:** `spiffe.io/service`, `spiffe.io/component`, `runkora.io/role`, `runkora.io/agent-slug` and `runkora.io/run-id` cannot change on an existing tenant pod.
+*   **Pool provenance:** Only the ReplicaSet controller creates a pod with `runkora.io/pool`, and no update adds the label to an existing pod. kora-agents will also bind only a pod whose controller is the tenant pool's ReplicaSet.
+*   **Subresources:** The rules cover pod subresources such as `pods/status`.
+*   **kora-agents pod updates:** A kora-agents pod update is allowed only in a tenant namespace and only with the pod spec unchanged. The bind's in-place grow (W1) goes through `pods/resize`. A later change grants that verb.
+
+A pod created with `spiffe.io/agent` already set gets that agent's SVID. Today the StatefulSet controller creates agent pods this way, and kora-agents can create pods with any labels. A CREATE rule for `spiffe.io/agent` is not part of this decision. After the O3 cutover no workload creates a pod with the label, and a rule that refuses it on CREATE would close the gap. It is the same gap as the one left by the kora-identity fix for agents with no record: a pod labelled with a live agent's slug gets that agent's token.
 
 Against the identity rules, SPIRE attests the bound pod from kubelet pod data (rule 1), and the label writer is kora-agents as it is for the StatefulSet template today. No key leaves the SPIRE agent (rule 2), the admission policy holds rule 3, and rule 4 is unchanged.
 
