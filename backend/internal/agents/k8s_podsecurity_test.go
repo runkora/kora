@@ -502,12 +502,14 @@ func TestReadyOrdinals(t *testing.T) {
 		}
 		return p
 	}
+	noIP := func(p *corev1.Pod) *corev1.Pod { p.Status.PodIP = ""; return p }
 	for _, tc := range []struct {
 		name string
 		objs []runtime.Object
 		want []int
 	}{
 		{"no statefulset", nil, nil},
+		{"ready with no IP yet", []runtime.Object{ss(1, 1, "r1"), noIP(pod("coder-0", "r1", true, false))}, nil},
 		{"roll not yet observed", []runtime.Object{ss(2, 1, "r2"), pod("coder-0", "r1", true, false)}, []int{0}},
 		{"not ready", []runtime.Object{ss(1, 1, "r1"), pod("coder-0", "r1", false, false)}, nil},
 		{"old revision during a roll", []runtime.Object{ss(2, 2, "r2"), pod("coder-0", "r1", true, false), pod("coder-1", "r2", false, false)}, []int{0}},
