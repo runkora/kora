@@ -1,6 +1,8 @@
-{{- if .Values.agents.wakeReserve.enabled }}
 {{- /* Per-node room for warm session-manager pods to grow into (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 3). */}}
+{{- /* It runs only on a session-manager pool that a node selector or required node affinity sets, never on every node. */}}
 {{- $sm := .Values.agents.workloads.sessionManager }}
+{{- $pinned := or $sm.nodeSelector (dig "nodeAffinity" "requiredDuringSchedulingIgnoredDuringExecution" nil ($sm.affinity | default dict)) }}
+{{- if and .Values.agents.wakeReserve.enabled (gt (int .Values.agents.scheduling.warmAfterSecs) 0) $pinned }}
 # Priority 0 and no preemption: a new agent pod cannot take the reserve, waits
 # for a node instead, and the node autoscaler counts the reserve in new nodes.
 apiVersion: scheduling.k8s.io/v1

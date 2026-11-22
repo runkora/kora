@@ -6,7 +6,7 @@ runkora installs onto a cluster that already runs Istio and SPIRE, with a Postgr
 
 kora supports Kubernetes 1.34 and later. Installing needs cluster-admin to create the CRDs, cluster roles, admission webhooks and other cluster-scoped resources.
 
-kora-agents resizes an idle agent's session-manager pod in place through the `pods/resize` subresource. In-place resize is stable from Kubernetes 1.35. On an earlier version, set `agents.scheduling.warmAfterSecs: 0` to keep every agent pod at full size.
+kora-agents resizes an idle agent's session-manager pod in place through the `pods/resize` subresource. In-place pod resize is on by default from Kubernetes 1.33 and GA in 1.35. On a cluster with the `InPlacePodVerticalScaling` feature gate off, set `agents.scheduling.warmAfterSecs: 0` to keep every agent pod at full size.
 
 The CNI must enforce `NetworkPolicy`. The `kora` chart installs a default-deny policy in `kora-system` with rules for the traffic kora needs. Set `networkPolicy.enabled: false` only on a CNI that cannot enforce it.
 

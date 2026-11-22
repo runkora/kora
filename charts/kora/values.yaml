@@ -670,14 +670,16 @@ agents:
       openCode: 440Mi
     # -- Seconds after its pod assignment that a live run still counts at the starting allowance, because its memory grows after it leaves starting.
     startingRunWindowSecs: 30
-    # -- Seconds after an agent's last run completed before its idle session-manager pods shrink to `agents.workloads.sessionManager.warm`. A run grows the pod back before it starts. 0 keeps every pod at full size. Needs Kubernetes 1.35 or later.
+    # -- Seconds after an agent's last run ended before its idle session-manager pods shrink to `agents.workloads.sessionManager.warm`. A run grows the pod back before it starts. 0 keeps every pod at full size and grows any warm pod back. In-place pod resize is on by default from Kubernetes 1.33 and GA in 1.35.
     warmAfterSecs: 300
   # A per-node reserve for warm session-manager pods to grow into. kora-agents
   # deletes the reserve pod on a node when a grow there finds no room, and the
-  # DaemonSet recreates it once the node has room again. It runs where
-  # `agents.workloads.sessionManager` places pods, and on every node when that
-  # sets no node selector or node affinity. Its priority is 0. A session-manager
-  # priorityClassName above 0 lets new agent pods preempt it.
+  # DaemonSet recreates it once the node has room again. It runs with
+  # `agents.scheduling.warmAfterSecs` above 0, on the nodes that
+  # `agents.workloads.sessionManager` pins with a node selector or required node
+  # affinity, and with its tolerations. With no pinning it does not run. Its
+  # priority is 0. A session-manager priorityClassName above 0 lets new agent
+  # pods preempt it.
   wakeReserve:
     # -- Run the wake-reserve DaemonSet on the session-manager nodes.
     enabled: true

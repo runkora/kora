@@ -75,14 +75,25 @@ func TestChartWakeReservePlacement(t *testing.T) {
 	if a == nil || a.NodeAffinity == nil || a.PodAffinity != nil || a.PodAntiAffinity != nil {
 		t.Errorf("reserve affinity = %+v, want the node affinity only", a)
 	}
-	ds, _ = renderWakeReserve(t, "{}\n")
-	if spec := ds.Spec.Template.Spec; spec.Affinity != nil || spec.NodeSelector != nil || spec.Tolerations != nil {
-		t.Errorf("reserve placement with none set = %v, %v, %v; want none", spec.Affinity, spec.NodeSelector, spec.Tolerations)
+}
+
+// The wake reserve does not run with the warm tier off, with no session-manager pinning, or when disabled.
+func TestChartWakeReserveOff(t *testing.T) {
+	pinned := "agents:\n  workloads:\n    sessionManager:\n      nodeSelector: {workload-tier: kora}\n"
+	for name, values := range map[string]string{
+		"no pinning":    "{}\n",
+		"warm tier off": pinned + "  scheduling: {warmAfterSecs: 0}\n",
+		"disabled":      pinned + "  wakeReserve: {enabled: false}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if out, err := helmTemplate(t, values, "--show-only", "templates/agents/wake-reserve.yaml"); err == nil {
+				t.Errorf("reserve rendered:\n%s", out)
+			}
+		})
 	}
 }
 
-// The wake reserve runs on the session-manager nodes at priority 0 with no preemption, holds one grow by default,
-// and is off when disabled.
+// The wake reserve runs on the session-manager nodes at priority 0 with no preemption and holds one grow by default.
 func TestChartWakeReserve(t *testing.T) {
 	values := "agents:\n  workloads:\n    sessionManager:\n      nodeSelector: {workload-tier: kora}\n      tolerations: [{key: workload-tier, operator: Equal, value: kora, effect: NoSchedule}]\n"
 	ds, pc := renderWakeReserve(t, values)
@@ -116,9 +127,6 @@ func TestChartWakeReserve(t *testing.T) {
 		if got.Cmp(resource.MustParse(want)) != 0 || limit.Cmp(got) != 0 {
 			t.Errorf("reserve %s request %s limit %s, want %s for both", name, got.String(), limit.String(), want)
 		}
-	}
-	if out, err := helmTemplate(t, "agents:\n  wakeReserve: {enabled: false}\n", "--show-only", "templates/agents/wake-reserve.yaml"); err == nil {
-		t.Errorf("disabled reserve rendered:\n%s", out)
 	}
 }
 
