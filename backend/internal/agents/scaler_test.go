@@ -330,11 +330,11 @@ func (f *scalerFake) GrowPod(_ context.Context, _, _ string, ordinal int) error 
 	return nil
 }
 
-func (f *scalerFake) Memory(ctx context.Context, podURL sessionmanager.Pod) (sessionmanager.Memory, error) {
+func (f *scalerFake) Memory(ctx context.Context, pod sessionmanager.Pod) (sessionmanager.Memory, error) {
 	f.mu.Lock()
 	f.readLocked = append(f.readLocked, f.locked)
 	f.mu.Unlock()
-	return f.memory(ctx, podURL)
+	return f.memory(ctx, pod)
 }
 
 func newTestScaler(f *scalerFake) *Scaler {
@@ -370,9 +370,9 @@ func TestScalerScalesUnderTheAgentLock(t *testing.T) {
 // A pod whose memory read blocks past the timeout is read with no lock held and counts as full.
 func TestScalerMemoryTimeoutHoldsNoLock(t *testing.T) {
 	f := &scalerFake{t: t, counts: AgentRunCounts{Pending: 1}, view: statefulSetView{Replicas: 2, Parallel: true}, ready: []int{0, 1}}
-	f.memory = func(ctx context.Context, podURL sessionmanager.Pod) (sessionmanager.Memory, error) {
-		if podURL == testPod("coder", 0, scaleTestNS) {
-			return fullPod(ctx, podURL)
+	f.memory = func(ctx context.Context, pod sessionmanager.Pod) (sessionmanager.Memory, error) {
+		if pod == testPod("coder", 0, scaleTestNS) {
+			return fullPod(ctx, pod)
 		}
 		<-ctx.Done()
 		return sessionmanager.Memory{}, ctx.Err()

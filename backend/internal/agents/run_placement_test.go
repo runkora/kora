@@ -153,11 +153,11 @@ func TestAssignPod_MemoryReadTimeout(t *testing.T) {
 	f, repo, _, sm, at, run := placementEnv(t, 3, 3)
 	fast := testPod("bot", 2, "kora-tenant-t1")
 	var lockedDuringRead atomic.Bool
-	sm.memoryFn = func(ctx context.Context, podURL sessionmanager.Pod) (sessionmanager.Memory, error) {
+	sm.memoryFn = func(ctx context.Context, pod sessionmanager.Pod) (sessionmanager.Memory, error) {
 		if repo.agentLockHeld.Load() {
 			lockedDuringRead.Store(true)
 		}
-		if podURL != fast {
+		if pod != fast {
 			<-ctx.Done()
 			return sessionmanager.Memory{}, ctx.Err()
 		}
