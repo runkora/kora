@@ -32,6 +32,7 @@ var (
 	errSpanEnsureHeadlessService          = errors.New("ensure headless service")
 	errSpanDeleteStaleHpa                 = errors.New("delete stale hpa")
 	errSpanEnsurePdb                      = errors.New("ensure pdb")
+	errSpanEnsureTenantPool               = errors.New("ensure tenant pool")
 	errSpanEnsureServiceAccount           = errors.New("ensure service account")
 	errSpanEnsureStatefulset              = errors.New("ensure statefulset")
 	errSpanForwardMessageToSessionManager = errors.New("forward message to session-manager")

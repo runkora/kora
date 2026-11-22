@@ -133,6 +133,9 @@ type K8sProvisionerConfig struct {
 	// Landlock is the session-manager's KORA_LANDLOCK: enforce or bestEffort.
 	Landlock string
 	// MinReplicas is the session-manager pod count each agent starts with and the scaler's floor.
+	// PoolSize is the unbound session-manager pods each tenant keeps ready to bind
+	// (docs/adr/2026-11-22-agent-cold-tier.md).
+	PoolSize int32
 	MinReplicas int32
 	// MaxReplicas is the scaler's ceiling. An apply that changes the pod template of an agent below it adds a surge pod.
 	MaxReplicas int32
@@ -290,6 +293,10 @@ func (p *K8sProvisioner) provision(ctx context.Context, at AgentType, namespace 
 	}
 	if err := p.ensureAuthorizationPolicy(ctx, at, namespace, tenantRef, update); err != nil {
 		observability.RecordFailure(span, err, errSpanEnsureAuthorizationPolicy)
+		return err
+	}
+	if err := p.ensureTenantPool(ctx, at.TenantID, namespace, tenantRef, update); err != nil {
+		observability.RecordFailure(span, err, errSpanEnsureTenantPool)
 		return err
 	}
 	return nil

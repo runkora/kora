@@ -13,6 +13,10 @@ rules:
   - apiGroups: ["apps"]
     resources: ["statefulsets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Each tenant's pool of unbound session-manager pods (docs/adr/2026-11-22-agent-cold-tier.md).
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "create", "update"]
   # The scaler sets each agent's replicas through the scale subresource.
   - apiGroups: ["apps"]
     resources: ["statefulsets/scale"]

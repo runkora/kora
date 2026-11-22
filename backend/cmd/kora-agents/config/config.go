@@ -113,6 +113,11 @@ type Config struct {
 		} `yaml:"idleTimeout"`
 		// Scheduling configures the run scheduler that starts pending runs
 		// (docs/adr/2026-10-12-run-scheduling.md).
+		// Pool is each tenant's unbound session-manager pods (docs/adr/2026-11-22-agent-cold-tier.md).
+		Pool struct {
+			// Size is how many unbound pods each tenant keeps ready.
+			Size int32 `yaml:"size"`
+		} `yaml:"pool"`
 		Scheduling struct {
 			// WorkerConcurrency is how many runs one replica starts at once.
 			WorkerConcurrency int `yaml:"workerConcurrency"`

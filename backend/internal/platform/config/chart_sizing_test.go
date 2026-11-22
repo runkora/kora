@@ -288,3 +288,24 @@ func TestChartMemoryThresholds(t *testing.T) {
 		})
 	}
 }
+
+// agents.pool.size reaches the kora-agents config.
+func TestChartPoolSize(t *testing.T) {
+	out := renderChart(t, "agents:\n  pool:\n    size: 5\n")
+	for _, root := range writeMountedConfig(t, out) {
+		if _, err := os.Stat(filepath.Join(root, "cmd", "kora-agents.yaml")); err != nil {
+			continue
+		}
+		config.SetOverlayRoot(root)
+		cfg, err := config.LoadService[agentsConfig.Config]("cmd/kora-agents", "production")
+		config.SetOverlayRoot("/etc/kora/config")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Agents.Pool.Size != 5 {
+			t.Errorf("pool size = %d, want 5", cfg.Agents.Pool.Size)
+		}
+		return
+	}
+	t.Fatal("no workload mounts the kora-agents config")
+}

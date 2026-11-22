@@ -86,3 +86,10 @@ func TestChartMinReplicasBounds(t *testing.T) {
 		}
 	}
 }
+
+// kora-agents reconciles each tenant's pool Deployment (docs/adr/2026-11-22-agent-cold-tier.md).
+func TestChartAgentsClusterRolePoolDeployments(t *testing.T) {
+	if got := agentsClusterRoleVerbs(t, "apps", "deployments"); !slices.Equal(got, []string{"create", "get", "update"}) {
+		t.Errorf("deployments verbs = %v, want [create get update]", got)
+	}
+}
