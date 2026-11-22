@@ -205,9 +205,6 @@ const sandboxEgressSidecarName = "sandbox-egress"
 // out of its config, which otherwise grows with the agent count (docs/adr/2026-09-30-agent-pod-egress-lockdown.md, Amendment 1).
 var sandboxSystemServices = []string{"kora-identity", "kora-policy-service", egressGatewayServiceName}
 
-// sandboxDNSHost keeps a dedicated listener for DNS over TCP. Without it the lookup tunnels to the egress gateway.
-const sandboxDNSHost = "kube-system/kube-dns.kube-system.svc.cluster.local"
-
 // ensureSandboxEgressSidecar reconciles the Sidecar that limits a sandbox proxy to the Services it calls.
 func (r *TenantReconciler) ensureSandboxEgressSidecar(ctx context.Context, tenant *KoraTenant) error {
 	return r.ensureSidecar(ctx, sandboxEgressSidecar(tenantNamespace(tenant), tenant.Name))
@@ -220,7 +217,7 @@ func sandboxEgressSidecar(ns, tenantName string) *unstructured.Unstructured {
 	for _, app := range sandboxSystemServices {
 		hosts = append(hosts, systemServiceHost(app))
 	}
-	hosts = append(hosts, sandboxDNSHost)
+	hosts = append(hosts, kubeDNSHost)
 	return tenantSidecar(ns, sandboxEgressSidecarName, tenantName, map[string]string{podLabelRole: podRoleSandbox}, hosts)
 }
 

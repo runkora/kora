@@ -23,6 +23,10 @@ const agentEgressName = "agent-egress"
 // agentPodLabels select agent pods; kora-agents sets them on every one.
 var agentPodLabels = map[string]string{"runkora.io/managed-agent": "true"}
 
+// kubeDNSHost keeps a dedicated listener for DNS over TCP in the agent and sandbox Sidecars. Without it an agent pod's
+// lookup goes to the blackhole cluster and a sandbox's tunnels to the egress gateway.
+const kubeDNSHost = "kube-system/kube-dns.kube-system.svc.cluster.local"
+
 // sidecarGVK is Istio's, which is not in the operator's scheme.
 var sidecarGVK = schema.GroupVersionKind{Group: "networking.istio.io", Version: "v1", Kind: "Sidecar"}
 
@@ -129,10 +133,11 @@ func (r *TenantReconciler) ensureSidecar(ctx context.Context, desired *unstructu
 }
 
 func agentEgressSidecar(ns, tenantName string, collector AgentCollector) *unstructured.Unstructured {
-	hosts := make([]any, 0, len(agentPlatformServices)+1)
+	hosts := make([]any, 0, len(agentPlatformServices)+2)
 	for _, svc := range agentPlatformServices {
 		hosts = append(hosts, systemServiceHost(svc.app))
 	}
+	hosts = append(hosts, kubeDNSHost)
 	switch {
 	case collector.inCluster():
 		hosts = append(hosts, collector.Namespace+"/*")

@@ -110,6 +110,7 @@ func TestAgentEgressSidecar(t *testing.T) {
 		systemNamespace + "/kora-inference-gateway." + systemNamespace + ".svc.cluster.local",
 		systemNamespace + "/kora-tool-gateway." + systemNamespace + ".svc.cluster.local",
 		systemNamespace + "/kora-policy-service." + systemNamespace + ".svc.cluster.local",
+		"kube-system/kube-dns.kube-system.svc.cluster.local",
 		"observability/*",
 	}
 	if !slices.Equal(hosts, want) {
@@ -123,7 +124,7 @@ func TestAgentEgressSidecar(t *testing.T) {
 	}
 
 	noCollector := agentEgressSidecar("kora-tenant-acme", "acme", AgentCollector{})
-	if n := len(noCollector.Object["spec"].(map[string]any)["egress"].([]any)[0].(map[string]any)["hosts"].([]any)); n != len(agentPlatformServices) {
-		t.Errorf("hosts without a collector = %d, want %d", n, len(agentPlatformServices))
+	if n := len(noCollector.Object["spec"].(map[string]any)["egress"].([]any)[0].(map[string]any)["hosts"].([]any)); n != len(agentPlatformServices)+1 {
+		t.Errorf("hosts without a collector = %d, want %d", n, len(agentPlatformServices)+1)
 	}
 }
