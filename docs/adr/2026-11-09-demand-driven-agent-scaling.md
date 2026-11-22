@@ -359,7 +359,7 @@ The cache lags the API server by the watch delay. A stale view can only show an 
 
 ## Amendment 3 (2026-11-22): Warm Residency for Idle Agents
 
-**Status:** Proposed
+**Status:** Accepted
 
 An agent with no run keeps its floor pod at full size. After `clear-route/kora-platform#90` an idle agent pod requests about 300m CPU and 1.25Gi of memory:
 
@@ -380,6 +380,8 @@ A spike on k3s 1.36.5 measured in-place resize of the session-manager through th
 *   File page cache from workspace writes counts as usage and blocks a limit decrease. A write to the pod cgroup's `memory.reclaim` from the node cleared it in 0.11s. Reclaim plus shrink took 0.20s to 0.44s.
 
 Prod runs EKS 1.36 and kora-local runs k3s 1.36.4. In-place resize is stable from Kubernetes 1.35.
+
+A check on kora-local (k3s 1.36.4) on 2026-11-22 lowered the requests of a pod with 400Mi of page cache. The pod had a 1Gi memory limit and 413Mi of `memory.current`. Its requests went from 250m and 1Gi to 25m and 128Mi in 0.18s, and the grow back took 0.18s. The container did not restart, the pod was not evicted, and `memory.max` stayed at 1Gi.
 
 ### Goals
 
@@ -483,7 +485,6 @@ The sizing counts the peak concurrent agents as hot and every other agent as war
 
 ### Open Questions
 
-*   Does the kubelet apply a memory request decrease while page cache keeps usage above the new request? The spike tested limit decreases only.
 *   Does the scheduler count a Deferred grow at its new size and keep the recreated reserve pod pending? The cluster check of a Deferred grow will confirm it.
 
 ### Possible Later Improvement
