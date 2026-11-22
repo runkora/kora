@@ -2,10 +2,14 @@ package agents
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
 )
 
@@ -92,5 +96,96 @@ func TestEnsureTenantPool(t *testing.T) {
 		if c.Name == sessionManagerContainerName && c.Image != p.cfg.SessionManagerImage {
 			t.Errorf("image = %q, want %q", c.Image, p.cfg.SessionManagerImage)
 		}
+	}
+}
+
+// A StatefulSet patch for the tenant reaches the pool, and its pod labels stay
+// next to the pool labels.
+func TestBuildTenantPool_TenantPatch(t *testing.T) {
+	p := podSecurityProvisioner()
+	p.cfg.Patches = loadTestPatches(t, map[string]string{
+		"10-sts.yaml": `target: {kind: StatefulSet, labelSelector: "runkora.io/tenant=acme"}
+patch: |
+  apiVersion: apps/v1
+  kind: StatefulSet
+  metadata: {name: any}
+  spec:
+    template:
+      metadata:
+        labels: {team: agents}
+      spec:
+        tolerations: [{key: dedicated, operator: Exists}]
+`,
+	})
+	dep, err := p.buildTenantPool("acme", "kora-tenant-acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dep.Spec.Template.Labels["team"] != "agents" || dep.Spec.Template.Labels[poolLabel] != "true" {
+		t.Errorf("pod labels = %v, want the patch label and the pool label", dep.Spec.Template.Labels)
+	}
+	if len(dep.Spec.Template.Spec.Tolerations) != 1 {
+		t.Errorf("tolerations = %v, want the patch toleration", dep.Spec.Template.Spec.Tolerations)
+	}
+	other, err := p.buildTenantPool("globex", "kora-tenant-globex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(other.Spec.Template.Spec.Tolerations) != 0 {
+		t.Errorf("another tenant's pool got the patch")
+	}
+}
+
+// The pool's AuthorizationPolicy admits only kora-agents to pool pods, the pool
+// carries the owner reference, an apply with update false leaves an existing pool
+// alone, and an unchanged render makes no further API call.
+func TestEnsureTenantPool_PolicyOwnerAndNoRepeat(t *testing.T) {
+	const ns = "kora-tenant-acme"
+	p := podSecurityProvisioner()
+	p.cfg.PoolSize = 2
+	p.cfg.AuthorizationPolicyEnabled = true
+	cs := fake.NewSimpleClientset()
+	p.client = cs
+	p.dynamicClient = dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+	owner := metav1.OwnerReference{APIVersion: "runkora.io/v1alpha1", Kind: "KoraTenant", Name: "acme", UID: "u1"}
+	ctx := context.Background()
+	if err := p.ensureTenantPool(ctx, "acme", ns, owner, true); err != nil {
+		t.Fatal(err)
+	}
+	ap, err := p.dynamicClient.Resource(authorizationPolicyGVR).Namespace(ns).Get(ctx, agentAuthorizationPolicyName(poolName), metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("pool authorizationpolicy: %v", err)
+	}
+	if sel, _, _ := unstructured.NestedStringMap(ap.Object, "spec", "selector", "matchLabels"); len(sel) != 1 || sel[poolLabel] != "true" {
+		t.Errorf("policy selector = %v, want the pool label", sel)
+	}
+	dep, err := cs.AppsV1().Deployments(ns).Get(ctx, poolName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dep.OwnerReferences) != 1 || dep.OwnerReferences[0].Kind != "KoraTenant" {
+		t.Errorf("owner references = %v", dep.OwnerReferences)
+	}
+
+	calls := len(cs.Actions())
+	if err := p.ensureTenantPool(ctx, "acme", ns, owner, true); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(cs.Actions()); n != calls {
+		t.Errorf("an unchanged render made %d API calls", n-calls)
+	}
+
+	p.cfg.PoolSize = 5
+	if err := p.ensureTenantPool(ctx, "acme", ns, owner, false); err != nil {
+		t.Fatal(err)
+	}
+	if dep, _ = cs.AppsV1().Deployments(ns).Get(ctx, poolName, metav1.GetOptions{}); *dep.Spec.Replicas != 2 {
+		t.Errorf("replicas after an apply with update false = %d, want 2", *dep.Spec.Replicas)
+	}
+}
+
+func TestValidateAgentSlug_ReservesThePoolName(t *testing.T) {
+	if err := validateAgentSlug(poolName); !errors.Is(err, ErrInvalidSlug) {
+		t.Errorf("validateAgentSlug(%q) = %v, want ErrInvalidSlug", poolName, err)
 	}
 }

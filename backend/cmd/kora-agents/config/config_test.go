@@ -154,3 +154,13 @@ func TestBaseDefaults_KubernetesClientRate(t *testing.T) {
 		t.Errorf("client rate = %v qps burst %d, want 50 and 100", cfg.Kubernetes.ClientQPS, cfg.Kubernetes.ClientBurst)
 	}
 }
+
+func TestValidate_PoolSize(t *testing.T) {
+	for size, valid := range map[int32]bool{0: true, 2: true, -1: false} {
+		cfg := validConfig()
+		cfg.Agents.Pool.Size = size
+		if err := Validate(cfg); (err == nil) != valid {
+			t.Errorf("pool size %d: Validate error = %v, want valid %v", size, err, valid)
+		}
+	}
+}
