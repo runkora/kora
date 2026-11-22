@@ -110,6 +110,16 @@ func (r *Refresher) awaitPool(ctx context.Context, timeout time.Duration) bool {
 	return r.svid.pool
 }
 
+// closedChan reports whether ch is closed.
+func closedChan(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
 // awaitBind waits for the first SVID that is not a pool SVID.
 func (r *Refresher) awaitBind(ctx context.Context) error {
 	select {
@@ -179,6 +189,10 @@ func (r *Refresher) exchangeWithBackoff(ctx context.Context) {
 	backoff := r.cfg.BackoffInitial
 	for {
 		attempt++
+		// A pod whose SPIFFE ID changed exchanges no more. The revoked cache drops a token already in flight.
+		if closedChan(r.svid.changed) {
+			return
+		}
 		token, expiry, err := r.exchanger.Exchange(ctx)
 		if err == nil {
 			r.cache.Set(token, expiry)
@@ -239,7 +253,7 @@ type svidWatcher struct {
 func (w *svidWatcher) OnX509ContextUpdate(c *workloadapi.X509Context) {
 	pool, changed := w.refresher.svid.observe(c)
 	if changed {
-		w.refresher.cache.Clear()
+		w.refresher.cache.Revoke()
 		w.refresher.logger.Error(w.ctx, "SPIFFE ID changed after the bind, dropping the token and stopping")
 		return
 	}

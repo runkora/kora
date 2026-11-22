@@ -2,15 +2,20 @@ package identityproxy
 
 import (
 	"context"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	ext_procv3 "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
@@ -37,15 +42,6 @@ const (
 	otherID = "spiffe://runkora.test/tenant/kora-tenant-a/agent/other"
 )
 
-func closed(ch <-chan struct{}) bool {
-	select {
-	case <-ch:
-		return true
-	default:
-		return false
-	}
-}
-
 // A pool pod makes no exchange on its pool SVID and exchanges once the bind
 // delivers the agent SVID (docs/adr/2026-11-22-agent-cold-tier.md).
 func TestSVIDWatcher_PoolSVIDWaitsForBind(t *testing.T) {
@@ -57,7 +53,7 @@ func TestSVIDWatcher_PoolSVIDWaitsForBind(t *testing.T) {
 	if !r.awaitPool(t.Context(), time.Hour) {
 		t.Fatal("awaitPool = false after a pool SVID")
 	}
-	if closed(r.svid.bound) {
+	if closedChan(r.svid.bound) {
 		t.Fatal("bound before the agent SVID")
 	}
 	if n := exc.calls.Load(); n != 0 {
@@ -65,7 +61,7 @@ func TestSVIDWatcher_PoolSVIDWaitsForBind(t *testing.T) {
 	}
 
 	watcher.OnX509ContextUpdate(x509Context(agentID))
-	if !closed(r.svid.bound) {
+	if !closedChan(r.svid.bound) {
 		t.Fatal("not bound after the agent SVID")
 	}
 	select {
@@ -85,7 +81,7 @@ func TestAwaitPool_AgentSVID(t *testing.T) {
 	if r.awaitPool(t.Context(), time.Hour) {
 		t.Error("awaitPool = true for an agent SVID")
 	}
-	if !closed(r.svid.bound) {
+	if !closedChan(r.svid.bound) {
 		t.Error("an agent SVID did not bind the pod")
 	}
 }
@@ -110,11 +106,11 @@ func TestSVIDWatcher_IdentityChangeDropsTheToken(t *testing.T) {
 			cache.Set("agent-token", time.Now().Add(5*time.Minute))
 
 			watcher.OnX509ContextUpdate(x509Context(agentID))
-			if closed(r.svid.changed) {
+			if closedChan(r.svid.changed) {
 				t.Fatal("a rotation of the same ID counted as a change")
 			}
 			watcher.OnX509ContextUpdate(x509Context(next))
-			if !closed(r.svid.changed) {
+			if !closedChan(r.svid.changed) {
 				t.Fatal("no change signalled for a new SPIFFE ID")
 			}
 			if _, _, ok := cache.Get(); ok {
@@ -200,5 +196,68 @@ func TestServer_WaitForInitialToken_FixedRetryAfterBind(t *testing.T) {
 	}
 	if n := exc.calls.Load(); n != 3 {
 		t.Errorf("exchanges = %d, want 3", n)
+	}
+}
+
+// An exchange that completes after the SPIFFE ID changed does not put its token back.
+func TestRevokedCache_LateExchange(t *testing.T) {
+	cache := NewTokenCache()
+	exc := &gatedExchanger{entered: make(chan struct{}), release: make(chan struct{}), token: "agent-token"}
+	r := NewRefresher(cache, exc, discardLogger(), testConfig())
+	r.svid.observe(x509Context(agentID))
+	done := make(chan struct{})
+	go func() {
+		r.exchangeWithBackoff(t.Context())
+		close(done)
+	}()
+	<-exc.entered
+
+	r.OnSVIDRotation(t.Context()).OnX509ContextUpdate(x509Context(otherID))
+	close(exc.release)
+	<-done
+	if _, _, ok := cache.Get(); ok {
+		t.Fatal("a token reached the cache after the identity change")
+	}
+	cache.Set("late-token", time.Now().Add(5*time.Minute))
+	if _, _, ok := cache.Get(); ok {
+		t.Error("Set filled a revoked cache")
+	}
+}
+
+// An identity change stops the gRPC server with an ext_proc stream still open.
+func TestServeUntilIdentityChange_StopsWithOpenStream(t *testing.T) {
+	cache := NewTokenCache()
+	r := NewRefresher(cache, &countingExchanger{}, discardLogger(), testConfig())
+	srv := NewServer(cache, nil, &countingExchanger{}, r, discardLogger(), testConfig())
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	grpcErr := make(chan error, 1)
+	go func() { grpcErr <- srv.grpc.Serve(lis) }()
+
+	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	stream, err := ext_procv3.NewExternalProcessorClient(conn).Process(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Send(&ext_procv3.ProcessingRequest{Request: &ext_procv3.ProcessingRequest_RequestHeaders{RequestHeaders: &ext_procv3.HttpHeaders{}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stream.Recv(); err != nil {
+		t.Fatal(err)
+	}
+
+	r.svid.observe(x509Context(agentID))
+	r.svid.observe(x509Context(otherID))
+	if err := srv.serveUntilIdentityChange(grpcErr); !errors.Is(err, errIdentityChanged) {
+		t.Fatalf("serveUntilIdentityChange = %v, want errIdentityChanged", err)
+	}
+	if _, err := stream.Recv(); err == nil {
+		t.Error("the open stream survived the stop")
 	}
 }

@@ -416,13 +416,22 @@ func (s *Server) Start(ctx context.Context) error {
 	s.logger.Info(ctx, "identity-proxy ready — serving traffic")
 
 	// Step 6: background token refresh.
-	go s.refresher.Run(ctx)
+	refreshCtx, cancelRefresh := context.WithCancel(ctx)
+	defer cancelRefresh()
+	go s.refresher.Run(refreshCtx)
 
+	return s.serveUntilIdentityChange(grpcErr)
+}
+
+// serveUntilIdentityChange returns the gRPC server's result, or stops the
+// server at once when the pod's SPIFFE ID changes after the bind. Stop closes
+// open ext_proc streams, and the container restarts with the new identity.
+func (s *Server) serveUntilIdentityChange(grpcErr <-chan error) error {
 	select {
 	case err := <-grpcErr:
 		return err
 	case <-s.refresher.svid.changed:
-		s.grpc.GracefulStop()
+		s.grpc.Stop()
 		return errIdentityChanged
 	}
 }
@@ -562,6 +571,9 @@ func (s *Server) waitForInitialToken(ctx context.Context, fixedUntil time.Time) 
 		case <-ctx.Done():
 			observability.RecordFailure(span, ctx.Err(), errContextCanceled)
 			return ctx.Err()
+		case <-s.refresher.svid.changed:
+			observability.RecordFailure(span, errIdentityChanged, errIdentityChanged)
+			return errIdentityChanged
 		case <-time.After(wait):
 		}
 	}
