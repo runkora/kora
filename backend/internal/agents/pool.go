@@ -98,29 +98,35 @@ func (p *K8sProvisioner) ensureTenantPool(ctx context.Context, tenantID, namespa
 	if last, ok := p.poolsApplied.Load(key); ok && last == sum {
 		return nil
 	}
-	if err := p.ensureServiceAccount(ctx, poolName, namespace, dep.Labels, owner, update); err != nil {
+	if err = p.ensureServiceAccount(ctx, poolName, namespace, dep.Labels, owner, update); err != nil {
 		return fmt.Errorf("ensure pool serviceaccount: %w", err)
 	}
-	if err := p.ensureSessionManagerPolicy(ctx, agentAuthorizationPolicyName(poolName), namespace, map[string]any{poolLabel: "true"}, owner, update); err != nil {
+	if err = p.ensureSessionManagerPolicy(ctx, agentAuthorizationPolicyName(poolName), namespace, map[string]any{poolLabel: "true"}, owner, update); err != nil {
 		return fmt.Errorf("ensure pool authorizationpolicy: %w", err)
 	}
-	if err := p.applyTenantPool(ctx, dep, owner, update); err != nil {
+	written, err := p.applyTenantPool(ctx, dep, owner, update)
+	if err != nil {
 		return err
 	}
-	p.poolsApplied.Store(key, sum)
+	// An existing pool left alone may differ from the render, so only a write is remembered.
+	if written {
+		p.poolsApplied.Store(key, sum)
+	}
 	return nil
 }
 
-func (p *K8sProvisioner) applyTenantPool(ctx context.Context, dep appsv1.Deployment, owner metav1.OwnerReference, update bool) error {
+// applyTenantPool creates the pool Deployment, or on update replaces an existing
+// one. written is false when an existing pool was left alone.
+func (p *K8sProvisioner) applyTenantPool(ctx context.Context, dep appsv1.Deployment, owner metav1.OwnerReference, update bool) (written bool, err error) {
 	deployments := p.client.AppsV1().Deployments(dep.Namespace)
-	_, err := deployments.Create(ctx, &dep, metav1.CreateOptions{})
+	_, err = deployments.Create(ctx, &dep, metav1.CreateOptions{})
 	if err == nil || !apierrors.IsAlreadyExists(err) {
-		return err
+		return err == nil, err
 	}
 	if !update {
-		return nil
+		return false, nil
 	}
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+	return true, retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		existing, err := deployments.Get(ctx, poolName, metav1.GetOptions{})
 		if err != nil {
 			return fmt.Errorf("get pool deployment: %w", err)

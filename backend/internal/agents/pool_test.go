@@ -182,6 +182,13 @@ func TestEnsureTenantPool_PolicyOwnerAndNoRepeat(t *testing.T) {
 	if dep, _ = cs.AppsV1().Deployments(ns).Get(ctx, poolName, metav1.GetOptions{}); *dep.Spec.Replicas != 2 {
 		t.Errorf("replicas after an apply with update false = %d, want 2", *dep.Spec.Replicas)
 	}
+	// The pool left alone is not remembered, and the next update writes it.
+	if err := p.ensureTenantPool(ctx, "acme", ns, owner, true); err != nil {
+		t.Fatal(err)
+	}
+	if dep, _ = cs.AppsV1().Deployments(ns).Get(ctx, poolName, metav1.GetOptions{}); *dep.Spec.Replicas != 5 {
+		t.Errorf("replicas after the next update = %d, want 5", *dep.Spec.Replicas)
+	}
 }
 
 func TestValidateAgentSlug_ReservesThePoolName(t *testing.T) {
