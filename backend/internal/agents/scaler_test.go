@@ -251,7 +251,7 @@ func (f *scalerFake) ScaleStatefulSet(_ context.Context, _, _ string, from, to i
 	return nil
 }
 
-func (f *scalerFake) ReleaseRollHold(_ context.Context, _, _ string, partition int) error {
+func (f *scalerFake) ReleaseRollHold(_ context.Context, _, _ string, partition int, _ string) error {
 	f.released = partition
 	return f.releaseErr
 }

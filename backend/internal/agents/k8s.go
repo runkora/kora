@@ -557,15 +557,17 @@ func (p *K8sProvisioner) ScaleStatefulSet(ctx context.Context, slug, namespace s
 	return nil
 }
 
-// ReleaseRollHold sets the RollingUpdate partition to 0 while it is still partition. RollingUpdate then
-// replaces the old pods (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 1).
-func (p *K8sProvisioner) ReleaseRollHold(ctx context.Context, slug, namespace string, partition int) error {
+// ReleaseRollHold sets the RollingUpdate partition to 0 while it is still partition and the StatefulSet is
+// still at resourceVersion, the version the release was decided on. RollingUpdate then replaces the old
+// pods (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendments 1 and 2).
+func (p *K8sProvisioner) ReleaseRollHold(ctx context.Context, slug, namespace string, partition int, resourceVersion string) error {
 	sets := p.client.AppsV1().StatefulSets(namespace)
 	ss, err := sets.Get(ctx, slug, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
 	}
-	if specPartition(ss) != partition {
+	// A newer apply or a status change since the cache read makes the release wait for the next pass.
+	if specPartition(ss) != partition || ss.ResourceVersion != resourceVersion {
 		return errPartitionMoved
 	}
 	ss.Spec.UpdateStrategy.RollingUpdate.Partition = new(int32(0))

@@ -39,7 +39,7 @@ type scalerCluster interface {
 	SyncWorkloadCache(ctx context.Context) error
 	AgentStatefulSet(ctx context.Context, slug, namespace string) (statefulSetView, bool, error)
 	ScaleStatefulSet(ctx context.Context, slug, namespace string, from, to int, resourceVersion string) error
-	ReleaseRollHold(ctx context.Context, slug, namespace string, partition int) error
+	ReleaseRollHold(ctx context.Context, slug, namespace string, partition int, resourceVersion string) error
 	SwitchToParallel(ctx context.Context, slug, namespace string) error
 }
 
@@ -140,7 +140,7 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	if ss.Partition > 0 && (ss.Partition >= ss.Replicas || ss.SurgeReady) {
 		s.logger.Info(ctx, "releasing agent roll hold",
 			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "partition", Value: ss.Partition})
-		return s.cluster.ReleaseRollHold(ctx, at.Slug, namespace, ss.Partition)
+		return s.cluster.ReleaseRollHold(ctx, at.Slug, namespace, ss.Partition, ss.ResourceVersion)
 	}
 	allowance, err := s.cfg.StartingRunAllowances.For(at.Framework)
 	if err != nil {

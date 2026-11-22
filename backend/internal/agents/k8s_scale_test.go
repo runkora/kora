@@ -430,18 +430,22 @@ func TestEnsureStatefulSetOnDeleteNoSurge(t *testing.T) {
 	}
 }
 
-// ReleaseRollHold refuses a partition that moved since the read and sets a current one to 0.
+// ReleaseRollHold refuses a partition or a StatefulSet version that moved since the read and sets a current partition to 0.
 func TestReleaseRollHold(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 	ctx := context.Background()
 	live := liveStatefulSet(at, 2, appsv1.ParallelPodManagement)
+	live.ResourceVersion = "7"
 	live.Spec.UpdateStrategy.RollingUpdate = &appsv1.RollingUpdateStatefulSetStrategy{Partition: new(int32(1))}
 	client := fake.NewSimpleClientset(live)
 	p := &K8sProvisioner{client: client}
-	if err := p.ReleaseRollHold(ctx, at.Slug, scaleTestNS, 2); !errors.Is(err, errPartitionMoved) {
+	if err := p.ReleaseRollHold(ctx, at.Slug, scaleTestNS, 2, "7"); !errors.Is(err, errPartitionMoved) {
 		t.Errorf("stale partition: err %v, want errPartitionMoved", err)
 	}
-	if err := p.ReleaseRollHold(ctx, at.Slug, scaleTestNS, 1); err != nil {
+	if err := p.ReleaseRollHold(ctx, at.Slug, scaleTestNS, 1, "6"); !errors.Is(err, errPartitionMoved) {
+		t.Errorf("stale version: err %v, want errPartitionMoved", err)
+	}
+	if err := p.ReleaseRollHold(ctx, at.Slug, scaleTestNS, 1, "7"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
@@ -578,7 +582,7 @@ func TestReleaseRollHoldConflict(t *testing.T) {
 	client := fake.NewSimpleClientset(live)
 	conflictOnce(client)
 	p := &K8sProvisioner{client: client}
-	if err := p.ReleaseRollHold(context.Background(), at.Slug, scaleTestNS, 1); !errors.Is(err, errPartitionMoved) {
+	if err := p.ReleaseRollHold(context.Background(), at.Slug, scaleTestNS, 1, ""); !errors.Is(err, errPartitionMoved) {
 		t.Errorf("conflicting release: err %v, want errPartitionMoved", err)
 	}
 }

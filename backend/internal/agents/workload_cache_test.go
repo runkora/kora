@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
-	"k8s.io/client-go/util/flowcontrol"
 )
 
 // cachedProvisioner is a provisioner over client whose workload cache has synced.
@@ -98,45 +96,21 @@ func TestAgentStatefulSetMakesNoAPIRead(t *testing.T) {
 			t.Fatalf("agent-%d: view %+v, found %v, err %v", i, view, found, err)
 		}
 	}
-	if extra := client.Actions()[synced:]; len(extra) != 0 {
-		t.Errorf("a pass over %d agents made %d API calls after the sync, want 0: %v", agents, len(extra), extra)
+	// The informers open their watches after the list that syncs them, so a watch may land after synced.
+	var reads []k8stesting.Action
+	for _, a := range client.Actions()[synced:] {
+		if a.GetVerb() != "watch" {
+			reads = append(reads, a)
+		}
+	}
+	if len(reads) != 0 {
+		t.Errorf("a pass over %d agents made %d API reads after the sync, want 0: %v", agents, len(reads), reads)
 	}
 	if _, err := p.workloads.Core().V1().Pods().Lister().Pods(scaleTestNS).Get("sandbox"); err == nil {
 		t.Error("the cache holds a sandbox pod")
 	}
 	if _, found, err := p.AgentStatefulSet(t.Context(), "missing", scaleTestNS); found || err != nil {
 		t.Errorf("missing agent: found %v, err %v; want not found", found, err)
-	}
-}
-
-// BenchmarkScalerPassReads times the Kubernetes reads of one scaler pass. Each API call waits on the
-// kora-agents limiter (50 QPS, burst 100) and 9.5 ms of latency measured on production.
-// The cache takes the API out of the pass, which before this cache made 2 calls per agent.
-func BenchmarkScalerPassReads(b *testing.B) {
-	for _, agents := range []int{48, 480, 960} {
-		b.Run(fmt.Sprintf("agents=%d", agents), func(b *testing.B) {
-			client := agentWorkloads(agents)
-			p := &K8sProvisioner{client: client, workloads: newWorkloadCache(client)}
-			if err := p.SyncWorkloadCache(b.Context()); err != nil {
-				b.Fatal(err)
-			}
-			limiter := flowcontrol.NewTokenBucketRateLimiter(50, 100)
-			var calls atomic.Int64
-			client.PrependReactor("*", "*", func(k8stesting.Action) (bool, runtime.Object, error) {
-				limiter.Accept()
-				time.Sleep(9500 * time.Microsecond)
-				calls.Add(1)
-				return false, nil, nil
-			})
-			for b.Loop() {
-				for i := range agents {
-					if _, _, err := p.AgentStatefulSet(b.Context(), fmt.Sprintf("agent-%d", i), scaleTestNS); err != nil {
-						b.Fatal(err)
-					}
-				}
-			}
-			b.ReportMetric(float64(calls.Load())/float64(b.N), "api-calls/pass")
-		})
 	}
 }
 

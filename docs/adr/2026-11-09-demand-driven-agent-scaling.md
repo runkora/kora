@@ -313,7 +313,7 @@ The design target is 960 agents. At 960 agents a pending run waits up to 46 s fo
 *   The cache strips `managedFields` from every object. It keeps only the name, namespace, UID, resource version, labels, deletion timestamp and conditions of a pod.
 *   The scaler waits for the first full list before its first pass. kora-agents logs an error each minute the cache has not synced.
 *   The scaler's view of an agent comes from the cache: replicas, pod management policy, partition, `rolling`, Ready ordinals, terminating pods and the container memory limit.
-*   The writes read fresh from the API server as before. `ScaleStatefulSet` compares the live replicas from the scale subresource. `ReleaseRollHold` compares the live partition. `SwitchToParallel` reads the live StatefulSet and deletes it with a resource version precondition.
+*   The writes read fresh from the API server as before. `ScaleStatefulSet` compares the live replicas from the scale subresource. `ReleaseRollHold` compares the live partition and resource version. `SwitchToParallel` reads the live StatefulSet and deletes it with a resource version precondition.
 *   A scale-down will also send the resource version of the cached StatefulSet with the scale update. A scale-down with no version fails. The API server refuses it with a conflict if the StatefulSet changed after the cache saw it. The scaler decides again on the next pass.
 *   The pass will check up to `agents.scheduling.scalerConcurrency` agents at once (default 4). Each check still takes the agent lock. A pass ends when every agent is checked. Passes do not overlap.
 *   The ClusterRole will gain `list` and `watch` on `statefulsets` and `watch` on `pods`.
@@ -328,7 +328,7 @@ The cache lags the API server by the watch delay. A stale view can only show an 
 *   **Scale-up:** A stale replica count fails the replicas compare. A pod that became Ready after the cache saw it counts as coming up, and no extra pod is added for it.
 *   **Scale-down:** The empty top pod check reads the runs table under the agent lock. The cache supplies the replicas and `rolling`. An apply that starts a surge raises the replicas and the partition in one write, and the replicas compare refuses a scale-down from the old count. A spec change that leaves the replicas, such as a roll of an agent at `maxReplicas`, changes the resource version. The resource version precondition refuses a scale-down decided before that change. A status change since the cache read refuses it too, and the next pass retries.
 *   **Floor:** The floor counts the pods that are not terminating, from the cache. A cache that has not yet seen a pod start terminating raises the floor one pass later. A cache that still shows an exited pod as terminating can add one pod above the floor. The scale-down rule removes that pod once it is empty.
-*   **Roll hold:** A stale partition fails the live partition compare in `ReleaseRollHold`. A release needs the pod at the partition ordinal Ready in the cache, with its `controller-revision-hash` on the update revision of an observed spec. An old-revision pod still at that ordinal does not release the hold. A cache that has not yet seen the surge pod Ready delays the release by one pass.
+*   **Roll hold:** A stale partition fails the live partition compare in `ReleaseRollHold`. The release also requires the live StatefulSet at the cached resource version, which a newer apply or status write changes. A release needs the pod at the partition ordinal Ready in the cache, with its `controller-revision-hash` on the update revision of an observed spec. An old-revision pod still at that ordinal does not release the hold. A cache that has not yet seen the surge pod Ready delays the release by one pass.
 *   **Parallel switch:** A stale `OrderedReady` view makes `SwitchToParallel` read the live StatefulSet, which is already `Parallel`. The switch then does nothing.
 *   **Missing StatefulSet:** An agent whose StatefulSet is not in the cache is skipped for the pass, as a missing StatefulSet is today.
 
@@ -347,6 +347,7 @@ The cache lags the API server by the watch delay. A stale view can only show an 
 *   A unit test shows a scale-down sends the cached resource version and treats a conflict as moved replicas.
 *   A unit test shows only a Ready surge pod on the update revision releases a roll hold.
 *   A chart test covers the new ClusterRole verbs and the `scalerConcurrency` bound.
+*   A chart test shows `agents.database.maxConnections` reaches the kora-agents storage config and no other workload's.
 *   The local cluster checks for agent scaling and the surge rollout pass with the cache.
 
 ### Superseded
