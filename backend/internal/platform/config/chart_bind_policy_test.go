@@ -6,23 +6,33 @@ import (
 	"github.com/google/cel-go/cel"
 )
 
-// bindPolicy renders the kora-agent-bind ValidatingAdmissionPolicy and returns a
-// function that evaluates it for one pod update, as the API server does.
-func bindPolicy(t *testing.T) func(oldLabels, newLabels map[string]any, user string) bool {
+// admission is one pod admission request for a rendered policy.
+type admission struct {
+	op, user, namespaceRole string
+	old, new                map[string]any // labels; old is nil for a CREATE
+	oldSpec, newSpec        string
+}
+
+// admissionPolicy renders a ValidatingAdmissionPolicy from the agents bind
+// policy template and returns whether it admits a request. It evaluates the
+// match conditions, the variables and the validations in order, as the API
+// server does. A request the match conditions skip is admitted.
+func admissionPolicy(t *testing.T, name string) func(admission) bool {
 	t.Helper()
 	var policy map[string]any
 	for _, doc := range renderDocs(t, "templates/agents/bind-policy.yaml") {
-		if doc["kind"] == "ValidatingAdmissionPolicy" {
+		if doc["kind"] == "ValidatingAdmissionPolicy" && field(doc, "metadata", "name") == name {
 			policy = doc
 		}
 	}
 	if policy == nil {
-		t.Fatal("no kora-agent-bind ValidatingAdmissionPolicy")
+		t.Fatalf("no ValidatingAdmissionPolicy %s", name)
 	}
 	env, err := cel.NewEnv(
 		cel.Variable("object", cel.DynType),
 		cel.Variable("oldObject", cel.DynType),
 		cel.Variable("request", cel.DynType),
+		cel.Variable("namespaceObject", cel.DynType),
 		cel.Variable("variables", cel.DynType),
 	)
 	if err != nil {
@@ -39,48 +49,64 @@ func bindPolicy(t *testing.T) func(oldLabels, newLabels map[string]any, user str
 		}
 		return prg
 	}
-	type variable struct {
-		name string
-		prg  cel.Program
+	list := func(path ...string) []cel.Program {
+		items, _ := field(policy, path...).([]any)
+		var out []cel.Program
+		for _, item := range items {
+			out = append(out, compile(item.(map[string]any)["expression"].(string)))
+		}
+		return out
 	}
-	var vars []variable
-	for _, v := range field(policy, "spec", "variables").([]any) {
-		m := v.(map[string]any)
-		vars = append(vars, variable{m["name"].(string), compile(m["expression"].(string))})
+	conditions, checks := list("spec", "matchConditions"), list("spec", "validations")
+	var names []string
+	vars := list("spec", "variables")
+	if items, ok := field(policy, "spec", "variables").([]any); ok {
+		for _, item := range items {
+			names = append(names, item.(map[string]any)["name"].(string))
+		}
 	}
-	var checks []cel.Program
-	for _, v := range field(policy, "spec", "validations").([]any) {
-		checks = append(checks, compile(v.(map[string]any)["expression"].(string)))
-	}
-	pod := func(labels map[string]any) map[string]any {
+	pod := func(labels map[string]any, spec string) any {
 		meta := map[string]any{"name": "p"}
 		if labels != nil {
 			meta["labels"] = labels
 		}
-		return map[string]any{"metadata": meta}
+		return map[string]any{"metadata": meta, "spec": map[string]any{"serviceAccountName": spec}}
 	}
-	return func(oldLabels, newLabels map[string]any, user string) bool {
+	eval := func(prg cel.Program, in map[string]any) bool {
+		out, _, err := prg.Eval(in)
+		if err != nil {
+			t.Fatalf("eval: %v", err)
+		}
+		return out.Value() == true
+	}
+	return func(a admission) bool {
 		in := map[string]any{
-			"object":    pod(newLabels),
-			"oldObject": pod(oldLabels),
-			"request":   map[string]any{"userInfo": map[string]any{"username": user}},
+			"object":          pod(a.new, a.newSpec),
+			"oldObject":       nil,
+			"request":         map[string]any{"operation": a.op, "userInfo": map[string]any{"username": a.user}},
+			"namespaceObject": map[string]any{"metadata": map[string]any{"labels": map[string]any{"runkora.io/role": a.namespaceRole}}},
+			"variables":       map[string]any{},
+		}
+		if a.op == "UPDATE" {
+			in["oldObject"] = pod(a.old, a.oldSpec)
+		}
+		for _, c := range conditions {
+			if !eval(c, in) {
+				return true
+			}
 		}
 		values := map[string]any{}
-		for _, v := range vars {
+		for i, v := range vars {
 			in["variables"] = values
-			out, _, err := v.prg.Eval(in)
+			out, _, err := v.Eval(in)
 			if err != nil {
-				t.Fatalf("variable %s: %v", v.name, err)
+				t.Fatalf("variable %s: %v", names[i], err)
 			}
-			values[v.name] = out.Value()
+			values[names[i]] = out.Value()
 		}
 		in["variables"] = values
 		for _, c := range checks {
-			out, _, err := c.Eval(in)
-			if err != nil {
-				t.Fatalf("validation: %v", err)
-			}
-			if out.Value() != true {
+			if !eval(c, in) {
 				return false
 			}
 		}
@@ -88,30 +114,72 @@ func bindPolicy(t *testing.T) func(oldLabels, newLabels map[string]any, user str
 	}
 }
 
+const (
+	koraAgents = "system:serviceaccount:kora-system:kora-agents"
+	rsCtrl     = "system:serviceaccount:kube-system:replicaset-controller"
+)
+
 func TestChartBindPolicy(t *testing.T) {
-	allowed := bindPolicy(t)
-	const agents = "system:serviceaccount:kora-system:kora-agents"
+	allowed := admissionPolicy(t, "kora-agent-bind")
 	pool := map[string]any{"runkora.io/pool": "true", "runkora.io/managed-agent": "true"}
 	bound := map[string]any{"spiffe.io/agent": "reviewer", "runkora.io/managed-agent": "true"}
+	with := func(base map[string]any, k, v string) map[string]any {
+		out := map[string]any{}
+		for key, val := range base {
+			out[key] = val
+		}
+		out[k] = v
+		return out
+	}
 	tests := []struct {
-		name     string
-		old, new map[string]any
-		user     string
-		want     bool
+		name string
+		a    admission
+		want bool
 	}{
-		{"bind by kora-agents", pool, bound, agents, true},
-		{"bind by another account", pool, bound, "system:serviceaccount:kora-tenant-a:default", false},
-		{"bind that keeps the pool label", pool, map[string]any{"runkora.io/pool": "true", "spiffe.io/agent": "reviewer"}, agents, false},
-		{"agent label on a pod outside the pool", map[string]any{"app": "x"}, map[string]any{"app": "x", "spiffe.io/agent": "reviewer"}, agents, false},
-		{"move to another agent", bound, map[string]any{"spiffe.io/agent": "other", "runkora.io/managed-agent": "true"}, agents, false},
-		{"remove the agent label", bound, map[string]any{"runkora.io/managed-agent": "true"}, agents, false},
-		{"other label change on a bound pod", bound, map[string]any{"spiffe.io/agent": "reviewer", "runkora.io/managed-agent": "true", "x": "y"}, "anyone", true},
-		{"pod with no labels", nil, nil, "anyone", true},
-		{"pool pod leaves the pool unbound", pool, map[string]any{"runkora.io/managed-agent": "true"}, "anyone", true},
+		{"bind by kora-agents", admission{op: "UPDATE", user: koraAgents, old: pool, new: bound}, true},
+		{"bind by another account", admission{op: "UPDATE", user: "system:serviceaccount:kora-tenant-a:default", old: pool, new: bound}, false},
+		{"bind to an empty agent", admission{op: "UPDATE", user: koraAgents, old: pool, new: map[string]any{"spiffe.io/agent": ""}}, false},
+		{"empty agent label on a pool pod", admission{op: "UPDATE", user: "anyone", old: pool, new: with(pool, "spiffe.io/agent", "")}, false},
+		{"bind that keeps the pool label", admission{op: "UPDATE", user: koraAgents, old: pool, new: with(pool, "spiffe.io/agent", "reviewer")}, false},
+		{"agent label on a pod outside the pool", admission{op: "UPDATE", user: koraAgents, old: map[string]any{"app": "x"}, new: map[string]any{"app": "x", "spiffe.io/agent": "reviewer"}}, false},
+		{"move to another agent", admission{op: "UPDATE", user: koraAgents, old: bound, new: with(bound, "spiffe.io/agent", "other")}, false},
+		{"remove the agent label", admission{op: "UPDATE", user: koraAgents, old: bound, new: map[string]any{"runkora.io/managed-agent": "true"}}, false},
+		{"sandbox labels on a bound pod", admission{op: "UPDATE", user: koraAgents, old: bound, new: with(with(with(bound, "runkora.io/role", "sandbox"), "runkora.io/agent-slug", "other"), "runkora.io/run-id", "r1")}, false},
+		{"service label on a bound pod", admission{op: "UPDATE", user: koraAgents, old: bound, new: with(bound, "spiffe.io/service", "svc")}, false},
+		{"change a sandbox run id", admission{op: "UPDATE", user: koraAgents, old: map[string]any{"runkora.io/role": "sandbox", "runkora.io/run-id": "r1"}, new: map[string]any{"runkora.io/role": "sandbox", "runkora.io/run-id": "r2"}}, false},
+		{"pool label added to an existing pod", admission{op: "UPDATE", user: koraAgents, old: map[string]any{"app": "x"}, new: map[string]any{"app": "x", "runkora.io/pool": "true"}}, false},
+		{"other label change on a bound pod", admission{op: "UPDATE", user: "anyone", old: bound, new: with(bound, "x", "y")}, true},
+		{"pod with no labels", admission{op: "UPDATE", user: "anyone"}, true},
+		{"pool pod leaves the pool unbound", admission{op: "UPDATE", user: "anyone", old: pool, new: map[string]any{"runkora.io/managed-agent": "true"}}, true},
+		{"pool pod created by the ReplicaSet controller", admission{op: "CREATE", user: rsCtrl, new: pool}, true},
+		{"pool pod created by another account", admission{op: "CREATE", user: koraAgents, new: pool}, false},
+		{"agent pod created by the StatefulSet controller", admission{op: "CREATE", user: "system:serviceaccount:kube-system:statefulset-controller", new: bound}, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := allowed(tc.old, tc.new, tc.user); got != tc.want {
+			if got := allowed(tc.a); got != tc.want {
+				t.Errorf("allowed = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestChartKoraAgentsPodUpdatePolicy(t *testing.T) {
+	allowed := admissionPolicy(t, "kora-agents-pod-updates")
+	labels := map[string]any{"app": "x"}
+	tests := []struct {
+		name string
+		a    admission
+		want bool
+	}{
+		{"label change in a tenant namespace", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: labels, new: map[string]any{"app": "y"}, oldSpec: "sa", newSpec: "sa"}, true},
+		{"spec change", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: labels, new: labels, oldSpec: "sa", newSpec: "other"}, false},
+		{"update outside tenant namespaces", admission{op: "UPDATE", user: koraAgents, namespaceRole: "", old: labels, new: map[string]any{"app": "y"}, oldSpec: "sa", newSpec: "sa"}, false},
+		{"another account", admission{op: "UPDATE", user: "anyone", namespaceRole: "", old: labels, new: labels, oldSpec: "sa", newSpec: "other"}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := allowed(tc.a); got != tc.want {
 				t.Errorf("allowed = %v, want %v", got, tc.want)
 			}
 		})
