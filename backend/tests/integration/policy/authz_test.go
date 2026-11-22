@@ -2,7 +2,7 @@
 
 // Package policy_test runs end-to-end authorisation tests against a live cluster.
 //
-// These tests exec into the tenant agent pod and make real HTTP requests
+// These tests exec into the tenant example pod and make real HTTP requests
 // through the Envoy sidecar → ext_authz → OPA sidecar chain with real JWTs
 // from the identity-proxy. They also test the policy.Evaluator fetching
 // bundles from the running policy-service.
@@ -44,16 +44,19 @@ const (
 	defaultTenantNamespace  = "kora-tenant-example"
 	defaultExamplePodLabel  = "app=kora-example"
 
-	// testAgentID is the SPIFFE ID of the kora-example pod's agent container.
+	// examplePodID is the SPIFFE ID of the kora-example pod, a tenant service.
 	// It must match the ClusterSPIFFEID-issued SVID so the identity-proxy JWT
 	// sub claim lines up with the grant principal_id checked by OPA.
+	examplePodID = "spiffe://runkora.test/tenant/kora-tenant-example/service/example"
+
+	// testAgentID is the agent principal the evaluator tests check.
 	testAgentID = "spiffe://runkora.test/tenant/kora-tenant-example/agent/example"
 
-	// skipAgentGrantSeeding explains why the tests that seed an AGENT grant are
-	// skipped. Only a SYSTEM caller may write AGENT grants, and ensureGrant
-	// sends the user's token, so the write returns 403 until the suite has a
-	// way to seed one. Tracked in runkora/kora#713.
-	skipAgentGrantSeeding = "AGENT grants are written by SYSTEM callers only; the user token ensureGrant sends is refused with 403. See runkora/kora#713"
+	// skipAgentGrantSeeding explains why the tests that seed an AGENT or SERVICE
+	// grant are skipped. Only a SYSTEM caller may write those grants, and
+	// ensureGrant sends the user's token, so the write returns 403 until the
+	// suite has a way to seed one. Tracked in runkora/kora#713.
+	skipAgentGrantSeeding = "AGENT and SERVICE grants are written by SYSTEM callers only; the user token ensureGrant sends is refused with 403. See runkora/kora#713"
 )
 
 func policyServiceURL(t *testing.T) string {
@@ -80,7 +83,7 @@ func agentClaims(principalID string) *token.PlatformClaims {
 
 func TestLiveCluster_Layer1_AllowWithGrant(t *testing.T) {
 	t.Skip(skipAgentGrantSeeding)
-	ensureGrant(t, "AGENT", testAgentID, []string{"inference:invoke", "inference:list"})
+	ensureGrant(t, "SERVICE", examplePodID, []string{"inference:invoke", "inference:list"})
 	waitForBundleRefresh(t)
 
 	pod := findExamplePod(t)
@@ -95,7 +98,7 @@ func TestLiveCluster_Layer1_AllowWithGrant(t *testing.T) {
 
 func TestLiveCluster_Layer1_DenyWithoutGrant(t *testing.T) {
 	pod := findExamplePod(t)
-	// The agent should have no grant for platform:roles:read.
+	// The example pod should have no grant for platform:roles:read.
 	status := kubectlExecWget(t, pod, "http://kora-policy-service.kora-system.svc/api/v1/policy/roles")
 	if status != 403 {
 		t.Errorf("expected 403 for unauthorized route, got %d", status)

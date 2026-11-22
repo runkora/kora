@@ -5,6 +5,8 @@
 **Deciders:** Engineering  
 **PRD:** [agent-token-breakdown-and-spend-card](../prd/agent-token-breakdown-and-spend-card.md)
 
+**Note (2026-11-22):** The BYOC statements in this ADR no longer hold. [BYOC ADR, Amendment 1](2026-05-11-byoc-agent-discovery-and-observability.md) retires BYOC agent identity.
+
 ---
 
 ## Context

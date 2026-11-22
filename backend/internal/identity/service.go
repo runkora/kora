@@ -82,6 +82,7 @@ type Service struct {
 	profiles      UserProfileRepository
 	prefs         UserPreferencesRepository
 	delegations   DelegationRepository
+	agents        AgentRegistry
 	policyClient  PolicyClient
 	policyEval    policy.Evaluator
 	logger        logging.Logger
@@ -146,6 +147,7 @@ func NewService(
 	profiles UserProfileRepository,
 	prefs UserPreferencesRepository,
 	delegations DelegationRepository,
+	agents AgentRegistry,
 	policyClient PolicyClient,
 	policyEval policy.Evaluator,
 	extractor PrincipalExtractor,
@@ -171,6 +173,7 @@ func NewService(
 		profiles:      profiles,
 		prefs:         prefs,
 		delegations:   delegations,
+		agents:        agents,
 		policyClient:  policyClient,
 		policyEval:    policyEval,
 		extractor:     extractor,
@@ -692,6 +695,25 @@ func (s *Service) ExchangeSVID(ctx context.Context, r *http.Request) (*SessionRe
 		observability.TenantIDKey.String(principal.TenantID),
 		observability.PrincipalIdentitySourceKey.String(string(principal.IdentitySource)),
 	)
+
+	// A slug with no live agent record is refused (docs/adr/2026-03-05-spiffe-spire-workload-attestation.md, step 6).
+	// A pod created with a live agent's slug still gets that agent's identity.
+	// The cold-tier admission policy closes that with a create rule (docs/adr/2026-11-22-agent-cold-tier.md D3, runkora/kora#1084).
+	if principal.Type == PrincipalTypeAgent {
+		live, err := s.agents.AgentLive(ctx, principal.TenantID, principal.DisplayName)
+		if err != nil {
+			observability.RecordFailure(span, err, errSpanDatabaseError)
+			return nil, err
+		}
+		if !live {
+			s.logger.Warn(ctx, "SVID exchange refused: no live agent for the slug",
+				logging.Field{Key: "principal_id", Value: principal.ID},
+				logging.Field{Key: "tenant_id", Value: principal.TenantID},
+			)
+			observability.RecordFailure(span, ErrAgentNotFound, errSpanAgentNotFound)
+			return nil, ErrAgentNotFound
+		}
+	}
 
 	// tenant_id is extracted exclusively from the SPIFFE URI in the XFCC header —
 	// the value attested by SPIRE and injected by Envoy after mTLS termination.

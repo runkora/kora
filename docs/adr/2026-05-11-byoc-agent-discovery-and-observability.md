@@ -1,6 +1,6 @@
 # BYOC Agent Discovery & Observability
 
-**Status:** Accepted
+**Status:** Accepted (Amended 2026-11-22; BYOC agent identity retired)
 **Date:** 2026-05-11
 **Deciders:** Platform Engineering  
 **Technical Story:** Tenant-deployed (BYOC) agents already receive platform identity and LLM access via existing SPIFFE/SPIRE and inference-gateway mechanisms. The platform should surface them in the agent portal without requiring tenant teams to register them manually.
@@ -169,6 +169,20 @@ BYOC agents appear in the same agent portal view as managed agents. The portal d
 - BYOC agent appears in portal within 30 seconds of pod reaching Running state with SPIFFE annotation
 - BYOC agent disappears from portal within 30 seconds of pod termination
 - Usage stats for BYOC agents match inference-gateway records with 100% accuracy
+
+---
+
+## Amendment 1 (2026-11-22): BYOC agent identity is retired
+
+**Status:** Accepted
+
+Only pods that kora-agents creates carry an agent identity.
+
+*   kora-identity refuses the SVID exchange for an agent principal whose slug has no live agent record in its tenant ([#1080](https://github.com/runkora/kora/pull/1080)). A tenant pod labelled `spiffe.io/agent` with no agent record gets 401 and no platform token.
+*   A tenant workload uses `spiffe.io/service: <name>`. It gets the service principal `spiffe://<trust-domain>/tenant/<namespace>/service/<name>`.
+*   The Agent Cold Tier ADR (`docs/adr/2026-11-22-agent-cold-tier.md`, D3) adds an admission policy that lets only kora-agents set `spiffe.io/agent` on a tenant pod ([#1084](https://github.com/runkora/kora/pull/1084)).
+*   The Context statement that tenant pods with `spiffe.io/agent` receive platform identity no longer holds.
+*   The pod informer, the `byoc_agents` table and the portal surfacing in the Decision were never built.
 
 ---
 
