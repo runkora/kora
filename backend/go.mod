@@ -68,6 +68,8 @@ require (
 	sigs.k8s.io/yaml v1.6.0
 )
 
+require k8s.io/klog/v2 v2.140.0
+
 require (
 	cel.dev/expr v0.25.3 // indirect
 	cloud.google.com/go/auth v0.23.2 // indirect
@@ -206,7 +208,6 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 	k8s.io/component-base v0.37.2 // indirect
-	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3 // indirect
 	kernel.org/pub/linux/libs/security/libcap/psx v1.2.78 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect

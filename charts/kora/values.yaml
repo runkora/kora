@@ -642,6 +642,8 @@ agents:
   scheduling:
     # -- Runs one kora-agents replica starts at once.
     workerConcurrency: 16
+    # -- Agents one kora-agents replica's scaler checks at once. Each check may hold a Postgres connection from the pool of 25, beside workerConcurrency and agents.grading.concurrency. agents.configOverrides sets the pool: `{internal/platform/storage: {postgres: {maxConnections: N}}}`.
+    scalerConcurrency: 4
     # -- Seconds between polls for pending runs, and before a run with no free pod is tried again.
     pollIntervalSecs: 1
     # -- Seconds a run may stay pending with no agent pod Ready or coming up before it fails. A run waiting for a pod that is not Ready yet, for room on a Ready pod or for its agent's total of concurrent runs does not fail.

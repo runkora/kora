@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -32,12 +33,15 @@ type scalerStore interface {
 	ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error)
 }
 
-// scalerCluster is the StatefulSet access the scaler needs.
+// scalerCluster is the StatefulSet access the scaler needs. AgentStatefulSet reads a cache that
+// SyncWorkloadCache starts. The writes read the live StatefulSet.
 type scalerCluster interface {
+	SyncWorkloadCache(ctx context.Context) error
 	AgentStatefulSet(ctx context.Context, slug, namespace string) (statefulSetView, bool, error)
-	ScaleStatefulSet(ctx context.Context, slug, namespace string, from, to int) error
-	ReleaseRollHold(ctx context.Context, slug, namespace string, partition int) error
+	ScaleStatefulSet(ctx context.Context, slug, namespace string, from, to int, resourceVersion string) error
+	ReleaseRollHold(ctx context.Context, slug, namespace string, partition int, resourceVersion string) error
 	SwitchToParallel(ctx context.Context, slug, namespace string) error
+	LivePodOrdinals(ctx context.Context, slug, namespace string) (ready []int, terminating int, err error)
 }
 
 // ScalerConfig holds the scaler's settings.
@@ -50,6 +54,8 @@ type ScalerConfig struct {
 	PlacementWatermark    float64
 	StartingRunAllowances StartingRunAllowances
 	StartingRunWindow     time.Duration
+	// Concurrency is how many agents one pass checks at once. Each check may hold a Postgres connection.
+	Concurrency int
 }
 
 // Scaler sets each agent's StatefulSet replicas from its runs and pod memory
@@ -67,8 +73,12 @@ func NewScaler(store scalerStore, cluster scalerCluster, sm podMemoryReader, cfg
 	return &Scaler{store: store, cluster: cluster, sm: sm, cfg: cfg, logger: logger}
 }
 
-// Start checks every active agent each scalerInterval until ctx ends.
+// Start waits for the workload cache, then checks every active agent each scalerInterval until ctx ends.
 func (s *Scaler) Start(ctx context.Context) {
+	if err := s.cluster.SyncWorkloadCache(ctx); err != nil {
+		s.logger.Error(ctx, "scaler stopped before its workload cache synced", logging.Field{Key: "error", Value: err.Error()})
+		return
+	}
 	ticker := time.NewTicker(scalerInterval)
 	defer ticker.Stop()
 	for {
@@ -77,15 +87,27 @@ func (s *Scaler) Start(ctx context.Context) {
 			return
 		case <-ticker.C:
 		}
-		ats, err := s.store.ListActiveAgentTypes(ctx)
-		if err != nil {
-			s.logger.Error(ctx, "list agents to scale failed", logging.Field{Key: "error", Value: err.Error()})
-			continue
-		}
-		for _, at := range ats {
-			s.scaleAgent(ctx, at)
-		}
+		s.pass(ctx)
 	}
+}
+
+// pass checks every active agent, up to cfg.Concurrency at once, and returns when all are checked.
+// Start runs one pass at a time.
+func (s *Scaler) pass(ctx context.Context) {
+	ats, err := s.store.ListActiveAgentTypes(ctx)
+	if err != nil {
+		s.logger.Error(ctx, "list agents to scale failed", logging.Field{Key: "error", Value: err.Error()})
+		return
+	}
+	var g errgroup.Group
+	g.SetLimit(max(s.cfg.Concurrency, 1))
+	for _, at := range ats {
+		g.Go(func() error {
+			s.scaleAgent(ctx, at)
+			return nil
+		})
+	}
+	_ = g.Wait() // scaleAgent logs its own failures and returns none.
 }
 
 // scaleAgent reads pod memory with no lock held, then decides and scales under the agent lock.
@@ -99,7 +121,10 @@ func (s *Scaler) scaleAgent(ctx context.Context, at AgentType) {
 	switch {
 	case err == nil:
 	case errors.Is(err, errReplicasMoved), errors.Is(err, errPartitionMoved):
-		// Another scaler pass, an apply or an operator changed the StatefulSet. The next pass decides again.
+		// Another scaler pass, an apply, an operator or the controller's status write changed the StatefulSet.
+		// The next pass decides again.
+		s.logger.Debug(ctx, "agent StatefulSet changed since the scaler read it",
+			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "error", Value: err.Error()})
 	default:
 		observability.RecordFailure(span, err, errScaleAgent)
 		s.logger.Warn(ctx, "scale agent failed",
@@ -115,10 +140,10 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	}
 	// A Ready surge pod releases the held roll, as does a hold with no surge pod left to wait for.
 	// A hold left by a restart is released here too.
-	if ss.Partition > 0 && (ss.Partition >= ss.Replicas || slices.Contains(ss.Ready, ss.Partition)) {
+	if ss.Partition > 0 && (ss.Partition >= ss.Replicas || ss.SurgeReady) {
 		s.logger.Info(ctx, "releasing agent roll hold",
 			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "partition", Value: ss.Partition})
-		return s.cluster.ReleaseRollHold(ctx, at.Slug, namespace, ss.Partition)
+		return s.cluster.ReleaseRollHold(ctx, at.Slug, namespace, ss.Partition, ss.ResourceVersion)
 	}
 	allowance, err := s.cfg.StartingRunAllowances.For(at.Framework)
 	if err != nil {
@@ -157,24 +182,33 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 	if err != nil {
 		return err
 	}
-	want := desiredReplicas(scaleInput{
+	in := scaleInput{
 		replicas: ss.Replicas, floor: int(max(s.cfg.MinReplicas, 1)), total: at.MaxConcurrentRuns, maxReplicas: int(s.cfg.MaxReplicas),
 		counts: counts, ready: ss.Ready, terminating: ss.Terminating, rolling: ss.Partition > 0 || ss.Rolling,
 		readings: readings, starting: starting,
 		topRuns: occupied[ss.Replicas-1], memoryMax: memoryMax(ss.Ready, readings, ss.MemoryLimitBytes),
 		allowance: allowance, watermark: s.cfg.PlacementWatermark,
-	})
+	}
+	want := desiredReplicas(in)
+	// The cache can miss a pod that started terminating, and the StatefulSet version does not change with it.
+	// A scale-down decides the floor and the empty top pod again from a live read of the pods.
+	if want < ss.Replicas {
+		if in.ready, in.terminating, err = s.cluster.LivePodOrdinals(ctx, at.Slug, namespace); err != nil {
+			return err
+		}
+		want = desiredReplicas(in)
+	}
 	if want == ss.Replicas {
 		return nil
 	}
-	if err := s.cluster.ScaleStatefulSet(ctx, at.Slug, namespace, ss.Replicas, want); err != nil {
+	if err := s.cluster.ScaleStatefulSet(ctx, at.Slug, namespace, ss.Replicas, want, ss.ResourceVersion); err != nil {
 		return err
 	}
 	s.logger.Info(ctx, "scaled agent pods",
 		logging.Field{Key: "agent_type_id", Value: at.ID},
 		logging.Field{Key: "from", Value: ss.Replicas}, logging.Field{Key: "to", Value: want},
 		logging.Field{Key: "pending", Value: counts.Pending}, logging.Field{Key: "starting", Value: counts.Starting},
-		logging.Field{Key: "active", Value: counts.Active}, logging.Field{Key: "ready", Value: len(ss.Ready)})
+		logging.Field{Key: "active", Value: counts.Active}, logging.Field{Key: "ready", Value: len(in.ready)})
 	return nil
 }
 

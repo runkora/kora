@@ -13,6 +13,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -25,7 +26,7 @@ const scaleTestNS = "kora-tenant-acme"
 // liveStatefulSet is an agent StatefulSet as an earlier release left it.
 func liveStatefulSet(at AgentType, replicas int32, policy appsv1.PodManagementPolicyType) *appsv1.StatefulSet {
 	return &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: scaleTestNS, UID: types.UID("old-uid"), Labels: map[string]string{"app": at.Slug}},
+		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: scaleTestNS, UID: types.UID("old-uid"), Labels: agentTypeLabels(at)},
 		Spec: appsv1.StatefulSetSpec{
 			Replicas:            &replicas,
 			PodManagementPolicy: policy,
@@ -138,19 +139,23 @@ func TestSwitchToParallel(t *testing.T) {
 	})
 }
 
-// scaleReactor serves the StatefulSet scale subresource from replicas and records updates.
+// scaleReactor serves the StatefulSet scale subresource from replicas at resource version "7" and records
+// updates. An update that names another resource version conflicts, as on the API server.
 func scaleReactor(client *fake.Clientset, replicas *int32) {
 	client.PrependReactor("get", "statefulsets", func(a k8stesting.Action) (bool, runtime.Object, error) {
 		if a.GetSubresource() != "scale" {
 			return false, nil, nil
 		}
-		return true, &autoscalingv1.Scale{Spec: autoscalingv1.ScaleSpec{Replicas: *replicas}}, nil
+		return true, &autoscalingv1.Scale{ObjectMeta: metav1.ObjectMeta{ResourceVersion: "7"}, Spec: autoscalingv1.ScaleSpec{Replicas: *replicas}}, nil
 	})
 	client.PrependReactor("update", "statefulsets", func(a k8stesting.Action) (bool, runtime.Object, error) {
 		if a.GetSubresource() != "scale" {
 			return false, nil, nil
 		}
 		scale := a.(k8stesting.UpdateAction).GetObject().(*autoscalingv1.Scale)
+		if scale.ResourceVersion != "7" {
+			return true, nil, apierrors.NewConflict(schema.GroupResource{Group: "apps", Resource: "statefulsets"}, "coder", errors.New("changed"))
+		}
 		*replicas = scale.Spec.Replicas
 		return true, scale, nil
 	})
@@ -163,17 +168,29 @@ func TestScaleStatefulSet(t *testing.T) {
 	scaleReactor(client, &replicas)
 	p := &K8sProvisioner{client: client}
 
-	if err := p.ScaleStatefulSet(ctx, "coder", scaleTestNS, 2, 5); err != nil || replicas != 5 {
+	// A scale-up checks only the replicas: a status change since the cache read does not hold it back.
+	if err := p.ScaleStatefulSet(ctx, "coder", scaleTestNS, 2, 5, "6"); err != nil || replicas != 5 {
 		t.Fatalf("scale 2 to 5: err %v, replicas %d", err, replicas)
 	}
-	if err := p.ScaleStatefulSet(ctx, "coder", scaleTestNS, 2, 3); !errors.Is(err, errReplicasMoved) || replicas != 5 {
+	// A scale-down decided on an older StatefulSet is refused.
+	if err := p.ScaleStatefulSet(ctx, "coder", scaleTestNS, 5, 4, "6"); !errors.Is(err, errReplicasMoved) || replicas != 5 {
+		t.Errorf("scale-down from a stale version: err %v, replicas %d; want errReplicasMoved and no change", err, replicas)
+	}
+	// An empty version would make the update unconditional.
+	if err := p.ScaleStatefulSet(ctx, "coder", scaleTestNS, 5, 4, ""); !errors.Is(err, errReplicasInvalid) || replicas != 5 {
+		t.Errorf("scale-down with no version: err %v, replicas %d; want errReplicasInvalid and no change", err, replicas)
+	}
+	if err := p.ScaleStatefulSet(ctx, "coder", scaleTestNS, 5, 4, "7"); err != nil || replicas != 4 {
+		t.Fatalf("scale-down from the live version: err %v, replicas %d", err, replicas)
+	}
+	if err := p.ScaleStatefulSet(ctx, "coder", scaleTestNS, 2, 3, "7"); !errors.Is(err, errReplicasMoved) || replicas != 4 {
 		t.Errorf("stale scale: err %v, replicas %d; want errReplicasMoved and no change", err, replicas)
 	}
 	// A concurrent change to the scale is a moved replica count, not a failure.
 	client.PrependReactor("update", "statefulsets", func(a k8stesting.Action) (bool, runtime.Object, error) {
 		return a.GetSubresource() == "scale", nil, apierrors.NewConflict(schema.GroupResource{Group: "apps", Resource: "statefulsets"}, "coder", errors.New("changed"))
 	})
-	if err := p.ScaleStatefulSet(ctx, "coder", scaleTestNS, 5, 6); !errors.Is(err, errReplicasMoved) {
+	if err := p.ScaleStatefulSet(ctx, "coder", scaleTestNS, 4, 6, "7"); !errors.Is(err, errReplicasMoved) {
 		t.Errorf("conflicting scale: err %v, want errReplicasMoved", err)
 	}
 }
@@ -192,8 +209,8 @@ func TestAgentStatefulSetCountsTerminatingPods(t *testing.T) {
 		}
 		return p
 	}
-	p := &K8sProvisioner{client: fake.NewSimpleClientset(liveStatefulSet(at, 2, appsv1.ParallelPodManagement),
-		pod("coder-0", true), pod("coder-1", false), pod("coder-2", true))}
+	p := cachedProvisioner(t, fake.NewSimpleClientset(liveStatefulSet(at, 2, appsv1.ParallelPodManagement),
+		pod("coder-0", true), pod("coder-1", false), pod("coder-2", true)))
 	view, found, err := p.AgentStatefulSet(context.Background(), at.Slug, scaleTestNS)
 	if err != nil || !found {
 		t.Fatalf("found %v, err %v", found, err)
@@ -293,6 +310,7 @@ func TestScalerReleasesApplyHold(t *testing.T) {
 	writes := 0
 	dryRunReactor(client, &writes)
 	p.client = client
+	p.workloads = newWorkloadCache(client)
 	if err := p.ensureStatefulSet(ctx, at, scaleTestNS, agentTypeLabels(at), metav1.OwnerReference{}, true); err != nil {
 		t.Fatal(err)
 	}
@@ -308,8 +326,19 @@ func TestScalerReleasesApplyHold(t *testing.T) {
 	if writes != 1 {
 		t.Fatalf("apply made %d writes, want 1", writes)
 	}
-	surge, err := client.CoreV1().Pods(scaleTestNS).Create(ctx, pod("coder-1", corev1.ConditionFalse), metav1.CreateOptions{})
+	// The controller starts the surge pod on the update revision.
+	surgePod := pod("coder-1", corev1.ConditionFalse)
+	surgePod.Labels[appsv1.ControllerRevisionHashLabelKey] = "rev-2"
+	surge, err := client.CoreV1().Pods(scaleTestNS).Create(ctx, surgePod, metav1.CreateOptions{})
 	if err != nil {
+		t.Fatal(err)
+	}
+	live, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	live.Status.ObservedGeneration, live.Status.UpdateRevision = live.Generation, "rev-2"
+	if _, err := client.AppsV1().StatefulSets(scaleTestNS).UpdateStatus(ctx, live, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	state := func() (replicas, partition int) {
@@ -319,6 +348,9 @@ func TestScalerReleasesApplyHold(t *testing.T) {
 		}
 		return specReplicas(ss), specPartition(ss)
 	}
+	if err := p.SyncWorkloadCache(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	f := &scalerFake{t: t, memory: fullPod}
 	q := resource.MustParse("180Mi")
 	scaler := NewScaler(f, p, f, ScalerConfig{
@@ -326,6 +358,11 @@ func TestScalerReleasesApplyHold(t *testing.T) {
 		PlacementWatermark: 0.70, StartingRunAllowances: NewStartingRunAllowances(q, q, q),
 	}, p.logger)
 
+	waitCached(t, func() bool {
+		ss, err := p.workloads.Apps().V1().StatefulSets().Lister().StatefulSets(scaleTestNS).Get(at.Slug)
+		pods, podErr := p.workloads.Core().V1().Pods().Lister().List(labels.Everything())
+		return err == nil && podErr == nil && specPartition(ss) == 1 && ss.Status.UpdateRevision == "rev-2" && len(pods) == 2
+	})
 	if err := scaler.scale(ctx, at); err != nil {
 		t.Fatal(err)
 	}
@@ -336,6 +373,10 @@ func TestScalerReleasesApplyHold(t *testing.T) {
 	if _, err := client.CoreV1().Pods(scaleTestNS).UpdateStatus(ctx, surge, metav1.UpdateOptions{}); err != nil {
 		t.Fatal(err)
 	}
+	waitCached(t, func() bool {
+		pod, err := p.workloads.Core().V1().Pods().Lister().Pods(scaleTestNS).Get("coder-1")
+		return err == nil && podReady(pod)
+	})
 	if err := scaler.scale(ctx, at); err != nil {
 		t.Fatal(err)
 	}
@@ -393,18 +434,22 @@ func TestEnsureStatefulSetOnDeleteNoSurge(t *testing.T) {
 	}
 }
 
-// ReleaseRollHold refuses a partition that moved since the read and sets a current one to 0.
+// ReleaseRollHold refuses a partition or a StatefulSet version that moved since the read and sets a current partition to 0.
 func TestReleaseRollHold(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 	ctx := context.Background()
 	live := liveStatefulSet(at, 2, appsv1.ParallelPodManagement)
+	live.ResourceVersion = "7"
 	live.Spec.UpdateStrategy.RollingUpdate = &appsv1.RollingUpdateStatefulSetStrategy{Partition: new(int32(1))}
 	client := fake.NewSimpleClientset(live)
 	p := &K8sProvisioner{client: client}
-	if err := p.ReleaseRollHold(ctx, at.Slug, scaleTestNS, 2); !errors.Is(err, errPartitionMoved) {
+	if err := p.ReleaseRollHold(ctx, at.Slug, scaleTestNS, 2, "7"); !errors.Is(err, errPartitionMoved) {
 		t.Errorf("stale partition: err %v, want errPartitionMoved", err)
 	}
-	if err := p.ReleaseRollHold(ctx, at.Slug, scaleTestNS, 1); err != nil {
+	if err := p.ReleaseRollHold(ctx, at.Slug, scaleTestNS, 1, "6"); !errors.Is(err, errPartitionMoved) {
+		t.Errorf("stale version: err %v, want errPartitionMoved", err)
+	}
+	if err := p.ReleaseRollHold(ctx, at.Slug, scaleTestNS, 1, "7"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := client.AppsV1().StatefulSets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
@@ -537,11 +582,46 @@ func TestStatefulSetWritesRetryOnConflict(t *testing.T) {
 func TestReleaseRollHoldConflict(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 	live := liveStatefulSet(at, 2, appsv1.ParallelPodManagement)
+	live.ResourceVersion = "7"
 	live.Spec.UpdateStrategy.RollingUpdate = &appsv1.RollingUpdateStatefulSetStrategy{Partition: new(int32(1))}
 	client := fake.NewSimpleClientset(live)
 	conflictOnce(client)
 	p := &K8sProvisioner{client: client}
-	if err := p.ReleaseRollHold(context.Background(), at.Slug, scaleTestNS, 1); !errors.Is(err, errPartitionMoved) {
+	if err := p.ReleaseRollHold(context.Background(), at.Slug, scaleTestNS, 1, "7"); !errors.Is(err, errPartitionMoved) {
 		t.Errorf("conflicting release: err %v, want errPartitionMoved", err)
+	}
+	// The conflict fires once, so the version check passed and the first call reached the update.
+	if err := p.ReleaseRollHold(context.Background(), at.Slug, scaleTestNS, 1, "7"); err != nil {
+		t.Errorf("release after the conflict: %v", err)
+	}
+}
+
+// Only a Ready pod at the partition ordinal on the observed update revision releases the hold.
+func TestSurgeReady(t *testing.T) {
+	at := AgentType{Slug: "coder"}
+	pod := func(rev string) corev1.Pod {
+		return corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "coder-1", Labels: map[string]string{appsv1.ControllerRevisionHashLabelKey: rev}}}
+	}
+	for _, tc := range []struct {
+		name     string
+		observed int64
+		pod      corev1.Pod
+		ready    []int
+		want     bool
+	}{
+		{"new revision Ready", 2, pod("new"), []int{0, 1}, true},
+		{"old revision Ready", 2, pod("old"), []int{0, 1}, false},
+		{"new revision not Ready", 2, pod("new"), []int{0}, false},
+		{"spec not observed", 1, pod("new"), []int{0, 1}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ss := liveStatefulSet(at, 2, appsv1.ParallelPodManagement)
+			ss.Generation = 2
+			ss.Spec.UpdateStrategy.RollingUpdate = &appsv1.RollingUpdateStatefulSetStrategy{Partition: new(int32(1))}
+			ss.Status = appsv1.StatefulSetStatus{ObservedGeneration: tc.observed, UpdateRevision: "new"}
+			if got := surgeReady(ss, []corev1.Pod{tc.pod}, at.Slug, tc.ready); got != tc.want {
+				t.Errorf("surgeReady = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

@@ -79,6 +79,7 @@ agents:
   # Run scheduler. See the chart's agents.scheduling.
   scheduling:
     workerConcurrency: 16
+    scalerConcurrency: 4
     pollIntervalSecs: 1
     startBudgetSecs: 180
     provisionBudgetSecs: 600

@@ -4,23 +4,24 @@ metadata:
   name: kora-agents
   labels:
     {{- include "kora.agents.labels" . | nindent 4 }}
-# Verbs match the calls in internal/agents/k8s.go. There are no informers and
-# no watch. get+update on every namespaced resource because each
+# Verbs match the calls in internal/agents/k8s.go and the scaler's workload
+# cache in internal/agents/workload_cache.go. get+update on every namespaced resource because each
 # ensureX follows a create-then-backfill pattern — on AlreadyExists it Gets
 # the existing object, merges the KoraTenant owner reference, and Updates
 # (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
 rules:
   - apiGroups: ["apps"]
     resources: ["statefulsets"]
-    verbs: ["get", "create", "update", "patch", "delete"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # The scaler sets each agent's replicas through the scale subresource.
   - apiGroups: ["apps"]
     resources: ["statefulsets/scale"]
     verbs: ["get", "update"]
   # Run start lists an agent's pods to find the Ready ones (ReadyOrdinals).
+  # The scaler watches agent StatefulSets and pods into a cache.
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list", "create", "delete"]
+    verbs: ["get", "list", "watch", "create", "delete"]
   - apiGroups: [""]
     resources: ["services", "serviceaccounts"]
     verbs: ["get", "create", "update", "delete"]

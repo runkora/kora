@@ -107,7 +107,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [kora-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) — `Accepted` · 2026-05-11
 - [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — `Accepted (Amended 2026-10-12; start budget rule superseded in part 2026-11-10)` · 2026-05-11
 - [Run Scheduling](2026-10-12-run-scheduling.md) — `Accepted (superseded in part by Demand-Driven Agent Scaling 2026-11-10 and 2026-11-21)` · 2026-10-12
-- [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) — `Accepted (Amended 2026-11-21)` · 2026-11-09
+- [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) — `Accepted (Amended 2026-11-22)` · 2026-11-09
 - [Per-Run Cost on the Run Record](2026-10-20-run-cost-on-run-record.md) — `Proposed` · 2026-10-20
 - [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) — `Accepted` · 2026-05-11
 - [Agent Workspace Model](2026-05-11-agent-workspace-model.md) — `Accepted` · 2026-05-11
@@ -353,7 +353,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-07 | [ACP as the Single Agent Harness Protocol](2026-11-07-acp-agent-harness-protocol.md) | Accepted | — |
 | 2026-11-07 | [Run Sources](2026-11-07-run-sources.md) | Accepted | — |
 | 2026-11-08 | [StartRun Idempotent on Trigger Delivery](2026-11-08-start-run-idempotent-on-delivery.md) | Accepted | — |
-| 2026-11-09 | [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) | Accepted (Amended 2026-11-21) | — |
+| 2026-11-09 | [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) | Accepted (Amended 2026-11-22) | — |
 | 2026-11-11 | [Run Page Record: Message Senders, Trigger Event Summaries and Budget Stops](2026-11-11-run-page-record.md) | Accepted | — |
 | 2026-11-11 | [API Key Connection Adapter](2026-11-11-apikey-connection-adapter.md) | Accepted | — |
 | 2026-11-15 | [GitHub Connector Coverage of the GitHub API](2026-11-15-github-connector-route-coverage.md) | Accepted | — |

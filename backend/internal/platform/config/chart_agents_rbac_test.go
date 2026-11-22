@@ -31,11 +31,12 @@ func agentsClusterRoleVerbs(t *testing.T, group, resource string) []string {
 	return verbs
 }
 
-// kora-agents gets, creates and deletes run pods, and lists a StatefulSet's
-// pods to find the Ready ones before a run starts (internal/agents/k8s.go).
+// kora-agents gets, creates and deletes run pods, lists a StatefulSet's
+// pods to find the Ready ones before a run starts (internal/agents/k8s.go),
+// and watches them into the scaler's cache.
 func TestChartAgentsClusterRoleGrantsPodVerbs(t *testing.T) {
 	verbs := agentsClusterRoleVerbs(t, "", "pods")
-	for _, want := range []string{"get", "list", "create", "delete"} {
+	for _, want := range []string{"get", "list", "watch", "create", "delete"} {
 		if !slices.Contains(verbs, want) {
 			t.Errorf("kora-agents ClusterRole pod verbs = %v, missing %q", verbs, want)
 		}
@@ -49,6 +50,24 @@ func TestChartAgentsClusterRoleScaleAndStaleHPA(t *testing.T) {
 	}
 	if got := agentsClusterRoleVerbs(t, "autoscaling", "horizontalpodautoscalers"); !slices.Equal(got, []string{"delete", "get"}) {
 		t.Errorf("horizontalpodautoscalers verbs = %v, want [delete get]", got)
+	}
+}
+
+// The scaler's cache lists and watches agent StatefulSets (internal/agents/workload_cache.go).
+func TestChartAgentsClusterRoleWatchesStatefulSets(t *testing.T) {
+	verbs := agentsClusterRoleVerbs(t, "apps", "statefulsets")
+	for _, want := range []string{"list", "watch"} {
+		if !slices.Contains(verbs, want) {
+			t.Errorf("kora-agents ClusterRole statefulset verbs = %v, missing %q", verbs, want)
+		}
+	}
+}
+
+// The scaler checks at least one agent at a time.
+func TestChartScalerConcurrencyBound(t *testing.T) {
+	out, err := helmTemplate(t, "agents:\n  scheduling: {scalerConcurrency: 0}\n")
+	if err == nil || !strings.Contains(out, "scalerConcurrency") {
+		t.Errorf("scalerConcurrency 0: render err = %v, want the bound check to fail it", err)
 	}
 }
 

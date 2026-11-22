@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -177,6 +178,17 @@ type scalerFake struct {
 	view     statefulSetView
 	ready    []int
 	memory   func(ctx context.Context, podURL string) (sessionmanager.Memory, error)
+	agents   []AgentType
+	// inFlight and maxInFlight count the concurrent AgentStatefulSet reads. With gate set, each read
+	// signals entered and waits for gate.
+	inFlight, maxInFlight int
+	gate, entered         chan struct{}
+	// syncStarted, when set, makes SyncWorkloadCache signal it and block until ctx ends.
+	syncStarted chan struct{}
+	listCalls   int
+	// live is what LivePodOrdinals reads. Nil reads the cached view.
+	live      *livePodRead
+	liveReads int
 
 	scaledTo   int
 	switched   bool
@@ -193,7 +205,21 @@ func (f *scalerFake) mustHold(call string) {
 	}
 }
 
-func (f *scalerFake) ListActiveAgentTypes(context.Context) ([]AgentType, error) { return nil, nil }
+func (f *scalerFake) ListActiveAgentTypes(context.Context) ([]AgentType, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listCalls++
+	return f.agents, nil
+}
+
+func (f *scalerFake) SyncWorkloadCache(ctx context.Context) error {
+	if f.syncStarted == nil {
+		return nil
+	}
+	close(f.syncStarted)
+	<-ctx.Done()
+	return ctx.Err()
+}
 
 func (f *scalerFake) WaitWithAgentLock(ctx context.Context, _ string, _ time.Duration, fn func(ctx context.Context) error) (bool, error) {
 	if f.busy {
@@ -222,23 +248,51 @@ func (f *scalerFake) ActiveRunsPerPod(context.Context, string) (map[int]int, err
 }
 
 func (f *scalerFake) AgentStatefulSet(context.Context, string, string) (statefulSetView, bool, error) {
+	f.mu.Lock()
+	f.inFlight++
+	f.maxInFlight = max(f.maxInFlight, f.inFlight)
+	f.mu.Unlock()
+	if f.gate != nil {
+		f.entered <- struct{}{}
+		<-f.gate
+	}
+	f.mu.Lock()
+	f.inFlight--
+	f.mu.Unlock()
 	view := f.view
 	view.Ready = f.ready
 	return view, true, nil
 }
 
-func (f *scalerFake) ScaleStatefulSet(_ context.Context, _, _ string, from, to int) error {
+func (f *scalerFake) ScaleStatefulSet(_ context.Context, _, _ string, from, to int, resourceVersion string) error {
 	f.mustHold("ScaleStatefulSet")
-	if from != f.view.Replicas {
-		f.t.Errorf("scale from %d, want the read replicas %d", from, f.view.Replicas)
+	if from != f.view.Replicas || resourceVersion != f.view.ResourceVersion {
+		f.t.Errorf("scale from %d at version %q, want the read replicas %d and version %q", from, resourceVersion, f.view.Replicas, f.view.ResourceVersion)
 	}
 	f.scaledTo = to
 	return nil
 }
 
-func (f *scalerFake) ReleaseRollHold(_ context.Context, _, _ string, partition int) error {
+func (f *scalerFake) ReleaseRollHold(_ context.Context, _, _ string, partition int, resourceVersion string) error {
+	if resourceVersion != f.view.ResourceVersion {
+		f.t.Errorf("release at version %q, want the read version %q", resourceVersion, f.view.ResourceVersion)
+	}
 	f.released = partition
 	return f.releaseErr
+}
+
+type livePodRead struct {
+	ready       []int
+	terminating int
+}
+
+func (f *scalerFake) LivePodOrdinals(context.Context, string, string) ([]int, int, error) {
+	f.mustHold("LivePodOrdinals")
+	f.liveReads++
+	if f.live == nil {
+		return f.ready, f.view.Terminating, nil
+	}
+	return f.live.ready, f.live.terminating, nil
 }
 
 func (f *scalerFake) SwitchToParallel(context.Context, string, string) error {
@@ -320,7 +374,7 @@ func TestScalerSkipsWhenAnotherReplicaHoldsTheLock(t *testing.T) {
 }
 
 func TestScalerScalesDownOnePodAtATime(t *testing.T) {
-	f := &scalerFake{t: t, view: statefulSetView{Replicas: 5, Parallel: true}, ready: []int{0, 1, 2, 3, 4}, memory: fullPod}
+	f := &scalerFake{t: t, view: statefulSetView{ResourceVersion: "41", Replicas: 5, Parallel: true}, ready: []int{0, 1, 2, 3, 4}, memory: fullPod}
 	if err := newTestScaler(f).scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}); err != nil {
 		t.Fatal(err)
 	}
@@ -333,6 +387,77 @@ func TestScalerScalesDownOnePodAtATime(t *testing.T) {
 	}
 	if f.scaledTo != 0 {
 		t.Errorf("scaled a busy top pod away, to %d", f.scaledTo)
+	}
+}
+
+// A pass checks every agent, up to the concurrency bound at once and never more.
+func TestScalerPassIsBounded(t *testing.T) {
+	f := &scalerFake{t: t, busy: true, view: statefulSetView{Replicas: 2, Parallel: true}, ready: []int{0, 1}, memory: fullPod,
+		gate: make(chan struct{}), entered: make(chan struct{}, 12)}
+	for i := range 12 {
+		f.agents = append(f.agents, AgentType{ID: fmt.Sprint(i), Slug: fmt.Sprintf("agent-%d", i), MaxConcurrentRuns: 30})
+	}
+	s := newTestScaler(f)
+	s.cfg.Concurrency = 3
+	done := make(chan struct{})
+	go func() {
+		s.pass(context.Background())
+		close(done)
+	}()
+	// Three checks start. Each one released lets exactly one more start.
+	for range 3 {
+		<-f.entered
+	}
+	for range 9 {
+		f.gate <- struct{}{}
+		<-f.entered
+	}
+	close(f.gate)
+	<-done
+	if f.maxInFlight != 3 {
+		t.Errorf("at most %d agents checked at once, want 3", f.maxInFlight)
+	}
+	if len(f.readLocked) != 24 {
+		t.Errorf("%d memory reads, want 2 for each of the 12 agents", len(f.readLocked))
+	}
+}
+
+// Start runs no pass before the workload cache syncs, and returns when ctx ends.
+func TestScalerStartWaitsForTheCache(t *testing.T) {
+	f := &scalerFake{t: t, syncStarted: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		newTestScaler(f).Start(ctx)
+		close(done)
+	}()
+	<-f.syncStarted
+	cancel()
+	<-done
+	if f.listCalls != 0 {
+		t.Errorf("Start listed agents %d times before the cache synced, want 0", f.listCalls)
+	}
+}
+
+// A cache that has not seen pod 0 start terminating shows two Ready pods. The live read before the
+// scale-down shows the top pod is the only one left above the floor, and the scaler keeps it.
+func TestScalerScaleDownReadsPodsLive(t *testing.T) {
+	f := &scalerFake{t: t, view: statefulSetView{ResourceVersion: "41", Replicas: 2, Parallel: true}, ready: []int{0, 1}, memory: fullPod,
+		live: &livePodRead{ready: []int{1}, terminating: 1}}
+	s := newTestScaler(f)
+	s.cfg.MinReplicas = 1
+	if err := s.scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}); err != nil {
+		t.Fatal(err)
+	}
+	if f.liveReads != 1 || f.scaledTo != 0 {
+		t.Errorf("live reads %d, scaled to %d; want one read and no scale-down below the floor", f.liveReads, f.scaledTo)
+	}
+	f.live = nil
+	if err := s.scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}); err != nil {
+		t.Fatal(err)
+	}
+	if f.scaledTo != 1 {
+		t.Errorf("scaled to %d with no pod terminating, want 1", f.scaledTo)
 	}
 }
 
@@ -367,12 +492,14 @@ func TestScalerRollHold(t *testing.T) {
 		wantRelease  int
 		wantScaledTo int
 	}{
-		{"surge pod Ready", statefulSetView{Replicas: 3, Partition: 2, Parallel: true}, []int{0, 1, 2}, 2, 0},
+		{"surge pod Ready", statefulSetView{ResourceVersion: "41", Replicas: 3, Partition: 2, Parallel: true, SurgeReady: true}, []int{0, 1, 2}, 2, 0},
+		// A Ready pod at the partition ordinal on the old revision is not the surge pod.
+		{"old pod at the partition", statefulSetView{Replicas: 3, Partition: 2, Parallel: true}, []int{0, 1, 2}, 0, 0},
 		{"surge pod not Ready yet", statefulSetView{Replicas: 3, Partition: 2, Parallel: true}, []int{0, 1}, 0, 0},
 		// An older scaler removed the surge pod: no pod at the partition ordinal will come.
-		{"surge pod scaled away", statefulSetView{Replicas: 2, Partition: 2, Parallel: true}, []int{0, 1}, 2, 0},
+		{"surge pod scaled away", statefulSetView{ResourceVersion: "41", Replicas: 2, Partition: 2, Parallel: true}, []int{0, 1}, 2, 0},
 		{"roll under way", statefulSetView{Replicas: 3, Rolling: true, Parallel: true}, []int{0, 2}, 0, 0},
-		{"roll done", statefulSetView{Replicas: 3, Parallel: true}, []int{0, 1, 2}, 0, 2},
+		{"roll done", statefulSetView{ResourceVersion: "41", Replicas: 3, Parallel: true}, []int{0, 1, 2}, 0, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &scalerFake{t: t, view: tc.view, ready: tc.ready, memory: fullPod}
@@ -396,7 +523,7 @@ func TestScaleAgentSwallowsMovedPartition(t *testing.T) {
 		"real failure":    {errors.New("api down"), true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			f := &scalerFake{t: t, view: statefulSetView{Replicas: 2, Partition: 1, Parallel: true}, ready: []int{0, 1}, memory: fullPod, releaseErr: tc.err}
+			f := &scalerFake{t: t, view: statefulSetView{Replicas: 2, Partition: 1, Parallel: true, SurgeReady: true}, ready: []int{0, 1}, memory: fullPod, releaseErr: tc.err}
 			s := newTestScaler(f)
 			var out bytes.Buffer
 			s.logger = logging.NewLoggerWithOutput(&out)

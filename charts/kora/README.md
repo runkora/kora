@@ -94,6 +94,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.scheduling.pollIntervalSecs | int | `1` | Seconds between polls for pending runs, and before a run with no free pod is tried again. |
 | agents.scheduling.pressureLimit | float | `0.9` | Fraction of the memory limit at which the session-manager kills its most recently started run. Above placementWatermark. |
 | agents.scheduling.provisionBudgetSecs | int | `600` | Seconds a run may wait for its agent to finish provisioning before it fails. |
+| agents.scheduling.scalerConcurrency | int | `4` | Agents one kora-agents replica's scaler checks at once. Each check may hold a Postgres connection from the pool of 25, beside workerConcurrency and agents.grading.concurrency. agents.configOverrides sets the pool: `{internal/platform/storage: {postgres: {maxConnections: N}}}`. |
 | agents.scheduling.startBudgetSecs | int | `180` | Seconds a run may stay pending with no agent pod Ready or coming up before it fails. A run waiting for a pod that is not Ready yet, for room on a Ready pod or for its agent's total of concurrent runs does not fail. |
 | agents.scheduling.startingRunAllowance.claudeCode | string | `"220Mi"` | Memory a Claude Code run is assumed to take between its start and the next memory reading. |
 | agents.scheduling.startingRunAllowance.codex | string | `"60Mi"` | The same for a Codex run. |

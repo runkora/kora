@@ -116,6 +116,8 @@ type Config struct {
 		Scheduling struct {
 			// WorkerConcurrency is how many runs one replica starts at once.
 			WorkerConcurrency int `yaml:"workerConcurrency"`
+			// ScalerConcurrency is how many agents one replica's scaler checks at once.
+			ScalerConcurrency int `yaml:"scalerConcurrency"`
 			// PollIntervalSecs is how often the scheduler claims pending runs, and how long a released run waits.
 			PollIntervalSecs int `yaml:"pollIntervalSecs"`
 			// StartBudgetSecs is how long a run may stay pending with no agent pod Ready or coming up before it fails.
@@ -189,6 +191,9 @@ type StartingRunAllowance struct {
 
 // errMaxReplicas means maxReplicas is below the floor of pods, so the scaler could never add one.
 var errMaxReplicas = errors.New("agents.scheduling.maxReplicas must be at least minReplicas and at least 1")
+
+// errScalerConcurrency means the scaler could check no agent.
+var errScalerConcurrency = errors.New("agents.scheduling.scalerConcurrency must be at least 1")
 
 // errStartingRunAllowance means a harness has no positive starting-run allowance.
 var errStartingRunAllowance = errors.New("agents.scheduling.startingRunAllowance: claudeCode, codex and openCode must each be a positive quantity")
@@ -269,6 +274,9 @@ func Validate(cfg *Config) error {
 	}
 	if s := cfg.Agents.Scheduling; s.MaxReplicas < max(s.MinReplicas, 1) {
 		return errMaxReplicas
+	}
+	if cfg.Agents.Scheduling.ScalerConcurrency < 1 {
+		return errScalerConcurrency
 	}
 	a := cfg.Agents.Scheduling.StartingRunAllowance
 	for _, q := range []resource.Quantity{a.ClaudeCode, a.Codex, a.OpenCode} {

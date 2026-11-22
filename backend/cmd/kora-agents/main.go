@@ -10,6 +10,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-logr/logr"
+	"k8s.io/klog/v2"
+
 	agentsConfig "github.com/runkora/kora/backend/cmd/kora-agents/config"
 	"github.com/runkora/kora/backend/internal/agents"
 	"github.com/runkora/kora/backend/internal/platform/api"
@@ -74,6 +77,8 @@ func realMain() error {
 	defer shutdownObs()
 
 	logger := initLogger()
+	// The scaler's informers report a refused list or watch through klog. Route it through the injected logger.
+	klog.SetLogger(logr.New(logging.NewLogrSink(logger)))
 	logger.Info(ctx, "kora-agents starting",
 		logging.Field{Key: "version", Value: agentsConfig.Current.App.Version},
 	)
@@ -361,6 +366,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		PlacementWatermark:    cfg.Agents.Scheduling.PlacementWatermark,
 		StartingRunAllowances: allowances,
 		StartingRunWindow:     time.Duration(cfg.Agents.Scheduling.StartingRunWindowSecs) * time.Second,
+		Concurrency:           cfg.Agents.Scheduling.ScalerConcurrency,
 	}, logger)
 
 	return server, repo, atSvc, runSvc, draftSvc, scaler, nil

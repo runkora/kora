@@ -39,6 +39,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -155,6 +156,8 @@ type K8sProvisioner struct {
 	cfg           K8sProvisionerConfig
 	policyClient  *policyclient.Client
 	scopeResolver *ScopeResolver
+	// workloads caches the agent StatefulSets and pods the scaler reads. SyncWorkloadCache starts it.
+	workloads informers.SharedInformerFactory
 }
 
 // SetScopeResolver installs the resolver that adds the attached environments' egress and connectors to an agent's grant.
@@ -188,7 +191,10 @@ func NewK8sProvisioner(inCluster bool, logger logging.Logger, cfg K8sProvisioner
 		return nil, fmt.Errorf("create dynamic k8s client: %w", err)
 	}
 
-	return &K8sProvisioner{client: cs, dynamicClient: dc, logger: logger, cfg: cfg, policyClient: policyClient}, nil
+	return &K8sProvisioner{
+		client: cs, dynamicClient: dc, logger: logger, cfg: cfg, policyClient: policyClient,
+		workloads: newWorkloadCache(cs),
+	}, nil
 }
 
 func buildRestConfig(inCluster bool) (*rest.Config, error) {
@@ -445,7 +451,9 @@ func (p *K8sProvisioner) Replicas(ctx context.Context, slug, namespace string) (
 
 // statefulSetView is what the scaler reads of an agent's StatefulSet and its pods.
 type statefulSetView struct {
-	Replicas int
+	// ResourceVersion is the version of the cached StatefulSet the view was read from.
+	ResourceVersion string
+	Replicas        int
 	// MemoryLimitBytes is the session-manager container's memory limit, the scaler's fallback for memory.max.
 	MemoryLimitBytes int64
 	Parallel         bool
@@ -456,27 +464,45 @@ type statefulSetView struct {
 	// A replacement at a draining pod's ordinal cannot start until that pod exits.
 	Ready       []int
 	Terminating int
+	// SurgeReady is true when the pod at the partition ordinal is Ready on the update revision.
+	SurgeReady bool
 }
 
-// Scale errors: the replicas or the partition changed since the scaler read them, or the target is out of range.
+// Scale errors: the replicas, the partition or, for a scale-down, any part of the StatefulSet changed since
+// the scaler read it, or the target is out of range.
 var (
 	errReplicasMoved   = errors.New("statefulset replicas changed since they were read")
 	errPartitionMoved  = errors.New("statefulset partition changed since it was read")
 	errReplicasInvalid = errors.New("statefulset replicas out of range")
 )
 
-// AgentStatefulSet reads the scaler's view of an agent's StatefulSet. found is false when it does not exist.
-func (p *K8sProvisioner) AgentStatefulSet(ctx context.Context, slug, namespace string) (view statefulSetView, found bool, err error) {
-	ss, pods, err := p.agentPods(ctx, slug, namespace)
-	if ss == nil || err != nil {
-		return statefulSetView{}, false, err
+// AgentStatefulSet reads the scaler's view of an agent's StatefulSet from the workload cache.
+// found is false when the cache holds no such StatefulSet.
+func (p *K8sProvisioner) AgentStatefulSet(_ context.Context, slug, namespace string) (view statefulSetView, found bool, err error) {
+	ss, err := p.workloads.Apps().V1().StatefulSets().Lister().StatefulSets(namespace).Get(slug)
+	if apierrors.IsNotFound(err) {
+		return statefulSetView{}, false, nil
+	}
+	if err != nil {
+		return statefulSetView{}, false, fmt.Errorf("read cached statefulset %s/%s: %w", namespace, slug, err)
+	}
+	sel := labels.SelectorFromSet(ss.Spec.Selector.MatchLabels)
+	cached, err := p.workloads.Core().V1().Pods().Lister().Pods(namespace).List(sel)
+	if err != nil {
+		return statefulSetView{}, false, fmt.Errorf("read cached pods of %s/%s: %w", namespace, slug, err)
+	}
+	pods := make([]corev1.Pod, len(cached))
+	for i, pod := range cached {
+		pods[i] = *pod
 	}
 	view = statefulSetView{
-		Replicas: specReplicas(ss), Parallel: ss.Spec.PodManagementPolicy == appsv1.ParallelPodManagement,
+		ResourceVersion: ss.ResourceVersion,
+		Replicas:        specReplicas(ss), Parallel: ss.Spec.PodManagementPolicy == appsv1.ParallelPodManagement,
 		Partition: specPartition(ss),
 		Rolling:   rolling(ss),
 	}
 	view.Ready, view.Terminating = podOrdinals(ss, pods, slug)
+	view.SurgeReady = surgeReady(ss, pods, slug, view.Ready)
 	for _, c := range ss.Spec.Template.Spec.Containers {
 		if c.Name == sessionManagerContainerName {
 			view.MemoryLimitBytes = c.Resources.Limits.Memory().Value()
@@ -485,8 +511,41 @@ func (p *K8sProvisioner) AgentStatefulSet(ctx context.Context, slug, namespace s
 	return view, true, nil
 }
 
+// LivePodOrdinals lists the agent's pods from the API server and returns their Ready ordinals and
+// terminating count below the cached StatefulSet's replicas. The scaler reads them before a scale-down.
+func (p *K8sProvisioner) LivePodOrdinals(ctx context.Context, slug, namespace string) (ready []int, terminating int, err error) {
+	ss, err := p.workloads.Apps().V1().StatefulSets().Lister().StatefulSets(namespace).Get(slug)
+	if err != nil {
+		return nil, 0, fmt.Errorf("read cached statefulset %s/%s: %w", namespace, slug, err)
+	}
+	sel := labels.SelectorFromSet(ss.Spec.Selector.MatchLabels).String()
+	pods, err := p.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: sel})
+	if err != nil {
+		return nil, 0, fmt.Errorf("list pods for %s/%s: %w", namespace, slug, err)
+	}
+	ready, terminating = podOrdinals(ss, pods.Items, slug)
+	return ready, terminating, nil
+}
+
+// surgeReady reports whether the pod at the partition ordinal is Ready and on the update revision of a
+// spec the controller has observed. An old-revision pod still at that ordinal does not release the hold.
+func surgeReady(ss *appsv1.StatefulSet, pods []corev1.Pod, slug string, ready []int) bool {
+	partition := specPartition(ss)
+	if !slices.Contains(ready, partition) || ss.Status.ObservedGeneration < ss.Generation {
+		return false
+	}
+	name := slug + "-" + strconv.Itoa(partition)
+	for _, pod := range pods {
+		if pod.Name == name {
+			return pod.Labels[appsv1.ControllerRevisionHashLabelKey] == ss.Status.UpdateRevision
+		}
+	}
+	return false
+}
+
 // ScaleStatefulSet sets the replicas through the scale subresource, only while they are still from.
-func (p *K8sProvisioner) ScaleStatefulSet(ctx context.Context, slug, namespace string, from, to int) error {
+// A scale-down also requires the StatefulSet to be at resourceVersion, the version the decision read.
+func (p *K8sProvisioner) ScaleStatefulSet(ctx context.Context, slug, namespace string, from, to int, resourceVersion string) error {
 	if to < 0 || to > math.MaxInt32 {
 		return fmt.Errorf("%w: %d", errReplicasInvalid, to)
 	}
@@ -498,6 +557,13 @@ func (p *K8sProvisioner) ScaleStatefulSet(ctx context.Context, slug, namespace s
 	if int(scale.Spec.Replicas) != from {
 		return errReplicasMoved
 	}
+	if to < from {
+		// An empty version would make the update unconditional.
+		if resourceVersion == "" {
+			return fmt.Errorf("%w: a scale-down needs the version it was decided on", errReplicasInvalid)
+		}
+		scale.ResourceVersion = resourceVersion
+	}
 	scale.Spec.Replicas = int32(to)
 	if _, err := sets.UpdateScale(ctx, slug, scale, metav1.UpdateOptions{}); apierrors.IsConflict(err) {
 		return errReplicasMoved
@@ -507,15 +573,17 @@ func (p *K8sProvisioner) ScaleStatefulSet(ctx context.Context, slug, namespace s
 	return nil
 }
 
-// ReleaseRollHold sets the RollingUpdate partition to 0 while it is still partition. RollingUpdate then
-// replaces the old pods (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 1).
-func (p *K8sProvisioner) ReleaseRollHold(ctx context.Context, slug, namespace string, partition int) error {
+// ReleaseRollHold sets the RollingUpdate partition to 0 while it is still partition and the StatefulSet is
+// still at resourceVersion, the version the release was decided on. RollingUpdate then replaces the old
+// pods (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendments 1 and 2).
+func (p *K8sProvisioner) ReleaseRollHold(ctx context.Context, slug, namespace string, partition int, resourceVersion string) error {
 	sets := p.client.AppsV1().StatefulSets(namespace)
 	ss, err := sets.Get(ctx, slug, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
 	}
-	if specPartition(ss) != partition {
+	// A newer apply or a status change since the cache read makes the release wait for the next pass.
+	if specPartition(ss) != partition || ss.ResourceVersion != resourceVersion {
 		return errPartitionMoved
 	}
 	ss.Spec.UpdateStrategy.RollingUpdate.Partition = new(int32(0))
@@ -2584,16 +2652,16 @@ func (p *K8sProvisioner) deleteOwnDestinationRule(ctx context.Context, name, slu
 
 func agentTypeLabels(at AgentType) map[string]string {
 	return map[string]string{
-		"app":                   at.Slug,
-		"runkora.io/agent-type": at.ID,
-		"runkora.io/tenant":     at.TenantID,
+		"app":               at.Slug,
+		agentTypeLabel:      at.ID,
+		"runkora.io/tenant": at.TenantID,
 	}
 }
 
 func podLabels(at AgentType) map[string]string {
 	return map[string]string{
 		"app":                           at.Slug,
-		"runkora.io/agent-type":         at.ID,
+		agentTypeLabel:                  at.ID,
 		"runkora.io/tenant":             at.TenantID,
 		sandboxfolder.ManagedAgentLabel: "true",
 		// slug used so the SPIFFE ID is human-readable:
