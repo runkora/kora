@@ -75,7 +75,7 @@ kora logs JSON to stdout. A line logged inside a traced request carries the trac
 
 ## Check health
 
-Check the kora services with `kubectl -n kora-system get pods`. Each tenant's agents and sandboxes run in its own namespace, `kora-tenant-<tenant>` by default. An agent runs as a StatefulSet named after its slug. Each sandbox is a pod named `sandbox-<run>`.
+Check the kora services with `kubectl -n kora-system get pods`. Each tenant's agents and sandboxes run in its own namespace, `kora-tenant-<tenant>` by default. Each tenant keeps a `session-manager-pool` Deployment of unbound pods, and an agent's pods are pool pods bound to it with the label `app=<slug>`. Each sandbox is a pod named `sandbox-<run>`.
 
 The resources platform teams register report whether kora accepted them:
 

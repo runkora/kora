@@ -6,7 +6,7 @@ This guide walks through writing a manifest patch, previewing the result and dep
 
 ## What you can patch
 
-`kora-agents` applies your patches to the StatefulSet, workspace PersistentVolumeClaim, Service, ServiceAccount, PDB and sandbox Pod it provisions for each agent type. Patches apply to every tenant that shares the `kora-agents` pod.
+`kora-agents` applies your patches to the agent Service, the sandbox Pod, and the StatefulSet, workspace PersistentVolumeClaim and ServiceAccount that each tenant's pool of session-manager pods is rendered from. Every agent pod is a pool pod bound to the agent. A StatefulSet patch reaches the pods of every agent in the tenants it selects, and no patch reaches one agent's pods alone. Patches apply to every tenant that shares the `kora-agents` pod.
 
 Each patch is one kustomize `patches:` entry with a `target.kind`. Both strategic merge patches and JSON6902 patches work, and the entry accepts the usual selectors.
 
