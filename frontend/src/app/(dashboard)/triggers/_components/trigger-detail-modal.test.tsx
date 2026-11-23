@@ -1281,12 +1281,17 @@ describe('generic source attribution', () => {
   function renderGeneric(
     source: SourceRow,
     onSaveAttribution = vi.fn().mockResolvedValue(null),
-    opts: { scopes?: string[]; apiAuthoring?: boolean; row?: TriggerRow } = {},
+    opts: {
+      scopes?: string[];
+      apiAuthoring?: boolean;
+      row?: TriggerRow;
+      canRunAgent?: boolean;
+    } = {},
   ) {
     renderWithProviders(
       <TriggerDetailModal
         window="24h"
-        canRunAgent
+        canRunAgent={opts.canRunAgent ?? true}
         trigger={opts.row ?? trigger()}
         sources={[source]}
         ingestHost="local.runkora.io:8443"
@@ -1362,6 +1367,23 @@ describe('generic source attribution', () => {
     await openSection('Attribution');
     expect(screen.getByLabelText('Actor name')).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'Save attribution' })).toBeNull();
+  });
+
+  it('is read only without run access to the agent, like secret rotation', async () => {
+    renderGeneric(GENERIC, undefined, { canRunAgent: false });
+    await openSection('Attribution');
+    expect(screen.getByLabelText('Actor name')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Save attribution' })).toBeNull();
+  });
+
+  it('shows a refused save in the editor and keeps the edit', async () => {
+    const refusal = 'You do not have permission to do this.';
+    renderGeneric(GENERIC, vi.fn().mockResolvedValue(refusal));
+    await openSection('Attribution');
+    fireEvent.change(screen.getByLabelText('Verb 1'), { target: { value: 'opened' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save attribution' }));
+    expect(await screen.findByText(refusal)).toBeTruthy();
+    expect((screen.getByLabelText('Verb 1') as HTMLInputElement).value).toBe('opened');
   });
 
   it('stays editable for a declared trigger on an API source', async () => {

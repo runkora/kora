@@ -593,10 +593,11 @@ function TriggerDetailModalBody({
       : verificationMethodOf(webhookSource.provider, webhookSource.config);
 
   // Attribution is source config: a declared source or a locked tenant changes it in git.
+  // Like secret rotation, it also needs run access to the source's agents.
   const hasAttribution = webhookSource?.provider === GENERIC_PROVIDER;
   const sourceLocked = sourceDeclared || tenantLocked;
   const attributionEditable =
-    hasAttribution && canWrite && !sourceLocked && saveAttributionAction !== undefined;
+    hasAttribution && canShapeRuns && !sourceLocked && saveAttributionAction !== undefined;
   const storedAttribution = useMemo(
     () => attributionDraftOf(webhookSource?.config),
     [webhookSource?.config],
@@ -893,8 +894,12 @@ function TriggerDetailModalBody({
                   // Attribution belongs to the source, so the source decides who may change it.
                   sourceLocked && source !== undefined ? (
                     <ManagedInGitNotice declared={source.declared} repository={source.repository} />
+                  ) : !canWrite ? (
+                    <Alert variant="info">{permissionHintText('edit triggers')}</Alert>
                   ) : (
-                    !canWrite && <Alert variant="info">{permissionHintText('edit triggers')}</Alert>
+                    !canRunAgent && (
+                      <Alert variant="info">{permissionHintText("run this source's agents")}</Alert>
+                    )
                   )
                 ) : managed ? (
                   <ManagedSectionNotice
