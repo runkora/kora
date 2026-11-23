@@ -579,6 +579,24 @@ func (r *PostgresRepository) lastRunError(ctx context.Context, run Run) (string,
 	return code, nil
 }
 
+// ListStatefulSetRuns returns the live runs an earlier release placed on an agent StatefulSet pod.
+func (r *PostgresRepository) ListStatefulSetRuns(ctx context.Context) ([]Run, error) {
+	rows, err := r.pool.Query(ctx, selectRun+` WHERE r.state IN (`+liveRunSQLList()+`) AND r.pod_name IS NULL AND r.pod_ordinal >= 0`)
+	if err != nil {
+		return nil, fmt.Errorf("list runs on agent StatefulSet pods: %w", err)
+	}
+	defer rows.Close()
+	var out []Run
+	for rows.Next() {
+		run, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *run)
+	}
+	return out, rows.Err()
+}
+
 // AssignPod moves a claimed run to starting on the pod podName. The claim token stops a
 // worker whose claim went stale from assigning a run that another worker now holds.
 func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, claimedAt time.Time, podName string) error {

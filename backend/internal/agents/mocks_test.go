@@ -32,6 +32,8 @@ var _ smClient = (*mockSMClient)(nil)
 
 type mockRepository struct {
 	mu sync.Mutex
+	// legacyRuns are the runs an earlier release placed on an agent StatefulSet pod.
+	legacyRuns []string
 	// failureCodes holds the run_error code each MarkRunFailed carried in its context.
 	failureCodes map[string]string
 	agentTypes   map[string]*AgentType
@@ -454,6 +456,26 @@ func (m *mockRepository) SetRunState(_ context.Context, id string, from, to RunS
 	}
 	r.State = to
 	return nil
+}
+
+// seedStatefulSetRun seeds a run an earlier release placed on an agent StatefulSet pod: it has no pod name.
+func seedStatefulSetRun(t *testing.T, repo *mockRepository, r Run) {
+	seedRun(t, repo, r)
+	repo.runs[r.ID].PodName = ""
+	repo.legacyRuns = append(repo.legacyRuns, r.ID)
+}
+
+// ListStatefulSetRuns returns the live runs seedStatefulSetRun seeded.
+func (m *mockRepository) ListStatefulSetRuns(context.Context) ([]Run, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Run
+	for _, id := range m.legacyRuns {
+		if r, ok := m.runs[id]; ok && r.PodName == "" && !r.State.Terminal() && r.State != RunStatePending {
+			out = append(out, *r)
+		}
+	}
+	return out, nil
 }
 
 // AssignPod ignores the claim token. TestPostgres_AssignPodFencedByClaim covers the fence.
@@ -1392,6 +1414,10 @@ func seedAgentType(_ *testing.T, repo *mockRepository, at AgentType) AgentType {
 func seedRun(t *testing.T, repo *mockRepository, r Run) Run {
 	if r.UpdatedAt.IsZero() {
 		r.UpdatedAt = time.Now()
+	}
+	// A run past pending is on a pod. seedStatefulSetRun seeds one on no pool pod.
+	if occupies, _ := r.State.OccupiesPod(); occupies && r.State != RunStatePending && r.PodName == "" {
+		r.PodName = testPodName(0)
 	}
 	if _, ok := repo.agentTypes[r.AgentTypeID]; !ok && r.AgentTypeID != "" {
 		seedAgentType(t, repo, AgentType{

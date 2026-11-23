@@ -505,3 +505,43 @@ func TestPostgres_BudgetExhaustedStampsCompletedAt(t *testing.T) {
 		t.Errorf("LastRunCompletedAt after budget_exhausted = %v, %v; want a time", got, err)
 	}
 }
+
+// A live run an earlier release placed on an agent StatefulSet pod has a pod ordinal and no pod name. It is
+// listed for the cutover and counts toward the agent's total, and no pool pod counts it.
+func TestPostgres_StatefulSetRuns(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+	past := time.Now().UTC().Add(-time.Hour)
+	legacy := queueRun(t, r, tenant, at.ID, past, &past)
+	setRunState(t, r, legacy, RunStateIdle, "")
+	ended := queueRun(t, r, tenant, at.ID, past, &past)
+	setRunState(t, r, ended, RunStateCompleted, "")
+	pooled := queueRun(t, r, tenant, at.ID, past, &past)
+	setRunState(t, r, pooled, RunStateActive, "pool-0")
+	if _, err := r.pool.Exec(ctx, `UPDATE runs SET pod_ordinal = 2 WHERE id = ANY($1)`, []string{legacy, ended}); err != nil {
+		t.Fatal(err)
+	}
+
+	runs, err := r.ListStatefulSetRuns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runIDs(runs); !slices.Contains(got, legacy) || slices.Contains(got, ended) || slices.Contains(got, pooled) {
+		t.Errorf("StatefulSet runs = %v, want %s and not %s or %s", got, legacy, ended, pooled)
+	}
+	occupied, err := r.ActiveRunsPerPod(ctx, at.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(occupied) != 1 || occupied["pool-0"] != 1 {
+		t.Errorf("runs per pod = %v, want map[pool-0:1]", occupied)
+	}
+	counts, err := r.AgentRunCounts(ctx, at.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Active != 2 {
+		t.Errorf("active runs = %d, want 2 with the StatefulSet run counted toward the total", counts.Active)
+	}
+}

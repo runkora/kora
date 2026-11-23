@@ -139,6 +139,7 @@ func realMain() error {
 	go routescopes.KeepRegistered(ctx, logger, "kora-agents", initScopeRegistration(logger, selfToken, repo, atSvc))
 	go runSvc.StartReaper(ctx)
 	go atSvc.ApplyAll(ctx, repo)
+	go runSvc.EndStatefulSetRuns(ctx)
 	runSvc.StartScheduler(ctx)
 	go scaler.Start(ctx)
 	go draftSvc.StartReaper(ctx)

@@ -876,6 +876,15 @@ func checkRunAcceptsMessage(ctx context.Context, at *AgentType, run *Run) error 
 	if run.State != RunStateActive && run.State != RunStateIdle {
 		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
 	}
+	return checkRunHasPod(run)
+}
+
+// checkRunHasPod refuses a run with no pod name: an earlier release placed it on an agent StatefulSet pod,
+// and the cutover to pool pods ends it (docs/adr/2026-11-22-agent-cold-tier.md).
+func checkRunHasPod(run *Run) error {
+	if run.PodName == "" {
+		return fmt.Errorf("%w: the run is on no pool pod", ErrRunNotAcceptingMessages)
+	}
 	return nil
 }
 
@@ -1032,6 +1041,9 @@ func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 	}
 	if run.State != RunStateActive {
 		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
+	}
+	if err = checkRunHasPod(run); err != nil {
+		return err
 	}
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
 	target, err := s.podTarget(ctx, at.Slug, namespace, run.PodName)

@@ -320,6 +320,32 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 	return nil, "", "", false, false
 }
 
+// statefulSetRunReason is the run_error message of a run that ends at the cutover to pool pods.
+const statefulSetRunReason = "The agent moved to pool pods."
+
+// EndStatefulSetRuns fails every live run that an earlier release placed on an agent StatefulSet pod: it has a
+// pod ordinal and no pod name. Those pods drain away at the cutover to pool pods, and the runs end once
+// (docs/adr/2026-11-22-agent-cold-tier.md). kora-agents runs it at startup.
+func (s *RunService) EndStatefulSetRuns(ctx context.Context) {
+	runs, err := s.repo.ListStatefulSetRuns(ctx)
+	if err != nil {
+		s.logger.Error(ctx, "list runs on agent StatefulSet pods failed", logging.Field{Key: "error", Value: err.Error()})
+		return
+	}
+	for _, run := range runs {
+		if err := s.Transition(withFailureCode(ctx, events.RunErrorRunnerError), run.ID, run.State, RunStateFailed); err != nil {
+			s.logger.Warn(ctx, "end run on an agent StatefulSet pod failed",
+				logging.Field{Key: "run_id", Value: run.ID}, logging.Field{Key: "error", Value: err.Error()})
+			continue
+		}
+		payload, _ := json.Marshal(map[string]string{"code": events.RunErrorRunnerError, "message": statefulSetRunReason})
+		if err := s.PublishEvent(ctx, run.ID, PushedEvent{Type: "run_error", Payload: payload}); err != nil {
+			s.logger.Warn(ctx, "record the end of a run on an agent StatefulSet pod failed",
+				logging.Field{Key: "run_id", Value: run.ID}, logging.Field{Key: "error", Value: err.Error()})
+		}
+	}
+}
+
 // initialMessageBackoff is the wait before the first retry of the run's first
 // message. It doubles per retry. Tests shorten it.
 var initialMessageBackoff = 250 * time.Millisecond

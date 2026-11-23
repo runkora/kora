@@ -59,6 +59,9 @@ type RunRepository interface {
 	// AssignPod sets pod_name and transitions pending→starting atomically,
 	// only while the run is still held under the claim taken at claimedAt.
 	AssignPod(ctx context.Context, runID string, claimedAt time.Time, podName string) error
+	// ListStatefulSetRuns returns the pod-occupying runs past pending with a pod ordinal and no pod name:
+	// the runs an earlier release placed on an agent StatefulSet pod.
+	ListStatefulSetRuns(ctx context.Context) ([]Run, error)
 	// MarkRunFailed transitions a run that has not ended to the failed terminal state
 	// and stamps completed_at. Used to clean up synchronously when a run's start
 	// fails after the row was created, so it never lingers in pending/starting
