@@ -13,6 +13,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
+
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 // newColdScaler is newTestScaler with a floor of one pod and a cold threshold of an hour.
@@ -51,22 +54,14 @@ func TestScalerCold(t *testing.T) {
 	}
 }
 
-// A cold agent with no pod binds nothing until a run waits for it.
+// A cold agent with no pod and no run gets no pod.
 func TestScalerColdAgentWithNoPod(t *testing.T) {
 	f := &scalerFake{t: t, lastCompleted: time.Now().Add(-2 * time.Hour), pods: scaleTestPods(nil), memory: fullPod}
-	s := newColdScaler(f)
-	if err := s.scale(context.Background(), scaleTestAgent); err != nil {
+	if err := newColdScaler(f).scale(context.Background(), scaleTestAgent); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.bound) != 0 {
-		t.Fatalf("bound %v for a cold agent with no run", f.bound)
-	}
-	f.counts = AgentRunCounts{Pending: 1}
-	if err := s.scale(context.Background(), scaleTestAgent); err != nil {
-		t.Fatal(err)
-	}
-	if len(f.bound) != 1 {
-		t.Errorf("bound %v, want one pod for the pending run", f.bound)
+		t.Errorf("bound %v for a cold agent with no run", f.bound)
 	}
 }
 
@@ -181,59 +176,67 @@ func TestDeferredSince(t *testing.T) {
 	}
 }
 
-// fakeColdWaker binds pool pods by name and reports live pods.
-type fakeColdWaker struct {
-	live    []agentPod
-	bindErr error
-	bound   []string
-}
-
-func (w *fakeColdWaker) LiveAgentPods(context.Context, AgentType, string) (agentPods, error) {
-	return agentPods{Live: w.live}, nil
-}
-
-func (w *fakeColdWaker) BindPod(context.Context, AgentType, string) (string, error) {
-	if w.bindErr != nil {
-		return "", w.bindErr
-	}
-	name := testPodName(len(w.bound))
-	w.bound = append(w.bound, name)
-	return name, nil
-}
-
 // A run of an agent with no pod binds a pool pod, sends the waking event and starts on the pod once its grow
-// and bound check are done.
+// and bound check are done. It records the bind to bound check time, and the wake to first model event time
+// once the pod pushes a model event.
 func TestStartClaimed_ColdWake(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
-		cold         *fakeColdWaker
+		setup        func(k8s *mockK8s, repo *mockRepository, runID string)
 		wantState    RunState
 		wantBinds    int
 		wantReleased int
 		wantProvMiss int
+		wantWoken    bool
 	}{
-		{name: "binds a pool pod and starts the run", cold: &fakeColdWaker{},
-			wantState: RunStateActive, wantBinds: 1},
-		{name: "a pod another start bound keeps the run waiting", cold: &fakeColdWaker{live: readyPods(1)},
+		{name: "binds a pool pod and starts the run", wantState: RunStateActive, wantBinds: 1, wantWoken: true},
+		{name: "a pod another start bound keeps the run waiting", setup: func(k8s *mockK8s, _ *mockRepository, _ string) { k8s.coldLive = readyPods(1) },
 			wantState: RunStatePending, wantReleased: 1},
-		{name: "an empty pool keeps the run waiting", cold: &fakeColdWaker{bindErr: errNoPoolPod},
+		{name: "an empty pool keeps the run waiting", setup: func(k8s *mockK8s, _ *mockRepository, _ string) { k8s.bindErr = errNoPoolPod },
 			wantState: RunStatePending, wantReleased: 1},
-		{name: "a tenant with no pool deployment provisions it", cold: &fakeColdWaker{bindErr: errNoPoolDeployment},
+		{name: "a tenant with no pool deployment provisions it", setup: func(k8s *mockK8s, _ *mockRepository, _ string) { k8s.bindErr = errNoPoolDeployment },
 			wantState: RunStatePending, wantReleased: 1, wantProvMiss: 1},
-		{name: "a refused bind fails the run", cold: &fakeColdWaker{bindErr: fmt.Errorf("%w: forbidden", errBindRefused)},
+		{name: "a refused bind fails the run", setup: func(k8s *mockK8s, _ *mockRepository, _ string) {
+			k8s.bindErr = fmt.Errorf("%w: forbidden", errBindRefused)
+		},
 			wantState: RunStateFailed},
-		{name: "a failed bind releases the run", cold: &fakeColdWaker{bindErr: errors.New("connection reset")},
+		{name: "a failed bind releases the run", setup: func(k8s *mockK8s, _ *mockRepository, _ string) { k8s.bindErr = errors.New("connection reset") },
 			wantState: RunStatePending, wantReleased: 1},
+		{name: "an agent at its total binds nothing", setup: func(_ *mockK8s, repo *mockRepository, _ string) {
+			repo.mu.Lock()
+			defer repo.mu.Unlock()
+			for i := range 5 {
+				id := fmt.Sprintf("busy-%d", i)
+				repo.runs[id] = &Run{ID: id, AgentTypeID: "at-1", TenantID: "t1", State: RunStateActive}
+			}
+		}, wantState: RunStatePending, wantReleased: 1},
+		{name: "a run that left the queue during the bind is not started", setup: func(k8s *mockK8s, repo *mockRepository, runID string) {
+			k8s.onBind = func() {
+				repo.mu.Lock()
+				defer repo.mu.Unlock()
+				repo.runs[runID].State = RunStateFailed
+			}
+		}, wantState: RunStateFailed, wantBinds: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, repo, k8s, sm := schedulerService(t)
-			k8s.noReadyPods = true
+			k8s.noReadyPods, k8s.bindOK = true, true
 			waker := &fakeWaker{}
 			f.run.SetPodWaker(waker)
-			f.run.SetColdWaker(tc.cold)
+			reader := sdkmetric.NewManualReader()
+			provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+			t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+			m, err := NewMetrics(provider.Meter("test"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.run.SetMetrics(m)
 			run, err := f.run.StartRun(startCtx(), StartRunRequest{AgentTypeID: "at-1", InitialMessage: "fix the build"})
 			if err != nil {
 				t.Fatal(err)
+			}
+			if tc.setup != nil {
+				tc.setup(k8s, repo, run.ID)
 			}
 			claimed, claimedAt := claimRun(repo, run.ID)
 			f.run.startClaimed(context.Background(), claimed, claimedAt)
@@ -241,7 +244,7 @@ func TestStartClaimed_ColdWake(t *testing.T) {
 			if state := repo.runs[run.ID].State; state != tc.wantState {
 				t.Errorf("state = %s, want %s", state, tc.wantState)
 			}
-			got := []int{len(tc.cold.bound), repo.released, len(k8s.provisionedMissing)}
+			got := []int{len(k8s.bound), repo.released, len(k8s.provisionedMissing)}
 			if want := []int{tc.wantBinds, tc.wantReleased, tc.wantProvMiss}; !slices.Equal(got, want) {
 				t.Errorf("binds,released,provisions = %v, want %v", got, want)
 			}
@@ -253,15 +256,57 @@ func TestStartClaimed_ColdWake(t *testing.T) {
 				}
 			}
 			repo.mu.Unlock()
-			if waking != tc.wantBinds {
-				t.Errorf("waking events = %d, want %d", waking, tc.wantBinds)
+			if (waking == 1) != tc.wantWoken || waking > 1 {
+				t.Errorf("waking events = %d, want one only for a wake", waking)
 			}
-			if tc.wantBinds == 1 {
-				if len(waker.warm) != 1 || !waker.warm[0] || len(sm.sessions) != 1 {
-					t.Errorf("grows %v and sessions %d, want one waited grow before one session", waker.warm, len(sm.sessions))
+			if !tc.wantWoken {
+				return
+			}
+			if len(waker.warm) != 1 || !waker.warm[0] || len(sm.sessions) != 1 {
+				t.Errorf("grows %v and sessions %d, want one waited grow before one session", waker.warm, len(sm.sessions))
+			}
+			for _, ev := range []string{"text_delta", "text_delta"} {
+				if err := f.run.PublishEvent(context.Background(), run.ID, PushedEvent{Type: ev}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			metrics := collectRunMetrics(t, reader)
+			for _, name := range []string{"kora.agents.wake.bound.duration", "kora.agents.wake.first_model_event.duration"} {
+				h, ok := metrics[name].Data.(metricdata.Histogram[float64])
+				if !ok || len(h.DataPoints) != 1 || h.DataPoints[0].Count != 1 {
+					t.Errorf("%s = %#v, want one point of one wake", name, metrics[name].Data)
 				}
 			}
 		})
+	}
+}
+
+// Only a model event ends the wait for the first model event, and a wake older than the window records nothing.
+func TestNoteFirstModelEvent(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+	m, err := NewMetrics(provider.Meter("test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &RunService{metrics: m}
+	now := time.Now()
+	s.noteWake("r1", now.Add(-time.Second))
+	s.noteWake("old", now.Add(-time.Hour))
+	s.noteFirstModelEvent(context.Background(), "r1", PushedEvent{Type: eventAgentWaking, At: now})
+	s.noteFirstModelEvent(context.Background(), "old", PushedEvent{Type: "tool_use", At: now})
+	if _, ok := s.wakes.Load("r1"); !ok {
+		t.Fatal("a waking event ended the wait")
+	}
+	s.noteWake("r2", now)
+	if _, ok := s.wakes.Load("old"); ok {
+		t.Error("a wake older than the window was kept")
+	}
+	s.noteFirstModelEvent(context.Background(), "r1", PushedEvent{Type: "thinking_delta", At: now})
+	h, ok := collectRunMetrics(t, reader)["kora.agents.wake.first_model_event.duration"].Data.(metricdata.Histogram[float64])
+	if !ok || len(h.DataPoints) != 1 || h.DataPoints[0].Count != 1 || h.DataPoints[0].Sum < 0.9 || h.DataPoints[0].Sum > 1.1 {
+		t.Errorf("first model event = %#v, want one point near 1s", h)
 	}
 }
 
@@ -288,11 +333,10 @@ func TestScalerFloor(t *testing.T) {
 	}
 }
 
-// With run starts waking cold agents, the scaler binds no pod for a cold agent's pending run.
+// The scaler binds no pod for a cold agent's pending run: the run's start wakes the agent.
 func TestScalerLeavesColdWakesToRunStarts(t *testing.T) {
 	f := &scalerFake{t: t, counts: AgentRunCounts{Pending: 1}, lastCompleted: time.Now().Add(-2 * time.Hour), pods: scaleTestPods(nil), memory: fullPod}
 	s := newColdScaler(f)
-	s.cfg.RunsWakeColdAgents = true
 	if err := s.scale(context.Background(), scaleTestAgent); err != nil {
 		t.Fatal(err)
 	}
@@ -332,9 +376,7 @@ func (r *deletedAfterRead) GetAgentType(ctx context.Context, id string) (*AgentT
 
 func TestStartClaimed_ColdWakeOfADeletedAgent(t *testing.T) {
 	f, repo, k8s, _ := schedulerService(t)
-	k8s.noReadyPods = true
-	cold := &fakeColdWaker{}
-	f.run.SetColdWaker(cold)
+	k8s.noReadyPods, k8s.bindOK = true, true
 	run, err := f.run.StartRun(startCtx(), StartRunRequest{AgentTypeID: "at-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -342,7 +384,7 @@ func TestStartClaimed_ColdWakeOfADeletedAgent(t *testing.T) {
 	f.run.atRepo = &deletedAfterRead{AgentTypeRepository: f.run.atRepo}
 	claimed, claimedAt := claimRun(repo, run.ID)
 	f.run.startClaimed(context.Background(), claimed, claimedAt)
-	if state := repo.runs[run.ID].State; state != RunStateFailed || len(cold.bound) != 0 {
-		t.Errorf("state %s with binds %v, want a failed run and no bind", state, cold.bound)
+	if state := repo.runs[run.ID].State; state != RunStateFailed || len(k8s.bound) != 0 {
+		t.Errorf("state %s with binds %v, want a failed run and no bind", state, k8s.bound)
 	}
 }

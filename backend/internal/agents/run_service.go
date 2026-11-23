@@ -86,14 +86,15 @@ type RunService struct {
 	images     sandboxImageLookup
 	missing    missingProvisioner
 	pods       livePods
-	waker      podWaker  // grows a warm pod before its run; nil = no grow
-	cold       coldWaker // binds a pool pod to a cold agent at run start; nil = the scaler binds
+	waker      podWaker // grows a warm pod before its run; nil = no grow
 	queue      runQueue
 	placement  podPlacementStore
 	metrics    *Metrics // run outcome and duration; nil = not recorded
 	budgets    runBudgetReader
 	selfToken  ServiceTokenSource
 	grades     gradeReader
+	// wakes holds, per run ID, when this replica started the run's cold wake, until the run's first model event.
+	wakes sync.Map
 	// attempts and schedulerDone track the scheduler started by StartScheduler.
 	attempts      sync.WaitGroup
 	schedulerDone chan struct{}
@@ -124,10 +125,6 @@ func (s *RunService) SetBudgetReader(r runBudgetReader, selfToken ServiceTokenSo
 
 // SetPodWaker installs the grow of a warm pod before a run starts on it. When unset, runs start on the pod as it is.
 func (s *RunService) SetPodWaker(w podWaker) { s.waker = w }
-
-// SetColdWaker installs the bind of a pool pod when a run's agent has no pod. When unset, the run waits for
-// the scaler to bind one.
-func (s *RunService) SetColdWaker(w coldWaker) { s.cold = w }
 
 // SetMetrics installs the instruments that record a run's outcome and duration
 // when it reaches a terminal state. When unset, nothing is recorded.
@@ -775,6 +772,7 @@ func (s *RunService) PublishEvent(ctx context.Context, runID string, ev PushedEv
 	if !replayOnlyEventType(ev.Type) {
 		s.pubsub.Publish(runID, ev)
 	}
+	s.noteFirstModelEvent(ctx, runID, ev)
 	return writeErr
 }
 

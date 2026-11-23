@@ -73,9 +73,6 @@ type ScalerConfig struct {
 	// ColdAfter is how long an agent with no pending, starting, active or idle run keeps its pods. Zero keeps
 	// every agent at its floor.
 	ColdAfter time.Duration
-	// RunsWakeColdAgents leaves the bind for a cold agent's pending run to the run's start, which sends the
-	// "waking agent" event (docs/adr/2026-11-22-agent-cold-tier.md, D5).
-	RunsWakeColdAgents bool
 }
 
 // Scaler binds and deletes each agent's pods from its runs and pod memory, and rolls the pods a pool
@@ -209,8 +206,8 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	if err != nil {
 		return err
 	}
-	// Every replica counts the cold wakes the same way, before any step that can fail, as the count needs no
-	// agent lock.
+	// Every replica counts the cold wakes the same way, with no agent lock. An agent whose pod read failed is
+	// not counted.
 	if len(pods.Live) == 0 {
 		counts, countErr := s.store.AgentRunCounts(ctx, at.ID)
 		if countErr != nil {
@@ -310,11 +307,11 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 }
 
 // moveToDemand binds the pods desiredPods adds or removes the one it drops. A cold agent's pending run is left
-// to its start when run starts wake cold agents.
+// to its start, which binds a pool pod and sends the "waking agent" event (docs/adr/2026-11-22-agent-cold-tier.md, D5).
 func (s *Scaler) moveToDemand(ctx context.Context, at AgentType, namespace string, in scaleInput) error {
 	want := desiredPods(in)
 	switch {
-	case want > len(in.pods) && s.cfg.RunsWakeColdAgents && len(in.pods) == 0 && in.counts.Pending > 0:
+	case want > len(in.pods) && len(in.pods) == 0 && in.counts.Pending > 0:
 		return nil
 	case want > len(in.pods):
 		return s.bindPods(ctx, at, namespace, want-len(in.pods), in)

@@ -27,6 +27,9 @@ var runDurationBuckets = []float64{1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600, 
 // (docs/adr/2026-11-22-agent-cold-tier.md, B1).
 var wakeBuckets = []float64{0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 5, 10}
 
+// firstModelEventBuckets are seconds from half a second to 30s: the bind plus a model's first output.
+var firstModelEventBuckets = []float64{0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 7.5, 10, 15, 30}
+
 // Metrics is the Agents feature's instrument set. A nil *Metrics records nothing.
 //
 // Runs are measured when they reach a terminal state, not as a span, because a
@@ -38,6 +41,8 @@ type Metrics struct {
 	bindRefused metric.Int64Counter
 	// wakeBound is the time from a cold wake's bind to the pod's first 200 on the bound check.
 	wakeBound metric.Float64Histogram
+	// wakeFirstModelEvent is the time from the start of a cold wake to the run's first model event.
+	wakeFirstModelEvent metric.Float64Histogram
 }
 
 // NewMetrics builds the instrument set on the given meter.
@@ -76,7 +81,25 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create wake-bound histogram: %w", err)
 	}
-	return &Metrics{runs: runs, runDuration: duration, bindRefused: bindRefused, wakeBound: wakeBound}, nil
+	firstModelEvent, err := meter.Float64Histogram(
+		"kora.agents.wake.first_model_event.duration",
+		metric.WithDescription("Time from the start of a cold wake to the run's first model event"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(firstModelEventBuckets...),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create wake first-model-event histogram: %w", err)
+	}
+	return &Metrics{runs: runs, runDuration: duration, bindRefused: bindRefused, wakeBound: wakeBound,
+		wakeFirstModelEvent: firstModelEvent}, nil
+}
+
+// recordWakeFirstModelEvent records the time from the start of a cold wake to the run's first model event.
+func (m *Metrics) recordWakeFirstModelEvent(ctx context.Context, d time.Duration) {
+	if m == nil {
+		return
+	}
+	m.wakeFirstModelEvent.Record(ctx, d.Seconds())
 }
 
 // recordWakeBound records the time from a cold wake's bind to its bound check.

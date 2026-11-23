@@ -843,8 +843,8 @@ type mockK8s struct {
 	provisionedMissing      []string
 	deprovisionedAgentTypes []string
 	deletedSandboxes        []string
-	// noReadyPods makes AgentPods report no Ready pod.
-	noReadyPods bool
+	// noReadyPods makes AgentPods report no pod, and unreadyPods one live pod that is not Ready.
+	noReadyPods, unreadyPods bool
 	// livePod and livePodErr are what LivePod reports.
 	livePod    bool
 	livePodErr error
@@ -852,6 +852,14 @@ type mockK8s struct {
 	provisionAgentTypeErr   error
 	ensureAgentGrantErr     error
 	deprovisionAgentTypeErr error
+	// coldLive is what LiveAgentPods reports. bound records the pool pods BindPod bound. bindErr fails every
+	// bind, and a nil bindErr with bindOK unset reports a tenant with no pool Deployment.
+	coldLive []agentPod
+	bound    []string
+	bindErr  error
+	bindOK   bool
+	// onBind runs inside a successful BindPod when set.
+	onBind func()
 	// onDeprovision runs inside DeprovisionAgentType when set.
 	onDeprovision func()
 	// readyPods is how many pods AgentPods reports, named testPodName(i). Zero means one.
@@ -920,6 +928,9 @@ func (m *mockK8s) AgentPods(_ context.Context, _ AgentType, _ string) (agentPods
 	if m.noReadyPods {
 		return agentPods{}, nil
 	}
+	if m.unreadyPods {
+		return agentPods{Live: []agentPod{{Name: testPodName(0), Config: m.config}}}, nil
+	}
 	pods := agentPods{}
 	for i := range max(m.readyPods, 1) {
 		pods.Live = append(pods.Live, agentPod{
@@ -956,6 +967,29 @@ func testPodIP(i int) string { return fmt.Sprintf("10.0.0.%d", i+1) }
 // testPod is the session-manager target of the mock pod at index i.
 func testPod(slug string, i int, namespace string) sessionmanager.Pod {
 	return sessionmanager.PodAt(testPodIP(i), slug, namespace)
+}
+
+func (m *mockK8s) LiveAgentPods(context.Context, AgentType, string) (agentPods, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return agentPods{Live: m.coldLive}, nil
+}
+
+func (m *mockK8s) BindPod(context.Context, AgentType, string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	switch {
+	case m.bindErr != nil:
+		return "", m.bindErr
+	case !m.bindOK:
+		return "", errNoPoolDeployment
+	}
+	name := testPodName(len(m.bound))
+	m.bound = append(m.bound, name)
+	if m.onBind != nil {
+		m.onBind()
+	}
+	return name, nil
 }
 
 func (m *mockK8s) LivePod(_ context.Context, _ AgentType, _ string) (bool, error) {

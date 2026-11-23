@@ -148,7 +148,7 @@ func TestStartClaimed(t *testing.T) {
 		{name: "starts on a free pod and sends the initial message",
 			wantState: RunStateActive, wantSessions: 1, wantMessages: 1},
 		{name: "no ready pod creates missing resources and releases",
-			setup:     func(e *startClaimedEnv) { e.k8s.noReadyPods = true },
+			setup:     func(e *startClaimedEnv) { e.k8s.unreadyPods = true },
 			wantState: RunStatePending, wantReleased: 1, wantProvMiss: 1},
 		{name: "an agent at its total releases even past the start budget",
 			setup: func(e *startClaimedEnv) {
@@ -182,7 +182,7 @@ func TestStartClaimed(t *testing.T) {
 			wantState: RunStateFailed, wantErr: "No agent pod could take the run within 1m0s."},
 		{name: "past the start budget a pod that is not Ready yet keeps the run queued",
 			setup: func(e *startClaimedEnv) {
-				e.k8s.noReadyPods = true
+				e.k8s.unreadyPods = true
 				e.k8s.livePod = true
 				e.f.run.cfg.StartBudget = time.Minute
 				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-time.Hour)
@@ -198,7 +198,7 @@ func TestStartClaimed(t *testing.T) {
 			wantState: RunStatePending, wantReleased: 1},
 		{name: "past the start budget with no Ready pod an agent at its total keeps the run queued",
 			setup: func(e *startClaimedEnv) {
-				e.k8s.noReadyPods = true
+				e.k8s.unreadyPods = true
 				e.f.run.cfg.StartBudget = time.Minute
 				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-time.Hour)
 				// Starting runs count toward the total as well as active ones.

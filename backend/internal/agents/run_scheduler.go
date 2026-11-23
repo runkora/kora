@@ -386,12 +386,6 @@ func (s *RunService) assignOrWake(ctx context.Context, run Run, claimedAt time.T
 // eventAgentWaking is the run event a start sends when it binds a pool pod to its cold agent.
 const eventAgentWaking = "agent_waking"
 
-// coldWaker binds a pool pod to a cold agent (docs/adr/2026-11-22-agent-cold-tier.md, D5).
-type coldWaker interface {
-	LiveAgentPods(ctx context.Context, at AgentType, namespace string) (agentPods, error)
-	BindPod(ctx context.Context, at AgentType, namespace string) (string, error)
-}
-
 // wakeAgent binds a pool pod to the run's cold agent and assigns the run to it under the agent lock, then
 // sends the "waking agent" event. It returns the pod and when the bind was made. An agent that the API
 // server shows with a pod already returns errAgentCold, and the run waits for that pod.
@@ -417,7 +411,7 @@ func (s *RunService) wakeAgent(ctx context.Context, run Run, claimedAt time.Time
 			return errAgentAtTotal
 		}
 		// Another start or the scaler may have bound a pod since the cache was read.
-		live, err := s.cold.LiveAgentPods(ctx, *at, namespace)
+		live, err := s.k8s.LiveAgentPods(ctx, *at, namespace)
 		if err != nil {
 			return err
 		}
@@ -425,7 +419,7 @@ func (s *RunService) wakeAgent(ctx context.Context, run Run, claimedAt time.Time
 			return errAgentCold
 		}
 		wokeAt = time.Now()
-		if pod, err = s.cold.BindPod(ctx, *at, namespace); err != nil {
+		if pod, err = s.k8s.BindPod(ctx, *at, namespace); err != nil {
 			return err
 		}
 		return s.placement.AssignPod(ctx, run.ID, claimedAt, pod)
@@ -433,6 +427,7 @@ func (s *RunService) wakeAgent(ctx context.Context, run Run, claimedAt time.Time
 	if err != nil {
 		return "", time.Time{}, err
 	}
+	s.noteWake(run.ID, wokeAt)
 	payload, err := json.Marshal(map[string]string{"pod": pod})
 	if err == nil {
 		err = s.PublishEvent(ctx, run.ID, PushedEvent{Type: eventAgentWaking, Payload: payload})
@@ -445,6 +440,38 @@ func (s *RunService) wakeAgent(ctx context.Context, run Run, claimedAt time.Time
 		logging.Field{Key: "run_id", Value: run.ID}, logging.Field{Key: "agent_type_id", Value: at.ID},
 		logging.Field{Key: "pod", Value: pod})
 	return pod, wokeAt, nil
+}
+
+// firstModelEventWindow bounds how long a replica keeps a cold wake's start for its first model event. The
+// session-manager may push that event to another replica, which has no start to measure from.
+const firstModelEventWindow = 10 * time.Minute
+
+// modelEventTypes are the pushed events a model's output produces.
+var modelEventTypes = map[string]bool{"text_delta": true, "thinking_delta": true, "text_block": true, "tool_use": true}
+
+// noteWake keeps the start of the run's cold wake for its first model event, and drops the starts older than
+// firstModelEventWindow.
+func (s *RunService) noteWake(runID string, wokeAt time.Time) {
+	s.wakes.Range(func(k, v any) bool {
+		if time.Since(v.(time.Time)) > firstModelEventWindow {
+			s.wakes.Delete(k)
+		}
+		return true
+	})
+	s.wakes.Store(runID, wokeAt)
+}
+
+// noteFirstModelEvent records the time from the run's cold wake to ev when ev is the run's first model event
+// on this replica (docs/adr/2026-11-22-agent-cold-tier.md, B1).
+func (s *RunService) noteFirstModelEvent(ctx context.Context, runID string, ev PushedEvent) {
+	if !modelEventTypes[ev.Type] {
+		return
+	}
+	if v, ok := s.wakes.LoadAndDelete(runID); ok {
+		if d := ev.At.Sub(v.(time.Time)); d >= 0 && d <= firstModelEventWindow {
+			s.metrics.recordWakeFirstModelEvent(ctx, d)
+		}
+	}
 }
 
 // statefulSetRunReason is the run_error message of a run that ends at the cutover to pool pods.
@@ -563,7 +590,7 @@ func (s *RunService) assignPod(ctx context.Context, run Run, claimedAt time.Time
 	// During a roll the current pods take runs first, so the old pods drain.
 	config := agentConfigHash(*at)
 	ready := slices.Concat(readyOf(pods.current(config)), readyOf(pods.old(config)))
-	if len(pods.Live) == 0 && s.cold != nil {
+	if len(pods.Live) == 0 {
 		return "", false, errAgentCold
 	}
 	if len(ready) == 0 {
