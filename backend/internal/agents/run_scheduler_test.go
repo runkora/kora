@@ -481,7 +481,7 @@ func TestStartClaimed_InitialMessageRetries(t *testing.T) {
 				}
 			}
 			hasErrLog := false
-			for _, line := range strings.Split(logs.String(), "\n") {
+			for line := range strings.SplitSeq(logs.String(), "\n") {
 				if strings.Contains(line, `"level":"error"`) && strings.Contains(line, `"run_id":"`+run.ID+`"`) && strings.Contains(line, `"pod_ordinal"`) {
 					hasErrLog = true
 				}
