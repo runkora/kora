@@ -82,8 +82,8 @@ spec:
   policyName: kora-agent-bind
   validationActions: ["Deny"]
 ---
-# kora-agents updates a pod only to bind a pool pod, in PR 6 of
-# docs/adr/2026-11-22-agent-cold-tier.md. Its pod updates stay on pool pods in
+# kora-agents updates a pod only to bind a pool pod
+# (docs/adr/2026-11-22-agent-cold-tier.md). Its pod updates stay on pool pods in
 # tenant namespaces and change only the bind labels and the owner references.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy

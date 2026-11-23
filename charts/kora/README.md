@@ -90,7 +90,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.sandboxWarming.topologySpreadConstraints | list | `[]` |  |
 | agents.scheduling.drainGracePeriodSecs | int | `3600` | Seconds a terminating session-manager pod waits for its runs to end before it is stopped. |
 | agents.scheduling.maxReplicas | int | `10` | Session-manager pods each agent runs at most. kora-agents never adds pods past it or the agent's total of concurrent runs. |
-| agents.scheduling.minReplicas | int | `1` | Session-manager pods each agent runs at least. A roll first adds one pod on the new revision. kora-agents adds pods above it as runs need them and removes empty ones. |
+| agents.scheduling.minReplicas | int | `1` | Session-manager pods each agent runs at least. A roll first binds one pod on the pool's new template. kora-agents binds pods above it as runs need them and removes empty ones. |
 | agents.scheduling.placementWatermark | float | `0.7` | Fraction of a session-manager pod's memory limit its working set must stay below for the pod to take a run. |
 | agents.scheduling.pollIntervalSecs | int | `1` | Seconds between polls for pending runs, and before a run with no free pod is tried again. |
 | agents.scheduling.pressureLimit | float | `0.9` | Fraction of the memory limit at which the session-manager kills its most recently started run. Above placementWatermark. |
