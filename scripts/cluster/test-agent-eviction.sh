@@ -62,7 +62,7 @@ pod_ready() { [[ $(k get pod "$1" -o jsonpath='{.status.conditions[?(@.type=="Re
 pod_terminating() { [[ -n $(k get pod "$1" -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null) ]]; }
 # live_pods prints the agent's bound pods that are not terminating.
 live_pods() {
-  k get pods -l "app=$slug" -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.deletionTimestamp}{"\n"}{end}' | awk 'NF == 1'
+  k get pods -l "app=$slug" -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.deletionTimestamp}{"\n"}{end}' | awk 'NF == 1 {print $1}'
 }
 one_live_ready_pod() { [[ $(live_pods | wc -l | tr -d ' ') == 1 ]] && pod_ready "$(live_pods)"; }
 # old_pod_draining succeeds while the evicted pod is still terminating.

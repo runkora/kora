@@ -47,7 +47,7 @@ fail() {
 
 # live_pods prints the agent's bound pods that are not terminating.
 live_pods() {
-  k get pods -l "app=$slug" -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.deletionTimestamp}{"\n"}{end}' | awk 'NF == 1'
+  k get pods -l "app=$slug" -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.deletionTimestamp}{"\n"}{end}' | awk 'NF == 1 {print $1}'
 }
 
 # ready_pods counts the agent's Ready bound pods.
@@ -94,7 +94,8 @@ until (( $(ready_pods) >= FLOOR )); do
   sleep 2
 done
 first=$(live_pods | head -1)
-read -r agent_label pool_label owners < <(k get pod "$first" -o jsonpath='{.metadata.labels.spiffe\.io/agent} {.metadata.labels.runkora\.io/pool} {.metadata.ownerReferences[*].kind}{"\n"}')
+# The fields are split on | so an empty pool label keeps its place.
+IFS='|' read -r agent_label pool_label owners < <(k get pod "$first" -o jsonpath='{.metadata.labels.spiffe\.io/agent}|{.metadata.labels.runkora\.io/pool}|{.metadata.ownerReferences[*].kind}{"\n"}')
 [[ $agent_label == "$slug" && -z $pool_label && $owners != *ReplicaSet* ]] ||
   fail "$first carries spiffe.io/agent=$agent_label, runkora.io/pool=$pool_label and owners $owners; want a pod bound to $slug"
 k get statefulset "$slug" >/dev/null 2>&1 && fail "agent $slug has a StatefulSet"

@@ -73,7 +73,7 @@ pod_template() { k get pod "$1" -o jsonpath='{.metadata.annotations.runkora\.io/
 pool_template() { k get deployment session-manager-pool -o jsonpath='{.spec.template.metadata.annotations.runkora\.io/pool-template}'; }
 # live_pods prints the agent's bound pods that are not terminating.
 live_pods() {
-  k get pods -l "app=$slug" -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.deletionTimestamp}{"\n"}{end}' | awk 'NF == 1'
+  k get pods -l "app=$slug" -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.deletionTimestamp}{"\n"}{end}' | awk 'NF == 1 {print $1}'
 }
 one_live_ready_pod() { [[ $(live_pods | wc -l | tr -d ' ') == 1 ]] && pod_ready "$(live_pods)"; }
 
@@ -176,7 +176,9 @@ echo "PASS 4: the agent is back to 1 pod, $(live_pods) on template $new_template
 echo "== Model change"
 model_pod=$(live_pods)
 api PATCH "/api/v1/agent-types/$agent" -d "$(jq -n --arg m "$MODEL2" '{model_id: $m}')" >/dev/null
-wait_for "the model change to drain $model_pod" pod_terminating "$model_pod"
+# An empty pod drains at once, so it can be gone before a poll sees it terminating.
+pod_leaving() { pod_terminating "$1" || ! k get pod "$1" >/dev/null 2>&1; }
+wait_for "the model change to drain $model_pod" pod_leaving "$model_pod"
 replaced() { one_live_ready_pod && [[ $(live_pods) != "$model_pod" ]]; }
 replaced || fail "$model_pod started terminating with no Ready replacement"
 echo "PASS 5: the model change bound $(live_pods) before it drained $model_pod"
