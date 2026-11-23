@@ -22,8 +22,10 @@ import (
 // Kubernetes resources provisioned for it.
 var ErrInvalidSlug = errors.New("invalid slug")
 
-// maxAgentSlugLength is the longest agent type slug. The slug is the app and
-// spiffe.io/agent label value of the agent's pods, which stops at 63 characters.
+// maxAgentSlugLength is the longest agent type slug. The slug is the agent's
+// Service name and the app and spiffe.io/agent label value of its pods, which
+// stop at 63 characters. The limit of 52 is the one earlier releases set for the
+// agent StatefulSet's revision label, and existing agents were created under it.
 const maxAgentSlugLength = 52
 
 // validateAgentSlug checks slug can name the agent's Service and label its
