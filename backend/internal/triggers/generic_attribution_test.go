@@ -54,11 +54,11 @@ func TestGenericAttribution_Validation(t *testing.T) {
 	valid := map[string]map[string]any{
 		"full block":    bearer(trackerAttribution()),
 		"empty block":   bearer(map[string]any{}),
-		"links only":    bearer(map[string]any{"links": links(maxAttributionLinks)}),
+		"links only":    bearer(map[string]any{"links": links(agentsclient.MaxRunSourcesPerRequest)}),
 		"summary only":  bearer(map[string]any{"actor": map[string]any{"name": "{{ user }}", "kind": actorPerson, "url": "{{ user_url }}"}, "object": map[string]any{"label": "x"}}),
 		"verbs alone":   bearer(map[string]any{"verbs": map[string]any{"Any.Key": "did"}}),
-		"url at bound":  bearer(map[string]any{"links": []any{map[string]any{"label": "L", "url": "https://t.example/" + strings.Repeat("a", maxAttributionURLBytes-18)}}}),
-		"text at bound": bearer(map[string]any{"links": []any{map[string]any{"label": strings.Repeat("é", maxAttributionTextRunes), "url": "https://t.example"}}}),
+		"url at bound":  bearer(map[string]any{"links": []any{map[string]any{"label": "L", "url": "https://t.example/" + strings.Repeat("a", agentsclient.MaxRunSourceURLBytes-18)}}}),
+		"text at bound": bearer(map[string]any{"links": []any{map[string]any{"label": strings.Repeat("é", agentsclient.MaxEventSummaryStringRunes), "url": "https://t.example"}}}),
 	}
 	for name, c := range valid {
 		if err := a.ValidateConfig(c); err != nil {
@@ -72,7 +72,7 @@ func TestGenericAttribution_Validation(t *testing.T) {
 		"link key in case":      bearer(map[string]any{"links": []any{map[string]any{"Label": "L", "url": "https://t.example"}}}),
 		"unknown actor key":     bearer(map[string]any{"actor": map[string]any{"name": "n", "kind": actorBot, "email": "x"}, "object": map[string]any{"label": "o"}}),
 		"unknown object key":    bearer(map[string]any{"actor": map[string]any{"name": "n", "kind": actorBot}, "object": map[string]any{"label": "o", "title": "x"}}),
-		"too many links":        bearer(map[string]any{"links": links(maxAttributionLinks + 1)}),
+		"too many links":        bearer(map[string]any{"links": links(agentsclient.MaxRunSourcesPerRequest + 1)}),
 		"link without url":      bearer(map[string]any{"links": []any{map[string]any{"label": "L"}}}),
 		"link with blank label": bearer(map[string]any{"links": []any{map[string]any{"label": " ", "url": "https://t.example"}}}),
 		"actor without object":  bearer(map[string]any{"actor": map[string]any{"name": "n", "kind": actorBot}}),
@@ -82,10 +82,10 @@ func TestGenericAttribution_Validation(t *testing.T) {
 		"bad placeholder path":  bearer(map[string]any{"links": []any{map[string]any{"label": "{{ data..id }}", "url": "https://t.example"}}}),
 		"placeholder not path":  bearer(map[string]any{"links": []any{map[string]any{"label": "L", "url": "https://t.example/{{ data-id }}"}}}),
 		"empty placeholder":     bearer(map[string]any{"actor": map[string]any{"name": "{{ }}", "kind": actorBot}, "object": map[string]any{"label": "o"}}),
-		"url over bound":        bearer(map[string]any{"links": []any{map[string]any{"label": "L", "url": "https://t.example/" + strings.Repeat("a", maxAttributionURLBytes)}}}),
-		"text over bound":       bearer(map[string]any{"actor": map[string]any{"name": strings.Repeat("n", maxAttributionTextRunes+1), "kind": actorBot}, "object": map[string]any{"label": "o"}}),
-		"verb over bound":       bearer(map[string]any{"verbs": map[string]any{"issue.created": strings.Repeat("v", maxAttributionTextRunes+1)}}),
-		"verb key over bound":   bearer(map[string]any{"verbs": map[string]any{strings.Repeat("e", maxAttributionTextRunes+1): "did"}}),
+		"url over bound":        bearer(map[string]any{"links": []any{map[string]any{"label": "L", "url": "https://t.example/" + strings.Repeat("a", agentsclient.MaxRunSourceURLBytes)}}}),
+		"text over bound":       bearer(map[string]any{"actor": map[string]any{"name": strings.Repeat("n", agentsclient.MaxEventSummaryStringRunes+1), "kind": actorBot}, "object": map[string]any{"label": "o"}}),
+		"verb over bound":       bearer(map[string]any{"verbs": map[string]any{"issue.created": strings.Repeat("v", agentsclient.MaxEventSummaryStringRunes+1)}}),
+		"verb key over bound":   bearer(map[string]any{"verbs": map[string]any{strings.Repeat("e", agentsclient.MaxEventSummaryStringRunes+1): "did"}}),
 		"links not a list":      bearer(map[string]any{"links": "https://t.example"}),
 	}
 	for name, c := range invalid {
@@ -111,7 +111,7 @@ func TestGenericSourceLinks(t *testing.T) {
 	want := []agentsclient.RunSource{
 		{Kind: sourceKindTrigger, URL: issue, Label: "#185 Rotate the build cache"},
 		{Kind: sourceKindTrigger, URL: "https://tracker.example.com/i/185", Label: "https://tracker.example.com/i/185"},
-		{Kind: sourceKindTrigger, URL: "https://tracker.example.com/long", Label: strings.Repeat("x", maxSourceLabelRunes-1) + "…"},
+		{Kind: sourceKindTrigger, URL: "https://tracker.example.com/long", Label: strings.Repeat("x", agentsclient.MaxRunSourceLabelRunes-1) + "…"},
 	}
 	// A bearer source is a plain generic adapter; an hmac source is the supplied-secret one.
 	for name, config := range map[string]map[string]any{
@@ -123,8 +123,8 @@ func TestGenericSourceLinks(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("%s: links =\n %+v\nwant\n %+v", name, got, want)
 		}
-		if n := utf8.RuneCountInString(got[2].Label); n != maxSourceLabelRunes {
-			t.Errorf("%s: truncated label has %d runes, want %d", name, n, maxSourceLabelRunes)
+		if n := utf8.RuneCountInString(got[2].Label); n != agentsclient.MaxRunSourceLabelRunes {
+			t.Errorf("%s: truncated label has %d runes, want %d", name, n, agentsclient.MaxRunSourceLabelRunes)
 		}
 	}
 	if got := sourceLinks(configuredGeneric(t, methodConfig(genericBearer)), "issue.updated", doc); got != nil {

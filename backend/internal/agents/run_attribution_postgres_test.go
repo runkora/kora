@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
@@ -192,8 +193,8 @@ func TestPostgres_RunSources(t *testing.T) {
 		t.Errorf("sources = %#v, want an empty list", gotNone.Sources)
 	}
 	// The run total is capped; further distinct sources are dropped.
-	for i := range maxRunSourcesPerRun/maxRunSourcesPerRequest + 1 {
-		batch := make([]RunSource, maxRunSourcesPerRequest)
+	for i := range maxRunSourcesPerRun/agentsclient.MaxRunSourcesPerRequest + 1 {
+		batch := make([]RunSource, agentsclient.MaxRunSourcesPerRequest)
 		for j := range batch {
 			batch[j] = RunSource{Kind: srcPR.Kind, URL: fmt.Sprintf("https://example.com/%d/%d", i, j), Label: "x"}
 		}

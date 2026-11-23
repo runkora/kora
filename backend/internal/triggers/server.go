@@ -86,7 +86,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	POST   /api/v1/trigger-sources            Register a webhook source.
 //	GET    /api/v1/trigger-sources            List webhook sources.
 //	GET    /api/v1/trigger-sources/{id}       Get a webhook source.
-//	PATCH  /api/v1/trigger-sources/{id}       Enable/disable or rotate secret.
+//	PATCH  /api/v1/trigger-sources/{id}       Enable/disable, rotate secret or replace a generic source's attribution.
 //	DELETE /api/v1/trigger-sources/{id}       Delete a webhook source.
 //	POST   /api/v1/triggers                   Create a trigger (any kind).
 //	GET    /api/v1/triggers                   List triggers with their stats over ?window=24h|7d (filter ?agent_type_id= ?kind=).

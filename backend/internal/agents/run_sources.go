@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 	"unicode/utf8"
 
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -41,14 +41,9 @@ const (
 	RunSourceProviderAlertmanager RunSourceProvider = "alertmanager"
 )
 
-// Limits on the sources one request may carry.
-const (
-	maxRunSourcesPerRequest = 10
-	// maxRunSourcesPerRun bounds runs.sources; later joins past it are dropped.
-	maxRunSourcesPerRun    = 50
-	maxRunSourceLabelRunes = 100
-	maxRunSourceURLBytes   = 2048
-)
+// maxRunSourcesPerRun bounds runs.sources; later joins past it are dropped.
+// The per-request limits are agentsclient's, which kora-triggers reads too.
+const maxRunSourcesPerRun = 50
 
 var (
 	// ErrRunSourcesRefused is returned when a caller that is not a SERVICE principal sends sources.
@@ -69,8 +64,8 @@ func authorizeRunSources(ctx context.Context, sources []RunSource) ([]RunSource,
 	if !ok || claims == nil || claims.Kora.PrincipalType != token.PrincipalTypeService {
 		return nil, ErrRunSourcesRefused
 	}
-	if len(sources) > maxRunSourcesPerRequest {
-		return nil, fmt.Errorf("%w: at most %d sources per request", ErrRunSourcesInvalid, maxRunSourcesPerRequest)
+	if len(sources) > agentsclient.MaxRunSourcesPerRequest {
+		return nil, fmt.Errorf("%w: at most %d sources per request", ErrRunSourcesInvalid, agentsclient.MaxRunSourcesPerRequest)
 	}
 	for i, s := range sources {
 		switch s.Kind {
@@ -83,14 +78,13 @@ func authorizeRunSources(ctx context.Context, sources []RunSource) ([]RunSource,
 		default:
 			return nil, fmt.Errorf("%w: source %d has unknown provider %q", ErrRunSourcesInvalid, i, s.Provider)
 		}
-		if strings.TrimSpace(s.Label) == "" || utf8.RuneCountInString(s.Label) > maxRunSourceLabelRunes {
-			return nil, fmt.Errorf("%w: source %d label must be 1 to %d characters", ErrRunSourcesInvalid, i, maxRunSourceLabelRunes)
+		if strings.TrimSpace(s.Label) == "" || utf8.RuneCountInString(s.Label) > agentsclient.MaxRunSourceLabelRunes {
+			return nil, fmt.Errorf("%w: source %d label must be 1 to %d characters", ErrRunSourcesInvalid, i, agentsclient.MaxRunSourceLabelRunes)
 		}
-		if len(s.URL) > maxRunSourceURLBytes {
+		if len(s.URL) > agentsclient.MaxRunSourceURLBytes {
 			return nil, fmt.Errorf("%w: source %d url is too long", ErrRunSourcesInvalid, i)
 		}
-		u, err := url.Parse(s.URL)
-		if err != nil || u.Scheme != "https" || u.Host == "" {
+		if !agentsclient.ValidRunSourceURL(s.URL) {
 			return nil, fmt.Errorf("%w: source %d url must be an absolute https url", ErrRunSourcesInvalid, i)
 		}
 	}

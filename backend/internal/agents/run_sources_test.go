@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -20,7 +21,7 @@ func serviceCtx() context.Context {
 }
 
 func TestAuthorizeRunSources(t *testing.T) {
-	tooMany := make([]RunSource, maxRunSourcesPerRequest+1)
+	tooMany := make([]RunSource, agentsclient.MaxRunSourcesPerRequest+1)
 	for i := range tooMany {
 		tooMany[i] = RunSource{Kind: RunSourceTrigger, URL: "https://x.example/" + string(rune('a'+i)), Label: "x"}
 	}
@@ -42,7 +43,7 @@ func TestAuthorizeRunSources(t *testing.T) {
 		{"relative refused", serviceCtx(), []RunSource{{Kind: RunSourceTrigger, URL: "/a", Label: "x"}}, ErrRunSourcesInvalid, 0},
 		{"unknown kind refused", serviceCtx(), []RunSource{{Kind: "other", URL: srcPR.URL, Label: "x"}}, ErrRunSourcesInvalid, 0},
 		{"empty label refused", serviceCtx(), []RunSource{{Kind: RunSourcePullRequest, URL: srcPR.URL, Label: " "}}, ErrRunSourcesInvalid, 0},
-		{"long label refused", serviceCtx(), []RunSource{{Kind: RunSourcePullRequest, URL: srcPR.URL, Label: strings.Repeat("a", maxRunSourceLabelRunes+1)}}, ErrRunSourcesInvalid, 0},
+		{"long label refused", serviceCtx(), []RunSource{{Kind: RunSourcePullRequest, URL: srcPR.URL, Label: strings.Repeat("a", agentsclient.MaxRunSourceLabelRunes+1)}}, ErrRunSourcesInvalid, 0},
 		{"known provider accepted", serviceCtx(), []RunSource{{Kind: RunSourcePullRequest, URL: srcPR.URL, Label: "PR #12", Provider: RunSourceProviderGitHub}}, nil, 1},
 		{"unknown provider refused", serviceCtx(), []RunSource{{Kind: RunSourcePullRequest, URL: srcPR.URL, Label: "PR #12", Provider: "gitlab"}}, ErrRunSourcesInvalid, 0},
 		{"too many refused", serviceCtx(), tooMany, ErrRunSourcesInvalid, 0},

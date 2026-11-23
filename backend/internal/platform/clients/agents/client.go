@@ -247,6 +247,20 @@ type RunSource struct {
 	Provider string `json:"provider,omitempty"`
 }
 
+// Limits on the run sources of one start or join request. kora-agents refuses a
+// request over them, and kora-triggers drops links that break them, so the two cannot drift apart.
+const (
+	MaxRunSourcesPerRequest = 10
+	MaxRunSourceLabelRunes  = 100
+	MaxRunSourceURLBytes    = 2048
+)
+
+// ValidRunSourceURL reports whether s may be a run source URL: an absolute https URL with a host.
+func ValidRunSourceURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && u.Scheme == "https" && u.Host != ""
+}
+
 // Limits on a RunEventSummary. kora-agents refuses a summary over them, and
 // kora-triggers clamps to them, so the two cannot drift apart.
 const (

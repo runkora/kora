@@ -165,9 +165,8 @@ func (a *genericAdapter) SourceLinks(_ string, doc any) []agentsclient.RunSource
 	var out []agentsclient.RunSource
 	for _, l := range a.cfg.Attribution.Links {
 		link := renderAttribution(l.URL, doc)
-		label := clampRunes(renderAttribution(l.Label, doc), maxSourceLabelRunes)
-		u, err := url.Parse(link)
-		if label == "" || len(link) > maxAttributionURLBytes || err != nil || u.Scheme != "https" || u.Host == "" {
+		label := clampRunes(renderAttribution(l.Label, doc), agentsclient.MaxRunSourceLabelRunes)
+		if label == "" || len(link) > agentsclient.MaxRunSourceURLBytes || !agentsclient.ValidRunSourceURL(link) {
 			continue
 		}
 		out = append(out, agentsclient.RunSource{Kind: sourceKindTrigger, URL: link, Label: label})

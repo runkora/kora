@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 )
 
 // Verification methods a generic source can use (docs/adr/2026-10-27-generic-webhook-source.md).
@@ -78,14 +80,6 @@ type genericObject struct {
 	Label string `json:"label"`
 	URL   string `json:"url"`
 }
-
-// Attribution limits. A source takes as many links as kora-agents accepts in one request.
-const (
-	maxAttributionLinks     = 10
-	maxAttributionURLBytes  = 2048
-	maxAttributionTextRunes = 300
-	maxSourceLabelRunes     = 100
-)
 
 type genericVerification struct {
 	Method   string `json:"method"`
@@ -241,8 +235,8 @@ func validateGenericAttribution(a *genericAttribution) error {
 		}
 	}
 	for eventType, verb := range a.Verbs {
-		if utf8.RuneCountInString(eventType) > maxAttributionTextRunes || utf8.RuneCountInString(verb) > maxAttributionTextRunes {
-			return fmt.Errorf("%w: config.attribution.verbs entries must be at most %d characters", ErrValidation, maxAttributionTextRunes)
+		if utf8.RuneCountInString(eventType) > agentsclient.MaxEventSummaryStringRunes || utf8.RuneCountInString(verb) > agentsclient.MaxEventSummaryStringRunes {
+			return fmt.Errorf("%w: config.attribution.verbs entries must be at most %d characters", ErrValidation, agentsclient.MaxEventSummaryStringRunes)
 		}
 	}
 	return nil
@@ -250,8 +244,8 @@ func validateGenericAttribution(a *genericAttribution) error {
 
 // linkTemplates checks the link count and that each link has a label and a url.
 func linkTemplates(links []genericLink) ([]attributionTemplate, error) {
-	if len(links) > maxAttributionLinks {
-		return nil, fmt.Errorf("%w: config.attribution.links takes at most %d links", ErrValidation, maxAttributionLinks)
+	if len(links) > agentsclient.MaxRunSourcesPerRequest {
+		return nil, fmt.Errorf("%w: config.attribution.links takes at most %d links", ErrValidation, agentsclient.MaxRunSourcesPerRequest)
 	}
 	var templates []attributionTemplate
 	for i, l := range links {
@@ -268,11 +262,11 @@ func linkTemplates(links []genericLink) ([]attributionTemplate, error) {
 // validate refuses a template over its limit or with a placeholder that is not
 // a {{ path }} in the field key grammar.
 func (t attributionTemplate) validate() error {
-	if t.url && len(t.tmpl) > maxAttributionURLBytes {
-		return fmt.Errorf("%w: config.attribution.%s must be at most %d bytes", ErrValidation, t.field, maxAttributionURLBytes)
+	if t.url && len(t.tmpl) > agentsclient.MaxRunSourceURLBytes {
+		return fmt.Errorf("%w: config.attribution.%s must be at most %d bytes", ErrValidation, t.field, agentsclient.MaxRunSourceURLBytes)
 	}
-	if !t.url && utf8.RuneCountInString(t.tmpl) > maxAttributionTextRunes {
-		return fmt.Errorf("%w: config.attribution.%s must be at most %d characters", ErrValidation, t.field, maxAttributionTextRunes)
+	if !t.url && utf8.RuneCountInString(t.tmpl) > agentsclient.MaxEventSummaryStringRunes {
+		return fmt.Errorf("%w: config.attribution.%s must be at most %d characters", ErrValidation, t.field, agentsclient.MaxEventSummaryStringRunes)
 	}
 	for _, k := range placeholderKeys(t.tmpl) {
 		if !fieldKeyPattern.MatchString(k) {
