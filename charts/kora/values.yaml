@@ -640,7 +640,7 @@ agents:
     pollIntervalSecs: 2
   # Each tenant keeps unbound session-manager pods that kora-agents binds to an agent (docs/adr/2026-11-22-agent-cold-tier.md).
   pool:
-    # -- Unbound session-manager pods each tenant keeps ready.
+    # -- Unbound session-manager pods each tenant keeps ready. kora-agents adds one for each agent with a pending run and no pod.
     size: 2
   # The run scheduler in each kora-agents replica starts pending runs on agent pods.
   scheduling:
