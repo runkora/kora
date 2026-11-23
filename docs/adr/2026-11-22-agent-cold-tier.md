@@ -136,7 +136,7 @@ The session-manager readiness probe will run at once and every second with a 2s 
 ### D5. Pool Sizing, Burst and Wake
 
 *   **S1, fixed pool per tenant (chosen):** The chart value `agents.pool.size` (default 2) sets the pool Deployment replicas of each tenant. The ReplicaSet refills a bound pod in about 13s to 24s.
-*   **S2, scheduled pre-wake (chosen for bursts):** kora-triggers will ask kora-agents to wake an agent `agents.pool.preWakeLeadSecs` (default 180) before each schedule fire. kora-agents binds the agent's pod then. The pool refills before the fire, and Karpenter has the lead time to add nodes. The trade-off is a new call from kora-triggers to kora-agents and a pod held for up to the lead time.
+*   **S2, scheduled pre-wake (chosen for bursts):** kora-triggers will ask kora-agents to wake an agent `agents.pool.preWakeLeadSecs` (default 180, at most 900) before each schedule fire, under the token the fire's run starts with. kora-agents holds the agent warm until 2 minutes after the fire, and the scaler binds the agent's pod on its next pass and keeps it at full size while the hold lasts. The pool refills before the fire, and Karpenter has the lead time to add nodes. The trade-off is a new call from kora-triggers to kora-agents and a pod held for up to the lead time.
 *   **S3, pool sized from the recent wake rate (rejected):** It reacts after a burst starts, and a cron burst arrives at one instant.
 
 At 20x a synchronised fire of 120 runs across 20 tenants binds 40 pool pods at once under S1 alone. The other 80 runs wait for new pool pods and for nodes. S2 moves those binds ahead of the fire.
