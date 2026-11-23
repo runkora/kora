@@ -148,3 +148,16 @@ func TestScheduler_PreWake(t *testing.T) {
 	s.preWake(t.Context(), trig, sched, loc, at("12:29:00.2"))
 	settle(4)
 }
+
+// A pre-wake whose fire has passed is dropped, and one still ahead is kept.
+func TestScheduler_PrunePreWoken(t *testing.T) {
+	s := &Scheduler{}
+	s.SetPreWakeLead(3 * time.Minute)
+	now := time.Now().UTC()
+	s.preWoken["gone"] = now.Add(-time.Minute)
+	s.preWoken["next"] = now.Add(time.Minute)
+	s.prunePreWoken(now)
+	if _, ok := s.preWoken["gone"]; ok || len(s.preWoken) != 1 {
+		t.Errorf("preWoken = %v, want only the fire ahead", s.preWoken)
+	}
+}

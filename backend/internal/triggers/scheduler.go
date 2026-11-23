@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -182,6 +183,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 		return
 	}
 	scanned = len(triggers)
+	s.prunePreWoken(now)
 
 	for _, t := range triggers {
 		if t.ScheduleConfig == nil {
@@ -253,6 +255,13 @@ func (s *Scheduler) preWake(ctx context.Context, t Trigger, sched cron.Schedule,
 		s.logger.Warn(opCtx, "scheduler: pre-wake of the trigger's agent failed",
 			logging.Field{Key: "trigger_id", Value: t.ID}, logging.Field{Key: "error", Value: err.Error()})
 	}()
+}
+
+// prunePreWoken drops the pre-wakes of fires that have passed, including those of deleted triggers.
+func (s *Scheduler) prunePreWoken(now time.Time) {
+	s.preWokenMu.Lock()
+	defer s.preWokenMu.Unlock()
+	maps.DeleteFunc(s.preWoken, func(_ string, fire time.Time) bool { return fire.Before(now) })
 }
 
 // forgetPreWake lets the next tick wake the trigger's agent again.

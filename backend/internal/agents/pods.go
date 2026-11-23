@@ -361,8 +361,9 @@ func noPoolPod(namespace, template string) error {
 	return fmt.Errorf("%w in %s", errNoPoolPod, namespace)
 }
 
-// SizePool sets the tenant pool's replicas to agents.pool.size plus waits, the agents in the namespace with a
-// pending run and no bound pod (docs/adr/2026-11-22-agent-cold-tier.md, D5). A bound pod leaves the pool's
+// SizePool sets the tenant pool's replicas to agents.pool.size plus waits, the agents in the namespace with no
+// bound pod that have a pending run or whose scaler bind found no pool pod
+// (docs/adr/2026-11-22-agent-cold-tier.md, D5). A bound pod leaves the pool's
 // ReplicaSet, which refills it, so the size counts only the pods the pool keeps. A pool already at that size
 // is left alone.
 func (p *K8sProvisioner) SizePool(ctx context.Context, namespace string, waits int32) error {

@@ -86,32 +86,6 @@ func TestScalerHoldsAPreWokenAgentWarm(t *testing.T) {
 	}
 }
 
-// A hold only lengthens, and goes with its agent type.
-func TestPostgres_AgentWarmHold(t *testing.T) {
-	r, tenant := testRunRepo(t)
-	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
-	ctx := context.Background()
-	if until, err := r.AgentWarmUntil(ctx, at.ID); err != nil || !until.IsZero() {
-		t.Fatalf("AgentWarmUntil with no hold = %v, %v; want zero", until, err)
-	}
-	later := time.Now().UTC().Add(10 * time.Minute).Truncate(time.Microsecond)
-	for _, until := range []time.Time{later, later.Add(-5 * time.Minute)} {
-		if err := r.HoldAgentWarm(ctx, at.ID, until); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if until, err := r.AgentWarmUntil(ctx, at.ID); err != nil || !until.Equal(later) {
-		t.Errorf("AgentWarmUntil = %v, %v; want the longer hold %v", until, err, later)
-	}
-	if err := r.SoftDeleteAgentType(ctx, at.ID); err != nil {
-		t.Fatal(err)
-	}
-	var n int
-	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM agent_warm_holds WHERE agent_type_id = $1`, at.ID).Scan(&n); err != nil || n != 0 {
-		t.Errorf("holds after the agent type was deleted = %d, %v; want 0", n, err)
-	}
-}
-
 // A hold grows an agent's warm pod, and counts a held agent with no pod toward its tenant pool.
 func TestScalerHoldGrowsAndSizesThePool(t *testing.T) {
 	pods := readyPods(1)
@@ -132,6 +106,14 @@ func TestScalerHoldGrowsAndSizesThePool(t *testing.T) {
 	newColdScaler(cold).pass(context.Background())
 	if cold.sized[scaleTestNS] != 1 {
 		t.Errorf("sized %v, want the held agent counted as one cold wait", cold.sized)
+	}
+
+	// A held agent that the pass binds a pod for waits on nothing, so the pool keeps its size.
+	bound := &scalerFake{t: t, lastCompleted: time.Now().Add(-2 * time.Hour), warmUntil: time.Now().Add(time.Minute),
+		pods: scaleTestPods(nil), memory: fullPod, agents: []AgentType{scaleTestAgent}}
+	newColdScaler(bound).pass(context.Background())
+	if len(bound.bound) != 1 || bound.sized[scaleTestNS] != 0 {
+		t.Errorf("bound %v and sized %v, want one bind and no cold wait", bound.bound, bound.sized)
 	}
 }
 

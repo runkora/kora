@@ -178,7 +178,8 @@ func (s *Scaler) pass(ctx context.Context) {
 	}
 }
 
-// noteColdWait counts an agent with a pending run and no bound pod toward its tenant pool's size.
+// noteColdWait counts an agent with no bound pod that waits on the pool toward its tenant pool's size: one with
+// a pending run, or one whose scaler bind found no pool pod.
 func (s *Scaler) noteColdWait(namespace string) {
 	s.waitsMu.Lock()
 	defer s.waitsMu.Unlock()
@@ -219,19 +220,16 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	if err != nil {
 		return err
 	}
-	// Every replica counts the cold wakes the same way, with no agent lock. An agent whose pod read failed is
-	// not counted.
+	// Every replica counts the agents with a pending run the same way, with no agent lock. An agent whose pod
+	// read failed is not counted.
 	if len(pods.Live) == 0 {
 		counts, countErr := s.store.AgentRunCounts(ctx, at.ID)
 		if countErr != nil {
 			return countErr
 		}
-		held, heldErr := s.heldWarm(ctx, at)
-		if heldErr != nil {
-			return heldErr
-		}
-		// A held agent binds before its fire, so it waits on the pool as a pending run does.
-		if counts.Pending > 0 || held {
+		// A run's start binds the pod of an agent with a pending run, so the agent waits on the pool. bindPods
+		// counts an agent the scaler binds for, such as a held one, only when the pool has no pod.
+		if counts.Pending > 0 {
 			s.noteColdWait(namespace)
 		}
 	}
@@ -358,10 +356,13 @@ func (s *Scaler) deletePod(ctx context.Context, namespace, name string) error {
 	return nil
 }
 
-// bindPods binds n pool pods to the agent.
+// bindPods binds n pool pods to the agent. A bind for an agent with no pod that finds no pool pod counts a cold wait.
 func (s *Scaler) bindPods(ctx context.Context, at AgentType, namespace string, n int, in scaleInput) error {
 	for range n {
 		name, err := s.cluster.BindPod(ctx, at, namespace)
+		if errors.Is(err, errNoPoolPod) && len(in.pods) == 0 {
+			s.noteColdWait(namespace)
+		}
 		if name == "" {
 			return err
 		}

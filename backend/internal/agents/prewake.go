@@ -3,12 +3,14 @@ package agents
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/observability"
 	"github.com/runkora/kora/backend/internal/platform/token"
@@ -18,11 +20,11 @@ import (
 // ahead is refused, so a caller cannot hold an agent's pods for long without starting runs.
 const (
 	preWakeHold    = 2 * time.Minute
-	maxPreWakeLead = 15 * time.Minute
+	maxPreWakeLead = agentsclient.MaxPreWakeLead
 )
 
 // ErrPreWakeFireAt means a pre-wake's fire time is in the past or more than maxPreWakeLead ahead.
-var ErrPreWakeFireAt = errors.New("fire_at must be in the future and at most 15 minutes ahead")
+var ErrPreWakeFireAt = fmt.Errorf("fire_at must be in the future and at most %d minutes ahead", int(maxPreWakeLead.Minutes()))
 
 // warmHolder records an agent's warm hold.
 type warmHolder interface {
