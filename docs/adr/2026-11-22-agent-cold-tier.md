@@ -100,16 +100,17 @@ The spike files are in the orbit scratch folder `scale-to-zero/` (`findings.md`,
 
 The pool ID will not be a principal. `token.PoolNamespace` in `backend/internal/platform/token/xfcc.go` parses it, and policy-service accepts it for its own tenant's bundle. `PrincipalFromSpiffeID` refuses it, and kora-identity and every other service build principals with that function.
 
-kora-agents will gain `patch` on pods. Two ValidatingAdmissionPolicies in the chart will hold rule 3 at admission:
+kora-agents will gain `patch` on pods. ValidatingAdmissionPolicies in the chart will hold rule 3 at admission:
 
-*   **Bind:** On a tenant pod, a change to `spiffe.io/agent` is allowed only from kora-agents, only when the old pod carries `runkora.io/pool` and no `spiffe.io/agent`, only to a non-empty value, only with `app` set to the same slug, and only together with the removal of `runkora.io/pool`. Any later change or removal of `spiffe.io/agent` is refused. `app` and `runkora.io/managed-agent` cannot change on a bound pod.
+*   **Bind:** On a tenant pod, a change to `spiffe.io/agent` is allowed only from kora-agents, only when the old pod carries `runkora.io/pool` and no `spiffe.io/agent`, only to a non-empty value, only with `app` set to the same slug, and only together with the removal of `runkora.io/pool`. Any later change or removal of `spiffe.io/agent` is refused, and no pod is created with it. `app`, `runkora.io/managed-agent` and `runkora.io/agent-type` cannot change on a bound pod.
 *   **Other identity labels:** `spiffe.io/service`, `spiffe.io/component`, `runkora.io/role`, `runkora.io/agent-slug` and `runkora.io/run-id` cannot change on an existing tenant pod.
 *   **Pool provenance:** Only the ReplicaSet controller creates a pod with `runkora.io/pool`. The pod must run as the pool ServiceAccount, carry no agent label, and have a controller owner reference to `session-manager-pool-<pod-template-hash>`. No update adds the label to an existing pod. Only kora-agents writes a Deployment with a pool name or a pool pod template, and only the Deployment controller writes a pool ReplicaSet for the `session-manager-pool` Deployment. Before it binds, kora-agents will check the owner ReplicaSet's UID and that its controller is the tenant's pool Deployment (PR 6).
 *   **Subresources:** The rules cover pod subresources such as `pods/status`.
-*   **kora-agents pod updates:** A kora-agents pod update is allowed only on a pool pod in a tenant namespace. It may change only the bind labels (`spiffe.io/agent`, `runkora.io/pool`, `app`, `runkora.io/agent-type`, `runkora.io/agent-config`) and the owner references, and leaves the spec, the annotations and the finalizers unchanged. The bind's in-place grow (W1) goes through `pods/resize`. A later change grants that verb.
+*   **kora-agents pod updates:** A kora-agents pod update is allowed only on a pool pod in a tenant namespace. It may change only the bind labels (`spiffe.io/agent`, `runkora.io/pool`, `app`, `runkora.io/agent-type`, `runkora.io/agent-config`) and the owner references, and leaves the spec, the annotations and the finalizers unchanged. The bind's in-place grow (W1) goes through `pods/resize`, on which kora-agents holds `patch`.
 *   **kora-agents Deployments:** kora-agents writes only the `session-manager-pool` Deployment, and only in a tenant namespace.
+*   **kora-agents deletes:** kora-agents deletes StatefulSets, HPAs, PodDisruptionBudgets and PersistentVolumeClaims only in a tenant namespace. Its only such deletes are of an agent StatefulSet an earlier release created and of that StatefulSet's objects.
 
-A pod created with `spiffe.io/agent` already set gets that agent's SVID. Today the StatefulSet controller creates agent pods this way, and kora-agents can create pods with any labels. A CREATE rule for `spiffe.io/agent` is not part of this decision. After the O3 cutover no workload creates a pod with the label, and a rule that refuses it on CREATE would close the gap. It is the same gap as the one left by the kora-identity fix for agents with no record: a pod labelled with a live agent's slug gets that agent's token.
+A pod created with `spiffe.io/agent` already set would get that agent's SVID, and kora-agents can create pods with any labels. After the O3 cutover no workload creates a pod with the label, so the bind policy refuses a CREATE that sets it. Until kora-agents retires an agent's StatefulSet at startup, the policy also refuses the StatefulSet controller's recreate of a lost agent pod. This also closes the gap left by the kora-identity fix for agents with no record, where a pod labelled with a live agent's slug would get that agent's token.
 
 The policies and the SPIRE entries select tenant namespaces by the same `runkora.io/role: tenant` label. A principal that can change that namespace label can step around both. Only the operator and cluster admins hold namespace patch.
 
@@ -150,6 +151,8 @@ The wake path will be:
 3.  kora-agents grows the session-manager through the resize subresource.
 4.  kora-agents emits a "waking agent" run event.
 5.  kora-agents polls `GET /health/bound` through the A1 path every 100ms and then creates the session.
+
+kora-agents selects an agent's bound pods by `app` and `runkora.io/agent-type`, so a pod bound to a deleted agent never counts for a new agent with the same slug. A bind re-reads the agent's state under the agent lock. Deleting an agent moves it to `deleting` and deletes its bound pods under the same lock, so no bind lands after the delete lists the pods.
 
 The mesh-level bind measured 1.0s to 2.0s to the first 200 on the spike cluster. The exchange and the session start were not measured on the bound path.
 
