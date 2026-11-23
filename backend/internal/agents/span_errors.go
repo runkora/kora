@@ -11,6 +11,7 @@ var (
 	errSpanAuthorizeRunSources            = errors.New("authorize run sources")
 	errSpanAuthorizeRunEvent              = errors.New("authorize run event")
 	errSpanAppendRunSources               = errors.New("append run sources")
+	errSpanBindRefused                    = errors.New("bind refused")
 	errSpanCancelRunsForAgentType         = errors.New("cancel runs for agent type")
 	errSpanCheckSandboxPlacement          = errors.New("check sandbox placement")
 	errSpanCountRunOutcomes               = errors.New("count run outcomes")

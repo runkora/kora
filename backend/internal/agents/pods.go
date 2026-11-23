@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
+	"go.opentelemetry.io/otel/trace"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // Every agent pod is a pool pod bound to the agent (docs/adr/2026-11-22-agent-cold-tier.md, O3). The bind
@@ -255,6 +258,9 @@ func (p *K8sProvisioner) DeletePod(ctx context.Context, namespace, name string) 
 // (docs/adr/2026-11-22-agent-cold-tier.md, D5). It returns the pod's name. The patch carries the pool pod's
 // resource version, so two replicas cannot bind one pod. A pod another replica bound first is skipped.
 func (p *K8sProvisioner) BindPod(ctx context.Context, at AgentType, namespace string) (string, error) {
+	ctx, span := agentsTracer.Start(ctx, "agents.K8sProvisioner.BindPod",
+		trace.WithAttributes(observability.AgentSlugKey.String(at.Slug), semconv.K8SNamespaceNameKey.String(namespace)))
+	defer span.End()
 	cached, err := p.pool.Core().V1().Pods().Lister().Pods(namespace).List(labels.Everything())
 	if err != nil {
 		return "", fmt.Errorf("read cached pool pods of %s: %w", namespace, err)
@@ -266,22 +272,25 @@ func (p *K8sProvisioner) BindPod(ctx context.Context, at AgentType, namespace st
 		if pod.DeletionTimestamp != nil || !podReady(pod) || (template != "" && pod.Annotations[poolTemplateAnnotation] != template) {
 			continue
 		}
-		if err := p.checkPoolProvenance(ctx, pod); err != nil {
-			p.logger.Warn(ctx, "skipping a pool pod whose provenance could not be checked",
-				logging.Field{Key: "pod", Value: pod.Name}, logging.Field{Key: "namespace", Value: namespace},
-				logging.Field{Key: "error", Value: err.Error()})
+		err := p.checkPoolProvenance(ctx, pod)
+		if errors.Is(err, errPoolProvenance) {
+			p.logger.Warn(ctx, "skipping a pool pod the tenant pool does not control",
+				logging.Field{Key: "pod", Value: pod.Name}, logging.Field{Key: "namespace", Value: namespace})
 			continue
 		}
-		err := p.bind(ctx, pod, at, owner)
+		if err != nil {
+			return "", err
+		}
+		err = p.bind(ctx, pod, at, owner)
 		switch {
 		case apierrors.IsConflict(err) || apierrors.IsNotFound(err):
 			// Another replica bound the pod first, or the pod is gone.
 			continue
 		case apierrors.IsInvalid(err) || apierrors.IsForbidden(err):
-			p.logger.Warn(ctx, "the API server refused to bind a pool pod",
-				logging.Field{Key: "pod", Value: pod.Name}, logging.Field{Key: "namespace", Value: namespace},
-				logging.Field{Key: "error", Value: err.Error()})
-			continue
+			// An admission policy refused the bind.
+			observability.RecordFailure(span, err, errSpanBindRefused)
+			p.metrics.recordBindRefused(ctx)
+			return "", err
 		case err != nil:
 			return "", err
 		}

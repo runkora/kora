@@ -286,6 +286,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("initialize run metrics: %w", err)
 	}
 	runSvc.SetMetrics(runMetrics)
+	k8s.SetMetrics(runMetrics)
 	// Set with the warm tier off too, so pods left warm when it was turned off still grow before a run.
 	runSvc.SetPodWaker(k8s)
 	runSvc.SetGradeReader(repo)

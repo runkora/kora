@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -17,6 +18,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
+
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
 
 const scaleTestNS = "kora-tenant-acme"
@@ -151,8 +155,9 @@ func TestBindPodSkipsAConflict(t *testing.T) {
 	}
 }
 
-// A patch the API server refuses as invalid or forbidden is logged, and the next pool pod is bound.
-func TestBindPodSkipsARefusedPatch(t *testing.T) {
+// A patch an admission policy refuses as forbidden or invalid fails the bind with that error, records it on
+// the span and counts it. No other pool pod is tried.
+func TestBindPodReturnsARefusedPatch(t *testing.T) {
 	for name, refusal := range map[string]error{
 		"forbidden": apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "pool-a", errors.New("kora-agent-bind")),
 		"invalid":   apierrors.NewInvalid(schema.GroupKind{Kind: "Pod"}, "pool-a", nil),
@@ -160,29 +165,43 @@ func TestBindPodSkipsARefusedPatch(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := newPoolFixture()
 			p, client, _ := bindProvisioner(t, f.dep, f.rs, f.pod("pool-a", testTemplate, 1), f.pod("pool-b", testTemplate, 2))
+			reader := sdkmetric.NewManualReader()
+			provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+			t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+			m, err := NewMetrics(provider.Meter("test"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			p.SetMetrics(m)
+			patched := 0
 			client.PrependReactor("patch", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
-				if action.GetSubresource() == "" && action.(k8stesting.PatchAction).GetName() == "pool-a" {
-					return true, nil, refusal
+				if action.GetSubresource() != "" {
+					return false, nil, nil
 				}
-				return false, nil, nil
+				patched++
+				return true, nil, refusal
 			})
 			name, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS)
-			if err != nil || name != "pool-b" {
-				t.Errorf("BindPod = %q, %v; want pool-b after the refusal of pool-a", name, err)
+			if name != "" || !errors.Is(err, refusal) || patched != 1 {
+				t.Errorf("BindPod = %q, %v after %d patches; want the refusal after one patch", name, err, patched)
+			}
+			counted, ok := collectRunMetrics(t, reader)["kora.agents.bind.refused"].Data.(metricdata.Sum[int64])
+			if !ok || len(counted.DataPoints) != 1 || counted.DataPoints[0].Value != 1 {
+				t.Errorf("bind.refused = %#v, want one point of 1", counted)
 			}
 		})
 	}
 }
 
-// A provenance check the API server cannot answer skips the pod.
-func TestBindPodSkipsAFailedProvenanceRead(t *testing.T) {
+// A provenance check the API server cannot answer fails the bind.
+func TestBindPodReturnsAFailedProvenanceRead(t *testing.T) {
 	f := newPoolFixture()
 	p, client, patches := bindProvisioner(t, f.dep, f.rs, f.pod("pool-a", testTemplate, 1))
 	client.PrependReactor("get", "replicasets", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("api down")
 	})
-	if _, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS); !errors.Is(err, errNoPoolPod) || len(patches) != 0 {
-		t.Errorf("BindPod = %v with patches %v, want errNoPoolPod and no patch", err, patches)
+	if _, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS); err == nil || errors.Is(err, errNoPoolPod) || len(patches) != 0 {
+		t.Errorf("BindPod = %v with patches %v, want the read error and no patch", err, patches)
 	}
 }
 
@@ -206,6 +225,25 @@ func TestLivePodCountsPoolPods(t *testing.T) {
 				t.Errorf("LivePod = %v, %v; want %v", got, err, tc.want)
 			}
 		})
+	}
+}
+
+// Deleting an agent deletes its ServiceAccount at once and clears its retired entry.
+func TestDeprovisionDeletesTheServiceAccount(t *testing.T) {
+	at := AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}
+	p, typed, _ := ownerRefFixture(t, podSecurityProvisioner().cfg, "acme")
+	if err := typed.Tracker().Add(&corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: scaleTestNS}}); err != nil {
+		t.Fatal(err)
+	}
+	p.retiredAccounts.Store(scaleTestNS+"/"+at.Slug, struct{}{})
+	if err := p.DeprovisionAgentType(t.Context(), at, scaleTestNS); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := typed.CoreV1().ServiceAccounts(scaleTestNS).Get(t.Context(), at.Slug, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Errorf("ServiceAccount after deprovision: %v, want not found", err)
+	}
+	if _, kept := p.retiredAccounts.Load(scaleTestNS + "/" + at.Slug); kept {
+		t.Error("the retired entry survived deprovision")
 	}
 }
 

@@ -168,7 +168,12 @@ type K8sProvisioner struct {
 	poolsApplied sync.Map
 	// retiredAccounts holds the namespace/slug of each agent whose StatefulSet ServiceAccount is deleted.
 	retiredAccounts sync.Map
+	// metrics counts the binds an admission policy refused. Nil records nothing.
+	metrics *Metrics
 }
+
+// SetMetrics installs the instrument set that counts refused binds.
+func (p *K8sProvisioner) SetMetrics(m *Metrics) { p.metrics = m }
 
 // SetScopeResolver installs the resolver that adds the attached environments' egress and connectors to an agent's grant.
 // Without it, grant reconciliation uses the agent's own scopes.
@@ -313,6 +318,11 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 	resources := []func() error{
 		func() error {
 			return p.retireStatefulSet(ctx, at, namespace)
+		},
+		func() error {
+			// The agent's pods go with it, so its ServiceAccount does not wait for them.
+			p.retiredAccounts.Delete(namespace + "/" + slug)
+			return ignoreNotFound(p.client.CoreV1().ServiceAccounts(namespace).Delete(ctx, slug, metav1.DeleteOptions{}))
 		},
 		func() error {
 			// The agent is being deleted and its runs end with it. Its pods skip the drain grace period.
