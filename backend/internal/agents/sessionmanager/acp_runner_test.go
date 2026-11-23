@@ -776,6 +776,7 @@ func TestACPRunner_SDKLogsThroughRunLogger(t *testing.T) {
 func TestACPRunner_LogsStderrAndUsage(t *testing.T) {
 	a := newFakeACPAgent(t)
 	a.stderr = "adapter crashed: boom\n"
+	a.stderrAtExit = true // Close must wait for stderr that arrives as the adapter exits
 	var buf syncBuffer
 	r := startACP(t, a, &fakeACPProfile{}, func(c *acpRunnerConfig) { c.Logger = logging.NewLoggerWithOutput(&buf) })
 	prompt(t, r, "go")

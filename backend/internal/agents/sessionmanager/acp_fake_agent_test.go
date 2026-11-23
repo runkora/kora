@@ -41,6 +41,8 @@ type fakeACPAgent struct {
 	onRequest map[string]func(a *fakeACPAgent, id, params json.RawMessage)
 	preamble  string // written to stdout as the process starts
 	stderr    string
+	// stderrAtExit holds stderr back until the process exits and a moment after, as a crash trace arrives.
+	stderrAtExit bool
 
 	toAgentR  *io.PipeReader
 	toAgentW  *io.PipeWriter
@@ -88,10 +90,30 @@ type fakeACPProc struct{ a *fakeACPAgent }
 
 func (p *fakeACPProc) Stdin() io.WriteCloser { return p.a.toAgentW }
 func (p *fakeACPProc) Stdout() io.Reader     { return p.a.clientR }
-func (p *fakeACPProc) Stderr() io.Reader     { return strings.NewReader(p.a.stderr) }
-func (p *fakeACPProc) Wait() error           { <-p.a.exited; return nil }
-func (p *fakeACPProc) Kill()                 { p.a.killed.Store(true); p.a.exit() }
-func (p *fakeACPProc) Pid() int              { return 0 }
+func (p *fakeACPProc) Stderr() io.Reader {
+	if p.a.stderrAtExit {
+		return &exitStderr{exited: p.a.exited, r: strings.NewReader(p.a.stderr)}
+	}
+	return strings.NewReader(p.a.stderr)
+}
+func (p *fakeACPProc) Wait() error { <-p.a.exited; return nil }
+func (p *fakeACPProc) Kill()       { p.a.killed.Store(true); p.a.exit() }
+func (p *fakeACPProc) Pid() int    { return 0 }
+
+// exitStderr serves its lines only after the process has exited. The delay puts the read after Wait returns.
+type exitStderr struct {
+	exited <-chan struct{}
+	once   sync.Once
+	r      io.Reader
+}
+
+func (e *exitStderr) Read(b []byte) (int, error) {
+	e.once.Do(func() {
+		<-e.exited
+		time.Sleep(20 * time.Millisecond)
+	})
+	return e.r.Read(b)
+}
 
 // exit ends the agent: its stdout closes and Wait returns.
 func (a *fakeACPAgent) exit() {

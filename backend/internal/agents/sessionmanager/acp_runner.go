@@ -132,6 +132,8 @@ type acpRunner struct {
 	waitErr   error
 	closeOnce sync.Once
 	exitOnce  sync.Once
+	// stderrRead tracks logStderr. Close waits for it to log the adapter's last stderr lines.
+	stderrRead sync.WaitGroup
 
 	mu        sync.Mutex
 	proc      acpProc
@@ -217,7 +219,8 @@ func (r *acpRunner) Start(ctx context.Context, workDir string) error {
 	r.proc, r.conn = proc, conn
 	r.mu.Unlock()
 	r.log.Info(ctx, "ACP agent started", r.fields(logging.Field{Key: "pid", Value: proc.Pid()}, logging.Field{Key: "model", Value: r.cfg.Model})...)
-	go r.logStderr(proc.Stderr())
+	stderr := proc.Stderr()
+	r.stderrRead.Go(func() { r.logStderr(stderr) })
 	go r.watchConn(conn, proc)
 
 	if err := r.openSession(ctx, workDir); err != nil {
@@ -227,6 +230,7 @@ func (r *acpRunner) Start(ctx context.Context, workDir string) error {
 		proc.Kill()
 		_ = proc.Stdin().Close()
 		_ = r.reap()
+		r.stderrRead.Wait()
 		return err
 	}
 	r.log.Info(ctx, "ACP session ready", r.fields(logging.Field{Key: "session_id", Value: r.SessionID()})...)
@@ -738,6 +742,8 @@ func (r *acpRunner) Close() error {
 			proc.Kill()
 			<-done
 		}
+		// Wait has closed the stderr pipe, so the reader returns.
+		r.stderrRead.Wait()
 		if err = r.waitErr; isExitKilled(err) {
 			err = nil
 		}
