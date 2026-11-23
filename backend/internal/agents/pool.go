@@ -29,7 +29,7 @@ const poolLabel = "runkora.io/pool"
 const poolTemplateAnnotation = "runkora.io/pool-template"
 
 // agentOnlyPodLabels name the agent a pod serves. A pool pod carries none of them until the bind.
-var agentOnlyPodLabels = []string{"app", "spiffe.io/agent", agentTypeLabel}
+var agentOnlyPodLabels = []string{"app", "spiffe.io/agent", agentTypeLabel, agentConfigLabel}
 
 // buildTenantPool renders the tenant's pool Deployment from the agent pod
 // template with the StatefulSet patches applied. A pool pod keeps the

@@ -5,13 +5,15 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
-// A live run an earlier release placed on an agent StatefulSet pod ends at the cutover with a run_error that
-// gives the reason. A run on a pool pod and an ended run are left alone.
+// An idle run an earlier release placed on an agent StatefulSet pod ends at the cutover with a run_error that
+// gives the reason. An active run there finishes within the drain, and a run on a pool pod and an ended run
+// are left alone.
 func TestEndStatefulSetRuns(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
 	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
@@ -22,12 +24,12 @@ func TestEndStatefulSetRuns(t *testing.T) {
 
 	svc.run.EndStatefulSetRuns(context.Background())
 
-	for id, want := range map[string]RunState{"idle-old": RunStateFailed, "active-old": RunStateFailed, "done-old": RunStateCompleted, "pooled": RunStateActive} {
+	for id, want := range map[string]RunState{"idle-old": RunStateFailed, "active-old": RunStateActive, "done-old": RunStateCompleted, "pooled": RunStateActive} {
 		if got := repo.runs[id].State; got != want {
 			t.Errorf("run %s state = %s, want %s", id, got, want)
 		}
 	}
-	for _, id := range []string{"idle-old", "active-old"} {
+	for _, id := range []string{"idle-old"} {
 		found := false
 		for _, e := range repo.events[id] {
 			found = found || (e.EventType == "run_error" && strings.Contains(string(e.Payload), statefulSetRunReason) && strings.Contains(string(e.Payload), events.RunErrorRunnerError))
@@ -58,4 +60,26 @@ func TestRunWithNoPodName(t *testing.T) {
 	if len(sm.sentMessages) != 0 || len(sm.interruptedRuns) != 0 || len(sm.closedSessions) != 0 {
 		t.Errorf("session-manager calls: messages %v, interrupts %v, closes %v; want none", sm.sentMessages, sm.interruptedRuns, sm.closedSessions)
 	}
+}
+
+// The reaper ticker sweeps again, so an idle run an earlier replica places after the startup sweep also ends.
+func TestEndStatefulSetRunsOnTheReaperTicker(t *testing.T) {
+	svc, repo, _, _ := newTestService(t)
+	svc.run.cfg.ReaperInterval = 10 * time.Millisecond
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	svc.run.EndStatefulSetRuns(context.Background())
+	seedStatefulSetRun(t, repo, Run{ID: "late", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateIdle})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		svc.run.StartReaper(ctx)
+		close(done)
+	}()
+	waitCached(t, func() bool {
+		repo.mu.Lock()
+		defer repo.mu.Unlock()
+		return repo.runs["late"].State == RunStateFailed
+	})
+	cancel()
+	<-done
 }

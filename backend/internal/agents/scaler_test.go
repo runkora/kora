@@ -584,6 +584,7 @@ func TestScalerRoll(t *testing.T) {
 			occupied: map[string]int{"pod-0": 1}, wantDeleted: []string{"pod-0"}},
 		{name: "at maxPods removes an old pod once one current pod serves", pods: scaleTestPods(append(old(readyPods(2)), fresh(1)...)),
 			max: 3, wantDeleted: []string{"pod-0"}},
+		{name: "at maxPods with no current pod binds one past the ceiling", pods: scaleTestPods(old(readyPods(3))), max: 3, wantBound: 1},
 		{name: "a framework or model change rolls a pod bound with another config", pods: scaleTestPods(func() []agentPod {
 			pods := readyPods(1)
 			pods[0].Config = "other"
@@ -607,6 +608,24 @@ func TestScalerRoll(t *testing.T) {
 	}
 }
 
+// A roll that changes no pod for rollStallPasses passes in a row logs a warning.
+func TestScalerWarnsOnAStalledRoll(t *testing.T) {
+	pods := append(readyPods(1), agentPod{Name: "new", Template: testTemplate, Config: agentConfigHash(scaleTestAgent)})
+	pods[0].Template = "t0"
+	f := &scalerFake{t: t, pods: scaleTestPods(pods), memory: fullPod}
+	s := newTestScaler(f)
+	var logs bytes.Buffer
+	s.logger = logging.NewLoggerWithOutput(&logs)
+	for pass := 1; pass <= rollStallPasses; pass++ {
+		if err := s.scale(context.Background(), scaleTestAgent); err != nil {
+			t.Fatal(err)
+		}
+		if warned := strings.Contains(logs.String(), "agent roll made no progress"); warned != (pass == rollStallPasses) {
+			t.Fatalf("pass %d: warned = %v", pass, warned)
+		}
+	}
+}
+
 // A model change on an agent with two pods binds two replacements before the first old pod goes. Pass after
 // pass the agent keeps at least one Ready pod, and the current pods are never fewer than the old pods deleted.
 func TestScalerModelChangeKeepsCapacity(t *testing.T) {
@@ -620,7 +639,7 @@ func TestScalerModelChangeKeepsCapacity(t *testing.T) {
 		if err := s.scale(context.Background(), scaleTestAgent); err != nil {
 			t.Fatal(err)
 		}
-		if ready := len(f.pods.ready()); ready < 1 {
+		if ready := len(readyOf(f.pods.Live)); ready < 1 {
 			t.Fatalf("pass %d left %d Ready pods", pass, ready)
 		}
 		if current := len(f.pods.current(agentConfigHash(scaleTestAgent))); current < len(f.deleted) {

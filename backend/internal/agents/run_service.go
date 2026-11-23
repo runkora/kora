@@ -1324,6 +1324,7 @@ func (s *RunService) StartReaper(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			s.EndStatefulSetRuns(ctx)
 			reaped, err := s.repo.ReapStaleRuns(ctx, staleDuration)
 			if err != nil {
 				s.logger.Error(ctx, "stale run reaper failed", logging.Field{Key: "error", Value: err.Error()})

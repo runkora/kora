@@ -135,6 +135,17 @@ func TestAssignPod(t *testing.T) {
 	}
 }
 
+// During a roll the current pods take runs before the old ones, so the old pods drain.
+func TestAssignPod_RollPlacesOnCurrentPods(t *testing.T) {
+	f, _, k8s, sm, at, run := placementEnv(t, 2, 3)
+	k8s.config, k8s.oldPods = agentConfigHash(*at), []int{0}
+	sm.memory = podMemory("bot", map[int]int64{0: 0, 1: 0})
+	pod, _, err := f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1")
+	if err != nil || pod != "pod-1" {
+		t.Errorf("assignPod = %s, %v; want the current pod-1 over the older pod-0 on a stale config", pod, err)
+	}
+}
+
 // A run for an agent whose pods are all full by the pre-lock reading is released without the agent lock.
 func TestAssignPod_FullPodsSkipTheLock(t *testing.T) {
 	f, repo, _, sm, at, run := placementEnv(t, 2, 3)

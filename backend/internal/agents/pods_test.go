@@ -193,6 +193,64 @@ func TestBindPodReturnsARefusedPatch(t *testing.T) {
 	}
 }
 
+// The bind span records a failure with a static description: no pool pod to bind, a provenance read
+// that failed and a grow the API server refused.
+func TestBindPodSpanStatus(t *testing.T) {
+	at := AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}
+	for name, tc := range map[string]struct {
+		setup func(f poolFixture, client *fake.Clientset) []runtime.Object
+		want  error
+	}{
+		"no pool pod": {want: errNoPoolPod},
+		"provenance read": {want: errSpanCheckPoolProvenance, setup: func(f poolFixture, client *fake.Clientset) []runtime.Object {
+			client.PrependReactor("get", "replicasets", func(k8stesting.Action) (bool, runtime.Object, error) {
+				return true, nil, errors.New("api down")
+			})
+			return nil
+		}},
+		"grow": {want: errSpanGrowBoundPod, setup: func(f poolFixture, client *fake.Clientset) []runtime.Object {
+			client.PrependReactor("patch", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+				if action.GetSubresource() == "resize" {
+					return true, nil, errors.New("resize unavailable")
+				}
+				return false, nil, nil
+			})
+			return nil
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := spanRecorder()
+			f := newPoolFixture()
+			objs := []runtime.Object{f.dep, f.rs}
+			if name != "no pool pod" {
+				objs = append(objs, f.pod("pool-a", testTemplate, 1))
+			}
+			p, client, _ := bindProvisioner(t, objs...)
+			if tc.setup != nil {
+				tc.setup(f, client)
+			}
+			if _, err := p.BindPod(t.Context(), at, scaleTestNS); err == nil {
+				t.Fatal("BindPod succeeded")
+			}
+			span := endedSpan(t, rec, "agents.K8sProvisioner.BindPod")
+			if span.Status().Description != tc.want.Error() {
+				t.Errorf("span status = %q, want %q", span.Status().Description, tc.want.Error())
+			}
+		})
+	}
+}
+
+// agentConfigHash is the first 10 hex digits of the SHA-256 of the framework, a NUL byte and the model.
+func TestAgentConfigHash(t *testing.T) {
+	model := "anthropic/claude-haiku-4-5"
+	if got := agentConfigHash(AgentType{Framework: "claude-code", ModelID: &model}); got != "9c653a787f" {
+		t.Errorf("hash = %s, want 9c653a787f", got)
+	}
+	if got := agentConfigHash(AgentType{}); got != "6e340b9cff" {
+		t.Errorf("hash of no framework or model = %s, want 6e340b9cff", got)
+	}
+}
+
 // A provenance check the API server cannot answer fails the bind.
 func TestBindPodReturnsAFailedProvenanceRead(t *testing.T) {
 	f := newPoolFixture()
@@ -336,7 +394,7 @@ func TestAgentPods(t *testing.T) {
 	if len(pods.old(agentConfigHash(changed))) != 3 {
 		t.Errorf("old pods after a model change = %+v, want all three", pods.old(agentConfigHash(changed)))
 	}
-	if ready := pods.ready(); len(ready) != 2 {
+	if ready := readyOf(pods.Live); len(ready) != 2 {
 		t.Errorf("ready = %+v, want pool-o and pool-n", ready)
 	}
 }

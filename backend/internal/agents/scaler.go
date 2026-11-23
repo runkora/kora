@@ -79,7 +79,12 @@ type Scaler struct {
 	logger  logging.Logger
 	// refused holds the pods whose shrink the API server refused for good.
 	refused sync.Map
+	// stalled counts, per agent ID, the passes in a row in which a roll changed no pod.
+	stalled sync.Map
 }
+
+// rollStallPasses is how many passes in a row a roll may change no pod before the scaler logs a warning.
+const rollStallPasses = 5
 
 // scalerSessionManager reads a pod's memory and its bound check.
 type scalerSessionManager interface {
@@ -232,6 +237,7 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 		memoryMax: memoryMax(pods.Live, readings, pods.MemoryLimitBytes), allowance: allowance, watermark: s.cfg.PlacementWatermark,
 	}
 	if !in.rolling && desiredPods(in) == len(in.pods) {
+		s.stalled.Delete(at.ID)
 		return s.settleResidency(ctx, at, namespace, pods.Live, counts, occupied)
 	}
 	live, err := s.cluster.LiveAgentPods(ctx, at.Slug, namespace)
@@ -239,8 +245,12 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 		return err
 	}
 	in.pods, in.rolling = live.Live, live.rolling(config)
-	if in.rolling {
-		if rolled, err := s.roll(ctx, at, namespace, live, config, bound, occupied); rolled || err != nil {
+	if !in.rolling {
+		s.stalled.Delete(at.ID)
+	} else {
+		rolled, err := s.roll(ctx, at, namespace, live, config, bound, occupied)
+		s.noteRoll(ctx, at, rolled)
+		if rolled || err != nil {
 			return err
 		}
 	}
@@ -281,6 +291,24 @@ func (s *Scaler) removeEmptyPod(ctx context.Context, at AgentType, namespace str
 		logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: victim.Name},
 		logging.Field{Key: "pods", Value: len(in.pods)})
 	return nil
+}
+
+// noteRoll counts the passes in a row in which the agent's roll changed no pod, and logs a warning every
+// rollStallPasses such passes.
+func (s *Scaler) noteRoll(ctx context.Context, at AgentType, rolled bool) {
+	if rolled {
+		s.stalled.Delete(at.ID)
+		return
+	}
+	n := 1
+	if v, ok := s.stalled.Load(at.ID); ok {
+		n = v.(int) + 1
+	}
+	s.stalled.Store(at.ID, n)
+	if n%rollStallPasses == 0 {
+		s.logger.Warn(ctx, "agent roll made no progress; its current pods are not Ready or do not pass the bound check",
+			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "passes", Value: n})
+	}
 }
 
 // roll takes one step of moving the agent's pods to the pool's current template and the agent's current

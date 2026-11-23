@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -323,9 +324,11 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 // statefulSetRunReason is the run_error message of a run that ends at the cutover to pool pods.
 const statefulSetRunReason = "The agent moved to pool pods."
 
-// EndStatefulSetRuns fails every live run that an earlier release placed on an agent StatefulSet pod: it has a
-// pod ordinal and no pod name. Those pods drain away at the cutover to pool pods, and the runs end once
-// (docs/adr/2026-11-22-agent-cold-tier.md). kora-agents runs it at startup.
+// EndStatefulSetRuns fails every idle run that an earlier release placed on an agent StatefulSet pod: it has a
+// pod ordinal and no pod name. Those pods drain away at the cutover to pool pods, and idle runs on them end
+// once (docs/adr/2026-11-22-agent-cold-tier.md). A starting, active or completing run finishes within the
+// drain. kora-agents runs it at startup and on each reaper tick, which ends the runs an earlier replica
+// places during the rolling update.
 func (s *RunService) EndStatefulSetRuns(ctx context.Context) {
 	runs, err := s.repo.ListStatefulSetRuns(ctx)
 	if err != nil {
@@ -427,7 +430,9 @@ func (s *RunService) assignPod(ctx context.Context, run Run, claimedAt time.Time
 	if err != nil {
 		return "", false, fmt.Errorf("list agent pods: %w", err)
 	}
-	ready := pods.ready()
+	// During a roll the current pods take runs first, so the old pods drain.
+	config := agentConfigHash(*at)
+	ready := slices.Concat(readyOf(pods.current(config)), readyOf(pods.old(config)))
 	if len(ready) == 0 {
 		return "", false, errNoReadyPod
 	}

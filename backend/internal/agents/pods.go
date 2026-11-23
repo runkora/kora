@@ -61,9 +61,9 @@ type agentPods struct {
 	MemoryLimitBytes int64
 }
 
-// ready returns the Ready live pods, oldest first.
-func (a agentPods) ready() []agentPod {
-	return slices.DeleteFunc(slices.Clone(a.Live), func(pod agentPod) bool { return !pod.Ready })
+// readyOf returns the Ready pods in pods, in order.
+func readyOf(pods []agentPod) []agentPod {
+	return slices.DeleteFunc(slices.Clone(pods), func(pod agentPod) bool { return !pod.Ready })
 }
 
 // rolling reports a live pod on another template than the pool's current one.
@@ -90,8 +90,8 @@ func (a agentPods) old(config string) []agentPod {
 // agentConfigLabel carries agentConfigHash on a bound pod.
 const agentConfigLabel = "runkora.io/agent-config"
 
-// agentConfigHash is a short hash of the agent's framework and model. A session-manager serves runs with the
-// framework and model it was bound with, and a pod bound with another hash is rolled.
+// agentConfigHash is a short hash of the agent's framework and model. A pod bound with another hash is rolled,
+// so a framework or model change replaces the agent's pods as the earlier restart annotation did.
 func agentConfigHash(at AgentType) string {
 	model := ""
 	if at.ModelID != nil {
@@ -272,13 +272,14 @@ func (p *K8sProvisioner) BindPod(ctx context.Context, at AgentType, namespace st
 		if pod.DeletionTimestamp != nil || !podReady(pod) || (template != "" && pod.Annotations[poolTemplateAnnotation] != template) {
 			continue
 		}
-		err := p.checkPoolProvenance(ctx, pod)
+		err = p.checkPoolProvenance(ctx, pod)
 		if errors.Is(err, errPoolProvenance) {
 			p.logger.Warn(ctx, "skipping a pool pod the tenant pool does not control",
 				logging.Field{Key: "pod", Value: pod.Name}, logging.Field{Key: "namespace", Value: namespace})
 			continue
 		}
 		if err != nil {
+			observability.RecordFailure(span, err, errSpanCheckPoolProvenance)
 			return "", err
 		}
 		err = p.bind(ctx, pod, at, owner)
@@ -292,11 +293,18 @@ func (p *K8sProvisioner) BindPod(ctx context.Context, at AgentType, namespace st
 			p.metrics.recordBindRefused(ctx)
 			return "", err
 		case err != nil:
+			observability.RecordFailure(span, err, errSpanBindPoolPod)
 			return "", err
 		}
-		return pod.Name, p.grow(ctx, pod)
+		if err = p.grow(ctx, pod); err != nil {
+			observability.RecordFailure(span, err, errSpanGrowBoundPod)
+			return pod.Name, err
+		}
+		return pod.Name, nil
 	}
-	return "", fmt.Errorf("%w in %s", errNoPoolPod, namespace)
+	err = fmt.Errorf("%w in %s", errNoPoolPod, namespace)
+	observability.RecordFailure(span, err, errNoPoolPod)
+	return "", err
 }
 
 // checkPoolProvenance checks that the pod's controller is a live ReplicaSet with the same UID, and that the

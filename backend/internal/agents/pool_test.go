@@ -187,6 +187,24 @@ func TestValidateAgentSlug_ReservesThePoolName(t *testing.T) {
 	}
 }
 
+// A pool pod carries no agent config label, even when a patch sets one.
+func TestBuildTenantPool_NoAgentConfigLabel(t *testing.T) {
+	p := podSecurityProvisioner()
+	p.cfg.Patches = loadTestPatches(t, map[string]string{
+		"10-config.yaml": `target: {kind: StatefulSet}
+patch: |
+  - {op: add, path: /spec/template/metadata/labels/runkora.io~1agent-config, value: forged}
+`,
+	})
+	dep, err := p.buildTenantPool("acme", "kora-tenant-acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := dep.Spec.Template.Labels[agentConfigLabel]; ok {
+		t.Errorf("pool pod label %s = %q, want none", agentConfigLabel, v)
+	}
+}
+
 // A patch that removes the pod template annotations still leaves the pool template hash on the pool pods.
 func TestBuildTenantPool_NoTemplateAnnotations(t *testing.T) {
 	p := podSecurityProvisioner()

@@ -278,7 +278,7 @@ func TestAgentPodsResidency(t *testing.T) {
 			resizing = append(resizing, pod.Name)
 		}
 	}
-	if len(pods.ready()) != 3 || !slices.Equal(warmPods, []string{"coder-1"}) || !slices.Equal(resizing, []string{"coder-2"}) {
+	if len(readyOf(pods.Live)) != 3 || !slices.Equal(warmPods, []string{"coder-1"}) || !slices.Equal(resizing, []string{"coder-2"}) {
 		t.Errorf("pods = %+v; want 3 Ready, coder-1 warm and coder-2 resizing", pods.Live)
 	}
 }

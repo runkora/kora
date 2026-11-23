@@ -471,7 +471,7 @@ func (m *mockRepository) ListStatefulSetRuns(context.Context) ([]Run, error) {
 	defer m.mu.Unlock()
 	var out []Run
 	for _, id := range m.legacyRuns {
-		if r, ok := m.runs[id]; ok && r.PodName == "" && !r.State.Terminal() && r.State != RunStatePending {
+		if r, ok := m.runs[id]; ok && r.PodName == "" && r.State == RunStateIdle {
 			out = append(out, *r)
 		}
 	}
@@ -856,6 +856,10 @@ type mockK8s struct {
 	readyPods int
 	// warm and resizing are the indexes of the pods AgentPods reports warm and with a pending resize.
 	warm, resizing []int
+	// config is the agent config hash of the pods AgentPods reports, apart from oldPods, the indexes of pods on
+	// another config.
+	config  string
+	oldPods []int
 	// gonePods are the pods PodLive reports gone.
 	gonePods              []string
 	sandboxEndpoint       string
@@ -915,8 +919,11 @@ func (m *mockK8s) AgentPods(_ context.Context, _, _ string) (agentPods, error) {
 	for i := range max(m.readyPods, 1) {
 		pods.Live = append(pods.Live, agentPod{
 			Name: testPodName(i), IP: testPodIP(i), Ready: true,
-			Warm: slices.Contains(m.warm, i), Resizing: slices.Contains(m.resizing, i),
+			Warm: slices.Contains(m.warm, i), Resizing: slices.Contains(m.resizing, i), Config: m.config,
 		})
+		if slices.Contains(m.oldPods, i) {
+			pods.Live[i].Config = "stale"
+		}
 	}
 	return pods, nil
 }

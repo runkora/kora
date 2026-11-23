@@ -579,9 +579,9 @@ func (r *PostgresRepository) lastRunError(ctx context.Context, run Run) (string,
 	return code, nil
 }
 
-// ListStatefulSetRuns returns the live runs an earlier release placed on an agent StatefulSet pod.
+// ListStatefulSetRuns returns the idle runs an earlier release placed on an agent StatefulSet pod.
 func (r *PostgresRepository) ListStatefulSetRuns(ctx context.Context) ([]Run, error) {
-	rows, err := r.pool.Query(ctx, selectRun+` WHERE r.state IN (`+liveRunSQLList()+`) AND r.pod_name IS NULL AND r.pod_ordinal >= 0`)
+	rows, err := r.pool.Query(ctx, selectRun+` WHERE r.state = 'idle' AND r.pod_name IS NULL AND r.pod_ordinal >= 0`)
 	if err != nil {
 		return nil, fmt.Errorf("list runs on agent StatefulSet pods: %w", err)
 	}
