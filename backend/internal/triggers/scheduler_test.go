@@ -6,6 +6,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 // spawn bounds concurrency: with a single slot, a second dispatch cannot start
@@ -159,5 +161,36 @@ func TestScheduler_PrunePreWoken(t *testing.T) {
 	s.prunePreWoken(now)
 	if _, ok := s.preWoken["gone"]; ok || len(s.preWoken) != 1 {
 		t.Errorf("preWoken = %v, want only the fire ahead", s.preWoken)
+	}
+}
+
+// A pre-wake that finds every slot taken waits for one instead of being dropped.
+func TestScheduler_PreWakeWaitsForASlot(t *testing.T) {
+	svc, deps := newTestService(t)
+	s := NewScheduler(svc, nil, silentLogger(), nil)
+	s.SetPreWakeLead(2 * time.Minute)
+	trig := Trigger{ID: "trig-1", TenantID: testTenant, Kind: KindScheduled, Enabled: true, AgentTypeID: "at-1",
+		PrincipalID: "trigger:trig-1", ScheduleConfig: &ScheduleConfig{CronExpression: "* * * * *", Timezone: "UTC"}}
+	sched, loc, err := ParseSchedule(trig.ScheduleConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range preWakeMaxConcurrent {
+		s.preWakeSem <- struct{}{}
+	}
+	s.preWake(t.Context(), trig, sched, loc, time.Now().UTC())
+	count := func() int {
+		deps.agents.mu.Lock()
+		defer deps.agents.mu.Unlock()
+		return len(deps.agents.preWakes)
+	}
+	if n := count(); n != 0 {
+		t.Fatalf("pre-wakes with every slot taken = %d, want 0", n)
+	}
+	<-s.preWakeSem
+	err = wait.PollUntilContextTimeout(t.Context(), 10*time.Millisecond, 5*time.Second, true,
+		func(context.Context) (bool, error) { return count() == 1, nil })
+	if err != nil {
+		t.Errorf("pre-wakes after a slot freed = %d, want 1", count())
 	}
 }

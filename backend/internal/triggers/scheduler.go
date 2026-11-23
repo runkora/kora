@@ -54,8 +54,8 @@ type Scheduler struct {
 }
 
 const (
-	// preWakeMaxConcurrent bounds the pre-wakes in flight. A pre-wake that finds no slot is dropped, and the
-	// run's start wakes the agent at the fire.
+	// preWakeMaxConcurrent bounds the pre-wakes in flight. A pre-wake that finds no slot waits for one until
+	// its fire, after which the run's start wakes the agent.
 	preWakeMaxConcurrent = 4
 	// preWakeTimeout bounds one pre-wake: the token mint and the kora-agents call.
 	preWakeTimeout = 5 * time.Second
@@ -219,7 +219,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 
 // preWake wakes the trigger's agent once per fire on this replica when the next fire is within preWakeLead of
 // the tick's minute. A trigger a person or the platform turned off, and a routed trigger with no single agent,
-// wake nothing. A pre-wake that kora-agents could not answer is retried on the next tick. A refusal is not.
+// wake nothing. A pre-wake that failed for any reason but a refusal from kora-agents is retried on the next tick.
 func (s *Scheduler) preWake(ctx context.Context, t Trigger, sched cron.Schedule, loc *time.Location, now time.Time) {
 	if s.preWakeLead <= 0 || !t.Enabled || t.AgentTypeID == "" || ctx.Err() != nil {
 		return
@@ -235,13 +235,10 @@ func (s *Scheduler) preWake(ctx context.Context, t Trigger, sched cron.Schedule,
 	}
 	s.preWoken[t.ID] = next
 	s.preWokenMu.Unlock()
-	select {
-	case s.preWakeSem <- struct{}{}:
-	default:
-		s.forgetPreWake(t.ID)
-		return
-	}
 	go func() {
+		if !s.takePreWakeSlot(ctx, next) {
+			return
+		}
 		defer func() { <-s.preWakeSem }()
 		opCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), preWakeTimeout)
 		defer cancel()
@@ -249,7 +246,7 @@ func (s *Scheduler) preWake(ctx context.Context, t Trigger, sched cron.Schedule,
 		if err == nil {
 			return
 		}
-		if errors.Is(err, agentsclient.ErrUpstreamUnavailable) || errors.Is(err, context.DeadlineExceeded) {
+		if !preWakeRefused(err) {
 			s.forgetPreWake(t.ID)
 		}
 		s.logger.Warn(opCtx, "scheduler: pre-wake of the trigger's agent failed",
@@ -262,6 +259,29 @@ func (s *Scheduler) prunePreWoken(now time.Time) {
 	s.preWokenMu.Lock()
 	defer s.preWokenMu.Unlock()
 	maps.DeleteFunc(s.preWoken, func(_ string, fire time.Time) bool { return fire.Before(now) })
+}
+
+// takePreWakeSlot waits for a pre-wake slot until the fire, and reports whether it took one.
+func (s *Scheduler) takePreWakeSlot(ctx context.Context, fire time.Time) bool {
+	select {
+	case s.preWakeSem <- struct{}{}:
+		return true
+	default:
+	}
+	waitCtx, cancel := context.WithDeadline(context.WithoutCancel(ctx), fire)
+	defer cancel()
+	select {
+	case s.preWakeSem <- struct{}{}:
+		return true
+	case <-waitCtx.Done():
+		return false
+	}
+}
+
+// preWakeRefused reports a pre-wake that kora-agents refused. Any other failure is retried on the next tick.
+func preWakeRefused(err error) bool {
+	return errors.Is(err, agentsclient.ErrForbidden) || errors.Is(err, agentsclient.ErrUnauthorized) ||
+		errors.Is(err, agentsclient.ErrAgentTypeNotFound) || errors.Is(err, agentsclient.ErrUnexpectedStatus)
 }
 
 // forgetPreWake lets the next tick wake the trigger's agent again.
