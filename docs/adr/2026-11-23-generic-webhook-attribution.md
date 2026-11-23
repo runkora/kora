@@ -146,7 +146,7 @@ Escaping would turn a URL from the payload into one escaped path segment. Templa
 *   The actor name, the actor URL, the object label and the object URL are rendered templates.
 *   The actor kind is the configured kind.
 *   The verb is `verbs[eventType]`, or the event type when `verbs` has no entry for it.
-*   An actor URL or object URL that is not an http or https URL (`agentsclient.ValidEventLink`) is left empty.
+*   An actor URL or object URL that is not an http or https URL (`agentsclient.ValidEventLink`) or that renders longer than 300 characters is left empty.
 
 ---
 

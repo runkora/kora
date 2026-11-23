@@ -41,11 +41,11 @@ Use **Generic webhook** for a system with no built-in provider. Set:
 Attribution is optional. It sets the links and the event summary a run shows for each delivery. It applies to every trigger on the source. Each value is a template of fixed text and `{{ path }}` placeholders into the payload, such as `https://tracker.example.com/projects/{{ data.project_id }}/issues/{{ data.id }}`. A path the payload does not contain renders empty. Set:
 
 - **Links:** up to 10, each a label and a URL. A link whose URL does not render as an `https` URL is left off the run. A label longer than 100 characters is shortened.
-- **Actor:** who caused the event. A name, a kind (person, bot or system) and an optional URL.
-- **Object:** what the event acted on. A label and an optional URL.
+- **Actor:** who caused the event, as a name, a kind (person, bot or system) and an optional URL.
+- **Object:** what the event acted on, as a label and an optional URL.
 - **Verbs:** a verb for each event type, such as `issue.comment.created` to `commented on`. An event type with no verb uses the event type.
 
-Set the actor and the object together. A delivery whose actor name or object label renders empty has no summary, and the run page shows the trigger's prompt instead. In the API, the source's `config.attribution` holds these settings as `links`, `actor`, `object` and `verbs`. A `PATCH` to the source with `attribution` replaces them, and an empty object removes them.
+Set the actor and the object together. A delivery whose actor name or object label renders empty has no summary, and the run page shows the trigger's prompt instead. An actor URL or object URL that is not an http or https URL or that renders longer than 300 characters is left empty. In the API, the source's `config.attribution` holds these settings as `links`, `actor`, `object` and `verbs`. A `PATCH` to the source with `attribution` replaces them, and an empty object removes them. Changing attribution needs permission to run every agent on the source's triggers.
 
 A URL template is at most 2,048 bytes. Every other template, event type and verb is at most 300 characters.
 
