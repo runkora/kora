@@ -146,7 +146,7 @@ At 20x a synchronised fire of 120 runs across 20 tenants binds 40 pool pods at o
 The wake path will be:
 
 1.  The run worker claims the pending run and finds no pod with room for a cold agent.
-2.  Under the agent lock, kora-agents patches one Ready pool pod in one write: it removes `runkora.io/pool` and the ReplicaSet labels, and sets `spiffe.io/agent`, `app`, `runkora.io/agent-type` and an owner reference to the KoraTenant. A resource version precondition makes two replicas binding the same pod fail one of them.
+2.  Under the agent lock, kora-agents patches one Ready pool pod in one write: it removes `runkora.io/pool`, sets `spiffe.io/agent`, `app` and `runkora.io/agent-type`, and replaces the ReplicaSet owner reference with an owner reference to the KoraTenant. The pod keeps `pod-template-hash`. A resource version precondition makes two replicas binding the same pod fail one of them.
 3.  kora-agents grows the session-manager through the resize subresource.
 4.  kora-agents emits a "waking agent" run event.
 5.  kora-agents polls `GET /health/bound` through the A1 path every 100ms and then creates the session.
