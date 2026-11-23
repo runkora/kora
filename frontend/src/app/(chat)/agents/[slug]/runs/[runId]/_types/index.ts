@@ -96,6 +96,7 @@ export type Turn = HumanTurn | AgentTurn | ErrorTurn;
 
 /** What the agent is doing while nothing visible streams, for the composer's status strip. */
 export type LiveActivity =
+  | { kind: 'waking' }
   | { kind: 'sandbox' }
   | { kind: 'retry'; attempt: number; maxRetries: number; error: string }
   | { kind: 'tool'; tool: ToolCall }

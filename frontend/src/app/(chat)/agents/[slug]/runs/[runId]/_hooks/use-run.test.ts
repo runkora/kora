@@ -2,7 +2,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { server } from '@runkora/test-utils/msw/server';
-import { useRun } from './use-run';
+import { deriveActivity, useRun } from './use-run';
 
 // Minimal controllable EventSource stand-in. jsdom ships no EventSource, and we
 // need to drive onopen/onerror/named events deterministically and inspect how
@@ -438,6 +438,14 @@ describe('useRun — activity, delivery and stops', () => {
     expect(result.current.turns.at(-1)).toMatchObject({
       elements: [{ kind: 'text' }, { kind: 'stopped', byGuardrail: true }],
     });
+  });
+
+  it('reports a waking agent before a sandbox start, and a retry before both', () => {
+    expect(deriveActivity([], null, true, true)).toEqual({ kind: 'waking' });
+    expect(deriveActivity([], null, true, false)).toEqual({ kind: 'sandbox' });
+    expect(deriveActivity([], { attempt: 1, maxRetries: 3, error: '' }, false, true).kind).toBe(
+      'retry',
+    );
   });
 
   it('reports what the agent is doing on the status line', async () => {

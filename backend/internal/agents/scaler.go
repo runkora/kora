@@ -25,7 +25,8 @@ const scalerLockTimeout = 2 * time.Second
 // errScaleAgent is the span status of a scaler pass that failed for one agent.
 var errScaleAgent = errors.New("scale agent")
 
-// scalerStore is the storage the scaler reads. The run counts are read under placement's agent lock.
+// scalerStore is the storage the scaler reads. The run counts it decides from are read under placement's
+// agent lock.
 type scalerStore interface {
 	ListActiveAgentTypes(ctx context.Context) ([]AgentType, error)
 	GetAgentType(ctx context.Context, id string) (*AgentType, error)
@@ -51,6 +52,8 @@ type scalerCluster interface {
 	// ShrinkPod and GrowPod set a pod's session-manager requests to the warm or the full size.
 	ShrinkPod(ctx context.Context, namespace, name string) error
 	GrowPod(ctx context.Context, namespace, name string) error
+	// SizePool sets the tenant pool's replicas from the namespace's cold wakes.
+	SizePool(ctx context.Context, namespace string, waits int32) error
 }
 
 // ScalerConfig holds the scaler's settings.
@@ -67,6 +70,12 @@ type ScalerConfig struct {
 	Concurrency int
 	// WarmAfter is how long an agent stays idle before its pods shrink to the warm size. Zero keeps them full.
 	WarmAfter time.Duration
+	// ColdAfter is how long an agent with no pending, starting, active or idle run keeps its pods. Zero keeps
+	// every agent at its floor.
+	ColdAfter time.Duration
+	// GrowTimeout is how long a run waits for its pod's grow. An empty pod whose grow the kubelet holds as
+	// Deferred for longer is deleted.
+	GrowTimeout time.Duration
 }
 
 // Scaler binds and deletes each agent's pods from its runs and pod memory, and rolls the pods a pool
@@ -82,6 +91,9 @@ type Scaler struct {
 	refused sync.Map
 	// stalled counts, per agent ID, the passes in a row in which a roll changed no pod.
 	stalled sync.Map
+	// waits counts, per tenant namespace, the agents in this pass with a pending run and no bound pod.
+	waitsMu sync.Mutex
+	waits   map[string]int32
 }
 
 // rollStallPasses is how many passes in a row a roll may change no pod before the scaler logs a warning.
@@ -135,6 +147,13 @@ func (s *Scaler) pass(ctx context.Context) {
 		}
 		return true
 	})
+	waits := make(map[string]int32)
+	for _, at := range ats {
+		waits[s.cfg.TenantNamespaceFn(at.TenantID)] = 0
+	}
+	s.waitsMu.Lock()
+	s.waits = waits
+	s.waitsMu.Unlock()
 	var g errgroup.Group
 	g.SetLimit(max(s.cfg.Concurrency, 1))
 	for _, at := range ats {
@@ -144,6 +163,23 @@ func (s *Scaler) pass(ctx context.Context) {
 		})
 	}
 	_ = g.Wait() // scaleAgent logs its own failures and returns none.
+	s.waitsMu.Lock()
+	defer s.waitsMu.Unlock()
+	for namespace, n := range s.waits {
+		if err := s.cluster.SizePool(ctx, namespace, n); err != nil {
+			s.logger.Warn(ctx, "size tenant pool failed",
+				logging.Field{Key: "namespace", Value: namespace}, logging.Field{Key: "error", Value: err.Error()})
+		}
+	}
+}
+
+// noteColdWait counts an agent with a pending run and no bound pod toward its tenant pool's size.
+func (s *Scaler) noteColdWait(namespace string) {
+	s.waitsMu.Lock()
+	defer s.waitsMu.Unlock()
+	if s.waits != nil {
+		s.waits[namespace]++
+	}
 }
 
 // scaleAgent reads pod memory with no lock held, then decides and scales under the agent lock.
@@ -181,6 +217,16 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	}
 	if err = s.cluster.RetireServiceAccount(ctx, at, namespace); err != nil {
 		return err
+	}
+	// Every replica counts the cold wakes the same way, as the count needs no agent lock.
+	if len(pods.Live) == 0 {
+		counts, countErr := s.store.AgentRunCounts(ctx, at.ID)
+		if countErr != nil {
+			return countErr
+		}
+		if counts.Pending > 0 {
+			s.noteColdWait(namespace)
+		}
 	}
 	allowance, err := s.cfg.StartingRunAllowances.For(at.Framework)
 	if err != nil {
@@ -228,8 +274,16 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 	if err != nil {
 		return err
 	}
+	replaced, err := s.replaceDeferred(ctx, at, namespace, pods.Live, occupied)
+	if replaced || err != nil {
+		return err
+	}
+	floor, err := s.floor(ctx, at, counts)
+	if err != nil {
+		return err
+	}
 	in := scaleInput{
-		pods: pods.Live, floor: int(max(s.cfg.MinReplicas, 1)), total: at.MaxConcurrentRuns, maxPods: int(s.cfg.MaxReplicas),
+		pods: pods.Live, floor: floor, total: at.MaxConcurrentRuns, maxPods: int(s.cfg.MaxReplicas),
 		counts: counts, rolling: pods.rolling(config), readings: readings, starting: starting, occupied: occupied,
 		memoryMax: memoryMax(pods.Live, readings, pods.MemoryLimitBytes), allowance: allowance, watermark: s.cfg.PlacementWatermark,
 	}
@@ -385,18 +439,68 @@ func (s *Scaler) settleResidency(ctx context.Context, at AgentType, namespace st
 	if counts.Pending > 0 || len(hot) == 0 {
 		return nil
 	}
-	last, err := s.store.LastRunCompletedAt(ctx, at.ID)
+	idleSince, err := s.idleSince(ctx, at)
 	if err != nil {
 		return err
-	}
-	idleSince := at.ActivatedAt
-	if last.After(idleSince) {
-		idleSince = last
 	}
 	if time.Since(idleSince) < s.cfg.WarmAfter {
 		return nil
 	}
 	return s.shrink(ctx, at, namespace, hot)
+}
+
+// idleSince is when the agent's latest run ended, or when it was activated if that is later.
+func (s *Scaler) idleSince(ctx context.Context, at AgentType) (time.Time, error) {
+	last, err := s.store.LastRunCompletedAt(ctx, at.ID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if last.After(at.ActivatedAt) {
+		return last, nil
+	}
+	return at.ActivatedAt, nil
+}
+
+// floor is the agent's floor of pods: MinReplicas, at least 1, while the agent is warm, and 0 once it has had
+// no pending, starting, active or idle run for ColdAfter (docs/adr/2026-11-22-agent-cold-tier.md, D6).
+// A cold agent's next run binds a pool pod.
+func (s *Scaler) floor(ctx context.Context, at AgentType, counts AgentRunCounts) (int, error) {
+	warm := int(max(s.cfg.MinReplicas, 1))
+	if s.cfg.ColdAfter <= 0 || counts.Pending+counts.Starting+counts.Active > 0 {
+		return warm, nil
+	}
+	idleSince, err := s.idleSince(ctx, at)
+	if err != nil {
+		return 0, err
+	}
+	if time.Since(idleSince) < s.cfg.ColdAfter {
+		return warm, nil
+	}
+	return 0, nil
+}
+
+// replaceDeferred deletes each empty pod whose grow the kubelet has held as Deferred for longer than
+// GrowTimeout. The run that waited on the grow was released, and a later bind takes the next pool pod
+// (docs/adr/2026-11-22-agent-cold-tier.md, W1). It reports whether it deleted a pod.
+func (s *Scaler) replaceDeferred(ctx context.Context, at AgentType, namespace string, pods []agentPod, occupied map[string]int) (bool, error) {
+	limit := s.cfg.GrowTimeout
+	if limit <= 0 {
+		limit = defaultGrowTimeout
+	}
+	replaced := false
+	for _, pod := range pods {
+		if pod.DeferredSince.IsZero() || time.Since(pod.DeferredSince) < limit || occupied[pod.Name] > 0 {
+			continue
+		}
+		if err := s.cluster.DeletePod(ctx, namespace, pod.Name); err != nil {
+			return replaced, err
+		}
+		replaced = true
+		s.logger.Info(ctx, "deleted an empty agent pod whose grow stayed deferred",
+			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: pod.Name},
+			logging.Field{Key: "deferred_since", Value: pod.DeferredSince})
+	}
+	return replaced, nil
 }
 
 // growHeld grows each warm pod that holds a run, or every warm pod with the warm tier off.

@@ -88,9 +88,10 @@ Kubernetes: `>=1.34.0-0`
 | agents.sandboxWarming.resources | object | `{}` | Capacity each placeholder reserves, and the size a node is fitted to. Empty reserves one default sandbox pod: `agents.environments.defaultSize`, 1Gi of scratch disk and `operator.injection.sandboxSidecars`. A value here replaces that and must cover a sandbox pod's total requests. |
 | agents.sandboxWarming.tolerations | list | `[]` |  |
 | agents.sandboxWarming.topologySpreadConstraints | list | `[]` |  |
+| agents.scheduling.coldAfterSecs | int | `1800` | Seconds after an agent's last run ended before kora-agents deletes its pods, when it has no pending, starting, active or idle run. A cold agent's next run binds a pool pod. 0 keeps every agent at `minReplicas`. |
 | agents.scheduling.drainGracePeriodSecs | int | `3600` | Seconds a terminating session-manager pod waits for its runs to end before it is stopped. |
 | agents.scheduling.maxReplicas | int | `10` | Session-manager pods each agent runs at most. kora-agents never adds pods past it or the agent's total of concurrent runs. |
-| agents.scheduling.minReplicas | int | `1` | Session-manager pods each agent runs at least. A roll first binds one pod on the pool's new template. kora-agents binds pods above it as runs need them and removes empty ones. |
+| agents.scheduling.minReplicas | int | `1` | Session-manager pods each warm agent runs at least. An agent cold for `coldAfterSecs` runs none. A roll first binds one pod on the pool's new template. kora-agents binds pods above it as runs need them and removes empty ones. |
 | agents.scheduling.placementWatermark | float | `0.7` | Fraction of a session-manager pod's memory limit its working set must stay below for the pod to take a run. |
 | agents.scheduling.pollIntervalSecs | int | `1` | Seconds between polls for pending runs, and before a run with no free pod is tried again. |
 | agents.scheduling.pressureLimit | float | `0.9` | Fraction of the memory limit at which the session-manager kills its most recently started run. Above placementWatermark. |

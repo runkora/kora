@@ -35,7 +35,7 @@ func newWorkloadCache(client kubernetes.Interface, selector string) informers.Sh
 }
 
 // trimCached drops what the scaler, placement, the bind and the grow never read: all of a Deployment but
-// its identity and pool template annotation, and all of a pod but its
+// its identity, replicas and pool template annotation, and all of a pod but its
 // identity, labels, pool template annotation, owners, creation, deletion, node, IP, phase, conditions and
 // session-manager resources. It keeps the cache small at many agents.
 func trimCached(obj any) (any, error) {
@@ -43,7 +43,7 @@ func trimCached(obj any) (any, error) {
 	case *appsv1.Deployment:
 		return &appsv1.Deployment{
 			ObjectMeta: metav1.ObjectMeta{Name: o.Name, Namespace: o.Namespace, UID: o.UID, ResourceVersion: o.ResourceVersion, Labels: o.Labels},
-			Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{
+			Spec: appsv1.DeploymentSpec{Replicas: o.Spec.Replicas, Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{
 				Annotations: map[string]string{poolTemplateAnnotation: o.Spec.Template.Annotations[poolTemplateAnnotation]},
 			}}},
 		}, nil

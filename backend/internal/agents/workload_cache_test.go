@@ -101,9 +101,10 @@ func TestTrimCached(t *testing.T) {
 		len(got.Status.ContainerStatuses) != 1 || got.Status.ContainerStatuses[0].Image != "" {
 		t.Errorf("trimmed pod kept fields the scaler never reads: %+v", got)
 	}
+	replicas := int32(3)
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: poolName, Namespace: scaleTestNS, ManagedFields: managed},
-		Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{
+		Spec: appsv1.DeploymentSpec{Replicas: &replicas, Template: corev1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{poolTemplateAnnotation: testTemplate, "other": "x"}},
 			Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: sessionManagerContainerName}}},
 		}},
@@ -113,8 +114,9 @@ func TestTrimCached(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := out.(*appsv1.Deployment); got.Name != poolName || got.ManagedFields != nil || len(got.Spec.Template.Spec.Containers) != 0 ||
-		len(got.Spec.Template.Annotations) != 1 || got.Spec.Template.Annotations[poolTemplateAnnotation] != testTemplate {
-		t.Errorf("trimmed Deployment = %+v, want the name and pool template only", got)
+		len(got.Spec.Template.Annotations) != 1 || got.Spec.Template.Annotations[poolTemplateAnnotation] != testTemplate ||
+		got.Spec.Replicas == nil || *got.Spec.Replicas != 3 {
+		t.Errorf("trimmed Deployment = %+v, want the name, replicas and pool template only", got)
 	}
 }
 

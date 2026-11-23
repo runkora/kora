@@ -654,7 +654,7 @@ agents:
     startBudgetSecs: 180
     # -- Seconds a run may wait for its agent to finish provisioning before it fails.
     provisionBudgetSecs: 600
-    # -- Session-manager pods each agent runs at least. A roll first binds one pod on the pool's new template. kora-agents binds pods above it as runs need them and removes empty ones.
+    # -- Session-manager pods each warm agent runs at least. An agent cold for `coldAfterSecs` runs none. A roll first binds one pod on the pool's new template. kora-agents binds pods above it as runs need them and removes empty ones.
     minReplicas: 1
     # -- Session-manager pods each agent runs at most. kora-agents never adds pods past it or the agent's total of concurrent runs.
     maxReplicas: 10
@@ -676,6 +676,8 @@ agents:
     startingRunWindowSecs: 30
     # -- Seconds after an agent's last run ended before its idle session-manager pods shrink to `agents.workloads.sessionManager.warm`. A run grows the pod back before it starts. 0 keeps every pod at full size and grows any warm pod back. In-place pod resize is on by default from Kubernetes 1.33 and GA in 1.35.
     warmAfterSecs: 300
+    # -- Seconds after an agent's last run ended before kora-agents deletes its pods, when it has no pending, starting, active or idle run. A cold agent's next run binds a pool pod. 0 keeps every agent at `minReplicas`.
+    coldAfterSecs: 1800
   # A per-node reserve for warm session-manager pods to grow into. kora-agents
   # deletes the reserve pod on a node when a grow there finds no room, and the
   # DaemonSet recreates it once the node has room again. It runs with

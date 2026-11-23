@@ -31,6 +31,7 @@ var durableEventTypes = map[string]bool{
 	"sandbox_status":    true,
 	"turn_stopped":      true,
 	"guardrail_warning": true,
+	eventAgentWaking:    true,
 }
 
 // replayOnlyEventTypes are persisted for replay but withheld from live

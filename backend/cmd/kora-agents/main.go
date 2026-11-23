@@ -289,6 +289,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	k8s.SetMetrics(runMetrics)
 	// Set with the warm tier off too, so pods left warm when it was turned off still grow before a run.
 	runSvc.SetPodWaker(k8s)
+	runSvc.SetColdWaker(k8s)
 	runSvc.SetGradeReader(repo)
 
 	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, atSvc, tenants, agents.EnvironmentServiceConfig{
@@ -372,6 +373,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		StartingRunWindow:     time.Duration(cfg.Agents.Scheduling.StartingRunWindowSecs) * time.Second,
 		Concurrency:           cfg.Agents.Scheduling.ScalerConcurrency,
 		WarmAfter:             time.Duration(cfg.Agents.Scheduling.WarmAfterSecs) * time.Second,
+		ColdAfter:             time.Duration(cfg.Agents.Scheduling.ColdAfterSecs) * time.Second,
 	}, logger)
 
 	return server, repo, atSvc, runSvc, draftSvc, scaler, nil

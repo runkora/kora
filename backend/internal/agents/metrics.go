@@ -23,6 +23,10 @@ const (
 // SDK default boundaries top out far below the length of a run that idles.
 var runDurationBuckets = []float64{1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600, 7200, 14400, 28800, 86400}
 
+// wakeBuckets are seconds from a quarter second to 10s around the bind's 2s target
+// (docs/adr/2026-11-22-agent-cold-tier.md, B1).
+var wakeBuckets = []float64{0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 5, 10}
+
 // Metrics is the Agents feature's instrument set. A nil *Metrics records nothing.
 //
 // Runs are measured when they reach a terminal state, not as a span, because a
@@ -32,6 +36,8 @@ type Metrics struct {
 	runDuration metric.Float64Histogram
 	// bindRefused counts the binds an admission policy refused.
 	bindRefused metric.Int64Counter
+	// wakeBound is the time from a cold wake's bind to the pod's first 200 on the bound check.
+	wakeBound metric.Float64Histogram
 }
 
 // NewMetrics builds the instrument set on the given meter.
@@ -61,7 +67,24 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create bind-refused counter: %w", err)
 	}
-	return &Metrics{runs: runs, runDuration: duration, bindRefused: bindRefused}, nil
+	wakeBound, err := meter.Float64Histogram(
+		"kora.agents.wake.bound.duration",
+		metric.WithDescription("Time from the bind of a cold agent's pool pod to its first 200 on the bound check"),
+		metric.WithUnit("s"),
+		metric.WithExplicitBucketBoundaries(wakeBuckets...),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create wake-bound histogram: %w", err)
+	}
+	return &Metrics{runs: runs, runDuration: duration, bindRefused: bindRefused, wakeBound: wakeBound}, nil
+}
+
+// recordWakeBound records the time from a cold wake's bind to its bound check.
+func (m *Metrics) recordWakeBound(ctx context.Context, d time.Duration) {
+	if m == nil {
+		return
+	}
+	m.wakeBound.Record(ctx, d.Seconds())
 }
 
 // recordBindRefused counts a bind the API server refused.

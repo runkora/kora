@@ -300,6 +300,8 @@ function activityOf(a: UseRunReturn['liveActivity']): string | undefined {
       return `Retrying the model call (${a.attempt} of ${a.maxRetries})${
         a.error ? `: ${a.error.split('\n')[0]}` : ''
       }`;
+    case 'waking':
+      return 'Waking the agent';
     case 'sandbox':
       return 'Starting the sandbox';
     case 'tool': {
