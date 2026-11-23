@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -12,6 +13,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	agentsConfig "github.com/runkora/kora/backend/cmd/kora-agents/config"
+	triggersConfig "github.com/runkora/kora/backend/cmd/kora-triggers/config"
 	"github.com/runkora/kora/backend/internal/agents"
 )
 
@@ -146,5 +148,17 @@ func TestChartWakeReserve(t *testing.T) {
 func TestChartAgentsClusterRoleResizesPods(t *testing.T) {
 	if got := agentsClusterRoleVerbs(t, "", "pods/resize"); !slices.Equal(got, []string{"patch"}) {
 		t.Errorf("pods/resize verbs = %v, want [patch]", got)
+	}
+}
+
+// The scheduled pre-wake lead reaches kora-triggers, and a lead past kora-agents' 15 minute limit fails the
+// render (docs/adr/2026-11-22-agent-cold-tier.md, S2).
+func TestChartPreWakeLead(t *testing.T) {
+	cfg := loadRendered[triggersConfig.Config](t, renderChart(t, "{}\n"), "cmd/kora-triggers")
+	if got := cfg.PreWakeLead(); got != 3*time.Minute {
+		t.Errorf("pre-wake lead = %s, want 3m", got)
+	}
+	if out, err := helmTemplate(t, "agents:\n  pool: {preWakeLeadSecs: 901}\n"); err == nil || !strings.Contains(out, "preWakeLeadSecs must be between 0 and 900") {
+		t.Errorf("preWakeLeadSecs 901: render err = %v, want the check to fail it", err)
 	}
 }

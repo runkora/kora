@@ -251,6 +251,7 @@ func initController(
 	// scheduled_at) key before dispatching, so a losing replica simply stops.
 	// See ADR Decision 2.
 	scheduler := triggers.NewScheduler(svc, repo, logger, metrics)
+	scheduler.SetPreWakeLead(tc.Current.PreWakeLead())
 	if err := scheduler.Start(ctx); err != nil {
 		return nil, nil, fmt.Errorf("start trigger scheduler: %w", err)
 	}

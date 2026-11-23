@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
@@ -514,6 +515,31 @@ func TestValidEventLink(t *testing.T) {
 	} {
 		if got := ValidEventLink(link); got != want {
 			t.Errorf("ValidEventLink(%q) = %v, want %v", link, got, want)
+		}
+	}
+}
+
+func TestPreWake(t *testing.T) {
+	c, cap := newTestClient(t, http.StatusNoContent, ``)
+	fireAt := time.Date(2026, 11, 23, 12, 10, 0, 0, time.UTC)
+	if err := c.PreWake(context.Background(), "tok-123", "at-1", fireAt); err != nil {
+		t.Fatalf("PreWake: %v", err)
+	}
+	if cap.method != http.MethodPost || cap.path != "/api/v1/runs/pre-wake" || cap.auth != "Bearer tok-123" {
+		t.Errorf("request = %s %s with %q", cap.method, cap.path, cap.auth)
+	}
+	if strings.TrimSpace(cap.body) != `{"agent_type_id":"at-1","fire_at":"2026-11-23T12:10:00Z"}` {
+		t.Errorf("body = %s", cap.body)
+	}
+	for status, want := range map[int]error{
+		http.StatusForbidden:           ErrForbidden,
+		http.StatusNotFound:            ErrAgentTypeNotFound,
+		http.StatusServiceUnavailable:  ErrUpstreamUnavailable,
+		http.StatusUnprocessableEntity: ErrUnexpectedStatus,
+	} {
+		c, _ := newTestClient(t, status, `{"error":"x"}`)
+		if err := c.PreWake(context.Background(), "tok", "at-1", fireAt); !errors.Is(err, want) {
+			t.Errorf("status %d: got %v, want %v", status, err, want)
 		}
 	}
 }

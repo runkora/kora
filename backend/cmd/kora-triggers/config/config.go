@@ -84,6 +84,17 @@ type Config struct {
 		// TenantsPath is where the chart mounts the kora-tenants registry.
 		TenantsPath string `yaml:"tenantsPath"`
 	} `yaml:"kubernetes"`
+
+	Scheduler struct {
+		// PreWakeLeadSecs is how long before a schedule fire kora-triggers asks kora-agents to wake the
+		// trigger's agent. Zero turns the pre-wake off.
+		PreWakeLeadSecs int `yaml:"preWakeLeadSecs"`
+	} `yaml:"scheduler"`
+}
+
+// PreWakeLead returns the scheduled pre-wake lead, zero when it is off.
+func (c *Config) PreWakeLead() time.Duration {
+	return time.Duration(max(c.Scheduler.PreWakeLeadSecs, 0)) * time.Second
 }
 
 // ShutdownTimeout returns the configured graceful-shutdown timeout.

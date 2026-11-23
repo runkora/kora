@@ -86,7 +86,8 @@ type RunService struct {
 	images     sandboxImageLookup
 	missing    missingProvisioner
 	pods       livePods
-	waker      podWaker // grows a warm pod before its run; nil = no grow
+	waker      podWaker   // grows a warm pod before its run; nil = no grow
+	holds      warmHolder // records scheduled pre-wake holds
 	queue      runQueue
 	placement  podPlacementStore
 	metrics    *Metrics // run outcome and duration; nil = not recorded

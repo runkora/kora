@@ -36,6 +36,8 @@ type scalerStore interface {
 	ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[string]int, error)
 	// LastRunCompletedAt is the completion time of the agent's latest completed run, zero when it has none.
 	LastRunCompletedAt(ctx context.Context, agentTypeID string) (time.Time, error)
+	// AgentWarmUntil is the end of the agent's scheduled pre-wake hold, zero when it has none.
+	AgentWarmUntil(ctx context.Context, agentTypeID string) (time.Time, error)
 }
 
 // scalerCluster is the pod access the scaler needs. AgentPods reads a cache that SyncWorkloadCache starts.
@@ -465,7 +467,19 @@ func (s *Scaler) settleResidency(ctx context.Context, at AgentType, namespace st
 	if time.Since(idleSince) < s.cfg.WarmAfter {
 		return nil
 	}
+	if held, err := s.heldWarm(ctx, at); held || err != nil {
+		return err
+	}
 	return s.shrink(ctx, at, namespace, hot)
+}
+
+// heldWarm reports whether a scheduled pre-wake holds the agent warm now (docs/adr/2026-11-22-agent-cold-tier.md, S2).
+func (s *Scaler) heldWarm(ctx context.Context, at AgentType) (bool, error) {
+	until, err := s.store.AgentWarmUntil(ctx, at.ID)
+	if err != nil {
+		return false, err
+	}
+	return time.Now().Before(until), nil
 }
 
 // idleSince is when the agent's latest run ended, or when it was activated if that is later.
@@ -482,7 +496,7 @@ func (s *Scaler) idleSince(ctx context.Context, at AgentType) (time.Time, error)
 
 // floor is the agent's floor of pods: MinReplicas, at least 1, while the agent is warm, and 0 once it has had
 // no pending, starting, active or idle run for ColdAfter (docs/adr/2026-11-22-agent-cold-tier.md, D6).
-// A cold agent's next run binds a pool pod.
+// A cold agent's next run binds a pool pod. A scheduled pre-wake keeps the warm floor while it holds.
 func (s *Scaler) floor(ctx context.Context, at AgentType, counts AgentRunCounts) (int, error) {
 	warm := int(max(s.cfg.MinReplicas, 1))
 	if s.cfg.ColdAfter <= 0 || counts.Pending+counts.Starting+counts.Active > 0 {
@@ -494,6 +508,9 @@ func (s *Scaler) floor(ctx context.Context, at AgentType, counts AgentRunCounts)
 	}
 	if time.Since(idleSince) < s.cfg.ColdAfter {
 		return warm, nil
+	}
+	if held, err := s.heldWarm(ctx, at); held || err != nil {
+		return warm, err
 	}
 	return 0, nil
 }

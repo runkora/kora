@@ -236,6 +236,19 @@ func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 	)
 }
 
+// PreWakeScheduled asks kora-agents to wake the trigger's agent ahead of its fire at fireAt, under the token the
+// fire's run starts with (docs/adr/2026-11-22-agent-cold-tier.md, S2).
+func (s *Service) PreWakeScheduled(ctx context.Context, t Trigger, fireAt time.Time) error {
+	tok, err := s.triggerToken(ctx, t)
+	if err != nil {
+		return err
+	}
+	if err = s.agents.PreWake(ctx, tok, t.AgentTypeID, fireAt); err != nil {
+		return fmt.Errorf("pre-wake agent: %w", err)
+	}
+	return nil
+}
+
 // ListDeliveries returns one page of a tenant's deliveries, newest first, each
 // with its per-trigger run fan-out and coalescing keys attached (one batched
 // query each, no N+1). nextCursor is empty on the last page.

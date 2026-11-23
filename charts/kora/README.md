@@ -58,6 +58,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.nodeSelector | object | `{}` |  |
 | agents.podAnnotations | object | `{}` |  |
 | agents.podLabels | object | `{}` |  |
+| agents.pool.preWakeLeadSecs | int | `180` | Seconds before a schedule fire that kora-triggers asks kora-agents to wake the trigger's agent, so its pod is bound and the pool refills before the fire. 0 turns the pre-wake off. At most 900. |
 | agents.pool.size | int | `2` | Unbound session-manager pods each tenant keeps ready. kora-agents adds one for each agent with a pending run and no bound pod. |
 | agents.priorityClassName | string | `""` |  |
 | agents.replicas | int | `1` |  |

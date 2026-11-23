@@ -213,6 +213,8 @@ type scalerFake struct {
 	retired  int
 	// state is what GetAgentType reads under the lock, active when empty. A deleted agent is not found.
 	state AgentTypeState
+	// warmUntil is what AgentWarmUntil reports.
+	warmUntil time.Time
 	// sized records the waits each SizePool call set, by namespace. retireErr fails RetireServiceAccount.
 	sized     map[string]int32
 	retireErr error
@@ -367,6 +369,11 @@ func (f *scalerFake) Bound(context.Context, sessionmanager.Pod) (bool, error) {
 func (f *scalerFake) LastRunCompletedAt(context.Context, string) (time.Time, error) {
 	f.mustHold("LastRunCompletedAt")
 	return f.lastCompleted, nil
+}
+
+func (f *scalerFake) AgentWarmUntil(context.Context, string) (time.Time, error) {
+	f.mustHold("AgentWarmUntil")
+	return f.warmUntil, nil
 }
 
 func (f *scalerFake) ShrinkPod(_ context.Context, _, name string) error {

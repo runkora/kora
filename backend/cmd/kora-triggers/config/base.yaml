@@ -27,3 +27,7 @@ metrics:
 kubernetes:
   # Where the chart mounts the kora-tenants ConfigMap.
   tenantsPath: /etc/kora/tenants.yaml
+
+scheduler:
+  # The chart renders it from agents.pool.preWakeLeadSecs.
+  preWakeLeadSecs: 180

@@ -142,6 +142,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /api/v1/sandbox-images", c.handleListSandboxImages)
 	mux.Handle("GET /api/v1/environment-sizes", c.handleEnvironmentSizes)
 	mux.Handle("POST /api/v1/runs", c.handleStartRun)
+	mux.Handle("POST /api/v1/runs/pre-wake", c.handlePreWake)
 	mux.Handle("GET /api/v1/runs", c.handleListRuns)
 	mux.Handle("GET /api/v1/runs/stats", c.handleTenantRunStats)
 	mux.Handle("GET /api/v1/run-outcomes", c.handleRunOutcomes)

@@ -348,6 +348,41 @@ func (c *Client) StartRun(ctx context.Context, bearer string, req StartRunReques
 	}
 }
 
+// PreWake asks kora-agents to hold the agent warm ahead of a schedule fire at fireAt
+// (docs/adr/2026-11-22-agent-cold-tier.md, S2), authenticating with the supplied platform bearer token.
+func (c *Client) PreWake(ctx context.Context, bearer, agentTypeID string, fireAt time.Time) error {
+	body, err := c.EncodeJSON(map[string]any{"agent_type_id": agentTypeID, "fire_at": fireAt.UTC()})
+	if err != nil {
+		return fmt.Errorf("encode pre-wake: %w", err)
+	}
+	header := http.Header{}
+	header.Set("Content-Type", "application/json")
+	header.Set("Authorization", "Bearer "+bearer)
+
+	_, span, resp, err := c.Do(ctx, httpclient.Request{
+		Method: http.MethodPost, BaseURL: c.baseURL, Path: "/api/v1/runs/pre-wake", Header: header, Body: body,
+	})
+	defer span.End()
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	switch resp.StatusCode {
+	case http.StatusNoContent:
+		return nil
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return c.HandleErrorResponse(span, resp, ErrForbidden)
+	case http.StatusNotFound:
+		return c.HandleErrorResponse(span, resp, ErrAgentTypeNotFound)
+	default:
+		if resp.StatusCode >= http.StatusInternalServerError {
+			return c.HandleErrorResponse(span, resp, ErrUpstreamUnavailable)
+		}
+		return c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+}
+
 // CanReadRun reports whether the bearer may read the run, by reading it from
 // kora-agents, which owns the run visibility rules. It returns nil when the
 // read succeeds, ErrForbidden when it is refused and ErrRunNotFound when the

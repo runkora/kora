@@ -2,6 +2,10 @@
 kora-triggers config files (docs/adr/2026-10-06-rendered-service-config-files.md).
 */}}
 {{- define "kora.triggers.configModules" -}}
+{{- $lead := int .Values.agents.pool.preWakeLeadSecs }}
+{{- if or (lt $lead 0) (gt $lead 900) }}
+  {{- fail "agents.pool.preWakeLeadSecs must be between 0 and 900" }}
+{{- end }}
 cmd/kora-triggers:
   metrics:
     enabled: {{ .Values.global.metrics.enabled }}
@@ -17,6 +21,8 @@ cmd/kora-triggers:
   policy:
     policyServiceInternalURL: {{ include "kora.serviceURL" (dict "root" . "name" "kora-policy-service") | toJson }}
     bundleEndpoint: {{ include "kora.bundleEndpoint" . | toJson }}
+  scheduler:
+    preWakeLeadSecs: {{ .Values.agents.pool.preWakeLeadSecs | int }}
 {{ include "kora.observabilityConfigModule" . }}
 {{ include "kora.storageConfigModule" (dict "root" . "redisClient" true) }}
 {{ include "kora.tokenConfigModule" . }}

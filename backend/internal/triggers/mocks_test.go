@@ -897,6 +897,11 @@ type startCall struct {
 type agentsStub struct {
 	server *httptest.Server
 
+	// preWakes records POST /api/v1/runs/pre-wake as "<agent type id> <fire_at>", and preWakeStatus answers
+	// it; 0 → 204.
+	preWakes      []string
+	preWakeStatus int
+
 	mu         sync.Mutex
 	calls      []startCall
 	status     int    // run-start response status; 0 → 201
@@ -1085,6 +1090,21 @@ func newAgentsStub() *agentsStub {
 		default:
 			w.WriteHeader(http.StatusAccepted)
 		}
+	})
+	mux.HandleFunc("POST /api/v1/runs/pre-wake", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			AgentTypeID string    `json:"agent_type_id"`
+			FireAt      time.Time `json:"fire_at"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		as.mu.Lock()
+		defer as.mu.Unlock()
+		as.preWakes = append(as.preWakes, req.AgentTypeID+" "+req.FireAt.UTC().Format(time.RFC3339))
+		if as.preWakeStatus != 0 {
+			w.WriteHeader(as.preWakeStatus)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /api/v1/runs", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)

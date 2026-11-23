@@ -3,6 +3,7 @@ package triggers
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -40,6 +41,11 @@ type Scheduler struct {
 	c       *cron.Cron
 	// sem bounds how many trigger dispatches/reconciles run at once. See spawn.
 	sem chan struct{}
+	// preWakeLead is how long before a fire the scheduler wakes the trigger's agent. Zero turns it off.
+	// preWoken holds, per trigger ID, the fire this replica last woke the agent for.
+	preWakeLead time.Duration
+	preWokenMu  sync.Mutex
+	preWoken    map[string]time.Time
 }
 
 const (
@@ -74,6 +80,13 @@ func NewScheduler(svc *Service, repo scheduleStore, logger logging.Logger, metri
 			cron.WithChain(cron.SkipIfStillRunning(cron.DiscardLogger)),
 		),
 	}
+}
+
+// SetPreWakeLead sets how long before each fire the scheduler asks kora-agents to wake the trigger's agent
+// (docs/adr/2026-11-22-agent-cold-tier.md, S2). Zero turns the pre-wake off.
+func (s *Scheduler) SetPreWakeLead(lead time.Duration) {
+	s.preWakeLead = lead
+	s.preWoken = make(map[string]time.Time)
 }
 
 // spawn runs fn in a bounded goroutine on a context detached from shutdown
@@ -172,6 +185,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 			)
 			continue
 		}
+		s.preWake(ctx, t, sched, loc, now)
 		if firesAt(sched, loc, now) {
 			tick := ScheduledTick{Trigger: t, ScheduledAt: now}
 			// Dispatch each trigger in its own bounded goroutine so one slow
@@ -186,6 +200,35 @@ func (s *Scheduler) tick(ctx context.Context) {
 		// instead of vanishing.
 		s.spawn(ctx, func(opCtx context.Context) { s.reconcileMissed(opCtx, t, sched, loc, now) })
 	}
+}
+
+// preWake wakes the trigger's agent once per fire on this replica when the next fire is within preWakeLead.
+// A trigger a person or the platform turned off, and a routed trigger with no single agent, wake nothing.
+// A failed pre-wake is retried on the next tick.
+func (s *Scheduler) preWake(ctx context.Context, t Trigger, sched cron.Schedule, loc *time.Location, now time.Time) {
+	if s.preWakeLead <= 0 || !t.Enabled || t.AgentTypeID == "" {
+		return
+	}
+	next := sched.Next(now.In(loc)).UTC()
+	if next.Sub(now) > s.preWakeLead {
+		return
+	}
+	s.preWokenMu.Lock()
+	if s.preWoken[t.ID].Equal(next) {
+		s.preWokenMu.Unlock()
+		return
+	}
+	s.preWoken[t.ID] = next
+	s.preWokenMu.Unlock()
+	s.spawn(ctx, func(opCtx context.Context) {
+		if err := s.svc.PreWakeScheduled(opCtx, t, next); err != nil {
+			s.preWokenMu.Lock()
+			delete(s.preWoken, t.ID)
+			s.preWokenMu.Unlock()
+			s.logger.Warn(opCtx, "scheduler: pre-wake of the trigger's agent failed",
+				logging.Field{Key: "trigger_id", Value: t.ID}, logging.Field{Key: "error", Value: err.Error()})
+		}
+	})
 }
 
 // backfillWindow bounds how far back a tick looks for fires it missed.

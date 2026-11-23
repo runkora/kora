@@ -2,6 +2,8 @@ package triggers
 
 import (
 	"context"
+	"net/http"
+	"slices"
 	"testing"
 	"time"
 )
@@ -75,4 +77,76 @@ func TestScheduler_SpawnAppliesTimeout(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("the op did not run")
 	}
+}
+
+// The scheduler wakes a trigger's agent once per fire when the fire is within the lead, and retries a
+// failed pre-wake on the next tick.
+func TestScheduler_PreWake(t *testing.T) {
+	svc, deps := newTestService(t)
+	s := NewScheduler(svc, nil, silentLogger(), nil)
+	s.SetPreWakeLead(3 * time.Minute)
+	trig := Trigger{ID: "trig-1", TenantID: testTenant, Kind: KindScheduled, Enabled: true, AgentTypeID: "at-1",
+		PrincipalID: "trigger:trig-1", ScheduleConfig: &ScheduleConfig{CronExpression: "*/10 * * * *", Timezone: "UTC"}}
+	sched, loc, err := ParseSchedule(trig.ScheduleConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preWakes := func() []string {
+		deps.agents.mu.Lock()
+		defer deps.agents.mu.Unlock()
+		return slices.Clone(deps.agents.preWakes)
+	}
+	waitFor := func(n int) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for len(preWakes()) < n && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		if got := preWakes(); len(got) != n {
+			t.Fatalf("pre-wakes = %v, want %d", got, n)
+		}
+	}
+	at := func(clock string) time.Time {
+		v, err := time.Parse(time.RFC3339, "2026-11-23T"+clock+"Z")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+
+	s.preWake(t.Context(), trig, sched, loc, at("12:01:00"))
+	disabled := trig
+	disabled.Enabled = false
+	s.preWake(t.Context(), disabled, sched, loc, at("12:08:00"))
+	routed := trig
+	routed.AgentTypeID = ""
+	s.preWake(t.Context(), routed, sched, loc, at("12:08:00"))
+	s.preWake(t.Context(), trig, sched, loc, at("12:08:00"))
+	waitFor(1)
+	s.preWake(t.Context(), trig, sched, loc, at("12:09:00"))
+	time.Sleep(50 * time.Millisecond)
+	if got := preWakes(); len(got) != 1 || got[0] != "at-1 2026-11-23T12:10:00Z" {
+		t.Fatalf("pre-wakes = %v, want one for the 12:10 fire", got)
+	}
+
+	deps.agents.mu.Lock()
+	deps.agents.preWakeStatus = http.StatusServiceUnavailable
+	deps.agents.mu.Unlock()
+	s.preWake(t.Context(), trig, sched, loc, at("12:18:00"))
+	waitFor(2)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		s.preWokenMu.Lock()
+		_, held := s.preWoken[trig.ID]
+		s.preWokenMu.Unlock()
+		if !held {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	deps.agents.mu.Lock()
+	deps.agents.preWakeStatus = 0
+	deps.agents.mu.Unlock()
+	s.preWake(t.Context(), trig, sched, loc, at("12:19:00"))
+	waitFor(3)
 }

@@ -982,6 +982,30 @@ func (r *PostgresRepository) LastRunCompletedAt(ctx context.Context, agentTypeID
 	return *last, nil
 }
 
+// HoldAgentWarm keeps the agent warm until until, or later when a longer hold is in place.
+func (r *PostgresRepository) HoldAgentWarm(ctx context.Context, agentTypeID string, until time.Time) error {
+	if _, err := r.pool.Exec(ctx, `
+		INSERT INTO agent_warm_holds (agent_type_id, until) VALUES ($1, $2)
+		ON CONFLICT (agent_type_id) DO UPDATE SET until = GREATEST(agent_warm_holds.until, EXCLUDED.until)`,
+		agentTypeID, until); err != nil {
+		return fmt.Errorf("hold agent warm: %w", err)
+	}
+	return nil
+}
+
+// AgentWarmUntil returns the end of the agent's warm hold, zero when it has none.
+func (r *PostgresRepository) AgentWarmUntil(ctx context.Context, agentTypeID string) (time.Time, error) {
+	var until time.Time
+	err := r.pool.QueryRow(ctx, `SELECT until FROM agent_warm_holds WHERE agent_type_id = $1`, agentTypeID).Scan(&until)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("read agent warm hold: %w", err)
+	}
+	return until, nil
+}
+
 // agentLockKey keys the advisory lock that placement and the scaler take on an agent.
 func agentLockKey(agentTypeID string) string { return "agent/" + agentTypeID }
 
