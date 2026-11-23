@@ -132,6 +132,8 @@ type acpRunner struct {
 	waitErr   error
 	closeOnce sync.Once
 	exitOnce  sync.Once
+	// stderrRead tracks logStderr. Close lets it reach EOF before Wait closes the pipe, to keep a crash trace's last lines.
+	stderrRead sync.WaitGroup
 
 	mu        sync.Mutex
 	proc      acpProc
@@ -217,7 +219,8 @@ func (r *acpRunner) Start(ctx context.Context, workDir string) error {
 	r.proc, r.conn = proc, conn
 	r.mu.Unlock()
 	r.log.Info(ctx, "ACP agent started", r.fields(logging.Field{Key: "pid", Value: proc.Pid()}, logging.Field{Key: "model", Value: r.cfg.Model})...)
-	go r.logStderr(proc.Stderr())
+	stderr := proc.Stderr()
+	r.stderrRead.Go(func() { r.logStderr(stderr) })
 	go r.watchConn(conn, proc)
 
 	if err := r.openSession(ctx, workDir); err != nil {
@@ -226,7 +229,9 @@ func (r *acpRunner) Start(ctx context.Context, workDir string) error {
 		r.mu.Unlock()
 		proc.Kill()
 		_ = proc.Stdin().Close()
+		r.awaitStderr()
 		_ = r.reap()
+		r.stderrRead.Wait()
 		return err
 	}
 	r.log.Info(ctx, "ACP session ready", r.fields(logging.Field{Key: "session_id", Value: r.SessionID()})...)
@@ -242,7 +247,8 @@ func (r *acpRunner) logStderr(stderr io.Reader) {
 			r.log.Error(r.ctx, "agent subprocess stderr", r.fields(logging.Field{Key: "line", Value: line})...)
 		}
 	}
-	if err := sc.Err(); err != nil {
+	// os.ErrClosed is Wait closing the pipe on a child that kept stderr open, the expected end after awaitStderr.
+	if err := sc.Err(); err != nil && !errors.Is(err, os.ErrClosed) {
 		r.log.Error(r.ctx, "agent subprocess stderr scan error", r.fields(logging.Field{Key: "error", Value: err.Error()})...)
 		// Keep reading, or the adapter blocks once the pipe fills.
 		_, _ = io.Copy(io.Discard, stderr)
@@ -699,6 +705,20 @@ func (r *acpRunner) Interrupt() error {
 	return nil
 }
 
+// awaitStderr waits for the stderr reader to reach EOF, for at most the close grace. A child that keeps stderr open
+// past that loses its later lines when Wait closes the pipe.
+func (r *acpRunner) awaitStderr() {
+	done := make(chan struct{})
+	go func() {
+		r.stderrRead.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(r.cfg.CloseGrace):
+	}
+}
+
 func (r *acpRunner) reap() error {
 	r.waitOnce.Do(func() { r.waitErr = r.proc.Wait() })
 	return r.waitErr
@@ -729,6 +749,7 @@ func (r *acpRunner) Close() error {
 		_ = proc.Stdin().Close()
 		done := make(chan struct{})
 		go func() {
+			r.awaitStderr()
 			_ = r.reap()
 			close(done)
 		}()
@@ -738,6 +759,8 @@ func (r *acpRunner) Close() error {
 			proc.Kill()
 			<-done
 		}
+		// Wait has closed the stderr pipe, which ends a reader that outlived awaitStderr.
+		r.stderrRead.Wait()
 		if err = r.waitErr; isExitKilled(err) {
 			err = nil
 		}

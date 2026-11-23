@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -41,6 +42,11 @@ type fakeACPAgent struct {
 	onRequest map[string]func(a *fakeACPAgent, id, params json.RawMessage)
 	preamble  string // written to stdout as the process starts
 	stderr    string
+	// stderrAtExit writes stderr to a real pipe as the process exits, and Wait closes the read end as os/exec does.
+	// Lines the runner has not read by then are lost.
+	stderrAtExit     bool
+	stderrHeld       bool // a child outlives the adapter and keeps stderr open
+	stderrR, stderrW *os.File
 
 	toAgentR  *io.PipeReader
 	toAgentW  *io.PipeWriter
@@ -77,6 +83,12 @@ func (a *fakeACPAgent) spawner() acpSpawner {
 	return func(_ context.Context, bin string, args []string, _ string, env []string) (acpProc, error) {
 		a.spawned.Add(1)
 		a.lastBin, a.lastArgs, a.lastEnv = bin, args, env
+		if a.stderrAtExit {
+			var err error
+			if a.stderrR, a.stderrW, err = os.Pipe(); err != nil {
+				return nil, err
+			}
+		}
 		if a.preamble != "" {
 			go a.writeLine([]byte(a.preamble))
 		}
@@ -88,14 +100,31 @@ type fakeACPProc struct{ a *fakeACPAgent }
 
 func (p *fakeACPProc) Stdin() io.WriteCloser { return p.a.toAgentW }
 func (p *fakeACPProc) Stdout() io.Reader     { return p.a.clientR }
-func (p *fakeACPProc) Stderr() io.Reader     { return strings.NewReader(p.a.stderr) }
-func (p *fakeACPProc) Wait() error           { <-p.a.exited; return nil }
-func (p *fakeACPProc) Kill()                 { p.a.killed.Store(true); p.a.exit() }
-func (p *fakeACPProc) Pid() int              { return 0 }
+func (p *fakeACPProc) Stderr() io.Reader {
+	if p.a.stderrR != nil {
+		return p.a.stderrR
+	}
+	return strings.NewReader(p.a.stderr)
+}
+func (p *fakeACPProc) Wait() error {
+	<-p.a.exited
+	if p.a.stderrR != nil {
+		_ = p.a.stderrR.Close()
+	}
+	return nil
+}
+func (p *fakeACPProc) Kill()    { p.a.killed.Store(true); p.a.exit() }
+func (p *fakeACPProc) Pid() int { return 0 }
 
 // exit ends the agent: its stdout closes and Wait returns.
 func (a *fakeACPAgent) exit() {
 	a.exitOnce.Do(func() {
+		if a.stderrW != nil {
+			_, _ = a.stderrW.WriteString(a.stderr)
+			if !a.stderrHeld {
+				_ = a.stderrW.Close()
+			}
+		}
 		_ = a.fromAgent.Close()
 		_ = a.toAgentR.Close()
 		close(a.exited)
