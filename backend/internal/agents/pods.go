@@ -8,8 +8,6 @@ import (
 	"slices"
 	"strings"
 
-	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
-	"go.opentelemetry.io/otel/trace"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,7 +15,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
-	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 // Every agent pod is a pool pod bound to the agent (docs/adr/2026-11-22-agent-cold-tier.md, O3). The bind
@@ -209,27 +206,6 @@ func (p *K8sProvisioner) LivePod(ctx context.Context, slug, namespace string) (b
 func (p *K8sProvisioner) DeletePod(ctx context.Context, namespace, name string) error {
 	if err := ignoreNotFound(p.client.CoreV1().Pods(namespace).Delete(ctx, name, metav1.DeleteOptions{})); err != nil {
 		return fmt.Errorf("delete pod %s/%s: %w", namespace, name, err)
-	}
-	return nil
-}
-
-// RollAgentPods deletes the agent's live pods for a changed framework or model. Each drains its runs, and the
-// scaler binds their replacements on its next pass.
-func (p *K8sProvisioner) RollAgentPods(ctx context.Context, slug, namespace string) error {
-	ctx, span := agentsTracer.Start(ctx, "agents.K8sProvisioner.RollAgentPods",
-		trace.WithAttributes(observability.AgentSlugKey.String(slug), semconv.K8SNamespaceNameKey.String(namespace)),
-	)
-	defer span.End()
-	pods, err := p.LiveAgentPods(ctx, slug, namespace)
-	if err != nil {
-		observability.RecordFailure(span, err, errSpanRollAgentPods)
-		return err
-	}
-	for _, pod := range pods.Live {
-		if err := p.DeletePod(ctx, namespace, pod.Name); err != nil {
-			observability.RecordFailure(span, err, errSpanRollAgentPods)
-			return err
-		}
 	}
 	return nil
 }

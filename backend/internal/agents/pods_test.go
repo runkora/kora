@@ -233,28 +233,6 @@ func TestPodIPAndPodLive(t *testing.T) {
 	}
 }
 
-// A framework or model change deletes the agent's live pods with their own grace period, which drains them.
-func TestRollAgentPods(t *testing.T) {
-	at := AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}
-	other := boundPod(AgentType{ID: "at-2", Slug: "other", TenantID: "acme"}, "pool-x", 1)
-	p, client, _ := bindProvisioner(t, boundPod(at, "pool-a", 1), boundPod(at, "pool-b", 2), other)
-	if err := p.RollAgentPods(t.Context(), at.Slug, scaleTestNS); err != nil {
-		t.Fatal(err)
-	}
-	var deleted []string
-	for _, a := range client.Actions() {
-		if del, ok := a.(k8stesting.DeleteAction); ok {
-			if del.GetDeleteOptions().GracePeriodSeconds != nil {
-				t.Errorf("delete of %s overrides the grace period", del.GetName())
-			}
-			deleted = append(deleted, del.GetName())
-		}
-	}
-	if !slices.Equal(deleted, []string{"pool-a", "pool-b"}) {
-		t.Errorf("deleted %v, want the agent's two pods", deleted)
-	}
-}
-
 // An apply deletes the workload an earlier release ran for the agent, and leaves the pool alone.
 func TestProvisionRetiresTheStatefulSet(t *testing.T) {
 	at := AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}

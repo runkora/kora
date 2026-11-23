@@ -45,6 +45,8 @@ type scalerCluster interface {
 	// BindPod binds a pool pod to the agent and returns its name. DeletePod drains and deletes a pod.
 	BindPod(ctx context.Context, at AgentType, namespace string) (string, error)
 	DeletePod(ctx context.Context, namespace, name string) error
+	// PodIP returns the IP of the bound pod name.
+	PodIP(ctx context.Context, namespace, name string) (string, error)
 	// ShrinkPod and GrowPod set a pod's session-manager requests to the warm or the full size.
 	ShrinkPod(ctx context.Context, namespace, name string) error
 	GrowPod(ctx context.Context, namespace, name string) error
@@ -72,15 +74,21 @@ type ScalerConfig struct {
 type Scaler struct {
 	store   scalerStore
 	cluster scalerCluster
-	sm      podMemoryReader
+	sm      scalerSessionManager
 	cfg     ScalerConfig
 	logger  logging.Logger
 	// refused holds the pods whose shrink the API server refused for good.
 	refused sync.Map
 }
 
+// scalerSessionManager reads a pod's memory and its bound check.
+type scalerSessionManager interface {
+	podMemoryReader
+	boundChecker
+}
+
 // NewScaler builds a scaler. Start runs it.
-func NewScaler(store scalerStore, cluster scalerCluster, sm podMemoryReader, cfg ScalerConfig, logger logging.Logger) *Scaler {
+func NewScaler(store scalerStore, cluster scalerCluster, sm scalerSessionManager, cfg ScalerConfig, logger logging.Logger) *Scaler {
 	return &Scaler{store: store, cluster: cluster, sm: sm, cfg: cfg, logger: logger}
 }
 
@@ -232,6 +240,49 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 		return nil
 	}
 	return s.settleResidency(ctx, at, namespace, pods.Live, counts, occupied)
+}
+
+// rollLockTimeout bounds the wait for the agent lock before a framework or model roll.
+const rollLockTimeout = 30 * time.Second
+
+// errRollLockTimeout means another holder kept the agent lock past rollLockTimeout.
+var errRollLockTimeout = errors.New("agent lock wait timed out before the roll")
+
+// RollAgent replaces the agent's pods for a changed framework or model. Under the agent lock it binds one pod,
+// waits until that pod serves the agent, then deletes the old pods one at a time with the drain. A bind or a
+// bound check that fails leaves the old pods in place.
+func (s *Scaler) RollAgent(ctx context.Context, at AgentType) error {
+	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
+	ran, err := s.store.WaitWithAgentLock(ctx, at.ID, rollLockTimeout, func(ctx context.Context) error {
+		old, err := s.cluster.LiveAgentPods(ctx, at.Slug, namespace)
+		if err != nil {
+			return err
+		}
+		name, err := s.cluster.BindPod(ctx, at, namespace)
+		if name == "" {
+			return err
+		}
+		ip, err := s.cluster.PodIP(ctx, namespace, name)
+		if err != nil {
+			return err
+		}
+		if err := waitBound(ctx, s.sm, sessionmanager.PodAt(ip, at.Slug, namespace)); err != nil {
+			return err
+		}
+		for _, pod := range old.Live {
+			if err := s.cluster.DeletePod(ctx, namespace, pod.Name); err != nil {
+				return err
+			}
+			s.logger.Info(ctx, "removed agent pod for a framework or model change",
+				logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: pod.Name},
+				logging.Field{Key: "replacement", Value: name})
+		}
+		return nil
+	})
+	if err == nil && !ran {
+		return errRollLockTimeout
+	}
+	return err
 }
 
 // roll takes one step of moving the agent's pods to the pool's current template: it binds one pod on the

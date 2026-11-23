@@ -17,8 +17,6 @@ type k8sProvisioner interface {
 	DeprovisionAgentType(ctx context.Context, at AgentType, namespace string) error
 	EnsureAgentGrant(ctx context.Context, at AgentType, namespace string) error
 	GetAgentBudget(ctx context.Context, at AgentType, namespace string) (*AgentBudget, error)
-	// RollAgentPods deletes the agent's pods with the drain. The scaler binds their replacements.
-	RollAgentPods(ctx context.Context, slug, namespace string) error
 	// AgentPods returns the agent's bound pods that are not terminating, oldest first, with each Ready pod's IP.
 	AgentPods(ctx context.Context, slug, namespace string) (agentPods, error)
 	// PodIP returns the IP of the bound pod name, Ready or draining.

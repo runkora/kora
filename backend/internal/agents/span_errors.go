@@ -48,7 +48,6 @@ var (
 	errSpanReplaceDeadSandboxPod          = errors.New("replace dead sandbox pod")
 	errSpanResolveEffectiveConnectors     = errors.New("resolve effective connectors")
 	errSpanRetireStatefulSet              = errors.New("retire statefulset")
-	errSpanRollAgentPods                  = errors.New("roll agent pods")
 	errSpanResolveEffectiveScopes         = errors.New("resolve effective scopes")
 	errSpanRunScope                       = errors.New("run scope")
 	errSpanSetAgentTypeActive             = errors.New("set agent type active")

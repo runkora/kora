@@ -237,14 +237,24 @@ func (s *RunService) boundTarget(ctx context.Context, slug, namespace, name stri
 	if err != nil {
 		return sessionmanager.Pod{}, err
 	}
-	err = wait.PollUntilContextTimeout(ctx, boundCheckInterval, boundCheckTimeout, true, func(ctx context.Context) (bool, error) {
-		bound, checkErr := s.sm.Bound(ctx, target)
+	return target, waitBound(ctx, s.sm, target)
+}
+
+// boundChecker reads a pod's bound check.
+type boundChecker interface {
+	Bound(ctx context.Context, pod sessionmanager.Pod) (bool, error)
+}
+
+// waitBound polls the target's bound check every boundCheckInterval until it returns 200, up to boundCheckTimeout.
+func waitBound(ctx context.Context, sm boundChecker, target sessionmanager.Pod) error {
+	err := wait.PollUntilContextTimeout(ctx, boundCheckInterval, boundCheckTimeout, true, func(ctx context.Context) (bool, error) {
+		bound, checkErr := sm.Bound(ctx, target)
 		return bound && checkErr == nil, nil
 	})
 	if wait.Interrupted(err) {
-		return sessionmanager.Pod{}, fmt.Errorf("%w: %s/%s", errNotBound, namespace, name)
+		return fmt.Errorf("%w: %s", errNotBound, target.URL)
 	}
-	return target, err
+	return err
 }
 
 // placeRun checks the run's agent, picks a pod and assigns it under the claim, and reports whether its pod

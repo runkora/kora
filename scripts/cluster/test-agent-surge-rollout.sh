@@ -9,7 +9,7 @@
 #   2. a run started while the old pod drains lands on the new pod and completes its turn;
 #   3. the run on the old pod completes a turn while the pod drains, and ends terminated, not failed;
 #   4. after the runs end, the agent is back to 1 pod on the new template;
-#   5. a model change to MODEL2 drains the agent's pod, and the scaler binds a new one.
+#   5. a model change to MODEL2 binds a new pod before the old one starts terminating, and the agent returns to 1 pod.
 # The agent, its runs and the patch are removed at the end, and kora-agents restarts again.
 #
 # Usage: scripts/cluster/test-agent-surge-rollout.sh (or make test-agent-surge-rollout)
@@ -178,8 +178,8 @@ model_pod=$(live_pods)
 api PATCH "/api/v1/agent-types/$agent" -d "$(jq -n --arg m "$MODEL2" '{model_id: $m}')" >/dev/null
 wait_for "the model change to drain $model_pod" pod_terminating "$model_pod"
 replaced() { one_live_ready_pod && [[ $(live_pods) != "$model_pod" ]]; }
-wait_for "the scaler to bind a pod for the model change" replaced
-echo "PASS 5: the model change drained $model_pod, and the agent is back to 1 pod, $(live_pods)"
+replaced || fail "$model_pod started terminating with no Ready replacement"
+echo "PASS 5: the model change bound $(live_pods) before it drained $model_pod"
 
 echo "pod events (type, name, Ready, deletion):"
 sed 's/^/  /' "$pods_log"

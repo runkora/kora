@@ -204,6 +204,9 @@ type scalerFake struct {
 	shrunk, grown []string
 	// shrinkErr is what ShrinkPod returns.
 	shrinkErr error
+	// unbound is how many bound checks answer unbound. readyAtDelete records the Ready pods left after each delete.
+	unbound, boundChecks int
+	readyAtDelete        []int
 }
 
 func (f *scalerFake) mustHold(call string) {
@@ -292,7 +295,23 @@ func (f *scalerFake) BindPod(context.Context, AgentType, string) (string, error)
 
 func (f *scalerFake) DeletePod(_ context.Context, _, name string) error {
 	f.deleted = append(f.deleted, name)
+	ready := len(f.bound)
+	for _, pod := range f.pods.Live {
+		if pod.Ready && !slices.Contains(f.deleted, pod.Name) {
+			ready++
+		}
+	}
+	f.readyAtDelete = append(f.readyAtDelete, ready)
 	return nil
+}
+
+func (f *scalerFake) PodIP(_ context.Context, _, name string) (string, error) {
+	return "10.0.1." + strings.TrimPrefix(name, "bound-"), nil
+}
+
+func (f *scalerFake) Bound(context.Context, sessionmanager.Pod) (bool, error) {
+	f.boundChecks++
+	return f.boundChecks > f.unbound, nil
 }
 
 func (f *scalerFake) LastRunCompletedAt(context.Context, string) (time.Time, error) {
@@ -548,6 +567,27 @@ func TestScalerRoll(t *testing.T) {
 				t.Errorf("bound %v and deleted %v, want %d binds and %v deleted", f.bound, f.deleted, tc.wantBound, tc.wantDeleted)
 			}
 		})
+	}
+}
+
+// A framework or model change binds a pod and waits until it serves the agent before it deletes the old pods,
+// so the agent keeps a Ready pod at every step. A bind that fails leaves the old pods.
+func TestScalerRollAgentKeepsAReadyPod(t *testing.T) {
+	f := &scalerFake{t: t, pods: scaleTestPods(readyPods(2)), unbound: 2}
+	if err := newTestScaler(f).RollAgent(context.Background(), scaleTestAgent); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.bound) != 1 || f.boundChecks != 3 || !slices.Equal(f.deleted, []string{"pod-0", "pod-1"}) {
+		t.Errorf("bound %v after %d bound checks and deleted %v, want one bind, 3 checks and both old pods", f.bound, f.boundChecks, f.deleted)
+	}
+	for i, ready := range f.readyAtDelete {
+		if ready < 1 {
+			t.Errorf("delete %d left %d Ready pods, want at least 1", i, ready)
+		}
+	}
+	f = &scalerFake{t: t, pods: scaleTestPods(readyPods(1)), bindErr: fmt.Errorf("%w in %s", errNoPoolPod, scaleTestNS)}
+	if err := newTestScaler(f).RollAgent(context.Background(), scaleTestAgent); !errors.Is(err, errNoPoolPod) || len(f.deleted) != 0 {
+		t.Errorf("RollAgent = %v and deleted %v, want errNoPoolPod and no delete", err, f.deleted)
 	}
 }
 

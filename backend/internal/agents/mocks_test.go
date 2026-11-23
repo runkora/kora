@@ -1004,12 +1004,12 @@ func (m *mockK8s) EnsureAgentGrant(_ context.Context, _ AgentType, _ string) err
 	return m.ensureAgentGrantErr
 }
 
-func (m *mockK8s) RollAgentPods(_ context.Context, slug, _ string) error {
+func (m *mockK8s) RollAgent(_ context.Context, at AgentType) error {
 	if m.rollAgentPodsErr != nil {
 		return m.rollAgentPodsErr
 	}
 	m.mu.Lock()
-	m.rolledOutSlugs = append(m.rolledOutSlugs, slug)
+	m.rolledOutSlugs = append(m.rolledOutSlugs, at.Slug)
 	m.mu.Unlock()
 	return nil
 }
@@ -1135,6 +1135,7 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 		},
 		logger,
 	)
+	atSvc.SetPodRoller(k8s)
 	runSvc, err := NewRunService(
 		repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, k8s, repo, repo,
 		RunServiceConfig{
