@@ -264,6 +264,18 @@ export const WebhookAgentManagedInGitConfigurationDangerZone: Story = {
   play: openTrigger('webhook-agent-managed-in-git', 'Configuration', 'Danger zone'),
 };
 
+// ── Attribution: generic sources only ───────────────────────────────────────
+
+/** A generic source's links, event summary and verbs, editable for every trigger on the source. */
+export const WebhookGenericConfigurationAttribution: Story = {
+  play: openTrigger('webhook-generic', 'Configuration', 'Attribution'),
+};
+
+/** A declared generic source: the attribution is shown read-only under the managed notice. */
+export const WebhookGenericDeclaredSourceConfigurationAttribution: Story = {
+  play: openTrigger('webhook-generic-declared-source', 'Configuration', 'Attribution'),
+};
+
 // ── Danger zone: the last Configuration section ─────────────────────────────
 
 /** Rotating the signing secret, in amber, and deleting the trigger, in red. */

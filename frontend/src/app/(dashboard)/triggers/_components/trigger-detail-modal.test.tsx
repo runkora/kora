@@ -1263,3 +1263,117 @@ describe('delivery defaults and number fields', () => {
     expect(screen.getByText('Window is required.')).toBeTruthy();
   });
 });
+
+describe('generic source attribution', () => {
+  const STORED = {
+    links: [{ label: '#{{ data.number }}', url: 'https://t.example.com/{{ data.id }}' }],
+    actor: { name: 'Tracker', kind: 'system' },
+    object: { label: '{{ data.title }}' },
+    verbs: { 'issue.created': 'created' },
+  };
+  const GENERIC: SourceRow = {
+    ...SOURCES[0]!,
+    name: 'tracker',
+    provider: 'generic',
+    config: { verification: { method: 'bearer' }, attribution: STORED },
+  };
+
+  function renderGeneric(
+    source: SourceRow,
+    onSaveAttribution = vi.fn().mockResolvedValue(null),
+    opts: { scopes?: string[]; apiAuthoring?: boolean; row?: TriggerRow } = {},
+  ) {
+    renderWithProviders(
+      <TriggerDetailModal
+        window="24h"
+        canRunAgent
+        trigger={opts.row ?? trigger()}
+        sources={[source]}
+        ingestHost="local.runkora.io:8443"
+        onClose={vi.fn()}
+        onToggleEnabled={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn().mockResolvedValue(null)}
+        onSaveAttribution={onSaveAttribution}
+      />,
+      {
+        ...(opts.scopes !== undefined && { scopes: opts.scopes }),
+        ...(opts.apiAuthoring !== undefined && { apiAuthoring: opts.apiAuthoring }),
+      },
+    );
+    return onSaveAttribution;
+  }
+
+  it('seeds the editor from the stored block and says the change covers every trigger', async () => {
+    renderGeneric(GENERIC);
+    await openSection('Attribution');
+    expect((screen.getByLabelText('Link 1 label') as HTMLInputElement).value).toBe(
+      '#{{ data.number }}',
+    );
+    expect((screen.getByLabelText('Actor name') as HTMLInputElement).value).toBe('Tracker');
+    expect(screen.getByText('Applies to every trigger on tracker.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save attribution' })).toBeDisabled();
+  });
+
+  it('saves the whole block', async () => {
+    const save = renderGeneric(GENERIC);
+    await openSection('Attribution');
+    fireEvent.change(screen.getByLabelText('Verb 1'), { target: { value: 'opened' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save attribution' }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0]![1]).toEqual({ ...STORED, verbs: { 'issue.created': 'opened' } });
+  });
+
+  it('removes the block by saving an empty one', async () => {
+    const save = renderGeneric(GENERIC);
+    await openSection('Attribution');
+    fireEvent.click(screen.getByRole('button', { name: 'Clear attribution' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save attribution' }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0]![1]).toEqual({});
+  });
+
+  it('blocks a half-set summary', async () => {
+    renderGeneric(GENERIC);
+    await openSection('Attribution');
+    fireEvent.change(screen.getByLabelText('Object label'), { target: { value: '' } });
+    expect(screen.getByText('Set the actor name and the object label together.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save attribution' })).toBeDisabled();
+  });
+
+  it('shows a declared source read-only', async () => {
+    renderGeneric({ ...GENERIC, declared: true, repository: 'example-org/config' });
+    await openSection('Attribution');
+    expect(screen.getByText(/Make changes in that repository/)).toBeTruthy();
+    expect(screen.getByLabelText('Link 1 label')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Save attribution' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Clear attribution' })).toBeNull();
+  });
+
+  it('is read only without triggers:write', async () => {
+    renderGeneric(GENERIC, undefined, { scopes: ['triggers:read'] });
+    await openSection('Attribution');
+    expect(screen.getByLabelText('Actor name')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Save attribution' })).toBeNull();
+  });
+
+  it('is read only in a tenant whose API authoring is off', async () => {
+    renderGeneric(GENERIC, undefined, { apiAuthoring: false });
+    await openSection('Attribution');
+    expect(screen.getByLabelText('Actor name')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Save attribution' })).toBeNull();
+  });
+
+  it('stays editable for a declared trigger on an API source', async () => {
+    renderGeneric(GENERIC, undefined, { row: trigger({ declared: true }) });
+    await openSection('Attribution');
+    expect(screen.getByLabelText('Actor name')).toBeEnabled();
+  });
+
+  it('is absent for a source of another provider', async () => {
+    renderDetailModal(trigger());
+    openConfiguration();
+    await screen.findByRole('button', { name: /^Danger zone/ });
+    expect(screen.queryByRole('button', { name: /^Attribution/ })).toBeNull();
+  });
+});

@@ -174,6 +174,28 @@ export const WizardGenericSource: Story = {
   },
 };
 
+/** A new generic webhook source with its optional attribution open and one link set. */
+export const WizardGenericSourceAttribution: Story = {
+  decorators: frame,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(
+      await within(canvasElement).findByRole('button', { name: /New trigger/ }),
+    );
+    const body = within(document.body);
+    await userEvent.click(await body.findByRole('radio', { name: /Webhook/ }));
+    await userEvent.click(await body.findByText('New source'));
+    await userEvent.click(await body.findByText('Generic webhook'));
+    await userEvent.click(await body.findByText('Bearer token'));
+    await userEvent.click(await body.findByRole('button', { name: /Attribution/ }));
+    await userEvent.click(await body.findByRole('button', { name: 'Add link' }));
+    await userEvent.type(await body.findByLabelText('Link 1 label'), 'Issue #{{{{ data.number }}');
+    await userEvent.type(
+      await body.findByLabelText('Link 1 URL'),
+      'https://tracker.example.com/issues/{{{{ data.id }}',
+    );
+  },
+};
+
 // ── Let kora choose ──────────────────────────────────────────────────────────
 
 /** The page with the routing step's answers swapped in. */

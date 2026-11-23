@@ -39,6 +39,41 @@ export const VERIFICATION_METHODS: {
   },
 ];
 
+export type ActorKind = 'person' | 'bot' | 'system';
+
+export const ACTOR_KINDS: { value: ActorKind; label: string }[] = [
+  { value: 'person', label: 'Person' },
+  { value: 'bot', label: 'Bot' },
+  { value: 'system', label: 'System' },
+];
+
+/** The `attribution` block of a generic source's config, as the API stores it. */
+export type GenericAttribution = {
+  links?: { label: string; url: string }[];
+  actor?: { name: string; kind: ActorKind; url?: string };
+  object?: { label: string; url?: string };
+  /** Event type to the verb the run page shows for it. */
+  verbs?: Record<string, string>;
+};
+
+/** The attribution form's state. Every string but the actor kind is a template. */
+export interface AttributionDraft {
+  links: { label: string; url: string }[];
+  actor: { name: string; kind: ActorKind | ''; url: string };
+  object: { label: string; url: string };
+  verbs: { eventType: string; verb: string }[];
+}
+
+export const EMPTY_ATTRIBUTION: AttributionDraft = {
+  links: [],
+  actor: { name: '', kind: '', url: '' },
+  object: { label: '', url: '' },
+  verbs: [],
+};
+
+/** The backend keeps at most this many links per source. */
+export const MAX_ATTRIBUTION_LINKS = 10;
+
 /** What the source step collects for a new generic source. */
 export interface GenericSourceDraft {
   method: VerificationMethod | '';
@@ -50,6 +85,7 @@ export interface GenericSourceDraft {
   eventLocation: EventTypeLocation;
   /** The header name or payload path the event type is read from. */
   eventKey: string;
+  attribution: AttributionDraft;
 }
 
 export const EMPTY_GENERIC_DRAFT: GenericSourceDraft = {
@@ -60,6 +96,7 @@ export const EMPTY_GENERIC_DRAFT: GenericSourceDraft = {
   secretChoice: 'generate',
   eventLocation: 'none',
   eventKey: '',
+  attribution: EMPTY_ATTRIBUTION,
 };
 
 /** An HTTP header name: one RFC 9110 token. */
@@ -101,10 +138,103 @@ export function genericConfigFrom(draft: GenericSourceDraft): Record<string, unk
     verification.encoding = draft.encoding;
   }
   const key = draft.eventKey.trim();
+  const attribution = attributionFrom(draft.attribution);
   return {
     verification,
     ...(draft.eventLocation !== 'none' && { event_type: { [draft.eventLocation]: key } }),
+    ...(Object.keys(attribution).length > 0 && { attribution }),
   };
+}
+
+/** The attribution block for the draft, trimmed. Empty when nothing is set, which removes it on update. */
+export function attributionFrom(draft: AttributionDraft): GenericAttribution {
+  const links = draft.links.map((l) => ({ label: l.label.trim(), url: l.url.trim() }));
+  const actorName = draft.actor.name.trim();
+  const actorUrl = draft.actor.url.trim();
+  const objectLabel = draft.object.label.trim();
+  const objectUrl = draft.object.url.trim();
+  const verbs = draft.verbs.map((v) => [v.eventType.trim(), v.verb.trim()] as const);
+  return {
+    ...(links.length > 0 && { links }),
+    ...(actorName !== '' && {
+      actor: {
+        name: actorName,
+        kind: draft.actor.kind as ActorKind,
+        ...(actorUrl !== '' && { url: actorUrl }),
+      },
+    }),
+    ...(objectLabel !== '' && {
+      object: { label: objectLabel, ...(objectUrl !== '' && { url: objectUrl }) },
+    }),
+    ...(verbs.length > 0 && { verbs: Object.fromEntries(verbs) }),
+  };
+}
+
+const text = (value: unknown): string => (typeof value === 'string' ? value : '');
+
+/** The form state for a stored source's attribution block. */
+export function attributionDraftOf(config: Record<string, unknown> | undefined): AttributionDraft {
+  const block = objectAt(config, 'attribution');
+  if (block === undefined) return EMPTY_ATTRIBUTION;
+  const links = Array.isArray(block.links) ? (block.links as Record<string, unknown>[]) : [];
+  const actor = objectAt(block, 'actor');
+  const object = objectAt(block, 'object');
+  const kind = ACTOR_KINDS.find((k) => k.value === actor?.kind)?.value ?? '';
+  return {
+    links: links.map((l) => ({ label: text(l?.label), url: text(l?.url) })),
+    actor: { name: text(actor?.name), kind, url: text(actor?.url) },
+    object: { label: text(object?.label), url: text(object?.url) },
+    verbs: Object.entries(objectAt(block, 'verbs') ?? {}).map(([eventType, verb]) => ({
+      eventType,
+      verb: text(verb),
+    })),
+  };
+}
+
+/** The placeholder syntax the backend substitutes, `templateVarPattern` in template.go. */
+const PLACEHOLDER = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g;
+
+/** The backend's limits on a URL template, in bytes, and on every other string, in runes. */
+const MAX_URL_BYTES = 2048;
+const MAX_TEXT_RUNES = 300;
+
+/** Why the attribution cannot be saved, or undefined when it can. Mirrors ADR Decision 3. */
+export function attributionHint(draft: AttributionDraft): string | undefined {
+  const { links, actor, object, verbs } = draft;
+  if (links.length > MAX_ATTRIBUTION_LINKS)
+    return `A source can have at most ${MAX_ATTRIBUTION_LINKS} links.`;
+  if (links.some((l) => !l.label.trim() || !l.url.trim()))
+    return 'Give every link a label and a URL.';
+  if (actor.url.trim() && !actor.name.trim()) return 'Name the actor, or clear its URL.';
+  if (actor.kind !== '' && !actor.name.trim()) return 'Name the actor, or clear its kind.';
+  if (object.url.trim() && !object.label.trim()) return 'Label the object, or clear its URL.';
+  if (!actor.name.trim() !== !object.label.trim())
+    return 'Set the actor name and the object label together.';
+  if (actor.name.trim() && actor.kind === '') return 'Choose what kind of actor it is.';
+  if (verbs.some((v) => !v.eventType.trim() || !v.verb.trim()))
+    return 'Give every verb an event type and a verb.';
+  if (new Set(verbs.map((v) => v.eventType.trim())).size < verbs.length)
+    return 'Map each event type to one verb.';
+
+  const urls = [...links.map((l) => l.url), actor.url, object.url];
+  const texts = [
+    ...links.map((l) => l.label),
+    actor.name,
+    object.label,
+    ...verbs.flatMap((v) => [v.eventType, v.verb]),
+  ];
+  const templates = [...urls, ...links.map((l) => l.label), actor.name, object.label];
+  // A malformed path, or a `{{` left over once the placeholders are taken out.
+  const badPlaceholder = (t: string) =>
+    [...t.matchAll(PLACEHOLDER)].some((m) => !FIELD_PATH.test(m[1]!)) ||
+    t.replace(PLACEHOLDER, '').includes('{{');
+  if (templates.some(badPlaceholder))
+    return 'Write each placeholder as a dotted payload path, such as {{ data.id }}.';
+  if (urls.some((u) => new TextEncoder().encode(u.trim()).length > MAX_URL_BYTES))
+    return 'A URL template can be at most 2,048 bytes.';
+  if (texts.some((t) => [...t.trim()].length > MAX_TEXT_RUNES))
+    return `A label, name or verb can be at most ${MAX_TEXT_RUNES} characters.`;
+  return undefined;
 }
 
 /** Why the draft cannot be created yet, or undefined when it can. */
@@ -127,7 +257,7 @@ export function genericDraftHint(draft: GenericSourceDraft, secret: string): str
     if (!FIELD_PATH.test(draft.eventKey.trim()))
       return 'Name the event type field as a dotted path, such as type or data.action.';
   }
-  return undefined;
+  return attributionHint(draft.attribution);
 }
 
 /** The event type the trigger step starts with for a generic source. */

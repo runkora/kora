@@ -1035,6 +1035,8 @@ export interface WebhookSourceUpdateRequest {
   rotate_secret?: boolean;
   /** Write-only. The first secret of a source that has none, or the new secret with `rotate_secret`. */
   signing_secret?: string;
+  /** A generic source's attribution block. Replaces the stored one; `{}` removes it. */
+  attribution?: Record<string, unknown>;
 }
 
 /** Trigger kind discriminant. */

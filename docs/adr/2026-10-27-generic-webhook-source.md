@@ -1,6 +1,6 @@
 # Generic Webhook Source
 
-**Status:** Accepted  
+**Status:** Accepted (the non-goal on editing a generic source's config after create superseded in part by [Generic Webhook Attribution](2026-11-23-generic-webhook-attribution.md) 2026-11-23)  
 **Date:** 2026-10-27  
 **Deciders:** Justin Wilkin  
 **Technical Story:** [Generic Webhook Source PRD](../prd/generic-webhook-source.md)

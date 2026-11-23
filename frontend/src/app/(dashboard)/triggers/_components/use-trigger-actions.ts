@@ -22,6 +22,7 @@ import {
 } from '../_services/triggers-api';
 import { toTriggerUpdateRequest } from '../_types';
 import type { DeliveryRow, TriggerRow } from '../_types';
+import type { GenericAttribution } from '../_lib/generic-source';
 import type { TriggerEditPatch } from './trigger-detail-modal';
 
 export interface TriggerNotice {
@@ -118,6 +119,17 @@ export function useTriggerActions({ refresh, notify }: TriggerActionsOptions) {
     [refresh, notify],
   );
 
+  /** Replaces a generic source's attribution, resolving with the error or null. `{}` removes it. */
+  const saveAttribution = useCallback(
+    async (row: TriggerRow, attribution: GenericAttribution): Promise<string | null> => {
+      const result = await updateSource(row.sourceId, { attribution });
+      if (result.error) return result.error;
+      refresh();
+      return null;
+    },
+    [refresh],
+  );
+
   const toggleTrigger = useCallback(
     async (row: TriggerRow) => {
       const result = await updateTrigger(row.id, toTriggerUpdateRequest({ enabled: !row.enabled }));
@@ -186,6 +198,7 @@ export function useTriggerActions({ refresh, notify }: TriggerActionsOptions) {
     fireManualTrigger,
     startManualRun,
     rotateSecret,
+    saveAttribution,
     toggleTrigger,
     saveTriggerEdit,
     redeliver,
