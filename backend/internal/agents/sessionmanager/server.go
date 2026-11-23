@@ -118,8 +118,8 @@ func (c *Controller) GroupedBy() string { return "" }
 //
 // Three route classes, three postures:
 //
-//   - GET /health is open. The StatefulSet's readiness probe hits it
-//     (internal/agents/k8s.go ensureStatefulSet) and the kubelet has no
+//   - GET /health is open. The pod's readiness probe hits it
+//     (internal/agents/k8s.go buildSessionManagerStatefulSet) and the kubelet has no
 //     platform token to present. It exposes liveness and a session count only.
 //
 //   - /internal/* is open at the application layer but restricted to the pod's

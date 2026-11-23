@@ -366,10 +366,10 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) (bool, erro
 	err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
 		tag, err := r.pool.Exec(ctx, `
 			INSERT INTO runs
-				(id, tenant_id, agent_type_id, state, pod_ordinal, created_by, created_at, updated_at,
+				(id, tenant_id, agent_type_id, state, created_by, created_at, updated_at,
 				 trigger_id, trigger_name, trigger_kind, delivery_id, initial_message, trace_parent, caused_by, chain_depth, trigger_ids, sources)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`+conflict,
-			run.ID, run.TenantID, run.AgentTypeID, string(RunStatePending), -1, run.CreatedBy, now, now,
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`+conflict,
+			run.ID, run.TenantID, run.AgentTypeID, string(RunStatePending), run.CreatedBy, now, now,
 			triggerID, triggerName, triggerKind, deliveryID, run.InitialMessage, storage.NullIfZero(run.TraceParent),
 			storage.NullIfZero(run.CausedBy), run.ChainDepth, triggerIDs, sourcesJSON,
 		)
@@ -404,7 +404,7 @@ func (r *PostgresRepository) GetRunByDelivery(ctx context.Context, tenantID, tri
 const selectRun = `SELECT ` + runColumns + ` FROM runs r JOIN agent_types at ON at.id = r.agent_type_id`
 
 const runColumns = `
-	r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, r.agent_config, at.identity_mode, at.slug, at.name,
+	r.id, r.tenant_id, r.agent_type_id, r.state, COALESCE(r.pod_name, ''), r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, r.agent_config, at.identity_mode, at.slug, at.name,
 	r.trigger_id, r.trigger_name, r.trigger_kind, r.delivery_id, r.environment_id, r.trace_parent, r.deleted_at, r.caused_by, r.chain_depth, r.trigger_ids, r.sources`
 
 // GetRun returns the run, a terminated one included.
@@ -579,14 +579,14 @@ func (r *PostgresRepository) lastRunError(ctx context.Context, run Run) (string,
 	return code, nil
 }
 
-// AssignPod moves a claimed run to starting on podOrdinal. The claim token stops a
+// AssignPod moves a claimed run to starting on the pod podName. The claim token stops a
 // worker whose claim went stale from assigning a run that another worker now holds.
-func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, claimedAt time.Time, podOrdinal int) error {
+func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, claimedAt time.Time, podName string) error {
 	now := time.Now().UTC()
 	tag, err := r.pool.Exec(ctx, `
-		UPDATE runs SET state=$1, pod_ordinal=$2, started_at=$3, updated_at=$3
+		UPDATE runs SET state=$1, pod_name=$2, started_at=$3, updated_at=$3
 		WHERE id=$4 AND state=$5 AND claimed_at=$6`,
-		string(RunStateStarting), podOrdinal, now, runID, string(RunStatePending), claimToken(claimedAt),
+		string(RunStateStarting), podName, now, runID, string(RunStatePending), claimToken(claimedAt),
 	)
 	if err != nil {
 		return fmt.Errorf("assign pod: %w", err)
@@ -650,7 +650,7 @@ func (r *PostgresRepository) QueueRun(ctx context.Context, runID string, notBefo
 // Returns ErrConflict when the run is gone, has moved on, or another worker holds it.
 func (r *PostgresRepository) ReleaseRunClaim(ctx context.Context, id string, claimedAt, notBefore time.Time) error {
 	tag, err := r.pool.Exec(ctx, `
-		UPDATE runs SET state = 'pending', pod_ordinal = -1, started_at = NULL,
+		UPDATE runs SET state = 'pending', pod_name = NULL, started_at = NULL,
 		       claimed_at = NULL, not_before = $3, updated_at = $4
 		WHERE  id = $1 AND claimed_at = $2 AND state IN ('pending', 'starting')`,
 		id, claimToken(claimedAt), notBefore, time.Now().UTC(),
@@ -865,7 +865,7 @@ func (r *PostgresRepository) endRuns(ctx context.Context, update string, args ..
 // podOccupancySQLList renders the pod-occupying run states as a SQL literal
 // list ('pending','starting',...). The states are inlined rather than bound as
 // a query parameter so the predicate stays textually identical to the partial
-// index idx_runs_active, which the planner needs to match it.
+// index idx_runs_active_pod_name, which the planner needs to match it.
 func podOccupancySQLList() string { return sqlStateList(PodOccupyingRunStates()) }
 
 // liveRunSQLList lists the states counted against an agent's total: the
@@ -890,14 +890,15 @@ func sqlStateList(states []RunState) string {
 // Built at init rather than written as a constant on purpose. Spelling the
 // states out here would restore the hand-maintained list this change exists to
 // remove, and it would be the copy nothing checks: the predicate has to match
-// both OccupiesPod and the idx_runs_active partial index, and only generating
+// both OccupiesPod and the idx_runs_active_pod_name partial index, and only generating
 // it keeps all three in step. Do not fold it back into a literal.
 var activeRunsPerPodQuery = fmt.Sprintf(`
-		SELECT pod_ordinal, COUNT(*) FROM runs
-		WHERE agent_type_id=$1 AND state IN (%s)
-		GROUP BY pod_ordinal`, podOccupancySQLList())
+		SELECT pod_name, COUNT(*) FROM runs
+		WHERE agent_type_id=$1 AND state IN (%s) AND pod_name IS NOT NULL
+		GROUP BY pod_name`, podOccupancySQLList())
 
-func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error) {
+// ActiveRunsPerPod returns an agent's pod-occupying run counts keyed by pod name.
+func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[string]int, error) {
 	rows, err := r.pool.Query(ctx, activeRunsPerPodQuery, agentTypeID)
 	if err != nil {
 		return nil, fmt.Errorf("query active runs per pod: %w", err)
@@ -905,16 +906,17 @@ func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID s
 	return collectPodCounts(rows)
 }
 
-// collectPodCounts reads (pod_ordinal, count) rows into a map.
-func collectPodCounts(rows pgx.Rows) (map[int]int, error) {
+// collectPodCounts reads (pod_name, count) rows into a map.
+func collectPodCounts(rows pgx.Rows) (map[string]int, error) {
 	defer rows.Close()
-	out := make(map[int]int)
+	out := make(map[string]int)
 	for rows.Next() {
-		var ord, count int
-		if err := rows.Scan(&ord, &count); err != nil {
+		var name string
+		var count int
+		if err := rows.Scan(&name, &count); err != nil {
 			return nil, err
 		}
-		out[ord] = count
+		out[name] = count
 	}
 	return out, rows.Err()
 }
@@ -934,14 +936,14 @@ func (r *PostgresRepository) AgentRunCounts(ctx context.Context, agentTypeID str
 	return c, nil
 }
 
-// StartingRunsPerPod returns an agent's starting run counts keyed by pod ordinal. A live run assigned
+// StartingRunsPerPod returns an agent's starting run counts keyed by pod name. A live run assigned
 // to its pod after assignedSince also counts, because a run's memory grows after it leaves starting.
-func (r *PostgresRepository) StartingRunsPerPod(ctx context.Context, agentTypeID string, assignedSince time.Time) (map[int]int, error) {
+func (r *PostgresRepository) StartingRunsPerPod(ctx context.Context, agentTypeID string, assignedSince time.Time) (map[string]int, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT pod_ordinal, COUNT(*) FROM runs
-		WHERE agent_type_id = $1
+		SELECT pod_name, COUNT(*) FROM runs
+		WHERE agent_type_id = $1 AND pod_name IS NOT NULL
 		AND (state = 'starting' OR (state IN (`+liveRunSQLList()+`) AND started_at > $2))
-		GROUP BY pod_ordinal`, agentTypeID, assignedSince)
+		GROUP BY pod_name`, agentTypeID, assignedSince)
 	if err != nil {
 		return nil, fmt.Errorf("query starting runs per pod: %w", err)
 	}
@@ -1232,7 +1234,7 @@ func scanRun(s scanner, extra ...any) (*Run, error) {
 	var triggerID, triggerName, triggerKind, deliveryID, traceParent, causedBy *string
 	var sourcesJSON []byte
 	err := s.Scan(append([]any{
-		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodOrdinal,
+		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodName,
 		&r.CreatedBy, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
 		&r.Summary, &r.DelegationJTI, &r.AgentConfig, &identityMode, &r.AgentSlug, &r.AgentName,
 		&triggerID, &triggerName, &triggerKind, &deliveryID, &r.EnvironmentID, &traceParent,

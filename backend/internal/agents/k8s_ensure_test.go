@@ -6,41 +6,24 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 )
 
-// The budget, Service and ServiceAccount updates recover from a concurrent write, such as the disruption controller's status update.
+// The Service and ServiceAccount updates recover from a concurrent write.
 func TestEnsureUpdatesRetryOnConflict(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 	ctx := context.Background()
 	labels := agentTypeLabels(at)
-	one := intstr.FromInt32(1)
 	for resource, c := range map[string]struct {
 		live  runtime.Object
 		write func(p *K8sProvisioner) error
 		check func(client *fake.Clientset) error
 	}{
-		"poddisruptionbudgets": {
-			live: &policyv1.PodDisruptionBudget{ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: scaleTestNS},
-				Spec: policyv1.PodDisruptionBudgetSpec{MinAvailable: &one}},
-			write: func(p *K8sProvisioner) error {
-				return p.ensurePDB(ctx, at.Slug, scaleTestNS, labels, metav1.OwnerReference{}, true)
-			},
-			check: func(client *fake.Clientset) error {
-				got, err := client.PolicyV1().PodDisruptionBudgets(scaleTestNS).Get(ctx, at.Slug, metav1.GetOptions{})
-				if err == nil && (got.Spec.MinAvailable != nil || got.Spec.MaxUnavailable == nil) {
-					err = errors.New("budget kept minAvailable")
-				}
-				return err
-			},
-		},
 		"services": {
 			live: &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: scaleTestNS}},
 			write: func(p *K8sProvisioner) error {

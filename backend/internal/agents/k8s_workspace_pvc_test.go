@@ -19,35 +19,9 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
-// TestBuildSessionManagerStatefulSet_WorkspaceClaimIsDeletedWithTheSet asserts
-// the StatefulSet carries a Delete/Retain persistentVolumeClaimRetentionPolicy
-// and that the claim template is labeled with the agent type's own labels.
-func TestBuildSessionManagerStatefulSet_WorkspaceClaimIsDeletedWithTheSet(t *testing.T) {
-	p := &K8sProvisioner{}
-	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "acme"}
-
-	ss := p.buildSessionManagerStatefulSet(at, "kora-tenant-acme", agentTypeLabels(at))
-
-	policy := ss.Spec.PersistentVolumeClaimRetentionPolicy
-	if policy == nil {
-		t.Fatal("persistentVolumeClaimRetentionPolicy is nil, want Delete on whenDeleted")
-	}
-	if policy.WhenDeleted != appsv1.DeletePersistentVolumeClaimRetentionPolicyType {
-		t.Errorf("whenDeleted = %q, want Delete", policy.WhenDeleted)
-	}
-	if policy.WhenScaled != appsv1.RetainPersistentVolumeClaimRetentionPolicyType {
-		t.Errorf("whenScaled = %q, want Retain (a scale-down is not agent deletion)", policy.WhenScaled)
-	}
-
-	claimLabels := ss.Spec.VolumeClaimTemplates[0].Labels
-	if claimLabels["runkora.io/agent-type"] != "agent-1" {
-		t.Errorf("claim labels = %v, want runkora.io/agent-type=agent-1 so DeprovisionAgentType can select it", claimLabels)
-	}
-}
-
 // TestDeprovisionAgentType_DeletesWorkspacePVCs asserts DeprovisionAgentType
-// sweeps every ordinal's claim by label, and leaves other agent types' claims
-// alone.
+// sweeps the claims an agent StatefulSet left by label, and leaves other agent
+// types' claims alone.
 func TestDeprovisionAgentType_DeletesWorkspacePVCs(t *testing.T) {
 	const ns = "kora-tenant-acme"
 	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "acme"}

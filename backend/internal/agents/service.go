@@ -17,15 +17,14 @@ type k8sProvisioner interface {
 	DeprovisionAgentType(ctx context.Context, at AgentType, namespace string) error
 	EnsureAgentGrant(ctx context.Context, at AgentType, namespace string) error
 	GetAgentBudget(ctx context.Context, at AgentType, namespace string) (*AgentBudget, error)
-	WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error
-	RolloutStatefulSet(ctx context.Context, slug, namespace string) error
-	// ReadyOrdinals returns the ordinals of pods that are Ready, not terminating and below the current replicas,
-	// and of the warm pods and the pods with a pending session-manager resize, with each Ready pod's IP.
-	ReadyOrdinals(ctx context.Context, slug, namespace string) (ordinals, error)
-	// PodIP returns the IP of the agent pod at ordinal, Ready or draining.
-	PodIP(ctx context.Context, slug string, ordinal int, namespace string) (string, error)
-	// Replicas returns the StatefulSet's current spec.replicas.
-	Replicas(ctx context.Context, slug, namespace string) (int, error)
+	// RollAgentPods deletes the agent's pods with the drain. The scaler binds their replacements.
+	RollAgentPods(ctx context.Context, slug, namespace string) error
+	// AgentPods returns the agent's bound pods that are not terminating, oldest first, with each Ready pod's IP.
+	AgentPods(ctx context.Context, slug, namespace string) (agentPods, error)
+	// PodIP returns the IP of the bound pod name, Ready or draining.
+	PodIP(ctx context.Context, namespace, name string) (string, error)
+	// PodLive reads from the API server whether the pod name exists and is not terminating.
+	PodLive(ctx context.Context, namespace, name string) (bool, error)
 	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, spec SandboxSpec) (Sandbox, error)
 	LookupSandbox(ctx context.Context, runID, namespace string) (Sandbox, bool, error)
 	SandboxEnvironment(ctx context.Context, runID, namespace string) (envID string, live bool, err error)
@@ -41,6 +40,8 @@ type smClient interface {
 	InterruptSession(ctx context.Context, pod sessionmanager.Pod, runID string) error
 	CloseSession(ctx context.Context, pod sessionmanager.Pod, runID string) error
 	Memory(ctx context.Context, pod sessionmanager.Pod) (sessionmanager.Memory, error)
+	// Bound reports whether the pod serves its agent's identity and holds the agent token.
+	Bound(ctx context.Context, pod sessionmanager.Pod) (bool, error)
 }
 
 // ── Request types ─────────────────────────────────────────────────────────────

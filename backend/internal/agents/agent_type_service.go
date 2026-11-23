@@ -22,15 +22,12 @@ import (
 // Kubernetes resources provisioned for it.
 var ErrInvalidSlug = errors.New("invalid slug")
 
-// maxAgentSlugLength is the longest agent type slug. The slug names the agent's
-// StatefulSet, whose pods carry a controller-revision-hash label of the form
-// "<slug>-<hash>" with a hash of up to 10 characters, and label values stop at
-// 63 characters.
+// maxAgentSlugLength is the longest agent type slug. The slug is the app and
+// spiffe.io/agent label value of the agent's pods, which stops at 63 characters.
 const maxAgentSlugLength = 52
 
-// validateAgentSlug checks slug can name the agent's ServiceAccount,
-// StatefulSet and Service. A Service name is a DNS-1035 label, so the slug
-// must start with a letter.
+// validateAgentSlug checks slug can name the agent's Service and label its
+// pods. A Service name is a DNS-1035 label, so the slug must start with a letter.
 func validateAgentSlug(slug string) error {
 	if len(slug) > maxAgentSlugLength || len(validation.IsDNS1035Label(slug)) > 0 {
 		return fmt.Errorf("%w %q: slug must be lowercase letters, digits and hyphens, start with a letter, end with a letter or digit, and be at most %d characters",
@@ -537,8 +534,8 @@ func (s *AgentTypeService) provisionAgentTypeAsync(detachedCtx context.Context, 
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 		// Clean up any k8s resources that were partially created before the
-		// failure. ProvisionAgentType is non-atomic — it creates ServiceAccount,
-		// StatefulSet, Service, PDB, AgentGrant, and DestinationRule in
+		// failure. ProvisionAgentType is non-atomic — it creates the Service,
+		// AgentGrant, DestinationRule, AuthorizationPolicy and tenant pool in
 		// sequence, so a failure in step N leaves steps 1..N-1 in the cluster.
 		// Without this, a DB row deletion below would strand those resources
 		// (the original sales-agent bug). DeprovisionAgentType is idempotent
@@ -558,15 +555,7 @@ func (s *AgentTypeService) provisionAgentTypeAsync(detachedCtx context.Context, 
 		observability.RecordFailure(span, err, errSpanProvisionK8sResources)
 		return
 	}
-	if err := s.k8s.WaitForStatefulSetReady(ctx, at.Slug, namespace); err != nil {
-		observability.RecordFailure(span, err, errSpanWaitForStatefulsetReady)
-		s.logger.Warn(ctx, "StatefulSet did not become ready within timeout; agent type left in provisioning state",
-			logging.Field{Key: "agent_type_id", Value: at.ID},
-			logging.Field{Key: "slug", Value: at.Slug},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		return
-	}
+	// The scaler binds the active agent's pods. Its runs wait for them in the queue.
 	if err := s.repo.SetAgentTypeState(ctx, at.ID, AgentTypeStateProvisioning, AgentTypeStateActive); err != nil {
 		observability.RecordFailure(span, err, errSpanSetAgentTypeActive)
 		return
@@ -756,7 +745,7 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 	}
 
 	// Capture pod-baked fields before the update to detect changes that require
-	// recycling the StatefulSet pod.
+	// recycling the agent's pods.
 	oldFramework := at.Framework
 	oldModelID := at.ModelID
 
@@ -831,10 +820,10 @@ func (s *AgentTypeService) reconcileGrantIfNeeded(ctx context.Context, at *Agent
 	}()
 }
 
-// rolloutIfPodBakedFieldsChanged rolls the agent StatefulSet when framework or
+// rolloutIfPodBakedFieldsChanged rolls the agent's pods when framework or
 // model_id changed. Both are consumed per-run at session-create time, so a
-// running pod may still be dispatching sessions with the old values; rolling
-// the StatefulSet makes pods restart and drain before accepting new runs.
+// running pod may still be dispatching sessions with the old values; the roll
+// drains the pods, and the scaler binds new ones for the next runs.
 func (s *AgentTypeService) rolloutIfPodBakedFieldsChanged(ctx context.Context, at *AgentType, req UpdateAgentTypeRequest, namespace string, oldFramework AgentFramework, oldModelID *string) {
 	frameworkChanged := req.Framework != nil && at.Framework != oldFramework
 	modelChanged := req.ModelID != nil && !modelIDsEqual(at.ModelID, oldModelID)
@@ -843,8 +832,8 @@ func (s *AgentTypeService) rolloutIfPodBakedFieldsChanged(ctx context.Context, a
 	}
 	detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
 	go func() {
-		if err := s.k8s.RolloutStatefulSet(detachedCtx, at.Slug, namespace); err != nil {
-			s.logger.Warn(detachedCtx, "failed to roll StatefulSet after framework/model update",
+		if err := s.k8s.RollAgentPods(detachedCtx, at.Slug, namespace); err != nil {
+			s.logger.Warn(detachedCtx, "failed to roll agent pods after framework/model update",
 				logging.Field{Key: "agent_type_id", Value: at.ID},
 				logging.Field{Key: "slug", Value: at.Slug},
 				logging.Field{Key: "error", Value: err.Error()},
@@ -1002,11 +991,6 @@ func (s *AgentTypeService) cleanupCancelledRun(ctx context.Context, run Run, nam
 		s.delegation.RevokeBestEffort(ctx, *run.DelegationJTI, run.ID)
 	}
 	deleteRunSandbox(ctx, s.k8s, s.runRepo, s.logger, run, namespace)
-}
-
-// WaitForStatefulSetReady blocks until the StatefulSet for the agent type is ready.
-func (s *AgentTypeService) WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error {
-	return s.k8s.WaitForStatefulSetReady(ctx, slug, namespace)
 }
 
 // modelIDsEqual returns true when both pointers hold equal values (both nil, or

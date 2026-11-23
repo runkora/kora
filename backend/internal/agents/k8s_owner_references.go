@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -131,32 +132,16 @@ func setUnstructuredOwnerRef(metadata map[string]any, ref metav1.OwnerReference)
 	metadata["ownerReferences"] = append(existing, entry)
 }
 
-// statefulSetOwnerRef fetches the agent StatefulSet named slug in namespace
-// and returns a non-controller OwnerReference for it. Returns the zero value
-// when the StatefulSet cannot be fetched — sandbox creation must never fail
-// on the ownerRef lookup alone. Non-controller (`Controller=false,
-// BlockOwnerDeletion=false`) because the StatefulSet's own controller field
-// belongs to the StatefulSet controller; we participate only in garbage
-// collection.
-func (p *K8sProvisioner) statefulSetOwnerRef(ctx context.Context, slug, namespace string) metav1.OwnerReference {
-	if slug == "" {
-		return metav1.OwnerReference{}
-	}
-	ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
-	if err != nil {
-		p.logger.Warn(ctx, "fetch parent StatefulSet for sandbox owner reference failed",
-			logging.Field{Key: "namespace", Value: namespace},
-			logging.Field{Key: "slug", Value: slug},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		return metav1.OwnerReference{}
-	}
+// podOwnerRef is a non-controller OwnerReference for pod. Non-controller
+// (`Controller=false, BlockOwnerDeletion=false`) because the owned object's
+// controller is kora-agents; the reference only takes part in garbage collection.
+func podOwnerRef(pod *corev1.Pod) metav1.OwnerReference {
 	no := false
 	return metav1.OwnerReference{
-		APIVersion:         "apps/v1",
-		Kind:               "StatefulSet",
-		Name:               ss.GetName(),
-		UID:                ss.GetUID(),
+		APIVersion:         "v1",
+		Kind:               "Pod",
+		Name:               pod.Name,
+		UID:                pod.UID,
 		Controller:         &no,
 		BlockOwnerDeletion: &no,
 	}

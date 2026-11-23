@@ -21,7 +21,7 @@ func sandboxMountProvisioner(enabled bool) *K8sProvisioner {
 // With the node agent enabled, the sandbox mounts its local disk's working folder
 // inside the workspace. Its workspace claim names its session-manager pod.
 func TestSandboxPod_SandboxMount(t *testing.T) {
-	pod := buildTestSandboxPod(sandboxMountProvisioner(true), Run{ID: "run-1", PodOrdinal: 2}, "coder", "kora-tenant-acme", testSandboxSpec(), "token")
+	pod := buildTestSandboxPod(sandboxMountProvisioner(true), Run{ID: "run-1", PodName: "pool-a"}, "coder", "kora-tenant-acme", testSandboxSpec(), "token")
 
 	if pod.Name != "sandbox-run-1" || pod.Labels[sandboxfolder.RunIDLabel] != "run-1" || pod.Labels[sandboxfolder.RoleLabel] != "sandbox" {
 		t.Errorf("pod %q labels %v, want sandbox-run-1 with the run and role labels", pod.Name, pod.Labels)
@@ -36,9 +36,9 @@ func TestSandboxPod_SandboxMount(t *testing.T) {
 	}
 	// The node agent finds the session-manager pod through this claim.
 	if !slices.ContainsFunc(pod.Spec.Volumes, func(v corev1.Volume) bool {
-		return v.PersistentVolumeClaim != nil && v.PersistentVolumeClaim.ClaimName == "workspaces-coder-2"
+		return v.PersistentVolumeClaim != nil && v.PersistentVolumeClaim.ClaimName == "pool-a-workspaces"
 	}) {
-		t.Errorf("volumes = %+v, want the claim workspaces-coder-2", pod.Spec.Volumes)
+		t.Errorf("volumes = %+v, want the claim pool-a-workspaces", pod.Spec.Volumes)
 	}
 }
 
@@ -57,13 +57,15 @@ func TestSandboxPod_NoSandboxMount(t *testing.T) {
 
 // The session-manager receives the node agent's mounts on its workspace volume only when the agent is enabled.
 func TestSessionManager_WorkspacePropagation(t *testing.T) {
-	at := AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}
 	for _, enabled := range []bool{true, false} {
-		ss := sandboxMountProvisioner(enabled).buildSessionManagerStatefulSet(at, "ns", podLabels(at))
+		pool, err := sandboxMountProvisioner(enabled).buildTenantPool("acme", "ns")
+		if err != nil {
+			t.Fatal(err)
+		}
 		var ws *corev1.VolumeMount
-		for i, m := range ss.Spec.Template.Spec.Containers[0].VolumeMounts {
+		for i, m := range pool.Spec.Template.Spec.Containers[0].VolumeMounts {
 			if m.Name == "workspaces" {
-				ws = &ss.Spec.Template.Spec.Containers[0].VolumeMounts[i]
+				ws = &pool.Spec.Template.Spec.Containers[0].VolumeMounts[i]
 			}
 		}
 		if ws == nil || ws.SubPath != "" {
@@ -79,7 +81,7 @@ func TestSessionManager_WorkspacePropagation(t *testing.T) {
 // A reused live sandbox reports its UID as the folder only when the feature is on
 // and the pod mounts its working folder. A pod from before the feature has none.
 func TestProvisionSandbox_FolderOfLivePod(t *testing.T) {
-	run, spec := Run{ID: "run-1"}, testSandboxSpec()
+	run, spec := Run{ID: "run-1", PodName: "pool-a"}, testSandboxSpec()
 	for name, tc := range map[string]struct{ builtWith, provisionWith bool }{
 		"feature on":              {builtWith: true, provisionWith: true},
 		"pod from before feature": {builtWith: false, provisionWith: true},
@@ -94,7 +96,7 @@ func TestProvisionSandbox_FolderOfLivePod(t *testing.T) {
 				Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
 			}
 			p := sandboxMountProvisioner(tc.provisionWith)
-			p.client = fake.NewSimpleClientset(live)
+			p.client = fake.NewSimpleClientset(live, sessionManagerPod("ns"))
 
 			sb, err := p.ProvisionSandbox(context.Background(), run, "coder", "ns", spec)
 			want := ""

@@ -6,10 +6,8 @@ import (
 	"io"
 	"testing"
 
-	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
-	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -29,7 +27,17 @@ import (
 func ownerRefFixture(t *testing.T, cfg K8sProvisionerConfig, tenantName string) (*K8sProvisioner, *fake.Clientset, *dynamicfake.FakeDynamicClient) {
 	t.Helper()
 	typed := fake.NewSimpleClientset()
+	dc := ownerRefDynamicClient(tenantName)
+	return &K8sProvisioner{
+		client:        typed,
+		dynamicClient: dc,
+		logger:        logging.NewLoggerWithOutput(io.Discard),
+		cfg:           cfg,
+	}, typed, dc
+}
 
+// ownerRefDynamicClient is a fake dynamic client for the Istio objects, seeded with the KoraTenant tenantName.
+func ownerRefDynamicClient(tenantName string) *dynamicfake.FakeDynamicClient {
 	scheme := runtime.NewScheme()
 	kinds := map[schema.GroupVersionResource]string{
 		authorizationPolicyGVR: "AuthorizationPolicyList",
@@ -48,14 +56,7 @@ func ownerRefFixture(t *testing.T, cfg K8sProvisionerConfig, tenantName string) 
 		},
 	}
 	tenant.SetUID(types.UID("tenant-uid-" + tenantName))
-	dc := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, kinds, tenant)
-
-	return &K8sProvisioner{
-		client:        typed,
-		dynamicClient: dc,
-		logger:        logging.NewLoggerWithOutput(io.Discard),
-		cfg:           cfg,
-	}, typed, dc
+	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, kinds, tenant)
 }
 
 func assertTenantOwnerRef(t *testing.T, refs []metav1.OwnerReference, tenantName string) {
@@ -98,17 +99,11 @@ func TestProvisionAgentType_SetsTenantOwnerReferenceOnEveryObject(t *testing.T) 
 		t.Fatalf("ProvisionAgentType: %v", err)
 	}
 
-	sa, err := typed.CoreV1().ServiceAccounts(ns).Get(context.Background(), "coder", metav1.GetOptions{})
+	sa, err := typed.CoreV1().ServiceAccounts(ns).Get(context.Background(), poolName, metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("get sa: %v", err)
+		t.Fatalf("get pool sa: %v", err)
 	}
 	assertTenantOwnerRef(t, sa.OwnerReferences, tenantID)
-
-	ss, err := typed.AppsV1().StatefulSets(ns).Get(context.Background(), "coder", metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get sts: %v", err)
-	}
-	assertTenantOwnerRef(t, ss.OwnerReferences, tenantID)
 
 	svc, err := typed.CoreV1().Services(ns).Get(context.Background(), "coder", metav1.GetOptions{})
 	if err != nil {
@@ -127,12 +122,6 @@ func TestProvisionAgentType_SetsTenantOwnerReferenceOnEveryObject(t *testing.T) 
 	if _, err := typed.AutoscalingV2().HorizontalPodAutoscalers(ns).Get(context.Background(), "coder", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
 		t.Errorf("get hpa: err = %v, want not found", err)
 	}
-
-	pdb, err := typed.PolicyV1().PodDisruptionBudgets(ns).Get(context.Background(), "coder", metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get pdb: %v", err)
-	}
-	assertTenantOwnerRef(t, pdb.OwnerReferences, tenantID)
 
 	// DestinationRule lives in kora-system; a cluster-scoped KoraTenant owner
 	// is legal for a namespaced child in any namespace.
@@ -164,61 +153,24 @@ func TestProvisionAgentType_MissingTenantCRDegradesGracefully(t *testing.T) {
 		t.Fatalf("ProvisionAgentType must not fail when KoraTenant is missing: %v", err)
 	}
 
-	ss, err := typed.AppsV1().StatefulSets(ns).Get(context.Background(), "coder", metav1.GetOptions{})
+	pool, err := typed.AppsV1().Deployments(ns).Get(context.Background(), poolName, metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("get sts: %v", err)
+		t.Fatalf("get pool deployment: %v", err)
 	}
-	if len(ss.OwnerReferences) != 0 {
-		t.Errorf("statefulset carries owner refs %+v when the tenant CR is absent; want none", ss.OwnerReferences)
-	}
-}
-
-func TestSandboxOwnerRef_PointsAtParentStatefulSet(t *testing.T) {
-	// The sandbox path only needs the typed client (StatefulSet lookup) and a
-	// dynamic client (unused here); build both directly rather than through
-	// the ProvisionSandbox path, which requires Istio injection state we do
-	// not have in the fake.
-	const ns = "kora-tenant-acme"
-	ss := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: "coder", Namespace: ns, UID: types.UID("sts-uid-coder")},
-	}
-	typed := fake.NewSimpleClientset(ss)
-	p := &K8sProvisioner{client: typed, logger: logging.NewLoggerWithOutput(io.Discard)}
-
-	ref := p.statefulSetOwnerRef(context.Background(), "coder", ns)
-	if ref.Kind != "StatefulSet" || ref.Name != "coder" {
-		t.Fatalf("ref = %+v, want StatefulSet/coder", ref)
-	}
-	if ref.APIVersion != "apps/v1" {
-		t.Errorf("apiVersion = %q, want apps/v1", ref.APIVersion)
-	}
-	if ref.UID != types.UID("sts-uid-coder") {
-		t.Errorf("uid = %q, want sts-uid-coder", ref.UID)
-	}
-	// Non-controller: the StatefulSet controller is not us; the reference
-	// exists only to gate GC.
-	if ref.Controller == nil || *ref.Controller {
-		t.Errorf("Controller = %v, want false (sandbox pods are not controlled by kora-agents)", ref.Controller)
-	}
-	if ref.BlockOwnerDeletion == nil || *ref.BlockOwnerDeletion {
-		t.Errorf("BlockOwnerDeletion = %v, want false", ref.BlockOwnerDeletion)
-	}
-
-	// Pod construction path: applyOwnerRef merges the ref onto pod metadata.
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "sandbox-run-1", Namespace: ns}}
-	applyOwnerRef(&pod.ObjectMeta, ref)
-	if len(pod.OwnerReferences) != 1 || pod.OwnerReferences[0].Name != "coder" {
-		t.Fatalf("pod refs = %+v, want single StatefulSet/coder", pod.OwnerReferences)
+	if len(pool.OwnerReferences) != 0 {
+		t.Errorf("pool deployment carries owner refs %+v when the tenant CR is absent; want none", pool.OwnerReferences)
 	}
 }
 
-func TestSandboxOwnerRef_MissingStatefulSetIsZero(t *testing.T) {
-	typed := fake.NewSimpleClientset()
-	p := &K8sProvisioner{client: typed, logger: logging.NewLoggerWithOutput(io.Discard)}
-
-	ref := p.statefulSetOwnerRef(context.Background(), "coder", "kora-tenant-acme")
-	if ref.Kind != "" {
-		t.Fatalf("ref = %+v, want zero value when StatefulSet does not exist", ref)
+// A sandbox is owned by the session-manager pod whose workspace it mounts, and the reference only takes part
+// in garbage collection.
+func TestPodOwnerRef(t *testing.T) {
+	ref := podOwnerRef(&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pool-a", UID: types.UID("pod-uid")}})
+	if ref.APIVersion != "v1" || ref.Kind != "Pod" || ref.Name != "pool-a" || ref.UID != "pod-uid" {
+		t.Fatalf("ref = %+v, want v1 Pod/pool-a", ref)
+	}
+	if ref.Controller == nil || *ref.Controller || ref.BlockOwnerDeletion == nil || *ref.BlockOwnerDeletion {
+		t.Errorf("Controller = %v, BlockOwnerDeletion = %v; want both false", ref.Controller, ref.BlockOwnerDeletion)
 	}
 }
 
@@ -307,11 +259,9 @@ func TestProvisionAgentType_BackfillsOwnerRefOnExistingObjects(t *testing.T) {
 
 	// Seed unowned versions of every object ProvisionAgentType manages.
 	typed := fake.NewSimpleClientset(
-		&corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: "coder", Namespace: ns}},
-		&appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: "coder", Namespace: ns}},
+		&corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: poolName, Namespace: ns}},
 		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "coder", Namespace: ns}},
 		&autoscalingv2.HorizontalPodAutoscaler{ObjectMeta: metav1.ObjectMeta{Name: "coder", Namespace: ns}},
-		&policyv1.PodDisruptionBudget{ObjectMeta: metav1.ObjectMeta{Name: "coder", Namespace: ns}},
 	)
 
 	scheme := runtime.NewScheme()
@@ -353,11 +303,8 @@ func TestProvisionAgentType_BackfillsOwnerRefOnExistingObjects(t *testing.T) {
 		t.Fatalf("ProvisionAgentType on pre-existing objects: %v", err)
 	}
 
-	sa, _ := typed.CoreV1().ServiceAccounts(ns).Get(context.Background(), "coder", metav1.GetOptions{})
+	sa, _ := typed.CoreV1().ServiceAccounts(ns).Get(context.Background(), poolName, metav1.GetOptions{})
 	assertTenantOwnerRef(t, sa.OwnerReferences, tenantID)
-
-	ss, _ := typed.AppsV1().StatefulSets(ns).Get(context.Background(), "coder", metav1.GetOptions{})
-	assertTenantOwnerRef(t, ss.OwnerReferences, tenantID)
 
 	svc, _ := typed.CoreV1().Services(ns).Get(context.Background(), "coder", metav1.GetOptions{})
 	assertTenantOwnerRef(t, svc.OwnerReferences, tenantID)
@@ -366,9 +313,6 @@ func TestProvisionAgentType_BackfillsOwnerRefOnExistingObjects(t *testing.T) {
 	if _, err := typed.AutoscalingV2().HorizontalPodAutoscalers(ns).Get(context.Background(), "coder", metav1.GetOptions{}); !apierrors.IsNotFound(err) {
 		t.Errorf("stale hpa: err = %v, want not found", err)
 	}
-
-	pdb, _ := typed.PolicyV1().PodDisruptionBudgets(ns).Get(context.Background(), "coder", metav1.GetOptions{})
-	assertTenantOwnerRef(t, pdb.OwnerReferences, tenantID)
 
 	drOut, _ := dc.Resource(destinationRuleGVR).Namespace(cfg.SystemNamespace).Get(context.Background(), agentDestinationRuleName("coder", ns), metav1.GetOptions{})
 	assertTenantOwnerRef(t, drOut.GetOwnerReferences(), tenantID)

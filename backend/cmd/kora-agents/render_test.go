@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -192,23 +193,23 @@ func TestLoadWorkloads_ChartDefaultsChangeNoManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sa, ok := objs[0].(*corev1.ServiceAccount)
+	sa, ok := objs[1].(*corev1.ServiceAccount)
 	if !ok {
-		t.Fatalf("objs[0] not *corev1.ServiceAccount: %T", objs[0])
+		t.Fatalf("objs[1] not *corev1.ServiceAccount: %T", objs[1])
 	}
 	if sa.Annotations != nil {
 		t.Errorf("ServiceAccount annotations: got %v, want none", sa.Annotations)
 	}
 
-	ss, ok := objs[1].(*appsv1.StatefulSet)
+	pool, ok := objs[2].(*appsv1.Deployment)
 	if !ok {
-		t.Fatalf("objs[1] not *appsv1.StatefulSet: %T", objs[1])
+		t.Fatalf("objs[2] not *appsv1.Deployment: %T", objs[2])
 	}
-	pod, ok := objs[4].(*corev1.Pod)
+	pod, ok := objs[3].(*corev1.Pod)
 	if !ok {
-		t.Fatalf("objs[4] not *corev1.Pod: %T", objs[4])
+		t.Fatalf("objs[3] not *corev1.Pod: %T", objs[3])
 	}
-	for name, spec := range map[string]corev1.PodSpec{"StatefulSet": ss.Spec.Template.Spec, "sandbox Pod": pod.Spec} {
+	for name, spec := range map[string]corev1.PodSpec{"pool Deployment": pool.Spec.Template.Spec, "sandbox Pod": pod.Spec} {
 		if spec.NodeSelector != nil {
 			t.Errorf("%s nodeSelector: got %v, want none", name, spec.NodeSelector)
 		}
@@ -218,17 +219,17 @@ func TestLoadWorkloads_ChartDefaultsChangeNoManifest(t *testing.T) {
 		if spec.PriorityClassName != "" {
 			t.Errorf("%s priorityClassName: got %q, want empty", name, spec.PriorityClassName)
 		}
-	}
-	if ss.Spec.Template.Spec.Affinity != nil {
-		t.Errorf("StatefulSet affinity: got %+v, want none", ss.Spec.Template.Spec.Affinity)
-	}
-	// The default workspace is ReadWriteOnce, so the sandbox is pinned to the
-	// node holding it.
-	if pod.Spec.Affinity == nil || pod.Spec.Affinity.PodAffinity == nil {
-		t.Error("sandbox Pod: expected co-location with its session-manager")
+		// The sandbox's co-location with its session-manager pod is set when it is provisioned.
+		if spec.Affinity != nil {
+			t.Errorf("%s affinity: got %+v, want none", name, spec.Affinity)
+		}
 	}
 
-	claim := ss.Spec.VolumeClaimTemplates[0]
+	i := slices.IndexFunc(pool.Spec.Template.Spec.Volumes, func(v corev1.Volume) bool { return v.Ephemeral != nil })
+	if i < 0 {
+		t.Fatalf("pool volumes = %+v, want the ephemeral workspace", pool.Spec.Template.Spec.Volumes)
+	}
+	claim := pool.Spec.Template.Spec.Volumes[i].Ephemeral.VolumeClaimTemplate
 	if claim.Spec.StorageClassName != nil {
 		t.Errorf("storageClassName: got %q, want the cluster default", *claim.Spec.StorageClassName)
 	}

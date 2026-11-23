@@ -84,6 +84,14 @@ func TestSandboxPod_FromEnvironment(t *testing.T) {
 }
 
 // buildTestSandboxPod builds a sandbox pod from a spec the test knows is valid.
+// sessionManagerPod is the bound pod pool-a on node-a, whose workspace a run's sandbox mounts.
+func sessionManagerPod(namespace string) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "pool-a", Namespace: namespace, UID: "pool-a-uid"},
+		Spec:       corev1.PodSpec{NodeName: "node-a"},
+	}
+}
+
 func buildTestSandboxPod(p *K8sProvisioner, run Run, slug, namespace string, spec SandboxSpec, token string) *corev1.Pod {
 	pod, err := p.buildSandboxPod(run, slug, namespace, spec, token)
 	if err != nil {
@@ -143,7 +151,7 @@ func TestSandboxPod_InvalidSizeIsAnError(t *testing.T) {
 func TestProvisionSandbox_LivePodInOtherEnvironment(t *testing.T) {
 	node := SandboxSpec{EnvironmentID: "env-node", Environment: "node", Image: "ghcr.io/acme/node@sha256:abc", Size: testSizes.Default}
 	goSpec := SandboxSpec{EnvironmentID: "env-go", Environment: "go", Image: "ghcr.io/acme/go@sha256:abc", Size: testSizes.Default}
-	run := Run{ID: "run-1"}
+	run := Run{ID: "run-1", PodName: "pool-a"}
 
 	live := buildTestSandboxPod(podSecurityProvisioner(), run, "coder", "ns", node, "live-token")
 	live.Status = corev1.PodStatus{
@@ -152,7 +160,7 @@ func TestProvisionSandbox_LivePodInOtherEnvironment(t *testing.T) {
 		Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
 	}
 	p := podSecurityProvisioner()
-	p.client = fake.NewSimpleClientset(live)
+	p.client = fake.NewSimpleClientset(live, sessionManagerPod("ns"))
 
 	if _, err := p.ProvisionSandbox(context.Background(), run, "coder", "ns", goSpec); !errors.Is(err, ErrEnvironmentSwitch) {
 		t.Errorf("provision into go = %v, want ErrEnvironmentSwitch", err)

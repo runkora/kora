@@ -5,7 +5,6 @@ import (
 	"errors"
 	"math"
 	"slices"
-	"strconv"
 	"sync"
 	"time"
 
@@ -31,24 +30,24 @@ type scalerStore interface {
 	ListActiveAgentTypes(ctx context.Context) ([]AgentType, error)
 	WaitWithAgentLock(ctx context.Context, agentTypeID string, timeout time.Duration, fn func(ctx context.Context) error) (bool, error)
 	AgentRunCounts(ctx context.Context, agentTypeID string) (AgentRunCounts, error)
-	StartingRunsPerPod(ctx context.Context, agentTypeID string, assignedSince time.Time) (map[int]int, error)
-	ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error)
+	StartingRunsPerPod(ctx context.Context, agentTypeID string, assignedSince time.Time) (map[string]int, error)
+	ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[string]int, error)
 	// LastRunCompletedAt is the completion time of the agent's latest completed run, zero when it has none.
 	LastRunCompletedAt(ctx context.Context, agentTypeID string) (time.Time, error)
 }
 
-// scalerCluster is the StatefulSet access the scaler needs. AgentStatefulSet reads a cache that
-// SyncWorkloadCache starts. The writes read the live StatefulSet.
+// scalerCluster is the pod access the scaler needs. AgentPods reads a cache that SyncWorkloadCache starts.
+// LiveAgentPods reads the API server.
 type scalerCluster interface {
 	SyncWorkloadCache(ctx context.Context) error
-	AgentStatefulSet(ctx context.Context, slug, namespace string) (statefulSetView, bool, error)
-	ScaleStatefulSet(ctx context.Context, slug, namespace string, from, to int, resourceVersion string) error
-	ReleaseRollHold(ctx context.Context, slug, namespace string, partition int, resourceVersion string) error
-	SwitchToParallel(ctx context.Context, slug, namespace string) error
-	LivePodOrdinals(ctx context.Context, slug, namespace string) (ready []int, terminating int, err error)
+	AgentPods(ctx context.Context, slug, namespace string) (agentPods, error)
+	LiveAgentPods(ctx context.Context, slug, namespace string) (agentPods, error)
+	// BindPod binds a pool pod to the agent and returns its name. DeletePod drains and deletes a pod.
+	BindPod(ctx context.Context, at AgentType, namespace string) (string, error)
+	DeletePod(ctx context.Context, namespace, name string) error
 	// ShrinkPod and GrowPod set a pod's session-manager requests to the warm or the full size.
-	ShrinkPod(ctx context.Context, slug, namespace string, ordinal int) error
-	GrowPod(ctx context.Context, slug, namespace string, ordinal int) error
+	ShrinkPod(ctx context.Context, namespace, name string) error
+	GrowPod(ctx context.Context, namespace, name string) error
 }
 
 // ScalerConfig holds the scaler's settings.
@@ -67,8 +66,9 @@ type ScalerConfig struct {
 	WarmAfter time.Duration
 }
 
-// Scaler sets each agent's StatefulSet replicas from its runs and pod memory
-// (docs/adr/2026-11-09-demand-driven-agent-scaling.md).
+// Scaler binds and deletes each agent's pods from its runs and pod memory, and rolls the pods a pool
+// template change left behind (docs/adr/2026-11-09-demand-driven-agent-scaling.md,
+// docs/adr/2026-11-22-agent-cold-tier.md).
 type Scaler struct {
 	store   scalerStore
 	cluster scalerCluster
@@ -131,10 +131,9 @@ func (s *Scaler) scaleAgent(ctx context.Context, at AgentType) {
 	err := s.scale(ctx, at)
 	switch {
 	case err == nil:
-	case errors.Is(err, errReplicasMoved), errors.Is(err, errPartitionMoved):
-		// Another scaler pass, an apply, an operator or the controller's status write changed the StatefulSet.
-		// The next pass decides again.
-		s.logger.Debug(ctx, "agent StatefulSet changed since the scaler read it",
+	case errors.Is(err, errNoPoolPod):
+		// The pool refills within seconds, and the next pass binds again.
+		s.logger.Debug(ctx, "no pool pod to bind for the agent",
 			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "error", Value: err.Error()})
 	default:
 		observability.RecordFailure(span, err, errScaleAgent)
@@ -145,25 +144,24 @@ func (s *Scaler) scaleAgent(ctx context.Context, at AgentType) {
 
 func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
-	ss, found, err := s.cluster.AgentStatefulSet(ctx, at.Slug, namespace)
-	if err != nil || !found {
+	pods, err := s.cluster.AgentPods(ctx, at.Slug, namespace)
+	if err != nil {
 		return err
 	}
-	// A Ready surge pod releases the held roll, as does a hold with no surge pod left to wait for.
-	// A hold left by a restart is released here too.
-	if ss.Partition > 0 && (ss.Partition >= ss.Replicas || ss.SurgeReady) {
-		s.logger.Info(ctx, "releasing agent roll hold",
-			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "partition", Value: ss.Partition})
-		return s.cluster.ReleaseRollHold(ctx, at.Slug, namespace, ss.Partition, ss.ResourceVersion)
+	// A pod that exited, such as one the kubelet evicted, holds its workspace claim until it is deleted.
+	for _, name := range pods.Finished {
+		if deleteErr := s.cluster.DeletePod(ctx, namespace, name); deleteErr != nil {
+			return deleteErr
+		}
 	}
 	allowance, err := s.cfg.StartingRunAllowances.For(at.Framework)
 	if err != nil {
 		return err
 	}
 	// A pod with a pending resize has no reading and counts as full, so a stuck grow gets a new pod.
-	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, withoutOrdinals(ss.Ready, ss.Resizing), ss.IPs)
+	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, readable(pods.Live))
 	ran, err := s.store.WaitWithAgentLock(ctx, at.ID, scalerLockTimeout, func(ctx context.Context) error {
-		return s.scaleLocked(ctx, at, namespace, ss, readings, allowance.Value())
+		return s.scaleLocked(ctx, at, namespace, pods, readings, allowance.Value())
 	})
 	if err == nil && !ran {
 		s.logger.Debug(ctx, "scaler skipped agent for this pass",
@@ -172,19 +170,13 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	return err
 }
 
-// scaleLocked runs under the agent lock: it re-counts the runs, then switches an idle agent to
-// Parallel pod management or moves its replicas toward demand.
-func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string, ss statefulSetView,
-	readings map[int]sessionmanager.Memory, allowance int64) error {
+// scaleLocked runs under the agent lock: it re-counts the runs, then takes one roll step or moves the
+// agent's pods toward demand.
+func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string, pods agentPods,
+	readings map[string]sessionmanager.Memory, allowance int64) error {
 	counts, err := s.store.AgentRunCounts(ctx, at.ID)
 	if err != nil {
 		return err
-	}
-	// The policy is immutable and the switch recreates the StatefulSet, so it waits for an agent with no run on a pod.
-	if !ss.Parallel && counts.Active+counts.Starting == 0 {
-		s.logger.Info(ctx, "switching agent StatefulSet to Parallel pod management",
-			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "replicas", Value: ss.Replicas})
-		return s.cluster.SwitchToParallel(ctx, at.Slug, namespace)
 	}
 	starting, err := s.store.StartingRunsPerPod(ctx, at.ID, time.Now().Add(-s.cfg.StartingRunWindow))
 	if err != nil {
@@ -194,56 +186,106 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 	if err != nil {
 		return err
 	}
+	if rolled, err := s.roll(ctx, at, namespace, pods, occupied); rolled || err != nil {
+		return err
+	}
 	in := scaleInput{
-		replicas: ss.Replicas, floor: int(max(s.cfg.MinReplicas, 1)), total: at.MaxConcurrentRuns, maxReplicas: int(s.cfg.MaxReplicas),
-		counts: counts, ready: ss.Ready, terminating: ss.Terminating, rolling: ss.Partition > 0 || ss.Rolling,
-		readings: readings, starting: starting,
-		topRuns: occupied[ss.Replicas-1], memoryMax: memoryMax(ss.Ready, readings, ss.MemoryLimitBytes),
-		allowance: allowance, watermark: s.cfg.PlacementWatermark,
+		pods: pods.Live, floor: int(max(s.cfg.MinReplicas, 1)), total: at.MaxConcurrentRuns, maxPods: int(s.cfg.MaxReplicas),
+		counts: counts, rolling: pods.rolling(), readings: readings, starting: starting, occupied: occupied,
+		memoryMax: memoryMax(pods.Live, readings, pods.MemoryLimitBytes), allowance: allowance, watermark: s.cfg.PlacementWatermark,
 	}
-	want := desiredReplicas(in)
-	// The cache can miss a pod that started terminating, and the StatefulSet version does not change with it.
-	// A scale-down decides the floor and the empty top pod again from a live read of the pods.
-	if want < ss.Replicas {
-		if in.ready, in.terminating, err = s.cluster.LivePodOrdinals(ctx, at.Slug, namespace); err != nil {
-			return err
-		}
-		want = desiredReplicas(in)
-	}
-	if want != ss.Replicas {
-		if err := s.cluster.ScaleStatefulSet(ctx, at.Slug, namespace, ss.Replicas, want, ss.ResourceVersion); err != nil {
-			return err
-		}
-		s.logger.Info(ctx, "scaled agent pods",
-			logging.Field{Key: "agent_type_id", Value: at.ID},
-			logging.Field{Key: "from", Value: ss.Replicas}, logging.Field{Key: "to", Value: want},
-			logging.Field{Key: "pending", Value: counts.Pending}, logging.Field{Key: "starting", Value: counts.Starting},
-			logging.Field{Key: "active", Value: counts.Active}, logging.Field{Key: "ready", Value: len(in.ready)})
-	}
-	return s.settleResidency(ctx, at, namespace, ss, counts, occupied, want)
-}
-
-// settleResidency grows a warm pod that holds a run, and shrinks the other Ready pods below want once the
-// agent has been idle for WarmAfter (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 3).
-// A run placed with no grow, by a previous kora-agents release or a stale cache, gets its pod grown here,
-// and a held grow frees the wake reserve. With the warm tier off, every warm pod grows.
-func (s *Scaler) settleResidency(ctx context.Context, at AgentType, namespace string, ss statefulSetView,
-	counts AgentRunCounts, occupied map[int]int, want int) error {
-	if counts.Starting+counts.Active > 0 || s.cfg.WarmAfter <= 0 {
-		for _, ord := range slices.Concat(ss.Warm, ss.Resizing) {
-			if occupied[ord] == 0 && s.cfg.WarmAfter > 0 {
-				continue
+	want := desiredPods(in)
+	switch {
+	case want > len(in.pods):
+		for range want - len(in.pods) {
+			name, err := s.cluster.BindPod(ctx, at, namespace)
+			if name == "" {
+				return err
 			}
-			if err := s.cluster.GrowPod(ctx, at.Slug, namespace, ord); err != nil {
+			s.logger.Info(ctx, "bound agent pod",
+				logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: name},
+				logging.Field{Key: "pending", Value: counts.Pending}, logging.Field{Key: "starting", Value: counts.Starting},
+				logging.Field{Key: "active", Value: counts.Active}, logging.Field{Key: "pods", Value: len(in.pods)})
+			if err != nil {
 				return err
 			}
 		}
 		return nil
+	case want < len(in.pods):
+		// The cache can miss a pod that started terminating. A scale-down decides the floor and the
+		// empty pod again from a live read of the pods.
+		live, err := s.cluster.LiveAgentPods(ctx, at.Slug, namespace)
+		if err != nil {
+			return err
+		}
+		in.pods = live.Live
+		victim, ok := scaleDownCandidate(in)
+		if !ok {
+			return nil
+		}
+		if err := s.cluster.DeletePod(ctx, namespace, victim.Name); err != nil {
+			return err
+		}
+		s.logger.Info(ctx, "removed empty agent pod",
+			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: victim.Name},
+			logging.Field{Key: "pods", Value: len(in.pods)})
+		return nil
+	}
+	return s.settleResidency(ctx, at, namespace, pods.Live, counts, occupied)
+}
+
+// roll takes one step of moving the agent's pods to the pool's current template: it binds one pod on the
+// current template, and once one is Ready, deletes one old pod with the drain, an empty one first
+// (docs/adr/2026-11-22-agent-cold-tier.md, O3). It reports whether it changed a pod.
+func (s *Scaler) roll(ctx context.Context, at AgentType, namespace string, pods agentPods, occupied map[string]int) (bool, error) {
+	if !pods.rolling() {
+		return false, nil
+	}
+	var current, old []agentPod
+	for _, pod := range pods.Live {
+		if pod.Template == pods.Template {
+			current = append(current, pod)
+		} else {
+			old = append(old, pod)
+		}
+	}
+	if len(current) == 0 {
+		name, err := s.cluster.BindPod(ctx, at, namespace)
+		if name != "" {
+			s.logger.Info(ctx, "bound agent pod on the current pool template",
+				logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: name})
+		}
+		return true, err
+	}
+	if !slices.ContainsFunc(current, func(pod agentPod) bool { return pod.Ready }) {
+		return false, nil
+	}
+	victim := old[0]
+	if i := slices.IndexFunc(old, func(pod agentPod) bool { return occupied[pod.Name] == 0 }); i >= 0 {
+		victim = old[i]
+	}
+	if err := s.cluster.DeletePod(ctx, namespace, victim.Name); err != nil {
+		return true, err
+	}
+	s.logger.Info(ctx, "removed agent pod on an old pool template",
+		logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: victim.Name},
+		logging.Field{Key: "runs", Value: occupied[victim.Name]})
+	return true, nil
+}
+
+// settleResidency grows a warm pod that holds a run, and shrinks the other Ready pods once the agent has
+// been idle for WarmAfter (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 3). A run placed
+// with no grow, by a stale cache, gets its pod grown here, and a held grow frees the wake reserve. With the
+// warm tier off, every warm pod grows.
+func (s *Scaler) settleResidency(ctx context.Context, at AgentType, namespace string, pods []agentPod,
+	counts AgentRunCounts, occupied map[string]int) error {
+	if counts.Starting+counts.Active > 0 || s.cfg.WarmAfter <= 0 {
+		return s.growHeld(ctx, namespace, pods, occupied)
 	}
 	// A grow still pending on a full node shrinks back too, so the pod stops counting as full.
-	hot := slices.DeleteFunc(withoutOrdinals(ss.Ready, ss.Warm), func(ord int) bool {
-		_, refused := s.refused.Load(podKey(namespace, at.Slug, ord))
-		return ord >= want || refused
+	hot := slices.DeleteFunc(slices.Clone(pods), func(pod agentPod) bool {
+		_, refused := s.refused.Load(namespace + "/" + pod.Name)
+		return !pod.Ready || pod.Warm || refused
 	})
 	if counts.Pending > 0 || len(hot) == 0 {
 		return nil
@@ -262,20 +304,33 @@ func (s *Scaler) settleResidency(ctx context.Context, at AgentType, namespace st
 	return s.shrink(ctx, at, namespace, hot)
 }
 
+// growHeld grows each warm pod that holds a run, or every warm pod with the warm tier off.
+func (s *Scaler) growHeld(ctx context.Context, namespace string, pods []agentPod, occupied map[string]int) error {
+	for _, pod := range pods {
+		if !pod.Warm && !pod.Resizing || occupied[pod.Name] == 0 && s.cfg.WarmAfter > 0 {
+			continue
+		}
+		if err := s.cluster.GrowPod(ctx, namespace, pod.Name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // shrink sets each of the agent's hot pods to the warm requests. A pod whose shrink the API server refuses
 // for good is logged once and left at full size.
-func (s *Scaler) shrink(ctx context.Context, at AgentType, namespace string, hot []int) error {
-	for _, ord := range hot {
-		err := s.cluster.ShrinkPod(ctx, at.Slug, namespace, ord)
+func (s *Scaler) shrink(ctx context.Context, at AgentType, namespace string, hot []agentPod) error {
+	for _, pod := range hot {
+		err := s.cluster.ShrinkPod(ctx, namespace, pod.Name)
 		switch {
 		case err == nil:
 			s.logger.Info(ctx, "shrank idle agent pod to warm",
-				logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod_ordinal", Value: ord})
+				logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: pod.Name})
 		case resizeRefused(err):
 			// The cluster or the pod cannot resize in place. The pod stays at full size and is not tried again.
-			s.refused.Store(podKey(namespace, at.Slug, ord), struct{}{})
+			s.refused.Store(namespace+"/"+pod.Name, struct{}{})
 			s.logger.Warn(ctx, "agent pod cannot resize in place; it stays at full size",
-				logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod_ordinal", Value: ord},
+				logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: pod.Name},
 				logging.Field{Key: "error", Value: err.Error()})
 		default:
 			return err
@@ -284,81 +339,79 @@ func (s *Scaler) shrink(ctx context.Context, at AgentType, namespace string, hot
 	return nil
 }
 
-// podKey identifies an agent pod across scaler passes.
-func podKey(namespace, slug string, ordinal int) string {
-	return namespace + "/" + slug + "-" + strconv.Itoa(ordinal)
-}
-
 // scaleInput is what one scaling decision reads.
 type scaleInput struct {
-	replicas, floor, total, maxReplicas int
-	counts                              AgentRunCounts
-	ready                               []int
-	// terminating counts the draining pods below the replicas. They are not coming up.
-	terminating int
-	// rolling holds scale-down while a roll is held or under way.
-	rolling  bool
-	readings map[int]sessionmanager.Memory
-	starting map[int]int
-	// topRuns counts the runs on the top pod, ordinal replicas-1.
-	topRuns   int
-	memoryMax int64
-	allowance int64
-	watermark float64
+	// pods holds the agent's live pods, oldest first. A terminating pod does not count.
+	pods                  []agentPod
+	floor, total, maxPods int
+	counts                AgentRunCounts
+	// rolling holds scale-down while a roll is under way.
+	rolling            bool
+	readings           map[string]sessionmanager.Memory
+	starting, occupied map[string]int
+	memoryMax          int64
+	allowance          int64
+	watermark          float64
 }
 
-// desiredReplicas raises the replicas until the floor of pods are not terminating, adds the pods the
-// startable pending runs need in one step when no Ready pod has room, or removes the top pod when it is
-// empty, nothing waits, no roll is on and keepsReadyFloor holds. It never adds pods past
-// the agent's total or maxReplicas, other than to reach the floor.
-func desiredReplicas(in scaleInput) int {
-	ceiling := min(in.total, in.maxReplicas)
-	if floor := floorReplicas(in, ceiling); floor > in.replicas {
-		return floor
+// desiredPods raises the pods to the floor, adds the pods the startable pending runs need in one step when
+// no Ready pod has room, or removes one pod when scaleDownCandidate finds one. It never adds pods past the
+// agent's total or maxPods, other than to reach the floor.
+func desiredPods(in scaleInput) int {
+	live := len(in.pods)
+	if live < in.floor {
+		return in.floor
 	}
+	ceiling := min(in.total, in.maxPods)
 	// Runs over the agent's total cannot start, so they need no pod.
 	startable := min(in.counts.Pending, in.total-in.counts.Active-in.counts.Starting)
 	// Pods above the ceiling, after it was lowered, are never needed for a waiting run. A pod at the
 	// ceiling is kept while runs wait, or it would be removed and added again.
-	if startable > 0 && in.replicas <= ceiling {
-		if in.replicas == ceiling {
-			return in.replicas
+	if startable > 0 && live <= ceiling {
+		if live == ceiling {
+			return live
 		}
-		if _, ok := firstPodWithRoom(in.ready, in.replicas, in.readings, in.starting, in.allowance, in.watermark); ok {
-			return in.replicas
+		if _, ok := firstPodWithRoom(in.pods, in.readings, in.starting, in.allowance, in.watermark); ok {
+			return live
 		}
-		comingUp := in.replicas - len(in.ready) - in.terminating
+		comingUp := live - countReady(in.pods)
 		add := podsFor(startable, in.allowance, in.watermark, in.memoryMax) - comingUp
-		return max(in.replicas, min(in.replicas+add, ceiling))
+		return max(live, min(live+add, ceiling))
 	}
-	if keepsReadyFloor(in) && in.topRuns == 0 && !in.rolling {
-		return in.replicas - 1
+	if _, ok := scaleDownCandidate(in); ok {
+		return live - 1
 	}
-	return in.replicas
+	return live
 }
 
-// floorReplicas is the replicas that keep the floor of pods not terminating. A draining pod holds its
-// ordinal until it exits, so its replacement goes above the replicas, up to the ceiling.
-func floorReplicas(in scaleInput, ceiling int) int {
-	short := in.floor - (in.replicas - in.terminating)
-	return max(in.floor, min(in.replicas+short, ceiling))
-}
-
-// keepsReadyFloor reports whether removing the top pod keeps the floor of pods not terminating, and
-// keeps the floor of Ready pods below it when the top pod is Ready. A top pod that never got Ready
-// costs no Ready pod and is removed.
-func keepsReadyFloor(in scaleInput) bool {
-	top := in.replicas - 1
-	if top-in.terminating < in.floor {
-		return false
-	}
-	readyBelow := 0
-	for _, ord := range in.ready {
-		if ord < top {
-			readyBelow++
+// countReady counts the Ready pods.
+func countReady(pods []agentPod) int {
+	n := 0
+	for _, pod := range pods {
+		if pod.Ready {
+			n++
 		}
 	}
-	return readyBelow >= in.floor || !slices.Contains(in.ready, top)
+	return n
+}
+
+// scaleDownCandidate returns the newest empty pod when no roll is under way and removing it keeps the floor
+// of pods and, when it is Ready, the floor of Ready pods. An empty pod that never got Ready costs no Ready
+// pod and is removed.
+func scaleDownCandidate(in scaleInput) (agentPod, bool) {
+	if in.rolling || len(in.pods)-1 < in.floor {
+		return agentPod{}, false
+	}
+	for _, pod := range slices.Backward(in.pods) {
+		if in.occupied[pod.Name] > 0 {
+			continue
+		}
+		if !pod.Ready || countReady(in.pods)-1 >= in.floor {
+			return pod, true
+		}
+		return agentPod{}, false
+	}
+	return agentPod{}, false
 }
 
 // podsFor is ceil(runs × allowance ÷ (watermark × memory.max)): the pods that runs fill to the watermark.
@@ -370,10 +423,10 @@ func podsFor(runs int, allowance int64, watermark float64, memoryMax int64) int 
 	return int(math.Ceil(float64(runs) * float64(allowance) / perPod))
 }
 
-// memoryMax is a Ready pod's reported memory.max, else the StatefulSet's container memory limit.
-func memoryMax(ready []int, readings map[int]sessionmanager.Memory, limit int64) int64 {
-	for _, ord := range ready {
-		if m, ok := readings[ord]; ok && m.LimitBytes > 0 {
+// memoryMax is a Ready pod's reported memory.max, else the configured session-manager memory limit.
+func memoryMax(pods []agentPod, readings map[string]sessionmanager.Memory, limit int64) int64 {
+	for _, pod := range pods {
+		if m, ok := readings[pod.Name]; ok && m.LimitBytes > 0 {
 			return m.LimitBytes
 		}
 	}

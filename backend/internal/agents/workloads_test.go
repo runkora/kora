@@ -1,11 +1,18 @@
 package agents
 
 import (
+	"context"
+	"io"
 	"reflect"
+	"slices"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
+
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 func splitPoolConfig() K8sProvisionerConfig {
@@ -162,49 +169,67 @@ func TestApplyToPodSpec_EmptyAffinityIsNotApplied(t *testing.T) {
 	}
 }
 
+// createdSandbox provisions run's sandbox over a live sandbox pod and returns the pod the create sent.
+func createdSandbox(t *testing.T, p *K8sProvisioner, run Run) *corev1.Pod {
+	t.Helper()
+	live := buildTestSandboxPod(p, run, "coder", "tenant-example", testSandboxSpec(), "live-token")
+	live.Status = corev1.PodStatus{Phase: corev1.PodRunning, PodIP: "10.0.0.7", Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}}
+	client := fake.NewSimpleClientset(live, sessionManagerPod("tenant-example"))
+	p.client, p.logger = client, logging.NewLoggerWithOutput(io.Discard)
+	if _, err := p.ProvisionSandbox(context.Background(), run, "coder", "tenant-example", testSandboxSpec()); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range client.Actions() {
+		if create, ok := a.(k8stesting.CreateAction); ok && a.GetResource().Resource == "pods" {
+			return create.GetObject().(*corev1.Pod)
+		}
+	}
+	t.Fatal("no sandbox pod create")
+	return nil
+}
+
 // A ReadWriteOnce workspace attaches to one node, so the sandbox has to land on
-// the node running the session-manager replica that owns it. Matching node
-// selectors do not deliver that, because a pool has many nodes.
-func TestBuildSandboxPod_CoLocatesOnReadWriteOnceWorkspace(t *testing.T) {
+// the node running the session-manager pod that owns it, and the sandbox is
+// owned by that pod. Matching node selectors do not deliver that, because a
+// pool has many nodes.
+func TestProvisionSandbox_CoLocatesOnReadWriteOnceWorkspace(t *testing.T) {
 	cfg := splitPoolConfig()
 	cfg.Workspace.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
-	p := &K8sProvisioner{cfg: cfg}
+	pod := createdSandbox(t, &K8sProvisioner{cfg: cfg}, Run{ID: "run-1", PodName: "pool-a"})
 
-	pod := buildTestSandboxPod(p, Run{ID: "run-1", PodOrdinal: 2}, "coder", "tenant-example", testSandboxSpec(), "test-exec-token")
-
-	if pod.Spec.Affinity == nil || pod.Spec.Affinity.PodAffinity == nil {
-		t.Fatal("expected pod affinity binding the sandbox to its session-manager")
+	if len(pod.OwnerReferences) != 1 || pod.OwnerReferences[0].Kind != "Pod" || pod.OwnerReferences[0].UID != "pool-a-uid" {
+		t.Errorf("owners = %+v, want the session-manager pod", pod.OwnerReferences)
 	}
-	terms := pod.Spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution
-	if len(terms) != 1 {
-		t.Fatalf("expected one required term, got %d", len(terms))
+	if pod.Spec.Affinity == nil || pod.Spec.Affinity.NodeAffinity == nil || pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil {
+		t.Fatal("expected node affinity binding the sandbox to its session-manager's node")
 	}
-	if terms[0].TopologyKey != "kubernetes.io/hostname" {
-		t.Errorf("topologyKey: got %q", terms[0].TopologyKey)
+	terms := pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+	if len(terms) != 1 || len(terms[0].MatchFields) != 1 {
+		t.Fatalf("terms = %+v, want one term with one field", terms)
 	}
-	if got := terms[0].LabelSelector.MatchLabels["statefulset.kubernetes.io/pod-name"]; got != "coder-2" {
-		t.Errorf("selector names %q, want the replica holding this run's workspace", got)
+	if f := terms[0].MatchFields[0]; f.Key != "metadata.name" || !slices.Equal(f.Values, []string{"node-a"}) {
+		t.Errorf("field = %+v, want metadata.name in [node-a]", f)
 	}
 }
 
 // ReadWriteMany crosses nodes, which is the whole point of a separate sandbox
 // pool, so the sandbox must stay free to schedule away.
-func TestBuildSandboxPod_NoCoLocationOnReadWriteManyWorkspace(t *testing.T) {
-	p := &K8sProvisioner{cfg: splitPoolConfig()}
+func TestProvisionSandbox_NoCoLocationOnReadWriteManyWorkspace(t *testing.T) {
+	pod := createdSandbox(t, &K8sProvisioner{cfg: splitPoolConfig()}, Run{ID: "run-1", PodName: "pool-a"})
 
-	pod := buildTestSandboxPod(p, Run{ID: "run-1"}, "coder", "tenant-example", testSandboxSpec(), "test-exec-token")
-
-	if pod.Spec.Affinity != nil && pod.Spec.Affinity.PodAffinity != nil {
-		t.Errorf("ReadWriteMany should not pin the sandbox: got %+v", pod.Spec.Affinity.PodAffinity)
+	if pod.Spec.Affinity != nil && pod.Spec.Affinity.NodeAffinity != nil && pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution != nil {
+		for _, term := range pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms {
+			if len(term.MatchFields) > 0 {
+				t.Errorf("ReadWriteMany should not pin the sandbox: got %+v", term)
+			}
+		}
 	}
 }
 
-// Configured affinity is kept: required terms are ANDed, so co-location cannot
-// be dropped by setting placement.
-func TestBuildSandboxPod_CoLocationKeepsConfiguredAffinity(t *testing.T) {
-	cfg := splitPoolConfig()
-	cfg.Workspace.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
-	cfg.Workloads.Sandbox.Affinity = &corev1.Affinity{
+// Configured node affinity is kept: the node requirement joins each configured
+// term, so co-location cannot be dropped by setting placement.
+func TestRequireCoLocation_KeepsConfiguredAffinity(t *testing.T) {
+	spec := corev1.PodSpec{Affinity: &corev1.Affinity{
 		NodeAffinity: &corev1.NodeAffinity{
 			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
 				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
@@ -214,16 +239,12 @@ func TestBuildSandboxPod_CoLocationKeepsConfiguredAffinity(t *testing.T) {
 				}},
 			},
 		},
-	}
-	p := &K8sProvisioner{cfg: cfg}
+	}}
+	requireCoLocation(&spec, "node-a")
 
-	pod := buildTestSandboxPod(p, Run{ID: "run-1"}, "coder", "tenant-example", testSandboxSpec(), "test-exec-token")
-
-	if pod.Spec.Affinity.NodeAffinity == nil {
-		t.Error("configured node affinity was dropped")
-	}
-	if pod.Spec.Affinity.PodAffinity == nil {
-		t.Error("co-location was dropped by configured affinity")
+	terms := spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+	if len(terms) != 1 || len(terms[0].MatchExpressions) != 1 || len(terms[0].MatchFields) != 1 || terms[0].MatchFields[0].Values[0] != "node-a" {
+		t.Errorf("terms = %+v, want the configured expression and the node field in one term", terms)
 	}
 }
 

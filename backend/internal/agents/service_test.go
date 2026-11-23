@@ -627,7 +627,7 @@ func TestStartRun_AgentTypeNotFound(t *testing.T) {
 func TestTerminateRun_IdleRunClosesSession(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
-	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateIdle})
+	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateIdle, PodName: "pod-0"})
 
 	if err := svc.TerminateRun(context.Background(), run.ID); err != nil {
 		t.Fatalf("TerminateRun: %v", err)
@@ -640,7 +640,7 @@ func TestTerminateRun_IdleRunClosesSession(t *testing.T) {
 func TestTerminateRun_ActiveRun(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
-	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive, PodName: "pod-0"})
 
 	if err := svc.TerminateRun(context.Background(), run.ID); err != nil {
 		t.Fatalf("unexpected error: %v", err)

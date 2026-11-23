@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -23,16 +24,23 @@ const poolName = "session-manager-pool"
 // pod a pool SPIFFE ID, and removing the label releases it from the ReplicaSet.
 const poolLabel = "runkora.io/pool"
 
+// poolTemplateAnnotation carries a hash of the pool pod template on the template itself. A bound pod
+// whose hash differs from the pool Deployment's is on an old template, and the scaler rolls it.
+const poolTemplateAnnotation = "runkora.io/pool-template"
+
 // agentOnlyPodLabels name the agent a pod serves. A pool pod carries none of them until the bind.
-var agentOnlyPodLabels = []string{"app", "spiffe.io/agent", "runkora.io/agent-type"}
+var agentOnlyPodLabels = []string{"app", "spiffe.io/agent", agentTypeLabel}
 
 // buildTenantPool renders the tenant's pool Deployment from the agent pod
 // template with the StatefulSet patches applied. A pool pod keeps the
 // template's workload and patch labels, carries no agent label, owns its
-// workspace claim as a generic ephemeral volume, and runs as the pool ServiceAccount.
+// workspace claim as a generic ephemeral volume, runs as the pool ServiceAccount
+// and starts at the warm session-manager requests. The bind grows it to full size
+// (docs/adr/2026-11-22-agent-cold-tier.md, W1).
 func (p *K8sProvisioner) buildTenantPool(tenantID, namespace string) (appsv1.Deployment, error) {
-	labels := map[string]string{"runkora.io/tenant": tenantID}
-	ss, err := p.applyStatefulSetPatches(p.buildSessionManagerStatefulSet(AgentType{Slug: poolName, TenantID: tenantID}, namespace, labels))
+	// The stand-in agent's labels let a StatefulSet patch that selects every agent reach the pool.
+	standIn := AgentType{Slug: poolName, TenantID: tenantID}
+	ss, err := p.applyStatefulSetPatches(p.buildSessionManagerStatefulSet(standIn, namespace, agentTypeLabels(standIn)))
 	if err != nil {
 		return appsv1.Deployment{}, err
 	}
@@ -46,6 +54,11 @@ func (p *K8sProvisioner) buildTenantPool(tenantID, namespace string) (appsv1.Dep
 	podLabels[poolLabel] = "true"
 	template.Labels = podLabels
 	template.Spec.ServiceAccountName = poolName
+	for i, c := range template.Spec.Containers {
+		if c.Name == sessionManagerContainerName {
+			maps.Copy(template.Spec.Containers[i].Resources.Requests, p.warmRequests(fullRequests(&corev1.Pod{Spec: template.Spec}, p.fullRequests())))
+		}
+	}
 	for _, claim := range ss.Spec.VolumeClaimTemplates {
 		template.Spec.Volumes = append(template.Spec.Volumes, corev1.Volume{
 			Name: claim.Name,
@@ -54,7 +67,14 @@ func (p *K8sProvisioner) buildTenantPool(tenantID, namespace string) (appsv1.Dep
 			}},
 		})
 	}
+	hash, err := json.Marshal(template)
+	if err != nil {
+		return appsv1.Deployment{}, fmt.Errorf("encode pool pod template: %w", err)
+	}
+	sum := sha256.Sum256(hash)
+	template.Annotations[poolTemplateAnnotation] = hex.EncodeToString(sum[:8])
 	replicas := p.cfg.PoolSize
+	labels := map[string]string{"runkora.io/tenant": tenantID, poolLabel: "true"}
 	return appsv1.Deployment{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
 		ObjectMeta: metav1.ObjectMeta{Name: poolName, Namespace: namespace, Labels: labels},

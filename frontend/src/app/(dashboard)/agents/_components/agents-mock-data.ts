@@ -248,7 +248,7 @@ function run(seed: RunSeed): RunWithAttribution {
     tenant_id: TENANT,
     agent_type_id: seed.agent.id,
     state: seed.state,
-    pod_ordinal: runCounter % 3,
+    pod_name: `session-manager-pool-${runCounter % 3}`,
     created_by: by.id,
     created_by_name: by.name,
     started_at: seed.state === 'pending' ? null : started,

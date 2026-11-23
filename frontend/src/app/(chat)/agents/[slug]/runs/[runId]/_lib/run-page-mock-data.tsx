@@ -141,7 +141,7 @@ function reviewerRun(over: Partial<RunWithAttribution>): RunWithAttribution {
     tenant_id: 'example',
     agent_type_id: 'at-code-reviewer',
     state: 'active',
-    pod_ordinal: 0,
+    pod_name: "session-manager-pool-0",
     created_by: 'trigger:review-pull-request',
     created_by_name: null,
     started_at: START,

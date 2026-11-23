@@ -22,15 +22,34 @@ import (
 
 const mi = int64(1 << 20)
 
-func TestDesiredReplicas(t *testing.T) {
+// testTemplate is the pool template of the scaler tests' pods.
+const testTemplate = "t1"
+
+// readyPods returns n Ready pods named testPodName(i), oldest first, on testTemplate.
+func readyPods(n int) []agentPod {
+	pods := make([]agentPod, n)
+	for i := range pods {
+		pods[i] = agentPod{Name: testPodName(i), IP: testPodIP(i), Ready: true, Template: testTemplate}
+	}
+	return pods
+}
+
+// notReady returns pods with every pod at the given indexes not Ready.
+func notReady(pods []agentPod, indexes ...int) []agentPod {
+	for _, i := range indexes {
+		pods[i].Ready, pods[i].IP = false, ""
+	}
+	return pods
+}
+
+func TestDesiredPods(t *testing.T) {
 	// 1Gi pods at a 0.70 watermark fill at 716.8Mi; 180Mi per starting run.
 	full := sessionmanager.Memory{WorkingSetBytes: 720 * mi, LimitBytes: 1024 * mi}
 	empty := sessionmanager.Memory{WorkingSetBytes: 10 * mi, LimitBytes: 1024 * mi}
 	base := func(mod func(*scaleInput)) scaleInput {
 		in := scaleInput{
-			replicas: 2, floor: 2, total: 30, maxReplicas: 10,
-			ready:     []int{0, 1},
-			readings:  map[int]sessionmanager.Memory{0: full, 1: full},
+			pods: readyPods(2), floor: 2, total: 30, maxPods: 10,
+			readings:  map[string]sessionmanager.Memory{"pod-0": full, "pod-1": full},
 			memoryMax: 1024 * mi, allowance: 180 * mi, watermark: 0.70,
 		}
 		mod(&in)
@@ -43,129 +62,113 @@ func TestDesiredReplicas(t *testing.T) {
 	}{
 		// ceil(20 × 180 ÷ 716.8) = 6 pods in one step.
 		{"several pods in one step", base(func(in *scaleInput) { in.counts.Pending = 20 }), 8},
-		{"minus pods coming up", base(func(in *scaleInput) { in.counts.Pending = 20; in.replicas = 4 }), 8},
-		{"coming up covers the need", base(func(in *scaleInput) { in.counts.Pending = 4; in.replicas = 4 }), 4},
+		{"minus pods coming up", base(func(in *scaleInput) { in.counts.Pending = 20; in.pods = notReady(readyPods(4), 2, 3) }), 8},
+		{"coming up covers the need", base(func(in *scaleInput) { in.counts.Pending = 4; in.pods = notReady(readyPods(4), 2, 3) }), 4},
 		// ceil(4 × 1024 ÷ 716.8) = 6 pods would pass the total of 4.
 		{"clamped to the agent total", base(func(in *scaleInput) { in.counts.Pending = 40; in.total = 4; in.allowance = 1024 * mi }), 4},
-		{"clamped to maxReplicas", base(func(in *scaleInput) { in.counts.Pending = 30; in.maxReplicas = 5 }), 5},
-		{"at maxReplicas adds nothing", base(func(in *scaleInput) {
+		{"clamped to maxPods", base(func(in *scaleInput) { in.counts.Pending = 30; in.maxPods = 5 }), 5},
+		{"at maxPods adds nothing", base(func(in *scaleInput) {
 			in.counts.Pending = 30
-			in.replicas = 5
-			in.maxReplicas = 5
-			in.ready = []int{0, 1, 2, 3, 4}
+			in.pods, in.maxPods = readyPods(5), 5
 		}), 5},
-		{"the total below maxReplicas clamps first", base(func(in *scaleInput) {
+		{"the total below maxPods clamps first", base(func(in *scaleInput) {
 			in.counts.Pending = 40
 			in.total = 3
-			in.maxReplicas = 10
 			in.allowance = 1024 * mi
 		}), 3},
-		{"a lowered maxReplicas removes an empty top pod while runs wait", base(func(in *scaleInput) {
+		{"a lowered maxPods removes an empty pod while runs wait", base(func(in *scaleInput) {
 			in.counts.Pending = 30
-			in.replicas = 6
-			in.maxReplicas = 4
-			in.ready = []int{0, 1, 2, 3, 4, 5}
+			in.pods, in.maxPods = readyPods(6), 4
 		}), 5},
 		// Only 2 of the pending runs fit under the total: ceil(2 × 180 ÷ 716.8) = 1.
 		{"runs over the total need no pod", base(func(in *scaleInput) { in.counts.Pending = 20; in.total = 10; in.counts.Active = 8 }), 3},
 		{"at the total adds nothing", base(func(in *scaleInput) { in.counts.Pending = 5; in.total = 4; in.counts.Active = 4 }), 2},
-		{"a Ready pod with room adds nothing", base(func(in *scaleInput) { in.counts.Pending = 20; in.readings[1] = empty }), 2},
+		{"a Ready pod with room adds nothing", base(func(in *scaleInput) { in.counts.Pending = 20; in.readings["pod-1"] = empty }), 2},
 		{"starting runs fill a pod", base(func(in *scaleInput) {
 			in.counts.Pending = 1
-			in.readings[1] = empty
-			in.starting = map[int]int{1: 4}
+			in.readings["pod-1"] = empty
+			in.starting = map[string]int{"pod-1": 4}
 		}), 3},
-		{"a pod with no reading counts as full", base(func(in *scaleInput) { in.counts.Pending = 1; delete(in.readings, 1) }), 3},
+		{"a pod with no reading counts as full", base(func(in *scaleInput) { in.counts.Pending = 1; delete(in.readings, "pod-1") }), 3},
 		{"pods coming up cover the need", base(func(in *scaleInput) {
 			in.counts.Pending = 3
-			in.ready, in.readings = nil, nil
+			in.pods, in.readings = notReady(readyPods(2), 0, 1), nil
 		}), 2},
-		// A draining pod is not coming up: one pending run on a 1-pod agent mid-roll needs a new pod.
-		{"a terminating pod is not coming up", base(func(in *scaleInput) {
-			in.counts.Pending = 1
-			in.replicas, in.floor = 1, 1
-			in.ready, in.readings, in.terminating = nil, nil, 1
-		}), 2},
+		// A terminating pod is not listed. The pod an eviction or a drain took is replaced at once.
+		{"an evicted only pod gets a replacement", base(func(in *scaleInput) {
+			in.counts.Active, in.floor = 1, 1
+			in.pods, in.readings = nil, nil
+		}), 1},
+		{"an evicted pod is replaced within a total of 1", base(func(in *scaleInput) {
+			in.floor, in.total = 1, 1
+			in.pods, in.readings = nil, nil
+		}), 1},
 		{"a terminating pod beside a Ready full pod", base(func(in *scaleInput) {
 			in.counts.Pending = 1
-			in.ready, in.terminating = []int{1}, 1
-		}), 3},
-		// An evicted pod drains for up to drainGracePeriodSecs, and its ordinal takes no new pod until it exits.
-		{"an evicted only pod with an idle run gets a replacement", base(func(in *scaleInput) {
-			in.replicas, in.floor, in.topRuns = 1, 1, 1
-			in.counts.Active = 1
-			in.ready, in.readings, in.terminating = nil, nil, 1
+			in.pods = readyPods(2)[1:]
 		}), 2},
-		{"an evicted only pod with no run gets a replacement", base(func(in *scaleInput) {
-			in.replicas, in.floor = 1, 1
-			in.ready, in.readings, in.terminating = nil, nil, 1
-		}), 2},
-		{"an evicted pod's replacement stays within the total", base(func(in *scaleInput) {
-			in.replicas, in.floor, in.total = 1, 1, 1
-			in.ready, in.readings, in.terminating = nil, nil, 1
-		}), 1},
 		{"keep the empty replacement while the evicted pod drains", base(func(in *scaleInput) {
 			in.floor = 1
-			in.ready, in.terminating = []int{1}, 1
-		}), 2},
-		{"a surge roll adds no pod for its draining pod", base(func(in *scaleInput) {
-			in.floor, in.rolling = 1, true
-			in.ready, in.terminating = []int{1}, 1
-		}), 2},
-		{"keep the replacement while the evicted pod's successor comes up", base(func(in *scaleInput) {
+			in.pods = readyPods(2)[1:]
+		}), 1},
+		{"keep the Ready replacement while another pod comes up", base(func(in *scaleInput) {
 			in.floor = 1
-			in.ready = []int{1}
+			in.pods = notReady(readyPods(2), 0)
 		}), 2},
-		{"keep an empty top pod above a crashlooping pod", base(func(in *scaleInput) {
-			in.replicas = 3
-			in.ready = []int{0, 2}
+		{"keep an empty newest pod above a crashlooping pod", base(func(in *scaleInput) {
+			in.pods = notReady(readyPods(3), 1)
 		}), 3},
 		{"a node drain at a floor of 2 replaces both pods", base(func(in *scaleInput) {
-			in.ready, in.terminating = nil, 2
-		}), 4},
+			in.pods, in.readings = nil, nil
+		}), 2},
 		{"the floor holds when the total is below it", base(func(in *scaleInput) {
 			in.total = 1
-			in.ready, in.terminating = []int{1}, 1
+			in.pods = readyPods(2)[1:]
 		}), 2},
-		{"remove a top pod that never got Ready", base(func(in *scaleInput) {
-			in.replicas, in.floor = 7, 1
-			in.ready = nil
+		{"remove a newest pod that never got Ready", base(func(in *scaleInput) {
+			in.floor = 1
+			in.pods = notReady(readyPods(7), 0, 1, 2, 3, 4, 5, 6)
 		}), 6},
-		{"scale down an empty top pod", base(func(in *scaleInput) { in.replicas = 5 }), 4},
-		{"keep a busy top pod", base(func(in *scaleInput) { in.replicas = 5; in.topRuns = 1 }), 5},
-		{"never below the floor", base(func(in *scaleInput) {}), 2},
+		{"scale down an empty newest pod", base(func(in *scaleInput) { in.pods = readyPods(5) }), 4},
+		{"a busy newest pod leaves the next empty one to go", base(func(in *scaleInput) {
+			in.pods, in.occupied = readyPods(5), map[string]int{"pod-4": 1}
+		}), 4},
+		{"keep the pods when every one is busy", base(func(in *scaleInput) {
+			in.pods, in.occupied = readyPods(3), map[string]int{"pod-0": 1, "pod-1": 1, "pod-2": 1}
+		}), 3},
+		{"never below the floor", base(func(*scaleInput) {}), 2},
 		{"no scale down while runs wait for room", base(func(in *scaleInput) {
-			in.replicas = 5
+			in.pods = readyPods(5)
 			in.counts.Pending = 1
-			in.readings[1] = empty
+			in.readings["pod-1"] = empty
 		}), 5},
 		{"scale down at the total with runs waiting", base(func(in *scaleInput) {
-			in.replicas, in.total = 5, 3
+			in.pods, in.total = readyPods(5), 3
 			in.counts.Pending, in.counts.Active = 2, 3
 		}), 4},
 		{"scale down above a lowered total with runs waiting", base(func(in *scaleInput) {
-			in.replicas, in.total = 5, 3
+			in.pods, in.total = readyPods(5), 3
 			in.counts.Pending, in.counts.Active = 5, 2
 		}), 4},
 		{"raised floor scales up to it", base(func(in *scaleInput) { in.floor = 4 }), 4},
-		{"no scale down during a roll", base(func(in *scaleInput) { in.replicas = 5; in.rolling = true }), 5},
+		{"no scale down during a roll", base(func(in *scaleInput) { in.pods = readyPods(5); in.rolling = true }), 5},
 		{"a roll still scales up", base(func(in *scaleInput) { in.counts.Pending = 20; in.rolling = true }), 8},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := desiredReplicas(tc.in); got != tc.want {
-				t.Errorf("desiredReplicas = %d, want %d", got, tc.want)
+			if got := desiredPods(tc.in); got != tc.want {
+				t.Errorf("desiredPods = %d, want %d", got, tc.want)
 			}
 		})
 	}
 }
 
-// memory.max is a Ready pod's report, else the StatefulSet's container limit.
+// memory.max is a Ready pod's report, else the configured limit.
 func TestMemoryMax(t *testing.T) {
-	readings := map[int]sessionmanager.Memory{1: {LimitBytes: 2048 * mi}}
-	if got := memoryMax([]int{0, 1}, readings, 1024*mi); got != 2048*mi {
+	readings := map[string]sessionmanager.Memory{"pod-1": {LimitBytes: 2048 * mi}}
+	if got := memoryMax(readyPods(2), readings, 1024*mi); got != 2048*mi {
 		t.Errorf("with a report = %d, want the reported 2048Mi", got/mi)
 	}
-	if got := memoryMax([]int{0}, readings, 1024*mi); got != 1024*mi {
+	if got := memoryMax(readyPods(1), readings, 1024*mi); got != 1024*mi {
 		t.Errorf("with no Ready report = %dMi, want the 1024Mi limit", got/mi)
 	}
 }
@@ -177,30 +180,28 @@ type scalerFake struct {
 	locked   bool
 	busy     bool // another replica holds the lock
 	counts   AgentRunCounts
-	occupied map[int]int
-	view     statefulSetView
-	ready    []int
+	occupied map[string]int
+	pods     agentPods
 	memory   func(ctx context.Context, pod sessionmanager.Pod) (sessionmanager.Memory, error)
 	agents   []AgentType
-	// inFlight and maxInFlight count the concurrent AgentStatefulSet reads. With gate set, each read
+	// inFlight and maxInFlight count the concurrent AgentPods reads. With gate set, each read
 	// signals entered and waits for gate.
 	inFlight, maxInFlight int
 	gate, entered         chan struct{}
 	// syncStarted, when set, makes SyncWorkloadCache signal it and block until ctx ends.
 	syncStarted chan struct{}
 	listCalls   int
-	// live is what LivePodOrdinals reads. Nil reads the cached view.
-	live      *livePodRead
+	// live is what LiveAgentPods reads. Nil reads the cached pods.
+	live      *agentPods
 	liveReads int
 
-	scaledTo   int
-	switched   bool
-	released   int
-	releaseErr error
-	readLocked []bool
-	// lastCompleted is what LastRunCompletedAt reports. shrunk and grown record the resized ordinals.
+	// bound and deleted record the pods the scaler bound and deleted. bindErr fails every bind.
+	bound, deleted []string
+	bindErr        error
+	readLocked     []bool
+	// lastCompleted is what LastRunCompletedAt reports. shrunk and grown record the resized pods.
 	lastCompleted time.Time
-	shrunk, grown []int
+	shrunk, grown []string
 	// shrinkErr is what ShrinkPod returns.
 	shrinkErr error
 }
@@ -245,17 +246,17 @@ func (f *scalerFake) AgentRunCounts(context.Context, string) (AgentRunCounts, er
 	return f.counts, nil
 }
 
-func (f *scalerFake) StartingRunsPerPod(context.Context, string, time.Time) (map[int]int, error) {
+func (f *scalerFake) StartingRunsPerPod(context.Context, string, time.Time) (map[string]int, error) {
 	f.mustHold("StartingRunsPerPod")
 	return nil, nil
 }
 
-func (f *scalerFake) ActiveRunsPerPod(context.Context, string) (map[int]int, error) {
+func (f *scalerFake) ActiveRunsPerPod(context.Context, string) (map[string]int, error) {
 	f.mustHold("ActiveRunsPerPod")
 	return f.occupied, nil
 }
 
-func (f *scalerFake) AgentStatefulSet(context.Context, string, string) (statefulSetView, bool, error) {
+func (f *scalerFake) AgentPods(context.Context, string, string) (agentPods, error) {
 	f.mu.Lock()
 	f.inFlight++
 	f.maxInFlight = max(f.maxInFlight, f.inFlight)
@@ -267,49 +268,30 @@ func (f *scalerFake) AgentStatefulSet(context.Context, string, string) (stateful
 	f.mu.Lock()
 	f.inFlight--
 	f.mu.Unlock()
-	view := f.view
-	view.Ready = f.ready
-	view.IPs = map[int]string{}
-	for _, ord := range f.ready {
-		view.IPs[ord] = testPodIP(ord)
-	}
-	return view, true, nil
+	return f.pods, nil
 }
 
-func (f *scalerFake) ScaleStatefulSet(_ context.Context, _, _ string, from, to int, resourceVersion string) error {
-	f.mustHold("ScaleStatefulSet")
-	if from != f.view.Replicas || resourceVersion != f.view.ResourceVersion {
-		f.t.Errorf("scale from %d at version %q, want the read replicas %d and version %q", from, resourceVersion, f.view.Replicas, f.view.ResourceVersion)
-	}
-	f.scaledTo = to
-	return nil
-}
-
-func (f *scalerFake) ReleaseRollHold(_ context.Context, _, _ string, partition int, resourceVersion string) error {
-	if resourceVersion != f.view.ResourceVersion {
-		f.t.Errorf("release at version %q, want the read version %q", resourceVersion, f.view.ResourceVersion)
-	}
-	f.released = partition
-	return f.releaseErr
-}
-
-type livePodRead struct {
-	ready       []int
-	terminating int
-}
-
-func (f *scalerFake) LivePodOrdinals(context.Context, string, string) ([]int, int, error) {
-	f.mustHold("LivePodOrdinals")
+func (f *scalerFake) LiveAgentPods(context.Context, string, string) (agentPods, error) {
+	f.mustHold("LiveAgentPods")
 	f.liveReads++
 	if f.live == nil {
-		return f.ready, f.view.Terminating, nil
+		return f.pods, nil
 	}
-	return f.live.ready, f.live.terminating, nil
+	return *f.live, nil
 }
 
-func (f *scalerFake) SwitchToParallel(context.Context, string, string) error {
-	f.mustHold("SwitchToParallel")
-	f.switched = true
+func (f *scalerFake) BindPod(context.Context, AgentType, string) (string, error) {
+	f.mustHold("BindPod")
+	if f.bindErr != nil {
+		return "", f.bindErr
+	}
+	name := fmt.Sprintf("bound-%d", len(f.bound))
+	f.bound = append(f.bound, name)
+	return name, nil
+}
+
+func (f *scalerFake) DeletePod(_ context.Context, _, name string) error {
+	f.deleted = append(f.deleted, name)
 	return nil
 }
 
@@ -318,15 +300,15 @@ func (f *scalerFake) LastRunCompletedAt(context.Context, string) (time.Time, err
 	return f.lastCompleted, nil
 }
 
-func (f *scalerFake) ShrinkPod(_ context.Context, _, _ string, ordinal int) error {
+func (f *scalerFake) ShrinkPod(_ context.Context, _, name string) error {
 	f.mustHold("ShrinkPod")
-	f.shrunk = append(f.shrunk, ordinal)
+	f.shrunk = append(f.shrunk, name)
 	return f.shrinkErr
 }
 
-func (f *scalerFake) GrowPod(_ context.Context, _, _ string, ordinal int) error {
+func (f *scalerFake) GrowPod(_ context.Context, _, name string) error {
 	f.mustHold("GrowPod")
-	f.grown = append(f.grown, ordinal)
+	f.grown = append(f.grown, name)
 	return nil
 }
 
@@ -348,17 +330,24 @@ func newTestScaler(f *scalerFake) *Scaler {
 	}, logging.NewLoggerWithOutput(io.Discard))
 }
 
+// scaleTestPods is an agent's pods on the current pool template.
+func scaleTestPods(live []agentPod) agentPods {
+	return agentPods{Live: live, Template: testTemplate, MemoryLimitBytes: 1024 * mi}
+}
+
 func fullPod(context.Context, sessionmanager.Pod) (sessionmanager.Memory, error) {
 	return sessionmanager.Memory{WorkingSetBytes: 720 * mi, LimitBytes: 1024 * mi}, nil
 }
 
-func TestScalerScalesUnderTheAgentLock(t *testing.T) {
-	f := &scalerFake{t: t, counts: AgentRunCounts{Pending: 20}, view: statefulSetView{Replicas: 2, Parallel: true}, ready: []int{0, 1}, memory: fullPod}
-	if err := newTestScaler(f).scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}); err != nil {
+var scaleTestAgent = AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}
+
+func TestScalerBindsUnderTheAgentLock(t *testing.T) {
+	f := &scalerFake{t: t, counts: AgentRunCounts{Pending: 20}, pods: scaleTestPods(readyPods(2)), memory: fullPod}
+	if err := newTestScaler(f).scale(context.Background(), scaleTestAgent); err != nil {
 		t.Fatal(err)
 	}
-	if f.scaledTo != 8 {
-		t.Errorf("scaled to %d, want 8", f.scaledTo)
+	if len(f.bound) != 6 || len(f.deleted) != 0 {
+		t.Errorf("bound %v and deleted %v, want 6 binds", f.bound, f.deleted)
 	}
 	for i, locked := range f.readLocked {
 		if locked {
@@ -369,7 +358,7 @@ func TestScalerScalesUnderTheAgentLock(t *testing.T) {
 
 // A pod whose memory read blocks past the timeout is read with no lock held and counts as full.
 func TestScalerMemoryTimeoutHoldsNoLock(t *testing.T) {
-	f := &scalerFake{t: t, counts: AgentRunCounts{Pending: 1}, view: statefulSetView{Replicas: 2, Parallel: true}, ready: []int{0, 1}}
+	f := &scalerFake{t: t, counts: AgentRunCounts{Pending: 1}, pods: scaleTestPods(readyPods(2))}
 	f.memory = func(ctx context.Context, pod sessionmanager.Pod) (sessionmanager.Memory, error) {
 		if pod == testPod("coder", 0, scaleTestNS) {
 			return fullPod(ctx, pod)
@@ -378,7 +367,7 @@ func TestScalerMemoryTimeoutHoldsNoLock(t *testing.T) {
 		return sessionmanager.Memory{}, ctx.Err()
 	}
 	start := time.Now()
-	if err := newTestScaler(f).scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}); err != nil {
+	if err := newTestScaler(f).scale(context.Background(), scaleTestAgent); err != nil {
 		t.Fatal(err)
 	}
 	if elapsed := time.Since(start); elapsed < memoryReadTimeout {
@@ -387,41 +376,77 @@ func TestScalerMemoryTimeoutHoldsNoLock(t *testing.T) {
 	if len(f.readLocked) != 2 || f.readLocked[0] || f.readLocked[1] {
 		t.Errorf("lock held during reads = %v, want two reads with no lock", f.readLocked)
 	}
-	if f.scaledTo != 3 {
-		t.Errorf("scaled to %d, want 3: the timed-out pod counts as full", f.scaledTo)
+	if len(f.bound) != 1 {
+		t.Errorf("bound %v, want one pod: the timed-out pod counts as full", f.bound)
 	}
 }
 
 func TestScalerSkipsWhenAnotherReplicaHoldsTheLock(t *testing.T) {
-	f := &scalerFake{t: t, busy: true, counts: AgentRunCounts{Pending: 20}, view: statefulSetView{Replicas: 2, Parallel: true}, ready: []int{0, 1}, memory: fullPod}
-	if err := newTestScaler(f).scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}); err != nil {
+	f := &scalerFake{t: t, busy: true, counts: AgentRunCounts{Pending: 20}, pods: scaleTestPods(readyPods(2)), memory: fullPod}
+	if err := newTestScaler(f).scale(context.Background(), scaleTestAgent); err != nil {
 		t.Fatal(err)
 	}
-	if f.scaledTo != 0 {
-		t.Errorf("scaled to %d without the lock", f.scaledTo)
+	if len(f.bound) != 0 {
+		t.Errorf("bound %v without the lock", f.bound)
 	}
 }
 
-func TestScalerScalesDownOnePodAtATime(t *testing.T) {
-	f := &scalerFake{t: t, view: statefulSetView{ResourceVersion: "41", Replicas: 5, Parallel: true}, ready: []int{0, 1, 2, 3, 4}, memory: fullPod}
-	if err := newTestScaler(f).scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}); err != nil {
+// The scaler removes the newest empty pod, one per pass.
+func TestScalerRemovesTheNewestEmptyPod(t *testing.T) {
+	f := &scalerFake{t: t, pods: scaleTestPods(readyPods(5)), memory: fullPod}
+	if err := newTestScaler(f).scale(context.Background(), scaleTestAgent); err != nil {
 		t.Fatal(err)
 	}
-	if f.scaledTo != 4 {
-		t.Errorf("scaled to %d, want 4", f.scaledTo)
+	if !slices.Equal(f.deleted, []string{"pod-4"}) || f.liveReads != 1 {
+		t.Errorf("deleted %v after %d live reads, want pod-4 after one", f.deleted, f.liveReads)
 	}
-	f = &scalerFake{t: t, occupied: map[int]int{4: 1}, counts: AgentRunCounts{Active: 1}, view: statefulSetView{Replicas: 5, Parallel: true}, ready: []int{0, 1, 2, 3, 4}, memory: fullPod}
-	if err := newTestScaler(f).scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}); err != nil {
+	f = &scalerFake{t: t, occupied: map[string]int{"pod-4": 1}, counts: AgentRunCounts{Active: 1}, pods: scaleTestPods(readyPods(5)), memory: fullPod}
+	if err := newTestScaler(f).scale(context.Background(), scaleTestAgent); err != nil {
 		t.Fatal(err)
 	}
-	if f.scaledTo != 0 {
-		t.Errorf("scaled a busy top pod away, to %d", f.scaledTo)
+	if !slices.Equal(f.deleted, []string{"pod-3"}) {
+		t.Errorf("deleted %v, want pod-3 under the busy pod-4", f.deleted)
+	}
+}
+
+// A pool with no Ready pod is not a failure: the next pass binds again.
+func TestScaleAgentLogsOnlyARealBindFailure(t *testing.T) {
+	for name, tc := range map[string]struct {
+		err    error
+		logged bool
+	}{
+		"empty pool":   {fmt.Errorf("%w in %s", errNoPoolPod, scaleTestNS), false},
+		"real failure": {errors.New("api down"), true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &scalerFake{t: t, pods: scaleTestPods(nil), memory: fullPod, bindErr: tc.err}
+			s := newTestScaler(f)
+			var out bytes.Buffer
+			s.logger = logging.NewLoggerWithOutput(&out)
+			s.scaleAgent(context.Background(), scaleTestAgent)
+			if got := strings.Contains(out.String(), "scale agent failed"); got != tc.logged {
+				t.Errorf("logged failure = %v, want %v", got, tc.logged)
+			}
+		})
+	}
+}
+
+// A pod that exited without a delete, such as one the kubelet evicted, is deleted and replaced.
+func TestScalerDeletesFinishedPods(t *testing.T) {
+	pods := scaleTestPods(readyPods(1))
+	pods.Finished = []string{"evicted"}
+	f := &scalerFake{t: t, pods: pods, memory: fullPod}
+	if err := newTestScaler(f).scale(context.Background(), scaleTestAgent); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(f.deleted, []string{"evicted"}) || len(f.bound) != 1 {
+		t.Errorf("deleted %v and bound %v, want the evicted pod deleted and one bind to the floor", f.deleted, f.bound)
 	}
 }
 
 // A pass checks every agent, up to the concurrency bound at once and never more.
 func TestScalerPassIsBounded(t *testing.T) {
-	f := &scalerFake{t: t, busy: true, view: statefulSetView{Replicas: 2, Parallel: true}, ready: []int{0, 1}, memory: fullPod,
+	f := &scalerFake{t: t, busy: true, pods: scaleTestPods(readyPods(2)), memory: fullPod,
 		gate: make(chan struct{}), entered: make(chan struct{}, 12)}
 	for i := range 12 {
 		f.agents = append(f.agents, AgentType{ID: fmt.Sprint(i), Slug: fmt.Sprintf("agent-%d", i), MaxConcurrentRuns: 30})
@@ -468,97 +493,59 @@ func TestScalerStartWaitsForTheCache(t *testing.T) {
 	}
 }
 
-// A cache that has not seen pod 0 start terminating shows two Ready pods. The live read before the
-// scale-down shows the top pod is the only one left above the floor, and the scaler keeps it.
+// A cache that has not seen pod-0 start terminating shows two Ready pods. The live read before the
+// scale-down shows pod-1 is the only one left at the floor, and the scaler keeps it.
 func TestScalerScaleDownReadsPodsLive(t *testing.T) {
-	f := &scalerFake{t: t, view: statefulSetView{ResourceVersion: "41", Replicas: 2, Parallel: true}, ready: []int{0, 1}, memory: fullPod,
-		live: &livePodRead{ready: []int{1}, terminating: 1}}
+	live := scaleTestPods(readyPods(2)[1:])
+	f := &scalerFake{t: t, pods: scaleTestPods(readyPods(2)), memory: fullPod, live: &live}
 	s := newTestScaler(f)
 	s.cfg.MinReplicas = 1
-	if err := s.scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}); err != nil {
+	if err := s.scale(context.Background(), scaleTestAgent); err != nil {
 		t.Fatal(err)
 	}
-	if f.liveReads != 1 || f.scaledTo != 0 {
-		t.Errorf("live reads %d, scaled to %d; want one read and no scale-down below the floor", f.liveReads, f.scaledTo)
+	if f.liveReads != 1 || len(f.deleted) != 0 {
+		t.Errorf("live reads %d, deleted %v; want one read and no scale-down below the floor", f.liveReads, f.deleted)
 	}
 	f.live = nil
-	if err := s.scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}); err != nil {
+	if err := s.scale(context.Background(), scaleTestAgent); err != nil {
 		t.Fatal(err)
 	}
-	if f.scaledTo != 1 {
-		t.Errorf("scaled to %d with no pod terminating, want 1", f.scaledTo)
+	if !slices.Equal(f.deleted, []string{"pod-1"}) {
+		t.Errorf("deleted %v with no pod terminating, want pod-1", f.deleted)
 	}
 }
 
-func TestScalerSwitchesOnlyAnIdleAgentToParallel(t *testing.T) {
+// A pool template change rolls the agent's pods: one pod binds on the current template, and once it is Ready
+// the old pods go one per pass, an empty one first.
+func TestScalerRoll(t *testing.T) {
+	old := func(pods []agentPod) []agentPod {
+		for i := range pods {
+			pods[i].Template = "t0"
+		}
+		return pods
+	}
 	for _, tc := range []struct {
-		name   string
-		counts AgentRunCounts
-		want   bool
+		name        string
+		pods        agentPods
+		occupied    map[string]int
+		wantBound   int
+		wantDeleted []string
 	}{
-		{"idle", AgentRunCounts{Pending: 3}, true},
-		{"active run", AgentRunCounts{Active: 1}, false},
-		{"starting run", AgentRunCounts{Starting: 1}, false},
+		{"binds a pod on the current template", scaleTestPods(old(readyPods(2))), nil, 1, nil},
+		{"waits for the current pod to turn Ready", scaleTestPods(append(old(readyPods(2)), agentPod{Name: "new", Template: testTemplate})), nil, 0, nil},
+		{"removes an empty old pod first", scaleTestPods(append(old(readyPods(2)), agentPod{Name: "new", IP: "10.0.0.9", Ready: true, Template: testTemplate})),
+			map[string]int{"pod-0": 1}, 0, []string{"pod-1"}},
+		{"removes a busy old pod with the drain", scaleTestPods(append(old(readyPods(1)), readyPods(3)[1:]...)),
+			map[string]int{"pod-0": 1}, 0, []string{"pod-0"}},
+		{"no roll with no pool Deployment cached", agentPods{Live: old(readyPods(2)), MemoryLimitBytes: 1024 * mi}, nil, 0, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := &scalerFake{t: t, counts: tc.counts, view: statefulSetView{Replicas: 3}, ready: []int{0, 1, 2}, memory: fullPod}
-			if err := newTestScaler(f).scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}); err != nil {
+			f := &scalerFake{t: t, pods: tc.pods, occupied: tc.occupied, counts: AgentRunCounts{Active: len(tc.occupied)}, memory: fullPod}
+			if err := newTestScaler(f).scale(context.Background(), scaleTestAgent); err != nil {
 				t.Fatal(err)
 			}
-			if f.switched != tc.want {
-				t.Errorf("switched = %v, want %v", f.switched, tc.want)
-			}
-		})
-	}
-}
-
-// A roll held for a surge pod is released once that pod is Ready, and the agent keeps its pods until then.
-func TestScalerRollHold(t *testing.T) {
-	for _, tc := range []struct {
-		name         string
-		view         statefulSetView
-		ready        []int
-		wantRelease  int
-		wantScaledTo int
-	}{
-		{"surge pod Ready", statefulSetView{ResourceVersion: "41", Replicas: 3, Partition: 2, Parallel: true, SurgeReady: true}, []int{0, 1, 2}, 2, 0},
-		// A Ready pod at the partition ordinal on the old revision is not the surge pod.
-		{"old pod at the partition", statefulSetView{Replicas: 3, Partition: 2, Parallel: true}, []int{0, 1, 2}, 0, 0},
-		{"surge pod not Ready yet", statefulSetView{Replicas: 3, Partition: 2, Parallel: true}, []int{0, 1}, 0, 0},
-		// An older scaler removed the surge pod: no pod at the partition ordinal will come.
-		{"surge pod scaled away", statefulSetView{ResourceVersion: "41", Replicas: 2, Partition: 2, Parallel: true}, []int{0, 1}, 2, 0},
-		{"roll under way", statefulSetView{Replicas: 3, Rolling: true, Parallel: true}, []int{0, 2}, 0, 0},
-		{"roll done", statefulSetView{ResourceVersion: "41", Replicas: 3, Parallel: true}, []int{0, 1, 2}, 0, 2},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			f := &scalerFake{t: t, view: tc.view, ready: tc.ready, memory: fullPod}
-			if err := newTestScaler(f).scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30}); err != nil {
-				t.Fatal(err)
-			}
-			if f.released != tc.wantRelease || f.scaledTo != tc.wantScaledTo {
-				t.Errorf("released partition %d, scaled to %d; want %d and %d", f.released, f.scaledTo, tc.wantRelease, tc.wantScaledTo)
-			}
-		})
-	}
-}
-
-// A partition that moved under the release is left to the next pass, and only a real failure is logged.
-func TestScaleAgentSwallowsMovedPartition(t *testing.T) {
-	for name, tc := range map[string]struct {
-		err    error
-		logged bool
-	}{
-		"moved partition": {errPartitionMoved, false},
-		"real failure":    {errors.New("api down"), true},
-	} {
-		t.Run(name, func(t *testing.T) {
-			f := &scalerFake{t: t, view: statefulSetView{Replicas: 2, Partition: 1, Parallel: true, SurgeReady: true}, ready: []int{0, 1}, memory: fullPod, releaseErr: tc.err}
-			s := newTestScaler(f)
-			var out bytes.Buffer
-			s.logger = logging.NewLoggerWithOutput(&out)
-			s.scaleAgent(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 30})
-			if got := strings.Contains(out.String(), "scale agent failed"); got != tc.logged {
-				t.Errorf("logged failure = %v, want %v", got, tc.logged)
+			if len(f.bound) != tc.wantBound || !slices.Equal(f.deleted, tc.wantDeleted) {
+				t.Errorf("bound %v and deleted %v, want %d binds and %v deleted", f.bound, f.deleted, tc.wantBound, tc.wantDeleted)
 			}
 		})
 	}
@@ -575,6 +562,17 @@ func emptyPod(context.Context, sessionmanager.Pod) (sessionmanager.Memory, error
 	return sessionmanager.Memory{WorkingSetBytes: 10 * mi, LimitBytes: 1024 * mi}, nil
 }
 
+// residencyPods marks the pods at warm warm and the pods at resizing with a pending resize.
+func residencyPods(pods []agentPod, warm, resizing []int) agentPods {
+	for _, i := range warm {
+		pods[i].Warm = true
+	}
+	for _, i := range resizing {
+		pods[i].Resizing = true
+	}
+	return scaleTestPods(pods)
+}
+
 // An idle agent's hot Ready pods, and a pod whose grow is still pending, shrink once its last run completed
 // WarmAfter ago, and not before, not while a run waits, not when WarmAfter is zero, and not again once warm.
 func TestScalerShrinksIdleAgent(t *testing.T) {
@@ -583,20 +581,19 @@ func TestScalerShrinksIdleAgent(t *testing.T) {
 		name     string
 		mutate   func(f *scalerFake, s *Scaler)
 		activate time.Time
-		want     []int
+		want     []string
 	}{
-		{"idle past the threshold", func(*scalerFake, *Scaler) {}, old, []int{0, 1}},
+		{"idle past the threshold", func(*scalerFake, *Scaler) {}, old, []string{"pod-0", "pod-1"}},
 		{"last run inside the threshold", func(f *scalerFake, _ *Scaler) { f.lastCompleted = recent }, old, nil},
 		{"never ran and activated inside the threshold", func(f *scalerFake, _ *Scaler) { f.lastCompleted = time.Time{} }, recent, nil},
-		{"never ran and activated long ago", func(f *scalerFake, _ *Scaler) { f.lastCompleted = time.Time{} }, old, []int{0, 1}},
+		{"never ran and activated long ago", func(f *scalerFake, _ *Scaler) { f.lastCompleted = time.Time{} }, old, []string{"pod-0", "pod-1"}},
 		{"a run waits", func(f *scalerFake, _ *Scaler) { f.counts.Pending = 1 }, old, nil},
 		{"warm tier off", func(_ *scalerFake, s *Scaler) { s.cfg.WarmAfter = 0 }, old, nil},
-		{"already warm", func(f *scalerFake, _ *Scaler) { f.view.Warm, f.view.Resizing = []int{0, 1}, []int{1} }, old, nil},
-		{"a grow left pending shrinks back", func(f *scalerFake, _ *Scaler) { f.view.Warm, f.view.Resizing = []int{0}, []int{1} }, old, []int{1}},
-		{"a pod being scaled away", func(f *scalerFake, _ *Scaler) { f.view.Replicas, f.ready = 3, []int{0, 1, 2} }, old, []int{0, 1}},
+		{"already warm", func(f *scalerFake, _ *Scaler) { f.pods = residencyPods(readyPods(2), []int{0, 1}, []int{1}) }, old, nil},
+		{"a grow left pending shrinks back", func(f *scalerFake, _ *Scaler) { f.pods = residencyPods(readyPods(2), []int{0}, []int{1}) }, old, []string{"pod-1"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := &scalerFake{t: t, view: statefulSetView{Replicas: 2, Parallel: true}, ready: []int{0, 1}, memory: emptyPod, lastCompleted: old}
+			f := &scalerFake{t: t, pods: scaleTestPods(readyPods(2)), memory: emptyPod, lastCompleted: old}
 			s := warmScaler(f)
 			tc.mutate(f, s)
 			if err := s.scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 20, ActivatedAt: tc.activate}); err != nil {
@@ -612,34 +609,36 @@ func TestScalerShrinksIdleAgent(t *testing.T) {
 // A warm pod that holds a run grows without a wait, and an empty warm pod of a busy agent stays warm.
 func TestScalerGrowsOccupiedWarmPod(t *testing.T) {
 	f := &scalerFake{
-		t: t, counts: AgentRunCounts{Active: 2}, occupied: map[int]int{1: 1, 2: 1},
-		view: statefulSetView{Replicas: 3, Parallel: true, Warm: []int{0, 1}, Resizing: []int{2}}, ready: []int{0, 1, 2}, memory: emptyPod,
+		t: t, counts: AgentRunCounts{Active: 2}, occupied: map[string]int{"pod-1": 1, "pod-2": 1},
+		pods: residencyPods(readyPods(3), []int{0, 1}, []int{2}), memory: emptyPod,
 	}
-	if err := warmScaler(f).scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 20}); err != nil {
+	// A floor of 3 keeps the empty pod-0 from being removed.
+	s := warmScaler(f)
+	s.cfg.MinReplicas = 3
+	if err := s.scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 20}); err != nil {
 		t.Fatal(err)
 	}
-	// Pod 2's grow is pending. GrowPod frees the wake reserve when the kubelet holds it as Deferred.
-	if !slices.Equal(f.grown, []int{1, 2}) || len(f.shrunk) != 0 {
-		t.Errorf("grew %v and shrunk %v, want grew [1 2]", f.grown, f.shrunk)
+	// pod-2's grow is pending. GrowPod frees the wake reserve when the kubelet holds it as Deferred.
+	if !slices.Equal(f.grown, []string{"pod-1", "pod-2"}) || len(f.shrunk) != 0 {
+		t.Errorf("grew %v and shrunk %v, want grew [pod-1 pod-2]", f.grown, f.shrunk)
 	}
 }
 
 // With the warm tier off, every warm pod grows back, held or not.
 func TestScalerGrowsWarmPodsWithTheTierOff(t *testing.T) {
-	f := &scalerFake{t: t, view: statefulSetView{Replicas: 2, Parallel: true, Warm: []int{0}, Resizing: []int{1}}, ready: []int{0, 1}, memory: emptyPod}
-	s := newTestScaler(f)
-	if err := s.scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 20}); err != nil {
+	f := &scalerFake{t: t, pods: residencyPods(readyPods(2), []int{0}, []int{1}), memory: emptyPod}
+	if err := newTestScaler(f).scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 20}); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(f.grown, []int{0, 1}) || len(f.shrunk) != 0 {
-		t.Errorf("grew %v and shrunk %v, want grew [0 1]", f.grown, f.shrunk)
+	if !slices.Equal(f.grown, []string{"pod-0", "pod-1"}) || len(f.shrunk) != 0 {
+		t.Errorf("grew %v and shrunk %v, want grew [pod-0 pod-1]", f.grown, f.shrunk)
 	}
 }
 
 // A shrink the API server refuses for good is logged once, and the pod is not tried again.
 func TestScalerSkipsPodAfterRefusedShrink(t *testing.T) {
 	var logs bytes.Buffer
-	f := &scalerFake{t: t, view: statefulSetView{Replicas: 1, Parallel: true}, ready: []int{0}, memory: emptyPod,
+	f := &scalerFake{t: t, pods: scaleTestPods(readyPods(1)), memory: emptyPod,
 		lastCompleted: time.Now().Add(-time.Hour),
 		shrinkErr:     apierrors.NewGenericServerResponse(404, "patch", schema.GroupResource{Resource: "pods"}, "", "", 0, false)}
 	s := warmScaler(f)
@@ -657,17 +656,14 @@ func TestScalerSkipsPodAfterRefusedShrink(t *testing.T) {
 
 // A pod with a pending resize counts as full, so a waiting run gets a new pod.
 func TestScalerCountsResizingPodFull(t *testing.T) {
-	f := &scalerFake{
-		t: t, counts: AgentRunCounts{Pending: 1},
-		view: statefulSetView{Replicas: 1, Parallel: true, Resizing: []int{0}}, ready: []int{0}, memory: emptyPod,
-	}
+	f := &scalerFake{t: t, counts: AgentRunCounts{Pending: 1}, pods: residencyPods(readyPods(1), nil, []int{0}), memory: emptyPod}
 	s := warmScaler(f)
 	s.cfg.MinReplicas = 1
 	if err := s.scale(context.Background(), AgentType{ID: "a", Slug: "coder", MaxConcurrentRuns: 20}); err != nil {
 		t.Fatal(err)
 	}
-	if f.scaledTo != 2 {
-		t.Errorf("scaled to %d, want 2", f.scaledTo)
+	if len(f.bound) != 1 {
+		t.Errorf("bound %v, want one pod", f.bound)
 	}
 	if len(f.readLocked) != 0 {
 		t.Errorf("memory reads = %d, want none of the resizing pod", len(f.readLocked))

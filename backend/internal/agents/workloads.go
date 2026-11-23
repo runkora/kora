@@ -13,7 +13,7 @@ import (
 )
 
 // WorkloadCustomization is the operator-supplied customization for one kind of
-// provisioned workload, the session-manager StatefulSet or the sandbox Pod.
+// provisioned workload, the session-manager pod or the sandbox Pod.
 // It is applied to the built manifest before manifest patches, so a patch
 // still wins on any field both set.
 // See docs/adr/2026-09-16-first-class-workload-placement.md.
@@ -108,7 +108,7 @@ var reservedAnnotations = []string{
 }
 
 // reservedLabels select a pod for SPIRE attestation, sidecar injection and its
-// StatefulSet. Setting one from config would move the pod off its attested
+// agent Service. Setting one from config would move the pod off its attested
 // identity, which is why manifest patches protect the same keys. Istio honors
 // sidecar.istio.io/inject as a label too, and the operator denies pods that
 // opt out.
@@ -202,29 +202,27 @@ func (c WorkspaceConfig) crossesNodes() bool {
 	return slices.Contains(c.AccessModes, corev1.ReadWriteMany)
 }
 
-// requireCoLocation pins a pod to the node already running podName.
-//
-// A ReadWriteOnce workspace attaches to one node, and a sandbox mounts its
-// session-manager's workspace, so the two have to share a node. Matching node
-// selectors do not deliver that: a pool has many nodes. The term is appended,
-// leaving any configured affinity in place, and required terms are ANDed.
-func requireCoLocation(spec *corev1.PodSpec, podName string) {
-	term := corev1.PodAffinityTerm{
-		TopologyKey: "kubernetes.io/hostname",
-		LabelSelector: &metav1.LabelSelector{
-			// Set by Kubernetes on every StatefulSet pod, so it names the one
-			// replica holding this run's workspace.
-			MatchLabels: map[string]string{"statefulset.kubernetes.io/pod-name": podName},
-		},
-	}
+// requireCoLocation pins a sandbox to node, the node of the session-manager pod
+// whose ReadWriteOnce workspace it mounts.
+func requireCoLocation(spec *corev1.PodSpec, node string) {
+	term := corev1.NodeSelectorTerm{MatchFields: []corev1.NodeSelectorRequirement{{
+		Key: "metadata.name", Operator: corev1.NodeSelectorOpIn, Values: []string{node},
+	}}}
 	if spec.Affinity == nil {
 		spec.Affinity = &corev1.Affinity{}
 	}
-	if spec.Affinity.PodAffinity == nil {
-		spec.Affinity.PodAffinity = &corev1.PodAffinity{}
+	if spec.Affinity.NodeAffinity == nil {
+		spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
 	}
-	spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution = append(
-		spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution, term)
+	required := spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+	if required == nil {
+		spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{term}}
+		return
+	}
+	// Terms are ORed, so the node requirement joins every configured term.
+	for i := range required.NodeSelectorTerms {
+		required.NodeSelectorTerms[i].MatchFields = append(required.NodeSelectorTerms[i].MatchFields, term.MatchFields...)
+	}
 }
 
 // Validate rejects a non-positive session-manager memory or a CPU outside (0, limit], warm requests
@@ -263,7 +261,7 @@ func (w WorkloadsConfig) Validate() error {
 	} {
 		for _, label := range reservedLabels {
 			if _, taken := workload.labels[label]; taken {
-				return fmt.Errorf("agents.workloads.%s.podLabels sets %q, which identifies the pod to SPIRE, the sidecar injector or its StatefulSet", workload.name, label)
+				return fmt.Errorf("agents.workloads.%s.podLabels sets %q, which identifies the pod to SPIRE, the sidecar injector or its agent Service", workload.name, label)
 			}
 		}
 		for _, annotation := range reservedAnnotations {

@@ -28,7 +28,7 @@ const rawRuns = (from: number, to: number, state = 'completed') =>
     tenant_id: 't1',
     agent_type_id: agent.id,
     state,
-    pod_ordinal: 0,
+    pod_name: "session-manager-pool-0",
     created_by: 'user-1',
     started_at: null,
     completed_at: null,
