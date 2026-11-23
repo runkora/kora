@@ -1,9 +1,10 @@
 # A tenant pod's agent identity comes from its spiffe.io/agent label. The label
 # may be set on a running pod only once: by kora-agents, on a pool pod, in the
 # same write that takes the pod out of the pool and sets app to the agent slug.
-# Afterwards it never changes, and a pod never serves a second agent. app and
-# runkora.io/managed-agent never change on a bound pod, and the other labels
-# that select a SPIFFE ID never change on an existing pod. Only the ReplicaSet
+# Afterwards it never changes, and a pod never serves a second agent. No pod is
+# created with it. app, runkora.io/managed-agent and runkora.io/agent-type never
+# change on a bound pod, and the other labels that select a SPIFFE ID never
+# change on an existing pod. Only the ReplicaSet
 # controller creates a pool pod, for the session-manager-pool ReplicaSet, as the
 # pool ServiceAccount and with no agent label, and no update adds runkora.io/pool to a pod
 # (docs/adr/2026-11-22-agent-cold-tier.md). The rules cover pod subresources too.
@@ -39,9 +40,10 @@ spec:
     # The other labels that select a SPIFFE ID in clusterspiffeids.yaml.
     - name: frozen
       expression: "['spiffe.io/service', 'spiffe.io/component', 'runkora.io/role', 'runkora.io/agent-slug', 'runkora.io/run-id']"
-    # The labels that put a bound pod under its AuthorizationPolicy and the agent egress lockdown.
+    # The labels that put a bound pod under its AuthorizationPolicy and the agent egress lockdown, and the
+    # agent ID that kora-agents selects the agent's bound pods by.
     - name: frozenWhenBound
-      expression: "['app', 'runkora.io/managed-agent']"
+      expression: "['app', 'runkora.io/managed-agent', 'runkora.io/agent-type']"
   validations:
     - expression: >-
         request.operation != 'UPDATE' || variables.oldAgent == variables.newAgent ||
@@ -49,6 +51,8 @@ spec:
         variables.oldPool && !variables.newPool &&
         request.userInfo.username == 'system:serviceaccount:{{ include "kora.systemNamespace" . }}:kora-agents')
       message: spiffe.io/agent can be set only once, by kora-agents, on a pool pod as it leaves the pool, with app set to the same slug.
+    - expression: "request.operation != 'CREATE' || variables.newAgent == 'unset'"
+      message: A pod cannot be created with spiffe.io/agent. Only a bind sets it.
     - expression: >-
         request.operation != 'UPDATE' || variables.frozen.all(k,
         (has(oldObject.metadata.labels) && k in oldObject.metadata.labels) == (has(object.metadata.labels) && k in object.metadata.labels) &&
@@ -58,7 +62,7 @@ spec:
         request.operation != 'UPDATE' || variables.oldAgent == 'unset' || variables.frozenWhenBound.all(k,
         (has(oldObject.metadata.labels) && k in oldObject.metadata.labels) == (has(object.metadata.labels) && k in object.metadata.labels) &&
         (!(has(object.metadata.labels) && k in object.metadata.labels) || oldObject.metadata.labels[k] == object.metadata.labels[k]))
-      message: app and runkora.io/managed-agent cannot change on a bound pod.
+      message: app, runkora.io/managed-agent and runkora.io/agent-type cannot change on a bound pod.
     - expression: >-
         request.operation != 'CREATE' || !variables.newPool ||
         (request.userInfo.username == 'system:serviceaccount:kube-system:replicaset-controller' &&
@@ -220,4 +224,49 @@ metadata:
     {{- include "kora.labels" . | nindent 4 }}
 spec:
   policyName: kora-agents-deployments
+  validationActions: ["Deny"]
+---
+# kora-agents deletes an agent's retired StatefulSet, its HPA, PodDisruptionBudget
+# and workspace claims, and only in tenant namespaces.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: kora-agents-deletes
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        operations: ["DELETE"]
+        resources: ["statefulsets"]
+      - apiGroups: ["autoscaling"]
+        apiVersions: ["*"]
+        operations: ["DELETE"]
+        resources: ["horizontalpodautoscalers"]
+      - apiGroups: ["policy"]
+        apiVersions: ["v1"]
+        operations: ["DELETE"]
+        resources: ["poddisruptionbudgets"]
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["DELETE"]
+        resources: ["persistentvolumeclaims"]
+  matchConditions:
+    - name: kora-agents
+      expression: "request.userInfo.username == 'system:serviceaccount:{{ include "kora.systemNamespace" . }}:kora-agents'"
+  validations:
+    - expression: "has(namespaceObject.metadata.labels) && 'runkora.io/role' in namespaceObject.metadata.labels && namespaceObject.metadata.labels['runkora.io/role'] == 'tenant'"
+      message: kora-agents deletes StatefulSets, HPAs, PodDisruptionBudgets and PersistentVolumeClaims only in tenant namespaces.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: kora-agents-deletes
+  labels:
+    {{- include "kora.labels" . | nindent 4 }}
+spec:
+  policyName: kora-agents-deletes
   validationActions: ["Deny"]
