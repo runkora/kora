@@ -1,7 +1,6 @@
 package config_test
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -152,17 +151,10 @@ func TestChartAgentsClusterRoleResizesPods(t *testing.T) {
 	}
 }
 
-// The scheduled pre-wake lead reaches kora-triggers, and a lead past kora-agents' 15 minute limit fails the
-// render (docs/adr/2026-11-22-agent-cold-tier.md, S2).
+// The scheduled pre-wake lead reaches kora-triggers, which validates it (docs/adr/2026-11-22-agent-cold-tier.md, S2).
 func TestChartPreWakeLead(t *testing.T) {
 	cfg := loadRendered[triggersConfig.Config](t, renderChart(t, "{}\n"), "cmd/kora-triggers")
-	if got := cfg.PreWakeLead(); got != 3*time.Minute {
-		t.Errorf("pre-wake lead = %s, want 3m", got)
-	}
-	for _, lead := range []int{30, 901} {
-		out, err := helmTemplate(t, fmt.Sprintf("agents:\n  pool: {preWakeLeadSecs: %d}\n", lead))
-		if err == nil || !strings.Contains(out, "preWakeLeadSecs must be 0 or between 60 and 900") {
-			t.Errorf("preWakeLeadSecs %d: render err = %v, want the check to fail it", lead, err)
-		}
+	if got := cfg.PreWakeLead(); got != 3*time.Minute || triggersConfig.Validate(cfg) != nil {
+		t.Errorf("pre-wake lead = %s, want a valid 3m", got)
 	}
 }

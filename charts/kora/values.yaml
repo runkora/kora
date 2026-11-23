@@ -640,7 +640,7 @@ agents:
     pollIntervalSecs: 2
   # Each tenant keeps unbound session-manager pods that kora-agents binds to an agent (docs/adr/2026-11-22-agent-cold-tier.md).
   pool:
-    # -- Unbound session-manager pods each tenant keeps ready. kora-agents adds one for each agent with a pending run and no bound pod.
+    # -- Unbound session-manager pods each tenant keeps ready. kora-agents adds one for each agent with no bound pod that has a pending run or whose scaler bind found no pool pod.
     size: 2
     # -- Seconds before a schedule fire that kora-triggers asks kora-agents to wake the trigger's agent, so its pod is bound and the pool refills before the fire. The lead counts from the scheduler's minute tick. 0 turns the pre-wake off. Otherwise 60 to 900.
     preWakeLeadSecs: 180

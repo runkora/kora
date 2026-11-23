@@ -2,8 +2,10 @@
 package triggersConfig
 
 import (
+	"fmt"
 	"time"
 
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	"github.com/runkora/kora/backend/internal/platform/config"
 	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
 )
@@ -90,6 +92,20 @@ type Config struct {
 		// trigger's agent. Zero turns the pre-wake off.
 		PreWakeLeadSecs int `yaml:"preWakeLeadSecs"`
 	} `yaml:"scheduler"`
+}
+
+// minPreWakeLead is the shortest lead the scheduler's minute tick can keep.
+const minPreWakeLead = time.Minute
+
+// Validate rejects a pre-wake lead that is neither 0 nor between minPreWakeLead and kora-agents'
+// agentsclient.MaxPreWakeLead. main calls it at startup.
+func Validate(cfg *Config) error {
+	lead := time.Duration(cfg.Scheduler.PreWakeLeadSecs) * time.Second
+	if lead != 0 && (lead < minPreWakeLead || lead > agentsclient.MaxPreWakeLead) {
+		return fmt.Errorf("scheduler.preWakeLeadSecs must be 0 or between %d and %d",
+			int(minPreWakeLead.Seconds()), int(agentsclient.MaxPreWakeLead.Seconds()))
+	}
+	return nil
 }
 
 // PreWakeLead returns the scheduled pre-wake lead, zero when it is off.

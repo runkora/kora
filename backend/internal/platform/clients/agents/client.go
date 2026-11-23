@@ -348,6 +348,9 @@ func (c *Client) StartRun(ctx context.Context, bearer string, req StartRunReques
 	}
 }
 
+// MaxPreWakeLead is the furthest ahead of a fire that kora-agents accepts a pre-wake.
+const MaxPreWakeLead = 15 * time.Minute
+
 // PreWake asks kora-agents to hold the agent warm ahead of a schedule fire at fireAt
 // (docs/adr/2026-11-22-agent-cold-tier.md, S2), authenticating with the supplied platform bearer token.
 func (c *Client) PreWake(ctx context.Context, bearer, agentTypeID string, fireAt time.Time) error {

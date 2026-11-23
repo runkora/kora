@@ -61,6 +61,9 @@ func main() {
 }
 
 func realMain() error {
+	if err := tc.Validate(tc.Current); err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
