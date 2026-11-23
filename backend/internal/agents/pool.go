@@ -72,6 +72,9 @@ func (p *K8sProvisioner) buildTenantPool(tenantID, namespace string) (appsv1.Dep
 		return appsv1.Deployment{}, fmt.Errorf("encode pool pod template: %w", err)
 	}
 	sum := sha256.Sum256(hash)
+	if template.Annotations == nil {
+		template.Annotations = map[string]string{}
+	}
 	template.Annotations[poolTemplateAnnotation] = hex.EncodeToString(sum[:8])
 	replicas := p.cfg.PoolSize
 	labels := map[string]string{"runkora.io/tenant": tenantID, poolLabel: "true"}

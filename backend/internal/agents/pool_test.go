@@ -186,3 +186,21 @@ func TestValidateAgentSlug_ReservesThePoolName(t *testing.T) {
 		t.Errorf("validateAgentSlug(%q) = %v, want ErrInvalidSlug", poolName, err)
 	}
 }
+
+// A patch that removes the pod template annotations still leaves the pool template hash on the pool pods.
+func TestBuildTenantPool_NoTemplateAnnotations(t *testing.T) {
+	p := podSecurityProvisioner()
+	p.cfg.Patches = loadTestPatches(t, map[string]string{
+		"10-no-annotations.yaml": `target: {kind: StatefulSet}
+patch: |
+  - {op: remove, path: /spec/template/metadata/annotations}
+`,
+	})
+	dep, err := p.buildTenantPool("acme", "kora-tenant-acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dep.Spec.Template.Annotations[poolTemplateAnnotation] == "" {
+		t.Errorf("annotations = %v, want the pool template hash", dep.Spec.Template.Annotations)
+	}
+}
