@@ -248,10 +248,15 @@ type boundChecker interface {
 
 // waitBound polls the target's bound check every boundCheckInterval until it returns 200, up to boundCheckTimeout.
 func waitBound(ctx context.Context, sm boundChecker, target sessionmanager.Pod) error {
+	var lastErr error
 	err := wait.PollUntilContextTimeout(ctx, boundCheckInterval, boundCheckTimeout, true, func(ctx context.Context) (bool, error) {
 		bound, checkErr := sm.Bound(ctx, target)
+		lastErr = checkErr
 		return bound && checkErr == nil, nil
 	})
+	if wait.Interrupted(err) && lastErr != nil {
+		return fmt.Errorf("%w: %s: last check: %w", errNotBound, target.URL, lastErr)
+	}
 	if wait.Interrupted(err) {
 		return fmt.Errorf("%w: %s", errNotBound, target.URL)
 	}

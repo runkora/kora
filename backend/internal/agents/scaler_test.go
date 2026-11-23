@@ -406,6 +406,25 @@ func TestScalerBindsUnderTheAgentLock(t *testing.T) {
 	}
 }
 
+// A pod the scaler deletes leaves no refused shrink behind, and a pass drops the roll stall count of an agent
+// that is no longer listed.
+func TestScalerForgetsGonePods(t *testing.T) {
+	f := &scalerFake{t: t, pods: scaleTestPods(readyPods(5)), memory: fullPod}
+	s := newTestScaler(f)
+	s.refused.Store(scaleTestNS+"/pod-4", struct{}{})
+	s.stalled.Store("gone", 3)
+	if err := s.scale(context.Background(), scaleTestAgent); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.refused.Load(scaleTestNS + "/pod-4"); ok || !slices.Equal(f.deleted, []string{"pod-4"}) {
+		t.Errorf("deleted %v with the refused entry kept %v, want pod-4 deleted and forgotten", f.deleted, ok)
+	}
+	s.pass(context.Background())
+	if _, ok := s.stalled.Load("gone"); ok {
+		t.Error("the stall count of an agent that is gone was kept")
+	}
+}
+
 // An agent that a delete moved out of active after the pass listed it gets no bind and no delete: the scaler
 // re-reads the agent under the lock that the delete takes.
 func TestScalerLeavesAnAgentDeletedSinceTheList(t *testing.T) {

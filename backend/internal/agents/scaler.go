@@ -124,6 +124,17 @@ func (s *Scaler) pass(ctx context.Context) {
 		s.logger.Error(ctx, "list agents to scale failed", logging.Field{Key: "error", Value: err.Error()})
 		return
 	}
+	// The roll stall counts of agents that are gone are dropped.
+	listed := make(map[string]bool, len(ats))
+	for _, at := range ats {
+		listed[at.ID] = true
+	}
+	s.stalled.Range(func(id, _ any) bool {
+		if !listed[id.(string)] {
+			s.stalled.Delete(id)
+		}
+		return true
+	})
 	var g errgroup.Group
 	g.SetLimit(max(s.cfg.Concurrency, 1))
 	for _, at := range ats {
@@ -164,7 +175,7 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	}
 	// A pod that exited, such as one the kubelet evicted, holds its workspace claim until it is deleted.
 	for _, name := range pods.Finished {
-		if deleteErr := s.cluster.DeletePod(ctx, namespace, name); deleteErr != nil {
+		if deleteErr := s.deletePod(ctx, namespace, name); deleteErr != nil {
 			return deleteErr
 		}
 	}
@@ -258,6 +269,15 @@ func (s *Scaler) stillActive(ctx context.Context, id string) (bool, error) {
 	return current.State == AgentTypeStateActive, nil
 }
 
+// deletePod drains and deletes a pod and forgets its refused shrink.
+func (s *Scaler) deletePod(ctx context.Context, namespace, name string) error {
+	if err := s.cluster.DeletePod(ctx, namespace, name); err != nil {
+		return err
+	}
+	s.refused.Delete(namespace + "/" + name)
+	return nil
+}
+
 // bindPods binds n pool pods to the agent.
 func (s *Scaler) bindPods(ctx context.Context, at AgentType, namespace string, n int, in scaleInput) error {
 	for range n {
@@ -282,7 +302,7 @@ func (s *Scaler) removeEmptyPod(ctx context.Context, at AgentType, namespace str
 	if !ok || desiredPods(in) >= len(in.pods) {
 		return nil
 	}
-	if err := s.cluster.DeletePod(ctx, namespace, victim.Name); err != nil {
+	if err := s.deletePod(ctx, namespace, victim.Name); err != nil {
 		return err
 	}
 	s.logger.Info(ctx, "removed empty agent pod",
@@ -329,7 +349,7 @@ func (s *Scaler) roll(ctx context.Context, at AgentType, namespace string, pods 
 		if i := slices.IndexFunc(old, func(pod agentPod) bool { return occupied[pod.Name] == 0 }); i >= 0 {
 			victim = old[i]
 		}
-		if err := s.cluster.DeletePod(ctx, namespace, victim.Name); err != nil {
+		if err := s.deletePod(ctx, namespace, victim.Name); err != nil {
 			return true, err
 		}
 		s.logger.Info(ctx, "removed agent pod on an old pool template or agent config",

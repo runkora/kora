@@ -20,6 +20,8 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
+	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 )
@@ -563,5 +565,35 @@ func TestProvisionRetiresTheStatefulSet(t *testing.T) {
 		if _, err := client.CoreV1().ServiceAccounts(scaleTestNS).Get(t.Context(), poolName, metav1.GetOptions{}); err != nil {
 			t.Errorf("update %v: pool serviceaccount: %v", update, err)
 		}
+	}
+}
+
+// A bind whose KoraTenant read fails makes no patch, so no bound pod is left unowned.
+func TestBindPodRefusesAFailedTenantRead(t *testing.T) {
+	f := newPoolFixture()
+	p, _, patches := bindProvisioner(t, f.dep, f.rs, f.pod("pool-a", testTemplate, 1))
+	dyn := ownerRefDynamicClient("acme")
+	dyn.PrependReactor("get", "koratenants", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("api down")
+	})
+	p.dynamicClient = dyn
+	if name, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS); err == nil || name != "" || len(patches) != 0 {
+		t.Errorf("BindPod = %q, %v with patches %v; want the read error and no patch", name, err, patches)
+	}
+}
+
+// failingBound answers every bound check with err.
+type failingBound struct{ err error }
+
+func (b failingBound) Bound(context.Context, sessionmanager.Pod) (bool, error) { return false, b.err }
+
+// A bound check that keeps failing names its last error in the timeout.
+func TestWaitBoundKeepsTheLastError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	refused := errors.New("status 403")
+	err := waitBound(ctx, failingBound{refused}, sessionmanager.PodAt("10.0.0.1", "coder", scaleTestNS))
+	if !errors.Is(err, errNotBound) || !errors.Is(err, refused) {
+		t.Errorf("waitBound = %v, want errNotBound wrapping the last check error", err)
 	}
 }

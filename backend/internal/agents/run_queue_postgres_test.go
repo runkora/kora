@@ -284,7 +284,6 @@ func TestPostgres_RunTraceParent(t *testing.T) {
 	}
 }
 
-// setRunState moves a run to state on pod, bypassing the state machine.
 // setRunState sets the run's state and pod. An empty pod leaves the run with none.
 func setRunState(t *testing.T, r *PostgresRepository, id string, state RunState, pod string) {
 	t.Helper()

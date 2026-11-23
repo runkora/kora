@@ -83,7 +83,6 @@ func TestSandboxPod_FromEnvironment(t *testing.T) {
 	}
 }
 
-// buildTestSandboxPod builds a sandbox pod from a spec the test knows is valid.
 // sessionManagerPod is the bound pod pool-a on node-a, whose workspace a run's sandbox mounts.
 func sessionManagerPod(namespace string) *corev1.Pod {
 	return &corev1.Pod{
@@ -92,6 +91,7 @@ func sessionManagerPod(namespace string) *corev1.Pod {
 	}
 }
 
+// buildTestSandboxPod builds a sandbox pod from a spec the test knows is valid.
 func buildTestSandboxPod(p *K8sProvisioner, run Run, slug, namespace string, spec SandboxSpec, token string) *corev1.Pod {
 	pod, err := p.buildSandboxPod(run, slug, namespace, spec, token)
 	if err != nil {

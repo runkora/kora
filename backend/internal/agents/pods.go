@@ -280,9 +280,14 @@ func (p *K8sProvisioner) BindPod(ctx context.Context, at AgentType, namespace st
 	}
 	slices.SortFunc(cached, func(a, b *corev1.Pod) int { return a.CreationTimestamp.Compare(b.CreationTimestamp.Time) })
 	template := p.poolTemplate(namespace)
-	owner := p.tenantOwnerRef(ctx, at.TenantID)
+	// A bind with no owner reference leaves the pod unowned, so a failed tenant read fails the bind.
+	owner, err := p.lookupTenantOwnerRef(ctx, at.TenantID)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanBindPoolPod)
+		return "", err
+	}
 	for _, pod := range cached {
-		if pod.DeletionTimestamp != nil || !podReady(pod) || (template != "" && pod.Annotations[poolTemplateAnnotation] != template) {
+		if !bindCandidate(pod, template) {
 			continue
 		}
 		err = p.checkPoolProvenance(ctx, pod)
@@ -318,6 +323,12 @@ func (p *K8sProvisioner) BindPod(ctx context.Context, at AgentType, namespace st
 	err = fmt.Errorf("%w in %s", errNoPoolPod, namespace)
 	observability.RecordFailure(span, err, errNoPoolPod)
 	return "", err
+}
+
+// bindCandidate reports a Ready pool pod that is not terminating and is on template, or on any template when
+// template is empty.
+func bindCandidate(pod *corev1.Pod, template string) bool {
+	return pod.DeletionTimestamp == nil && podReady(pod) && (template == "" || pod.Annotations[poolTemplateAnnotation] == template)
 }
 
 // checkPoolProvenance checks that the pod's controller is a live ReplicaSet with the same UID, that the
