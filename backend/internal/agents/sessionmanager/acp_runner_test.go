@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"strings"
@@ -775,8 +776,12 @@ func TestACPRunner_SDKLogsThroughRunLogger(t *testing.T) {
 
 func TestACPRunner_LogsStderrAndUsage(t *testing.T) {
 	a := newFakeACPAgent(t)
-	a.stderr = "adapter crashed: boom\n"
-	a.stderrAtExit = true // Close must wait for stderr that arrives as the adapter exits
+	// A crash trace written as the adapter exits: Close must read it to the end before Wait closes the pipe.
+	for i := range 2000 {
+		a.stderr += fmt.Sprintf("trace line %04d\n", i)
+	}
+	a.stderr += "adapter crashed: boom\n"
+	a.stderrAtExit = true
 	var buf syncBuffer
 	r := startACP(t, a, &fakeACPProfile{}, func(c *acpRunnerConfig) { c.Logger = logging.NewLoggerWithOutput(&buf) })
 	prompt(t, r, "go")
@@ -786,8 +791,31 @@ func TestACPRunner_LogsStderrAndUsage(t *testing.T) {
 	if !strings.Contains(out, "agent subprocess stderr") || !strings.Contains(out, "adapter crashed: boom") {
 		t.Errorf("stderr not logged:\n%s", out)
 	}
+	if strings.Contains(out, "stderr scan error") {
+		t.Errorf("stderr read cut short:\n%.500s", out)
+	}
 	if !strings.Contains(out, "ACP turn completed") || !strings.Contains(out, `"input_tokens":3914`) {
 		t.Errorf("usage not logged:\n%s", out)
+	}
+}
+
+// A child that keeps stderr open after the adapter exits delays Close by at most the close grace.
+func TestACPRunner_CloseBoundsStderrHeldOpen(t *testing.T) {
+	a := newFakeACPAgent(t)
+	a.stderr = "adapter crashed: boom\n"
+	a.stderrAtExit, a.stderrHeld = true, true
+	t.Cleanup(func() { _ = a.stderrW.Close() })
+	var buf syncBuffer
+	r := startACP(t, a, &fakeACPProfile{}, func(c *acpRunnerConfig) { c.Logger = logging.NewLoggerWithOutput(&buf) })
+	prompt(t, r, "go")
+	eventsUntilStop(t, r)
+	start := time.Now()
+	_ = r.Close()
+	if d := time.Since(start); d > 2*time.Second {
+		t.Fatalf("Close took %s with stderr held open", d)
+	}
+	if out := buf.String(); !strings.Contains(out, "adapter crashed: boom") || strings.Contains(out, "stderr scan error") {
+		t.Errorf("stderr written before exit not logged, or the closed pipe logged as an error:\n%s", out)
 	}
 }
 
