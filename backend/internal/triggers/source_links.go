@@ -156,6 +156,25 @@ func (a *alertmanagerAdapter) SourceLinks(_ string, doc any) []agentsclient.RunS
 	return []agentsclient.RunSource{{Kind: sourceKindTrigger, URL: link, Label: "Alert", Provider: sourceProviderAlertmanager}}
 }
 
+// SourceLinks renders the source's link templates. A link kora-agents would
+// refuse is left off: one bad link refuses the whole start or join.
+func (a *genericAdapter) SourceLinks(_ string, doc any) []agentsclient.RunSource {
+	if a.cfg.Attribution == nil {
+		return nil
+	}
+	var out []agentsclient.RunSource
+	for _, l := range a.cfg.Attribution.Links {
+		link := renderAttribution(l.URL, doc)
+		label := clampRunes(renderAttribution(l.Label, doc), maxSourceLabelRunes)
+		u, err := url.Parse(link)
+		if label == "" || len(link) > maxAttributionURLBytes || err != nil || u.Scheme != "https" || u.Host == "" {
+			continue
+		}
+		out = append(out, agentsclient.RunSource{Kind: sourceKindTrigger, URL: link, Label: label})
+	}
+	return out
+}
+
 // addSourceLinks records the delivery's links in meta, when it has any.
 func addSourceLinks(meta map[string]string, adapter SourceAdapter, eventType string, doc any) {
 	if encoded := encodeSourceLinks(sourceLinks(adapter, eventType, doc)); encoded != "" {

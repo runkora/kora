@@ -90,10 +90,10 @@ func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Cl
 		})
 
 	addTool(srv, "triggers.sources.update",
-		"Update a webhook trigger source: enable/disable it, or rotate its signing secret (rotate_secret=true "+
-			"returns a new secret and invalidates the old one). Rotating, enabling or disabling needs permission to run every "+
-			"agent the source's triggers start. A provider that issues its own signing secret is rotated in the console "+
-			"or through the REST API.",
+		"Update a webhook trigger source: enable/disable it, rotate its signing secret (rotate_secret=true "+
+			"returns a new secret and invalidates the old one), or replace a generic source's attribution. Rotating, enabling or "+
+			"disabling needs permission to run every agent the source's triggers start. A provider that issues its own signing "+
+			"secret is rotated in the console or through the REST API.",
 		func(ctx context.Context, a updateSourceArgs) (*sdk.CallToolResult, error) {
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
@@ -104,6 +104,9 @@ func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Cl
 			}
 			if a.RotateSecret {
 				body["rotate_secret"] = true
+			}
+			if a.Attribution != nil {
+				body["attribution"] = a.Attribution
 			}
 			return jsonResult(jc.Patch(ctx, caller(ctx), sources, "/{id}", body, a.ID))
 		})
@@ -355,13 +358,14 @@ type triggerIDArgs struct {
 type createSourceArgs struct {
 	Name     string         `json:"name" jsonschema:"the source name"`
 	Provider string         `json:"provider" jsonschema:"the webhook provider / payload format (e.g. github, generic)"`
-	Config   map[string]any `json:"config,omitempty" jsonschema:"provider-specific configuration. A generic source needs verification.method (bearer, hmac_sha256 or standard_webhooks); hmac_sha256 also takes verification.header, prefix and encoding (hex or base64). An optional event_type holds one of header or path. Without event_type every delivery has the event type webhook"`
+	Config   map[string]any `json:"config,omitempty" jsonschema:"provider-specific configuration. A generic source needs verification.method (bearer, hmac_sha256 or standard_webhooks); hmac_sha256 also takes verification.header, prefix and encoding (hex or base64). An optional event_type holds one of header or path. Without event_type every delivery has the event type webhook. An optional attribution block holds the run link and event summary templates: links (at most 10, each a label and an https url), actor (name, kind person, bot or system, optional url), object (label, optional url) and verbs (event type to verb). Each template is fixed text with {{ path }} placeholders into the payload"`
 }
 
 type updateSourceArgs struct {
-	ID           string `json:"id" jsonschema:"the source id"`
-	Enabled      *bool  `json:"enabled,omitempty" jsonschema:"enable or disable the source"`
-	RotateSecret bool   `json:"rotate_secret,omitempty" jsonschema:"rotate the platform-generated signing secret (returns a new one)"`
+	ID           string         `json:"id" jsonschema:"the source id"`
+	Enabled      *bool          `json:"enabled,omitempty" jsonschema:"enable or disable the source"`
+	RotateSecret bool           `json:"rotate_secret,omitempty" jsonschema:"rotate the platform-generated signing secret (returns a new one)"`
+	Attribution  map[string]any `json:"attribution,omitempty" jsonschema:"a generic source's attribution block, replacing the stored one; an empty object removes it. It takes the keys of config.attribution on create"`
 }
 
 type createTriggerArgs struct {

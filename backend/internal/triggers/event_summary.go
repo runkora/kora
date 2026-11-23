@@ -456,6 +456,26 @@ func (a *alertmanagerAdapter) EventSummary(eventType string, doc any) *agentscli
 	}
 }
 
+// ─── Generic ─────────────────────────────────────────────────────────────────
+
+// EventSummary renders the source's actor and object templates. The verb is the
+// one mapped to the event type, else the event type itself.
+func (a *genericAdapter) EventSummary(eventType string, doc any) *agentsclient.RunEventSummary {
+	at := a.cfg.Attribution
+	if at == nil || at.Actor == nil || at.Object == nil {
+		return nil
+	}
+	verb := strings.TrimSpace(at.Verbs[eventType])
+	if verb == "" {
+		verb = eventType
+	}
+	return &agentsclient.RunEventSummary{
+		Actor:  agentsclient.RunEventActor{Name: renderAttribution(at.Actor.Name, doc), Kind: at.Actor.Kind, URL: renderAttribution(at.Actor.URL, doc)},
+		Verb:   verb,
+		Object: agentsclient.RunEventObject{Label: renderAttribution(at.Object.Label, doc), URL: renderAttribution(at.Object.URL, doc)},
+	}
+}
+
 // ─── Manual, scheduled and platform event fires ─────────────────────────────
 
 // manualSummary names the person who fired the trigger and lists the inputs they gave.

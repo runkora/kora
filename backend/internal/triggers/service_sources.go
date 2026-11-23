@@ -2,7 +2,9 @@ package triggers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -225,9 +227,10 @@ func (s *SourceService) present(src *WebhookSource) *WebhookSource {
 	return &cp
 }
 
-// UpdateSource toggles enablement and optionally rotates the signing secret. A
-// source of an issued-secret provider that has no secret yet takes its first one
-// without rotate_secret; once a secret is set, a change needs rotate_secret.
+// UpdateSource toggles enablement, replaces a generic source's attribution and
+// optionally rotates the signing secret. A source of an issued-secret provider
+// that has no secret yet takes its first one without rotate_secret; once a
+// secret is set, a change needs rotate_secret.
 func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, req UpdateSourceRequest) (*SourceResponse, error) {
 	src, err := s.repo.GetSource(ctx, tenantID, id)
 	if err != nil {
@@ -235,6 +238,12 @@ func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, r
 	}
 	if err := s.refuseUpdate(src, req); err != nil {
 		return nil, err
+	}
+	// Attribution changes what a run displays, not which runs start, so it needs no run access.
+	if req.Attribution != nil {
+		if err := s.replaceAttribution(src, *req.Attribution); err != nil {
+			return nil, err
+		}
 	}
 	changesSecret := req.RotateSecret || s.takesFirstSecret(src, req)
 	// A new secret signs deliveries for every trigger on the source. Enabling or disabling it starts or pauses all of them.
@@ -271,13 +280,39 @@ func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, r
 	}, nil
 }
 
+// replaceAttribution sets a generic source's attribution block, or removes it
+// for an empty object, and checks the whole config the source would run with.
+func (s *SourceService) replaceAttribution(src *WebhookSource, raw json.RawMessage) error {
+	if src.Provider != ProviderGeneric {
+		return fmt.Errorf("%w: attribution applies only to %s sources", ErrValidation, ProviderGeneric)
+	}
+	var block map[string]any
+	if err := json.Unmarshal(raw, &block); err != nil {
+		return fmt.Errorf("%w: attribution must be an object: %w", ErrValidation, err)
+	}
+	config := map[string]any{}
+	maps.Copy(config, src.Config)
+	if len(block) == 0 {
+		delete(config, "attribution")
+	} else {
+		config["attribution"] = block
+	}
+	next := *src
+	next.Config = config
+	if _, err := s.registry.ForSource(next); err != nil {
+		return err
+	}
+	src.Config = config
+	return nil
+}
+
 // refuseUpdate refuses every API change to a declared source. In a locked
 // tenant it allows secret rotation on an API source and nothing else. The
 // lock is reported first, as the other services do.
 func (s *SourceService) refuseUpdate(src *WebhookSource, req UpdateSourceRequest) error {
 	declared := src.Source == declarative.SourceCRD
 	toggles := req.Enabled != nil && *req.Enabled != src.Enabled
-	if !s.tenants.APIAuthoringEnabled(src.TenantID) && (declared || toggles) {
+	if !s.tenants.APIAuthoringEnabled(src.TenantID) && (declared || toggles || req.Attribution != nil) {
 		return declarative.ErrAPIAuthoringDisabled
 	}
 	if declared {

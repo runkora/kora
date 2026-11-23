@@ -650,12 +650,15 @@ type CreateSourceRequest struct {
 }
 
 // UpdateSourceRequest is the body for PATCH /api/v1/trigger-sources/{id}.
-// Only the enabled flag is mutable; rotating the secret regenerates it, or for
-// a provider that issues its own secret, stores SigningSecret.
+// The enabled flag and a generic source's attribution block are mutable.
+// Rotating the secret regenerates it, or for a provider that issues its own
+// secret, stores SigningSecret.
 type UpdateSourceRequest struct {
 	Enabled       *bool  `json:"enabled,omitempty"`
 	RotateSecret  bool   `json:"rotate_secret,omitempty"`
 	SigningSecret string `json:"signing_secret,omitempty"`
+	// Attribution replaces a generic source's attribution block. An empty object removes it.
+	Attribution *json.RawMessage `json:"attribution,omitempty"`
 }
 
 // SourceResponse is the API view of a webhook source. The signing secret and the

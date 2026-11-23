@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Verification methods a generic source can use (docs/adr/2026-10-27-generic-webhook-source.md).
@@ -50,7 +51,41 @@ var headerNamePattern = regexp.MustCompile("^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$")
 type genericConfig struct {
 	Verification *genericVerification `json:"verification"`
 	EventType    *genericEventType    `json:"event_type"`
+	Attribution  *genericAttribution  `json:"attribution"`
 }
+
+// genericAttribution holds the templates a run's source links and event summary
+// are rendered from (docs/adr/2026-11-23-generic-webhook-attribution.md).
+type genericAttribution struct {
+	Links  []genericLink     `json:"links"`
+	Actor  *genericActor     `json:"actor"`
+	Object *genericObject    `json:"object"`
+	Verbs  map[string]string `json:"verbs"`
+}
+
+type genericLink struct {
+	Label string `json:"label"`
+	URL   string `json:"url"`
+}
+
+type genericActor struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+	URL  string `json:"url"`
+}
+
+type genericObject struct {
+	Label string `json:"label"`
+	URL   string `json:"url"`
+}
+
+// Attribution limits. A source takes as many links as kora-agents accepts in one request.
+const (
+	maxAttributionLinks     = 10
+	maxAttributionURLBytes  = 2048
+	maxAttributionTextRunes = 300
+	maxSourceLabelRunes     = 100
+)
 
 type genericVerification struct {
 	Method   string `json:"method"`
@@ -120,31 +155,143 @@ func parseGenericConfig(config map[string]any) (genericConfig, error) {
 	if err := validateGenericEventType(cfg.EventType, cfg.Verification.Header); err != nil {
 		return cfg, err
 	}
+	if err := validateGenericAttribution(cfg.Attribution); err != nil {
+		return cfg, err
+	}
 	return cfg, nil
 }
 
-// genericKeys are the exact keys each config object takes. The JSON decoder
-// matches keys without case, and the stored config must read as it runs.
+// genericKeys are the exact keys each config object takes, by its path. The JSON
+// decoder matches keys without case, and the stored config must read as it runs.
+// An object with no entry, such as attribution.verbs, takes any key.
 var genericKeys = map[string][]string{
-	"verification": {"method", "header", "prefix", "encoding"},
-	"event_type":   {"header", "path"},
+	"":                   {"verification", "event_type", "attribution"},
+	"verification":       {"method", "header", "prefix", "encoding"},
+	"event_type":         {"header", "path"},
+	"attribution":        {"links", "actor", "object", "verbs"},
+	"attribution.links":  {"label", "url"},
+	"attribution.actor":  {"name", "kind", "url"},
+	"attribution.object": {"label", "url"},
 }
 
 // checkGenericKeys refuses a key that is not spelled exactly as genericKeys lists it.
 func checkGenericKeys(config map[string]any) error {
-	for key, value := range config {
-		allowed, ok := genericKeys[key]
-		if !ok {
-			return fmt.Errorf("%w: config.%s is not a known key", ErrValidation, key)
+	return checkKeysAt("", config)
+}
+
+// checkKeysAt checks one object's keys, then the objects nested in it and in its lists.
+func checkKeysAt(path string, object map[string]any) error {
+	allowed, ok := genericKeys[path]
+	if !ok {
+		return nil
+	}
+	for key, value := range object {
+		child := strings.TrimPrefix(path+"."+key, ".")
+		if !slices.Contains(allowed, key) {
+			return fmt.Errorf("%w: config.%s is not a known key", ErrValidation, child)
 		}
-		nested, _ := value.(map[string]any)
-		for k := range nested {
-			if !slices.Contains(allowed, k) {
-				return fmt.Errorf("%w: config.%s.%s is not a known key", ErrValidation, key, k)
+		nested, _ := value.([]any)
+		if m, ok := value.(map[string]any); ok {
+			nested = []any{m}
+		}
+		for _, n := range nested {
+			if m, ok := n.(map[string]any); ok {
+				if err := checkKeysAt(child, m); err != nil {
+					return err
+				}
 			}
 		}
 	}
 	return nil
+}
+
+// attributionTemplate is one template in an attribution block, named for errors.
+type attributionTemplate struct {
+	field string
+	tmpl  string
+	url   bool
+}
+
+func validateGenericAttribution(a *genericAttribution) error {
+	if a == nil {
+		return nil
+	}
+	templates, err := linkTemplates(a.Links)
+	if err != nil {
+		return err
+	}
+	var name, label string
+	if a.Actor != nil {
+		if a.Actor.Kind != actorPerson && a.Actor.Kind != actorBot && a.Actor.Kind != actorSystem {
+			return fmt.Errorf("%w: config.attribution.actor.kind must be %s, %s or %s", ErrValidation, actorPerson, actorBot, actorSystem)
+		}
+		name = a.Actor.Name
+		templates = append(templates, attributionTemplate{"actor.name", a.Actor.Name, false}, attributionTemplate{"actor.url", a.Actor.URL, true})
+	}
+	if a.Object != nil {
+		label = a.Object.Label
+		templates = append(templates, attributionTemplate{"object.label", a.Object.Label, false}, attributionTemplate{"object.url", a.Object.URL, true})
+	}
+	if (strings.TrimSpace(name) == "") != (strings.TrimSpace(label) == "") {
+		return fmt.Errorf("%w: config.attribution.actor.name and object.label must be set together", ErrValidation)
+	}
+	for _, t := range templates {
+		if err := t.validate(); err != nil {
+			return err
+		}
+	}
+	for eventType, verb := range a.Verbs {
+		if utf8.RuneCountInString(eventType) > maxAttributionTextRunes || utf8.RuneCountInString(verb) > maxAttributionTextRunes {
+			return fmt.Errorf("%w: config.attribution.verbs entries must be at most %d characters", ErrValidation, maxAttributionTextRunes)
+		}
+	}
+	return nil
+}
+
+// linkTemplates checks the link count and that each link has a label and a url.
+func linkTemplates(links []genericLink) ([]attributionTemplate, error) {
+	if len(links) > maxAttributionLinks {
+		return nil, fmt.Errorf("%w: config.attribution.links takes at most %d links", ErrValidation, maxAttributionLinks)
+	}
+	var templates []attributionTemplate
+	for i, l := range links {
+		if strings.TrimSpace(l.Label) == "" || strings.TrimSpace(l.URL) == "" {
+			return nil, fmt.Errorf("%w: config.attribution.links[%d] needs a label and a url", ErrValidation, i)
+		}
+		templates = append(templates,
+			attributionTemplate{fmt.Sprintf("links[%d].label", i), l.Label, false},
+			attributionTemplate{fmt.Sprintf("links[%d].url", i), l.URL, true})
+	}
+	return templates, nil
+}
+
+// validate refuses a template over its limit or with a placeholder that is not
+// a {{ path }} in the field key grammar.
+func (t attributionTemplate) validate() error {
+	if t.url && len(t.tmpl) > maxAttributionURLBytes {
+		return fmt.Errorf("%w: config.attribution.%s must be at most %d bytes", ErrValidation, t.field, maxAttributionURLBytes)
+	}
+	if !t.url && utf8.RuneCountInString(t.tmpl) > maxAttributionTextRunes {
+		return fmt.Errorf("%w: config.attribution.%s must be at most %d characters", ErrValidation, t.field, maxAttributionTextRunes)
+	}
+	for _, k := range placeholderKeys(t.tmpl) {
+		if !fieldKeyPattern.MatchString(k) {
+			return fmt.Errorf("%w: config.attribution.%s: %q is not a dotted field path", ErrValidation, t.field, k)
+		}
+	}
+	if strings.Contains(templateVarPattern.ReplaceAllString(t.tmpl, ""), "{{") {
+		return fmt.Errorf("%w: config.attribution.%s has a placeholder that is not {{ path }}", ErrValidation, t.field)
+	}
+	return nil
+}
+
+// renderAttribution fills a template's placeholders from the payload without
+// escaping. A path the payload does not contain renders empty.
+func renderAttribution(tmpl string, doc any) string {
+	out := templateVarPattern.ReplaceAllStringFunc(tmpl, func(match string) string {
+		return resolvePath(doc, templateVarPattern.FindStringSubmatch(match)[1])
+	})
+	return strings.TrimSpace(cleanText(out))
 }
 
 // reservedEventTypeHeaders carry credentials or signatures and must not become a stored event type.
