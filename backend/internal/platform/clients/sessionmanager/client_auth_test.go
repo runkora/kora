@@ -194,3 +194,33 @@ func TestClient_Memory(t *testing.T) {
 		t.Errorf("request = %s with Authorization %q, want /memory with the bearer", path, auth)
 	}
 }
+
+func TestClient_Bound(t *testing.T) {
+	tests := []struct {
+		status    int
+		want      bool
+		wantError bool
+	}{
+		{status: http.StatusOK, want: true},
+		{status: http.StatusServiceUnavailable, want: false},
+		{status: http.StatusForbidden, wantError: true},
+	}
+	for _, tc := range tests {
+		t.Run(http.StatusText(tc.status), func(t *testing.T) {
+			var auth, path string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				auth, path = r.Header.Get("Authorization"), r.URL.Path
+				w.WriteHeader(tc.status)
+			}))
+			t.Cleanup(srv.Close)
+
+			got, err := NewClient(logging.NewLoggerWithOutput(io.Discard), staticToken("tok-123")).Bound(context.Background(), Pod{URL: srv.URL})
+			if (err != nil) != tc.wantError || got != tc.want {
+				t.Fatalf("Bound = %v, %v; want %v with error %v", got, err, tc.want, tc.wantError)
+			}
+			if auth != "Bearer tok-123" || path != "/health/bound" {
+				t.Errorf("request = %s with Authorization %q, want /health/bound with the bearer", path, auth)
+			}
+		})
+	}
+}
