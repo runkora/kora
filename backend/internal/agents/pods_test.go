@@ -114,8 +114,11 @@ func TestBindPod(t *testing.T) {
 			t.Errorf("label %s = %v, want coder", k, m.Labels[k])
 		}
 	}
-	if m.Labels[agentTypeLabel] == nil || *m.Labels[agentTypeLabel] != "at-1" || len(m.Labels) != 4 {
-		t.Errorf("labels = %v, want only the four bind labels", m.Labels)
+	if m.Labels[agentTypeLabel] == nil || *m.Labels[agentTypeLabel] != "at-1" || len(m.Labels) != 5 {
+		t.Errorf("labels = %v, want only the five bind labels", m.Labels)
+	}
+	if v := m.Labels[agentConfigLabel]; v == nil || *v != agentConfigHash(at) {
+		t.Errorf("agent config label = %v, want %s", v, agentConfigHash(at))
 	}
 	if len(m.OwnerReferences) != 1 || m.OwnerReferences[0].Kind != koraTenantKind || m.OwnerReferences[0].Name != "acme" {
 		t.Errorf("owners = %+v, want the KoraTenant alone", m.OwnerReferences)
@@ -145,6 +148,92 @@ func TestBindPodSkipsAConflict(t *testing.T) {
 	name, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS)
 	if err != nil || name != "pool-b" {
 		t.Errorf("BindPod = %q, %v; want pool-b after the conflict on pool-a", name, err)
+	}
+}
+
+// A patch the API server refuses as invalid or forbidden is logged, and the next pool pod is bound.
+func TestBindPodSkipsARefusedPatch(t *testing.T) {
+	for name, refusal := range map[string]error{
+		"forbidden": apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "pool-a", errors.New("kora-agent-bind")),
+		"invalid":   apierrors.NewInvalid(schema.GroupKind{Kind: "Pod"}, "pool-a", nil),
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newPoolFixture()
+			p, client, _ := bindProvisioner(t, f.dep, f.rs, f.pod("pool-a", testTemplate, 1), f.pod("pool-b", testTemplate, 2))
+			client.PrependReactor("patch", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+				if action.GetSubresource() == "" && action.(k8stesting.PatchAction).GetName() == "pool-a" {
+					return true, nil, refusal
+				}
+				return false, nil, nil
+			})
+			name, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS)
+			if err != nil || name != "pool-b" {
+				t.Errorf("BindPod = %q, %v; want pool-b after the refusal of pool-a", name, err)
+			}
+		})
+	}
+}
+
+// A provenance check the API server cannot answer skips the pod.
+func TestBindPodSkipsAFailedProvenanceRead(t *testing.T) {
+	f := newPoolFixture()
+	p, client, patches := bindProvisioner(t, f.dep, f.rs, f.pod("pool-a", testTemplate, 1))
+	client.PrependReactor("get", "replicasets", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("api down")
+	})
+	if _, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS); !errors.Is(err, errNoPoolPod) || len(patches) != 0 {
+		t.Errorf("BindPod = %v with patches %v, want errNoPoolPod and no patch", err, patches)
+	}
+}
+
+// With no bound pod coming up, a pool pod coming up keeps a run queued past the start budget.
+func TestLivePodCountsPoolPods(t *testing.T) {
+	f := newPoolFixture()
+	stuck := f.pod("pool-s", testTemplate, 1)
+	stuck.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: sessionManagerContainerName, State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff"}}}}
+	for name, tc := range map[string]struct {
+		objs []runtime.Object
+		want bool
+	}{
+		"no pool pod":      {nil, false},
+		"a stuck pool pod": {[]runtime.Object{stuck}, false},
+		"a pool pod up":    {[]runtime.Object{f.pod("pool-a", testTemplate, 2)}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := podSecurityProvisioner()
+			p.client = fake.NewSimpleClientset(tc.objs...)
+			if got, err := p.LivePod(t.Context(), "coder", scaleTestNS); err != nil || got != tc.want {
+				t.Errorf("LivePod = %v, %v; want %v", got, err, tc.want)
+			}
+		})
+	}
+}
+
+// The agent ServiceAccount an earlier release created goes once no StatefulSet pod of the agent is left.
+func TestRetireServiceAccount(t *testing.T) {
+	at := AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}
+	ssPod := boundPod(at, "coder-0", 1)
+	ssPod.Labels[statefulSetPodLabel] = "coder-0"
+	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: scaleTestNS}}
+	p, client, _ := bindProvisioner(t, ssPod, sa)
+	if err := p.RetireServiceAccount(t.Context(), at, scaleTestNS); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CoreV1().ServiceAccounts(scaleTestNS).Get(t.Context(), at.Slug, metav1.GetOptions{}); err != nil {
+		t.Fatalf("ServiceAccount deleted while a StatefulSet pod is left: %v", err)
+	}
+	if err := client.CoreV1().Pods(scaleTestNS).Delete(t.Context(), "coder-0", metav1.DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	waitCached(t, func() bool {
+		_, found, _ := p.cachedAgentPod(scaleTestNS, "coder-0")
+		return !found
+	})
+	if err := p.RetireServiceAccount(t.Context(), at, scaleTestNS); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CoreV1().ServiceAccounts(scaleTestNS).Get(t.Context(), at.Slug, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
+		t.Errorf("ServiceAccount after the StatefulSet pods are gone: %v, want not found", err)
 	}
 }
 
@@ -185,6 +274,8 @@ func TestAgentPods(t *testing.T) {
 	starting.Status.Conditions, starting.Status.PodIP = nil, ""
 	old := boundPod(at, "pool-o", 2)
 	old.Annotations[poolTemplateAnnotation] = "t0"
+	model := "anthropic/claude-sonnet-5"
+	changed := AgentType{ID: at.ID, Slug: at.Slug, TenantID: at.TenantID, ModelID: &model}
 	p, _, _ := bindProvisioner(t, newPoolFixture().dep, terminating, evicted, starting, boundPod(at, "pool-n", 3), old)
 	pods, err := p.AgentPods(t.Context(), at.Slug, scaleTestNS)
 	if err != nil {
@@ -197,8 +288,15 @@ func TestAgentPods(t *testing.T) {
 	if !slices.Equal(names, []string{"pool-o", "pool-n", "pool-s"}) || !slices.Equal(pods.Finished, []string{"pool-e"}) {
 		t.Errorf("live %v and finished %v, want [pool-o pool-n pool-s] and [pool-e]", names, pods.Finished)
 	}
-	if pods.Template != testTemplate || !pods.rolling() || pods.Live[2].Ready || pods.Live[1].IP != "10.0.0.1" {
-		t.Errorf("pods = %+v, want the current template, a roll, pool-s not Ready and pool-n's IP", pods)
+	if pods.Template != testTemplate || pods.Live[2].Ready || pods.Live[1].IP != "10.0.0.1" {
+		t.Errorf("pods = %+v, want the current template, pool-s not Ready and pool-n's IP", pods)
+	}
+	config := agentConfigHash(at)
+	if old := pods.old(config); len(old) != 1 || old[0].Name != "pool-o" || !pods.rolling(config) {
+		t.Errorf("old pods = %+v, want pool-o on the old template", old)
+	}
+	if len(pods.old(agentConfigHash(changed))) != 3 {
+		t.Errorf("old pods after a model change = %+v, want all three", pods.old(agentConfigHash(changed)))
 	}
 	if ready := pods.ready(); len(ready) != 2 {
 		t.Errorf("ready = %+v, want pool-o and pool-n", ready)
@@ -259,7 +357,10 @@ func TestProvisionRetiresTheStatefulSet(t *testing.T) {
 		_, saErr := client.CoreV1().ServiceAccounts(scaleTestNS).Get(t.Context(), at.Slug, metav1.GetOptions{})
 		_, hpaErr := client.AutoscalingV2().HorizontalPodAutoscalers(scaleTestNS).Get(t.Context(), at.Slug, metav1.GetOptions{})
 		_, pvcErr := client.CoreV1().PersistentVolumeClaims(scaleTestNS).Get(t.Context(), claim.Name, metav1.GetOptions{})
-		for name, err := range map[string]error{"statefulset": ssErr, "pdb": pdbErr, "serviceaccount": saErr, "hpa": hpaErr, "claim": pvcErr} {
+		if saErr != nil {
+			t.Errorf("update %v: the apply deleted the ServiceAccount the StatefulSet pods still use: %v", update, saErr)
+		}
+		for name, err := range map[string]error{"statefulset": ssErr, "pdb": pdbErr, "hpa": hpaErr, "claim": pvcErr} {
 			if gone := apierrors.IsNotFound(err); gone != update {
 				t.Errorf("update %v: %s gone = %v, want %v", update, name, gone, update)
 			}

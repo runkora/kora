@@ -166,6 +166,8 @@ type K8sProvisioner struct {
 	// render makes no Deployment or ServiceAccount call. A pool Deployment deleted
 	// by hand comes back when the render changes or kora-agents restarts.
 	poolsApplied sync.Map
+	// retiredAccounts holds the namespace/slug of each agent whose StatefulSet ServiceAccount is deleted.
+	retiredAccounts sync.Map
 }
 
 // SetScopeResolver installs the resolver that adds the attached environments' egress and connectors to an agent's grant.

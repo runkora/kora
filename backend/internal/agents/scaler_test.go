@@ -29,7 +29,7 @@ const testTemplate = "t1"
 func readyPods(n int) []agentPod {
 	pods := make([]agentPod, n)
 	for i := range pods {
-		pods[i] = agentPod{Name: testPodName(i), IP: testPodIP(i), Ready: true, Template: testTemplate}
+		pods[i] = agentPod{Name: testPodName(i), IP: testPodIP(i), Ready: true, Template: testTemplate, Config: agentConfigHash(scaleTestAgent)}
 	}
 	return pods
 }
@@ -207,6 +207,10 @@ type scalerFake struct {
 	// unbound is how many bound checks answer unbound. readyAtDelete records the Ready pods left after each delete.
 	unbound, boundChecks int
 	readyAtDelete        []int
+	// simulate adds a bound pod to the pods as Ready on the current template and config, and removes a deleted
+	// pod from them, so passes run one after another see their own changes.
+	simulate bool
+	retired  int
 }
 
 func (f *scalerFake) mustHold(call string) {
@@ -290,12 +294,18 @@ func (f *scalerFake) BindPod(context.Context, AgentType, string) (string, error)
 	}
 	name := fmt.Sprintf("bound-%d", len(f.bound))
 	f.bound = append(f.bound, name)
+	if f.simulate {
+		f.pods.Live = append(f.pods.Live, agentPod{Name: name, IP: "10.0.1.1", Ready: true, Template: testTemplate, Config: agentConfigHash(scaleTestAgent)})
+	}
 	return name, nil
 }
 
 func (f *scalerFake) DeletePod(_ context.Context, _, name string) error {
 	f.deleted = append(f.deleted, name)
-	ready := len(f.bound)
+	if f.simulate {
+		f.pods.Live = slices.DeleteFunc(f.pods.Live, func(pod agentPod) bool { return pod.Name == name })
+	}
+	ready := 0
 	for _, pod := range f.pods.Live {
 		if pod.Ready && !slices.Contains(f.deleted, pod.Name) {
 			ready++
@@ -305,11 +315,16 @@ func (f *scalerFake) DeletePod(_ context.Context, _, name string) error {
 	return nil
 }
 
-func (f *scalerFake) PodIP(_ context.Context, _, name string) (string, error) {
-	return "10.0.1." + strings.TrimPrefix(name, "bound-"), nil
+func (f *scalerFake) RetireServiceAccount(context.Context, AgentType, string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.retired++
+	return nil
 }
 
 func (f *scalerFake) Bound(context.Context, sessionmanager.Pod) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.boundChecks++
 	return f.boundChecks > f.unbound, nil
 }
@@ -458,8 +473,8 @@ func TestScalerDeletesFinishedPods(t *testing.T) {
 	if err := newTestScaler(f).scale(context.Background(), scaleTestAgent); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(f.deleted, []string{"evicted"}) || len(f.bound) != 1 {
-		t.Errorf("deleted %v and bound %v, want the evicted pod deleted and one bind to the floor", f.deleted, f.bound)
+	if !slices.Equal(f.deleted, []string{"evicted"}) || len(f.bound) != 1 || f.retired != 1 {
+		t.Errorf("deleted %v, bound %v and %d ServiceAccount retires, want the evicted pod deleted, one bind to the floor and one retire", f.deleted, f.bound, f.retired)
 	}
 }
 
@@ -534,8 +549,8 @@ func TestScalerScaleDownReadsPodsLive(t *testing.T) {
 	}
 }
 
-// A pool template change rolls the agent's pods: one pod binds on the current template, and once it is Ready
-// the old pods go one per pass, an empty one first.
+// A pool template or agent config change rolls the agent's pods: current pods bind while they are fewer than
+// the old ones, and an old pod goes, an empty one first, once as many current pods serve the agent.
 func TestScalerRoll(t *testing.T) {
 	old := func(pods []agentPod) []agentPod {
 		for i := range pods {
@@ -543,24 +558,46 @@ func TestScalerRoll(t *testing.T) {
 		}
 		return pods
 	}
+	fresh := func(n int) []agentPod {
+		pods := readyPods(n)
+		for i := range pods {
+			pods[i].Name = fmt.Sprintf("new-%d", i)
+		}
+		return pods
+	}
 	for _, tc := range []struct {
 		name        string
 		pods        agentPods
 		occupied    map[string]int
+		unbound     int
+		max         int32
 		wantBound   int
 		wantDeleted []string
 	}{
-		{"binds a pod on the current template", scaleTestPods(old(readyPods(2))), nil, 1, nil},
-		{"waits for the current pod to turn Ready", scaleTestPods(append(old(readyPods(2)), agentPod{Name: "new", Template: testTemplate})), nil, 0, nil},
-		{"removes an empty old pod first", scaleTestPods(append(old(readyPods(2)), agentPod{Name: "new", IP: "10.0.0.9", Ready: true, Template: testTemplate})),
-			map[string]int{"pod-0": 1}, 0, []string{"pod-1"}},
-		{"removes a busy old pod with the drain", scaleTestPods(append(old(readyPods(1)), readyPods(3)[1:]...)),
-			map[string]int{"pod-0": 1}, 0, []string{"pod-0"}},
-		{"no roll with no pool Deployment cached", agentPods{Live: old(readyPods(2)), MemoryLimitBytes: 1024 * mi}, nil, 0, nil},
+		{name: "binds a pod on the current template", pods: scaleTestPods(old(readyPods(2))), wantBound: 1},
+		{name: "binds until the current pods match the old ones", pods: scaleTestPods(append(old(readyPods(2)), fresh(1)...)), wantBound: 1},
+		{name: "waits for the current pods to turn Ready", pods: scaleTestPods(append(old(readyPods(2)), notReady(fresh(2), 0, 1)...))},
+		{name: "waits for the current pods to serve the agent", pods: scaleTestPods(append(old(readyPods(1)), fresh(1)...)), unbound: 1 << 30},
+		{name: "removes an empty old pod first", pods: scaleTestPods(append(old(readyPods(2)), fresh(2)...)),
+			occupied: map[string]int{"pod-0": 1}, wantDeleted: []string{"pod-1"}},
+		{name: "removes a busy old pod with the drain", pods: scaleTestPods(append(old(readyPods(1)), fresh(1)...)),
+			occupied: map[string]int{"pod-0": 1}, wantDeleted: []string{"pod-0"}},
+		{name: "at maxPods removes an old pod once one current pod serves", pods: scaleTestPods(append(old(readyPods(2)), fresh(1)...)),
+			max: 3, wantDeleted: []string{"pod-0"}},
+		{name: "a framework or model change rolls a pod bound with another config", pods: scaleTestPods(func() []agentPod {
+			pods := readyPods(1)
+			pods[0].Config = "other"
+			return pods
+		}()), wantBound: 1},
+		{name: "no template roll with no pool Deployment cached", pods: agentPods{Live: old(readyPods(2)), MemoryLimitBytes: 1024 * mi}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := &scalerFake{t: t, pods: tc.pods, occupied: tc.occupied, counts: AgentRunCounts{Active: len(tc.occupied)}, memory: fullPod}
-			if err := newTestScaler(f).scale(context.Background(), scaleTestAgent); err != nil {
+			f := &scalerFake{t: t, pods: tc.pods, occupied: tc.occupied, unbound: tc.unbound, counts: AgentRunCounts{Active: len(tc.occupied)}, memory: fullPod}
+			s := newTestScaler(f)
+			if tc.max > 0 {
+				s.cfg.MaxReplicas = tc.max
+			}
+			if err := s.scale(context.Background(), scaleTestAgent); err != nil {
 				t.Fatal(err)
 			}
 			if len(f.bound) != tc.wantBound || !slices.Equal(f.deleted, tc.wantDeleted) {
@@ -570,24 +607,28 @@ func TestScalerRoll(t *testing.T) {
 	}
 }
 
-// A framework or model change binds a pod and waits until it serves the agent before it deletes the old pods,
-// so the agent keeps a Ready pod at every step. A bind that fails leaves the old pods.
-func TestScalerRollAgentKeepsAReadyPod(t *testing.T) {
-	f := &scalerFake{t: t, pods: scaleTestPods(readyPods(2)), unbound: 2}
-	if err := newTestScaler(f).RollAgent(context.Background(), scaleTestAgent); err != nil {
-		t.Fatal(err)
+// A model change on an agent with two pods binds two replacements before the first old pod goes. Pass after
+// pass the agent keeps at least one Ready pod, and the current pods are never fewer than the old pods deleted.
+func TestScalerModelChangeKeepsCapacity(t *testing.T) {
+	pods := readyPods(2)
+	for i := range pods {
+		pods[i].Config = "old-model"
 	}
-	if len(f.bound) != 1 || f.boundChecks != 3 || !slices.Equal(f.deleted, []string{"pod-0", "pod-1"}) {
-		t.Errorf("bound %v after %d bound checks and deleted %v, want one bind, 3 checks and both old pods", f.bound, f.boundChecks, f.deleted)
-	}
-	for i, ready := range f.readyAtDelete {
-		if ready < 1 {
-			t.Errorf("delete %d left %d Ready pods, want at least 1", i, ready)
+	f := &scalerFake{t: t, pods: scaleTestPods(pods), memory: fullPod, simulate: true}
+	s := newTestScaler(f)
+	for pass := 0; pass < 8 && len(f.deleted) < 2; pass++ {
+		if err := s.scale(context.Background(), scaleTestAgent); err != nil {
+			t.Fatal(err)
+		}
+		if ready := len(f.pods.ready()); ready < 1 {
+			t.Fatalf("pass %d left %d Ready pods", pass, ready)
+		}
+		if current := len(f.pods.current(agentConfigHash(scaleTestAgent))); current < len(f.deleted) {
+			t.Fatalf("pass %d: %d current pods for %d old pods deleted", pass, current, len(f.deleted))
 		}
 	}
-	f = &scalerFake{t: t, pods: scaleTestPods(readyPods(1)), bindErr: fmt.Errorf("%w in %s", errNoPoolPod, scaleTestNS)}
-	if err := newTestScaler(f).RollAgent(context.Background(), scaleTestAgent); !errors.Is(err, errNoPoolPod) || len(f.deleted) != 0 {
-		t.Errorf("RollAgent = %v and deleted %v, want errNoPoolPod and no delete", err, f.deleted)
+	if !slices.Equal(f.deleted, []string{"pod-0", "pod-1"}) || len(f.bound) != 2 {
+		t.Errorf("bound %v and deleted %v, want two binds and both old pods deleted", f.bound, f.deleted)
 	}
 }
 

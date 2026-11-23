@@ -45,8 +45,8 @@ type scalerCluster interface {
 	// BindPod binds a pool pod to the agent and returns its name. DeletePod drains and deletes a pod.
 	BindPod(ctx context.Context, at AgentType, namespace string) (string, error)
 	DeletePod(ctx context.Context, namespace, name string) error
-	// PodIP returns the IP of the bound pod name.
-	PodIP(ctx context.Context, namespace, name string) (string, error)
+	// RetireServiceAccount deletes the agent's ServiceAccount once no StatefulSet pod of the agent is left.
+	RetireServiceAccount(ctx context.Context, at AgentType, namespace string) error
 	// ShrinkPod and GrowPod set a pod's session-manager requests to the warm or the full size.
 	ShrinkPod(ctx context.Context, namespace, name string) error
 	GrowPod(ctx context.Context, namespace, name string) error
@@ -162,14 +162,23 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 			return deleteErr
 		}
 	}
+	if err = s.cluster.RetireServiceAccount(ctx, at, namespace); err != nil {
+		return err
+	}
 	allowance, err := s.cfg.StartingRunAllowances.For(at.Framework)
 	if err != nil {
 		return err
 	}
+	config := agentConfigHash(at)
 	// A pod with a pending resize has no reading and counts as full, so a stuck grow gets a new pod.
+	// The memory reads and the bound checks of a roll run before the agent lock.
 	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, readable(pods.Live))
+	var bound map[string]bool
+	if pods.rolling(config) {
+		bound = readBound(ctx, s.sm, at.Slug, namespace, readable(pods.current(config)))
+	}
 	ran, err := s.store.WaitWithAgentLock(ctx, at.ID, scalerLockTimeout, func(ctx context.Context) error {
-		return s.scaleLocked(ctx, at, namespace, pods, readings, allowance.Value())
+		return s.scaleLocked(ctx, at, namespace, pods, config, readings, bound, allowance.Value())
 	})
 	if err == nil && !ran {
 		s.logger.Debug(ctx, "scaler skipped agent for this pass",
@@ -178,10 +187,33 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	return err
 }
 
+// readBound reads the bound check of each pod at once. A pod whose check fails or times out is left out.
+func readBound(ctx context.Context, sm boundChecker, slug, namespace string, pods []agentPod) map[string]bool {
+	results := make([]bool, len(pods))
+	var wg sync.WaitGroup
+	for i, pod := range pods {
+		wg.Go(func() {
+			checkCtx, cancel := context.WithTimeout(ctx, memoryReadTimeout)
+			defer cancel()
+			ok, err := sm.Bound(checkCtx, sessionmanager.PodAt(pod.IP, slug, namespace))
+			results[i] = ok && err == nil
+		})
+	}
+	wg.Wait()
+	out := make(map[string]bool, len(pods))
+	for i, ok := range results {
+		if ok {
+			out[pods[i].Name] = true
+		}
+	}
+	return out
+}
+
 // scaleLocked runs under the agent lock: it re-counts the runs, then takes one roll step or moves the
-// agent's pods toward demand.
-func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string, pods agentPods,
-	readings map[string]sessionmanager.Memory, allowance int64) error {
+// agent's pods toward demand. A pass that would bind or delete a pod decides again from a live read of the
+// pods, as the cache can lag another replica's bind or a pod that started terminating.
+func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string, pods agentPods, config string,
+	readings map[string]sessionmanager.Memory, bound map[string]bool, allowance int64) error {
 	counts, err := s.store.AgentRunCounts(ctx, at.ID)
 	if err != nil {
 		return err
@@ -194,134 +226,100 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 	if err != nil {
 		return err
 	}
-	if rolled, err := s.roll(ctx, at, namespace, pods, occupied); rolled || err != nil {
-		return err
-	}
 	in := scaleInput{
 		pods: pods.Live, floor: int(max(s.cfg.MinReplicas, 1)), total: at.MaxConcurrentRuns, maxPods: int(s.cfg.MaxReplicas),
-		counts: counts, rolling: pods.rolling(), readings: readings, starting: starting, occupied: occupied,
+		counts: counts, rolling: pods.rolling(config), readings: readings, starting: starting, occupied: occupied,
 		memoryMax: memoryMax(pods.Live, readings, pods.MemoryLimitBytes), allowance: allowance, watermark: s.cfg.PlacementWatermark,
 	}
-	want := desiredPods(in)
-	switch {
-	case want > len(in.pods):
-		for range want - len(in.pods) {
-			name, err := s.cluster.BindPod(ctx, at, namespace)
-			if name == "" {
-				return err
-			}
-			s.logger.Info(ctx, "bound agent pod",
-				logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: name},
-				logging.Field{Key: "pending", Value: counts.Pending}, logging.Field{Key: "starting", Value: counts.Starting},
-				logging.Field{Key: "active", Value: counts.Active}, logging.Field{Key: "pods", Value: len(in.pods)})
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	case want < len(in.pods):
-		// The cache can miss a pod that started terminating. A scale-down decides the floor and the
-		// empty pod again from a live read of the pods.
-		live, err := s.cluster.LiveAgentPods(ctx, at.Slug, namespace)
-		if err != nil {
-			return err
-		}
-		in.pods = live.Live
-		victim, ok := scaleDownCandidate(in)
-		if !ok {
-			return nil
-		}
-		if err := s.cluster.DeletePod(ctx, namespace, victim.Name); err != nil {
-			return err
-		}
-		s.logger.Info(ctx, "removed empty agent pod",
-			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: victim.Name},
-			logging.Field{Key: "pods", Value: len(in.pods)})
-		return nil
+	if !in.rolling && desiredPods(in) == len(in.pods) {
+		return s.settleResidency(ctx, at, namespace, pods.Live, counts, occupied)
 	}
-	return s.settleResidency(ctx, at, namespace, pods.Live, counts, occupied)
+	live, err := s.cluster.LiveAgentPods(ctx, at.Slug, namespace)
+	if err != nil {
+		return err
+	}
+	in.pods, in.rolling = live.Live, live.rolling(config)
+	if in.rolling {
+		if rolled, err := s.roll(ctx, at, namespace, live, config, bound, occupied); rolled || err != nil {
+			return err
+		}
+	}
+	if want := desiredPods(in); want > len(in.pods) {
+		return s.bindPods(ctx, at, namespace, want-len(in.pods), in)
+	}
+	return s.removeEmptyPod(ctx, at, namespace, in)
 }
 
-// rollLockTimeout bounds the wait for the agent lock before a framework or model roll.
-const rollLockTimeout = 30 * time.Second
-
-// errRollLockTimeout means another holder kept the agent lock past rollLockTimeout.
-var errRollLockTimeout = errors.New("agent lock wait timed out before the roll")
-
-// RollAgent replaces the agent's pods for a changed framework or model. Under the agent lock it binds one pod,
-// waits until that pod serves the agent, then deletes the old pods one at a time with the drain. A bind or a
-// bound check that fails leaves the old pods in place.
-func (s *Scaler) RollAgent(ctx context.Context, at AgentType) error {
-	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
-	ran, err := s.store.WaitWithAgentLock(ctx, at.ID, rollLockTimeout, func(ctx context.Context) error {
-		old, err := s.cluster.LiveAgentPods(ctx, at.Slug, namespace)
-		if err != nil {
-			return err
-		}
+// bindPods binds n pool pods to the agent.
+func (s *Scaler) bindPods(ctx context.Context, at AgentType, namespace string, n int, in scaleInput) error {
+	for range n {
 		name, err := s.cluster.BindPod(ctx, at, namespace)
 		if name == "" {
 			return err
 		}
-		ip, err := s.cluster.PodIP(ctx, namespace, name)
+		s.logger.Info(ctx, "bound agent pod",
+			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: name},
+			logging.Field{Key: "pending", Value: in.counts.Pending}, logging.Field{Key: "starting", Value: in.counts.Starting},
+			logging.Field{Key: "active", Value: in.counts.Active}, logging.Field{Key: "pods", Value: len(in.pods)})
 		if err != nil {
 			return err
 		}
-		if err := waitBound(ctx, s.sm, sessionmanager.PodAt(ip, at.Slug, namespace)); err != nil {
-			return err
-		}
-		for _, pod := range old.Live {
-			if err := s.cluster.DeletePod(ctx, namespace, pod.Name); err != nil {
-				return err
-			}
-			s.logger.Info(ctx, "removed agent pod for a framework or model change",
-				logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: pod.Name},
-				logging.Field{Key: "replacement", Value: name})
-		}
-		return nil
-	})
-	if err == nil && !ran {
-		return errRollLockTimeout
 	}
-	return err
+	return nil
 }
 
-// roll takes one step of moving the agent's pods to the pool's current template: it binds one pod on the
-// current template, and once one is Ready, deletes one old pod with the drain, an empty one first
-// (docs/adr/2026-11-22-agent-cold-tier.md, O3). It reports whether it changed a pod.
-func (s *Scaler) roll(ctx context.Context, at AgentType, namespace string, pods agentPods, occupied map[string]int) (bool, error) {
-	if !pods.rolling() {
-		return false, nil
-	}
-	var current, old []agentPod
-	for _, pod := range pods.Live {
-		if pod.Template == pods.Template {
-			current = append(current, pod)
-		} else {
-			old = append(old, pod)
-		}
-	}
-	if len(current) == 0 {
-		name, err := s.cluster.BindPod(ctx, at, namespace)
-		if name != "" {
-			s.logger.Info(ctx, "bound agent pod on the current pool template",
-				logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: name})
-		}
-		return true, err
-	}
-	if !slices.ContainsFunc(current, func(pod agentPod) bool { return pod.Ready }) {
-		return false, nil
-	}
-	victim := old[0]
-	if i := slices.IndexFunc(old, func(pod agentPod) bool { return occupied[pod.Name] == 0 }); i >= 0 {
-		victim = old[i]
+// removeEmptyPod deletes the pod scaleDownCandidate picks, if any.
+func (s *Scaler) removeEmptyPod(ctx context.Context, at AgentType, namespace string, in scaleInput) error {
+	victim, ok := scaleDownCandidate(in)
+	if !ok || desiredPods(in) >= len(in.pods) {
+		return nil
 	}
 	if err := s.cluster.DeletePod(ctx, namespace, victim.Name); err != nil {
-		return true, err
+		return err
 	}
-	s.logger.Info(ctx, "removed agent pod on an old pool template",
+	s.logger.Info(ctx, "removed empty agent pod",
 		logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: victim.Name},
-		logging.Field{Key: "runs", Value: occupied[victim.Name]})
-	return true, nil
+		logging.Field{Key: "pods", Value: len(in.pods)})
+	return nil
+}
+
+// roll takes one step of moving the agent's pods to the pool's current template and the agent's current
+// framework and model (docs/adr/2026-11-22-agent-cold-tier.md, O3). It binds a current pod while the
+// current pods are fewer than the old ones. It deletes one old pod with the drain, an empty one first,
+// once the current pods that are Ready and serve the agent are at least the old ones. At maxPods it deletes
+// an old pod once one current pod serves the agent. It reports whether it changed a pod.
+func (s *Scaler) roll(ctx context.Context, at AgentType, namespace string, pods agentPods, config string,
+	bound map[string]bool, occupied map[string]int) (bool, error) {
+	current, old := pods.current(config), pods.old(config)
+	serving := 0
+	for _, pod := range current {
+		if pod.Ready && bound[pod.Name] {
+			serving++
+		}
+	}
+	atCeiling := len(pods.Live) >= int(s.cfg.MaxReplicas)
+	if serving >= len(old) || (atCeiling && serving > 0) {
+		victim := old[0]
+		if i := slices.IndexFunc(old, func(pod agentPod) bool { return occupied[pod.Name] == 0 }); i >= 0 {
+			victim = old[i]
+		}
+		if err := s.cluster.DeletePod(ctx, namespace, victim.Name); err != nil {
+			return true, err
+		}
+		s.logger.Info(ctx, "removed agent pod on an old pool template or agent config",
+			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: victim.Name},
+			logging.Field{Key: "runs", Value: occupied[victim.Name]})
+		return true, nil
+	}
+	if len(current) >= len(old) || (atCeiling && len(current) > 0) {
+		return false, nil
+	}
+	name, err := s.cluster.BindPod(ctx, at, namespace)
+	if name != "" {
+		s.logger.Info(ctx, "bound agent pod on the current pool template and agent config",
+			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: name})
+	}
+	return true, err
 }
 
 // settleResidency grows a warm pod that holds a run, and shrinks the other Ready pods once the agent has

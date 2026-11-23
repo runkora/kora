@@ -843,7 +843,6 @@ type mockK8s struct {
 	provisionedMissing      []string
 	deprovisionedAgentTypes []string
 	deletedSandboxes        []string
-	rolledOutSlugs          []string
 	// noReadyPods makes AgentPods report no Ready pod.
 	noReadyPods bool
 	// livePod and livePodErr are what LivePod reports.
@@ -875,7 +874,6 @@ type mockK8s struct {
 	imageLookups        int
 	provisionSandboxErr error
 	deleteSandboxErr    error
-	rollAgentPodsErr    error
 }
 
 func (m *mockK8s) ProvisionAgentType(_ context.Context, at AgentType, _ string) error {
@@ -1026,16 +1024,6 @@ func (m *mockK8s) EnsureAgentGrant(_ context.Context, _ AgentType, _ string) err
 	return m.ensureAgentGrantErr
 }
 
-func (m *mockK8s) RollAgent(_ context.Context, at AgentType) error {
-	if m.rollAgentPodsErr != nil {
-		return m.rollAgentPodsErr
-	}
-	m.mu.Lock()
-	m.rolledOutSlugs = append(m.rolledOutSlugs, at.Slug)
-	m.mu.Unlock()
-	return nil
-}
-
 // ── mockSMClient ──────────────────────────────────────────────────────────────
 
 type mockSMClient struct {
@@ -1157,7 +1145,6 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 		},
 		logger,
 	)
-	atSvc.SetPodRoller(k8s)
 	runSvc, err := NewRunService(
 		repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, k8s, repo, repo,
 		RunServiceConfig{

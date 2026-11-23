@@ -64,7 +64,6 @@ type AgentTypeServiceConfig struct {
 
 // AgentTypeService manages agent type lifecycle: creation, provisioning, updates, and deletion.
 type AgentTypeService struct {
-	roller   podRoller
 	repo     AgentTypeRepository
 	runRepo  RunRepository
 	k8s      k8sProvisioner
@@ -83,14 +82,6 @@ type AgentTypeService struct {
 	// authoring can lock a tenant to its declarative resources.
 	authoring authoringSwitch
 }
-
-// podRoller replaces an agent's pods for a changed framework or model with no gap in its pods.
-type podRoller interface {
-	RollAgent(ctx context.Context, at AgentType) error
-}
-
-// SetPodRoller installs the roll of an agent's pods after a framework or model change. When unset, the pods stay.
-func (s *AgentTypeService) SetPodRoller(r podRoller) { s.roller = r }
 
 // SetDelegationBroker installs the broker used to revoke delegation issuances
 // of runs cancelled by agent-type deletion
@@ -753,11 +744,6 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 		return nil, vErr
 	}
 
-	// Capture pod-baked fields before the update to detect changes that require
-	// recycling the agent's pods.
-	oldFramework := at.Framework
-	oldModelID := at.ModelID
-
 	applyAgentTypeUpdates(at, req)
 	if d, ok := declaredFromContext(ctx); ok {
 		at.ResourceGeneration, at.Repository = d.generation, d.repository
@@ -799,7 +785,6 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 	if !declared {
 		s.reconcileGrantIfNeeded(ctx, at, req, namespace)
 	}
-	s.rolloutIfPodBakedFieldsChanged(ctx, at, req, oldFramework, oldModelID)
 
 	return at, nil
 }
@@ -823,29 +808,6 @@ func (s *AgentTypeService) reconcileGrantIfNeeded(ctx context.Context, at *Agent
 		if err := s.k8s.EnsureAgentGrant(detachedCtx, *at, namespace); err != nil {
 			s.logger.Warn(detachedCtx, "failed to reconcile agent grant after update",
 				logging.Field{Key: "agent_type_id", Value: at.ID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
-	}()
-}
-
-// rolloutIfPodBakedFieldsChanged rolls the agent's pods when framework or
-// model_id changed. Both are consumed per-run at session-create time, so a
-// running pod may still be dispatching sessions with the old values. The roll
-// binds a new pod before it drains the old ones.
-func (s *AgentTypeService) rolloutIfPodBakedFieldsChanged(ctx context.Context, at *AgentType, req UpdateAgentTypeRequest, oldFramework AgentFramework, oldModelID *string) {
-	frameworkChanged := req.Framework != nil && at.Framework != oldFramework
-	modelChanged := req.ModelID != nil && !modelIDsEqual(at.ModelID, oldModelID)
-	if (!frameworkChanged && !modelChanged) || s.roller == nil {
-		return
-	}
-	detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
-	rolled := *at
-	go func() {
-		if err := s.roller.RollAgent(detachedCtx, rolled); err != nil {
-			s.logger.Warn(detachedCtx, "failed to roll agent pods after framework/model update",
-				logging.Field{Key: "agent_type_id", Value: at.ID},
-				logging.Field{Key: "slug", Value: at.Slug},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
 		}
@@ -1001,16 +963,4 @@ func (s *AgentTypeService) cleanupCancelledRun(ctx context.Context, run Run, nam
 		s.delegation.RevokeBestEffort(ctx, *run.DelegationJTI, run.ID)
 	}
 	deleteRunSandbox(ctx, s.k8s, s.runRepo, s.logger, run, namespace)
-}
-
-// modelIDsEqual returns true when both pointers hold equal values (both nil, or
-// both non-nil with the same string content).
-func modelIDsEqual(a, b *string) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	return *a == *b
 }

@@ -2,6 +2,8 @@ package agents
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,8 +42,8 @@ type agentPod struct {
 	Ready bool
 	// Warm and Resizing report a session-manager below its full requests or with a pending resize.
 	Warm, Resizing bool
-	// Template is the pool template the pod was created from.
-	Template string
+	// Template is the pool template the pod was created from, and Config the agent config hash it was bound with.
+	Template, Config string
 }
 
 // agentPods is an agent's bound pods.
@@ -62,8 +64,38 @@ func (a agentPods) ready() []agentPod {
 }
 
 // rolling reports a live pod on another template than the pool's current one.
-func (a agentPods) rolling() bool {
-	return a.Template != "" && slices.ContainsFunc(a.Live, func(pod agentPod) bool { return pod.Template != a.Template })
+func (a agentPods) rolling(config string) bool {
+	return len(a.old(config)) > 0
+}
+
+// isOld reports a pod bound with another agent config, or created from another pool template than the
+// pool's current one. With no pool Deployment in the cache, the template is not compared.
+func (a agentPods) isOld(pod agentPod, config string) bool {
+	return pod.Config != config || (a.Template != "" && pod.Template != a.Template)
+}
+
+// current returns the live pods on the current pool template and agent config, oldest first.
+func (a agentPods) current(config string) []agentPod {
+	return slices.DeleteFunc(slices.Clone(a.Live), func(pod agentPod) bool { return a.isOld(pod, config) })
+}
+
+// old returns the live pods on another pool template or agent config, oldest first.
+func (a agentPods) old(config string) []agentPod {
+	return slices.DeleteFunc(slices.Clone(a.Live), func(pod agentPod) bool { return !a.isOld(pod, config) })
+}
+
+// agentConfigLabel carries agentConfigHash on a bound pod.
+const agentConfigLabel = "runkora.io/agent-config"
+
+// agentConfigHash is a short hash of the agent's framework and model. A session-manager serves runs with the
+// framework and model it was bound with, and a pod bound with another hash is rolled.
+func agentConfigHash(at AgentType) string {
+	model := ""
+	if at.ModelID != nil {
+		model = *at.ModelID
+	}
+	sum := sha256.Sum256([]byte(string(at.Framework) + "\x00" + model))
+	return hex.EncodeToString(sum[:5])
 }
 
 // readable returns the Ready pods with no pending resize. A resizing pod has no memory reading and counts as full.
@@ -92,7 +124,7 @@ func (p *K8sProvisioner) sortAgentPods(pods []corev1.Pod, namespace string) agen
 			ready := podReady(pod) && pod.Status.PodIP != ""
 			view := agentPod{
 				Name: pod.Name, Ready: ready, Warm: podWarm(pod, full), Resizing: resizePending(pod),
-				Template: pod.Annotations[poolTemplateAnnotation],
+				Template: pod.Annotations[poolTemplateAnnotation], Config: pod.Labels[agentConfigLabel],
 			}
 			if ready {
 				view.IP = pod.Status.PodIP
@@ -192,13 +224,22 @@ func (p *K8sProvisioner) LivePod(ctx context.Context, slug, namespace string) (b
 	if err != nil {
 		return false, err
 	}
-	for _, pod := range pods {
-		finished := pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed
-		if pod.DeletionTimestamp == nil && !finished && !podStuck(&pod) {
-			return true, nil
-		}
+	if slices.ContainsFunc(pods, comingUp) {
+		return true, nil
 	}
-	return false, nil
+	// With no bound pod coming up, a pool pod coming up in the tenant is one a bind can take
+	// (docs/adr/2026-11-22-agent-cold-tier.md, D5).
+	pool, err := p.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: poolLabel})
+	if err != nil {
+		return false, fmt.Errorf("list pool pods of %s: %w", namespace, err)
+	}
+	return slices.ContainsFunc(pool.Items, comingUp), nil
+}
+
+// comingUp reports a pod that is not terminating or finished and has no container stuck failing to start.
+func comingUp(pod corev1.Pod) bool {
+	finished := pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed
+	return pod.DeletionTimestamp == nil && !finished && !podStuck(&pod)
 }
 
 // DeletePod deletes the pod name with its own grace period, which drains its runs for up to
@@ -225,20 +266,23 @@ func (p *K8sProvisioner) BindPod(ctx context.Context, at AgentType, namespace st
 		if pod.DeletionTimestamp != nil || !podReady(pod) || (template != "" && pod.Annotations[poolTemplateAnnotation] != template) {
 			continue
 		}
-		err := p.checkPoolProvenance(ctx, pod)
-		if errors.Is(err, errPoolProvenance) {
-			p.logger.Warn(ctx, "skipping a pool pod the tenant pool does not control",
-				logging.Field{Key: "pod", Value: pod.Name}, logging.Field{Key: "namespace", Value: namespace})
+		if err := p.checkPoolProvenance(ctx, pod); err != nil {
+			p.logger.Warn(ctx, "skipping a pool pod whose provenance could not be checked",
+				logging.Field{Key: "pod", Value: pod.Name}, logging.Field{Key: "namespace", Value: namespace},
+				logging.Field{Key: "error", Value: err.Error()})
 			continue
 		}
-		if err != nil {
-			return "", err
-		}
-		err = p.bind(ctx, pod, at, owner)
-		if apierrors.IsConflict(err) || apierrors.IsNotFound(err) {
+		err := p.bind(ctx, pod, at, owner)
+		switch {
+		case apierrors.IsConflict(err) || apierrors.IsNotFound(err):
+			// Another replica bound the pod first, or the pod is gone.
 			continue
-		}
-		if err != nil {
+		case apierrors.IsInvalid(err) || apierrors.IsForbidden(err):
+			p.logger.Warn(ctx, "the API server refused to bind a pool pod",
+				logging.Field{Key: "pod", Value: pod.Name}, logging.Field{Key: "namespace", Value: namespace},
+				logging.Field{Key: "error", Value: err.Error()})
+			continue
+		case err != nil:
 			return "", err
 		}
 		return pod.Name, p.grow(ctx, pod)
@@ -276,7 +320,7 @@ func (p *K8sProvisioner) checkPoolProvenance(ctx context.Context, pod *corev1.Po
 }
 
 // bind patches the pool pod in one write that the bind admission policy allows: it removes the pool label,
-// sets the agent identity, the agent Service selector and the agent type, and replaces the ReplicaSet owner
+// sets the agent identity, the agent Service selector, the agent type and the agent config hash, and replaces the ReplicaSet owner
 // reference with the KoraTenant's. The pod's resource version is the patch's precondition.
 func (p *K8sProvisioner) bind(ctx context.Context, pod *corev1.Pod, at AgentType, owner metav1.OwnerReference) error {
 	owners := []metav1.OwnerReference{}
@@ -285,7 +329,9 @@ func (p *K8sProvisioner) bind(ctx context.Context, pod *corev1.Pod, at AgentType
 	}
 	patch, err := json.Marshal(map[string]any{"metadata": map[string]any{
 		"resourceVersion": pod.ResourceVersion,
-		"labels":          map[string]any{poolLabel: nil, "spiffe.io/agent": at.Slug, "app": at.Slug, agentTypeLabel: at.ID},
+		"labels": map[string]any{
+			poolLabel: nil, "spiffe.io/agent": at.Slug, "app": at.Slug, agentTypeLabel: at.ID, agentConfigLabel: agentConfigHash(at),
+		},
 		"ownerReferences": owners,
 	}})
 	if err != nil {
@@ -300,15 +346,39 @@ func (p *K8sProvisioner) bind(ctx context.Context, pod *corev1.Pod, at AgentType
 }
 
 // retireStatefulSet deletes the workload an earlier release ran for the agent: its StatefulSet, whose pods
-// drain, its PodDisruptionBudget, ServiceAccount and HPA, and its StatefulSet workspace claims
-// (docs/adr/2026-11-22-agent-cold-tier.md). Runs on the StatefulSet pods end with the drain.
+// drain, its PodDisruptionBudget and HPA, and its StatefulSet workspace claims
+// (docs/adr/2026-11-22-agent-cold-tier.md). RetireServiceAccount deletes its ServiceAccount once the pods are gone.
 func (p *K8sProvisioner) retireStatefulSet(ctx context.Context, at AgentType, namespace string) error {
 	background := metav1.DeletePropagationBackground
 	return errors.Join(
 		ignoreNotFound(p.client.AppsV1().StatefulSets(namespace).Delete(ctx, at.Slug, metav1.DeleteOptions{PropagationPolicy: &background})),
 		ignoreNotFound(p.client.PolicyV1().PodDisruptionBudgets(namespace).Delete(ctx, at.Slug, metav1.DeleteOptions{})),
-		ignoreNotFound(p.client.CoreV1().ServiceAccounts(namespace).Delete(ctx, at.Slug, metav1.DeleteOptions{})),
 		ignoreNotFound(p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Delete(ctx, at.Slug, metav1.DeleteOptions{})),
 		p.deleteWorkspacePVCs(ctx, at, namespace),
 	)
+}
+
+// statefulSetPodLabel is the label the StatefulSet controller sets on each of its pods.
+const statefulSetPodLabel = "statefulset.kubernetes.io/pod-name"
+
+// RetireServiceAccount deletes the ServiceAccount an earlier release created for the agent once the bound pod
+// cache holds no StatefulSet pod of the agent. The scaler calls it on each pass, and a done delete is not repeated.
+func (p *K8sProvisioner) RetireServiceAccount(ctx context.Context, at AgentType, namespace string) error {
+	key := namespace + "/" + at.Slug
+	if _, done := p.retiredAccounts.Load(key); done {
+		return nil
+	}
+	sel := labels.SelectorFromSet(labels.Set{"app": at.Slug})
+	pods, err := p.workloads.Core().V1().Pods().Lister().Pods(namespace).List(sel)
+	if err != nil {
+		return fmt.Errorf("read cached pods of %s/%s: %w", namespace, at.Slug, err)
+	}
+	if slices.ContainsFunc(pods, func(pod *corev1.Pod) bool { return pod.Labels[statefulSetPodLabel] != "" }) {
+		return nil
+	}
+	if err := ignoreNotFound(p.client.CoreV1().ServiceAccounts(namespace).Delete(ctx, at.Slug, metav1.DeleteOptions{})); err != nil {
+		return fmt.Errorf("delete serviceaccount %s: %w", key, err)
+	}
+	p.retiredAccounts.Store(key, struct{}{})
+	return nil
 }

@@ -49,6 +49,7 @@ func waitCached(t *testing.T, cached func() bool) {
 // boundPod is a Ready pod bound to at, created at the second created.
 func boundPod(at AgentType, name string, created int) *corev1.Pod {
 	labels := maps.Clone(podLabels(at))
+	labels[agentConfigLabel] = agentConfigHash(at)
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name, Namespace: scaleTestNS, Labels: labels,
