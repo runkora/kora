@@ -233,6 +233,7 @@ func TestChartKoraAgentsPodUpdatePolicy(t *testing.T) {
 		want bool
 	}{
 		{"bind in a tenant namespace", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: pool, new: bound, oldSpec: "sa", newSpec: "sa"}, true},
+		{"bind with the agent config stamp", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: pool, new: maps.Clone(map[string]any{"spiffe.io/agent": "reviewer", "app": "reviewer", "runkora.io/agent-type": "a1", "runkora.io/agent-config": "c1", "runkora.io/managed-agent": "true", "pod-template-hash": "7c9d"}), oldSpec: "sa", newSpec: "sa"}, true},
 		{"another label", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: pool, new: map[string]any{"runkora.io/pool": "true", "runkora.io/managed-agent": "true", "pod-template-hash": "7c9d", "x": "y"}, oldSpec: "sa", newSpec: "sa"}, false},
 		{"remove managed-agent", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: pool, new: map[string]any{"runkora.io/pool": "true", "pod-template-hash": "7c9d"}, oldSpec: "sa", newSpec: "sa"}, false},
 		{"annotation change", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: pool, new: pool, oldSpec: "sa", newSpec: "sa", newNote: "x"}, false},

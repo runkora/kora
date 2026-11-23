@@ -103,9 +103,10 @@ spec:
     - name: kora-agents
       expression: "request.userInfo.username == 'system:serviceaccount:{{ include "kora.systemNamespace" . }}:kora-agents'"
   variables:
-    # The labels a bind sets or removes: the agent identity, the pool label and the agent Service selector.
+    # The labels a bind sets or removes: the agent identity, the pool label, the agent Service selector and
+    # the agent configuration stamp that a later roll compares.
     - name: bindLabels
-      expression: "['spiffe.io/agent', 'runkora.io/pool', 'app', 'runkora.io/agent-type']"
+      expression: "['spiffe.io/agent', 'runkora.io/pool', 'app', 'runkora.io/agent-type', 'runkora.io/agent-config']"
   validations:
     - expression: "has(namespaceObject.metadata.labels) && 'runkora.io/role' in namespaceObject.metadata.labels && namespaceObject.metadata.labels['runkora.io/role'] == 'tenant'"
       message: kora-agents updates pods only in tenant namespaces.
