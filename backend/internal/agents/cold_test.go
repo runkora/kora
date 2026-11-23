@@ -11,6 +11,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 )
 
@@ -33,16 +34,11 @@ func TestScalerCold(t *testing.T) {
 	}{
 		{name: "idle past the threshold deletes the last pod", coldAfter: time.Hour, last: long, deleted: 1},
 		{name: "idle within the threshold keeps the floor", coldAfter: time.Hour, last: recent},
-		{name: "an idle run keeps the agent warm", coldAfter: time.Hour, last: long, counts: AgentRunCounts{Active: 1}},
-		{name: "a pending run keeps the agent warm", coldAfter: time.Hour, last: long, counts: AgentRunCounts{Pending: 1}},
 		{name: "a zero threshold keeps the floor", last: long},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := &scalerFake{t: t, counts: tt.counts, lastCompleted: tt.last, pods: scaleTestPods(readyPods(1)), memory: fullPod}
-			if tt.counts.Active > 0 {
-				f.occupied = map[string]int{testPodName(0): 1}
-			}
 			s := newColdScaler(f)
 			s.cfg.ColdAfter = tt.coldAfter
 			if err := s.scale(context.Background(), scaleTestAgent); err != nil {
@@ -125,7 +121,8 @@ func TestScalerPassSizesThePool(t *testing.T) {
 	}
 }
 
-// The pool grows by the cold waits its Ready pool pods do not cover, and is left alone at that size.
+// The pool grows by the cold waits, whatever its Ready pods, and is left alone at that size. Its Ready pods
+// already count in its replicas.
 func TestSizePool(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -135,8 +132,7 @@ func TestSizePool(t *testing.T) {
 	}{
 		{name: "no waits keeps the size", waits: 0, want: 2},
 		{name: "waits with no Ready pool pod", waits: 3, want: 5},
-		{name: "Ready pool pods cover some waits", ready: 1, waits: 3, want: 4},
-		{name: "Ready pool pods cover every wait", ready: 2, waits: 2, want: 2},
+		{name: "waits with Ready pool pods", ready: 2, waits: 2, want: 4},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -219,10 +215,14 @@ func TestStartClaimed_ColdWake(t *testing.T) {
 		{name: "binds a pool pod and starts the run", cold: &fakeColdWaker{},
 			wantState: RunStateActive, wantBinds: 1},
 		{name: "a pod another start bound keeps the run waiting", cold: &fakeColdWaker{live: readyPods(1)},
-			wantState: RunStatePending, wantReleased: 1, wantProvMiss: 1},
+			wantState: RunStatePending, wantReleased: 1},
 		{name: "an empty pool keeps the run waiting", cold: &fakeColdWaker{bindErr: errNoPoolPod},
+			wantState: RunStatePending, wantReleased: 1},
+		{name: "a tenant with no pool deployment provisions it", cold: &fakeColdWaker{bindErr: errNoPoolDeployment},
 			wantState: RunStatePending, wantReleased: 1, wantProvMiss: 1},
-		{name: "a refused bind releases the run", cold: &fakeColdWaker{bindErr: errors.New("forbidden")},
+		{name: "a refused bind fails the run", cold: &fakeColdWaker{bindErr: fmt.Errorf("%w: forbidden", errBindRefused)},
+			wantState: RunStateFailed},
+		{name: "a failed bind releases the run", cold: &fakeColdWaker{bindErr: errors.New("connection reset")},
 			wantState: RunStatePending, wantReleased: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -262,5 +262,87 @@ func TestStartClaimed_ColdWake(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The floor is the warm floor while any run occupies or waits for a pod, and 0 once the agent is cold.
+func TestScalerFloor(t *testing.T) {
+	long := time.Now().Add(-2 * time.Hour)
+	for _, tc := range []struct {
+		name   string
+		counts AgentRunCounts
+		want   int
+	}{
+		{name: "cold", want: 0},
+		{name: "a pending run", counts: AgentRunCounts{Pending: 1}, want: 1},
+		{name: "a starting run", counts: AgentRunCounts{Starting: 1}, want: 1},
+		{name: "an active, idle or completing run", counts: AgentRunCounts{Active: 1}, want: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &scalerFake{t: t, lastCompleted: long, locked: true}
+			got, err := newColdScaler(f).floor(context.Background(), scaleTestAgent, tc.counts)
+			if err != nil || got != tc.want {
+				t.Errorf("floor = %d, %v; want %d", got, err, tc.want)
+			}
+		})
+	}
+}
+
+// With run starts waking cold agents, the scaler binds no pod for a cold agent's pending run.
+func TestScalerLeavesColdWakesToRunStarts(t *testing.T) {
+	f := &scalerFake{t: t, counts: AgentRunCounts{Pending: 1}, lastCompleted: time.Now().Add(-2 * time.Hour), pods: scaleTestPods(nil), memory: fullPod}
+	s := newColdScaler(f)
+	s.cfg.RunsWakeColdAgents = true
+	if err := s.scale(context.Background(), scaleTestAgent); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.bound) != 0 {
+		t.Errorf("bound %v, want the run's start to wake the agent", f.bound)
+	}
+}
+
+// A cold wake whose pod is not in the cache yet waits for its grow there instead of skipping it.
+func TestWakePodWaitsForAnUncachedPod(t *testing.T) {
+	p := cachedProvisioner(t, fake.NewClientset())
+	p.growTimeout = 100 * time.Millisecond
+	if err := p.WakePod(t.Context(), scaleTestNS, "pool-new", true); !errors.Is(err, errGrowTimeout) {
+		t.Errorf("WakePod = %v, want errGrowTimeout after waiting for the pod", err)
+	}
+	if err := p.WakePod(t.Context(), scaleTestNS, "pool-new", false); err != nil {
+		t.Errorf("WakePod of an uncached pod placement did not see warm = %v, want nil", err)
+	}
+}
+
+// deletedAfterRead reports the agent deleting from its second read on, as when the agent is deleted while
+// its run's start waits for the agent lock.
+type deletedAfterRead struct {
+	AgentTypeRepository
+	reads int
+}
+
+func (r *deletedAfterRead) GetAgentType(ctx context.Context, id string) (*AgentType, error) {
+	at, err := r.AgentTypeRepository.GetAgentType(ctx, id)
+	if r.reads++; err == nil && r.reads > 1 {
+		deleting := *at
+		deleting.State = AgentTypeStateDeleting
+		return &deleting, nil
+	}
+	return at, err
+}
+
+func TestStartClaimed_ColdWakeOfADeletedAgent(t *testing.T) {
+	f, repo, k8s, _ := schedulerService(t)
+	k8s.noReadyPods = true
+	cold := &fakeColdWaker{}
+	f.run.SetColdWaker(cold)
+	run, err := f.run.StartRun(startCtx(), StartRunRequest{AgentTypeID: "at-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.run.atRepo = &deletedAfterRead{AgentTypeRepository: f.run.atRepo}
+	claimed, claimedAt := claimRun(repo, run.ID)
+	f.run.startClaimed(context.Background(), claimed, claimedAt)
+	if state := repo.runs[run.ID].State; state != RunStateFailed || len(cold.bound) != 0 {
+		t.Errorf("state %s with binds %v, want a failed run and no bind", state, cold.bound)
 	}
 }

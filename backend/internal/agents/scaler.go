@@ -73,9 +73,9 @@ type ScalerConfig struct {
 	// ColdAfter is how long an agent with no pending, starting, active or idle run keeps its pods. Zero keeps
 	// every agent at its floor.
 	ColdAfter time.Duration
-	// GrowTimeout is how long a run waits for its pod's grow. An empty pod whose grow the kubelet holds as
-	// Deferred for longer is deleted.
-	GrowTimeout time.Duration
+	// RunsWakeColdAgents leaves the bind for a cold agent's pending run to the run's start, which sends the
+	// "waking agent" event (docs/adr/2026-11-22-agent-cold-tier.md, D5).
+	RunsWakeColdAgents bool
 }
 
 // Scaler binds and deletes each agent's pods from its runs and pod memory, and rolls the pods a pool
@@ -209,16 +209,8 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	if err != nil {
 		return err
 	}
-	// A pod that exited, such as one the kubelet evicted, holds its workspace claim until it is deleted.
-	for _, name := range pods.Finished {
-		if deleteErr := s.deletePod(ctx, namespace, name); deleteErr != nil {
-			return deleteErr
-		}
-	}
-	if err = s.cluster.RetireServiceAccount(ctx, at, namespace); err != nil {
-		return err
-	}
-	// Every replica counts the cold wakes the same way, as the count needs no agent lock.
+	// Every replica counts the cold wakes the same way, before any step that can fail, as the count needs no
+	// agent lock.
 	if len(pods.Live) == 0 {
 		counts, countErr := s.store.AgentRunCounts(ctx, at.ID)
 		if countErr != nil {
@@ -227,6 +219,15 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 		if counts.Pending > 0 {
 			s.noteColdWait(namespace)
 		}
+	}
+	// A pod that exited, such as one the kubelet evicted, holds its workspace claim until it is deleted.
+	for _, name := range pods.Finished {
+		if deleteErr := s.deletePod(ctx, namespace, name); deleteErr != nil {
+			return deleteErr
+		}
+	}
+	if err = s.cluster.RetireServiceAccount(ctx, at, namespace); err != nil {
+		return err
 	}
 	allowance, err := s.cfg.StartingRunAllowances.For(at.Framework)
 	if err != nil {
@@ -305,7 +306,17 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 			return err
 		}
 	}
-	if want := desiredPods(in); want > len(in.pods) {
+	return s.moveToDemand(ctx, at, namespace, in)
+}
+
+// moveToDemand binds the pods desiredPods adds or removes the one it drops. A cold agent's pending run is left
+// to its start when run starts wake cold agents.
+func (s *Scaler) moveToDemand(ctx context.Context, at AgentType, namespace string, in scaleInput) error {
+	want := desiredPods(in)
+	switch {
+	case want > len(in.pods) && s.cfg.RunsWakeColdAgents && len(in.pods) == 0 && in.counts.Pending > 0:
+		return nil
+	case want > len(in.pods):
 		return s.bindPods(ctx, at, namespace, want-len(in.pods), in)
 	}
 	return s.removeEmptyPod(ctx, at, namespace, in)
@@ -479,17 +490,13 @@ func (s *Scaler) floor(ctx context.Context, at AgentType, counts AgentRunCounts)
 	return 0, nil
 }
 
-// replaceDeferred deletes each empty pod whose grow the kubelet has held as Deferred for longer than
-// GrowTimeout. The run that waited on the grow was released, and a later bind takes the next pool pod
+// replaceDeferred deletes each empty pod whose grow the kubelet has held as Deferred for longer than a run
+// waits for a grow. The run that waited on the grow was released, and a later bind takes the next pool pod
 // (docs/adr/2026-11-22-agent-cold-tier.md, W1). It reports whether it deleted a pod.
 func (s *Scaler) replaceDeferred(ctx context.Context, at AgentType, namespace string, pods []agentPod, occupied map[string]int) (bool, error) {
-	limit := s.cfg.GrowTimeout
-	if limit <= 0 {
-		limit = defaultGrowTimeout
-	}
 	replaced := false
 	for _, pod := range pods {
-		if pod.DeferredSince.IsZero() || time.Since(pod.DeferredSince) < limit || occupied[pod.Name] > 0 {
+		if pod.DeferredSince.IsZero() || time.Since(pod.DeferredSince) < defaultGrowTimeout || occupied[pod.Name] > 0 {
 			continue
 		}
 		if err := s.cluster.DeletePod(ctx, namespace, pod.Name); err != nil {

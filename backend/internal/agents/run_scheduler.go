@@ -316,17 +316,30 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 	}
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 	placed, err := s.assignOrWake(ctx, run, claimedAt, at, namespace)
-	switch {
-	case err == nil:
+	if err == nil {
 		return placed, true
+	}
+	s.unplaced(ctx, span, run, claimedAt, at, namespace, err)
+	return placement{}, false
+}
+
+// unplaced releases or fails a run that placeRun could not place for err.
+func (s *RunService) unplaced(ctx context.Context, span trace.Span, run Run, claimedAt time.Time, at *AgentType, namespace string, err error) {
+	switch {
+	case errors.Is(err, errAgentDeleting):
+		s.failStart(ctx, span, errStartFailed, run.ID, RunStatePending, "The agent is being deleted.")
+		return
+	case errors.Is(err, errBindRefused):
+		s.failStart(ctx, span, err, run.ID, RunStatePending, "The platform refused to bind a pod to the agent.")
+		return
 	case errors.Is(err, ErrConflict):
 		// The run was terminated, or another worker holds it now.
 		s.logger.Info(ctx, "run left the queue before its pod was assigned", logging.Field{Key: "run_id", Value: run.ID})
-		return placement{}, false
+		return
 	case !errors.Is(err, errNoReadyPod):
 		// Full pods and the agent's total keep the run queued with no time limit.
 		s.releaseStart(ctx, span, run.ID, claimedAt, err)
-		return placement{}, false
+		return
 	}
 	// Only a run with no Ready pod is charged the start budget. Provisioning time is not part of it.
 	budgetStart := run.CreatedAt
@@ -337,19 +350,23 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 		waits, waitErr := s.waitsPastBudget(ctx, at, namespace)
 		if waitErr != nil {
 			s.releaseStart(ctx, span, run.ID, claimedAt, waitErr)
-			return placement{}, false
+			return
 		}
 		if !waits {
 			s.failStart(ctx, span, errStartFailed, run.ID, RunStatePending, fmt.Sprintf("No agent pod could take the run within %s.", s.startBudget()))
-			return placement{}, false
+			return
 		}
 	}
-	// Missing resources, after a cluster reset for example, leave no Ready pod. Create them only then.
-	if provErr := s.missing.ProvisionMissing(ctx, *at, namespace); provErr != nil {
-		err = fmt.Errorf("ensure agent infrastructure: %w", provErr)
+	// Missing resources, after a cluster reset for example, leave no Ready pod. Create them only then. A cold
+	// wake that waits for a pool pod, or for a pod another start bound, has its resources unless the tenant
+	// has no pool Deployment.
+	waitsForPod := errors.Is(err, errAgentCold) || errors.Is(err, errNoPoolPod)
+	if !waitsForPod || errors.Is(err, errNoPoolDeployment) {
+		if provErr := s.missing.ProvisionMissing(ctx, *at, namespace); provErr != nil {
+			err = fmt.Errorf("ensure agent infrastructure: %w", provErr)
+		}
 	}
 	s.releaseStart(ctx, span, run.ID, claimedAt, err)
-	return placement{}, false
 }
 
 // assignOrWake assigns the run to a pod of its agent, or binds a pool pod when the agent has none. A wake that
@@ -384,6 +401,14 @@ func (s *RunService) wakeAgent(ctx context.Context, run Run, claimedAt time.Time
 		wokeAt time.Time
 	)
 	err := s.placement.WithAgentLock(ctx, at.ID, func(ctx context.Context) error {
+		// An agent deleted since placement read it must not get a pod its deprovision would miss.
+		current, err := s.atRepo.GetAgentType(ctx, at.ID)
+		if errors.Is(err, ErrNotFound) || err == nil && current.State == AgentTypeStateDeleting {
+			return errAgentDeleting
+		}
+		if err != nil {
+			return err
+		}
 		counts, err := s.placement.AgentRunCounts(ctx, at.ID)
 		if err != nil {
 			return err
@@ -507,6 +532,8 @@ var (
 	errAgentAtTotal = errors.New("agent is at its total of concurrent runs")
 	// errAgentCold means the agent has no bound pod, so the start binds one.
 	errAgentCold = errors.New("agent has no bound pod")
+	// errAgentDeleting means the agent was deleted while its run's start bound a pod.
+	errAgentDeleting = errors.New("agent is being deleted")
 )
 
 // errAgentProvisioning releases a run whose agent is still being created.
