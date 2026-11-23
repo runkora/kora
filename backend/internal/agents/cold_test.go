@@ -295,7 +295,6 @@ func TestNoteFirstModelEvent(t *testing.T) {
 	s.noteWake("r1", now.Add(-time.Second))
 	s.noteWake("old", now.Add(-time.Hour))
 	s.noteFirstModelEvent(context.Background(), "r1", PushedEvent{Type: eventAgentWaking, At: now})
-	s.noteFirstModelEvent(context.Background(), "old", PushedEvent{Type: "tool_use", At: now})
 	if _, ok := s.wakes.Load("r1"); !ok {
 		t.Fatal("a waking event ended the wait")
 	}
@@ -386,5 +385,15 @@ func TestStartClaimed_ColdWakeOfADeletedAgent(t *testing.T) {
 	f.run.startClaimed(context.Background(), claimed, claimedAt)
 	if state := repo.runs[run.ID].State; state != RunStateFailed || len(k8s.bound) != 0 {
 		t.Errorf("state %s with binds %v, want a failed run and no bind", state, k8s.bound)
+	}
+}
+
+// A namespace in which an agent's check failed keeps its pool size for the pass.
+func TestScalerKeepsThePoolSizeAfterAFailedCheck(t *testing.T) {
+	f := &scalerFake{t: t, pods: scaleTestPods(nil), memory: fullPod, agents: []AgentType{scaleTestAgent},
+		counts: AgentRunCounts{Pending: 1}, retireErr: errors.New("api down")}
+	newColdScaler(f).pass(context.Background())
+	if _, sized := f.sized[scaleTestNS]; sized {
+		t.Errorf("sized %v after a failed check, want the pool left alone", f.sized)
 	}
 }

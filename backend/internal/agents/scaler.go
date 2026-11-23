@@ -89,8 +89,10 @@ type Scaler struct {
 	// stalled counts, per agent ID, the passes in a row in which a roll changed no pod.
 	stalled sync.Map
 	// waits counts, per tenant namespace, the agents in this pass with a pending run and no bound pod.
+	// unsized holds the namespaces in which an agent's check failed this pass, whose pool is left as it is.
 	waitsMu sync.Mutex
 	waits   map[string]int32
+	unsized map[string]bool
 }
 
 // rollStallPasses is how many passes in a row a roll may change no pod before the scaler logs a warning.
@@ -149,7 +151,7 @@ func (s *Scaler) pass(ctx context.Context) {
 		waits[s.cfg.TenantNamespaceFn(at.TenantID)] = 0
 	}
 	s.waitsMu.Lock()
-	s.waits = waits
+	s.waits, s.unsized = waits, map[string]bool{}
 	s.waitsMu.Unlock()
 	var g errgroup.Group
 	g.SetLimit(max(s.cfg.Concurrency, 1))
@@ -163,6 +165,10 @@ func (s *Scaler) pass(ctx context.Context) {
 	s.waitsMu.Lock()
 	defer s.waitsMu.Unlock()
 	for namespace, n := range s.waits {
+		// A failed check may have missed a cold wait, so the pool would shrink under a run about to bind.
+		if s.unsized[namespace] {
+			continue
+		}
 		if err := s.cluster.SizePool(ctx, namespace, n); err != nil {
 			s.logger.Warn(ctx, "size tenant pool failed",
 				logging.Field{Key: "namespace", Value: namespace}, logging.Field{Key: "error", Value: err.Error()})
@@ -194,6 +200,11 @@ func (s *Scaler) scaleAgent(ctx context.Context, at AgentType) {
 		s.logger.Debug(ctx, "no pool pod to bind for the agent",
 			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "error", Value: err.Error()})
 	default:
+		s.waitsMu.Lock()
+		if s.unsized != nil {
+			s.unsized[s.cfg.TenantNamespaceFn(at.TenantID)] = true
+		}
+		s.waitsMu.Unlock()
 		observability.RecordFailure(span, err, errScaleAgent)
 		s.logger.Warn(ctx, "scale agent failed",
 			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "error", Value: err.Error()})
@@ -496,7 +507,7 @@ func (s *Scaler) replaceDeferred(ctx context.Context, at AgentType, namespace st
 		if pod.DeferredSince.IsZero() || time.Since(pod.DeferredSince) < defaultGrowTimeout || occupied[pod.Name] > 0 {
 			continue
 		}
-		if err := s.cluster.DeletePod(ctx, namespace, pod.Name); err != nil {
+		if err := s.deletePod(ctx, namespace, pod.Name); err != nil {
 			return replaced, err
 		}
 		replaced = true

@@ -213,8 +213,9 @@ type scalerFake struct {
 	retired  int
 	// state is what GetAgentType reads under the lock, active when empty. A deleted agent is not found.
 	state AgentTypeState
-	// sized records the waits each SizePool call set, by namespace.
-	sized map[string]int32
+	// sized records the waits each SizePool call set, by namespace. retireErr fails RetireServiceAccount.
+	sized     map[string]int32
+	retireErr error
 }
 
 func (f *scalerFake) mustHold(call string) {
@@ -343,7 +344,7 @@ func (f *scalerFake) RetireServiceAccount(context.Context, AgentType, string) er
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.retired++
-	return nil
+	return f.retireErr
 }
 
 func (f *scalerFake) SizePool(_ context.Context, namespace string, waits int32) error {
