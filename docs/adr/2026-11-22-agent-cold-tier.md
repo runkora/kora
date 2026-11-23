@@ -175,7 +175,7 @@ The workspace claim name changes from `workspaces-<pod>` to `<pod>-workspaces`. 
 
 ## Decision
 
-Every agent pod will be a bound pool pod, with the options marked chosen above: O3, no per-agent PDB, A1, I1 with the pool principal and the admission policy, identity-proxy pool mode with the new-connection rule toward kora-identity, policy-service serving pool principals, the collector connection in the pool phase, S1 with S2, W1, B1, T1 and P1.
+Every agent pod will be a bound pool pod, with the options marked chosen above: O3, no per-agent PDB, A1, I1 with the pool principal and the admission policy, identity-proxy pool mode with the new-connection rule toward kora-identity, policy-service serving pool principals, the collector connection in the pool phase, S1, W1, B1, T1 and P1.
 
 ### Rationale
 
