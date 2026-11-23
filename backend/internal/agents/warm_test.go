@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"testing"
@@ -11,9 +12,11 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
@@ -354,5 +357,27 @@ func TestGrowPodDeferredReleasesReserve(t *testing.T) {
 	}
 	if len(*patches) != 0 {
 		t.Errorf("resize patches = %d, want none for a grow already requested", len(*patches))
+	}
+}
+
+// A missing resize subresource, no permission or an invalid request is a refusal for good. A pod that is gone
+// is not: its replacement may resize.
+func TestResizeRefused(t *testing.T) {
+	pods := schema.GroupResource{Resource: "pods"}
+	for name, tc := range map[string]struct {
+		err  error
+		want bool
+	}{
+		"no resize subresource": {apierrors.NewGenericServerResponse(404, "patch", pods, "", "", 0, false), true},
+		"pod gone":              {apierrors.NewNotFound(pods, "coder-0"), false},
+		"forbidden":             {apierrors.NewForbidden(pods, "coder-0", errors.New("no pods/resize")), true},
+		"invalid":               {apierrors.NewInvalid(schema.GroupKind{Kind: "Pod"}, "coder-0", nil), true},
+		"conflict":              {apierrors.NewConflict(pods, "coder-0", errors.New("changed")), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := resizeRefused(fmt.Errorf("resize pod: %w", tc.err)); got != tc.want {
+				t.Errorf("resizeRefused = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

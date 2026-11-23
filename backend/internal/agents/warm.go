@@ -90,8 +90,14 @@ func podWarm(pod *corev1.Pod, template corev1.ResourceList) bool {
 
 // resizeRefused reports whether the API server refused a resize for good: no resize subresource, no
 // permission, or a request the pod cannot take. A retry on the next pass would fail the same way.
+// A not-found that names the pod means the pod is gone, and its replacement may resize.
 func resizeRefused(err error) bool {
-	return apierrors.IsNotFound(err) || apierrors.IsForbidden(err) || apierrors.IsMethodNotSupported(err) || apierrors.IsInvalid(err)
+	var status apierrors.APIStatus
+	if apierrors.IsNotFound(err) && errors.As(err, &status) {
+		details := status.Status().Details
+		return details == nil || details.Name == ""
+	}
+	return apierrors.IsForbidden(err) || apierrors.IsMethodNotSupported(err) || apierrors.IsInvalid(err)
 }
 
 // resizePending reports whether the session-manager's applied requests differ from its spec.

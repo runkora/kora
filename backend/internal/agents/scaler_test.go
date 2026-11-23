@@ -637,7 +637,7 @@ func TestScalerSkipsPodAfterRefusedShrink(t *testing.T) {
 	var logs bytes.Buffer
 	f := &scalerFake{t: t, view: statefulSetView{Replicas: 1, Parallel: true}, ready: []int{0}, memory: emptyPod,
 		lastCompleted: time.Now().Add(-time.Hour),
-		shrinkErr:     apierrors.NewNotFound(schema.GroupResource{Resource: "pods/resize"}, "coder-0")}
+		shrinkErr:     apierrors.NewGenericServerResponse(404, "patch", schema.GroupResource{Resource: "pods"}, "", "", 0, false)}
 	s := warmScaler(f)
 	s.cfg.MinReplicas = 1
 	s.logger = logging.NewLoggerWithOutput(&logs)
