@@ -28,6 +28,7 @@ var errScaleAgent = errors.New("scale agent")
 // scalerStore is the storage the scaler reads. The run counts are read under placement's agent lock.
 type scalerStore interface {
 	ListActiveAgentTypes(ctx context.Context) ([]AgentType, error)
+	GetAgentType(ctx context.Context, id string) (*AgentType, error)
 	WaitWithAgentLock(ctx context.Context, agentTypeID string, timeout time.Duration, fn func(ctx context.Context) error) (bool, error)
 	AgentRunCounts(ctx context.Context, agentTypeID string) (AgentRunCounts, error)
 	StartingRunsPerPod(ctx context.Context, agentTypeID string, assignedSince time.Time) (map[string]int, error)
@@ -40,8 +41,8 @@ type scalerStore interface {
 // LiveAgentPods reads the API server.
 type scalerCluster interface {
 	SyncWorkloadCache(ctx context.Context) error
-	AgentPods(ctx context.Context, slug, namespace string) (agentPods, error)
-	LiveAgentPods(ctx context.Context, slug, namespace string) (agentPods, error)
+	AgentPods(ctx context.Context, at AgentType, namespace string) (agentPods, error)
+	LiveAgentPods(ctx context.Context, at AgentType, namespace string) (agentPods, error)
 	// BindPod binds a pool pod to the agent and returns its name. DeletePod drains and deletes a pod.
 	BindPod(ctx context.Context, at AgentType, namespace string) (string, error)
 	DeletePod(ctx context.Context, namespace, name string) error
@@ -157,7 +158,7 @@ func (s *Scaler) scaleAgent(ctx context.Context, at AgentType) {
 
 func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
-	pods, err := s.cluster.AgentPods(ctx, at.Slug, namespace)
+	pods, err := s.cluster.AgentPods(ctx, at, namespace)
 	if err != nil {
 		return err
 	}
@@ -180,7 +181,9 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, readable(pods.Live))
 	var bound map[string]bool
 	if pods.rolling(config) {
-		bound = readBound(ctx, s.sm, at.Slug, namespace, readable(pods.current(config)))
+		bound = readPods(ctx, readable(pods.current(config)), func(ctx context.Context, pod agentPod) (bool, error) {
+			return s.sm.Bound(ctx, sessionmanager.PodAt(pod.IP, at.Slug, namespace))
+		})
 	}
 	ran, err := s.store.WaitWithAgentLock(ctx, at.ID, scalerLockTimeout, func(ctx context.Context) error {
 		return s.scaleLocked(ctx, at, namespace, pods, config, readings, bound, allowance.Value())
@@ -192,33 +195,23 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	return err
 }
 
-// readBound reads the bound check of each pod at once. A pod whose check fails or times out is left out.
-func readBound(ctx context.Context, sm boundChecker, slug, namespace string, pods []agentPod) map[string]bool {
-	results := make([]bool, len(pods))
-	var wg sync.WaitGroup
-	for i, pod := range pods {
-		wg.Go(func() {
-			checkCtx, cancel := context.WithTimeout(ctx, memoryReadTimeout)
-			defer cancel()
-			ok, err := sm.Bound(checkCtx, sessionmanager.PodAt(pod.IP, slug, namespace))
-			results[i] = ok && err == nil
-		})
-	}
-	wg.Wait()
-	out := make(map[string]bool, len(pods))
-	for i, ok := range results {
-		if ok {
-			out[pods[i].Name] = true
-		}
-	}
-	return out
-}
-
-// scaleLocked runs under the agent lock: it re-counts the runs, then takes one roll step or moves the
-// agent's pods toward demand. A pass that would bind or delete a pod decides again from a live read of the
-// pods, as the cache can lag another replica's bind or a pod that started terminating.
+// scaleLocked runs under the agent lock: it re-reads the agent and re-counts the runs, then takes one roll
+// step or moves the agent's pods toward demand. A pass that would bind or delete a pod decides again from a
+// live read of the pods, as the cache can lag another replica's bind or a pod that started terminating.
+// DeleteAgentType moves the agent to deleting and deletes its pods under the same lock, so an agent that is
+// no longer active is left alone.
 func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string, pods agentPods, config string,
 	readings map[string]sessionmanager.Memory, bound map[string]bool, allowance int64) error {
+	current, err := s.store.GetAgentType(ctx, at.ID)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if current.State != AgentTypeStateActive {
+		return nil
+	}
 	counts, err := s.store.AgentRunCounts(ctx, at.ID)
 	if err != nil {
 		return err
@@ -240,7 +233,7 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 		s.stalled.Delete(at.ID)
 		return s.settleResidency(ctx, at, namespace, pods.Live, counts, occupied)
 	}
-	live, err := s.cluster.LiveAgentPods(ctx, at.Slug, namespace)
+	live, err := s.cluster.LiveAgentPods(ctx, at, namespace)
 	if err != nil {
 		return err
 	}

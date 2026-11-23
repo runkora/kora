@@ -322,7 +322,7 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 		func() error {
 			// The agent's pods go with it, so its ServiceAccount does not wait for them.
 			p.retiredAccounts.Delete(namespace + "/" + slug)
-			return ignoreNotFound(p.client.CoreV1().ServiceAccounts(namespace).Delete(ctx, slug, metav1.DeleteOptions{}))
+			return p.deleteAgentServiceAccount(ctx, at, namespace)
 		},
 		func() error {
 			// The agent is being deleted and its runs end with it. Its pods skip the drain grace period.

@@ -12,10 +12,12 @@ import (
 
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -27,7 +29,7 @@ import (
 // is deleted.
 
 // Bind errors: the tenant pool has no Ready pod on its current template, or a pool pod's controller is not a
-// live ReplicaSet of the tenant's pool Deployment.
+// live ReplicaSet of the tenant's pool Deployment or the pod is not on that Deployment's template.
 var (
 	errNoPoolPod      = errors.New("no ready pool pod to bind")
 	errPoolProvenance = errors.New("pod is not controlled by the tenant pool")
@@ -138,21 +140,24 @@ func (p *K8sProvisioner) sortAgentPods(pods []corev1.Pod, namespace string) agen
 	return out
 }
 
-// agentPodSelector selects the agent's bound pods: the bind sets app to the slug.
-func agentPodSelector(slug string) labels.Selector {
-	return labels.SelectorFromSet(labels.Set{"app": slug})
+// agentPodSelector selects the agent's bound pods: the bind sets app to the slug and the agent type label to
+// the agent's ID. A pod bound to a deleted agent with the same slug does not match, and neither does a pod
+// of the agent StatefulSet an earlier release ran, which retireStatefulSet drains.
+func agentPodSelector(at AgentType) labels.Selector {
+	notStatefulSet, _ := labels.NewRequirement(statefulSetPodLabel, selection.DoesNotExist, nil)
+	return labels.SelectorFromSet(labels.Set{"app": at.Slug, agentTypeLabel: at.ID}).Add(*notStatefulSet)
 }
 
 // AgentPods returns the agent's bound pods from the workload cache, or from the API server before the cache
 // has synced. A pod a roll has not reached still takes runs (docs/adr/2026-10-12-run-scheduling.md).
-func (p *K8sProvisioner) AgentPods(ctx context.Context, slug, namespace string) (agentPods, error) {
+func (p *K8sProvisioner) AgentPods(ctx context.Context, at AgentType, namespace string) (agentPods, error) {
 	informer := p.workloads.Core().V1().Pods()
 	if !informer.Informer().HasSynced() {
-		return p.LiveAgentPods(ctx, slug, namespace)
+		return p.LiveAgentPods(ctx, at, namespace)
 	}
-	cached, err := informer.Lister().Pods(namespace).List(agentPodSelector(slug))
+	cached, err := informer.Lister().Pods(namespace).List(agentPodSelector(at))
 	if err != nil {
-		return agentPods{}, fmt.Errorf("read cached pods of %s/%s: %w", namespace, slug, err)
+		return agentPods{}, fmt.Errorf("read cached pods of %s/%s: %w", namespace, at.Slug, err)
 	}
 	pods := make([]corev1.Pod, len(cached))
 	for i, pod := range cached {
@@ -163,8 +168,8 @@ func (p *K8sProvisioner) AgentPods(ctx context.Context, slug, namespace string) 
 
 // LiveAgentPods lists the agent's bound pods from the API server. The scaler reads them before it removes a
 // pod, as the cache can miss a pod that started terminating.
-func (p *K8sProvisioner) LiveAgentPods(ctx context.Context, slug, namespace string) (agentPods, error) {
-	pods, err := p.listAgentPods(ctx, slug, namespace)
+func (p *K8sProvisioner) LiveAgentPods(ctx context.Context, at AgentType, namespace string) (agentPods, error) {
+	pods, err := p.listAgentPods(ctx, at, namespace)
 	if err != nil {
 		return agentPods{}, err
 	}
@@ -172,11 +177,10 @@ func (p *K8sProvisioner) LiveAgentPods(ctx context.Context, slug, namespace stri
 }
 
 // listAgentPods lists the agent's bound pods from the API server.
-func (p *K8sProvisioner) listAgentPods(ctx context.Context, slug, namespace string) ([]corev1.Pod, error) {
-	sel := agentTypeLabel + "," + agentPodSelector(slug).String()
-	list, err := p.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: sel})
+func (p *K8sProvisioner) listAgentPods(ctx context.Context, at AgentType, namespace string) ([]corev1.Pod, error) {
+	list, err := p.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: agentPodSelector(at).String()})
 	if err != nil {
-		return nil, fmt.Errorf("list pods of %s/%s: %w", namespace, slug, err)
+		return nil, fmt.Errorf("list pods of %s/%s: %w", namespace, at.Slug, err)
 	}
 	return list.Items, nil
 }
@@ -222,15 +226,20 @@ func (p *K8sProvisioner) PodLive(ctx context.Context, namespace, name string) (b
 // LivePod reports whether the agent has a bound pod that is not terminating or finished, Ready or not.
 // A pod still coming up, such as one waiting for a node, keeps a run queued past the start budget.
 // A pod with any container, init container or sidecar included, that keeps failing to start is not coming up.
-func (p *K8sProvisioner) LivePod(ctx context.Context, slug, namespace string) (bool, error) {
-	pods, err := p.listAgentPods(ctx, slug, namespace)
+func (p *K8sProvisioner) LivePod(ctx context.Context, at AgentType, namespace string) (bool, error) {
+	pods, err := p.listAgentPods(ctx, at, namespace)
 	if err != nil {
 		return false, err
 	}
 	if slices.ContainsFunc(pods, comingUp) {
 		return true, nil
 	}
-	// With no bound pod coming up, a pool pod coming up in the tenant is one a bind can take
+	// Placement binds a pool pod only for an agent with no bound pod that is not terminating or finished, so a
+	// stuck bound pod alone is not live.
+	if slices.ContainsFunc(pods, func(pod corev1.Pod) bool { return pod.DeletionTimestamp == nil && !podFinished(pod) }) {
+		return false, nil
+	}
+	// With no live bound pod, a pool pod coming up in the tenant is one a bind can take
 	// (docs/adr/2026-11-22-agent-cold-tier.md, D5).
 	pool, err := p.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: poolLabel})
 	if err != nil {
@@ -241,8 +250,12 @@ func (p *K8sProvisioner) LivePod(ctx context.Context, slug, namespace string) (b
 
 // comingUp reports a pod that is not terminating or finished and has no container stuck failing to start.
 func comingUp(pod corev1.Pod) bool {
-	finished := pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed
-	return pod.DeletionTimestamp == nil && !finished && !podStuck(&pod)
+	return pod.DeletionTimestamp == nil && !podFinished(pod) && !podStuck(&pod)
+}
+
+// podFinished reports a pod that exited.
+func podFinished(pod corev1.Pod) bool {
+	return pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed
 }
 
 // DeletePod deletes the pod name with its own grace period, which drains its runs for up to
@@ -274,7 +287,7 @@ func (p *K8sProvisioner) BindPod(ctx context.Context, at AgentType, namespace st
 		}
 		err = p.checkPoolProvenance(ctx, pod)
 		if errors.Is(err, errPoolProvenance) {
-			p.logger.Warn(ctx, "skipping a pool pod the tenant pool does not control",
+			p.logger.Warn(ctx, "skipping a pool pod the tenant pool does not control or that is not on its template",
 				logging.Field{Key: "pod", Value: pod.Name}, logging.Field{Key: "namespace", Value: namespace})
 			continue
 		}
@@ -307,8 +320,10 @@ func (p *K8sProvisioner) BindPod(ctx context.Context, at AgentType, namespace st
 	return "", err
 }
 
-// checkPoolProvenance checks that the pod's controller is a live ReplicaSet with the same UID, and that the
-// ReplicaSet's controller is the tenant's live pool Deployment (docs/adr/2026-11-22-agent-cold-tier.md, D3).
+// checkPoolProvenance checks that the pod's controller is a live ReplicaSet with the same UID, that the
+// ReplicaSet's controller is the tenant's pool Deployment, and that the pod is on that Deployment's template
+// (docs/adr/2026-11-22-agent-cold-tier.md, D3). The Deployment comes from the pool cache, or from the API
+// server when the cache holds none.
 func (p *K8sProvisioner) checkPoolProvenance(ctx context.Context, pod *corev1.Pod) error {
 	ref := metav1.GetControllerOf(pod)
 	if ref == nil || ref.APIVersion != "apps/v1" || ref.Kind != "ReplicaSet" {
@@ -321,7 +336,7 @@ func (p *K8sProvisioner) checkPoolProvenance(ctx context.Context, pod *corev1.Po
 	if err != nil {
 		return fmt.Errorf("get pool replicaset %s/%s: %w", pod.Namespace, ref.Name, err)
 	}
-	dep, err := p.client.AppsV1().Deployments(pod.Namespace).Get(ctx, poolName, metav1.GetOptions{})
+	dep, err := p.poolDeployment(ctx, pod.Namespace)
 	if apierrors.IsNotFound(err) {
 		return errPoolProvenance
 	}
@@ -330,10 +345,21 @@ func (p *K8sProvisioner) checkPoolProvenance(ctx context.Context, pod *corev1.Po
 	}
 	owner := metav1.GetControllerOf(rs)
 	if rs.UID != ref.UID || owner == nil || owner.APIVersion != "apps/v1" || owner.Kind != "Deployment" ||
-		owner.Name != poolName || owner.UID != dep.UID {
+		owner.Name != poolName || owner.UID != dep.UID ||
+		pod.Annotations[poolTemplateAnnotation] != dep.Spec.Template.Annotations[poolTemplateAnnotation] {
 		return errPoolProvenance
 	}
 	return nil
+}
+
+// poolDeployment reads the tenant's pool Deployment from the pool cache, or from the API server when the cache
+// holds none.
+func (p *K8sProvisioner) poolDeployment(ctx context.Context, namespace string) (*appsv1.Deployment, error) {
+	dep, err := p.pool.Apps().V1().Deployments().Lister().Deployments(namespace).Get(poolName)
+	if apierrors.IsNotFound(err) {
+		return p.client.AppsV1().Deployments(namespace).Get(ctx, poolName, metav1.GetOptions{})
+	}
+	return dep, err
 }
 
 // bind patches the pool pod in one write that the bind admission policy allows: it removes the pool label,
@@ -385,7 +411,7 @@ func (p *K8sProvisioner) RetireServiceAccount(ctx context.Context, at AgentType,
 	if _, done := p.retiredAccounts.Load(key); done {
 		return nil
 	}
-	sel := labels.SelectorFromSet(labels.Set{"app": at.Slug})
+	sel := labels.SelectorFromSet(labels.Set{"app": at.Slug, agentTypeLabel: at.ID})
 	pods, err := p.workloads.Core().V1().Pods().Lister().Pods(namespace).List(sel)
 	if err != nil {
 		return fmt.Errorf("read cached pods of %s/%s: %w", namespace, at.Slug, err)
@@ -393,9 +419,29 @@ func (p *K8sProvisioner) RetireServiceAccount(ctx context.Context, at AgentType,
 	if slices.ContainsFunc(pods, func(pod *corev1.Pod) bool { return pod.Labels[statefulSetPodLabel] != "" }) {
 		return nil
 	}
-	if err := ignoreNotFound(p.client.CoreV1().ServiceAccounts(namespace).Delete(ctx, at.Slug, metav1.DeleteOptions{})); err != nil {
-		return fmt.Errorf("delete serviceaccount %s: %w", key, err)
+	if err := p.deleteAgentServiceAccount(ctx, at, namespace); err != nil {
+		return err
 	}
 	p.retiredAccounts.Store(key, struct{}{})
+	return nil
+}
+
+// deleteAgentServiceAccount deletes the ServiceAccount named after the agent's slug only when it carries the
+// agent's type label, which the earlier release set on it. The delete is preconditioned on the UID it read.
+func (p *K8sProvisioner) deleteAgentServiceAccount(ctx context.Context, at AgentType, namespace string) error {
+	sa, err := p.client.CoreV1().ServiceAccounts(namespace).Get(ctx, at.Slug, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get serviceaccount %s/%s: %w", namespace, at.Slug, err)
+	}
+	if sa.Labels[agentTypeLabel] != at.ID {
+		return nil
+	}
+	opts := metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &sa.UID}}
+	if err := ignoreNotFound(p.client.CoreV1().ServiceAccounts(namespace).Delete(ctx, at.Slug, opts)); err != nil {
+		return fmt.Errorf("delete serviceaccount %s/%s: %w", namespace, at.Slug, err)
+	}
 	return nil
 }

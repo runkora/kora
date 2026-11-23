@@ -295,6 +295,21 @@ func TestDeleteAgentType_HappyPath(t *testing.T) {
 	}
 }
 
+// The move to deleting and the deprovision each hold the agent lock, which a scaler or wake bind takes, so no
+// pod is bound after the deprovision lists the agent's pods.
+func TestDeleteAgentType_HoldsTheAgentLock(t *testing.T) {
+	svc, repo, k8s, _ := newTestService(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	held := false
+	k8s.onDeprovision = func() { held = repo.agentLockHeld.Load() }
+	if err := svc.DeleteAgentType(context.Background(), at.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !held || repo.agentLockCalls.Load() != 2 {
+		t.Errorf("deprovision under the lock = %v after %d lock calls, want true after 2", held, repo.agentLockCalls.Load())
+	}
+}
+
 func TestDeleteAgentType_AlreadyDeleting_SkipsStateTransition(t *testing.T) {
 	svc, repo, k8s, _ := newTestService(t)
 

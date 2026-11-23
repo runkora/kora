@@ -441,7 +441,7 @@ func TestLivePod(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := podSecurityProvisioner()
 			p.client = fake.NewSimpleClientset(tc.objs...)
-			got, err := p.LivePod(context.Background(), slug, ns)
+			got, err := p.LivePod(context.Background(), AgentType{ID: "at-1", Slug: slug}, ns)
 			if err != nil {
 				t.Fatalf("LivePod: %v", err)
 			}

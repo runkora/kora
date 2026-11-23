@@ -852,6 +852,8 @@ type mockK8s struct {
 	provisionAgentTypeErr   error
 	ensureAgentGrantErr     error
 	deprovisionAgentTypeErr error
+	// onDeprovision runs inside DeprovisionAgentType when set.
+	onDeprovision func()
 	// readyPods is how many pods AgentPods reports, named testPodName(i). Zero means one.
 	readyPods int
 	// warm and resizing are the indexes of the pods AgentPods reports warm and with a pending resize.
@@ -902,6 +904,9 @@ func (m *mockK8s) ProvisionMissing(_ context.Context, at AgentType, _ string) er
 }
 
 func (m *mockK8s) DeprovisionAgentType(_ context.Context, at AgentType, _ string) error {
+	if m.onDeprovision != nil {
+		m.onDeprovision()
+	}
 	if m.deprovisionAgentTypeErr != nil {
 		return m.deprovisionAgentTypeErr
 	}
@@ -911,7 +916,7 @@ func (m *mockK8s) DeprovisionAgentType(_ context.Context, at AgentType, _ string
 	return nil
 }
 
-func (m *mockK8s) AgentPods(_ context.Context, _, _ string) (agentPods, error) {
+func (m *mockK8s) AgentPods(_ context.Context, _ AgentType, _ string) (agentPods, error) {
 	if m.noReadyPods {
 		return agentPods{}, nil
 	}
@@ -953,7 +958,7 @@ func testPod(slug string, i int, namespace string) sessionmanager.Pod {
 	return sessionmanager.PodAt(testPodIP(i), slug, namespace)
 }
 
-func (m *mockK8s) LivePod(_ context.Context, _, _ string) (bool, error) {
+func (m *mockK8s) LivePod(_ context.Context, _ AgentType, _ string) (bool, error) {
 	return m.livePod, m.livePodErr
 }
 

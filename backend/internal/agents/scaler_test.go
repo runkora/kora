@@ -211,6 +211,8 @@ type scalerFake struct {
 	// pod from them, so passes run one after another see their own changes.
 	simulate bool
 	retired  int
+	// state is what GetAgentType reads under the lock, active when empty. A deleted agent is not found.
+	state AgentTypeState
 }
 
 func (f *scalerFake) mustHold(call string) {
@@ -226,6 +228,20 @@ func (f *scalerFake) ListActiveAgentTypes(context.Context) ([]AgentType, error) 
 	defer f.mu.Unlock()
 	f.listCalls++
 	return f.agents, nil
+}
+
+func (f *scalerFake) GetAgentType(_ context.Context, id string) (*AgentType, error) {
+	f.mustHold("GetAgentType")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.state == AgentTypeStateDeleted {
+		return nil, ErrNotFound
+	}
+	if f.state != "" {
+		at := AgentType{ID: id, State: f.state}
+		return &at, nil
+	}
+	return &AgentType{ID: id, State: AgentTypeStateActive}, nil
 }
 
 func (f *scalerFake) SyncWorkloadCache(ctx context.Context) error {
@@ -263,7 +279,7 @@ func (f *scalerFake) ActiveRunsPerPod(context.Context, string) (map[string]int, 
 	return f.occupied, nil
 }
 
-func (f *scalerFake) AgentPods(context.Context, string, string) (agentPods, error) {
+func (f *scalerFake) AgentPods(context.Context, AgentType, string) (agentPods, error) {
 	f.mu.Lock()
 	f.inFlight++
 	f.maxInFlight = max(f.maxInFlight, f.inFlight)
@@ -278,7 +294,7 @@ func (f *scalerFake) AgentPods(context.Context, string, string) (agentPods, erro
 	return f.pods, nil
 }
 
-func (f *scalerFake) LiveAgentPods(context.Context, string, string) (agentPods, error) {
+func (f *scalerFake) LiveAgentPods(context.Context, AgentType, string) (agentPods, error) {
 	f.mustHold("LiveAgentPods")
 	f.liveReads++
 	if f.live == nil {
@@ -386,6 +402,20 @@ func TestScalerBindsUnderTheAgentLock(t *testing.T) {
 	for i, locked := range f.readLocked {
 		if locked {
 			t.Errorf("memory read %d ran under the agent lock", i)
+		}
+	}
+}
+
+// An agent that a delete moved out of active after the pass listed it gets no bind and no delete: the scaler
+// re-reads the agent under the lock that the delete takes.
+func TestScalerLeavesAnAgentDeletedSinceTheList(t *testing.T) {
+	for _, state := range []AgentTypeState{AgentTypeStateDeleting, AgentTypeStateDeleted} {
+		f := &scalerFake{t: t, state: state, counts: AgentRunCounts{Pending: 20}, pods: scaleTestPods(readyPods(2)), memory: fullPod}
+		if err := newTestScaler(f).scale(context.Background(), scaleTestAgent); err != nil {
+			t.Fatal(err)
+		}
+		if len(f.bound) != 0 || len(f.deleted) != 0 || f.liveReads != 0 {
+			t.Errorf("%s: bound %v, deleted %v after %d live reads; want nothing", state, f.bound, f.deleted, f.liveReads)
 		}
 	}
 }

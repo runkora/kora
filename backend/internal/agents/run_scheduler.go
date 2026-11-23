@@ -355,14 +355,14 @@ var initialMessageBackoff = 250 * time.Millisecond
 
 // livePods tells the start budget whether the agent has a pod that is not terminating or finished.
 type livePods interface {
-	LivePod(ctx context.Context, slug, namespace string) (bool, error)
+	LivePod(ctx context.Context, at AgentType, namespace string) (bool, error)
 }
 
 // waitsPastBudget reports whether a run with no Ready pod stays queued past the start budget:
 // a pod is coming up for it, or the agent is at its total (docs/adr/2026-11-09-demand-driven-agent-scaling.md).
 // A pod that turned Ready since placement looked also counts.
 func (s *RunService) waitsPastBudget(ctx context.Context, at *AgentType, namespace string) (bool, error) {
-	up, err := s.pods.LivePod(ctx, at.Slug, namespace)
+	up, err := s.pods.LivePod(ctx, *at, namespace)
 	if err != nil {
 		return false, fmt.Errorf("look up agent pods: %w", err)
 	}
@@ -426,7 +426,7 @@ const memoryReadTimeout = 2 * time.Second
 // the agent lock. A slow pod must never hold it, and the lock is taken only when a pod
 // has room by that reading.
 func (s *RunService) assignPod(ctx context.Context, run Run, claimedAt time.Time, at *AgentType, namespace string) (pod string, warm bool, err error) {
-	pods, err := s.k8s.AgentPods(ctx, at.Slug, namespace)
+	pods, err := s.k8s.AgentPods(ctx, *at, namespace)
 	if err != nil {
 		return "", false, fmt.Errorf("list agent pods: %w", err)
 	}
@@ -513,26 +513,35 @@ type podMemoryReader interface {
 // readPodMemory reads the memory of each pod at its IP at once, keyed by pod name. A pod whose read fails or
 // times out is left out.
 func readPodMemory(ctx context.Context, sm podMemoryReader, logger logging.Logger, slug, namespace string, pods []agentPod) map[string]sessionmanager.Memory {
-	readings := make([]*sessionmanager.Memory, len(pods))
+	return readPods(ctx, pods, func(ctx context.Context, pod agentPod) (sessionmanager.Memory, error) {
+		m, err := sm.Memory(ctx, sessionmanager.PodAt(pod.IP, slug, namespace))
+		if err != nil {
+			logger.Warn(ctx, "pod memory read failed; the pod counts as full",
+				logging.Field{Key: "pod", Value: pod.Name}, logging.Field{Key: "error", Value: err.Error()})
+		}
+		return m, err
+	})
+}
+
+// readPods calls read for each pod at once, each call bounded by memoryReadTimeout, and returns the results
+// by pod name. A pod whose read fails or times out is left out.
+func readPods[T any](ctx context.Context, pods []agentPod, read func(ctx context.Context, pod agentPod) (T, error)) map[string]T {
+	results := make([]*T, len(pods))
 	var wg sync.WaitGroup
 	for i, pod := range pods {
 		wg.Go(func() {
 			readCtx, cancel := context.WithTimeout(ctx, memoryReadTimeout)
 			defer cancel()
-			m, err := sm.Memory(readCtx, sessionmanager.PodAt(pod.IP, slug, namespace))
-			if err != nil {
-				logger.Warn(ctx, "pod memory read failed; the pod counts as full",
-					logging.Field{Key: "pod", Value: pod.Name}, logging.Field{Key: "error", Value: err.Error()})
-				return
+			if v, err := read(readCtx, pod); err == nil {
+				results[i] = &v
 			}
-			readings[i] = &m
 		})
 	}
 	wg.Wait()
-	out := make(map[string]sessionmanager.Memory, len(pods))
-	for i, m := range readings {
-		if m != nil {
-			out[pods[i].Name] = *m
+	out := make(map[string]T, len(pods))
+	for i, v := range results {
+		if v != nil {
+			out[pods[i].Name] = *v
 		}
 	}
 	return out

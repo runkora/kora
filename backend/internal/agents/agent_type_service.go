@@ -915,19 +915,28 @@ func (s *AgentTypeService) DeleteAgentType(ctx context.Context, id string) error
 
 	// Allow retrying a stuck deletion; skip state transition if already deleting.
 	// Also accept provisioning state — partially-created agent types must be deletable.
+	// The move and the deprovision each hold the agent lock. A scaler pass or a cold wake binds a pod only
+	// under that lock after it reads the agent as active, so the deprovision's pod list sees every pod bound
+	// before the move, and no pod is bound after it.
 	if at.State != AgentTypeStateDeleting {
 		fromState := AgentTypeStateActive
 		if at.State == AgentTypeStateProvisioning {
 			fromState = AgentTypeStateProvisioning
 		}
-		if err = s.repo.SetAgentTypeState(ctx, id, fromState, AgentTypeStateDeleting); err != nil {
+		err = s.repo.WithAgentLock(ctx, id, func(ctx context.Context) error {
+			return s.repo.SetAgentTypeState(ctx, id, fromState, AgentTypeStateDeleting)
+		})
+		if err != nil {
 			observability.RecordFailure(span, err, errSpanSetAgentTypeDeleting)
 			return fmt.Errorf("set agent type deleting: %w", err)
 		}
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
-	if err = s.k8s.DeprovisionAgentType(ctx, *at, namespace); err != nil {
+	err = s.repo.WithAgentLock(ctx, id, func(ctx context.Context) error {
+		return s.k8s.DeprovisionAgentType(ctx, *at, namespace)
+	})
+	if err != nil {
 		observability.RecordFailure(span, err, errSpanDeprovisionK8sResources)
 		return fmt.Errorf("deprovision agent type k8s resources: %w", err)
 	}

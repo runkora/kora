@@ -135,7 +135,7 @@ func TestAgentPodsMakesNoAPIRead(t *testing.T) {
 	p := cachedProvisioner(t, client)
 	synced := len(client.Actions())
 	for i := range agents {
-		pods, err := p.AgentPods(t.Context(), fmt.Sprintf("agent-%d", i), scaleTestNS)
+		pods, err := p.AgentPods(t.Context(), AgentType{ID: fmt.Sprintf("id-%d", i), Slug: fmt.Sprintf("agent-%d", i)}, scaleTestNS)
 		if err != nil || len(pods.Live) != 1 || !pods.Live[0].Ready || pods.Live[0].Name != fmt.Sprintf("pool-%d", i) {
 			t.Fatalf("agent-%d: pods %+v, err %v", i, pods, err)
 		}
@@ -153,7 +153,7 @@ func TestAgentPodsMakesNoAPIRead(t *testing.T) {
 	if _, err := p.workloads.Core().V1().Pods().Lister().Pods(scaleTestNS).Get("sandbox"); err == nil {
 		t.Error("the cache holds a sandbox pod")
 	}
-	if pods, err := p.AgentPods(t.Context(), "missing", scaleTestNS); len(pods.Live) != 0 || err != nil {
+	if pods, err := p.AgentPods(t.Context(), AgentType{ID: "missing", Slug: "missing"}, scaleTestNS); len(pods.Live) != 0 || err != nil {
 		t.Errorf("missing agent: pods %+v, err %v; want none", pods, err)
 	}
 }
@@ -162,7 +162,7 @@ func TestAgentPodsMakesNoAPIRead(t *testing.T) {
 func TestAgentPodsBeforeTheCacheSyncs(t *testing.T) {
 	at := AgentType{ID: "a", Slug: "coder", TenantID: "acme"}
 	client := fake.NewSimpleClientset(boundPod(at, "pool-a", 1))
-	pods, err := cacheProvisioner(client).AgentPods(t.Context(), at.Slug, scaleTestNS)
+	pods, err := cacheProvisioner(client).AgentPods(t.Context(), at, scaleTestNS)
 	if err != nil || len(pods.Live) != 1 {
 		t.Fatalf("pods %+v, err %v; want pool-a", pods, err)
 	}
@@ -185,7 +185,7 @@ func TestLiveAgentPodsReadsLive(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := p.LiveAgentPods(t.Context(), at.Slug, scaleTestNS)
+	got, err := p.LiveAgentPods(t.Context(), at, scaleTestNS)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -29,6 +29,9 @@ type AgentTypeRepository interface {
 	DeleteAgentType(ctx context.Context, id string) error
 	// SoftDeleteAgentType removes the agent's environment links and marks it deleted.
 	SoftDeleteAgentType(ctx context.Context, id string) error
+	// WithAgentLock runs fn holding the agent's lock, which placement and the scaler take before a bind.
+	// Calls made with fn's ctx join its transaction.
+	WithAgentLock(ctx context.Context, agentTypeID string, fn func(ctx context.Context) error) error
 }
 
 // RunRepository is the persistence interface for run operations, events, and messages.

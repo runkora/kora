@@ -16,6 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
@@ -263,11 +264,18 @@ func TestBindPodReturnsAFailedProvenanceRead(t *testing.T) {
 	}
 }
 
-// With no bound pod coming up, a pool pod coming up keeps a run queued past the start budget.
+// With no live bound pod, a pool pod coming up keeps a run queued past the start budget.
 func TestLivePodCountsPoolPods(t *testing.T) {
 	f := newPoolFixture()
 	stuck := f.pod("pool-s", testTemplate, 1)
 	stuck.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: sessionManagerContainerName, State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff"}}}}
+	at := AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}
+	stuckBound := boundPod(at, "pool-b", 1)
+	stuckBound.Status.ContainerStatuses = stuck.Status.ContainerStatuses
+	stuckOther := boundPod(AgentType{ID: "at-old", Slug: "coder", TenantID: "acme"}, "pool-c", 1)
+	stuckOther.Status.ContainerStatuses = stuck.Status.ContainerStatuses
+	statefulSetPod := boundPod(at, "coder-0", 1)
+	statefulSetPod.Labels[statefulSetPodLabel] = "coder-0"
 	for name, tc := range map[string]struct {
 		objs []runtime.Object
 		want bool
@@ -275,11 +283,16 @@ func TestLivePodCountsPoolPods(t *testing.T) {
 		"no pool pod":      {nil, false},
 		"a stuck pool pod": {[]runtime.Object{stuck}, false},
 		"a pool pod up":    {[]runtime.Object{f.pod("pool-a", testTemplate, 2)}, true},
+		// The stuck bound pod keeps placement from binding the pool pod.
+		"a stuck bound pod beside a pool pod up": {[]runtime.Object{stuckBound, f.pod("pool-a", testTemplate, 2)}, false},
+		// A pod bound to a deleted agent with the same slug, or a StatefulSet pod, is not the agent's.
+		"another agent record's stuck pod": {[]runtime.Object{stuckOther, f.pod("pool-a", testTemplate, 2)}, true},
+		"a StatefulSet pod up":             {[]runtime.Object{statefulSetPod}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := podSecurityProvisioner()
 			p.client = fake.NewSimpleClientset(tc.objs...)
-			if got, err := p.LivePod(t.Context(), "coder", scaleTestNS); err != nil || got != tc.want {
+			if got, err := p.LivePod(t.Context(), at, scaleTestNS); err != nil || got != tc.want {
 				t.Errorf("LivePod = %v, %v; want %v", got, err, tc.want)
 			}
 		})
@@ -290,7 +303,7 @@ func TestLivePodCountsPoolPods(t *testing.T) {
 func TestDeprovisionDeletesTheServiceAccount(t *testing.T) {
 	at := AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}
 	p, typed, _ := ownerRefFixture(t, podSecurityProvisioner().cfg, "acme")
-	if err := typed.Tracker().Add(&corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: scaleTestNS}}); err != nil {
+	if err := typed.Tracker().Add(&corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: scaleTestNS, Labels: agentTypeLabels(at)}}); err != nil {
 		t.Fatal(err)
 	}
 	p.retiredAccounts.Store(scaleTestNS+"/"+at.Slug, struct{}{})
@@ -310,7 +323,7 @@ func TestRetireServiceAccount(t *testing.T) {
 	at := AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}
 	ssPod := boundPod(at, "coder-0", 1)
 	ssPod.Labels[statefulSetPodLabel] = "coder-0"
-	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: scaleTestNS}}
+	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: scaleTestNS, UID: "sa-uid", Labels: agentTypeLabels(at)}}
 	p, client, _ := bindProvisioner(t, ssPod, sa)
 	if err := p.RetireServiceAccount(t.Context(), at, scaleTestNS); err != nil {
 		t.Fatal(err)
@@ -330,6 +343,89 @@ func TestRetireServiceAccount(t *testing.T) {
 	}
 	if _, err := client.CoreV1().ServiceAccounts(scaleTestNS).Get(t.Context(), at.Slug, metav1.GetOptions{}); !apierrors.IsNotFound(err) {
 		t.Errorf("ServiceAccount after the StatefulSet pods are gone: %v, want not found", err)
+	}
+}
+
+// A ServiceAccount named after the slug that the agent's earlier release did not create, such as default or one
+// of another agent record with the same slug, is never deleted.
+func TestRetireServiceAccountKeepsAnotherAccount(t *testing.T) {
+	at := AgentType{ID: "at-1", Slug: "default", TenantID: "acme"}
+	for name, labels := range map[string]map[string]string{
+		"no agent label":     nil,
+		"another agent's ID": agentTypeLabels(AgentType{ID: "at-old", Slug: at.Slug, TenantID: "acme"}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: scaleTestNS, Labels: labels}}
+			p, client, _ := bindProvisioner(t, sa)
+			if err := p.RetireServiceAccount(t.Context(), at, scaleTestNS); err != nil {
+				t.Fatal(err)
+			}
+			if err := p.DeprovisionAgentType(t.Context(), at, scaleTestNS); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := client.CoreV1().ServiceAccounts(scaleTestNS).Get(t.Context(), at.Slug, metav1.GetOptions{}); err != nil {
+				t.Errorf("ServiceAccount: %v, want it kept", err)
+			}
+		})
+	}
+}
+
+// The ServiceAccount delete carries the UID that the label check read as its precondition.
+func TestRetireServiceAccountPreconditionsTheUID(t *testing.T) {
+	at := AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}
+	sa := &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: scaleTestNS, UID: "sa-uid", Labels: agentTypeLabels(at)}}
+	p, client, _ := bindProvisioner(t, sa)
+	var uid *types.UID
+	client.PrependReactor("delete", "serviceaccounts", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if pre := action.(k8stesting.DeleteAction).GetDeleteOptions().Preconditions; pre != nil {
+			uid = pre.UID
+		}
+		return false, nil, nil
+	})
+	if err := p.RetireServiceAccount(t.Context(), at, scaleTestNS); err != nil {
+		t.Fatal(err)
+	}
+	if uid == nil || *uid != "sa-uid" {
+		t.Errorf("delete precondition UID = %v, want sa-uid", uid)
+	}
+}
+
+// With no pool Deployment in the cache, the bind compares the pod's template with the live Deployment's.
+func TestBindPodChecksTheLiveTemplate(t *testing.T) {
+	for name, tc := range map[string]struct {
+		template string
+		want     string
+	}{
+		"same template":  {testTemplate, "pool-a"},
+		"stale template": {"t-new", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newPoolFixture()
+			p, client, _ := bindProvisioner(t, f.rs, f.pod("pool-a", testTemplate, 1))
+			live := f.dep.DeepCopy()
+			live.Spec.Template.Annotations[poolTemplateAnnotation] = tc.template
+			client.PrependReactor("get", "deployments", func(k8stesting.Action) (bool, runtime.Object, error) {
+				return true, live, nil
+			})
+			name, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS)
+			if name != tc.want || (tc.want == "" && !errors.Is(err, errNoPoolPod)) {
+				t.Errorf("BindPod = %q, %v; want %q", name, err, tc.want)
+			}
+		})
+	}
+}
+
+// The provenance check reads the pool Deployment's UID from the cache and makes no Deployment GET.
+func TestBindPodReadsTheCachedDeployment(t *testing.T) {
+	f := newPoolFixture()
+	p, client, _ := bindProvisioner(t, f.dep, f.rs, f.pod("pool-a", testTemplate, 1))
+	if _, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range client.Actions() {
+		if a.GetVerb() == "get" && a.GetResource().Resource == "deployments" {
+			t.Errorf("BindPod made a live Deployment GET: %v", a)
+		}
 	}
 }
 
@@ -357,8 +453,8 @@ func TestBindPodChecksPoolProvenance(t *testing.T) {
 	}
 }
 
-// AgentPods lists the live pods oldest first, leaves out a terminating pod, names the pods that exited, and
-// carries the pool's current template.
+// AgentPods lists the live pods oldest first, leaves out a terminating pod, a pod bound to another agent record
+// with the same slug and a StatefulSet pod, names the pods that exited, and carries the pool's current template.
 func TestAgentPods(t *testing.T) {
 	at := AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}
 	now := metav1.Now()
@@ -372,8 +468,11 @@ func TestAgentPods(t *testing.T) {
 	old.Annotations[poolTemplateAnnotation] = "t0"
 	model := "anthropic/claude-sonnet-5"
 	changed := AgentType{ID: at.ID, Slug: at.Slug, TenantID: at.TenantID, ModelID: &model}
-	p, _, _ := bindProvisioner(t, newPoolFixture().dep, terminating, evicted, starting, boundPod(at, "pool-n", 3), old)
-	pods, err := p.AgentPods(t.Context(), at.Slug, scaleTestNS)
+	leaked := boundPod(AgentType{ID: "at-old", Slug: at.Slug, TenantID: at.TenantID}, "pool-l", 0)
+	statefulSetPod := boundPod(at, "coder-0", 0)
+	statefulSetPod.Labels[statefulSetPodLabel] = "coder-0"
+	p, _, _ := bindProvisioner(t, newPoolFixture().dep, terminating, evicted, starting, boundPod(at, "pool-n", 3), old, leaked, statefulSetPod)
+	pods, err := p.AgentPods(t.Context(), at, scaleTestNS)
 	if err != nil {
 		t.Fatal(err)
 	}

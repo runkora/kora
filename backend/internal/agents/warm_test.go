@@ -265,7 +265,7 @@ func TestWakePodDeferredReleasesReserveAndTimesOut(t *testing.T) {
 func TestAgentPodsResidency(t *testing.T) {
 	full, warm := smResources("250m", "1Gi"), smResources("25m", "128Mi")
 	p, _, _ := warmProvisioner(t, residencyPod("coder-0", full, full), residencyPod("coder-1", warm, warm), residencyPod("coder-2", full, warm))
-	pods, err := p.AgentPods(context.Background(), "coder", scaleTestNS)
+	pods, err := p.AgentPods(context.Background(), AgentType{Slug: "coder"}, scaleTestNS)
 	if err != nil {
 		t.Fatal(err)
 	}
