@@ -371,8 +371,14 @@ func (f *scalerFake) LastRunCompletedAt(context.Context, string) (time.Time, err
 	return f.lastCompleted, nil
 }
 
+// AgentWarmUntil is read with no lock only to count a cold wait, for an agent with no pod.
 func (f *scalerFake) AgentWarmUntil(context.Context, string) (time.Time, error) {
-	f.mustHold("AgentWarmUntil")
+	f.mu.Lock()
+	locked := f.locked
+	f.mu.Unlock()
+	if !locked && len(f.pods.Live) > 0 {
+		f.t.Error("AgentWarmUntil ran without the agent lock for an agent with pods")
+	}
 	return f.warmUntil, nil
 }
 

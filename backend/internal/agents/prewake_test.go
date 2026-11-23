@@ -3,6 +3,9 @@ package agents
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,11 +103,66 @@ func TestPostgres_AgentWarmHold(t *testing.T) {
 	if until, err := r.AgentWarmUntil(ctx, at.ID); err != nil || !until.Equal(later) {
 		t.Errorf("AgentWarmUntil = %v, %v; want the longer hold %v", until, err, later)
 	}
-	if _, err := r.pool.Exec(ctx, `DELETE FROM agent_types WHERE id = $1`, at.ID); err != nil {
+	if err := r.SoftDeleteAgentType(ctx, at.ID); err != nil {
 		t.Fatal(err)
 	}
 	var n int
 	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM agent_warm_holds WHERE agent_type_id = $1`, at.ID).Scan(&n); err != nil || n != 0 {
 		t.Errorf("holds after the agent type was deleted = %d, %v; want 0", n, err)
+	}
+}
+
+// A hold grows an agent's warm pod, and counts a held agent with no pod toward its tenant pool.
+func TestScalerHoldGrowsAndSizesThePool(t *testing.T) {
+	pods := readyPods(1)
+	pods[0].Warm = true
+	f := &scalerFake{t: t, counts: AgentRunCounts{}, lastCompleted: time.Now().Add(-10 * time.Minute),
+		warmUntil: time.Now().Add(time.Minute), pods: scaleTestPods(pods), memory: fullPod}
+	s := newColdScaler(f)
+	s.cfg.WarmAfter = time.Minute
+	if err := s.scale(context.Background(), scaleTestAgent); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.grown) != 1 || len(f.shrunk) != 0 {
+		t.Errorf("grown %v and shrunk %v, want the warm pod grown", f.grown, f.shrunk)
+	}
+
+	cold := &scalerFake{t: t, lastCompleted: time.Now().Add(-2 * time.Hour), warmUntil: time.Now().Add(time.Minute),
+		pods: scaleTestPods(nil), memory: fullPod, agents: []AgentType{scaleTestAgent}, bindErr: errNoPoolPod}
+	newColdScaler(cold).pass(context.Background())
+	if cold.sized[scaleTestNS] != 1 {
+		t.Errorf("sized %v, want the held agent counted as one cold wait", cold.sized)
+	}
+}
+
+func TestHandlePreWake(t *testing.T) {
+	soon := time.Now().Add(3 * time.Minute).UTC().Format(time.RFC3339)
+	for _, tc := range []struct {
+		name   string
+		body   string
+		tenant string
+		pt     token.PrincipalType
+		want   int
+	}{
+		{name: "holds the agent", body: `{"agent_type_id":"at-1","fire_at":"` + soon + `"}`, tenant: "t1", pt: token.PrincipalTypeService, want: http.StatusNoContent},
+		{name: "no agent", body: `{"fire_at":"` + soon + `"}`, tenant: "t1", pt: token.PrincipalTypeService, want: http.StatusBadRequest},
+		{name: "no fire time", body: `{"agent_type_id":"at-1"}`, tenant: "t1", pt: token.PrincipalTypeService, want: http.StatusBadRequest},
+		{name: "another tenant", body: `{"agent_type_id":"at-1","fire_at":"` + soon + `"}`, tenant: "t2", pt: token.PrincipalTypeService, want: http.StatusNotFound},
+		{name: "a service principal on a delegated agent", body: `{"agent_type_id":"at-del","fire_at":"` + soon + `"}`, tenant: "t1", pt: token.PrincipalTypeService, want: http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, repo, _, _ := newTestController(t)
+			seedAutonomousAgentType(t, repo, "at-1", "t1", "reviewer")
+			seedDelegatedAgentType(t, repo, "at-del", "t1", "helper")
+			c.runs.SetWarmHolds(&fakeHolds{until: map[string]time.Time{}})
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			req = req.WithContext(withPrincipalCtx(req.Context(), tc.tenant, tc.pt, "trigger:trig-1"))
+			w := httptest.NewRecorder()
+			c.handlePreWake(w, req)
+			if w.Code != tc.want {
+				t.Errorf("status = %d, want %d: %s", w.Code, tc.want, w.Body)
+			}
+		})
 	}
 }

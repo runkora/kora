@@ -3,8 +3,8 @@ kora-triggers config files (docs/adr/2026-10-06-rendered-service-config-files.md
 */}}
 {{- define "kora.triggers.configModules" -}}
 {{- $lead := int .Values.agents.pool.preWakeLeadSecs }}
-{{- if or (lt $lead 0) (gt $lead 900) }}
-  {{- fail "agents.pool.preWakeLeadSecs must be between 0 and 900" }}
+{{- if or (lt $lead 0) (gt $lead 900) (and (gt $lead 0) (lt $lead 60)) }}
+  {{- fail "agents.pool.preWakeLeadSecs must be 0 or between 60 and 900" }}
 {{- end }}
 cmd/kora-triggers:
   metrics:

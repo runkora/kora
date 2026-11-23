@@ -79,12 +79,12 @@ func TestScheduler_SpawnAppliesTimeout(t *testing.T) {
 	}
 }
 
-// The scheduler wakes a trigger's agent once per fire when the fire is within the lead, and retries a
-// failed pre-wake on the next tick.
+// The scheduler wakes a trigger's agent once per fire, under the trigger's minted token, when the fire is
+// within the lead of the tick's minute. It retries a pre-wake kora-agents could not answer and not a refusal.
 func TestScheduler_PreWake(t *testing.T) {
 	svc, deps := newTestService(t)
 	s := NewScheduler(svc, nil, silentLogger(), nil)
-	s.SetPreWakeLead(3 * time.Minute)
+	s.SetPreWakeLead(2 * time.Minute)
 	trig := Trigger{ID: "trig-1", TenantID: testTenant, Kind: KindScheduled, Enabled: true, AgentTypeID: "at-1",
 		PrincipalID: "trigger:trig-1", ScheduleConfig: &ScheduleConfig{CronExpression: "*/10 * * * *", Timezone: "UTC"}}
 	sched, loc, err := ParseSchedule(trig.ScheduleConfig)
@@ -96,10 +96,15 @@ func TestScheduler_PreWake(t *testing.T) {
 		defer deps.agents.mu.Unlock()
 		return slices.Clone(deps.agents.preWakes)
 	}
-	waitFor := func(n int) {
+	setStatus := func(status int) {
+		deps.agents.mu.Lock()
+		deps.agents.preWakeStatus = status
+		deps.agents.mu.Unlock()
+	}
+	settle := func(n int) {
 		t.Helper()
 		deadline := time.Now().Add(5 * time.Second)
-		for len(preWakes()) < n && time.Now().Before(deadline) {
+		for (len(preWakes()) < n || len(s.preWakeSem) > 0) && time.Now().Before(deadline) {
 			time.Sleep(10 * time.Millisecond)
 		}
 		if got := preWakes(); len(got) != n {
@@ -114,39 +119,32 @@ func TestScheduler_PreWake(t *testing.T) {
 		return v
 	}
 
-	s.preWake(t.Context(), trig, sched, loc, at("12:01:00"))
+	s.preWake(t.Context(), trig, sched, loc, at("12:07:00.2"))
 	disabled := trig
 	disabled.Enabled = false
-	s.preWake(t.Context(), disabled, sched, loc, at("12:08:00"))
+	s.preWake(t.Context(), disabled, sched, loc, at("12:08:00.2"))
 	routed := trig
 	routed.AgentTypeID = ""
-	s.preWake(t.Context(), routed, sched, loc, at("12:08:00"))
-	s.preWake(t.Context(), trig, sched, loc, at("12:08:00"))
-	waitFor(1)
-	s.preWake(t.Context(), trig, sched, loc, at("12:09:00"))
-	time.Sleep(50 * time.Millisecond)
-	if got := preWakes(); len(got) != 1 || got[0] != "at-1 2026-11-23T12:10:00Z" {
-		t.Fatalf("pre-wakes = %v, want one for the 12:10 fire", got)
+	s.preWake(t.Context(), routed, sched, loc, at("12:08:00.2"))
+	// Two minutes from the tick's minute, though a little less from the tick itself.
+	s.preWake(t.Context(), trig, sched, loc, at("12:08:00.2"))
+	settle(1)
+	s.preWake(t.Context(), trig, sched, loc, at("12:09:00.2"))
+	settle(1)
+	if got := preWakes(); got[0] != "at-1 2026-11-23T12:10:00Z Bearer minted-token" {
+		t.Fatalf("pre-wake = %q, want the 12:10 fire under the minted token", got[0])
 	}
 
-	deps.agents.mu.Lock()
-	deps.agents.preWakeStatus = http.StatusServiceUnavailable
-	deps.agents.mu.Unlock()
-	s.preWake(t.Context(), trig, sched, loc, at("12:18:00"))
-	waitFor(2)
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		s.preWokenMu.Lock()
-		_, held := s.preWoken[trig.ID]
-		s.preWokenMu.Unlock()
-		if !held {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	deps.agents.mu.Lock()
-	deps.agents.preWakeStatus = 0
-	deps.agents.mu.Unlock()
-	s.preWake(t.Context(), trig, sched, loc, at("12:19:00"))
-	waitFor(3)
+	setStatus(http.StatusServiceUnavailable)
+	s.preWake(t.Context(), trig, sched, loc, at("12:18:00.2"))
+	settle(2)
+	setStatus(0)
+	s.preWake(t.Context(), trig, sched, loc, at("12:19:00.2"))
+	settle(3)
+
+	setStatus(http.StatusForbidden)
+	s.preWake(t.Context(), trig, sched, loc, at("12:28:00.2"))
+	settle(4)
+	s.preWake(t.Context(), trig, sched, loc, at("12:29:00.2"))
+	settle(4)
 }

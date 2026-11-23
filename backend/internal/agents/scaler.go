@@ -226,7 +226,12 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 		if countErr != nil {
 			return countErr
 		}
-		if counts.Pending > 0 {
+		held, heldErr := s.heldWarm(ctx, at)
+		if heldErr != nil {
+			return heldErr
+		}
+		// A held agent binds before its fire, so it waits on the pool as a pending run does.
+		if counts.Pending > 0 || held {
 			s.noteColdWait(namespace)
 		}
 	}
@@ -449,6 +454,9 @@ func (s *Scaler) roll(ctx context.Context, at AgentType, namespace string, pods 
 // warm tier off, every warm pod grows.
 func (s *Scaler) settleResidency(ctx context.Context, at AgentType, namespace string, pods []agentPod,
 	counts AgentRunCounts, occupied map[string]int) error {
+	if grown, err := s.growForHold(ctx, at, namespace, pods); grown || err != nil {
+		return err
+	}
 	if counts.Starting+counts.Active > 0 || s.cfg.WarmAfter <= 0 {
 		return s.growHeld(ctx, namespace, pods, occupied)
 	}
@@ -471,6 +479,27 @@ func (s *Scaler) settleResidency(ctx context.Context, at AgentType, namespace st
 		return err
 	}
 	return s.shrink(ctx, at, namespace, hot)
+}
+
+// growForHold grows every warm pod of an agent a scheduled pre-wake holds, so the fire finds them at full
+// size. It reports whether a hold was found. The hold is read only for an agent with a warm pod.
+func (s *Scaler) growForHold(ctx context.Context, at AgentType, namespace string, pods []agentPod) (bool, error) {
+	if !slices.ContainsFunc(pods, func(pod agentPod) bool { return pod.Warm && !pod.Resizing }) {
+		return false, nil
+	}
+	held, err := s.heldWarm(ctx, at)
+	if !held || err != nil {
+		return false, err
+	}
+	for _, pod := range pods {
+		if !pod.Warm || pod.Resizing {
+			continue
+		}
+		if err = s.cluster.GrowPod(ctx, namespace, pod.Name); err != nil {
+			return true, err
+		}
+	}
+	return true, nil
 }
 
 // heldWarm reports whether a scheduled pre-wake holds the agent warm now (docs/adr/2026-11-22-agent-cold-tier.md, S2).

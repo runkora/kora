@@ -897,8 +897,8 @@ type startCall struct {
 type agentsStub struct {
 	server *httptest.Server
 
-	// preWakes records POST /api/v1/runs/pre-wake as "<agent type id> <fire_at>", and preWakeStatus answers
-	// it; 0 → 204.
+	// preWakes records POST /api/v1/runs/pre-wake as "<agent type id> <fire_at> <Authorization>", and
+	// preWakeStatus answers it; 0 → 204.
 	preWakes      []string
 	preWakeStatus int
 
@@ -1099,7 +1099,7 @@ func newAgentsStub() *agentsStub {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		as.mu.Lock()
 		defer as.mu.Unlock()
-		as.preWakes = append(as.preWakes, req.AgentTypeID+" "+req.FireAt.UTC().Format(time.RFC3339))
+		as.preWakes = append(as.preWakes, req.AgentTypeID+" "+req.FireAt.UTC().Format(time.RFC3339)+" "+r.Header.Get("Authorization"))
 		if as.preWakeStatus != 0 {
 			w.WriteHeader(as.preWakeStatus)
 			return

@@ -2,12 +2,14 @@ package triggers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/robfig/cron/v3"
 
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -42,11 +44,21 @@ type Scheduler struct {
 	// sem bounds how many trigger dispatches/reconciles run at once. See spawn.
 	sem chan struct{}
 	// preWakeLead is how long before a fire the scheduler wakes the trigger's agent. Zero turns it off.
-	// preWoken holds, per trigger ID, the fire this replica last woke the agent for.
+	// preWoken holds, per trigger ID, the fire this replica last woke the agent for. preWakeSem bounds the
+	// pre-wakes in flight apart from sem, so a slow pre-wake never delays a fire.
 	preWakeLead time.Duration
 	preWokenMu  sync.Mutex
 	preWoken    map[string]time.Time
+	preWakeSem  chan struct{}
 }
+
+const (
+	// preWakeMaxConcurrent bounds the pre-wakes in flight. A pre-wake that finds no slot is dropped, and the
+	// run's start wakes the agent at the fire.
+	preWakeMaxConcurrent = 4
+	// preWakeTimeout bounds one pre-wake: the token mint and the kora-agents call.
+	preWakeTimeout = 5 * time.Second
+)
 
 const (
 	// schedulerMaxConcurrent bounds the per-tick dispatch/reconcile goroutines.
@@ -87,6 +99,7 @@ func NewScheduler(svc *Service, repo scheduleStore, logger logging.Logger, metri
 func (s *Scheduler) SetPreWakeLead(lead time.Duration) {
 	s.preWakeLead = lead
 	s.preWoken = make(map[string]time.Time)
+	s.preWakeSem = make(chan struct{}, preWakeMaxConcurrent)
 }
 
 // spawn runs fn in a bounded goroutine on a context detached from shutdown
@@ -202,15 +215,15 @@ func (s *Scheduler) tick(ctx context.Context) {
 	}
 }
 
-// preWake wakes the trigger's agent once per fire on this replica when the next fire is within preWakeLead.
-// A trigger a person or the platform turned off, and a routed trigger with no single agent, wake nothing.
-// A failed pre-wake is retried on the next tick.
+// preWake wakes the trigger's agent once per fire on this replica when the next fire is within preWakeLead of
+// the tick's minute. A trigger a person or the platform turned off, and a routed trigger with no single agent,
+// wake nothing. A pre-wake that kora-agents could not answer is retried on the next tick. A refusal is not.
 func (s *Scheduler) preWake(ctx context.Context, t Trigger, sched cron.Schedule, loc *time.Location, now time.Time) {
-	if s.preWakeLead <= 0 || !t.Enabled || t.AgentTypeID == "" {
+	if s.preWakeLead <= 0 || !t.Enabled || t.AgentTypeID == "" || ctx.Err() != nil {
 		return
 	}
 	next := sched.Next(now.In(loc)).UTC()
-	if next.Sub(now) > s.preWakeLead {
+	if next.Sub(now.Truncate(time.Minute)) > s.preWakeLead {
 		return
 	}
 	s.preWokenMu.Lock()
@@ -220,15 +233,33 @@ func (s *Scheduler) preWake(ctx context.Context, t Trigger, sched cron.Schedule,
 	}
 	s.preWoken[t.ID] = next
 	s.preWokenMu.Unlock()
-	s.spawn(ctx, func(opCtx context.Context) {
-		if err := s.svc.PreWakeScheduled(opCtx, t, next); err != nil {
-			s.preWokenMu.Lock()
-			delete(s.preWoken, t.ID)
-			s.preWokenMu.Unlock()
-			s.logger.Warn(opCtx, "scheduler: pre-wake of the trigger's agent failed",
-				logging.Field{Key: "trigger_id", Value: t.ID}, logging.Field{Key: "error", Value: err.Error()})
+	select {
+	case s.preWakeSem <- struct{}{}:
+	default:
+		s.forgetPreWake(t.ID)
+		return
+	}
+	go func() {
+		defer func() { <-s.preWakeSem }()
+		opCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), preWakeTimeout)
+		defer cancel()
+		err := s.svc.PreWakeScheduled(opCtx, t, next)
+		if err == nil {
+			return
 		}
-	})
+		if errors.Is(err, agentsclient.ErrUpstreamUnavailable) || errors.Is(err, context.DeadlineExceeded) {
+			s.forgetPreWake(t.ID)
+		}
+		s.logger.Warn(opCtx, "scheduler: pre-wake of the trigger's agent failed",
+			logging.Field{Key: "trigger_id", Value: t.ID}, logging.Field{Key: "error", Value: err.Error()})
+	}()
+}
+
+// forgetPreWake lets the next tick wake the trigger's agent again.
+func (s *Scheduler) forgetPreWake(triggerID string) {
+	s.preWokenMu.Lock()
+	defer s.preWokenMu.Unlock()
+	delete(s.preWoken, triggerID)
 }
 
 // backfillWindow bounds how far back a tick looks for fires it missed.

@@ -9,7 +9,9 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // A scheduled pre-wake holds the agent warm until preWakeHold after the fire. A fire more than maxPreWakeLead
@@ -31,7 +33,8 @@ type warmHolder interface {
 func (s *RunService) SetWarmHolds(h warmHolder) { s.holds = h }
 
 // PreWake holds the agent warm ahead of a scheduled fire at fireAt (docs/adr/2026-11-22-agent-cold-tier.md, S2).
-// The scaler binds the agent's pod on its next pass. The caller must be allowed to start a run of the agent.
+// The scaler binds the agent's pod on its next pass, or grows a warm one. The caller must be allowed to start a
+// run of the agent. Each hold is logged with its caller.
 func (s *RunService) PreWake(ctx context.Context, agentTypeID string, fireAt time.Time) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.PreWake", trace.WithAttributes(observability.AgentIDKey.String(agentTypeID)))
 	defer span.End()
@@ -41,7 +44,18 @@ func (s *RunService) PreWake(ctx context.Context, agentTypeID string, fireAt tim
 	if now := time.Now(); !fireAt.After(now) || fireAt.Sub(now) > maxPreWakeLead {
 		return ErrPreWakeFireAt
 	}
-	return s.holds.HoldAgentWarm(ctx, agentTypeID, fireAt.Add(preWakeHold))
+	until := fireAt.Add(preWakeHold)
+	if err := s.holds.HoldAgentWarm(ctx, agentTypeID, until); err != nil {
+		return err
+	}
+	caller := ""
+	if claims, ok := token.ClaimsFromContext(ctx); ok {
+		caller = claims.Subject
+	}
+	s.logger.Info(ctx, "held an agent warm for a scheduled fire",
+		logging.Field{Key: "agent_type_id", Value: agentTypeID}, logging.Field{Key: "until", Value: until},
+		logging.Field{Key: "caller", Value: caller})
+	return nil
 }
 
 // preWakeRequest is the body of POST /api/v1/runs/pre-wake.

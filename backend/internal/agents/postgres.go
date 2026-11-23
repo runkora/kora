@@ -327,6 +327,9 @@ func (r *PostgresRepository) SoftDeleteAgentType(ctx context.Context, id string)
 		if _, err := tx.Exec(ctx, `DELETE FROM agent_environments WHERE agent_type_id=$1`, id); err != nil {
 			return fmt.Errorf("delete agent environments: %w", err)
 		}
+		if _, err := tx.Exec(ctx, `DELETE FROM agent_warm_holds WHERE agent_type_id=$1`, id); err != nil {
+			return fmt.Errorf("delete agent warm hold: %w", err)
+		}
 		return events.Publish(ctx, r.pool, agentEvent(events.AgentDeleted, *before, nil))
 	})
 }

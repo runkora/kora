@@ -642,7 +642,7 @@ agents:
   pool:
     # -- Unbound session-manager pods each tenant keeps ready. kora-agents adds one for each agent with a pending run and no bound pod.
     size: 2
-    # -- Seconds before a schedule fire that kora-triggers asks kora-agents to wake the trigger's agent, so its pod is bound and the pool refills before the fire. 0 turns the pre-wake off. At most 900.
+    # -- Seconds before a schedule fire that kora-triggers asks kora-agents to wake the trigger's agent, so its pod is bound and the pool refills before the fire. The lead counts from the scheduler's minute tick. 0 turns the pre-wake off. Otherwise 60 to 900.
     preWakeLeadSecs: 180
   # The run scheduler in each kora-agents replica starts pending runs on agent pods.
   scheduling:

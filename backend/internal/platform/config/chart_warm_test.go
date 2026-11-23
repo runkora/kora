@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -158,7 +159,10 @@ func TestChartPreWakeLead(t *testing.T) {
 	if got := cfg.PreWakeLead(); got != 3*time.Minute {
 		t.Errorf("pre-wake lead = %s, want 3m", got)
 	}
-	if out, err := helmTemplate(t, "agents:\n  pool: {preWakeLeadSecs: 901}\n"); err == nil || !strings.Contains(out, "preWakeLeadSecs must be between 0 and 900") {
-		t.Errorf("preWakeLeadSecs 901: render err = %v, want the check to fail it", err)
+	for _, lead := range []int{30, 901} {
+		out, err := helmTemplate(t, fmt.Sprintf("agents:\n  pool: {preWakeLeadSecs: %d}\n", lead))
+		if err == nil || !strings.Contains(out, "preWakeLeadSecs must be 0 or between 60 and 900") {
+			t.Errorf("preWakeLeadSecs %d: render err = %v, want the check to fail it", lead, err)
+		}
 	}
 }
