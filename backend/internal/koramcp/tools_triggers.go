@@ -91,8 +91,8 @@ func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Cl
 
 	addTool(srv, "triggers.sources.update",
 		"Update a webhook trigger source: enable/disable it, rotate its signing secret (rotate_secret=true "+
-			"returns a new secret and invalidates the old one), or replace a generic source's attribution. Rotating, enabling or "+
-			"disabling needs permission to run every agent the source's triggers start. A provider that issues its own signing "+
+			"returns a new secret and invalidates the old one), or replace a generic source's attribution. Rotating, enabling, "+
+			"disabling or changing attribution needs permission to run every agent the source's triggers start. A provider that issues its own signing "+
 			"secret is rotated in the console or through the REST API.",
 		func(ctx context.Context, a updateSourceArgs) (*sdk.CallToolResult, error) {
 			if a.ID == "" {

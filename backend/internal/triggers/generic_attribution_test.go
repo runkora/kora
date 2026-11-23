@@ -216,9 +216,16 @@ func TestUpdateSource_GenericAttribution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Attribution changes no run that starts, so an agent the caller cannot run does not block it.
+	// Attribution puts links on the runs of the source's agents, so it needs run access to them.
 	mustWebhookTrigger(t, deps.triggers, src.ID, "on-source", true)
 	deps.agents.atNoRun = true
+	if _, err := deps.sources.UpdateSource(ctx, testTenant, src.ID, UpdateSourceRequest{Attribution: raw(trackerAttribution())}); !errors.Is(err, ErrBindForbidden) {
+		t.Fatalf("caller without run access: got %v, want ErrBindForbidden", err)
+	}
+	if deps.repo.sources[src.ID].Config["attribution"] != nil {
+		t.Fatal("a refused attribution change was stored")
+	}
+	deps.agents.atNoRun = false
 
 	resp, err := deps.sources.UpdateSource(ctx, testTenant, src.ID, UpdateSourceRequest{Attribution: raw(trackerAttribution())})
 	if err != nil {

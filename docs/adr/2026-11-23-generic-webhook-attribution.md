@@ -158,7 +158,7 @@ Escaping would turn a URL from the payload into one escaped path segment. Templa
 
 *   A declared source returns `declarative.ErrManagedByResource` for the field.
 *   `refuseUpdate` refuses an attribution change in a tenant whose API authoring is disabled with `declarative.ErrAPIAuthoringDisabled`.
-*   An attribution change needs no `requireRunAccessForSource` check. It changes no run that a trigger starts.
+*   An attribution change requires `requireRunAccessForSource`, the same as secret rotation. A caller without run access to the source's agents cannot set links on their runs.
 *   The existing `triggers.source.updated.v1` event records the change.
 
 ### Option 5B (rejected): Accept the whole `config` on update

@@ -239,15 +239,14 @@ func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, r
 	if err := s.refuseUpdate(src, req); err != nil {
 		return nil, err
 	}
-	// Attribution changes what a run displays, not which runs start, so it needs no run access.
 	if req.Attribution != nil {
 		if err := s.replaceAttribution(src, *req.Attribution); err != nil {
 			return nil, err
 		}
 	}
 	changesSecret := req.RotateSecret || s.takesFirstSecret(src, req)
-	// A new secret signs deliveries for every trigger on the source. Enabling or disabling it starts or pauses all of them.
-	if changesSecret || (req.Enabled != nil && *req.Enabled != src.Enabled) {
+	// A new secret signs deliveries for every trigger on the source.
+	if changesSecret || reachesEveryRun(src, req) {
 		if err := requireRunAccessForSource(ctx, s.repo, s.agents, src.ID); err != nil {
 			return nil, err
 		}
@@ -278,6 +277,12 @@ func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, r
 		WebhookPath:   s.WebhookPath(id),
 		Secret:        rotated,
 	}, nil
+}
+
+// reachesEveryRun reports whether an update, other than a new secret, acts on every
+// run the source's triggers start. A toggle starts or pauses them; attribution puts links on them.
+func reachesEveryRun(src *WebhookSource, req UpdateSourceRequest) bool {
+	return req.Attribution != nil || (req.Enabled != nil && *req.Enabled != src.Enabled)
 }
 
 // replaceAttribution sets a generic source's attribution block, or removes it
