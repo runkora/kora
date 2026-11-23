@@ -141,7 +141,7 @@ The session-manager readiness probe will run at once and every second with a 2s 
 
 At 20x a synchronised fire of 120 runs across 20 tenants binds 40 pool pods at once under S1 alone. The other 80 runs wait for new pool pods and for nodes. S2 moves those binds ahead of the fire.
 
-*   **W1, pool pods at warm size (chosen):** A pool pod starts at the warm session-manager size, and the bind grows it in place to full size. The grow took 0.24s to 0.63s in the spike and runs beside the SVID swap. The grow uses the warm tier's node reserve. A grow that stays Deferred will fall back to the next pool pod. The fallback lands in PR 7, and in PR 6 a Deferred grow unbinds nothing. The trade-off is a fallback on full nodes.
+*   **W1, pool pods at warm size (chosen):** A pool pod starts at the warm session-manager size, and the bind grows it in place to full size. The grow took 0.24s to 0.63s in the spike and runs beside the SVID swap. The grow uses the warm tier's node reserve. The scaler deletes an empty bound pod whose grow stays Deferred past the grow timeout, and the run's next attempt binds the next pool pod. The trade-off is a fallback on full nodes.
 *   **W2, pool pods at full size (rejected):** 40 pool pods would reserve 50Gi with no run.
 
 The wake path will be:
@@ -159,7 +159,7 @@ The mesh-level bind measured 1.0s to 2.0s to the first 200 on the spike cluster.
 *   **Budget B1, the wake event is the first streamed event (chosen):** The run's first streamed event comes within the 2.5s p95 target. The bind gets its own target of p95 at or under 2s to the bound check. The time to the first model event on a cold wake is reported as its own measure.
 *   **Budget B2, the first model event counts (rejected):** The bind (1.0s to 2.0s) plus a model's first token exceeds 2.5s at p95. The warm path misses this target today.
 
-When the tenant pool has no Ready pod, the run stays `pending`, and the scaler raises the pool replicas by the number of waiting cold wakes. A pool pod that is coming up counts as coming up for the start budget. The run binds the first pool pod that turns Ready.
+When the tenant pool has no Ready pod, the run stays `pending`, and the scaler raises the pool replicas by the waiting cold wakes that the Ready pool pods do not cover. A waiting cold wake is an agent with a pending run and no bound pod. A pool pod that is coming up counts as coming up for the start budget. The run binds the first pool pod that turns Ready.
 
 ### D6. Warm-to-Cold Threshold and the Old Workspace
 
@@ -233,7 +233,7 @@ The warm-tier amendment lands before PR 6. PR 6 moves its pod selection from ord
 ## Dependencies
 
 *   kora-identity must refuse a token to an agent principal with no agent record. The spike saw it issue one for `spiffe.io/agent: s2z-pooltest`, and a separate change fixes this. The D3 admission policy assumes that change has landed.
-*   PR 7 must first confirm that nothing reads a finished run's workspace after the run ends. If something does, the build stops for a new ruling on P1.
+*   P1 stands. Nothing reads a finished run's workspace after the run ends, and every session-manager read of the workspace serves a live session.
 
 ---
 
