@@ -611,7 +611,8 @@ function TriggerDetailModalBody({
     [trigger, saveAttributionAction],
   );
   const attribution = useEditableSection(storedAttribution, editKey, saveAttribution, {
-    isEqual: (a, b) => JSON.stringify(attributionFrom(a)) === JSON.stringify(attributionFrom(b)),
+    // Raw drafts: a kind or URL with no name is an edit, though it serializes to nothing.
+    isEqual: (a, b) => JSON.stringify(a) === JSON.stringify(b),
     validate: attributionHint,
   });
 

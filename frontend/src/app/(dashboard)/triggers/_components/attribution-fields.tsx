@@ -21,6 +21,8 @@ import {
 import {
   ACTOR_KINDS,
   MAX_ATTRIBUTION_LINKS,
+  templateInvalid,
+  textTooLong,
   type ActorKind,
   type AttributionDraft,
 } from '../_lib/generic-source';
@@ -31,8 +33,8 @@ interface AttributionFieldsProps {
   disabled?: boolean;
 }
 
-/** A URL template's backend limit is 2,048 bytes, never fewer UTF-16 units. Text limits are runes, checked by the hint. */
-const URL_MAX = 2048;
+/** Marks an input invalid, in its border and for assistive technology. */
+const invalid = (bad: boolean) => ({ hasError: bad, 'aria-invalid': bad || undefined });
 
 /** One row of two inputs and a remove button, for a link or a verb. */
 function PairRow({
@@ -105,35 +107,41 @@ export function AttributionFields({ value, onChange, disabled = false }: Attribu
 
       <Stack gap="snug">
         <SectionLabel>Links</SectionLabel>
-        {value.links.map((link, i) => (
-          <PairRow
-            key={i}
-            first={
-              <Input
-                mono
-                aria-label={`Link ${i + 1} label`}
-                value={link.label}
-                disabled={disabled}
-                onChange={(e) => setLink(i, { label: e.target.value })}
-                placeholder="#{{ data.number }} {{ data.title }}"
-              />
-            }
-            second={
-              <Input
-                mono
-                aria-label={`Link ${i + 1} URL`}
-                value={link.url}
-                disabled={disabled}
-                onChange={(e) => setLink(i, { url: e.target.value })}
-                placeholder="https://tracker.example.com/issues/{{ data.id }}"
-                maxLength={URL_MAX}
-              />
-            }
-            removeLabel={`Remove link ${i + 1}`}
-            disabled={disabled}
-            onRemove={() => set({ links: value.links.filter((_, j) => j !== i) })}
-          />
-        ))}
+        {value.links.map((link, i) => {
+          // Marks the half of a half-written row that is missing, as the filter rows do.
+          const hasLabel = link.label.trim() !== '';
+          const hasUrl = link.url.trim() !== '';
+          return (
+            <PairRow
+              key={i}
+              first={
+                <Input
+                  mono
+                  aria-label={`Link ${i + 1} label`}
+                  value={link.label}
+                  disabled={disabled}
+                  {...invalid((!hasLabel && hasUrl) || templateInvalid(link.label, false))}
+                  onChange={(e) => setLink(i, { label: e.target.value })}
+                  placeholder="#{{ data.number }} {{ data.title }}"
+                />
+              }
+              second={
+                <Input
+                  mono
+                  aria-label={`Link ${i + 1} URL`}
+                  value={link.url}
+                  disabled={disabled}
+                  {...invalid((!hasUrl && hasLabel) || templateInvalid(link.url, true))}
+                  onChange={(e) => setLink(i, { url: e.target.value })}
+                  placeholder="https://tracker.example.com/issues/{{ data.id }}"
+                />
+              }
+              removeLabel={`Remove link ${i + 1}`}
+              disabled={disabled}
+              onRemove={() => set({ links: value.links.filter((_, j) => j !== i) })}
+            />
+          );
+        })}
         <AddButton
           label="Add link"
           disabled={disabled || value.links.length >= MAX_ATTRIBUTION_LINKS}
@@ -179,7 +187,6 @@ export function AttributionFields({ value, onChange, disabled = false }: Attribu
               disabled={disabled}
               onChange={(e) => set({ actor: { ...value.actor, url: e.target.value } })}
               placeholder="Optional"
-              maxLength={URL_MAX}
             />
           </FormField>
         </Grid>
@@ -200,7 +207,6 @@ export function AttributionFields({ value, onChange, disabled = false }: Attribu
               disabled={disabled}
               onChange={(e) => set({ object: { ...value.object, url: e.target.value } })}
               placeholder="Optional"
-              maxLength={URL_MAX}
             />
           </FormField>
         </Grid>
@@ -211,33 +217,43 @@ export function AttributionFields({ value, onChange, disabled = false }: Attribu
         <Text size="caption" color="subtle">
           The verb for each event type. An event type with none uses its own name.
         </Text>
-        {value.verbs.map((verb, i) => (
-          <PairRow
-            key={i}
-            first={
-              <Input
-                mono
-                aria-label={`Verb ${i + 1} event type`}
-                value={verb.eventType}
-                disabled={disabled}
-                onChange={(e) => setVerb(i, { eventType: e.target.value })}
-                placeholder="issue.comment.created"
-              />
-            }
-            second={
-              <Input
-                aria-label={`Verb ${i + 1}`}
-                value={verb.verb}
-                disabled={disabled}
-                onChange={(e) => setVerb(i, { verb: e.target.value })}
-                placeholder="commented on"
-              />
-            }
-            removeLabel={`Remove verb ${i + 1}`}
-            disabled={disabled}
-            onRemove={() => set({ verbs: value.verbs.filter((_, j) => j !== i) })}
-          />
-        ))}
+        {value.verbs.map((verb, i) => {
+          const eventType = verb.eventType.trim();
+          const hasVerb = verb.verb.trim() !== '';
+          // An event type mapped by an earlier row is the duplicate.
+          const repeated =
+            eventType !== '' &&
+            value.verbs.slice(0, i).some((v) => v.eventType.trim() === eventType);
+          return (
+            <PairRow
+              key={i}
+              first={
+                <Input
+                  mono
+                  aria-label={`Verb ${i + 1} event type`}
+                  value={verb.eventType}
+                  disabled={disabled}
+                  {...invalid((eventType === '' && hasVerb) || repeated || textTooLong(eventType))}
+                  onChange={(e) => setVerb(i, { eventType: e.target.value })}
+                  placeholder="issue.comment.created"
+                />
+              }
+              second={
+                <Input
+                  aria-label={`Verb ${i + 1}`}
+                  value={verb.verb}
+                  disabled={disabled}
+                  {...invalid((!hasVerb && eventType !== '') || textTooLong(verb.verb))}
+                  onChange={(e) => setVerb(i, { verb: e.target.value })}
+                  placeholder="commented on"
+                />
+              }
+              removeLabel={`Remove verb ${i + 1}`}
+              disabled={disabled}
+              onRemove={() => set({ verbs: value.verbs.filter((_, j) => j !== i) })}
+            />
+          );
+        })}
         <AddButton
           label="Add verb"
           disabled={disabled}

@@ -1346,6 +1346,26 @@ describe('generic source attribution', () => {
     expect(screen.getByRole('button', { name: 'Save attribution' })).toBeDisabled();
   });
 
+  it('treats a kind with no actor name as an edit to discard', async () => {
+    const empty = { ...GENERIC, config: { verification: { method: 'bearer' } } };
+    renderGeneric(empty);
+    await openSection('Attribution');
+    fireEvent.change(screen.getByLabelText('Actor kind'), { target: { value: 'bot' } });
+    expect(screen.getByText('Name the actor, or clear its kind.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect((screen.getByLabelText('Actor kind') as HTMLSelectElement).value).toBe('');
+  });
+
+  it('marks the missing half of a second link row', async () => {
+    renderGeneric(GENERIC);
+    await openSection('Attribution');
+    fireEvent.click(screen.getByRole('button', { name: 'Add link' }));
+    fireEvent.change(screen.getByLabelText('Link 2 label'), { target: { value: 'Board' } });
+    expect(screen.getByLabelText('Link 2 URL').getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByLabelText('Link 2 label').getAttribute('aria-invalid')).toBeNull();
+    expect(screen.getByLabelText('Link 1 URL').getAttribute('aria-invalid')).toBeNull();
+  });
+
   it('shows a declared source read-only', async () => {
     renderGeneric({ ...GENERIC, declared: true, repository: 'example-org/config' });
     await openSection('Attribution');

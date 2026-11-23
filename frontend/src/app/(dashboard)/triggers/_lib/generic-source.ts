@@ -198,6 +198,18 @@ const PLACEHOLDER = /\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g;
 const MAX_URL_BYTES = 2048;
 const MAX_TEXT_RUNES = 300;
 
+/** Whether a template has a malformed path, or a `{{` left over once the placeholders are taken out. */
+const badPlaceholder = (t: string) =>
+  [...t.matchAll(PLACEHOLDER)].some((m) => !FIELD_PATH.test(m[1]!)) ||
+  t.replace(PLACEHOLDER, '').includes('{{');
+const urlTooLong = (u: string) => new TextEncoder().encode(u.trim()).length > MAX_URL_BYTES;
+export const textTooLong = (t: string) => [...t.trim()].length > MAX_TEXT_RUNES;
+
+/** Whether one template breaks its own rules: the placeholder grammar or its length limit. */
+export function templateInvalid(value: string, url: boolean): boolean {
+  return badPlaceholder(value) || (url ? urlTooLong(value) : textTooLong(value));
+}
+
 /** Why the attribution cannot be saved, or undefined when it can. Mirrors ADR Decision 3. */
 export function attributionHint(draft: AttributionDraft): string | undefined {
   const { links, actor, object, verbs } = draft;
@@ -224,15 +236,11 @@ export function attributionHint(draft: AttributionDraft): string | undefined {
     ...verbs.flatMap((v) => [v.eventType, v.verb]),
   ];
   const templates = [...urls, ...links.map((l) => l.label), actor.name, object.label];
-  // A malformed path, or a `{{` left over once the placeholders are taken out.
-  const badPlaceholder = (t: string) =>
-    [...t.matchAll(PLACEHOLDER)].some((m) => !FIELD_PATH.test(m[1]!)) ||
-    t.replace(PLACEHOLDER, '').includes('{{');
   if (templates.some(badPlaceholder))
     return 'Write each placeholder as a dotted payload path, such as {{ data.id }}.';
-  if (urls.some((u) => new TextEncoder().encode(u.trim()).length > MAX_URL_BYTES))
-    return 'A URL template can be at most 2,048 bytes.';
-  if (texts.some((t) => [...t.trim()].length > MAX_TEXT_RUNES))
+  if (urls.some(urlTooLong))
+    return `A URL template can be at most ${MAX_URL_BYTES.toLocaleString('en')} bytes.`;
+  if (texts.some(textTooLong))
     return `A label, name or verb can be at most ${MAX_TEXT_RUNES} characters.`;
   return undefined;
 }

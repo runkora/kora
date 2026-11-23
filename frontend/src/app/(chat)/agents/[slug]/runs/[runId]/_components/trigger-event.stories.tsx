@@ -408,11 +408,22 @@ const WEBHOOKS: { label: string; e: TriggerEvent }[] = [
   },
   { label: 'Form tool', e: hook('bug-report-triage', '05:40', FORM_PROMPT) },
   { label: 'Template with no fields', e: hook('billing-changed', '08:15', NO_FIELDS_PROMPT) },
+  {
+    label: 'Issue tracker, with attribution',
+    e: start(
+      {
+        actor: { name: 'Tracker', kind: 'system' },
+        verb: 'created',
+        object: { label: '#185 Rotate the build cache', url: 'https://tracker.example.com/i/185' },
+      },
+      { via: 'webhook', trigger: 'triage-issue', time: '09:12', prompt: FORM_PROMPT },
+    ),
+  },
 ];
 
 /**
- * Generic webhooks, read from what the run holds today: the trigger's name and the prompt. The
- * preview is the template's first sentence and its own `Key: {{ path }}` lines, filled in.
+ * Generic webhooks, with and without attribution. Without it the run shows the trigger's name and
+ * the prompt: the template's first sentence and its own `Key: {{ path }}` lines, filled in.
  */
 export const Webhooks: StoryObj = {
   render: () => (
