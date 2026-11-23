@@ -202,15 +202,8 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 // no longer active is left alone.
 func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string, pods agentPods, config string,
 	readings map[string]sessionmanager.Memory, bound map[string]bool, allowance int64) error {
-	current, err := s.store.GetAgentType(ctx, at.ID)
-	if errors.Is(err, ErrNotFound) {
-		return nil
-	}
-	if err != nil {
+	if active, err := s.stillActive(ctx, at.ID); !active || err != nil {
 		return err
-	}
-	if current.State != AgentTypeStateActive {
-		return nil
 	}
 	counts, err := s.store.AgentRunCounts(ctx, at.ID)
 	if err != nil {
@@ -251,6 +244,18 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 		return s.bindPods(ctx, at, namespace, want-len(in.pods), in)
 	}
 	return s.removeEmptyPod(ctx, at, namespace, in)
+}
+
+// stillActive re-reads the agent and reports whether it is still active. A deleted agent is not.
+func (s *Scaler) stillActive(ctx context.Context, id string) (bool, error) {
+	current, err := s.store.GetAgentType(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return current.State == AgentTypeStateActive, nil
 }
 
 // bindPods binds n pool pods to the agent.
