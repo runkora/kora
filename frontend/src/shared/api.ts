@@ -529,7 +529,8 @@ export interface Run {
   tenant_id: string;
   agent_type_id: string;
   state: RunState;
-  pod_ordinal: number;
+  /** The bound pool pod the run was placed on, empty before placement. */
+  pod_name: string;
   created_by: string;
   started_at: string | null;
   completed_at: string | null;

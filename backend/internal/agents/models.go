@@ -199,7 +199,7 @@ type AgentEnvironment struct {
 }
 
 // AgentType defines a category of managed agent within a tenant.
-// Each active AgentType has a corresponding StatefulSet in the tenant namespace.
+// An active AgentType's pods are pool pods bound to it in the tenant namespace.
 type AgentType struct {
 	ID           string         `json:"id"`
 	TenantID     string         `json:"tenant_id"`
@@ -575,11 +575,12 @@ type Run struct {
 	// created for the same trigger delivery. It is not stored or serialized.
 	AlreadyStarted bool `json:"-"`
 
-	ID          string     `json:"id"`
-	TenantID    string     `json:"tenant_id"`
-	AgentTypeID string     `json:"agent_type_id"`
-	State       RunState   `json:"state"`
-	PodOrdinal  int        `json:"pod_ordinal"`
+	ID          string   `json:"id"`
+	TenantID    string   `json:"tenant_id"`
+	AgentTypeID string   `json:"agent_type_id"`
+	State       RunState `json:"state"`
+	// PodName is the bound pool pod the run was placed on, empty before placement.
+	PodName     string     `json:"pod_name"`
 	CreatedBy   string     `json:"created_by"`
 	StartedAt   *time.Time `json:"started_at"`
 	CompletedAt *time.Time `json:"completed_at"`

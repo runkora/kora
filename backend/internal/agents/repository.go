@@ -29,6 +29,9 @@ type AgentTypeRepository interface {
 	DeleteAgentType(ctx context.Context, id string) error
 	// SoftDeleteAgentType removes the agent's environment links and marks it deleted.
 	SoftDeleteAgentType(ctx context.Context, id string) error
+	// WithAgentLock runs fn holding the agent's lock, which placement and the scaler take before a bind.
+	// Calls made with fn's ctx join its transaction.
+	WithAgentLock(ctx context.Context, agentTypeID string, fn func(ctx context.Context) error) error
 }
 
 // RunRepository is the persistence interface for run operations, events, and messages.
@@ -56,9 +59,12 @@ type RunRepository interface {
 	RunStats(ctx context.Context, tenantID string, scope RunScope, from, to time.Time) (RunStats, error)
 	// SetRunState does a compare-and-swap on runs.state.
 	SetRunState(ctx context.Context, id string, from, to RunState) error
-	// AssignPod sets pod_ordinal and transitions pending→starting atomically,
+	// AssignPod sets pod_name and transitions pending→starting atomically,
 	// only while the run is still held under the claim taken at claimedAt.
-	AssignPod(ctx context.Context, runID string, claimedAt time.Time, podOrdinal int) error
+	AssignPod(ctx context.Context, runID string, claimedAt time.Time, podName string) error
+	// ListStatefulSetRuns returns the idle runs with a pod ordinal and no pod name: the idle runs an earlier
+	// release placed on an agent StatefulSet pod.
+	ListStatefulSetRuns(ctx context.Context) ([]Run, error)
 	// MarkRunFailed transitions a run that has not ended to the failed terminal state
 	// and stamps completed_at. Used to clean up synchronously when a run's start
 	// fails after the row was created, so it never lingers in pending/starting

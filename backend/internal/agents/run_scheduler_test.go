@@ -121,12 +121,12 @@ type startClaimedEnv struct {
 // fakeWaker records the pods it grows and returns err.
 type fakeWaker struct {
 	err  error
-	woke []int
+	woke []string
 	warm []bool
 }
 
-func (w *fakeWaker) WakePod(_ context.Context, _, _ string, ordinal int, warm bool) error {
-	w.woke = append(w.woke, ordinal)
+func (w *fakeWaker) WakePod(_ context.Context, _, name string, warm bool) error {
+	w.woke = append(w.woke, name)
 	w.warm = append(w.warm, warm)
 	return w.err
 }
@@ -264,6 +264,17 @@ func TestStartClaimed(t *testing.T) {
 			wantState: RunStateActive, wantSessions: 1, wantMessages: 1},
 		{name: "a grow past its bound releases the run with no session",
 			setup:     func(e *startClaimedEnv) { e.f.run.SetPodWaker(&fakeWaker{err: errGrowTimeout}) },
+			wantState: RunStatePending, wantReleased: 1},
+		{name: "a just-bound pod gets the session once it serves its agent",
+			setup:     func(e *startClaimedEnv) { e.sm.unboundChecks = 2 },
+			wantState: RunStateActive, wantSessions: 1, wantMessages: 1},
+		{name: "a pod that never serves its agent releases the run with no session",
+			setup: func(e *startClaimedEnv) {
+				e.sm.unboundChecks = 1 << 30
+				ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+				t.Cleanup(cancel)
+				e.ctx = ctx
+			},
 			wantState: RunStatePending, wantReleased: 1},
 		{name: "a pod with a pending resize counts as full",
 			setup: func(e *startClaimedEnv) {
@@ -508,12 +519,12 @@ func TestStartClaimed_InitialMessageRetries(t *testing.T) {
 			}
 			hasErrLog := false
 			for _, line := range strings.Split(logs.String(), "\n") {
-				if strings.Contains(line, `"level":"error"`) && strings.Contains(line, `"run_id":"`+run.ID+`"`) && strings.Contains(line, `"pod_ordinal"`) {
+				if strings.Contains(line, `"level":"error"`) && strings.Contains(line, `"run_id":"`+run.ID+`"`) && strings.Contains(line, `"pod"`) {
 					hasErrLog = true
 				}
 			}
 			if hasErrLog != tc.wantErrorLog {
-				t.Errorf("error log with run_id and pod_ordinal = %v, want %v; logs: %s", hasErrLog, tc.wantErrorLog, logs.String())
+				t.Errorf("error log with run_id and pod = %v, want %v; logs: %s", hasErrLog, tc.wantErrorLog, logs.String())
 			}
 		})
 	}
@@ -534,7 +545,7 @@ func TestStartClaimed_GrowsAssignedPod(t *testing.T) {
 	}
 	claimed, claimedAt := claimRun(repo, run.ID)
 	f.run.startClaimed(context.Background(), claimed, claimedAt)
-	if !slices.Equal(w.woke, []int{1}) || !slices.Equal(w.warm, []bool{true}) || len(sm.sessions) != 1 {
-		t.Errorf("woke %v warm %v with %d sessions, want pod 1 woken as warm and one session", w.woke, w.warm, len(sm.sessions))
+	if !slices.Equal(w.woke, []string{"pod-1"}) || !slices.Equal(w.warm, []bool{true}) || len(sm.sessions) != 1 {
+		t.Errorf("woke %v warm %v with %d sessions, want pod-1 woken as warm and one session", w.woke, w.warm, len(sm.sessions))
 	}
 }

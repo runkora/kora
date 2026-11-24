@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -53,17 +51,25 @@ func sessionManagerResources(pod *corev1.Pod) (spec corev1.ResourceRequirements,
 	return spec, applied
 }
 
-// templateRequests returns the session-manager requests of the StatefulSet's pod template.
-func templateRequests(ss *appsv1.StatefulSet) corev1.ResourceList {
-	for _, c := range ss.Spec.Template.Spec.Containers {
-		if c.Name == sessionManagerContainerName {
-			return c.Resources.Requests
-		}
-	}
-	return nil
+// fullRequests is the session-manager's full CPU and memory request in the workloads configuration.
+func (p *K8sProvisioner) fullRequests() corev1.ResourceList {
+	sm := p.cfg.Workloads.ForSessionManager()
+	return corev1.ResourceList{corev1.ResourceCPU: *sm.CPU, corev1.ResourceMemory: *sm.Memory}
 }
 
-// fullRequests is the pod's full session-manager CPU and memory request: the template's, capped by the
+// warmRequests is the warm session-manager size, never above full.
+func (p *K8sProvisioner) warmRequests(full corev1.ResourceList) corev1.ResourceList {
+	warm := p.cfg.Workloads.ForSessionManager().Warm
+	requests := corev1.ResourceList{corev1.ResourceCPU: *warm.CPU, corev1.ResourceMemory: *warm.Memory}
+	for name, q := range full {
+		if q.Cmp(requests[name]) < 0 {
+			requests[name] = q
+		}
+	}
+	return requests
+}
+
+// fullRequests is the pod's full session-manager CPU and memory request: the configured one, capped by the
 // pod's own limits. The cap keeps a pod a roll has not reached within its older limits.
 func fullRequests(pod *corev1.Pod, template corev1.ResourceList) corev1.ResourceList {
 	spec, _ := sessionManagerResources(pod)
@@ -120,24 +126,16 @@ func resizeDeferred(pod *corev1.Pod) bool {
 	return false
 }
 
-// cachedAgentPod returns the agent's pod at ordinal and its StatefulSet's session-manager template requests
-// from the workload cache.
-func (p *K8sProvisioner) cachedAgentPod(slug, namespace string, ordinal int) (*corev1.Pod, corev1.ResourceList, bool, error) {
-	ss, err := p.workloads.Apps().V1().StatefulSets().Lister().StatefulSets(namespace).Get(slug)
+// cachedAgentPod returns the bound pod name in namespace from the workload cache.
+func (p *K8sProvisioner) cachedAgentPod(namespace, name string) (*corev1.Pod, bool, error) {
+	pod, err := p.workloads.Core().V1().Pods().Lister().Pods(namespace).Get(name)
 	if apierrors.IsNotFound(err) {
-		return nil, nil, false, nil
+		return nil, false, nil
 	}
 	if err != nil {
-		return nil, nil, false, fmt.Errorf("read cached statefulset %s/%s: %w", namespace, slug, err)
+		return nil, false, fmt.Errorf("read cached pod %s/%s: %w", namespace, name, err)
 	}
-	pod, err := p.workloads.Core().V1().Pods().Lister().Pods(namespace).Get(slug + "-" + strconv.Itoa(ordinal))
-	if apierrors.IsNotFound(err) {
-		return nil, nil, false, nil
-	}
-	if err != nil {
-		return nil, nil, false, fmt.Errorf("read cached pod %s/%s-%d: %w", namespace, slug, ordinal, err)
-	}
-	return pod, templateRequests(ss), true, nil
+	return pod, true, nil
 }
 
 // resize sets the session-manager's requests through the pod's resize subresource. The limits are unchanged.
@@ -157,106 +155,98 @@ func (p *K8sProvisioner) resize(ctx context.Context, namespace, name string, req
 
 // ShrinkPod sets a hot pod's session-manager requests to the warm size, never above its full requests, and
 // waits up to shrinkSettle for the cache to show it. A dispatch on this replica then sees the pod warm.
-func (p *K8sProvisioner) ShrinkPod(ctx context.Context, slug, namespace string, ordinal int) error {
-	pod, template, found, err := p.cachedAgentPod(slug, namespace, ordinal)
+func (p *K8sProvisioner) ShrinkPod(ctx context.Context, namespace, name string) error {
+	pod, found, err := p.cachedAgentPod(namespace, name)
 	if err != nil || !found {
 		return err
 	}
-	warm := p.cfg.Workloads.ForSessionManager().Warm
-	full := fullRequests(pod, template)
-	requests := corev1.ResourceList{corev1.ResourceCPU: *warm.CPU, corev1.ResourceMemory: *warm.Memory}
-	for name, q := range full {
-		if q.Cmp(requests[name]) < 0 {
-			requests[name] = q
-		}
-	}
+	full := fullRequests(pod, p.fullRequests())
+	requests := p.warmRequests(full)
 	if fullMemory, ok := full[corev1.ResourceMemory]; !ok || requests.Memory().Cmp(fullMemory) >= 0 {
 		return nil // The full memory request is already at or below the warm size.
 	}
-	if err := p.resize(ctx, namespace, pod.Name, requests); err != nil {
+	if err := p.resize(ctx, namespace, name, requests); err != nil {
 		return err
 	}
 	_ = wait.PollUntilContextTimeout(ctx, growPollInterval, shrinkSettle, true, func(context.Context) (bool, error) {
-		cached, template, found, readErr := p.cachedAgentPod(slug, namespace, ordinal)
-		return readErr != nil || !found || podWarm(cached, template), nil
+		cached, found, readErr := p.cachedAgentPod(namespace, name)
+		return readErr != nil || !found || podWarm(cached, p.fullRequests()), nil
 	})
 	return nil
 }
 
-// GrowPod sets a warm pod's session-manager requests to its full requests with no wait. A grow the kubelet
-// holds as Deferred frees the wake reserve on the pod's node.
-func (p *K8sProvisioner) GrowPod(ctx context.Context, slug, namespace string, ordinal int) error {
-	pod, template, found, err := p.cachedAgentPod(slug, namespace, ordinal)
+// GrowPod grows the cached bound pod name with no wait.
+func (p *K8sProvisioner) GrowPod(ctx context.Context, namespace, name string) error {
+	pod, found, err := p.cachedAgentPod(namespace, name)
 	if err != nil || !found {
 		return err
 	}
+	return p.grow(ctx, pod)
+}
+
+// grow sets a warm pod's session-manager requests to its full requests. A grow the kubelet holds as Deferred
+// frees the wake reserve on the pod's node.
+func (p *K8sProvisioner) grow(ctx context.Context, pod *corev1.Pod) error {
 	if resizeDeferred(pod) {
 		p.releaseWakeReserve(ctx, pod.Spec.NodeName)
 	}
-	if !podWarm(pod, template) {
+	if !podWarm(pod, p.fullRequests()) {
 		return nil
 	}
-	return p.resize(ctx, pod.Namespace, pod.Name, fullRequests(pod, template))
+	return p.resize(ctx, pod.Namespace, pod.Name, fullRequests(pod, p.fullRequests()))
 }
 
 // WakePod grows a warm pod and waits until the kubelet applies the full requests. live reports whether
 // placement's pod list showed the pod warm. It covers a cache that has not seen the shrink yet. A Deferred
 // grow deletes the wake-reserve pod on the pod's node once. Before the cache syncs, after a kora-agents
 // start, it reads the pod live and grows it with no wait.
-func (p *K8sProvisioner) WakePod(ctx context.Context, slug, namespace string, ordinal int, live bool) error {
-	if !p.workloads.Core().V1().Pods().Informer().HasSynced() || !p.workloads.Apps().V1().StatefulSets().Informer().HasSynced() {
-		return p.wakeUncached(ctx, slug, namespace, ordinal)
+func (p *K8sProvisioner) WakePod(ctx context.Context, namespace, name string, live bool) error {
+	if !p.workloads.Core().V1().Pods().Informer().HasSynced() {
+		return p.wakeUncached(ctx, namespace, name)
 	}
-	pod, template, found, err := p.cachedAgentPod(slug, namespace, ordinal)
+	pod, found, err := p.cachedAgentPod(namespace, name)
 	if err != nil || !found {
 		return err
 	}
 	switch {
-	case podWarm(pod, template):
-		err = p.resize(ctx, pod.Namespace, pod.Name, fullRequests(pod, template))
+	case podWarm(pod, p.fullRequests()):
+		err = p.resize(ctx, pod.Namespace, pod.Name, fullRequests(pod, p.fullRequests()))
 	case live:
-		err = p.wakeUncached(ctx, slug, namespace, ordinal)
+		err = p.wakeUncached(ctx, namespace, name)
 	case !resizePending(pod):
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	return p.waitGrown(ctx, slug, namespace, ordinal)
+	return p.waitGrown(ctx, namespace, name)
 }
 
 // wakeUncached grows a warm pod read from the API server, with no wait.
-func (p *K8sProvisioner) wakeUncached(ctx context.Context, slug, namespace string, ordinal int) error {
-	ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
+func (p *K8sProvisioner) wakeUncached(ctx context.Context, namespace, name string) error {
+	pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) || (err == nil && !podWarm(pod, p.fullRequests())) {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("read statefulset %s/%s: %w", namespace, slug, err)
+		return fmt.Errorf("read pod %s/%s: %w", namespace, name, err)
 	}
-	pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, slug+"-"+strconv.Itoa(ordinal), metav1.GetOptions{})
-	if apierrors.IsNotFound(err) || (err == nil && !podWarm(pod, templateRequests(ss))) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("read pod %s/%s-%d: %w", namespace, slug, ordinal, err)
-	}
-	return p.resize(ctx, pod.Namespace, pod.Name, fullRequests(pod, templateRequests(ss)))
+	return p.resize(ctx, pod.Namespace, pod.Name, fullRequests(pod, p.fullRequests()))
 }
 
 // waitGrown waits on the cache up to the grow timeout for the pod's applied requests to match its full spec.
-func (p *K8sProvisioner) waitGrown(ctx context.Context, slug, namespace string, ordinal int) error {
+func (p *K8sProvisioner) waitGrown(ctx context.Context, namespace, name string) error {
 	timeout := p.growTimeout
 	if timeout <= 0 {
 		timeout = defaultGrowTimeout
 	}
 	released := false
 	err := wait.PollUntilContextTimeout(ctx, growPollInterval, timeout, true, func(ctx context.Context) (bool, error) {
-		cached, template, found, readErr := p.cachedAgentPod(slug, namespace, ordinal)
+		cached, found, readErr := p.cachedAgentPod(namespace, name)
 		if readErr != nil || !found {
 			return false, readErr
 		}
-		if !podWarm(cached, template) && !resizePending(cached) {
+		if !podWarm(cached, p.fullRequests()) && !resizePending(cached) {
 			return true, nil
 		}
 		if !released && resizeDeferred(cached) {
@@ -266,7 +256,7 @@ func (p *K8sProvisioner) waitGrown(ctx context.Context, slug, namespace string, 
 		return false, nil
 	})
 	if wait.Interrupted(err) {
-		return fmt.Errorf("%w: %s/%s-%d", errGrowTimeout, namespace, slug, ordinal)
+		return fmt.Errorf("%w: %s/%s", errGrowTimeout, namespace, name)
 	}
 	return err
 }

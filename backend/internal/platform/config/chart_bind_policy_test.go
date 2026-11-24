@@ -190,7 +190,14 @@ func TestChartBindPolicy(t *testing.T) {
 		{"pool pod with no owner", admission{op: "CREATE", user: rsCtrl, new: newPool, newSpec: "session-manager-pool"}, false},
 		{"pool pod created with an agent label", admission{op: "CREATE", user: rsCtrl, new: with(newPool, "spiffe.io/agent", "reviewer"), newSpec: "session-manager-pool", owner: poolRS}, false},
 		{"pool pod created by another account", admission{op: "CREATE", user: koraAgents, new: newPool, newSpec: "session-manager-pool", owner: poolRS}, false},
-		{"agent pod created by the StatefulSet controller", admission{op: "CREATE", user: "system:serviceaccount:kube-system:statefulset-controller", new: bound}, true},
+		{"agent pod created by the StatefulSet controller", admission{op: "CREATE", user: "system:serviceaccount:kube-system:statefulset-controller", new: bound}, false},
+		{"agent pod created by kora-agents", admission{op: "CREATE", user: koraAgents, new: bound}, false},
+		{"pod created with an empty agent label", admission{op: "CREATE", user: "anyone", new: map[string]any{"spiffe.io/agent": ""}}, false},
+		{"pod created with no agent label", admission{op: "CREATE", user: "anyone", new: map[string]any{"app": "mcp"}}, true},
+		{"change the agent type on a bound pod", admission{op: "UPDATE", user: "anyone", old: with(bound, "runkora.io/agent-type", "a1"), new: with(bound, "runkora.io/agent-type", "a2")}, false},
+		{"remove the agent type from a bound pod", admission{op: "UPDATE", user: "anyone", old: with(bound, "runkora.io/agent-type", "a1"), new: bound}, false},
+		{"add the agent type to a bound pod", admission{op: "UPDATE", user: "anyone", old: bound, new: with(bound, "runkora.io/agent-type", "a1")}, false},
+		{"bind that sets the agent type", admission{op: "UPDATE", user: koraAgents, old: pool, new: with(bound, "runkora.io/agent-type", "a1")}, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -310,4 +317,50 @@ func TestChartKoraAgentsDeploymentPolicy(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestChartKoraAgentsDeletePolicy(t *testing.T) {
+	allowed := admissionPolicy(t, "kora-agents-deletes")
+	obj := map[string]any{"metadata": map[string]any{"name": "coder"}}
+	tests := []struct {
+		name string
+		a    admission
+		want bool
+	}{
+		{"StatefulSet in a tenant namespace", admission{op: "DELETE", kind: "StatefulSet", user: koraAgents, namespaceRole: "tenant", obj: obj}, true},
+		{"StatefulSet in kora-system", admission{op: "DELETE", kind: "StatefulSet", user: koraAgents, obj: obj}, false},
+		{"claim outside tenant namespaces", admission{op: "DELETE", kind: "PersistentVolumeClaim", user: koraAgents, namespaceRole: "system", obj: obj}, false},
+		{"another account", admission{op: "DELETE", kind: "StatefulSet", user: "admin", obj: obj}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := allowed(tc.a); got != tc.want {
+				t.Errorf("allowed = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// The delete policy matches DELETE on the four kinds of object that kora-agents deletes for a retired agent StatefulSet.
+func TestChartKoraAgentsDeletePolicyMatch(t *testing.T) {
+	for _, doc := range renderDocs(t, "templates/agents/bind-policy.yaml") {
+		if doc["kind"] != "ValidatingAdmissionPolicy" || field(doc, "metadata", "name") != "kora-agents-deletes" {
+			continue
+		}
+		var got []string
+		for _, rule := range field(doc, "spec", "matchConstraints", "resourceRules").([]any) {
+			if ops := field(rule, "operations"); !reflect.DeepEqual(ops, []any{"DELETE"}) {
+				t.Errorf("operations = %v, want DELETE", ops)
+			}
+			for _, r := range field(rule, "resources").([]any) {
+				got = append(got, r.(string))
+			}
+		}
+		want := []string{"statefulsets", "horizontalpodautoscalers", "poddisruptionbudgets", "persistentvolumeclaims"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("resources = %v, want %v", got, want)
+		}
+		return
+	}
+	t.Fatal("no kora-agents-deletes ValidatingAdmissionPolicy")
 }

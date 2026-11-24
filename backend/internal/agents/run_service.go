@@ -298,7 +298,6 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		TenantID:    req.TenantID,
 		AgentTypeID: req.AgentTypeID,
 		State:       RunStatePending,
-		PodOrdinal:  -1,
 		CreatedBy:   createdBy,
 		// Derived from the agent type (reads join it); carried on the response
 		// so run surfaces know the governance posture without a second lookup.
@@ -595,9 +594,9 @@ func (s *RunService) TerminateRun(ctx context.Context, id string) error {
 	}
 	// A live run placed on a pod may hold a session, whatever state it was read in.
 	// An idle run still holds its session, and a draining pod waits for it.
-	if terminated.State == RunStateTerminated && terminated.PodOrdinal >= 0 {
+	if terminated.State == RunStateTerminated && terminated.PodName != "" {
 		namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-		target, err := s.podTarget(ctx, at.Slug, terminated.PodOrdinal, namespace)
+		target, err := s.podTarget(ctx, at.Slug, namespace, terminated.PodName)
 		if err == nil {
 			err = s.sm.CloseSession(ctx, target, id)
 		}
@@ -837,10 +836,10 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-	target, err := s.podTarget(ctx, at.Slug, run.PodOrdinal, namespace)
+	target, err := s.podTarget(ctx, at.Slug, namespace, run.PodName)
 	if err != nil {
 		observability.RecordFailure(span, err, errSpanForwardMessageToSessionManager)
-		return fmt.Errorf("target pod %d: %w", run.PodOrdinal, err)
+		return fmt.Errorf("target pod %s: %w", run.PodName, err)
 	}
 	// A person's message makes the turn manual: a trigger run takes the manual idle timeout from here on.
 	// A trigger's message sends zero, which leaves the run's timeout as it is.
@@ -850,7 +849,7 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 	}
 	if err := s.sm.SendMessage(ctx, target, runID, content, idleTimeout, fromPerson); err != nil {
 		observability.RecordFailure(span, err, errSpanForwardMessageToSessionManager)
-		return fmt.Errorf("forward message to pod %d: %w", run.PodOrdinal, err)
+		return fmt.Errorf("forward message to pod %s: %w", run.PodName, err)
 	}
 
 	if from != nil {
@@ -876,6 +875,15 @@ func checkRunAcceptsMessage(ctx context.Context, at *AgentType, run *Run) error 
 	}
 	if run.State != RunStateActive && run.State != RunStateIdle {
 		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
+	}
+	return checkRunHasPod(run)
+}
+
+// checkRunHasPod refuses a run with no pod name: an earlier release placed it on an agent StatefulSet pod,
+// and the cutover to pool pods ends it (docs/adr/2026-11-22-agent-cold-tier.md).
+func checkRunHasPod(run *Run) error {
+	if run.PodName == "" {
+		return fmt.Errorf("%w: the run is on no pool pod", ErrRunNotAcceptingMessages)
 	}
 	return nil
 }
@@ -1034,15 +1042,18 @@ func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 	if run.State != RunStateActive {
 		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
 	}
+	if err = checkRunHasPod(run); err != nil {
+		return err
+	}
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-	target, err := s.podTarget(ctx, at.Slug, run.PodOrdinal, namespace)
+	target, err := s.podTarget(ctx, at.Slug, namespace, run.PodName)
 	if err != nil {
 		observability.RecordFailure(span, err, errSpanInterruptSession)
-		return fmt.Errorf("target pod %d: %w", run.PodOrdinal, err)
+		return fmt.Errorf("target pod %s: %w", run.PodName, err)
 	}
 	if err = s.sm.InterruptSession(ctx, target, runID); err != nil {
 		observability.RecordFailure(span, err, errSpanInterruptSession)
-		return fmt.Errorf("interrupt session on pod %d: %w", run.PodOrdinal, err)
+		return fmt.Errorf("interrupt session on pod %s: %w", run.PodName, err)
 	}
 	return nil
 }
@@ -1313,6 +1324,7 @@ func (s *RunService) StartReaper(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			s.EndStatefulSetRuns(ctx)
 			reaped, err := s.repo.ReapStaleRuns(ctx, staleDuration)
 			if err != nil {
 				s.logger.Error(ctx, "stale run reaper failed", logging.Field{Key: "error", Value: err.Error()})

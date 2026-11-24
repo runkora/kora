@@ -295,6 +295,21 @@ func TestDeleteAgentType_HappyPath(t *testing.T) {
 	}
 }
 
+// The move to deleting and the deprovision each hold the agent lock, which a scaler or wake bind takes, so no
+// pod is bound after the deprovision lists the agent's pods.
+func TestDeleteAgentType_HoldsTheAgentLock(t *testing.T) {
+	svc, repo, k8s, _ := newTestService(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	held := false
+	k8s.onDeprovision = func() { held = repo.agentLockHeld.Load() }
+	if err := svc.DeleteAgentType(context.Background(), at.ID); err != nil {
+		t.Fatal(err)
+	}
+	if !held || repo.agentLockCalls.Load() != 2 {
+		t.Errorf("deprovision under the lock = %v after %d lock calls, want true after 2", held, repo.agentLockCalls.Load())
+	}
+}
+
 func TestDeleteAgentType_AlreadyDeleting_SkipsStateTransition(t *testing.T) {
 	svc, repo, k8s, _ := newTestService(t)
 
@@ -627,7 +642,7 @@ func TestStartRun_AgentTypeNotFound(t *testing.T) {
 func TestTerminateRun_IdleRunClosesSession(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
-	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateIdle})
+	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateIdle, PodName: "pod-0"})
 
 	if err := svc.TerminateRun(context.Background(), run.ID); err != nil {
 		t.Fatalf("TerminateRun: %v", err)
@@ -640,7 +655,7 @@ func TestTerminateRun_IdleRunClosesSession(t *testing.T) {
 func TestTerminateRun_ActiveRun(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
-	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive, PodName: "pod-0"})
 
 	if err := svc.TerminateRun(context.Background(), run.ID); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -967,86 +982,6 @@ func TestUpdateAgentType_NotFound(t *testing.T) {
 	}()
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got %v", err)
-	}
-}
-
-func TestUpdateAgentType_FrameworkChange_RollsStatefulSet(t *testing.T) {
-	svc, repo, k8s, _ := newTestService(t)
-	seedAgentType(t, repo, AgentType{
-		ID: "at-1", TenantID: "t-1", Slug: "bot",
-		Framework: AgentFrameworkClaudeCode,
-	})
-
-	newFramework := AgentFrameworkCodex
-	if _, err := svc.UpdateAgentType(context.Background(), UpdateAgentTypeRequest{
-		ID:        "at-1",
-		Framework: &newFramework,
-	}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	waitFor(t, 500*time.Millisecond, func() bool {
-		k8s.mu.Lock()
-		defer k8s.mu.Unlock()
-		return len(k8s.rolledOutSlugs) > 0
-	})
-	k8s.mu.Lock()
-	defer k8s.mu.Unlock()
-	if len(k8s.rolledOutSlugs) != 1 || k8s.rolledOutSlugs[0] != "bot" {
-		t.Errorf("StatefulSet rollout not triggered: rolledOutSlugs = %v", k8s.rolledOutSlugs)
-	}
-}
-
-func TestUpdateAgentType_ModelIDChange_RollsStatefulSet(t *testing.T) {
-	oldModel := "claude-sonnet-4-5"
-	svc, repo, k8s, _ := newTestService(t)
-	seedAgentType(t, repo, AgentType{
-		ID: "at-1", TenantID: "t-1", Slug: "bot",
-		Framework: AgentFrameworkClaudeCode,
-		ModelID:   &oldModel,
-	})
-
-	newModel := "claude-opus-4-8"
-	if _, err := svc.UpdateAgentType(context.Background(), UpdateAgentTypeRequest{
-		ID:      "at-1",
-		ModelID: &newModel,
-	}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	waitFor(t, 500*time.Millisecond, func() bool {
-		k8s.mu.Lock()
-		defer k8s.mu.Unlock()
-		return len(k8s.rolledOutSlugs) > 0
-	})
-	k8s.mu.Lock()
-	defer k8s.mu.Unlock()
-	if len(k8s.rolledOutSlugs) != 1 || k8s.rolledOutSlugs[0] != "bot" {
-		t.Errorf("StatefulSet rollout not triggered: rolledOutSlugs = %v", k8s.rolledOutSlugs)
-	}
-}
-
-func TestUpdateAgentType_NameChange_DoesNotRollStatefulSet(t *testing.T) {
-	svc, repo, k8s, _ := newTestService(t)
-	seedAgentType(t, repo, AgentType{
-		ID: "at-1", TenantID: "t-1", Slug: "bot",
-		Framework: AgentFrameworkClaudeCode,
-	})
-
-	newName := "New Name"
-	if _, err := svc.UpdateAgentType(context.Background(), UpdateAgentTypeRequest{
-		ID:   "at-1",
-		Name: &newName,
-	}); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// A brief wait ensures a spurious goroutine would have had time to fire.
-	time.Sleep(50 * time.Millisecond)
-	k8s.mu.Lock()
-	defer k8s.mu.Unlock()
-	if len(k8s.rolledOutSlugs) != 0 {
-		t.Errorf("name-only update must not roll StatefulSet, got: %v", k8s.rolledOutSlugs)
 	}
 }
 

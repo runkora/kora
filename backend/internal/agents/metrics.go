@@ -30,6 +30,8 @@ var runDurationBuckets = []float64{1, 5, 15, 30, 60, 120, 300, 600, 1800, 3600, 
 type Metrics struct {
 	runs        metric.Int64Counter
 	runDuration metric.Float64Histogram
+	// bindRefused counts the binds an admission policy refused.
+	bindRefused metric.Int64Counter
 }
 
 // NewMetrics builds the instrument set on the given meter.
@@ -51,7 +53,23 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create run-duration histogram: %w", err)
 	}
-	return &Metrics{runs: runs, runDuration: duration}, nil
+	bindRefused, err := meter.Int64Counter(
+		"kora.agents.bind.refused",
+		metric.WithDescription("Binds of a pool pod that the API server refused as forbidden or invalid"),
+		metric.WithUnit("{bind}"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create bind-refused counter: %w", err)
+	}
+	return &Metrics{runs: runs, runDuration: duration, bindRefused: bindRefused}, nil
+}
+
+// recordBindRefused counts a bind the API server refused.
+func (m *Metrics) recordBindRefused(ctx context.Context) {
+	if m == nil {
+		return
+	}
+	m.bindRefused.Add(ctx, 1)
 }
 
 // recordRunTerminal counts a run that reached a terminal state and records how

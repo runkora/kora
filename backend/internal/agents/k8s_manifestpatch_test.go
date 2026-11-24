@@ -32,17 +32,17 @@ func loadTestPatches(t *testing.T, files map[string]string) []manifestpatch.Patc
 }
 
 // TestEnsure_ExistingResourcesPickUpPatches covers the reconcile path: a patch
-// added after an agent type was provisioned must reach its existing
-// StatefulSet and Service.
+// added after an agent type was provisioned must reach the existing tenant
+// pool Deployment and the agent's Service.
 func TestEnsure_ExistingResourcesPickUpPatches(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 	const ns = "kora-tenant-acme"
-	existingSS := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns, Annotations: map[string]string{annotationImagePinned: "true"}},
-		Spec: appsv1.StatefulSetSpec{
+	existingPool := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: poolName, Namespace: ns},
+		Spec: appsv1.DeploymentSpec{
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{Name: sessionManagerContainerName, Image: "pinned@sha256:abc"}},
+					Containers: []corev1.Container{{Name: sessionManagerContainerName, Image: "old"}},
 				},
 			},
 		},
@@ -53,7 +53,7 @@ func TestEnsure_ExistingResourcesPickUpPatches(t *testing.T) {
 	}
 
 	p := podSecurityProvisioner()
-	p.client = fake.NewSimpleClientset(existingSS, existingSvc)
+	p.client = fake.NewSimpleClientset(existingPool, existingSvc)
 	p.cfg.Patches = loadTestPatches(t, map[string]string{
 		"10-sts.yaml": `target: {kind: StatefulSet}
 patch: |
@@ -74,22 +74,22 @@ patch: |
 
 	ctx := context.Background()
 	labels := agentTypeLabels(at)
-	if err := p.ensureStatefulSet(ctx, at, ns, labels, metav1.OwnerReference{}, true); err != nil {
-		t.Fatalf("ensureStatefulSet: %v", err)
+	if err := p.ensureTenantPool(ctx, at.TenantID, ns, metav1.OwnerReference{}, true); err != nil {
+		t.Fatalf("ensureTenantPool: %v", err)
 	}
 	if err := p.ensureHeadlessService(ctx, at.Slug, ns, labels, metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("ensureHeadlessService: %v", err)
 	}
 
-	ss, err := p.client.AppsV1().StatefulSets(ns).Get(ctx, at.Slug, metav1.GetOptions{})
+	pool, err := p.client.AppsV1().Deployments(ns).Get(ctx, poolName, metav1.GetOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tol := ss.Spec.Template.Spec.Tolerations; len(tol) != 1 || tol[0].Key != "dedicated" {
-		t.Errorf("StatefulSet tolerations: got %v", tol)
+	if tol := pool.Spec.Template.Spec.Tolerations; len(tol) != 1 || tol[0].Key != "dedicated" {
+		t.Errorf("pool tolerations: got %v", tol)
 	}
-	if img := ss.Spec.Template.Spec.Containers[0].Image; img != "pinned@sha256:abc" {
-		t.Errorf("StatefulSet image: got %q, want the live pinned image kept", img)
+	if img := pool.Spec.Template.Spec.Containers[0].Image; img != p.cfg.SessionManagerImage {
+		t.Errorf("pool image: got %q, want the rendered %q", img, p.cfg.SessionManagerImage)
 	}
 
 	svc, err := p.client.CoreV1().Services(ns).Get(ctx, at.Slug, metav1.GetOptions{})

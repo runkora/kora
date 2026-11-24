@@ -310,3 +310,30 @@ func (c *Client) Memory(ctx context.Context, pod Pod) (Memory, error) {
 	}
 	return m, nil
 }
+
+// Bound reports whether the target pod serves its agent: GET /health/bound
+// returns 200 once the pod's identity-proxy holds the agent token, and 503
+// before. The call reaches the pod only when Envoy presents the agent
+// certificate (docs/adr/2026-11-22-agent-cold-tier.md).
+func (c *Client) Bound(ctx context.Context, pod Pod) (bool, error) {
+	header, err := c.authorize(ctx, http.Header{})
+	if err != nil {
+		return false, err
+	}
+
+	_, span, resp, err := c.Do(ctx, httpclient.Request{Method: http.MethodGet, BaseURL: pod.URL, Host: pod.Host, Path: "/health/bound", Header: header})
+	defer span.End()
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusServiceUnavailable:
+		return false, nil
+	default:
+		return false, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+}

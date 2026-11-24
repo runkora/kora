@@ -181,7 +181,7 @@ function extraRuns(agent: AgentType): RunWithAttribution[] {
     tenant_id: 'ten_8f3a21',
     agent_type_id: agent.id,
     state: 'completed',
-    pod_ordinal: 0,
+    pod_name: 'session-manager-pool-0',
     created_by: 'trigger',
     created_at: '',
     updated_at: '',

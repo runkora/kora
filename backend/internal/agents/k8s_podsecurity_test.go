@@ -3,13 +3,10 @@ package agents
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"github.com/runkora/kora/backend/internal/platform/brand"
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -42,7 +39,7 @@ func podSecurityProvisioner() *K8sProvisioner {
 }
 
 func renderedSandboxPod() *corev1.Pod {
-	return buildTestSandboxPod(podSecurityProvisioner(), Run{ID: "run-1", PodOrdinal: 0}, "coder", "kora-tenant-acme", testSandboxSpec(), "test-exec-token")
+	return buildTestSandboxPod(podSecurityProvisioner(), Run{ID: "run-1", PodName: "session-manager-pool-abc12"}, "coder", "kora-tenant-acme", testSandboxSpec(), "test-exec-token")
 }
 
 func renderedStatefulSet() appsv1.StatefulSet {
@@ -262,16 +259,14 @@ func TestRuntimePods_NoPullSecretsWhenUnconfigured(t *testing.T) {
 	}
 }
 
-// TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv covers upgrading an
-// agent created before the operator webhook took over injection: the istiod
-// template annotation must go and the rendered env must replace the old one,
-// while the digest-pinned image is left alone.
-func TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv(t *testing.T) {
-	at := AgentType{Slug: "coder", TenantID: "acme"}
+// TestEnsureTenantPool_ExistingPicksUpTemplate covers upgrading a pool written
+// by an earlier release: the istiod template annotation must go, and the
+// rendered env and the pod and container hardening must replace the old ones.
+func TestEnsureTenantPool_ExistingPicksUpTemplate(t *testing.T) {
 	const ns = "kora-tenant-acme"
-	stale := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns, Annotations: map[string]string{annotationImagePinned: "true"}},
-		Spec: appsv1.StatefulSetSpec{
+	stale := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: poolName, Namespace: ns},
+		Spec: appsv1.DeploymentSpec{
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
 					"inject.istio.io/templates": "sidecar,spire,identity-proxy",
@@ -288,22 +283,19 @@ func TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv(t *testing.T) {
 	}
 	p := podSecurityProvisioner()
 	p.client = fake.NewSimpleClientset(stale)
-	if err := p.ensureStatefulSet(context.Background(), at, ns, podLabels(at), metav1.OwnerReference{}, true); err != nil {
-		t.Fatalf("ensureStatefulSet: %v", err)
+	if err := p.ensureTenantPool(context.Background(), "acme", ns, metav1.OwnerReference{}, true); err != nil {
+		t.Fatalf("ensureTenantPool: %v", err)
 	}
-	got, err := p.client.AppsV1().StatefulSets(ns).Get(context.Background(), at.Slug, metav1.GetOptions{})
+	got, err := p.client.AppsV1().Deployments(ns).Get(context.Background(), poolName, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
 	if _, ok := got.Spec.Template.Annotations["inject.istio.io/templates"]; ok {
 		t.Error("stale inject.istio.io/templates annotation survived the update")
 	}
-	c := got.Spec.Template.Spec.Containers[0]
-	if c.Image != "old" {
-		t.Error("update path must not replace the pinned image")
-	}
+	assertRestrictedPodSpec(t, got.Spec.Template.Spec)
 	var base string
-	for _, e := range c.Env {
+	for _, e := range got.Spec.Template.Spec.Containers[0].Env {
 		if e.Name == "ANTHROPIC_BASE_URL" {
 			base = e.Value
 		}
@@ -313,83 +305,20 @@ func TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv(t *testing.T) {
 	}
 }
 
-// TestEnsureStatefulSet_ExistingPicksUpHardening covers the re-provision path:
-// an agent StatefulSet created before this hardening must receive the pod and
-// container contexts and pull secrets without a manual delete.
-func TestEnsureStatefulSet_ExistingPicksUpHardening(t *testing.T) {
-	at := AgentType{Slug: "coder", TenantID: "acme"}
-	const ns = "kora-tenant-acme"
-	stale := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns, Annotations: map[string]string{annotationImagePinned: "true"}},
-		Spec: appsv1.StatefulSetSpec{
-			Template: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{Name: sessionManagerContainerName, Image: "old"}},
-				},
-			},
-		},
-	}
-	p := podSecurityProvisioner()
-	p.client = fake.NewSimpleClientset(stale)
-
-	if err := p.ensureStatefulSet(context.Background(), at, ns, podLabels(at), metav1.OwnerReference{}, true); err != nil {
-		t.Fatalf("ensureStatefulSet: %v", err)
-	}
-	got, err := p.client.AppsV1().StatefulSets(ns).Get(context.Background(), at.Slug, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	assertRestrictedPodSpec(t, got.Spec.Template.Spec)
-	if got.Spec.Template.Spec.Containers[0].Image != "old" {
-		t.Error("re-provision must only sync security fields, not replace the container")
-	}
-}
-
-// Run start creates a missing StatefulSet and leaves an existing one alone, so starting a run never rolls pods.
-func TestEnsureStatefulSet_CreateOnly(t *testing.T) {
-	at := AgentType{Slug: "coder", TenantID: "acme"}
-	const ns = "kora-tenant-acme"
-	stale := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns},
-		Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{Name: sessionManagerContainerName, Image: "old"}},
-		}}},
-	}
-	p := podSecurityProvisioner()
-	p.client = fake.NewSimpleClientset(stale)
-
-	if err := p.ensureStatefulSet(context.Background(), at, ns, podLabels(at), metav1.OwnerReference{}, false); err != nil {
-		t.Fatalf("ensureStatefulSet: %v", err)
-	}
-	got, err := p.client.AppsV1().StatefulSets(ns).Get(context.Background(), at.Slug, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if got.Spec.Template.Spec.SecurityContext != nil || got.Spec.Template.Spec.Containers[0].Image != "old" {
-		t.Error("a create-only provision changed an existing StatefulSet")
-	}
-
-	other := AgentType{Slug: "fresh", TenantID: "acme"}
-	if err := p.ensureStatefulSet(context.Background(), other, ns, podLabels(other), metav1.OwnerReference{}, false); err != nil {
-		t.Fatalf("ensureStatefulSet: %v", err)
-	}
-	if _, err := p.client.AppsV1().StatefulSets(ns).Get(context.Background(), other.Slug, metav1.GetOptions{}); err != nil {
-		t.Errorf("a create-only provision did not create a missing StatefulSet: %v", err)
-	}
-}
-
 // TestRuntimePods_RenderYAML marshals both runtime-created pod specs. With
 // KORA_RENDER_POD_SPECS_DIR set it writes them out so CI can evaluate the
 // files against the pod-security restricted policy set.
 func TestRuntimePods_RenderYAML(t *testing.T) {
 	pod := renderedSandboxPod()
 	pod.TypeMeta = metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"}
-	ss := renderedStatefulSet()
-	ss.TypeMeta = metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"}
+	pool, err := podSecurityProvisioner().buildTenantPool("acme", "kora-tenant-acme")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	docs := map[string]any{
-		"sandbox-pod.yaml":                 pod,
-		"session-manager-statefulset.yaml": ss,
+		"sandbox-pod.yaml":                     pod,
+		"session-manager-pool-deployment.yaml": pool,
 	}
 	dir := os.Getenv("KORA_RENDER_POD_SPECS_DIR")
 	for name, obj := range docs {
@@ -449,116 +378,6 @@ func TestRuntimePods_PeerMetadataInMeshOnly(t *testing.T) {
 	}
 }
 
-// An unpinned StatefulSet moves to the rendered session-manager image on
-// reconcile, so a chart upgrade reaches existing agents.
-func TestEnsureStatefulSet_UnpinnedImageFollowsRelease(t *testing.T) {
-	at := AgentType{Slug: "coder", TenantID: "acme"}
-	const ns = "kora-tenant-acme"
-	stale := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns},
-		Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{Name: sessionManagerContainerName, Image: "old"}},
-		}}},
-	}
-	p := podSecurityProvisioner()
-	p.client = fake.NewSimpleClientset(stale)
-	if err := p.ensureStatefulSet(context.Background(), at, ns, podLabels(at), metav1.OwnerReference{}, true); err != nil {
-		t.Fatalf("ensureStatefulSet: %v", err)
-	}
-	got, err := p.client.AppsV1().StatefulSets(ns).Get(context.Background(), at.Slug, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if img := got.Spec.Template.Spec.Containers[0].Image; img == "old" {
-		t.Errorf("unpinned image stayed %q; want the rendered image", img)
-	}
-}
-
-func TestReadyOrdinals(t *testing.T) {
-	const ns, slug = "kora-tenant-acme", "coder"
-	sel := map[string]string{"app": slug}
-	replicas := int32(2)
-	ss := func(gen, observed int64, rev string) *appsv1.StatefulSet {
-		return &appsv1.StatefulSet{
-			ObjectMeta: metav1.ObjectMeta{Name: slug, Namespace: ns, Generation: gen},
-			Spec:       appsv1.StatefulSetSpec{Replicas: &replicas, Selector: &metav1.LabelSelector{MatchLabels: sel}},
-			Status:     appsv1.StatefulSetStatus{ObservedGeneration: observed, UpdateRevision: rev},
-		}
-	}
-	pod := func(name, rev string, ready, deleting bool) *corev1.Pod {
-		st := corev1.ConditionFalse
-		if ready {
-			st = corev1.ConditionTrue
-		}
-		p := &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: map[string]string{
-				"app": slug, appsv1.ControllerRevisionHashLabelKey: rev,
-			}},
-			Status: corev1.PodStatus{PodIP: "10.0.0." + name[len(name)-1:], Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: st}}},
-		}
-		if deleting {
-			now := metav1.Now()
-			p.DeletionTimestamp = &now
-		}
-		return p
-	}
-	noIP := func(p *corev1.Pod) *corev1.Pod { p.Status.PodIP = ""; return p }
-	for _, tc := range []struct {
-		name string
-		objs []runtime.Object
-		want []int
-	}{
-		{"no statefulset", nil, nil},
-		{"ready with no IP yet", []runtime.Object{ss(1, 1, "r1"), noIP(pod("coder-0", "r1", true, false))}, nil},
-		{"roll not yet observed", []runtime.Object{ss(2, 1, "r2"), pod("coder-0", "r1", true, false)}, []int{0}},
-		{"not ready", []runtime.Object{ss(1, 1, "r1"), pod("coder-0", "r1", false, false)}, nil},
-		{"old revision during a roll", []runtime.Object{ss(2, 2, "r2"), pod("coder-0", "r1", true, false), pod("coder-1", "r2", false, false)}, []int{0}},
-		{"terminating", []runtime.Object{ss(1, 1, "r1"), pod("coder-0", "r1", true, true)}, nil},
-		{"ready current", []runtime.Object{ss(1, 1, "r1"), pod("coder-1", "r1", true, false), pod("coder-0", "r1", true, false), pod("coder-2", "r1", false, false)}, []int{0, 1}},
-		{"at or above the replicas", []runtime.Object{ss(1, 1, "r1"), pod("coder-0", "r1", true, false), pod("coder-2", "r1", true, false), pod("coder-3", "r1", true, false)}, []int{0}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			p := podSecurityProvisioner()
-			p.client = fake.NewSimpleClientset(tc.objs...)
-			o, err := p.ReadyOrdinals(context.Background(), slug, ns)
-			got, ips := o.ready, o.ips
-			if err != nil {
-				t.Fatalf("ReadyOrdinals: %v", err)
-			}
-			if !slices.Equal(got, tc.want) {
-				t.Errorf("got %v, want %v", got, tc.want)
-			}
-			if len(ips) != len(got) {
-				t.Errorf("ips = %v for ordinals %v", ips, got)
-			}
-			for _, ord := range got {
-				if want := fmt.Sprintf("10.0.0.%d", ord); ips[ord] != want {
-					t.Errorf("ip of ordinal %d = %q, want %q", ord, ips[ord], want)
-				}
-			}
-		})
-	}
-}
-
-// PodIP reads the IP of an agent pod by ordinal, Ready or not.
-func TestPodIP(t *testing.T) {
-	const ns = "kora-tenant-acme"
-	p := podSecurityProvisioner()
-	p.client = fake.NewSimpleClientset(
-		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "coder-0", Namespace: ns}, Status: corev1.PodStatus{PodIP: "10.42.1.7"}},
-		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "coder-1", Namespace: ns}},
-	)
-	if ip, err := p.PodIP(context.Background(), "coder", 0, ns); err != nil || ip != "10.42.1.7" {
-		t.Errorf("PodIP(0) = %q, %v", ip, err)
-	}
-	if _, err := p.PodIP(context.Background(), "coder", 1, ns); !errors.Is(err, errNoPodIP) {
-		t.Errorf("PodIP of a pod with no IP = %v, want errNoPodIP", err)
-	}
-	if _, err := p.PodIP(context.Background(), "coder", 2, ns); err == nil {
-		t.Error("PodIP of a missing pod: want an error")
-	}
-}
-
 // waiting sets the pod's session-manager container waiting with reason.
 func waiting(p *corev1.Pod, reason string) *corev1.Pod {
 	p.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: sessionManagerContainerName, State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: reason}}}}
@@ -578,17 +397,13 @@ func waitingContainer(p *corev1.Pod, name string, init bool, reason string) *cor
 
 func TestLivePod(t *testing.T) {
 	const ns, slug = "kora-tenant-example", "coder"
-	ss := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: slug, Namespace: ns},
-		Spec:       appsv1.StatefulSetSpec{Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": slug}}},
-	}
 	pod := func(name string, phase corev1.PodPhase, ready, deleting bool) *corev1.Pod {
 		st := corev1.ConditionFalse
 		if ready {
 			st = corev1.ConditionTrue
 		}
 		p := &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: map[string]string{"app": slug}},
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: map[string]string{"app": slug, agentTypeLabel: "at-1"}},
 			Status:     corev1.PodStatus{Phase: phase, Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: st}}},
 		}
 		if deleting {
@@ -602,31 +417,31 @@ func TestLivePod(t *testing.T) {
 		objs []runtime.Object
 		want bool
 	}{
-		{"no statefulset", nil, false},
-		{"no pod", []runtime.Object{ss}, false},
-		{"pending", []runtime.Object{ss, pod("coder-0", corev1.PodPending, false, false)}, true},
-		{"running, not ready", []runtime.Object{ss, pod("coder-0", corev1.PodRunning, false, false)}, true},
-		{"ready", []runtime.Object{ss, pod("coder-0", corev1.PodRunning, true, false)}, true},
-		{"all terminating", []runtime.Object{ss, pod("coder-0", corev1.PodRunning, false, true), pod("coder-1", corev1.PodPending, false, true)}, false},
-		{"failed", []runtime.Object{ss, pod("coder-0", corev1.PodFailed, false, false)}, false},
-		{"succeeded", []runtime.Object{ss, pod("coder-0", corev1.PodSucceeded, false, false)}, false},
-		{"terminating beside pending", []runtime.Object{ss, pod("coder-0", corev1.PodRunning, true, true), pod("coder-1", corev1.PodPending, false, false)}, true},
-		{"crash looping", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodRunning, false, false), "CrashLoopBackOff")}, false},
-		{"image pull back-off", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodPending, false, false), "ImagePullBackOff")}, false},
-		{"image pull error", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodPending, false, false), "ErrImagePull")}, false},
-		{"config error", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodPending, false, false), "CreateContainerConfigError")}, false},
-		{"invalid image name", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodPending, false, false), "InvalidImageName")}, false},
-		{"sidecar image pull back-off", []runtime.Object{ss, waitingContainer(pod("coder-0", corev1.PodPending, false, false), "identity-proxy", false, "ImagePullBackOff")}, false},
-		{"init crash looping", []runtime.Object{ss, waitingContainer(pod("coder-0", corev1.PodPending, false, false), "init", true, "CrashLoopBackOff")}, false},
-		{"init pod initializing", []runtime.Object{ss, waitingContainer(pod("coder-0", corev1.PodPending, false, false), "init", true, "PodInitializing")}, true},
-		{"init creating", []runtime.Object{ss, waitingContainer(pod("coder-0", corev1.PodPending, false, false), "init", true, "ContainerCreating")}, true},
-		{"creating", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodPending, false, false), "ContainerCreating")}, true},
-		{"stuck beside pending", []runtime.Object{ss, waiting(pod("coder-0", corev1.PodPending, false, false), "ImagePullBackOff"), pod("coder-1", corev1.PodPending, false, false)}, true},
+		{"no pod", nil, false},
+		{"another agent's pod", []runtime.Object{&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "other-0", Namespace: ns, Labels: map[string]string{"app": "other", agentTypeLabel: "at-2"}}}}, false},
+		{"pending", []runtime.Object{pod("coder-0", corev1.PodPending, false, false)}, true},
+		{"running, not ready", []runtime.Object{pod("coder-0", corev1.PodRunning, false, false)}, true},
+		{"ready", []runtime.Object{pod("coder-0", corev1.PodRunning, true, false)}, true},
+		{"all terminating", []runtime.Object{pod("coder-0", corev1.PodRunning, false, true), pod("coder-1", corev1.PodPending, false, true)}, false},
+		{"failed", []runtime.Object{pod("coder-0", corev1.PodFailed, false, false)}, false},
+		{"succeeded", []runtime.Object{pod("coder-0", corev1.PodSucceeded, false, false)}, false},
+		{"terminating beside pending", []runtime.Object{pod("coder-0", corev1.PodRunning, true, true), pod("coder-1", corev1.PodPending, false, false)}, true},
+		{"crash looping", []runtime.Object{waiting(pod("coder-0", corev1.PodRunning, false, false), "CrashLoopBackOff")}, false},
+		{"image pull back-off", []runtime.Object{waiting(pod("coder-0", corev1.PodPending, false, false), "ImagePullBackOff")}, false},
+		{"image pull error", []runtime.Object{waiting(pod("coder-0", corev1.PodPending, false, false), "ErrImagePull")}, false},
+		{"config error", []runtime.Object{waiting(pod("coder-0", corev1.PodPending, false, false), "CreateContainerConfigError")}, false},
+		{"invalid image name", []runtime.Object{waiting(pod("coder-0", corev1.PodPending, false, false), "InvalidImageName")}, false},
+		{"sidecar image pull back-off", []runtime.Object{waitingContainer(pod("coder-0", corev1.PodPending, false, false), "identity-proxy", false, "ImagePullBackOff")}, false},
+		{"init crash looping", []runtime.Object{waitingContainer(pod("coder-0", corev1.PodPending, false, false), "init", true, "CrashLoopBackOff")}, false},
+		{"init pod initializing", []runtime.Object{waitingContainer(pod("coder-0", corev1.PodPending, false, false), "init", true, "PodInitializing")}, true},
+		{"init creating", []runtime.Object{waitingContainer(pod("coder-0", corev1.PodPending, false, false), "init", true, "ContainerCreating")}, true},
+		{"creating", []runtime.Object{waiting(pod("coder-0", corev1.PodPending, false, false), "ContainerCreating")}, true},
+		{"stuck beside pending", []runtime.Object{waiting(pod("coder-0", corev1.PodPending, false, false), "ImagePullBackOff"), pod("coder-1", corev1.PodPending, false, false)}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := podSecurityProvisioner()
 			p.client = fake.NewSimpleClientset(tc.objs...)
-			got, err := p.LivePod(context.Background(), slug, ns)
+			got, err := p.LivePod(context.Background(), AgentType{ID: "at-1", Slug: slug}, ns)
 			if err != nil {
 				t.Fatalf("LivePod: %v", err)
 			}

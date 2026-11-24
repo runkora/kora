@@ -14,7 +14,7 @@ Agents are run as tenant workloads within kora. A central `kora-agents` service 
 
 ## Agent runtime pod
 
-Each agent type gets a long-lived StatefulSet. Runs are multiplexed onto the `agent-type` instead of requiring a pod per agent run. This allows kora to scale agent runs at a different rate to the [sandboxes](sandboxes.md) those agents require for heavy workloads, reducing the idle state cost of always running agent infrastructure. 
+Each tenant keeps a pool of unbound session-manager pods, and `kora-agents` binds pool pods to an agent type as its runs need them. Runs are multiplexed onto the `agent-type` instead of requiring a pod per agent run. This allows kora to scale agent runs at a different rate to the [sandboxes](sandboxes.md) those agents require for heavy workloads, reducing the idle state cost of always running agent infrastructure. 
 
 This enables agent runs that do not require a sandbox to run barebones inside their `agent-type` pod, requiring no further compute to complete their tasks. This is typical of agentic use cases that only utilise MCPs to complete their tasks and do not require code-ready environments for build and test like activities.
 

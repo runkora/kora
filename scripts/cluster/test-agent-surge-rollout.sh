@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
-# Checks the surge rollout of an agent's session-manager pods on the local cluster
-# (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 1) with a real Claude Code harness.
+# Checks the roll of an agent's bound pods on the local cluster (docs/adr/2026-11-22-agent-cold-tier.md, O3)
+# with a real Claude Code harness.
 #
-# It creates an agent at the floor of 1 pod and sets an extra environment variable on its
-# StatefulSet. The kora-agents apply at startup removes it. A restarted kora-agents pod then changes
-# the pod template through a real apply. With a run idle on the old pod, it asserts:
-#   1. the apply raises the replicas by one and sets the partition to the old replicas in one write;
-#   2. the surge pod is Ready before the old pod starts terminating;
-#   3. a run started while the old pod drains lands on the surge pod and completes its turn;
-#   4. the run on the old pod completes a turn while the pod drains, and ends terminated, not failed;
-#   5. after the runs end, the agent is back to 1 pod on the new revision;
-#   6. a model change to MODEL2 adds a surge pod in one write, and the agent returns to 1 pod.
-# The agent and its runs are deleted at the end.
+# It creates an agent at the floor of 1 pod and leaves a run idle on it. It then adds a manifest patch
+# that annotates the session-manager pod template and restarts kora-agents, whose apply at startup
+# rolls the tenant pool Deployment. It asserts:
+#   1. a pod on the pool's new template is bound and Ready before the old pod starts terminating;
+#   2. a run started while the old pod drains lands on the new pod and completes its turn;
+#   3. the run on the old pod completes a turn while the pod drains, and ends terminated, not failed;
+#   4. after the runs end, the agent is back to 1 pod on the new template;
+#   5. a model change to MODEL2 binds a new pod before the old one starts terminating, and the agent returns to 1 pod.
+# The agent, its runs and the patch are removed at the end, and kora-agents restarts again.
 #
 # Usage: scripts/cluster/test-agent-surge-rollout.sh (or make test-agent-surge-rollout)
 # Needs make auth (/tmp/kora_credentials.json). KORA_KUBE_CONTEXT defaults to k3d-kora-local, MODEL to
@@ -27,11 +26,12 @@ MODEL2=${MODEL2:-anthropic/claude-sonnet-5}
 TIMEOUT_SECS=${TIMEOUT_SECS:-600}
 # One hung API or kubectl call fails that call. wait_for then retries it until TIMEOUT_SECS.
 CALL_TIMEOUT_SECS=${CALL_TIMEOUT_SECS:-30}
+PATCHES=kora-agents-manifest-patches
+PATCH_KEY=zz-roll-check.yaml
 PROMPT='Reply with the single word ok. Do not use any tools.'
 
 k() { kubectl --context "$CONTEXT" -n "$NS" --request-timeout="${CALL_TIMEOUT_SECS}s" "$@"; }
-# kw runs the kubectl waits, which watch and carry their own --timeout.
-kw() { kubectl --context "$CONTEXT" -n "$NS" "$@"; }
+ks() { kubectl --context "$CONTEXT" -n "$SYSTEM_NS" --request-timeout="${CALL_TIMEOUT_SECS}s" "$@"; }
 
 api() {
   local method=$1 path=$2
@@ -69,16 +69,30 @@ run_idle() {
 
 pod_ready() { [[ $(k get pod "$1" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null) == True ]]; }
 pod_terminating() { [[ -n $(k get pod "$1" -o jsonpath='{.metadata.deletionTimestamp}' 2>/dev/null) ]]; }
-pod_uid() { k get pod "$1" -o jsonpath='{.metadata.uid}' 2>/dev/null; }
+pod_template() { k get pod "$1" -o jsonpath='{.metadata.annotations.runkora\.io/pool-template}'; }
+pool_template() { k get deployment session-manager-pool -o jsonpath='{.spec.template.metadata.annotations.runkora\.io/pool-template}'; }
+# live_pods prints the agent's bound pods that are not terminating.
+live_pods() {
+  k get pods -l "app=$slug" -o jsonpath='{range .items[*]}{.metadata.name} {.metadata.deletionTimestamp}{"\n"}{end}' | awk 'NF == 1 {print $1}'
+}
+one_live_ready_pod() { [[ $(live_pods | wc -l | tr -d ' ') == 1 ]] && pod_ready "$(live_pods)"; }
 
-agent="" slug="" pods_pid="" sts_pid="" pods_log="" sts_log=""
+restart_agents() {
+  ks delete pod -l app=kora-agents --wait=false >/dev/null
+  ks rollout status deployment/kora-agents --timeout="${TIMEOUT_SECS}s" >/dev/null
+}
+
+agent="" slug="" pods_pid="" pods_log="" patched=""
 runs=()
 cleanup() {
   [[ -n $pods_pid ]] && kill "$pods_pid" 2>/dev/null || true
-  [[ -n $sts_pid ]] && kill "$sts_pid" 2>/dev/null || true
   for run in ${runs[@]+"${runs[@]}"}; do api DELETE "/api/v1/runs/$run" >/dev/null 2>&1 || true; done
   [[ -n $agent ]] && api DELETE "/api/v1/agent-types/$agent" >/dev/null 2>&1 || true
-  rm -f "$pods_log" "$sts_log"
+  if [[ -n $patched ]]; then
+    ks patch configmap "$PATCHES" --type=json -p "[{\"op\": \"remove\", \"path\": \"/data/${PATCH_KEY}\"}]" >/dev/null 2>&1 || true
+    restart_agents || true
+  fi
+  rm -f "$pods_log"
 }
 trap cleanup EXIT
 
@@ -87,105 +101,87 @@ start_run() {
 }
 
 echo "== Setup"
-slug="surge-check-$(date +%s)"
+slug="roll-check-$(date +%s)"
 provider=${MODEL%%/*} name=${MODEL#*/}
 agent=$(api POST /api/v1/agent-types -d "$(jq -n --arg slug "$slug" --arg model "$MODEL" \
   --arg scope "inference:${provider}:${name}:use" \
   '{name: $slug, slug: $slug, framework: "claude-code", model_id: $model, system_prompt: "Answer in one word.",
     identity_mode: "autonomous", grant_scopes: ["inference:invoke", $scope], connectivity: {mode: "none"}}')" | jq -r .id)
-kw wait --for=create "statefulset/$slug" --timeout=180s >/dev/null
-kw rollout status "statefulset/$slug" --timeout=300s >/dev/null
-[[ $(k get statefulset "$slug" -o jsonpath='{.spec.replicas}') == 1 ]] || fail "agent $slug did not start at 1 pod"
-# The apply renders no such variable. The next apply changes the pod template back.
-k set env "statefulset/$slug" -c session-manager KORA_SURGE_CHECK=1 >/dev/null
-kw rollout status "statefulset/$slug" --timeout=300s >/dev/null
-old_uid=$(pod_uid "$slug-0")
-old_revision=$(k get statefulset "$slug" -o jsonpath='{.status.updateRevision}')
-echo "agent $slug is up with 1 pod ($slug-0, revision $old_revision)"
+wait_for "agent $slug to have 1 Ready bound pod" one_live_ready_pod
+old_pod=$(live_pods)
+old_template=$(pod_template "$old_pod")
+[[ $old_template == "$(pool_template)" ]] || fail "$old_pod is not on the pool's current template"
+echo "agent $slug is up with 1 pod ($old_pod, template $old_template)"
 
 old_run=$(start_run)
 runs+=("$old_run")
 wait_for "the first run to finish its turn" run_idle "$old_run"
-[[ $(run_field "$old_run" pod_ordinal) == 0 ]] || fail "the first run is not on $slug-0"
-echo "run $old_run is idle on $slug-0"
+[[ $(run_field "$old_run" pod_name) == "$old_pod" ]] || fail "the first run is not on $old_pod"
+echo "run $old_run is idle on $old_pod"
 
-# Each watch line is one write: the StatefulSet's spec, and each pod's readiness and deletion.
-sts_log=$(mktemp) pods_log=$(mktemp)
-kubectl --context "$CONTEXT" -n "$NS" get statefulset "$slug" --watch -o jsonpath='{.metadata.generation} {.spec.replicas} {.spec.updateStrategy.rollingUpdate.partition}{"\n"}' >"$sts_log" 2>/dev/null &
-sts_pid=$!
-kubectl --context "$CONTEXT" -n "$NS" get pods -l "app=$slug" --watch \
-  -o jsonpath='{.metadata.name} {.metadata.uid} {.status.conditions[?(@.type=="Ready")].status} {.metadata.deletionTimestamp}{"\n"}' >"$pods_log" 2>/dev/null &
+# Each watch line is one pod event: its type, name, readiness and deletion.
+pods_log=$(mktemp)
+kubectl --context "$CONTEXT" -n "$NS" get pods -l "app=$slug" --watch --output-watch-events \
+  -o jsonpath='{.type} {.object.metadata.name} {.object.status.conditions[?(@.type=="Ready")].status} {.object.metadata.deletionTimestamp}{"\n"}' >"$pods_log" 2>/dev/null &
 pods_pid=$!
-wait_for "the watches to start" test -s "$sts_log" -a -s "$pods_log"
+wait_for "the pod watch to start" test -s "$pods_log"
 
 echo "== Roll"
-kubectl --context "$CONTEXT" -n "$SYSTEM_NS" --request-timeout="${CALL_TIMEOUT_SECS}s" delete pod -l app=kora-agents --wait=false >/dev/null
-echo "restarted kora-agents; its apply at startup changes the pod template of $slug"
-revision_changed() { [[ $(k get statefulset "$slug" -o jsonpath='{.status.updateRevision}') != "$old_revision" ]]; }
-wait_for "the apply to change the pod template" revision_changed
-# The first event is the state before the roll. Each later event is one write.
-read -r gen from to pfrom pto < <(awk 'NR == 1 {g = $1; r = $2; p = $3 + 0} NR > 1 && $2 != r {print $1 - g, r, $2, p, $3 + 0; exit}' "$sts_log") ||
-  fail "no write raised the replicas"
-(( gen == 1 && from == 1 && to == 2 && pfrom == 0 && pto == 1 )) ||
-  fail "the replicas went $from to $to and the partition $pfrom to $pto in $gen writes, want 1 to 2 and 0 to 1 in one"
-echo "PASS 1: one write raised the replicas from 1 to 2 and set the partition to 1"
+patch=$(printf 'target: {kind: StatefulSet}\npatch: |\n  - {op: add, path: /spec/template/metadata/annotations/runkora.io~1roll-check, value: "%s"}\n' "$(date +%s)")
+ks patch configmap "$PATCHES" --type=merge -p "$(jq -n --arg k "$PATCH_KEY" --arg v "$patch" '{data: {($k): $v}}')" >/dev/null
+patched=1
+restart_agents
+echo "added a template annotation and restarted kora-agents; its apply at startup rolls the pool"
+template_changed() { [[ $(pool_template) != "$old_template" ]]; }
+wait_for "the apply to change the pool template" template_changed
+new_template=$(pool_template)
 
-wait_for "$slug-0 to start terminating" pod_terminating "$slug-0"
-ready_line=$(awk -v p="$slug-1" '$1 == p && $3 == "True" {print NR; exit}' "$pods_log")
-term_line=$(awk -v p="$slug-0" -v u="$old_uid" '$1 == p && $2 == u && NF >= 4 {print NR; exit}' "$pods_log")
-[[ -n $ready_line && -n $term_line ]] || fail "the pod watch has no Ready $slug-1 or terminating $slug-0"
-(( ready_line < term_line )) || fail "$slug-0 started terminating before $slug-1 was Ready"
-echo "PASS 2: $slug-1 was Ready before $slug-0 started terminating"
+wait_for "$old_pod to start terminating" pod_terminating "$old_pod"
+new_pod=$(live_pods)
+[[ -n $new_pod && $(pod_template "$new_pod") == "$new_template" ]] || fail "no bound pod on the new template $new_template"
+ready_line=$(awk -v p="$new_pod" '$2 == p && $3 == "True" {print NR; exit}' "$pods_log")
+term_line=$(awk -v p="$old_pod" '$2 == p && NF >= 4 {print NR; exit}' "$pods_log")
+[[ -n $ready_line && -n $term_line ]] || fail "the pod watch has no Ready $new_pod or terminating $old_pod"
+(( ready_line < term_line )) || fail "$old_pod started terminating before $new_pod was Ready"
+echo "PASS 1: $new_pod on the new template was Ready before $old_pod started terminating"
 
 new_run=$(start_run)
 runs+=("$new_run")
 wait_for "the run started during the roll to finish its turn" run_idle "$new_run"
-[[ $(run_field "$new_run" pod_ordinal) == 1 ]] || fail "the run started during the roll is not on $slug-1"
-pod_terminating "$slug-0" && [[ $(pod_uid "$slug-0") == "$old_uid" ]] || fail "$slug-0 stopped draining before the check"
-echo "PASS 3: run $new_run started while $slug-0 drained, landed on $slug-1 and finished its turn"
+[[ $(run_field "$new_run" pod_name) == "$new_pod" ]] || fail "the run started during the roll is not on $new_pod"
+pod_terminating "$old_pod" || fail "$old_pod stopped draining before the check"
+echo "PASS 2: run $new_run started while $old_pod drained, landed on $new_pod and finished its turn"
 
 seq=$(last_seq "$old_run")
 api POST "/api/v1/runs/$old_run/messages" -d "$(jq -n --arg m "$PROMPT" '{content: $m}')" >/dev/null
 # The turn is done once the run has new events and is idle again.
 answered() { (( $(last_seq "$old_run" "$seq") > seq )) && run_idle "$old_run"; }
 wait_for "the run on the draining pod to finish a turn" answered
-pod_terminating "$slug-0" && [[ $(pod_uid "$slug-0") == "$old_uid" ]] || fail "$slug-0 stopped draining before the turn"
+pod_terminating "$old_pod" || fail "$old_pod stopped draining before the turn"
 api DELETE "/api/v1/runs/$old_run" >/dev/null
 run_ended() { [[ $(run_field "$old_run" state) != idle ]]; }
 wait_for "the old pod's run to end" run_ended
 state=$(run_field "$old_run" state)
 [[ $state == terminated ]] || fail "the old pod's run ended $state, want terminated"
-echo "PASS 4: run $old_run finished a turn on the draining $slug-0 and ended $state"
+echo "PASS 3: run $old_run finished a turn on the draining $old_pod and ended $state"
 
 echo "== Back to the floor"
-rolled() {
-  local current update
-  read -r current update < <(k get statefulset "$slug" -o jsonpath='{.status.currentRevision} {.status.updateRevision}{"\n"}')
-  [[ $current == "$update" ]]
-}
-wait_for "the roll to finish" rolled
 api DELETE "/api/v1/runs/$new_run" >/dev/null
-at_floor() {
-  [[ $(k get statefulset "$slug" -o jsonpath='{.spec.replicas}') == 1 && $(k get pods -l "app=$slug" -o name | wc -l | tr -d ' ') == 1 ]]
-}
-wait_for "the agent to return to 1 pod" at_floor
-if [[ $(pod_uid "$slug-0") == "$old_uid" ]] || ! pod_ready "$slug-0"; then fail "$slug-0 was not replaced on the new revision"; fi
-echo "PASS 5: the agent is back to 1 pod, $slug-0 on revision $(k get statefulset "$slug" -o jsonpath='{.status.updateRevision}')"
+old_pod_gone() { ! k get pod "$old_pod" >/dev/null 2>&1; }
+wait_for "$old_pod to exit" old_pod_gone
+wait_for "the agent to return to 1 pod" one_live_ready_pod
+[[ $(pod_template "$(live_pods)") == "$new_template" ]] || fail "the agent's pod is not on the new template"
+echo "PASS 4: the agent is back to 1 pod, $(live_pods) on template $new_template"
 
 echo "== Model change"
-# A model change restarts the pods through a template annotation, and takes a surge pod the same way.
-before=$(wc -l <"$sts_log" | tr -d ' ')
+model_pod=$(live_pods)
 api PATCH "/api/v1/agent-types/$agent" -d "$(jq -n --arg m "$MODEL2" '{model_id: $m}')" >/dev/null
-surged() { [[ $(k get statefulset "$slug" -o jsonpath='{.spec.replicas}') == 2 ]]; }
-wait_for "the model change to add a surge pod" surged
-read -r gen from to pfrom pto < <(awk -v b="$before" 'NR == b {g = $1; r = $2; p = $3 + 0} NR > b && $2 != r {print $1 - g, r, $2, p, $3 + 0; exit}' "$sts_log") ||
-  fail "no write raised the replicas after the model change"
-(( gen == 1 && from == 1 && to == 2 && pfrom == 0 && pto == 1 )) ||
-  fail "the model change took the replicas $from to $to and the partition $pfrom to $pto in $gen writes, want 1 to 2 and 0 to 1 in one"
-wait_for "the agent to return to 1 pod after the model change" at_floor
-echo "PASS 6: the model change raised the replicas from 1 to 2 and set the partition to 1 in one write, and the agent is back to 1 pod"
+# An empty pod drains at once, so it can be gone before a poll sees it terminating.
+pod_leaving() { pod_terminating "$1" || ! k get pod "$1" >/dev/null 2>&1; }
+wait_for "the model change to drain $model_pod" pod_leaving "$model_pod"
+replaced() { one_live_ready_pod && [[ $(live_pods) != "$model_pod" ]]; }
+replaced || fail "$model_pod started terminating with no Ready replacement"
+echo "PASS 5: the model change bound $(live_pods) before it drained $model_pod"
 
-echo "StatefulSet writes (generation, replicas, partition):"
-sed 's/^/  /' "$sts_log"
-echo "pod events (name, uid, Ready, deletion):"
+echo "pod events (type, name, Ready, deletion):"
 sed 's/^/  /' "$pods_log"

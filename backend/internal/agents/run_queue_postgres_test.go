@@ -127,7 +127,7 @@ func TestPostgres_ReleaseRunClaim(t *testing.T) {
 	if got := claimOwn(t, r, tenant, claimedAt); !slices.Equal(runIDs(got), []string{id}) {
 		t.Fatalf("claimed %v, want %s", runIDs(got), id)
 	}
-	if err := r.AssignPod(ctx, id, claimedAt, 1); err != nil {
+	if err := r.AssignPod(ctx, id, claimedAt, "pool-b"); err != nil {
 		t.Fatalf("AssignPod: %v", err)
 	}
 	if err := r.ReleaseRunClaim(ctx, id, claimedAt.Add(time.Second), past); !errors.Is(err, ErrConflict) {
@@ -140,8 +140,8 @@ func TestPostgres_ReleaseRunClaim(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if run.State != RunStatePending || run.PodOrdinal != -1 || run.StartedAt != nil {
-		t.Fatalf("released run = state %s, pod %d, started %v", run.State, run.PodOrdinal, run.StartedAt)
+	if run.State != RunStatePending || run.PodName != "" || run.StartedAt != nil {
+		t.Fatalf("released run = state %s, pod %q, started %v", run.State, run.PodName, run.StartedAt)
 	}
 	if got := claimOwn(t, r, tenant, time.Now()); len(got) != 0 {
 		t.Fatalf("claimed a run before its not_before: %v", runIDs(got))
@@ -167,7 +167,7 @@ func TestPostgres_ReclaimStaleRunClaims(t *testing.T) {
 	stale := queueRun(t, r, tenant, at.ID, past, &past)
 	starting := queueRun(t, r, tenant, at.ID, past, &past)
 	claimOwn(t, r, tenant, past)
-	if err := r.AssignPod(ctx, starting, past, 0); err != nil {
+	if err := r.AssignPod(ctx, starting, past, "pool-a"); err != nil {
 		t.Fatalf("AssignPod: %v", err)
 	}
 	fresh := queueRun(t, r, tenant, at.ID, past, &past)
@@ -220,10 +220,10 @@ func TestPostgres_AssignPodFencedByClaim(t *testing.T) {
 	second := time.Now()
 	claimOwn(t, r, tenant, second)
 
-	if err := r.AssignPod(ctx, id, past, 0); !errors.Is(err, ErrConflict) {
+	if err := r.AssignPod(ctx, id, past, "pool-a"); !errors.Is(err, ErrConflict) {
 		t.Fatalf("assign under the stale claim: err = %v, want ErrConflict", err)
 	}
-	if err := r.AssignPod(ctx, id, second, 0); err != nil {
+	if err := r.AssignPod(ctx, id, second, "pool-a"); err != nil {
 		t.Fatalf("assign under the current claim: %v", err)
 	}
 }
@@ -284,10 +284,10 @@ func TestPostgres_RunTraceParent(t *testing.T) {
 	}
 }
 
-// setRunState moves a run to state on pod, bypassing the state machine.
-func setRunState(t *testing.T, r *PostgresRepository, id string, state RunState, pod int) {
+// setRunState sets the run's state and pod. An empty pod leaves the run with none.
+func setRunState(t *testing.T, r *PostgresRepository, id string, state RunState, pod string) {
 	t.Helper()
-	if _, err := r.pool.Exec(context.Background(), `UPDATE runs SET state=$2, pod_ordinal=$3 WHERE id=$1`, id, string(state), pod); err != nil {
+	if _, err := r.pool.Exec(context.Background(), `UPDATE runs SET state=$2, pod_name=NULLIF($3, '') WHERE id=$1`, id, string(state), pod); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -300,20 +300,20 @@ func TestPostgres_AgentRunCounts(t *testing.T) {
 
 	for _, s := range []struct {
 		state RunState
-		pod   int
+		pod   string
 	}{
-		{RunStatePending, -1}, {RunStatePending, -1},
-		{RunStateStarting, 1}, {RunStateStarting, 1}, {RunStateStarting, 0},
-		{RunStateActive, 0}, {RunStateIdle, 1}, {RunStateCompleting, 0},
-		{RunStateCompleted, 0}, {RunStateFailed, 1}, {RunStateTerminated, 0},
+		{RunStatePending, ""}, {RunStatePending, ""},
+		{RunStateStarting, "pool-1"}, {RunStateStarting, "pool-1"}, {RunStateStarting, "pool-0"},
+		{RunStateActive, "pool-0"}, {RunStateIdle, "pool-1"}, {RunStateCompleting, "pool-0"},
+		{RunStateCompleted, "pool-0"}, {RunStateFailed, "pool-1"}, {RunStateTerminated, "pool-0"},
 	} {
 		setRunState(t, r, queueRun(t, r, tenant, at.ID, past, &past), s.state, s.pod)
 	}
 
 	// Another agent's runs do not count.
 	otherAgent := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
-	setRunState(t, r, queueRun(t, r, tenant, otherAgent.ID, past, &past), RunStateStarting, 1)
-	setRunState(t, r, queueRun(t, r, tenant, otherAgent.ID, past, &past), RunStateActive, 0)
+	setRunState(t, r, queueRun(t, r, tenant, otherAgent.ID, past, &past), RunStateStarting, "pool-1")
+	setRunState(t, r, queueRun(t, r, tenant, otherAgent.ID, past, &past), RunStateActive, "pool-0")
 
 	counts, err := r.AgentRunCounts(ctx, at.ID)
 	if err != nil {
@@ -326,16 +326,16 @@ func TestPostgres_AgentRunCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartingRunsPerPod: %v", err)
 	}
-	if starting[0] != 1 || starting[1] != 2 || len(starting) != 2 {
-		t.Errorf("starting per pod = %v, want map[0:1 1:2]", starting)
+	if starting["pool-0"] != 1 || starting["pool-1"] != 2 || len(starting) != 2 {
+		t.Errorf("starting per pod = %v, want map[pool-0:1 pool-1:2]", starting)
 	}
 
 	// A live run assigned after the cutoff counts as starting; an ended one does not.
 	cutoff := time.Now().UTC().Add(-10 * time.Second)
 	for _, s := range []struct {
 		state RunState
-		pod   int
-	}{{RunStateActive, 0}, {RunStateIdle, 2}, {RunStateCompleted, 2}} {
+		pod   string
+	}{{RunStateActive, "pool-0"}, {RunStateIdle, "pool-2"}, {RunStateCompleted, "pool-2"}} {
 		id := queueRun(t, r, tenant, at.ID, past, &past)
 		setRunState(t, r, id, s.state, s.pod)
 		if _, err := r.pool.Exec(ctx, `UPDATE runs SET started_at=now() WHERE id=$1`, id); err != nil {
@@ -346,8 +346,8 @@ func TestPostgres_AgentRunCounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartingRunsPerPod: %v", err)
 	}
-	if starting[0] != 2 || starting[1] != 2 || starting[2] != 1 || len(starting) != 3 {
-		t.Errorf("starting per pod with recent runs = %v, want map[0:2 1:2 2:1]", starting)
+	if starting["pool-0"] != 2 || starting["pool-1"] != 2 || starting["pool-2"] != 1 || len(starting) != 3 {
+		t.Errorf("starting per pod with recent runs = %v, want map[pool-0:2 pool-1:2 pool-2:1]", starting)
 	}
 }
 
@@ -361,8 +361,8 @@ func TestPostgres_ClaimHoldsAgentTotal(t *testing.T) {
 		t.Fatal(err)
 	}
 	idle := queueRun(t, r, tenant, at.ID, past, &past)
-	setRunState(t, r, idle, RunStateIdle, 0)
-	setRunState(t, r, queueRun(t, r, tenant, at.ID, past, &past), RunStateStarting, 1)
+	setRunState(t, r, idle, RunStateIdle, "pool-0")
+	setRunState(t, r, queueRun(t, r, tenant, at.ID, past, &past), RunStateStarting, "pool-1")
 	waiting := queueRun(t, r, tenant, at.ID, past, &past)
 	// Another agent at its own total does not hold this agent back, nor this agent it.
 	otherAgent := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
@@ -371,7 +371,7 @@ func TestPostgres_ClaimHoldsAgentTotal(t *testing.T) {
 	if got := claimOwn(t, r, tenant, time.Now()); !slices.Equal(runIDs(got), []string{otherWaiting}) {
 		t.Fatalf("claimed %v with the agent at its total, want only the other agent's [%s]", runIDs(got), otherWaiting)
 	}
-	setRunState(t, r, idle, RunStateCompleted, 0)
+	setRunState(t, r, idle, RunStateCompleted, "pool-0")
 	if got := claimOwn(t, r, tenant, time.Now()); !slices.Equal(runIDs(got), []string{waiting}) {
 		t.Errorf("claimed %v after a slot freed, want [%s]", runIDs(got), waiting)
 	}
@@ -495,12 +495,52 @@ func TestPostgres_BudgetExhaustedStampsCompletedAt(t *testing.T) {
 	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
 	ctx := context.Background()
 	id := queueRun(t, r, tenant, at.ID, time.Now().UTC(), nil)
-	setRunState(t, r, id, RunStateActive, 0)
+	setRunState(t, r, id, RunStateActive, "pool-0")
 	if err := r.SetRunState(ctx, id, RunStateActive, RunStateBudgetExhausted); err != nil {
 		t.Fatal(err)
 	}
 	got, err := r.LastRunCompletedAt(ctx, at.ID)
 	if err != nil || got.IsZero() {
 		t.Errorf("LastRunCompletedAt after budget_exhausted = %v, %v; want a time", got, err)
+	}
+}
+
+// A live run an earlier release placed on an agent StatefulSet pod has a pod ordinal and no pod name. It is
+// listed for the cutover and counts toward the agent's total, and no pool pod counts it.
+func TestPostgres_StatefulSetRuns(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+	past := time.Now().UTC().Add(-time.Hour)
+	legacy := queueRun(t, r, tenant, at.ID, past, &past)
+	setRunState(t, r, legacy, RunStateIdle, "")
+	ended := queueRun(t, r, tenant, at.ID, past, &past)
+	setRunState(t, r, ended, RunStateCompleted, "")
+	pooled := queueRun(t, r, tenant, at.ID, past, &past)
+	setRunState(t, r, pooled, RunStateActive, "pool-0")
+	if _, err := r.pool.Exec(ctx, `UPDATE runs SET pod_ordinal = 2 WHERE id = ANY($1)`, []string{legacy, ended}); err != nil {
+		t.Fatal(err)
+	}
+
+	runs, err := r.ListStatefulSetRuns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := runIDs(runs); !slices.Contains(got, legacy) || slices.Contains(got, ended) || slices.Contains(got, pooled) {
+		t.Errorf("StatefulSet runs = %v, want %s and not %s or %s", got, legacy, ended, pooled)
+	}
+	occupied, err := r.ActiveRunsPerPod(ctx, at.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(occupied) != 1 || occupied["pool-0"] != 1 {
+		t.Errorf("runs per pod = %v, want map[pool-0:1]", occupied)
+	}
+	counts, err := r.AgentRunCounts(ctx, at.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Active != 2 {
+		t.Errorf("active runs = %d, want 2 with the StatefulSet run counted toward the total", counts.Active)
 	}
 }

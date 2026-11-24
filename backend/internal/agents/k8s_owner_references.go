@@ -2,8 +2,10 @@ package agents
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -27,30 +29,38 @@ const (
 )
 
 // tenantOwnerRef fetches the cluster-scoped KoraTenant named tenantID and
-// returns a controller OwnerReference for it. Returns the zero value with a
-// nil error when the tenant cannot be reached (missing CRD, missing CR,
-// permission denied) — callers must treat an empty ref as "skip ownership"
-// and proceed unowned. Local development without the operator installed
-// remains supported.
+// returns a controller OwnerReference for it. Returns the zero value when the
+// tenant cannot be reached (missing CRD, missing CR, permission denied, or a
+// failed read) — callers must treat an empty ref as "skip ownership" and
+// proceed unowned. Local development without the operator installed remains
+// supported.
 func (p *K8sProvisioner) tenantOwnerRef(ctx context.Context, tenantID string) metav1.OwnerReference {
+	ref, err := p.lookupTenantOwnerRef(ctx, tenantID)
+	if err != nil {
+		p.logger.Warn(ctx, "fetch KoraTenant for owner reference failed",
+			logging.Field{Key: "tenant_id", Value: tenantID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+	}
+	return ref
+}
+
+// lookupTenantOwnerRef is tenantOwnerRef with the failed read returned. A missing CRD, a missing CR or a
+// refused read returns the zero value and no error.
+func (p *K8sProvisioner) lookupTenantOwnerRef(ctx context.Context, tenantID string) (metav1.OwnerReference, error) {
 	if tenantID == "" {
-		return metav1.OwnerReference{}
+		return metav1.OwnerReference{}, nil
 	}
 	obj, err := p.dynamicClient.Resource(koraTenantGVR).Get(ctx, tenantID, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) || isNoKindMatchError(err) {
+		p.logger.Warn(ctx, "KoraTenant unavailable, provisioning without owner reference",
+			logging.Field{Key: "tenant_id", Value: tenantID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return metav1.OwnerReference{}, nil
+	}
 	if err != nil {
-		degraded := apierrors.IsNotFound(err) || apierrors.IsForbidden(err) || isNoKindMatchError(err)
-		if degraded {
-			p.logger.Warn(ctx, "KoraTenant unavailable, provisioning without owner reference",
-				logging.Field{Key: "tenant_id", Value: tenantID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		} else {
-			p.logger.Warn(ctx, "fetch KoraTenant for owner reference failed",
-				logging.Field{Key: "tenant_id", Value: tenantID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
-		return metav1.OwnerReference{}
+		return metav1.OwnerReference{}, fmt.Errorf("get KoraTenant %s: %w", tenantID, err)
 	}
 	yes := true
 	return metav1.OwnerReference{
@@ -60,7 +70,7 @@ func (p *K8sProvisioner) tenantOwnerRef(ctx context.Context, tenantID string) me
 		UID:                obj.GetUID(),
 		Controller:         &yes,
 		BlockOwnerDeletion: &yes,
-	}
+	}, nil
 }
 
 // applyOwnerRef merges ref into meta.OwnerReferences, replacing any existing
@@ -131,32 +141,16 @@ func setUnstructuredOwnerRef(metadata map[string]any, ref metav1.OwnerReference)
 	metadata["ownerReferences"] = append(existing, entry)
 }
 
-// statefulSetOwnerRef fetches the agent StatefulSet named slug in namespace
-// and returns a non-controller OwnerReference for it. Returns the zero value
-// when the StatefulSet cannot be fetched — sandbox creation must never fail
-// on the ownerRef lookup alone. Non-controller (`Controller=false,
-// BlockOwnerDeletion=false`) because the StatefulSet's own controller field
-// belongs to the StatefulSet controller; we participate only in garbage
-// collection.
-func (p *K8sProvisioner) statefulSetOwnerRef(ctx context.Context, slug, namespace string) metav1.OwnerReference {
-	if slug == "" {
-		return metav1.OwnerReference{}
-	}
-	ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
-	if err != nil {
-		p.logger.Warn(ctx, "fetch parent StatefulSet for sandbox owner reference failed",
-			logging.Field{Key: "namespace", Value: namespace},
-			logging.Field{Key: "slug", Value: slug},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		return metav1.OwnerReference{}
-	}
+// podOwnerRef is a non-controller OwnerReference for pod. Non-controller
+// (`Controller=false, BlockOwnerDeletion=false`) because the owned object's
+// controller is kora-agents; the reference only takes part in garbage collection.
+func podOwnerRef(pod *corev1.Pod) metav1.OwnerReference {
 	no := false
 	return metav1.OwnerReference{
-		APIVersion:         "apps/v1",
-		Kind:               "StatefulSet",
-		Name:               ss.GetName(),
-		UID:                ss.GetUID(),
+		APIVersion:         "v1",
+		Kind:               "Pod",
+		Name:               pod.Name,
+		UID:                pod.UID,
 		Controller:         &no,
 		BlockOwnerDeletion: &no,
 	}

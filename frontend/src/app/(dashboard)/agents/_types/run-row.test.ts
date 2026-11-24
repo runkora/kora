@@ -7,7 +7,7 @@ const run: RunWithAttribution = {
   tenant_id: 't-1',
   agent_type_id: 'at-1',
   state: 'completed',
-  pod_ordinal: 0,
+  pod_name: 'session-manager-pool-0',
   created_by: 'alice',
   started_at: null,
   completed_at: null,

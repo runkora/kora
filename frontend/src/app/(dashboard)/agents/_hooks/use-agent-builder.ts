@@ -176,8 +176,8 @@ type DraftPayload = Partial<CreateAgentTypeRequest> & { _builder?: { step?: numb
 
 /**
  * The API's agent slug rule. The slug names the agent's Kubernetes Service, so
- * it is a DNS-1035 label, and it stops at 52 characters so the StatefulSet's
- * revision label fits in 63.
+ * it is a DNS-1035 label. It stops at 52 characters, the API's limit
+ * (maxAgentSlugLength in backend/internal/agents/agent_type_service.go).
  */
 export const AGENT_SLUG_RULE =
   'Use lowercase letters, digits and hyphens. Start with a letter, end with a letter or digit, and keep it to 52 characters or fewer.';

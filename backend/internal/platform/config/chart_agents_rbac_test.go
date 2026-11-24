@@ -31,10 +31,9 @@ func agentsClusterRoleVerbs(t *testing.T, group, resource string) []string {
 	return verbs
 }
 
-// kora-agents gets, creates and deletes run pods, lists a StatefulSet's
-// pods to find the Ready ones before a run starts (internal/agents/k8s.go),
-// watches them into the scaler's cache, and will patch a pool pod's labels to
-// bind it (docs/adr/2026-11-22-agent-cold-tier.md, PR 6).
+// kora-agents creates sandbox pods, watches the bound and pool pods into its
+// caches, patches a pool pod's labels to bind it and deletes a bound pod to
+// drain it (docs/adr/2026-11-22-agent-cold-tier.md).
 func TestChartAgentsClusterRoleGrantsPodVerbs(t *testing.T) {
 	verbs := agentsClusterRoleVerbs(t, "", "pods")
 	for _, want := range []string{"get", "list", "watch", "create", "delete", "patch"} {
@@ -44,23 +43,18 @@ func TestChartAgentsClusterRoleGrantsPodVerbs(t *testing.T) {
 	}
 }
 
-// The scaler sets replicas through the scale subresource, and apply only deletes an earlier release's HPA.
-func TestChartAgentsClusterRoleScaleAndStaleHPA(t *testing.T) {
-	if got := agentsClusterRoleVerbs(t, "apps", "statefulsets/scale"); !slices.Equal(got, []string{"get", "update"}) {
-		t.Errorf("statefulsets/scale verbs = %v, want [get update]", got)
-	}
-	if got := agentsClusterRoleVerbs(t, "autoscaling", "horizontalpodautoscalers"); !slices.Equal(got, []string{"delete", "get"}) {
-		t.Errorf("horizontalpodautoscalers verbs = %v, want [delete get]", got)
-	}
-}
-
-// The scaler's cache lists and watches agent StatefulSets (internal/agents/workload_cache.go).
-func TestChartAgentsClusterRoleWatchesStatefulSets(t *testing.T) {
-	verbs := agentsClusterRoleVerbs(t, "apps", "statefulsets")
-	for _, want := range []string{"list", "watch"} {
-		if !slices.Contains(verbs, want) {
-			t.Errorf("kora-agents ClusterRole statefulset verbs = %v, missing %q", verbs, want)
+// kora-agents only deletes what an earlier release created for each agent: its StatefulSet, HPA and
+// PodDisruptionBudget (docs/adr/2026-11-22-agent-cold-tier.md).
+func TestChartAgentsClusterRoleRetiresStatefulSets(t *testing.T) {
+	for _, r := range []struct{ group, resource string }{
+		{"apps", "statefulsets"}, {"autoscaling", "horizontalpodautoscalers"}, {"policy", "poddisruptionbudgets"},
+	} {
+		if got := agentsClusterRoleVerbs(t, r.group, r.resource); !slices.Equal(got, []string{"delete"}) {
+			t.Errorf("%s verbs = %v, want [delete]", r.resource, got)
 		}
+	}
+	if got := agentsClusterRoleVerbs(t, "apps", "statefulsets/scale"); len(got) != 0 {
+		t.Errorf("statefulsets/scale verbs = %v, want none", got)
 	}
 }
 
@@ -87,10 +81,14 @@ func TestChartMinReplicasBounds(t *testing.T) {
 	}
 }
 
-// kora-agents reconciles each tenant's pool Deployment (docs/adr/2026-11-22-agent-cold-tier.md).
+// kora-agents reconciles each tenant's pool Deployment, watches it for its current template, and reads a
+// pool pod's ReplicaSet before the bind (docs/adr/2026-11-22-agent-cold-tier.md).
 func TestChartAgentsClusterRolePoolDeployments(t *testing.T) {
-	if got := agentsClusterRoleVerbs(t, "apps", "deployments"); !slices.Equal(got, []string{"create", "get", "update"}) {
-		t.Errorf("deployments verbs = %v, want [create get update]", got)
+	if got := agentsClusterRoleVerbs(t, "apps", "deployments"); !slices.Equal(got, []string{"create", "get", "list", "update", "watch"}) {
+		t.Errorf("deployments verbs = %v, want [create get list update watch]", got)
+	}
+	if got := agentsClusterRoleVerbs(t, "apps", "replicasets"); !slices.Equal(got, []string{"get"}) {
+		t.Errorf("replicasets verbs = %v, want [get]", got)
 	}
 }
 

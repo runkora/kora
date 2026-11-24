@@ -491,7 +491,7 @@ REDEPLOY_TENANT_SERVICES := example
 
 # Services with a long-lived kora-system workload that `cluster-update` rolls
 # after the build pass. Excludes identity-proxy (sidecar), sandbox-base
-# (on-demand), session-manager (tenant StatefulSet, may not exist yet) and
+# (on-demand), session-manager (tenant pool and agent pods, may not exist yet) and
 # operator (helm-managed — upgraded separately so chart/CRD changes land).
 REDEPLOY_ROLLOUT_SERVICES := \
 	identity inference-gateway policy-service policy-gateway egress-gateway \
@@ -843,7 +843,6 @@ cluster-bedrock-creds: ## Register Bedrock InferenceProviders from your AWS SSO 
 
 REDEPLOY_FLAGS := \
 	$(if $(TENANT),--tenant $(TENANT)) \
-	$(if $(SLUG),--slug $(SLUG)) \
 	$(if $(BUILD_ONLY),--build-only) \
 	$(if $(NO_BUILD),--no-build)
 
@@ -921,7 +920,7 @@ redeploy-example: ## Redeploy the example tenant workload (default tenant=exampl
 	@bash scripts/cluster/redeploy.sh example $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-session-manager
-redeploy-session-manager: ## Redeploy session-manager (statefulset, default tenant=example, override with TENANT=… SLUG=…)
+redeploy-session-manager: ## Redeploy session-manager (replaces the tenant's pool and agent pods, default tenant=example, override with TENANT=…)
 	@bash scripts/cluster/redeploy.sh session-manager $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-sandbox-mount
@@ -971,15 +970,15 @@ test-integration: auth-refresh-k3d ## Live-cluster authz tests. Needs a full k3d
 		exit $$STATUS
 
 .PHONY: test-agent-scaling
-test-agent-scaling: auth-refresh-k3d ## Live-cluster agent scaling check: the Parallel switch, a one-step scale-up for 31 runs over a total of 30, and scale-down to the floor. Not run by CI or `make check`.
+test-agent-scaling: auth-refresh-k3d ## Live-cluster agent scaling check: one scaler pass binds several pool pods for 31 runs over a total of 30, and the agent scales down to the floor one pod per pass. Not run by CI or `make check`.
 	@bash scripts/cluster/test-agent-scaling.sh
 
 .PHONY: test-agent-surge-rollout
-test-agent-surge-rollout: auth-refresh-k3d ## Live-cluster surge rollout check: a template change on a 1-pod agent adds a Ready pod before the old pod drains, and the agent returns to 1 pod. Restarts kora-agents. Not run by CI or `make check`.
+test-agent-surge-rollout: auth-refresh-k3d ## Live-cluster roll check: a pool template change binds a Ready pod on the new template before the old pod drains, and the agent returns to 1 pod. Adds a manifest patch and restarts kora-agents. Not run by CI or `make check`.
 	@bash scripts/cluster/test-agent-surge-rollout.sh
 
 .PHONY: test-agent-eviction
-test-agent-eviction: auth-refresh-k3d ## Live-cluster eviction check: evicting the only pod of a 1-pod agent adds a Ready pod while the old pod drains, and the agent returns to 1 pod. Not run by CI or `make check`.
+test-agent-eviction: auth-refresh-k3d ## Live-cluster eviction check: evicting the only pod of a 1-pod agent binds a Ready pool pod while the old pod drains, and the agent returns to 1 pod. Not run by CI or `make check`.
 	@bash scripts/cluster/test-agent-eviction.sh
 
 .PHONY: test-postgres

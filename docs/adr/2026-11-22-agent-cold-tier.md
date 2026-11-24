@@ -71,7 +71,7 @@ The spike files are in the orbit scratch folder `scale-to-zero/` (`findings.md`,
 *   **O3, every agent pod is a bound pool pod (chosen):** No agent has a StatefulSet. Each tenant runs one pool Deployment of session-manager pods with a pool identity. kora-agents binds a pool pod for a cold wake, for a scale-up, for a roll and for an evicted pod. A bound pod serves one agent until it is deleted.
     *   **Run scheduling:** A run records its pod name in place of `pod_ordinal`. Placement takes the oldest pod with room first. kora-agents reaches a pod by its IP from the informer cache with the agent Service as Host header (D2).
     *   **Scaler:** The scaler adds pods by binding pool pods and removes the newest empty pod. The floor is 0 for a cold agent. The informer cache of #1078 selects bound pods by `runkora.io/agent-type` and pool pods by `runkora.io/pool`.
-    *   **Surge and roll:** A template change rolls the pool Deployment. For each agent with pods on the old template, the scaler binds one pod on the new template and then deletes the old pods one at a time with the drain. `rollingUpdate.partition` goes away.
+    *   **Surge and roll:** A template change rolls the pool Deployment. For each agent with pods on the old template, the scaler binds pods on the new template until they are as many as the old pods, and then deletes the old pods one at a time with the drain once as many new pods pass the bound check. At `maxReplicas`, the scaler binds one pod past the ceiling and deletes an old pod once one new pod passes the bound check. `rollingUpdate.partition` goes away. A bind records a hash of the agent's framework and model in `runkora.io/agent-config`, and a pod bound with another hash rolls the same way.
     *   **Drain:** Deleting a pod starts the session-manager drain as today, up to `drainGracePeriodSecs`.
     *   **PDB:** The per-agent PDB is removed (D1b).
     *   **Eviction (#1074):** A terminating pod does not count toward the agent's pods. The next scaler pass binds a pool pod for its runs in about 2s.
@@ -100,16 +100,17 @@ The spike files are in the orbit scratch folder `scale-to-zero/` (`findings.md`,
 
 The pool ID will not be a principal. `token.PoolNamespace` in `backend/internal/platform/token/xfcc.go` parses it, and policy-service accepts it for its own tenant's bundle. `PrincipalFromSpiffeID` refuses it, and kora-identity and every other service build principals with that function.
 
-kora-agents will gain `patch` on pods. Two ValidatingAdmissionPolicies in the chart will hold rule 3 at admission:
+kora-agents will gain `patch` on pods. ValidatingAdmissionPolicies in the chart will hold rule 3 at admission:
 
-*   **Bind:** On a tenant pod, a change to `spiffe.io/agent` is allowed only from kora-agents, only when the old pod carries `runkora.io/pool` and no `spiffe.io/agent`, only to a non-empty value, only with `app` set to the same slug, and only together with the removal of `runkora.io/pool`. Any later change or removal of `spiffe.io/agent` is refused. `app` and `runkora.io/managed-agent` cannot change on a bound pod.
+*   **Bind:** On a tenant pod, a change to `spiffe.io/agent` is allowed only from kora-agents, only when the old pod carries `runkora.io/pool` and no `spiffe.io/agent`, only to a non-empty value, only with `app` set to the same slug, and only together with the removal of `runkora.io/pool`. Any later change or removal of `spiffe.io/agent` is refused, and no pod is created with it. `app`, `runkora.io/managed-agent` and `runkora.io/agent-type` cannot change on a bound pod.
 *   **Other identity labels:** `spiffe.io/service`, `spiffe.io/component`, `runkora.io/role`, `runkora.io/agent-slug` and `runkora.io/run-id` cannot change on an existing tenant pod.
 *   **Pool provenance:** Only the ReplicaSet controller creates a pod with `runkora.io/pool`. The pod must run as the pool ServiceAccount, carry no agent label, and have a controller owner reference to `session-manager-pool-<pod-template-hash>`. No update adds the label to an existing pod. Only kora-agents writes a Deployment with a pool name or a pool pod template, and only the Deployment controller writes a pool ReplicaSet for the `session-manager-pool` Deployment. Before it binds, kora-agents will check the owner ReplicaSet's UID and that its controller is the tenant's pool Deployment (PR 6).
 *   **Subresources:** The rules cover pod subresources such as `pods/status`.
-*   **kora-agents pod updates:** A kora-agents pod update is allowed only on a pool pod in a tenant namespace. It may change only the bind labels (`spiffe.io/agent`, `runkora.io/pool`, `app`, `runkora.io/agent-type`) and the owner references, and leaves the spec, the annotations and the finalizers unchanged. The bind's in-place grow (W1) goes through `pods/resize`. A later change grants that verb.
+*   **kora-agents pod updates:** A kora-agents pod update is allowed only on a pool pod in a tenant namespace. It may change only the bind labels (`spiffe.io/agent`, `runkora.io/pool`, `app`, `runkora.io/agent-type`, `runkora.io/agent-config`) and the owner references, and leaves the spec, the annotations and the finalizers unchanged. The bind's in-place grow (W1) goes through `pods/resize`, on which kora-agents holds `patch`.
 *   **kora-agents Deployments:** kora-agents writes only the `session-manager-pool` Deployment, and only in a tenant namespace.
+*   **kora-agents deletes:** kora-agents deletes StatefulSets, HPAs, PodDisruptionBudgets and PersistentVolumeClaims only in a tenant namespace. Its only such deletes are of an agent StatefulSet an earlier release created and of that StatefulSet's objects.
 
-A pod created with `spiffe.io/agent` already set gets that agent's SVID. Today the StatefulSet controller creates agent pods this way, and kora-agents can create pods with any labels. A CREATE rule for `spiffe.io/agent` is not part of this decision. After the O3 cutover no workload creates a pod with the label, and a rule that refuses it on CREATE would close the gap. It is the same gap as the one left by the kora-identity fix for agents with no record: a pod labelled with a live agent's slug gets that agent's token.
+A pod created with `spiffe.io/agent` already set would get that agent's SVID, and kora-agents can create pods with any labels. After the O3 cutover no workload creates a pod with the label, so the bind policy refuses a CREATE that sets it. Until kora-agents retires an agent's StatefulSet at startup, the policy also refuses the StatefulSet controller's recreate of a lost agent pod. This also closes the gap left by the kora-identity fix for agents with no record, where a pod labelled with a live agent's slug would get that agent's token.
 
 The policies and the SPIRE entries select tenant namespaces by the same `runkora.io/role: tenant` label. A principal that can change that namespace label can step around both. Only the operator and cluster admins hold namespace patch.
 
@@ -140,16 +141,18 @@ The session-manager readiness probe will run at once and every second with a 2s 
 
 At 20x a synchronised fire of 120 runs across 20 tenants binds 40 pool pods at once under S1 alone. The other 80 runs wait for new pool pods and for nodes. S2 moves those binds ahead of the fire.
 
-*   **W1, pool pods at warm size (chosen):** A pool pod starts at the warm session-manager size, and the bind grows it in place to full size. The grow took 0.24s to 0.63s in the spike and runs beside the SVID swap. The grow uses the warm tier's node reserve. A grow that stays Deferred falls back to the next pool pod. The trade-off is a fallback on full nodes.
+*   **W1, pool pods at warm size (chosen):** A pool pod starts at the warm session-manager size, and the bind grows it in place to full size. The grow took 0.24s to 0.63s in the spike and runs beside the SVID swap. The grow uses the warm tier's node reserve. A grow that stays Deferred will fall back to the next pool pod. The fallback lands in PR 7, and in PR 6 a Deferred grow unbinds nothing. The trade-off is a fallback on full nodes.
 *   **W2, pool pods at full size (rejected):** 40 pool pods would reserve 50Gi with no run.
 
 The wake path will be:
 
 1.  The run worker claims the pending run and finds no pod with room for a cold agent.
-2.  Under the agent lock, kora-agents patches one Ready pool pod in one write: it removes `runkora.io/pool` and the ReplicaSet labels, and sets `spiffe.io/agent`, `app`, `runkora.io/agent-type` and an owner reference to the KoraTenant. A resource version precondition makes two replicas binding the same pod fail one of them.
+2.  Under the agent lock, kora-agents patches one Ready pool pod in one write: it removes `runkora.io/pool`, sets `spiffe.io/agent`, `app`, `runkora.io/agent-type` and `runkora.io/agent-config`, and replaces the ReplicaSet owner reference with an owner reference to the KoraTenant. The pod keeps `pod-template-hash`. A resource version precondition makes two replicas binding the same pod fail one of them.
 3.  kora-agents grows the session-manager through the resize subresource.
 4.  kora-agents emits a "waking agent" run event.
 5.  kora-agents polls `GET /health/bound` through the A1 path every 100ms and then creates the session.
+
+kora-agents selects an agent's bound pods by `app` and `runkora.io/agent-type`, so a pod bound to a deleted agent never counts for a new agent with the same slug. A bind re-reads the agent's state under the agent lock. Deleting an agent moves it to `deleting` and deletes its bound pods under the same lock, so no bind lands after the delete lists the pods.
 
 The mesh-level bind measured 1.0s to 2.0s to the first 200 on the spike cluster. The exchange and the session start were not measured on the bound path.
 
@@ -191,6 +194,7 @@ O3 gives every agent pod one creation path. The bind then serves the cold wake, 
 
 *   Manifest patches that target an agent StatefulSet or select pods by agent apply to the tenant pool Deployment. A patch for one agent's pods is no longer possible.
 *   The cutover is clean and has no migration path. It deletes every agent StatefulSet. Runs on its pods finish within the drain grace period, and idle runs on them end once at the cutover release.
+*   A rollback to the release before the cutover is not supported for running agents. That release recreates the agent StatefulSets and does not read `runs.pod_name`.
 *   kora-agents gains `patch` on pods in tenant namespaces.
 *   A cold wake that finds no Ready pool pod and no node room waits for a pool pod and a node.
 
@@ -212,7 +216,7 @@ The build is 8 stacked PRs, in this order, and each one is testable on its own:
 4.  **A1 addressing:** Call each session-manager at its pod IP with the agent Service as Host header. Placement and the scaler read the IPs with the Ready pods, and run calls read the pod's IP by its StatefulSet name. StatefulSet pods are still the only pods. PR 6 stores the pod name on the run and reads the IP from the informer cache. Test: a run and a follow-up message on kora-local, and a call to a wrong-identity IP returns 503.
 5.  **Tenant pool:** kora-agents reconciles the pool Deployment from the agent pod template, with the generic ephemeral workspace and `agents.pool.size`. kora-agents owns the pod template, and the operator does not reconcile the pool. Pool pods run at full size until the warm tier lands. Test: pool pods Ready on kora-local and the pool refills after a manual release.
 6.  **O3 cutover:** The bind becomes the only way an agent gets a pod. The workspace claim name moves to `<pod>-workspaces` with the StatefulSet claims. Remove the StatefulSet, the PDB, the per-agent ServiceAccount and the partition surge. The scaler, placement, the drain and the warm tier act on pod names. Test: `test-agent-scaling.sh`, the surge roll and `test-agent-eviction.sh` rewritten for bound pods, and a sandbox run on a bound pod.
-7.  **Cold transition and wake:** Floor 0, `coldAfterSecs`, the "waking agent" event, the empty-pool fallback and the start budget rule. Test: an agent goes cold on kora-local, and a message wakes it. Record the wake time.
+7.  **Cold transition and wake:** Floor 0, `coldAfterSecs`, the "waking agent" event, the empty-pool fallback, the fallback of a Deferred grow to the next pool pod and the start budget rule. Test: an agent goes cold on kora-local, and a message wakes it. Record the wake time.
 8.  **Scheduled pre-wake:** kora-triggers calls kora-agents ahead of each schedule fire. Test: a schedule on kora-local whose agent is bound before the fire.
 
 The warm-tier amendment lands before PR 6. PR 6 moves its pod selection from ordinals to pod names.

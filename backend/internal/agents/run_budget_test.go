@@ -59,7 +59,7 @@ func TestTransition_BudgetStopRecordsCeiling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f, repo, _, _ := newTestService(t)
-			seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive, PodOrdinal: -1})
+			seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
 			if tt.reader != nil {
 				f.run.SetBudgetReader(tt.reader, func(context.Context) (string, error) { return "svc-tok", nil })
 			}

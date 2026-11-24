@@ -72,7 +72,7 @@ type Config struct {
 	Drafts DraftsConfig `yaml:"drafts"`
 
 	Agents struct {
-		// SessionManagerImage is the container image for session-manager StatefulSet pods.
+		// SessionManagerImage is the container image for session-manager pool pods.
 		SessionManagerImage string `yaml:"sessionManagerImage"`
 		// SandboxImage is the base image reference that rendered previews use.
 		// Live sandboxes run the digest pinned on the kora-base SandboxImage.
@@ -164,8 +164,8 @@ type Config struct {
 		// SessionManager holds settings for the session-manager pods kora-agents provisions.
 		SessionManager struct {
 			// AuthorizationPolicyEnabled creates an Istio AuthorizationPolicy
-			// beside each agent StatefulSet restricting its session-manager
-			// port to the kora-agents principal. Requires SPIFFE/mTLS, so the
+			// for each agent's pods and each tenant pool restricting the
+			// session-manager port to the kora-agents principal. Requires SPIFFE/mTLS, so the
 			// chart sets it from platform.spiffe.enabled AND
 			// agents.authorizationPolicy.enabled.
 			AuthorizationPolicyEnabled bool `yaml:"authorizationPolicyEnabled"`

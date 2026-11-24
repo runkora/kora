@@ -139,6 +139,7 @@ func realMain() error {
 	go routescopes.KeepRegistered(ctx, logger, "kora-agents", initScopeRegistration(logger, selfToken, repo, atSvc))
 	go runSvc.StartReaper(ctx)
 	go atSvc.ApplyAll(ctx, repo)
+	go runSvc.EndStatefulSetRuns(ctx)
 	runSvc.StartScheduler(ctx)
 	go scaler.Start(ctx)
 	go draftSvc.StartReaper(ctx)
@@ -285,6 +286,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		return nil, nil, nil, nil, nil, nil, fmt.Errorf("initialize run metrics: %w", err)
 	}
 	runSvc.SetMetrics(runMetrics)
+	k8s.SetMetrics(runMetrics)
 	// Set with the warm tier off too, so pods left warm when it was turned off still grow before a run.
 	runSvc.SetPodWaker(k8s)
 	runSvc.SetGradeReader(repo)

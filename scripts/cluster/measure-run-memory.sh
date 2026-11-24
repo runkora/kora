@@ -58,22 +58,22 @@ for spec in "$@"; do
     '{name: $slug, slug: $slug, framework: $fw, model_id: $model, system_prompt: "Answer in one word.",
       identity_mode: "autonomous", grant_scopes: ["inference:invoke", $scope], connectivity: {mode: "none"}}')" | jq -r .id)
   agents+=("$agent")
-  kubectl --context "$CONTEXT" -n "$NS" wait --for=create "statefulset/$slug" --timeout=180s >/dev/null
-  kubectl --context "$CONTEXT" -n "$NS" rollout status "statefulset/$slug" --timeout=300s >/dev/null
+  # The scaler binds the agent's first pool pod once the agent is active.
+  kubectl --context "$CONTEXT" -n "$NS" wait --for=create pod -l "app=$slug" --timeout=180s >/dev/null
+  kubectl --context "$CONTEXT" -n "$NS" wait --for=condition=Ready pod -l "app=$slug" --timeout=300s >/dev/null
 
   for i in $(seq 1 "$RUNS"); do
-    # before holds each pod's working set, indexed by ordinal.
-    before=()
+    # before holds "pod working-set" for each of the agent's pods.
+    before=""
     for pod in $(kubectl --context "$CONTEXT" -n "$NS" get pods -l "app=$slug" -o name 2>/dev/null || true); do
-      before[${pod##*-}]=$(working_set "${pod#pod/}")
+      before+="${pod#pod/} $(working_set "${pod#pod/}")"$'\n'
     done
     run=$(api POST /api/v1/runs -d "$(jq -n --arg a "$agent" --arg m "$PROMPT" '{agent_type_id: $a, initial_message: $m}')" | jq -r .id)
     runs+=("$run")
     peak=0 pod="" state=""
     for _ in $(seq 1 "$TURN_TIMEOUT_SECS"); do
-      read -r state ordinal < <(api GET "/api/v1/runs/$run" | jq -r '"\(.state) \(.pod_ordinal)"')
-      if (( ordinal >= 0 )); then
-        pod="$slug-$ordinal"
+      read -r state pod < <(api GET "/api/v1/runs/$run" | jq -r '"\(.state) \(.pod_name)"')
+      if [[ -n $pod ]]; then
         ws=$(working_set "$pod")
         (( ws > peak )) && peak=$ws
       fi
@@ -87,11 +87,11 @@ for spec in "$@"; do
     sleep "$SETTLE_SECS"
     settled=$(working_set "$pod")
     (( settled > peak )) && peak=$settled
-    if [[ -z ${before[$ordinal]:-} ]]; then
+    base=$(awk -v p="$pod" '$1 == p {print $2}' <<<"$before")
+    if [[ -z $base ]]; then
       echo "no baseline for $pod" >&2
       exit 1
     fi
-    base=${before[$ordinal]}
     echo "$framework,$model,$i,$pod,$(mi "$base"),$(mi "$peak"),$(mi "$settled"),$(mi $((peak - base))),$(mi $((settled - base)))"
   done
 done

@@ -209,7 +209,7 @@ func (c *closeReportsCompletion) CloseSession(ctx context.Context, pod sessionma
 func TestTerminateRun_ClosingSessionDoesNotCompleteTheRun(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
-	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive, PodName: "pod-0"})
 	var reportErr error
 	svc.run.sm = &closeReportsCompletion{mockSMClient: sm, report: func() {
 		reportErr = svc.run.TransitionRunState(context.Background(), run.ID, RunStateActive, RunStateCompleted)
@@ -227,8 +227,8 @@ func TestTerminateRun_ClosingSessionDoesNotCompleteTheRun(t *testing.T) {
 func TestTerminateRun_ClosesSessionOfPlacedRun(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
 	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
-	seedRun(t, repo, Run{ID: "queued", TenantID: "t-1", AgentTypeID: "at-1", State: RunStatePending, PodOrdinal: -1})
-	seedRun(t, repo, Run{ID: "placed", TenantID: "t-1", AgentTypeID: "at-1", State: RunStatePending, PodOrdinal: 0})
+	seedRun(t, repo, Run{ID: "queued", TenantID: "t-1", AgentTypeID: "at-1", State: RunStatePending})
+	seedRun(t, repo, Run{ID: "placed", TenantID: "t-1", AgentTypeID: "at-1", State: RunStatePending, PodName: "pool-a"})
 	for _, id := range []string{"queued", "placed"} {
 		if err := svc.TerminateRun(context.Background(), id); err != nil {
 			t.Fatal(err)
