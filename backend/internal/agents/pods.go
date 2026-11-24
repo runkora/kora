@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 	"go.opentelemetry.io/otel/trace"
@@ -19,6 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/observability"
@@ -28,11 +30,14 @@ import (
 // takes a Ready pool pod out of the pool and gives it the agent identity. A bound pod serves its agent until it
 // is deleted.
 
-// Bind errors: the tenant pool has no Ready pod on its current template, or a pool pod's controller is not a
-// live ReplicaSet of the tenant's pool Deployment or the pod is not on that Deployment's template.
+// Bind errors: the tenant pool has no Ready pod on its current template, the cache holds no pool Deployment
+// for the tenant, a pool pod's controller is not a live ReplicaSet of the tenant's pool Deployment or the pod is
+// not on that Deployment's template, or an admission policy refused the bind.
 var (
-	errNoPoolPod      = errors.New("no ready pool pod to bind")
-	errPoolProvenance = errors.New("pod is not controlled by the tenant pool")
+	errNoPoolPod        = errors.New("no ready pool pod to bind")
+	errNoPoolDeployment = fmt.Errorf("%w: the tenant has no pool deployment", errNoPoolPod)
+	errPoolProvenance   = errors.New("pod is not controlled by the tenant pool")
+	errBindRefused      = errors.New("an admission policy refused the bind")
 )
 
 // errNoPodIP is returned for an agent pod that has no IP.
@@ -49,6 +54,8 @@ type agentPod struct {
 	Warm, Resizing bool
 	// Template is the pool template the pod was created from, and Config the agent config hash it was bound with.
 	Template, Config string
+	// DeferredSince is when the kubelet started to hold the pod's grow as Deferred, zero when it holds none.
+	DeferredSince time.Time
 }
 
 // agentPods is an agent's bound pods.
@@ -130,6 +137,7 @@ func (p *K8sProvisioner) sortAgentPods(pods []corev1.Pod, namespace string) agen
 			view := agentPod{
 				Name: pod.Name, Ready: ready, Warm: podWarm(pod, full), Resizing: resizePending(pod),
 				Template: pod.Annotations[poolTemplateAnnotation], Config: pod.Labels[agentConfigLabel],
+				DeferredSince: deferredSince(pod),
 			}
 			if ready {
 				view.IP = pod.Status.PodIP
@@ -138,6 +146,19 @@ func (p *K8sProvisioner) sortAgentPods(pods []corev1.Pod, namespace string) agen
 		}
 	}
 	return out
+}
+
+// deferredSince is when the kubelet started to hold the pod's resize as Deferred, zero when it holds none.
+func deferredSince(pod *corev1.Pod) time.Time {
+	if !resizeDeferred(pod) {
+		return time.Time{}
+	}
+	for _, c := range pod.Status.Conditions {
+		if c.Type == corev1.PodResizePending {
+			return c.LastTransitionTime.Time
+		}
+	}
+	return time.Time{}
 }
 
 // agentPodSelector selects the agent's bound pods: the bind sets app to the slug and the agent type label to
@@ -309,7 +330,7 @@ func (p *K8sProvisioner) BindPod(ctx context.Context, at AgentType, namespace st
 			// An admission policy refused the bind.
 			observability.RecordFailure(span, err, errSpanBindRefused)
 			p.metrics.recordBindRefused(ctx)
-			return "", err
+			return "", fmt.Errorf("%w: %w", errBindRefused, err)
 		case err != nil:
 			observability.RecordFailure(span, err, errSpanBindPoolPod)
 			return "", err
@@ -320,7 +341,7 @@ func (p *K8sProvisioner) BindPod(ctx context.Context, at AgentType, namespace st
 		}
 		return pod.Name, nil
 	}
-	err = fmt.Errorf("%w in %s", errNoPoolPod, namespace)
+	err = noPoolPod(namespace, template)
 	observability.RecordFailure(span, err, errNoPoolPod)
 	return "", err
 }
@@ -329,6 +350,48 @@ func (p *K8sProvisioner) BindPod(ctx context.Context, at AgentType, namespace st
 // template is empty.
 func bindCandidate(pod *corev1.Pod, template string) bool {
 	return pod.DeletionTimestamp == nil && podReady(pod) && (template == "" || pod.Annotations[poolTemplateAnnotation] == template)
+}
+
+// noPoolPod is the bind error of a tenant pool with no pod to bind. An empty template means the cache holds
+// no pool Deployment for the tenant.
+func noPoolPod(namespace, template string) error {
+	if template == "" {
+		return fmt.Errorf("%w in %s", errNoPoolDeployment, namespace)
+	}
+	return fmt.Errorf("%w in %s", errNoPoolPod, namespace)
+}
+
+// SizePool sets the tenant pool's replicas to agents.pool.size plus waits, the agents in the namespace with a
+// pending run and no bound pod (docs/adr/2026-11-22-agent-cold-tier.md, D5). A bound pod leaves the pool's
+// ReplicaSet, which refills it, so the size counts only the pods the pool keeps. A pool already at that size
+// is left alone.
+func (p *K8sProvisioner) SizePool(ctx context.Context, namespace string, waits int32) error {
+	dep, err := p.pool.Apps().V1().Deployments().Lister().Deployments(namespace).Get(poolName)
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read cached pool deployment of %s: %w", namespace, err)
+	}
+	want := p.cfg.PoolSize + waits
+	if dep.Spec.Replicas != nil && *dep.Spec.Replicas == want {
+		return nil
+	}
+	deployments := p.client.AppsV1().Deployments(namespace)
+	if err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing, getErr := deployments.Get(ctx, poolName, metav1.GetOptions{})
+		if getErr != nil {
+			return getErr
+		}
+		existing.Spec.Replicas = &want
+		_, getErr = deployments.Update(ctx, existing, metav1.UpdateOptions{})
+		return getErr
+	}); err != nil {
+		return fmt.Errorf("size pool deployment of %s: %w", namespace, err)
+	}
+	p.logger.Info(ctx, "sized tenant pool", logging.Field{Key: "namespace", Value: namespace},
+		logging.Field{Key: "replicas", Value: want}, logging.Field{Key: "cold_waits", Value: waits})
+	return nil
 }
 
 // checkPoolProvenance checks that the pod's controller is a live ReplicaSet with the same UID, that the

@@ -52,6 +52,7 @@ const RECORDED = new Set([
   'api_retry',
   'sandbox_status',
   'sandbox_environment',
+  'agent_waking',
 ]);
 
 // ── Event payload shapes ──────────────────────────────────────────────────────
@@ -167,6 +168,8 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   const [reconnectKey, setReconnectKey] = useState(0);
   // Activity strip inputs: a sandbox being started and a provider retry.
   const [sandboxStarting, setSandboxStarting] = useState(false);
+  // Set by agent_waking: the run's start bound a pod to its cold agent.
+  const [agentWaking, setAgentWaking] = useState(false);
   const [retry, setRetry] = useState<{
     attempt: number;
     maxRetries: number;
@@ -622,6 +625,8 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       setSandboxStarting(SANDBOX_STARTING.has(payload.phase));
     });
 
+    es.addEventListener('agent_waking', () => setAgentWaking(true));
+
     es.addEventListener('sandbox_environment', (e: MessageEvent) => {
       const payload = read<SandboxEnvironmentPayload>(e);
       if (payload?.image) setSandbox(payload);
@@ -934,7 +939,9 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     isStarting,
     isBusy,
     connectionStatus,
-    liveActivity: isBusy ? deriveActivity(allTurns, retry, sandboxStarting) : null,
+    liveActivity: isBusy
+      ? deriveActivity(allTurns, retry, sandboxStarting, agentWaking && runState === 'starting')
+      : null,
     spentUsd,
     addHumanMessage,
     interruptRun,
@@ -980,14 +987,16 @@ function guardrailMessage(p: GuardrailWarningPayload, productName: string): stri
 
 /**
  * What the status line shows, in order of what the user most needs to know: a
- * provider retry, a sandbox starting, the running main-thread tool, or thinking.
+ * provider retry, the agent waking, a sandbox starting, the running main-thread tool, or thinking.
  */
 export function deriveActivity(
   turns: Turn[],
   retry: { attempt: number; maxRetries: number; error: string } | null,
   sandboxStarting: boolean,
+  agentWaking = false,
 ): LiveActivity {
   if (retry) return { kind: 'retry', ...retry };
+  if (agentWaking) return { kind: 'waking' };
   if (sandboxStarting) return { kind: 'sandbox' };
   // Calls left running by an earlier turn are marked stopped when it settles,
   // so the latest running call is live, however many messages were sent since.

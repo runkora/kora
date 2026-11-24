@@ -166,13 +166,14 @@ func TestEnsureTenantPool(t *testing.T) {
 	if dep, _ = cs.AppsV1().Deployments(ns).Get(ctx, poolName, metav1.GetOptions{}); *dep.Spec.Replicas != 2 {
 		t.Errorf("replicas after an apply with update false = %d, want 2", *dep.Spec.Replicas)
 	}
-	// The pool left alone is not remembered, and the next update writes it.
+	// The pool left alone is not remembered, and the next update writes its template. The live pool keeps
+	// its replicas, which the scaler sizes.
 	p.cfg.SessionManagerImage = "ghcr.io/runkora/kora-session-manager:2.0.0"
 	if err := p.ensureTenantPool(ctx, "acme", ns, owner, true); err != nil {
 		t.Fatal(err)
 	}
-	if dep, _ = cs.AppsV1().Deployments(ns).Get(ctx, poolName, metav1.GetOptions{}); *dep.Spec.Replicas != 5 {
-		t.Errorf("replicas after the next update = %d, want 5", *dep.Spec.Replicas)
+	if dep, _ = cs.AppsV1().Deployments(ns).Get(ctx, poolName, metav1.GetOptions{}); *dep.Spec.Replicas != 2 {
+		t.Errorf("replicas after the next update = %d, want the live 2", *dep.Spec.Replicas)
 	}
 	for _, c := range dep.Spec.Template.Spec.Containers {
 		if c.Name == sessionManagerContainerName && c.Image != p.cfg.SessionManagerImage {

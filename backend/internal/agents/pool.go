@@ -90,8 +90,8 @@ func (p *K8sProvisioner) buildTenantPool(tenantID, namespace string) (appsv1.Dep
 }
 
 // ensureTenantPool creates the tenant's pool ServiceAccount, Deployment and
-// AuthorizationPolicy. On update it replaces the Deployment's labels, pod
-// template and replicas with the rendered ones.
+// AuthorizationPolicy. On update it replaces the Deployment's labels and pod
+// template with the rendered ones. The scaler sizes the replicas.
 func (p *K8sProvisioner) ensureTenantPool(ctx context.Context, tenantID, namespace string, owner metav1.OwnerReference, update bool) error {
 	dep, err := p.buildTenantPool(tenantID, namespace)
 	if err != nil {
@@ -142,7 +142,10 @@ func (p *K8sProvisioner) applyTenantPool(ctx context.Context, dep appsv1.Deploym
 		}
 		existing.Labels = dep.Labels
 		existing.Spec.Template = dep.Spec.Template
-		existing.Spec.Replicas = dep.Spec.Replicas
+		// The scaler sizes the pool from its cold wakes, so a live pool keeps its replicas.
+		if existing.Spec.Replicas == nil {
+			existing.Spec.Replicas = dep.Spec.Replicas
+		}
 		applyOwnerRef(&existing.ObjectMeta, owner)
 		_, err = deployments.Update(ctx, existing, metav1.UpdateOptions{})
 		return err

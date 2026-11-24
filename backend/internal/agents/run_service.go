@@ -93,6 +93,8 @@ type RunService struct {
 	budgets    runBudgetReader
 	selfToken  ServiceTokenSource
 	grades     gradeReader
+	// wakes holds, per run ID, when this replica started the run's cold wake, until the run's first model event.
+	wakes sync.Map
 	// attempts and schedulerDone track the scheduler started by StartScheduler.
 	attempts      sync.WaitGroup
 	schedulerDone chan struct{}
@@ -770,6 +772,7 @@ func (s *RunService) PublishEvent(ctx context.Context, runID string, ev PushedEv
 	if !replayOnlyEventType(ev.Type) {
 		s.pubsub.Publish(runID, ev)
 	}
+	s.noteFirstModelEvent(ctx, runID, ev)
 	return writeErr
 }
 

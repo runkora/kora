@@ -213,6 +213,9 @@ type scalerFake struct {
 	retired  int
 	// state is what GetAgentType reads under the lock, active when empty. A deleted agent is not found.
 	state AgentTypeState
+	// sized records the waits each SizePool call set, by namespace. retireErr fails RetireServiceAccount.
+	sized     map[string]int32
+	retireErr error
 }
 
 func (f *scalerFake) mustHold(call string) {
@@ -264,8 +267,14 @@ func (f *scalerFake) WaitWithAgentLock(ctx context.Context, _ string, _ time.Dur
 	return true, fn(ctx)
 }
 
+// AgentRunCounts is read with no lock only to count a cold wait, for an agent with no pod.
 func (f *scalerFake) AgentRunCounts(context.Context, string) (AgentRunCounts, error) {
-	f.mustHold("AgentRunCounts")
+	f.mu.Lock()
+	locked := f.locked
+	f.mu.Unlock()
+	if !locked && len(f.pods.Live) > 0 {
+		f.t.Error("AgentRunCounts ran without the agent lock for an agent with pods")
+	}
 	return f.counts, nil
 }
 
@@ -335,6 +344,16 @@ func (f *scalerFake) RetireServiceAccount(context.Context, AgentType, string) er
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.retired++
+	return f.retireErr
+}
+
+func (f *scalerFake) SizePool(_ context.Context, namespace string, waits int32) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.sized == nil {
+		f.sized = map[string]int32{}
+	}
+	f.sized[namespace] = waits
 	return nil
 }
 

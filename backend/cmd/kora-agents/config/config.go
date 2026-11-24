@@ -145,6 +145,9 @@ type Config struct {
 			StartingRunWindowSecs int `yaml:"startingRunWindowSecs"`
 			// WarmAfterSecs is how long an agent stays idle before its pods shrink to the warm requests. Zero turns the warm tier off.
 			WarmAfterSecs int `yaml:"warmAfterSecs"`
+			// ColdAfterSecs is how long an agent with no pending, starting, active or idle run keeps its pods before the
+			// scaler deletes them. Zero keeps every agent at its floor of pods.
+			ColdAfterSecs int `yaml:"coldAfterSecs"`
 		} `yaml:"scheduling"`
 		// ConnectionRegistryPath is the mounted connections.json file rendered by
 		// the operator's ConnectionAggregator into the kora-tenant-connections
@@ -204,6 +207,9 @@ var errScalerConcurrency = errors.New("agents.scheduling.scalerConcurrency must 
 
 // errWarmAfter means a negative idle threshold.
 var errWarmAfter = errors.New("agents.scheduling.warmAfterSecs must be at least 0")
+
+// errColdAfter means a negative cold threshold.
+var errColdAfter = errors.New("agents.scheduling.coldAfterSecs must be at least 0")
 
 // errPoolSize means a negative number of pool pods per tenant.
 var errPoolSize = errors.New("agents.pool.size must be at least 0")
@@ -293,6 +299,9 @@ func Validate(cfg *Config) error {
 	}
 	if cfg.Agents.Scheduling.WarmAfterSecs < 0 {
 		return errWarmAfter
+	}
+	if cfg.Agents.Scheduling.ColdAfterSecs < 0 {
+		return errColdAfter
 	}
 	if cfg.Agents.Pool.Size < 0 {
 		return errPoolSize

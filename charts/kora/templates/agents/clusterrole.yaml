@@ -15,7 +15,8 @@ rules:
     resources: ["statefulsets"]
     verbs: ["delete"]
   # Each tenant's pool of unbound session-manager pods (docs/adr/2026-11-22-agent-cold-tier.md).
-  # The pool cache watches the pool Deployments for their current pod template.
+  # The pool cache watches the pool Deployments for their current pod template,
+  # and the scaler updates their replicas for the agents waiting on a pool pod.
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "list", "watch", "create", "update"]

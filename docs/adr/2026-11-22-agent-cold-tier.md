@@ -136,12 +136,12 @@ The session-manager readiness probe will run at once and every second with a 2s 
 ### D5. Pool Sizing, Burst and Wake
 
 *   **S1, fixed pool per tenant (chosen):** The chart value `agents.pool.size` (default 2) sets the pool Deployment replicas of each tenant. The ReplicaSet refills a bound pod in about 13s to 24s.
-*   **S2, scheduled pre-wake (chosen for bursts):** kora-triggers will ask kora-agents to wake an agent `agents.pool.preWakeLeadSecs` (default 180) before each schedule fire. kora-agents binds the agent's pod then. The pool refills before the fire, and Karpenter has the lead time to add nodes. The trade-off is a new call from kora-triggers to kora-agents and a pod held for up to the lead time.
+*   **S2, scheduled pre-wake (rejected):** kora-triggers would ask kora-agents to wake an agent before each schedule fire. A scheduled run has no person waiting for its first event. A cold wake adds about 2s to 3s, and a burst past the pool waits for new pool pods inside the 180s start budget. The pre-wake would hold a full-size pod for the lead time before every fire.
 *   **S3, pool sized from the recent wake rate (rejected):** It reacts after a burst starts, and a cron burst arrives at one instant.
 
-At 20x a synchronised fire of 120 runs across 20 tenants binds 40 pool pods at once under S1 alone. The other 80 runs wait for new pool pods and for nodes. S2 moves those binds ahead of the fire.
+At 20x a synchronised fire of 120 runs across 20 tenants binds 40 pool pods at once. The other 80 runs wait for new pool pods and for nodes inside the start budget. A tenant with regular bursts raises `agents.pool.size`.
 
-*   **W1, pool pods at warm size (chosen):** A pool pod starts at the warm session-manager size, and the bind grows it in place to full size. The grow took 0.24s to 0.63s in the spike and runs beside the SVID swap. The grow uses the warm tier's node reserve. A grow that stays Deferred will fall back to the next pool pod. The fallback lands in PR 7, and in PR 6 a Deferred grow unbinds nothing. The trade-off is a fallback on full nodes.
+*   **W1, pool pods at warm size (chosen):** A pool pod starts at the warm session-manager size, and the bind grows it in place to full size. The grow took 0.24s to 0.63s in the spike and runs beside the SVID swap. The grow uses the warm tier's node reserve. The scaler deletes an empty bound pod whose grow stays Deferred past the grow timeout, and the run's next attempt binds the next pool pod. The trade-off is a fallback on full nodes.
 *   **W2, pool pods at full size (rejected):** 40 pool pods would reserve 50Gi with no run.
 
 The wake path will be:
@@ -156,10 +156,10 @@ kora-agents selects an agent's bound pods by `app` and `runkora.io/agent-type`, 
 
 The mesh-level bind measured 1.0s to 2.0s to the first 200 on the spike cluster. The exchange and the session start were not measured on the bound path.
 
-*   **Budget B1, the wake event is the first streamed event (chosen):** The run's first streamed event comes within the 2.5s p95 target. The bind gets its own target of p95 at or under 2s to the bound check. The time to the first model event on a cold wake is reported as its own measure.
+*   **Budget B1, the wake event is the first streamed event (chosen):** The run's first streamed event comes within the 2.5s p95 target. The bind gets its own target of p95 at or under 2s to the bound check. The time from the start of a cold wake to the run's first model event is reported as its own measure, `kora.agents.wake.first_model_event.duration`. The replica that started the wake records it for the first model event the session-manager pushes to it. When an earlier model event went to another replica, the measure reads that run high.
 *   **Budget B2, the first model event counts (rejected):** The bind (1.0s to 2.0s) plus a model's first token exceeds 2.5s at p95. The warm path misses this target today.
 
-When the tenant pool has no Ready pod, the run stays `pending`, and the scaler raises the pool replicas by the number of waiting cold wakes. A pool pod that is coming up counts as coming up for the start budget. The run binds the first pool pod that turns Ready.
+When the tenant pool has no Ready pod, the run stays `pending`, and the scaler sets the pool replicas to `agents.pool.size` plus the waiting cold wakes, whatever the pool's Ready pods. A waiting cold wake is an agent with a pending run and no bound pod. A pass in which an agent's check failed leaves that tenant's pool size as it is. A pool pod that is coming up counts as coming up for the start budget. The run binds the first pool pod that turns Ready.
 
 ### D6. Warm-to-Cold Threshold and the Old Workspace
 
@@ -175,7 +175,7 @@ The workspace claim name changes from `workspaces-<pod>` to `<pod>-workspaces`. 
 
 ## Decision
 
-Every agent pod will be a bound pool pod, with the options marked chosen above: O3, no per-agent PDB, A1, I1 with the pool principal and the admission policy, identity-proxy pool mode with the new-connection rule toward kora-identity, policy-service serving pool principals, the collector connection in the pool phase, S1 with S2, W1, B1, T1 and P1.
+Every agent pod will be a bound pool pod, with the options marked chosen above: O3, no per-agent PDB, A1, I1 with the pool principal and the admission policy, identity-proxy pool mode with the new-connection rule toward kora-identity, policy-service serving pool principals, the collector connection in the pool phase, S1, W1, B1, T1 and P1.
 
 ### Rationale
 
@@ -217,7 +217,6 @@ The build is 8 stacked PRs, in this order, and each one is testable on its own:
 5.  **Tenant pool:** kora-agents reconciles the pool Deployment from the agent pod template, with the generic ephemeral workspace and `agents.pool.size`. kora-agents owns the pod template, and the operator does not reconcile the pool. Pool pods run at full size until the warm tier lands. Test: pool pods Ready on kora-local and the pool refills after a manual release.
 6.  **O3 cutover:** The bind becomes the only way an agent gets a pod. The workspace claim name moves to `<pod>-workspaces` with the StatefulSet claims. Remove the StatefulSet, the PDB, the per-agent ServiceAccount and the partition surge. The scaler, placement, the drain and the warm tier act on pod names. Test: `test-agent-scaling.sh`, the surge roll and `test-agent-eviction.sh` rewritten for bound pods, and a sandbox run on a bound pod.
 7.  **Cold transition and wake:** Floor 0, `coldAfterSecs`, the "waking agent" event, the empty-pool fallback, the fallback of a Deferred grow to the next pool pod and the start budget rule. Test: an agent goes cold on kora-local, and a message wakes it. Record the wake time.
-8.  **Scheduled pre-wake:** kora-triggers calls kora-agents ahead of each schedule fire. Test: a schedule on kora-local whose agent is bound before the fire.
 
 The warm-tier amendment lands before PR 6. PR 6 moves its pod selection from ordinals to pod names.
 
@@ -233,7 +232,7 @@ The warm-tier amendment lands before PR 6. PR 6 moves its pod selection from ord
 ## Dependencies
 
 *   kora-identity must refuse a token to an agent principal with no agent record. The spike saw it issue one for `spiffe.io/agent: s2z-pooltest`, and a separate change fixes this. The D3 admission policy assumes that change has landed.
-*   PR 7 must first confirm that nothing reads a finished run's workspace after the run ends. If something does, the build stops for a new ruling on P1.
+*   P1 stands. Nothing reads a finished run's workspace after the run ends, and every session-manager read of the workspace serves a live session.
 
 ---
 

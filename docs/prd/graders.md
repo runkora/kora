@@ -103,7 +103,7 @@ None at this time.
 **Acceptance Criteria:**
 
 *   [ ] The state holds the run's events in sequence order: `human_message`, `trigger_message`, `tool_use` with inputs, `tool_result`, `text_block`, `message_complete`, `run_state`, `run_error`, `turn_stopped` and `guardrail_warning`.
-*   [ ] `sandbox_status`, `sandbox_environment` and `api_retry` are left out.
+*   [ ] `sandbox_status`, `sandbox_environment`, `api_retry` and `agent_waking` are left out.
 *   [ ] A tool result cut at 64 KiB keeps its truncation marker.
 *   [ ] When the state does not fit the model's window, each tool result is capped at the first step that fits: 4000, 2000, 1000, then 500 characters, then no result bodies.
 *   [ ] Messages and tool inputs are never cut.

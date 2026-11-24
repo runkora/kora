@@ -16,6 +16,9 @@ kora-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md).
 {{- if lt (int $scheduling.warmAfterSecs) 0 }}
   {{- fail "agents.scheduling.warmAfterSecs must be at least 0" }}
 {{- end }}
+{{- if lt (int $scheduling.coldAfterSecs) 0 }}
+  {{- fail "agents.scheduling.coldAfterSecs must be at least 0" }}
+{{- end }}
 {{- if lt (int $scheduling.drainGracePeriodSecs) 61 }}
   {{- fail "agents.scheduling.drainGracePeriodSecs must be at least 61: the session-manager's 30 s shutdown timeout plus its 30 s drainMargin (cmd/session-manager/config/config.go)" }}
 {{- end }}
@@ -109,6 +112,7 @@ cmd/kora-agents:
         {{- end }}
       startingRunWindowSecs: {{ $scheduling.startingRunWindowSecs | int }}
       warmAfterSecs: {{ $scheduling.warmAfterSecs | int }}
+      coldAfterSecs: {{ $scheduling.coldAfterSecs | int }}
     sessionManager:
       authorizationPolicyEnabled: {{ and .Values.platform.spiffe.enabled .Values.agents.authorizationPolicy.enabled }}
       landlock: {{ .Values.agents.landlock | quote }}

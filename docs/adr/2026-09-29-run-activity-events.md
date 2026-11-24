@@ -107,6 +107,7 @@ This touches *How does it connect?* through auditability: every call the agent m
 | `tool_progress` | No | `tool_use_id`, `tool_name`, `parent_tool_use_id`, `elapsed_seconds` | `tool_progress` |
 | `sandbox_status` | Yes | `phase` (`provisioning`, `pod_ready`, `egress_ready`, `egress_skipped`, `failed`), `elapsed_ms` since the provision started, `message` | session-manager `ProvisionSandbox` |
 | `turn_stopped` | Yes | `reason` (`user`) | interrupt |
+| `agent_waking` | Yes | `pod`, the pool pod bound to the agent | kora-agents run start on a cold agent ([Agent Cold Tier](2026-11-22-agent-cold-tier.md)) |
 
 `api_retry` is durable because it explains a slow or failed turn after the fact and is bounded by `max_retries` per request. `tool_progress` is a heartbeat and stays streaming-only. Claude Code sends a heartbeat every 30 seconds with `tool_use_id` set to `<call>-heartbeat-N` and the running call in `parent_tool_use_id` (seen on the local cluster for `provision_sandbox` and `Bash`); the runner reports it against the call. `sandbox_status` is emitted only on a fresh provision, not on a cache hit.
 

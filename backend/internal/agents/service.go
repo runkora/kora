@@ -19,6 +19,10 @@ type k8sProvisioner interface {
 	GetAgentBudget(ctx context.Context, at AgentType, namespace string) (*AgentBudget, error)
 	// AgentPods returns the agent's bound pods that are not terminating, oldest first, with each Ready pod's IP.
 	AgentPods(ctx context.Context, at AgentType, namespace string) (agentPods, error)
+	// LiveAgentPods reads the agent's bound pods from the API server. BindPod binds a pool pod to the agent and
+	// returns its name (docs/adr/2026-11-22-agent-cold-tier.md, D5).
+	LiveAgentPods(ctx context.Context, at AgentType, namespace string) (agentPods, error)
+	BindPod(ctx context.Context, at AgentType, namespace string) (string, error)
 	// PodIP returns the IP of the bound pod name, Ready or draining.
 	PodIP(ctx context.Context, namespace, name string) (string, error)
 	// PodLive reads from the API server whether the pod name exists and is not terminating.

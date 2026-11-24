@@ -205,8 +205,18 @@ func (p *K8sProvisioner) WakePod(ctx context.Context, namespace, name string, li
 		return p.wakeUncached(ctx, namespace, name)
 	}
 	pod, found, err := p.cachedAgentPod(namespace, name)
-	if err != nil || !found {
+	if err != nil {
 		return err
+	}
+	if !found {
+		// A pod bound a moment ago may not be in the cache yet. waitGrown waits for it there.
+		if !live {
+			return nil
+		}
+		if err = p.wakeUncached(ctx, namespace, name); err != nil {
+			return err
+		}
+		return p.waitGrown(ctx, namespace, name)
 	}
 	switch {
 	case podWarm(pod, p.fullRequests()):

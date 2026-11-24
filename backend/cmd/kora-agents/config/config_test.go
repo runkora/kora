@@ -126,6 +126,19 @@ func TestValidate_WarmAfter(t *testing.T) {
 	}
 }
 
+// A negative cold threshold is refused, and zero keeps every agent at its floor.
+func TestValidate_ColdAfter(t *testing.T) {
+	cfg := validConfig()
+	cfg.Agents.Scheduling.ColdAfterSecs = -1
+	if err := Validate(cfg); !errors.Is(err, errColdAfter) {
+		t.Errorf("coldAfterSecs -1: Validate error = %v, want errColdAfter", err)
+	}
+	cfg.Agents.Scheduling.ColdAfterSecs = 0
+	if err := Validate(cfg); err != nil {
+		t.Errorf("coldAfterSecs 0: Validate error = %v, want none", err)
+	}
+}
+
 // Every harness needs a positive allowance, or kora-agents does not start.
 func TestValidate_StartingRunAllowance(t *testing.T) {
 	for name, set := range map[string]func(*StartingRunAllowance){

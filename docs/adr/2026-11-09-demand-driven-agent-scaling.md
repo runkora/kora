@@ -1,6 +1,6 @@
 # Demand-Driven Agent Scaling
 
-**Status:** Accepted (Amended 2026-11-22; the StatefulSet replicas, the surge partition and the per-agent PDB superseded in part by [Agent Cold Tier](2026-11-22-agent-cold-tier.md) 2026-11-23)  
+**Status:** Accepted (Amended 2026-11-22; the StatefulSet replicas, the surge partition, the per-agent PDB and the Deferred grow left pending on an empty pod superseded in part by [Agent Cold Tier](2026-11-22-agent-cold-tier.md) 2026-11-23)  
 **Date:** 2026-11-09  
 **Deciders:** Justin Wilkin  
 **Technical Story:** An agent's concurrency becomes a total across its pods, and agent pods scale on run demand.  

@@ -44,6 +44,18 @@ func TestChartWarmTier(t *testing.T) {
 	}
 }
 
+// The cold threshold reaches kora-agents, and a negative one fails the render
+// (docs/adr/2026-11-22-agent-cold-tier.md, D6).
+func TestChartColdTier(t *testing.T) {
+	cfg := loadRendered[agentsConfig.Config](t, renderChart(t, "{}\n"), "cmd/kora-agents")
+	if got := cfg.Agents.Scheduling.ColdAfterSecs; got != 1800 {
+		t.Errorf("coldAfterSecs = %d, want 1800", got)
+	}
+	if out, err := helmTemplate(t, "agents:\n  scheduling: {coldAfterSecs: -1}\n"); err == nil || !strings.Contains(out, "coldAfterSecs must be at least 0") {
+		t.Errorf("coldAfterSecs -1: render err = %v, want the check to fail it", err)
+	}
+}
+
 // renderWakeReserve renders the wake-reserve DaemonSet and PriorityClass over values.
 func renderWakeReserve(t *testing.T, values string) (appsv1.DaemonSet, schedulingv1.PriorityClass) {
 	t.Helper()
