@@ -58,6 +58,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.nodeSelector | object | `{}` |  |
 | agents.podAnnotations | object | `{}` |  |
 | agents.podLabels | object | `{}` |  |
+| agents.pool.size | int | `2` | Unbound session-manager pods each tenant keeps ready. |
 | agents.priorityClassName | string | `""` |  |
 | agents.replicas | int | `1` |  |
 | agents.resources.limits.cpu | string | `"500m"` |  |

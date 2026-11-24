@@ -76,9 +76,9 @@ var celCases = map[string]map[string]celCase{
 			accept: `{metadata: {name: code-reviewer}}`,
 			reject: `{metadata: {name: 1-reviewer}}`,
 		},
-		"!(self.metadata.name in ['delegated', 'autonomous'])": {
+		"!(self.metadata.name in ['delegated', 'autonomous', 'session-manager-pool'])": {
 			accept: `{metadata: {name: reviewer}}`,
-			reject: `{metadata: {name: delegated}}`,
+			reject: `{metadata: {name: session-manager-pool}}`,
 		},
 		"self == oldSelf": {
 			accept: `{metadata: {name: a}, spec: {identityMode: delegated}}`,

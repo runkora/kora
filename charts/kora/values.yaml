@@ -638,6 +638,10 @@ agents:
     concurrency: 4
     # -- Seconds between polls for due grade jobs.
     pollIntervalSecs: 2
+  # Each tenant keeps unbound session-manager pods that kora-agents binds to an agent (docs/adr/2026-11-22-agent-cold-tier.md).
+  pool:
+    # -- Unbound session-manager pods each tenant keeps ready.
+    size: 2
   # The run scheduler in each kora-agents replica starts pending runs on agent pods.
   scheduling:
     # -- Runs one kora-agents replica starts at once.

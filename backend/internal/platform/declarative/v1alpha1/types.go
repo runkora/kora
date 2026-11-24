@@ -217,7 +217,7 @@ type EnvironmentList struct {
 // +kubebuilder:printcolumn:name=Ready,type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name=Age,type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:validation:XValidation:rule="self.metadata.name.matches('^[a-z]([-a-z0-9]*[a-z0-9])?$') && size(self.metadata.name) <= 52",message="metadata.name must be a DNS-1035 label of at most 52 characters."
-// +kubebuilder:validation:XValidation:rule="!(self.metadata.name in ['delegated', 'autonomous'])",message="metadata.name must not be delegated or autonomous. They are identity mode names."
+// +kubebuilder:validation:XValidation:rule="!(self.metadata.name in ['delegated', 'autonomous', 'session-manager-pool'])",message="metadata.name must not be delegated, autonomous or session-manager-pool. They are identity mode names and the tenant pool's name."
 type Agent struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional

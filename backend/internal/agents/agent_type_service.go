@@ -37,7 +37,7 @@ func validateAgentSlug(slug string) error {
 			ErrInvalidSlug, slug, maxAgentSlugLength)
 	}
 	if slices.Contains(reservedAgentSlugs, slug) {
-		return fmt.Errorf("%w %q: the identity mode names %q are reserved", ErrInvalidSlug, slug, reservedAgentSlugs)
+		return fmt.Errorf("%w %q: the names %q are reserved", ErrInvalidSlug, slug, reservedAgentSlugs)
 	}
 	return nil
 }
@@ -54,9 +54,10 @@ func creatorSubject(ctx context.Context) string {
 	return callerSubject(ctx)
 }
 
-// reservedAgentSlugs are the identity mode names. Mode-qualified scopes such as
-// agents:runs:delegated:write sit where a per-agent scope's slug would.
-var reservedAgentSlugs = []string{string(IdentityModeDelegated), string(IdentityModeAutonomous)}
+// reservedAgentSlugs are the identity mode names and the tenant pool's name.
+// Mode-qualified scopes such as agents:runs:delegated:write sit where a
+// per-agent scope's slug would, and poolName names each tenant's pool objects.
+var reservedAgentSlugs = []string{string(IdentityModeDelegated), string(IdentityModeAutonomous), poolName}
 
 // AgentTypeServiceConfig holds the runtime parameters used by AgentTypeService.
 type AgentTypeServiceConfig struct {

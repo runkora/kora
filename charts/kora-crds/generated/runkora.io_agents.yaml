@@ -322,9 +322,9 @@ spec:
         - message: metadata.name must be a DNS-1035 label of at most 52 characters.
           rule: self.metadata.name.matches('^[a-z]([-a-z0-9]*[a-z0-9])?$') && size(self.metadata.name)
             <= 52
-        - message: metadata.name must not be delegated or autonomous. They are identity
-            mode names.
-          rule: '!(self.metadata.name in [''delegated'', ''autonomous''])'
+        - message: metadata.name must not be delegated, autonomous or session-manager-pool.
+            They are identity mode names and the tenant pool's name.
+          rule: '!(self.metadata.name in [''delegated'', ''autonomous'', ''session-manager-pool''])'
     served: true
     storage: true
     subresources:

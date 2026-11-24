@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/agents/manifestpatch"
@@ -132,6 +133,9 @@ type K8sProvisionerConfig struct {
 	AuthorizationPolicyEnabled bool
 	// Landlock is the session-manager's KORA_LANDLOCK: enforce or bestEffort.
 	Landlock string
+	// PoolSize is the unbound session-manager pods each tenant keeps ready to bind
+	// (docs/adr/2026-11-22-agent-cold-tier.md).
+	PoolSize int32
 	// MinReplicas is the session-manager pod count each agent starts with and the scaler's floor.
 	MinReplicas int32
 	// MaxReplicas is the scaler's ceiling. An apply that changes the pod template of an agent below it adds a surge pod.
@@ -160,6 +164,11 @@ type K8sProvisioner struct {
 	workloads informers.SharedInformerFactory
 	// growTimeout bounds a warm pod's grow before dispatch. Zero means defaultGrowTimeout.
 	growTimeout time.Duration
+	// poolsApplied maps a tenant namespace to the hash of the pool Deployment last
+	// reconciled there. Every agent apply reconciles the pool, and an unchanged
+	// render makes no Deployment or ServiceAccount call. A pool Deployment deleted
+	// by hand comes back when the render changes or kora-agents restarts.
+	poolsApplied sync.Map
 }
 
 // SetScopeResolver installs the resolver that adds the attached environments' egress and connectors to an agent's grant.
@@ -290,6 +299,10 @@ func (p *K8sProvisioner) provision(ctx context.Context, at AgentType, namespace 
 	}
 	if err := p.ensureAuthorizationPolicy(ctx, at, namespace, tenantRef, update); err != nil {
 		observability.RecordFailure(span, err, errSpanEnsureAuthorizationPolicy)
+		return err
+	}
+	if err := p.ensureTenantPool(ctx, at.TenantID, namespace, tenantRef, update); err != nil {
+		observability.RecordFailure(span, err, errSpanEnsureTenantPool)
 		return err
 	}
 	return nil
@@ -2592,11 +2605,17 @@ func agentAuthorizationPolicyName(slug string) string { return "agent-" + slug +
 // Envoy RBAC. Principals are written WITHOUT the prefix; writing it produces
 // "spiffe://spiffe://..." in the generated rule and never matches.
 func (p *K8sProvisioner) ensureAuthorizationPolicy(ctx context.Context, at AgentType, namespace string, owner metav1.OwnerReference, update bool) error {
+	return p.ensureSessionManagerPolicy(ctx, agentAuthorizationPolicyName(at.Slug), namespace, map[string]any{"app": at.Slug}, owner, update)
+}
+
+// ensureSessionManagerPolicy lets only kora-agents call the session-manager
+// port of the pods selector matches, and anyone read GET /health.
+func (p *K8sProvisioner) ensureSessionManagerPolicy(ctx context.Context, name, namespace string, selector map[string]any, owner metav1.OwnerReference, update bool) error {
 	if !p.cfg.AuthorizationPolicyEnabled {
 		return nil
 	}
 	metadata := map[string]any{
-		"name":      agentAuthorizationPolicyName(at.Slug),
+		"name":      name,
 		"namespace": namespace,
 	}
 	setUnstructuredOwnerRef(metadata, owner)
@@ -2607,7 +2626,7 @@ func (p *K8sProvisioner) ensureAuthorizationPolicy(ctx context.Context, at Agent
 			"metadata":   metadata,
 			"spec": map[string]any{
 				"selector": map[string]any{
-					"matchLabels": map[string]any{"app": at.Slug},
+					"matchLabels": selector,
 				},
 				"action": "ALLOW",
 				"rules": []any{
@@ -2657,7 +2676,7 @@ func (p *K8sProvisioner) ensureAuthorizationPolicy(ctx context.Context, at Agent
 	}
 	existing, err := p.dynamicClient.Resource(authorizationPolicyGVR).
 		Namespace(namespace).
-		Get(ctx, agentAuthorizationPolicyName(at.Slug), metav1.GetOptions{})
+		Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("get existing authorizationpolicy: %w", err)
 	}

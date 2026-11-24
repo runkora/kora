@@ -76,6 +76,9 @@ agents:
     windowTokens: 247000
     concurrency: 4
     pollIntervalSecs: 2
+  # Unbound session-manager pods per tenant. See the chart's agents.pool.
+  pool:
+    size: 2
   # Run scheduler. See the chart's agents.scheduling.
   scheduling:
     workerConcurrency: 16

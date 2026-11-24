@@ -111,6 +111,11 @@ type Config struct {
 			// TriggerSecs applies to a run a trigger started.
 			TriggerSecs int `yaml:"triggerSecs"`
 		} `yaml:"idleTimeout"`
+		// Pool is each tenant's unbound session-manager pods (docs/adr/2026-11-22-agent-cold-tier.md).
+		Pool struct {
+			// Size is how many unbound pods each tenant keeps ready.
+			Size int32 `yaml:"size"`
+		} `yaml:"pool"`
 		// Scheduling configures the run scheduler that starts pending runs
 		// (docs/adr/2026-10-12-run-scheduling.md).
 		Scheduling struct {
@@ -200,6 +205,9 @@ var errScalerConcurrency = errors.New("agents.scheduling.scalerConcurrency must 
 // errWarmAfter means a negative idle threshold.
 var errWarmAfter = errors.New("agents.scheduling.warmAfterSecs must be at least 0")
 
+// errPoolSize means a negative number of pool pods per tenant.
+var errPoolSize = errors.New("agents.pool.size must be at least 0")
+
 // errStartingRunAllowance means a harness has no positive starting-run allowance.
 var errStartingRunAllowance = errors.New("agents.scheduling.startingRunAllowance: claudeCode, codex and openCode must each be a positive quantity")
 
@@ -285,6 +293,9 @@ func Validate(cfg *Config) error {
 	}
 	if cfg.Agents.Scheduling.WarmAfterSecs < 0 {
 		return errWarmAfter
+	}
+	if cfg.Agents.Pool.Size < 0 {
+		return errPoolSize
 	}
 	a := cfg.Agents.Scheduling.StartingRunAllowance
 	for _, q := range []resource.Quantity{a.ClaudeCode, a.Codex, a.OpenCode} {
