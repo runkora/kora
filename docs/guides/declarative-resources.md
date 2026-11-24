@@ -153,17 +153,30 @@ For a system with no built-in provider, use `provider: generic`:
 apiVersion: runkora.io/v1alpha1
 kind: TriggerSource
 metadata:
-  name: linear
+  name: tracker
 spec:
   provider: generic
   config:
     verification:
-      { method: hmac_sha256, header: Linear-Signature, encoding: hex }
-    event_type: { path: type }
-  signingSecretRef: { name: linear-webhook, key: secret }
+      { method: hmac_sha256, header: X-Signature, encoding: hex }
+    event_type: { path: event }
+    attribution:
+      links:
+        - label: "#{{ data.number }} {{ data.title }}"
+          url: "https://tracker.example.com/projects/{{ data.project_id }}/issues/{{ data.id }}"
+      actor: { name: Tracker, kind: system }
+      object:
+        label: "#{{ data.number }} {{ data.title }}"
+        url: "https://tracker.example.com/projects/{{ data.project_id }}/issues/{{ data.id }}"
+      verbs:
+        issue.created: created
+        issue.comment.created: commented on
+  signingSecretRef: { name: tracker-webhook, key: secret }
 ```
 
 `verification.method` is `hmac_sha256`, `standard_webhooks` or `bearer`. `header`, `prefix` and `encoding` apply to `hmac_sha256` only, and `event_type` takes a `header` or a `path`.
+
+The optional `attribution` block sets the links and the event summary a run shows. [Create a trigger](create-a-trigger.md#connect-any-other-system) describes its `links`, `actor`, `object` and `verbs` keys.
 
 Recreating a `TriggerSource`, or changing its `provider`, gives it a new webhook path.
 

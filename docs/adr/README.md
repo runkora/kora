@@ -153,6 +153,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Generic Webhook Source](2026-10-27-generic-webhook-source.md) — `Accepted` · 2026-10-27
 - [Run Page Record: Message Senders, Trigger Event Summaries and Budget Stops](2026-11-11-run-page-record.md) — `Accepted` · 2026-11-11
 - [Graders](2026-11-19-graders.md) — `Proposed` · 2026-11-19
+- [Generic Webhook Attribution](2026-11-23-generic-webhook-attribution.md) — `Proposed` · 2026-11-23
 
 ### MCP / Tool Gateway
 
@@ -360,4 +361,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-15 | [GitHub Connector Coverage of the GitHub API](2026-11-15-github-connector-route-coverage.md) | Accepted | — |
 | 2026-11-19 | [Graders](2026-11-19-graders.md) | Proposed | — |
 | 2026-11-22 | [Agent Cold Tier](2026-11-22-agent-cold-tier.md) | Accepted | — |
+| 2026-11-23 | [Generic Webhook Attribution](2026-11-23-generic-webhook-attribution.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

@@ -256,9 +256,11 @@ func TestAlertmanagerEventSummary(t *testing.T) {
 	}
 }
 
-func TestGenericWebhookHasNoSummary(t *testing.T) {
-	if _, ok := any(&genericAdapter{}).(eventSummarizer); ok {
-		t.Error("the generic webhook adapter summarizes; the page reads its trigger template instead")
+func TestGenericWebhookHasNoSummaryWithoutAttribution(t *testing.T) {
+	meta := map[string]string{}
+	addEventSummary(meta, &genericAdapter{}, "webhook", decodeBody([]byte(`{"data":{"title":"t"}}`)))
+	if meta[metaEventSummary] != "" {
+		t.Errorf("summary = %s; the page reads the trigger template for a source without attribution", meta[metaEventSummary])
 	}
 }
 

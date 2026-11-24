@@ -324,6 +324,14 @@ func TestTriggerProviderToolsAndSenderRestriction(t *testing.T) {
 		t.Errorf("update did not forward sender_restriction: %v", gotBody["sender_restriction"])
 	}
 
+	// An empty attribution object is forwarded: it removes the block.
+	for _, attribution := range []map[string]any{{"verbs": map[string]any{"issue.created": "created"}}, {}} {
+		call("tools/call", map[string]any{"name": "triggers.sources.update", "arguments": map[string]any{"id": "src-1", "attribution": attribution}})
+		if got, ok := gotBody["attribution"].(map[string]any); !ok || len(got) != len(attribution) {
+			t.Errorf("source update forwarded attribution %v, want %v", gotBody["attribution"], attribution)
+		}
+	}
+
 	// The legacy keys are refused before the backend, which would refuse them too.
 	for _, legacy := range []map[string]any{{"logins": []any{"octocat"}}, {"associations": []any{"MEMBER"}}} {
 		gotPath = ""
