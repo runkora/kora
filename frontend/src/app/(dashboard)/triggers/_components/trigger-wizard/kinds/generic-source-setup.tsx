@@ -2,13 +2,20 @@
 
 /**
  * @tier 3 · triggers-scoped. A new generic webhook source's settings on the
- * source step: how deliveries are verified, where the secret comes from, and
- * where the event type sits. The source is created with the trigger.
+ * source step: how deliveries are verified, where the secret comes from,
+ * where the event type sits, and the optional attribution. The source is
+ * created with the trigger.
  */
 
+import { useState } from 'react';
 import {
+  Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
   FormField,
   Grid,
+  Icon,
   Input,
   RadioCard,
   RadioGroup,
@@ -18,7 +25,10 @@ import {
   Text,
 } from '@runkora/hades';
 import { useBrand } from '@runkora/theme/brand-provider';
+import { AttributionFields } from '../../attribution-fields';
 import {
+  attributionFrom,
+  attributionHint,
   GENERIC_EVENT_TYPE,
   takesPastedSecret,
   VERIFICATION_METHODS,
@@ -51,6 +61,11 @@ export function GenericSourceSetup({
 }: GenericSourceSetupProps) {
   const { productName } = useBrand();
   const set = (next: Partial<GenericSourceDraft>) => onChange({ ...draft, ...next });
+  // Opens on its own after stepping back to a draft with attribution, or one that blocks Create.
+  const [attributionOpen, setAttributionOpen] = useState(
+    Object.keys(attributionFrom(draft.attribution)).length > 0 ||
+      attributionHint(draft.attribution) !== undefined,
+  );
 
   return (
     <Stack gap="cozy">
@@ -185,6 +200,28 @@ export function GenericSourceSetup({
           />
         )}
       </Stack>
+
+      <Collapsible open={attributionOpen} onOpenChange={setAttributionOpen}>
+        <Stack gap="snug">
+          <Stack direction="horizontal">
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="xs">
+                <Icon name={attributionOpen ? 'chevron-down' : 'chevron-right'} size="2xs" />
+                Attribution (optional)
+              </Button>
+            </CollapsibleTrigger>
+          </Stack>
+          <Text size="caption" color="subtle">
+            Links and an event summary on each run this source starts or joins.
+          </Text>
+          <CollapsibleContent>
+            <AttributionFields
+              value={draft.attribution}
+              onChange={(attribution) => set({ attribution })}
+            />
+          </CollapsibleContent>
+        </Stack>
+      </Collapsible>
     </Stack>
   );
 }

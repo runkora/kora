@@ -115,4 +115,26 @@ describe('trigger source routes', () => {
     expect(res.status).toBe(200);
     expect(received).toEqual({ rotate_secret: true, signing_secret: 'new-slack-secret' });
   });
+
+  it('forwards an attribution block, including the empty one that removes it', async () => {
+    const received: Record<string, unknown>[] = [];
+    server.use(
+      http.patch(`${SOURCES_URL}/src-1`, async ({ request }) => {
+        received.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json({ id: 'src-1', webhook_path: '/x' });
+      }),
+    );
+    const attribution = { links: [{ label: 'Issue', url: 'https://t.example.com/{{ data.id }}' }] };
+
+    for (const body of [{ attribution }, { attribution: {} }]) {
+      const res = await PATCH(
+        makeRequest('PATCH', 'http://localhost/api/trigger-sources/src-1', body),
+        {
+          params: Promise.resolve({ id: 'src-1' }),
+        } as never,
+      );
+      expect(res.status).toBe(200);
+    }
+    expect(received).toEqual([{ attribution }, { attribution: {} }]);
+  });
 });

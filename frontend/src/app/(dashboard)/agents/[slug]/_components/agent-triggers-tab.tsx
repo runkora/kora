@@ -122,6 +122,7 @@ export function AgentTriggersTab() {
   const {
     startManualRun,
     rotateSecret,
+    saveAttribution,
     toggleTrigger,
     saveTriggerEdit,
     redeliver,
@@ -293,6 +294,7 @@ export function AgentTriggersTab() {
         onEdit={saveTriggerEdit}
         onRedeliver={redeliver}
         onRotateSecret={rotateSecret}
+        onSaveAttribution={saveAttribution}
         onFire={startManualRun}
         // Scoped to the trigger on screen: firing one trigger must not make
         // another one's panel claim it is queueing.

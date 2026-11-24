@@ -1,6 +1,6 @@
 # Generic Webhook Source
 
-**Status:** Accepted  
+**Status:** Accepted (config editing after create superseded in part 2026-11-23: attribution is editable)  
 **Date:** 2026-10-27  
 **Deciders:** Justin Wilkin  
 **Technical Story:** [Generic Webhook Source PRD](../prd/generic-webhook-source.md)

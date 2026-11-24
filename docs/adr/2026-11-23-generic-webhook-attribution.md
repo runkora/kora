@@ -1,6 +1,6 @@
 # Generic Webhook Attribution
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-11-23  
 **Deciders:** Justin Wilkin  
 **Technical Story:** [Generic Webhook Attribution PRD](../prd/generic-webhook-attribution.md)

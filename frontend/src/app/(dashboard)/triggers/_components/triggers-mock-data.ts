@@ -122,6 +122,59 @@ export const SOURCES: SourceRow[] = [
     lastRejectionReason: null,
     declared: false,
   },
+  {
+    id: 'src_9e2b4c61',
+    name: 'issue-tracker',
+    provider: 'generic',
+    category: 'webhook',
+    enabled: true,
+    signingSecretSet: true,
+    config: {
+      verification: { method: 'hmac_sha256', header: 'X-Signature', encoding: 'hex' },
+      event_type: { header: 'X-Event' },
+      attribution: {
+        links: [
+          {
+            label: '#{{ data.number }} {{ data.title }}',
+            url: 'https://tracker.example.com/projects/{{ data.project_id }}/issues/{{ data.id }}',
+          },
+        ],
+        actor: { name: 'Tracker', kind: 'system' },
+        object: {
+          label: '#{{ data.number }} {{ data.title }}',
+          url: 'https://tracker.example.com/projects/{{ data.project_id }}/issues/{{ data.id }}',
+        },
+        verbs: { 'issue.created': 'created', 'issue.comment.created': 'commented on' },
+      },
+    },
+    createdAt: ago(3 * DAY),
+    rejectionCount: 0,
+    lastRejectionAt: null,
+    lastRejectionReason: null,
+    declared: false,
+  },
+  {
+    id: 'src_3f7a0d28',
+    name: 'deploy-events',
+    provider: 'generic',
+    category: 'webhook',
+    enabled: true,
+    signingSecretSet: true,
+    config: {
+      verification: { method: 'bearer' },
+      attribution: {
+        links: [{ label: 'Deploy {{ data.id }}', url: '{{ data.url }}' }],
+        actor: { name: '{{ data.user }}', kind: 'person' },
+        object: { label: '{{ data.service }}' },
+      },
+    },
+    createdAt: ago(9 * DAY),
+    rejectionCount: 0,
+    lastRejectionAt: null,
+    lastRejectionReason: null,
+    declared: true,
+    repository: 'example-org/platform-config',
+  },
 ];
 
 // ── Triggers ─────────────────────────────────────────────────────────────────
@@ -1183,6 +1236,28 @@ const WEBHOOK_AGENT_MANAGED_IN_GIT = {
   repository: 'acme/platform-config',
 };
 
+/** A webhook trigger on a generic source with attribution set through the API. */
+const WEBHOOK_GENERIC = trigger({
+  id: 'trg_perm_webhook_generic',
+  name: 'webhook-generic',
+  kind: 'webhook',
+  agentSlug: 'docs-writer',
+  sourceId: 'src_9e2b4c61',
+  eventType: 'issue.created',
+  promptTemplate: 'Triage issue {{ data.number }}: {{ data.title }}.',
+});
+
+/** A webhook trigger on a declared generic source: its attribution is read-only here. */
+const WEBHOOK_GENERIC_DECLARED_SOURCE = trigger({
+  id: 'trg_perm_webhook_generic_declared',
+  name: 'webhook-generic-declared-source',
+  kind: 'webhook',
+  agentSlug: 'docs-writer',
+  sourceId: 'src_3f7a0d28',
+  eventType: 'webhook',
+  promptTemplate: 'Check the deploy of {{ data.service }}.',
+});
+
 /** The triggers a permutation story opens, one per point on the axes above. */
 export const PERMUTATION_TRIGGERS: TriggerRow[] = [
   WEBHOOK_AGENT,
@@ -1201,6 +1276,8 @@ export const PERMUTATION_TRIGGERS: TriggerRow[] = [
   WEBHOOK_AGENT_SOURCE_DELETED,
   CHAT_AGENT_WAITING_FOR_SECRET,
   WEBHOOK_AGENT_MANAGED_IN_GIT,
+  WEBHOOK_GENERIC,
+  WEBHOOK_GENERIC_DECLARED_SOURCE,
 ];
 
 /**

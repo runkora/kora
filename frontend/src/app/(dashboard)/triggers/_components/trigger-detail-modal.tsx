@@ -52,7 +52,18 @@ import { endpointFor } from '../_lib/endpoints';
 import { SLACK_PROVIDER } from '../_lib/slack-app-manifest';
 import { chatConversationKey, chatEventLabel } from '../_lib/chat';
 import { providerName, SENDER_ID_EXAMPLE } from '../_lib/providers';
-import { takesPastedSecret, verificationMethodOf, verificationNote } from '../_lib/generic-source';
+import {
+  attributionDraftOf,
+  attributionFrom,
+  attributionHint,
+  EMPTY_ATTRIBUTION,
+  GENERIC_PROVIDER,
+  takesPastedSecret,
+  verificationMethodOf,
+  verificationNote,
+} from '../_lib/generic-source';
+import type { AttributionDraft, GenericAttribution } from '../_lib/generic-source';
+import { AttributionFields } from './attribution-fields';
 import { ConfigurationRail } from './configuration-rail';
 import type { ConfigurationSection } from './configuration-rail';
 import type { CoalesceDraft } from './coalesce-editor';
@@ -164,6 +175,11 @@ interface TriggerDetailModalProps {
     signingSecret?: string,
     firstSecret?: boolean,
   ) => Promise<string | null>;
+  /**
+   * Replaces the attribution of the trigger's generic source, resolving with the
+   * error or null. `{}` removes it. Absent for read-only callers.
+   */
+  onSaveAttribution?: (t: TriggerRow, attribution: GenericAttribution) => Promise<string | null>;
   /** Fire a manual trigger now. Absent for kinds that fire on their own. */
   onFire?: (t: TriggerRow) => void;
   firing?: boolean;
@@ -394,6 +410,7 @@ function TriggerDetailModalBody({
   onEdit: editAction,
   onRedeliver: redeliverAction,
   onRotateSecret: rotateSecretAction,
+  onSaveAttribution: saveAttributionAction,
   onFire: fireAction,
   firing = false,
   canRunAgent,
@@ -575,6 +592,30 @@ function TriggerDetailModalBody({
       ? undefined
       : verificationMethodOf(webhookSource.provider, webhookSource.config);
 
+  // Attribution is source config: a declared source or a locked tenant changes it in git.
+  // Like secret rotation, it also needs run access to the source's agents.
+  const hasAttribution = webhookSource?.provider === GENERIC_PROVIDER;
+  const sourceLocked = sourceDeclared || tenantLocked;
+  const attributionEditable =
+    hasAttribution && canShapeRuns && !sourceLocked && saveAttributionAction !== undefined;
+  const storedAttribution = useMemo(
+    () => attributionDraftOf(webhookSource?.config),
+    [webhookSource?.config],
+  );
+  const saveAttribution = useCallback(
+    async (value: AttributionDraft): Promise<string | null> => {
+      if (trigger === null || saveAttributionAction === undefined)
+        return 'Editing is not available here.';
+      return saveAttributionAction(trigger, attributionFrom(value));
+    },
+    [trigger, saveAttributionAction],
+  );
+  const attribution = useEditableSection(storedAttribution, editKey, saveAttribution, {
+    // Raw drafts: a kind or URL with no name is an edit, though it serializes to nothing.
+    isEqual: (a, b) => JSON.stringify(a) === JSON.stringify(b),
+    validate: attributionHint,
+  });
+
   const storedSchedule = useMemo(
     () => ({
       cronExpression: trigger?.scheduleConfig?.cronExpression ?? '',
@@ -598,14 +639,17 @@ function TriggerDetailModalBody({
   // Drafts are dropped explicitly as well, so a close never leaves unsaved edits behind
   // for anything that holds a section past the modal's own unmount.
   const discardAndClose = () => {
-    for (const section of [name, schedule, filters, senders, prompt, delivery]) section.discard();
+    for (const section of [name, schedule, filters, senders, prompt, delivery, attribution])
+      section.discard();
     setConfirmingDiscard(false);
     onClose();
   };
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   // Escape, the overlay and × all land here; an edit is never thrown away without asking.
   const handleClose = () => {
-    const dirty = [name, schedule, filters, senders, prompt, delivery].some((x) => x.dirty);
+    const dirty = [name, schedule, filters, senders, prompt, delivery, attribution].some(
+      (x) => x.dirty,
+    );
     if (dirty) setConfirmingDiscard(true);
     else discardAndClose();
   };
@@ -764,6 +808,18 @@ function TriggerDetailModalBody({
       description:
         "Control how many runs this trigger starts at once, and what happens to events that arrive while it's at the limit.",
     },
+    ...(hasAttribution
+      ? [
+          {
+            id: 'attribution',
+            icon: 'external-link' as const,
+            dirty: attribution.dirty,
+            title: 'Attribution',
+            sub: 'Links and event summary',
+            description: 'The links and event summary on each run this source starts or joins.',
+          },
+        ]
+      : []),
     // Last, and in the danger colours: the actions that cannot be taken back.
     ...(hasSigningSecret || !managed
       ? [
@@ -835,7 +891,18 @@ function TriggerDetailModalBody({
                     {activeSection.description}
                   </Text>
                 </Stack>
-                {managed ? (
+                {activeSection.id === 'attribution' ? (
+                  // Attribution belongs to the source, so the source decides who may change it.
+                  sourceLocked && source !== undefined ? (
+                    <ManagedInGitNotice declared={source.declared} repository={source.repository} />
+                  ) : !canWrite ? (
+                    <Alert variant="info">{permissionHintText('edit triggers')}</Alert>
+                  ) : (
+                    !canRunAgent && (
+                      <Alert variant="info">{permissionHintText("run this source's agents")}</Alert>
+                    )
+                  )
+                ) : managed ? (
                   <ManagedSectionNotice
                     declared={trigger.declared}
                     repository={trigger.repository}
@@ -1058,6 +1125,38 @@ function TriggerDetailModalBody({
                       />
                     }
                   />
+                )}
+                {activeSection.id === 'attribution' && (
+                  <Stack gap="relaxed">
+                    <AttributionFields
+                      value={attribution.value}
+                      onChange={attribution.setValue}
+                      disabled={!attributionEditable}
+                    />
+                    {attributionEditable &&
+                      Object.keys(attributionFrom(attribution.value)).length > 0 && (
+                        <Stack direction="horizontal">
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => attribution.setValue(EMPTY_ATTRIBUTION)}
+                          >
+                            Clear attribution
+                          </Button>
+                        </Stack>
+                      )}
+                    <EditActions
+                      dirty={attribution.dirty}
+                      pending={attribution.pending}
+                      error={attribution.error}
+                      blocker={attribution.blocker}
+                      notice={`Applies to every trigger on ${source?.name ?? 'this source'}.`}
+                      alwaysShow={attributionEditable}
+                      saveLabel="Save attribution"
+                      onSave={attribution.save}
+                      onDiscard={attribution.discard}
+                    />
+                  </Stack>
                 )}
                 {activeSection.id === 'danger' && (
                   <IssuedSecret
