@@ -75,6 +75,27 @@ func splitOutsideQuotes(s string, sep rune) []string {
 	return append(out, s[start:])
 }
 
+// PoolNamespace returns the tenant namespace of a pool pod SPIFFE ID,
+// spiffe://{trust-domain}/tenant/{namespace}/pool/{pod}. A pool pod has not
+// yet been bound to an agent (docs/adr/2026-11-22-agent-cold-tier.md). It is
+// not a principal: PrincipalFromSpiffeID refuses it, and only the policy
+// bundle download accepts it.
+func PoolNamespace(spiffeID string) (string, bool) {
+	withoutScheme, ok := strings.CutPrefix(spiffeID, "spiffe://")
+	if !ok {
+		return "", false
+	}
+	trustDomain, path, ok := strings.Cut(withoutScheme, "/")
+	if !ok || trustDomain == "" {
+		return "", false
+	}
+	segments := strings.Split(path, "/")
+	if len(segments) != 4 || segments[0] != "tenant" || segments[2] != "pool" || segments[1] == "" || segments[3] == "" {
+		return "", false
+	}
+	return segments[1], true
+}
+
 // PrincipalFromSpiffeID constructs a Principal from a SPIFFE URI.
 //
 // Supported SPIFFE ID formats per docs/adr/2026-03-05-spiffe-spire-workload-attestation.md

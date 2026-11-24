@@ -253,3 +253,33 @@ func TestPrincipalFromSpiffeID_Namespace(t *testing.T) {
 		}
 	}
 }
+
+func TestPoolNamespace(t *testing.T) {
+	tests := []struct {
+		id, want string
+		ok       bool
+	}{
+		{"spiffe://runkora.test/tenant/kora-tenant-a/pool/pool-abc12", "kora-tenant-a", true},
+		{"spiffe://runkora.test/tenant/kora-tenant-a/agent/x", "", false},
+		{"spiffe://runkora.test/tenant/kora-tenant-a/pool/p/extra", "", false},
+		{"spiffe://runkora.test/tenant//pool/p", "", false},
+		{"spiffe://runkora.test/tenant/kora-tenant-a/pool/", "", false},
+		{"spiffe://runkora.test/system/pool", "", false},
+		{"spiffe:///tenant/kora-tenant-a/pool/p", "", false},
+		{"https://runkora.test/tenant/kora-tenant-a/pool/p", "", false},
+	}
+	for _, tc := range tests {
+		got, ok := PoolNamespace(tc.id)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("PoolNamespace(%q) = %q, %v, want %q, %v", tc.id, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+// A pool pod is not a principal. Every service that builds a principal from
+// XFCC refuses it.
+func TestPrincipalFromSpiffeID_RefusesPool(t *testing.T) {
+	if _, err := PrincipalFromSpiffeID("spiffe://runkora.test/tenant/kora-tenant-a/pool/pool-abc12"); err == nil {
+		t.Error("expected an error for a pool SPIFFE ID")
+	}
+}

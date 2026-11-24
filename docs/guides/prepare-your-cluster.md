@@ -51,6 +51,7 @@ If you already run SPIRE:
 - Run a SPIRE agent and the SPIFFE CSI driver on every node that runs kora, agent or sandbox pods, tainted nodes included.
 - Set kora's `spire.className` to your spire-controller-manager's class name. It defaults to `spire-system-spire`.
 - Set `fallback: true` on any `ClusterSPIFFEID` that matches kora's pods, or exclude kora's namespaces from it.
+- Set the SPIRE server's `experimental.cacheReloadInterval: 1s` and `experimental.eventsBasedCache: true`, and the SPIRE agent's `experimental.syncInterval: 1s`. A cold agent then gets its identity about 2s after kora-agents binds a pool pod to it.
 
 ## Database and cache
 
