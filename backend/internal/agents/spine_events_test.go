@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
@@ -199,9 +200,9 @@ type closeReportsCompletion struct {
 	report func()
 }
 
-func (c *closeReportsCompletion) CloseSession(ctx context.Context, url, runID string) error {
+func (c *closeReportsCompletion) CloseSession(ctx context.Context, pod sessionmanager.Pod, runID string) error {
 	c.report()
-	return c.mockSMClient.CloseSession(ctx, url, runID)
+	return c.mockSMClient.CloseSession(ctx, pod, runID)
 }
 
 // A live run ends terminated even though its closing session reports it completed.

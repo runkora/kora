@@ -597,8 +597,11 @@ func (s *RunService) TerminateRun(ctx context.Context, id string) error {
 	// An idle run still holds its session, and a draining pod waits for it.
 	if terminated.State == RunStateTerminated && terminated.PodOrdinal >= 0 {
 		namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-		podURL := sessionmanager.PodURL(at.Slug, terminated.PodOrdinal, namespace)
-		if err = s.sm.CloseSession(ctx, podURL, id); err != nil && !errors.Is(err, sessionmanager.ErrSessionNotFound) {
+		target, err := s.podTarget(ctx, at.Slug, terminated.PodOrdinal, namespace)
+		if err == nil {
+			err = s.sm.CloseSession(ctx, target, id)
+		}
+		if err != nil && !errors.Is(err, sessionmanager.ErrSessionNotFound) {
 			// Pod may be gone (agent type deleted, pod crashed); log and proceed with cleanup.
 			s.logger.Warn(ctx, "session-manager unreachable during termination, proceeding with cleanup",
 				logging.Field{Key: "run_id", Value: id},
@@ -834,14 +837,18 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-	podURL := sessionmanager.PodURL(at.Slug, run.PodOrdinal, namespace)
+	target, err := s.podTarget(ctx, at.Slug, run.PodOrdinal, namespace)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanForwardMessageToSessionManager)
+		return fmt.Errorf("target pod %d: %w", run.PodOrdinal, err)
+	}
 	// A person's message makes the turn manual: a trigger run takes the manual idle timeout from here on.
 	// A trigger's message sends zero, which leaves the run's timeout as it is.
 	idleTimeout, fromPerson := 0, false
 	if from == nil {
 		idleTimeout, fromPerson = s.cfg.IdleTimeouts.ForPersonMessage(run.StartedBy), true
 	}
-	if err := s.sm.SendMessage(ctx, podURL, runID, content, idleTimeout, fromPerson); err != nil {
+	if err := s.sm.SendMessage(ctx, target, runID, content, idleTimeout, fromPerson); err != nil {
 		observability.RecordFailure(span, err, errSpanForwardMessageToSessionManager)
 		return fmt.Errorf("forward message to pod %d: %w", run.PodOrdinal, err)
 	}
@@ -914,7 +921,7 @@ func (s *RunService) appendJoinedSources(ctx context.Context, span trace.Span, r
 // reached the pod but lost its reply may be delivered twice. Session-manager
 // sends are not idempotent, and a duplicated task is far less harmful than a
 // run with no task. Retries stop when ctx ends.
-func (s *RunService) tryInitialMessage(ctx context.Context, podURL, runID, msg string) error {
+func (s *RunService) tryInitialMessage(ctx context.Context, target sessionmanager.Pod, runID, msg string) error {
 	if msg == "" {
 		return nil
 	}
@@ -922,7 +929,7 @@ func (s *RunService) tryInitialMessage(ctx context.Context, podURL, runID, msg s
 	backoff := initialMessageBackoff
 	for attempt := 1; attempt <= initialMessageAttempts; attempt++ {
 		// The first message is the run's task, not a person's turn: the timeout set at creation stands.
-		if err = s.sm.SendMessage(ctx, podURL, runID, msg, 0, false); err == nil {
+		if err = s.sm.SendMessage(ctx, target, runID, msg, 0, false); err == nil {
 			return nil
 		}
 		if ctx.Err() != nil || attempt == initialMessageAttempts {
@@ -1021,15 +1028,19 @@ func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 	// Interrupt steers the run (it redirects the agent mid-turn), so it follows
 	// the same starter-only rule as SendMessage. Terminate does not: it follows
 	// the visibility rule in loadRunForAction.
-	if err := checkDelegatedRunSteer(ctx, at, run); err != nil {
+	if err = checkDelegatedRunSteer(ctx, at, run); err != nil {
 		return err
 	}
 	if run.State != RunStateActive {
 		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
 	}
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-	podURL := sessionmanager.PodURL(at.Slug, run.PodOrdinal, namespace)
-	if err := s.sm.InterruptSession(ctx, podURL, runID); err != nil {
+	target, err := s.podTarget(ctx, at.Slug, run.PodOrdinal, namespace)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanInterruptSession)
+		return fmt.Errorf("target pod %d: %w", run.PodOrdinal, err)
+	}
+	if err = s.sm.InterruptSession(ctx, target, runID); err != nil {
 		observability.RecordFailure(span, err, errSpanInterruptSession)
 		return fmt.Errorf("interrupt session on pod %d: %w", run.PodOrdinal, err)
 	}

@@ -75,7 +75,7 @@ type scriptedSM struct {
 	onCreate func()
 }
 
-func (s *scriptedSM) CreateSession(ctx context.Context, url string, req sessionmanager.CreateSessionRequest) error {
+func (s *scriptedSM) CreateSession(ctx context.Context, pod sessionmanager.Pod, req sessionmanager.CreateSessionRequest) error {
 	s.calls++
 	if s.onCreate != nil {
 		s.onCreate()
@@ -83,7 +83,7 @@ func (s *scriptedSM) CreateSession(ctx context.Context, url string, req sessionm
 	if s.calls <= len(s.errs) && s.errs[s.calls-1] != nil {
 		return s.errs[s.calls-1]
 	}
-	return s.mockSMClient.CreateSession(ctx, url, req)
+	return s.mockSMClient.CreateSession(ctx, pod, req)
 }
 
 // setRunStateRepo fails the first SetRunState call with err. When commit is true
@@ -439,7 +439,7 @@ type firstMessageErrs struct {
 	errs []error
 }
 
-func (f *firstMessageErrs) SendMessage(ctx context.Context, podURL, runID, content string, idle int, fromPerson bool) error {
+func (f *firstMessageErrs) SendMessage(ctx context.Context, pod sessionmanager.Pod, runID, content string, idle int, fromPerson bool) error {
 	f.mu.Lock()
 	n := f.sendMessageCalls
 	f.mu.Unlock()
@@ -449,7 +449,7 @@ func (f *firstMessageErrs) SendMessage(ctx context.Context, podURL, runID, conte
 		f.mu.Unlock()
 		return f.errs[n]
 	}
-	return f.mockSMClient.SendMessage(ctx, podURL, runID, content, idle, fromPerson)
+	return f.mockSMClient.SendMessage(ctx, pod, runID, content, idle, fromPerson)
 }
 
 func TestStartClaimed_InitialMessageRetries(t *testing.T) {

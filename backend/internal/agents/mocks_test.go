@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"slices"
 	"sort"
@@ -813,7 +814,9 @@ func (m *mockRepository) SetRunSummary(_ context.Context, runID, summary string)
 // ── mockK8s ───────────────────────────────────────────────────────────────────
 
 type mockK8s struct {
-	mu                      sync.Mutex
+	mu sync.Mutex
+	// podIPErr makes PodIP fail.
+	podIPErr                error
 	provisionedAgentTypes   []string
 	provisionedMissing      []string
 	deprovisionedAgentTypes []string
@@ -890,10 +893,27 @@ func (m *mockK8s) ReadyOrdinals(_ context.Context, _, _ string) (ordinals, error
 	}
 	n := max(m.readyPods, 1)
 	out := make([]int, n)
+	ips := make(map[int]string, n)
 	for i := range out {
 		out[i] = i
+		ips[i] = testPodIP(i)
 	}
-	return ordinals{ready: out, warm: m.warm, resizing: m.resizing}, nil
+	return ordinals{ready: out, warm: m.warm, resizing: m.resizing, ips: ips}, nil
+}
+
+func (m *mockK8s) PodIP(_ context.Context, _ string, ordinal int, _ string) (string, error) {
+	if m.podIPErr != nil {
+		return "", m.podIPErr
+	}
+	return testPodIP(ordinal), nil
+}
+
+// testPodIP is the IP of the mock pod at ordinal.
+func testPodIP(ordinal int) string { return fmt.Sprintf("10.0.0.%d", ordinal+1) }
+
+// testPod is the session-manager target of the mock pod at ordinal.
+func testPod(slug string, ordinal int, namespace string) sessionmanager.Pod {
+	return sessionmanager.PodAt(testPodIP(ordinal), slug, namespace)
 }
 
 func (m *mockK8s) LivePod(_ context.Context, _, _ string) (bool, error) {
@@ -1014,10 +1034,10 @@ type mockSMClient struct {
 	// memory serves Memory by pod URL. A pod not in it reports an empty 1Gi pod.
 	memory map[string]sessionmanager.Memory
 	// memoryFn, when set, replaces Memory.
-	memoryFn func(ctx context.Context, podURL string) (sessionmanager.Memory, error)
+	memoryFn func(ctx context.Context, pod sessionmanager.Pod) (sessionmanager.Memory, error)
 }
 
-func (m *mockSMClient) CreateSession(_ context.Context, _ string, req sessionmanager.CreateSessionRequest) error {
+func (m *mockSMClient) CreateSession(_ context.Context, _ sessionmanager.Pod, req sessionmanager.CreateSessionRequest) error {
 	if m.createSessionErr != nil {
 		return m.createSessionErr
 	}
@@ -1027,7 +1047,7 @@ func (m *mockSMClient) CreateSession(_ context.Context, _ string, req sessionman
 	return nil
 }
 
-func (m *mockSMClient) SendMessage(_ context.Context, _, _, content string, idleTimeoutSecs int, fromPerson bool) error {
+func (m *mockSMClient) SendMessage(_ context.Context, _ sessionmanager.Pod, _, content string, idleTimeoutSecs int, fromPerson bool) error {
 	m.mu.Lock()
 	m.sendMessageCalls++
 	m.mu.Unlock()
@@ -1042,7 +1062,7 @@ func (m *mockSMClient) SendMessage(_ context.Context, _, _, content string, idle
 	return nil
 }
 
-func (m *mockSMClient) InterruptSession(_ context.Context, _, runID string) error {
+func (m *mockSMClient) InterruptSession(_ context.Context, _ sessionmanager.Pod, runID string) error {
 	if m.interruptSessionErr != nil {
 		return m.interruptSessionErr
 	}
@@ -1052,7 +1072,7 @@ func (m *mockSMClient) InterruptSession(_ context.Context, _, runID string) erro
 	return nil
 }
 
-func (m *mockSMClient) CloseSession(_ context.Context, _, runID string) error {
+func (m *mockSMClient) CloseSession(_ context.Context, _ sessionmanager.Pod, runID string) error {
 	if m.closeSessionErr != nil {
 		return m.closeSessionErr
 	}
@@ -1062,13 +1082,13 @@ func (m *mockSMClient) CloseSession(_ context.Context, _, runID string) error {
 	return nil
 }
 
-func (m *mockSMClient) Memory(ctx context.Context, podURL string) (sessionmanager.Memory, error) {
+func (m *mockSMClient) Memory(ctx context.Context, pod sessionmanager.Pod) (sessionmanager.Memory, error) {
 	if m.memoryFn != nil {
-		return m.memoryFn(ctx, podURL)
+		return m.memoryFn(ctx, pod)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if mem, ok := m.memory[podURL]; ok {
+	if mem, ok := m.memory[pod.URL]; ok {
 		return mem, nil
 	}
 	return sessionmanager.Memory{LimitBytes: testPodMemory}, nil

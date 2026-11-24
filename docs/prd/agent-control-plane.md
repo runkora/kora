@@ -268,7 +268,7 @@ The `run_events` table is also the source of truth for run resume (not v1) — a
 
 ### Session Routing
 
-New sessions are routed to any available pod for the agent type. Existing sessions are pinned to the pod where they were created — the subprocess and worktree are local to that pod. The `kora-agents` service stores `run_id → pod_ordinal` in its database and routes subsequent requests via the pod's stable StatefulSet DNS name. Routing is cross-namespace (kora-system → kora-tenant-{id}), secured by Istio mTLS.
+New sessions are routed to any available pod for the agent type. Existing sessions are pinned to the pod where they were created — the subprocess and worktree are local to that pod. The `kora-agents` service stores `run_id → pod_ordinal` in its database and routes subsequent requests to the pod's IP with the agent's headless Service as Host header ([Agent Cold Tier](../adr/2026-11-22-agent-cold-tier.md)). Routing is cross-namespace (kora-system → kora-tenant-{id}), secured by Istio mTLS.
 
 ### Tenant Workloads
 
@@ -286,7 +286,7 @@ kora-agents service
    │  Postgres SELECT (event replay on connect)
    │  POST (session claim + message relay)
    ▼
-session-manager (in agent pod, via StatefulSet DNS)
+session-manager (in agent pod, at its pod IP)
    │  reads stdout
    ▼
 transform layer (per-framework)
@@ -308,7 +308,7 @@ Responsibilities:
 - Kubernetes resource lifecycle — creates and manages StatefulSets, headless Services, and RBAC for each agent type
 - SPIRE entry registration — registers one entry per agent type keyed to the pod selector
 - Run and session lifecycle management
-- Session routing — resolves `run_id → pod_ordinal` and calls session-manager via stable DNS
+- Session routing — resolves `run_id → pod_ordinal` and calls session-manager at the pod IP with the agent Service as Host header
 - SSE relay — replays `run_events` on connect, then tails live events via Postgres LISTEN/NOTIFY
 
 No CRDs are introduced in v1. The service manages Kubernetes resources imperatively and runs a lightweight drift watch to detect and reconcile externally deleted resources.
@@ -500,7 +500,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 
 **Why not chosen:**
 - Deployment pods have random names and ephemeral IPs; routing to specific pods requires tracking pod IPs which change on reschedule
-- StatefulSets provide stable, predictable DNS names per pod ordinal — session routing uses `{agent}-{n}.{agent}.{namespace}.svc` without IP tracking
+- StatefulSets provide stable, predictable DNS names per pod ordinal (superseded by [Agent Cold Tier](../adr/2026-11-22-agent-cold-tier.md): session routing calls the pod IP with the agent Service as Host header)
 - StatefulSet semantics (stable identity, ordered scaling) are a better fit for long-lived, identity-stable agent workloads
 
 ### Alternative 5: Intercepting the Inference-Gateway Stream

@@ -32,8 +32,8 @@ func newWorkloadCache(client kubernetes.Interface) informers.SharedInformerFacto
 }
 
 // trimCached drops what the scaler and the grow never read: managedFields from every object, and all of a
-// pod but its identity, labels, deletion, node, conditions and session-manager resources. It keeps the cache
-// small at many agents.
+// pod but its identity, labels, deletion, node, IP, conditions and session-manager resources. It keeps the
+// cache small at many agents. The scaler reads a pod's memory at its IP (docs/adr/2026-11-22-agent-cold-tier.md).
 func trimCached(obj any) (any, error) {
 	switch o := obj.(type) {
 	case *corev1.Pod:
@@ -43,7 +43,7 @@ func trimCached(obj any) (any, error) {
 				Labels: o.Labels, DeletionTimestamp: o.DeletionTimestamp,
 			},
 			Spec:   corev1.PodSpec{NodeName: o.Spec.NodeName},
-			Status: corev1.PodStatus{Conditions: o.Status.Conditions},
+			Status: corev1.PodStatus{PodIP: o.Status.PodIP, Conditions: o.Status.Conditions},
 		}
 		for _, c := range o.Spec.Containers {
 			if c.Name == sessionManagerContainerName {

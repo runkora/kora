@@ -161,7 +161,7 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 		return err
 	}
 	// A pod with a pending resize has no reading and counts as full, so a stuck grow gets a new pod.
-	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, withoutOrdinals(ss.Ready, ss.Resizing))
+	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, withoutOrdinals(ss.Ready, ss.Resizing), ss.IPs)
 	ran, err := s.store.WaitWithAgentLock(ctx, at.ID, scalerLockTimeout, func(ctx context.Context) error {
 		return s.scaleLocked(ctx, at, namespace, ss, readings, allowance.Value())
 	})

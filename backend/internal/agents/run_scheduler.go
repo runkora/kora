@@ -172,25 +172,29 @@ func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.T
 		s.releaseStart(ctx, span, run.ID, claimedAt, err)
 		return
 	}
-	podURL := sessionmanager.PodURL(at.Slug, pod, namespace)
-	err := s.sm.CreateSession(ctx, podURL, s.sessionRequest(run, *at, access))
+	target, err := s.podTarget(ctx, at.Slug, pod, namespace)
+	if err != nil {
+		s.releaseStart(ctx, span, run.ID, claimedAt, err)
+		return
+	}
+	err = s.sm.CreateSession(ctx, target, s.sessionRequest(run, *at, access))
 	switch {
 	case err == nil:
 		s.recordAgentConfig(ctx, run.ID, digest)
 	case errors.Is(err, sessionmanager.ErrSessionConflict):
 		// Sessions are keyed by run ID, so a conflict means an earlier attempt landed. Its digest stays.
 	case isRetryableSessionError(err) || ctx.Err() != nil:
-		s.closeSession(ctx, podURL, run.ID)
+		s.closeSession(ctx, target, run.ID)
 		s.releaseStart(ctx, span, run.ID, claimedAt, fmt.Errorf("create session on pod %d: %w", pod, err))
 		return
 	default:
-		s.closeSession(ctx, podURL, run.ID)
+		s.closeSession(ctx, target, run.ID)
 		s.failStart(ctx, span, err, run.ID, RunStateStarting, "The agent pod refused the run.")
 		return
 	}
 	// The session exists now, so the attempt timeout must not strand the run in starting.
 	if err = s.Transition(context.WithoutCancel(ctx), run.ID, RunStateStarting, RunStateActive); err != nil && !s.runIsActive(ctx, run.ID) {
-		closed := s.closeSession(ctx, podURL, run.ID)
+		closed := s.closeSession(ctx, target, run.ID)
 		switch {
 		case errors.Is(err, ErrConflict), errors.Is(err, ErrNotFound):
 			// Terminated while the session was created.
@@ -202,14 +206,14 @@ func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.T
 		}
 		return
 	}
-	if err := s.tryInitialMessage(ctx, podURL, run.ID, run.InitialMessage); err != nil {
+	if err := s.tryInitialMessage(ctx, target, run.ID, run.InitialMessage); err != nil {
 		// A run with a session and no task would sit active with zero requests.
 		s.logger.Error(ctx, "initial message could not be delivered; failing the run",
 			logging.Field{Key: "run_id", Value: run.ID},
 			logging.Field{Key: "pod_ordinal", Value: pod},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		s.closeSession(ctx, podURL, run.ID)
+		s.closeSession(ctx, target, run.ID)
 		s.failStart(ctx, span, err, run.ID, RunStateActive, "The agent could not take the run's first message.")
 		return
 	}
@@ -373,7 +377,7 @@ func (s *RunService) assignPod(ctx context.Context, run Run, claimedAt time.Time
 		return 0, false, err
 	}
 	// A pod with a pending resize has no reading and counts as full. A grow stuck on a full node waits there.
-	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, withoutOrdinals(ready, pods.resizing))
+	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, withoutOrdinals(ready, pods.resizing), pods.ips)
 	// A run for an agent whose pods are all full is released here. Many such runs at once would
 	// otherwise queue on the agent lock. The lock re-checks.
 	starting, err := s.placement.StartingRunsPerPod(ctx, at.ID, time.Now().Add(-s.cfg.StartingRunWindow))
@@ -430,20 +434,30 @@ type podWaker interface {
 	WakePod(ctx context.Context, slug, namespace string, ordinal int, warm bool) error
 }
 
+// podTarget is the session-manager target of the agent pod at ordinal.
+func (s *RunService) podTarget(ctx context.Context, slug string, ordinal int, namespace string) (sessionmanager.Pod, error) {
+	ip, err := s.k8s.PodIP(ctx, slug, ordinal, namespace)
+	if err != nil {
+		return sessionmanager.Pod{}, err
+	}
+	return sessionmanager.PodAt(ip, slug, namespace), nil
+}
+
 // podMemoryReader reads one pod's memory report.
 type podMemoryReader interface {
-	Memory(ctx context.Context, podURL string) (sessionmanager.Memory, error)
+	Memory(ctx context.Context, pod sessionmanager.Pod) (sessionmanager.Memory, error)
 }
 
 // readPodMemory reads the memory of each pod at once. A pod whose read fails or times out is left out.
-func readPodMemory(ctx context.Context, sm podMemoryReader, logger logging.Logger, slug, namespace string, ordinals []int) map[int]sessionmanager.Memory {
+// ips maps each ordinal to its pod IP.
+func readPodMemory(ctx context.Context, sm podMemoryReader, logger logging.Logger, slug, namespace string, ordinals []int, ips map[int]string) map[int]sessionmanager.Memory {
 	readings := make([]*sessionmanager.Memory, len(ordinals))
 	var wg sync.WaitGroup
 	for i, ord := range ordinals {
 		wg.Go(func() {
 			readCtx, cancel := context.WithTimeout(ctx, memoryReadTimeout)
 			defer cancel()
-			m, err := sm.Memory(readCtx, sessionmanager.PodURL(slug, ord, namespace))
+			m, err := sm.Memory(readCtx, sessionmanager.PodAt(ips[ord], slug, namespace))
 			if err != nil {
 				logger.Warn(ctx, "pod memory read failed; the pod counts as full",
 					logging.Field{Key: "pod_ordinal", Value: ord}, logging.Field{Key: "error", Value: err.Error()})
@@ -515,9 +529,9 @@ func (s *RunService) failStart(ctx context.Context, span trace.Span, err error, 
 
 // closeSession removes a session the scheduler may have created on a pod and
 // reports whether the pod has none for the run.
-func (s *RunService) closeSession(ctx context.Context, podURL, runID string) bool {
+func (s *RunService) closeSession(ctx context.Context, target sessionmanager.Pod, runID string) bool {
 	ctx = context.WithoutCancel(ctx)
-	if err := s.sm.CloseSession(ctx, podURL, runID); err != nil && !errors.Is(err, sessionmanager.ErrSessionNotFound) {
+	if err := s.sm.CloseSession(ctx, target, runID); err != nil && !errors.Is(err, sessionmanager.ErrSessionNotFound) {
 		s.logger.Warn(ctx, "close session after a failed start failed",
 			logging.Field{Key: "run_id", Value: runID}, logging.Field{Key: "error", Value: err.Error()})
 		return false

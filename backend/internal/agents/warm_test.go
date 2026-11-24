@@ -45,6 +45,7 @@ func residencyPod(name string, spec, applied corev1.ResourceRequirements) *corev
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: scaleTestNS, Labels: podLabels(at)},
 		Spec:       corev1.PodSpec{NodeName: "node-a", Containers: []corev1.Container{{Name: sessionManagerContainerName, Resources: spec}}},
 		Status: corev1.PodStatus{
+			PodIP:             "10.0.0.1",
 			Conditions:        []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
 			ContainerStatuses: []corev1.ContainerStatus{{Name: sessionManagerContainerName, Resources: &applied}},
 		},

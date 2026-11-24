@@ -298,7 +298,9 @@ type Request struct {
 	Params  []string
 	Query   url.Values
 	Header  http.Header
-	Body    io.Reader
+	// Host replaces the request's Host header when set.
+	Host string
+	Body io.Reader
 }
 
 // Do builds and sends r. Under a parent span it opens a "{METHOD} {url.template}" client span and injects traceparent; with no parent it records none.
@@ -318,6 +320,9 @@ func (b *Base) Do(ctx context.Context, r Request) (context.Context, trace.Span, 
 		return ctx, trace.SpanFromContext(context.Background()), nil, fmt.Errorf("%w: %w", ErrBuildRequest, err)
 	}
 	maps.Copy(req.Header, r.Header)
+	if r.Host != "" {
+		req.Host = r.Host
+	}
 
 	if !trace.SpanContextFromContext(ctx).IsValid() {
 		resp, doErr := b.httpClient.Do(req)

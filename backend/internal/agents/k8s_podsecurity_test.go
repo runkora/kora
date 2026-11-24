@@ -3,6 +3,8 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"github.com/runkora/kora/backend/internal/platform/brand"
 	"io"
 	"os"
@@ -492,7 +494,7 @@ func TestReadyOrdinals(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: map[string]string{
 				"app": slug, appsv1.ControllerRevisionHashLabelKey: rev,
 			}},
-			Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: st}}},
+			Status: corev1.PodStatus{PodIP: "10.0.0." + name[len(name)-1:], Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: st}}},
 		}
 		if deleting {
 			now := metav1.Now()
@@ -500,12 +502,14 @@ func TestReadyOrdinals(t *testing.T) {
 		}
 		return p
 	}
+	noIP := func(p *corev1.Pod) *corev1.Pod { p.Status.PodIP = ""; return p }
 	for _, tc := range []struct {
 		name string
 		objs []runtime.Object
 		want []int
 	}{
 		{"no statefulset", nil, nil},
+		{"ready with no IP yet", []runtime.Object{ss(1, 1, "r1"), noIP(pod("coder-0", "r1", true, false))}, nil},
 		{"roll not yet observed", []runtime.Object{ss(2, 1, "r2"), pod("coder-0", "r1", true, false)}, []int{0}},
 		{"not ready", []runtime.Object{ss(1, 1, "r1"), pod("coder-0", "r1", false, false)}, nil},
 		{"old revision during a roll", []runtime.Object{ss(2, 2, "r2"), pod("coder-0", "r1", true, false), pod("coder-1", "r2", false, false)}, []int{0}},
@@ -517,14 +521,41 @@ func TestReadyOrdinals(t *testing.T) {
 			p := podSecurityProvisioner()
 			p.client = fake.NewSimpleClientset(tc.objs...)
 			o, err := p.ReadyOrdinals(context.Background(), slug, ns)
-			got := o.ready
+			got, ips := o.ready, o.ips
 			if err != nil {
 				t.Fatalf("ReadyOrdinals: %v", err)
 			}
 			if !slices.Equal(got, tc.want) {
 				t.Errorf("got %v, want %v", got, tc.want)
 			}
+			if len(ips) != len(got) {
+				t.Errorf("ips = %v for ordinals %v", ips, got)
+			}
+			for _, ord := range got {
+				if want := fmt.Sprintf("10.0.0.%d", ord); ips[ord] != want {
+					t.Errorf("ip of ordinal %d = %q, want %q", ord, ips[ord], want)
+				}
+			}
 		})
+	}
+}
+
+// PodIP reads the IP of an agent pod by ordinal, Ready or not.
+func TestPodIP(t *testing.T) {
+	const ns = "kora-tenant-acme"
+	p := podSecurityProvisioner()
+	p.client = fake.NewSimpleClientset(
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "coder-0", Namespace: ns}, Status: corev1.PodStatus{PodIP: "10.42.1.7"}},
+		&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "coder-1", Namespace: ns}},
+	)
+	if ip, err := p.PodIP(context.Background(), "coder", 0, ns); err != nil || ip != "10.42.1.7" {
+		t.Errorf("PodIP(0) = %q, %v", ip, err)
+	}
+	if _, err := p.PodIP(context.Background(), "coder", 1, ns); !errors.Is(err, errNoPodIP) {
+		t.Errorf("PodIP of a pod with no IP = %v, want errNoPodIP", err)
+	}
+	if _, err := p.PodIP(context.Background(), "coder", 2, ns); err == nil {
+		t.Error("PodIP of a missing pod: want an error")
 	}
 }
 

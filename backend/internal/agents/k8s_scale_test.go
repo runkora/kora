@@ -202,7 +202,7 @@ func TestAgentStatefulSetCountsTerminatingPods(t *testing.T) {
 	pod := func(name string, terminating bool) *corev1.Pod {
 		p := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: scaleTestNS, Labels: podLabels(at)},
-			Status:     corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
+			Status:     corev1.PodStatus{PodIP: "10.0.0.1", Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}}},
 		}
 		if terminating {
 			p.DeletionTimestamp = &now
@@ -317,7 +317,7 @@ func TestScalerReleasesApplyHold(t *testing.T) {
 	pod := func(name string, ready corev1.ConditionStatus) *corev1.Pod {
 		return &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: scaleTestNS, Labels: podLabels(at)},
-			Status:     corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: ready}}},
+			Status:     corev1.PodStatus{PodIP: "10.0.0.1", Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: ready}}},
 		}
 	}
 	if _, err := client.CoreV1().Pods(scaleTestNS).Create(ctx, pod("coder-0", corev1.ConditionTrue), metav1.CreateOptions{}); err != nil {
