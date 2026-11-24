@@ -577,6 +577,23 @@ describe('useRun — starting state', () => {
     });
     expect(result.current.isStarting).toBe(false);
   });
+
+  it('reports a waking agent only while the run is starting', async () => {
+    const { result } = renderHook(() => useRun('run-1', 'slug'));
+    await waitFor(() => expect(result.current.runState).toBe('pending'));
+
+    act(() => {
+      const es = FakeEventSource.instances[0];
+      es.emit('run_state', { state: 'starting' });
+      es.emit('agent_waking', {});
+    });
+    expect(result.current.liveActivity).toEqual({ kind: 'waking' });
+
+    act(() => {
+      FakeEventSource.instances[0].emit('run_state', { state: 'active' });
+    });
+    expect(result.current.liveActivity?.kind).not.toBe('waking');
+  });
 });
 
 describe('useRun — the run record', () => {
