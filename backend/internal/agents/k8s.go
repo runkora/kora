@@ -358,7 +358,7 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 var stuckWaitingReasons = []string{"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "CreateContainerConfigError", "InvalidImageName"}
 
 // podStuck reports whether any init or regular container of the pod is waiting for one of stuckWaitingReasons.
-// A Running pod that is not Ready is not stuck: without a time signal it may only be slow to pass its readiness probe.
+// A Running pod that is not Ready is not stuck; notReadyTooLong limits it by time.
 func podStuck(pod *corev1.Pod) bool {
 	for _, statuses := range [][]corev1.ContainerStatus{pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses} {
 		for _, cs := range statuses {

@@ -162,7 +162,7 @@ With cgroup v2 and Kubernetes 1.32 or later, the kubelet group-kills the whole c
 
 ### Start Budget
 
-A run will fail the start budget only when no pod is coming up for it: no pod is Ready, no pod exists that is Pending or not yet Ready, and the agent is under its total. A pod that exists and is not Ready (e.g., one waiting for a node) keeps the run queued. A pod with any container, init containers and sidecars included, waiting in `CrashLoopBackOff`, `ImagePullBackOff`, `ErrImagePull`, `CreateContainerConfigError` or `InvalidImageName` is not coming up. A Running pod that is not Ready still counts as coming up.
+A run will fail the start budget only when no pod is coming up for it: no pod is Ready, no pod exists that is Pending or not yet Ready within the limit below, and the agent is under its total. A pod that exists and is Pending (e.g., one waiting for a node) keeps the run queued. A pod with any container, init containers and sidecars included, waiting in `CrashLoopBackOff`, `ImagePullBackOff`, `ErrImagePull`, `CreateContainerConfigError` or `InvalidImageName` is not coming up. A Running pod, bound or in the tenant pool, counts as coming up while it has been not Ready for no longer than the start budget. The time is the later of the Ready condition's last transition and its containers' start, then the pod's start time, then its creation time; with none of them set the pod still counts. A bound pod on a node that stops responding turns not Ready and stays until taint eviction, so a run whose budget ends before the eviction fails. Draining pods are excluded by their deletion timestamp. Pending pods are not subject to this limit.
 
 ### Scaler
 

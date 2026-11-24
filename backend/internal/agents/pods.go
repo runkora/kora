@@ -244,15 +244,19 @@ func (p *K8sProvisioner) PodLive(ctx context.Context, namespace, name string) (b
 	return pod.DeletionTimestamp == nil, nil
 }
 
-// LivePod reports whether the agent has a bound pod that is not terminating or finished, Ready or not.
+// LivePod reports whether the agent has a bound pod coming up or Ready or, with no live bound pod, whether the
+// tenant has a pool pod coming up or Ready.
 // A pod still coming up, such as one waiting for a node, keeps a run queued past the start budget.
 // A pod with any container, init container or sidecar included, that keeps failing to start is not coming up.
-func (p *K8sProvisioner) LivePod(ctx context.Context, at AgentType, namespace string) (bool, error) {
+// A Running pod that has been not Ready for longer than notReadyLimit is not coming up either.
+func (p *K8sProvisioner) LivePod(ctx context.Context, at AgentType, namespace string, notReadyLimit time.Duration) (bool, error) {
 	pods, err := p.listAgentPods(ctx, at, namespace)
 	if err != nil {
 		return false, err
 	}
-	if slices.ContainsFunc(pods, comingUp) {
+	now := time.Now()
+	up := func(pod corev1.Pod) bool { return comingUp(pod, notReadyLimit, now) }
+	if slices.ContainsFunc(pods, up) {
 		return true, nil
 	}
 	// Placement binds a pool pod only for an agent with no bound pod that is not terminating or finished, so a
@@ -266,12 +270,41 @@ func (p *K8sProvisioner) LivePod(ctx context.Context, at AgentType, namespace st
 	if err != nil {
 		return false, fmt.Errorf("list pool pods of %s: %w", namespace, err)
 	}
-	return slices.ContainsFunc(pool.Items, comingUp), nil
+	return slices.ContainsFunc(pool.Items, up), nil
 }
 
-// comingUp reports a pod that is not terminating or finished and has no container stuck failing to start.
-func comingUp(pod corev1.Pod) bool {
-	return pod.DeletionTimestamp == nil && !podFinished(pod) && !podStuck(&pod)
+// comingUp reports a pod that is not terminating or finished, has no container stuck failing to start, and has
+// not been Running but not Ready for longer than limit.
+func comingUp(pod corev1.Pod, limit time.Duration, now time.Time) bool {
+	return pod.DeletionTimestamp == nil && !podFinished(pod) && !podStuck(&pod) && !notReadyTooLong(&pod, limit, now)
+}
+
+// notReadyTooLong reports whether the pod is Running, not Ready, and has been so for longer than limit.
+// The time is the later of the Ready condition's last transition and the containers' start, then the pod's start
+// time, then its creation time. With none of them set the pod is not too old.
+func notReadyTooLong(pod *corev1.Pod, limit time.Duration, now time.Time) bool {
+	if pod.Status.Phase != corev1.PodRunning || podReady(pod) {
+		return false
+	}
+	var since time.Time
+	for _, c := range pod.Status.Conditions {
+		if c.Type == corev1.PodReady {
+			since = c.LastTransitionTime.Time
+		}
+	}
+	// The Ready condition turns False at scheduling, before a slow image pull ends.
+	for _, cs := range pod.Status.ContainerStatuses {
+		if r := cs.State.Running; r != nil && r.StartedAt.After(since) {
+			since = r.StartedAt.Time
+		}
+	}
+	if since.IsZero() && pod.Status.StartTime != nil {
+		since = pod.Status.StartTime.Time
+	}
+	if since.IsZero() {
+		since = pod.CreationTimestamp.Time
+	}
+	return !since.IsZero() && now.Sub(since) > limit
 }
 
 // podFinished reports a pod that exited.

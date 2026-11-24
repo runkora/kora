@@ -506,16 +506,16 @@ func (s *RunService) EndStatefulSetRuns(ctx context.Context) {
 // message. It doubles per retry. Tests shorten it.
 var initialMessageBackoff = 250 * time.Millisecond
 
-// livePods tells the start budget whether the agent has a pod that is not terminating or finished.
+// livePods tells the start budget whether the agent has a pod that is coming up or Ready.
 type livePods interface {
-	LivePod(ctx context.Context, at AgentType, namespace string) (bool, error)
+	LivePod(ctx context.Context, at AgentType, namespace string, notReadyLimit time.Duration) (bool, error)
 }
 
 // waitsPastBudget reports whether a run with no Ready pod stays queued past the start budget:
 // a pod is coming up for it, or the agent is at its total (docs/adr/2026-11-09-demand-driven-agent-scaling.md).
 // A pod that turned Ready since placement looked also counts.
 func (s *RunService) waitsPastBudget(ctx context.Context, at *AgentType, namespace string) (bool, error) {
-	up, err := s.pods.LivePod(ctx, *at, namespace)
+	up, err := s.pods.LivePod(ctx, *at, namespace, s.startBudget())
 	if err != nil {
 		return false, fmt.Errorf("look up agent pods: %w", err)
 	}

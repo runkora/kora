@@ -45,6 +45,7 @@ type RunServiceConfig struct {
 	// measured from its created_at or from when its agent last became active,
 	// whichever is later, before the scheduler fails it. A run waiting for a pod that
 	// is not Ready yet, for room on a Ready pod or for its agent's total does not fail.
+	// A Running pod not Ready for longer than StartBudget no longer counts as not Ready yet.
 	// Defaults to 3 minutes.
 	StartBudget time.Duration
 	// ProvisionBudget is how long a run may wait for its agent to finish

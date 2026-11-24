@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"github.com/runkora/kora/backend/internal/platform/brand"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -384,6 +386,29 @@ func waiting(p *corev1.Pod, reason string) *corev1.Pod {
 	return p
 }
 
+// readyAge sets the pod's Ready condition transition time, StartTime and CreationTimestamp to the given ages before now.
+// A zero age leaves that time unset.
+func readyAge(p *corev1.Pod, transition, start, created time.Duration) *corev1.Pod {
+	at := func(d time.Duration) metav1.Time { return metav1.NewTime(time.Now().Add(-d)) }
+	if transition > 0 {
+		p.Status.Conditions[0].LastTransitionTime = at(transition)
+	}
+	if start > 0 {
+		t := at(start)
+		p.Status.StartTime = &t
+	}
+	if created > 0 {
+		p.CreationTimestamp = at(created)
+	}
+	return p
+}
+
+// runningSince sets the pod's session-manager container running since the given age before now.
+func runningSince(p *corev1.Pod, age time.Duration) *corev1.Pod {
+	p.Status.ContainerStatuses = []corev1.ContainerStatus{{Name: sessionManagerContainerName, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{StartedAt: metav1.NewTime(time.Now().Add(-age))}}}}
+	return p
+}
+
 // waitingContainer sets the named regular container, or init container when init is true, waiting with reason.
 func waitingContainer(p *corev1.Pod, name string, init bool, reason string) *corev1.Pod {
 	cs := []corev1.ContainerStatus{{Name: name, State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: reason}}}}
@@ -395,15 +420,26 @@ func waitingContainer(p *corev1.Pod, name string, init bool, reason string) *cor
 	return p
 }
 
+// TestLivePod runs each case once with the agent's bound pods and once with tenant pool pods.
 func TestLivePod(t *testing.T) {
 	const ns, slug = "kora-tenant-example", "coder"
+	const limit = 3 * time.Minute
+	for kind, podLabels := range map[string]map[string]string{
+		"bound": {"app": slug, agentTypeLabel: "at-1"},
+		"pool":  {poolLabel: "true"},
+	} {
+		t.Run(kind, func(t *testing.T) { testLivePod(t, ns, slug, limit, podLabels) })
+	}
+}
+
+func testLivePod(t *testing.T, ns, slug string, limit time.Duration, podLabels map[string]string) {
 	pod := func(name string, phase corev1.PodPhase, ready, deleting bool) *corev1.Pod {
 		st := corev1.ConditionFalse
 		if ready {
 			st = corev1.ConditionTrue
 		}
 		p := &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: map[string]string{"app": slug, agentTypeLabel: "at-1"}},
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: maps.Clone(podLabels)},
 			Status:     corev1.PodStatus{Phase: phase, Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: st}}},
 		}
 		if deleting {
@@ -420,8 +456,21 @@ func TestLivePod(t *testing.T) {
 		{"no pod", nil, false},
 		{"another agent's pod", []runtime.Object{&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "other-0", Namespace: ns, Labels: map[string]string{"app": "other", agentTypeLabel: "at-2"}}}}, false},
 		{"pending", []runtime.Object{pod("coder-0", corev1.PodPending, false, false)}, true},
-		{"running, not ready", []runtime.Object{pod("coder-0", corev1.PodRunning, false, false)}, true},
+		{"running, not ready, no time", []runtime.Object{pod("coder-0", corev1.PodRunning, false, false)}, true},
 		{"ready", []runtime.Object{pod("coder-0", corev1.PodRunning, true, false)}, true},
+		{"running, not ready, transition past limit", []runtime.Object{readyAge(pod("coder-0", corev1.PodRunning, false, false), 2*limit, 0, 0)}, false},
+		{"running, not ready, transition inside limit", []runtime.Object{readyAge(pod("coder-0", corev1.PodRunning, false, false), limit/2, 0, 0)}, true},
+		{"running, not ready, start time past limit", []runtime.Object{readyAge(pod("coder-0", corev1.PodRunning, false, false), 0, 2*limit, 0)}, false},
+		{"running, not ready, start time inside limit", []runtime.Object{readyAge(pod("coder-0", corev1.PodRunning, false, false), 0, limit/2, 0)}, true},
+		{"running, not ready, creation past limit", []runtime.Object{readyAge(pod("coder-0", corev1.PodRunning, false, false), 0, 0, 2*limit)}, false},
+		{"running, not ready, creation inside limit", []runtime.Object{readyAge(pod("coder-0", corev1.PodRunning, false, false), 0, 0, limit/2)}, true},
+		{"running, not ready, recent transition on old pod", []runtime.Object{readyAge(pod("coder-0", corev1.PodRunning, false, false), limit/2, 3*limit, 3*limit)}, true},
+		{"running, not ready, old transition, containers just started", []runtime.Object{runningSince(readyAge(pod("coder-0", corev1.PodRunning, false, false), 2*limit, 0, 0), limit/2)}, true},
+		{"running, not ready, recent transition, containers started past limit", []runtime.Object{runningSince(readyAge(pod("coder-0", corev1.PodRunning, false, false), limit/2, 0, 0), 2*limit)}, true},
+		{"running, not ready, containers started past limit", []runtime.Object{runningSince(readyAge(pod("coder-0", corev1.PodRunning, false, false), 3*limit, 0, 0), 2*limit)}, false},
+		{"old running not ready beside recent pending", []runtime.Object{readyAge(pod("coder-0", corev1.PodRunning, false, false), 2*limit, 0, 0), readyAge(pod("coder-1", corev1.PodPending, false, false), 0, 0, limit/2)}, true},
+		{"pending past limit", []runtime.Object{readyAge(pod("coder-0", corev1.PodPending, false, false), 2*limit, 2*limit, 2*limit)}, true},
+		{"ready past limit", []runtime.Object{readyAge(pod("coder-0", corev1.PodRunning, true, false), 2*limit, 2*limit, 2*limit)}, true},
 		{"all terminating", []runtime.Object{pod("coder-0", corev1.PodRunning, false, true), pod("coder-1", corev1.PodPending, false, true)}, false},
 		{"failed", []runtime.Object{pod("coder-0", corev1.PodFailed, false, false)}, false},
 		{"succeeded", []runtime.Object{pod("coder-0", corev1.PodSucceeded, false, false)}, false},
@@ -441,7 +490,7 @@ func TestLivePod(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := podSecurityProvisioner()
 			p.client = fake.NewSimpleClientset(tc.objs...)
-			got, err := p.LivePod(context.Background(), AgentType{ID: "at-1", Slug: slug}, ns)
+			got, err := p.LivePod(context.Background(), AgentType{ID: "at-1", Slug: slug}, ns, limit)
 			if err != nil {
 				t.Fatalf("LivePod: %v", err)
 			}

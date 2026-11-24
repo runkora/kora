@@ -276,6 +276,9 @@ func TestLivePodCountsPoolPods(t *testing.T) {
 	stuckBound.Status.ContainerStatuses = stuck.Status.ContainerStatuses
 	stuckOther := boundPod(AgentType{ID: "at-old", Slug: "coder", TenantID: "acme"}, "pool-c", 1)
 	stuckOther.Status.ContainerStatuses = stuck.Status.ContainerStatuses
+	notReadyBound := boundPod(at, "pool-n", 1)
+	notReadyBound.Status.Conditions[0].Status = corev1.ConditionFalse
+	notReadyBound.Status.Conditions[0].LastTransitionTime = metav1.NewTime(time.Now().Add(-2 * time.Minute))
 	statefulSetPod := boundPod(at, "coder-0", 1)
 	statefulSetPod.Labels[statefulSetPodLabel] = "coder-0"
 	for name, tc := range map[string]struct {
@@ -286,7 +289,8 @@ func TestLivePodCountsPoolPods(t *testing.T) {
 		"a stuck pool pod": {[]runtime.Object{stuck}, false},
 		"a pool pod up":    {[]runtime.Object{f.pod("pool-a", testTemplate, 2)}, true},
 		// The stuck bound pod keeps placement from binding the pool pod.
-		"a stuck bound pod beside a pool pod up": {[]runtime.Object{stuckBound, f.pod("pool-a", testTemplate, 2)}, false},
+		"a stuck bound pod beside a pool pod up":                    {[]runtime.Object{stuckBound, f.pod("pool-a", testTemplate, 2)}, false},
+		"a bound pod not Ready past the limit beside a pool pod up": {[]runtime.Object{notReadyBound, f.pod("pool-a", testTemplate, 2)}, false},
 		// A pod bound to a deleted agent with the same slug, or a StatefulSet pod, is not the agent's.
 		"another agent record's stuck pod": {[]runtime.Object{stuckOther, f.pod("pool-a", testTemplate, 2)}, true},
 		"a StatefulSet pod up":             {[]runtime.Object{statefulSetPod}, false},
@@ -294,7 +298,7 @@ func TestLivePodCountsPoolPods(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p := podSecurityProvisioner()
 			p.client = fake.NewSimpleClientset(tc.objs...)
-			if got, err := p.LivePod(t.Context(), at, scaleTestNS); err != nil || got != tc.want {
+			if got, err := p.LivePod(t.Context(), at, scaleTestNS, time.Minute); err != nil || got != tc.want {
 				t.Errorf("LivePod = %v, %v; want %v", got, err, tc.want)
 			}
 		})

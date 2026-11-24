@@ -992,7 +992,7 @@ func (m *mockK8s) BindPod(context.Context, AgentType, string) (string, error) {
 	return name, nil
 }
 
-func (m *mockK8s) LivePod(_ context.Context, _ AgentType, _ string) (bool, error) {
+func (m *mockK8s) LivePod(_ context.Context, _ AgentType, _ string, _ time.Duration) (bool, error) {
 	return m.livePod, m.livePodErr
 }
 
