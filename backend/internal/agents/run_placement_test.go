@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -127,6 +128,9 @@ func TestAssignPod(t *testing.T) {
 			}
 			if tc.err == nil && pod != tc.want {
 				t.Errorf("pod = %s, want %s", pod, tc.want)
+			}
+			if tc.err == nil && !slices.Equal(k8s.busyPods, []string{tc.want}) || tc.err != nil && len(k8s.busyPods) != 0 {
+				t.Errorf("pods labeled busy = %v, want only the placed pod", k8s.busyPods)
 			}
 			if got := repo.runs[run.ID]; (tc.err == nil) != (got.State == RunStateStarting) {
 				t.Errorf("run state = %s", got.State)

@@ -234,6 +234,12 @@ func TestChartKoraAgentsPodUpdatePolicy(t *testing.T) {
 	allowed := admissionPolicy(t, "kora-agents-pod-updates")
 	pool := map[string]any{"runkora.io/pool": "true", "runkora.io/managed-agent": "true", "pod-template-hash": "7c9d"}
 	bound := map[string]any{"spiffe.io/agent": "reviewer", "app": "reviewer", "runkora.io/agent-type": "a1", "runkora.io/managed-agent": "true", "pod-template-hash": "7c9d"}
+	sandbox := map[string]any{"runkora.io/role": "sandbox", "runkora.io/run-id": "r1"}
+	with := func(labels map[string]any, k, v string) map[string]any {
+		out := maps.Clone(labels)
+		out[k] = v
+		return out
+	}
 	tests := []struct {
 		name string
 		a    admission
@@ -244,7 +250,17 @@ func TestChartKoraAgentsPodUpdatePolicy(t *testing.T) {
 		{"another label", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: pool, new: map[string]any{"runkora.io/pool": "true", "runkora.io/managed-agent": "true", "pod-template-hash": "7c9d", "x": "y"}, oldSpec: "sa", newSpec: "sa"}, false},
 		{"remove managed-agent", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: pool, new: map[string]any{"runkora.io/pool": "true", "pod-template-hash": "7c9d"}, oldSpec: "sa", newSpec: "sa"}, false},
 		{"annotation change", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: pool, new: pool, oldSpec: "sa", newSpec: "sa", newNote: "x"}, false},
-		{"pod outside the pool", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: bound, new: bound, oldSpec: "sa", newSpec: "sa", oldNote: "a", newNote: "a"}, false},
+		{"bind that places a run", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: pool, new: with(bound, "runkora.io/busy", "true"), oldSpec: "sa", newSpec: "sa"}, true},
+		{"busy label set on a bound pod", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: bound, new: with(bound, "runkora.io/busy", "true"), oldSpec: "sa", newSpec: "sa", oldNote: "a", newNote: "a"}, true},
+		{"busy label removed from a bound pod", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: with(bound, "runkora.io/busy", "true"), new: bound, oldSpec: "sa", newSpec: "sa"}, true},
+		{"busy label of another value", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: bound, new: with(bound, "runkora.io/busy", "yes"), oldSpec: "sa", newSpec: "sa"}, false},
+		{"busy label on a pod left in the pool", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: pool, new: with(pool, "runkora.io/busy", "true"), oldSpec: "sa", newSpec: "sa"}, false},
+		{"another label on a bound pod", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: bound, new: with(bound, "x", "y"), oldSpec: "sa", newSpec: "sa"}, false},
+		{"agent config change on a bound pod", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: bound, new: with(bound, "runkora.io/agent-config", "c2"), oldSpec: "sa", newSpec: "sa"}, false},
+		{"owner change on a bound pod", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: bound, new: with(bound, "runkora.io/busy", "true"), oldSpec: "sa", newSpec: "sa", owner: "rs"}, false},
+		{"annotation change on a bound pod", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: bound, new: with(bound, "runkora.io/busy", "true"), oldSpec: "sa", newSpec: "sa", newNote: "x"}, false},
+		{"spec change on a bound pod", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: bound, new: with(bound, "runkora.io/busy", "true"), oldSpec: "sa", newSpec: "other"}, false},
+		{"pod neither pooled nor bound", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: sandbox, new: with(sandbox, "runkora.io/busy", "true"), oldSpec: "sa", newSpec: "sa"}, false},
 		{"spec change", admission{op: "UPDATE", user: koraAgents, namespaceRole: "tenant", old: pool, new: pool, oldSpec: "sa", newSpec: "other"}, false},
 		{"update outside tenant namespaces", admission{op: "UPDATE", user: koraAgents, namespaceRole: "", old: pool, new: bound, oldSpec: "sa", newSpec: "sa"}, false},
 		{"another account", admission{op: "UPDATE", user: "anyone", namespaceRole: "", old: bound, new: bound, oldSpec: "sa", newSpec: "other"}, true},

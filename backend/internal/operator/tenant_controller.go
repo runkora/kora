@@ -229,6 +229,11 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			run:  func(ctx context.Context) error { return r.ensureAgentIdentityRule(ctx, tenant) },
 		},
 		{
+			// Refuse a voluntary eviction of an agent pod a run holds, and of a sandbox pod.
+			name: "busy PodDisruptionBudgets",
+			run:  func(ctx context.Context) error { return r.ensureBusyPDBs(ctx, tenant) },
+		},
+		{
 			// Aggregated OIDC client secrets: confidential tenants need
 			// their client_secret available to the identity service
 			// without a pod restart.

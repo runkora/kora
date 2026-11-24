@@ -86,9 +86,11 @@ spec:
   policyName: kora-agent-bind
   validationActions: ["Deny"]
 ---
-# kora-agents updates a pod only to bind a pool pod
-# (docs/adr/2026-11-22-agent-cold-tier.md). Its pod updates stay on pool pods in
-# tenant namespaces and change only the bind labels and the owner references.
+# kora-agents updates a pod to bind a pool pod, and to set or remove
+# runkora.io/busy on a bound pod (docs/adr/2026-11-22-agent-cold-tier.md,
+# Amendment 1). Its pod updates stay in tenant namespaces. On a pool pod they
+# change only the bind labels and the owner references, and on a bound pod only
+# runkora.io/busy.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -107,15 +109,21 @@ spec:
     - name: kora-agents
       expression: "request.userInfo.username == 'system:serviceaccount:{{ include "kora.systemNamespace" . }}:kora-agents'"
   variables:
-    # The labels a bind sets or removes: the agent identity, the pool label, the agent Service selector and
-    # the agent configuration stamp that a later roll compares.
+    # The labels a bind sets or removes: the agent identity, the pool label, the agent Service selector, the
+    # agent configuration stamp that a later roll compares, and the busy label of a bind that places a run.
     - name: bindLabels
-      expression: "['spiffe.io/agent', 'runkora.io/pool', 'app', 'runkora.io/agent-type', 'runkora.io/agent-config']"
+      expression: "['spiffe.io/agent', 'runkora.io/pool', 'app', 'runkora.io/agent-type', 'runkora.io/agent-config', 'runkora.io/busy']"
+    - name: pool
+      expression: "has(oldObject.metadata.labels) && 'runkora.io/pool' in oldObject.metadata.labels"
+    - name: bound
+      expression: "!variables.pool && has(oldObject.metadata.labels) && 'spiffe.io/agent' in oldObject.metadata.labels"
+    - name: changeable
+      expression: "variables.pool ? variables.bindLabels : ['runkora.io/busy']"
   validations:
     - expression: "has(namespaceObject.metadata.labels) && 'runkora.io/role' in namespaceObject.metadata.labels && namespaceObject.metadata.labels['runkora.io/role'] == 'tenant'"
       message: kora-agents updates pods only in tenant namespaces.
-    - expression: "has(oldObject.metadata.labels) && 'runkora.io/pool' in oldObject.metadata.labels"
-      message: kora-agents updates only pool pods.
+    - expression: "variables.pool || variables.bound"
+      message: kora-agents updates only pool pods and bound pods.
     - expression: "object.spec == oldObject.spec"
       message: kora-agents does not change a pod's spec.
     - expression: >-
@@ -125,11 +133,19 @@ spec:
         (!has(object.metadata.finalizers) || object.metadata.finalizers == oldObject.metadata.finalizers)
       message: kora-agents does not change a pod's annotations or finalizers.
     - expression: >-
-        (!has(oldObject.metadata.labels) || oldObject.metadata.labels.all(k, k in variables.bindLabels ||
+        variables.pool || (has(object.metadata.ownerReferences) == has(oldObject.metadata.ownerReferences) &&
+        (!has(object.metadata.ownerReferences) || object.metadata.ownerReferences == oldObject.metadata.ownerReferences))
+      message: kora-agents changes the owner references only of a pool pod.
+    - expression: >-
+        (!has(oldObject.metadata.labels) || oldObject.metadata.labels.all(k, k in variables.changeable ||
         (has(object.metadata.labels) && k in object.metadata.labels && object.metadata.labels[k] == oldObject.metadata.labels[k]))) &&
-        (!has(object.metadata.labels) || object.metadata.labels.all(k, k in variables.bindLabels ||
+        (!has(object.metadata.labels) || object.metadata.labels.all(k, k in variables.changeable ||
         (has(oldObject.metadata.labels) && k in oldObject.metadata.labels)))
-      message: kora-agents changes only the bind labels on a pod.
+      message: kora-agents changes only the bind labels on a pool pod and runkora.io/busy on a bound pod.
+    - expression: >-
+        !has(object.metadata.labels) || !('runkora.io/busy' in object.metadata.labels) ||
+        (object.metadata.labels['runkora.io/busy'] == 'true' && !('runkora.io/pool' in object.metadata.labels))
+      message: runkora.io/busy is "true" when set, and a pool pod never carries it.
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

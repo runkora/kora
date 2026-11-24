@@ -56,6 +56,8 @@ type agentPod struct {
 	Template, Config string
 	// DeferredSince is when the kubelet started to hold the pod's grow as Deferred, zero when it holds none.
 	DeferredSince time.Time
+	// Busy is a pod labeled busyLabel, which the agent-busy PodDisruptionBudget protects from eviction.
+	Busy bool
 }
 
 // agentPods is an agent's bound pods.
@@ -99,6 +101,10 @@ func (a agentPods) old(config string) []agentPod {
 // agentConfigLabel carries agentConfigHash on a bound pod.
 const agentConfigLabel = "runkora.io/agent-config"
 
+// busyLabel marks a bound pod that holds a run. The operator's agent-busy PodDisruptionBudget refuses its eviction
+// (docs/adr/2026-11-22-agent-cold-tier.md, Amendment 1).
+const busyLabel = "runkora.io/busy"
+
 // agentConfigHash is a short hash of the agent's framework and model. A pod bound with another hash is rolled,
 // so a framework or model change replaces the agent's pods as the earlier restart annotation did.
 func agentConfigHash(at AgentType) string {
@@ -137,7 +143,7 @@ func (p *K8sProvisioner) sortAgentPods(pods []corev1.Pod, namespace string) agen
 			view := agentPod{
 				Name: pod.Name, Ready: ready, Warm: podWarm(pod, full), Resizing: resizePending(pod),
 				Template: pod.Annotations[poolTemplateAnnotation], Config: pod.Labels[agentConfigLabel],
-				DeferredSince: deferredSince(pod),
+				DeferredSince: deferredSince(pod), Busy: pod.Labels[busyLabel] == "true",
 			}
 			if ready {
 				view.IP = pod.Status.PodIP
@@ -231,9 +237,10 @@ func (p *K8sProvisioner) PodIP(ctx context.Context, namespace, name string) (str
 	return pod.Status.PodIP, nil
 }
 
-// PodLive reads the pod name from the API server and reports whether it exists and is not terminating.
-// Placement reads it under the agent lock, after which the scaler cannot remove the pod.
-func (p *K8sProvisioner) PodLive(ctx context.Context, namespace, name string) (bool, error) {
+// MarkPodBusy reads the pod name from the API server and, when it exists and is not terminating, sets busyLabel
+// on it. It reports whether the pod is live. Placement calls it under the agent lock before it assigns a run,
+// after which the scaler cannot remove the pod or the label.
+func (p *K8sProvisioner) MarkPodBusy(ctx context.Context, namespace, name string) (bool, error) {
 	pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return false, nil
@@ -241,7 +248,41 @@ func (p *K8sProvisioner) PodLive(ctx context.Context, namespace, name string) (b
 	if err != nil {
 		return false, fmt.Errorf("get pod %s/%s: %w", namespace, name, err)
 	}
-	return pod.DeletionTimestamp == nil, nil
+	if pod.DeletionTimestamp != nil {
+		return false, nil
+	}
+	if pod.Labels[busyLabel] == "true" {
+		return true, nil
+	}
+	// An eviction that lands between the read and the patch shows in the patched pod. After the patch the
+	// agent-busy PodDisruptionBudget refuses it.
+	patched, err := p.patchBusy(ctx, namespace, name, "true")
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return patched.DeletionTimestamp == nil, nil
+}
+
+// ClearPodBusy removes busyLabel from the pod name. A pod that is gone has no label to remove.
+func (p *K8sProvisioner) ClearPodBusy(ctx context.Context, namespace, name string) error {
+	_, err := p.patchBusy(ctx, namespace, name, nil)
+	return ignoreNotFound(err)
+}
+
+// patchBusy sets busyLabel to value, or removes it when value is nil.
+func (p *K8sProvisioner) patchBusy(ctx context.Context, namespace, name string, value any) (*corev1.Pod, error) {
+	patch, err := json.Marshal(map[string]any{"metadata": map[string]any{"labels": map[string]any{busyLabel: value}}})
+	if err != nil {
+		return nil, err
+	}
+	pod, err := p.client.CoreV1().Pods(namespace).Patch(ctx, name, types.MergePatchType, patch, metav1.PatchOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("label pod %s/%s %s: %w", namespace, name, busyLabel, err)
+	}
+	return pod, nil
 }
 
 // LivePod reports whether the agent has a bound pod coming up or Ready or, with no live bound pod, whether the
@@ -324,7 +365,8 @@ func (p *K8sProvisioner) DeletePod(ctx context.Context, namespace, name string) 
 // BindPod binds a Ready pool pod on the pool's current template to the agent and grows it to full size
 // (docs/adr/2026-11-22-agent-cold-tier.md, D5). It returns the pod's name. The patch carries the pool pod's
 // resource version, so two replicas cannot bind one pod. A pod another replica bound first is skipped.
-func (p *K8sProvisioner) BindPod(ctx context.Context, at AgentType, namespace string) (string, error) {
+// A bind that places a run passes busy, and the bind patch sets busyLabel.
+func (p *K8sProvisioner) BindPod(ctx context.Context, at AgentType, namespace string, busy bool) (string, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.K8sProvisioner.BindPod",
 		trace.WithAttributes(observability.AgentSlugKey.String(at.Slug), semconv.K8SNamespaceNameKey.String(namespace)))
 	defer span.End()
@@ -354,7 +396,7 @@ func (p *K8sProvisioner) BindPod(ctx context.Context, at AgentType, namespace st
 			observability.RecordFailure(span, err, errSpanCheckPoolProvenance)
 			return "", err
 		}
-		err = p.bind(ctx, pod, at, owner)
+		err = p.bind(ctx, pod, at, owner, busy)
 		switch {
 		case apierrors.IsConflict(err) || apierrors.IsNotFound(err):
 			// Another replica bound the pod first, or the pod is gone.
@@ -470,18 +512,23 @@ func (p *K8sProvisioner) poolDeployment(ctx context.Context, namespace string) (
 }
 
 // bind patches the pool pod in one write that the bind admission policy allows: it removes the pool label,
-// sets the agent identity, the agent Service selector, the agent type and the agent config hash, and replaces the ReplicaSet owner
-// reference with the KoraTenant's. The pod's resource version is the patch's precondition.
-func (p *K8sProvisioner) bind(ctx context.Context, pod *corev1.Pod, at AgentType, owner metav1.OwnerReference) error {
+// sets the agent identity, the agent Service selector, the agent type, the agent config hash and, when busy,
+// busyLabel, and replaces the ReplicaSet owner reference with the KoraTenant's. The pod's resource version is
+// the patch's precondition.
+func (p *K8sProvisioner) bind(ctx context.Context, pod *corev1.Pod, at AgentType, owner metav1.OwnerReference, busy bool) error {
 	owners := []metav1.OwnerReference{}
 	if owner.Kind != "" {
 		owners = append(owners, owner)
 	}
+	bindLabels := map[string]any{
+		poolLabel: nil, "spiffe.io/agent": at.Slug, "app": at.Slug, agentTypeLabel: at.ID, agentConfigLabel: agentConfigHash(at),
+	}
+	if busy {
+		bindLabels[busyLabel] = "true"
+	}
 	patch, err := json.Marshal(map[string]any{"metadata": map[string]any{
 		"resourceVersion": pod.ResourceVersion,
-		"labels": map[string]any{
-			poolLabel: nil, "spiffe.io/agent": at.Slug, "app": at.Slug, agentTypeLabel: at.ID, agentConfigLabel: agentConfigHash(at),
-		},
+		"labels":          bindLabels,
 		"ownerReferences": owners,
 	}})
 	if err != nil {

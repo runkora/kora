@@ -32,6 +32,8 @@ func TestValidateAgentSlug(t *testing.T) {
 		{"too long", "a" + strings.Repeat("b", maxAgentSlugLength), false},
 		{"reserved delegated", "delegated", false},
 		{"reserved autonomous", "autonomous", false},
+		{"reserved agent budget", "agent-busy", false},
+		{"reserved sandbox budget", "sandbox-busy", false},
 		{"reserved word as a prefix", "delegated-helper", true},
 	}
 	for _, tc := range cases {

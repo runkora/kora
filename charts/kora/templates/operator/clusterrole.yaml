@@ -45,6 +45,11 @@ rules:
   - apiGroups: ["networking.istio.io"]
     resources: ["sidecars"]
     verbs: ["get", "list", "watch", "create", "patch"]
+  # The agent-busy and sandbox-busy PodDisruptionBudgets in each tenant namespace
+  # (docs/adr/2026-11-22-agent-cold-tier.md, Amendment 1).
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "patch"]
   # Reconciliation inputs; read-only.
   - apiGroups: ["runkora.io"]
     resources: ["koratenants", "connections", "oauthclients", "mcpservers", "skillmarketplaces"]
