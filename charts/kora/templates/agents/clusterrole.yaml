@@ -20,9 +20,10 @@ rules:
   # Run start lists an agent's pods to find the Ready ones (ReadyOrdinals).
   # The scaler watches agent StatefulSets and pods into a cache.
   # Run start deletes the wake-reserve pod on a node where a grow finds no room.
+  # The bind in PR 6 of docs/adr/2026-11-22-agent-cold-tier.md will patch a pool pod's labels.
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list", "watch", "create", "delete"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch"]
   # The scaler shrinks an idle agent's pods in place, and run start grows them back.
   - apiGroups: [""]
     resources: ["pods/resize"]
