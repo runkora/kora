@@ -223,6 +223,12 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			run:  func(ctx context.Context) error { return r.ensureSandboxEgressSidecar(ctx, tenant) },
 		},
 		{
+			// A new connection per token exchange, so a bound pool pod never
+			// reuses a connection opened on its pool certificate.
+			name: "agent identity DestinationRule",
+			run:  func(ctx context.Context) error { return r.ensureAgentIdentityRule(ctx, tenant) },
+		},
+		{
 			// Aggregated OIDC client secrets: confidential tenants need
 			// their client_secret available to the identity service
 			// without a pod restart.

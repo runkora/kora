@@ -19,6 +19,9 @@ type TokenCache struct {
 	mu     sync.RWMutex
 	token  string
 	expiry time.Time
+	// revoked is set when the pod's SPIFFE ID changed after the bind. The cache
+	// then holds no token for the rest of the process.
+	revoked bool
 }
 
 // NewTokenCache constructs an empty TokenCache ready for use.
@@ -31,6 +34,9 @@ func NewTokenCache() *TokenCache {
 func (c *TokenCache) Set(token string, expiry time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.revoked {
+		return
+	}
 	c.token = token
 	c.expiry = expiry
 }
@@ -44,6 +50,15 @@ func (c *TokenCache) Get() (token string, expiry time.Time, ok bool) {
 		return "", time.Time{}, false
 	}
 	return c.token, c.expiry, true
+}
+
+// Revoke drops the cached token and refuses every later Set. identity-proxy
+// revokes the cache when the pod's SPIFFE ID changes after the bind
+// (docs/adr/2026-11-22-agent-cold-tier.md).
+func (c *TokenCache) Revoke() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.token, c.expiry, c.revoked = "", time.Time{}, true
 }
 
 // IsExpiringSoon reports whether the cached token will expire within threshold.
