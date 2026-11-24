@@ -108,7 +108,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — `Accepted (Amended 2026-10-12; start budget rule superseded in part 2026-11-10)` · 2026-05-11
 - [Run Scheduling](2026-10-12-run-scheduling.md) — `Accepted (superseded in part by Demand-Driven Agent Scaling 2026-11-10 and 2026-11-21, and by Agent Cold Tier 2026-11-23)` · 2026-10-12
 - [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) — `Accepted (Amended 2026-11-22; StatefulSet replicas, surge partition and per-agent PDB superseded in part 2026-11-23)` · 2026-11-09
-- [Agent Cold Tier](2026-11-22-agent-cold-tier.md) — `Accepted` · 2026-11-22
+- [Agent Cold Tier](2026-11-22-agent-cold-tier.md) — `Accepted (Amended 2026-11-24)` · 2026-11-22
 - [Per-Run Cost on the Run Record](2026-10-20-run-cost-on-run-record.md) — `Proposed` · 2026-10-20
 - [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) — `Accepted` · 2026-05-11
 - [Agent Workspace Model](2026-05-11-agent-workspace-model.md) — `Accepted` · 2026-05-11
@@ -360,6 +360,6 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-11 | [API Key Connection Adapter](2026-11-11-apikey-connection-adapter.md) | Accepted | — |
 | 2026-11-15 | [GitHub Connector Coverage of the GitHub API](2026-11-15-github-connector-route-coverage.md) | Accepted | — |
 | 2026-11-19 | [Graders](2026-11-19-graders.md) | Proposed | — |
-| 2026-11-22 | [Agent Cold Tier](2026-11-22-agent-cold-tier.md) | Accepted | — |
+| 2026-11-22 | [Agent Cold Tier](2026-11-22-agent-cold-tier.md) | Accepted (Amended 2026-11-24; disruption protection only while a run holds a pod) | — |
 | 2026-11-23 | [Generic Webhook Attribution](2026-11-23-generic-webhook-attribution.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

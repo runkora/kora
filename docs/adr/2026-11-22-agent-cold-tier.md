@@ -1,6 +1,6 @@
 # Agent Cold Tier
 
-**Status:** Accepted  
+**Status:** Accepted (Amended 2026-11-24; disruption protection only while a run holds a pod)  
 **Date:** 2026-11-22  
 **Deciders:** Justin Wilkin  
 **Technical Story:** An agent idle past a threshold holds no pod. A run wakes it by binding a pre-started per-tenant pool pod.  
@@ -245,6 +245,16 @@ The warm-tier amendment lands before PR 6. PR 6 moves its pod selection from ord
 
 ---
 
+## Amendment 1 (2026-11-24): Disruption protection only while a run holds a pod
+
+Every bound and pool session-manager pod was protected from voluntary eviction for its whole life. Agents on a heartbeat never go cold, so idle pods pinned nodes that the cluster autoscaler could not consolidate. On prod, 16 mostly idle pods pinned 8 nodes.
+
+The operator reconciles two PodDisruptionBudgets in each tenant namespace, both with `maxUnavailable: 0`. `agent-busy` selects pods labelled `runkora.io/busy: "true"`, and `sandbox-busy` selects sandbox pods. kora-agents sets `runkora.io/busy` on a bound pod in the same write that places a run on it, and the scaler removes it when the pod holds no pending, starting, active or idle run. Pool pods never carry it. `kora-agents-pod-updates` allows kora-agents to change that label on a bound pod.
+
+A bound pod without the label may be evicted by the cluster autoscaler or a node drain. The agent's next run binds a pool pod, the same as a cold wake. A drain of a node that holds busy pods waits until their runs end.
+
+---
+
 ## Related Decisions
 
 *   [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md): this ADR supersedes in part the StatefulSet replicas, the surge partition, the per-agent PDB and the floor of 1.
@@ -259,4 +269,4 @@ The warm-tier amendment lands before PR 6. PR 6 moves its pod selection from ord
 
 ---
 
-**Last Updated:** 2026-11-22 (Accepted)
+**Last Updated:** 2026-11-24 (Amendment 1: disruption protection only while a run holds a pod)
