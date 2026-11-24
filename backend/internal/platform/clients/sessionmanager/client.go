@@ -1,18 +1,14 @@
 // Package sessionmanager provides an HTTP client for the session-manager API
-// that runs inside each agent StatefulSet pod.
+// that runs inside each agent pod.
 //
-// Each pod exposes the session-manager on port 8090 via a headless Service.
-// Pods are addressable by ordinal through the StatefulSet DNS pattern:
-//
-//	http://<slug>-<ordinal>.<slug>.<namespace>.svc.cluster.local:8090
-//
-// Use PodURL to construct the target URL, then pass it to each method call.
+// Each pod exposes the session-manager on port 8090 behind the agent's headless
+// Service. A call goes to the pod IP with the agent Service as Host header (PodAt).
 //
 // Usage:
 //
 //	c := sessionmanager.NewClient(logger, identityClient.SelfTokenSource())
-//	url := sessionmanager.PodURL(at.Slug, podOrdinal, namespace)
-//	if err := c.CreateSession(ctx, url, sessionmanager.CreateSessionRequest{...}); err != nil {
+//	pod := sessionmanager.PodAt(podIP, at.Slug, namespace)
+//	if err := c.CreateSession(ctx, pod, sessionmanager.CreateSessionRequest{...}); err != nil {
 //	    return fmt.Errorf("create session: %w", err)
 //	}
 package sessionmanager
@@ -21,7 +17,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
@@ -78,7 +76,9 @@ type Client struct {
 // source could only ever produce 401s.
 func NewClient(logger logging.Logger, tokenFunc TokenFunc) *Client {
 	return &Client{
-		Base:      httpclient.New(tracerName, logger, clientTimeout),
+		// No keep-alives: agent pod IPs are reused, and a pooled connection to a
+		// pod's old IP would reach whichever pod holds the IP now.
+		Base:      httpclient.New(tracerName, logger, clientTimeout, httpclient.WithDisableKeepAlives()),
 		tokenFunc: tokenFunc,
 	}
 }
@@ -93,11 +93,23 @@ func (c *Client) authorize(ctx context.Context, header http.Header) (http.Header
 	return header, nil
 }
 
-// PodURL returns the base URL for a specific session-manager pod.
-// slug is the agent type slug, ordinal is the StatefulSet pod index (0-based),
-// and namespace is the tenant's Kubernetes namespace.
-func PodURL(slug string, ordinal int, namespace string) string {
-	return fmt.Sprintf("http://%s-%d.%s.%s.svc.cluster.local:%d", slug, ordinal, slug, namespace, podPort)
+// Pod is the target of a session-manager call: the pod IP URL and the agent
+// Service as Host header. The Host header routes the call to the agent Service's
+// Envoy cluster, whose DestinationRule pins the agent SPIFFE ID. A call to a bare
+// pod IP leaves through PassthroughCluster with no SAN check
+// (docs/adr/2026-11-22-agent-cold-tier.md).
+type Pod struct {
+	URL  string
+	Host string
+}
+
+// PodAt returns the target for the session-manager on the pod at ip, which
+// serves the agent slug in namespace.
+func PodAt(ip, slug, namespace string) Pod {
+	return Pod{
+		URL:  "http://" + net.JoinHostPort(ip, strconv.Itoa(podPort)),
+		Host: fmt.Sprintf("%s.%s.svc.cluster.local:%d", slug, namespace, podPort),
+	}
 }
 
 // CreateSessionRequest is the payload for CreateSession.
@@ -141,7 +153,7 @@ type RunGuardrails struct {
 
 // CreateSession starts a new agent subprocess on the target pod.
 // Returns ErrSessionConflict if a session for the same run ID already exists.
-func (c *Client) CreateSession(ctx context.Context, podURL string, req CreateSessionRequest) error {
+func (c *Client) CreateSession(ctx context.Context, pod Pod, req CreateSessionRequest) error {
 	body, err := c.EncodeJSON(req)
 	if err != nil {
 		return fmt.Errorf("encode create session: %w", err)
@@ -153,7 +165,7 @@ func (c *Client) CreateSession(ctx context.Context, podURL string, req CreateSes
 	}
 
 	_, span, resp, err := c.Do(observability.WithTenant(observability.WithRun(ctx, req.RunID), req.TenantID), httpclient.Request{
-		Method: http.MethodPost, BaseURL: podURL, Path: "/session", Header: header, Body: body,
+		Method: http.MethodPost, BaseURL: pod.URL, Host: pod.Host, Path: "/session", Header: header, Body: body,
 	})
 	defer span.End()
 	if err != nil {
@@ -175,7 +187,7 @@ func (c *Client) CreateSession(ctx context.Context, podURL string, req CreateSes
 // A non-zero idleTimeoutSecs replaces the session's idle timeout from this message on.
 // fromPerson marks a message a person sent.
 // Returns ErrSessionNotFound if no session exists for the given run ID.
-func (c *Client) SendMessage(ctx context.Context, podURL, runID, content string, idleTimeoutSecs int, fromPerson bool) error {
+func (c *Client) SendMessage(ctx context.Context, pod Pod, runID, content string, idleTimeoutSecs int, fromPerson bool) error {
 	payload := map[string]any{"content": content}
 	if idleTimeoutSecs > 0 {
 		payload["idle_timeout_secs"] = idleTimeoutSecs
@@ -194,7 +206,7 @@ func (c *Client) SendMessage(ctx context.Context, podURL, runID, content string,
 	}
 
 	_, span, resp, err := c.Do(observability.WithRun(ctx, runID), httpclient.Request{
-		Method: http.MethodPost, BaseURL: podURL, Path: "/session/{runID}/messages", Params: []string{runID},
+		Method: http.MethodPost, BaseURL: pod.URL, Host: pod.Host, Path: "/session/{runID}/messages", Params: []string{runID},
 		Header: header, Body: body,
 	})
 	defer span.End()
@@ -216,14 +228,14 @@ func (c *Client) SendMessage(ctx context.Context, podURL, runID, content string,
 // InterruptSession stops the agent's current in-progress turn on the target
 // pod without killing the session.
 // Returns ErrSessionNotFound if no session exists for the given run ID.
-func (c *Client) InterruptSession(ctx context.Context, podURL, runID string) error {
+func (c *Client) InterruptSession(ctx context.Context, pod Pod, runID string) error {
 	header, err := c.authorize(ctx, http.Header{})
 	if err != nil {
 		return err
 	}
 
 	_, span, resp, err := c.Do(observability.WithRun(ctx, runID), httpclient.Request{
-		Method: http.MethodPost, BaseURL: podURL, Path: "/session/{runID}/interrupt", Params: []string{runID}, Header: header,
+		Method: http.MethodPost, BaseURL: pod.URL, Host: pod.Host, Path: "/session/{runID}/interrupt", Params: []string{runID}, Header: header,
 	})
 	defer span.End()
 	if err != nil {
@@ -243,14 +255,14 @@ func (c *Client) InterruptSession(ctx context.Context, podURL, runID string) err
 
 // CloseSession terminates the session and stops the agent subprocess on the target pod.
 // Returns ErrSessionNotFound if no session exists for the given run ID.
-func (c *Client) CloseSession(ctx context.Context, podURL, runID string) error {
+func (c *Client) CloseSession(ctx context.Context, pod Pod, runID string) error {
 	header, err := c.authorize(ctx, http.Header{})
 	if err != nil {
 		return err
 	}
 
 	_, span, resp, err := c.Do(observability.WithRun(ctx, runID), httpclient.Request{
-		Method: http.MethodDelete, BaseURL: podURL, Path: "/session/{runID}", Params: []string{runID}, Header: header,
+		Method: http.MethodDelete, BaseURL: pod.URL, Host: pod.Host, Path: "/session/{runID}", Params: []string{runID}, Header: header,
 	})
 	defer span.End()
 	if err != nil {
@@ -276,13 +288,13 @@ type Memory struct {
 }
 
 // Memory reads the target pod's working set and memory limit.
-func (c *Client) Memory(ctx context.Context, podURL string) (Memory, error) {
+func (c *Client) Memory(ctx context.Context, pod Pod) (Memory, error) {
 	header, err := c.authorize(ctx, http.Header{})
 	if err != nil {
 		return Memory{}, err
 	}
 
-	_, span, resp, err := c.Do(ctx, httpclient.Request{Method: http.MethodGet, BaseURL: podURL, Path: "/memory", Header: header})
+	_, span, resp, err := c.Do(ctx, httpclient.Request{Method: http.MethodGet, BaseURL: pod.URL, Host: pod.Host, Path: "/memory", Header: header})
 	defer span.End()
 	if err != nil {
 		return Memory{}, err
@@ -297,4 +309,31 @@ func (c *Client) Memory(ctx context.Context, podURL string) (Memory, error) {
 		return Memory{}, err
 	}
 	return m, nil
+}
+
+// Bound reports whether the target pod serves its agent: GET /health/bound
+// returns 200 once the pod's identity-proxy holds the agent token, and 503
+// before. The call reaches the pod only when Envoy presents the agent
+// certificate (docs/adr/2026-11-22-agent-cold-tier.md).
+func (c *Client) Bound(ctx context.Context, pod Pod) (bool, error) {
+	header, err := c.authorize(ctx, http.Header{})
+	if err != nil {
+		return false, err
+	}
+
+	_, span, resp, err := c.Do(ctx, httpclient.Request{Method: http.MethodGet, BaseURL: pod.URL, Host: pod.Host, Path: "/health/bound", Header: header})
+	defer span.End()
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusServiceUnavailable:
+		return false, nil
+	default:
+		return false, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
 }

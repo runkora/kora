@@ -69,8 +69,9 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Forward to the host the client asked for, not the connection's base_host:
 	// one connection can serve a host family (github.com for git, plus
-	// api.github.com, codeload.github.com and *.githubusercontent.com for the
-	// REST API, archives and raw content). ListByHost has already constrained
+	// api.github.com, uploads.github.com, codeload.github.com and
+	// *.githubusercontent.com for the REST API, release uploads, archives and
+	// raw content). ListByHost has already constrained
 	// that host to the connection's own, so the minted credential never leaves
 	// them.
 	//
@@ -132,8 +133,30 @@ func (p *ProxyHandler) forward(w http.ResponseWriter, r *http.Request, upstream 
 				pr.Out.Header.Set(h.Name, h.Value)
 			}
 		},
-		ModifyResponse: p.explainWorkflowRefusal,
+		ModifyResponse: func(resp *http.Response) error {
+			if d.Fallback != nil && fallbackRefused(resp) {
+				// ServeHTTP only forwards a request that carries claims.
+				claims, _ := token.ClaimsFromContext(r.Context())
+				p.logger.Info(r.Context(), "egress denied: upstream refused anonymous read",
+					logging.Field{Key: "connection", Value: d.Connection.Name},
+					logging.Field{Key: "tenant_id", Value: claims.Kora.TenantID},
+					logging.Field{Key: "principal_id", Value: claims.Subject},
+					logging.Field{Key: "host", Value: d.Fallback.Host},
+					logging.Field{Key: "method", Value: d.Fallback.Method},
+					logging.Field{Key: "path", Value: d.Fallback.Path},
+					logging.Field{Key: "denial_reason", Value: string(d.Fallback.Reason)},
+					logging.Field{Key: "status", Value: resp.StatusCode},
+				)
+				return errFallbackRefused
+			}
+			return p.explainWorkflowRefusal(resp)
+		},
 		ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
+			// The upstream's refusal is discarded, so none of its body or headers reach the agent.
+			if errors.Is(err, errFallbackRefused) {
+				p.handleBrokerError(rw, req, d.Fallback)
+				return
+			}
 			p.logger.Error(req.Context(), "egress forward failed",
 				logging.Field{Key: "connection", Value: d.Connection.Name},
 				logging.Field{Key: "upstream", Value: upstream.String()},
@@ -147,6 +170,23 @@ func (p *ProxyHandler) forward(w http.ResponseWriter, r *http.Request, upstream 
 		},
 	}
 	rp.ServeHTTP(w, r)
+}
+
+// errFallbackRefused is the upstream refusing an anonymous fallback read.
+var errFallbackRefused = errors.New("upstream refused anonymous read")
+
+// fallbackRefused reports whether resp refuses an anonymous read the way
+// GitHub refuses a private resource, so the original denial explains it better.
+// A 403 for an exhausted rate limit is relayed: retrying later can succeed.
+// See docs/adr/2026-11-15-github-connector-route-coverage.md, item 21.
+func fallbackRefused(resp *http.Response) bool {
+	switch resp.StatusCode {
+	case http.StatusUnauthorized, http.StatusNotFound:
+		return true
+	case http.StatusForbidden:
+		return resp.Header.Get("X-RateLimit-Remaining") != "0"
+	}
+	return false
 }
 
 // handleBrokerError maps a Broker.Authorize sentinel to the right HTTP error

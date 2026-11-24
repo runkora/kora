@@ -214,7 +214,7 @@ type streamTestAdapter struct{}
 
 func (*streamTestAdapter) Type() credentials.AdapterType { return credentials.AdapterGitHubApp }
 func (*streamTestAdapter) Actions() []credentials.ActionDeclaration {
-	return []credentials.ActionDeclaration{{Action: "repo:read"}}
+	return []credentials.ActionDeclaration{{Action: "contents:read"}}
 }
 func (*streamTestAdapter) Open(credentials.Connection) (credentials.Connector, error) {
 	return streamTestConnector{}, nil
@@ -223,7 +223,7 @@ func (*streamTestAdapter) Open(credentials.Connection) (credentials.Connector, e
 type streamTestConnector struct{}
 
 func (streamTestConnector) Classify(*http.Request) (credentials.Classification, error) {
-	return credentials.Classification{Action: "repo:read"}, nil
+	return credentials.Classification{Action: "contents:read"}, nil
 }
 func (streamTestConnector) Mint(context.Context, credentials.CallerIdentity) (credentials.Credential, error) {
 	return credentials.Credential{}, nil

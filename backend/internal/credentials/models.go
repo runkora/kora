@@ -75,9 +75,12 @@ type CallerIdentity struct {
 	// credential narrowed to this resource.
 	Qualifier string
 	// AlsoAuthorized lists the classification's alternates that the caller's
-	// grant also holds, and its AlsoRequired actions. Adapters widen the
-	// credential by exactly these and no others.
+	// grant also holds, its AlsoRequired actions, and its held Optional
+	// actions. Adapters widen the credential by exactly these and no others.
 	AlsoAuthorized []string
+	// Permissions is the classification's per-action upstream permissions, for
+	// adapters that mint exactly what the request needs.
+	Permissions map[string]map[string]string
 }
 
 // Sentinel errors. Callers may test for these with errors.Is.
@@ -105,3 +108,15 @@ var (
 	// to a client-facing forbidden, distinct from an internal mint failure.
 	ErrCredentialScopeRejected = errors.New("upstream refused to issue a credential for the requested scope")
 )
+
+// UnclassifiedError is an ErrUnsupportedAction that names what in the request
+// the adapter does not recognize, such as a GraphQL field. The broker shows
+// Detail in the denial, so it must hold only the caller's own request.
+type UnclassifiedError struct {
+	Detail string
+}
+
+func (e *UnclassifiedError) Error() string { return ErrUnsupportedAction.Error() + ": " + e.Detail }
+
+// Unwrap lets errors.Is match ErrUnsupportedAction.
+func (e *UnclassifiedError) Unwrap() error { return ErrUnsupportedAction }

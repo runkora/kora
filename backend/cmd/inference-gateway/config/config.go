@@ -37,6 +37,18 @@ type Config struct {
 // ProvidersConfig is where the gateway watches InferenceProvider resources.
 type ProvidersConfig struct {
 	Namespace string `yaml:"namespace"`
+	// MaxDecisionTimeoutSecs caps the per-attempt System One timeout a caller
+	// may ask for with X-Kora-Decision-Timeout. Callers that do not ask keep 15s.
+	MaxDecisionTimeoutSecs int `yaml:"maxDecisionTimeoutSecs"`
+}
+
+// MaxDecisionTimeout returns the cap on a caller's System One timeout,
+// defaulting to 60s. Grading asks for it to send states of up to the model's window.
+func (c *ProvidersConfig) MaxDecisionTimeout() time.Duration {
+	if c.MaxDecisionTimeoutSecs <= 0 {
+		return 60 * time.Second
+	}
+	return time.Duration(c.MaxDecisionTimeoutSecs) * time.Second
 }
 
 // CatalogConfig holds the platform switches for the virtual model catalog.

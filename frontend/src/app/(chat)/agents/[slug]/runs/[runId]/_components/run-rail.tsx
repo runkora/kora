@@ -2,7 +2,7 @@
 
 /**
  * @tier 3 — run-page-scoped. The run page's right rail: the people involved, the run's links,
- * what it runs on and what it spent.
+ * what it runs on, what it spent and its grades.
  */
 
 import {
@@ -20,6 +20,7 @@ import {
 import { isSafeUrl } from '@runkora/lib/safe-url';
 import { sourceIcon } from '@runkora/components';
 import {
+  ENDED,
   harnessLabel,
   participantsOf,
   tokensLine,
@@ -27,6 +28,9 @@ import {
   type RunView,
 } from '../_lib/run-view';
 import { branchName, LINE } from '../_lib/run-styles';
+import { useRunContext } from '../_context/run-context';
+import { useRunGrades } from '../_hooks/use-run-grades';
+import { RailGrades } from './run-grades';
 import { SystemMark } from './trigger-event';
 
 function Label({ children, aside }: { children: React.ReactNode; aside?: string }) {
@@ -272,8 +276,19 @@ function Spend({ run }: { run: RunView }) {
   );
 }
 
+/** The run's grades, read once it has ended. */
+function Grades({ run }: { run: RunView }) {
+  const ctx = useRunContext();
+  const grades = useRunGrades(
+    run.id,
+    ctx.agentType?.id,
+    ctx.runState === null ? null : ENDED.has(ctx.runState),
+  );
+  return <RailGrades grades={grades} />;
+}
+
 /**
- * The rail: everyone involved, links, runtime and spend. As a sheet it
+ * The rail: everyone involved, links, runtime, spend and grades. As a sheet it
  * fills the panel it opens in instead of standing beside the thread.
  */
 export function RunRail({ run, sheet }: { run: RunView; sheet?: boolean }) {
@@ -295,6 +310,7 @@ export function RunRail({ run, sheet }: { run: RunView; sheet?: boolean }) {
       <Links run={run} />
       <RunsOn run={run} />
       <Spend run={run} />
+      <Grades run={run} />
     </Stack>
   );
 }

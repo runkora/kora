@@ -75,7 +75,7 @@ type Adapter interface {
 // reads raw JSON.
 type Connector interface {
 	// Classify inspects req and returns the policy action this call requires
-	// (e.g. "repo:write", "workloads:read") plus, for a connection with a
+	// (e.g. "contents:write", "workloads:read") plus, for a connection with a
 	// qualifier dimension, the resource the request names (e.g. the
 	// repository). The broker builds the required scope
 	// connection:<name>:<category>[:<qualifier>]:<verb> from the result. A
@@ -137,6 +137,14 @@ type Classification struct {
 	// denies unless the grant holds every one, and mints the credential for
 	// all of them.
 	AlsoRequired []string
+	// Optional are further actions the credential carries when the grant holds
+	// them, checked once the request is authorized. They never authorize it.
+	Optional []string
+	// Permissions optionally names, per action, the upstream permissions and
+	// levels the request needs, so the credential carries exactly those rather
+	// than everything the action's category covers. The broker passes it to
+	// Mint unchanged.
+	Permissions map[string]map[string]string
 }
 
 // ActionDeclaration describes one action an adapter can classify. The Action

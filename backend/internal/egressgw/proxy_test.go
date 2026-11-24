@@ -147,6 +147,11 @@ type fixture struct {
 	upstreamSawHost   string
 	upstreamSawMethod string
 	upstreamSawPath   string
+
+	// upstreamStatus is what the upstream stub answers with, 200 when unset,
+	// and upstreamHeaders are added to its response.
+	upstreamStatus  int
+	upstreamHeaders map[string]string
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -154,13 +159,22 @@ func newFixture(t *testing.T) *fixture {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	f := &fixture{t: t, logger: logger}
 
-	// Upstream: receives forwarded requests; records what it saw and replies 200.
+	// Upstream: receives forwarded requests; records what it saw and replies
+	// with upstreamStatus.
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.upstreamSawAuth = r.Header.Get("Authorization")
 		f.upstreamSawHost = r.Host
 		f.upstreamSawMethod = r.Method
 		f.upstreamSawPath = r.URL.Path
-		w.WriteHeader(http.StatusOK)
+		status := http.StatusOK
+		if f.upstreamStatus != 0 {
+			status = f.upstreamStatus
+		}
+		w.Header().Set("X-Upstream", "github")
+		for k, v := range f.upstreamHeaders {
+			w.Header().Set(k, v)
+		}
+		w.WriteHeader(status)
 		_, _ = w.Write([]byte("ok"))
 	}))
 	f.upstream = upstream
@@ -254,7 +268,7 @@ func (f *fixture) callGateway(method, path, host string) (*http.Response, error)
 func TestProxy_HappyPath_GitPush_MintsAndForwards(t *testing.T) {
 	f := newFixture(t)
 
-	// git push discovery: the path the adapter classifies as repo:write.
+	// git push discovery: the path the adapter classifies as contents:write.
 	resp, err := f.callGateway(http.MethodGet, "/kora/kora.git/info/refs?service=git-receive-pack", f.connectionHost)
 	if err != nil {
 		t.Fatalf("call: %v", err)
@@ -282,8 +296,9 @@ func TestProxy_HappyPath_GitPush_MintsAndForwards(t *testing.T) {
 	// Policy was actually consulted with the action the adapter classified.
 	f.eval.mu.Lock()
 	defer f.eval.mu.Unlock()
-	if len(f.eval.calls) != 1 {
-		t.Fatalf("policy.Check calls = %d, want 1", len(f.eval.calls))
+	// The second check is the optional workflows:write a push may also carry.
+	if len(f.eval.calls) != 2 {
+		t.Fatalf("policy.Check calls = %d, want 2", len(f.eval.calls))
 	}
 	// A git push classifies as contents:write since the category taxonomy; the
 	// broker splits the fragment so the required scope is
@@ -294,10 +309,10 @@ func TestProxy_HappyPath_GitPush_MintsAndForwards(t *testing.T) {
 	}
 }
 
-func TestProxy_HappyPath_RestRead_ClassifiesAsRepoRead(t *testing.T) {
+func TestProxy_HappyPath_RestRead_ClassifiesByCategory(t *testing.T) {
 	f := newFixture(t)
 
-	resp, err := f.callGateway(http.MethodGet, "/orgs/kora/repos", f.connectionHost)
+	resp, err := f.callGateway(http.MethodGet, "/api/v3/orgs/kora/repos", f.connectionHost)
 	if err != nil {
 		t.Fatalf("call: %v", err)
 	}
@@ -308,11 +323,11 @@ func TestProxy_HappyPath_RestRead_ClassifiesAsRepoRead(t *testing.T) {
 
 	f.eval.mu.Lock()
 	defer f.eval.mu.Unlock()
-	// An unrecognized read path falls to the repo:read catch-all. The broker
-	// splits it into path=[github repo], action=read.
+	// An account's repository list is metadata:read, split into
+	// path=[github metadata], action=read.
 	if len(f.eval.calls) != 1 || f.eval.calls[0].Action != "read" ||
-		len(f.eval.calls[0].PathSegments) != 2 || f.eval.calls[0].PathSegments[1] != "repo" {
-		t.Fatalf("policy input = %+v, want connection/[github repo]/read", f.eval.calls[0])
+		len(f.eval.calls[0].PathSegments) != 2 || f.eval.calls[0].PathSegments[1] != "metadata" {
+		t.Fatalf("policy input = %+v, want connection/[github metadata]/read", f.eval.calls[0])
 	}
 }
 

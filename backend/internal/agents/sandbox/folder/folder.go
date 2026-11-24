@@ -37,20 +37,20 @@ const (
 // WorkspaceVolume is the sandbox pod's volume for its session-manager's workspace claim.
 const WorkspaceVolume = "workspaces"
 
-// workspaceClaimPrefix starts a session-manager pod's workspace claim name: the
-// StatefulSet's volumeClaimTemplate name, then the pod name.
-const workspaceClaimPrefix = WorkspaceVolume + "-"
+// workspaceClaimSuffix ends a session-manager pod's workspace claim name: the pod
+// name, then the generic ephemeral volume's name (docs/adr/2026-11-22-agent-cold-tier.md).
+const workspaceClaimSuffix = "-" + WorkspaceVolume
 
 // SandboxPodName is the name kora-agents gives a run's sandbox pod. Names are
 // unique in a namespace, so at most one pod can claim a run's folder.
 func SandboxPodName(runID string) string { return "sandbox-" + runID }
 
 // WorkspaceClaim is the name of a session-manager pod's workspace claim.
-func WorkspaceClaim(podName string) string { return workspaceClaimPrefix + podName }
+func WorkspaceClaim(podName string) string { return podName + workspaceClaimSuffix }
 
 // WorkspacePod returns the session-manager pod whose workspace claim this is.
 func WorkspacePod(claim string) (string, bool) {
-	pod, ok := strings.CutPrefix(claim, workspaceClaimPrefix)
+	pod, ok := strings.CutSuffix(claim, workspaceClaimSuffix)
 	if !ok || pod == "" {
 		return "", false
 	}

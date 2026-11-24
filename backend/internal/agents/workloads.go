@@ -13,7 +13,7 @@ import (
 )
 
 // WorkloadCustomization is the operator-supplied customization for one kind of
-// provisioned workload, the session-manager StatefulSet or the sandbox Pod.
+// provisioned workload, the session-manager pod or the sandbox Pod.
 // It is applied to the built manifest before manifest patches, so a patch
 // still wins on any field both set.
 // See docs/adr/2026-09-16-first-class-workload-placement.md.
@@ -34,11 +34,38 @@ type SessionManagerCustomization struct {
 	WorkloadCustomization
 	// Memory is both the request and the limit of the session-manager container.
 	Memory *resource.Quantity `json:"memory,omitempty"`
+	// CPU is the request of the session-manager container. The limit stays at
+	// sessionManagerCPULimit.
+	CPU *resource.Quantity `json:"cpu,omitempty"`
+	// Warm is the session-manager's requests while its agent is idle. The limits keep the full size
+	// (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 3).
+	Warm WarmRequests `json:"warm"`
+}
+
+// WarmRequests is the CPU and memory request of a warm session-manager.
+type WarmRequests struct {
+	CPU    *resource.Quantity `json:"cpu,omitempty"`
+	Memory *resource.Quantity `json:"memory,omitempty"`
 }
 
 // defaultSessionManagerMemory applies when no workloads file sets memory, such
 // as local development without the mount. It matches the chart default.
 const defaultSessionManagerMemory = "1Gi"
+
+// defaultSessionManagerCPU applies when no workloads file sets cpu. It matches
+// the chart default.
+const defaultSessionManagerCPU = "250m"
+
+// sessionManagerCPULimit is the session-manager container's CPU limit, and the
+// ceiling for its request.
+const sessionManagerCPULimit = "2"
+
+// defaultWarmCPU and defaultWarmMemory apply when no workloads file sets the warm requests. They
+// match the chart defaults.
+const (
+	defaultWarmCPU    = "25m"
+	defaultWarmMemory = "128Mi"
+)
 
 // WorkloadsConfig is the full set of workload customizations. Common applies to
 // both workloads; the per-workload entries win on a key both set.
@@ -81,7 +108,7 @@ var reservedAnnotations = []string{
 }
 
 // reservedLabels select a pod for SPIRE attestation, sidecar injection and its
-// StatefulSet. Setting one from config would move the pod off its attested
+// agent Service. Setting one from config would move the pod off its attested
 // identity, which is why manifest patches protect the same keys. Istio honors
 // sidecar.istio.io/inject as a label too, and the operator denies pods that
 // opt out.
@@ -95,6 +122,18 @@ func (w WorkloadsConfig) ForSessionManager() SessionManagerCustomization {
 	if out.Memory == nil {
 		memory := resource.MustParse(defaultSessionManagerMemory)
 		out.Memory = &memory
+	}
+	if out.CPU == nil {
+		cpu := resource.MustParse(defaultSessionManagerCPU)
+		out.CPU = &cpu
+	}
+	if out.Warm.CPU == nil {
+		cpu := resource.MustParse(defaultWarmCPU)
+		out.Warm.CPU = &cpu
+	}
+	if out.Warm.Memory == nil {
+		memory := resource.MustParse(defaultWarmMemory)
+		out.Warm.Memory = &memory
 	}
 	return out
 }
@@ -163,36 +202,52 @@ func (c WorkspaceConfig) crossesNodes() bool {
 	return slices.Contains(c.AccessModes, corev1.ReadWriteMany)
 }
 
-// requireCoLocation pins a pod to the node already running podName.
-//
-// A ReadWriteOnce workspace attaches to one node, and a sandbox mounts its
-// session-manager's workspace, so the two have to share a node. Matching node
-// selectors do not deliver that: a pool has many nodes. The term is appended,
-// leaving any configured affinity in place, and required terms are ANDed.
-func requireCoLocation(spec *corev1.PodSpec, podName string) {
-	term := corev1.PodAffinityTerm{
-		TopologyKey: "kubernetes.io/hostname",
-		LabelSelector: &metav1.LabelSelector{
-			// Set by Kubernetes on every StatefulSet pod, so it names the one
-			// replica holding this run's workspace.
-			MatchLabels: map[string]string{"statefulset.kubernetes.io/pod-name": podName},
-		},
-	}
+// requireCoLocation pins a sandbox to node, the node of the session-manager pod
+// whose ReadWriteOnce workspace it mounts.
+func requireCoLocation(spec *corev1.PodSpec, node string) {
+	term := corev1.NodeSelectorTerm{MatchFields: []corev1.NodeSelectorRequirement{{
+		Key: "metadata.name", Operator: corev1.NodeSelectorOpIn, Values: []string{node},
+	}}}
 	if spec.Affinity == nil {
 		spec.Affinity = &corev1.Affinity{}
 	}
-	if spec.Affinity.PodAffinity == nil {
-		spec.Affinity.PodAffinity = &corev1.PodAffinity{}
+	if spec.Affinity.NodeAffinity == nil {
+		spec.Affinity.NodeAffinity = &corev1.NodeAffinity{}
 	}
-	spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution = append(
-		spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution, term)
+	required := spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+	if required == nil {
+		spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution = &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{term}}
+		return
+	}
+	// Terms are ORed, so the node requirement joins every configured term.
+	for i := range required.NodeSelectorTerms {
+		required.NodeSelectorTerms[i].MatchFields = append(required.NodeSelectorTerms[i].MatchFields, term.MatchFields...)
+	}
 }
 
-// Validate rejects a non-positive session-manager memory and configuration
-// that would break the pod identity or mesh wiring the platform owns.
+// Validate rejects a non-positive session-manager memory or a CPU outside (0, limit], warm requests
+// outside (0, full) for memory and (0, full] for CPU, and configuration that would break the pod
+// identity or mesh wiring the platform owns.
 func (w WorkloadsConfig) Validate() error {
 	if m := w.SessionManager.Memory; m != nil && m.Sign() <= 0 {
 		return fmt.Errorf("agents.workloads.sessionManager.memory is %s, want a positive quantity", m.String())
+	}
+	if c := w.SessionManager.CPU; c != nil {
+		limit := resource.MustParse(sessionManagerCPULimit)
+		if c.Sign() <= 0 {
+			return fmt.Errorf("agents.workloads.sessionManager.cpu is %s, want a positive quantity", c.String())
+		}
+		if c.Cmp(limit) > 0 {
+			return fmt.Errorf("agents.workloads.sessionManager.cpu is %s, want at most the %s CPU limit", c.String(), limit.String())
+		}
+	}
+	// A warm pod is one whose memory request is below its limit, so the warm memory must be below the full size.
+	sm := w.ForSessionManager()
+	if m := sm.Warm.Memory; m.Sign() <= 0 || m.Cmp(*sm.Memory) >= 0 {
+		return fmt.Errorf("agents.workloads.sessionManager.warm.memory is %s, want a positive quantity below the %s memory", m.String(), sm.Memory.String())
+	}
+	if c := sm.Warm.CPU; c.Sign() <= 0 || c.Cmp(*sm.CPU) > 0 {
+		return fmt.Errorf("agents.workloads.sessionManager.warm.cpu is %s, want a positive quantity at most the %s CPU", c.String(), sm.CPU.String())
 	}
 	// Ordered, so a file with several problems always reports the same one.
 	for _, workload := range []struct {
@@ -206,7 +261,7 @@ func (w WorkloadsConfig) Validate() error {
 	} {
 		for _, label := range reservedLabels {
 			if _, taken := workload.labels[label]; taken {
-				return fmt.Errorf("agents.workloads.%s.podLabels sets %q, which identifies the pod to SPIRE, the sidecar injector or its StatefulSet", workload.name, label)
+				return fmt.Errorf("agents.workloads.%s.podLabels sets %q, which identifies the pod to SPIRE, the sidecar injector or its agent Service", workload.name, label)
 			}
 		}
 		for _, annotation := range reservedAnnotations {

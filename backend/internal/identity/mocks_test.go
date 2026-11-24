@@ -448,7 +448,7 @@ func (m *mockPolicyEvaluator) GetTenantBudget(_ context.Context, _ string) (*pol
 	return nil, nil
 }
 
-func (m *mockPolicyEvaluator) GetBudgetCategories(_ context.Context, _, _ string) ([]policy.BudgetCategory, error) {
+func (m *mockPolicyEvaluator) GetBudgetCategories(_ context.Context, _, _, _ string) ([]policy.BudgetCategory, error) {
 	return nil, nil
 }
 
@@ -456,8 +456,8 @@ func (m *mockPolicyEvaluator) GetRoleBudgets(_ context.Context, _ string, _ []st
 	return nil, nil
 }
 
-func (m *mockPolicyEvaluator) ListBudgets(_ context.Context, _ string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
-	return map[string]policy.PrincipalBudget{}, map[string]policy.RoleBudget{}, nil
+func (m *mockPolicyEvaluator) ListBudgets(_ context.Context, _ string) (map[policy.BudgetKey]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
+	return map[policy.BudgetKey]policy.PrincipalBudget{}, map[string]policy.RoleBudget{}, nil
 }
 
 func (m *mockPolicyEvaluator) Start(_ context.Context) {}
@@ -562,6 +562,7 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 		nil,
 		nil,
 		nil,
+		allAgentsLive{},
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -640,6 +641,7 @@ tenants:
 		nil,
 		nil,
 		nil,
+		allAgentsLive{},
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -711,6 +713,7 @@ func newFullTestServiceWithPolicy(t *testing.T) (
 		nil,
 		nil,
 		nil,
+		allAgentsLive{},
 		policy,
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -1076,6 +1079,7 @@ func newTestControllerWithProfiles(t *testing.T) (
 		profiles,
 		nil,
 		nil,
+		allAgentsLive{},
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -1138,6 +1142,7 @@ tenants:
 		nil,
 		nil,
 		nil,
+		allAgentsLive{},
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -1232,6 +1237,7 @@ func newTestControllerWithPrefs(t *testing.T) (*Controller, *mockUserPreferences
 		nil,
 		prefsRepo,
 		nil,
+		allAgentsLive{},
 		&mockPolicyClient{},
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
@@ -1241,4 +1247,21 @@ func newTestControllerWithPrefs(t *testing.T) (*Controller, *mockUserPreferences
 		t.Fatalf("newTestControllerWithPrefs: %v", err)
 	}
 	return NewController(svc, &mockPolicyEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard)), prefsRepo
+}
+
+// allAgentsLive reports every agent slug live, for tests that do not exercise the agent check.
+type allAgentsLive struct{}
+
+func (allAgentsLive) AgentLive(context.Context, string, string) (bool, error) { return true, nil }
+
+// mockAgentRegistry reports the agents in live, keyed "<tenant>/<slug>", and records each lookup.
+type mockAgentRegistry struct {
+	live    map[string]bool
+	err     error
+	lookups []string
+}
+
+func (m *mockAgentRegistry) AgentLive(_ context.Context, tenantID, slug string) (bool, error) {
+	m.lookups = append(m.lookups, tenantID+"/"+slug)
+	return m.live[tenantID+"/"+slug], m.err
 }

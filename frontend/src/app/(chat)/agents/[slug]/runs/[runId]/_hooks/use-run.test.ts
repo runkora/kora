@@ -2,7 +2,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { server } from '@runkora/test-utils/msw/server';
-import { useRun } from './use-run';
+import { deriveActivity, useRun } from './use-run';
 
 // Minimal controllable EventSource stand-in. jsdom ships no EventSource, and we
 // need to drive onopen/onerror/named events deterministically and inspect how
@@ -440,6 +440,14 @@ describe('useRun — activity, delivery and stops', () => {
     });
   });
 
+  it('reports a waking agent before a sandbox start, and a retry before both', () => {
+    expect(deriveActivity([], null, true, true)).toEqual({ kind: 'waking' });
+    expect(deriveActivity([], null, true, false)).toEqual({ kind: 'sandbox' });
+    expect(deriveActivity([], { attempt: 1, maxRetries: 3, error: '' }, false, true).kind).toBe(
+      'retry',
+    );
+  });
+
   it('reports what the agent is doing on the status line', async () => {
     const { result, emit } = await start();
     emit('sandbox_status', { phase: 'provisioning', elapsed_ms: 0 });
@@ -568,6 +576,23 @@ describe('useRun — starting state', () => {
       FakeEventSource.instances[0].emit('run_state', { state: 'active' });
     });
     expect(result.current.isStarting).toBe(false);
+  });
+
+  it('reports a waking agent only while the run is starting', async () => {
+    const { result } = renderHook(() => useRun('run-1', 'slug'));
+    await waitFor(() => expect(result.current.runState).toBe('pending'));
+
+    act(() => {
+      const es = FakeEventSource.instances[0];
+      es.emit('run_state', { state: 'starting' });
+      es.emit('agent_waking', {});
+    });
+    expect(result.current.liveActivity).toEqual({ kind: 'waking' });
+
+    act(() => {
+      FakeEventSource.instances[0].emit('run_state', { state: 'active' });
+    });
+    expect(result.current.liveActivity?.kind).not.toBe('waking');
   });
 });
 

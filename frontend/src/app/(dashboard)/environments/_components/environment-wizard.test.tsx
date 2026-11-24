@@ -54,7 +54,7 @@ const REVIEW_ROW: EnvironmentRow = {
   sandboxImage: 'acme-go',
   size: { cpu: '8', memory: '16Gi', disk: '50Gi' },
   egressHosts: ['api.github.com'],
-  connectors: [{ connection: 'github', actions: ['repo:read'] }],
+  connectors: [{ connection: 'github', actions: ['contents:read'] }],
   createdAt: '',
   updatedAt: '',
   declared: false,
@@ -216,7 +216,7 @@ describe('EnvironmentWizard create', () => {
         sandbox_image: 'acme-go',
         size: { cpu: '8', memory: '16Gi', disk: '50Gi' },
         egress_hosts: ['api.github.com'],
-        connectors: [{ connection: 'github', actions: ['repo:read'] }],
+        connectors: [{ connection: 'github', actions: ['contents:read'] }],
       }),
     );
   });

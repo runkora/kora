@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go/v3"
@@ -81,20 +82,27 @@ type EmbeddingsConnector interface {
 
 // SystemOneRequest is a System One call. Body is the caller's JSON object,
 // never interpreted beyond its model; Model is the target's model id, which
-// the connector writes over the body's model before sending.
+// the connector writes over the body's model before sending. Timeout is the
+// caller's per-attempt timeout. Zero keeps the connector's default, and the
+// connector caps it at its configured maximum.
 type SystemOneRequest struct {
-	Body  []byte
-	Model string
+	Body    []byte
+	Model   string
+	Timeout time.Duration
 }
 
 // SystemOneResult is a successful System One response. Body is the upstream
 // body unchanged. The token counts come from its usage object and are zero
-// when the upstream sends none.
+// when the upstream sends none. The service sets CostUSD to the call's
+// estimated cost, nil when the model has no price, and UsageID to the usage
+// row's ID once the row is written.
 type SystemOneResult struct {
 	Body         []byte
 	StatusCode   int
 	InputTokens  int64
 	OutputTokens int64
+	UsageID      string
+	CostUSD      *float64
 }
 
 // SystemOneConnector is the System One decision surface of a provider. It is

@@ -6,6 +6,8 @@ runkora installs onto a cluster that already runs Istio and SPIRE, with a Postgr
 
 kora supports Kubernetes 1.34 and later. Installing needs cluster-admin to create the CRDs, cluster roles, admission webhooks and other cluster-scoped resources.
 
+kora-agents resizes an idle agent's session-manager pod in place through the `pods/resize` subresource. In-place pod resize is on by default from Kubernetes 1.33 and GA in 1.35. On a cluster with the `InPlacePodVerticalScaling` feature gate off, set `agents.scheduling.warmAfterSecs: 0` to keep every agent pod at full size.
+
 The CNI must enforce `NetworkPolicy`. The `kora` chart installs a default-deny policy in `kora-system` with rules for the traffic kora needs. Set `networkPolicy.enabled: false` only on a CNI that cannot enforce it.
 
 Pod Security Admission must admit the privileged SPIRE and Istio node components. kora's own namespaces run at the `restricted` level.
@@ -30,11 +32,13 @@ kora supports Istio 1.30 and 1.31 in sidecar mode. On any other minor version, t
 
 Install Istio with the [Istio install guide](https://istio.io/latest/docs/setup/install/) and the values in the quickstart's [`istiod.yaml`](https://github.com/runkora/examples/blob/main/quickstart/values/istiod.yaml). kora's namespaces reject Istio's default `istio-init` container. Install the Istio CNI plugin and run istiod with `pilot.cni.enabled: true`.
 
+Keep istiod's path normalization on. kora's mesh deny rules on internal paths, such as `/v1/internal/declared/`, match the request path after Envoy normalizes it. With `meshConfig.pathNormalization.normalization: NONE`, an encoded path such as `/v1/internal/%64eclared/x` passes the deny rule. Leave the setting unset (Istio's default is `BASE`) or set it to `BASE`, `MERGE_SLASHES` or `DECODE_AND_MERGE_SLASHES`. With `NONE`, the operator's preflight fails the `istio-path-normalization` check and every tenant stays `Degraded`.
+
 Set these in kora's values when your mesh differs from the defaults:
 
 - `istio.namespace`: where istiod and the `istio-cni-node` DaemonSet run, `istio-system` by default.
 - `istio.revision`: the Istio revision kora's namespaces use. With a revision, label `kora-system` with `istio.io/rev=<revision>` in place of `istio-injection=enabled`.
-- `istio.outboundTrafficPolicy: REGISTRY_ONLY`: for a mesh that blocks unregistered hosts. The chart then registers an external Postgres or Redis host, and the operator registers [model providers](register-inference-provider.md#network-access) and external MCP servers. Register the OIDC issuer and other external hosts yourself.
+- `istio.outboundTrafficPolicy: REGISTRY_ONLY`: for a mesh that blocks unregistered hosts. The chart then registers an external Postgres or Redis host, and the operator registers [model providers](register-inference-provider.md#network-access) and external MCP servers. Register the OIDC issuer and other external hosts yourself. Under `REGISTRY_ONLY`, kora-system proxies do not see ServiceEntries outside `kora-system` and the Istio namespace.
 
 ## SPIRE
 
@@ -47,6 +51,7 @@ If you already run SPIRE:
 - Run a SPIRE agent and the SPIFFE CSI driver on every node that runs kora, agent or sandbox pods, tainted nodes included.
 - Set kora's `spire.className` to your spire-controller-manager's class name. It defaults to `spire-system-spire`.
 - Set `fallback: true` on any `ClusterSPIFFEID` that matches kora's pods, or exclude kora's namespaces from it.
+- Set the SPIRE server's `experimental.cacheReloadInterval: 1s` and `experimental.eventsBasedCache: true`, and the SPIRE agent's `experimental.syncInterval: 1s`. A cold agent then gets its identity about 2s after kora-agents binds a pool pod to it.
 
 ## Database and cache
 

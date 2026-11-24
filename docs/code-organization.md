@@ -21,11 +21,11 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `egress-gateway` | JIT credential broker: intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer, static API key); backed by `internal/credentials` | `8085`; metrics `9464` | none |
 | `kora-mcp` | Platform-management MCP server: exposes kora's own APIs as governed MCP tools | `8095`; metrics `9464` | none |
 | `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`); metrics `9464` | ✅ |
-| `kora-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster); metrics `9464` | ✅ |
+| `kora-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration | `8080` (in-cluster); metrics `9464` | ✅ |
 | `kora-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097`; metrics `9464` | ✅ |
 | `kora-events` | Event spine: relays `event_outbox` into the event log, serves the event read API and streams, and deletes expired events, backed by `internal/koraevents` | `8099`; metrics `9464` | ✅ |
 | `skills-service` | Agent Skills: serves each tenant's skill Marketplaces from GitHub repositories with a Redis cache, backed by `internal/skills` | `8098` (`/v1`); metrics `9464` | none |
-| `session-manager` | Per-tenant StatefulSet that runs each run's agent harness (Claude Code, Codex or OpenCode) over ACP; workspace + idle lifecycle | `8090`; metrics `9464` (Go-side only, no chart wiring: there is no `charts/kora/templates/session-manager/`, so no Service port, scrape annotation, or NetworkPolicy allowance) | none |
+| `session-manager` | Per-tenant pool of pods, each bound to one agent, that runs each run's agent harness (Claude Code, Codex or OpenCode) over ACP; workspace + idle lifecycle | `8090`; metrics `9464` (Go-side only, no chart wiring: there is no `charts/kora/templates/session-manager/`, so no Service port, scrape annotation, or NetworkPolicy allowance) | none |
 | `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar), projects declared resources into their owning services | health `8081`, webhook `9443` | none |
 | `identity-proxy` | Envoy `ext_proc` gRPC sidecar: injects platform Bearer tokens into agent outbound calls (SPIFFE→JWT exchange) | unix socket; health `9090` | none |
 | `sandbox-exec` | gRPC exec server inside a sandbox pod: streams stdout/stderr/exit for commands | gRPC `50051` | none |
@@ -44,7 +44,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 |---------|------|
 | `identity` | Sessions, refresh tokens, PATs, user profiles, JTI blocklist, tenant registry, principal extraction |
 | `inferencegw` | Inference router, providers, catalog, usage, analytics, virtual models; OpenAI/Anthropic/embeddings/responses handlers |
-| `agents` | Agent control plane: types, runs, sessions, pubsub, k8s, authz; sub-packages `sandbox/`, `sessionmanager/` |
+| `agents` | Agent control plane: types, runs, sessions, pubsub, k8s, authz; sub-packages `grading/`, `sandbox/`, `sessionmanager/` |
 | `policyservice` | Authz data plane; sub-packages `api/`, `bundle/`, `grants/`, `principalroles/`, `roles/`, `routes/`, `tenantbudget/`, `vocabulary/` |
 | `policygw` | Policy-gateway HTTP transport (delegates evaluation to policy-service) |
 | `operator` | K8s reconciliation: tenant/platform controllers, Helm render, Istio templates, pod webhook, projection of declared resources |
@@ -106,7 +106,7 @@ kora/
 │   │   │
 │   │   ├── identity/                 # ✅ feature: identity & auth
 │   │   ├── inferencegw/              # ✅ feature: inference gateway (+ providers/ subtree)
-│   │   ├── agents/                   # ✅ feature: agent control plane (+ sandbox/, sessionmanager/)
+│   │   ├── agents/                   # ✅ feature: agent control plane (+ grading/, sandbox/, sessionmanager/)
 │   │   ├── policyservice/            # ✅ feature: authz data plane (subpackage-per-concern)
 │   │   ├── policygw/                 # ✅ feature: policy-gateway transport
 │   │   ├── operator/                 # ✅ feature: k8s reconciliation

@@ -7,12 +7,14 @@ import type { Decorator } from '@storybook/react';
 import type {
   AgentType,
   RunEventSummary,
+  RunGrade,
   RunSource,
   RunWithAttribution,
 } from '@runkora/shared/api';
 import { StaticPermissionsProvider } from '@runkora/app/(dashboard)/_components/permissions-provider';
 import { mockApi, type MockRequest } from '@runkora/storybook/mock-api';
 import { mockEventSource, type MockStreamEvent } from '@runkora/storybook/mock-event-source';
+import { RUN_GRADERS, RUN_GRADES } from './run-grades-mock-data';
 
 const REPO = 'https://github.com/example-org/geo-utils';
 
@@ -27,6 +29,8 @@ export interface MockRun {
   };
   usage: { spend_usd: number };
   events: MockStreamEvent[];
+  /** The body of GET /api/agents/runs/{id}/grades; none by default. */
+  grades?: RunGrade[];
 }
 
 /** Wraps a payload in the stream's envelope, `seconds` after `start`. */
@@ -137,7 +141,7 @@ function reviewerRun(over: Partial<RunWithAttribution>): RunWithAttribution {
     tenant_id: 'example',
     agent_type_id: 'at-code-reviewer',
     state: 'active',
-    pod_ordinal: 0,
+    pod_name: 'session-manager-pool-0',
     created_by: 'trigger:review-pull-request',
     created_by_name: null,
     started_at: START,
@@ -230,6 +234,7 @@ export const doneRun = (): MockRun => ({
     t(131, 'message_complete', { text: ANSWER }),
     t(132, 'run_state', { state: 'completed' }),
   ],
+  grades: RUN_GRADES.fail,
 });
 
 /** The ceilings the gateway names, as kora-agents records them on the run_state event. */
@@ -440,6 +445,10 @@ export function runStory(runs: MockRun[], earlier: RunWithAttribution[] = EARLIE
     mockApi({
       'GET /api/agents/runs/:id': ({ url }: MockRequest) => byId(url.pathname)?.body,
       'GET /api/agents/runs/:id/usage': ({ url }: MockRequest) => byId(url.pathname)?.usage,
+      'GET /api/agents/runs/:id/grades': ({ url }: MockRequest) => ({
+        grades: byId(url.pathname)?.grades ?? [],
+      }),
+      'GET /api/agents/types/:id/graders': { graders: RUN_GRADERS },
       'GET /api/agents/types/:slug/runs': { data: earlier, next_cursor: null },
       'POST /api/agents/runs/:id/messages': {},
       'POST /api/agents/runs/:id/interrupt': {},

@@ -1,6 +1,7 @@
 package agentsConfig
 
 import (
+	"errors"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -80,6 +81,7 @@ func TestValidate_RequiresTrustDomainInCluster(t *testing.T) {
 func validConfig() *Config {
 	cfg := &Config{}
 	cfg.Agents.Scheduling.MinReplicas, cfg.Agents.Scheduling.MaxReplicas = 2, 10
+	cfg.Agents.Scheduling.ScalerConcurrency = 4
 	cfg.Agents.Scheduling.StartingRunAllowance = StartingRunAllowance{
 		ClaudeCode: resource.MustParse("220Mi"), Codex: resource.MustParse("60Mi"), OpenCode: resource.MustParse("440Mi"),
 	}
@@ -97,6 +99,43 @@ func TestValidate_MaxReplicas(t *testing.T) {
 		if err := Validate(cfg); (err == nil) != tc.valid {
 			t.Errorf("min %d max %d: Validate error = %v, want valid %v", tc.min, tc.max, err, tc.valid)
 		}
+	}
+}
+
+// A scaler concurrency below 1 would check no agent.
+func TestValidate_ScalerConcurrency(t *testing.T) {
+	for _, n := range []int{0, -1} {
+		cfg := validConfig()
+		cfg.Agents.Scheduling.ScalerConcurrency = n
+		if err := Validate(cfg); !errors.Is(err, errScalerConcurrency) {
+			t.Errorf("scalerConcurrency %d: Validate error = %v, want errScalerConcurrency", n, err)
+		}
+	}
+}
+
+// A negative idle threshold is refused, and zero turns the warm tier off.
+func TestValidate_WarmAfter(t *testing.T) {
+	cfg := validConfig()
+	cfg.Agents.Scheduling.WarmAfterSecs = -1
+	if err := Validate(cfg); !errors.Is(err, errWarmAfter) {
+		t.Errorf("warmAfterSecs -1: Validate error = %v, want errWarmAfter", err)
+	}
+	cfg.Agents.Scheduling.WarmAfterSecs = 0
+	if err := Validate(cfg); err != nil {
+		t.Errorf("warmAfterSecs 0: Validate error = %v, want none", err)
+	}
+}
+
+// A negative cold threshold is refused, and zero keeps every agent at its floor.
+func TestValidate_ColdAfter(t *testing.T) {
+	cfg := validConfig()
+	cfg.Agents.Scheduling.ColdAfterSecs = -1
+	if err := Validate(cfg); !errors.Is(err, errColdAfter) {
+		t.Errorf("coldAfterSecs -1: Validate error = %v, want errColdAfter", err)
+	}
+	cfg.Agents.Scheduling.ColdAfterSecs = 0
+	if err := Validate(cfg); err != nil {
+		t.Errorf("coldAfterSecs 0: Validate error = %v, want none", err)
 	}
 }
 
@@ -126,5 +165,15 @@ func TestBaseDefaults_KubernetesClientRate(t *testing.T) {
 	}
 	if cfg.Kubernetes.ClientQPS != 50 || cfg.Kubernetes.ClientBurst != 100 {
 		t.Errorf("client rate = %v qps burst %d, want 50 and 100", cfg.Kubernetes.ClientQPS, cfg.Kubernetes.ClientBurst)
+	}
+}
+
+func TestValidate_PoolSize(t *testing.T) {
+	for size, valid := range map[int32]bool{0: true, 2: true, -1: false} {
+		cfg := validConfig()
+		cfg.Agents.Pool.Size = size
+		if err := Validate(cfg); (err == nil) != valid {
+			t.Errorf("pool size %d: Validate error = %v, want valid %v", size, err, valid)
+		}
 	}
 }

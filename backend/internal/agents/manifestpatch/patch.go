@@ -19,7 +19,6 @@ var apiVersions = map[string]string{
 	"StatefulSet":           "apps/v1",
 	"Service":               "v1",
 	"ServiceAccount":        "v1",
-	"PodDisruptionBudget":   "policy/v1",
 	"PersistentVolumeClaim": "v1",
 	"Pod":                   "v1",
 }

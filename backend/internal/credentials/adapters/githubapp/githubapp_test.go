@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -130,14 +131,14 @@ func TestAdapter_Resolve_MintsAndCaches(t *testing.T) {
 	adapter.now = func() time.Time { return time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC) }
 
 	conn := credentials.Connection{
-		ID: "conn-1", TenantID: "acme", Name: "github", Adapter: credentials.AdapterGitHubApp,
-		BaseHost: "github.com", SecretRef: "k8s:kora-conn-acme-github",
+		ID: "conn-1", TenantID: "example", Name: "github", Adapter: credentials.AdapterGitHubApp,
+		BaseHost: "github.com", SecretRef: "k8s:kora-conn-example-github",
 		Config: mustConfig(t, config{
 			AppID: "12345", InstallationID: 42,
 			Permissions: map[string]string{"contents": "write"},
 		}),
 	}
-	id := credentials.CallerIdentity{TenantID: "acme", PrincipalID: "spiffe://runkora.test/tenant/kora-tenant-acme/agent/coder", RunID: "run-9", Action: "repo:write", Qualifier: "kora"}
+	id := credentials.CallerIdentity{TenantID: "example", PrincipalID: "spiffe://runkora.test/tenant/kora-tenant-example/agent/coder", RunID: "run-9", Action: "contents:write", Qualifier: "kora"}
 
 	cred, err := open(t, adapter, conn).Mint(context.Background(), id)
 	if err != nil {
@@ -195,7 +196,12 @@ func TestAdapter_Resolve_GitHubError(t *testing.T) {
 // the adapter-agnostic ErrCredentialScopeRejected, so the broker returns a
 // forbidden rather than a 500. See the 2026-07-22 category ADR.
 func TestAdapter_Resolve_InstallationPermissionCeiling(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The installation reports the permissions, and GitHub still refuses the mint.
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{"permissions": map[string]string{"issues": "write", "members": "read"}})
+			return
+		}
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		_, _ = w.Write([]byte(`{"message":"The level of access for permissions requested are not granted to this installation."}`))
 	}))
@@ -208,13 +214,19 @@ func TestAdapter_Resolve_InstallationPermissionCeiling(t *testing.T) {
 		Config: mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "orbital"}),
 	}
 
-	_, err := open(t, adapter, conn).Mint(context.Background(),
-		credentials.CallerIdentity{Action: "issues:write", Qualifier: "kora"})
-	if !errors.Is(err, credentials.ErrCredentialScopeRejected) {
-		t.Fatalf("err = %v, want wrapped ErrCredentialScopeRejected", err)
-	}
-	if !errors.Is(err, ghclient.ErrInstallationPermissions) {
-		t.Fatalf("err = %v, want the underlying ErrInstallationPermissions preserved", err)
+	// members:read is unqualified and organization-wide, and an installation
+	// without the members permission refuses it the same way.
+	for _, id := range []credentials.CallerIdentity{
+		{Action: "issues:write", Qualifier: "kora"},
+		{Action: "members:read"},
+	} {
+		_, err := open(t, adapter, conn).Mint(context.Background(), id)
+		if !errors.Is(err, credentials.ErrCredentialScopeRejected) {
+			t.Fatalf("%s: err = %v, want wrapped ErrCredentialScopeRejected", id.Action, err)
+		}
+		if !errors.Is(err, ghclient.ErrInstallationPermissions) {
+			t.Fatalf("%s: err = %v, want the underlying ErrInstallationPermissions preserved", id.Action, err)
+		}
 	}
 }
 
@@ -280,47 +292,83 @@ func TestConnector_Classify(t *testing.T) {
 		// REST: category route families
 		{"contents_get", http.MethodGet, "https://api.github.com/repos/orbital/kora/contents/README.md", "contents:read", "kora", false},
 		{"commits_get", http.MethodGet, "https://api.github.com/repos/orbital/kora/commits/abc", "contents:read", "kora", false},
-		{"commit_status", http.MethodGet, "https://api.github.com/repos/orbital/kora/commits/abc/status", "checks:read", "kora", false},
+		{"commit_status", http.MethodGet, "https://api.github.com/repos/orbital/kora/commits/abc/status", "ci:read", "kora", false},
 		{"branches_get", http.MethodGet, "https://api.github.com/repos/orbital/kora/branches/main", "contents:read", "kora", false},
 		{"branch_protection", http.MethodPut, "https://api.github.com/repos/orbital/kora/branches/main/protection", "admin:write", "kora", false},
 		{"issues_post", http.MethodPost, "https://api.github.com/repos/orbital/kora/issues", "issues:write", "kora", false},
 		{"labels_get", http.MethodGet, "https://api.github.com/repos/orbital/kora/labels", "issues:read", "kora", false},
 		{"pulls_get", http.MethodGet, "https://api.github.com/repos/orbital/kora/pulls/1", "pulls:read", "kora", false},
 		{"pull_merge", http.MethodPut, "https://api.github.com/repos/orbital/kora/pulls/1/merge", "contents:write", "kora", false},
-		{"actions_dispatch", http.MethodPost, "https://api.github.com/repos/orbital/kora/actions/workflows/ci.yml/dispatches", "actions:write", "kora", false},
-		{"actions_secrets", http.MethodGet, "https://api.github.com/repos/orbital/kora/actions/secrets", "admin:read", "kora", false},
-		{"actions_variables_put", http.MethodPut, "https://api.github.com/repos/orbital/kora/actions/variables/FOO", "admin:write", "kora", false},
-		{"check_runs", http.MethodGet, "https://api.github.com/repos/orbital/kora/check-runs/1", "checks:read", "kora", false},
-		{"statuses_post", http.MethodPost, "https://api.github.com/repos/orbital/kora/statuses/abc", "checks:write", "kora", false},
+		{"actions_dispatch", http.MethodPost, "https://api.github.com/repos/orbital/kora/actions/workflows/ci.yml/dispatches", "ci:write", "kora", false},
+		{"actions_secrets", http.MethodGet, "https://api.github.com/repos/orbital/kora/actions/secrets", "secrets:read", "kora", false},
+		{"actions_variables_patch", http.MethodPatch, "https://api.github.com/repos/orbital/kora/actions/variables/FOO", "secrets:write", "kora", false},
+		{"check_runs", http.MethodGet, "https://api.github.com/repos/orbital/kora/check-runs/1", "ci:read", "kora", false},
+		{"statuses_post", http.MethodPost, "https://api.github.com/repos/orbital/kora/statuses/abc", "ci:write", "kora", false},
 		{"hooks_post", http.MethodPost, "https://api.github.com/repos/orbital/kora/hooks", "admin:write", "kora", false},
 		{"collaborators", http.MethodPut, "https://api.github.com/repos/orbital/kora/collaborators/x", "admin:write", "kora", false},
-		{"dependabot_secrets", http.MethodGet, "https://api.github.com/repos/orbital/kora/dependabot/secrets", "admin:read", "kora", false},
+		{"dependabot_secrets", http.MethodGet, "https://api.github.com/repos/orbital/kora/dependabot/secrets", "secrets:read", "kora", false},
 		{"releases_post", http.MethodPost, "https://api.github.com/repos/orbital/kora/releases", "contents:write", "kora", false},
+		{"zipball", http.MethodGet, "https://api.github.com/repos/orbital/kora/zipball/main", "contents:read", "kora", false},
 
-		// REST: uncategorized repo routes fall to the qualified catch-all
-		{"deployments_catchall", http.MethodGet, "https://api.github.com/repos/orbital/kora/deployments", "repo:read", "kora", false},
+		// REST: account routes
+		{"org_repos", http.MethodGet, "https://api.github.com/orgs/orbital/repos", "metadata:read", "", false},
+		{"user_repos", http.MethodGet, "https://api.github.com/users/octocat/repos", "metadata:read", "", false},
+		{"org_repo_create", http.MethodPost, "https://api.github.com/orgs/orbital/repos", "admin:write", "", false},
+		{"org_invitations", http.MethodGet, "https://api.github.com/orgs/orbital/invitations", "members:read", "", false},
+		{"org_invite", http.MethodPost, "https://api.github.com/orgs/orbital/invitations", "members:write", "", false},
+		{"org_invitation_teams", http.MethodGet, "https://api.github.com/orgs/orbital/invitations/7/teams", "members:read", "", false},
+		{"org_members", http.MethodGet, "https://api.github.com/orgs/orbital/members", "members:read", "", false},
+		{"org_member_remove", http.MethodDelete, "https://api.github.com/orgs/orbital/members/octocat", "members:write", "", false},
+		{"org_member_codespaces", http.MethodGet, "https://api.github.com/orgs/orbital/members/octocat/codespaces", "", "", true},
+		{"org_membership_set", http.MethodPut, "https://api.github.com/orgs/orbital/memberships/octocat", "members:write", "", false},
+		{"org_teams", http.MethodGet, "https://api.github.com/orgs/orbital/teams", "members:read", "", false},
+		{"org_team_create", http.MethodPost, "https://api.github.com/orgs/orbital/teams", "members:write", "", false},
+		{"org_team_edit", http.MethodPatch, "https://api.github.com/orgs/orbital/teams/platform", "members:write", "", false},
+		{"org_team_members", http.MethodGet, "https://api.github.com/orgs/orbital/teams/platform/members", "members:read", "", false},
+		{"org_team_membership_add", http.MethodPut, "https://api.github.com/orgs/orbital/teams/platform/memberships/octocat", "members:write", "", false},
+		{"org_team_child_teams", http.MethodGet, "https://api.github.com/orgs/orbital/teams/platform/teams", "members:read", "", false},
+		{"org_team_repo_check", http.MethodGet, "https://api.github.com/orgs/orbital/teams/platform/repos/orbital/kora", "members:read", "", false},
+		{"org_team_repo_add", http.MethodPut, "https://api.github.com/orgs/orbital/teams/platform/repos/orbital/kora", "admin:write", "", false},
+		{"org_team_copilot", http.MethodGet, "https://api.github.com/orgs/orbital/teams/platform/copilot/customizations", "", "", true},
+		{"org_team_discussions", http.MethodGet, "https://api.github.com/orgs/orbital/teams/platform/discussions", "", "", true},
+
+		// REST: categories from GitHub's permission data
+		{"deployments", http.MethodGet, "https://api.github.com/repos/orbital/kora/deployments", "deployments:read", "kora", false},
+		{"repos_owner_only", http.MethodGet, "https://api.github.com/repos/orbital", "", "", true},
 
 		// REST: owner mismatch on the API surface is denied outright
 		{"foreign_owner_api", http.MethodGet, "https://api.github.com/repos/evil/kora", "", "", true},
 
-		// Repo-less endpoints: unqualified
-		{"graphql_no_body", http.MethodPost, "https://api.github.com/graphql", "repo:write", "", false},
+		// Repo-less endpoints: unqualified. A GraphQL request with no body is denied.
+		{"graphql_no_body", http.MethodPost, "https://api.github.com/graphql", "", "", true},
 		{"search_code", http.MethodGet, "https://api.github.com/search/code?q=x", "contents:read", "", false},
 		{"search_issues_repo", http.MethodGet, "https://api.github.com/search/issues?q=is:open+repo:orbital/kora", "issues:read", "kora", false},
 		{"search_issues_two_repos", http.MethodGet, "https://api.github.com/search/issues?q=repo:orbital/kora+repo:orbital/other", "issues:read", "", false},
 		{"search_issues_negated_repo", http.MethodGet, "https://api.github.com/search/issues?q=-repo:orbital/kora+foo", "issues:read", "", false},
 		{"search_issues_negated_repo_with_scope", http.MethodGet, "https://api.github.com/search/issues?q=repo:orbital/kora+-repo:orbital/other", "issues:read", "", false},
 		{"search_issues_foreign_repo", http.MethodGet, "https://api.github.com/search/issues?q=repo:evil/kora", "issues:read", "", false},
+		{"search_issues_not_repo", http.MethodGet, "https://api.github.com/search/issues?q=NOT+repo:orbital/kora", "issues:read", "", false},
+		{"search_issues_or", http.MethodGet, "https://api.github.com/search/issues?q=repo:orbital/kora+OR+is:public", "issues:read", "", false},
+		{"search_issues_grouped_repo", http.MethodGet, "https://api.github.com/search/issues?q=(repo:orbital/other)+repo:orbital/kora", "issues:read", "", false},
+		{"search_issues_trailing_paren", http.MethodGet, "https://api.github.com/search/issues?q=(foo+repo:orbital/kora)", "issues:read", "", false},
+		{"search_issues_quoted_repo", http.MethodGet, "https://api.github.com/search/issues?q=%22repo:orbital/other%22+repo:orbital/kora", "issues:read", "", false},
+		{"search_issues_org", http.MethodGet, "https://api.github.com/search/issues?q=repo:orbital/kora+org:orbital", "issues:read", "", false},
+		{"search_issues_user", http.MethodGet, "https://api.github.com/search/issues?q=repo:orbital/kora+user:orbital", "issues:read", "", false},
+		{"search_issues_grouping_without_repo", http.MethodGet, "https://api.github.com/search/issues?q=(+deploy+)+repo:orbital/kora", "issues:read", "kora", false},
 		{"search_commits_repo", http.MethodGet, "https://api.github.com/search/commits?q=fix+repo:Orbital/Kora", "contents:read", "kora", false},
 		{"search_repositories", http.MethodGet, "https://api.github.com/search/repositories?q=x", "metadata:read", "", false},
-		{"search_unknown", http.MethodGet, "https://api.github.com/search/other?q=x", "repo:read", "", false},
+		{"search_unknown", http.MethodGet, "https://api.github.com/search/other?q=x", "", "", true},
+		{"search_write", http.MethodPost, "https://api.github.com/search/code?q=x", "", "", true},
 		{"rate_limit", http.MethodGet, "https://api.github.com/rate_limit", "metadata:read", "", false},
-		{"user", http.MethodGet, "https://api.github.com/user", "metadata:read", "", false},
+		{"user", http.MethodGet, "https://api.github.com/user", "", "", true},
 		{"installation_repos", http.MethodGet, "https://api.github.com/installation/repositories", "metadata:read", "", false},
+		{"discovery_write", http.MethodPatch, "https://api.github.com/user", "", "", true},
+		{"api_root_write", http.MethodPost, "https://api.github.com/", "", "", true},
+		{"other_api_root", http.MethodGet, "https://api.github.com/gists", "", "", true},
 
 		// GitHub Enterprise path prefixes on the appliance host
 		{"ghe_issues", http.MethodGet, "https://ghe.example.com/api/v3/repos/orbital/kora/issues", "issues:read", "kora", false},
-		{"ghe_graphql_no_body", http.MethodPost, "https://ghe.example.com/api/graphql", "repo:write", "", false},
+		{"ghe_graphql_no_body", http.MethodPost, "https://ghe.example.com/api/graphql", "", "", true},
 
 		// Content-host family: reads only, qualified when owner-addressed
 		{"codeload", http.MethodGet, "https://codeload.github.com/orbital/kora/tar.gz/main", "contents:read", "kora", false},
@@ -328,17 +376,18 @@ func TestConnector_Classify(t *testing.T) {
 		{"objects_opaque", http.MethodGet, "https://objects.githubusercontent.com/blobs/deadbeef", "contents:read", "", false},
 		{"content_host_write", http.MethodPost, "https://codeload.github.com/orbital/kora/tar.gz/main", "", "", true},
 
-		// Actions results receiver: log reads map to actions:read
-		{"results_receiver_get", http.MethodGet, "https://results-receiver.actions.githubusercontent.com/logs/1", "actions:read", "", false},
-		{"results_receiver_twirp_read", http.MethodPost, "https://results-receiver.actions.githubusercontent.com/twirp/results.services.receiver.Receiver/GetJobLogs", "actions:read", "", false},
+		// Actions results receiver: log reads map to ci:read
+		{"results_receiver_get", http.MethodGet, "https://results-receiver.actions.githubusercontent.com/logs/1", "ci:read", "", false},
+		{"results_receiver_twirp_read", http.MethodPost, "https://results-receiver.actions.githubusercontent.com/twirp/results.services.receiver.Receiver/GetJobLogs", "ci:read", "", false},
 		{"results_receiver_twirp_write", http.MethodPost, "https://results-receiver.actions.githubusercontent.com/twirp/results.services.receiver.Receiver/CreateStepLogsMetadata", "", "", true},
 		{"results_receiver_delete", http.MethodDelete, "https://results-receiver.actions.githubusercontent.com/logs/1", "", "", true},
 
-		// ID-addressed pagination links stay on the unqualified catch-all
-		{"repository_id_page", http.MethodGet, "https://api.github.com/repositories/123/pulls/5/files?page=2", "repo:read", "", false},
+		// A repository-ID pagination link that did not resolve is denied
+		{"repository_id_page", http.MethodGet, "https://api.github.com/repositories/123/pulls/5/files?page=2", "", "", true},
 
-		// Anything else: verb-classified catch-all, unqualified
-		{"web_page", http.MethodGet, "https://github.com/orbital", "repo:read", "", false},
+		// Anything else on the host family is denied
+		{"web_page", http.MethodGet, "https://github.com/orbital", "", "", true},
+		{"web_write", http.MethodPost, "https://github.com/orbital/kora/issues", "", "", true},
 
 		// Unknown verb (deny via ErrUnsupportedAction)
 		{"unknown_verb", "PROPFIND", "https://github.com/x", "", "", true},
@@ -403,24 +452,21 @@ func TestPermissionsFor(t *testing.T) {
 		{"metadata", "metadata:read", nil, map[string]string{"metadata": "read"}},
 		{"contents_write", "contents:write", nil, map[string]string{"contents": "write", "metadata": "read"}},
 		{"issues_read", "issues:read", nil, map[string]string{"issues": "read", "metadata": "read"}},
-		// Pull-request tokens carry contents:read so PR create/edit can read the
-		// head/base refs (GitHub 422s "not all refs are readable" otherwise).
-		{"pulls_write", "pulls:write", nil, map[string]string{"pull_requests": "write", "contents": "read", "metadata": "read"}},
-		{"pulls_read", "pulls:read", nil, map[string]string{"pull_requests": "read", "contents": "read", "metadata": "read"}},
-		// The contents:read floor is still ceiling-bound: a connection that does
-		// not permit contents drops it.
-		{"pulls_write_ceiling_omits_contents", "pulls:write", map[string]string{"pull_requests": "write", "metadata": "read"},
-			map[string]string{"pull_requests": "write", "metadata": "read"}},
-		{"checks_write", "checks:write", nil, map[string]string{"checks": "write", "statuses": "write", "metadata": "read"}},
-		{"admin_read", "admin:read", nil, map[string]string{"administration": "read", "repository_hooks": "read", "secrets": "read", "dependabot_secrets": "read", "metadata": "read"}},
+		// A pulls token carries contents only when the grant also holds contents.
+		{"pulls_write", "pulls:write", nil, map[string]string{"pull_requests": "write", "metadata": "read"}},
+		{"pulls_read", "pulls:read", nil, map[string]string{"pull_requests": "read", "metadata": "read"}},
+		{"ci_write", "ci:write", nil, map[string]string{"actions": "write", "checks": "write", "statuses": "write", "artifact_metadata": "write", "attestations": "write", "metadata": "read"}},
+		{"admin_read", "admin:read", nil, map[string]string{"administration": "read", "repository_hooks": "read", "repository_custom_properties": "read", "repository_creation": "read", "installation_repositories": "read", "metadata": "read"}},
+		{"members_read", "members:read", nil, map[string]string{"members": "read", "metadata": "read"}},
+		{"members_write", "members:write", nil, map[string]string{"members": "write", "metadata": "read"}},
 		{"ceiling_drops_and_lowers", "admin:write", map[string]string{"administration": "read", "metadata": "read"},
 			map[string]string{"administration": "read", "metadata": "read"}},
-		{"umbrella_mints_ceiling_verbatim", "repo:write", map[string]string{"contents": "write", "workflows": "write"},
-			map[string]string{"contents": "write", "workflows": "write"}},
+		// An action outside the categories mints metadata alone, whatever the ceiling.
+		{"unknown_category", "other:write", map[string]string{"contents": "write"}, map[string]string{"metadata": "read"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := permissionsFor(tc.action, tc.ceiling, nil)
+			got := permissionsFor(tc.action, tc.ceiling)
 			if len(got) != len(tc.want) {
 				t.Fatalf("permissionsFor(%q) = %v, want %v", tc.action, got, tc.want)
 			}
@@ -431,150 +477,12 @@ func TestPermissionsFor(t *testing.T) {
 			}
 		})
 	}
-
-	// Umbrella with nil installationPerms: only metadata:read is derived
-	// (the loop over installationPerms is a no-op). This ensures the umbrella
-	// never mints ungranted permissions when called without installation data.
-	if got := permissionsFor("repo:write", nil, nil); len(got) != 1 || got["metadata"] != "read" {
-		t.Errorf("umbrella with nil installationPerms should yield only metadata:read, got %v", got)
-	}
-
-	// Umbrella respects the installationPerms ceiling: a permission the
-	// installation does not have is omitted; a permission granted at a lower
-	// level than requested is capped.
-	instPerms := map[string]string{
-		"contents":      "write",
-		"pull_requests": "write",
-		"issues":        "read", // installation only has read; repo:write should be capped to read
-		"metadata":      "read",
-	}
-	got := permissionsFor("repo:write", nil, instPerms)
-	if got["contents"] != "write" {
-		t.Errorf("umbrella: contents should be write (installation grants write), got %q", got["contents"])
-	}
-	if got["issues"] != "read" {
-		t.Errorf("umbrella: issues should be read (installation only grants read), got %q", got["issues"])
-	}
-	if _, ok := got["statuses"]; ok {
-		t.Errorf("umbrella: statuses should be absent (installation does not grant it), got %q", got["statuses"])
-	}
-	if _, ok := got["administration"]; ok {
-		t.Errorf("umbrella: administration should be absent (not in installationPerms), got %v", got)
-	}
-	if got["metadata"] != "read" {
-		t.Errorf("umbrella: metadata:read must always be present, got %v", got)
-	}
-
-	// Umbrella with ceiling set returns ceiling verbatim (installationPerms is
-	// ignored when a ceiling is declared).
-	ceiling := map[string]string{"contents": "write", "metadata": "read"}
-	gotCeiling := permissionsFor("repo:write", ceiling, instPerms)
-	if len(gotCeiling) != 2 || gotCeiling["contents"] != "write" || gotCeiling["metadata"] != "read" {
-		t.Errorf("umbrella with ceiling must return ceiling verbatim, got %v", gotCeiling)
-	}
-
-	// The explicit admin action is unchanged. It still mints the full admin
-	// category (administration, repository_hooks, secrets, dependabot_secrets),
-	// so nothing that legitimately needs repo-admin or secrets loses it.
-	if got := permissionsFor("admin:read", nil, nil); got["secrets"] != "read" || got["dependabot_secrets"] != "read" ||
-		got["administration"] != "read" || got["repository_hooks"] != "read" {
-		t.Errorf("admin:read must still grant the full admin category, got %v", got)
-	}
-
-	// Unknown level strings from GitHub (not "read"/"write"/"admin") must be
-	// skipped entirely: they must not appear in the minted permissions.
-	unknownLevelPerms := map[string]string{
-		"contents": "write",
-		"issues":   "unknown_level", // GitHub-invented future level, not in permissionLevels
-		"metadata": "read",
-	}
-	gotUnknown := permissionsFor("repo:write", nil, unknownLevelPerms)
-	if _, ok := gotUnknown["issues"]; ok {
-		t.Errorf("umbrella must skip permissions with unknown level, got issues=%q", gotUnknown["issues"])
-	}
-	if gotUnknown["contents"] != "write" {
-		t.Errorf("umbrella must still include known-level permissions, got contents=%q", gotUnknown["contents"])
-	}
 }
 
-// TestAdapter_Resolve_UmbrellaOmitsMissingPermission verifies that the repo:*
-// umbrella never requests a permission the App installation does not hold.
-// This is the core acceptance criterion from issue #160: when the installation
-// lacks a permission (e.g. statuses:write), the umbrella omits it from the mint
-// instead of requesting it and getting a GitHub 422.
-func TestAdapter_Resolve_UmbrellaOmitsMissingPermission(t *testing.T) {
-	var gotTokenBody ghclient.InstallationTokenRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/app/installations/"):
-			// GetInstallationPermissions: installation has statuses:read only,
-			// not statuses:write, and no checks permission at all.
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"permissions": map[string]string{
-					"contents":      "write",
-					"pull_requests": "write",
-					"issues":        "write",
-					"statuses":      "read",
-					"metadata":      "read",
-				},
-			})
-		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/access_tokens"):
-			_ = json.NewDecoder(r.Body).Decode(&gotTokenBody)
-			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"token":      "ghs_umbrella_tok",
-				"expires_at": "2026-07-29T13:00:00Z",
-			})
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer srv.Close()
-
-	logger := logging.NewLoggerWithOutput(io.Discard)
-	adapter := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
-	adapter.now = func() time.Time { return time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC) }
-
-	conn := credentials.Connection{
-		ID: "conn-1", TenantID: "acme", Name: "github",
-		Adapter:   credentials.AdapterGitHubApp,
-		SecretRef: "ref",
-		// No Permissions ceiling: umbrella should intersect with installation perms.
-		Config: mustConfig(t, config{AppID: "1", InstallationID: 42, Owner: "orbital"}),
-	}
-
-	_, err := open(t, adapter, conn).Mint(context.Background(),
-		credentials.CallerIdentity{TenantID: "acme", Action: "repo:write", Qualifier: "kora"})
-	if err != nil {
-		t.Fatalf("Resolve: %v", err)
-	}
-
-	// statuses must be capped at "read" (installation only grants read).
-	if gotTokenBody.Permissions["statuses"] != "read" {
-		t.Errorf("statuses permission = %q, want capped at \"read\"", gotTokenBody.Permissions["statuses"])
-	}
-	// checks must be absent (installation does not grant it at all).
-	if _, ok := gotTokenBody.Permissions["checks"]; ok {
-		t.Errorf("checks permission must be absent (installation lacks it), got %q", gotTokenBody.Permissions["checks"])
-	}
-	// contents and pull_requests should be present at write.
-	if gotTokenBody.Permissions["contents"] != "write" {
-		t.Errorf("contents permission = %q, want \"write\"", gotTokenBody.Permissions["contents"])
-	}
-	if gotTokenBody.Permissions["pull_requests"] != "write" {
-		t.Errorf("pull_requests permission = %q, want \"write\"", gotTokenBody.Permissions["pull_requests"])
-	}
-	// metadata:read is always present.
-	if gotTokenBody.Permissions["metadata"] != "read" {
-		t.Errorf("metadata permission = %q, want \"read\"", gotTokenBody.Permissions["metadata"])
-	}
-}
-
-// TestAdapter_Resolve_UmbrellaPermissionsCached verifies the installation
+// TestAdapter_Resolve_InstallationPermissionsCached verifies the installation
 // permission set is cached and that the adapter fetches it at most once per
 // instPermsCacheTTL window regardless of how many mints are requested.
-func TestAdapter_Resolve_UmbrellaPermissionsCached(t *testing.T) {
+func TestAdapter_Resolve_InstallationPermissionsCached(t *testing.T) {
 	var instPermsCallCount int
 	// Two different tokens are returned so the credential cache never masks the
 	// second mint (the second token expires far in the future, after the clock
@@ -609,12 +517,12 @@ func TestAdapter_Resolve_UmbrellaPermissionsCached(t *testing.T) {
 	adapter.now = func() time.Time { return now }
 
 	conn := credentials.Connection{
-		ID: "conn-1", TenantID: "acme", Name: "github",
+		ID: "conn-1", TenantID: "example", Name: "github",
 		Adapter:   credentials.AdapterGitHubApp,
 		SecretRef: "ref",
 		Config:    mustConfig(t, config{AppID: "1", InstallationID: 42}),
 	}
-	id := credentials.CallerIdentity{TenantID: "acme", Action: "repo:write"}
+	id := credentials.CallerIdentity{TenantID: "example", Action: "contents:write"}
 
 	// First mint: calls GetInstallationPermissions once, then CreateInstallationToken.
 	if _, err := open(t, adapter, conn).Mint(context.Background(), id); err != nil {
@@ -653,10 +561,10 @@ func TestAdapter_Resolve_UmbrellaPermissionsCached(t *testing.T) {
 	}
 }
 
-// TestAdapter_Resolve_UmbrellaWithCeilingSkipsInstallationPermissions verifies
-// that when a connection has a declared Permissions ceiling, the umbrella mints
-// the ceiling verbatim without calling GetInstallationPermissions.
-func TestAdapter_Resolve_UmbrellaWithCeilingSkipsInstallationPermissions(t *testing.T) {
+// TestAdapter_Resolve_CeilingSkipsInstallationPermissions verifies that when a
+// connection declares a Permissions ceiling, a category mint is capped by it
+// without calling GetInstallationPermissions.
+func TestAdapter_Resolve_CeilingSkipsInstallationPermissions(t *testing.T) {
 	var instPermsCallCount int
 	var gotTokenBody ghclient.InstallationTokenRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -685,7 +593,7 @@ func TestAdapter_Resolve_UmbrellaWithCeilingSkipsInstallationPermissions(t *test
 	adapter.now = func() time.Time { return time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC) }
 
 	conn := credentials.Connection{
-		ID: "conn-1", TenantID: "acme", Name: "github",
+		ID: "conn-1", TenantID: "example", Name: "github",
 		Adapter:   credentials.AdapterGitHubApp,
 		SecretRef: "ref",
 		Config: mustConfig(t, config{
@@ -695,20 +603,24 @@ func TestAdapter_Resolve_UmbrellaWithCeilingSkipsInstallationPermissions(t *test
 	}
 
 	if _, err := open(t, adapter, conn).Mint(context.Background(),
-		credentials.CallerIdentity{TenantID: "acme", Action: "repo:write"}); err != nil {
+		credentials.CallerIdentity{TenantID: "example", Action: "contents:write"}); err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 	if instPermsCallCount != 0 {
 		t.Errorf("GetInstallationPermissions must not be called when ceiling is declared, got %d calls", instPermsCallCount)
 	}
 	if gotTokenBody.Permissions["contents"] != "write" || gotTokenBody.Permissions["metadata"] != "read" {
-		t.Errorf("minted permissions = %v, want ceiling verbatim {contents:write, metadata:read}", gotTokenBody.Permissions)
+		t.Errorf("minted permissions = %v, want {contents:write, metadata:read}", gotTokenBody.Permissions)
 	}
 }
 
 func TestAdapter_Resolve_QualifierNarrowsMint(t *testing.T) {
 	var gotBody ghclient.InstallationTokenRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{"permissions": map[string]string{"issues": "write"}})
+			return
+		}
 		_ = json.NewDecoder(r.Body).Decode(&gotBody)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -721,11 +633,11 @@ func TestAdapter_Resolve_QualifierNarrowsMint(t *testing.T) {
 	adapter.now = func() time.Time { return time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC) }
 
 	conn := credentials.Connection{
-		ID: "conn-1", TenantID: "acme", Name: "github", Adapter: credentials.AdapterGitHubApp,
+		ID: "conn-1", TenantID: "example", Name: "github", Adapter: credentials.AdapterGitHubApp,
 		SecretRef: "ref",
 		Config:    mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "orbital"}),
 	}
-	id := credentials.CallerIdentity{TenantID: "acme", Action: "issues:write", Qualifier: "kora"}
+	id := credentials.CallerIdentity{TenantID: "example", Action: "issues:write", Qualifier: "kora"}
 
 	if _, err := open(t, adapter, conn).Mint(context.Background(), id); err != nil {
 		t.Fatalf("Resolve: %v", err)
@@ -738,5 +650,37 @@ func TestAdapter_Resolve_QualifierNarrowsMint(t *testing.T) {
 	}
 	if _, ok := gotBody.Permissions["contents"]; ok {
 		t.Errorf("issues:write token must not carry contents, got %v", gotBody.Permissions)
+	}
+}
+
+// A REST token carries exactly the permissions of the endpoint's set the grant
+// satisfied, plus metadata, not everything the category covers.
+func TestMint_RESTMintsTheEndpointPermissions(t *testing.T) {
+	c := open(t, New(nil, stubSecrets{}, logging.NewLoggerWithOutput(io.Discard)), validConn(t))
+	cases := []struct {
+		method, url string
+		want        map[string]string
+	}{
+		{http.MethodGet, "https://api.github.com/repos/orbital/kora/actions/runs", map[string]string{"actions": "read", "metadata": "read"}},
+		{http.MethodPut, "https://api.github.com/repos/orbital/kora/branches/main/protection", map[string]string{"administration": "write", "metadata": "read"}},
+		{http.MethodPost, "https://api.github.com/repos/orbital/kora/forks", map[string]string{"administration": "write", "contents": "read", "metadata": "read"}},
+		{http.MethodGet, "https://api.github.com/repos/orbital/kora/pulls/1", map[string]string{"pull_requests": "read", "metadata": "read"}},
+		{http.MethodPut, "https://api.github.com/repos/orbital/kora/contents/README.md", map[string]string{"contents": "write", "metadata": "read"}},
+	}
+	for _, tc := range cases {
+		req, err := http.NewRequest(tc.method, tc.url, http.NoBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cls, err := c.Classify(req)
+		if err != nil {
+			t.Fatalf("%s %s: Classify: %v", tc.method, tc.url, err)
+		}
+		got := mintedPermissions(t, credentials.CallerIdentity{
+			Action: cls.Action, Qualifier: cls.Qualifier, AlsoAuthorized: cls.AlsoRequired, Permissions: cls.Permissions,
+		})
+		if !maps.Equal(got, tc.want) {
+			t.Errorf("%s %s: minted %v, want %v", tc.method, tc.url, got, tc.want)
+		}
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/runkora/kora/backend/internal/inferencegw"
 	"github.com/runkora/kora/backend/internal/inferencegw/providers/azure"
@@ -52,8 +53,9 @@ func buildErr(reason, format string, args ...any) error {
 type secretReader func(ctx context.Context, name, key string) (string, error)
 
 // buildConnector constructs the connector for one resource and describes it for the
-// admin view. The description never carries a credential.
-func buildConnector(ctx context.Context, p *ip.InferenceProvider, secret secretReader, logger logging.Logger) (inferencegw.ProviderConnector, inferencegw.ProviderInfo, error) {
+// admin view. The description never carries a credential. maxDecisionTimeout
+// caps the System One timeout a caller may ask a compatible provider for.
+func buildConnector(ctx context.Context, p *ip.InferenceProvider, secret secretReader, maxDecisionTimeout time.Duration, logger logging.Logger) (inferencegw.ProviderConnector, inferencegw.ProviderInfo, error) {
 	info := inferencegw.ProviderInfo{
 		Name:        inferencegw.ProviderName(p.ProviderName()),
 		Type:        string(p.Spec.Type),
@@ -61,7 +63,7 @@ func buildConnector(ctx context.Context, p *ip.InferenceProvider, secret secretR
 		Resource:    p.Name,
 		Models:      p.Spec.Models,
 	}
-	conn, err := build(ctx, p.Spec, &info, secret, logger)
+	conn, err := build(ctx, p.Spec, &info, secret, maxDecisionTimeout, logger)
 	if err != nil {
 		var be *buildError
 		if !errors.As(err, &be) {
@@ -73,7 +75,7 @@ func buildConnector(ctx context.Context, p *ip.InferenceProvider, secret secretR
 	return withModelList(conn, p.Spec.Models), info, nil
 }
 
-func build(ctx context.Context, s ip.Spec, info *inferencegw.ProviderInfo, secret secretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
+func build(ctx context.Context, s ip.Spec, info *inferencegw.ProviderInfo, secret secretReader, maxDecisionTimeout time.Duration, logger logging.Logger) (inferencegw.ProviderConnector, error) {
 	switch {
 	case s.Type == ip.TypeBedrock && s.Bedrock != nil:
 		return buildBedrock(ctx, s.Bedrock, info, secret, logger)
@@ -82,7 +84,7 @@ func build(ctx context.Context, s ip.Spec, info *inferencegw.ProviderInfo, secre
 	case s.Type == ip.TypeAzure && s.Azure != nil:
 		return buildAzure(ctx, s.Azure, info, secret, logger)
 	case s.Type == ip.TypeCompatible && s.Compatible != nil:
-		return buildCompatible(ctx, s.Compatible, info, secret, logger)
+		return buildCompatible(ctx, s.Compatible, info, secret, maxDecisionTimeout, logger)
 	}
 	return nil, buildErr(reasonInvalidSpec, "type %q needs its own config block", s.Type)
 }
@@ -133,10 +135,10 @@ func buildAzure(ctx context.Context, a *ip.Azure, info *inferencegw.ProviderInfo
 	return azure.New(cfg, info.Name, logger)
 }
 
-func buildCompatible(ctx context.Context, c *ip.Compatible, info *inferencegw.ProviderInfo, secret secretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
+func buildCompatible(ctx context.Context, c *ip.Compatible, info *inferencegw.ProviderInfo, secret secretReader, maxDecisionTimeout time.Duration, logger logging.Logger) (inferencegw.ProviderConnector, error) {
 	info.Location = c.BaseURL
 	info.CredentialMode = inferencegw.CredentialModeNone
-	cfg := compatible.Config{BaseURL: c.BaseURL, APIs: c.APIs, DecisionModels: c.DecisionModels}
+	cfg := compatible.Config{BaseURL: c.BaseURL, APIs: c.APIs, DecisionModels: c.DecisionModels, MaxDecisionTimeout: maxDecisionTimeout}
 	if ref := c.APIKeySecretRef; ref != nil {
 		info.CredentialMode = inferencegw.CredentialModeSecret
 		key, err := secret(ctx, ref.Name, ref.Key)

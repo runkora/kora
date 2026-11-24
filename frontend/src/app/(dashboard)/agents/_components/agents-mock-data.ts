@@ -36,7 +36,7 @@ const TENANT = 'ten_8f3a21';
 
 // ── Agent types ──────────────────────────────────────────────────────────────
 
-const GITHUB_REVIEW = { connection: 'github', actions: ['contents:read', 'pull_requests:write'] };
+const GITHUB_REVIEW = { connection: 'github', actions: ['contents:read', 'pulls:write'] };
 
 function agentType(
   partial: Partial<AgentType> & Pick<AgentType, 'id' | 'name' | 'slug' | 'description'>,
@@ -103,7 +103,7 @@ export const AGENT_TYPES: AgentType[] = [
     connectors: [
       {
         connection: 'github',
-        actions: ['contents:read', 'contents:write', 'pull_requests:write'],
+        actions: ['contents:read', 'contents:write', 'pulls:write'],
         resources: ['kora/platform', 'kora/dashboard'],
       },
     ],
@@ -120,7 +120,7 @@ export const AGENT_TYPES: AgentType[] = [
     description: 'Scans dependency and code changes for vulnerabilities and unsafe patterns.',
     model_id: 'anthropic/claude-opus-4-6',
     connectivity: { mode: 'whitelist', hosts: ['api.github.com', 'osv.dev', 'nvd.nist.gov'] },
-    connectors: [{ connection: 'github', actions: ['contents:read', 'security_events:read'] }],
+    connectors: [{ connection: 'github', actions: ['contents:read', 'security:read'] }],
     mcp_tools: ['mcp:github:pull_requests.get:use'],
     guardrails: { repeated_call_warn: 3, repeated_call_pause: 6, wait_rearm_pause: 8 },
     created_at: ago(18 * DAY),
@@ -248,7 +248,7 @@ function run(seed: RunSeed): RunWithAttribution {
     tenant_id: TENANT,
     agent_type_id: seed.agent.id,
     state: seed.state,
-    pod_ordinal: runCounter % 3,
+    pod_name: `session-manager-pool-${runCounter % 3}`,
     created_by: by.id,
     created_by_name: by.name,
     started_at: seed.state === 'pending' ? null : started,
@@ -594,8 +594,8 @@ export const CONNECTIONS: ConnectionCatalogEntry[] = [
       'contents:write',
       'issues:read',
       'issues:write',
-      'pull_requests:write',
-      'security_events:read',
+      'pulls:write',
+      'security:read',
     ],
     baseline: ['metadata:read'],
     qualifier: { name: 'repository', description: 'Limit access to specific repositories.' },

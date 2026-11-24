@@ -6,9 +6,18 @@ kora-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md).
 {{- if or (lt (int $guardrails.sandboxProvisionAttempts) 1) (lt (int $guardrails.sandboxProvisionBackoffSecs) 1) (lt (int $guardrails.sandboxProvisionBudgetSecs) 1) (gt (int $guardrails.sandboxProvisionBudgetSecs) 600) }}
   {{- fail "agents.guardrails: sandboxProvisionAttempts, sandboxProvisionBackoffSecs and sandboxProvisionBudgetSecs must be at least 1, and sandboxProvisionBudgetSecs at most 600" }}
 {{- end }}
+{{- if lt (int .Values.agents.pool.size) 0 }}
+  {{- fail "agents.pool.size must be at least 0" }}
+{{- end }}
 {{- $scheduling := .Values.agents.scheduling }}
-{{- if or (lt (int $scheduling.workerConcurrency) 1) (lt (int $scheduling.pollIntervalSecs) 1) (lt (int $scheduling.startBudgetSecs) 1) (lt (int $scheduling.provisionBudgetSecs) 1) (lt (int $scheduling.startingRunWindowSecs) 1) }}
-  {{- fail "agents.scheduling: workerConcurrency, pollIntervalSecs, startBudgetSecs, provisionBudgetSecs and startingRunWindowSecs must be at least 1" }}
+{{- if or (lt (int $scheduling.workerConcurrency) 1) (lt (int $scheduling.scalerConcurrency) 1) (lt (int $scheduling.pollIntervalSecs) 1) (lt (int $scheduling.startBudgetSecs) 1) (lt (int $scheduling.provisionBudgetSecs) 1) (lt (int $scheduling.startingRunWindowSecs) 1) }}
+  {{- fail "agents.scheduling: workerConcurrency, scalerConcurrency, pollIntervalSecs, startBudgetSecs, provisionBudgetSecs and startingRunWindowSecs must be at least 1" }}
+{{- end }}
+{{- if lt (int $scheduling.warmAfterSecs) 0 }}
+  {{- fail "agents.scheduling.warmAfterSecs must be at least 0" }}
+{{- end }}
+{{- if lt (int $scheduling.coldAfterSecs) 0 }}
+  {{- fail "agents.scheduling.coldAfterSecs must be at least 0" }}
 {{- end }}
 {{- if lt (int $scheduling.drainGracePeriodSecs) 61 }}
   {{- fail "agents.scheduling.drainGracePeriodSecs must be at least 61: the session-manager's 30 s shutdown timeout plus its 30 s drainMargin (cmd/session-manager/config/config.go)" }}
@@ -34,6 +43,10 @@ kora-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md).
     {{- fail (printf "agents.scheduling.startingRunAllowance.%s must be a positive memory quantity" $harness) }}
   {{- end }}
 {{- end }}
+{{- $grading := .Values.agents.grading }}
+{{- if or (lt (int $grading.windowTokens) 1) (lt (int $grading.concurrency) 1) (lt (int $grading.pollIntervalSecs) 1) }}
+  {{- fail "agents.grading: windowTokens, concurrency and pollIntervalSecs must be at least 1" }}
+{{- end }}
 {{- $idle := .Values.agents.idleTimeout }}
 {{- if or (lt (int $idle.manualSecs) 1) (lt (int $idle.triggerSecs) 1) }}
   {{- fail "agents.idleTimeout: manualSecs and triggerSecs must be at least 1" }}
@@ -52,8 +65,7 @@ cmd/kora-agents:
   policy:
     bundleEndpoint: {{ include "kora.bundleEndpoint" . | toJson }}
   agents:
-    {{- $sessionManager := include "kora.imageRef" (dict "root" $ "image" (dict "repository" "kora-session-manager" "digest" .Values.agents.config.sessionManagerDigest)) }}
-    sessionManagerImage: {{ .Values.agents.config.sessionManagerImage | default $sessionManager | toJson }}
+    sessionManagerImage: {{ include "kora.sessionManagerImage" . | toJson }}
     sandboxImage: {{ include "kora.sandboxBaseImage" . | toJson }}
     {{- /* Quantities render as strings. An unquoted cpu: 8 in values would otherwise fail the strict decode. */}}
     {{- /* An unset maxSize field takes the default size's value. */}}
@@ -77,8 +89,15 @@ cmd/kora-agents:
     idleTimeout:
       manualSecs: {{ $idle.manualSecs | int }}
       triggerSecs: {{ $idle.triggerSecs | int }}
+    grading:
+      windowTokens: {{ $grading.windowTokens | int }}
+      concurrency: {{ $grading.concurrency | int }}
+      pollIntervalSecs: {{ $grading.pollIntervalSecs | int }}
+    pool:
+      size: {{ .Values.agents.pool.size | int }}
     scheduling:
       workerConcurrency: {{ $scheduling.workerConcurrency | int }}
+      scalerConcurrency: {{ $scheduling.scalerConcurrency | int }}
       pollIntervalSecs: {{ $scheduling.pollIntervalSecs | int }}
       startBudgetSecs: {{ $scheduling.startBudgetSecs | int }}
       provisionBudgetSecs: {{ $scheduling.provisionBudgetSecs | int }}
@@ -92,6 +111,8 @@ cmd/kora-agents:
         {{ $harness }}: {{ index $allowance $harness | toString | toJson }}
         {{- end }}
       startingRunWindowSecs: {{ $scheduling.startingRunWindowSecs | int }}
+      warmAfterSecs: {{ $scheduling.warmAfterSecs | int }}
+      coldAfterSecs: {{ $scheduling.coldAfterSecs | int }}
     sessionManager:
       authorizationPolicyEnabled: {{ and .Values.platform.spiffe.enabled .Values.agents.authorizationPolicy.enabled }}
       landlock: {{ .Values.agents.landlock | quote }}

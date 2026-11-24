@@ -69,6 +69,7 @@ func TestMiddleware_SessionRoutesRejectUnauthenticated(t *testing.T) {
 		{http.MethodPost, "/session/run-1/tool-results"},
 		{http.MethodPost, "/session/run-1/interrupt"},
 		{http.MethodDelete, "/session/run-1"},
+		{http.MethodGet, "/health/bound"},
 	}
 
 	for _, tc := range paths {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/events"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
@@ -199,16 +200,16 @@ type closeReportsCompletion struct {
 	report func()
 }
 
-func (c *closeReportsCompletion) CloseSession(ctx context.Context, url, runID string) error {
+func (c *closeReportsCompletion) CloseSession(ctx context.Context, pod sessionmanager.Pod, runID string) error {
 	c.report()
-	return c.mockSMClient.CloseSession(ctx, url, runID)
+	return c.mockSMClient.CloseSession(ctx, pod, runID)
 }
 
 // A live run ends terminated even though its closing session reports it completed.
 func TestTerminateRun_ClosingSessionDoesNotCompleteTheRun(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
-	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
+	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive, PodName: "pod-0"})
 	var reportErr error
 	svc.run.sm = &closeReportsCompletion{mockSMClient: sm, report: func() {
 		reportErr = svc.run.TransitionRunState(context.Background(), run.ID, RunStateActive, RunStateCompleted)
@@ -226,8 +227,8 @@ func TestTerminateRun_ClosingSessionDoesNotCompleteTheRun(t *testing.T) {
 func TestTerminateRun_ClosesSessionOfPlacedRun(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
 	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
-	seedRun(t, repo, Run{ID: "queued", TenantID: "t-1", AgentTypeID: "at-1", State: RunStatePending, PodOrdinal: -1})
-	seedRun(t, repo, Run{ID: "placed", TenantID: "t-1", AgentTypeID: "at-1", State: RunStatePending, PodOrdinal: 0})
+	seedRun(t, repo, Run{ID: "queued", TenantID: "t-1", AgentTypeID: "at-1", State: RunStatePending})
+	seedRun(t, repo, Run{ID: "placed", TenantID: "t-1", AgentTypeID: "at-1", State: RunStatePending, PodName: "pool-a"})
 	for _, id := range []string{"queued", "placed"} {
 		if err := svc.TerminateRun(context.Background(), id); err != nil {
 			t.Fatal(err)
@@ -269,6 +270,7 @@ func TestSpinePayloads_MatchSchema(t *testing.T) {
 	at := AgentType{ID: "at-1", Slug: "triage", Name: "Triage", ModelID: &model, State: AgentTypeStateActive,
 		Environments: []AgentEnvironment{{EnvironmentID: "env-1"}}, Connectors: []Connector{{Connection: "github"}}}
 	env := Environment{ID: "env-1", Slug: "go", Name: "Go", SandboxImage: "img", Size: EnvironmentSize{CPU: "1", Memory: "1Gi", Disk: "5Gi"}}
+	grader := Grader{ID: "g1", TenantID: "t1", Name: "reviews", AgentTypeID: "a1", AgentSlug: "reviewer", Description: "d", MinPassRate: new(90), CurrentVersion: "v1"}
 	failed, _ := stateEvent(RunStateActive, run, events.RunErrorSandboxLost)
 	warned, _ := activityEvent(Run{ID: run.ID, TenantID: "t1", State: RunStateActive},
 		RunEvent{EventType: "guardrail_warning", Payload: []byte(`{"kind":"repeated_call","count":5,"tool":"Bash"}`)})
@@ -279,12 +281,15 @@ func TestSpinePayloads_MatchSchema(t *testing.T) {
 	for _, ev := range []events.Event{
 		failed, warned, errored, ready, skipped, sandboxDeletedEvent(run), messageEvent(run, &StartedByTrigger{TriggerID: "trg"}),
 		agentEvent(events.AgentUpdated, at, nil), environmentEvent(events.EnvironmentUpdated, env, nil),
+		graderEvent(events.GraderUpdated, grader, nil),
 	} {
 		if err := events.ValidatePayload(ev.Type, ev.Entity); err != nil {
 			t.Errorf("%s: %v", ev.Type, err)
 		}
 	}
-	for typ, fields := range map[events.Type]any{events.AgentUpdated: newAgentFields(at), events.EnvironmentUpdated: newEnvironmentFields(env)} {
+	for typ, fields := range map[events.Type]any{
+		events.AgentUpdated: newAgentFields(at), events.EnvironmentUpdated: newEnvironmentFields(env), events.GraderUpdated: newGraderEntity(grader),
+	} {
 		for _, name := range events.Changed(map[string]any{}, fields) {
 			if !slices.Contains(events.Changeable(typ), name) {
 				t.Errorf("%s: changed field %q is not in the schema", typ, name)

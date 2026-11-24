@@ -397,8 +397,10 @@ delegator_covers_required_scope if _delegator_holds(_required_scope)
 
 # ...or through its vocabulary requires expansion, every scope of which the
 # delegator must cover — e.g. mcp:{server}:{tool}:use delegates through to the
-# person's connection:* authority.
+# person's connection:* authority. Only MCP tool scopes project: other scopes'
+# requires are what they confer, not their cost.
 delegator_covers_required_scope if {
+	startswith(_required_scope, "mcp:")
 	count(_required_scope_expansion) > 0
 	every required in _required_scope_expansion {
 		_delegator_holds(required)

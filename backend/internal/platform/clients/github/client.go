@@ -271,7 +271,7 @@ type installationResponse struct {
 // set from GitHub. appJWT must be a freshly-signed App JWT (RS256). The
 // returned map is keyed by permission name (e.g. "contents", "pull_requests")
 // with string level values ("read", "write"). It is used by the credential
-// adapter to intersect the umbrella permission set with the installation's
+// adapter to cap category permission sets with the installation's
 // actual grants, avoiding GitHub 422 errors from ungranted permissions.
 func (c *Client) GetInstallationPermissions(ctx context.Context, appJWT string, installationID int64) (map[string]string, error) {
 	header := http.Header{}

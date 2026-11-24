@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/runkora/kora/backend/internal/platform/declarative"
@@ -281,5 +282,19 @@ func TestTriggerDeleteAndList(t *testing.T) {
 	}
 	if err := deps.triggers.Delete(ctx, testTenant, "review-on-pr"); err != nil {
 		t.Errorf("Delete of an absent trigger: %v", err)
+	}
+}
+
+func TestTriggerApply_EmptyMatchListRefused(t *testing.T) {
+	_, deps := newTestService(t)
+	src := projectedSource(t, deps, "uid-s")
+	spec := webhookSpec("code-reviewer")
+	spec.Match = map[string][]string{"repository.full_name": {}}
+	res := mustApply(t, deps.triggers, triggerItem(t, "uid-t", spec, agentRefs(src.ID)), declarative.OutcomeInvalid)
+	if !strings.Contains(res.Message, "repository.full_name") {
+		t.Errorf("message = %q, want it to name the key", res.Message)
+	}
+	if len(deps.repo.triggers) != 0 {
+		t.Errorf("a refused trigger was created: %v", deps.repo.triggers)
 	}
 }

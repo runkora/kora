@@ -4,43 +4,57 @@ metadata:
   name: kora-agents
   labels:
     {{- include "kora.agents.labels" . | nindent 4 }}
-# Verbs match the calls in internal/agents/k8s.go. There are no informers and
-# no watch. get+update on every namespaced resource because each
+# Verbs match the calls in internal/agents/k8s.go, internal/agents/pods.go and
+# the workload caches in internal/agents/workload_cache.go. get+update on every namespaced resource because each
 # ensureX follows a create-then-backfill pattern — on AlreadyExists it Gets
 # the existing object, merges the KoraTenant owner reference, and Updates
 # (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
 rules:
+  # An apply deletes the agent StatefulSet an earlier release created (docs/adr/2026-11-22-agent-cold-tier.md).
   - apiGroups: ["apps"]
     resources: ["statefulsets"]
-    verbs: ["get", "create", "update", "patch", "delete"]
-  # The scaler sets each agent's replicas through the scale subresource.
+    verbs: ["delete"]
+  # Each tenant's pool of unbound session-manager pods (docs/adr/2026-11-22-agent-cold-tier.md).
+  # The pool cache watches the pool Deployments for their current pod template,
+  # and the scaler updates their replicas for the agents waiting on a pool pod.
   - apiGroups: ["apps"]
-    resources: ["statefulsets/scale"]
-    verbs: ["get", "update"]
-  # Run start lists an agent's pods to find the Ready ones (ReadyOrdinals).
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update"]
+  # The bind checks that a pool pod's ReplicaSet belongs to the tenant pool.
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get"]
+  # The workload caches watch the bound and pool pods. The bind patches a pool
+  # pod's labels and owner references, and the scaler deletes a bound pod to
+  # drain it. Run start creates sandbox pods and deletes the wake-reserve pod
+  # on a node where a grow finds no room.
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "list", "create", "delete"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch"]
+  # The scaler shrinks an idle agent's pods in place, and the bind and run start grow them.
+  - apiGroups: [""]
+    resources: ["pods/resize"]
+    verbs: ["patch"]
   - apiGroups: [""]
     resources: ["services", "serviceaccounts"]
     verbs: ["get", "create", "update", "delete"]
-  # Deleting an agent type removes its workspace claims by label.
+  # An apply deletes the StatefulSet workspace claims an earlier release left, by label.
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["list", "delete"]
-  # Apply deletes the HPA an earlier release created for each agent.
+  # An apply deletes the HPA and the PodDisruptionBudget an earlier release created for each agent.
   - apiGroups: ["autoscaling"]
     resources: ["horizontalpodautoscalers"]
-    verbs: ["get", "delete"]
+    verbs: ["delete"]
   - apiGroups: ["policy"]
     resources: ["poddisruptionbudgets"]
-    verbs: ["get", "create", "update", "delete"]
+    verbs: ["delete"]
   - apiGroups: ["networking.istio.io"]
     resources: ["destinationrules"]
     verbs: ["get", "create", "update", "delete"]
-  # AuthorizationPolicies restricting each agent pod's session-manager port to
-  # the kora-agents principal, created in the tenant namespace alongside the
-  # StatefulSet (internal/agents/k8s.go ensureAuthorizationPolicy).
+  # AuthorizationPolicies restricting each agent's and each pool's pods'
+  # session-manager port to the kora-agents principal, created in the tenant
+  # namespace (internal/agents/k8s.go ensureAuthorizationPolicy).
   - apiGroups: ["security.istio.io"]
     resources: ["authorizationpolicies"]
     verbs: ["get", "create", "update", "delete"]

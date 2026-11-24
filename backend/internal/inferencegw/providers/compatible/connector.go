@@ -40,6 +40,10 @@ type Config struct {
 	// DecisionModels names models served on POST /systemone that the endpoint
 	// does not mark as such in its model list. Only read when APIs has systemone.
 	DecisionModels []string
+
+	// MaxDecisionTimeout caps the timeout a POST /systemone request may ask
+	// for. Zero means a request cannot raise it above defaultDecisionTimeout.
+	MaxDecisionTimeout time.Duration
 }
 
 // errMessagesBaseURL is returned when an endpoint serving Anthropic messages
@@ -65,10 +69,11 @@ type Connector struct {
 	// the model list (http) and systemone (decide), which have different
 	// timeouts. http is set when the endpoint declares systemone or embeddings,
 	// decide when it declares systemone.
-	baseURL string
-	apiKey  string
-	http    *httpclient.Base
-	decide  *httpclient.Base
+	baseURL            string
+	apiKey             string
+	http               *httpclient.Base
+	decide             *httpclient.Base
+	maxDecisionTimeout time.Duration
 }
 
 // New builds a connector. The SDKs' environment defaults (OPENAI_API_KEY,
@@ -90,7 +95,9 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 	if c.serves[ip.APISystemOne] {
 		c.decisionOnly = len(c.serves) == 1
 		c.decisionModels = slices.Clone(cfg.DecisionModels)
-		c.decide = httpclient.New("github.com/runkora/kora/backend/internal/inferencegw/providers/compatible", logger, decisionTimeout)
+		c.maxDecisionTimeout = max(cfg.MaxDecisionTimeout, defaultDecisionTimeout)
+		// The client timeout is a backstop. Each attempt sets its own deadline.
+		c.decide = httpclient.New("github.com/runkora/kora/backend/internal/inferencegw/providers/compatible", logger, c.maxDecisionTimeout)
 	}
 
 	openaiOpts := []openaiopt.RequestOption{

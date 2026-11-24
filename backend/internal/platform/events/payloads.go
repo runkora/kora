@@ -125,6 +125,18 @@ type EnvironmentSize struct {
 	Disk   string `json:"disk" doc:"The disk size."`
 }
 
+// GraderPayload is a Grader after the change, or before it for a delete.
+type GraderPayload struct {
+	ID          string `json:"id" doc:"The Grader id."`
+	Name        string `json:"name" doc:"The Grader name."`
+	AgentID     string `json:"agent_id" doc:"The id of the agent the Grader scores."`
+	Agent       string `json:"agent" doc:"The slug of the agent the Grader scores."`
+	Description string `json:"description" doc:"What the Grader checks."`
+	MinPassRate *int   `json:"min_pass_rate,omitempty" doc:"The percent of graded runs that must pass."`
+	Version     string `json:"version" doc:"The Grader version it grades with."`
+	Repository  string `json:"repository,omitempty" doc:"The repository that declares the Grader."`
+}
+
 // TriggerPayload is a trigger after the change, or before it for a delete.
 type TriggerPayload struct {
 	ID               string           `json:"id" doc:"The trigger id."`

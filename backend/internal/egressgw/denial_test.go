@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -55,40 +56,48 @@ func TestProxy_DenialBodyPerReason(t *testing.T) {
 		wantNoScope bool
 	}{
 		{
-			name:       "not granted names the action and the scope that allows it",
+			name:       "not granted names the request, the action and the scope that allows it",
 			method:     http.MethodGet,
-			path:       "/anything",
+			path:       "/api/v3/repos/kora/kora/pulls",
 			setup:      func(f *fixture) { f.eval.allow, f.eval.reason = false, "deny:no_matching_grant" },
 			wantReason: DenialNotGranted,
-			wantAction: "repo:read",
-			wantScope:  "connection:github:repo:read",
-			wantInMsg:  []string{"not granted repo:read on connection github", "grant connection:github:repo:read"},
+			wantAction: "pulls:read",
+			wantScope:  "connection:github:pulls:read",
+			wantInMsg:  []string{"denied GET %s/api/v3/repos/kora/kora/pulls:", "not granted pulls:read on connection github", "grant connection:github:pulls:read"},
 		},
 		{
 			name:        "a held grant that did not apply names the policy reason, not a scope",
 			method:      http.MethodGet,
-			path:        "/anything",
+			path:        "/api/v3/repos/kora/kora/pulls",
 			setup:       func(f *fixture) { f.eval.allow, f.eval.reason = false, "deny:delegation_required" },
 			wantReason:  DenialGrantNotApplied,
-			wantAction:  "repo:read",
-			wantInMsg:   []string{"grant for repo:read on connection github does not apply", "deny:delegation_required"},
+			wantAction:  "pulls:read",
+			wantInMsg:   []string{"grant for pulls:read on connection github does not apply", "deny:delegation_required"},
 			wantNoScope: true,
 		},
 		{
-			name:        "unclassified request says no grant can allow it",
+			name:        "unclassified request names the request and says no grant can allow it",
 			method:      "PROPFIND",
 			path:        "/x",
 			wantReason:  DenialUnclassified,
-			wantInMsg:   []string{"connection github", "no grant can allow it"},
+			wantInMsg:   []string{"denied PROPFIND %s/x:", "connection github", "an unsupported API shape", "no grant can allow it"},
+			wantNoScope: true,
+		},
+		{
+			name:        "an unrecognized route names the request",
+			method:      http.MethodPost,
+			path:        "/api/v3/repos/kora/kora/not-a-route",
+			wantReason:  DenialUnclassified,
+			wantInMsg:   []string{"denied POST %s/api/v3/repos/kora/kora/not-a-route:", "no grant can allow it"},
 			wantNoScope: true,
 		},
 		{
 			name:        "policy evaluation failure is reported as retryable",
 			method:      http.MethodGet,
-			path:        "/anything",
+			path:        "/api/v3/repos/kora/kora/pulls",
 			setup:       func(f *fixture) { f.eval.err = errors.New("opa unreachable at 10.0.0.1") },
 			wantReason:  DenialPolicyUnavailable,
-			wantAction:  "repo:read",
+			wantAction:  "pulls:read",
 			wantInMsg:   []string{"could not be evaluated", "Retry"},
 			wantNoScope: true,
 		},
@@ -99,12 +108,18 @@ func TestProxy_DenialBodyPerReason(t *testing.T) {
 			if tc.setup != nil {
 				tc.setup(f)
 			}
-			resp, err := f.callGateway(tc.method, tc.path, f.connectionHost)
+			resp, err := f.callGateway(tc.method, tc.path+"?access_token=query-secret", f.connectionHost)
 			if err != nil {
 				t.Fatalf("call: %v", err)
 			}
 			defer resp.Body.Close()
 			body := decodeDenial(t, resp)
+			if raw, _ := json.Marshal(body); strings.Contains(string(raw), "query-secret") {
+				t.Errorf("denial carries the query string: %s", raw)
+			}
+			if body.Details["method"] != tc.method || body.Details["path"] != tc.path {
+				t.Errorf("details method/path = %v %v, want %s %s", body.Details["method"], body.Details["path"], tc.method, tc.path)
+			}
 
 			if f.upstreamSawAuth != "" {
 				t.Errorf("upstream was reached on a denied egress")
@@ -125,6 +140,9 @@ func TestProxy_DenialBodyPerReason(t *testing.T) {
 				t.Errorf("required_scope present on a %s denial, where no grant fixes it", tc.wantReason)
 			}
 			for _, want := range tc.wantInMsg {
+				if strings.Contains(want, "%s") {
+					want = fmt.Sprintf(want, f.connectionHost)
+				}
 				if !strings.Contains(body.Message, want) {
 					t.Errorf("message %q does not contain %q", body.Message, want)
 				}
@@ -141,7 +159,7 @@ func TestProxy_DenialBodyPerReason(t *testing.T) {
 func TestHandleBrokerError_CredentialRefused(t *testing.T) {
 	p := &ProxyHandler{brand: testBrand, logger: logging.NewLoggerWithOutput(io.Discard)}
 	cause := errors.New("installation permissions rejected; token ghs_secret")
-	err := deny(DenialCredentialRefused, "api.github.com",
+	err := deny(DenialCredentialRefused, EgressRequest{Host: "api.github.com"},
 		&credentials.Connection{Name: "github"},
 		credentials.Classification{Action: "issues:write", Qualifier: "kora"},
 		errors.Join(credentials.ErrCredentialScopeRejected, cause))
@@ -166,32 +184,72 @@ func TestHandleBrokerError_CredentialRefused(t *testing.T) {
 // Denial must stay matchable as ErrForbidden and as its cause, so existing
 // errors.Is callers keep working.
 func TestDenial_Unwraps(t *testing.T) {
-	err := deny(DenialCredentialRefused, "h", &credentials.Connection{Name: "c"}, credentials.Classification{}, credentials.ErrCredentialScopeRejected)
+	err := deny(DenialCredentialRefused, EgressRequest{Host: "h"}, &credentials.Connection{Name: "c"}, credentials.Classification{}, credentials.ErrCredentialScopeRejected)
 	if !errors.Is(err, ErrForbidden) || !errors.Is(err, credentials.ErrCredentialScopeRejected) {
 		t.Fatalf("Denial does not unwrap to ErrForbidden and its cause: %v", err)
 	}
 }
 
-// A qualified action names its resource and the qualified scope a grant needs.
+// A qualified action names the request, its resource and the qualified scope a
+// grant needs, and never the query string.
 func TestDeny_NotGrantedQualified(t *testing.T) {
-	d := deny(DenialNotGranted, "api.github.com", &credentials.Connection{Name: "github"},
+	req := FromHTTP(httptest.NewRequest(http.MethodGet, "https://api.github.com/repos/example-org/kora/pulls?access_token=query-secret", nil))
+	d := deny(DenialNotGranted, req, &credentials.Connection{Name: "github"},
 		credentials.Classification{Action: "pulls:read", Qualifier: "kora"}, nil)
 	if d.RequiredScope != "connection:github:pulls:kora:read" {
 		t.Errorf("RequiredScope = %q, want connection:github:pulls:kora:read", d.RequiredScope)
 	}
-	want := "Acme egress policy denied api.github.com: this agent is not granted pulls:read for kora on connection github. To allow it, grant connection:github:pulls:kora:read."
+	want := "Acme egress policy denied GET api.github.com/repos/example-org/kora/pulls: this agent is not granted pulls:read for kora on connection github. To allow it, grant connection:github:pulls:kora:read."
 	if d.Message("Acme") != want {
 		t.Errorf("Message() = %q, want %q", d.Message("Acme"), want)
+	}
+}
+
+// An unclassified GraphQL request states why its body could not be classified.
+func TestDeny_UnclassifiedGraphQLStatesReason(t *testing.T) {
+	req := FromHTTP(httptest.NewRequest(http.MethodPost, "https://api.github.com/graphql", nil))
+	cause := &credentials.UnclassifiedError{Detail: "GraphQL query does not parse"}
+	d := deny(DenialUnclassified, req, &credentials.Connection{Name: "github"}, credentials.Classification{}, cause)
+	want := "Acme egress policy denied POST api.github.com/graphql: connection github does not map this request to a grantable action (GraphQL query does not parse), so no grant can allow it."
+	if d.Message("Acme") != want {
+		t.Errorf("Message() = %q, want %q", d.Message("Acme"), want)
+	}
+	if d.Details()["unrecognized"] != cause.Detail {
+		t.Errorf("details = %v, want unrecognized %q", d.Details(), cause.Detail)
 	}
 }
 
 // The hint names the classified action, never an alternate, so it points at the
 // narrowest grant that allows the call.
 func TestDeny_ScopeNamesClassifiedActionNotAlternate(t *testing.T) {
-	d := deny(DenialNotGranted, "api.github.com", &credentials.Connection{Name: "github"},
+	d := deny(DenialNotGranted, EgressRequest{Host: "api.github.com"}, &credentials.Connection{Name: "github"},
 		credentials.Classification{Action: "issues:read", Qualifier: "kora", Alternates: []string{"pulls:read"}}, nil)
 	if d.RequiredScope != "connection:github:issues:kora:read" {
 		t.Errorf("RequiredScope = %q, want connection:github:issues:kora:read", d.RequiredScope)
+	}
+}
+
+// A GraphQL mutation denial states that any category at write on the
+// repository allows it, not contents:write alone.
+func TestDeny_NotGrantedNamesAlternates(t *testing.T) {
+	req := FromHTTP(httptest.NewRequest(http.MethodPost, "https://api.github.com/graphql", nil))
+	d := deny(DenialNotGranted, req, &credentials.Connection{Name: "github"},
+		credentials.Classification{Action: "contents:write", Qualifier: "kora", Alternates: []string{"issues:write", "pulls:write"}}, nil)
+	want := "Example egress policy denied POST api.github.com/graphql: this agent is not granted contents:write for kora on connection github, nor any of issues:write, pulls:write, each of which would allow it. To allow it, grant one of them, such as connection:github:contents:kora:write."
+	if got := d.Message("Example"); got != want {
+		t.Errorf("Message() = %q, want %q", got, want)
+	}
+}
+
+// A held grant that did not apply, such as one missing its delegator, states
+// the request like a not-granted denial, never its query string.
+func TestDeny_GrantNotAppliedStatesRequest(t *testing.T) {
+	req := FromHTTP(httptest.NewRequest(http.MethodGet, "https://api.github.com/repos/example-org/kora/pulls?access_token=query-secret", nil))
+	d := deny(DenialGrantNotApplied, req, &credentials.Connection{Name: "github"}, credentials.Classification{Action: "pulls:read", Qualifier: "kora"}, nil)
+	d.PolicyReason = "deny:no_delegator_grant"
+	want := "Example egress policy denied GET api.github.com/repos/example-org/kora/pulls: this agent's grant for pulls:read for kora on connection github does not apply to this call (deny:no_delegator_grant)."
+	if got := d.Message("Example"); got != want {
+		t.Errorf("Message() = %q, want %q", got, want)
 	}
 }
 
@@ -225,7 +283,7 @@ func TestAuthorize_DenyLogsMethodAndPathOnly(t *testing.T) {
 		name, method, path, wantLog string
 		setup                       func(f *fixture)
 	}{
-		{name: "policy denial", method: http.MethodGet, path: "/anything", wantLog: "egress denied by policy",
+		{name: "policy denial", method: http.MethodGet, path: "/api/v3/repos/kora/kora/pulls", wantLog: "egress denied by policy",
 			setup: func(f *fixture) { f.eval.allow = false }},
 		{name: "classify denial", method: "PROPFIND", path: "/other-owner/repo.git/info/refs", wantLog: "egress denied: adapter could not classify action"},
 	}
@@ -266,7 +324,7 @@ type refusingAdapter struct{}
 
 func (refusingAdapter) Type() credentials.AdapterType { return credentials.AdapterGitHubApp }
 func (refusingAdapter) Actions() []credentials.ActionDeclaration {
-	return []credentials.ActionDeclaration{{Action: "repo:read"}}
+	return []credentials.ActionDeclaration{{Action: "contents:read"}}
 }
 func (refusingAdapter) Open(credentials.Connection) (credentials.Connector, error) {
 	return refusingConnector{}, nil
@@ -275,7 +333,7 @@ func (refusingAdapter) Open(credentials.Connection) (credentials.Connector, erro
 type refusingConnector struct{}
 
 func (refusingConnector) Classify(*http.Request) (credentials.Classification, error) {
-	return credentials.Classification{Action: "repo:read"}, nil
+	return credentials.Classification{Action: "contents:read"}, nil
 }
 func (refusingConnector) Mint(context.Context, credentials.CallerIdentity) (credentials.Credential, error) {
 	return credentials.Credential{}, credentials.ErrCredentialScopeRejected

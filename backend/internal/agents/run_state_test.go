@@ -129,7 +129,7 @@ func TestAllRunStates_MatchesDeclaredConstants(t *testing.T) {
 }
 
 // TestPodOccupancySQLList_MatchesPartialIndex keeps the occupancy query and the
-// partial index it relies on in step: idx_runs_active only serves the per-pod
+// partial index it relies on in step: idx_runs_active_pod_name only serves the per-pod
 // count while its predicate lists exactly the same states.
 func TestPodOccupancySQLList_MatchesPartialIndex(t *testing.T) {
 	t.Parallel()
@@ -143,9 +143,9 @@ func TestPodOccupancySQLList_MatchesPartialIndex(t *testing.T) {
 		t.Errorf("activeRunsPerPodQuery does not filter on %s: %s", wantList, activeRunsPerPodQuery)
 	}
 
-	upSQL := embeddedIndexDefinition(t, "idx_runs_active")
+	upSQL := embeddedIndexDefinition(t, "idx_runs_active_pod_name")
 	if !strings.Contains(upSQL, "WHERE state IN ("+wantList+")") {
-		t.Errorf("idx_runs_active predicate does not match the query predicate %s: %s", wantList, upSQL)
+		t.Errorf("idx_runs_active_pod_name predicate does not match the query predicate %s: %s", wantList, upSQL)
 	}
 }
 

@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"slices"
 	"sort"
@@ -31,6 +32,8 @@ var _ smClient = (*mockSMClient)(nil)
 
 type mockRepository struct {
 	mu sync.Mutex
+	// legacyRuns are the runs an earlier release placed on an agent StatefulSet pod.
+	legacyRuns []string
 	// failureCodes holds the run_error code each MarkRunFailed carried in its context.
 	failureCodes map[string]string
 	agentTypes   map[string]*AgentType
@@ -56,6 +59,8 @@ type mockRepository struct {
 	listRunsErr            error
 	setRunStateErr         error
 	setRunDelegationJTIErr error
+	initRunAgentConfigErr  error
+	setRunAgentConfigErr   error
 	terminateRunErr        error
 	sandboxDeleted         []string
 	// queued lists the runs QueueRun made claimable, and released counts ReleaseRunClaim calls.
@@ -283,18 +288,37 @@ func (m *mockRepository) SoftDeleteAgentType(_ context.Context, id string) error
 	return nil
 }
 
-func (m *mockRepository) CreateRun(_ context.Context, r Run) error {
+func (m *mockRepository) GetRunByDelivery(_ context.Context, tenantID, triggerID, deliveryID string) (*Run, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, r := range m.runs {
+		if r.TenantID == tenantID && r.StartedBy != nil && r.StartedBy.TriggerID == triggerID && r.StartedBy.DeliveryID == deliveryID {
+			cp := *r
+			return &cp, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+func (m *mockRepository) CreateRun(_ context.Context, r Run) (bool, error) {
 	if m.createRunErr != nil {
-		return m.createRunErr
+		return false, m.createRunErr
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if r.StartedBy != nil && r.StartedBy.TriggerID != "" && r.StartedBy.DeliveryID != "" {
+		for _, e := range m.runs {
+			if e.TenantID == r.TenantID && e.StartedBy != nil && e.StartedBy.TriggerID == r.StartedBy.TriggerID && e.StartedBy.DeliveryID == r.StartedBy.DeliveryID {
+				return false, nil
+			}
+		}
+	}
 	cp := r
 	if cp.CreatedAt.IsZero() {
 		cp.CreatedAt = time.Now()
 	}
 	m.runs[r.ID] = &cp
-	return nil
+	return true, nil
 }
 
 func (m *mockRepository) AppendRunSources(_ context.Context, runID string, sources []RunSource) error {
@@ -434,8 +458,28 @@ func (m *mockRepository) SetRunState(_ context.Context, id string, from, to RunS
 	return nil
 }
 
+// seedStatefulSetRun seeds a run an earlier release placed on an agent StatefulSet pod: it has no pod name.
+func seedStatefulSetRun(t *testing.T, repo *mockRepository, r Run) {
+	seedRun(t, repo, r)
+	repo.runs[r.ID].PodName = ""
+	repo.legacyRuns = append(repo.legacyRuns, r.ID)
+}
+
+// ListStatefulSetRuns returns the live runs seedStatefulSetRun seeded.
+func (m *mockRepository) ListStatefulSetRuns(context.Context) ([]Run, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Run
+	for _, id := range m.legacyRuns {
+		if r, ok := m.runs[id]; ok && r.PodName == "" && r.State == RunStateIdle {
+			out = append(out, *r)
+		}
+	}
+	return out, nil
+}
+
 // AssignPod ignores the claim token. TestPostgres_AssignPodFencedByClaim covers the fence.
-func (m *mockRepository) AssignPod(_ context.Context, runID string, _ time.Time, podOrdinal int) error {
+func (m *mockRepository) AssignPod(_ context.Context, runID string, _ time.Time, podName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r, ok := m.runs[runID]
@@ -443,7 +487,7 @@ func (m *mockRepository) AssignPod(_ context.Context, runID string, _ time.Time,
 		return ErrConflict
 	}
 	now := time.Now()
-	r.PodOrdinal = podOrdinal
+	r.PodName = podName
 	r.State = RunStateStarting
 	r.StartedAt = &now
 	return nil
@@ -469,7 +513,7 @@ func (m *mockRepository) ReleaseRunClaim(_ context.Context, id string, _, _ time
 	if !ok || (r.State != RunStatePending && r.State != RunStateStarting) {
 		return ErrConflict
 	}
-	r.State, r.PodOrdinal = RunStatePending, -1
+	r.State, r.PodName = RunStatePending, ""
 	m.released++
 	return nil
 }
@@ -493,6 +537,17 @@ func (m *mockRepository) ReclaimStaleRunClaims(context.Context, time.Time) ([]st
 	defer m.mu.Unlock()
 	m.reclaims++
 	return nil, nil
+}
+
+func (m *mockRepository) ReleaseRunDelivery(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r, ok := m.runs[id]; ok && r.StartedBy != nil {
+		sb := *r.StartedBy
+		sb.DeliveryID = ""
+		r.StartedBy = &sb
+	}
+	return nil
 }
 
 func (m *mockRepository) MarkRunFailed(ctx context.Context, id string) error {
@@ -541,6 +596,30 @@ func (m *mockRepository) SetRunEnvironment(_ context.Context, runID string, envi
 		return ErrNotFound
 	}
 	r.EnvironmentID = environmentID
+	return nil
+}
+
+func (m *mockRepository) InitRunAgentConfig(_ context.Context, runID, digest string) error {
+	if m.initRunAgentConfigErr != nil {
+		return m.initRunAgentConfigErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r, ok := m.runs[runID]; ok && r.AgentConfig == nil {
+		r.AgentConfig = &digest
+	}
+	return nil
+}
+
+func (m *mockRepository) SetRunAgentConfig(_ context.Context, runID, digest string) error {
+	if m.setRunAgentConfigErr != nil {
+		return m.setRunAgentConfigErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if r, ok := m.runs[runID]; ok {
+		r.AgentConfig = &digest
+	}
 	return nil
 }
 
@@ -604,10 +683,10 @@ func (m *mockRepository) CancelRunsByAgentType(_ context.Context, agentTypeID st
 	return cancelled, nil
 }
 
-func (m *mockRepository) StartingRunsPerPod(_ context.Context, agentTypeID string, assignedSince time.Time) (map[int]int, error) {
+func (m *mockRepository) StartingRunsPerPod(_ context.Context, agentTypeID string, assignedSince time.Time) (map[string]int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	counts := map[int]int{}
+	counts := map[string]int{}
 	for _, r := range m.runs {
 		if r.AgentTypeID != agentTypeID {
 			continue
@@ -615,20 +694,20 @@ func (m *mockRepository) StartingRunsPerPod(_ context.Context, agentTypeID strin
 		occupies, _ := r.State.OccupiesPod()
 		recent := occupies && r.State != RunStatePending && r.StartedAt != nil && r.StartedAt.After(assignedSince)
 		if r.State == RunStateStarting || recent {
-			counts[r.PodOrdinal]++
+			counts[r.PodName]++
 		}
 	}
 	return counts, nil
 }
 
-// podCounts counts the agent's runs whose state matches, keyed by pod ordinal.
-func (m *mockRepository) podCounts(agentTypeID string, match func(RunState) bool) map[int]int {
+// podCounts counts the agent's runs whose state matches, keyed by pod name.
+func (m *mockRepository) podCounts(agentTypeID string, match func(RunState) bool) map[string]int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	counts := map[int]int{}
+	counts := map[string]int{}
 	for _, r := range m.runs {
 		if r.AgentTypeID == agentTypeID && match(r.State) {
-			counts[r.PodOrdinal]++
+			counts[r.PodName]++
 		}
 	}
 	return counts
@@ -757,14 +836,15 @@ func (m *mockRepository) SetRunSummary(_ context.Context, runID, summary string)
 // ── mockK8s ───────────────────────────────────────────────────────────────────
 
 type mockK8s struct {
-	mu                      sync.Mutex
+	mu sync.Mutex
+	// podIPErr makes PodIP fail.
+	podIPErr                error
 	provisionedAgentTypes   []string
 	provisionedMissing      []string
 	deprovisionedAgentTypes []string
 	deletedSandboxes        []string
-	rolledOutSlugs          []string
-	// noReadyPods makes ReadyOrdinals report no Ready pod.
-	noReadyPods bool
+	// noReadyPods makes AgentPods report no pod, and unreadyPods one live pod that is not Ready.
+	noReadyPods, unreadyPods bool
 	// livePod and livePodErr are what LivePod reports.
 	livePod    bool
 	livePodErr error
@@ -772,10 +852,26 @@ type mockK8s struct {
 	provisionAgentTypeErr   error
 	ensureAgentGrantErr     error
 	deprovisionAgentTypeErr error
-	// readyPods is how many pods ReadyOrdinals reports. Zero means one.
+	// coldLive is what LiveAgentPods reports. bound records the pool pods BindPod bound. bindErr fails every
+	// bind, and a nil bindErr with bindOK unset reports a tenant with no pool Deployment.
+	coldLive []agentPod
+	bound    []string
+	bindErr  error
+	bindOK   bool
+	// onBind runs inside a successful BindPod when set.
+	onBind func()
+	// onDeprovision runs inside DeprovisionAgentType when set.
+	onDeprovision func()
+	// readyPods is how many pods AgentPods reports, named testPodName(i). Zero means one.
 	readyPods int
-	// replicas is what Replicas reports. Zero means the ReadyOrdinals count.
-	replicas              int
+	// warm and resizing are the indexes of the pods AgentPods reports warm and with a pending resize.
+	warm, resizing []int
+	// config is the agent config hash of the pods AgentPods reports, apart from oldPods, the indexes of pods on
+	// another config.
+	config  string
+	oldPods []int
+	// gonePods are the pods PodLive reports gone.
+	gonePods              []string
 	sandboxEndpoint       string
 	lookupSandbox         Sandbox
 	lookupFound           bool
@@ -788,11 +884,10 @@ type mockK8s struct {
 	podEnv  string
 	podLive bool
 	// sandboxImages overrides the SandboxImages. Unset serves a valid kora-base.
-	sandboxImages         map[string]*si.SandboxImage
-	imageLookups          int
-	provisionSandboxErr   error
-	deleteSandboxErr      error
-	rolloutStatefulSetErr error
+	sandboxImages       map[string]*si.SandboxImage
+	imageLookups        int
+	provisionSandboxErr error
+	deleteSandboxErr    error
 }
 
 func (m *mockK8s) ProvisionAgentType(_ context.Context, at AgentType, _ string) error {
@@ -817,6 +912,9 @@ func (m *mockK8s) ProvisionMissing(_ context.Context, at AgentType, _ string) er
 }
 
 func (m *mockK8s) DeprovisionAgentType(_ context.Context, at AgentType, _ string) error {
+	if m.onDeprovision != nil {
+		m.onDeprovision()
+	}
 	if m.deprovisionAgentTypeErr != nil {
 		return m.deprovisionAgentTypeErr
 	}
@@ -826,27 +924,76 @@ func (m *mockK8s) DeprovisionAgentType(_ context.Context, at AgentType, _ string
 	return nil
 }
 
-func (m *mockK8s) ReadyOrdinals(_ context.Context, _, _ string) ([]int, error) {
+func (m *mockK8s) AgentPods(_ context.Context, _ AgentType, _ string) (agentPods, error) {
 	if m.noReadyPods {
-		return nil, nil
+		return agentPods{}, nil
 	}
-	n := max(m.readyPods, 1)
-	out := make([]int, n)
-	for i := range out {
-		out[i] = i
+	if m.unreadyPods {
+		return agentPods{Live: []agentPod{{Name: testPodName(0), Config: m.config}}}, nil
 	}
-	return out, nil
+	pods := agentPods{}
+	for i := range max(m.readyPods, 1) {
+		pods.Live = append(pods.Live, agentPod{
+			Name: testPodName(i), IP: testPodIP(i), Ready: true,
+			Warm: slices.Contains(m.warm, i), Resizing: slices.Contains(m.resizing, i), Config: m.config,
+		})
+		if slices.Contains(m.oldPods, i) {
+			pods.Live[i].Config = "stale"
+		}
+	}
+	return pods, nil
 }
 
-func (m *mockK8s) LivePod(_ context.Context, _, _ string, _ time.Duration) (bool, error) {
+func (m *mockK8s) PodIP(_ context.Context, _, name string) (string, error) {
+	if m.podIPErr != nil {
+		return "", m.podIPErr
+	}
+	// A run seeded with no pod name reaches the first pod.
+	var i int
+	_, _ = fmt.Sscanf(name, "pod-%d", &i)
+	return testPodIP(i), nil
+}
+
+func (m *mockK8s) PodLive(_ context.Context, _, name string) (bool, error) {
+	return !slices.Contains(m.gonePods, name), nil
+}
+
+// testPodName is the name of the mock pod at index i.
+func testPodName(i int) string { return fmt.Sprintf("pod-%d", i) }
+
+// testPodIP is the IP of the mock pod at index i.
+func testPodIP(i int) string { return fmt.Sprintf("10.0.0.%d", i+1) }
+
+// testPod is the session-manager target of the mock pod at index i.
+func testPod(slug string, i int, namespace string) sessionmanager.Pod {
+	return sessionmanager.PodAt(testPodIP(i), slug, namespace)
+}
+
+func (m *mockK8s) LiveAgentPods(context.Context, AgentType, string) (agentPods, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return agentPods{Live: m.coldLive}, nil
+}
+
+func (m *mockK8s) BindPod(context.Context, AgentType, string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	switch {
+	case m.bindErr != nil:
+		return "", m.bindErr
+	case !m.bindOK:
+		return "", errNoPoolDeployment
+	}
+	name := testPodName(len(m.bound))
+	m.bound = append(m.bound, name)
+	if m.onBind != nil {
+		m.onBind()
+	}
+	return name, nil
+}
+
+func (m *mockK8s) LivePod(_ context.Context, _ AgentType, _ string, _ time.Duration) (bool, error) {
 	return m.livePod, m.livePodErr
-}
-
-func (m *mockK8s) Replicas(_ context.Context, _, _ string) (int, error) {
-	if m.replicas > 0 {
-		return m.replicas, nil
-	}
-	return max(m.readyPods, 1), nil
 }
 
 func (m *mockK8s) ProvisionSandbox(_ context.Context, _ Run, _, _ string, spec SandboxSpec) (Sandbox, error) {
@@ -923,20 +1070,6 @@ func (m *mockK8s) EnsureAgentGrant(_ context.Context, _ AgentType, _ string) err
 	return m.ensureAgentGrantErr
 }
 
-func (m *mockK8s) WaitForStatefulSetReady(_ context.Context, _, _ string) error {
-	return nil
-}
-
-func (m *mockK8s) RolloutStatefulSet(_ context.Context, slug, _ string) error {
-	if m.rolloutStatefulSetErr != nil {
-		return m.rolloutStatefulSetErr
-	}
-	m.mu.Lock()
-	m.rolledOutSlugs = append(m.rolledOutSlugs, slug)
-	m.mu.Unlock()
-	return nil
-}
-
 // ── mockSMClient ──────────────────────────────────────────────────────────────
 
 type mockSMClient struct {
@@ -950,15 +1083,18 @@ type mockSMClient struct {
 
 	createSessionErr    error
 	sendMessageErr      error
+	sendMessageCalls    int
 	interruptSessionErr error
 	closeSessionErr     error
 	// memory serves Memory by pod URL. A pod not in it reports an empty 1Gi pod.
 	memory map[string]sessionmanager.Memory
 	// memoryFn, when set, replaces Memory.
-	memoryFn func(ctx context.Context, podURL string) (sessionmanager.Memory, error)
+	memoryFn func(ctx context.Context, pod sessionmanager.Pod) (sessionmanager.Memory, error)
+	// unboundChecks is how many bound checks answer unbound before the pod serves its agent.
+	unboundChecks, boundChecks int
 }
 
-func (m *mockSMClient) CreateSession(_ context.Context, _ string, req sessionmanager.CreateSessionRequest) error {
+func (m *mockSMClient) CreateSession(_ context.Context, _ sessionmanager.Pod, req sessionmanager.CreateSessionRequest) error {
 	if m.createSessionErr != nil {
 		return m.createSessionErr
 	}
@@ -968,7 +1104,10 @@ func (m *mockSMClient) CreateSession(_ context.Context, _ string, req sessionman
 	return nil
 }
 
-func (m *mockSMClient) SendMessage(_ context.Context, _, _, content string, idleTimeoutSecs int, fromPerson bool) error {
+func (m *mockSMClient) SendMessage(_ context.Context, _ sessionmanager.Pod, _, content string, idleTimeoutSecs int, fromPerson bool) error {
+	m.mu.Lock()
+	m.sendMessageCalls++
+	m.mu.Unlock()
 	if m.sendMessageErr != nil {
 		return m.sendMessageErr
 	}
@@ -980,7 +1119,7 @@ func (m *mockSMClient) SendMessage(_ context.Context, _, _, content string, idle
 	return nil
 }
 
-func (m *mockSMClient) InterruptSession(_ context.Context, _, runID string) error {
+func (m *mockSMClient) InterruptSession(_ context.Context, _ sessionmanager.Pod, runID string) error {
 	if m.interruptSessionErr != nil {
 		return m.interruptSessionErr
 	}
@@ -990,7 +1129,7 @@ func (m *mockSMClient) InterruptSession(_ context.Context, _, runID string) erro
 	return nil
 }
 
-func (m *mockSMClient) CloseSession(_ context.Context, _, runID string) error {
+func (m *mockSMClient) CloseSession(_ context.Context, _ sessionmanager.Pod, runID string) error {
 	if m.closeSessionErr != nil {
 		return m.closeSessionErr
 	}
@@ -1000,13 +1139,20 @@ func (m *mockSMClient) CloseSession(_ context.Context, _, runID string) error {
 	return nil
 }
 
-func (m *mockSMClient) Memory(ctx context.Context, podURL string) (sessionmanager.Memory, error) {
+func (m *mockSMClient) Bound(_ context.Context, _ sessionmanager.Pod) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.boundChecks++
+	return m.boundChecks > m.unboundChecks, nil
+}
+
+func (m *mockSMClient) Memory(ctx context.Context, pod sessionmanager.Pod) (sessionmanager.Memory, error) {
 	if m.memoryFn != nil {
-		return m.memoryFn(ctx, podURL)
+		return m.memoryFn(ctx, pod)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if mem, ok := m.memory[podURL]; ok {
+	if mem, ok := m.memory[pod.URL]; ok {
 		return mem, nil
 	}
 	return sessionmanager.Memory{LimitBytes: testPodMemory}, nil
@@ -1131,7 +1277,7 @@ func (allowAllEvaluator) GetTenantBudget(context.Context, string) (*policy.Tenan
 	return nil, nil
 }
 
-func (allowAllEvaluator) GetBudgetCategories(context.Context, string, string) ([]policy.BudgetCategory, error) {
+func (allowAllEvaluator) GetBudgetCategories(context.Context, string, string, string) ([]policy.BudgetCategory, error) {
 	return nil, nil
 }
 
@@ -1139,8 +1285,8 @@ func (allowAllEvaluator) GetRoleBudgets(context.Context, string, []string) ([]po
 	return nil, nil
 }
 
-func (allowAllEvaluator) ListBudgets(context.Context, string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
-	return map[string]policy.PrincipalBudget{}, map[string]policy.RoleBudget{}, nil
+func (allowAllEvaluator) ListBudgets(context.Context, string) (map[policy.BudgetKey]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
+	return map[policy.BudgetKey]policy.PrincipalBudget{}, map[string]policy.RoleBudget{}, nil
 }
 
 func (allowAllEvaluator) Start(context.Context) {}
@@ -1301,6 +1447,10 @@ func seedAgentType(_ *testing.T, repo *mockRepository, at AgentType) AgentType {
 func seedRun(t *testing.T, repo *mockRepository, r Run) Run {
 	if r.UpdatedAt.IsZero() {
 		r.UpdatedAt = time.Now()
+	}
+	// A run past pending is on a pod. seedStatefulSetRun seeds one on no pool pod.
+	if occupies, _ := r.State.OccupiesPod(); occupies && r.State != RunStatePending && r.PodName == "" {
+		r.PodName = testPodName(0)
 	}
 	if _, ok := repo.agentTypes[r.AgentTypeID]; !ok && r.AgentTypeID != "" {
 		seedAgentType(t, repo, AgentType{

@@ -4,9 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/clients/inference"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
@@ -45,7 +49,19 @@ func (c *Controller) handleSystemOne(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := c.svc.SystemOne(ctx, model, body)
+	var timeout time.Duration
+	if v := r.Header.Get(inference.HeaderDecisionTimeout); v != "" {
+		secs, convErr := strconv.Atoi(v)
+		// The upper bound keeps the Duration from overflowing. The connector caps it lower.
+		if convErr != nil || secs <= 0 || int64(secs) > math.MaxInt64/int64(time.Second) {
+			api.ErrorResponse(ctx, w, c.logger,
+				api.BadRequestError("invalid_request", inference.HeaderDecisionTimeout+" must be a positive whole number of seconds", nil), convErr)
+			return
+		}
+		timeout = time.Duration(secs) * time.Second
+	}
+
+	result, err := c.svc.SystemOne(ctx, model, body, timeout)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, systemOneErrorResponse(err), err)
 		return
@@ -54,6 +70,13 @@ func (c *Controller) handleSystemOne(w http.ResponseWriter, r *http.Request) {
 	// Written as received: api.JSON would re-encode the body, compacting it
 	// and escaping HTML characters. The status is the implicit 200.
 	w.Header().Set("Content-Type", "application/json")
+	if result.UsageID != "" {
+		w.Header().Set(inference.HeaderUsageID, result.UsageID)
+	}
+	if result.CostUSD != nil {
+		// Ten decimals, the scale of inference_usage.estimated_cost_usd.
+		w.Header().Set(inference.HeaderCostUSD, strconv.FormatFloat(*result.CostUSD, 'f', 10, 64))
+	}
 	if _, err := w.Write(result.Body); err != nil {
 		c.logger.Error(ctx, "failed to write systemone response",
 			logging.Field{Key: "error", Value: err.Error()},

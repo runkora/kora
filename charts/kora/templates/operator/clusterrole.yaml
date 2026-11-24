@@ -40,7 +40,7 @@ rules:
   - apiGroups: ["networking.istio.io"]
     resources: ["destinationrules"]
     verbs: ["get", "list", "watch", "create", "patch"]
-  # Limits agent pods' Envoy to the platform services
+  # Limits agent and sandbox pods' Envoy to the platform services
   # (docs/adr/2026-09-30-agent-pod-egress-lockdown.md).
   - apiGroups: ["networking.istio.io"]
     resources: ["sidecars"]
@@ -52,10 +52,10 @@ rules:
   # Declared resources the operator projects into their owning services
   # (docs/adr/2026-10-24-declarative-resources.md).
   - apiGroups: ["runkora.io"]
-    resources: ["virtualmodels", "environments", "agents", "triggersources", "triggers", "policyroles"]
+    resources: ["virtualmodels", "environments", "agents", "triggersources", "triggers", "policyroles", "graders"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["runkora.io"]
-    resources: ["virtualmodels/status", "environments/status", "agents/status", "triggersources/status", "triggers/status", "policyroles/status"]
+    resources: ["virtualmodels/status", "environments/status", "agents/status", "triggersources/status", "triggers/status", "policyroles/status", "graders/status"]
     verbs: ["get", "patch"]
   # Status conditions. Connection and OAuthClient have none.
   - apiGroups: ["runkora.io"]

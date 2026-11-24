@@ -128,3 +128,7 @@ budget_allow := false if {
 - [Budget Model Redesign](2026-06-10-budget-model-redesign.md) — data model unchanged; spend-summation and role-enforcement sections superseded by this ADR.
 - [LLM Cost Tracking ADR](2026-06-05-llm-cost-tracking.md) — Decisions 1–4 unchanged.
 - [Inference Usage Logs](2026-04-17-inference-usage-logs.md) — `inference_usage` remains the source of truth for rehydration and the new per-principal spend listing.
+
+## Amendment: budgets keyed by principal type (#720)
+
+`data.budgets` is keyed `<TYPE>:<principal_id>` (for example `AGENT:spiffe://…`, `HUMAN:<id>`, `PAT:<id>`), not by principal ID alone. Keyed by ID, a HUMAN grant naming an agent's, trigger's or PAT's ID merged into that principal's budget and could raise its limits. Delegator ceilings read the `HUMAN:` entry. Spend and budget counters are still keyed by bare principal ID.

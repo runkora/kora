@@ -5,15 +5,13 @@
 // smart-HTTP Basic credential. The long-lived App private key never leaves this
 // process.
 //
-// Classify is category-scoped: it parses the request's host family and
-// path into a route-family category (contents, issues, pulls, actions, checks,
-// admin, metadata) combined with a read/write verb class, plus the repository
-// qualifier when the path names one. GraphQL requests are classified by the
-// fields they select (graphql.go). Resolve then mints the installation token
-// narrowed to exactly the classified categories' permissions and the request's
-// repository. See docs/adr/2026-07-22-github-connection-category-scoped-actions.md,
-// docs/adr/2026-07-22-connection-scope-qualifiers.md and
-// docs/adr/2026-09-29-github-graphql-field-classification.md.
+// Classify maps a request to category actions (categoryPermissions) plus the
+// repository qualifier when the path names one. REST endpoints classify by
+// GitHub's published permission data (routes_gen.go), and the token carries
+// exactly the permissions the endpoint needs. A GraphQL request needs any
+// category at its operation's level on its target repository (graphql.go). See
+// docs/adr/2026-11-15-github-connector-route-coverage.md and
+// docs/adr/2026-07-22-connection-scope-qualifiers.md.
 //
 // Each connection-type lives in its own subpackage so adding a new external
 // service (AWS STS, OAuth2 client-credentials, API-key SaaS) is a new directory
@@ -24,12 +22,13 @@ package githubapp
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"net/http"
+	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -71,8 +70,7 @@ type config struct {
 	// match, which is the pre-qualifier behavior.
 	Owner string `json:"owner,omitempty"`
 	// Permissions is the optional permission ceiling. When set, derived
-	// per-category permission sets are intersected with it, and the repo:*
-	// umbrella mints it verbatim.
+	// per-category permission sets are intersected with it.
 	Permissions map[string]string `json:"permissions,omitempty"`
 }
 
@@ -82,8 +80,8 @@ type API interface {
 	CreateInstallationToken(ctx context.Context, appJWT string, installationID int64, body ghclient.InstallationTokenRequest) (ghclient.InstallationToken, error)
 	ListInstallationRepositories(ctx context.Context, installationToken string) ([]string, error)
 	GetInstallationPermissions(ctx context.Context, appJWT string, installationID int64) (map[string]string, error)
-	NodeOwners(ctx context.Context, installationToken string, ids []string) (map[string]string, error)
-	RepoOwners(ctx context.Context, installationToken string, ids []string) (map[string]string, error)
+	NodeRepositories(ctx context.Context, installationToken string, ids []string) (map[string]ghclient.Node, bool, error)
+	Repositories(ctx context.Context, installationToken string, ids []string) (map[string]ghclient.Repository, error)
 }
 
 // instPermsCacheTTL is how long the installation's permission set is cached
@@ -128,13 +126,11 @@ func New(api API, secrets credentials.SecretResolver, logger logging.Logger) *Ad
 // Type reports the adapter type served.
 func (a *Adapter) Type() credentials.AdapterType { return credentials.AdapterGitHubApp }
 
-// Action constants returned by Classify. Sourced from the shared adapter
-// metadata table so the classifier and the published vocabulary cannot drift.
+// Action constants returned by Classify, from the shared adapter metadata table.
+// TestCategories_MatchVocabulary checks the classifier and the vocabulary agree.
 // They combine with the connection name (and optional repository qualifier) to
 // form "connection:<name>:<category>[:<repo>]:<verb>".
 const (
-	ActionRepoRead      = platformconns.ActionGitHubRepoRead
-	ActionRepoWrite     = platformconns.ActionGitHubRepoWrite
 	ActionMetadataRead  = platformconns.ActionGitHubMetadataRead
 	ActionContentsRead  = platformconns.ActionGitHubContentsRead
 	ActionContentsWrite = platformconns.ActionGitHubContentsWrite
@@ -169,9 +165,9 @@ type connector struct {
 }
 
 // Classify maps a GitHub-bound request to the action and repository that
-// authorize it, across the four surfaces sharing the host family: git
-// smart-HTTP, the REST and GraphQL API, the content hosts, and a
-// verb-classified catch-all for everything else.
+// authorize it, across the surfaces sharing the host family: git smart-HTTP,
+// the REST and GraphQL API, and the content hosts. Any other request returns
+// ErrUnsupportedAction.
 //
 // A repo-addressed path naming an owner other than the connection's is denied
 // outright. GitHub serves foreign public repositories to any token, so
@@ -180,45 +176,59 @@ type connector struct {
 // exception: their shapes are not always owner-addressed, so one that does not
 // match classifies unqualified instead.
 func (c *connector) Classify(req *http.Request) (credentials.Classification, error) {
+	return c.ClassifyResolved(req, nil)
+}
+
+// ClassifyResolved is Classify with the node and repository ids the request
+// names resolved to "owner/name" by NodeRepositories and Repositories. An id
+// absent from repos is unresolved. See
+// docs/adr/2026-11-15-github-connector-route-coverage.md.
+func (c *connector) ClassifyResolved(req *http.Request, repos map[string]string) (credentials.Classification, error) {
 	if req == nil || req.URL == nil {
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
 
 	owner := normalizeName(c.cfg.Owner)
 
-	if cls, ok, err := classifyGitSmartHTTP(req, owner); ok || err != nil {
+	if cls, ok, err := classifyGit(req, owner); ok || err != nil {
 		return cls, err
 	}
 
 	host := requestHost(req)
 	path := req.URL.Path
+	// Route templates match escaped segments, so an encoded slash in a branch
+	// name stays inside its segment.
+	escaped := req.URL.EscapedPath()
 
 	// The API surface: api.github.com serves paths at the root; a GitHub
 	// Enterprise appliance serves the same API under /api/v3 and GraphQL at
 	// /api/graphql on the shared host.
 	switch {
 	case host == "api.github.com":
-		return classifyAPI(req, path, owner)
+		return classifyAPI(req, escaped, owner, repos)
 	case path == "/api/v3" || strings.HasPrefix(path, "/api/v3/"):
-		return classifyAPI(req, strings.TrimPrefix(path, "/api/v3"), owner)
+		return classifyAPI(req, strings.TrimPrefix(escaped, "/api/v3"), owner, repos)
 	case path == "/api/graphql":
-		return classifyAPI(req, "/graphql", owner)
+		return classifyAPI(req, "/graphql", owner, repos)
+	case strings.HasPrefix(path, "/api/uploads/"):
+		// GitHub Enterprise serves the uploads host's API under /api/uploads.
+		return classifyReleaseUpload(req.Method, strings.TrimPrefix(escaped, "/api/uploads"), owner)
 	}
 
-	if host == resultsReceiverHost {
+	switch host {
+	case resultsReceiverHost:
 		return classifyResultsReceiver(req.Method, path)
+	case uploadsHost:
+		return classifyReleaseUpload(req.Method, escaped, owner)
+	case releaseAssetsHost:
+		return classifyReleaseAsset(req.Method, path, owner, repos)
 	}
 	if host == "codeload.github.com" || strings.HasSuffix(host, ".githubusercontent.com") {
 		return classifyContentHost(req.Method, path, owner)
 	}
 
-	// Catch-all: verb-classified and unqualified, the legacy behavior for
-	// anything not recognized above.
-	verb, err := verbClass(req.Method)
-	if err != nil {
-		return credentials.Classification{}, err
-	}
-	return credentials.Classification{Action: catRepo + ":" + verb}, nil
+	// Anything not recognized above is denied: no grant was reviewed for it.
+	return credentials.Classification{}, credentials.ErrUnsupportedAction
 }
 
 // Owner returns the account the connection's installation is bound to, normalized.
@@ -232,9 +242,10 @@ const (
 	subjectSearch  = "search query"
 )
 
-// RequestOwners returns the accounts and node ids a request names: the path
-// owner, else the owners and node ids of a GraphQL document, else the owners of
-// a search query. See docs/adr/2026-10-15-same-host-connection-selection.md.
+// RequestOwners returns the accounts and ids a request names: the path owner,
+// else the owners and node ids of a GraphQL document, else the owners of a
+// search query, else the repository id of a /repositories/{id} path or release
+// asset. See docs/adr/2026-10-15-same-host-connection-selection.md.
 func (c *connector) RequestOwners(req *http.Request) credentials.RequestOwners {
 	if req == nil || req.URL == nil {
 		return credentials.RequestOwners{Subject: subjectPath}
@@ -242,11 +253,12 @@ func (c *connector) RequestOwners(req *http.Request) credentials.RequestOwners {
 	host := requestHost(req)
 	segs := pathSegments(req.URL.Path)
 	switch {
-	case host == "api.github.com":
+	case host == "api.github.com" || host == uploadsHost:
 		return apiOwners(req, segs)
 	case len(segs) > 0 && segs[0] == "api":
-		// GitHub Enterprise serves REST under /api/v3 and GraphQL at /api/graphql.
-		if len(segs) > 1 && segs[1] == "v3" {
+		// GitHub Enterprise serves REST under /api/v3, uploads under
+		// /api/uploads and GraphQL at /api/graphql.
+		if len(segs) > 1 && (segs[1] == "v3" || segs[1] == "uploads") {
 			return apiOwners(req, segs[2:])
 		}
 		if len(segs) == 2 && segs[1] == "graphql" {
@@ -254,7 +266,7 @@ func (c *connector) RequestOwners(req *http.Request) credentials.RequestOwners {
 		}
 		return credentials.RequestOwners{Subject: subjectPath}
 	case strings.HasSuffix(host, ".githubusercontent.com") && host != "raw.githubusercontent.com":
-		return credentials.RequestOwners{Subject: subjectPath}
+		return contentHostOwners(host, segs)
 	case len(segs) >= 2:
 		return pathOwner(segs[0])
 	default:
@@ -270,7 +282,7 @@ func apiOwners(req *http.Request, segs []string) credentials.RequestOwners {
 		return graphqlOwners(req)
 	case len(segs) > 0 && segs[0] == "search":
 		return credentials.RequestOwners{Owners: searchOwners(req.URL.Query().Get("q")), Subject: subjectSearch}
-	case len(segs) >= 2 && segs[0] == "repositories" && isDigits(segs[1]):
+	case isRepositoryIDPath(segs):
 		return credentials.RequestOwners{RepoIDs: []string{segs[1]}, Subject: subjectPath}
 	case len(segs) >= 2 && (segs[0] == "repos" || segs[0] == "orgs" || segs[0] == "users"):
 		return pathOwner(segs[1])
@@ -281,6 +293,11 @@ func apiOwners(req *http.Request, segs []string) credentials.RequestOwners {
 
 func isDigits(s string) bool {
 	return s != "" && strings.Trim(s, "0123456789") == ""
+}
+
+// isRepositoryIDPath reports whether segs address /repositories/{id}/...
+func isRepositoryIDPath(segs []string) bool {
+	return len(segs) >= 2 && segs[0] == "repositories" && isDigits(segs[1])
 }
 
 func pathOwner(owner string) credentials.RequestOwners {
@@ -312,6 +329,15 @@ func searchOwners(q string) []string {
 		}
 	}
 	return owners
+}
+
+// classifyGit classifies the git surfaces: smart HTTP, then LFS. ok=false
+// means the request is neither.
+func classifyGit(req *http.Request, owner string) (credentials.Classification, bool, error) {
+	if cls, ok, err := classifyGitSmartHTTP(req, owner); ok || err != nil {
+		return cls, ok, err
+	}
+	return classifyGitLFS(req, owner)
 }
 
 // classifyGitSmartHTTP recognizes the two well-known git smart-HTTP shapes:
@@ -353,7 +379,11 @@ func classifyGitSmartHTTP(req *http.Request, owner string) (credentials.Classifi
 		}
 		qualifier = normalizeName(strings.TrimSuffix(segs[1], ".git"))
 	}
-	return credentials.Classification{Action: action, Qualifier: qualifier}, true, nil
+	cls := credentials.Classification{Action: action, Qualifier: qualifier}
+	if action == ActionContentsWrite {
+		cls.Optional = []string{actionWorkflowsWrite}
+	}
+	return cls, true, nil
 }
 
 // Verb classes and category names, shared by the classifier and the minting
@@ -362,65 +392,111 @@ const (
 	verbRead  = "read"
 	verbWrite = "write"
 
-	catMetadata = "metadata"
-	catContents = "contents"
-	catIssues   = "issues"
-	catPulls    = "pulls"
-	catActions  = "actions"
-	catChecks   = "checks"
-	catAdmin    = "admin"
-	catRepo     = "repo" // catch-all + legacy umbrella
+	catMetadata    = "metadata"
+	catContents    = "contents"
+	catWorkflows   = "workflows"
+	catIssues      = "issues"
+	catPulls       = "pulls"
+	catCI          = "ci"
+	catDeployments = "deployments"
+	catSecurity    = "security"
+	catSecrets     = "secrets"
+	catAdmin       = "admin"
+	catMembers     = "members"      // organization-wide, never qualified
+	catOrgProjects = "org_projects" // organization-wide, never qualified
 )
 
-// classifyAPI maps a REST/GraphQL API path (host prefix already stripped) to a
-// category action plus repository qualifier.
-func classifyAPI(req *http.Request, path, owner string) (credentials.Classification, error) {
-	method := req.Method
-	verb, err := verbClass(method)
-	if err != nil {
-		return credentials.Classification{}, err
+// classifyAPI maps a REST/GraphQL API path (host prefix already stripped,
+// still escaped) to category actions plus repository qualifier. A REST
+// endpoint outside GitHub's permission data, or needing a permission no
+// category holds, is refused. repos holds the resolved ids.
+func classifyAPI(req *http.Request, path, owner string, repos map[string]string) (credentials.Classification, error) {
+	segs := resolveRepositoryPath(pathSegments(path), repos)
+	method := strings.ToUpper(req.Method)
+	if method == http.MethodHead {
+		method = http.MethodGet
 	}
-	segs := pathSegments(path)
-	if len(segs) == 0 {
-		// API root discovery.
-		if verb == verbRead {
-			return credentials.Classification{Action: ActionMetadataRead}, nil
-		}
-		return credentials.Classification{Action: ActionRepoWrite}, nil
-	}
-
-	switch segs[0] {
-	case "graphql":
-		return classifyGraphQL(req, owner)
-	case "rate_limit", "user", "installation", "app", "meta", "octocat":
-		// Identity/limit/discovery endpoints most GitHub clients probe before
-		// real work. The metadata baseline covers them.
-		if verb == verbRead {
-			return credentials.Classification{Action: ActionMetadataRead}, nil
-		}
-		return credentials.Classification{Action: ActionRepoWrite}, nil
-	case "repos":
-		if len(segs) < 3 {
-			return credentials.Classification{Action: catRepo + ":" + verb}, nil
-		}
-		qualifier := ""
-		if owner != "" {
-			if normalizeName(segs[1]) != owner {
-				return credentials.Classification{}, credentials.ErrUnsupportedAction
-			}
-			qualifier = normalizeName(segs[2])
-		}
-		return classifyRepoPath(verb, segs[3:], qualifier), nil
-	case "search":
-		if cls, ok := classifySearch(req, segs, owner); ok && verb == verbRead {
+	switch {
+	case len(segs) == 1 && segs[0] == "graphql":
+		return classifyGraphQL(req, owner, repos)
+	case len(segs) > 0 && segs[0] == "search":
+		if cls, ok := classifySearch(req, segs, owner); ok && method == http.MethodGet {
 			return cls, nil
 		}
-		return credentials.Classification{Action: catRepo + ":" + verb}, nil
-	default:
-		// /orgs/* and every other root: the verb-classified catch-all,
-		// unqualified.
-		return credentials.Classification{Action: catRepo + ":" + verb}, nil
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
+	case isRepositoryIDPath(segs):
+		// A repository id that did not resolve names no repository to classify by.
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
+	return classifyREST(method, segs, owner)
+}
+
+// resolveRepositoryPath rewrites a /repositories/{id} path whose id resolved to
+// the /repos path it names, so it classifies with that path's owner check.
+func resolveRepositoryPath(segs []string, repos map[string]string) []string {
+	if !isRepositoryIDPath(segs) {
+		return segs
+	}
+	repoOwner, name, ok := strings.Cut(repos[segs[1]], "/")
+	if !ok {
+		return segs
+	}
+	return append([]string{"repos", repoOwner, name}, segs[2:]...)
+}
+
+// classifyREST classifies a REST endpoint by its route in GitHub's data. A
+// repository path is qualified by its repository once the owner matches.
+func classifyREST(method string, segs []string, owner string) (credentials.Classification, error) {
+	if hasDotSegment(segs) {
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
+	}
+	route := matchRoute(method, segs)
+	if route == nil {
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
+	}
+	cls, ok := routeClassification(route)
+	if !ok {
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
+	}
+	if offersWorkflows(route) {
+		cls.Optional = []string{actionWorkflowsWrite}
+	}
+	if owner != "" && len(segs) >= 3 && segs[0] == "repos" {
+		if pathName(segs[1]) != owner {
+			return credentials.Classification{}, credentials.ErrUnsupportedAction
+		}
+		cls.Qualifier = pathName(segs[2])
+	}
+	return cls, nil
+}
+
+// actionWorkflowsWrite is optional on a contents write, so the write can also
+// change workflow files when the agent holds it. See ADR 2026-11-15 item 7.
+const actionWorkflowsWrite = catWorkflows + ":" + verbWrite
+
+// offersWorkflows reports whether GitHub's data lists a permission set for the
+// route that adds workflows:write, as it does for contents, ref and release writes.
+func offersWorkflows(r *restRoute) bool {
+	return slices.ContainsFunc(r.Sets, func(s permissionSet) bool { return s["workflows"] == verbWrite })
+}
+
+// hasDotSegment reports whether a path segment, escaped or not, is "." or "..",
+// which could resolve upstream to another route or repository.
+func hasDotSegment(segs []string) bool {
+	for _, s := range segs {
+		if name, err := url.PathUnescape(s); err != nil || name == "." || name == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+// pathName is an escaped owner or repository segment, unescaped and normalized.
+func pathName(seg string) string {
+	if s, err := url.PathUnescape(seg); err == nil {
+		seg = s
+	}
+	return normalizeName(seg)
 }
 
 // classifySearch maps /search/{kind} to the category that owns the searched
@@ -454,20 +530,26 @@ func classifySearch(req *http.Request, segs []string, owner string) (credentials
 }
 
 // searchRepoQualifier returns the repository name when every repo:owner/name
-// term in q names the same repository of owner, and "" otherwise. A negated
-// -repo: term never scopes the query.
+// term in q names the same repository of owner, and "" otherwise. Any term
+// that could widen the query past that repository fails closed: NOT, OR, an
+// org: or user: term, and a repo: term that is negated, grouped or quoted.
 func searchRepoQualifier(q, owner string) string {
 	name := ""
 	for term := range strings.FieldsSeq(q) {
-		ref, ok := strings.CutPrefix(strings.ToLower(term), "repo:")
-		if !ok && strings.HasPrefix(strings.ToLower(term), "-repo:") {
-			// A negated term excludes a repository, so the query spans the rest.
+		lower := strings.ToLower(term)
+		bare := strings.TrimPrefix(strings.Trim(lower, `()"`), "-")
+		switch {
+		case lower == "not" || lower == "or",
+			strings.HasPrefix(bare, "org:"), strings.HasPrefix(bare, "user:"):
 			return ""
-		}
-		if !ok {
+		case !strings.Contains(bare, "repo:"):
 			continue
 		}
-		o, r, ok := strings.Cut(strings.Trim(ref, `"`), "/")
+		ref, ok := strings.CutPrefix(lower, "repo:")
+		if !ok || strings.ContainsAny(ref, `()"`) {
+			return ""
+		}
+		o, r, ok := strings.Cut(ref, "/")
 		if !ok || o != owner || r == "" || (name != "" && r != name) {
 			return ""
 		}
@@ -476,123 +558,11 @@ func searchRepoQualifier(q, owner string) string {
 	return name
 }
 
-// classifyRepoPath maps the sub-path under /repos/{owner}/{repo}/ to a category
-// action. sub is the path segments after the repository; qualifier is the
-// (already owner-verified) repository name, empty when the connection declares
-// no owner.
-func classifyRepoPath(verb string, sub []string, qualifier string) credentials.Classification {
-	if len(sub) == 0 {
-		// The bare repository object: reads are metadata; PATCH edits settings
-		// and DELETE deletes the repository, so administration.
-		if verb == verbRead {
-			return credentials.Classification{Action: ActionMetadataRead, Qualifier: qualifier}
-		}
-		return credentials.Classification{Action: catAdmin + ":" + verbWrite, Qualifier: qualifier}
-	}
-	cls := credentials.Classification{Action: repoSubCategory(sub) + ":" + verb, Qualifier: qualifier}
-	if sharedIssueNumberRoute(sub) {
-		cls.Alternates = []string{catPulls + ":" + verb}
-	}
-	return cls
-}
-
-// sharedIssueNumberRoute reports whether sub addresses a single issue or pull
-// request by number, or one comment or event by ID, along with anything beneath
-// them. GitHub numbers issues and pull requests in one sequence and serves both
-// under /issues, but checks the pull_requests permission when the target is a
-// pull request, so the path alone cannot say which permission the call needs.
-// The repository-wide /issues, /issues/comments and /issues/events collections
-// are excluded: they address no single target.
-func sharedIssueNumberRoute(sub []string) bool {
-	if len(sub) < 2 || sub[0] != "issues" {
-		return false
-	}
-	if sub[1] == "comments" || sub[1] == "events" {
-		return len(sub) >= 3 && isNumeric(sub[2])
-	}
-	return isNumeric(sub[1])
-}
-
-// isNumeric reports whether s is a base-10 unsigned integer.
-func isNumeric(s string) bool {
-	_, err := strconv.ParseUint(s, 10, 64)
-	return err == nil
-}
-
-// repoSubCategories maps unconditional first segments under
-// /repos/{owner}/{repo}/ to their category. Segments whose category depends on
-// deeper path shape (commits, branches, pulls, actions, dependabot) are handled
-// in repoSubCategory.
-var repoSubCategories = map[string]string{
-	"contents": catContents, "git": catContents, "tags": catContents,
-	"compare": catContents, "releases": catContents,
-
-	"issues": catIssues, "labels": catIssues, "milestones": catIssues, "assignees": catIssues,
-
-	"check-runs": catChecks, "check-suites": catChecks, "statuses": catChecks,
-
-	"hooks": catAdmin, "keys": catAdmin, "collaborators": catAdmin,
-}
-
-// repoSubCategory resolves the category for a non-empty sub-path under
-// /repos/{owner}/{repo}/. Unlisted route families land in the repo catch-all.
-func repoSubCategory(sub []string) string {
-	if cat, ok := repoSubCategories[sub[0]]; ok {
-		return cat
-	}
-	if resolve, ok := repoSubResolvers[sub[0]]; ok {
-		return resolve(sub)
-	}
-	return catRepo
-}
-
-// repoSubResolvers handles the route families whose category depends on deeper
-// path shape.
-var repoSubResolvers = map[string]func(sub []string) string{
-	// /commits/{ref}/{check-runs|check-suites|status|statuses} is the CI
-	// surface, not the git-data surface.
-	"commits": func(sub []string) string {
-		if len(sub) >= 3 {
-			switch sub[2] {
-			case "check-runs", "check-suites", "status", "statuses":
-				return catChecks
-			}
-		}
-		return catContents
-	},
-	"branches": func(sub []string) string {
-		if len(sub) >= 3 && sub[2] == "protection" {
-			return catAdmin
-		}
-		return catContents
-	},
-	// Merging mutates contents; GitHub itself demands contents:write for it.
-	"pulls": func(sub []string) string {
-		if len(sub) >= 3 && sub[2] == "merge" {
-			return catContents
-		}
-		return catPulls
-	},
-	// Actions secrets and variables are credential-adjacent administration, so
-	// actions:* can be granted without them.
-	"actions": func(sub []string) string {
-		if len(sub) >= 2 && (sub[1] == "secrets" || sub[1] == "variables") {
-			return catAdmin
-		}
-		return catActions
-	},
-	"dependabot": func(sub []string) string {
-		if len(sub) >= 2 && sub[1] == "secrets" {
-			return catAdmin
-		}
-		return catRepo
-	},
-}
-
 // resultsReceiverHost serves Actions job logs over Twirp RPC.
 const resultsReceiverHost = "results-receiver.actions.githubusercontent.com"
 
-// classifyResultsReceiver maps the Actions results receiver to actions:read.
+// classifyResultsReceiver maps the Actions results receiver to ci:read, minting
+// the actions permission alone.
 // GET and HEAD are reads. A POST is a read only when it is a Twirp call to a
 // Get or List method. Everything else is denied. The repository is in the RPC
 // body, so the action is unqualified and needs an unqualified grant.
@@ -610,7 +580,8 @@ func classifyResultsReceiver(method, path string) (credentials.Classification, e
 	if !read {
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
-	return credentials.Classification{Action: catActions + ":" + verbRead}, nil
+	action := catCI + ":" + verbRead
+	return credentials.Classification{Action: action, Permissions: map[string]map[string]string{action: {"actions": verbRead}}}, nil
 }
 
 // classifyContentHost handles the read-only download family
@@ -618,7 +589,7 @@ func classifyResultsReceiver(method, path string) (credentials.Classification, e
 // there; the repository qualifier is extracted when the path is owner-addressed
 // (/{owner}/{repo}/…) and the owner matches. Opaque shapes (LFS object URLs)
 // classify unqualified rather than denying, satisfiable only by an unqualified
-// contents:read grant, per the qualifier pattern's fail-closed rule.
+// contents grant, per the qualifier pattern's fail-closed rule.
 func classifyContentHost(method, path, owner string) (credentials.Classification, error) {
 	verb, err := verbClass(method)
 	if err != nil || verb != verbRead {
@@ -629,6 +600,129 @@ func classifyContentHost(method, path, owner string) (credentials.Classification
 		qualifier = normalizeName(segs[1])
 	}
 	return credentials.Classification{Action: ActionContentsRead, Qualifier: qualifier}, nil
+}
+
+// releaseAssetsHost serves the signed download of a release asset, addressed
+// by repository id.
+const releaseAssetsHost = "release-assets.githubusercontent.com"
+
+// contentHostOwners reads a content host path, which names no owner. A
+// release asset names the repository id it belongs to.
+func contentHostOwners(host string, segs []string) credentials.RequestOwners {
+	if id := releaseAssetRepoID(segs); host == releaseAssetsHost && id != "" {
+		return credentials.RequestOwners{RepoIDs: []string{id}, Subject: subjectPath}
+	}
+	return credentials.RequestOwners{Subject: subjectPath}
+}
+
+// releaseAssetRepoID returns the repository id of a release asset download path
+// (/github-production-release-asset/{repo_id}/...), or "".
+func releaseAssetRepoID(segs []string) string {
+	if len(segs) >= 3 && segs[0] == "github-production-release-asset" && isDigits(segs[1]) {
+		return segs[1]
+	}
+	return ""
+}
+
+// classifyReleaseAsset reads contents, qualified by the repository its id
+// resolves to when that is the owner's. Otherwise it stays unqualified, as on
+// the other content hosts.
+func classifyReleaseAsset(method, path, owner string, repos map[string]string) (credentials.Classification, error) {
+	cls, err := classifyContentHost(method, "/", owner)
+	if err != nil {
+		return cls, err
+	}
+	repoOwner, name, ok := strings.Cut(repos[releaseAssetRepoID(pathSegments(path))], "/")
+	if ok && owner != "" && repoOwner == owner {
+		cls.Qualifier = name
+	}
+	return cls, nil
+}
+
+// classifyGitLFS maps the git LFS API under /{owner}/{repo}(.git)/info/lfs/. A
+// batch request reads or writes contents by its operation; listing locks reads
+// contents and every other lock call writes them. ok=false means the path is
+// not an LFS path.
+func classifyGitLFS(req *http.Request, owner string) (credentials.Classification, bool, error) {
+	segs := pathSegments(req.URL.Path)
+	if requestHost(req) == "api.github.com" || len(segs) < 5 || segs[2] != "info" || segs[3] != "lfs" {
+		return credentials.Classification{}, false, nil
+	}
+	action := ActionContentsWrite
+	switch {
+	case segs[4] == "objects" && len(segs) == 6 && segs[5] == "batch":
+		op, err := lfsBatchOperation(req)
+		if err != nil {
+			return credentials.Classification{}, true, err
+		}
+		if op == "download" {
+			action = ActionContentsRead
+		}
+	case segs[4] == "locks":
+		if req.Method == http.MethodGet && len(segs) == 5 {
+			action = ActionContentsRead
+		}
+	default:
+		return credentials.Classification{}, true, credentials.ErrUnsupportedAction
+	}
+	qualifier, ok := lfsQualifier(segs, owner)
+	if !ok {
+		return credentials.Classification{}, true, credentials.ErrUnsupportedAction
+	}
+	return credentials.Classification{Action: action, Qualifier: qualifier}, true, nil
+}
+
+// lfsQualifier is the repository an LFS path names. ok is false for a foreign
+// owner or a dot segment.
+func lfsQualifier(segs []string, owner string) (string, bool) {
+	if hasDotSegment(segs) {
+		return "", false
+	}
+	if owner == "" {
+		return "", true
+	}
+	if normalizeName(segs[0]) != owner {
+		return "", false
+	}
+	return normalizeName(strings.TrimSuffix(segs[1], ".git")), true
+}
+
+// lfsBatchOperation reads the batch request's operation, matching the key
+// exactly as the LFS server does. The body is restored for forwarding.
+func lfsBatchOperation(req *http.Request) (string, error) {
+	buf, reason := bufferGraphQLBody(req)
+	if reason != "" {
+		return "", credentials.ErrUnsupportedAction
+	}
+	var body map[string]json.RawMessage
+	var op string
+	if json.Unmarshal(buf, &body) != nil || json.Unmarshal(body["operation"], &op) != nil {
+		return "", credentials.ErrUnsupportedAction
+	}
+	if op != "download" && op != "upload" {
+		return "", credentials.ErrUnsupportedAction
+	}
+	return op, nil
+}
+
+// uploadsHost serves release asset uploads.
+const uploadsHost = "uploads.github.com"
+
+// classifyReleaseUpload maps POST /repos/{owner}/{repo}/releases/{id}/assets on
+// the uploads host to contents:write on the repository. Nothing else is served.
+func classifyReleaseUpload(method, path, owner string) (credentials.Classification, error) {
+	segs := pathSegments(path)
+	if method != http.MethodPost || len(segs) != 6 || segs[0] != "repos" || segs[3] != "releases" || segs[5] != "assets" || hasDotSegment(segs) {
+		return credentials.Classification{}, credentials.ErrUnsupportedAction
+	}
+	cls := credentials.Classification{Action: ActionContentsWrite}
+	if owner != "" {
+		if pathName(segs[1]) != owner {
+			return credentials.Classification{}, credentials.ErrUnsupportedAction
+		}
+		cls.Qualifier = pathName(segs[2])
+	}
+	return cls, nil
 }
 
 // verbClass maps an HTTP method to the read/write verb class.
@@ -677,91 +771,41 @@ func normalizeName(s string) string {
 // permissionLevels ranks GitHub App permission levels for ceiling intersection.
 var permissionLevels = map[string]int{verbRead: 1, verbWrite: 2, "admin": 3}
 
-// categoryPermissionKeys maps each category to the installation-token permission
-// keys it needs. The level minted is the action's verb class (metadata is always
-// read). The umbrella (repo:*) uses this map only for explicit per-category
-// actions; the umbrella itself intersects with the installation's actual
-// granted permissions rather than deriving a static union.
-var categoryPermissionKeys = map[string][]string{
-	"metadata": {"metadata"},
-	"contents": {"contents"},
-	"issues":   {"issues"},
-	"pulls":    {"pull_requests"},
-	"actions":  {"actions"},
-	"checks":   {"checks", "statuses"},
-	"admin":    {"administration", "repository_hooks", "secrets", "dependabot_secrets"},
+// mintPermissions is the permission set for one authorized action: exactly
+// the permissions the classification named for it when it named any, else
+// everything the action's category covers that the installation holds, since
+// GitHub refuses a token asking for more. Either is capped by the ceiling.
+func mintPermissions(action string, exact map[string]map[string]string, ceiling, installationPerms map[string]string) map[string]string {
+	perms, ok := exact[action]
+	if !ok {
+		derived := permissionsFor(action, ceiling)
+		if installationPerms != nil {
+			applyCeiling(derived, installationPerms)
+		}
+		return derived
+	}
+	derived := maps.Clone(perms)
+	derived[catMetadata] = verbRead
+	applyCeiling(derived, ceiling)
+	return derived
 }
 
-// permissionsFor derives the installation-token permission set for the
-// classified action, intersected with the connection's declared ceiling.
-// installationPerms is the App installation's actual granted permissions (from
-// GetInstallationPermissions); it is used as the intersection floor for the
-// repo:* umbrella when no explicit ceiling is declared, so the umbrella can
-// never request a permission the installation does not hold. For non-umbrella
-// categories (and umbrella with a declared ceiling) installationPerms is unused.
-func permissionsFor(action string, ceiling map[string]string, installationPerms map[string]string) map[string]string {
-	category, verb := splitAction(action)
+// writeOnlyPermissions are GitHub App permissions granted only at write. A
+// read-level token leaves them out, since GitHub refuses a token asking for
+// them at read.
+var writeOnlyPermissions = map[string]bool{"workflows": true}
 
-	derived := map[string]string{}
-	switch category {
-	case catMetadata:
-		derived[catMetadata] = verbRead
-	case catContents, catIssues, catPulls, catActions, catChecks, catAdmin:
-		for _, key := range categoryPermissionKeys[category] {
+// permissionsFor derives the installation-token permission set for the
+// classified action's category, intersected with the connection's declared
+// ceiling. An action outside the categories mints metadata alone.
+func permissionsFor(action string, ceiling map[string]string) map[string]string {
+	category, verb := splitAction(action)
+	derived := map[string]string{catMetadata: verbRead}
+	for _, key := range categoryPermissions[category] {
+		if verb != verbRead || !writeOnlyPermissions[key] {
 			derived[key] = verb
 		}
-	default:
-		// The repo catch-all/umbrella (and, defensively, anything unrecognized):
-		// when a ceiling is declared, mint it verbatim. Otherwise, mint the
-		// intersection of the action's verb class with the installation's actual
-		// granted permissions so the umbrella never requests a level the
-		// installation does not hold (which would 422).
-		//
-		// When installationPerms is nil or empty (no permissions fetched, only
-		// possible in unit tests that construct permissionsFor directly, or if
-		// the API returned an empty map), we return only metadata:read: the
-		// minimum implicit grant on every installation token. This is safe and
-		// explicit rather than relying on the post-loop metadata floor.
-		if len(ceiling) > 0 {
-			return maps.Clone(ceiling)
-		}
-		if len(installationPerms) == 0 {
-			return map[string]string{catMetadata: verbRead}
-		}
-		for key, grantedLevel := range installationPerms {
-			// Skip permissions with unknown level strings: permissionLevels maps
-			// only "read", "write", "admin". An unknown value maps to 0, which
-			// would silently pass the cap check and let an unrecognized level
-			// through. Omitting it is the safe default.
-			if permissionLevels[grantedLevel] == 0 {
-				continue
-			}
-			level := verb
-			if key == catMetadata {
-				level = verbRead
-			}
-			// Cap at the installation's actual grant level.
-			if permissionLevels[grantedLevel] < permissionLevels[level] {
-				level = grantedLevel
-			}
-			derived[key] = level
-		}
 	}
-
-	// Pull-request operations also need read access to repository contents:
-	// creating or editing a PR reads the head/base branch refs, and GitHub
-	// rejects the call with 422 "not all refs are readable" when the token lacks
-	// contents:read. This is a read floor scoped to the same repository
-	// qualifier, so it never widens write access; it is still bounded by the
-	// connection ceiling below.
-	if category == catPulls && permissionLevels[derived["contents"]] < permissionLevels[verbRead] {
-		derived["contents"] = verbRead
-	}
-
-	if _, ok := derived[catMetadata]; !ok {
-		derived[catMetadata] = verbRead
-	}
-
 	applyCeiling(derived, ceiling)
 	return derived
 }
@@ -789,11 +833,13 @@ func applyCeiling(derived, ceiling map[string]string) {
 	}
 }
 
-// needsInstallationPerms reports whether any action is the repo:* umbrella,
-// whose permission set is derived from the installation's actual grants.
-func needsInstallationPerms(actions []string) bool {
+// needsInstallationPerms reports whether any action mints its category's
+// permissions rather than exact ones, which are then capped by the
+// installation's actual grants. Metadata is on every installation.
+func needsInstallationPerms(actions []string, exact map[string]map[string]string) bool {
 	for _, a := range actions {
-		if category, _ := splitAction(a); category == catRepo {
+		_, isExact := exact[a]
+		if category, _ := splitAction(a); !isExact && category != catMetadata {
 			return true
 		}
 	}
@@ -820,13 +866,9 @@ func reposFor(qualifier string) []string {
 	return []string{qualifier}
 }
 
-// Resolve returns a cached, or freshly minted, installation token formatted as
-// the git smart-HTTP Basic credential, narrowed to the classified category's
-// permissions and the request's repository. The raw token is also exposed on
-// the returned Credential so the gateway can reformat it as a Bearer for REST.
 // installationPermissions returns the App installation's permission set,
 // fetching from GitHub if the cached entry has expired. Results are cached for
-// instPermsCacheTTL to bound API calls across concurrent umbrella mints.
+// instPermsCacheTTL to bound API calls across concurrent mints.
 // Double-check locking: the cache is read under the lock; on miss, the API call
 // runs unlocked, then re-checks under the lock before writing, so concurrent
 // callers that both see a stale entry each make the API call but the last writer
@@ -867,49 +909,65 @@ func (a *Adapter) installationPermissions(ctx context.Context, appJWT string, in
 var errNoLookupPermissions = errors.New("installation grants no permission a node lookup can use")
 
 // lookupPermissions maps a held category to the read permissions a node id
-// lookup token may carry for it. The repo umbrella reads every one.
+// lookup token may carry for it. A parent grant, which names no category (""),
+// reads every one.
 var lookupPermissions = map[string][]string{
-	"metadata": {"metadata"},
-	"contents": {"contents"},
-	"issues":   {"issues"},
-	"pulls":    {"pull_requests"},
-	"checks":   {"checks"},
-	"actions":  {"actions"},
-	"repo":     {"metadata", "contents", "issues", "pull_requests", "discussions", "checks", "actions"},
+	catMetadata: {"metadata"},
+	catContents: {"contents"},
+	catIssues:   {"issues"},
+	catPulls:    {"pull_requests"},
+	catCI:       {"checks", "actions"},
+	"":          {"metadata", "contents", "issues", "pull_requests", "discussions", "checks", "actions"},
 }
 
-// NodeOwners resolves node ids to their owners' logins with a read-only
-// installation token limited to categories, the ones the caller holds. Ids the
-// token cannot see are absent. See
-// docs/adr/2026-10-15-same-host-connection-selection.md.
-func (c *connector) NodeOwners(ctx context.Context, ids, categories []string) (map[string]string, error) {
-	token, err := c.lookupToken(ctx, categories)
+// NodeRepositories resolves node ids with a read-only installation token
+// limited to categories, the ones the caller holds, and to the repositories in
+// repos when it is not nil. An object in a repository
+// resolves to its "owner/name", and any other object to its type, such as
+// "User", which never contains a slash. Ids the token cannot see are absent.
+// complete is false when GitHub answered with errors, so absent ids may not be
+// unseen. See docs/adr/2026-10-15-same-host-connection-selection.md.
+func (c *connector) NodeRepositories(ctx context.Context, ids, categories, repos []string) (map[string]string, bool, error) {
+	token, err := c.lookupToken(ctx, categories, repos)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	owners, err := c.adapter.api.NodeOwners(ctx, token, ids)
+	nodes, complete, err := c.adapter.api.NodeRepositories(ctx, token, ids)
 	if err != nil {
-		return nil, fmt.Errorf("node owner lookup: %w", err)
+		return nil, false, fmt.Errorf("node repository lookup: %w", err)
 	}
-	return owners, nil
+	out := make(map[string]string, len(nodes))
+	for id, n := range nodes {
+		out[id] = n.Type
+		if n.Repository.Name != "" {
+			out[id] = n.Repository.Owner + "/" + n.Repository.Name
+		}
+	}
+	return out, complete, nil
 }
 
-// RepoOwners resolves numeric repository ids to their owners' logins with the
-// same read-only token as NodeOwners. Ids the token cannot see are absent.
-func (c *connector) RepoOwners(ctx context.Context, ids, categories []string) (map[string]string, error) {
-	token, err := c.lookupToken(ctx, categories)
+// Repositories resolves numeric repository ids to "owner/name" with the same
+// read-only token as NodeRepositories. Ids the token cannot see are absent,
+// and any other failure is an error, so the result is always complete.
+func (c *connector) Repositories(ctx context.Context, ids, categories, repos []string) (map[string]string, bool, error) {
+	token, err := c.lookupToken(ctx, categories, repos)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	owners, err := c.adapter.api.RepoOwners(ctx, token, ids)
+	found, err := c.adapter.api.Repositories(ctx, token, ids)
 	if err != nil {
-		return nil, fmt.Errorf("repository owner lookup: %w", err)
+		return nil, false, fmt.Errorf("repository lookup: %w", err)
 	}
-	return owners, nil
+	out := make(map[string]string, len(found))
+	for id, r := range found {
+		out[id] = r.Owner + "/" + r.Name
+	}
+	return out, true, nil
 }
 
-// lookupToken returns a read-only installation token limited to categories.
-func (c *connector) lookupToken(ctx context.Context, categories []string) (string, error) {
+// lookupToken returns a read-only installation token limited to categories, and
+// to the named repositories when repos is not nil.
+func (c *connector) lookupToken(ctx context.Context, categories, repos []string) (string, error) {
 	a, conn, cfg := c.adapter, c.conn, c.cfg
 	pem, err := a.secrets.Resolve(ctx, conn.SecretRef)
 	if err != nil {
@@ -937,12 +995,12 @@ func (c *connector) lookupToken(ctx context.Context, categories []string) (strin
 	}
 
 	// Prefixed so Mint never returns a lookup token, which carries no injected header.
-	cacheKey := "lookup|" + a.cacheKey(conn.ID, nil, perms)
+	cacheKey := "lookup|" + a.cacheKey(conn.ID, repos, perms)
 	token := ""
 	if cred, ok := a.cached(cacheKey); ok {
 		token = cred.Token
 	} else {
-		tok, mintErr := a.api.CreateInstallationToken(ctx, appJWT, cfg.InstallationID, ghclient.InstallationTokenRequest{Permissions: perms})
+		tok, mintErr := a.api.CreateInstallationToken(ctx, appJWT, cfg.InstallationID, ghclient.InstallationTokenRequest{Repositories: repos, Permissions: perms})
 		if mintErr != nil {
 			return "", fmt.Errorf("mint lookup token: %w", mintErr)
 		}
@@ -952,21 +1010,21 @@ func (c *connector) lookupToken(ctx context.Context, categories []string) (strin
 	return token, nil
 }
 
+// Mint returns a cached or freshly minted installation token, formatted as the
+// git smart-HTTP Basic credential and narrowed to the authorized actions'
+// permissions and the request's repository.
 func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (credentials.Credential, error) {
 	a, conn, cfg := c.adapter, c.conn, c.cfg
 
 	repos := reposFor(id.Qualifier)
 
-	// For the repo:* umbrella with no declared ceiling, derive the permission set
-	// by intersecting with the App installation's actual grants. This prevents
-	// the umbrella from requesting a permission the installation does not hold,
-	// which would cause GitHub to reject the entire token mint with 422.
-	// The installation's permissions are cached (instPermsCacheTTL) so the API
-	// call is amortized across mints; the App JWT is only signed when the cache
-	// is cold.
+	// An action minting its whole category, with no declared ceiling, is capped
+	// by the installation's actual grants: GitHub rejects the entire mint with
+	// 422 when it asks for a permission the installation lacks. The grants are
+	// cached (instPermsCacheTTL); the App JWT is only signed when that is cold.
 	actions := append([]string{id.Action}, id.AlsoAuthorized...)
 	var installationPerms map[string]string
-	if needsInstallationPerms(actions) && len(cfg.Permissions) == 0 {
+	if needsInstallationPerms(actions, id.Permissions) && len(cfg.Permissions) == 0 {
 		pem, err := a.secrets.Resolve(ctx, conn.SecretRef)
 		if err != nil {
 			return credentials.Credential{}, fmt.Errorf("resolve github app secret: %w", err)
@@ -981,11 +1039,11 @@ func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (cr
 		}
 	}
 
-	perms := permissionsFor(id.Action, cfg.Permissions, installationPerms)
+	perms := mintPermissions(id.Action, id.Permissions, cfg.Permissions, installationPerms)
 	// Alternates the grant also holds widen the token, each at no more than its
 	// own derived level, so the credential never exceeds what was authorized.
 	for _, alt := range id.AlsoAuthorized {
-		for key, level := range permissionsFor(alt, cfg.Permissions, installationPerms) {
+		for key, level := range mintPermissions(alt, id.Permissions, cfg.Permissions, installationPerms) {
 			if permissionLevels[level] > permissionLevels[perms[key]] {
 				perms[key] = level
 			}
@@ -1095,7 +1153,8 @@ func (a *Adapter) store(key string, cred credentials.Credential) {
 
 // cacheKey scopes a cached token to the connection and the exact derived
 // repository/permission set minted, so a narrower request never reuses a
-// broader token.
+// broader token. Repository names are quoted, so a comma in a grant's qualifier
+// cannot collide with a list of two.
 func (a *Adapter) cacheKey(connID string, repos []string, perms map[string]string) string {
 	rs := slices.Sorted(slices.Values(repos))
 	ps := make([]string, 0, len(perms))
@@ -1103,7 +1162,7 @@ func (a *Adapter) cacheKey(connID string, repos []string, perms map[string]strin
 		ps = append(ps, k+"="+v)
 	}
 	slices.Sort(ps)
-	return strings.Join([]string{connID, strings.Join(rs, ","), strings.Join(ps, ",")}, "|")
+	return fmt.Sprintf("%s|%q|%s", connID, rs, strings.Join(ps, ","))
 }
 
 // signAppJWT signs a GitHub App authentication JWT (RS256) with the App's

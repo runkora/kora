@@ -144,7 +144,7 @@ func TestEgress_HostPatternExtraction(t *testing.T) {
 		{"connector host", "egress:github.com:connector", "github.com", true},
 
 		// non-egress scopes must not yield a pattern
-		{"connection scope ignored", "connection:github:repo:write", "", false},
+		{"connection scope ignored", "connection:github:contents:write", "", false},
 		{"inference scope ignored", "inference:invoke", "", false},
 		{"wrong action ignored", "egress:api.github.com:read", "", false},
 		{"wrong resource ignored", "ingress:api.github.com:connect", "", false},

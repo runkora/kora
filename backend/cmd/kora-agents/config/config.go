@@ -39,8 +39,8 @@ type Config struct {
 	Kubernetes struct {
 		// InCluster uses the pod's service account token. Set false for local dev.
 		InCluster bool `yaml:"inCluster"`
-		// ClientQPS and ClientBurst rate-limit the Kubernetes client. Each run placement and scaler
-		// pass makes API calls, and client-go's defaults of 5 and 10 throttle a burst of runs.
+		// ClientQPS and ClientBurst rate-limit the Kubernetes client. Each run placement, scaler pass,
+		// message, interrupt and terminate makes API calls, and client-go's defaults of 5 and 10 throttle a burst of runs.
 		ClientQPS   float32 `yaml:"clientQPS"`
 		ClientBurst int     `yaml:"clientBurst"`
 		// TenantNamespacePrefix is prepended to tenant IDs to form namespace names.
@@ -72,7 +72,7 @@ type Config struct {
 	Drafts DraftsConfig `yaml:"drafts"`
 
 	Agents struct {
-		// SessionManagerImage is the container image for session-manager StatefulSet pods.
+		// SessionManagerImage is the container image for session-manager pool pods.
 		SessionManagerImage string `yaml:"sessionManagerImage"`
 		// SandboxImage is the base image reference that rendered previews use.
 		// Live sandboxes run the digest pinned on the kora-base SandboxImage.
@@ -111,11 +111,18 @@ type Config struct {
 			// TriggerSecs applies to a run a trigger started.
 			TriggerSecs int `yaml:"triggerSecs"`
 		} `yaml:"idleTimeout"`
+		// Pool is each tenant's unbound session-manager pods (docs/adr/2026-11-22-agent-cold-tier.md).
+		Pool struct {
+			// Size is how many unbound pods each tenant keeps ready.
+			Size int32 `yaml:"size"`
+		} `yaml:"pool"`
 		// Scheduling configures the run scheduler that starts pending runs
 		// (docs/adr/2026-10-12-run-scheduling.md).
 		Scheduling struct {
 			// WorkerConcurrency is how many runs one replica starts at once.
 			WorkerConcurrency int `yaml:"workerConcurrency"`
+			// ScalerConcurrency is how many agents one replica's scaler checks at once.
+			ScalerConcurrency int `yaml:"scalerConcurrency"`
 			// PollIntervalSecs is how often the scheduler claims pending runs, and how long a released run waits.
 			PollIntervalSecs int `yaml:"pollIntervalSecs"`
 			// StartBudgetSecs is how long a run may stay pending with no agent pod Ready or coming up before it fails.
@@ -136,6 +143,11 @@ type Config struct {
 			StartingRunAllowance StartingRunAllowance `yaml:"startingRunAllowance"`
 			// StartingRunWindowSecs is how long after its pod assignment a live run still counts as starting.
 			StartingRunWindowSecs int `yaml:"startingRunWindowSecs"`
+			// WarmAfterSecs is how long an agent stays idle before its pods shrink to the warm requests. Zero turns the warm tier off.
+			WarmAfterSecs int `yaml:"warmAfterSecs"`
+			// ColdAfterSecs is how long an agent with no pending, starting, active or idle run keeps its pods before the
+			// scaler deletes them. Zero keeps every agent at its floor of pods.
+			ColdAfterSecs int `yaml:"coldAfterSecs"`
 		} `yaml:"scheduling"`
 		// ConnectionRegistryPath is the mounted connections.json file rendered by
 		// the operator's ConnectionAggregator into the kora-tenant-connections
@@ -155,8 +167,8 @@ type Config struct {
 		// SessionManager holds settings for the session-manager pods kora-agents provisions.
 		SessionManager struct {
 			// AuthorizationPolicyEnabled creates an Istio AuthorizationPolicy
-			// beside each agent StatefulSet restricting its session-manager
-			// port to the kora-agents principal. Requires SPIFFE/mTLS, so the
+			// for each agent's pods and each tenant pool restricting the
+			// session-manager port to the kora-agents principal. Requires SPIFFE/mTLS, so the
 			// chart sets it from platform.spiffe.enabled AND
 			// agents.authorizationPolicy.enabled.
 			AuthorizationPolicyEnabled bool `yaml:"authorizationPolicyEnabled"`
@@ -168,6 +180,15 @@ type Config struct {
 		// /workspaces/<run>/sandbox, mounted into the session-manager pod by the
 		// sandbox-mount node agent (docs/adr/2026-10-08-sandbox-workspace-mount.md).
 		SandboxMount bool `yaml:"sandboxMount"`
+		// Grading configures the grading worker (docs/adr/2026-11-19-graders.md).
+		Grading struct {
+			// WindowTokens is the decision model's input window that a run's state is fitted to.
+			WindowTokens int `yaml:"windowTokens"`
+			// Concurrency is how many grade jobs one replica grades at once.
+			Concurrency int `yaml:"concurrency"`
+			// PollIntervalSecs is how often the worker claims due grade jobs.
+			PollIntervalSecs int `yaml:"pollIntervalSecs"`
+		} `yaml:"grading"`
 	} `yaml:"agents"`
 }
 
@@ -180,6 +201,18 @@ type StartingRunAllowance struct {
 
 // errMaxReplicas means maxReplicas is below the floor of pods, so the scaler could never add one.
 var errMaxReplicas = errors.New("agents.scheduling.maxReplicas must be at least minReplicas and at least 1")
+
+// errScalerConcurrency means the scaler could check no agent.
+var errScalerConcurrency = errors.New("agents.scheduling.scalerConcurrency must be at least 1")
+
+// errWarmAfter means a negative idle threshold.
+var errWarmAfter = errors.New("agents.scheduling.warmAfterSecs must be at least 0")
+
+// errColdAfter means a negative cold threshold.
+var errColdAfter = errors.New("agents.scheduling.coldAfterSecs must be at least 0")
+
+// errPoolSize means a negative number of pool pods per tenant.
+var errPoolSize = errors.New("agents.pool.size must be at least 0")
 
 // errStartingRunAllowance means a harness has no positive starting-run allowance.
 var errStartingRunAllowance = errors.New("agents.scheduling.startingRunAllowance: claudeCode, codex and openCode must each be a positive quantity")
@@ -260,6 +293,18 @@ func Validate(cfg *Config) error {
 	}
 	if s := cfg.Agents.Scheduling; s.MaxReplicas < max(s.MinReplicas, 1) {
 		return errMaxReplicas
+	}
+	if cfg.Agents.Scheduling.ScalerConcurrency < 1 {
+		return errScalerConcurrency
+	}
+	if cfg.Agents.Scheduling.WarmAfterSecs < 0 {
+		return errWarmAfter
+	}
+	if cfg.Agents.Scheduling.ColdAfterSecs < 0 {
+		return errColdAfter
+	}
+	if cfg.Agents.Pool.Size < 0 {
+		return errPoolSize
 	}
 	a := cfg.Agents.Scheduling.StartingRunAllowance
 	for _, q := range []resource.Quantity{a.ClaudeCode, a.Codex, a.OpenCode} {

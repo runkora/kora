@@ -44,7 +44,7 @@ func TestBuildBudgets_PerWindowEffectiveLimits(t *testing.T) {
 		grantWithBudget("pid-1", "g-week", 20, "weekly"),
 	}, nil)
 
-	pb, ok := doc["pid-1"]
+	pb, ok := doc["HUMAN:pid-1"]
 	if !ok {
 		t.Fatal("principal pid-1 not in budget map")
 	}
@@ -69,7 +69,7 @@ func TestBuildBudgets_PerRunEffectiveLimit(t *testing.T) {
 
 	doc := buildBudgets([]*grants.Grant{g1, g2}, nil)
 
-	pb, ok := doc["agent-1"]
+	pb, ok := doc["AGENT:agent-1"]
 	if !ok {
 		t.Fatal("agent-1 not in budget map")
 	}
@@ -85,7 +85,7 @@ func TestBuildBudgets_PerRunEffectiveLimit(t *testing.T) {
 func TestBuildBudgets_UnknownCadenceNormalizedToMonthly(t *testing.T) {
 	doc := buildBudgets([]*grants.Grant{grantWithBudget("pid-1", "g1", 75, "fortnightly")}, nil)
 
-	pb := doc["pid-1"]
+	pb := doc["HUMAN:pid-1"]
 	if pb.EffectiveLimits["monthly"] != 75 {
 		t.Errorf("unknown cadence must normalize to monthly, got %v", pb.EffectiveLimits)
 	}
@@ -97,11 +97,35 @@ func TestBuildBudgets_NoBudgetGrantsPruned(t *testing.T) {
 		grantNoBudget("pid-2", "grant-2"),
 	}, nil)
 
-	if _, ok := doc["pid-1"]; !ok {
+	if _, ok := doc["HUMAN:pid-1"]; !ok {
 		t.Error("pid-1 should be in budget map")
 	}
-	if _, ok := doc["pid-2"]; ok {
+	if _, ok := doc["HUMAN:pid-2"]; ok {
 		t.Error("pid-2 with nil budget should be absent from map")
+	}
+}
+
+// A HUMAN grant sharing an ID with an agent or PAT must not merge into that
+// principal's entry (#720).
+func TestBuildBudgets_SameIDDifferentTypesStaySeparate(t *testing.T) {
+	agent := grantWithBudget("same-id", "g-agent", 1, "monthly")
+	agent.PrincipalType = grants.PrincipalTypeAgent
+	human := grantWithBudget("same-id", "g-human", 100, "monthly")
+	pat := grantWithBudget("same-id", "g-pat", 7, "monthly")
+	pat.PrincipalType = grants.PrincipalTypePAT
+
+	doc := buildBudgets([]*grants.Grant{agent, human, pat}, nil)
+
+	if len(doc) != 3 {
+		t.Fatalf("len = %d, want 3 separate entries: %v", len(doc), doc)
+	}
+	for key, want := range map[string]float64{"AGENT:same-id": 1, "HUMAN:same-id": 100, "PAT:same-id": 7} {
+		if got := doc[key].EffectiveLimits["monthly"]; got != want {
+			t.Errorf("%s monthly = %v, want %v", key, got, want)
+		}
+		if len(doc[key].Categories) != 1 {
+			t.Errorf("%s categories = %d, want 1", key, len(doc[key].Categories))
+		}
 	}
 }
 

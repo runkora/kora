@@ -159,6 +159,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	profileRepo := identity.NewPostgresUserProfileRepository(pool)
 	prefsRepo := identity.NewPostgresUserPreferencesRepository(pool)
 	delegationRepo := identity.NewPostgresDelegationRepository(pool)
+	agentRegistry := identity.NewPostgresAgentRegistry(pool)
 
 	// Policy service integration for PAT grant management and scope validation.
 	policySvcURL := ic.Current.PolicyServiceURL
@@ -193,6 +194,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		profileRepo,
 		prefsRepo,
 		delegationRepo,
+		agentRegistry,
 		policyClient,
 		policyEval,
 		extractor,

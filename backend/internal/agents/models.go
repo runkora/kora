@@ -199,7 +199,7 @@ type AgentEnvironment struct {
 }
 
 // AgentType defines a category of managed agent within a tenant.
-// Each active AgentType has a corresponding StatefulSet in the tenant namespace.
+// An active AgentType's pods are pool pods bound to it in the tenant namespace.
 type AgentType struct {
 	ID           string         `json:"id"`
 	TenantID     string         `json:"tenant_id"`
@@ -309,9 +309,14 @@ func (at AgentType) ConnectorScopes() []string {
 func deriveInferenceScopes(modelID string) []string {
 	scopes := []string{"inference:invoke"}
 	if parts := strings.Split(modelID, "/"); len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-		scopes = append(scopes, "inference:"+parts[0]+":"+parts[1]+":use")
+		scopes = append(scopes, modelUseScope(parts[0], parts[1]))
 	}
 	return scopes
+}
+
+// modelUseScope is the scope the inference gateway checks to call the model family/name.
+func modelUseScope(family, name string) string {
+	return "inference:" + family + ":" + name + ":use"
 }
 
 // hasInferenceScope reports whether any scope is an inference:* scope. An explicit
@@ -398,7 +403,7 @@ func (at AgentType) MCPServers() []string {
 // ValidateConnectors checks each connector names a connection, lists at least
 // one well-formed action, and names resources that can be a qualifier segment.
 // Connection names are single scope segments (no whitespace, ':' or '/');
-// actions may contain ':' (e.g. "repo:read") but not whitespace or '/';
+// actions may contain ':' (e.g. "contents:read") but not whitespace or '/';
 // resources are a single segment. Mirrors Connectivity.Validate so a bad
 // connector is rejected at config time, not silently at grant-reconcile time.
 func ValidateConnectors(connectors []Connector) error {
@@ -566,11 +571,16 @@ func (c AgentRunCounts) atTotal(total int) bool { return c.Active+c.Starting >= 
 // Run is the durable unit of work. It outlives browser connections and persists
 // until completed, failed, or explicitly deleted.
 type Run struct {
-	ID          string     `json:"id"`
-	TenantID    string     `json:"tenant_id"`
-	AgentTypeID string     `json:"agent_type_id"`
-	State       RunState   `json:"state"`
-	PodOrdinal  int        `json:"pod_ordinal"`
+	// AlreadyStarted is set by StartRun when the call matched a run an earlier call
+	// created for the same trigger delivery. It is not stored or serialized.
+	AlreadyStarted bool `json:"-"`
+
+	ID          string   `json:"id"`
+	TenantID    string   `json:"tenant_id"`
+	AgentTypeID string   `json:"agent_type_id"`
+	State       RunState `json:"state"`
+	// PodName is the bound pool pod the run was placed on, empty before placement.
+	PodName     string     `json:"pod_name"`
 	CreatedBy   string     `json:"created_by"`
 	StartedAt   *time.Time `json:"started_at"`
 	CompletedAt *time.Time `json:"completed_at"`
@@ -585,6 +595,9 @@ type Run struct {
 	// Decision 3). Nil for autonomous runs. kora-agents revokes the issuance
 	// by this JTI when the run reaches a terminal state.
 	DelegationJTI *string `json:"delegation_jti,omitempty"`
+	// AgentConfig is the sha256 hex digest of the agent's effective config when the run started
+	// (docs/adr/2026-11-19-graders.md). Nil for a run that never reached a session attempt.
+	AgentConfig *string `json:"agent_config"`
 	// IdentityMode is the agent type's identity model, denormalized onto run
 	// reads (repository queries join agent_types) so every run surface can show
 	// the governance posture — and attribute created_by accordingly — without a

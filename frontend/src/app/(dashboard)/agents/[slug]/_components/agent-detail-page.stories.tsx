@@ -1,11 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { userEvent, within } from 'storybook/test';
+import { expect, spyOn, userEvent, within } from 'storybook/test';
 import type { AgentOverviewResponse, AgentType } from '@runkora/shared/api';
 import { AGENT_TYPES, CODE_REVIEWER } from '../../_components/agents-mock-data';
 import type { Period } from '../../_lib/spend';
 import { rowFor, runRowsFor, runsFor, withRoutes } from './agent-detail-page-mock-data';
 import type { RunsData } from './agent-detail-page-mock-data';
 import { LONG_INSTRUCTIONS, mockOverview, mockRunStatsOnly } from './agent-overview-mock-data';
+import { graderFleet } from './agent-grades-mock-data';
 import { AgentDetailShell } from './agent-detail-shell';
 
 type OverviewFor = (slug: string, period: Period) => AgentOverviewResponse;
@@ -34,13 +35,10 @@ const meta: Meta<typeof AgentDetailShell> = {
 export default meta;
 type Story = StoryObj<typeof AgentDetailShell>;
 
-/** Opens a tab by its visible name once the page has rendered. */
-const openTab =
-  (name: string): NonNullable<Story['play']> =>
-  async ({ canvasElement }) => {
-    const tab = await within(canvasElement).findByRole('tab', { name });
-    await userEvent.click(tab);
-  };
+/** The page opened at `query`; the page reads its tab, Grader and grade filter from the URL. */
+const atQuery = (query: Record<string, string>): Story['parameters'] => ({
+  nextjs: { appDirectory: true, navigation: { pathname: '/agents/code-reviewer', query } },
+});
 
 /** Picks a period in the header control. */
 const openPeriod =
@@ -177,13 +175,17 @@ export const EditInstructions: Story = {
   },
 };
 
-/** The Overview's Recent Runs: View all runs switches to the Runs tab. */
+/** The Overview's Recent Runs: View all runs moves the URL to the Runs tab. */
 export const OverviewViewAllRuns: Story = {
   ...Overview,
   play: async ({ canvasElement }) => {
+    // Storybook's search params do not follow the history API, so the story checks the write.
+    const replace = spyOn(window.history, 'replaceState').mockImplementation(() => undefined);
     await userEvent.click(
       await within(canvasElement).findByRole('button', { name: /View all runs/ }),
     );
+    await expect(replace).toHaveBeenCalledWith(null, '', '/agents/code-reviewer?tab=runs');
+    replace.mockRestore();
   },
 };
 
@@ -191,7 +193,7 @@ export const OverviewViewAllRuns: Story = {
 const runsStory = (set: RunsData): Story => ({
   decorators: withRoutes(CODE_REVIEWER, mockOverview, runsFor(CODE_REVIEWER, set)),
   args: { initialRuns: runRowsFor(CODE_REVIEWER, set) },
-  play: openTab('Runs'),
+  parameters: atQuery({ tab: 'runs' }),
 });
 
 /** Runs from pull requests, Slack, an alert, a schedule and a person, each with its source chips and starter. */
@@ -210,7 +212,7 @@ export const RunsEmpty: Story = runsStory('empty');
 
 export const Triggers: Story = {
   decorators: withRoutes(CODE_REVIEWER),
-  play: openTab('Triggers'),
+  parameters: atQuery({ tab: 'triggers' }),
 };
 
 const RELEASE_NOTES = AGENT_TYPES[3] ?? CODE_REVIEWER;
@@ -247,3 +249,46 @@ export const NotFound: Story = {
   decorators: withRoutes(CODE_REVIEWER),
   args: { initialAgent: null, initialRuns: [], initialStatus: 'not_found', initialOverview: null },
 };
+
+// ── Grades ───────────────────────────────────────────────────────────────────
+
+/** A story that opens the page at `query`, with `fleet` as the agent's Graders. */
+const gradesStory = (
+  query: Record<string, string>,
+  fleet = graderFleet(),
+  extra: Partial<Story> = {},
+): Story => ({
+  decorators: withRoutes(CODE_REVIEWER, mockOverview, runsFor(CODE_REVIEWER), fleet),
+  parameters: atQuery(query),
+  ...extra,
+});
+
+/** The Grades tab: twelve Graders, failing first. */
+export const Grades: Story = gradesStory({ tab: 'grades' });
+
+/** Forty Graders: paged, searchable and filtered by status. */
+export const GradesManyGraders: Story = gradesStory({ tab: 'grades' }, graderFleet('many'));
+
+/** An agent with no Graders. */
+export const GradesNoGraders: Story = gradesStory({ tab: 'grades' }, graderFleet('none'));
+
+/** The Failing quick filter. */
+export const GradesFailing: Story = gradesStory({ tab: 'grades' }, graderFleet('many'), {
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByRole('button', { name: /^Failing/ }));
+  },
+});
+
+/** One Grader with five questions, one a choice and one a scale; the most failed question is open on its answers and runs. */
+export const GraderPage: Story = gradesStory({ tab: 'grades', grader: 'summary-accurate' });
+
+/** One Grader with a single question: its answers and its failed or uncertain runs follow the question. */
+export const GraderPageOneQuestion: Story = gradesStory({ tab: 'grades', grader: 'ci-read' });
+
+/** The Runs tab filtered to one question's failed runs, as the Grader page links to it. */
+export const RunsFilteredByGrade: Story = gradesStory({
+  tab: 'runs',
+  grader: 'reads-callers',
+  question: 'read-callers',
+  verdict: 'fail',
+});

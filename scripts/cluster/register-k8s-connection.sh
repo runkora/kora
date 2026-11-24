@@ -12,11 +12,9 @@
 # RBAC is the outer ceiling on anything kora policy allows through.
 #
 # baseHost is the k3d server's own hostname, which CoreDNS resolves from its
-# NodeHosts entries and which is on the API server certificate. It is
-# deliberately not kubernetes.default.svc.cluster.local: that is a mesh
-# service, so the sandbox's sidecar routes it inside the mesh and the traffic
-# never reaches the egress chokepoint. A bare IP is rejected too, since TLS to
-# an IP literal carries no SNI for the interceptor to match.
+# NodeHosts entries and which is on the API server certificate. A bare IP is
+# rejected, since TLS to an IP literal carries no SNI for the interceptor to
+# match.
 #
 # Idempotent: safe to re-run. The token is reissued on every run.
 # =============================================================================

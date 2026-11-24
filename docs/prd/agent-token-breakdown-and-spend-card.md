@@ -182,7 +182,7 @@ The Tokens card expands to show sub-rows:
 
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
-| Agent principal ID not present in inference_usage (BYOC or non-gateway inference) | Medium | Low | Return zeros gracefully; show "—" |
+| Agent principal ID not present in inference_usage (non-gateway inference) | Medium | Low | Return zeros gracefully; show "—" |
 | Query performance on large tenants | Medium | Low | 7-day window limits scan; existing index covers the pattern |
 
 ---

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -20,13 +21,19 @@ import (
 
 // lookupAdapter opens real github_app connectors whose node id lookup is served
 // from visible: what each connection's installation can see, keyed by
-// connection name, then node id, to owner login.
+// connection name, then node id, to "owner/name".
 type lookupAdapter struct {
 	credentials.Adapter
 	visible    map[string]map[string]string
 	err        error
 	lookups    int
 	categories [][]string
+	// repos records each lookup's repository restriction, nil for none.
+	repos [][]string
+	// qualifying opens connectors that also qualify by resolved ids.
+	qualifying bool
+	// partial reports lookups as answered with errors.
+	partial bool
 }
 
 type lookupConnector struct {
@@ -41,26 +48,34 @@ func (a *lookupAdapter) Open(conn credentials.Connection) (credentials.Connector
 	if err != nil {
 		return nil, err
 	}
-	return &lookupConnector{Connector: c, ownerScoped: c.(ownerScoped), name: conn.Name, adapter: a}, nil
+	lc := &lookupConnector{Connector: c, ownerScoped: c.(ownerScoped), name: conn.Name, adapter: a}
+	if a.qualifying {
+		return qualifyingConnector{lc}, nil
+	}
+	return lc, nil
 }
 
-func (c *lookupConnector) NodeOwners(_ context.Context, ids, categories []string) (map[string]string, error) {
+// NodeRepositories answers from visible, every repository treated as private:
+// a token limited to repos sees no object in another one, as GitHub's would.
+func (c *lookupConnector) NodeRepositories(_ context.Context, ids, categories, repos []string) (map[string]string, bool, error) {
 	c.adapter.lookups++
 	c.adapter.categories = append(c.adapter.categories, categories)
+	c.adapter.repos = append(c.adapter.repos, repos)
 	if c.adapter.err != nil {
-		return nil, c.adapter.err
+		return nil, false, c.adapter.err
 	}
 	out := map[string]string{}
 	for _, id := range ids {
-		if owner, ok := c.adapter.visible[c.name][id]; ok {
-			out[id] = owner
+		value, ok := c.adapter.visible[c.name][id]
+		if _, name, isRepo := strings.Cut(value, "/"); ok && (!isRepo || repos == nil || slices.Contains(repos, name)) {
+			out[id] = value
 		}
 	}
-	return out, nil
+	return out, !c.adapter.partial, nil
 }
 
-func (c *lookupConnector) RepoOwners(ctx context.Context, ids, categories []string) (map[string]string, error) {
-	return c.NodeOwners(ctx, ids, categories)
+func (c *lookupConnector) Repositories(ctx context.Context, ids, categories, repos []string) (map[string]string, bool, error) {
+	return c.NodeRepositories(ctx, ids, categories, repos)
 }
 
 func lookupBroker(pol *selectionPolicy, conns candidateConns, la *lookupAdapter) *Broker {
@@ -85,10 +100,10 @@ func TestResolveConnection_OwnerResolution(t *testing.T) {
 	contoso := githubConn(t, "contoso-github", "contoso")
 	fabrikam := githubConn(t, "fabrikam-github", "fabrikam")
 	both := candidateConns{contoso, fabrikam}
-	holdsBoth := []string{"connection:contoso-github:repo:read", "connection:fabrikam-github:repo:read"}
+	holdsBoth := []string{"connection:contoso-github:read", "connection:fabrikam-github:read"}
 	visible := map[string]map[string]string{
-		"contoso-github":  {"PR_contoso": "contoso", "R_public": "fabrikam"},
-		"fabrikam-github": {"PR_fabrikam": "fabrikam", "R_public": "fabrikam", "522": "fabrikam"},
+		"contoso-github":  {"PR_contoso": "contoso/r", "R_public": "fabrikam/r", "U_1": "User"},
+		"fabrikam-github": {"PR_fabrikam": "fabrikam/r", "R_public": "fabrikam/r", "522": "fabrikam/r"},
 	}
 	repoPath := func(path string) EgressRequest {
 		r := httptest.NewRequest(http.MethodGet, "https://api.github.com"+path, nil)
@@ -115,6 +130,7 @@ func TestResolveConnection_OwnerResolution(t *testing.T) {
 		{name: "node id lookup selects contoso", conns: both, scopes: holdsBoth, req: graphqlRequest(nodeDoc("PR_contoso")), want: "contoso-github", wantLookups: 1},
 		{name: "public node selected by its owner", conns: both, scopes: holdsBoth, req: graphqlRequest(nodeDoc("R_public")), want: "fabrikam-github", wantLookups: 1},
 		{name: "unresolvable id denied", conns: both, scopes: holdsBoth, req: graphqlRequest(nodeDoc("PR_unknown")), wantInMsg: "none of its node ids resolved", wantLookups: 2},
+		{name: "user id names no owner", conns: both, scopes: holdsBoth, req: graphqlRequest(nodeDoc("U_1")), wantInMsg: "none of its node ids resolved", wantLookups: 2},
 		{name: "resolvable id beside an unresolvable string", conns: both, scopes: holdsBoth, req: graphqlRequest(nodeDoc("garbage", "PR_fabrikam")), want: "fabrikam-github", wantLookups: 2},
 		{name: "ids spanning candidates denied", conns: both, scopes: holdsBoth, req: graphqlRequest(nodeDoc("PR_contoso", "PR_fabrikam")), wantInMsg: "served by different connections", wantLookups: 2},
 		{name: "failed lookup denied", conns: both, scopes: holdsBoth, req: graphqlRequest(nodeDoc("PR_fabrikam")), lookupErr: errors.New("github down"), wantInMsg: "node id lookup failed", wantLookups: 1},
@@ -157,8 +173,8 @@ func TestResolveConnection_OwnerResolution(t *testing.T) {
 // A resolved node id is cached, so the next request needs no lookup.
 func TestResolveConnection_NodeOwnerCacheHit(t *testing.T) {
 	both := candidateConns{githubConn(t, "contoso-github", "contoso"), githubConn(t, "fabrikam-github", "fabrikam")}
-	la := &lookupAdapter{visible: map[string]map[string]string{"contoso-github": {"PR_contoso": "contoso"}}}
-	b := lookupBroker(&selectionPolicy{scopes: []string{"connection:contoso-github:repo:read", "connection:fabrikam-github:repo:read"}}, both, la)
+	la := &lookupAdapter{visible: map[string]map[string]string{"contoso-github": {"PR_contoso": "contoso/r"}}}
+	b := lookupBroker(&selectionPolicy{scopes: []string{"connection:contoso-github:read", "connection:fabrikam-github:read"}}, both, la)
 	for range 2 {
 		conn, _, err := b.resolveConnection(context.Background(), acmeClaims, graphqlRequest(`{"query":"{ node(id: \"PR_contoso\") { id } }"}`))
 		if err != nil || conn.Name != "contoso-github" {
@@ -180,12 +196,12 @@ func TestResolveConnection_NodeOwnersDoNotLeak(t *testing.T) {
 		githubConn(t, "acme-github", "acme"),
 	}
 	visible := map[string]map[string]string{
-		"contoso-github":  {"PR_contoso": "contoso"},
-		"fabrikam-github": {"PR_fabrikam": "fabrikam", "R_contosopublic": "contoso"},
-		"acme-github":     {"PR_acme": "acme"},
+		"contoso-github":  {"PR_contoso": "contoso/r"},
+		"fabrikam-github": {"PR_fabrikam": "fabrikam/r", "R_contosopublic": "contoso/r"},
+		"acme-github":     {"PR_acme": "acme/r"},
 	}
-	holdsAll := []string{"connection:contoso-github:repo:read", "connection:fabrikam-github:repo:read", "connection:acme-github:repo:read"}
-	holdsFabrikamAcme := []string{"connection:fabrikam-github:repo:read", "connection:acme-github:repo:read"}
+	holdsAll := []string{"connection:contoso-github:read", "connection:fabrikam-github:read", "connection:acme-github:read"}
+	holdsFabrikamAcme := []string{"connection:fabrikam-github:read", "connection:acme-github:read"}
 	la := &lookupAdapter{visible: visible}
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	la.Adapter = githubapp.New(nil, nil, logger)
@@ -240,7 +256,7 @@ func TestResolveConnection_NodeOwnersDoNotLeak(t *testing.T) {
 
 func TestResolveConnection_OwnerResolutionEdges(t *testing.T) {
 	both := candidateConns{githubConn(t, "contoso-github", "contoso"), githubConn(t, "fabrikam-github", "fabrikam")}
-	holdsBoth := []string{"connection:contoso-github:repo:read", "connection:fabrikam-github:repo:read"}
+	holdsBoth := []string{"connection:contoso-github:read", "connection:fabrikam-github:read"}
 	many := make([]string, MaxNodeIDs+1)
 	for i := range many {
 		many[i] = fmt.Sprintf("PR_%d", i)
@@ -285,7 +301,7 @@ func TestResolveConnection_OwnerResolutionEdges(t *testing.T) {
 func TestResolveConnection_UnseenNodeIDCached(t *testing.T) {
 	both := candidateConns{githubConn(t, "contoso-github", "contoso"), githubConn(t, "fabrikam-github", "fabrikam")}
 	la := &lookupAdapter{}
-	b := lookupBroker(&selectionPolicy{scopes: []string{"connection:contoso-github:repo:read", "connection:fabrikam-github:repo:read"}}, both, la)
+	b := lookupBroker(&selectionPolicy{scopes: []string{"connection:contoso-github:read", "connection:fabrikam-github:read"}}, both, la)
 	for range 3 {
 		if _, _, err := b.resolveConnection(context.Background(), acmeClaims, graphqlRequest(`{"query":"{ node(id: \"nope\") { id } }"}`)); err == nil {
 			t.Fatal("want an unresolved denial")
@@ -322,7 +338,7 @@ func TestOwnerCache_ExpiryAndBound(t *testing.T) {
 // qualifier, and a caller holding only qualified grants triggers none.
 func TestResolveConnection_LookupLimitedToUnqualifiedCategories(t *testing.T) {
 	both := candidateConns{githubConn(t, "contoso-github", "contoso"), githubConn(t, "fabrikam-github", "fabrikam")}
-	visible := map[string]map[string]string{"fabrikam-github": {"PR_fabrikam": "fabrikam"}}
+	visible := map[string]map[string]string{"fabrikam-github": {"PR_fabrikam": "fabrikam/r"}}
 	doc := graphqlRequest(`{"query":"{ node(id: \"PR_fabrikam\") { id } }"}`)
 
 	t.Run("qualified grants only", func(t *testing.T) {

@@ -65,8 +65,15 @@ func githubConn(t *testing.T, name, owner string) *credentials.Connection {
 func selectionBroker(pol *selectionPolicy, conns candidateConns) *Broker {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	adapters := NewAdapterRegistry()
-	adapters.Register(githubapp.New(nil, nil, logger))
+	adapters.Register(githubapp.New(nil, noSecrets{}, logger))
 	return NewBroker(pol, conns, adapters, passthrough.New(), logger)
+}
+
+// noSecrets fails every secret read, so every id lookup fails.
+type noSecrets struct{}
+
+func (noSecrets) Resolve(context.Context, string) ([]byte, error) {
+	return nil, errors.New("no secrets in this test")
 }
 
 func egressRequest(method, url string) EgressRequest {
@@ -130,7 +137,7 @@ func TestResolveConnection_SameHostSelection(t *testing.T) {
 
 func TestAuthorize_UnresolvedConnection(t *testing.T) {
 	both := candidateConns{githubConn(t, "contoso-github", "contoso"), githubConn(t, "fabrikam-github", "fabrikam")}
-	holdsBoth := []string{"connection:contoso-github:repo:read", "connection:fabrikam-github:repo:read"}
+	holdsBoth := []string{"connection:contoso-github:read", "connection:fabrikam-github:read"}
 
 	tests := []struct {
 		name       string
@@ -188,7 +195,7 @@ func TestAuthorize_ScopeReadFailureDenies(t *testing.T) {
 // Policy is evaluated against the connection the owner selects.
 func TestAuthorize_PolicyCheckedOnSelectedConnection(t *testing.T) {
 	both := candidateConns{githubConn(t, "contoso-github", "contoso"), githubConn(t, "fabrikam-github", "fabrikam")}
-	pol := &selectionPolicy{scopes: []string{"connection:contoso-github:repo:read"}, ownEgress: true}
+	pol := &selectionPolicy{scopes: []string{"connection:contoso-github:read"}, ownEgress: true}
 	got, err := selectionBroker(pol, both).Authorize(context.Background(), acmeClaims, egressRequest(http.MethodGet, "https://api.github.com/repos/fabrikam/widgets"))
 	if err != nil || got.Action != anonymousReadAction {
 		t.Fatalf("decision = %+v, err %v, want the anonymous read after a policy deny", got, err)

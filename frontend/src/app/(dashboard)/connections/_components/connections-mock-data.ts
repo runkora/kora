@@ -1,18 +1,28 @@
 import type { ConnectionRow } from '../_types';
 
 const GITHUB_ACTIONS = [
-  'repo:read',
-  'repo:write',
-  'pull_request:read',
-  'pull_request:write',
-  'pull_request:review',
-  'issue:read',
-  'issue:write',
-  'checks:read',
-  'workflow:dispatch',
+  'metadata:read',
   'contents:read',
   'contents:write',
-  'release:read',
+  'workflows:write',
+  'issues:read',
+  'issues:write',
+  'pulls:read',
+  'pulls:write',
+  'ci:read',
+  'ci:write',
+  'deployments:read',
+  'deployments:write',
+  'security:read',
+  'security:write',
+  'secrets:read',
+  'secrets:write',
+  'admin:read',
+  'admin:write',
+  'members:read',
+  'members:write',
+  'org_projects:read',
+  'org_projects:write',
 ];
 
 /** A realistic catalog: a few adapters, one connection with no actions and one nobody attaches. */
@@ -30,7 +40,7 @@ export const MOCK_CONNECTIONS: ConnectionRow[] = [
   {
     name: 'github-oss',
     adapter: 'github_app',
-    actions: ['repo:read', 'pull_request:read', 'issue:read', 'issue:write'],
+    actions: ['metadata:read', 'contents:read', 'pulls:read', 'issues:read', 'issues:write'],
     usedBy: [{ slug: 'issue-triager', name: 'Issue Triager' }],
   },
   {

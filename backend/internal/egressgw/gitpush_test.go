@@ -41,7 +41,7 @@ func TestExplainWorkflowRefusal(t *testing.T) {
 				t.Fatal(err)
 			}
 			got, _ := io.ReadAll(rec.Body)
-			hasNote := strings.Contains(string(got), "workflow files are out of scope")
+			hasNote := strings.Contains(string(got), "holds workflows:write on the repository")
 			if hasNote != tc.wantNote {
 				t.Fatalf("note present = %v, want %v; body %q", hasNote, tc.wantNote, got)
 			}

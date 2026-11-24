@@ -13,7 +13,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/declarative/v1alpha1"
 )
 
-// The operator projects Environment and Agent resources through these Appliers, which write
+// The operator projects Environment, Agent and Grader resources through these Appliers, which write
 // through the services' declared write path (docs/adr/2026-10-24-declarative-resources.md).
 
 // declaredEnvironmentStore reads the rows the Environment applier projects into.
@@ -388,6 +388,145 @@ func connectorsOf(in []v1alpha1.Connector) []Connector {
 		out = append(out, Connector{Connection: c.Connection, Actions: c.Actions, Resources: c.Resources})
 	}
 	return out
+}
+
+// ── Grader ──────────────────────────────────────────────────────────────────
+
+// declaredGraderStore reads and writes the rows the Grader applier projects into. Graders have no
+// API, so the applier is their only writer.
+type declaredGraderStore interface {
+	GetAgentTypeBySlug(ctx context.Context, tenantID, slug string) (*AgentType, error)
+	GetGraderByName(ctx context.Context, tenantID, name string) (*Grader, error)
+	PutGrader(ctx context.Context, g Grader, versionSpec []byte) (*Grader, error)
+	DeleteGrader(ctx context.Context, tenantID, name string) error
+	ListDeclaredGraders(ctx context.Context, tenantID string) ([]declarative.Declared, error)
+	graderModelScopes(ctx context.Context, tenantID string) ([]string, error)
+}
+
+// graderGrant sets the tenant's grading grant. *GraderPrincipal implements it.
+type graderGrant interface {
+	Ensure(ctx context.Context, tenantID string, modelScopes []string) error
+}
+
+// GraderApplier applies declared Graders.
+type GraderApplier struct {
+	store     declaredGraderStore
+	principal graderGrant
+}
+
+// NewGraderApplier returns the declarative.Applier for KindGraders. principal is the tenant's
+// grading principal, whose grant follows the models the tenant's Graders ask.
+func NewGraderApplier(store declaredGraderStore, principal *GraderPrincipal) *GraderApplier {
+	return newGraderApplier(store, principal)
+}
+
+func newGraderApplier(store declaredGraderStore, principal graderGrant) *GraderApplier {
+	return &GraderApplier{store: store, principal: principal}
+}
+
+// syncGrant sets the grading grant to the models of the tenant's Graders. It runs on every
+// Grader apply and delete, so a removed model leaves the grant at once. A failure fails the
+// apply, and the operator retries it.
+func (a *GraderApplier) syncGrant(ctx context.Context, tenantID string) error {
+	scopes, err := a.store.graderModelScopes(ctx, tenantID)
+	if err != nil {
+		return err
+	}
+	if err := a.principal.Ensure(ctx, tenantID, scopes); err != nil {
+		return fmt.Errorf("sync grading grant: %w", err)
+	}
+	return nil
+}
+
+// Apply validates the spec, stores its version and points the Grader named item.Name at it. A
+// recreated Agent has a new id, which the operator sends in item.Refs and the row follows.
+func (a *GraderApplier) Apply(ctx context.Context, item declarative.Item) (declarative.Result, error) {
+	var spec v1alpha1.GraderSpec
+	if err := json.Unmarshal(item.Spec, &spec); err != nil {
+		return invalidResult(fmt.Errorf("decode spec: %w", err)), nil
+	}
+	spec, err := normalizeGrader(spec)
+	if err != nil {
+		return invalidResult(err), nil
+	}
+	minPassRate, err := parseMinPassRate(spec.MinPassRate)
+	if err != nil {
+		return invalidResult(err), nil
+	}
+	version, versionSpec, err := versionOf(spec)
+	if err != nil {
+		return declarative.Result{}, err
+	}
+	agentID, err := a.agentID(ctx, item, spec.Agent)
+	if err != nil {
+		return declarative.Result{}, err
+	}
+	if agentID == "" {
+		return declarative.Result{Outcome: declarative.OutcomePending, Message: fmt.Sprintf("agent %q is not resolved yet", spec.Agent)}, nil
+	}
+	g := Grader{
+		TenantID: item.TenantID, Name: item.Name, AgentTypeID: agentID, Description: spec.Description, MinPassRate: minPassRate,
+		CurrentVersion: version, ResourceUID: item.UID, ResourceGeneration: item.Generation, Repository: item.Repository,
+	}
+	row, err := a.store.GetGraderByName(ctx, item.TenantID, item.Name)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return declarative.Result{}, fmt.Errorf("get grader %q: %w", item.Name, err)
+	}
+	if row != nil && sameGrader(*row, g) {
+		// The grant is synced again, so a sync that failed after the write is retried here.
+		if syncErr := a.syncGrant(ctx, item.TenantID); syncErr != nil {
+			return declarative.Result{}, syncErr
+		}
+		return declarative.Result{Outcome: declarative.OutcomeProjected, ID: row.ID, Ready: true}, nil
+	}
+	stored, err := a.store.PutGrader(ctx, g, versionSpec)
+	if err != nil {
+		return declarative.Result{}, fmt.Errorf("apply grader %q: %w", item.Name, err)
+	}
+	if err := a.syncGrant(ctx, item.TenantID); err != nil {
+		return declarative.Result{}, err
+	}
+	return declarative.Result{Outcome: declarative.OutcomeProjected, ID: stored.ID, Ready: true}, nil
+}
+
+// agentID returns the id of the tenant's live agent named slug when it matches the id the
+// operator resolved, or "" while the two disagree, such as just after the Agent is recreated.
+func (a *GraderApplier) agentID(ctx context.Context, item declarative.Item, slug string) (string, error) {
+	ref := item.Refs[declarative.RefAgent(slug)]
+	if ref == "" {
+		return "", nil
+	}
+	at, err := a.store.GetAgentTypeBySlug(ctx, item.TenantID, slug)
+	if errors.Is(err, ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get agent type %q: %w", slug, err)
+	}
+	if at.ID != ref {
+		return "", nil
+	}
+	return at.ID, nil
+}
+
+// sameGrader reports whether a stored row already holds every field of g but its id.
+func sameGrader(row, g Grader) bool {
+	rate, gRate := row.MinPassRate, g.MinPassRate
+	row.ID, row.AgentSlug, row.MinPassRate, g.AgentSlug, g.MinPassRate = "", "", nil, "", nil
+	return row == g && (rate == nil) == (gRate == nil) && (rate == nil || *rate == *gRate)
+}
+
+// Delete deletes the declared Grader and sets the grading grant to the models left.
+func (a *GraderApplier) Delete(ctx context.Context, tenantID, name string) error {
+	if err := a.store.DeleteGrader(ctx, tenantID, name); err != nil {
+		return err
+	}
+	return a.syncGrant(ctx, tenantID)
+}
+
+// List returns the tenant's declared Graders.
+func (a *GraderApplier) List(ctx context.Context, tenantID string) ([]declarative.Declared, error) {
+	return a.store.ListDeclaredGraders(ctx, tenantID)
 }
 
 func invalidResult(err error) declarative.Result {

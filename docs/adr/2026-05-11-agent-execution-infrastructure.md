@@ -1,9 +1,11 @@
 # Agent Execution Infrastructure
 
-**Status:** Accepted (Amended 2026-10-12; the HPA scaling decision superseded in part by [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) 2026-11-10)  
+**Status:** Accepted (Amended 2026-10-12; the HPA scaling decision superseded in part by [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) 2026-11-10; the Amendment 1 minimum of 2 replicas and the PDB `minAvailable: 1` superseded in part by [Demand-Driven Agent Scaling](2026-11-09-demand-driven-agent-scaling.md) 2026-11-21; the StatefulSet, the stable pod DNS and the PodDisruptionBudget superseded in part by [Agent Cold Tier](2026-11-22-agent-cold-tier.md) 2026-11-23)  
 **Date:** 2026-05-11
 **Deciders:** Platform Engineering  
 **Technical Story:** Managed agent workloads must run in tenant namespaces with stable identity, governed LLM access, and efficient resource utilisation. This ADR decides how agent pods are deployed, scaled, and addressed.
+
+**Note (2026-11-22):** The BYOC statements in this ADR no longer hold. [BYOC ADR, Amendment 1](2026-05-11-byoc-agent-discovery-and-observability.md) retires BYOC agent identity.
 
 ---
 

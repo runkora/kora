@@ -6,6 +6,7 @@ package policy
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -37,10 +38,11 @@ type Evaluator interface {
 	CheckBudget(ctx context.Context, tenantID string, req BudgetCheckRequest) (BudgetResult, error)
 
 	// GetBudgetCategories returns the applicable budget categories for the
-	// principal from the compiled OPA bundle (data.budgets[principal_id].categories).
+	// principal from the compiled OPA bundle (data.budgets["TYPE:id"].categories).
+	// principalType is the grants.PrincipalType string (AGENT, HUMAN, SERVICE, PAT).
 	// Returns nil, nil when the principal has no budget configured (no limit).
 	// Fails open: returns nil, nil on any bundle or evaluation error.
-	GetBudgetCategories(ctx context.Context, tenantID, principalID string) ([]BudgetCategory, error)
+	GetBudgetCategories(ctx context.Context, tenantID, principalType, principalID string) ([]BudgetCategory, error)
 
 	// GetRoleBudgets returns the budget categories for the given OIDC role names
 	// from the compiled OPA bundle (data.role_budgets). This is called at request
@@ -55,7 +57,7 @@ type Evaluator interface {
 	// definitions (data.role_budgets). Role membership is not resolvable here —
 	// callers attribute role budgets to principals from request-time data.
 	// Fails open: returns empty maps on any bundle or evaluation error.
-	ListBudgets(ctx context.Context, tenantID string) (map[string]PrincipalBudget, map[string]RoleBudget, error)
+	ListBudgets(ctx context.Context, tenantID string) (map[BudgetKey]PrincipalBudget, map[string]RoleBudget, error)
 
 	// GetTenantBudget returns the tenant's rollup cap from the compiled bundle,
 	// or nil when none is configured. Fails open: returns nil on any error.
@@ -80,6 +82,28 @@ type BudgetCategory struct {
 	PerRunLimitUSD float64
 	// Pooled marks a shared-pot role budget (roles only).
 	Pooled bool
+}
+
+// BudgetKey identifies a budget owner by principal type and ID. Budgets are
+// keyed by both so a grant of one type (e.g. HUMAN) can never affect the
+// budget of a different principal type that happens to share the ID (#720).
+type BudgetKey struct {
+	Type string
+	ID   string
+}
+
+// String returns the key used in the compiled bundle's data.budgets document:
+// "<TYPE>:<principal_id>". This is the single place the format is defined.
+func (k BudgetKey) String() string { return k.Type + ":" + k.ID }
+
+// parseBudgetKey splits a bundle key at the first ':' only (IDs such as
+// spiffe://... contain colons). ok is false when there is no type prefix.
+func parseBudgetKey(s string) (BudgetKey, bool) {
+	t, id, found := strings.Cut(s, ":")
+	if !found || t == "" {
+		return BudgetKey{}, false
+	}
+	return BudgetKey{Type: t, ID: id}, true
 }
 
 // PrincipalBudget is a principal's compiled grant-budget entry from data.budgets.

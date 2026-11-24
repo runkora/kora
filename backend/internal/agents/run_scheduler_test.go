@@ -1,17 +1,20 @@
 package agents
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"slices"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -72,7 +75,7 @@ type scriptedSM struct {
 	onCreate func()
 }
 
-func (s *scriptedSM) CreateSession(ctx context.Context, url string, req sessionmanager.CreateSessionRequest) error {
+func (s *scriptedSM) CreateSession(ctx context.Context, pod sessionmanager.Pod, req sessionmanager.CreateSessionRequest) error {
 	s.calls++
 	if s.onCreate != nil {
 		s.onCreate()
@@ -80,7 +83,7 @@ func (s *scriptedSM) CreateSession(ctx context.Context, url string, req sessionm
 	if s.calls <= len(s.errs) && s.errs[s.calls-1] != nil {
 		return s.errs[s.calls-1]
 	}
-	return s.mockSMClient.CreateSession(ctx, url, req)
+	return s.mockSMClient.CreateSession(ctx, pod, req)
 }
 
 // setRunStateRepo fails the first SetRunState call with err. When commit is true
@@ -115,6 +118,19 @@ type startClaimedEnv struct {
 	ctx  context.Context
 }
 
+// fakeWaker records the pods it grows and returns err.
+type fakeWaker struct {
+	err  error
+	woke []string
+	warm []bool
+}
+
+func (w *fakeWaker) WakePod(_ context.Context, _, name string, warm bool) error {
+	w.woke = append(w.woke, name)
+	w.warm = append(w.warm, warm)
+	return w.err
+}
+
 func TestStartClaimed(t *testing.T) {
 	reset := errors.New("connection reset")
 	for _, tc := range []struct {
@@ -132,7 +148,7 @@ func TestStartClaimed(t *testing.T) {
 		{name: "starts on a free pod and sends the initial message",
 			wantState: RunStateActive, wantSessions: 1, wantMessages: 1},
 		{name: "no ready pod creates missing resources and releases",
-			setup:     func(e *startClaimedEnv) { e.k8s.noReadyPods = true },
+			setup:     func(e *startClaimedEnv) { e.k8s.unreadyPods = true },
 			wantState: RunStatePending, wantReleased: 1, wantProvMiss: 1},
 		{name: "an agent at its total releases even past the start budget",
 			setup: func(e *startClaimedEnv) {
@@ -166,7 +182,7 @@ func TestStartClaimed(t *testing.T) {
 			wantState: RunStateFailed, wantErr: "No agent pod could take the run within 1m0s."},
 		{name: "past the start budget a pod that is not Ready yet keeps the run queued",
 			setup: func(e *startClaimedEnv) {
-				e.k8s.noReadyPods = true
+				e.k8s.unreadyPods = true
 				e.k8s.livePod = true
 				e.f.run.cfg.StartBudget = time.Minute
 				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-time.Hour)
@@ -182,7 +198,7 @@ func TestStartClaimed(t *testing.T) {
 			wantState: RunStatePending, wantReleased: 1},
 		{name: "past the start budget with no Ready pod an agent at its total keeps the run queued",
 			setup: func(e *startClaimedEnv) {
-				e.k8s.noReadyPods = true
+				e.k8s.unreadyPods = true
 				e.f.run.cfg.StartBudget = time.Minute
 				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-time.Hour)
 				// Starting runs count toward the total as well as active ones.
@@ -243,6 +259,30 @@ func TestStartClaimed(t *testing.T) {
 				e.f.run.repo = &setRunStateRepo{mockRepository: e.repo, err: reset, commit: true}
 			},
 			wantState: RunStateActive, wantSessions: 1, wantMessages: 1},
+		{name: "a warm pod grows before its session",
+			setup:     func(e *startClaimedEnv) { e.f.run.SetPodWaker(&fakeWaker{}) },
+			wantState: RunStateActive, wantSessions: 1, wantMessages: 1},
+		{name: "a grow past its bound releases the run with no session",
+			setup:     func(e *startClaimedEnv) { e.f.run.SetPodWaker(&fakeWaker{err: errGrowTimeout}) },
+			wantState: RunStatePending, wantReleased: 1},
+		{name: "a just-bound pod gets the session once it serves its agent",
+			setup:     func(e *startClaimedEnv) { e.sm.unboundChecks = 2 },
+			wantState: RunStateActive, wantSessions: 1, wantMessages: 1},
+		{name: "a pod that never serves its agent releases the run with no session",
+			setup: func(e *startClaimedEnv) {
+				e.sm.unboundChecks = 1 << 30
+				ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+				t.Cleanup(cancel)
+				e.ctx = ctx
+			},
+			wantState: RunStatePending, wantReleased: 1},
+		{name: "a pod with a pending resize counts as full",
+			setup: func(e *startClaimedEnv) {
+				e.k8s.resizing = []int{0}
+				e.f.run.cfg.StartBudget = time.Minute
+				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-time.Hour)
+			},
+			wantState: RunStatePending, wantReleased: 1},
 		{name: "a session that cannot be closed after a failed activation fails the run",
 			setup: func(e *startClaimedEnv) {
 				e.sm.closeSessionErr = errors.New("pod unreachable")
@@ -401,5 +441,111 @@ func TestWaitScheduler_WaitsForAttemptInFlight(t *testing.T) {
 
 	if len(sm.sessions) != 1 {
 		t.Errorf("sessions = %d, want the start in flight to finish", len(sm.sessions))
+	}
+}
+
+// firstMessageErrs makes the first sends fail with each error in turn, then succeed.
+type firstMessageErrs struct {
+	*mockSMClient
+	errs []error
+}
+
+func (f *firstMessageErrs) SendMessage(ctx context.Context, pod sessionmanager.Pod, runID, content string, idle int, fromPerson bool) error {
+	f.mu.Lock()
+	n := f.sendMessageCalls
+	f.mu.Unlock()
+	if n < len(f.errs) {
+		f.mu.Lock()
+		f.sendMessageCalls++
+		f.mu.Unlock()
+		return f.errs[n]
+	}
+	return f.mockSMClient.SendMessage(ctx, pod, runID, content, idle, fromPerson)
+}
+
+func TestStartClaimed_InitialMessageRetries(t *testing.T) {
+	old := initialMessageBackoff
+	initialMessageBackoff = time.Millisecond
+	t.Cleanup(func() { initialMessageBackoff = old })
+	boom := errors.New("pod unreachable")
+
+	for _, tc := range []struct {
+		name         string
+		msg          string
+		errs         []error
+		cancel       bool
+		wantState    RunState
+		wantCalls    int
+		wantClosed   int
+		wantErrorLog bool
+	}{
+		{name: "fails once then succeeds", msg: "fix the build", errs: []error{boom},
+			wantState: RunStateActive, wantCalls: 2},
+		{name: "fails every time", msg: "fix the build", errs: []error{boom, boom, boom, boom},
+			wantState: RunStateFailed, wantCalls: 3, wantClosed: 1, wantErrorLog: true},
+		{name: "an empty message sends nothing", msg: "",
+			wantState: RunStateActive},
+		{name: "a canceled context ends the retries", msg: "fix the build", errs: []error{boom, boom, boom}, cancel: true,
+			wantState: RunStateFailed, wantCalls: 1, wantClosed: 1, wantErrorLog: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, repo, _, sm := schedulerService(t)
+			var logs bytes.Buffer
+			f.run.logger = logging.NewLoggerWithOutput(&logs)
+			f.run.sm = &firstMessageErrs{mockSMClient: sm, errs: tc.errs}
+			run, err := f.run.StartRun(startCtx(), StartRunRequest{AgentTypeID: "at-1", InitialMessage: tc.msg})
+			if err != nil {
+				t.Fatalf("StartRun: %v", err)
+			}
+			ctx := context.Background()
+			if tc.cancel {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+			claimed, claimedAt := claimRun(repo, run.ID)
+			f.run.startClaimed(ctx, claimed, claimedAt)
+
+			if got := repo.runs[run.ID].State; got != tc.wantState {
+				t.Errorf("state = %s, want %s", got, tc.wantState)
+			}
+			if sm.sendMessageCalls != tc.wantCalls || len(sm.closedSessions) != tc.wantClosed {
+				t.Errorf("send calls = %d, closed = %d, want %d and %d", sm.sendMessageCalls, len(sm.closedSessions), tc.wantCalls, tc.wantClosed)
+			}
+			if tc.wantState == RunStateFailed {
+				if errs := runErrors(t, repo, run.ID); len(errs) != 1 || errs[0]["code"] != "start_failed" {
+					t.Errorf("run errors = %v, want one start_failed", errs)
+				}
+			}
+			hasErrLog := false
+			for line := range strings.SplitSeq(logs.String(), "\n") {
+				if strings.Contains(line, `"level":"error"`) && strings.Contains(line, `"run_id":"`+run.ID+`"`) && strings.Contains(line, `"pod"`) {
+					hasErrLog = true
+				}
+			}
+			if hasErrLog != tc.wantErrorLog {
+				t.Errorf("error log with run_id and pod = %v, want %v; logs: %s", hasErrLog, tc.wantErrorLog, logs.String())
+			}
+		})
+	}
+}
+
+// The pod placement picked is the pod that grows, with the warm state from placement's pod list, before its
+// session is created.
+func TestStartClaimed_GrowsAssignedPod(t *testing.T) {
+	f, repo, k8s, sm := schedulerService(t)
+	k8s.readyPods = 2
+	k8s.warm = []int{1}
+	sm.memory = fullPods("bot", 0)
+	w := &fakeWaker{}
+	f.run.SetPodWaker(w)
+	run, err := f.run.StartRun(startCtx(), StartRunRequest{AgentTypeID: "at-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, claimedAt := claimRun(repo, run.ID)
+	f.run.startClaimed(context.Background(), claimed, claimedAt)
+	if !slices.Equal(w.woke, []string{"pod-1"}) || !slices.Equal(w.warm, []bool{true}) || len(sm.sessions) != 1 {
+		t.Errorf("woke %v warm %v with %d sessions, want pod-1 woken as warm and one session", w.woke, w.warm, len(sm.sessions))
 	}
 }

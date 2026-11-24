@@ -14,6 +14,7 @@ const (
 	KindTriggerSources = "triggersources"
 	KindTriggers       = "triggers"
 	KindPolicyRoles    = "policyroles"
+	KindGraders        = "graders"
 )
 
 // Sources of a projected row: built through the API or projected from a resource.

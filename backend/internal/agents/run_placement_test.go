@@ -15,11 +15,11 @@ import (
 // watermarkBytes is the placement watermark of a mock pod.
 const watermarkBytes = int64(testWatermark * testPodMemory)
 
-// podMemory serves the given working sets, keyed by ordinal, for the pods of slug.
+// podMemory serves the given working sets, keyed by mock pod index, for the pods of slug.
 func podMemory(slug string, workingSets map[int]int64) map[string]sessionmanager.Memory {
 	out := make(map[string]sessionmanager.Memory, len(workingSets))
 	for ord, ws := range workingSets {
-		out[sessionmanager.PodURL(slug, ord, "kora-tenant-t1")] = sessionmanager.Memory{WorkingSetBytes: ws, LimitBytes: testPodMemory}
+		out[testPod(slug, ord, "kora-tenant-t1").URL] = sessionmanager.Memory{WorkingSetBytes: ws, LimitBytes: testPodMemory}
 	}
 	return out
 }
@@ -71,50 +71,49 @@ func TestAssignPod(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		setup func(repo *mockRepository, k8s *mockK8s, sm *mockSMClient)
-		want  int
+		want  string
 		err   error
 	}{
-		{name: "lowest ordinal with room wins over an emptier pod",
+		{name: "the oldest pod with room wins over an emptier pod",
 			setup: func(_ *mockRepository, _ *mockK8s, sm *mockSMClient) {
 				sm.memory = podMemory("bot", map[int]int64{0: watermarkBytes, 1: 400 << 20, 2: 0})
 			},
-			want: 1},
+			want: "pod-1"},
 		{name: "starting runs between readings count",
 			setup: func(repo *mockRepository, _ *mockK8s, sm *mockSMClient) {
 				sm.memory = podMemory("bot", map[int]int64{0: watermarkBytes - 2*testRunAllowance})
 				for i := range 2 {
-					seedRun(t, repo, Run{ID: fmt.Sprintf("starting-%d", i), TenantID: "t1", AgentTypeID: "at-1", State: RunStateStarting, PodOrdinal: 0})
+					seedRun(t, repo, Run{ID: fmt.Sprintf("starting-%d", i), TenantID: "t1", AgentTypeID: "at-1", State: RunStateStarting, PodName: "pod-0"})
 				}
 			},
-			want: 1},
+			want: "pod-1"},
 		{name: "a run assigned within the window counts as starting",
 			setup: func(repo *mockRepository, _ *mockK8s, sm *mockSMClient) {
 				sm.memory = podMemory("bot", map[int]int64{0: watermarkBytes - 2*testRunAllowance})
 				recent := time.Now().Add(-time.Second)
-				seedRun(t, repo, Run{ID: "recent", TenantID: "t1", AgentTypeID: "at-1", State: RunStateActive, PodOrdinal: 0, StartedAt: &recent})
+				seedRun(t, repo, Run{ID: "recent", TenantID: "t1", AgentTypeID: "at-1", State: RunStateActive, PodName: "pod-0", StartedAt: &recent})
 			},
-			want: 1},
+			want: "pod-1"},
 		{name: "a run assigned before the window counts by its memory reading",
 			setup: func(repo *mockRepository, _ *mockK8s, sm *mockSMClient) {
 				sm.memory = podMemory("bot", map[int]int64{0: watermarkBytes - 2*testRunAllowance})
 				old := time.Now().Add(-time.Minute)
-				seedRun(t, repo, Run{ID: "old", TenantID: "t1", AgentTypeID: "at-1", State: RunStateActive, PodOrdinal: 0, StartedAt: &old})
+				seedRun(t, repo, Run{ID: "old", TenantID: "t1", AgentTypeID: "at-1", State: RunStateActive, PodName: "pod-0", StartedAt: &old})
 			},
-			want: 0},
+			want: "pod-0"},
 		{name: "every pod at the watermark",
 			setup: func(_ *mockRepository, _ *mockK8s, sm *mockSMClient) { sm.memory = fullPods("bot", 0, 1, 2) },
 			err:   errNoFreePod},
-		{name: "no placement on an ordinal at or above the current replicas",
+		{name: "no placement on a pod the scaler removed after the list was read",
 			setup: func(_ *mockRepository, k8s *mockK8s, sm *mockSMClient) {
-				// The scaler removed pods 1 and 2 after the pod list was read.
-				k8s.replicas = 1
+				k8s.gonePods = []string{"pod-1", "pod-2"}
 				sm.memory = fullPods("bot", 0)
 			},
 			err: errNoFreePod},
 		{name: "the total counts live runs on every pod",
 			setup: func(repo *mockRepository, _ *mockK8s, _ *mockSMClient) {
 				for i, st := range []RunState{RunStateActive, RunStateIdle, RunStateStarting} {
-					seedRun(t, repo, Run{ID: fmt.Sprintf("live-%d", i), TenantID: "t1", AgentTypeID: "at-1", State: st, PodOrdinal: i})
+					seedRun(t, repo, Run{ID: fmt.Sprintf("live-%d", i), TenantID: "t1", AgentTypeID: "at-1", State: st, PodName: testPodName(i)})
 				}
 			},
 			err: errAgentAtTotal},
@@ -122,12 +121,12 @@ func TestAssignPod(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f, repo, k8s, sm, at, run := placementEnv(t, 3, 3)
 			tc.setup(repo, k8s, sm)
-			pod, err := f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1")
+			pod, _, err := f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1")
 			if !errors.Is(err, tc.err) {
 				t.Fatalf("assignPod error = %v, want %v", err, tc.err)
 			}
 			if tc.err == nil && pod != tc.want {
-				t.Errorf("pod = %d, want %d", pod, tc.want)
+				t.Errorf("pod = %s, want %s", pod, tc.want)
 			}
 			if got := repo.runs[run.ID]; (tc.err == nil) != (got.State == RunStateStarting) {
 				t.Errorf("run state = %s", got.State)
@@ -136,11 +135,22 @@ func TestAssignPod(t *testing.T) {
 	}
 }
 
+// During a roll the current pods take runs before the old ones, so the old pods drain.
+func TestAssignPod_RollPlacesOnCurrentPods(t *testing.T) {
+	f, _, k8s, sm, at, run := placementEnv(t, 2, 3)
+	k8s.config, k8s.oldPods = agentConfigHash(*at), []int{0}
+	sm.memory = podMemory("bot", map[int]int64{0: 0, 1: 0})
+	pod, _, err := f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1")
+	if err != nil || pod != "pod-1" {
+		t.Errorf("assignPod = %s, %v; want the current pod-1 over the older pod-0 on a stale config", pod, err)
+	}
+}
+
 // A run for an agent whose pods are all full by the pre-lock reading is released without the agent lock.
 func TestAssignPod_FullPodsSkipTheLock(t *testing.T) {
 	f, repo, _, sm, at, run := placementEnv(t, 2, 3)
 	sm.memory = fullPods("bot", 0, 1)
-	if _, err := f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1"); !errors.Is(err, errNoFreePod) {
+	if _, _, err := f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1"); !errors.Is(err, errNoFreePod) {
 		t.Fatalf("assignPod error = %v, want %v", err, errNoFreePod)
 	}
 	if n := repo.agentLockCalls.Load(); n != 0 {
@@ -151,13 +161,13 @@ func TestAssignPod_FullPodsSkipTheLock(t *testing.T) {
 // Pods whose memory read times out count as full, and the reads run at once.
 func TestAssignPod_MemoryReadTimeout(t *testing.T) {
 	f, repo, _, sm, at, run := placementEnv(t, 3, 3)
-	fast := sessionmanager.PodURL("bot", 2, "kora-tenant-t1")
+	fast := testPod("bot", 2, "kora-tenant-t1")
 	var lockedDuringRead atomic.Bool
-	sm.memoryFn = func(ctx context.Context, podURL string) (sessionmanager.Memory, error) {
+	sm.memoryFn = func(ctx context.Context, pod sessionmanager.Pod) (sessionmanager.Memory, error) {
 		if repo.agentLockHeld.Load() {
 			lockedDuringRead.Store(true)
 		}
-		if podURL != fast {
+		if pod != fast {
 			<-ctx.Done()
 			return sessionmanager.Memory{}, ctx.Err()
 		}
@@ -165,9 +175,9 @@ func TestAssignPod_MemoryReadTimeout(t *testing.T) {
 	}
 
 	start := time.Now()
-	pod, err := f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1")
-	if err != nil || pod != 2 {
-		t.Fatalf("assignPod = %d, %v; want pod 2", pod, err)
+	pod, _, err := f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1")
+	if err != nil || pod != "pod-2" {
+		t.Fatalf("assignPod = %s, %v; want pod-2", pod, err)
 	}
 	// Two pods time out. Read one after the other, they would take twice the timeout.
 	if elapsed := time.Since(start); elapsed > memoryReadTimeout+time.Second {
@@ -192,7 +202,7 @@ func TestAssignPod_TotalHoldsAcrossPods(t *testing.T) {
 	errs := make([]error, len(runs))
 	for i, run := range runs {
 		wg.Go(func() {
-			_, errs[i] = f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1")
+			_, _, errs[i] = f.run.assignPod(context.Background(), run, time.Now(), at, "kora-tenant-t1")
 		})
 	}
 	wg.Wait()
@@ -209,7 +219,7 @@ func TestAssignPod_TotalHoldsAcrossPods(t *testing.T) {
 	if placed != 3 {
 		t.Errorf("placed %d runs, want the total of 3", placed)
 	}
-	if got := repo.podCounts(at.ID, func(s RunState) bool { return s == RunStateStarting }); got[0] != 1 || got[1] != 2 {
-		t.Errorf("starting runs per pod = %v, want map[0:1 1:2]", got)
+	if got := repo.podCounts(at.ID, func(s RunState) bool { return s == RunStateStarting }); got["pod-0"] != 1 || got["pod-1"] != 2 {
+		t.Errorf("starting runs per pod = %v, want map[pod-0:1 pod-1:2]", got)
 	}
 }

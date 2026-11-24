@@ -31,7 +31,7 @@ SERVICES=(
   "tool-gw-publisher   kora-tool-gateway         kora-system            deployment/kora-tool-gateway-publisher"
   "operator            kora-operator             kora-operator          deployment/kora-operator"
   "example             kora-example              kora-tenant-example    deployment/kora-example"
-  "session-manager     kora-session-manager      kora-tenant-example    statefulset/example"
+  "session-manager     kora-session-manager      kora-tenant-example    deployment/session-manager-pool"
   "identity-proxy      kora-identity-proxy       kora-system            sidecar"
   "migrate             kora-migrate              kora-system            release"
   "sandbox-base        kora-sandbox-base         -                       on-demand"

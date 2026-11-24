@@ -15,6 +15,7 @@ import (
 	"github.com/runkora/kora/backend/internal/agents/sessionmanager"
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/brand"
+	identityproxyclient "github.com/runkora/kora/backend/internal/platform/clients/identityproxy"
 	"github.com/runkora/kora/backend/internal/platform/config"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
@@ -133,6 +134,7 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 		IsolationErr:        isolationErr,
 		Brand:               b,
 		Memory:              memory,
+		Token:               identityproxyclient.NewClient(logger, identityproxyclient.LocalURL),
 	}, registry, verifier)
 
 	// Per-route, not in the global chain below: it must run after RoutePattern

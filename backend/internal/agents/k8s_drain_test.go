@@ -10,17 +10,35 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 )
 
-// Each agent starts with the configured pods, and a terminating pod gets the drain grace period.
-func TestSessionManagerScaleAndDrain(t *testing.T) {
+// A terminating pool pod gets the drain grace period.
+func TestSessionManagerDrain(t *testing.T) {
 	p := podSecurityProvisioner()
-	p.cfg.MinReplicas = 2
 	p.cfg.DrainGracePeriodSecs = 3600
-	at := AgentType{Slug: "coder", TenantID: "acme"}
-
-	ss := p.buildSessionManagerStatefulSet(at, "kora-tenant-acme", podLabels(at))
-	if *ss.Spec.Replicas != 2 || ss.Spec.Template.Spec.TerminationGracePeriodSeconds == nil || *ss.Spec.Template.Spec.TerminationGracePeriodSeconds != 3600 {
-		t.Errorf("replicas = %d, grace = %v, want 2 and 3600", *ss.Spec.Replicas, ss.Spec.Template.Spec.TerminationGracePeriodSeconds)
+	pool, err := p.buildTenantPool("acme", "kora-tenant-acme")
+	if err != nil {
+		t.Fatal(err)
 	}
+	if grace := pool.Spec.Template.Spec.TerminationGracePeriodSeconds; grace == nil || *grace != 3600 {
+		t.Errorf("grace = %v, want 3600", grace)
+	}
+}
+
+// The session-manager readiness probe runs at once and every second.
+func TestSessionManagerReadinessProbe(t *testing.T) {
+	p := podSecurityProvisioner()
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ss := p.buildSessionManagerStatefulSet(at, "kora-tenant-acme", podLabels(at))
+	for _, c := range ss.Spec.Template.Spec.Containers {
+		if c.Name != sessionManagerContainerName {
+			continue
+		}
+		rp := c.ReadinessProbe
+		if rp == nil || rp.InitialDelaySeconds != 0 || rp.PeriodSeconds != 1 || rp.TimeoutSeconds != 2 || rp.FailureThreshold != 10 || rp.HTTPGet == nil || rp.HTTPGet.Path != "/health" {
+			t.Errorf("readiness probe = %+v, want GET /health at once and every second, 2s timeout, 10 failures", rp)
+		}
+		return
+	}
+	t.Fatal("no session-manager container")
 }
 
 // The headless Service keeps a draining pod in DNS, including on an existing Service.
@@ -65,24 +83,5 @@ func TestDeprovision_DeletesAgentPods(t *testing.T) {
 		if g := del.GetDeleteOptions().GracePeriodSeconds; g == nil || *g != deletedAgentPodGrace {
 			t.Errorf("pod deleted with grace %v, want %d", g, deletedAgentPodGrace)
 		}
-	}
-}
-
-// A single session-manager pod cannot satisfy minAvailable: 1, so the PDB
-// allows one unavailable pod and a node drain completes.
-func TestBuildPDB_SingleReplicaAllowsDrain(t *testing.T) {
-	p := podSecurityProvisioner()
-	labels := map[string]string{"app": "coder"}
-
-	p.cfg.MinReplicas = 1
-	spec := p.buildPDB("coder", "kora-tenant-acme", labels).Spec
-	if spec.MinAvailable != nil || spec.MaxUnavailable == nil || spec.MaxUnavailable.IntValue() != 1 {
-		t.Errorf("1 replica: minAvailable = %v, maxUnavailable = %v, want nil and 1", spec.MinAvailable, spec.MaxUnavailable)
-	}
-
-	p.cfg.MinReplicas = 2
-	spec = p.buildPDB("coder", "kora-tenant-acme", labels).Spec
-	if spec.MaxUnavailable != nil || spec.MinAvailable == nil || spec.MinAvailable.IntValue() != 1 {
-		t.Errorf("2 replicas: minAvailable = %v, maxUnavailable = %v, want 1 and nil", spec.MinAvailable, spec.MaxUnavailable)
 	}
 }

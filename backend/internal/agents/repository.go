@@ -29,11 +29,19 @@ type AgentTypeRepository interface {
 	DeleteAgentType(ctx context.Context, id string) error
 	// SoftDeleteAgentType removes the agent's environment links and marks it deleted.
 	SoftDeleteAgentType(ctx context.Context, id string) error
+	// WithAgentLock runs fn holding the agent's lock, which placement and the scaler take before a bind.
+	// Calls made with fn's ctx join its transaction.
+	WithAgentLock(ctx context.Context, agentTypeID string, fn func(ctx context.Context) error) error
 }
 
 // RunRepository is the persistence interface for run operations, events, and messages.
 type RunRepository interface {
-	CreateRun(ctx context.Context, r Run) error
+	// CreateRun inserts a pending run. When the run carries a trigger and delivery id
+	// and a run with the same (tenant, trigger, delivery) exists, it inserts nothing
+	// and reports inserted=false.
+	CreateRun(ctx context.Context, r Run) (inserted bool, err error)
+	// GetRunByDelivery returns the run started for a trigger delivery, or ErrNotFound.
+	GetRunByDelivery(ctx context.Context, tenantID, triggerID, deliveryID string) (*Run, error)
 	GetRun(ctx context.Context, id string) (*Run, error)
 	// AppendRunSources adds sources to the run, skipping any whose URL it already has.
 	AppendRunSources(ctx context.Context, runID string, sources []RunSource) error
@@ -51,18 +59,28 @@ type RunRepository interface {
 	RunStats(ctx context.Context, tenantID string, scope RunScope, from, to time.Time) (RunStats, error)
 	// SetRunState does a compare-and-swap on runs.state.
 	SetRunState(ctx context.Context, id string, from, to RunState) error
-	// AssignPod sets pod_ordinal and transitions pending→starting atomically,
+	// AssignPod sets pod_name and transitions pending→starting atomically,
 	// only while the run is still held under the claim taken at claimedAt.
-	AssignPod(ctx context.Context, runID string, claimedAt time.Time, podOrdinal int) error
+	AssignPod(ctx context.Context, runID string, claimedAt time.Time, podName string) error
+	// ListStatefulSetRuns returns the idle runs with a pod ordinal and no pod name: the idle runs an earlier
+	// release placed on an agent StatefulSet pod.
+	ListStatefulSetRuns(ctx context.Context) ([]Run, error)
 	// MarkRunFailed transitions a run that has not ended to the failed terminal state
 	// and stamps completed_at. Used to clean up synchronously when a run's start
 	// fails after the row was created, so it never lingers in pending/starting
 	// waiting for the stale-run reaper.
 	MarkRunFailed(ctx context.Context, id string) error
+	// ReleaseRunDelivery clears the delivery id of a run whose start failed, so a retry
+	// of the same delivery can start a new run instead of resolving to the failed one.
+	ReleaseRunDelivery(ctx context.Context, id string) error
 	// SetRunDelegationJTI stamps the delegation issuance minted for a delegated
 	// run at start (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3),
 	// so terminal-state transitions can revoke it.
 	SetRunDelegationJTI(ctx context.Context, runID, jti string) error
+	// InitRunAgentConfig records the digest of the agent config a start attempt sends, when none is set.
+	InitRunAgentConfig(ctx context.Context, runID, digest string) error
+	// SetRunAgentConfig replaces the digest with that of the session a start attempt created.
+	SetRunAgentConfig(ctx context.Context, runID, digest string) error
 	// TerminateRun ends a live run as terminated and marks the run deleted. It returns the run.
 	TerminateRun(ctx context.Context, id string) (*Run, error)
 	// CancelRunsByAgentType moves every unfinished run of an agent type to a terminal state and

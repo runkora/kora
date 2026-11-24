@@ -877,28 +877,33 @@ func (r *PostgresInferenceUsageRepository) GetPersonName(ctx context.Context, te
 	return name, nil
 }
 
-// GetSpendByPrincipalSince returns principal ID → total spend from the given
-// instant onward, tenant-scoped. Delegated rows attribute to BOTH the agent
+// GetSpendByPrincipalSince returns "TYPE:id" (policy.BudgetKey.String) → total
+// spend from the given instant onward, tenant-scoped. PAT usage counts under
+// its owner's HUMAN key. Delegated rows attribute to BOTH the agent
 // (principal_id) and the person (delegator_id) — mirroring how the budget
 // ceilings count them (delegated-agent-identity ADR, Decision 5), so the
 // budgets listing reports the same window spend enforcement evaluates. Do NOT
 // sum this map across principals: a delegated row appears under two keys.
 func (r *PostgresInferenceUsageRepository) GetSpendByPrincipalSince(ctx context.Context, tenantID string, since time.Time) (map[string]float64, error) {
 	const q = `
-		SELECT pid, COALESCE(SUM(cost), 0)
+		SELECT ptype || ':' || pid, COALESCE(SUM(cost), 0)
 		FROM (
-			SELECT principal_id AS pid, estimated_cost_usd AS cost
+			SELECT principal_id AS pid,
+			       CASE WHEN principal_type = 'PAT' THEN 'HUMAN' ELSE principal_type END AS ptype,
+			       estimated_cost_usd AS cost
 			FROM inference_usage
 			WHERE tenant_id = $1
 			  AND created_at >= $2
 			UNION ALL
-			SELECT delegator_id AS pid, estimated_cost_usd AS cost
+			SELECT delegator_id AS pid,
+			       COALESCE(delegator_principal_type, 'HUMAN') AS ptype,
+			       estimated_cost_usd AS cost
 			FROM inference_usage
 			WHERE tenant_id = $1
 			  AND created_at >= $2
 			  AND delegator_id IS NOT NULL
 		) attributed
-		GROUP BY pid`
+		GROUP BY ptype, pid`
 
 	rows, err := r.pool.Query(ctx, q, tenantID, since.UTC())
 	if err != nil {
@@ -979,7 +984,7 @@ func (r *PostgresInferenceUsageRepository) GetMonthlySpendByPrincipal(ctx contex
 	// rows of this result: a delegated request appears under two principals.
 	const q = `
 		SELECT pid,
-		       MAX(ptype)                           AS principal_type,
+		       ptype                                AS principal_type,
 		       COALESCE(SUM(estimated_cost_usd), 0) AS spend_usd,
 		       MAX(created_at)                      AS last_active_at
 		FROM (
@@ -1003,7 +1008,7 @@ func (r *PostgresInferenceUsageRepository) GetMonthlySpendByPrincipal(ctx contex
 			  AND date_trunc('month', created_at) = date_trunc('month', $2::timestamptz)
 			  AND delegator_id IS NOT NULL
 		) attributed
-		GROUP BY pid
+		GROUP BY pid, ptype
 		ORDER BY spend_usd DESC`
 
 	rows, err := r.pool.Query(ctx, q, tenantID, month.UTC())

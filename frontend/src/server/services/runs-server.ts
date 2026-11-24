@@ -5,7 +5,15 @@ import { resolveUserDisplayNames } from '@runkora/server/services/identity-serve
 import type { RunsPageResponse } from '@runkora/shared/api';
 
 /** The run list params a BFF route passes through to kora-agents, which validates them. */
-const PAGE_PARAMS = ['agent_type_id', 'state', 'limit', 'cursor'] as const;
+const PAGE_PARAMS = [
+  'agent_type_id',
+  'state',
+  'limit',
+  'cursor',
+  'grader',
+  'question',
+  'verdict',
+] as const;
 
 /** Copies the page params from a BFF request; `agentTypeId` replaces any agent_type_id given. */
 export function pickRunsPageParams(

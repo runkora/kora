@@ -25,7 +25,7 @@ agents:
 
 Each block takes `podLabels` and `podAnnotations`. A per-workload block overrides `common` for the same key, and [manifest patches](advanced-customisations.md) override both.
 
-kora reserves the labels and annotations that identify a pod to SPIRE, the sidecar injector and its StatefulSet, or wire it into the mesh. These include `app`, `sidecar.istio.io/inject`, `proxy.istio.io/config` and keys under `runkora.io/` and `spiffe.io/`. `kora-agents` fails to start when your values set one, and the error shows the key.
+kora reserves the labels and annotations that identify a pod to SPIRE, the sidecar injector and its agent Service, or wire it into the mesh. These include `app`, `sidecar.istio.io/inject`, `proxy.istio.io/config` and keys under `runkora.io/` and `spiffe.io/`. `kora-agents` fails to start when your values set one, and the error shows the key.
 
 ## References
 

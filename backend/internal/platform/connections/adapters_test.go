@@ -12,18 +12,21 @@ import (
 // change here must be a conscious vocabulary change, not an accident.
 func TestActionNames(t *testing.T) {
 	cases := map[string][]string{
-		// Category-scoped since docs/adr/2026-07-22-github-connection-category-
-		// scoped-actions.md; repo:read/repo:write survive as the catch-all +
-		// legacy umbrella.
+		// Categories of GitHub App permissions since
+		// docs/adr/2026-11-15-github-connector-route-coverage.md.
 		AdapterGitHubApp: {
 			"metadata:read",
 			"contents:read", "contents:write",
+			"workflows:write",
 			"issues:read", "issues:write",
 			"pulls:read", "pulls:write",
-			"actions:read", "actions:write",
-			"checks:read", "checks:write",
+			"ci:read", "ci:write",
+			"deployments:read", "deployments:write",
+			"security:read", "security:write",
+			"secrets:read", "secrets:write",
 			"admin:read", "admin:write",
-			"repo:read", "repo:write",
+			"members:read", "members:write",
+			"org_projects:read", "org_projects:write",
 		},
 		AdapterKubernetesBearer: {
 			"workloads:read", "workloads:write",
@@ -58,7 +61,7 @@ func TestActions_NonNil(t *testing.T) {
 
 // TestEgressHosts_GitHub locks the host family a GitHub connector auto-allows.
 func TestEgressHosts_GitHub(t *testing.T) {
-	saas := []string{"github.com", "api.github.com", "codeload.github.com", "*.githubusercontent.com"}
+	saas := []string{"github.com", "api.github.com", "uploads.github.com", "codeload.github.com", "*.githubusercontent.com"}
 
 	if got := EgressHosts(AdapterGitHubApp, "github.com"); !slices.Equal(got, saas) {
 		t.Errorf("EgressHosts(github_app, github.com) = %v, want %v", got, saas)

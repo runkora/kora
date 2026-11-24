@@ -23,7 +23,7 @@ import {
   shortId,
 } from '../_types';
 import type { DeliveryRow } from '../_types';
-import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../_types/pagination';
+import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '@runkora/lib/pagination';
 import { NextPageError } from './next-page-error';
 import type { TriggerDeliveries } from './use-trigger-deliveries';
 

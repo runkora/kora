@@ -3,7 +3,7 @@
 # redeploy.sh: build, push, and restart a single kora service in the k3d
 # cluster. Driven by the per-service registry below so every service uses the
 # same entry point, and edge cases (identity's mkcert CA layer, session-manager
-# living in a tenant namespace as a StatefulSet, sandbox-base being build-only)
+# running as a tenant's pool pods, sandbox-base being build-only)
 # are encoded in one place instead of scattered across the Makefile.
 #
 # Usage:
@@ -60,16 +60,16 @@ EOF
 #               from versions.hcl.
 #   image       Image name (without tag); IMAGE=kora-foo → kora-foo:latest.
 #   namespace   Cluster namespace. Use {tenant} as a placeholder.
-#   workload    Workload kind/name pair (deployment/kora-foo or statefulset/{slug}),
-#               'sidecar' or 'release' for images with no workload of their own,
-#               rolled by re-applying the kora release.
-#               Use {slug} as a placeholder for the agent slug (== tenant).
+#   workload    Workload kind/name pair (deployment/kora-foo), 'sidecar' or
+#               'release' for images with no workload of their own, rolled by
+#               re-applying the kora release, or 'pool' for the session-manager's
+#               pool and agent pods in the tenant namespace.
 #   extra_workloads  Optional space-separated list of additional workloads that
 #               run the same image and must be rolled alongside `workload`.
 #   post_build  Optional script step run after the base image is built.
 #               Currently used only by identity to layer the mkcert CA in.
 #   restart     'true' to do a rollout restart, 'false' for build-only services.
-#   tenant_default  Optional default tenant slug for {tenant}/{slug} substitution.
+#   tenant_default  Optional default tenant slug for {tenant} substitution.
 #   values_key  The kora chart values key for this image; the pushed digest is
 #               recorded under <values_key>.image.digest in
 #               deploy/reference/environments/local.generated.yaml.
@@ -277,16 +277,16 @@ tenant_default=example
 EOF
       ;;
     session-manager)
-      # Per-tenant StatefulSet whose name == agent slug. Defaults to {tenant} for
-      # the local 'example' agent, which uses the same name. Override by passing
-      # --slug for non-default agents.
+      # The tenant's pool pods and the agent pods bound from them
+      # (docs/adr/2026-11-22-agent-cold-tier.md). Only kora-agents writes the
+      # pool Deployment, so the pods are replaced on the pushed :latest tag.
       cat <<'EOF'
 dockerfile=backend/Dockerfile.session-manager
 context=backend
 build_arg=
 image=kora-session-manager
 namespace=kora-tenant-{tenant}
-workload=statefulset/{slug}
+workload=pool
 restart=true
 tenant_default=example
 EOF
@@ -339,7 +339,7 @@ skills-service      (deployment, kora-system)
 migrate             (hook Job; re-applies the kora release so the schema migration runs)
 operator            (deployment, kora-system)
 example             (deployment, kora-tenant-<TENANT>)
-session-manager     (statefulset, kora-tenant-<TENANT>; --slug to override workload name)
+session-manager     (pool and agent pods, kora-tenant-<TENANT>)
 sandbox-mount       (node agent DaemonSet; re-applies the kora release)
 sandbox-base        (build-only; picked up by next sandbox)
 EOF
@@ -393,12 +393,6 @@ pin_workload() {
     kubectl set image "$workload" \
       "$container_name=kora-registry:5001/$IMAGE@$DIGEST" \
       -n "$NAMESPACE"
-    # Mark an agent StatefulSet as pinned so the kora-agents reconcile keeps
-    # this image instead of moving it to the release image.
-    if [ "$kind" = "statefulset" ]; then
-      kubectl annotate "$workload" runkora.io/session-manager-image-pinned=true \
-        --overwrite -n "$NAMESPACE"
-    fi
   else
     log "Restarting $workload in $NAMESPACE (digest unavailable)..."
     kubectl rollout restart "$workload" -n "$NAMESPACE"
@@ -426,7 +420,6 @@ layer_mkcert_ca() {
 
 SERVICE=""
 TENANT=""
-SLUG=""
 BUILD_ONLY=0
 NO_BUILD=0
 PRINT_IMAGE=0
@@ -435,7 +428,6 @@ while [ $# -gt 0 ]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
     --tenant) TENANT="$2"; shift 2 ;;
-    --slug) SLUG="$2"; shift 2 ;;
     --build-only) BUILD_ONLY=1; shift ;;
     --no-build) NO_BUILD=1; shift ;;
     --print-image) PRINT_IMAGE=1; shift ;;
@@ -485,18 +477,12 @@ done <<< "$SPEC"
 if [ -z "$TENANT" ] && [ -n "$TENANT_DEFAULT" ]; then
   TENANT="$TENANT_DEFAULT"
 fi
-# slug defaults to tenant (matches the local example agent layout).
-if [ -z "$SLUG" ]; then SLUG="$TENANT"; fi
-
 # Substitute placeholders.
 NAMESPACE="${NAMESPACE//\{tenant\}/$TENANT}"
 WORKLOAD="${WORKLOAD//\{tenant\}/$TENANT}"
-WORKLOAD="${WORKLOAD//\{slug\}/$SLUG}"
 EXTRA_WORKLOADS="${EXTRA_WORKLOADS//\{tenant\}/$TENANT}"
-EXTRA_WORKLOADS="${EXTRA_WORKLOADS//\{slug\}/$SLUG}"
 
-if [[ "$NAMESPACE" == *"{tenant}"* ]] || [[ "$WORKLOAD" == *"{tenant}"* ]] || [[ "$WORKLOAD" == *"{slug}"* ]] \
-  || [[ "$EXTRA_WORKLOADS" == *"{tenant}"* ]] || [[ "$EXTRA_WORKLOADS" == *"{slug}"* ]]; then
+if [[ "$NAMESPACE" == *"{tenant}"* ]] || [[ "$WORKLOAD" == *"{tenant}"* ]] || [[ "$EXTRA_WORKLOADS" == *"{tenant}"* ]]; then
   err "Service '$SERVICE' requires --tenant <slug>"
   exit 1
 fi
@@ -620,6 +606,15 @@ case "$WORKLOAD" in
     ;;
   on-demand)
     info "$SERVICE has no long-lived workload to restart"
+    ;;
+  pool)
+    # Pool pods run the :latest tag this push replaced, and their ReplicaSet
+    # recreates them on it. Each deleted agent pod drains, and the kora-agents
+    # scaler binds its replacement from the new pool pods.
+    log "Replacing the session-manager pool and agent pods in $NAMESPACE..."
+    kubectl delete pods -l runkora.io/pool=true -n "$NAMESPACE" --ignore-not-found --wait=false
+    kubectl delete pods -l runkora.io/agent-type -n "$NAMESPACE" --ignore-not-found --wait=false
+    ok "$SERVICE pods replaced on $IMAGE:$GIT_SHA"
     ;;
   *)
     pin_workload "$WORKLOAD"

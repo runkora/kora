@@ -10,6 +10,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/yaml"
 
 	agentsConfig "github.com/runkora/kora/backend/cmd/kora-agents/config"
@@ -147,8 +148,8 @@ func TestChartIdleTimeouts(t *testing.T) {
 	}
 }
 
-// The rendered agents.workloads reaches the session-manager container as equal
-// memory request and limit: 1Gi by default, or the configured value.
+// The rendered agents.workloads sets the session-manager's full memory request
+// and its memory limit: 1Gi by default, or the configured value.
 func TestChartSessionManagerMemory(t *testing.T) {
 	for name, tc := range map[string]struct{ values, want string }{
 		"default":    {"{}\n", "1Gi"},
@@ -174,18 +175,64 @@ func TestChartSessionManagerMemory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			var resources corev1.ResourceRequirements
-			for _, obj := range objs {
-				if ss, ok := obj.(*appsv1.StatefulSet); ok {
-					resources = ss.Spec.Template.Spec.Containers[0].Resources
-				}
-			}
+			resources := poolSessionManager(t, objs)
 			want := resource.MustParse(tc.want)
-			if got := resources.Requests[corev1.ResourceMemory]; got.Cmp(want) != 0 {
+			// A pool pod starts at the warm request, and the bind grows it to the configured one.
+			if got := file.Workloads.ForSessionManager().Memory; got.Cmp(want) != 0 {
 				t.Errorf("memory request = %s, want %s", got.String(), tc.want)
 			}
 			if got := resources.Limits[corev1.ResourceMemory]; got.Cmp(want) != 0 {
 				t.Errorf("memory limit = %s, want %s", got.String(), tc.want)
+			}
+		})
+	}
+}
+
+// poolSessionManager returns the session-manager resources of the rendered pool Deployment.
+func poolSessionManager(t *testing.T, objs []runtime.Object) corev1.ResourceRequirements {
+	t.Helper()
+	for _, obj := range objs {
+		if pool, ok := obj.(*appsv1.Deployment); ok {
+			return pool.Spec.Template.Spec.Containers[0].Resources
+		}
+	}
+	t.Fatal("no pool Deployment rendered")
+	return corev1.ResourceRequirements{}
+}
+
+// The rendered agents.workloads sets the session-manager's full
+// CPU request: 250m by default or the configured value, with a 2 CPU limit.
+func TestChartSessionManagerCPU(t *testing.T) {
+	for name, tc := range map[string]struct{ values, want string }{
+		"default":    {"{}\n", "250m"},
+		"configured": {"agents:\n  workloads:\n    sessionManager:\n      cpu: 50m\n", "50m"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out := renderChart(t, tc.values, "--show-only", "templates/agents/workloads-configmap.yaml")
+			var cm corev1.ConfigMap
+			if err := yaml.Unmarshal([]byte(out), &cm); err != nil {
+				t.Fatal(err)
+			}
+			var file struct {
+				Workloads agents.WorkloadsConfig `json:"workloads"`
+			}
+			if err := yaml.Unmarshal([]byte(cm.Data["workloads.yaml"]), &file); err != nil {
+				t.Fatal(err)
+			}
+			if file.Workloads.SessionManager.CPU == nil {
+				t.Fatal("chart rendered no agents.workloads.sessionManager.cpu")
+			}
+			objs, err := agents.RenderResources(agents.K8sProvisionerConfig{Workloads: file.Workloads}, agents.AgentType{ID: "a", Slug: "coder", TenantID: "t"}, "tenant-t", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resources := poolSessionManager(t, objs)
+			want := resource.MustParse(tc.want)
+			if got := file.Workloads.ForSessionManager().CPU; got.Cmp(want) != 0 {
+				t.Errorf("cpu request = %s, want %s", got.String(), tc.want)
+			}
+			if got, limit := resources.Limits[corev1.ResourceCPU], resource.MustParse("2"); got.Cmp(limit) != 0 {
+				t.Errorf("cpu limit = %s, want 2", got.String())
 			}
 		})
 	}
@@ -244,4 +291,25 @@ func TestChartMemoryThresholds(t *testing.T) {
 			}
 		})
 	}
+}
+
+// agents.pool.size reaches the kora-agents config.
+func TestChartPoolSize(t *testing.T) {
+	out := renderChart(t, "agents:\n  pool:\n    size: 5\n")
+	for _, root := range writeMountedConfig(t, out) {
+		if _, err := os.Stat(filepath.Join(root, "cmd", "kora-agents.yaml")); err != nil {
+			continue
+		}
+		config.SetOverlayRoot(root)
+		cfg, err := config.LoadService[agentsConfig.Config]("cmd/kora-agents", "production")
+		config.SetOverlayRoot("/etc/kora/config")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Agents.Pool.Size != 5 {
+			t.Errorf("pool size = %d, want 5", cfg.Agents.Pool.Size)
+		}
+		return
+	}
+	t.Fatal("no workload mounts the kora-agents config")
 }

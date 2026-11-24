@@ -35,6 +35,8 @@ func TestConnector_RequestOwners_Path(t *testing.T) {
 		{"https://github.com/Fabrikam/widgets.git/info/refs?service=git-upload-pack", "fabrikam"},
 		{"https://github.com/fabrikam", ""},
 		{"https://api.github.com/repos/contoso/gadgets/pulls", "contoso"},
+		{"https://uploads.github.com/repos/contoso/gadgets/releases/7/assets?name=a.tgz", "contoso"},
+		{"https://ghe.example.com/api/uploads/repos/contoso/gadgets/releases/7/assets?name=a.tgz", "contoso"},
 		{"https://api.github.com/orgs/fabrikam/repos", "fabrikam"},
 		{"https://api.github.com/users/octocat", "octocat"},
 		{"https://api.github.com/user", ""},
@@ -106,9 +108,9 @@ func TestConnector_RequestOwners_GraphQL(t *testing.T) {
 		{"node and nodes ids", `{"query":"{ node(id: \"PR_1\") { id } nodes(ids: [\"I_2\", \"I_3\"]) { id } }"}`, nil, []string{"I_2", "I_3", "PR_1"}},
 		{"mutation input ids", `{"query":"mutation($in: AddLabelsToLabelableInput!) { addLabelsToLabelable(input: $in) { clientMutationId } }","variables":{"in":{"labelableId":"I_9","labelIds":["LA_1"],"clientMutationId":"abc"}}}`, nil, []string{"I_9", "LA_1"}},
 		{"excluded id names", `{"query":"mutation { updateProjectV2ItemFieldValue(input: {projectId: \"PVT_1\", itemId: \"PVTI_1\", fieldId: \"F_1\", value: {singleSelectOptionId: \"abc\", iterationId: \"it\"}, clientMutationId: \"x\"}) { clientMutationId } }"}`, nil, []string{"F_1", "PVTI_1", "PVT_1"}},
-		{"search query variable", `{"query":"query($q: String!) { search(query: $q, type: ISSUE, first: 10) { issueCount } }","variables":{"q":"repo:acme/widgets is:pr author:bot"}}`, []string{"acme"}, nil},
+		{"search query variable", `{"query":"query($q: String!) { search(query: $q, type: ISSUE, first: 10) { issueCount } }","variables":{"q":"repo:example-org/widgets is:pr author:bot"}}`, []string{"example-org"}, nil},
 		{"search query literal", `{"query":"{ search(query: \"org:contoso is:open\", type: ISSUE) { issueCount } }"}`, []string{"contoso"}, nil},
-		{"search query negated", `{"query":"query($q: String!) { search(query: $q, type: ISSUE) { issueCount } }","variables":{"q":"-repo:acme/widgets is:pr"}}`, nil, nil},
+		{"search query negated", `{"query":"query($q: String!) { search(query: $q, type: ISSUE) { issueCount } }","variables":{"q":"-repo:example-org/widgets is:pr"}}`, nil, nil},
 		{"viewer only", `{"query":"{ viewer { login } }"}`, nil, nil},
 		{"unparseable", `{"query":"{ repository("}`, nil, nil},
 	}
@@ -128,7 +130,7 @@ func TestConnector_RequestOwners_GraphQL(t *testing.T) {
 
 // The lookup mints a read-only token from the installation's permissions and
 // returns only the ids GitHub resolves.
-func TestConnector_NodeOwners(t *testing.T) {
+func TestConnector_NodeRepositories(t *testing.T) {
 	var minted ghclient.InstallationTokenRequest
 	var lookups int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -146,7 +148,11 @@ func TestConnector_NodeOwners(t *testing.T) {
 				t.Errorf("lookup authorization = %q", r.Header.Get("Authorization"))
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"data":   map[string]any{"n0": map[string]any{"repository": map[string]any{"owner": map[string]any{"login": "Fabrikam"}}}, "n1": nil, "n2": map[string]any{"owner": map[string]any{"login": "contoso"}}},
+				"data": map[string]any{
+					"n0": map[string]any{"__typename": "PullRequest", "repository": map[string]any{"name": "Widgets", "owner": map[string]any{"login": "Fabrikam"}}}, "n1": nil,
+					"n2": map[string]any{"__typename": "Repository", "name": "gadgets", "owner": map[string]any{"login": "contoso"}},
+					"n3": map[string]any{"__typename": "User"},
+				},
 				"errors": []any{map[string]any{"message": "Could not resolve to a node"}},
 			})
 		default:
@@ -158,27 +164,39 @@ func TestConnector_NodeOwners(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	a := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
 	a.now = func() time.Time { return time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC) }
-	c := open(t, a, credentials.Connection{ID: "acme|fabrikam", SecretRef: "ref", Config: mustConfig(t, config{AppID: "1", InstallationID: 42, Owner: "fabrikam"})}).(*connector)
+	c := open(t, a, credentials.Connection{ID: "example|fabrikam", SecretRef: "ref", Config: mustConfig(t, config{AppID: "1", InstallationID: 42, Owner: "fabrikam"})}).(*connector)
 
-	got, err := c.NodeOwners(t.Context(), []string{"PR_1", "garbage", "O_1"}, []string{"contents", "issues"})
+	got, complete, err := c.NodeRepositories(t.Context(), []string{"PR_1", "garbage", "R_1", "U_1"}, []string{"contents", "issues"}, nil)
 	if err != nil {
-		t.Fatalf("NodeOwners: %v", err)
+		t.Fatalf("NodeRepositories: %v", err)
 	}
-	if len(got) != 2 || got["PR_1"] != "fabrikam" || got["O_1"] != "contoso" {
-		t.Errorf("owners = %v, want PR_1=fabrikam O_1=contoso", got)
+	if len(got) != 3 || got["PR_1"] != "fabrikam/widgets" || got["R_1"] != "contoso/gadgets" || got["U_1"] != "User" || complete {
+		t.Errorf("repositories = %v complete %v, want PR_1=fabrikam/widgets R_1=contoso/gadgets U_1=User, incomplete from the errors", got, complete)
 	}
 	want := map[string]string{"contents": "read", "issues": "read", "metadata": "read"}
 	if len(minted.Permissions) != len(want) || minted.Permissions["contents"] != "read" || minted.Permissions["issues"] != "read" || minted.Permissions["administration"] != "" {
 		t.Errorf("lookup token permissions = %v, want %v", minted.Permissions, want)
 	}
-	if _, err := c.NodeOwners(t.Context(), []string{"PR_1"}, []string{"contents", "issues"}); err != nil || lookups != 2 {
+	if minted.Repositories != nil {
+		t.Errorf("unrestricted lookup token repositories = %v, want none", minted.Repositories)
+	}
+	if _, _, err := c.NodeRepositories(t.Context(), []string{"PR_1"}, []string{"contents", "issues"}, nil); err != nil || lookups != 2 {
 		t.Errorf("second lookup err %v, lookups %d", err, lookups)
+	}
+	// A caller holding only repository-qualified grants looks up with a token
+	// limited to those repositories.
+	minted = ghclient.InstallationTokenRequest{}
+	if _, _, err := c.NodeRepositories(t.Context(), []string{"PR_1"}, []string{"contents"}, []string{"widgets"}); err != nil {
+		t.Fatalf("restricted lookup: %v", err)
+	}
+	if len(minted.Repositories) != 1 || minted.Repositories[0] != "widgets" || minted.Permissions["issues"] != "" {
+		t.Errorf("restricted lookup token = %+v, want contents read on [widgets]", minted)
 	}
 }
 
 // An installation granting none of the lookup permissions mints no token, since
 // an empty permission set would carry every installation permission.
-func TestConnector_NodeOwnersWithoutLookupPermissions(t *testing.T) {
+func TestConnector_NodeRepositoriesWithoutLookupPermissions(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/app/installations/42" {
 			t.Errorf("unexpected call to %s", r.URL.Path)
@@ -189,7 +207,7 @@ func TestConnector_NodeOwnersWithoutLookupPermissions(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	a := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
 	c := open(t, a, credentials.Connection{ID: "x", SecretRef: "ref", Config: mustConfig(t, config{AppID: "1", InstallationID: 42})}).(*connector)
-	if _, err := c.NodeOwners(t.Context(), []string{"PR_1"}, []string{"repo"}); !errors.Is(err, errNoLookupPermissions) {
+	if _, _, err := c.NodeRepositories(t.Context(), []string{"PR_1"}, []string{"repo"}, nil); !errors.Is(err, errNoLookupPermissions) {
 		t.Errorf("err = %v, want errNoLookupPermissions", err)
 	}
 }

@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-The Agent Control Plane is kora's execution layer for AI agents. It allows platform operators and tenant users to define, deploy, and interact with AI agents that run inside the cluster with full platform identity, governed LLM access, and isolated workspaces. Managed agents are built on real agentic CLI frameworks (Claude Code, Codex, OpenCode) and are accessible via a chat UI or observable in headless mode. Tenant-deployed (BYOC) agents are auto-discovered and surfaced in the same portal with usage visibility. The control plane is the realisation of kora's agent-first architecture — making agents first-class citizens of the platform rather than external callers of it.
+The Agent Control Plane is kora's execution layer for AI agents. It allows platform operators and tenant users to define, deploy, and interact with AI agents that run inside the cluster with full platform identity, governed LLM access, and isolated workspaces. Managed agents are built on real agentic CLI frameworks (Claude Code, Codex, OpenCode) and are accessible via a chat UI or observable in headless mode. The control plane is the realisation of kora's agent-first architecture — making agents first-class citizens of the platform rather than external callers of it.
 
 ---
 
@@ -30,13 +30,9 @@ kora's identity, policy, and inference infrastructure already supports agents as
 
 **For platform operators:**
 - No self-service surface for defining agent types — requires manual k8s and SPIRE configuration
-- No unified portal for managed and BYOC agents — agents from different tenants are invisible
+- No portal shows agents from different tenants.
 - No governance of agent workloads beyond the existing token/policy layer
 - No way to see which agents are active, what they are running, or how much they cost
-
-**For agent developers (BYOC):**
-- Must configure SPIRE entries and k8s resources manually — no self-service
-- No platform surface to understand their agent's identity, usage, or health
 
 ### Business Impact
 
@@ -56,7 +52,7 @@ kora's identity, policy, and inference infrastructure already supports agents as
 3. **Interactive sessions:** Users can start a chat session with any managed agent and interact with it in real time with streaming output
 4. **Headless observation:** Users can observe a headless agent run in progress — seeing tool calls, thinking, and output — without interacting
 5. **Context retention:** Sessions can be resumed; full run history is available regardless of when the user connects
-6. **BYOC visibility:** Tenant-deployed agents are auto-discovered and surfaced in the portal alongside managed agents
+6. **BYOC visibility:** Retired 2026-11-22 ([BYOC ADR, Amendment 1](../adr/2026-05-11-byoc-agent-discovery-and-observability.md))
 7. **Policy-governed access:** Agent LLM access is governed by the existing grant and policy system — no new auth surface
 
 ### Success Metrics
@@ -65,7 +61,6 @@ kora's identity, policy, and inference infrastructure already supports agents as
 - Time-to-first-token for a new agent chat session under 5 seconds
 - 100% of agent LLM calls attributed to correct principal in usage logs
 - Run history and event log fully available on reconnect with no data loss
-- BYOC agents discovered within 30 seconds of pod reaching Running state
 - Zero SPIRE or grant configuration required by tenant users for managed agents
 
 ### Non-Goals (v1)
@@ -74,7 +69,6 @@ kora's identity, policy, and inference infrastructure already supports agents as
 - RFC 8693 delegation / act-on-behalf flows (deferred)
 - Workspace resume (design for it, do not implement in v1)
 - Trigger definitions — scheduled runs, webhook-triggered runs (deferred)
-- BYOC agent chat interaction or lifecycle management from kora UI
 - Per-agent-type resource limit configuration by users (platform defaults apply)
 - Multi-agent orchestration / agent-to-agent communication
 - Agent marketplace or template sharing
@@ -159,7 +153,9 @@ kora's identity, policy, and inference infrastructure already supports agents as
 
 ---
 
-### US-006: BYOC Agent Discovery and Visibility
+### US-006: BYOC Agent Discovery and Visibility (Retired 2026-11-22)
+
+**Retired:** BYOC agent identity is retired ([BYOC ADR, Amendment 1](../adr/2026-05-11-byoc-agent-discovery-and-observability.md)). Only pods that kora-agents creates carry an agent identity. kora-identity refuses an agent SVID with no agent record ([#1080](https://github.com/runkora/kora/pull/1080)). A tenant workload uses `spiffe.io/service` and gets a service principal. The admission policy in the Agent Cold Tier ADR lets only kora-agents set `spiffe.io/agent` ([#1084](https://github.com/runkora/kora/pull/1084)). The acceptance criteria below are withdrawn.
 
 **As a** platform operator or tenant user,  
 **I want** tenant-deployed agents to appear automatically in the agent portal,  
@@ -272,11 +268,11 @@ The `run_events` table is also the source of truth for run resume (not v1) — a
 
 ### Session Routing
 
-New sessions are routed to any available pod for the agent type. Existing sessions are pinned to the pod where they were created — the subprocess and worktree are local to that pod. The `kora-agents` service stores `run_id → pod_ordinal` in its database and routes subsequent requests via the pod's stable StatefulSet DNS name. Routing is cross-namespace (kora-system → kora-tenant-{id}), secured by Istio mTLS.
+New sessions are routed to any available pod for the agent type. Existing sessions are pinned to the pod where they were created — the subprocess and worktree are local to that pod. The `kora-agents` service stores `run_id → pod_ordinal` in its database and routes subsequent requests to the pod's IP with the agent's headless Service as Host header ([Agent Cold Tier](../adr/2026-11-22-agent-cold-tier.md)). Routing is cross-namespace (kora-system → kora-tenant-{id}), secured by Istio mTLS.
 
-### BYOC Agent Visibility
+### Tenant Workloads
 
-`kora-agents` watches Kubernetes pod events across all `kora-tenant-*` namespaces. Pods with a kora SPIFFE identity (identified by annotations set during SPIRE attestation) are surfaced in the agent portal. LLM usage is already attributed to BYOC agents via the inference-gateway JWT — no additional instrumentation is required. BYOC agents appear in the same portal view as managed agents but without chat, lifecycle, or workspace capabilities.
+Only pods that kora-agents creates carry an agent identity. A tenant workload uses `spiffe.io/service` and gets a service principal. kora-identity refuses an agent SVID with no agent record ([BYOC ADR, Amendment 1](../adr/2026-05-11-byoc-agent-discovery-and-observability.md)).
 
 ### Streaming Architecture
 
@@ -290,7 +286,7 @@ kora-agents service
    │  Postgres SELECT (event replay on connect)
    │  POST (session claim + message relay)
    ▼
-session-manager (in agent pod, via StatefulSet DNS)
+session-manager (in agent pod, at its pod IP)
    │  reads stdout
    ▼
 transform layer (per-framework)
@@ -312,9 +308,8 @@ Responsibilities:
 - Kubernetes resource lifecycle — creates and manages StatefulSets, headless Services, and RBAC for each agent type
 - SPIRE entry registration — registers one entry per agent type keyed to the pod selector
 - Run and session lifecycle management
-- Session routing — resolves `run_id → pod_ordinal` and calls session-manager via stable DNS
+- Session routing — resolves `run_id → pod_ordinal` and calls session-manager at the pod IP with the agent Service as Host header
 - SSE relay — replays `run_events` on connect, then tails live events via Postgres LISTEN/NOTIFY
-- BYOC discovery — watches pod events in tenant namespaces
 
 No CRDs are introduced in v1. The service manages Kubernetes resources imperatively and runs a lightweight drift watch to detect and reconcile externally deleted resources.
 
@@ -335,8 +330,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 - Run event log with full replay on reconnect
 - Run lifecycle management (start, active, complete, failed)
 - Workspace provisioning and snapshot on completion
-- BYOC agent auto-discovery and portal visibility
-- Agent portal: unified view of managed and BYOC agents, run history, usage stats
+- Agent portal: agents, run history, usage stats
 - Agent type deletion with graceful session drain and full resource cleanup
 
 ### Out of Scope (v1)
@@ -347,7 +341,6 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 | RFC 8693 delegation / act-on-behalf | Deferred |
 | Workspace resume | Designed for, not implemented |
 | Triggered runs (scheduled, webhook) | Deferred |
-| BYOC agent chat or lifecycle management | Never (BYOC is tenant-owned) |
 | Per-agent-type resource limit configuration | Platform defaults apply in v1 |
 | Multi-agent orchestration | Future |
 | Agent marketplace / template sharing | Future |
@@ -360,7 +353,6 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 - MCP tool access: agents connect to MCP servers as configured by tenant policy
 - Delegation: RFC 8693 token exchange for agents acting on behalf of users
 - Agent-to-agent: managed agents calling other managed agents as tools
-- BYOC self-service: tenant teams register their BYOC agents for enhanced portal features
 
 ---
 
@@ -380,8 +372,6 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 - [ ] Run lifecycle state machine: pending → starting → active → completed / failed
 - [ ] No timeout on active runs; cleanup triggered by CLI subprocess exit
 - [ ] Workspace provisioned per run, snapshotted to object storage on completion
-- [ ] BYOC agents auto-discovered from tenant namespaces via k8s pod watch
-- [ ] BYOC agents surfaced in agent portal with status and LLM usage
 - [ ] Agent portal: list all agent types and runs for the authenticated tenant
 - [ ] All agent LLM usage attributed to the correct principal in inference usage logs
 - [ ] Agent grants created from the agent type's access selections at agent type creation; removed at deletion
@@ -412,7 +402,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 - SPIRE entries scoped to pod selector per agent type — no over-broad workload identity
 - Agent grants are least-privilege — only the scopes selected at agent type creation
 - Workspace directories isolated per run — no cross-session filesystem access
-- BYOC agents have no elevated permissions beyond standard SPIFFE attestation
+- kora-identity refuses an agent SVID with no agent record
 
 **Reliability:**
 - Runs survive `kora-agents` restarts — state is in PostgreSQL
@@ -429,7 +419,6 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 - All run lifecycle transitions emitted as structured log events
 - All agent LLM calls attributed in inference-gateway usage records
 - `kora-agents` exposes Prometheus metrics: active runs, active sessions, events written/sec, session routing latency
-- BYOC agent discovery events logged on pod add/remove
 
 ---
 
@@ -470,7 +459,6 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 | StatefulSet scale-down terminates active session pods | High | Low | PodDisruptionBudget preventing eviction of pods with active runs; label-based pod lifecycle awareness |
 | Cross-namespace mTLS routing misconfigured for new agent namespaces | Medium | Medium | Istio AuthorizationPolicy template validated as part of agent type provisioning; integration tested |
 | Workspace snapshot to object storage fails on run completion | Medium | Medium | Retry with exponential backoff; run marked completed regardless of snapshot result; alert on snapshot failure |
-| BYOC agent discovery creates excessive k8s API watch load at scale | Low | Low | Single watch per namespace; filtered by label selector; reconnect with backoff |
 | kora-agents becomes a single point of failure for all active sessions | High | Medium | Stateless design; PostgreSQL as state store; session routing survives restart; SSE client reconnects automatically |
 
 ---
@@ -512,7 +500,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 
 **Why not chosen:**
 - Deployment pods have random names and ephemeral IPs; routing to specific pods requires tracking pod IPs which change on reschedule
-- StatefulSets provide stable, predictable DNS names per pod ordinal — session routing uses `{agent}-{n}.{agent}.{namespace}.svc` without IP tracking
+- StatefulSets provide stable, predictable DNS names per pod ordinal (superseded by [Agent Cold Tier](../adr/2026-11-22-agent-cold-tier.md): session routing calls the pod IP with the agent Service as Host header)
 - StatefulSet semantics (stable identity, ordered scaling) are a better fit for long-lived, identity-stable agent workloads
 
 ### Alternative 5: Intercepting the Inference-Gateway Stream
@@ -537,7 +525,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 | 4 | What is the object storage interface for workspace snapshots? S3-compatible client? Platform-owned abstraction? | Open — deferred |
 | 5 | What are the HPA thresholds for agent StatefulSets? CPU/memory targets need calibration per framework | Open — requires load testing |
 | 6 | How does `kora-agents` authenticate to the SPIRE registration gRPC API? Via its own SVID (SPIFFE x509 mTLS)? | Open |
-| 7 | What pod labels should BYOC agents carry to appear in the portal? Platform-defined convention or operator annotation? | Open |
+| 7 | What pod labels should BYOC agents carry to appear in the portal? Platform-defined convention or operator annotation? | Closed. BYOC agent identity is retired ([BYOC ADR, Amendment 1](../adr/2026-05-11-byoc-agent-discovery-and-observability.md)) |
 
 ---
 
@@ -591,17 +579,14 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 
 ---
 
-### Phase 4: BYOC Discovery and Portal
+### Phase 4: Portal
 
-**Goal:** BYOC agents visible in portal; unified agent portal with usage stats and run history.
+**Goal:** Agent portal and the Codex and OpenCode transform layers.
 
-- k8s pod watch across `kora-tenant-*` namespaces
-- BYOC agent registration and de-registration on pod lifecycle events
-- BYOC agents surfaced in agent portal with usage data from inference-gateway logs
-- Agent portal: unified list (managed + BYOC), run history, usage stats
+- Agent portal: agent list, run history, usage stats
 - Codex and OpenCode transform layers
 
-**Exit Criteria:** Deploy a BYOC agent pod in a tenant namespace, observe it appear in the portal within 30 seconds, see usage stats populated from LLM calls. Create Codex and OpenCode agent types and start sessions.
+**Exit Criteria:** Create Codex and OpenCode agent types and start sessions.
 
 ---
 
@@ -638,7 +623,6 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 | Term | Definition |
 |---|---|
 | Managed Agent | An agent type defined via the kora UI/API and deployed and managed by the platform |
-| BYOC Agent | Bring-Your-Own-Container — a tenant-built agent deployed in its own tenant namespace; platform provides identity and LLM access but does not manage lifecycle |
 | Run | The unit of work — a server-side entity representing one agent execution; persists independently of browser sessions |
 | Session | A browser connection to a run; transient; destroyed on disconnect |
 | Session Manager | The kora-built main container in each agent pod; manages multiple concurrent sessions, worktrees, and subprocesses |

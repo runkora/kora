@@ -36,14 +36,49 @@ var celCases = map[string]map[string]celCase{
 	"generated/runkora.io_environments.yaml":   {dnsLabel: dnsLabelCase},
 	"generated/runkora.io_triggersources.yaml": {dnsLabel: dnsLabelCase},
 	"generated/runkora.io_policyroles.yaml":    {dnsLabel: dnsLabelCase},
+	"generated/runkora.io_graders.yaml": {
+		dnsLabel: dnsLabelCase,
+		"!has(self.minPassRate) || int(self.minPassRate.substring(0, size(self.minPassRate) - 1)) <= 100": {
+			accept: `{metadata: {name: g}, spec: {minPassRate: 100%}}`,
+			reject: `{metadata: {name: g}, spec: {minPassRate: 101%}}`,
+		},
+		"self.fail < self.pass": {
+			accept: `{metadata: {name: g}, spec: {threshold: {pass: 0.7, fail: 0.3}, questions: [{threshold: {pass: 0.9, fail: 0.1}}]}}`,
+			reject: `{metadata: {name: g}, spec: {threshold: {pass: 0.7, fail: 0.3}, questions: [{threshold: {pass: 0.5, fail: 0.5}}]}}`,
+		},
+		"has(self.expect) == (self.type == 'boolean')": {
+			accept: `{metadata: {name: g}, spec: {questions: [{type: boolean, expect: false}]}}`,
+			reject: `{metadata: {name: g}, spec: {questions: [{type: scale, expect: true}]}}`,
+		},
+		"has(self.options) == (self.type == 'choice')": {
+			accept: `{metadata: {name: g}, spec: {questions: [{type: choice, options: [{name: a, description: A}]}]}}`,
+			reject: `{metadata: {name: g}, spec: {questions: [{type: boolean, expect: true, options: [{name: a, description: A}]}]}}`,
+		},
+		"has(self.levels) == (self.type == 'scale')": {
+			accept: `{metadata: {name: g}, spec: {questions: [{type: scale, levels: [{name: a, description: A}, {name: b, description: B}]}]}}`,
+			reject: `{metadata: {name: g}, spec: {questions: [{type: choice, levels: [{name: a, description: A}, {name: b, description: B}]}]}}`,
+		},
+		"has(self.accept) == (self.type != 'boolean')": {
+			accept: `{metadata: {name: g}, spec: {questions: [{type: choice, accept: [a]}]}}`,
+			reject: `{metadata: {name: g}, spec: {questions: [{type: boolean, expect: true, accept: [a]}]}}`,
+		},
+		"self.type != 'boolean' || !has(self.skipOn)": {
+			accept: `{metadata: {name: g}, spec: {questions: [{type: scale, skipOn: [a]}]}}`,
+			reject: `{metadata: {name: g}, spec: {questions: [{type: boolean, expect: true, skipOn: [a]}]}}`,
+		},
+		"!has(self.levels) || (size(self.levels) >= 2 && size(self.levels) <= 10)": {
+			accept: `{metadata: {name: g}, spec: {questions: [{type: scale, levels: [{name: a, description: A}, {name: b, description: B}]}]}}`,
+			reject: `{metadata: {name: g}, spec: {questions: [{type: scale, levels: [{name: a, description: A}]}]}}`,
+		},
+	},
 	"generated/runkora.io_agents.yaml": {
 		"self.metadata.name.matches('^[a-z]([-a-z0-9]*[a-z0-9])?$') && size(self.metadata.name) <= 52": {
 			accept: `{metadata: {name: code-reviewer}}`,
 			reject: `{metadata: {name: 1-reviewer}}`,
 		},
-		"!(self.metadata.name in ['delegated', 'autonomous'])": {
+		"!(self.metadata.name in ['delegated', 'autonomous', 'session-manager-pool'])": {
 			accept: `{metadata: {name: reviewer}}`,
-			reject: `{metadata: {name: delegated}}`,
+			reject: `{metadata: {name: session-manager-pool}}`,
 		},
 		"self == oldSelf": {
 			accept: `{metadata: {name: a}, spec: {identityMode: delegated}}`,

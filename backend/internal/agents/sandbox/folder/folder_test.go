@@ -31,10 +31,10 @@ func TestSourceAt(t *testing.T) {
 }
 
 func TestWorkspaceClaim(t *testing.T) {
-	if got := WorkspaceClaim("coder-2"); got != "workspaces-coder-2" {
+	if got := WorkspaceClaim("session-manager-pool-x7k2p"); got != "session-manager-pool-x7k2p-workspaces" {
 		t.Errorf("WorkspaceClaim = %q", got)
 	}
-	for claim, want := range map[string]string{"workspaces-coder-2": "coder-2", "workspaces-": "", "scratch": ""} {
+	for claim, want := range map[string]string{"session-manager-pool-x7k2p-workspaces": "session-manager-pool-x7k2p", "-workspaces": "", "scratch": ""} {
 		got, ok := WorkspacePod(claim)
 		if got != want || ok != (want != "") {
 			t.Errorf("WorkspacePod(%q) = %q, %v, want %q", claim, got, ok, want)

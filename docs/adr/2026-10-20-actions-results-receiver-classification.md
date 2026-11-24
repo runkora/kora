@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-10-20-actions-results-receiver-classification.md -->
 
-**Status:** Accepted
+**Status:** Accepted (the `actions:read` classification superseded by [GitHub connector route coverage](2026-11-15-github-connector-route-coverage.md))
 **Date:** 2026-10-20
 **Deciders:** Justin Wilkin
 **Technical Story:** [#610](https://github.com/runkora/kora/issues/610)

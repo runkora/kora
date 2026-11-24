@@ -253,8 +253,10 @@ func normalizeCadence(c string) string {
 // that cadence (consistent with UNION for scopes); the per-run effective limit
 // is MAX across assignments carrying one.
 //
-// The returned map serializes directly to {"<principal_id>": {...}} so that
-// OPA mounts it at data.budgets and budget.rego can read data.budgets[id].
+// The returned map serializes directly to {"<TYPE>:<principal_id>": {...}} so that
+// OPA mounts it at data.budgets and budget.rego can read data.budgets["TYPE:id"].
+// Keys are policy.BudgetKey{Type, ID}.String(): keying by ID alone let a grant of
+// one principal type change the budget of another type sharing the ID (#720).
 func buildBudgets(tenantGrants []*grants.Grant, _ []*roles.RoleEntry) map[string]principalBudget {
 	doc := make(map[string]principalBudget)
 
@@ -266,7 +268,8 @@ func buildBudgets(tenantGrants []*grants.Grant, _ []*roles.RoleEntry) map[string
 		if g.Budget == nil {
 			continue
 		}
-		pb, exists := doc[g.PrincipalID]
+		key := policy.BudgetKey{Type: string(g.PrincipalType), ID: g.PrincipalID}.String()
+		pb, exists := doc[key]
 		if !exists {
 			pb = principalBudget{EffectiveLimits: make(map[string]float64)}
 		}
@@ -286,7 +289,7 @@ func buildBudgets(tenantGrants []*grants.Grant, _ []*roles.RoleEntry) map[string
 			pb.EffectivePerRunLimitUSD = g.Budget.PerRunLimitUSD
 		}
 
-		doc[g.PrincipalID] = pb
+		doc[key] = pb
 	}
 
 	// Role-level budgets: we can't resolve which principals hold which OIDC roles
@@ -476,8 +479,8 @@ func marshalBudgetDocs(tenantGrants []*grants.Grant, roleEntries []*roles.RoleEn
 // buildBundle constructs the .tar.gz bytes for a tenant's OPA bundle.
 // requiresFromVocab builds the scope→requires adjacency used to expand grants.
 // A grant holding a scope with requires confers those scopes in the compiled
-// effective set (never the stored grant), for example the GitHub repo umbrella
-// conferring each category scope. Empty for ordinary scopes.
+// effective set (never the stored grant), for example a GitHub category scope
+// conferring the metadata read. Empty for ordinary scopes.
 func requiresFromVocab(vocabEntries []*vocabulary.ScopeEntry) map[string][]string {
 	m := make(map[string][]string)
 	for _, e := range vocabEntries {

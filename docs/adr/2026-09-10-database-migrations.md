@@ -121,7 +121,7 @@ The goose CLI is removed from `make install-tools`.
 
 The migrate binary runs one goose pass over the merged set. Version prefixes are ordered globally across services and must be unique across all directories.
 
-A migration must not declare a foreign key to a table another service owns. Cross-service reads at query time are permitted; the `triggers` join into `runs` is the existing instance.
+A migration must not declare a foreign key to a table another service owns. Cross-service reads at query time are permitted. The `triggers` join into `runs` and the `identity` lookup of a live agent in `agent_types` are the existing instances.
 
 `event_outbox` is the one cross-service write path. `kora-events` owns the table, and every binary that records events writes it in its own transaction ([Event Spine](2026-11-06-event-spine.md)). Its migrations live in `kora-events`, and `make migrate-lint` checks them as that service's tables.
 

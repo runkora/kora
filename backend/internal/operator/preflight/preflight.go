@@ -118,7 +118,7 @@ func (r *Runner) Run(ctx context.Context) Result {
 		}
 	}
 	for _, check := range []func(context.Context) Check{
-		r.cniDaemonSet, r.meshTrustDomain, r.systemNamespaceInjection, r.spireWorkloadAPI, r.clusterSPIFFEIDs, r.webhooks,
+		r.cniDaemonSet, r.meshTrustDomain, r.meshPathNormalization, r.systemNamespaceInjection, r.spireWorkloadAPI, r.clusterSPIFFEIDs, r.webhooks,
 	} {
 		res.Checks = append(res.Checks, check(ctx))
 	}
@@ -204,29 +204,75 @@ func (r *Runner) cniDaemonSet(ctx context.Context) Check {
 	return Check{Name: name, OK: true, Message: "istio-cni-node is ready on every node"}
 }
 
-func (r *Runner) meshTrustDomain(ctx context.Context) Check {
-	const name = "istio-trust-domain"
+// meshConfigYAML returns the mesh config of the configured istiod revision.
+// On failure it returns the failing Check, named name.
+func (r *Runner) meshConfigYAML(ctx context.Context, name string) (string, *Check) {
 	cmName := "istio"
 	if r.Config.IstioRevision != "" {
 		cmName = "istio-" + r.Config.IstioRevision
 	}
 	cm := &corev1.ConfigMap{}
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: cmName, Namespace: r.Config.IstioNamespace}, cm); err != nil {
+		msg := fmt.Sprintf("get ConfigMap %s in %q: %v", cmName, r.Config.IstioNamespace, err)
 		if apierrors.IsNotFound(err) {
-			return Check{Name: name, OK: false, Message: fmt.Sprintf("ConfigMap %s not found in %q: is istiod installed at this revision?", cmName, r.Config.IstioNamespace)}
+			msg = fmt.Sprintf("ConfigMap %s not found in %q: is istiod installed at this revision?", cmName, r.Config.IstioNamespace)
 		}
-		return Check{Name: name, OK: false, Message: fmt.Sprintf("get ConfigMap %s in %q: %v", cmName, r.Config.IstioNamespace, err)}
+		return "", &Check{Name: name, OK: false, Message: msg}
+	}
+	return cm.Data["mesh"], nil
+}
+
+func (r *Runner) meshTrustDomain(ctx context.Context) Check {
+	const name = "istio-trust-domain"
+	meshYAML, fail := r.meshConfigYAML(ctx, name)
+	if fail != nil {
+		return *fail
 	}
 	var mesh struct {
 		TrustDomain string `json:"trustDomain"`
 	}
-	if err := sigsyaml.Unmarshal([]byte(cm.Data["mesh"]), &mesh); err != nil {
+	if err := sigsyaml.Unmarshal([]byte(meshYAML), &mesh); err != nil {
 		return Check{Name: name, OK: false, Message: fmt.Sprintf("parse meshConfig: %v", err)}
 	}
 	if mesh.TrustDomain != r.Config.TrustDomain {
 		return Check{Name: name, OK: false, Message: fmt.Sprintf("meshConfig.trustDomain is %q, kora is configured for %q", mesh.TrustDomain, r.Config.TrustDomain)}
 	}
 	return Check{Name: name, OK: true, Message: "meshConfig.trustDomain matches"}
+}
+
+// meshPathNormalization verifies Envoy normalizes request paths. The mesh deny
+// rules on internal paths match the decoded path, so they hold only while
+// meshConfig.pathNormalization.normalization is not NONE. Unset means Istio's
+// default, BASE.
+func (r *Runner) meshPathNormalization(ctx context.Context) Check {
+	const name = "istio-path-normalization"
+	meshYAML, fail := r.meshConfigYAML(ctx, name)
+	if fail != nil {
+		return *fail
+	}
+	return pathNormalizationCheck(name, meshYAML)
+}
+
+// pathNormalizationCheck evaluates the meshConfig YAML.
+func pathNormalizationCheck(name, meshYAML string) Check {
+	var mesh struct {
+		PathNormalization struct {
+			Normalization string `json:"normalization"`
+		} `json:"pathNormalization"`
+	}
+	if err := sigsyaml.Unmarshal([]byte(meshYAML), &mesh); err != nil {
+		return Check{Name: name, OK: false, Message: fmt.Sprintf("parse meshConfig: %v", err)}
+	}
+	switch got := mesh.PathNormalization.Normalization; got {
+	case "":
+		return Check{Name: name, OK: true, Message: "meshConfig.pathNormalization unset; Istio defaults to BASE"}
+	case "BASE", "MERGE_SLASHES", "DECODE_AND_MERGE_SLASHES":
+		return Check{Name: name, OK: true, Message: "meshConfig.pathNormalization.normalization is " + got}
+	case "NONE":
+		return Check{Name: name, OK: false, Message: "meshConfig.pathNormalization.normalization is NONE; the mesh deny rules on internal paths can be bypassed with encoded paths. Set it to BASE, MERGE_SLASHES or DECODE_AND_MERGE_SLASHES"}
+	default:
+		return Check{Name: name, OK: false, Message: fmt.Sprintf("meshConfig.pathNormalization.normalization is %q; expected BASE, MERGE_SLASHES or DECODE_AND_MERGE_SLASHES", got)}
+	}
 }
 
 func (r *Runner) systemNamespaceInjection(ctx context.Context) Check {

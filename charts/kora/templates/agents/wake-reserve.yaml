@@ -1,0 +1,69 @@
+{{- /* Per-node room for warm session-manager pods to grow into (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 3). */}}
+{{- /* It runs only on a session-manager pool that a node selector or required node affinity sets, never on every node. */}}
+{{- $sm := .Values.agents.workloads.sessionManager }}
+{{- $pinned := or $sm.nodeSelector (dig "nodeAffinity" "requiredDuringSchedulingIgnoredDuringExecution" nil ($sm.affinity | default dict)) }}
+{{- if and .Values.agents.wakeReserve.enabled (gt (int .Values.agents.scheduling.warmAfterSecs) 0) $pinned }}
+# Priority 0 and no preemption: a new agent pod cannot take the reserve, waits
+# for a node instead, and the node autoscaler counts the reserve in new nodes.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: kora-agent-wake-reserve
+  labels:
+    {{- include "kora.agents.labels" . | nindent 4 }}
+value: 0
+globalDefault: false
+preemptionPolicy: Never
+description: Per-node room for warm kora agent pods to grow into.
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kora-agent-wake-reserve
+  namespace: {{ include "kora.systemNamespace" . }}
+  labels:
+    {{- include "kora.agents.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: kora-agent-wake-reserve
+  template:
+    metadata:
+      labels:
+        app: kora-agent-wake-reserve
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      priorityClassName: kora-agent-wake-reserve
+      {{- include "kora.imagePullSecrets" . | nindent 6 }}
+      {{- with $sm.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $sm.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- /* Node affinity only. A pod affinity term in it is aimed at agent pods. */}}
+      {{- with ($sm.affinity | default dict).nodeAffinity }}
+      affinity:
+        nodeAffinity:
+          {{- toYaml . | nindent 10 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 0
+      securityContext:
+        {{- include "kora.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
+      containers:
+        - name: reserve
+          image: {{ include "kora.sessionManagerImage" . | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "while true; do sleep 86400; done"]
+          resources:
+            requests:
+              {{- toYaml .Values.agents.wakeReserve.resources | nindent 14 }}
+            limits:
+              {{- toYaml .Values.agents.wakeReserve.resources | nindent 14 }}
+          securityContext:
+            {{- include "kora.containerSecurityContext" (dict) | nindent 12 }}
+{{- end }}

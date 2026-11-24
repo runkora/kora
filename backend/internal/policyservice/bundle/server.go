@@ -243,7 +243,8 @@ func (s *Server) Recompile(ctx context.Context, tenantID string, vocabEntries []
 // header, which the Envoy sidecar sets from the verified peer certificate. A
 // system component may read any tenant. A tenant workload may read only the
 // bundle of the tenant its namespace maps to in the tenant registry, which
-// also covers tenants with a custom spec.namespace. A request with no header is
+// also covers tenants with a custom spec.namespace. An unbound pool pod may read
+// the bundle of its own namespace's tenant. A request with no header is
 // allowed only from loopback (policy-service's own evaluator, which has no
 // sidecar hop). Everything else, including an unloaded registry, is denied.
 func (s *Server) authorizeTenantCaller(r *http.Request, tenantID string) (spiffeID string, ok bool) {
@@ -252,7 +253,7 @@ func (s *Server) authorizeTenantCaller(r *http.Request, tenantID string) (spiffe
 	}
 	p, err := (&token.XFCCPrincipalExtractor{}).Extract(r)
 	if err != nil {
-		return "", false
+		return s.authorizePoolCaller(r, tenantID)
 	}
 	spiffeID = p.Claims["spiffe_id"]
 	switch p.Type {
@@ -264,6 +265,21 @@ func (s *Server) authorizeTenantCaller(r *http.Request, tenantID string) (spiffe
 	default:
 		return spiffeID, false
 	}
+}
+
+// authorizePoolCaller lets a pool pod load its own tenant's bundle before it
+// is bound to an agent (docs/adr/2026-11-22-agent-cold-tier.md).
+func (s *Server) authorizePoolCaller(r *http.Request, tenantID string) (string, bool) {
+	spiffeID, err := token.ParseXFCCSpiffeURI(r.Header.Get("x-forwarded-client-cert"))
+	if err != nil {
+		return "", false
+	}
+	namespace, ok := token.PoolNamespace(spiffeID)
+	if !ok {
+		return spiffeID, false
+	}
+	owner, found := s.tenants.TenantForNamespace(namespace)
+	return spiffeID, found && owner == tenantID
 }
 
 // isLoopback reports whether the host of a RemoteAddr is 127.0.0.1 or ::1.

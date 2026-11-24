@@ -100,7 +100,8 @@ Register an endpoint that serves chat and decision models as two InferenceProvid
 *   The route is non-streaming, matching a format that has no streaming mode.
 *   `handleSystemOne` is an exception to the AGENTS.md handler conventions. It reads the body with `http.MaxBytesReader` and `io.ReadAll` and writes the upstream body with `w.Write` to keep `state`, `questions` and the response byte-for-byte. `api.DecodeJSON` and `api.JSON` would reorder or reformat them.
 *   The request body cap is 10 MB like the embeddings route. The cap holds an image where an implementation accepts one.
-*   A decision call times out after 15 seconds per attempt, and the gateway reads at most 1 MiB of the upstream response.
+*   A decision call times out after 15 seconds per attempt, and the gateway reads at most 1 MiB of the upstream response. A caller may set `X-Kora-Decision-Timeout` in seconds to change the timeout, up to `inferenceGateway.maxDecisionTimeoutSecs` (60 by default).
+*   The response carries the usage row's ID in `X-Kora-Usage-Id` and its estimated cost in `X-Kora-Cost-USD`.
 *   The request goes to `<baseURL>/systemone` with `Authorization: Bearer <key>`, or with no auth header when the provider has no key.
 
 ### 3. The `systemone` API and the `decision` capability

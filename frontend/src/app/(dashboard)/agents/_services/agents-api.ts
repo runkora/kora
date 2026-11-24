@@ -12,6 +12,7 @@ import type {
   AgentRunStats,
   AgentType,
   AgentTypeDraft,
+  AnswerVerdict,
   ConnectionCatalogEntry,
   CreateAgentTypeRequest,
   Environment,
@@ -43,13 +44,11 @@ export async function fetchAgentTypes(): Promise<{ data: AgentTypeRow[]; error: 
   return { data: (body.data ?? []).map(toAgentTypeRow), error: null };
 }
 
-// ── fetchPeriodRead ──
-// A period-keyed BFF read: the Agents page rollups or one agent's overview. Never throws;
-// on error `data` is null.
+// ── fetchRead ──
+// A BFF read: the Agents page rollups, one agent's overview, its Graders or a run's grades.
+// Never throws; on error `data` is null.
 
-export async function fetchPeriodRead<T>(
-  url: string,
-): Promise<{ data: T | null; error: string | null }> {
+export async function fetchRead<T>(url: string): Promise<{ data: T | null; error: string | null }> {
   let res: Response;
   try {
     res = await fetch(url, { cache: 'no-store' });
@@ -67,13 +66,21 @@ export async function fetchPeriodRead<T>(
 }
 
 export const fetchAgentInsights = (period: AgentInsightsPeriod) =>
-  fetchPeriodRead<AgentInsightsResponse>(ApiRoute.agentInsights.window(period));
+  fetchRead<AgentInsightsResponse>(ApiRoute.agentInsights.window(period));
 
 // ── fetchRuns ─────────────────────────────────────────────────────────────────
+
+/** Runs graded on a Grader's current version; with `question`, by that question's answer verdict. */
+export interface GradeFilter {
+  grader: string;
+  question?: string;
+  verdict?: AnswerVerdict;
+}
 
 /** A page of runs to read: filters, page size and the previous page's cursor. */
 export interface RunPageQuery {
   states?: readonly RunState[];
+  grade?: GradeFilter | null;
   limit?: number;
   cursor?: string | null;
 }
@@ -82,6 +89,11 @@ export interface RunPageQuery {
 export function runPageSearch(query: RunPageQuery): string {
   const params = new URLSearchParams();
   if (query.states?.length) params.set('state', query.states.join(','));
+  if (query.grade) {
+    params.set('grader', query.grade.grader);
+    if (query.grade.question) params.set('question', query.grade.question);
+    if (query.grade.verdict) params.set('verdict', query.grade.verdict);
+  }
   if (query.limit) params.set('limit', String(query.limit));
   if (query.cursor) params.set('cursor', query.cursor);
   const qs = params.toString();
@@ -132,7 +144,7 @@ export const fetchRuns = (agentTypes: AgentTypeRow[], query: RunPageQuery = {}) 
 export async function fetchRunStats(
   period: AgentInsightsPeriod,
 ): Promise<{ data: AgentRunStats | null; error: string | null }> {
-  const result = await fetchPeriodRead<{ data: AgentRunStats | null }>(ApiRoute.runs.stats(period));
+  const result = await fetchRead<{ data: AgentRunStats | null }>(ApiRoute.runs.stats(period));
   return { data: result.data?.data ?? null, error: result.error };
 }
 

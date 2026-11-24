@@ -2,7 +2,7 @@
 // +groupName=runkora.io
 
 // Package v1alpha1 holds the declarative resource kinds: VirtualModel,
-// Environment, Agent, TriggerSource, Trigger and PolicyRole. Each owning
+// Environment, Agent, TriggerSource, Trigger, PolicyRole and Grader. Each owning
 // service projects its kinds into its own tables; the kora-crds chart ships
 // their CRDs, which controller-gen generates from the markers in this file
 // (make generate).
@@ -19,7 +19,7 @@ import (
 // GroupVersion is the API group and version of the declarative kinds.
 var GroupVersion = schema.GroupVersion{Group: "runkora.io", Version: "v1alpha1"}
 
-// AddToScheme registers the six kinds and their lists.
+// AddToScheme registers the seven kinds and their lists.
 func AddToScheme(s *runtime.Scheme) error {
 	s.AddKnownTypes(GroupVersion,
 		&VirtualModel{}, &VirtualModelList{},
@@ -28,6 +28,7 @@ func AddToScheme(s *runtime.Scheme) error {
 		&TriggerSource{}, &TriggerSourceList{},
 		&Trigger{}, &TriggerList{},
 		&PolicyRole{}, &PolicyRoleList{},
+		&Grader{}, &GraderList{},
 	)
 	metav1.AddToGroupVersion(s, GroupVersion)
 	return nil
@@ -216,7 +217,7 @@ type EnvironmentList struct {
 // +kubebuilder:printcolumn:name=Ready,type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
 // +kubebuilder:printcolumn:name=Age,type=date,JSONPath=`.metadata.creationTimestamp`
 // +kubebuilder:validation:XValidation:rule="self.metadata.name.matches('^[a-z]([-a-z0-9]*[a-z0-9])?$') && size(self.metadata.name) <= 52",message="metadata.name must be a DNS-1035 label of at most 52 characters."
-// +kubebuilder:validation:XValidation:rule="!(self.metadata.name in ['delegated', 'autonomous'])",message="metadata.name must not be delegated or autonomous. They are identity mode names."
+// +kubebuilder:validation:XValidation:rule="!(self.metadata.name in ['delegated', 'autonomous', 'session-manager-pool'])",message="metadata.name must not be delegated, autonomous or session-manager-pool. They are identity mode names and the tenant pool's name."
 type Agent struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional
@@ -618,4 +619,119 @@ type PolicyRoleList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata"`
 	Items           []PolicyRole `json:"items"`
+}
+
+// ─── Grader ───────────────────────────────────────────────────────────────────
+
+// Grader scores an Agent's runs against fixed questions that a decision model
+// answers from the recorded trace. See docs/adr/2026-11-19-graders.md.
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Namespaced,shortName=kgr
+// +kubebuilder:printcolumn:name=Agent,type=string,JSONPath=`.spec.agent`
+// +kubebuilder:printcolumn:name=Accepted,type=string,JSONPath=`.status.conditions[?(@.type=="Accepted")].status`
+// +kubebuilder:printcolumn:name=Ready,type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
+// +kubebuilder:printcolumn:name=Age,type=date,JSONPath=`.metadata.creationTimestamp`
+// +kubebuilder:validation:XValidation:rule="self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$') && size(self.metadata.name) <= 63",message="metadata.name must be a DNS label."
+type Grader struct {
+	metav1.TypeMeta `json:",inline"`
+	// +optional
+	metav1.ObjectMeta `json:"metadata"`
+
+	Spec GraderSpec `json:"spec"`
+	// +optional
+	Status Status `json:"status,omitzero"`
+}
+
+// GraderSpec is the Grader resource. kora-agents checks the rules CEL cannot
+// check cheaply, such as accept naming an existing option.
+// +kubebuilder:validation:XValidation:rule="!has(self.minPassRate) || int(self.minPassRate.substring(0, size(self.minPassRate) - 1)) <= 100",message="minPassRate must be between 0% and 100%."
+type GraderSpec struct {
+	// Agent is the Agent name in this namespace whose runs the Grader scores.
+	// +kubebuilder:validation:MinLength=1
+	Agent string `json:"agent"`
+	// Description is one line on what the Grader checks.
+	// +kubebuilder:validation:MinLength=1
+	Description string `json:"description"`
+	// Model is the decision model on the System One API.
+	Model ModelRef `json:"model"`
+	// Threshold is the default band for appliesWhen and every question.
+	// +optional
+	// +kubebuilder:default={pass: 0.7, fail: 0.3}
+	Threshold Threshold `json:"threshold,omitzero"`
+	// MinPassRate is the share of graded runs that must pass, such as 90%.
+	// +kubebuilder:validation:Pattern=`^[0-9]{1,3}%$`
+	// +kubebuilder:validation:MaxLength=4
+	MinPassRate string `json:"minPassRate,omitempty"`
+	// AppliesWhen is a yes/no question. Unset applies to every run.
+	// +kubebuilder:validation:MinLength=1
+	AppliesWhen string `json:"appliesWhen,omitempty"`
+	// Questions are keyed by name, so the API server rejects a repeated name.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=32
+	// +listType=map
+	// +listMapKey=name
+	Questions []GraderQuestion `json:"questions"`
+}
+
+// Threshold is a pass and fail band on a probability.
+// +kubebuilder:validation:XValidation:rule="self.fail < self.pass",message="threshold fail must be below pass."
+type Threshold struct {
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1
+	Pass float64 `json:"pass"`
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1
+	Fail float64 `json:"fail"`
+}
+
+// GraderQuestion asks one fact about a run.
+// +kubebuilder:validation:XValidation:rule="has(self.expect) == (self.type == 'boolean')",message="expect is required on boolean questions and allowed only there."
+// +kubebuilder:validation:XValidation:rule="has(self.options) == (self.type == 'choice')",message="options are required on choice questions and allowed only there."
+// +kubebuilder:validation:XValidation:rule="has(self.levels) == (self.type == 'scale')",message="levels are required on scale questions and allowed only there."
+// +kubebuilder:validation:XValidation:rule="has(self.accept) == (self.type != 'boolean')",message="accept is required on choice and scale questions and allowed only there."
+// +kubebuilder:validation:XValidation:rule="self.type != 'boolean' || !has(self.skipOn)",message="skipOn applies to choice and scale questions only."
+// +kubebuilder:validation:XValidation:rule="!has(self.levels) || (size(self.levels) >= 2 && size(self.levels) <= 10)",message="a scale has 2 to 10 levels."
+type GraderQuestion struct {
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +kubebuilder:validation:MaxLength=63
+	Name string `json:"name"`
+	// +kubebuilder:validation:Enum=boolean;choice;scale
+	Type string `json:"type"`
+	// +kubebuilder:validation:MinLength=1
+	Question string `json:"question"`
+	// Expect is true when a yes answer is a pass and false when a no answer is.
+	Expect *bool `json:"expect,omitempty"`
+	// Options are the answers a choice can give. kora adds a none option.
+	// +kubebuilder:validation:MinItems=1
+	Options []GraderAnswer `json:"options,omitempty"`
+	// Levels are the answers a scale can give, lowest first.
+	Levels []GraderAnswer `json:"levels,omitempty"`
+	// Accept lists the option or level names that count as a pass.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:items:MinLength=1
+	Accept []string `json:"accept,omitempty"`
+	// SkipOn lists the option or level names that mean the question has no
+	// subject on a run.
+	// +kubebuilder:validation:items:MinLength=1
+	SkipOn []string `json:"skipOn,omitempty"`
+	// Threshold overrides the Grader's threshold for this question.
+	Threshold *Threshold `json:"threshold,omitempty"`
+}
+
+// GraderAnswer is one option or level. The model reads Description.
+type GraderAnswer struct {
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +kubebuilder:validation:MaxLength=63
+	Name string `json:"name"`
+	// +kubebuilder:validation:MinLength=1
+	Description string `json:"description"`
+}
+
+// GraderList is a list of Grader resources.
+// +kubebuilder:object:root=true
+type GraderList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata"`
+	Items           []Grader `json:"items"`
 }

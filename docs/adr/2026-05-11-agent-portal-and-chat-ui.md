@@ -5,6 +5,8 @@
 **Deciders:** Platform Engineering  
 **Technical Story:** Users need a UI surface to define agents, start sessions, interact via chat, and observe headless runs. This ADR establishes the frontend architecture for the agent portal and chat interface.
 
+**Note (2026-11-22):** The BYOC statements in this ADR no longer hold. [BYOC ADR, Amendment 1](2026-05-11-byoc-agent-discovery-and-observability.md) retires BYOC agent identity.
+
 ---
 
 ## Context

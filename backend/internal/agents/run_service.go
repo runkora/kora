@@ -45,6 +45,7 @@ type RunServiceConfig struct {
 	// measured from its created_at or from when its agent last became active,
 	// whichever is later, before the scheduler fails it. A run waiting for a pod that
 	// is not Ready yet, for room on a Ready pod or for its agent's total does not fail.
+	// A Running pod not Ready for longer than StartBudget no longer counts as not Ready yet.
 	// Defaults to 3 minutes.
 	StartBudget time.Duration
 	// ProvisionBudget is how long a run may wait for its agent to finish
@@ -86,11 +87,15 @@ type RunService struct {
 	images     sandboxImageLookup
 	missing    missingProvisioner
 	pods       livePods
+	waker      podWaker // grows a warm pod before its run; nil = no grow
 	queue      runQueue
 	placement  podPlacementStore
 	metrics    *Metrics // run outcome and duration; nil = not recorded
 	budgets    runBudgetReader
 	selfToken  ServiceTokenSource
+	grades     gradeReader
+	// wakes holds, per run ID, when this replica started the run's cold wake, until the run's first model event.
+	wakes sync.Map
 	// attempts and schedulerDone track the scheduler started by StartScheduler.
 	attempts      sync.WaitGroup
 	schedulerDone chan struct{}
@@ -119,17 +124,18 @@ func (s *RunService) SetBudgetReader(r runBudgetReader, selfToken ServiceTokenSo
 	s.budgets, s.selfToken = r, selfToken
 }
 
+// SetPodWaker installs the grow of a warm pod before a run starts on it. When unset, runs start on the pod as it is.
+func (s *RunService) SetPodWaker(w podWaker) { s.waker = w }
+
 // SetMetrics installs the instruments that record a run's outcome and duration
 // when it reaches a terminal state. When unset, nothing is recorded.
 func (s *RunService) SetMetrics(m *Metrics) { s.metrics = m }
 
-// systemPromptWithBrief returns the agent's system prompt with the runtime-
-// environment brief appended (governed network + injected credentials), so the
-// agent works with its guardrails rather than around them. Best-effort: a nil
-// resolver or a resolution error yields the prompt unchanged — it never blocks a run.
-func (s *RunService) systemPromptWithBrief(ctx context.Context, at AgentType, runID string) string {
+// briefAccess resolves the access the runtime-environment brief describes.
+// Best-effort: a nil resolver, a resolution error or no access yields nil, and the run starts without the brief.
+func (s *RunService) briefAccess(ctx context.Context, at AgentType, runID string) *EffectiveAccess {
 	if s.resolver == nil {
-		return at.SystemPrompt
+		return nil
 	}
 	access, err := s.resolver.EffectiveAccess(ctx, at)
 	if err != nil {
@@ -137,8 +143,15 @@ func (s *RunService) systemPromptWithBrief(ctx context.Context, at AgentType, ru
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return at.SystemPrompt
+		return nil
 	}
+	return access
+}
+
+// systemPromptWithBrief returns the agent's system prompt with the runtime-
+// environment brief for access appended (governed network + injected credentials), so the
+// agent works with its guardrails rather than around them. A nil access yields the prompt unchanged.
+func (s *RunService) systemPromptWithBrief(at AgentType, access *EffectiveAccess, runID string) string {
 	if access == nil {
 		return at.SystemPrompt
 	}
@@ -217,8 +230,34 @@ func (s *RunService) authorizeStart(ctx context.Context, span trace.Span, req St
 	return at, nil
 }
 
+// authorizeStartRun runs StartRun's authorization steps in order: may this
+// caller start this agent, may it also say a trigger is why, is the causal chain
+// valid, and may it record the sources and event.
+func (s *RunService) authorizeStartRun(ctx context.Context, span trace.Span, req StartRunRequest, tenantID string) (*AgentType, *StartedByTrigger, runChain, []RunSource, error) {
+	at, err := s.authorizeStart(ctx, span, req, tenantID)
+	if err != nil {
+		return nil, nil, runChain{}, nil, err
+	}
+	startedBy, err := s.authorizeAttribution(ctx, span, req)
+	if err != nil {
+		return nil, nil, runChain{}, nil, err
+	}
+	chain, err := requestChain(ctx, s.repo, startedBy, req.CausedBy, req.ChainDepth, "")
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanAuthorizeTriggerAttribution)
+		return nil, nil, runChain{}, nil, err
+	}
+	sources, err := authorizeRunRecord(ctx, span, req.Sources, req.Event)
+	if err != nil {
+		return nil, nil, runChain{}, nil, err
+	}
+	return at, startedBy, chain, sources, nil
+}
+
 // StartRun writes a pending run and returns it. A RunScheduler starts it on a
-// pod (docs/adr/2026-10-12-run-scheduling.md). Tenant and created_by are
+// pod (docs/adr/2026-10-12-run-scheduling.md). A repeat call for the same trigger
+// delivery (docs/adr/2026-11-08-start-run-idempotent-on-delivery.md) starts nothing:
+// it returns the first run with AlreadyStarted set, after the same authorization. Tenant and created_by are
 // derived from the verified platform claims in ctx; request-body values are
 // ignored.
 //
@@ -252,23 +291,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		createdBy = claims.Subject
 	}
 
-	// Two separate questions, in order: may this caller start this agent, and
-	// may it also say a trigger is why.
-	at, err := s.authorizeStart(ctx, span, req, tenantID)
-	if err != nil {
-		return nil, err
-	}
-	startedBy, err := s.authorizeAttribution(ctx, span, req)
-	if err != nil {
-		return nil, err
-	}
-	chain, err := requestChain(ctx, s.repo, startedBy, req.CausedBy, req.ChainDepth, "")
-	if err != nil {
-		observability.RecordFailure(span, err, errSpanAuthorizeTriggerAttribution)
-		return nil, err
-	}
-
-	sources, err := authorizeRunRecord(ctx, span, req.Sources, req.Event)
+	at, startedBy, chain, sources, err := s.authorizeStartRun(ctx, span, req, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -278,7 +301,6 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		TenantID:    req.TenantID,
 		AgentTypeID: req.AgentTypeID,
 		State:       RunStatePending,
-		PodOrdinal:  -1,
 		CreatedBy:   createdBy,
 		// Derived from the agent type (reads join it); carried on the response
 		// so run surfaces know the governance posture without a second lookup.
@@ -303,9 +325,13 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		}
 	}
 
-	if err := s.repo.CreateRun(ctx, run); err != nil {
+	inserted, err := s.repo.CreateRun(ctx, run)
+	if err != nil {
 		observability.RecordFailure(span, err, errSpanCreateRun)
 		return nil, fmt.Errorf("create run: %w", err)
+	}
+	if !inserted {
+		return s.existingRunForDelivery(ctx, span, startedBy)
 	}
 	createdRunID = run.ID
 
@@ -344,6 +370,29 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		return stored, nil
 	}
 	return &run, nil
+}
+
+// errNoRowWithoutDelivery reports that CreateRun inserted no row for a run that has no trigger delivery.
+var errNoRowWithoutDelivery = errors.New("no row inserted for a run without a trigger delivery")
+
+// existingRunForDelivery returns the run an earlier call created for the same trigger
+// delivery. It is StartRun's dedup path, which returns before anything is minted or
+// queued; createdRunID stays empty so the failed-start cleanup cannot touch the run.
+func (s *RunService) existingRunForDelivery(ctx context.Context, span trace.Span, startedBy *StartedByTrigger) (*Run, error) {
+	if startedBy == nil {
+		return nil, fmt.Errorf("create run: %w", errNoRowWithoutDelivery)
+	}
+	existing, err := s.repo.GetRunByDelivery(ctx, tenantFromContext(ctx), startedBy.TriggerID, startedBy.DeliveryID)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanGetRun)
+		return nil, fmt.Errorf("get run by delivery: %w", err)
+	}
+	s.logger.Info(ctx, "Run already started for delivery",
+		logging.Field{Key: "run_id", Value: existing.ID},
+		logging.Field{Key: "delivery_id", Value: startedBy.DeliveryID},
+	)
+	existing.AlreadyStarted = true
+	return existing, nil
 }
 
 // loadRunForAction loads a run together with its agent type, enforcing tenant
@@ -548,10 +597,13 @@ func (s *RunService) TerminateRun(ctx context.Context, id string) error {
 	}
 	// A live run placed on a pod may hold a session, whatever state it was read in.
 	// An idle run still holds its session, and a draining pod waits for it.
-	if terminated.State == RunStateTerminated && terminated.PodOrdinal >= 0 {
+	if terminated.State == RunStateTerminated && terminated.PodName != "" {
 		namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-		podURL := sessionmanager.PodURL(at.Slug, terminated.PodOrdinal, namespace)
-		if err = s.sm.CloseSession(ctx, podURL, id); err != nil && !errors.Is(err, sessionmanager.ErrSessionNotFound) {
+		target, err := s.podTarget(ctx, at.Slug, namespace, terminated.PodName)
+		if err == nil {
+			err = s.sm.CloseSession(ctx, target, id)
+		}
+		if err != nil && !errors.Is(err, sessionmanager.ErrSessionNotFound) {
 			// Pod may be gone (agent type deleted, pod crashed); log and proceed with cleanup.
 			s.logger.Warn(ctx, "session-manager unreachable during termination, proceeding with cleanup",
 				logging.Field{Key: "run_id", Value: id},
@@ -721,6 +773,7 @@ func (s *RunService) PublishEvent(ctx context.Context, runID string, ev PushedEv
 	if !replayOnlyEventType(ev.Type) {
 		s.pubsub.Publish(runID, ev)
 	}
+	s.noteFirstModelEvent(ctx, runID, ev)
 	return writeErr
 }
 
@@ -787,16 +840,20 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-	podURL := sessionmanager.PodURL(at.Slug, run.PodOrdinal, namespace)
+	target, err := s.podTarget(ctx, at.Slug, namespace, run.PodName)
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanForwardMessageToSessionManager)
+		return fmt.Errorf("target pod %s: %w", run.PodName, err)
+	}
 	// A person's message makes the turn manual: a trigger run takes the manual idle timeout from here on.
 	// A trigger's message sends zero, which leaves the run's timeout as it is.
 	idleTimeout, fromPerson := 0, false
 	if from == nil {
 		idleTimeout, fromPerson = s.cfg.IdleTimeouts.ForPersonMessage(run.StartedBy), true
 	}
-	if err := s.sm.SendMessage(ctx, podURL, runID, content, idleTimeout, fromPerson); err != nil {
+	if err := s.sm.SendMessage(ctx, target, runID, content, idleTimeout, fromPerson); err != nil {
 		observability.RecordFailure(span, err, errSpanForwardMessageToSessionManager)
-		return fmt.Errorf("forward message to pod %d: %w", run.PodOrdinal, err)
+		return fmt.Errorf("forward message to pod %s: %w", run.PodName, err)
 	}
 
 	if from != nil {
@@ -822,6 +879,15 @@ func checkRunAcceptsMessage(ctx context.Context, at *AgentType, run *Run) error 
 	}
 	if run.State != RunStateActive && run.State != RunStateIdle {
 		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
+	}
+	return checkRunHasPod(run)
+}
+
+// checkRunHasPod refuses a run with no pod name: an earlier release placed it on an agent StatefulSet pod,
+// and the cutover to pool pods ends it (docs/adr/2026-11-22-agent-cold-tier.md).
+func checkRunHasPod(run *Run) error {
+	if run.PodName == "" {
+		return fmt.Errorf("%w: the run is on no pool pod", ErrRunNotAcceptingMessages)
 	}
 	return nil
 }
@@ -860,19 +926,41 @@ func (s *RunService) appendJoinedSources(ctx context.Context, span trace.Span, r
 // claims were in hand. The session-manager generates the run's task summary
 // from this first message over its own authorized inference path (see
 // internal/agents/sessionmanager/summarizer.go) and reports it back via the
-// /internal/runs/{id}/summary callback. Best-effort: a send failure is logged but
-// does not abort the run.
-func (s *RunService) tryInitialMessage(ctx context.Context, podURL, runID, msg string) {
+// /internal/runs/{id}/summary callback.
+//
+// The message is the run's task, so a failed send is retried with backoff, up
+// to initialMessageAttempts tries, and the last error is returned. A send that
+// reached the pod but lost its reply may be delivered twice. Session-manager
+// sends are not idempotent, and a duplicated task is far less harmful than a
+// run with no task. Retries stop when ctx ends.
+func (s *RunService) tryInitialMessage(ctx context.Context, target sessionmanager.Pod, runID, msg string) error {
 	if msg == "" {
-		return
+		return nil
 	}
-	// The first message is the run's task, not a person's turn: the timeout set at creation stands.
-	if err := s.sm.SendMessage(ctx, podURL, runID, msg, 0, false); err != nil {
-		s.logger.Warn(ctx, "failed to send initial message",
+	var err error
+	backoff := initialMessageBackoff
+	for attempt := 1; attempt <= initialMessageAttempts; attempt++ {
+		// The first message is the run's task, not a person's turn: the timeout set at creation stands.
+		if err = s.sm.SendMessage(ctx, target, runID, msg, 0, false); err == nil {
+			return nil
+		}
+		if ctx.Err() != nil || attempt == initialMessageAttempts {
+			break
+		}
+		s.logger.Warn(ctx, "failed to send initial message; retrying",
 			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "attempt", Value: attempt},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+		case <-timer.C:
+		}
+		backoff *= 2
 	}
+	return err
 }
 
 // Event types for a message sent to a run: a person's, or a trigger's.
@@ -952,17 +1040,24 @@ func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 	// Interrupt steers the run (it redirects the agent mid-turn), so it follows
 	// the same starter-only rule as SendMessage. Terminate does not: it follows
 	// the visibility rule in loadRunForAction.
-	if err := checkDelegatedRunSteer(ctx, at, run); err != nil {
+	if err = checkDelegatedRunSteer(ctx, at, run); err != nil {
 		return err
 	}
 	if run.State != RunStateActive {
 		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
 	}
+	if err = checkRunHasPod(run); err != nil {
+		return err
+	}
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-	podURL := sessionmanager.PodURL(at.Slug, run.PodOrdinal, namespace)
-	if err := s.sm.InterruptSession(ctx, podURL, runID); err != nil {
+	target, err := s.podTarget(ctx, at.Slug, namespace, run.PodName)
+	if err != nil {
 		observability.RecordFailure(span, err, errSpanInterruptSession)
-		return fmt.Errorf("interrupt session on pod %d: %w", run.PodOrdinal, err)
+		return fmt.Errorf("target pod %s: %w", run.PodName, err)
+	}
+	if err = s.sm.InterruptSession(ctx, target, runID); err != nil {
+		observability.RecordFailure(span, err, errSpanInterruptSession)
+		return fmt.Errorf("interrupt session on pod %s: %w", run.PodName, err)
 	}
 	return nil
 }
@@ -1233,6 +1328,7 @@ func (s *RunService) StartReaper(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			s.EndStatefulSetRuns(ctx)
 			reaped, err := s.repo.ReapStaleRuns(ctx, staleDuration)
 			if err != nil {
 				s.logger.Error(ctx, "stale run reaper failed", logging.Field{Key: "error", Value: err.Error()})

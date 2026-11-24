@@ -16,7 +16,7 @@ import type { DataTableColumn } from '@runkora/hades';
 import { consoleKindOf, KIND_ICON, relativeTime, runTargets, triggerToggleOpen } from '../_types';
 import type { ConsoleKind, SourceCategory, TriggerRow } from '../_types';
 import { chatEventLabel } from '../_lib/chat';
-import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../_types/pagination';
+import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '@runkora/lib/pagination';
 import { firedPerBucket } from '../_types/stats';
 import type { TriggerStatsWindow } from '@runkora/shared/api';
 import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';

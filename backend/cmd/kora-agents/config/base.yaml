@@ -71,13 +71,22 @@ agents:
   idleTimeout:
     manualSecs: 1200
     triggerSecs: 300
+  # Grading worker. See the chart's agents.grading.
+  grading:
+    windowTokens: 247000
+    concurrency: 4
+    pollIntervalSecs: 2
+  # Unbound session-manager pods per tenant. See the chart's agents.pool.
+  pool:
+    size: 2
   # Run scheduler. See the chart's agents.scheduling.
   scheduling:
     workerConcurrency: 16
+    scalerConcurrency: 4
     pollIntervalSecs: 1
     startBudgetSecs: 180
     provisionBudgetSecs: 600
-    minReplicas: 2
+    minReplicas: 1
     maxReplicas: 10
     drainGracePeriodSecs: 3600
     placementWatermark: 0.70
@@ -87,6 +96,8 @@ agents:
       codex: 60Mi
       openCode: 440Mi
     startingRunWindowSecs: 30
+    warmAfterSecs: 300
+    coldAfterSecs: 1800
   connectionRegistryPath: "/var/run/kora/connections/connections.json"
   # Where the chart mounts the manifest patches ConfigMap.
   manifestPatchDir: /etc/kora/manifest-patches

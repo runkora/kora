@@ -127,9 +127,13 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		return Decision{}, err
 	}
 
-	cls, err := b.classify(connector, req)
+	cls, err := b.classify(ctx, claims, conn, connector, req)
+	var unavailable *Denial
+	if errors.As(err, &unavailable) {
+		return b.policyDenied(ctx, span, claims, conn, req, unavailable)
+	}
 	if err != nil {
-		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, deny(DenialUnclassified, req.Host, conn, credentials.Classification{}, err))
+		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, deny(DenialUnclassified, req, conn, credentials.Classification{}, err))
 	}
 	span.SetAttributes(
 		observability.EgressActionKey.String(cls.Action),
@@ -161,6 +165,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		Action:         action,
 		Qualifier:      cls.Qualifier,
 		AlsoAuthorized: also,
+		Permissions:    cls.Permissions,
 	}
 	cred, err := connector.Mint(ctx, identity)
 	if err != nil {
@@ -177,7 +182,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 				logging.Field{Key: "principal_id", Value: claims.Subject},
 			)
 			refused := credentials.Classification{Action: action, Qualifier: cls.Qualifier}
-			return Decision{}, deny(DenialCredentialRefused, req.Host, conn, refused, err)
+			return Decision{}, deny(DenialCredentialRefused, req, conn, refused, err)
 		}
 		return Decision{}, fmt.Errorf("mint credential: %w", err)
 	}
@@ -273,7 +278,7 @@ func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claim
 	)
 	// The connection is kept for its upstream CA trust. With no credential the
 	// proxy injects nothing and strips the agent's Authorization header.
-	return Decision{Connection: conn, Action: anonymousReadAction}, nil
+	return Decision{Connection: conn, Action: anonymousReadAction, Fallback: denial}, nil
 }
 
 // logDenial records a refused call once, after the fallback has declined it.
@@ -375,10 +380,56 @@ func hostWithoutPort(host string) string {
 // grant: an attachment narrowed to a repository compiles to a qualified scope,
 // and policy evaluation below rejects anything the grant does not cover. See
 // docs/adr/2026-07-22-connection-scope-qualifiers.md.
-func (b *Broker) classify(connector credentials.Connector, req EgressRequest) (credentials.Classification, error) {
-	// An adapter that cannot classify the request shape is a deny, logged by
-	// logDenial unless the anonymous fallback serves the request.
-	return connector.Classify(req.HTTPRequest)
+//
+// A connector that qualifies by id has the node or repository ids the request
+// names resolved first, with a lookup limited to the categories the caller holds
+// and, when every grant is qualified, to the granted repositories. A failed scope
+// read or lookup returns a policy_unavailable Denial, which the anonymous
+// fallback never serves, except a release asset's lookup. See
+// docs/adr/2026-11-15-github-connector-route-coverage.md.
+func (b *Broker) classify(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, connector credentials.Connector, req EgressRequest) (credentials.Classification, error) {
+	q, ok := connector.(idQualifier)
+	if !ok {
+		return connector.Classify(req.HTTPRequest)
+	}
+	ids, lookup := idsToResolve(q.RequestOwners(req.HTTPRequest))
+	switch {
+	case len(ids) == 0:
+		return connector.Classify(req.HTTPRequest)
+	case len(ids) > MaxNodeIDs:
+		// Too many ids to resolve leaves every one unresolved, so the request is unqualified.
+		return q.ClassifyResolved(req.HTTPRequest, map[string]string{})
+	}
+	scopes, err := b.policy.Scopes(ctx, policy.ScopesInput{Claims: claims})
+	if err != nil {
+		b.logger.Error(ctx, "reading caller scopes failed",
+			logging.Field{Key: "connection", Value: conn.Name},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return credentials.Classification{}, deny(DenialPolicyUnavailable, req, conn, credentials.Classification{}, err)
+	}
+	categories, repos := grantsOn(scopes, conn.Name).qualifyingLookup()
+	if len(categories) == 0 {
+		return connector.Classify(req.HTTPRequest)
+	}
+	// The lookup logs its own failure.
+	resolved, err := b.resolveRepositories(ctx, claims, req.Host, conn, q, ids, categories, repos, lookup)
+	switch {
+	case err != nil && isReleaseAssetHost(req.Host):
+		// A release asset's signed URL needs no credential, so an unresolved id
+		// leaves it unqualified and the anonymous read fallback can still serve it.
+		return connector.Classify(req.HTTPRequest)
+	case err != nil:
+		return credentials.Classification{}, deny(DenialPolicyUnavailable, req, conn, credentials.Classification{}, err)
+	}
+	return q.ClassifyResolved(req.HTTPRequest, resolved)
+}
+
+// idQualifier is a connector that qualifies a request by the repositories the
+// ids it names resolve to.
+type idQualifier interface {
+	ownerScoped
+	ClassifyResolved(req *http.Request, repos map[string]string) (credentials.Classification, error)
 }
 
 // evaluatePolicy checks the classified call against the caller's grants and
@@ -391,8 +442,8 @@ func (b *Broker) classify(connector credentials.Connector, req EgressRequest) (c
 //
 // The call is denied when the grant covers none of them, or misses any of the
 // classification's AlsoRequired actions, which are appended when all are held.
-// An evaluator error on the classified action or a required one fails closed;
-// one on an alternate drops that alternate.
+// Held Optional actions come last. An evaluator error on the classified action
+// or a required one fails closed; one on an alternate or optional drops it.
 func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, cls credentials.Classification, req EgressRequest) ([]string, error) {
 	primary, err := b.checkAction(ctx, claims, conn, cls.Action, cls.Qualifier)
 	if err != nil {
@@ -402,9 +453,12 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 			logging.Field{Key: "qualifier", Value: cls.Qualifier},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return nil, deny(DenialPolicyUnavailable, req.Host, conn, cls, err)
+		return nil, deny(DenialPolicyUnavailable, req, conn, cls, err)
 	}
 
+	if !primary.Allow {
+		primary = b.writeMeetsRead(ctx, claims, conn, cls.Action, cls.Qualifier, primary)
+	}
 	var authorized []string
 	reasons := []string{primary.Reason}
 	if primary.Allow {
@@ -423,6 +477,9 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 			)
 			continue
 		}
+		if !decision.Allow {
+			decision = b.writeMeetsRead(ctx, claims, conn, alt, cls.Qualifier, decision)
+		}
 		if decision.Allow {
 			authorized = append(authorized, alt)
 		}
@@ -431,7 +488,7 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 
 	if len(authorized) == 0 {
 		reason, label := policyDenialReason(reasons)
-		d := deny(reason, req.Host, conn, cls, nil)
+		d := deny(reason, req, conn, cls, nil)
 		d.PolicyReason, d.decision = label, primary.Reason
 		return nil, d
 	}
@@ -446,17 +503,69 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 				logging.Field{Key: "qualifier", Value: cls.Qualifier},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
-			return nil, deny(DenialPolicyUnavailable, req.Host, conn, required, err)
+			return nil, deny(DenialPolicyUnavailable, req, conn, required, err)
+		}
+		if !decision.Allow {
+			decision = b.writeMeetsRead(ctx, claims, conn, action, cls.Qualifier, decision)
 		}
 		if !decision.Allow {
 			reason, label := policyDenialReason([]string{decision.Reason})
-			d := deny(reason, req.Host, conn, required, nil)
+			d := deny(reason, req, conn, required, nil)
 			d.PolicyReason, d.decision = label, decision.Reason
 			return nil, d
 		}
 		authorized = append(authorized, action)
 	}
-	return authorized, nil
+	return append(authorized, b.heldOptional(ctx, claims, conn, cls)...), nil
+}
+
+// writeMeetsRead meets a denied <category>:read on a GitHub connection with the
+// same category's write on the qualifier, per ADR 2026-11-15 item 6. The read
+// stays the authorized action, so the credential carries read. One that cannot
+// be evaluated keeps the denial. Other adapters keep their own vocabulary, and
+// the metadata baseline and the legacy repo umbrella have no write to stand in.
+func (b *Broker) writeMeetsRead(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, action, qualifier string, denied policy.Result) policy.Result {
+	category, verb := splitActionFragment(action)
+	if conn.Adapter != credentials.AdapterGitHubApp || verb != "read" || category == "" || category == "metadata" || category == "repo" {
+		return denied
+	}
+	decision, err := b.checkAction(ctx, claims, conn, category+":write", qualifier)
+	if err != nil {
+		b.logger.Warn(ctx, "policy evaluation failed for the write meeting a required read",
+			logging.Field{Key: "connection", Value: conn.Name},
+			logging.Field{Key: "action", Value: category + ":write"},
+			logging.Field{Key: "qualifier", Value: qualifier},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return denied
+	}
+	if !decision.Allow {
+		return denied
+	}
+	return decision
+}
+
+// heldOptional returns the classification's Optional actions the grant holds,
+// checked only after the request is authorized. One that cannot be evaluated
+// is treated as not held, which only narrows the credential.
+func (b *Broker) heldOptional(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, cls credentials.Classification) []string {
+	var held []string
+	for _, action := range cls.Optional {
+		decision, err := b.checkAction(ctx, claims, conn, action, cls.Qualifier)
+		if err != nil {
+			b.logger.Warn(ctx, "policy evaluation failed for optional action",
+				logging.Field{Key: "connection", Value: conn.Name},
+				logging.Field{Key: "action", Value: action},
+				logging.Field{Key: "qualifier", Value: cls.Qualifier},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			continue
+		}
+		if decision.Allow {
+			held = append(held, action)
+		}
+	}
+	return held
 }
 
 // checkAction asks the policy service whether the caller's grant covers one
@@ -535,9 +644,17 @@ func policyDenialReason(reasons []string) (DenialReason, string) {
 	return DenialPolicyUnavailable, ""
 }
 
-// deny builds the caller-facing Denial for a refused call.
-func deny(reason DenialReason, host string, conn *credentials.Connection, cls credentials.Classification, cause error) *Denial {
-	d := &Denial{Reason: reason, Host: host, Connection: conn.Name, Action: cls.Action, Qualifier: cls.Qualifier, cause: cause}
+// deny builds the caller-facing Denial for a refused call, carrying what an
+// UnclassifiedError cause names.
+func deny(reason DenialReason, req EgressRequest, conn *credentials.Connection, cls credentials.Classification, cause error) *Denial {
+	d := &Denial{
+		Reason: reason, Host: req.Host, Connection: conn.Name, Action: cls.Action, Qualifier: cls.Qualifier,
+		Alternates: cls.Alternates, Method: req.Method, Path: requestPath(req), cause: cause,
+	}
+	var unclassified *credentials.UnclassifiedError
+	if errors.As(cause, &unclassified) {
+		d.Unrecognized = unclassified.Detail
+	}
 	if reason == DenialNotGranted {
 		segments, verb := scopePath(conn, cls.Action, cls.Qualifier)
 		d.RequiredScope = policy.DeriveRequiredScope(resourceType, segments, verb)

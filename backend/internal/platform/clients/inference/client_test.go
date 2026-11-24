@@ -86,6 +86,134 @@ func TestSystemOne_Success(t *testing.T) {
 	}
 }
 
+func TestSystemOne_NoulAndScore(t *testing.T) {
+	// The answer shapes Jev 1.14 returned on a real trace.
+	const body = `{"answers":{` +
+		`"opened":{"type":"noul","noul":0.97},` +
+		`"rounds":{"type":"score","score":2.13,"legend":{"0":"One round","1":"Two rounds","2":"Three rounds"},` +
+		`"probabilities":{"0":0.05,"1":0.1,"2":0.85},"confidence":0.8}},` +
+		`"usage":{"input_tokens":29767,"output_tokens":113}}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cap, _ := io.ReadAll(r.Body)
+		var sent struct {
+			Questions map[string]json.RawMessage `json:"questions"`
+		}
+		_ = json.Unmarshal(cap, &sent)
+		if got := string(sent.Questions["rounds"]); got != `{"type":"score","instructions":"How many rounds?","criteria":["One round","Two rounds","Three rounds"]}` {
+			t.Errorf("score question = %s", got)
+		}
+		if got := string(sent.Questions["opened"]); got != `{"type":"noul","instructions":"Opened a PR?"}` {
+			t.Errorf("noul question = %s", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Kora-Usage-Id", "5d0c8e0e-0000-4000-8000-000000000001")
+		w.Header().Set("X-Kora-Cost-USD", "0.0012502140")
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(srv.Close)
+
+	c := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+	out, err := c.SystemOne(context.Background(), "tok", SystemOneRequest{
+		Model: "typesafe/jev-1-14",
+		State: "trace",
+		Questions: map[string]Question{
+			"opened": {Type: QuestionTypeNoul, Instructions: "Opened a PR?"},
+			"rounds": {Type: QuestionTypeScore, Instructions: "How many rounds?", Levels: []string{"One round", "Two rounds", "Three rounds"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SystemOne: %v", err)
+	}
+	if a := out.Answers["opened"]; a.Type != QuestionTypeNoul || a.Noul != 0.97 {
+		t.Errorf("noul answer = %+v", a)
+	}
+	a := out.Answers["rounds"]
+	if a.Type != QuestionTypeScore || a.Score != 2.13 || a.Confidence != 0.8 || a.Probabilities["2"] != 0.85 || a.Legend["0"] != "One round" {
+		t.Errorf("score answer = %+v", a)
+	}
+	if out.UsageID != "5d0c8e0e-0000-4000-8000-000000000001" || out.CostUSD == nil || *out.CostUSD != 0.001250214 {
+		t.Errorf("usage id = %q, cost = %v", out.UsageID, out.CostUSD)
+	}
+}
+
+func TestSystemOne_DecisionTimeoutHeader(t *testing.T) {
+	for _, tc := range []struct {
+		timeout time.Duration
+		want    string
+	}{
+		{0, ""},
+		{time.Minute, "60"},
+		{1500 * time.Millisecond, "2"},
+	} {
+		var got string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			got = r.Header.Get("X-Kora-Decision-Timeout")
+			_, _ = io.WriteString(w, `{"answers":{}}`)
+		}))
+		req := routingRequest()
+		req.DecisionTimeout = tc.timeout
+		if _, err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).SystemOne(context.Background(), "tok", req); err != nil {
+			t.Fatal(err)
+		}
+		srv.Close()
+		if got != tc.want {
+			t.Errorf("timeout %s: header = %q, want %q", tc.timeout, got, tc.want)
+		}
+	}
+}
+
+func TestSystemOne_NoCostHeaderIsUnknownCost(t *testing.T) {
+	srv, _ := newTestServer(t, http.StatusOK, `{"answers":{}}`)
+	out, err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).SystemOne(context.Background(), "tok", routingRequest())
+	if err != nil || out.UsageID != "" || out.CostUSD != nil {
+		t.Errorf("out = %+v, err = %v", out, err)
+	}
+}
+
+func TestSystemOne_ZeroCostIsKnown(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Kora-Cost-USD", "0.0000000000")
+		_, _ = io.WriteString(w, `{"answers":{}}`)
+	}))
+	t.Cleanup(srv.Close)
+	out, err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).SystemOne(context.Background(), "tok", routingRequest())
+	if err != nil || out.CostUSD == nil || *out.CostUSD != 0 {
+		t.Errorf("cost = %v, err = %v, want a known zero", out.CostUSD, err)
+	}
+}
+
+func TestSystemOne_MalformedCostHeader(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Kora-Cost-USD", "not-a-number")
+		_, _ = io.WriteString(w, `{"answers":{"q":{"type":"noul","noul":0.9}}}`)
+	}))
+	t.Cleanup(srv.Close)
+	out, err := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard)).SystemOne(context.Background(), "tok", routingRequest())
+	if err != nil || out.CostUSD != nil || out.Answers["q"].Noul != 0.9 {
+		t.Errorf("answers = %v, cost = %v, err = %v, want the answer kept with no cost", out.Answers, out.CostUSD, err)
+	}
+}
+
+func TestQuestion_OmitsEmptyCriteria(t *testing.T) {
+	for _, q := range []Question{
+		{Type: QuestionTypeChoice, Criteria: map[string]string{}},
+		{Type: QuestionTypeScore, Levels: []string{}},
+		{Type: QuestionTypeChoice, Criteria: map[string]string{}, Levels: []string{}},
+	} {
+		b, err := json.Marshal(q)
+		if err != nil || strings.Contains(string(b), "criteria") {
+			t.Errorf("Marshal(%+v) = %s, %v, want no criteria", q, b, err)
+		}
+	}
+}
+
+func TestQuestion_RejectsCriteriaAndLevels(t *testing.T) {
+	_, err := json.Marshal(Question{Type: QuestionTypeScore, Criteria: map[string]string{"a": "A"}, Levels: []string{"A"}})
+	if !errors.Is(err, errBothCriteria) {
+		t.Errorf("err = %v, want errBothCriteria", err)
+	}
+}
+
 func TestSystemOne_StatusMapping(t *testing.T) {
 	for _, tc := range []struct {
 		status int
@@ -113,6 +241,29 @@ func TestSystemOne_StatusMapping(t *testing.T) {
 	}
 }
 
+// A 403 for a reached spending ceiling is ErrBudgetExceeded, which still matches ErrForbidden.
+// Any other 403 is not ErrBudgetExceeded.
+func TestSystemOne_BudgetExceeded(t *testing.T) {
+	for _, tc := range []struct {
+		body   string
+		budget bool
+	}{
+		{`{"code":"BUDGET_EXCEEDED","message":"the tenant spending ceiling has been reached"}`, true},
+		{`{"code":"forbidden","message":"no model scope"}`, false},
+		{`not json`, false},
+	} {
+		srv, _ := newTestServer(t, http.StatusForbidden, tc.body)
+		c := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+		_, err := c.SystemOne(context.Background(), "tok", routingRequest())
+		if got := errors.Is(err, ErrBudgetExceeded); got != tc.budget || !errors.Is(err, ErrForbidden) {
+			t.Errorf("%s: err = %v, want budget %v and forbidden", tc.body, err, tc.budget)
+		}
+		if err != nil && !strings.Contains(err.Error(), tc.body) {
+			t.Errorf("%s: err = %v, want the gateway's body kept", tc.body, err)
+		}
+	}
+}
+
 func TestSystemOne_TimeoutIsUpstreamUnavailable(t *testing.T) {
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -121,7 +272,7 @@ func TestSystemOne_TimeoutIsUpstreamUnavailable(t *testing.T) {
 	t.Cleanup(srv.Close)
 	t.Cleanup(func() { close(release) })
 
-	c := newClient(srv.URL, logging.NewLoggerWithOutput(io.Discard), 50*time.Millisecond)
+	c := NewClientWithTimeout(srv.URL, logging.NewLoggerWithOutput(io.Discard), 50*time.Millisecond)
 	_, err := c.SystemOne(context.Background(), "tok", routingRequest())
 	if !errors.Is(err, ErrUpstreamUnavailable) {
 		t.Errorf("err = %v, want ErrUpstreamUnavailable", err)

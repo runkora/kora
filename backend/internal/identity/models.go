@@ -415,6 +415,7 @@ func newDelegationIssuanceResponse(d *DelegationIssuance) DelegationIssuanceResp
 
 var (
 	ErrSessionNotFound             = errors.New("session not found")
+	ErrAgentNotFound               = errors.New("no live agent for the SVID's agent slug")
 	ErrRefreshTokenNotFound        = errors.New("refresh token not found")
 	ErrRefreshTokenExpired         = errors.New("refresh token expired")
 	ErrRefreshTokenRevoked         = errors.New("refresh token revoked")

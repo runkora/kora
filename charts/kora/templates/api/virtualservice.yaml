@@ -82,7 +82,7 @@ spec:
               number: 80
     # ── Identity internal: never reachable from the edge ────────────────────────
     # /api/v1/identity/internal/* is the in-mesh-only surface (today: the
-    # service-token mint used by kora-triggers). It authenticates on the
+    # service-token mint used by kora-triggers and kora-agents). It authenticates on the
     # sidecar-attested XFCC identity, which an external caller cannot forge
     # because Istio sanitises the header on ingress. This rule is belt-and-
     # braces: the endpoint is powerful enough that it should be unreachable

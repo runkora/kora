@@ -4,15 +4,13 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/agents/manifestpatch"
@@ -28,7 +26,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,13 +33,14 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/retry"
 
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -123,16 +121,21 @@ type K8sProvisionerConfig struct {
 	// Workspace is the storage backing each agent's workspace volume, which the
 	// session-manager and every sandbox of its runs mount.
 	Workspace WorkspaceConfig
-	// AuthorizationPolicyEnabled creates an Istio AuthorizationPolicy beside
-	// each agent StatefulSet restricting its session-manager port to the
+	// AuthorizationPolicyEnabled creates an Istio AuthorizationPolicy for
+	// each agent's pods and the pool's pods restricting the session-manager port to the
 	// kora-agents principal. Requires SPIFFE/mTLS: without attested identities
 	// no source matches the rule and every call is denied, so the chart gates
 	// this on platform.spiffe.enabled (charts/kora/templates/agents/deployment.yaml).
 	AuthorizationPolicyEnabled bool
 	// Landlock is the session-manager's KORA_LANDLOCK: enforce or bestEffort.
 	Landlock string
-	// MinReplicas is the session-manager pod count each agent starts with and the scaler's floor.
+	// PoolSize is the unbound session-manager pods each tenant keeps ready to bind
+	// (docs/adr/2026-11-22-agent-cold-tier.md).
+	PoolSize int32
+	// MinReplicas is the scaler's floor on each agent's pods.
 	MinReplicas int32
+	// MaxReplicas is the scaler's ceiling on each agent's pods.
+	MaxReplicas int32
 	// DrainGracePeriodSecs is how long a terminating session-manager pod may wait for its runs to end.
 	DrainGracePeriodSecs int64
 	// PressureLimit is the session-manager's KORA_PRESSURE_LIMIT: the fraction of memory.max at which it kills its newest run.
@@ -144,8 +147,9 @@ type K8sProvisionerConfig struct {
 }
 
 // K8sProvisioner manages Kubernetes resources on behalf of kora-agents.
-// It is the only component with RBAC to create/delete StatefulSets, Services,
-// PDBs, sandbox Pods, and Istio DestinationRules in tenant namespaces.
+// It is the only component with RBAC to bind and delete agent pods and to
+// create the pool Deployments, Services, sandbox Pods, and Istio
+// DestinationRules in tenant namespaces.
 type K8sProvisioner struct {
 	client        kubernetes.Interface
 	dynamicClient dynamic.Interface
@@ -153,7 +157,23 @@ type K8sProvisioner struct {
 	cfg           K8sProvisionerConfig
 	policyClient  *policyclient.Client
 	scopeResolver *ScopeResolver
+	// workloads caches the bound agent pods, and pool the pool Deployments and pool pods. SyncWorkloadCache starts both.
+	workloads, pool informers.SharedInformerFactory
+	// growTimeout bounds a warm pod's grow before dispatch. Zero means defaultGrowTimeout.
+	growTimeout time.Duration
+	// poolsApplied maps a tenant namespace to the hash of the pool Deployment last
+	// reconciled there. Every agent apply reconciles the pool, and an unchanged
+	// render makes no Deployment or ServiceAccount call. A pool Deployment deleted
+	// by hand comes back when the render changes or kora-agents restarts.
+	poolsApplied sync.Map
+	// retiredAccounts holds the namespace/slug of each agent whose StatefulSet ServiceAccount is deleted.
+	retiredAccounts sync.Map
+	// metrics counts the binds an admission policy refused. Nil records nothing.
+	metrics *Metrics
 }
+
+// SetMetrics installs the instrument set that counts refused binds.
+func (p *K8sProvisioner) SetMetrics(m *Metrics) { p.metrics = m }
 
 // SetScopeResolver installs the resolver that adds the attached environments' egress and connectors to an agent's grant.
 // Without it, grant reconciliation uses the agent's own scopes.
@@ -186,7 +206,10 @@ func NewK8sProvisioner(inCluster bool, logger logging.Logger, cfg K8sProvisioner
 		return nil, fmt.Errorf("create dynamic k8s client: %w", err)
 	}
 
-	return &K8sProvisioner{client: cs, dynamicClient: dc, logger: logger, cfg: cfg, policyClient: policyClient}, nil
+	return &K8sProvisioner{
+		client: cs, dynamicClient: dc, logger: logger, cfg: cfg, policyClient: policyClient,
+		workloads: newWorkloadCache(cs, agentTypeLabel), pool: newWorkloadCache(cs, poolLabel),
+	}, nil
 }
 
 func buildRestConfig(inCluster bool) (*rest.Config, error) {
@@ -203,14 +226,14 @@ func buildRestConfig(inCluster bool) (*rest.Config, error) {
 
 // ProvisionAgentType creates the k8s resources of a managed agent type in the
 // given namespace and updates existing ones to the rendered spec. Updating the
-// StatefulSet template rolls the agent's pods.
+// tenant pool's pod template rolls the pool, and the scaler then rolls the agent's pods.
 func (p *K8sProvisioner) ProvisionAgentType(ctx context.Context, at AgentType, namespace string) error {
 	return p.provision(ctx, at, namespace, true)
 }
 
 // ProvisionMissing creates the agent type's missing k8s resources and leaves
 // existing ones unchanged. It still reconciles the agent's grant. Run start uses
-// it so that starting a run never rolls pods.
+// it so that starting a run never rolls pods. The scaler binds the agent's pods.
 func (p *K8sProvisioner) ProvisionMissing(ctx context.Context, at AgentType, namespace string) error {
 	return p.provision(ctx, at, namespace, false)
 }
@@ -247,27 +270,15 @@ func (p *K8sProvisioner) provision(ctx context.Context, at AgentType, namespace 
 		return err
 	}
 
-	if err := p.ensureServiceAccount(ctx, slug, namespace, labels, tenantRef, update); err != nil {
-		observability.RecordFailure(span, err, errSpanEnsureServiceAccount)
-		return err
-	}
-	if err := p.ensureStatefulSet(ctx, at, namespace, labels, tenantRef, update); err != nil {
-		observability.RecordFailure(span, err, errSpanEnsureStatefulset)
-		return err
+	// The workload an earlier release ran for the agent goes on an apply (docs/adr/2026-11-22-agent-cold-tier.md).
+	if update {
+		if err := p.retireStatefulSet(ctx, at, namespace); err != nil {
+			observability.RecordFailure(span, err, errSpanRetireStatefulSet)
+			return err
+		}
 	}
 	if err := p.ensureHeadlessService(ctx, slug, namespace, labels, tenantRef, update); err != nil {
 		observability.RecordFailure(span, err, errSpanEnsureHeadlessService)
-		return err
-	}
-	// An HPA left by an earlier release would fight the scaler over the replicas.
-	if update {
-		if err := ignoreNotFound(p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Delete(ctx, slug, metav1.DeleteOptions{})); err != nil {
-			observability.RecordFailure(span, err, errSpanDeleteStaleHpa)
-			return fmt.Errorf("delete stale hpa: %w", err)
-		}
-	}
-	if err := p.ensurePDB(ctx, slug, namespace, labels, tenantRef, update); err != nil {
-		observability.RecordFailure(span, err, errSpanEnsurePdb)
 		return err
 	}
 	if err := p.ensureAgentGrant(ctx, at, namespace); err != nil {
@@ -280,6 +291,10 @@ func (p *K8sProvisioner) provision(ctx context.Context, at AgentType, namespace 
 	}
 	if err := p.ensureAuthorizationPolicy(ctx, at, namespace, tenantRef, update); err != nil {
 		observability.RecordFailure(span, err, errSpanEnsureAuthorizationPolicy)
+		return err
+	}
+	if err := p.ensureTenantPool(ctx, at.TenantID, namespace, tenantRef, update); err != nil {
+		observability.RecordFailure(span, err, errSpanEnsureTenantPool)
 		return err
 	}
 	return nil
@@ -302,7 +317,12 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 
 	resources := []func() error{
 		func() error {
-			return ignoreNotFound(p.client.AppsV1().StatefulSets(namespace).Delete(ctx, slug, opts))
+			return p.retireStatefulSet(ctx, at, namespace)
+		},
+		func() error {
+			// The agent's pods go with it, so its ServiceAccount does not wait for them.
+			p.retiredAccounts.Delete(namespace + "/" + slug)
+			return p.deleteAgentServiceAccount(ctx, at, namespace)
 		},
 		func() error {
 			// The agent is being deleted and its runs end with it. Its pods skip the drain grace period.
@@ -310,19 +330,6 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 		},
 		func() error {
 			return ignoreNotFound(p.client.CoreV1().Services(namespace).Delete(ctx, slug, opts))
-		},
-		func() error {
-			return ignoreNotFound(p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Delete(ctx, slug, opts))
-		},
-		func() error {
-			return ignoreNotFound(p.client.PolicyV1().PodDisruptionBudgets(namespace).Delete(ctx, slug, opts))
-		},
-		func() error {
-			return ignoreNotFound(p.client.CoreV1().ServiceAccounts(namespace).Delete(ctx, slug, metav1.DeleteOptions{}))
-		},
-		func() error {
-			// Sweeps claims that predate the retention policy set below.
-			return p.deleteWorkspacePVCs(ctx, at, namespace)
 		},
 		func() error {
 			return p.deleteAgentGrant(ctx, at, namespace)
@@ -347,55 +354,11 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 	return firstErr
 }
 
-// ReadyOrdinals returns the Ready, non-terminating pod ordinals below the current replicas. A pod on
-// either revision counts: one a roll has not reached still takes runs (docs/adr/2026-10-12-run-scheduling.md).
-func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace string) ([]int, error) {
-	ss, pods, err := p.agentPods(ctx, slug, namespace)
-	if ss == nil || err != nil {
-		return nil, err
-	}
-	var out []int
-	for _, pod := range pods {
-		if pod.DeletionTimestamp != nil || !podReady(&pod) {
-			continue
-		}
-		n, ok := strings.CutPrefix(pod.Name, slug+"-")
-		if !ok {
-			continue
-		}
-		// A pod at or above the current replicas is being scaled away.
-		if ord, convErr := strconv.Atoi(n); convErr == nil && ord < specReplicas(ss) {
-			out = append(out, ord)
-		}
-	}
-	sort.Ints(out)
-	return out, nil
-}
-
-// LivePod reports whether the agent has a pod that is not terminating or finished, Ready or not.
-// A pod still coming up, such as one waiting for a node, keeps a run queued past the start budget.
-// A pod with any container, init container or sidecar included, that keeps failing to start is not coming up.
-// A Running pod that has been not Ready for longer than notReadyLimit is not coming up either.
-func (p *K8sProvisioner) LivePod(ctx context.Context, slug, namespace string, notReadyLimit time.Duration) (bool, error) {
-	_, pods, err := p.agentPods(ctx, slug, namespace)
-	if err != nil {
-		return false, err
-	}
-	now := time.Now()
-	for _, pod := range pods {
-		finished := pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed
-		if pod.DeletionTimestamp == nil && !finished && !podStuck(&pod) && !notReadyTooLong(&pod, notReadyLimit, now) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 // stuckWaitingReasons mark a container that keeps failing to start, rather than one still starting.
 var stuckWaitingReasons = []string{"CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "CreateContainerConfigError", "InvalidImageName"}
 
 // podStuck reports whether any init or regular container of the pod is waiting for one of stuckWaitingReasons.
-// A Running pod that is not Ready is handled by notReadyTooLong, by time, and not by podStuck.
+// A Running pod that is not Ready is not stuck; notReadyTooLong limits it by time.
 func podStuck(pod *corev1.Pod) bool {
 	for _, statuses := range [][]corev1.ContainerStatus{pod.Status.InitContainerStatuses, pod.Status.ContainerStatuses} {
 		for _, cs := range statuses {
@@ -407,181 +370,6 @@ func podStuck(pod *corev1.Pod) bool {
 	return false
 }
 
-// notReadyTooLong reports whether the pod is Running, not Ready, and has been so for longer than limit.
-// The time signal is the later of the Ready condition's last transition and the containers' start, then the pod's start time, then its creation time.
-// With none of them set there is no signal, so the pod is not too old.
-// Pending pods are never too old, and draining pods are excluded before this check by their deletion timestamp.
-func notReadyTooLong(pod *corev1.Pod, limit time.Duration, now time.Time) bool {
-	if pod.Status.Phase != corev1.PodRunning || podReady(pod) {
-		return false
-	}
-	var since time.Time
-	for _, c := range pod.Status.Conditions {
-		if c.Type == corev1.PodReady {
-			since = c.LastTransitionTime.Time
-		}
-	}
-	// The Ready condition is set False at scheduling, so it can predate the containers running (slow image pull).
-	// The budget starts when the containers started, so take the later of the two.
-	for _, cs := range pod.Status.ContainerStatuses {
-		if r := cs.State.Running; r != nil && r.StartedAt.After(since) {
-			since = r.StartedAt.Time
-		}
-	}
-	if since.IsZero() && pod.Status.StartTime != nil {
-		since = pod.Status.StartTime.Time
-	}
-	if since.IsZero() {
-		since = pod.CreationTimestamp.Time
-	}
-	return !since.IsZero() && now.Sub(since) > limit
-}
-
-// agentPods returns the agent's StatefulSet and its pods, a nil StatefulSet when it does not exist.
-func (p *K8sProvisioner) agentPods(ctx context.Context, slug, namespace string) (*appsv1.StatefulSet, []corev1.Pod, error) {
-	ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		return nil, nil, nil
-	}
-	if err != nil {
-		return nil, nil, fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
-	}
-	sel := labels.SelectorFromSet(ss.Spec.Selector.MatchLabels).String()
-	pods, err := p.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: sel})
-	if err != nil {
-		return nil, nil, fmt.Errorf("list pods for %s/%s: %w", namespace, slug, err)
-	}
-	return ss, pods.Items, nil
-}
-
-// Replicas returns the StatefulSet's current spec.replicas, zero when it does not exist.
-func (p *K8sProvisioner) Replicas(ctx context.Context, slug, namespace string) (int, error) {
-	ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
-	}
-	return specReplicas(ss), nil
-}
-
-// statefulSetView is what the scaler reads of an agent's StatefulSet.
-type statefulSetView struct {
-	Replicas int
-	// MemoryLimitBytes is the session-manager container's memory limit, the scaler's fallback for memory.max.
-	MemoryLimitBytes int64
-	Parallel         bool
-}
-
-// Scale errors: the replicas changed since the scaler read them, or the target is out of range.
-var (
-	errReplicasMoved   = errors.New("statefulset replicas changed since they were read")
-	errReplicasInvalid = errors.New("statefulset replicas out of range")
-)
-
-// AgentStatefulSet reads the scaler's view of an agent's StatefulSet. found is false when it does not exist.
-func (p *K8sProvisioner) AgentStatefulSet(ctx context.Context, slug, namespace string) (view statefulSetView, found bool, err error) {
-	ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		return statefulSetView{}, false, nil
-	}
-	if err != nil {
-		return statefulSetView{}, false, fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
-	}
-	view = statefulSetView{Replicas: specReplicas(ss), Parallel: ss.Spec.PodManagementPolicy == appsv1.ParallelPodManagement}
-	for _, c := range ss.Spec.Template.Spec.Containers {
-		if c.Name == sessionManagerContainerName {
-			view.MemoryLimitBytes = c.Resources.Limits.Memory().Value()
-		}
-	}
-	return view, true, nil
-}
-
-// ScaleStatefulSet sets the replicas through the scale subresource, only while they are still from.
-func (p *K8sProvisioner) ScaleStatefulSet(ctx context.Context, slug, namespace string, from, to int) error {
-	if to < 0 || to > math.MaxInt32 {
-		return fmt.Errorf("%w: %d", errReplicasInvalid, to)
-	}
-	sets := p.client.AppsV1().StatefulSets(namespace)
-	scale, err := sets.GetScale(ctx, slug, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("get statefulset scale %s/%s: %w", namespace, slug, err)
-	}
-	if int(scale.Spec.Replicas) != from {
-		return errReplicasMoved
-	}
-	scale.Spec.Replicas = int32(to)
-	if _, err := sets.UpdateScale(ctx, slug, scale, metav1.UpdateOptions{}); apierrors.IsConflict(err) {
-		return errReplicasMoved
-	} else if err != nil {
-		return fmt.Errorf("update statefulset scale %s/%s: %w", namespace, slug, err)
-	}
-	return nil
-}
-
-// parallelSwitchTimeout bounds the wait for an orphan-deleted StatefulSet to go before it is recreated.
-// The agent lock is held during the wait. A StatefulSet left missing is created by the next run start or apply.
-const parallelSwitchTimeout = 10 * time.Second
-
-// SwitchToParallel replaces a live OrderedReady StatefulSet with a Parallel one of the same name, spec
-// and replicas. The pod management policy is immutable, and the orphan delete keeps the pods running
-// for the new StatefulSet to adopt.
-func (p *K8sProvisioner) SwitchToParallel(ctx context.Context, slug, namespace string) error {
-	sets := p.client.AppsV1().StatefulSets(namespace)
-	live, err := sets.Get(ctx, slug, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
-	}
-	if live.Spec.PodManagementPolicy == appsv1.ParallelPodManagement || live.DeletionTimestamp != nil {
-		return nil
-	}
-	orphan := metav1.DeletePropagationOrphan
-	// The resource version precondition refuses the delete if an apply changed the StatefulSet since the read.
-	precondition := metav1.Preconditions{UID: &live.UID, ResourceVersion: &live.ResourceVersion}
-	if err = sets.Delete(ctx, slug, metav1.DeleteOptions{PropagationPolicy: &orphan, Preconditions: &precondition}); err != nil {
-		return fmt.Errorf("orphan-delete statefulset %s/%s: %w", namespace, slug, err)
-	}
-	// The orphan finalizer keeps the object until its pods are released, and a create before then conflicts.
-	err = wait.PollUntilContextTimeout(ctx, 200*time.Millisecond, parallelSwitchTimeout, true, func(ctx context.Context) (bool, error) {
-		current, getErr := sets.Get(ctx, slug, metav1.GetOptions{})
-		if apierrors.IsNotFound(getErr) {
-			return true, nil
-		}
-		// A different UID is a Parallel StatefulSet that an apply created in the gap; the create below then conflicts.
-		if getErr == nil && current.UID != live.UID {
-			return true, nil
-		}
-		return false, getErr
-	})
-	if err != nil {
-		return fmt.Errorf("wait for statefulset %s/%s to go: %w", namespace, slug, err)
-	}
-	recreated := appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: live.Name, Namespace: live.Namespace, Labels: live.Labels,
-			Annotations: live.Annotations, OwnerReferences: live.OwnerReferences,
-		},
-		Spec: live.Spec,
-	}
-	recreated.Spec.PodManagementPolicy = appsv1.ParallelPodManagement
-	if _, err = sets.Create(ctx, &recreated, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("recreate statefulset %s/%s: %w", namespace, slug, err)
-	}
-	return nil
-}
-
-// specReplicas is the StatefulSet's spec.replicas. Unset means 1.
-func specReplicas(ss *appsv1.StatefulSet) int {
-	if ss.Spec.Replicas == nil {
-		return 1
-	}
-	return int(*ss.Spec.Replicas)
-}
-
 func podReady(pod *corev1.Pod) bool {
 	for _, c := range pod.Status.Conditions {
 		if c.Type == corev1.PodReady {
@@ -589,62 +377,6 @@ func podReady(pod *corev1.Pod) bool {
 		}
 	}
 	return false
-}
-
-// WaitForStatefulSetReady polls until the StatefulSet for the given slug has at
-// least one ready replica, or the context deadline is reached.
-func (p *K8sProvisioner) WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error {
-	return wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
-		ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
-		if apierrors.IsNotFound(err) {
-			return false, nil
-		}
-		if err != nil {
-			return false, fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
-		}
-		return ss.Status.ReadyReplicas >= 1, nil
-	})
-}
-
-// RolloutStatefulSet triggers a rolling restart of the StatefulSet for the
-// given slug by patching the pod template with a restartedAt annotation.
-// This is equivalent to `kubectl rollout restart statefulset/<slug>` and
-// ensures that pods pick up new configuration (e.g. a changed framework or
-// model_id) without requiring a manual recycle.
-func (p *K8sProvisioner) RolloutStatefulSet(ctx context.Context, slug, namespace string) error {
-	ctx, span := agentsTracer.Start(ctx, "agents.K8sProvisioner.RolloutStatefulSet",
-		trace.WithAttributes(
-			observability.AgentSlugKey.String(slug),
-			semconv.K8SNamespaceNameKey.String(namespace),
-		),
-	)
-	defer span.End()
-
-	type patchAnnotations struct {
-		Spec struct {
-			Template struct {
-				Metadata struct {
-					Annotations map[string]string `json:"annotations"`
-				} `json:"metadata"`
-			} `json:"template"`
-		} `json:"spec"`
-	}
-	var p2 patchAnnotations
-	p2.Spec.Template.Metadata.Annotations = map[string]string{
-		"kubectl.kubernetes.io/restartedAt": time.Now().UTC().Format(time.RFC3339),
-	}
-	data, err := json.Marshal(p2)
-	if err != nil {
-		observability.RecordFailure(span, err, errSpanMarshalRolloutPatch)
-		return fmt.Errorf("marshal rollout patch: %w", err)
-	}
-	if _, err := p.client.AppsV1().StatefulSets(namespace).Patch(
-		ctx, slug, types.StrategicMergePatchType, data, metav1.PatchOptions{},
-	); err != nil {
-		observability.RecordFailure(span, err, errSpanPatchStatefulsetForRollout)
-		return fmt.Errorf("patch statefulset %s/%s for rollout: %w", namespace, slug, err)
-	}
-	return nil
 }
 
 // ── Sandbox provisioning ──────────────────────────────────────────────────────
@@ -694,10 +426,10 @@ const (
 // endpoint cannot execute anything. The caller (session-manager) writes both
 // into the run's workspace (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 //
-// The sandbox pod mounts the same workspace PVC as the agent StatefulSet pod
-// (named "workspaces-{slug}-{ordinal}") so files written by the agent container
+// The sandbox pod mounts the workspace claim of the run's session-manager pod
+// (named "{pod}-workspaces") so files written by the agent container
 // (Edit, Write tools) are immediately visible in the sandbox without copying.
-// The PVC is shared by every run scheduled onto that pod ordinal, so the
+// The claim is shared by every run placed on that pod, so the
 // mount is scoped with SubPath: run.ID (see sandboxContainer); this run's
 // sandbox pod only ever has its own {runID} directory mounted, never a
 // sibling run's. See https://github.com/runkora/kora/issues/134.
@@ -722,14 +454,20 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 		return Sandbox{}, err
 	}
 	podName := pod.Name
-	// Owner reference on the parent StatefulSet: sandbox pods share its
-	// workspace PVC via subPath, so their lifecycle is bound to it. Deleting
-	// the StatefulSet cascades to in-flight sandboxes; the StatefulSet itself
-	// is owned by the tenant CR
+	sessionManager, err := p.client.CoreV1().Pods(namespace).Get(ctx, run.PodName, metav1.GetOptions{})
+	if err != nil {
+		observability.RecordFailure(span, err, errSpanGetSessionManagerPod)
+		return Sandbox{}, fmt.Errorf("get session-manager pod %s: %w", run.PodName, err)
+	}
+	// Owner reference on the session-manager pod: the sandbox mounts its
+	// workspace claim, and deleting the pod cascades to its sandboxes
 	// (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
-	// Best-effort: on any lookup error we log and proceed unowned so
-	// sandbox creation is never gated on the ownerRef path.
-	applyOwnerRef(&pod.ObjectMeta, p.statefulSetOwnerRef(ctx, agentTypeSlug, namespace))
+	applyOwnerRef(&pod.ObjectMeta, podOwnerRef(sessionManager))
+	// Applied after the configured placement, so it cannot drop it: a
+	// ReadWriteOnce workspace attaches to one node, the session-manager pod's.
+	if !p.cfg.Workspace.crossesNodes() {
+		requireCoLocation(&pod.Spec, sessionManager.Spec.NodeName)
+	}
 
 	podVal, err := manifestpatch.Apply(*pod, "Pod", p.cfg.Patches)
 	if err != nil {
@@ -877,9 +615,8 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 		return nil, err
 	}
 	podName := sandboxfolder.SandboxPodName(run.ID)
-	// The session-manager pod {slug}-{ordinal} whose workspace this sandbox mounts.
-	sessionManagerPod := fmt.Sprintf("%s-%d", agentTypeSlug, run.PodOrdinal)
-	workspacesPVC := sandboxfolder.WorkspaceClaim(sessionManagerPod)
+	// The sandbox mounts the workspace claim of the run's session-manager pod.
+	workspacesPVC := sandboxfolder.WorkspaceClaim(run.PodName)
 
 	// Labels carry the pod's identity for the operator pod webhook and SPIRE.
 	//   - runkora.io/role=sandbox: namespace-policy targeting and the future
@@ -896,7 +633,7 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 	// docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md the
 	// sandbox rejoins the mesh; the operator pod webhook adds the
 	// identity-proxy + opa-policy + spire injection templates, giving the
-	// sandbox the same outbound enforcement chain as the agent StatefulSet
+	// sandbox the same outbound enforcement chain as the session-manager
 	// pod. Without injection the credential broker would be unreachable.
 	labels := map[string]string{
 		sandboxfolder.RoleLabel:  sandboxfolder.RoleSandbox,
@@ -921,7 +658,7 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 		"traffic.sidecar.istio.io/excludeInboundPorts": fmt.Sprintf("%d", p.cfg.SandboxGRPCPort),
 		// Holds the other containers until istio-proxy is ready on clusters
 		// where Istio does not inject it as a native sidecar. Same wiring the
-		// session-manager StatefulSet pod uses.
+		// session-manager pod uses.
 		"proxy.istio.io/config": sidecarProxyConfig,
 		annotationEnvironment:   spec.Environment,
 		annotationEnvironmentID: spec.EnvironmentID,
@@ -956,13 +693,6 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 	sandbox := p.cfg.Workloads.ForSandbox()
 	sandbox.applyToPodMeta(&pod.ObjectMeta)
 	sandbox.applyToPodSpec(&pod.Spec)
-
-	// Applied last, so configured placement cannot drop it: a ReadWriteOnce
-	// workspace attaches to one node, and this sandbox mounts the workspace of
-	// session-manager pod {slug}-{ordinal}.
-	if !p.cfg.Workspace.crossesNodes() {
-		requireCoLocation(&pod.Spec, sessionManagerPod)
-	}
 
 	return pod, nil
 }
@@ -1440,8 +1170,8 @@ func runWorkspaceDir(runID string) string {
 // file.
 //
 // The workspaces volume is mounted with SubPath: runID so this pod's view of
-// the (StatefulSet-shared) PVC is scoped to its own run directory only:
-// sibling runs co-located on the same pod ordinal share the underlying PVC
+// the session-manager pod's shared claim is scoped to its own run directory only:
+// sibling runs placed on the same pod share the underlying claim
 // but are not mounted into each other's sandbox pods at all. See
 // https://github.com/runkora/kora/issues/134.
 func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execToken string) (corev1.Container, error) {
@@ -1637,67 +1367,79 @@ func (p *K8sProvisioner) ensureAgentGrant(ctx context.Context, at AgentType, nam
 	delegationRequired := at.IsDelegated()
 
 	// Walk existing grants: keep the first whose SCOPES and delegation marker
-	// match (budget is reconciled separately), delete the rest. Remember the
+	// match (budget is reconciled separately); the rest are stale. Remember the
 	// kept grant's budget so an unspecified desired budget survives.
 	var keepID string
 	var keptBudget *policyclient.BudgetAssignment
+	var stale []policyclient.Grant
 	for _, g := range existing {
 		if keepID == "" && grantMatchesDesired(g, effectiveScopes, delegationRequired) {
 			keepID = g.ID
 			keptBudget = g.Budget
 			continue
 		}
-		if delErr := p.policyClient.DeleteGrant(ctx, g.ID); delErr != nil {
-			p.logger.Warn(ctx, "delete stale agent grant failed",
-				logging.Field{Key: "grant_id", Value: g.ID},
-				logging.Field{Key: "error", Value: delErr.Error()},
-			)
-		} else {
-			p.logger.Info(ctx, "stale agent grant deleted",
-				logging.Field{Key: "grant_id", Value: g.ID},
-				logging.Field{Key: "principal_id", Value: principalID},
-			)
-		}
+		stale = append(stale, g)
 	}
+
+	// No scope-matching grant: create one before deleting the stale ones, so a
+	// refused create leaves the agent its previous authorization. It carries the
+	// desired budget or, when unspecified, the budget of a grant it replaces.
+	if keepID == "" {
+		createBudget := clientBudget(at.Budget)
+		if at.Budget == nil {
+			createBudget = firstBudget(existing)
+		}
+		if _, err := p.policyClient.CreateGrant(ctx, grantTenantID, "AGENT", principalID, effectiveScopes, createBudget, delegationRequired); err != nil {
+			observability.RecordFailure(span, err, errSpanCreateAgentGrant)
+			return fmt.Errorf("create agent grant for %s: %w", principalID, err)
+		}
+		p.logger.Info(ctx, "agent grant created",
+			logging.Field{Key: "principal_id", Value: principalID},
+			logging.Field{Key: "tenant_id", Value: grantTenantID},
+		)
+		p.deleteStaleGrants(ctx, principalID, stale)
+		return nil
+	}
+	p.deleteStaleGrants(ctx, principalID, stale)
 
 	// A scope-matching grant exists: reconcile only the budget, in place. This
 	// avoids a delete+create window that would briefly leave the agent with no
 	// authorization, and preserves the grant ID (and its attribution counters).
 	// at.Budget == nil means "leave budget unchanged".
-	if keepID != "" {
-		if at.Budget != nil && !budgetMatches(at.Budget, keptBudget) {
-			if err := p.policyClient.UpdateGrantBudget(ctx, keepID, clientBudget(at.Budget)); err != nil {
-				observability.RecordFailure(span, err, errSpanUpdateAgentGrantBudget)
-				return fmt.Errorf("update agent grant budget for %s: %w", principalID, err)
-			}
-			p.logger.Info(ctx, "agent grant budget updated",
-				logging.Field{Key: "principal_id", Value: principalID},
-				logging.Field{Key: "grant_id", Value: keepID},
-			)
-			return nil
+	if at.Budget != nil && !budgetMatches(at.Budget, keptBudget) {
+		if err := p.policyClient.UpdateGrantBudget(ctx, keepID, clientBudget(at.Budget)); err != nil {
+			observability.RecordFailure(span, err, errSpanUpdateAgentGrantBudget)
+			return fmt.Errorf("update agent grant budget for %s: %w", principalID, err)
 		}
-		p.logger.Info(ctx, "agent grant up to date",
+		p.logger.Info(ctx, "agent grant budget updated",
 			logging.Field{Key: "principal_id", Value: principalID},
 			logging.Field{Key: "grant_id", Value: keepID},
 		)
 		return nil
 	}
-
-	// No scope-matching grant: create one, carrying the desired budget (or, when
-	// unspecified, preserving the budget of a grant we just deleted).
-	createBudget := clientBudget(at.Budget)
-	if at.Budget == nil {
-		createBudget = firstBudget(existing)
-	}
-	if _, err := p.policyClient.CreateGrant(ctx, grantTenantID, "AGENT", principalID, effectiveScopes, createBudget, delegationRequired); err != nil {
-		observability.RecordFailure(span, err, errSpanCreateAgentGrant)
-		return fmt.Errorf("create agent grant for %s: %w", principalID, err)
-	}
-	p.logger.Info(ctx, "agent grant created",
+	p.logger.Info(ctx, "agent grant up to date",
 		logging.Field{Key: "principal_id", Value: principalID},
-		logging.Field{Key: "tenant_id", Value: grantTenantID},
+		logging.Field{Key: "grant_id", Value: keepID},
 	)
 	return nil
+}
+
+// deleteStaleGrants removes grants a reconcile replaced. A failed delete is
+// logged and retried by the next reconcile.
+func (p *K8sProvisioner) deleteStaleGrants(ctx context.Context, principalID string, stale []policyclient.Grant) {
+	for _, g := range stale {
+		if delErr := p.policyClient.DeleteGrant(ctx, g.ID); delErr != nil {
+			p.logger.Warn(ctx, "delete stale agent grant failed",
+				logging.Field{Key: "grant_id", Value: g.ID},
+				logging.Field{Key: "error", Value: delErr.Error()},
+			)
+			continue
+		}
+		p.logger.Info(ctx, "stale agent grant deleted",
+			logging.Field{Key: "grant_id", Value: g.ID},
+			logging.Field{Key: "principal_id", Value: principalID},
+		)
+	}
 }
 
 // grantMatchesDesired reports whether an existing grant already reflects the
@@ -1791,7 +1533,7 @@ func scopeSetsEqual(a, b []string) bool {
 	return true
 }
 
-// deleteWorkspacePVCs removes the agent's workspace claims by label.
+// deleteWorkspacePVCs removes the claims an agent StatefulSet left, by label.
 // DeleteCollection isn't used because the fake clientset used in tests
 // doesn't implement it.
 func (p *K8sProvisioner) deleteWorkspacePVCs(ctx context.Context, at AgentType, namespace string) error {
@@ -1867,66 +1609,20 @@ func (p *K8sProvisioner) ensureServiceAccount(ctx context.Context, name, namespa
 	// Sync patched labels/annotations onto an existing ServiceAccount so a
 	// patch (e.g. an IRSA role-arn annotation) takes effect on reconcile, not
 	// only for freshly-created agent types.
-	existing, err := p.client.CoreV1().ServiceAccounts(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("get existing serviceaccount: %w", err)
-	}
-	existing.Labels = sa.Labels
-	existing.Annotations = sa.Annotations
-	// Backfill owner refs on the existing object so upgraded clusters gain
-	// GitOps observability + native GC on the next reconcile
-	// (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
-	applyOwnerRef(&existing.ObjectMeta, owner)
-	_, err = p.client.CoreV1().ServiceAccounts(namespace).Update(ctx, existing, metav1.UpdateOptions{})
-	return err
-}
-
-func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, namespace string, labels map[string]string, owner metav1.OwnerReference, update bool) error {
-	ss := p.buildSessionManagerStatefulSet(at, namespace, labels)
-	applyOwnerRef(&ss.ObjectMeta, owner)
-
-	ss, err := p.applyStatefulSetPatches(ss)
-	if err != nil {
-		return err
-	}
-
-	_, err = p.client.AppsV1().StatefulSets(namespace).Create(ctx, &ss, metav1.CreateOptions{})
-	if err == nil || !apierrors.IsAlreadyExists(err) {
-		return err
-	}
-	if !update {
-		return nil
-	}
-	// Replace the existing pod template with the rendered one so a patch change
-	// reaches existing agents on the next reconcile, keeping only the live
-	// session-manager image, which redeploy pins by digest. Replicas belong to
-	// the scaler, and the selector, VolumeClaimTemplates and pod management
-	// policy are immutable, so those stay create-only.
-	existing, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, ss.Name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("get existing statefulset: %w", err)
-	}
-	// Only a deliberate local redeploy pin keeps the live image; otherwise the
-	// rendered image applies so an upgrade moves the agent to the release.
-	var liveImage string
-	if existing.Annotations[annotationImagePinned] == "true" {
-		for _, c := range existing.Spec.Template.Spec.Containers {
-			if c.Name == sessionManagerContainerName {
-				liveImage = c.Image
-			}
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing, err := p.client.CoreV1().ServiceAccounts(namespace).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("get existing serviceaccount: %w", err)
 		}
-	}
-	existing.Spec.Template = ss.Spec.Template
-	for i, c := range existing.Spec.Template.Spec.Containers {
-		if c.Name == sessionManagerContainerName && liveImage != "" {
-			existing.Spec.Template.Spec.Containers[i].Image = liveImage
-		}
-	}
-	// Backfill the KoraTenant owner reference on the existing StatefulSet.
-	// See docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md.
-	applyOwnerRef(&existing.ObjectMeta, owner)
-	_, err = p.client.AppsV1().StatefulSets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
-	return err
+		existing.Labels = sa.Labels
+		existing.Annotations = sa.Annotations
+		// Backfill owner refs on the existing object so upgraded clusters gain
+		// GitOps observability + native GC on the next reconcile
+		// (docs/adr/2026-09-06-owner-references-for-agents-and-sandboxes.md).
+		applyOwnerRef(&existing.ObjectMeta, owner)
+		_, err = p.client.CoreV1().ServiceAccounts(namespace).Update(ctx, existing, metav1.UpdateOptions{})
+		return err
+	})
 }
 
 // deletedAgentPodGrace is the grace period of an agent pod deleted with its agent.
@@ -1955,11 +1651,7 @@ func drainGracePeriod(secs int64) *int64 {
 	return &secs
 }
 
-// annotationImagePinned marks a StatefulSet whose session-manager image a local
-// redeploy pinned on purpose; ensureStatefulSet keeps the live image then.
-const annotationImagePinned = "runkora.io/session-manager-image-pinned"
-
-// sessionManagerContainerName is the session-manager container in every agent StatefulSet pod.
+// sessionManagerContainerName is the session-manager container in every pool and agent pod.
 const sessionManagerContainerName = "session-manager"
 
 // sandboxContainerName is the sandbox-exec container in every sandbox pod.
@@ -2014,10 +1706,11 @@ func restrictedContainerSecurityContext() *corev1.SecurityContext {
 // operator webhook enforces the same mode; carrying it here rolls existing pods.
 const sidecarProxyConfig = `{"holdApplicationUntilProxyStarts":true,"proxyHeaders":{"metadataExchangeHeaders":{"mode":"IN_MESH"}}}`
 
-// buildSessionManagerStatefulSet renders an agent type's StatefulSet before
-// manifest patches are applied.
+// buildSessionManagerStatefulSet renders the session-manager pod template and
+// workspace claim as a StatefulSet before manifest patches are applied. Agent
+// manifest patches target this shape, and buildTenantPool turns it into the
+// tenant pool Deployment.
 func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace string, labels map[string]string) appsv1.StatefulSet {
-	replicas := max(p.cfg.MinReplicas, 1)
 	sessionManager := p.cfg.Workloads.ForSessionManager()
 	podAnnotations := map[string]string{
 		// The operator's pod webhook adds the SPIRE and identity-proxy
@@ -2032,11 +1725,6 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: namespace, Labels: labels},
 		Spec: appsv1.StatefulSetSpec{
-			Replicas:    &replicas,
-			ServiceName: at.Slug,
-			// A draining pod must not hold back the pods the scaler adds.
-			PodManagementPolicy: appsv1.ParallelPodManagement,
-			Selector:            &metav1.LabelSelector{MatchLabels: podLabels(at)},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels:      podLabels(at),
@@ -2085,6 +1773,8 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								{Name: "KORA_TERMINATION_GRACE_PERIOD_SECS", Value: strconv.FormatInt(p.cfg.DrainGracePeriodSecs, 10)},
 								{Name: "KORA_PRESSURE_LIMIT", Value: strconv.FormatFloat(p.cfg.PressureLimit, 'f', -1, 64)},
 							},
+							// The pod turns Ready within a second of the session-manager serving
+							// (docs/adr/2026-11-22-agent-cold-tier.md).
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
@@ -2092,17 +1782,18 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 										Port: intstr.FromString("http"),
 									},
 								},
-								InitialDelaySeconds: 5,
-								PeriodSeconds:       10,
+								PeriodSeconds:    1,
+								TimeoutSeconds:   2,
+								FailureThreshold: 10,
 							},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:              resource.MustParse("250m"),
+									corev1.ResourceCPU:              *sessionManager.CPU,
 									corev1.ResourceMemory:           *sessionManager.Memory,
 									corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralRequest),
 								},
 								Limits: corev1.ResourceList{
-									corev1.ResourceCPU:              resource.MustParse("2"),
+									corev1.ResourceCPU:              resource.MustParse(sessionManagerCPULimit),
 									corev1.ResourceMemory:           *sessionManager.Memory,
 									corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralLimit),
 								},
@@ -2121,15 +1812,9 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 					},
 				},
 			},
-			// WhenScaled stays Retain: a scale-down is not agent deletion.
-			PersistentVolumeClaimRetentionPolicy: &appsv1.StatefulSetPersistentVolumeClaimRetentionPolicy{
-				WhenDeleted: appsv1.DeletePersistentVolumeClaimRetentionPolicyType,
-				WhenScaled:  appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
-			},
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 				{
-					// Labeled so DeprovisionAgentType can select it by agent type.
-					ObjectMeta: metav1.ObjectMeta{Name: sandboxfolder.WorkspaceVolume, Labels: labels},
+					ObjectMeta: metav1.ObjectMeta{Name: sandboxfolder.WorkspaceVolume},
 					Spec: corev1.PersistentVolumeClaimSpec{
 						AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 						Resources: corev1.VolumeResourceRequirements{
@@ -2191,70 +1876,21 @@ func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namesp
 	if !update {
 		return nil
 	}
-	existing, err := p.client.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("get existing service: %w", err)
-	}
-	existing.Labels = svc.Labels
-	existing.Annotations = svc.Annotations
-	// ClusterIP and the selector are immutable or protected; ports are the
-	// mutable part of the spec a patch can change.
-	existing.Spec.Ports = svc.Spec.Ports
-	existing.Spec.PublishNotReadyAddresses = svc.Spec.PublishNotReadyAddresses
-	applyOwnerRef(&existing.ObjectMeta, owner)
-	_, err = p.client.CoreV1().Services(namespace).Update(ctx, existing, metav1.UpdateOptions{})
-	return err
-}
-
-// buildPDB keeps one session-manager pod up. With a single replica,
-// minAvailable: 1 can never be satisfied and blocks every node drain, so the
-// budget allows one unavailable pod instead.
-func (p *K8sProvisioner) buildPDB(name, namespace string, labels map[string]string) policyv1.PodDisruptionBudget {
-	one := intstr.FromInt32(1)
-	spec := policyv1.PodDisruptionBudgetSpec{
-		Selector: &metav1.LabelSelector{MatchLabels: labels},
-	}
-	if p.cfg.MinReplicas <= 1 {
-		spec.MaxUnavailable = &one
-	} else {
-		spec.MinAvailable = &one
-	}
-	return policyv1.PodDisruptionBudget{
-		TypeMeta:   metav1.TypeMeta{APIVersion: "policy/v1", Kind: "PodDisruptionBudget"},
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
-		Spec:       spec,
-	}
-}
-
-func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference, update bool) error {
-	pdb := p.buildPDB(name, namespace, labels)
-	applyOwnerRef(&pdb.ObjectMeta, owner)
-	var err error
-	pdb, err = manifestpatch.Apply(pdb, "PodDisruptionBudget", p.cfg.Patches)
-	if err != nil {
-		return fmt.Errorf("apply PodDisruptionBudget patches: %w", err)
-	}
-	_, err = p.client.PolicyV1().PodDisruptionBudgets(namespace).Create(ctx, &pdb, metav1.CreateOptions{})
-	if err == nil || !apierrors.IsAlreadyExists(err) {
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing, err := p.client.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return fmt.Errorf("get existing service: %w", err)
+		}
+		existing.Labels = svc.Labels
+		existing.Annotations = svc.Annotations
+		// ClusterIP and the selector are immutable or protected; ports are the
+		// mutable part of the spec a patch can change.
+		existing.Spec.Ports = svc.Spec.Ports
+		existing.Spec.PublishNotReadyAddresses = svc.Spec.PublishNotReadyAddresses
+		applyOwnerRef(&existing.ObjectMeta, owner)
+		_, err = p.client.CoreV1().Services(namespace).Update(ctx, existing, metav1.UpdateOptions{})
 		return err
-	}
-	if !update {
-		return nil
-	}
-	existing, err := p.client.PolicyV1().PodDisruptionBudgets(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("get existing pdb: %w", err)
-	}
-	existing.Labels = pdb.Labels
-	existing.Annotations = pdb.Annotations
-	existing.Spec.MinAvailable = pdb.Spec.MinAvailable
-	existing.Spec.MaxUnavailable = pdb.Spec.MaxUnavailable
-	// spec.selector is immutable on PodDisruptionBudget; a patch changing it
-	// only takes effect on a fresh PDB (delete + recreate), not on this
-	// update path.
-	applyOwnerRef(&existing.ObjectMeta, owner)
-	_, err = p.client.PolicyV1().PodDisruptionBudgets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
-	return err
+	})
 }
 
 // ensureDestinationRule creates an Istio DestinationRule in the system namespace
@@ -2351,8 +1987,8 @@ func (p *K8sProvisioner) deleteLegacyDestinationRule(ctx context.Context, slug, 
 	return p.deleteOwnDestinationRule(ctx, "agent-"+slug, slug, namespace)
 }
 
-// agentAuthorizationPolicyName is the AuthorizationPolicy created beside each
-// agent StatefulSet.
+// agentAuthorizationPolicyName is the AuthorizationPolicy over an agent's pods, or over a
+// tenant's pool pods for the pool name.
 func agentAuthorizationPolicyName(slug string) string { return "agent-" + slug + "-callers" }
 
 // ensureAuthorizationPolicy restricts who may reach an agent pod's
@@ -2369,9 +2005,9 @@ func agentAuthorizationPolicyName(slug string) string { return "agent-" + slug +
 // agent pods run and an AuthorizationPolicy selects workloads in its own
 // namespace. The DestinationRule above is the mirror image; it configures the
 // CLIENT side (kora-agents' outbound mTLS expectations) so it belongs in
-// kora-system. Neither can be templated in a chart: the StatefulSet these
-// govern is created imperatively, per agent type, at provision time, so its
-// policy is created the same way and torn down with it.
+// kora-system. Neither can be templated in a chart: the agents these govern
+// are created imperatively, per agent type, at provision time, so their
+// policies are created the same way and torn down with them.
 //
 // ALLOW, not DENY. A DENY listing the callers to exclude is a list that has to
 // be kept complete forever; an ALLOW listing the callers that exist fails
@@ -2387,11 +2023,17 @@ func agentAuthorizationPolicyName(slug string) string { return "agent-" + slug +
 // Envoy RBAC. Principals are written WITHOUT the prefix; writing it produces
 // "spiffe://spiffe://..." in the generated rule and never matches.
 func (p *K8sProvisioner) ensureAuthorizationPolicy(ctx context.Context, at AgentType, namespace string, owner metav1.OwnerReference, update bool) error {
+	return p.ensureSessionManagerPolicy(ctx, agentAuthorizationPolicyName(at.Slug), namespace, map[string]any{"app": at.Slug}, owner, update)
+}
+
+// ensureSessionManagerPolicy lets only kora-agents call the session-manager
+// port of the pods selector matches, and anyone read GET /health.
+func (p *K8sProvisioner) ensureSessionManagerPolicy(ctx context.Context, name, namespace string, selector map[string]any, owner metav1.OwnerReference, update bool) error {
 	if !p.cfg.AuthorizationPolicyEnabled {
 		return nil
 	}
 	metadata := map[string]any{
-		"name":      agentAuthorizationPolicyName(at.Slug),
+		"name":      name,
 		"namespace": namespace,
 	}
 	setUnstructuredOwnerRef(metadata, owner)
@@ -2402,7 +2044,7 @@ func (p *K8sProvisioner) ensureAuthorizationPolicy(ctx context.Context, at Agent
 			"metadata":   metadata,
 			"spec": map[string]any{
 				"selector": map[string]any{
-					"matchLabels": map[string]any{"app": at.Slug},
+					"matchLabels": selector,
 				},
 				"action": "ALLOW",
 				"rules": []any{
@@ -2452,7 +2094,7 @@ func (p *K8sProvisioner) ensureAuthorizationPolicy(ctx context.Context, at Agent
 	}
 	existing, err := p.dynamicClient.Resource(authorizationPolicyGVR).
 		Namespace(namespace).
-		Get(ctx, agentAuthorizationPolicyName(at.Slug), metav1.GetOptions{})
+		Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("get existing authorizationpolicy: %w", err)
 	}
@@ -2498,16 +2140,16 @@ func (p *K8sProvisioner) deleteOwnDestinationRule(ctx context.Context, name, slu
 
 func agentTypeLabels(at AgentType) map[string]string {
 	return map[string]string{
-		"app":                   at.Slug,
-		"runkora.io/agent-type": at.ID,
-		"runkora.io/tenant":     at.TenantID,
+		"app":               at.Slug,
+		agentTypeLabel:      at.ID,
+		"runkora.io/tenant": at.TenantID,
 	}
 }
 
 func podLabels(at AgentType) map[string]string {
 	return map[string]string{
 		"app":                           at.Slug,
-		"runkora.io/agent-type":         at.ID,
+		agentTypeLabel:                  at.ID,
 		"runkora.io/tenant":             at.TenantID,
 		sandboxfolder.ManagedAgentLabel: "true",
 		// slug used so the SPIFFE ID is human-readable:

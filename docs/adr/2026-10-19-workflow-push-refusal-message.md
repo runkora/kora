@@ -1,6 +1,6 @@
 # Explain GitHub's Workflow-File Push Refusal at the Egress Gateway
 
-**Status:** Accepted
+**Status:** Accepted (the `repo:write` opt-in superseded by [GitHub connector route coverage](2026-11-15-github-connector-route-coverage.md))
 **Date:** 2026-10-19
 **Deciders:** justinwilkin
 **Technical Story:** [#565](https://github.com/runkora/kora/issues/565)

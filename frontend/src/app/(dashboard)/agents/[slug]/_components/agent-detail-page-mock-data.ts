@@ -26,6 +26,7 @@ import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../../_types';
 import type { AgentTypeRow, RunRow } from '../../_types';
 import type { Period } from '../../_lib/spend';
 import { mockOverview } from './agent-overview-mock-data';
+import { graderFleet, type GraderFleet } from './agent-grades-mock-data';
 
 // Mock data for the agent detail stories.
 
@@ -122,13 +123,22 @@ function detailRoutes(
   agent: AgentType,
   overview: (slug: string, period: Period) => AgentOverviewResponse,
   runs: RunWithAttribution[],
+  graders: GraderFleet,
 ): MockRoutes {
   return {
+    'GET /api/agents/types/:id/graders': { graders: graders.list },
+    'GET /api/agents/types/:id/graders/:name': ({ url }: MockRequest) =>
+      graders.detail[decodeURIComponent(url.pathname.split('/').pop() ?? '')] ??
+      new Response(JSON.stringify({ message: 'Grader not found' }), { status: 404 }),
     'GET /api/agents/types/overview/:slug': ({ url }: MockRequest) =>
       overview(agent.slug, url.searchParams.get('period') as Period),
     'GET /api/agents/types/:id/effective-access': { data: effectiveAccess(agent) },
     'POST /api/agents/types/effective-access': { data: effectiveAccess(agent) },
-    'GET /api/agents/types/:id/runs': { data: runs, next_cursor: null },
+    // A grade filter matches the first three runs, standing in for the runs that failed.
+    'GET /api/agents/types/:id/runs': ({ url }: MockRequest) => ({
+      data: url.searchParams.has('grader') ? runs.slice(0, 3) : runs,
+      next_cursor: null,
+    }),
     'GET /api/agents/types/:id': { data: agent },
     'GET /api/models': { data: MODELS_CATALOGUE },
     'GET /api/agents/connectors': { data: CONNECTIONS },
@@ -171,7 +181,7 @@ function extraRuns(agent: AgentType): RunWithAttribution[] {
     tenant_id: 'ten_8f3a21',
     agent_type_id: agent.id,
     state: 'completed',
-    pod_ordinal: 0,
+    pod_name: 'session-manager-pool-0',
     created_by: 'trigger',
     created_at: '',
     updated_at: '',
@@ -292,7 +302,8 @@ export const withRoutes = (
   agent: AgentType,
   overview: (slug: string, period: Period) => AgentOverviewResponse = mockOverview,
   runs: RunWithAttribution[] = runsFor(agent),
-) => [dashboardPage(detailRoutes(agent, overview, runs))];
+  graders: GraderFleet = graderFleet(),
+) => [dashboardPage(detailRoutes(agent, overview, runs, graders))];
 
 export const rowFor = (agent: AgentType): AgentTypeRow => toAgentTypeRow(agent);
 

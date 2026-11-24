@@ -55,12 +55,14 @@ func TestProxy_AnonymousReadFallback(t *testing.T) {
 	}{
 		{"classify error read falls back", http.MethodGet, "/octocat/hello-world.git/info/refs?service=git-upload-pack", true, nil, http.StatusOK, ""},
 		{"foreign fetch falls back", http.MethodPost, "/octocat/hello-world.git/git-upload-pack", true, nil, http.StatusOK, ""},
-		{"policy deny read falls back", http.MethodGet, "/orbital/kora/pulls", true, nil, http.StatusOK, ""},
+		{"policy deny read falls back", http.MethodGet, "/api/v3/repos/orbital/kora/pulls", true, nil, http.StatusOK, ""},
+		{"unrecognized read falls back", http.MethodGet, "/orbital/kora/releases/download/v1/x.tgz", true, nil, http.StatusOK, ""},
+		{"unrecognized write denied", http.MethodPost, "/orbital/kora/issues", true, nil, http.StatusForbidden, DenialUnclassified},
 		{"write denied", http.MethodPost, "/octocat/hello-world.git/git-receive-pack", true, nil, http.StatusForbidden, DenialUnclassified},
 		{"push discovery denied", http.MethodGet, "/octocat/hello-world.git/info/refs?service=git-receive-pack", true, nil, http.StatusForbidden, DenialUnclassified},
 		{"granted-repo write denied by policy", http.MethodPost, "/orbital/kora.git/git-receive-pack", true, nil, http.StatusForbidden, DenialNotGranted},
 		{"closed egress with connector scope only denied", http.MethodGet, "/octocat/hello-world.git/info/refs?service=git-upload-pack", false, nil, http.StatusForbidden, DenialUnclassified},
-		{"policy unavailable never falls back", http.MethodGet, "/orbital/kora/pulls", true, errors.New("opa down"), http.StatusForbidden, DenialPolicyUnavailable},
+		{"policy unavailable never falls back", http.MethodGet, "/api/v3/repos/orbital/kora/pulls", true, errors.New("opa down"), http.StatusForbidden, DenialPolicyUnavailable},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -101,13 +103,75 @@ func TestProxy_AnonymousReadFallback(t *testing.T) {
 	}
 }
 
+// GitHub refusing an anonymous fallback read with 401, 403 or 404 returns the
+// original denial and none of GitHub's response; a rate-limit 403 and any other
+// status are relayed. See docs/adr/2026-11-15-github-connector-route-coverage.md, item 21.
+func TestProxy_AnonymousReadRefusedReturnsDenial(t *testing.T) {
+	rateLimited := map[string]string{"X-RateLimit-Remaining": "0"}
+	tests := []struct {
+		name       string
+		path       string
+		upstream   int
+		headers    map[string]string
+		wantReason DenialReason
+	}{
+		{"404 on a policy-denied read", "/api/v3/repos/orbital/kora/pulls?per_page=1", http.StatusNotFound, nil, DenialNotGranted},
+		{"401 on an unclassified clone", "/octocat/hello-world.git/info/refs?service=git-upload-pack", http.StatusUnauthorized, nil, DenialUnclassified},
+		{"403 on an unclassified read", "/orbital/kora/releases/download/v1/x.tgz", http.StatusForbidden, nil, DenialUnclassified},
+		{"403 with remaining requests", "/api/v3/repos/orbital/kora/pulls", http.StatusForbidden, map[string]string{"X-RateLimit-Remaining": "12"}, DenialNotGranted},
+		{"rate-limit 403 is relayed", "/api/v3/repos/orbital/kora/pulls", http.StatusForbidden, rateLimited, ""},
+		{"rate-limit 404 still returns the denial", "/api/v3/repos/orbital/kora/pulls", http.StatusNotFound, rateLimited, DenialNotGranted},
+		{"200 is relayed", "/api/v3/repos/orbital/kora/pulls", http.StatusOK, nil, ""},
+		{"302 is relayed", "/orbital/kora/releases/download/v1/x.tgz", http.StatusFound, nil, ""},
+		{"500 is relayed", "/api/v3/repos/orbital/kora/pulls", http.StatusInternalServerError, nil, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			cfg, _ := json.Marshal(map[string]any{"app_id": "12345", "installation_id": 42, "owner": "orbital"})
+			f.repo.items["acme|github"].Config = cfg
+			f.broker.policy = &postureEvaluator{ownEgress: true}
+			f.upstreamStatus = tc.upstream
+			f.upstreamHeaders = tc.headers
+
+			client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+			req, _ := http.NewRequest(http.MethodGet, f.gateway.URL+tc.path, nil)
+			req.Host = f.connectionHost
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("call: %v", err)
+			}
+			defer resp.Body.Close()
+			if f.upstreamSawMethod != http.MethodGet || f.upstreamSawAuth != "" {
+				t.Fatalf("upstream saw %q with Authorization %q, want an anonymous GET", f.upstreamSawMethod, f.upstreamSawAuth)
+			}
+			if tc.wantReason == "" {
+				if resp.StatusCode != tc.upstream || resp.Header.Get("X-Upstream") != "github" {
+					t.Errorf("status = %d, X-Upstream = %q, want GitHub's %d relayed", resp.StatusCode, resp.Header.Get("X-Upstream"), tc.upstream)
+				}
+				return
+			}
+			if resp.Header.Get("X-Upstream") != "" {
+				t.Errorf("GitHub's headers reached the agent")
+			}
+			body := decodeDenial(t, resp)
+			if body.Details["reason"] != string(tc.wantReason) {
+				t.Errorf("reason = %v, want %s", body.Details["reason"], tc.wantReason)
+			}
+			if strings.Contains(body.Message, "per_page") || strings.Contains(body.Message, "service=") {
+				t.Errorf("message carries the query string: %q", body.Message)
+			}
+		})
+	}
+}
+
 // A connection of another adapter never takes the fallback, even on a read.
 func TestAnonymousReadOrDeny_OnlyGitHub(t *testing.T) {
 	eval := &postureEvaluator{ownEgress: true}
 	b := NewBroker(eval, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
 	conn := &credentials.Connection{Name: "cluster", Adapter: credentials.AdapterKubernetesBearer}
 	req, _ := http.NewRequest(http.MethodGet, "https://k8s.example.com/api", nil)
-	denial := deny(DenialUnclassified, "k8s.example.com", conn, credentials.Classification{}, nil)
+	denial := deny(DenialUnclassified, FromHTTP(req), conn, credentials.Classification{}, nil)
 	_, span := tracer.Start(context.Background(), "test")
 	defer span.End()
 
@@ -126,9 +190,9 @@ func TestAuthorize_FallbackLogsOneLine(t *testing.T) {
 		want, notWant      string
 	}{
 		{"unclassified read served", http.MethodGet, "/octocat/hello-world.git/info/refs?service=git-upload-pack", true, "egress authorized: anonymous read", "egress denied"},
-		{"policy-denied read served", http.MethodGet, "/orbital/kora/pulls", true, "egress authorized: anonymous read", "egress denied"},
+		{"policy-denied read served", http.MethodGet, "/api/v3/repos/orbital/kora/pulls", true, "egress authorized: anonymous read", "egress denied"},
 		{"unclassified read declined", http.MethodGet, "/octocat/hello-world.git/info/refs?service=git-upload-pack", false, "egress denied: adapter could not classify action", "anonymous read"},
-		{"policy-denied write declined", http.MethodPost, "/orbital/kora/pulls", true, "egress denied by policy", "anonymous read"},
+		{"policy-denied write declined", http.MethodPost, "/api/v3/repos/orbital/kora/pulls", true, "egress denied by policy", "anonymous read"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -158,7 +222,7 @@ func TestAnonymousReadOrDeny_KeepsConnectionTrust(t *testing.T) {
 	_, span := tracer.Start(context.Background(), "test")
 	defer span.End()
 
-	d, err := b.anonymousReadOrDeny(context.Background(), span, claimsFor("acme", "agent", "run"), conn, FromHTTP(req), deny(DenialUnclassified, "ghe.example.com", conn, credentials.Classification{}, nil))
+	d, err := b.anonymousReadOrDeny(context.Background(), span, claimsFor("acme", "agent", "run"), conn, FromHTTP(req), deny(DenialUnclassified, FromHTTP(req), conn, credentials.Classification{}, nil))
 	if err != nil {
 		t.Fatalf("anonymousReadOrDeny: %v", err)
 	}

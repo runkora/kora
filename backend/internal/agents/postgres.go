@@ -333,7 +333,10 @@ func (r *PostgresRepository) SoftDeleteAgentType(ctx context.Context, id string)
 
 // ── Runs ──────────────────────────────────────────────────────────────────────
 
-func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
+// CreateRun inserts a pending run. A run with a trigger and a delivery id is skipped when
+// runs_trigger_delivery_key already holds that (tenant, trigger, delivery); the caller
+// then reads the first run with GetRunByDelivery. Other runs take a plain insert.
+func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) (bool, error) {
 	if run.ID == "" {
 		run.ID = uuid.NewString()
 	}
@@ -344,7 +347,7 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 	triggerIDs := append([]string{}, run.TriggerIDs...)
 	sourcesJSON, encErr := json.Marshal(mergeRunSources(nil, run.Sources))
 	if encErr != nil {
-		return fmt.Errorf("encode run sources: %w", encErr)
+		return false, fmt.Errorf("encode run sources: %w", encErr)
 	}
 	if run.StartedBy != nil {
 		triggerID = storage.NullIfZero(run.StartedBy.TriggerID)
@@ -355,25 +358,45 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 			triggerIDs = append(triggerIDs, id)
 		}
 	}
-	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
-		_, err := r.pool.Exec(ctx, `
+	conflict := ""
+	if triggerID != nil && deliveryID != nil {
+		conflict = ` ON CONFLICT ON CONSTRAINT runs_trigger_delivery_key DO NOTHING`
+	}
+	inserted := false
+	err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		tag, err := r.pool.Exec(ctx, `
 			INSERT INTO runs
-				(id, tenant_id, agent_type_id, state, pod_ordinal, created_by, created_at, updated_at,
+				(id, tenant_id, agent_type_id, state, created_by, created_at, updated_at,
 				 trigger_id, trigger_name, trigger_kind, delivery_id, initial_message, trace_parent, caused_by, chain_depth, trigger_ids, sources)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
-			run.ID, run.TenantID, run.AgentTypeID, string(RunStatePending), -1, run.CreatedBy, now, now,
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`+conflict,
+			run.ID, run.TenantID, run.AgentTypeID, string(RunStatePending), run.CreatedBy, now, now,
 			triggerID, triggerName, triggerKind, deliveryID, run.InitialMessage, storage.NullIfZero(run.TraceParent),
 			storage.NullIfZero(run.CausedBy), run.ChainDepth, triggerIDs, sourcesJSON,
 		)
 		if err != nil {
 			return fmt.Errorf("insert run: %w", err)
 		}
+		if tag.RowsAffected() != 1 {
+			return nil
+		}
+		inserted = true
 		created, err := r.GetRun(ctx, run.ID)
 		if err != nil {
 			return err
 		}
 		return events.Publish(ctx, r.pool, runEvent(events.RunCreated, *created, newRunEntity(*created)))
 	})
+	if err != nil {
+		return false, err
+	}
+	return inserted, nil
+}
+
+// GetRunByDelivery returns the run a trigger delivery started, or ErrNotFound.
+func (r *PostgresRepository) GetRunByDelivery(ctx context.Context, tenantID, triggerID, deliveryID string) (*Run, error) {
+	row := r.pool.QueryRow(ctx, selectRun+` WHERE r.tenant_id=$1 AND r.trigger_id=$2 AND r.delivery_id=$3`,
+		tenantID, triggerID, deliveryID)
+	return scanRun(row)
 }
 
 // selectRun joins agent_types so every run read carries the agent's identity mode, slug and name.
@@ -381,7 +404,7 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 const selectRun = `SELECT ` + runColumns + ` FROM runs r JOIN agent_types at ON at.id = r.agent_type_id`
 
 const runColumns = `
-	r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode, at.slug, at.name,
+	r.id, r.tenant_id, r.agent_type_id, r.state, COALESCE(r.pod_name, ''), r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, r.agent_config, at.identity_mode, at.slug, at.name,
 	r.trigger_id, r.trigger_name, r.trigger_kind, r.delivery_id, r.environment_id, r.trace_parent, r.deleted_at, r.caused_by, r.chain_depth, r.trigger_ids, r.sources`
 
 // GetRun returns the run, a terminated one included.
@@ -402,6 +425,7 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, q Ru
 		// Matches scanRun, which reads a run as trigger-started only when trigger_id is non-empty.
 		query += " AND r.trigger_id <> ''"
 	}
+	query, args = appendGradeFilter(query, args, q.Grade)
 	if !q.CreatedAfter.IsZero() {
 		args = append(args, q.CreatedAfter)
 		query += fmt.Sprintf(" AND r.created_at >= $%d", len(args))
@@ -474,7 +498,8 @@ func (r *PostgresRepository) SetRunState(ctx context.Context, id string, from, t
 	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
 		var tag interface{ RowsAffected() int64 }
 		var err error
-		if to == RunStateCompleted || to == RunStateFailed {
+		// Every terminal state stamps completed_at. The scaler's idle clock reads it.
+		if to.Terminal() {
 			tag, err = r.pool.Exec(ctx, `
 				UPDATE runs SET state=$1, completed_at=$2, updated_at=$2
 				WHERE id=$3 AND state=$4 AND deleted_at IS NULL AND state IN (`+podOccupancySQLList()+`)`,
@@ -493,7 +518,13 @@ func (r *PostgresRepository) SetRunState(ctx context.Context, id string, from, t
 		if tag.RowsAffected() == 0 {
 			return ErrConflict
 		}
-		return r.publishState(ctx, id, from, to)
+		if err := r.publishState(ctx, id, from, to); err != nil {
+			return err
+		}
+		if !to.Terminal() {
+			return nil
+		}
+		return r.enqueueGradeJobs(ctx, id)
 	})
 }
 
@@ -548,14 +579,32 @@ func (r *PostgresRepository) lastRunError(ctx context.Context, run Run) (string,
 	return code, nil
 }
 
-// AssignPod moves a claimed run to starting on podOrdinal. The claim token stops a
+// ListStatefulSetRuns returns the idle runs an earlier release placed on an agent StatefulSet pod.
+func (r *PostgresRepository) ListStatefulSetRuns(ctx context.Context) ([]Run, error) {
+	rows, err := r.pool.Query(ctx, selectRun+` WHERE r.state = 'idle' AND r.pod_name IS NULL AND r.pod_ordinal >= 0`)
+	if err != nil {
+		return nil, fmt.Errorf("list runs on agent StatefulSet pods: %w", err)
+	}
+	defer rows.Close()
+	var out []Run
+	for rows.Next() {
+		run, err := scanRun(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *run)
+	}
+	return out, rows.Err()
+}
+
+// AssignPod moves a claimed run to starting on the pod podName. The claim token stops a
 // worker whose claim went stale from assigning a run that another worker now holds.
-func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, claimedAt time.Time, podOrdinal int) error {
+func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, claimedAt time.Time, podName string) error {
 	now := time.Now().UTC()
 	tag, err := r.pool.Exec(ctx, `
-		UPDATE runs SET state=$1, pod_ordinal=$2, started_at=$3, updated_at=$3
+		UPDATE runs SET state=$1, pod_name=$2, started_at=$3, updated_at=$3
 		WHERE id=$4 AND state=$5 AND claimed_at=$6`,
-		string(RunStateStarting), podOrdinal, now, runID, string(RunStatePending), claimToken(claimedAt),
+		string(RunStateStarting), podName, now, runID, string(RunStatePending), claimToken(claimedAt),
 	)
 	if err != nil {
 		return fmt.Errorf("assign pod: %w", err)
@@ -619,7 +668,7 @@ func (r *PostgresRepository) QueueRun(ctx context.Context, runID string, notBefo
 // Returns ErrConflict when the run is gone, has moved on, or another worker holds it.
 func (r *PostgresRepository) ReleaseRunClaim(ctx context.Context, id string, claimedAt, notBefore time.Time) error {
 	tag, err := r.pool.Exec(ctx, `
-		UPDATE runs SET state = 'pending', pod_ordinal = -1, started_at = NULL,
+		UPDATE runs SET state = 'pending', pod_name = NULL, started_at = NULL,
 		       claimed_at = NULL, not_before = $3, updated_at = $4
 		WHERE  id = $1 AND claimed_at = $2 AND state IN ('pending', 'starting')`,
 		id, claimToken(claimedAt), notBefore, time.Now().UTC(),
@@ -669,8 +718,20 @@ func (r *PostgresRepository) MarkRunFailed(ctx context.Context, id string) error
 		if tag.RowsAffected() == 0 {
 			return nil
 		}
-		return r.publishState(ctx, id, "", RunStateFailed)
+		if err := r.publishState(ctx, id, "", RunStateFailed); err != nil {
+			return err
+		}
+		return r.enqueueGradeJobs(ctx, id)
 	})
+}
+
+// ReleaseRunDelivery clears delivery_id so the unique key frees up for a retry. Only a
+// failed start calls it: that run never started, and a run that did start keeps its key.
+func (r *PostgresRepository) ReleaseRunDelivery(ctx context.Context, id string) error {
+	if _, err := r.pool.Exec(ctx, `UPDATE runs SET delivery_id=NULL, updated_at=$1 WHERE id=$2`, time.Now().UTC(), id); err != nil {
+		return fmt.Errorf("release run delivery: %w", err)
+	}
+	return nil
 }
 
 // SetRunSummary writes the task summary set-once: the first summary for a run
@@ -704,6 +765,25 @@ func (r *PostgresRepository) SetRunDelegationJTI(ctx context.Context, runID, jti
 	return nil
 }
 
+// InitRunAgentConfig records the run's agent config digest when none is set.
+// Zero rows affected (run gone) is not an error.
+func (r *PostgresRepository) InitRunAgentConfig(ctx context.Context, runID, digest string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE runs SET agent_config=COALESCE(agent_config, $1), updated_at=$2 WHERE id=$3`, digest, time.Now().UTC(), runID)
+	if err != nil {
+		return fmt.Errorf("init run agent config: %w", err)
+	}
+	return nil
+}
+
+// SetRunAgentConfig replaces the run's agent config digest. Zero rows affected (run gone) is not an error.
+func (r *PostgresRepository) SetRunAgentConfig(ctx context.Context, runID, digest string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE runs SET agent_config=$1, updated_at=$2 WHERE id=$3`, digest, time.Now().UTC(), runID)
+	if err != nil {
+		return fmt.Errorf("set run agent config: %w", err)
+	}
+	return nil
+}
+
 // TerminateRun ends a live run as terminated and marks the run deleted. A run that already ended
 // keeps its state. The row and its run_events stay. Returns ErrNotFound for a run already terminated.
 func (r *PostgresRepository) TerminateRun(ctx context.Context, id string) (*Run, error) {
@@ -729,7 +809,14 @@ func (r *PostgresRepository) TerminateRun(ctx context.Context, id string) (*Run,
 		if run.State == RunStateTerminated {
 			changed = []string{"state", "completed_at", "deleted_at"}
 		}
-		return events.Publish(ctx, r.pool, runEvent(events.RunTerminated, *run, newRunEntity(*run), changed...))
+		if err := events.Publish(ctx, r.pool, runEvent(events.RunTerminated, *run, newRunEntity(*run), changed...)); err != nil {
+			return err
+		}
+		// A run that had already ended was queued for grading when it ended.
+		if run.State != RunStateTerminated {
+			return nil
+		}
+		return r.enqueueGradeJobs(ctx, id)
 	})
 	return run, err
 }
@@ -774,6 +861,7 @@ func (r *PostgresRepository) endRuns(ctx context.Context, update string, args ..
 		return nil, err
 	}
 	// The rows are read before the events are written, which share the transaction's connection.
+	ids := make([]string, 0, len(ended))
 	for _, run := range ended {
 		lastError, err := r.lastRunError(ctx, run)
 		if err != nil {
@@ -784,6 +872,10 @@ func (r *PostgresRepository) endRuns(ctx context.Context, update string, args ..
 				return nil, err
 			}
 		}
+		ids = append(ids, run.ID)
+	}
+	if err := r.enqueueGradeJobs(ctx, ids...); err != nil {
+		return nil, err
 	}
 	return ended, nil
 }
@@ -791,7 +883,7 @@ func (r *PostgresRepository) endRuns(ctx context.Context, update string, args ..
 // podOccupancySQLList renders the pod-occupying run states as a SQL literal
 // list ('pending','starting',...). The states are inlined rather than bound as
 // a query parameter so the predicate stays textually identical to the partial
-// index idx_runs_active, which the planner needs to match it.
+// index idx_runs_active_pod_name, which the planner needs to match it.
 func podOccupancySQLList() string { return sqlStateList(PodOccupyingRunStates()) }
 
 // liveRunSQLList lists the states counted against an agent's total: the
@@ -816,14 +908,15 @@ func sqlStateList(states []RunState) string {
 // Built at init rather than written as a constant on purpose. Spelling the
 // states out here would restore the hand-maintained list this change exists to
 // remove, and it would be the copy nothing checks: the predicate has to match
-// both OccupiesPod and the idx_runs_active partial index, and only generating
+// both OccupiesPod and the idx_runs_active_pod_name partial index, and only generating
 // it keeps all three in step. Do not fold it back into a literal.
 var activeRunsPerPodQuery = fmt.Sprintf(`
-		SELECT pod_ordinal, COUNT(*) FROM runs
-		WHERE agent_type_id=$1 AND state IN (%s)
-		GROUP BY pod_ordinal`, podOccupancySQLList())
+		SELECT pod_name, COUNT(*) FROM runs
+		WHERE agent_type_id=$1 AND state IN (%s) AND pod_name IS NOT NULL
+		GROUP BY pod_name`, podOccupancySQLList())
 
-func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error) {
+// ActiveRunsPerPod returns an agent's pod-occupying run counts keyed by pod name.
+func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[string]int, error) {
 	rows, err := r.pool.Query(ctx, activeRunsPerPodQuery, agentTypeID)
 	if err != nil {
 		return nil, fmt.Errorf("query active runs per pod: %w", err)
@@ -831,16 +924,17 @@ func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID s
 	return collectPodCounts(rows)
 }
 
-// collectPodCounts reads (pod_ordinal, count) rows into a map.
-func collectPodCounts(rows pgx.Rows) (map[int]int, error) {
+// collectPodCounts reads (pod_name, count) rows into a map.
+func collectPodCounts(rows pgx.Rows) (map[string]int, error) {
 	defer rows.Close()
-	out := make(map[int]int)
+	out := make(map[string]int)
 	for rows.Next() {
-		var ord, count int
-		if err := rows.Scan(&ord, &count); err != nil {
+		var name string
+		var count int
+		if err := rows.Scan(&name, &count); err != nil {
 			return nil, err
 		}
-		out[ord] = count
+		out[name] = count
 	}
 	return out, rows.Err()
 }
@@ -860,18 +954,32 @@ func (r *PostgresRepository) AgentRunCounts(ctx context.Context, agentTypeID str
 	return c, nil
 }
 
-// StartingRunsPerPod returns an agent's starting run counts keyed by pod ordinal. A live run assigned
+// StartingRunsPerPod returns an agent's starting run counts keyed by pod name. A live run assigned
 // to its pod after assignedSince also counts, because a run's memory grows after it leaves starting.
-func (r *PostgresRepository) StartingRunsPerPod(ctx context.Context, agentTypeID string, assignedSince time.Time) (map[int]int, error) {
+func (r *PostgresRepository) StartingRunsPerPod(ctx context.Context, agentTypeID string, assignedSince time.Time) (map[string]int, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT pod_ordinal, COUNT(*) FROM runs
-		WHERE agent_type_id = $1
+		SELECT pod_name, COUNT(*) FROM runs
+		WHERE agent_type_id = $1 AND pod_name IS NOT NULL
 		AND (state = 'starting' OR (state IN (`+liveRunSQLList()+`) AND started_at > $2))
-		GROUP BY pod_ordinal`, agentTypeID, assignedSince)
+		GROUP BY pod_name`, agentTypeID, assignedSince)
 	if err != nil {
 		return nil, fmt.Errorf("query starting runs per pod: %w", err)
 	}
 	return collectPodCounts(rows)
+}
+
+// LastRunCompletedAt returns the completion time of the agent's latest completed run, zero when it has none.
+// idx_runs_agent_completed serves it.
+func (r *PostgresRepository) LastRunCompletedAt(ctx context.Context, agentTypeID string) (time.Time, error) {
+	var last *time.Time
+	if err := r.pool.QueryRow(ctx, `SELECT max(completed_at) FROM runs WHERE agent_type_id = $1 AND completed_at IS NOT NULL`,
+		agentTypeID).Scan(&last); err != nil {
+		return time.Time{}, fmt.Errorf("read last completed run: %w", err)
+	}
+	if last == nil {
+		return time.Time{}, nil
+	}
+	return *last, nil
 }
 
 // agentLockKey keys the advisory lock that placement and the scaler take on an agent.
@@ -1144,9 +1252,9 @@ func scanRun(s scanner, extra ...any) (*Run, error) {
 	var triggerID, triggerName, triggerKind, deliveryID, traceParent, causedBy *string
 	var sourcesJSON []byte
 	err := s.Scan(append([]any{
-		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodOrdinal,
+		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodName,
 		&r.CreatedBy, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
-		&r.Summary, &r.DelegationJTI, &identityMode, &r.AgentSlug, &r.AgentName,
+		&r.Summary, &r.DelegationJTI, &r.AgentConfig, &identityMode, &r.AgentSlug, &r.AgentName,
 		&triggerID, &triggerName, &triggerKind, &deliveryID, &r.EnvironmentID, &traceParent,
 		&r.DeletedAt, &causedBy, &r.ChainDepth, &r.TriggerIDs, &sourcesJSON,
 	}, extra...)...)

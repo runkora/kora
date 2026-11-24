@@ -5,6 +5,8 @@
 **Deciders:** Platform Engineering  
 **Technical Story:** The agent control plane requires a new backend service to own agent type registration, run lifecycle, session routing, event streaming, k8s resource management, and BYOC discovery. This ADR establishes that service's architecture and scope.
 
+**Note (2026-11-22):** The BYOC statements in this ADR no longer hold. [BYOC ADR, Amendment 1](2026-05-11-byoc-agent-discovery-and-observability.md) retires BYOC agent identity.
+
 ---
 
 ## Context

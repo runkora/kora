@@ -609,7 +609,7 @@ func TestConnectorsDiscoveryAndForwarding(t *testing.T) {
 
 	call("tools/call", map[string]any{"name": "agents.create", "arguments": map[string]any{
 		"name": "C", "slug": "c", "model_id": "anthropic/claude-sonnet-4-6",
-		"connectors":   []any{map[string]any{"connection": "github", "actions": []any{"repo:read"}}},
+		"connectors":   []any{map[string]any{"connection": "github", "actions": []any{"contents:read"}}},
 		"connectivity": map[string]any{"mode": "whitelist", "hosts": []any{"api.github.com"}},
 	}})
 	if gotPath != "/api/v1/agent-types" {
@@ -1283,5 +1283,79 @@ func TestUpdateSurfacesMaxConcurrentRunsRefusal(t *testing.T) {
 	}
 	if text, _ := content[0].(map[string]any)["text"].(string); !strings.Contains(text, "max_concurrent_runs must be at least 1") {
 		t.Errorf("text = %q, want the API's refusal", text)
+	}
+}
+
+// TestGraderToolsForwardToRESTPaths checks graders.list and graders.get return the REST
+// bodies unchanged, that runs.list forwards the grade filters, and that a not-found from
+// the agents service reaches the caller as a tool error.
+func TestGraderToolsForwardToRESTPaths(t *testing.T) {
+	var gotPath string
+	var gotQuery url.Values
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery = r.URL.Path, r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.Contains(r.URL.Path, "at-hidden"):
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"code":"not_found","message":"agent type not found"}`))
+		case strings.HasSuffix(r.URL.Path, "/graders"):
+			_, _ = w.Write([]byte(`{"graders":[{"name":"quality"}]}`))
+		case strings.Contains(r.URL.Path, "/graders/"):
+			_, _ = w.Write([]byte(`{"name":"quality","questions":[]}`))
+		default:
+			_, _ = w.Write([]byte(`{}`))
+		}
+	}))
+	defer backend.Close()
+
+	srv := NewServer(Backends{Agents: backend.URL}, korajson.NewClient(logging.NewLogger()), testBrand)
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	text := func(resp map[string]any) (string, bool) {
+		res, _ := resp["result"].(map[string]any)
+		content, _ := res["content"].([]any)
+		if len(content) == 0 {
+			return "", true
+		}
+		first, _ := content[0].(map[string]any)
+		s, _ := first["text"].(string)
+		isErr, _ := res["isError"].(bool)
+		return s, isErr
+	}
+
+	body, isErr := text(call("tools/call", map[string]any{"name": "graders.list", "arguments": map[string]any{"agent_type_id": "at-1"}}))
+	if gotPath != "/api/v1/agent-types/at-1/graders" || isErr || body != `{"graders":[{"name":"quality"}]}` {
+		t.Errorf("graders.list hit %q, err=%v, body %q", gotPath, isErr, body)
+	}
+
+	body, isErr = text(call("tools/call", map[string]any{"name": "graders.get", "arguments": map[string]any{"agent_type_id": "at-1", "name": "quality"}}))
+	if gotPath != "/api/v1/agent-types/at-1/graders/quality" || isErr || body != `{"name":"quality","questions":[]}` {
+		t.Errorf("graders.get hit %q, err=%v, body %q", gotPath, isErr, body)
+	}
+
+	call("tools/call", map[string]any{"name": "runs.list", "arguments": map[string]any{"grader": "quality", "question": "q1", "verdict": "fail"}})
+	if gotPath != "/api/v1/runs" || gotQuery.Get("grader") != "quality" || gotQuery.Get("question") != "q1" || gotQuery.Get("verdict") != "fail" {
+		t.Errorf("runs.list hit %q?%v", gotPath, gotQuery)
+	}
+	call("tools/call", map[string]any{"name": "runs.list", "arguments": map[string]any{}})
+	if gotQuery.Has("grader") || gotQuery.Has("question") || gotQuery.Has("verdict") {
+		t.Errorf("unset grade filters were forwarded: %v", gotQuery)
+	}
+
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"graders.list", map[string]any{"agent_type_id": "at-hidden"}},
+		{"graders.get", map[string]any{"agent_type_id": "at-hidden", "name": "quality"}},
+	} {
+		msg, isErr := text(call("tools/call", map[string]any{"name": tc.tool, "arguments": tc.args}))
+		if !isErr || !strings.Contains(msg, "not found") {
+			t.Errorf("%s for an agent the caller cannot see: isError=%v, %q", tc.tool, isErr, msg)
+		}
 	}
 }

@@ -64,4 +64,7 @@ type Decision struct {
 	// Credential is what the proxy injects on the outbound leg. The platform
 	// token must be removed from the outbound request before this is applied.
 	Credential credentials.Credential
+	// Fallback is the denial an anonymous read replaced, set only on that read.
+	// The proxy returns it when the upstream refuses the read.
+	Fallback *Denial
 }

@@ -57,7 +57,7 @@ func newTestServiceWithRegistryLog(t *testing.T, registry string, out io.Writer)
 	return NewService(context.Background(), cfg,
 		sessions, refreshTokens, newMockBlocklistRepo(),
 		newMockAuthCodeRepo(), newMockClientRepo(), newMockPATRepo(),
-		nil, nil, nil, &mockPolicyClient{}, &mockPolicyEvaluator{},
+		nil, nil, nil, allAgentsLive{}, &mockPolicyClient{}, &mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{}, logging.NewLoggerWithOutput(out))
 }
 

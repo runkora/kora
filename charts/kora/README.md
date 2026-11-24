@@ -40,6 +40,9 @@ Kubernetes: `>=1.34.0-0`
 | agents.extraEnv | list | `[]` |  |
 | agents.extraVolumeMounts | list | `[]` |  |
 | agents.extraVolumes | list | `[]` |  |
+| agents.grading.concurrency | int | `4` | Grade jobs one kora-agents replica grades at once. |
+| agents.grading.pollIntervalSecs | int | `2` | Seconds between polls for due grade jobs. |
+| agents.grading.windowTokens | int | `247000` | Decision model input window, in tokens, that a run's state is fitted to. |
 | agents.guardrails.sandboxProvisionAttempts | int | `3` | Re-provisioning attempts when a run's sandbox dies. |
 | agents.guardrails.sandboxProvisionBackoffSecs | int | `5` | Seconds before the second attempt; doubles for each attempt after. |
 | agents.guardrails.sandboxProvisionBudgetSecs | int | `600` | Seconds across all attempts. At most 600, so the agent's tools still hear the outcome. |
@@ -55,6 +58,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.nodeSelector | object | `{}` |  |
 | agents.podAnnotations | object | `{}` |  |
 | agents.podLabels | object | `{}` |  |
+| agents.pool.size | int | `2` | Unbound session-manager pods each tenant keeps ready. kora-agents adds one for each agent with a pending run and no bound pod. |
 | agents.priorityClassName | string | `""` |  |
 | agents.replicas | int | `1` |  |
 | agents.resources.limits.cpu | string | `"500m"` |  |
@@ -84,24 +88,29 @@ Kubernetes: `>=1.34.0-0`
 | agents.sandboxWarming.resources | object | `{}` | Capacity each placeholder reserves, and the size a node is fitted to. Empty reserves one default sandbox pod: `agents.environments.defaultSize`, 1Gi of scratch disk and `operator.injection.sandboxSidecars`. A value here replaces that and must cover a sandbox pod's total requests. |
 | agents.sandboxWarming.tolerations | list | `[]` |  |
 | agents.sandboxWarming.topologySpreadConstraints | list | `[]` |  |
+| agents.scheduling.coldAfterSecs | int | `1800` | Seconds after an agent's last run ended before kora-agents deletes its pods, when it has no pending, starting, active or idle run. A cold agent's next run binds a pool pod. 0 keeps every agent at `minReplicas`. |
 | agents.scheduling.drainGracePeriodSecs | int | `3600` | Seconds a terminating session-manager pod waits for its runs to end before it is stopped. |
 | agents.scheduling.maxReplicas | int | `10` | Session-manager pods each agent runs at most. kora-agents never adds pods past it or the agent's total of concurrent runs. |
-| agents.scheduling.minReplicas | int | `2` | Session-manager pods each agent runs at least. A roll replaces one while the other takes new runs. kora-agents adds pods above it as runs need them and removes empty ones. |
+| agents.scheduling.minReplicas | int | `1` | Session-manager pods each warm agent runs at least. An agent cold for `coldAfterSecs` runs none. A roll first binds one pod on the pool's new template. kora-agents binds pods above it as runs need them and removes empty ones. |
 | agents.scheduling.placementWatermark | float | `0.7` | Fraction of a session-manager pod's memory limit its working set must stay below for the pod to take a run. |
 | agents.scheduling.pollIntervalSecs | int | `1` | Seconds between polls for pending runs, and before a run with no free pod is tried again. |
 | agents.scheduling.pressureLimit | float | `0.9` | Fraction of the memory limit at which the session-manager kills its most recently started run. Above placementWatermark. |
 | agents.scheduling.provisionBudgetSecs | int | `600` | Seconds a run may wait for its agent to finish provisioning before it fails. |
+| agents.scheduling.scalerConcurrency | int | `4` | Agents one kora-agents replica's scaler checks at once. Each check may hold a Postgres connection from the pool of 25, beside workerConcurrency and agents.grading.concurrency. agents.configOverrides sets the pool: `{internal/platform/storage: {postgres: {maxConnections: N}}}`. |
 | agents.scheduling.startBudgetSecs | int | `180` | Seconds a run may stay pending with no agent pod Ready or coming up before it fails. A run waiting for a pod that is not Ready yet, for room on a Ready pod or for its agent's total of concurrent runs does not fail. |
 | agents.scheduling.startingRunAllowance.claudeCode | string | `"220Mi"` | Memory a Claude Code run is assumed to take between its start and the next memory reading. |
 | agents.scheduling.startingRunAllowance.codex | string | `"60Mi"` | The same for a Codex run. |
 | agents.scheduling.startingRunAllowance.openCode | string | `"440Mi"` | The same for an OpenCode run. |
 | agents.scheduling.startingRunWindowSecs | int | `30` | Seconds after its pod assignment that a live run still counts at the starting allowance, because its memory grows after it leaves starting. |
+| agents.scheduling.warmAfterSecs | int | `300` | Seconds after an agent's last run ended before its idle session-manager pods shrink to `agents.workloads.sessionManager.warm`. A run grows the pod back before it starts. 0 keeps every pod at full size and grows any warm pod back. In-place pod resize is on by default from Kubernetes 1.33 and GA in 1.35. |
 | agents.scheduling.workerConcurrency | int | `16` | Runs one kora-agents replica starts at once. |
 | agents.serviceAccount.annotations | object | `{}` |  |
 | agents.tenantConnectionsConfigMapName | string | `"kora-tenant-connections"` |  |
 | agents.tenantsConfigMap | string | `"kora-tenants"` | Operator-owned tenant registry ConfigMap; the service reads each tenant's authoring switch from it. |
 | agents.tolerations | list | `[]` |  |
 | agents.topologySpreadConstraints | list | `[]` |  |
+| agents.wakeReserve.enabled | bool | `true` | Run the wake-reserve DaemonSet on the session-manager nodes. |
+| agents.wakeReserve.resources | object | `{"cpu":"225m","memory":"896Mi"}` | Capacity each node holds for a grow. The default is one grow: the session-manager's full requests less its warm requests. Resize it when either changes. |
 | agents.workloads.common.podAnnotations | object | `{}` |  |
 | agents.workloads.common.podLabels | object | `{}` |  |
 | agents.workloads.sandbox.affinity | object | `{}` |  |
@@ -112,6 +121,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.workloads.sandbox.tolerations | list | `[]` |  |
 | agents.workloads.sandbox.topologySpreadConstraints | list | `[]` |  |
 | agents.workloads.sessionManager.affinity | object | `{}` |  |
+| agents.workloads.sessionManager.cpu | string | `"250m"` | CPU request of the session-manager container. The limit stays at 2 CPU, so a value above 2 fails kora-agents' startup. Nodes fill on requests, not use: lowering it fits more agents per node. |
 | agents.workloads.sessionManager.memory | string | `"1Gi"` | Memory request and limit of the session-manager container. |
 | agents.workloads.sessionManager.nodeSelector | object | `{}` |  |
 | agents.workloads.sessionManager.podAnnotations | object | `{}` |  |
@@ -119,6 +129,8 @@ Kubernetes: `>=1.34.0-0`
 | agents.workloads.sessionManager.priorityClassName | string | `""` |  |
 | agents.workloads.sessionManager.tolerations | list | `[]` |  |
 | agents.workloads.sessionManager.topologySpreadConstraints | list | `[]` |  |
+| agents.workloads.sessionManager.warm.cpu | string | `"25m"` | CPU request of a warm session-manager. At most `cpu`. |
+| agents.workloads.sessionManager.warm.memory | string | `"128Mi"` | Memory request of a warm session-manager. Below `memory`. |
 | agents.workspace.accessModes[0] | string | `"ReadWriteOnce"` |  |
 | agents.workspace.size | string | `"10Gi"` |  |
 | agents.workspace.storageClassName | string | `""` |  |
@@ -283,6 +295,7 @@ Kubernetes: `>=1.34.0-0`
 | inferenceGateway.image.registry | string | `""` |  |
 | inferenceGateway.image.repository | string | `"kora-inference-gateway"` |  |
 | inferenceGateway.image.tag | string | `""` |  |
+| inferenceGateway.maxDecisionTimeoutSecs | int | `60` | Most seconds a POST /v1/systemone caller may give each upstream attempt with the X-Kora-Decision-Timeout header. Callers that do not set it get 15, and a value below 15 acts as 15. |
 | inferenceGateway.nodeSelector | object | `{}` |  |
 | inferenceGateway.podAnnotations | object | `{}` |  |
 | inferenceGateway.podDisruptionBudget.enabled | bool | `true` |  |

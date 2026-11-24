@@ -140,4 +140,10 @@ func TestSystemOneEndToEnd(t *testing.T) {
 	if row.PriceUnknown {
 		t.Error("price_unknown set for a priced model")
 	}
+	if got := rec.Header().Get("X-Kora-Usage-Id"); got != row.ID {
+		t.Errorf("X-Kora-Usage-Id = %q, want the row id %q", got, row.ID)
+	}
+	if got := rec.Header().Get("X-Kora-Cost-USD"); got != "0.0000164640" {
+		t.Errorf("X-Kora-Cost-USD = %q, want 0.0000164640 (392 tokens at $0.042/M)", got)
+	}
 }

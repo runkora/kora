@@ -27,14 +27,14 @@ func TestRenderResources_ParityWithBuilders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(objs) != 5 {
-		t.Fatalf("expected 5 objects (SA, STS, Service, PDB, sandbox Pod), got %d", len(objs))
+	if len(objs) != 4 {
+		t.Fatalf("expected 4 objects (Service, pool SA, pool Deployment, sandbox Pod), got %d", len(objs))
 	}
 
 	// Service must include TargetPort (matches ensureHeadlessService).
-	svc, ok := objs[2].(*corev1.Service)
+	svc, ok := objs[0].(*corev1.Service)
 	if !ok {
-		t.Fatalf("objs[2] not *corev1.Service: %T", objs[2])
+		t.Fatalf("objs[0] not *corev1.Service: %T", objs[0])
 	}
 	if len(svc.Spec.Ports) != 1 {
 		t.Fatalf("Service.Ports: got %d, want 1", len(svc.Spec.Ports))
@@ -50,10 +50,17 @@ func TestRenderResources_ParityWithBuilders(t *testing.T) {
 		t.Errorf("Service.ClusterIP: got %q, want None (headless)", svc.Spec.ClusterIP)
 	}
 
+	if sa, ok := objs[1].(*corev1.ServiceAccount); !ok || sa.Name != poolName {
+		t.Errorf("objs[1] = %+v, want the pool ServiceAccount", objs[1])
+	}
+	if pool, ok := objs[2].(*appsv1.Deployment); !ok || pool.Name != poolName {
+		t.Errorf("objs[2] = %T, want the pool Deployment", objs[2])
+	}
+
 	// Sandbox Pod name derived from run ID.
-	pod, ok := objs[4].(*corev1.Pod)
+	pod, ok := objs[3].(*corev1.Pod)
 	if !ok {
-		t.Fatalf("objs[4] not *corev1.Pod: %T", objs[4])
+		t.Fatalf("objs[3] not *corev1.Pod: %T", objs[3])
 	}
 	if pod.Name != "sandbox-sample-run" {
 		t.Errorf("sandbox Pod.Name: got %q, want %q", pod.Name, "sandbox-sample-run")
@@ -95,17 +102,17 @@ patch: |
 		t.Fatal(err)
 	}
 
-	ss, ok := objs[1].(*appsv1.StatefulSet)
+	pool, ok := objs[2].(*appsv1.Deployment)
 	if !ok {
-		t.Fatalf("objs[1] not *appsv1.StatefulSet: %T", objs[1])
+		t.Fatalf("objs[2] not *appsv1.Deployment: %T", objs[2])
 	}
-	if ss.Spec.Template.Spec.NodeSelector["disktype"] != "ssd" {
-		t.Errorf("StatefulSet nodeSelector: got %v", ss.Spec.Template.Spec.NodeSelector)
+	if pool.Spec.Template.Spec.NodeSelector["disktype"] != "ssd" {
+		t.Errorf("pool nodeSelector: got %v", pool.Spec.Template.Spec.NodeSelector)
 	}
 
-	pod, ok := objs[4].(*corev1.Pod)
+	pod, ok := objs[3].(*corev1.Pod)
 	if !ok {
-		t.Fatalf("objs[4] not *corev1.Pod: %T", objs[4])
+		t.Fatalf("objs[3] not *corev1.Pod: %T", objs[3])
 	}
 	if len(pod.Spec.Tolerations) != 1 || pod.Spec.Tolerations[0].Key != "dedicated" {
 		t.Errorf("sandbox Pod tolerations: got %v", pod.Spec.Tolerations)
@@ -198,21 +205,21 @@ patch: |
 		t.Fatal(err)
 	}
 
-	ss, ok := objs[1].(*appsv1.StatefulSet)
+	pool, ok := objs[2].(*appsv1.Deployment)
 	if !ok {
-		t.Fatalf("objs[1] not *appsv1.StatefulSet: %T", objs[1])
+		t.Fatalf("objs[2] not *appsv1.Deployment: %T", objs[2])
 	}
-	if got := ss.Spec.Template.Spec.NodeSelector["workload-tier"]; got != "kora" {
-		t.Errorf("StatefulSet workload-tier: got %q, want kora", got)
+	if got := pool.Spec.Template.Spec.NodeSelector["workload-tier"]; got != "kora" {
+		t.Errorf("pool workload-tier: got %q, want kora", got)
 	}
-	claim := ss.Spec.VolumeClaimTemplates[0]
-	if !slices.Contains(claim.Spec.AccessModes, corev1.ReadWriteMany) {
-		t.Errorf("workspace accessModes: got %v, want ReadWriteMany", claim.Spec.AccessModes)
+	i := slices.IndexFunc(pool.Spec.Template.Spec.Volumes, func(v corev1.Volume) bool { return v.Ephemeral != nil })
+	if i < 0 || !slices.Contains(pool.Spec.Template.Spec.Volumes[i].Ephemeral.VolumeClaimTemplate.Spec.AccessModes, corev1.ReadWriteMany) {
+		t.Errorf("workspace volume = %+v, want a ReadWriteMany ephemeral claim", pool.Spec.Template.Spec.Volumes)
 	}
 
-	pod, ok := objs[4].(*corev1.Pod)
+	pod, ok := objs[3].(*corev1.Pod)
 	if !ok {
-		t.Fatalf("objs[4] not *corev1.Pod: %T", objs[4])
+		t.Fatalf("objs[3] not *corev1.Pod: %T", objs[3])
 	}
 	if got := pod.Spec.NodeSelector["workload-tier"]; got != "kora-sandbox" {
 		t.Errorf("sandbox Pod workload-tier: got %q, want kora-sandbox", got)
@@ -265,9 +272,9 @@ patch: |
 	}
 }
 
-// A patch selected by an agent type's own labels matches nothing when the
-// startup validation renders its stand-in, so the same check runs per agent
-// type at provisioning time.
+// A patch selected by one tenant's or one agent type's labels matches nothing
+// when the startup validation renders its stand-in, so the same check runs per
+// agent type at provisioning time.
 func TestCheckSandboxPlacement_CatchesPatchesScopedToOneAgentType(t *testing.T) {
 	cfg := K8sProvisionerConfig{
 		SessionManagerImage:    "kora-session-manager:render",
@@ -276,7 +283,7 @@ func TestCheckSandboxPlacement_CatchesPatchesScopedToOneAgentType(t *testing.T) 
 		SandboxGRPCPort:        50051,
 		SystemNamespace:        "kora-system",
 		Patches: loadTestPatches(t, map[string]string{
-			"10-agent.yaml": `target: {kind: StatefulSet, labelSelector: "runkora.io/agent-type=render-coder"}
+			"10-agent.yaml": `target: {kind: StatefulSet, labelSelector: "runkora.io/tenant=example"}
 patch: |
   apiVersion: apps/v1
   kind: StatefulSet

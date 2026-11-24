@@ -11,34 +11,25 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/runkora/kora/backend/internal/agents/manifestpatch"
+	sandboxfolder "github.com/runkora/kora/backend/internal/agents/sandbox/folder"
 	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
 )
 
 // RenderResources builds the patchable resources kora-agents provisions for
-// an agent type (ServiceAccount, StatefulSet with its PVC template, Service,
-// PDB, and optionally a sample sandbox Pod), applies the manifest
-// patches, and returns them in creation order. The Istio DestinationRule and
-// AuthorizationPolicy are not patchable and are not rendered.
+// an agent type (its Service, the tenant pool's ServiceAccount and Deployment,
+// and optionally a sample sandbox Pod), applies the manifest patches, and
+// returns them in creation order. The pool pod template is the session-manager
+// StatefulSet render with the StatefulSet and PersistentVolumeClaim patches
+// applied (docs/adr/2026-11-22-agent-cold-tier.md). The Istio DestinationRule
+// and AuthorizationPolicy are not patchable and are not rendered.
 //
 // It calls the same build helpers as the runtime ensure functions and needs
 // no cluster or database. Owner references are omitted: the runtime resolves
-// them from live KoraTenant and StatefulSet lookups.
+// them from live KoraTenant and pod lookups.
 func RenderResources(cfg K8sProvisionerConfig, at AgentType, namespace string, renderSandbox bool) ([]runtime.Object, error) {
 	p := &K8sProvisioner{cfg: cfg}
 	labels := agentTypeLabels(at)
 	var out []runtime.Object
-
-	sa, err := manifestpatch.Apply(p.buildServiceAccount(at.Slug, namespace, labels), "ServiceAccount", cfg.Patches)
-	if err != nil {
-		return nil, fmt.Errorf("render ServiceAccount: %w", err)
-	}
-	out = append(out, &sa)
-
-	ss, err := p.applyStatefulSetPatches(p.buildSessionManagerStatefulSet(at, namespace, labels))
-	if err != nil {
-		return nil, err
-	}
-	out = append(out, &ss)
 
 	svc, err := manifestpatch.Apply(p.buildHeadlessService(at.Slug, namespace, labels), "Service", cfg.Patches)
 	if err != nil {
@@ -46,18 +37,22 @@ func RenderResources(cfg K8sProvisionerConfig, at AgentType, namespace string, r
 	}
 	out = append(out, &svc)
 
-	pdb, err := manifestpatch.Apply(p.buildPDB(at.Slug, namespace, labels), "PodDisruptionBudget", cfg.Patches)
+	pool, err := p.buildTenantPool(at.TenantID, namespace)
 	if err != nil {
-		return nil, fmt.Errorf("render PodDisruptionBudget: %w", err)
+		return nil, err
 	}
-	out = append(out, &pdb)
+	sa, err := manifestpatch.Apply(p.buildServiceAccount(poolName, namespace, pool.Labels), "ServiceAccount", cfg.Patches)
+	if err != nil {
+		return nil, fmt.Errorf("render ServiceAccount: %w", err)
+	}
+	out = append(out, &sa, &pool)
 
 	if renderSandbox {
 		pod, err := p.sampleSandboxPod("sample-run", at.Slug, namespace)
 		if err != nil {
 			return nil, err
 		}
-		if err := checkSplitPoolWorkspace(ss, pod); err != nil {
+		if err := checkSplitPoolWorkspace(pool, pod); err != nil {
 			return nil, err
 		}
 		out = append(out, &pod)
@@ -85,13 +80,14 @@ func (p *K8sProvisioner) applyStatefulSetPatches(ss appsv1.StatefulSet) (appsv1.
 
 // sampleSandboxPod renders a stand-in sandbox Pod for preview and validation.
 //
-// Not for provisioning: it carries no pod ordinal, so it claims the ordinal-0
-// workspace, no granted Kubernetes clusters, so it has no kubeconfig, and a
-// placeholder exec token, since nothing will call it. ProvisionSandbox builds
+// Not for provisioning: it claims the workspace of a stand-in pool pod, has
+// no granted Kubernetes clusters, so it has no kubeconfig, no owner or node
+// affinity, which ProvisionSandbox reads from the live session-manager pod, and
+// a placeholder exec token, since nothing will call it. ProvisionSandbox builds
 // the real pod from the run.
 func (p *K8sProvisioner) sampleSandboxPod(runID, agentTypeSlug, namespace string) (corev1.Pod, error) {
 	spec := SandboxSpec{Environment: DefaultEnvironmentName, Image: p.cfg.SandboxImage, Size: p.cfg.DefaultEnvironmentSize, KubeClusters: []kubeconfig.Cluster{}}
-	built, err := p.buildSandboxPod(Run{ID: runID}, agentTypeSlug, namespace, spec, "sample-not-a-real-token")
+	built, err := p.buildSandboxPod(Run{ID: runID, PodName: poolName + "-sample"}, agentTypeSlug, namespace, spec, "sample-not-a-real-token")
 	if err != nil {
 		return corev1.Pod{}, err
 	}
@@ -103,17 +99,17 @@ func (p *K8sProvisioner) sampleSandboxPod(runID, agentTypeSlug, namespace string
 }
 
 // checkSandboxPlacement runs the split-pool workspace check for a real agent
-// type, applying the patches exactly as the ensure functions do.
+// type and its tenant's pool, applying the patches exactly as the ensure functions do.
 //
 // Only patches need this. Workload values apply to every agent type, so the
 // startup validation already renders them; a patch can be selected by one
-// agent's name or labels, which the stand-in agent type there never matches.
+// tenant's labels or one agent's sandbox labels, which the stand-in there never matches.
 func (p *K8sProvisioner) checkSandboxPlacement(at AgentType, namespace string) error {
 	if len(p.cfg.Patches) == 0 {
 		return nil
 	}
 
-	ss, err := p.applyStatefulSetPatches(p.buildSessionManagerStatefulSet(at, namespace, agentTypeLabels(at)))
+	pool, err := p.buildTenantPool(at.TenantID, namespace)
 	if err != nil {
 		return err
 	}
@@ -121,7 +117,7 @@ func (p *K8sProvisioner) checkSandboxPlacement(at AgentType, namespace string) e
 	if err != nil {
 		return err
 	}
-	return checkSplitPoolWorkspace(ss, pod)
+	return checkSplitPoolWorkspace(pool, pod)
 }
 
 // checkSplitPoolWorkspace rejects patches that pin a sandbox and its
@@ -135,15 +131,18 @@ func (p *K8sProvisioner) checkSandboxPlacement(at AgentType, namespace string) e
 // PersistentVolumeClaim one included, before calling. Checking the built
 // objects instead would miss the placement and storage class the patches set,
 // which is the whole subject of the check.
-func checkSplitPoolWorkspace(ss appsv1.StatefulSet, pod corev1.Pod) error {
-	split, reason := splitAcrossNodes(ss.Spec.Template.Spec, pod.Spec)
+func checkSplitPoolWorkspace(pool appsv1.Deployment, pod corev1.Pod) error {
+	split, reason := splitAcrossNodes(pool.Spec.Template.Spec, pod.Spec)
 	if !split {
 		return nil
 	}
-	if len(ss.Spec.VolumeClaimTemplates) == 0 {
+	i := slices.IndexFunc(pool.Spec.Template.Spec.Volumes, func(v corev1.Volume) bool {
+		return v.Name == sandboxfolder.WorkspaceVolume && v.Ephemeral != nil && v.Ephemeral.VolumeClaimTemplate != nil
+	})
+	if i < 0 {
 		return nil
 	}
-	modes := ss.Spec.VolumeClaimTemplates[0].Spec.AccessModes
+	modes := pool.Spec.Template.Spec.Volumes[i].Ephemeral.VolumeClaimTemplate.Spec.AccessModes
 	if slices.Contains(modes, corev1.ReadWriteMany) {
 		return nil
 	}
