@@ -11,7 +11,7 @@ kora has two [placement modes](../architecture/sandboxes.md#placement):
 - **Co-located:** the default. Each sandbox runs on the node of its agent runtime pod and shares its `ReadWriteOnce` workspace volume. It needs no setup, and suits small sandboxes.
 - **Separate pool:** sandboxes run on their own node pool and scale independently of agents. It needs a `ReadWriteMany` StorageClass, such as EFS, Filestore or an NFS server.
 
-Choose the placement before you create agents. An agent keeps the workspace volume it was created with. To move an existing agent, migrate its workspace data or recreate it.
+Each pool pod's workspace is a generic ephemeral volume deleted with the pod. A change to placement or storage class reaches the pods the pool creates afterwards.
 
 ## Move sandboxes to their own node pool
 
