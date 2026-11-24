@@ -20,8 +20,8 @@ func TestAgentIdentityRule(t *testing.T) {
 	if host := spec["host"]; host != "kora-identity."+systemNamespace+".svc.cluster.local" {
 		t.Errorf("host = %v", host)
 	}
-	if sel, _, _ := unstructured.NestedStringMap(spec, "workloadSelector", "matchLabels"); sel["runkora.io/managed-agent"] != "true" || len(sel) != 1 {
-		t.Errorf("workload selector = %v, want agent pods", sel)
+	if sel, ok := spec["workloadSelector"]; ok {
+		t.Errorf("workload selector = %v, want none so every tenant pod gets the SAN pin", sel)
 	}
 	policy := spec["trafficPolicy"].(map[string]any)
 	if n, _, _ := unstructured.NestedInt64(policy, "connectionPool", "http", "maxRequestsPerConnection"); n != 1 {
@@ -48,7 +48,8 @@ func TestEnsureAgentIdentityRuleNeedsTrustDomain(t *testing.T) {
 	}
 }
 
-// The rule is created, and a later reconcile patches it back to the rendered spec.
+// The rule is created, and a later reconcile patches it back to the rendered
+// spec, removing a workload selector left by an earlier operator.
 func TestEnsureAgentIdentityRule_CreateThenPatch(t *testing.T) {
 	ctx := context.Background()
 	c := fake.NewClientBuilder().WithScheme(NewScheme()).Build()
@@ -69,13 +70,20 @@ func TestEnsureAgentIdentityRule_CreateThenPatch(t *testing.T) {
 	if err := unstructured.SetNestedField(rule.Object, int64(100), "spec", "trafficPolicy", "connectionPool", "http", "maxRequestsPerConnection"); err != nil {
 		t.Fatal(err)
 	}
+	if err := unstructured.SetNestedStringMap(rule.Object, map[string]string{"runkora.io/managed-agent": "true"}, "spec", "workloadSelector", "matchLabels"); err != nil {
+		t.Fatal(err)
+	}
 	if err := c.Update(ctx, rule); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.ensureAgentIdentityRule(ctx, tenant); err != nil {
 		t.Fatalf("patch: %v", err)
 	}
-	if n, _, _ := unstructured.NestedInt64(get().Object, "spec", "trafficPolicy", "connectionPool", "http", "maxRequestsPerConnection"); n != 1 {
+	rule = get()
+	if n, _, _ := unstructured.NestedInt64(rule.Object, "spec", "trafficPolicy", "connectionPool", "http", "maxRequestsPerConnection"); n != 1 {
 		t.Errorf("maxRequestsPerConnection after reconcile = %d, want 1", n)
+	}
+	if sel, ok, _ := unstructured.NestedFieldNoCopy(rule.Object, "spec", "workloadSelector"); ok {
+		t.Errorf("workload selector after reconcile = %v, want removed", sel)
 	}
 }
