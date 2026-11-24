@@ -978,7 +978,7 @@ test-agent-surge-rollout: auth-refresh-k3d ## Live-cluster roll check: a pool te
 	@bash scripts/cluster/test-agent-surge-rollout.sh
 
 .PHONY: test-agent-eviction
-test-agent-eviction: auth-refresh-k3d ## Live-cluster eviction check: evicting the only pod of a 1-pod agent binds a Ready pool pod while the old pod drains, and the agent returns to 1 pod. Not run by CI or `make check`.
+test-agent-eviction: auth-refresh-k3d ## Live-cluster eviction check: the busy pod of a 1-pod agent with an idle run refuses eviction, and once the run ends the pod is evicted and the next run runs on a replacement pool pod. Not run by CI or `make check`.
 	@bash scripts/cluster/test-agent-eviction.sh
 
 .PHONY: test-postgres

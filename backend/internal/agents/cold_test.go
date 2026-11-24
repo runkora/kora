@@ -248,6 +248,9 @@ func TestStartClaimed_ColdWake(t *testing.T) {
 			if want := []int{tc.wantBinds, tc.wantReleased, tc.wantProvMiss}; !slices.Equal(got, want) {
 				t.Errorf("binds,released,provisions = %v, want %v", got, want)
 			}
+			if slices.Contains(k8s.boundBusy, false) {
+				t.Errorf("binds labeled busy = %v, want every wake bind labeled", k8s.boundBusy)
+			}
 			var waking int
 			repo.mu.Lock()
 			for _, e := range repo.events[run.ID] {

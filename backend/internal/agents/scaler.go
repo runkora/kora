@@ -45,8 +45,11 @@ type scalerCluster interface {
 	AgentPods(ctx context.Context, at AgentType, namespace string) (agentPods, error)
 	LiveAgentPods(ctx context.Context, at AgentType, namespace string) (agentPods, error)
 	// BindPod binds a pool pod to the agent and returns its name. DeletePod drains and deletes a pod.
-	BindPod(ctx context.Context, at AgentType, namespace string) (string, error)
+	BindPod(ctx context.Context, at AgentType, namespace string, busy bool) (string, error)
 	DeletePod(ctx context.Context, namespace, name string) error
+	// MarkPodBusy labels a live pod busy, and ClearPodBusy removes the label.
+	MarkPodBusy(ctx context.Context, namespace, name string) (bool, error)
+	ClearPodBusy(ctx context.Context, namespace, name string) error
 	// RetireServiceAccount deletes the agent's ServiceAccount once no StatefulSet pod of the agent is left.
 	RetireServiceAccount(ctx context.Context, at AgentType, namespace string) error
 	// ShrinkPod and GrowPod set a pod's session-manager requests to the warm or the full size.
@@ -279,7 +282,7 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 	if err != nil {
 		return err
 	}
-	occupied, err := s.store.ActiveRunsPerPod(ctx, at.ID)
+	occupied, err := s.occupiedPods(ctx, at, namespace, pods.Live)
 	if err != nil {
 		return err
 	}
@@ -342,6 +345,33 @@ func (s *Scaler) stillActive(ctx context.Context, id string) (bool, error) {
 	return current.State == AgentTypeStateActive, nil
 }
 
+// occupiedPods counts the runs on each of the agent's pods. It removes the busy label from each pod that holds
+// no pending, starting, active, idle or completing run, so the cluster may evict it, and sets the label on a pod
+// that holds a run without it (docs/adr/2026-11-22-agent-cold-tier.md, Amendment 1). Placement sets the label
+// under the same agent lock. A failed label write is logged and does not stop the pass.
+func (s *Scaler) occupiedPods(ctx context.Context, at AgentType, namespace string, pods []agentPod) (map[string]int, error) {
+	occupied, err := s.store.ActiveRunsPerPod(ctx, at.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, pod := range pods {
+		switch held := occupied[pod.Name] > 0; {
+		case pod.Busy && !held:
+			err = s.cluster.ClearPodBusy(ctx, namespace, pod.Name)
+		case !pod.Busy && held:
+			_, err = s.cluster.MarkPodBusy(ctx, namespace, pod.Name)
+		default:
+			continue
+		}
+		if err != nil {
+			s.logger.Warn(ctx, "set the busy label of an agent pod failed",
+				logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: pod.Name},
+				logging.Field{Key: "error", Value: err.Error()})
+		}
+	}
+	return occupied, nil
+}
+
 // deletePod drains and deletes a pod and forgets its refused shrink.
 func (s *Scaler) deletePod(ctx context.Context, namespace, name string) error {
 	if err := s.cluster.DeletePod(ctx, namespace, name); err != nil {
@@ -354,7 +384,7 @@ func (s *Scaler) deletePod(ctx context.Context, namespace, name string) error {
 // bindPods binds n pool pods to the agent.
 func (s *Scaler) bindPods(ctx context.Context, at AgentType, namespace string, n int, in scaleInput) error {
 	for range n {
-		name, err := s.cluster.BindPod(ctx, at, namespace)
+		name, err := s.cluster.BindPod(ctx, at, namespace, false)
 		if name == "" {
 			return err
 		}
@@ -433,7 +463,7 @@ func (s *Scaler) roll(ctx context.Context, at AgentType, namespace string, pods 
 	if len(current) >= len(old) || (atCeiling && len(current) > 0) {
 		return false, nil
 	}
-	name, err := s.cluster.BindPod(ctx, at, namespace)
+	name, err := s.cluster.BindPod(ctx, at, namespace, false)
 	if name != "" {
 		s.logger.Info(ctx, "bound agent pod on the current pool template and agent config",
 			logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod", Value: name})

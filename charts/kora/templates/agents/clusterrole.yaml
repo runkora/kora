@@ -25,7 +25,8 @@ rules:
     resources: ["replicasets"]
     verbs: ["get"]
   # The workload caches watch the bound and pool pods. The bind patches a pool
-  # pod's labels and owner references, and the scaler deletes a bound pod to
+  # pod's labels and owner references, placement and the scaler set and remove
+  # runkora.io/busy on a bound pod, and the scaler deletes a bound pod to
   # drain it. Run start creates sandbox pods and deletes the wake-reserve pod
   # on a node where a grow finds no room.
   - apiGroups: [""]

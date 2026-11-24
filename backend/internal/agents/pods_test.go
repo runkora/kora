@@ -91,7 +91,7 @@ func TestBindPod(t *testing.T) {
 	notReadyPod.Status.Conditions = nil
 	p, _, patches := bindProvisioner(t, f.dep, f.rs, notReadyPod, f.pod("pool-old", "t0", 1), f.pod("pool-b", testTemplate, 3), f.pod("pool-a", testTemplate, 2))
 	at := AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}
-	name, err := p.BindPod(t.Context(), at, scaleTestNS)
+	name, err := p.BindPod(t.Context(), at, scaleTestNS, false)
 	if err != nil || name != "pool-a" {
 		t.Fatalf("BindPod = %q, %v; want pool-a", name, err)
 	}
@@ -142,6 +142,51 @@ func TestBindPod(t *testing.T) {
 	}
 }
 
+// A bind that places a run sets the busy label in the same patch.
+func TestBindPodBusy(t *testing.T) {
+	f := newPoolFixture()
+	p, client, patches := bindProvisioner(t, f.dep, f.rs, f.pod("pool-a", testTemplate, 1))
+	if _, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS, true); err != nil {
+		t.Fatal(err)
+	}
+	if len(patches[""]) != 1 {
+		t.Fatalf("patches = %v, want the bind alone", patches[""])
+	}
+	pod, err := client.CoreV1().Pods(scaleTestNS).Get(t.Context(), "pool-a", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pod.Labels[busyLabel] != "true" || pod.Labels["spiffe.io/agent"] != "coder" {
+		t.Errorf("labels = %v, want the bind labels and busy", pod.Labels)
+	}
+}
+
+// A bound pod deleted from outside kora, by an eviction or a node drain, is terminating. The cached and the live
+// reads leave it out, so placement finds the agent cold and the wake binds a pool pod
+// (TestStartClaimed_ColdWake covers the wake from no pod).
+func TestExternallyDeletedPodLeavesTheAgentCold(t *testing.T) {
+	f := newPoolFixture()
+	at := AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}
+	now := metav1.Now()
+	evicted := boundPod(at, "pool-x", 0)
+	evicted.DeletionTimestamp = &now
+	p, _, _ := bindProvisioner(t, f.dep, f.rs, evicted, f.pod("pool-a", testTemplate, 1))
+	cached, err := p.AgentPods(t.Context(), at, scaleTestNS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live, err := p.LiveAgentPods(t.Context(), at, scaleTestNS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cached.Live)+len(cached.Finished)+len(live.Live)+len(live.Finished) != 0 {
+		t.Fatalf("cached %+v and live %+v, want no pod for the agent", cached, live)
+	}
+	if name, err := p.BindPod(t.Context(), at, scaleTestNS, true); err != nil || name != "pool-a" {
+		t.Errorf("BindPod = %q, %v; want pool-a", name, err)
+	}
+}
+
 // A pod another replica bound first, which fails the resource version precondition, is skipped for the next one.
 func TestBindPodSkipsAConflict(t *testing.T) {
 	f := newPoolFixture()
@@ -152,7 +197,7 @@ func TestBindPodSkipsAConflict(t *testing.T) {
 		}
 		return false, nil, nil
 	})
-	name, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS)
+	name, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS, false)
 	if err != nil || name != "pool-b" {
 		t.Errorf("BindPod = %q, %v; want pool-b after the conflict on pool-a", name, err)
 	}
@@ -184,7 +229,7 @@ func TestBindPodReturnsARefusedPatch(t *testing.T) {
 				patched++
 				return true, nil, refusal
 			})
-			name, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS)
+			name, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS, false)
 			if name != "" || !errors.Is(err, refusal) || patched != 1 {
 				t.Errorf("BindPod = %q, %v after %d patches; want the refusal after one patch", name, err, patched)
 			}
@@ -232,7 +277,7 @@ func TestBindPodSpanStatus(t *testing.T) {
 			if tc.setup != nil {
 				tc.setup(f, client)
 			}
-			if _, err := p.BindPod(t.Context(), at, scaleTestNS); err == nil {
+			if _, err := p.BindPod(t.Context(), at, scaleTestNS, false); err == nil {
 				t.Fatal("BindPod succeeded")
 			}
 			span := endedSpan(t, rec, "agents.K8sProvisioner.BindPod")
@@ -261,7 +306,7 @@ func TestBindPodReturnsAFailedProvenanceRead(t *testing.T) {
 	client.PrependReactor("get", "replicasets", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("api down")
 	})
-	if _, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS); err == nil || errors.Is(err, errNoPoolPod) || len(patches) != 0 {
+	if _, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS, false); err == nil || errors.Is(err, errNoPoolPod) || len(patches) != 0 {
 		t.Errorf("BindPod = %v with patches %v, want the read error and no patch", err, patches)
 	}
 }
@@ -413,7 +458,7 @@ func TestBindPodChecksTheLiveTemplate(t *testing.T) {
 			client.PrependReactor("get", "deployments", func(k8stesting.Action) (bool, runtime.Object, error) {
 				return true, live, nil
 			})
-			name, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS)
+			name, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS, false)
 			if name != tc.want || (tc.want == "" && !errors.Is(err, errNoPoolPod)) {
 				t.Errorf("BindPod = %q, %v; want %q", name, err, tc.want)
 			}
@@ -425,7 +470,7 @@ func TestBindPodChecksTheLiveTemplate(t *testing.T) {
 func TestBindPodReadsTheCachedDeployment(t *testing.T) {
 	f := newPoolFixture()
 	p, client, _ := bindProvisioner(t, f.dep, f.rs, f.pod("pool-a", testTemplate, 1))
-	if _, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS); err != nil {
+	if _, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS, false); err != nil {
 		t.Fatal(err)
 	}
 	for _, a := range client.Actions() {
@@ -449,7 +494,7 @@ func TestBindPodChecksPoolProvenance(t *testing.T) {
 			pod := f.pod("pool-a", testTemplate, 1)
 			mutate(&f, pod)
 			p, _, patches := bindProvisioner(t, f.dep, f.rs, pod)
-			if _, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS); !errors.Is(err, errNoPoolPod) {
+			if _, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS, false); !errors.Is(err, errNoPoolPod) {
 				t.Errorf("err = %v, want errNoPoolPod", err)
 			}
 			if len(patches) != 0 {
@@ -505,8 +550,7 @@ func TestAgentPods(t *testing.T) {
 }
 
 // PodIP reads the cache and falls back to the API server for a pod the cache does not hold yet.
-// PodLive reads the API server.
-func TestPodIPAndPodLive(t *testing.T) {
+func TestPodIP(t *testing.T) {
 	at := AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}
 	p, client, _ := bindProvisioner(t, boundPod(at, "pool-a", 1))
 	if ip, err := p.PodIP(t.Context(), scaleTestNS, "pool-a"); err != nil || ip != "10.0.0.1" {
@@ -524,11 +568,60 @@ func TestPodIPAndPodLive(t *testing.T) {
 	if _, err := p.PodIP(t.Context(), scaleTestNS, "gone"); err == nil {
 		t.Error("PodIP of a missing pod succeeded")
 	}
-	if live, err := p.PodLive(t.Context(), scaleTestNS, "pool-a"); err != nil || !live {
-		t.Errorf("PodLive(pool-a) = %v, %v; want true", live, err)
+}
+
+// MarkPodBusy reads the API server, labels a live pod busy once, and reports a missing or terminating pod gone
+// with no patch. ClearPodBusy removes the label and ignores a pod that is gone.
+func TestMarkAndClearPodBusy(t *testing.T) {
+	at := AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}
+	now := metav1.Now()
+	terminating := boundPod(at, "pool-t", 2)
+	terminating.DeletionTimestamp = &now
+	terminating.Finalizers = []string{"test"}
+	p, client, patches := bindProvisioner(t, boundPod(at, "pool-a", 1), terminating)
+	busy := func(name string) string {
+		pod, err := client.CoreV1().Pods(scaleTestNS).Get(t.Context(), name, metav1.GetOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pod.Labels[busyLabel]
 	}
-	if live, err := p.PodLive(t.Context(), scaleTestNS, "gone"); err != nil || live {
-		t.Errorf("PodLive(gone) = %v, %v; want false", live, err)
+	for range 2 {
+		if live, err := p.MarkPodBusy(t.Context(), scaleTestNS, "pool-a"); err != nil || !live {
+			t.Fatalf("MarkPodBusy(pool-a) = %v, %v; want true", live, err)
+		}
+	}
+	if busy("pool-a") != "true" || len(patches[""]) != 1 {
+		t.Errorf("busy label = %q after patches %v, want true from one patch", busy("pool-a"), patches[""])
+	}
+	for _, name := range []string{"pool-t", "gone"} {
+		if live, err := p.MarkPodBusy(t.Context(), scaleTestNS, name); err != nil || live {
+			t.Errorf("MarkPodBusy(%s) = %v, %v; want false", name, live, err)
+		}
+	}
+	if busy("pool-t") != "" || len(patches[""]) != 1 {
+		t.Errorf("patches = %v, want none for a terminating or missing pod", patches[""])
+	}
+	// An eviction that lands between the read and the patch shows in the patched pod.
+	client.PrependReactor("patch", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.(k8stesting.PatchAction).GetName() != "pool-r" {
+			return false, nil, nil
+		}
+		evicted := boundPod(at, "pool-r", 3)
+		evicted.DeletionTimestamp = &now
+		return true, evicted, nil
+	})
+	if _, err := client.CoreV1().Pods(scaleTestNS).Create(t.Context(), boundPod(at, "pool-r", 3), metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if live, err := p.MarkPodBusy(t.Context(), scaleTestNS, "pool-r"); err != nil || live {
+		t.Errorf("MarkPodBusy(pool-r) = %v, %v; want false for a pod evicted before the patch", live, err)
+	}
+	if err := p.ClearPodBusy(t.Context(), scaleTestNS, "pool-a"); err != nil || busy("pool-a") != "" {
+		t.Errorf("ClearPodBusy = %v with label %q, want the label removed", err, busy("pool-a"))
+	}
+	if err := p.ClearPodBusy(t.Context(), scaleTestNS, "gone"); err != nil {
+		t.Errorf("ClearPodBusy(gone) = %v, want nil", err)
 	}
 }
 
@@ -581,7 +674,7 @@ func TestBindPodRefusesAFailedTenantRead(t *testing.T) {
 		return true, nil, errors.New("api down")
 	})
 	p.dynamicClient = dyn
-	if name, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS); err == nil || name != "" || len(patches) != 0 {
+	if name, err := p.BindPod(t.Context(), AgentType{ID: "at-1", Slug: "coder", TenantID: "acme"}, scaleTestNS, false); err == nil || name != "" || len(patches) != 0 {
 		t.Errorf("BindPod = %q, %v with patches %v; want the read error and no patch", name, err, patches)
 	}
 }

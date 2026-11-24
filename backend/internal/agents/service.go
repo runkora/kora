@@ -20,13 +20,14 @@ type k8sProvisioner interface {
 	// AgentPods returns the agent's bound pods that are not terminating, oldest first, with each Ready pod's IP.
 	AgentPods(ctx context.Context, at AgentType, namespace string) (agentPods, error)
 	// LiveAgentPods reads the agent's bound pods from the API server. BindPod binds a pool pod to the agent and
-	// returns its name (docs/adr/2026-11-22-agent-cold-tier.md, D5).
+	// returns its name, labeled busy when busy is set (docs/adr/2026-11-22-agent-cold-tier.md, D5).
 	LiveAgentPods(ctx context.Context, at AgentType, namespace string) (agentPods, error)
-	BindPod(ctx context.Context, at AgentType, namespace string) (string, error)
+	BindPod(ctx context.Context, at AgentType, namespace string, busy bool) (string, error)
 	// PodIP returns the IP of the bound pod name, Ready or draining.
 	PodIP(ctx context.Context, namespace, name string) (string, error)
-	// PodLive reads from the API server whether the pod name exists and is not terminating.
-	PodLive(ctx context.Context, namespace, name string) (bool, error)
+	// MarkPodBusy reads from the API server whether the pod name exists and is not terminating, and labels a
+	// live pod busy.
+	MarkPodBusy(ctx context.Context, namespace, name string) (bool, error)
 	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, spec SandboxSpec) (Sandbox, error)
 	LookupSandbox(ctx context.Context, runID, namespace string) (Sandbox, bool, error)
 	SandboxEnvironment(ctx context.Context, runID, namespace string) (envID string, live bool, err error)

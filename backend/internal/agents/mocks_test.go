@@ -856,8 +856,11 @@ type mockK8s struct {
 	// bind, and a nil bindErr with bindOK unset reports a tenant with no pool Deployment.
 	coldLive []agentPod
 	bound    []string
-	bindErr  error
-	bindOK   bool
+	// boundBusy records whether each bind labeled the pod busy, and busyPods the pods MarkPodBusy labeled.
+	boundBusy []bool
+	busyPods  []string
+	bindErr   error
+	bindOK    bool
 	// onBind runs inside a successful BindPod when set.
 	onBind func()
 	// onDeprovision runs inside DeprovisionAgentType when set.
@@ -870,7 +873,7 @@ type mockK8s struct {
 	// another config.
 	config  string
 	oldPods []int
-	// gonePods are the pods PodLive reports gone.
+	// gonePods are the pods MarkPodBusy reports gone.
 	gonePods              []string
 	sandboxEndpoint       string
 	lookupSandbox         Sandbox
@@ -954,8 +957,14 @@ func (m *mockK8s) PodIP(_ context.Context, _, name string) (string, error) {
 	return testPodIP(i), nil
 }
 
-func (m *mockK8s) PodLive(_ context.Context, _, name string) (bool, error) {
-	return !slices.Contains(m.gonePods, name), nil
+func (m *mockK8s) MarkPodBusy(_ context.Context, _, name string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if slices.Contains(m.gonePods, name) {
+		return false, nil
+	}
+	m.busyPods = append(m.busyPods, name)
+	return true, nil
 }
 
 // testPodName is the name of the mock pod at index i.
@@ -975,7 +984,7 @@ func (m *mockK8s) LiveAgentPods(context.Context, AgentType, string) (agentPods, 
 	return agentPods{Live: m.coldLive}, nil
 }
 
-func (m *mockK8s) BindPod(context.Context, AgentType, string) (string, error) {
+func (m *mockK8s) BindPod(_ context.Context, _ AgentType, _ string, busy bool) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	switch {
@@ -986,6 +995,7 @@ func (m *mockK8s) BindPod(context.Context, AgentType, string) (string, error) {
 	}
 	name := testPodName(len(m.bound))
 	m.bound = append(m.bound, name)
+	m.boundBusy = append(m.boundBusy, busy)
 	if m.onBind != nil {
 		m.onBind()
 	}

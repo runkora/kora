@@ -53,10 +53,11 @@ func creatorSubject(ctx context.Context) string {
 	return callerSubject(ctx)
 }
 
-// reservedAgentSlugs are the identity mode names and the tenant pool's name.
-// Mode-qualified scopes such as agents:runs:delegated:write sit where a
-// per-agent scope's slug would, and poolName names each tenant's pool objects.
-var reservedAgentSlugs = []string{string(IdentityModeDelegated), string(IdentityModeAutonomous), poolName}
+// reservedAgentSlugs are the identity mode names, the tenant pool's name and the names of the operator's
+// tenant PodDisruptionBudgets. Mode-qualified scopes such as agents:runs:delegated:write sit where a
+// per-agent scope's slug would, poolName names each tenant's pool objects, and retireStatefulSet deletes the
+// PodDisruptionBudget named after an agent's slug.
+var reservedAgentSlugs = []string{string(IdentityModeDelegated), string(IdentityModeAutonomous), poolName, "agent-busy", "sandbox-busy"}
 
 // AgentTypeServiceConfig holds the runtime parameters used by AgentTypeService.
 type AgentTypeServiceConfig struct {

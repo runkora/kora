@@ -195,10 +195,12 @@ type scalerFake struct {
 	live      *agentPods
 	liveReads int
 
-	// bound and deleted record the pods the scaler bound and deleted. bindErr fails every bind.
-	bound, deleted []string
-	bindErr        error
-	readLocked     []bool
+	// bound and deleted record the pods the scaler bound and deleted, and marked and cleared the pods it put the
+	// busy label on and took it off. bindErr fails every bind, and clearErr every clear.
+	bound, deleted, marked, cleared []string
+	clearErr                        error
+	bindErr                         error
+	readLocked                      []bool
 	// lastCompleted is what LastRunCompletedAt reports. shrunk and grown record the resized pods.
 	lastCompleted time.Time
 	shrunk, grown []string
@@ -312,8 +314,11 @@ func (f *scalerFake) LiveAgentPods(context.Context, AgentType, string) (agentPod
 	return *f.live, nil
 }
 
-func (f *scalerFake) BindPod(context.Context, AgentType, string) (string, error) {
+func (f *scalerFake) BindPod(_ context.Context, _ AgentType, _ string, busy bool) (string, error) {
 	f.mustHold("BindPod")
+	if busy {
+		f.t.Error("the scaler bound a pod busy, but it places no run")
+	}
 	if f.bindErr != nil {
 		return "", f.bindErr
 	}
@@ -323,6 +328,18 @@ func (f *scalerFake) BindPod(context.Context, AgentType, string) (string, error)
 		f.pods.Live = append(f.pods.Live, agentPod{Name: name, IP: "10.0.1.1", Ready: true, Template: testTemplate, Config: agentConfigHash(scaleTestAgent)})
 	}
 	return name, nil
+}
+
+func (f *scalerFake) MarkPodBusy(_ context.Context, _, name string) (bool, error) {
+	f.mustHold("MarkPodBusy")
+	f.marked = append(f.marked, name)
+	return true, nil
+}
+
+func (f *scalerFake) ClearPodBusy(_ context.Context, _, name string) error {
+	f.mustHold("ClearPodBusy")
+	f.cleared = append(f.cleared, name)
+	return f.clearErr
 }
 
 func (f *scalerFake) DeletePod(_ context.Context, _, name string) error {
@@ -508,6 +525,24 @@ func TestScalerRemovesTheNewestEmptyPod(t *testing.T) {
 	}
 	if !slices.Equal(f.deleted, []string{"pod-3"}) {
 		t.Errorf("deleted %v, want pod-3 under the busy pod-4", f.deleted)
+	}
+}
+
+// Under the agent lock, the scaler takes the busy label off each pod that holds no run, puts it on a pod that
+// holds a run without it, and leaves the other pods alone. A failed clear does not stop the pass.
+func TestScalerSettlesBusyLabels(t *testing.T) {
+	pods := readyPods(4)
+	pods[0].Busy, pods[1].Busy = true, true
+	f := &scalerFake{t: t, occupied: map[string]int{"pod-0": 1, "pod-2": 1}, counts: AgentRunCounts{Active: 2},
+		pods: scaleTestPods(pods), memory: fullPod, clearErr: errors.New("forbidden")}
+	if err := newTestScaler(f).scale(context.Background(), scaleTestAgent); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(f.cleared, []string{"pod-1"}) || !slices.Equal(f.marked, []string{"pod-2"}) {
+		t.Errorf("cleared %v and marked %v, want pod-1 cleared and pod-2 marked", f.cleared, f.marked)
+	}
+	if !slices.Equal(f.deleted, []string{"pod-3"}) {
+		t.Errorf("deleted %v, want the empty pod-3 removed after the failed clear", f.deleted)
 	}
 }
 

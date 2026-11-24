@@ -419,7 +419,7 @@ func (s *RunService) wakeAgent(ctx context.Context, run Run, claimedAt time.Time
 			return errAgentCold
 		}
 		wokeAt = time.Now()
-		if pod, err = s.k8s.BindPod(ctx, *at, namespace); err != nil {
+		if pod, err = s.k8s.BindPod(ctx, *at, namespace, true); err != nil {
 			return err
 		}
 		return s.placement.AssignPod(ctx, run.ID, claimedAt, pod)
@@ -639,8 +639,9 @@ func (s *RunService) assignLocked(ctx context.Context, run Run, claimedAt time.T
 	if !ok {
 		return agentPod{}, errNoFreePod
 	}
-	// The scaler may have removed the pod since the list was read.
-	live, err := s.k8s.PodLive(ctx, namespace, pod.Name)
+	// The scaler may have removed the pod since the list was read. The busy label protects the run from eviction
+	// from its first moment.
+	live, err := s.k8s.MarkPodBusy(ctx, namespace, pod.Name)
 	if err != nil {
 		return agentPod{}, err
 	}
