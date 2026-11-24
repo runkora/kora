@@ -86,6 +86,7 @@ type RunService struct {
 	images     sandboxImageLookup
 	missing    missingProvisioner
 	pods       livePods
+	waker      podWaker // grows a warm pod before its run; nil = no grow
 	queue      runQueue
 	placement  podPlacementStore
 	metrics    *Metrics // run outcome and duration; nil = not recorded
@@ -119,6 +120,9 @@ func (s *RunService) SetDelegationBroker(b *DelegationBroker) { s.delegation = b
 func (s *RunService) SetBudgetReader(r runBudgetReader, selfToken ServiceTokenSource) {
 	s.budgets, s.selfToken = r, selfToken
 }
+
+// SetPodWaker installs the grow of a warm pod before a run starts on it. When unset, runs start on the pod as it is.
+func (s *RunService) SetPodWaker(w podWaker) { s.waker = w }
 
 // SetMetrics installs the instruments that record a run's outcome and duration
 // when it reaches a terminal state. When unset, nothing is recorded.

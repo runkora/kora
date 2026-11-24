@@ -142,6 +142,13 @@ priorityClassName: {{ . }}
 The sandbox base image. The operator registers it in every tenant namespace as
 the SandboxImage kora-base.
 */}}
+{{/*
+The session-manager image kora-agents runs in every agent pod. The wake reserve runs it too, already pulled on those nodes.
+*/}}
+{{- define "kora.sessionManagerImage" -}}
+{{- .Values.agents.config.sessionManagerImage | default (include "kora.imageRef" (dict "root" . "image" (dict "repository" "kora-session-manager" "digest" .Values.agents.config.sessionManagerDigest))) -}}
+{{- end }}
+
 {{- define "kora.sandboxBaseImage" -}}
 {{- .Values.agents.config.sandboxImage | default (printf "%s/kora-sandbox-base:%s" .Values.global.imageRegistry (.Values.global.imageTag | default .Chart.AppVersion)) -}}
 {{- end }}

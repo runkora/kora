@@ -498,7 +498,8 @@ func (r *PostgresRepository) SetRunState(ctx context.Context, id string, from, t
 	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
 		var tag interface{ RowsAffected() int64 }
 		var err error
-		if to == RunStateCompleted || to == RunStateFailed {
+		// Every terminal state stamps completed_at. The scaler's idle clock reads it.
+		if to.Terminal() {
 			tag, err = r.pool.Exec(ctx, `
 				UPDATE runs SET state=$1, completed_at=$2, updated_at=$2
 				WHERE id=$3 AND state=$4 AND deleted_at IS NULL AND state IN (`+podOccupancySQLList()+`)`,
@@ -945,6 +946,20 @@ func (r *PostgresRepository) StartingRunsPerPod(ctx context.Context, agentTypeID
 		return nil, fmt.Errorf("query starting runs per pod: %w", err)
 	}
 	return collectPodCounts(rows)
+}
+
+// LastRunCompletedAt returns the completion time of the agent's latest completed run, zero when it has none.
+// idx_runs_agent_completed serves it.
+func (r *PostgresRepository) LastRunCompletedAt(ctx context.Context, agentTypeID string) (time.Time, error) {
+	var last *time.Time
+	if err := r.pool.QueryRow(ctx, `SELECT max(completed_at) FROM runs WHERE agent_type_id = $1 AND completed_at IS NOT NULL`,
+		agentTypeID).Scan(&last); err != nil {
+		return time.Time{}, fmt.Errorf("read last completed run: %w", err)
+	}
+	if last == nil {
+		return time.Time{}, nil
+	}
+	return *last, nil
 }
 
 // agentLockKey keys the advisory lock that placement and the scaler take on an agent.

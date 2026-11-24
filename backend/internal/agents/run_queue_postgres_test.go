@@ -454,3 +454,53 @@ func TestPostgres_WaitWithAgentLockSharesPlacementLock(t *testing.T) {
 		t.Errorf("lock_timeout inside the lock = %q, want the default 0", timeout)
 	}
 }
+
+// LastRunCompletedAt reads the agent's latest completion, and zero with none. idx_runs_agent_completed exists.
+func TestPostgres_LastRunCompletedAt(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	other := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+	if got, err := r.LastRunCompletedAt(ctx, at.ID); err != nil || !got.IsZero() {
+		t.Fatalf("with no run = %v, %v; want zero", got, err)
+	}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	for _, c := range []struct {
+		agent     string
+		completed *time.Time
+	}{
+		{at.ID, new(now.Add(-time.Hour))},
+		{at.ID, new(now.Add(-time.Minute))},
+		{at.ID, nil},
+		{other.ID, new(now)},
+	} {
+		id := queueRun(t, r, tenant, c.agent, now.Add(-2*time.Hour), nil)
+		if _, err := r.pool.Exec(ctx, `UPDATE runs SET completed_at=$1 WHERE id=$2`, c.completed, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := r.LastRunCompletedAt(ctx, at.ID)
+	if err != nil || !got.Equal(now.Add(-time.Minute)) {
+		t.Errorf("LastRunCompletedAt = %v, %v; want %v", got, err, now.Add(-time.Minute))
+	}
+	var indexed bool
+	if err := r.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'runs' AND indexname = 'idx_runs_agent_completed')`).Scan(&indexed); err != nil || !indexed {
+		t.Errorf("idx_runs_agent_completed exists = %v, %v; want true", indexed, err)
+	}
+}
+
+// A run that ends budget_exhausted stamps completed_at, so it resets the scaler's idle clock.
+func TestPostgres_BudgetExhaustedStampsCompletedAt(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+	id := queueRun(t, r, tenant, at.ID, time.Now().UTC(), nil)
+	setRunState(t, r, id, RunStateActive, 0)
+	if err := r.SetRunState(ctx, id, RunStateActive, RunStateBudgetExhausted); err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.LastRunCompletedAt(ctx, at.ID)
+	if err != nil || got.IsZero() {
+		t.Errorf("LastRunCompletedAt after budget_exhausted = %v, %v; want a time", got, err)
+	}
+}

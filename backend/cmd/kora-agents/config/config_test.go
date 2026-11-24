@@ -113,6 +113,19 @@ func TestValidate_ScalerConcurrency(t *testing.T) {
 	}
 }
 
+// A negative idle threshold is refused, and zero turns the warm tier off.
+func TestValidate_WarmAfter(t *testing.T) {
+	cfg := validConfig()
+	cfg.Agents.Scheduling.WarmAfterSecs = -1
+	if err := Validate(cfg); !errors.Is(err, errWarmAfter) {
+		t.Errorf("warmAfterSecs -1: Validate error = %v, want errWarmAfter", err)
+	}
+	cfg.Agents.Scheduling.WarmAfterSecs = 0
+	if err := Validate(cfg); err != nil {
+		t.Errorf("warmAfterSecs 0: Validate error = %v, want none", err)
+	}
+}
+
 // Every harness needs a positive allowance, or kora-agents does not start.
 func TestValidate_StartingRunAllowance(t *testing.T) {
 	for name, set := range map[string]func(*StartingRunAllowance){

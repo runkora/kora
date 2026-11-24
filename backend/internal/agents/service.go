@@ -19,8 +19,9 @@ type k8sProvisioner interface {
 	GetAgentBudget(ctx context.Context, at AgentType, namespace string) (*AgentBudget, error)
 	WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error
 	RolloutStatefulSet(ctx context.Context, slug, namespace string) error
-	// ReadyOrdinals returns the ordinals of pods that are Ready, not terminating and below the current replicas.
-	ReadyOrdinals(ctx context.Context, slug, namespace string) ([]int, error)
+	// ReadyOrdinals returns the ordinals of pods that are Ready, not terminating and below the current replicas,
+	// and of the warm pods and the pods with a pending session-manager resize.
+	ReadyOrdinals(ctx context.Context, slug, namespace string) (ordinals, error)
 	// Replicas returns the StatefulSet's current spec.replicas.
 	Replicas(ctx context.Context, slug, namespace string) (int, error)
 	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, spec SandboxSpec) (Sandbox, error)

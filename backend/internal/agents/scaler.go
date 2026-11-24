@@ -5,6 +5,8 @@ import (
 	"errors"
 	"math"
 	"slices"
+	"strconv"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -31,6 +33,8 @@ type scalerStore interface {
 	AgentRunCounts(ctx context.Context, agentTypeID string) (AgentRunCounts, error)
 	StartingRunsPerPod(ctx context.Context, agentTypeID string, assignedSince time.Time) (map[int]int, error)
 	ActiveRunsPerPod(ctx context.Context, agentTypeID string) (map[int]int, error)
+	// LastRunCompletedAt is the completion time of the agent's latest completed run, zero when it has none.
+	LastRunCompletedAt(ctx context.Context, agentTypeID string) (time.Time, error)
 }
 
 // scalerCluster is the StatefulSet access the scaler needs. AgentStatefulSet reads a cache that
@@ -42,6 +46,9 @@ type scalerCluster interface {
 	ReleaseRollHold(ctx context.Context, slug, namespace string, partition int, resourceVersion string) error
 	SwitchToParallel(ctx context.Context, slug, namespace string) error
 	LivePodOrdinals(ctx context.Context, slug, namespace string) (ready []int, terminating int, err error)
+	// ShrinkPod and GrowPod set a pod's session-manager requests to the warm or the full size.
+	ShrinkPod(ctx context.Context, slug, namespace string, ordinal int) error
+	GrowPod(ctx context.Context, slug, namespace string, ordinal int) error
 }
 
 // ScalerConfig holds the scaler's settings.
@@ -56,6 +63,8 @@ type ScalerConfig struct {
 	StartingRunWindow     time.Duration
 	// Concurrency is how many agents one pass checks at once. Each check may hold a Postgres connection.
 	Concurrency int
+	// WarmAfter is how long an agent stays idle before its pods shrink to the warm size. Zero keeps them full.
+	WarmAfter time.Duration
 }
 
 // Scaler sets each agent's StatefulSet replicas from its runs and pod memory
@@ -66,6 +75,8 @@ type Scaler struct {
 	sm      podMemoryReader
 	cfg     ScalerConfig
 	logger  logging.Logger
+	// refused holds the pods whose shrink the API server refused for good.
+	refused sync.Map
 }
 
 // NewScaler builds a scaler. Start runs it.
@@ -149,7 +160,8 @@ func (s *Scaler) scale(ctx context.Context, at AgentType) error {
 	if err != nil {
 		return err
 	}
-	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, ss.Ready)
+	// A pod with a pending resize has no reading and counts as full, so a stuck grow gets a new pod.
+	readings := readPodMemory(ctx, s.sm, s.logger, at.Slug, namespace, withoutOrdinals(ss.Ready, ss.Resizing))
 	ran, err := s.store.WaitWithAgentLock(ctx, at.ID, scalerLockTimeout, func(ctx context.Context) error {
 		return s.scaleLocked(ctx, at, namespace, ss, readings, allowance.Value())
 	})
@@ -198,18 +210,83 @@ func (s *Scaler) scaleLocked(ctx context.Context, at AgentType, namespace string
 		}
 		want = desiredReplicas(in)
 	}
-	if want == ss.Replicas {
+	if want != ss.Replicas {
+		if err := s.cluster.ScaleStatefulSet(ctx, at.Slug, namespace, ss.Replicas, want, ss.ResourceVersion); err != nil {
+			return err
+		}
+		s.logger.Info(ctx, "scaled agent pods",
+			logging.Field{Key: "agent_type_id", Value: at.ID},
+			logging.Field{Key: "from", Value: ss.Replicas}, logging.Field{Key: "to", Value: want},
+			logging.Field{Key: "pending", Value: counts.Pending}, logging.Field{Key: "starting", Value: counts.Starting},
+			logging.Field{Key: "active", Value: counts.Active}, logging.Field{Key: "ready", Value: len(in.ready)})
+	}
+	return s.settleResidency(ctx, at, namespace, ss, counts, occupied, want)
+}
+
+// settleResidency grows a warm pod that holds a run, and shrinks the other Ready pods below want once the
+// agent has been idle for WarmAfter (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 3).
+// A run placed with no grow, by a previous kora-agents release or a stale cache, gets its pod grown here,
+// and a held grow frees the wake reserve. With the warm tier off, every warm pod grows.
+func (s *Scaler) settleResidency(ctx context.Context, at AgentType, namespace string, ss statefulSetView,
+	counts AgentRunCounts, occupied map[int]int, want int) error {
+	if counts.Starting+counts.Active > 0 || s.cfg.WarmAfter <= 0 {
+		for _, ord := range slices.Concat(ss.Warm, ss.Resizing) {
+			if occupied[ord] == 0 && s.cfg.WarmAfter > 0 {
+				continue
+			}
+			if err := s.cluster.GrowPod(ctx, at.Slug, namespace, ord); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
-	if err := s.cluster.ScaleStatefulSet(ctx, at.Slug, namespace, ss.Replicas, want, ss.ResourceVersion); err != nil {
+	// A grow still pending on a full node shrinks back too, so the pod stops counting as full.
+	hot := slices.DeleteFunc(withoutOrdinals(ss.Ready, ss.Warm), func(ord int) bool {
+		_, refused := s.refused.Load(podKey(namespace, at.Slug, ord))
+		return ord >= want || refused
+	})
+	if counts.Pending > 0 || len(hot) == 0 {
+		return nil
+	}
+	last, err := s.store.LastRunCompletedAt(ctx, at.ID)
+	if err != nil {
 		return err
 	}
-	s.logger.Info(ctx, "scaled agent pods",
-		logging.Field{Key: "agent_type_id", Value: at.ID},
-		logging.Field{Key: "from", Value: ss.Replicas}, logging.Field{Key: "to", Value: want},
-		logging.Field{Key: "pending", Value: counts.Pending}, logging.Field{Key: "starting", Value: counts.Starting},
-		logging.Field{Key: "active", Value: counts.Active}, logging.Field{Key: "ready", Value: len(in.ready)})
+	idleSince := at.ActivatedAt
+	if last.After(idleSince) {
+		idleSince = last
+	}
+	if time.Since(idleSince) < s.cfg.WarmAfter {
+		return nil
+	}
+	return s.shrink(ctx, at, namespace, hot)
+}
+
+// shrink sets each of the agent's hot pods to the warm requests. A pod whose shrink the API server refuses
+// for good is logged once and left at full size.
+func (s *Scaler) shrink(ctx context.Context, at AgentType, namespace string, hot []int) error {
+	for _, ord := range hot {
+		err := s.cluster.ShrinkPod(ctx, at.Slug, namespace, ord)
+		switch {
+		case err == nil:
+			s.logger.Info(ctx, "shrank idle agent pod to warm",
+				logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod_ordinal", Value: ord})
+		case resizeRefused(err):
+			// The cluster or the pod cannot resize in place. The pod stays at full size and is not tried again.
+			s.refused.Store(podKey(namespace, at.Slug, ord), struct{}{})
+			s.logger.Warn(ctx, "agent pod cannot resize in place; it stays at full size",
+				logging.Field{Key: "agent_type_id", Value: at.ID}, logging.Field{Key: "pod_ordinal", Value: ord},
+				logging.Field{Key: "error", Value: err.Error()})
+		default:
+			return err
+		}
+	}
 	return nil
+}
+
+// podKey identifies an agent pod across scaler passes.
+func podKey(namespace, slug string, ordinal int) string {
+	return namespace + "/" + slug + "-" + strconv.Itoa(ordinal)
 }
 
 // scaleInput is what one scaling decision reads.

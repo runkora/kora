@@ -37,6 +37,15 @@ type SessionManagerCustomization struct {
 	// CPU is the request of the session-manager container. The limit stays at
 	// sessionManagerCPULimit.
 	CPU *resource.Quantity `json:"cpu,omitempty"`
+	// Warm is the session-manager's requests while its agent is idle. The limits keep the full size
+	// (docs/adr/2026-11-09-demand-driven-agent-scaling.md, Amendment 3).
+	Warm WarmRequests `json:"warm"`
+}
+
+// WarmRequests is the CPU and memory request of a warm session-manager.
+type WarmRequests struct {
+	CPU    *resource.Quantity `json:"cpu,omitempty"`
+	Memory *resource.Quantity `json:"memory,omitempty"`
 }
 
 // defaultSessionManagerMemory applies when no workloads file sets memory, such
@@ -50,6 +59,13 @@ const defaultSessionManagerCPU = "250m"
 // sessionManagerCPULimit is the session-manager container's CPU limit, and the
 // ceiling for its request.
 const sessionManagerCPULimit = "2"
+
+// defaultWarmCPU and defaultWarmMemory apply when no workloads file sets the warm requests. They
+// match the chart defaults.
+const (
+	defaultWarmCPU    = "25m"
+	defaultWarmMemory = "128Mi"
+)
 
 // WorkloadsConfig is the full set of workload customizations. Common applies to
 // both workloads; the per-workload entries win on a key both set.
@@ -110,6 +126,14 @@ func (w WorkloadsConfig) ForSessionManager() SessionManagerCustomization {
 	if out.CPU == nil {
 		cpu := resource.MustParse(defaultSessionManagerCPU)
 		out.CPU = &cpu
+	}
+	if out.Warm.CPU == nil {
+		cpu := resource.MustParse(defaultWarmCPU)
+		out.Warm.CPU = &cpu
+	}
+	if out.Warm.Memory == nil {
+		memory := resource.MustParse(defaultWarmMemory)
+		out.Warm.Memory = &memory
 	}
 	return out
 }
@@ -203,8 +227,9 @@ func requireCoLocation(spec *corev1.PodSpec, podName string) {
 		spec.Affinity.PodAffinity.RequiredDuringSchedulingIgnoredDuringExecution, term)
 }
 
-// Validate rejects a non-positive session-manager memory or a CPU outside (0, limit] and configuration
-// that would break the pod identity or mesh wiring the platform owns.
+// Validate rejects a non-positive session-manager memory or a CPU outside (0, limit], warm requests
+// outside (0, full) for memory and (0, full] for CPU, and configuration that would break the pod
+// identity or mesh wiring the platform owns.
 func (w WorkloadsConfig) Validate() error {
 	if m := w.SessionManager.Memory; m != nil && m.Sign() <= 0 {
 		return fmt.Errorf("agents.workloads.sessionManager.memory is %s, want a positive quantity", m.String())
@@ -217,6 +242,14 @@ func (w WorkloadsConfig) Validate() error {
 		if c.Cmp(limit) > 0 {
 			return fmt.Errorf("agents.workloads.sessionManager.cpu is %s, want at most the %s CPU limit", c.String(), limit.String())
 		}
+	}
+	// A warm pod is one whose memory request is below its limit, so the warm memory must be below the full size.
+	sm := w.ForSessionManager()
+	if m := sm.Warm.Memory; m.Sign() <= 0 || m.Cmp(*sm.Memory) >= 0 {
+		return fmt.Errorf("agents.workloads.sessionManager.warm.memory is %s, want a positive quantity below the %s memory", m.String(), sm.Memory.String())
+	}
+	if c := sm.Warm.CPU; c.Sign() <= 0 || c.Cmp(*sm.CPU) > 0 {
+		return fmt.Errorf("agents.workloads.sessionManager.warm.cpu is %s, want a positive quantity at most the %s CPU", c.String(), sm.CPU.String())
 	}
 	// Ordered, so a file with several problems always reports the same one.
 	for _, workload := range []struct {

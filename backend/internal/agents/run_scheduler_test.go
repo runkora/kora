@@ -118,6 +118,19 @@ type startClaimedEnv struct {
 	ctx  context.Context
 }
 
+// fakeWaker records the pods it grows and returns err.
+type fakeWaker struct {
+	err  error
+	woke []int
+	warm []bool
+}
+
+func (w *fakeWaker) WakePod(_ context.Context, _, _ string, ordinal int, warm bool) error {
+	w.woke = append(w.woke, ordinal)
+	w.warm = append(w.warm, warm)
+	return w.err
+}
+
 func TestStartClaimed(t *testing.T) {
 	reset := errors.New("connection reset")
 	for _, tc := range []struct {
@@ -246,6 +259,19 @@ func TestStartClaimed(t *testing.T) {
 				e.f.run.repo = &setRunStateRepo{mockRepository: e.repo, err: reset, commit: true}
 			},
 			wantState: RunStateActive, wantSessions: 1, wantMessages: 1},
+		{name: "a warm pod grows before its session",
+			setup:     func(e *startClaimedEnv) { e.f.run.SetPodWaker(&fakeWaker{}) },
+			wantState: RunStateActive, wantSessions: 1, wantMessages: 1},
+		{name: "a grow past its bound releases the run with no session",
+			setup:     func(e *startClaimedEnv) { e.f.run.SetPodWaker(&fakeWaker{err: errGrowTimeout}) },
+			wantState: RunStatePending, wantReleased: 1},
+		{name: "a pod with a pending resize counts as full",
+			setup: func(e *startClaimedEnv) {
+				e.k8s.resizing = []int{0}
+				e.f.run.cfg.StartBudget = time.Minute
+				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-time.Hour)
+			},
+			wantState: RunStatePending, wantReleased: 1},
 		{name: "a session that cannot be closed after a failed activation fails the run",
 			setup: func(e *startClaimedEnv) {
 				e.sm.closeSessionErr = errors.New("pod unreachable")
@@ -490,5 +516,25 @@ func TestStartClaimed_InitialMessageRetries(t *testing.T) {
 				t.Errorf("error log with run_id and pod_ordinal = %v, want %v; logs: %s", hasErrLog, tc.wantErrorLog, logs.String())
 			}
 		})
+	}
+}
+
+// The pod placement picked is the pod that grows, with the warm state from placement's pod list, before its
+// session is created.
+func TestStartClaimed_GrowsAssignedPod(t *testing.T) {
+	f, repo, k8s, sm := schedulerService(t)
+	k8s.readyPods = 2
+	k8s.warm = []int{1}
+	sm.memory = fullPods("bot", 0)
+	w := &fakeWaker{}
+	f.run.SetPodWaker(w)
+	run, err := f.run.StartRun(startCtx(), StartRunRequest{AgentTypeID: "at-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, claimedAt := claimRun(repo, run.ID)
+	f.run.startClaimed(context.Background(), claimed, claimedAt)
+	if !slices.Equal(w.woke, []int{1}) || !slices.Equal(w.warm, []bool{true}) || len(sm.sessions) != 1 {
+		t.Errorf("woke %v warm %v with %d sessions, want pod 1 woken as warm and one session", w.woke, w.warm, len(sm.sessions))
 	}
 }

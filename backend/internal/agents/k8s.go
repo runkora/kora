@@ -158,6 +158,8 @@ type K8sProvisioner struct {
 	scopeResolver *ScopeResolver
 	// workloads caches the agent StatefulSets and pods the scaler reads. SyncWorkloadCache starts it.
 	workloads informers.SharedInformerFactory
+	// growTimeout bounds a warm pod's grow before dispatch. Zero means defaultGrowTimeout.
+	growTimeout time.Duration
 }
 
 // SetScopeResolver installs the resolver that adds the attached environments' egress and connectors to an agent's grant.
@@ -357,34 +359,54 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 
 // ReadyOrdinals returns the Ready, non-terminating pod ordinals below the current replicas. A pod on
 // either revision counts: one a roll has not reached still takes runs (docs/adr/2026-10-12-run-scheduling.md).
-func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace string) ([]int, error) {
+// It also lists the warm pods, and the pods whose session-manager has a pending resize. Placement counts
+// a resizing pod as full.
+func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace string) (ordinals, error) {
 	ss, pods, err := p.agentPods(ctx, slug, namespace)
 	if ss == nil || err != nil {
-		return nil, err
+		return ordinals{}, err
 	}
-	ready, _ := podOrdinals(ss, pods, slug)
-	return ready, nil
+	return podOrdinals(ss, pods, slug), nil
 }
 
-// podOrdinals returns the sorted ordinals of the Ready, non-terminating pods below the current
-// replicas, and the count of terminating pods below them. A pod at or above the replicas is being scaled away.
-func podOrdinals(ss *appsv1.StatefulSet, pods []corev1.Pod, slug string) (ready []int, terminating int) {
+// ordinals sorts an agent's pods below the current replicas. A pod at or above the replicas is being scaled away.
+type ordinals struct {
+	// ready holds the Ready, non-terminating pods, and terminating counts the draining ones.
+	ready       []int
+	terminating int
+	// warm and resizing hold the non-terminating pods whose session-manager is warm or has a pending resize.
+	warm, resizing []int
+}
+
+func podOrdinals(ss *appsv1.StatefulSet, pods []corev1.Pod, slug string) ordinals {
+	var o ordinals
 	for _, pod := range pods {
 		n, ok := strings.CutPrefix(pod.Name, slug+"-")
 		if !ok {
 			continue
 		}
 		ord, err := strconv.Atoi(n)
-		switch {
-		case err != nil || ord >= specReplicas(ss):
-		case pod.DeletionTimestamp != nil:
-			terminating++
-		case podReady(&pod):
-			ready = append(ready, ord)
+		if err != nil || ord >= specReplicas(ss) {
+			continue
+		}
+		if pod.DeletionTimestamp != nil {
+			o.terminating++
+			continue
+		}
+		if podReady(&pod) {
+			o.ready = append(o.ready, ord)
+		}
+		if podWarm(&pod, templateRequests(ss)) {
+			o.warm = append(o.warm, ord)
+		}
+		if resizePending(&pod) {
+			o.resizing = append(o.resizing, ord)
 		}
 	}
-	sort.Ints(ready)
-	return ready, terminating
+	sort.Ints(o.ready)
+	sort.Ints(o.warm)
+	sort.Ints(o.resizing)
+	return o
 }
 
 // LivePod reports whether the agent has a pod that is not terminating or finished, Ready or not.
@@ -466,6 +488,8 @@ type statefulSetView struct {
 	Terminating int
 	// SurgeReady is true when the pod at the partition ordinal is Ready on the update revision.
 	SurgeReady bool
+	// Warm and Resizing hold the pods whose session-manager is warm or has a pending resize (Amendment 3).
+	Warm, Resizing []int
 }
 
 // Scale errors: the replicas, the partition or, for a scale-down, any part of the StatefulSet changed since
@@ -501,7 +525,8 @@ func (p *K8sProvisioner) AgentStatefulSet(_ context.Context, slug, namespace str
 		Partition: specPartition(ss),
 		Rolling:   rolling(ss),
 	}
-	view.Ready, view.Terminating = podOrdinals(ss, pods, slug)
+	o := podOrdinals(ss, pods, slug)
+	view.Ready, view.Terminating, view.Warm, view.Resizing = o.ready, o.terminating, o.warm, o.resizing
 	view.SurgeReady = surgeReady(ss, pods, slug, view.Ready)
 	for _, c := range ss.Spec.Template.Spec.Containers {
 		if c.Name == sessionManagerContainerName {
@@ -523,8 +548,8 @@ func (p *K8sProvisioner) LivePodOrdinals(ctx context.Context, slug, namespace st
 	if err != nil {
 		return nil, 0, fmt.Errorf("list pods for %s/%s: %w", namespace, slug, err)
 	}
-	ready, terminating = podOrdinals(ss, pods.Items, slug)
-	return ready, terminating, nil
+	o := podOrdinals(ss, pods.Items, slug)
+	return o.ready, o.terminating, nil
 }
 
 // surgeReady reports whether the pod at the partition ordinal is Ready and on the update revision of a
