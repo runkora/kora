@@ -209,33 +209,48 @@ function passes(r: RunWithAttribution, q: URLSearchParams): boolean {
   );
 }
 
-/** The run list route over `runs`, paged by an offset cursor and filtered like the server. */
+/** One page of `runs` for the request, paged by an offset cursor and filtered like the server. */
+function runsPage(runs: RunWithAttribution[], { url }: MockRequest) {
+  const q = url.searchParams;
+  const matching = runs.filter((r) => passes(r, q));
+  const from = Number(q.get('cursor') ?? 0);
+  const limit = Number(q.get('limit') ?? 50);
+  const next = from + limit < matching.length ? String(from + limit) : null;
+  return { data: matching.slice(from, from + limit), next_cursor: next };
+}
+
+const failedRuns = (status: number) =>
+  new Response(
+    JSON.stringify({ code: 'upstream_error', message: 'Could not load runs. Try again.' }),
+    {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    },
+  );
+
+/** The run list route over `runs`. */
 export function runsRoutes(runs: RunWithAttribution[]): MockRoutes {
   return {
     'GET /api/agents/types': { data: AGENT_TYPES },
-    'GET /api/agents/runs': ({ url }: MockRequest) => {
-      const q = url.searchParams;
-      const matching = runs.filter((r) => passes(r, q));
-      const from = Number(q.get('cursor') ?? 0);
-      const limit = Number(q.get('limit') ?? 50);
-      const next = from + limit < matching.length ? String(from + limit) : null;
-      return { data: matching.slice(from, from + limit), next_cursor: next };
-    },
+    'GET /api/agents/runs': (request: MockRequest) => runsPage(runs, request),
   };
 }
 
 /** A route that answers every run list request with `status`. */
 export const failingRunsRoutes = (status: number): MockRoutes => ({
   'GET /api/agents/types': { data: AGENT_TYPES },
-  'GET /api/agents/runs': () =>
-    new Response(
-      JSON.stringify({ code: 'upstream_error', message: 'Could not load runs. Try again.' }),
-      {
-        status,
-        headers: { 'Content-Type': 'application/json' },
-      },
-    ),
+  'GET /api/agents/runs': () => failedRuns(status),
 });
+
+/** A route that answers the first run list request with `runs` and fails every later one. */
+export function failingReloadRoutes(runs: RunWithAttribution[]): MockRoutes {
+  let calls = 0;
+  return {
+    'GET /api/agents/types': { data: AGENT_TYPES },
+    'GET /api/agents/runs': (request: MockRequest) =>
+      calls++ === 0 ? runsPage(runs, request) : failedRuns(502),
+  };
+}
 
 /** A run list route that never answers, for the loading state. */
 export const pendingRunsRoutes: MockRoutes = {
@@ -250,6 +265,12 @@ export function runEvent(run: RunWithAttribution, type: string, delayMs: number)
   seq += 1;
   const data: RunStreamMessage = { type, matches: true, run };
   return { type: 'run', id: String(seq), data, delayMs };
+}
+
+/** Streams where only the first one opened sends `event: reset`, so the page reloads once. */
+export function resetOnce(delayMs: number): () => MockStreamEvent[] {
+  let opened = 0;
+  return () => (opened++ === 0 ? [{ type: 'reset', data: {}, delayMs }] : []);
 }
 
 /** A run a person has just started: no title yet, then it starts and gets its title. */

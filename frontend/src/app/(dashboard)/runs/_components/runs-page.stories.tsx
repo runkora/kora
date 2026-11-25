@@ -2,13 +2,16 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, within } from 'storybook/test';
 import { dashboardPage } from '@runkora/storybook/dashboard-frame';
 import { mockEventSource } from '@runkora/storybook/mock-event-source';
+import { AGENT_TYPES } from '../../agents/_components/agents-mock-data';
 import { RUN_CREATED } from '../_lib/runs-feed';
 import { RunsPage } from './runs-page';
 import {
   buildRuns,
+  failingReloadRoutes,
   failingRunsRoutes,
   liveRunEvents,
   pendingRunsRoutes,
+  resetOnce,
   runEvent,
   runsRoutes,
 } from './runs-mock-data';
@@ -54,6 +57,39 @@ export const AgentsLoadError: Story = {
     }),
     quiet,
   ],
+};
+
+/** A long agent name truncates in its badge, with the full name as its tooltip. */
+export const LongAgentName: Story = {
+  decorators: [
+    dashboardPage({
+      ...runsRoutes(buildRuns()),
+      'GET /api/agents/types': {
+        data: AGENT_TYPES.map((a) =>
+          a.id === 'at_coder'
+            ? { ...a, name: 'Platform dependency upgrade and database migration coder' }
+            : a,
+        ),
+      },
+    }),
+    quiet,
+  ],
+};
+
+/** A search that matches nothing offers to clear the filters. */
+export const NoMatches: Story = {
+  decorators: [dashboardPage(runsRoutes(buildRuns())), quiet],
+  play: async ({ canvasElement }) => {
+    await userEvent.type(
+      await within(canvasElement).findByPlaceholderText('Search runs…'),
+      'no such run',
+    );
+  },
+};
+
+/** The stream resets and the reload fails: the loaded rows stay under the error. */
+export const ReloadError: Story = {
+  decorators: [dashboardPage(failingReloadRoutes(buildRuns())), mockEventSource(resetOnce(1500))],
 };
 
 export const Loading: Story = {

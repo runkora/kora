@@ -9,9 +9,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
+  Alert,
   Badge,
   Button,
   DataTable,
+  EmptyState,
   Heading,
   Icon,
   InlineSelect,
@@ -83,10 +85,13 @@ function RunLine({ run }: { run: RunRow }) {
       <RunStateIcon state={run.state} />
       <Stack direction="horizontal" align="center" gap="snug" grow minWidth="none">
         <RunTitle run={run} />
-        <Stack>
-          <Badge variant="secondary" size="sm">
+        {/* The TruncatingBadge pattern, keeping the bot icon: a long agent name ends in an ellipsis. */}
+        <Stack align="stretch" minWidth="none" overflow="hidden">
+          <Badge variant="secondary" size="sm" title={run.agentTypeName}>
             <Icon name="bot" size="2xs" label="" />
-            {run.agentTypeName}
+            <Text as="span" size="caption" truncate>
+              {run.agentTypeName}
+            </Text>
           </Badge>
         </Stack>
       </Stack>
@@ -128,6 +133,54 @@ function RunsLoading() {
         <Skeleton key={i} shape="block" width="full" size="lg" />
       ))}
     </Stack>
+  );
+}
+
+/** No rows: the first page failed, the filters match nothing, or no run exists yet. */
+function RunsEmpty({
+  error,
+  onRetry,
+  filtered,
+  onClearFilters,
+}: {
+  error: string | null;
+  onRetry: () => void;
+  filtered: boolean;
+  onClearFilters: () => void;
+}) {
+  if (error !== null)
+    return (
+      <EmptyState
+        icon="triangle-alert"
+        title="Could not load runs"
+        description={error}
+        action={
+          <Button size="xs" variant="secondary" onClick={onRetry}>
+            <Icon name="refresh-cw" size="2xs" />
+            Try again
+          </Button>
+        }
+      />
+    );
+  if (filtered)
+    return (
+      <EmptyState
+        icon="search-x"
+        title="No runs match these filters"
+        description="New runs that match will appear here."
+        action={
+          <Button size="xs" variant="secondary" onClick={onClearFilters}>
+            Clear filters
+          </Button>
+        }
+      />
+    );
+  return (
+    <EmptyState
+      icon="play-circle"
+      title="No runs yet"
+      description="Runs from you, your team and your triggers show here."
+    />
   );
 }
 
@@ -190,128 +243,129 @@ export function RunsPage() {
         </Button>
       </Stack>
       {feed.error !== null && rows.length > 0 && (
-        <Stack direction="horizontal" align="center" justify="center" gap="snug">
-          <Text size="caption" color="status-error">
-            {feed.error}
-          </Text>
-          <Button variant="outline" size="sm" onClick={feed.retry}>
+        <Alert variant="error">
+          <Icon name="triangle-alert" color="status-error" />
+          <Stack grow>
+            <Text size="caption" color="status-error">
+              {feed.error}
+            </Text>
+          </Stack>
+          <Button variant="outline" size="xs" onClick={feed.retry}>
             Try again
           </Button>
-        </Stack>
+        </Alert>
       )}
-      {feed.freshCount > 0 && (
-        <Stack align="center">
-          <Button variant="secondary" size="sm" onClick={feed.showFresh}>
-            <Icon name="arrow-up" size="xs" />
-            {feed.freshCount === 1 ? '1 new run' : `${feed.freshCount} new runs`}
-          </Button>
-        </Stack>
-      )}
-      <DataTable
-        data={rows}
-        columns={COLUMNS}
-        getRowKey={(r) => r.id}
-        onRowClick={(r) => router.push(APP_ROUTES.agents.run(r.agentTypeSlug, r.id))}
-        rowLabel={(r) => `Open run ${titleOf(r)}`}
-        noun="runs"
-        hideHeader
-        columnToggle={false}
-        searchPlaceholder="Search runs…"
-        searchQuery={search}
-        onSearchChange={setSearch}
-        bodyState={feed.loading ? <RunsLoading /> : undefined}
-        error={
-          feed.error !== null && rows.length === 0 ? (
-            <Stack align="center" gap="snug" paddingBlock="comfortable">
-              <Text size="supporting" color="muted">
-                {feed.error}
-              </Text>
-              <Button variant="outline" size="sm" onClick={feed.retry}>
-                Try again
-              </Button>
+      <Stack gap="cozy">
+        {feed.freshCount > 0 && (
+          <Stack direction="horizontal" justify="end">
+            <Button size="xs" variant="accent-outline" shape="pill" onClick={feed.showFresh}>
+              <Icon name="arrow-up" size="2xs" />
+              {feed.freshCount} new {feed.freshCount === 1 ? 'run' : 'runs'}
+            </Button>
+          </Stack>
+        )}
+        <DataTable
+          data={rows}
+          columns={COLUMNS}
+          getRowKey={(r) => r.id}
+          onRowClick={(r) => router.push(APP_ROUTES.agents.run(r.agentTypeSlug, r.id))}
+          rowLabel={(r) => `Open run ${titleOf(r)}`}
+          noun="runs"
+          hideHeader
+          columnToggle={false}
+          searchPlaceholder="Search runs…"
+          searchQuery={search}
+          onSearchChange={setSearch}
+          bodyState={
+            feed.loading ? (
+              <RunsLoading />
+            ) : rows.length === 0 ? (
+              <RunsEmpty
+                error={feed.error}
+                onRetry={feed.retry}
+                filtered={filtered}
+                onClearFilters={() => {
+                  setSearch('');
+                  setFilters(DEFAULT_RUN_FILTERS);
+                }}
+              />
+            ) : undefined
+          }
+          quickFilters={
+            <Stack direction="horizontal" gap="snug" wrap>
+              {QUICK_FILTERS.map((q) => (
+                <FilterChip
+                  key={q.value}
+                  label={q.label}
+                  count={null}
+                  active={filters.quick === q.value}
+                  onClick={() => setFilters((f) => ({ ...f, quick: q.value }))}
+                />
+              ))}
             </Stack>
-          ) : undefined
-        }
-        quickFilters={
-          <Stack direction="horizontal" gap="snug" wrap>
-            {QUICK_FILTERS.map((q) => (
-              <FilterChip
-                key={q.value}
-                label={q.label}
-                count={null}
-                active={filters.quick === q.value}
-                onClick={() => setFilters((f) => ({ ...f, quick: q.value }))}
-              />
-            ))}
-          </Stack>
-        }
-        toolbarActions={
-          <Stack direction="horizontal" align="center" gap="snug">
-            <Text size="supporting" color="muted">
-              Agent
-            </Text>
-            {agentsError ? (
-              <Text size="caption" color="muted">
-                Could not load agents.
+          }
+          toolbarActions={
+            <Stack direction="horizontal" align="center" gap="snug">
+              <Text size="supporting" color="muted">
+                Agent
               </Text>
-            ) : (
+              {agentsError ? (
+                <Text size="caption" color="muted">
+                  Could not load agents.
+                </Text>
+              ) : (
+                <InlineSelect
+                  aria-label="Agent"
+                  value={filters.agentTypeId ?? ANY}
+                  onValueChange={(v) =>
+                    setFilters((f) => ({ ...f, agentTypeId: v === ANY ? null : v }))
+                  }
+                  options={[
+                    { value: ANY, label: ANY },
+                    ...agentTypes.map((a) => ({ value: a.id, label: a.name })),
+                  ]}
+                />
+              )}
+              <Text size="supporting" color="muted">
+                Source
+              </Text>
               <InlineSelect
-                aria-label="Agent"
-                value={filters.agentTypeId ?? ANY}
+                aria-label="Source"
+                value={filters.source ?? ANY}
                 onValueChange={(v) =>
-                  setFilters((f) => ({ ...f, agentTypeId: v === ANY ? null : v }))
+                  setFilters((f) => ({ ...f, source: v === ANY ? null : (v as RunSourceFilter) }))
                 }
-                options={[
-                  { value: ANY, label: ANY },
-                  ...agentTypes.map((a) => ({ value: a.id, label: a.name })),
-                ]}
+                options={[{ value: ANY, label: ANY }, ...RUN_SOURCES]}
               />
+            </Stack>
+          }
+        />
+        {showPager && (
+          <Stack direction="horizontal" align="center" gap="tight" justify="end">
+            {feed.pageError !== null && (
+              <Text size="caption" color="status-error">
+                {feed.pageError}
+              </Text>
             )}
-            <Text size="supporting" color="muted">
-              Source
-            </Text>
-            <InlineSelect
-              aria-label="Source"
-              value={filters.source ?? ANY}
-              onValueChange={(v) =>
-                setFilters((f) => ({ ...f, source: v === ANY ? null : (v as RunSourceFilter) }))
-              }
-              options={[{ value: ANY, label: ANY }, ...RUN_SOURCES]}
-            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={feed.newer}
+              disabled={!feed.hasNewer || feed.pageLoading}
+            >
+              Newer
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={feed.older}
+              disabled={!feed.hasOlder || feed.pageLoading}
+            >
+              Older
+            </Button>
           </Stack>
-        }
-        emptyMessage={
-          filtered
-            ? 'No runs match these filters.'
-            : 'No runs yet. Runs from you, your team and your triggers show here.'
-        }
-        filteredEmptyMessage="No runs match these filters."
-      />
-      {showPager && (
-        <Stack direction="horizontal" align="center" gap="tight" justify="end">
-          {feed.pageError !== null && (
-            <Text size="caption" color="status-error">
-              {feed.pageError}
-            </Text>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={feed.newer}
-            disabled={!feed.hasNewer || feed.pageLoading}
-          >
-            Newer
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={feed.older}
-            disabled={!feed.hasOlder || feed.pageLoading}
-          >
-            Older
-          </Button>
-        </Stack>
-      )}
+        )}
+      </Stack>
     </Stack>
   );
 }
