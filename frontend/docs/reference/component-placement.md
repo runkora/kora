@@ -253,6 +253,8 @@ Tier 2 components live at `frontend/src/components/` and are exported from `fron
 | `StatusBadge`       | Maps `KoraStatus` (`'healthy' \| 'degraded' \| 'error' \| 'idle' \| 'pending' \| 'unknown'`) to a labelled `Badge` with status dot. Key props: `status: KoraStatus`, `label?: string`.                        |
 | `PageSectionHeader` | Canonical list/management tab header: title + optional description + right-aligned action. Key props: `title`, `description?`, `action?: ReactNode`. **Import from `@runkora/hades`** (promoted from Tier 2). |
 | `RUN_STATE_DISPLAY` | Maps each run state to a status dot and a label (`pending` is Queued). Used by the agents run tables. Type: `RunStateDisplay`.                                                                                |
+| `RunStateIcon`      | A run's state as one icon, labelled with the state for screen readers. Key props: `state: string`. Used by the agents run rows and the Runs page.                                                             |
+| `StarterMark`       | Who started a run as one round mark: a person's initials or the trigger kind's icon, with a "Started by" tooltip. Key props: `row: StarterMarkRun`. Used by the agents run rows and the Runs page.            |
 
 Full documentation (import paths, usage guidance, JSX examples): `frontend/docs/reference/app-components.md`.
 
