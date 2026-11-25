@@ -297,7 +297,14 @@ func TestPostgres_ListRunsTimeBounds(t *testing.T) {
 func TestPostgres_ListRunsCreatorKindAndSearch(t *testing.T) {
 	r, tenant := testRunRepo(t)
 	ctx := context.Background()
-	t.Cleanup(func() { _, _ = r.pool.Exec(ctx, `DELETE FROM user_profiles WHERE tenant_id=$1`, tenant) })
+	// carol has a profile only in another tenant, which must not name her runs here.
+	other := "test-" + uuid.NewString()
+	t.Cleanup(func() {
+		_, _ = r.pool.Exec(ctx, `DELETE FROM user_profiles WHERE tenant_id = ANY($1)`, []string{tenant, other})
+	})
+	if _, err := r.pool.Exec(ctx, `INSERT INTO user_profiles (id, tenant_id, email, display_name) VALUES ('carol', $1, 'carol@example.com', 'Carol Elsewhere')`, other); err != nil {
+		t.Fatal(err)
+	}
 	agentNames := map[string]string{}
 	newAgent := func(name string, mode IdentityMode) string {
 		at := seedRunAgentType(t, r, tenant, mode)
@@ -330,6 +337,7 @@ func TestPostgres_ListRunsCreatorKindAndSearch(t *testing.T) {
 		{review, "trigger-source:s1", "webhook", "Review the PR"},
 		{deploy, "carol", "", "Carol's run"},
 		{review, "trigger:t5", "legacy", "Review the backlog"},
+		{deploy, "", "", "Nobody's run"},
 	}
 	triggerName := func(s spec) string {
 		if s.kind == "" {
@@ -389,6 +397,7 @@ func TestPostgres_ListRunsCreatorKindAndSearch(t *testing.T) {
 		{Search: "100%"},
 		{Search: "review"},
 		{Search: "hook"},
+		{Search: "elsewhere"},
 		{CreatedByMe: true, TriggerKinds: []string{triggerKindNone}, Search: "review"},
 		{TriggerKinds: []string{"webhook"}, Search: "review"},
 		{CreatedByMe: true, Search: "nothing like it"},
