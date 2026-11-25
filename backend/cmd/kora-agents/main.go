@@ -308,7 +308,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 	}
 	feed := agents.NewRunFeed(eventsclient.NewClient(cfg.Platform.EventsURL, selfToken, logger), repo, logger)
 	go feed.Start(ctx)
-	controller := agents.NewController(atSvc, runSvc, envSvc, draftSvc, verifier, blocklist, eval, agentRoutes(), cfg.Server.BasePath, logger).WithRunFeed(feed)
+	controller := agents.NewController(atSvc, runSvc, envSvc, draftSvc, feed, verifier, blocklist, eval, agentRoutes(), cfg.Server.BasePath, logger)
 
 	// Read-only connection catalog (GET /api/v1/connections), tenant scoped from
 	// the verified token and gated on platform:connections:read. Reads the same

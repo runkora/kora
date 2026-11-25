@@ -19,6 +19,7 @@ import (
 
 	eventsclient "github.com/runkora/kora/backend/internal/platform/clients/events"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -290,13 +291,13 @@ func (s *streamRecorder) String() string {
 // streamController serves the stream for t-1 from feed, where at-1 is readable.
 func streamController(t *testing.T, feed *RunFeed, blocklist *blockedJTIs) *Controller {
 	t.Helper()
-	c, repo, _, _ := newTestController(t)
+	facade, repo, _, _ := newTestServiceWithEval(t, &allowAllEvaluator{})
 	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "triage"})
-	c.feed = feed
+	var revoked mw.JTIBlocklist
 	if blocklist != nil {
-		c.blocklist = blocklist
+		revoked = blocklist
 	}
-	return c
+	return NewController(facade.at, facade.run, nil, nil, feed, nil, revoked, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
 }
 
 // openStream runs the handler until ctx ends or the handler returns, which done reports.

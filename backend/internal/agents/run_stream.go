@@ -313,12 +313,6 @@ func (f *RunFeed) catchUp(ctx context.Context, sub *runSubscriber, after, to int
 	return nil
 }
 
-// WithRunFeed sets the feed GET /api/v1/runs/stream serves from.
-func (c *Controller) WithRunFeed(feed *RunFeed) *Controller {
-	c.feed = feed
-	return c
-}
-
 // handleStreamRuns handles GET /api/v1/runs/stream: every run change the caller can read,
 // as Server-Sent Events, with matches set by the list filters. It takes no cursor or limit.
 func (c *Controller) handleStreamRuns(w http.ResponseWriter, r *http.Request) {

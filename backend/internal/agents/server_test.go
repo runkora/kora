@@ -37,7 +37,7 @@ func newTestControllerWithEval(t *testing.T, eval policy.Evaluator) (*Controller
 	// directly without going through Middleware(), so JWT verification and
 	// scope enforcement are never reached. Tests that exercise tenant scoping
 	// inject claims into the request context manually.
-	c := NewController(facade.at, facade.run, nil, nil, nil, nil, eval, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	c := NewController(facade.at, facade.run, nil, nil, nil, nil, nil, eval, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	return c, repo, k8s, sm
 }
 
@@ -804,7 +804,7 @@ func TestHandleListAgentTypes_CanEditUsesRequestBearer(t *testing.T) {
 	facade, repo, _, _ := newTestServiceWithEval(t, &allowAllEvaluator{})
 	scopes := &bearerScopes{held: []string{"platform:grants:write"}}
 	facade.at.SetCallerScopes(scopes)
-	c := NewController(facade.at, facade.run, nil, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	c := NewController(facade.at, facade.run, nil, nil, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	seedAgentType(t, repo, AgentType{ID: "at-in", TenantID: "t-1", Slug: "within", IdentityMode: IdentityModeAutonomous, GrantScopes: []string{"platform:grants:write"}})
 	seedAgentType(t, repo, AgentType{ID: "at-out", TenantID: "t-1", Slug: "beyond", IdentityMode: IdentityModeAutonomous, GrantScopes: []string{"platform:roles:write"}})
 

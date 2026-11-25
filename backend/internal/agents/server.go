@@ -45,12 +45,13 @@ type Controller struct {
 // request time by ScopeEnforcementMiddleware to enforce route → required-scope
 // bindings in-process. basePath must match the server's BasePath so the
 // middleware can reconstruct full paths after http.StripPrefix. See docs/adr/2026-06-04-platform-scope-enforcement-middleware.md.
-// blocklist refuses a revoked delegation token before it expires.
+// blocklist refuses a revoked delegation token before it expires. feed serves GET /api/v1/runs/stream.
 func NewController(
 	agentTypes *AgentTypeService,
 	runs *RunService,
 	environments *EnvironmentService,
 	drafts *DraftService,
+	feed *RunFeed,
 	verifier *token.Verifier,
 	blocklist mw.JTIBlocklist,
 	eval policy.Evaluator,
@@ -63,6 +64,7 @@ func NewController(
 		runs:         runs,
 		environments: environments,
 		drafts:       drafts,
+		feed:         feed,
 		verifier:     verifier,
 		blocklist:    blocklist,
 		eval:         eval,

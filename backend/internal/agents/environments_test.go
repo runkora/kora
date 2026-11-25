@@ -295,7 +295,7 @@ func TestHandleUpdateEnvironment_SlugChange(t *testing.T) {
 	store := &fakeEnvStore{envs: map[string]Environment{
 		"env-1": {ID: "env-1", TenantID: "t-1", Slug: "go", Name: "Go", SandboxImage: si.BaseName},
 	}}
-	c := NewController(nil, nil, newEnvironmentService(store, k8s), nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	c := NewController(nil, nil, newEnvironmentService(store, k8s), nil, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	req := withTenantRequest(httptest.NewRequest(http.MethodPut, "/api/v1/environments/env-1", strings.NewReader(`{"slug":"node","name":"Go"}`)), "t-1")
 	req.SetPathValue("id", "env-1")
 	w := httptest.NewRecorder()
@@ -308,7 +308,7 @@ func TestHandleUpdateEnvironment_SlugChange(t *testing.T) {
 // Create and update require a name for people.
 func TestHandleEnvironment_NameRequired(t *testing.T) {
 	svc := newEnvironmentService(&fakeEnvStore{envs: map[string]Environment{}}, &mockK8s{})
-	c := NewController(nil, nil, svc, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	c := NewController(nil, nil, svc, nil, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	for _, handle := range []func(http.ResponseWriter, *http.Request){c.handleCreateEnvironment, c.handleUpdateEnvironment} {
 		req := withTenantRequest(httptest.NewRequest(http.MethodPost, "/api/v1/environments", strings.NewReader(`{"slug":"go","name":"  "}`)), "t-1")
 		req.SetPathValue("id", "env-1")
@@ -324,7 +324,7 @@ func TestHandleEnvironment_NameRequired(t *testing.T) {
 func TestHandleDeleteEnvironment_InUse(t *testing.T) {
 	store := &fakeEnvStore{envs: map[string]Environment{"env-1": {ID: "env-1", TenantID: "t-1"}}, deleteErr: ErrEnvironmentInUse}
 	svc := newEnvironmentService(store, &mockK8s{})
-	c := NewController(nil, nil, svc, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	c := NewController(nil, nil, svc, nil, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	req := withTenantRequest(httptest.NewRequest(http.MethodDelete, "/api/v1/environments/env-1", http.NoBody), "t-1")
 	req.SetPathValue("id", "env-1")
 	w := httptest.NewRecorder()
@@ -423,7 +423,7 @@ func TestHandleUpdateAgentType_InvalidEnvironmentsIs400(t *testing.T) {
 // The sizes endpoint returns the install's default and maximum sizes.
 func TestHandleEnvironmentSizes(t *testing.T) {
 	svc := newEnvironmentService(&fakeEnvStore{envs: map[string]Environment{}}, &mockK8s{})
-	c := NewController(nil, nil, svc, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	c := NewController(nil, nil, svc, nil, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	w := httptest.NewRecorder()
 	c.handleEnvironmentSizes(w, withTenantRequest(httptest.NewRequest(http.MethodGet, "/api/v1/environment-sizes", http.NoBody), "t-1"))
 	want := `{"default":{"cpu":"2","memory":"4Gi","disk":"10Gi"},"max":{"cpu":"8","memory":"16Gi","disk":"50Gi"}}`
