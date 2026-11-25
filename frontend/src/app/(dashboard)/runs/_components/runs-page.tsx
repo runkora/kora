@@ -285,7 +285,7 @@ export function RunsPage() {
           data={rows}
           columns={COLUMNS}
           getRowKey={(r) => r.id}
-          onRowClick={(r) => router.push(APP_ROUTES.agents.run(r.agentTypeSlug, r.id))}
+          onRowClick={(r) => router.push(APP_ROUTES.agents.run(r.agentTypeSlug, r.id, 'runs'))}
           rowLabel={(r) => `Open run ${titleOf(r)}`}
           noun="runs"
           hideHeader

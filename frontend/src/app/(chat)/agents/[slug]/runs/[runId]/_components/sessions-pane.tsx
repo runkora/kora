@@ -3,6 +3,7 @@
 /** @tier 3 — run-page-scoped. The run's sessions and the agent's other runs, beside the thread. */
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { Icon, Stack, Text } from '@runkora/hades';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import type { EarlierRun } from '../_lib/to-run-view';
@@ -85,6 +86,8 @@ export function SessionsPane({
   const subagents = rows.flatMap((r) =>
     r.type === 'step' && r.step.kind === 'subagent' ? [r.step] : [],
   );
+  // Only the known value counts, so the URL cannot point the back link anywhere else.
+  const from = useSearchParams()?.get('from') === 'runs' ? 'runs' : undefined;
   return (
     <Stack
       gap="relaxed"
@@ -100,12 +103,12 @@ export function SessionsPane({
     >
       <Stack asChild direction="horizontal" align="center" gap="snug">
         <Link
-          href={APP_ROUTES.agents.detail(run.agent.slug)}
+          href={from ? APP_ROUTES.runs : APP_ROUTES.agents.detail(run.agent.slug)}
           style={{ padding: '0 10px', textDecoration: 'none', color: 'inherit' }}
         >
           <Icon name="arrow-left" size="2xs" color="subtle" label="" />
           <Text size="supporting" color="muted">
-            {run.agent.name}
+            {from ? 'Runs' : run.agent.name}
           </Text>
         </Link>
       </Stack>
@@ -145,7 +148,7 @@ export function SessionsPane({
               label={r.label}
               meta={r.meta}
               running={r.running}
-              href={APP_ROUTES.agents.run(run.agent.slug, r.id)}
+              href={APP_ROUTES.agents.run(run.agent.slug, r.id, from)}
             />
           ))}
         </Stack>

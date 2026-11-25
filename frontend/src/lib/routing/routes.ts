@@ -46,7 +46,9 @@ export const APP_ROUTES = {
     /** Opens the agent builder modal over the agents list (?agent=new). */
     new: '/agents?agent=new' as const,
     detail: (slug: string) => `/agents/${slug}` as const,
-    run: (slug: string, runId: string) => `/agents/${slug}/runs/${runId}` as const,
+    /** `from: 'runs'` marks a run opened from the Runs page, whose back link returns there. */
+    run: (slug: string, runId: string, from?: 'runs') =>
+      `/agents/${slug}/runs/${runId}${from ? `?from=${from}` : ''}` as const,
   },
   connections: '/connections',
   environments: '/environments',
