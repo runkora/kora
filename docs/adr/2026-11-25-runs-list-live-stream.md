@@ -37,7 +37,7 @@ A run whose agent asks a question stays `active` until the person answers. `onPe
 
 ### Security and Identity
 
-The change touches the question "What can it access?". The stream is a read surface, and it must show a viewer exactly the runs `GET /api/v1/runs` shows them. It adds no identity, grant, scope or credential, and it leaves "Who is this agent?" and "How does it connect?" unchanged. `kora-agents` gains read access to the internal event stream. It already holds every tenant's runs.
+The change touches the question "What can it access?". The stream is a read surface, and it must show a viewer exactly the runs `GET /api/v1/runs` shows them. It adds no identity, grant, scope or credential, and it leaves "Who is this agent?" and "How does it connect?" unchanged. `kora-agents` gains read access to every tenant's `agents.run` events on the internal stream. `kora-agents` records these events and already holds every tenant's runs. `kora-events` refuses it every other category.
 
 ### Goals
 
@@ -67,7 +67,7 @@ The change touches the question "What can it access?". The stream is a read surf
 
 ### Option 1A (chosen): The kora-events internal stream
 
-Each `kora-agents` replica reads the internal stream and reacts to `agents.run.*` events. Every replica reads the whole stream, with no advisory lock and no stored cursor. Each replica serves its own open streams from what it reads.
+Each `kora-agents` replica reads the `agents.run` category of the internal stream for every tenant. Every replica reads it with no advisory lock and no stored cursor. Each replica serves its own open streams from what it reads.
 
 ### Option 1B (rejected): In-memory fan-out at the write site
 
@@ -140,6 +140,7 @@ The Go predicate lives in `backend/internal/agents/run_page.go` next to `appendS
 `kora-events` changes its internal stream to support this:
 
 *   `InternalController` and the `kora-events-internal-stream` AuthorizationPolicy admit `kora-agents` beside `kora-triggers`.
+*   `kora-events` refuses a `kora-agents` request with a 403 unless its only `category` is `agents.run`.
 *   A request without `after` starts at the hub position with no replay. `kora-triggers` always sends `after`.
 *   The stream takes the `tenant` and `category` filters of the public stream.
 *   A request with `tenant` and `after` returns 410 when that tenant holds no event with seq `after`.
@@ -191,7 +192,7 @@ None at this time.
 
 ### Negative
 
-*   The internal stream carries every tenant's events to each `kora-agents` replica, including tenants with no open stream.
+*   The internal stream carries every tenant's run events to each `kora-agents` replica, including tenants with no open stream.
 *   A stream keeps the scope it opened with. A grant change or a new agent applies at the next connect, and a stream lasts no longer than its token.
 *   `agents.run.resumed.v1` adds one event to the log for every turn after the first.
 *   `trigger_kind=none` keeps runs an agent started with no trigger beside the runs people started. A run does not record the kind of principal that started it.
@@ -208,7 +209,7 @@ None at this time.
 
 ## Implementation
 
-1.  **kora-events:** Admit `kora-agents` on the internal stream. Add the hub start, the `tenant` and `category` filters and the 410 answer.
+1.  **kora-events:** Admit `kora-agents` on the internal stream for the `agents.run` category only. Add the hub start, the `tenant` and `category` filters and the 410 answer.
 2.  **kora-agents filters and events:**
     *   Add `agents.run.placed.v1`, `agents.run.resumed.v1` and `agents.run.summarized.v1` and record them in `AssignPod`, `stateEventType` and `SetRunSummary`.
     *   Add `created_by`, `trigger_kind` and `q` to the list parsing and to `RunListQuery`, and the `created_by` index through `make migrate-create`.
