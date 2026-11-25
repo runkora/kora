@@ -66,6 +66,12 @@ func (s *fakeStore) After(_ context.Context, f Filter, seq int64) ([]Record, err
 	return out, nil
 }
 
+func (s *fakeStore) Holds(_ context.Context, tenant string, seq int64) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.ContainsFunc(s.records, func(r Record) bool { return r.Seq == seq && r.tenant == tenant }), nil
+}
+
 func (s *fakeStore) LatestSeq(context.Context) (int64, error) { return 0, nil }
 
 func record(seq int64, tenant, eventType string) Record {
@@ -385,19 +391,116 @@ func TestStream_WithoutLastEventIDStartsLive(t *testing.T) {
 	}
 }
 
-func TestInternalStream_AdmitsOnlyTriggers(t *testing.T) {
+// internalStream opens the internal stream as principal and returns the response.
+func internalStream(t *testing.T, ts *httptest.Server, principal, query string) *http.Response {
+	t.Helper()
+	req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, ts.URL+"/internal/v1/events/stream"+query, nil)
+	req.Header.Set("X-Principal", principal)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	return resp
+}
+
+func TestInternalStream_AdmitsOnlyTriggersAndAgents(t *testing.T) {
 	store := &fakeStore{}
 	ts := server(t, store, NewHub(store, testLogger))
-	for _, principal := range []string{"", "SYSTEM/kora-agents", "HUMAN/kora-triggers", "AGENT/kora-triggers"} {
-		req, _ := http.NewRequest(http.MethodGet, ts.URL+"/internal/v1/events/stream", nil)
-		req.Header.Set("X-Principal", principal)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
+	for _, principal := range []string{"SYSTEM/kora-triggers", "SYSTEM/kora-agents"} {
+		if resp := internalStream(t, ts, principal, "?category=agents.run"); resp.StatusCode != http.StatusOK {
+			t.Errorf("principal %q = %d, want 200", principal, resp.StatusCode)
 		}
-		_ = resp.Body.Close()
-		if resp.StatusCode != http.StatusForbidden {
+	}
+	for _, principal := range []string{"", "SYSTEM/kora-mcp", "HUMAN/kora-triggers", "AGENT/kora-agents"} {
+		if resp := internalStream(t, ts, principal, "?category=agents.run"); resp.StatusCode != http.StatusForbidden {
 			t.Errorf("principal %q = %d, want 403", principal, resp.StatusCode)
+		}
+	}
+}
+
+// kora-agents reads only run events. kora-triggers reads every category.
+func TestInternalStream_AgentsReadOnlyRunEvents(t *testing.T) {
+	store := &fakeStore{}
+	ts := server(t, store, NewHub(store, testLogger))
+	for _, tc := range []struct {
+		principal, query string
+		want             int
+	}{
+		{"SYSTEM/kora-agents", "", http.StatusForbidden},
+		{"SYSTEM/kora-agents", "?category=policy.grant", http.StatusForbidden},
+		{"SYSTEM/kora-agents", "?category=agents.run&category=policy.grant", http.StatusForbidden},
+		{"SYSTEM/kora-agents", "?category=agents.run", http.StatusOK},
+		{"SYSTEM/kora-triggers", "", http.StatusOK},
+		{"SYSTEM/kora-triggers", "?category=policy.grant", http.StatusOK},
+	} {
+		if resp := internalStream(t, ts, tc.principal, tc.query); resp.StatusCode != tc.want {
+			t.Errorf("%s %q = %d, want %d", tc.principal, tc.query, resp.StatusCode, tc.want)
+		}
+	}
+}
+
+func TestInternalStream_WithoutAfterStartsLive(t *testing.T) {
+	store := &fakeStore{records: []Record{record(1, "t1", "agents.run.failed.v1")}}
+	hub := NewHub(store, testLogger)
+	hub.fetch(context.Background())
+	ts := server(t, store, hub)
+	resp := internalStream(t, ts, "SYSTEM/kora-agents", "?category=agents.run")
+
+	store.mu.Lock()
+	store.records = append(store.records, record(2, "t2", "agents.run.failed.v1"))
+	store.mu.Unlock()
+	hub.fetch(context.Background())
+	if got := readSeqs(t, bufio.NewScanner(resp.Body), 1); !slices.Equal(got, []string{"2"}) {
+		t.Errorf("stream = %v, want only the live event 2", got)
+	}
+}
+
+func TestInternalStream_FiltersByTenantAndCategory(t *testing.T) {
+	store := &fakeStore{records: []Record{
+		record(1, "t1", "agents.run.failed.v1"), record(2, "t2", "agents.run.failed.v1"), record(3, "t1", "policy.grant.created.v1"),
+	}}
+	hub := NewHub(store, testLogger)
+	ts := server(t, store, hub)
+	resp := internalStream(t, ts, "SYSTEM/kora-agents", "?after=0&tenant=t1&category=agents.run")
+	sc := bufio.NewScanner(resp.Body)
+	if got := readSeqs(t, sc, 1); !slices.Equal(got, []string{"1"}) {
+		t.Fatalf("replay = %v, want [1]", got)
+	}
+
+	store.mu.Lock()
+	store.records = append(store.records,
+		record(4, "t2", "agents.run.started.v1"), record(5, "t1", "policy.grant.created.v1"), record(6, "t1", "agents.run.started.v1"))
+	store.mu.Unlock()
+	hub.fetch(context.Background())
+	if got := readSeqs(t, sc, 1); !slices.Equal(got, []string{"6"}) {
+		t.Errorf("live = %v, want [6]", got)
+	}
+}
+
+// A tenant's after must name an event the tenant still holds. Without a
+// tenant, or from seq 0, there is nothing to check.
+func TestInternalStream_RemovedEventIsGone(t *testing.T) {
+	store := &fakeStore{records: []Record{record(2, "t1", "agents.run.failed.v1"), record(3, "t2", "agents.run.failed.v1")}}
+	ts := server(t, store, NewHub(store, testLogger))
+	for query, want := range map[string]int{
+		"?tenant=t1&after=1": http.StatusGone,
+		"?tenant=t1&after=3": http.StatusGone,
+		"?tenant=t1&after=2": http.StatusOK,
+		"?tenant=t1&after=0": http.StatusOK,
+		"?tenant=t1":         http.StatusOK,
+		"?after=1":           http.StatusOK,
+	} {
+		resp := internalStream(t, ts, "SYSTEM/kora-agents", query+"&category=agents.run")
+		if resp.StatusCode != want {
+			t.Errorf("%s = %d, want %d", query, resp.StatusCode, want)
+			continue
+		}
+		if want == http.StatusGone {
+			var body map[string]any
+			if err := json.NewDecoder(resp.Body).Decode(&body); err != nil || body["code"] != errCodeEventRemoved {
+				t.Errorf("%s body = %v (%v), want code %s", query, body, err, errCodeEventRemoved)
+			}
 		}
 	}
 }

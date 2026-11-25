@@ -1,7 +1,9 @@
-// Package events is the typed client for the kora-events internal stream,
-// which kora-triggers reads to fire event triggers.
+// Package events is the typed client for the kora-events internal stream.
+// kora-triggers reads it to fire event triggers, and kora-agents reads it for
+// the live runs list.
 //
-// See docs/adr/2026-11-06-event-spine.md, section 7.
+// See docs/adr/2026-11-06-event-spine.md, section 7, and
+// docs/adr/2026-11-25-runs-list-live-stream.md, decision 4.
 package events
 
 import (
@@ -27,6 +29,9 @@ const maxEventBytes = 4 << 20
 var (
 	// ErrUnexpectedStatus is a stream request kora-events did not accept.
 	ErrUnexpectedStatus = errors.New("unexpected status from kora-events")
+	// ErrEventRemoved is a resume seq whose event the tenant no longer holds.
+	// The caller reloads its state and streams live.
+	ErrEventRemoved = errors.New("event removed from the log")
 	// ErrBadEvent is an SSE message that does not decode.
 	ErrBadEvent = errors.New("event stream message does not decode")
 	errToken    = errors.New("no token for kora-events")
@@ -51,10 +56,23 @@ func NewClient(baseURL string, token func(context.Context) (string, error), logg
 	return &Client{Base: httpclient.New(tracerName, logger, 0), baseURL: baseURL, token: token}
 }
 
-// Stream calls handle with each event after seq, in seq order, until the
+// Query selects the events a stream reads.
+type Query struct {
+	// After is the seq the stream resumes after. Live ignores it.
+	After int64
+	// Live starts the stream at kora-events' current position with no replay.
+	Live bool
+	// Tenant limits the stream to one tenant. Empty reads every tenant.
+	Tenant string
+	// Categories limits the stream to these event categories, such as agents.run.
+	Categories []string
+}
+
+// Stream calls handle with each event q selects, in seq order, until the
 // stream ends, ctx ends or handle fails. It returns handle's error unwrapped.
-// A stream kora-events closes at token expiry returns nil.
-func (c *Client) Stream(ctx context.Context, after int64, handle func(Record) error) error {
+// A stream kora-events closes at token expiry returns nil. With a tenant, it
+// returns ErrEventRemoved when retention removed the tenant's event at q.After.
+func (c *Client) Stream(ctx context.Context, q Query, handle func(Record) error) error {
 	tok, err := c.token(ctx)
 	if err != nil {
 		return fmt.Errorf("%w: %w", errToken, err)
@@ -62,16 +80,27 @@ func (c *Client) Stream(ctx context.Context, after int64, handle func(Record) er
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+tok)
 	header.Set("Accept", "text/event-stream")
+	query := url.Values{"category": q.Categories}
+	if !q.Live {
+		query.Set("after", strconv.FormatInt(q.After, 10))
+	}
+	if q.Tenant != "" {
+		query.Set("tenant", q.Tenant)
+	}
 	_, span, resp, err := c.Do(ctx, httpclient.Request{
 		Method: http.MethodGet, BaseURL: c.baseURL, Path: "/internal/v1/events/stream",
-		Query: url.Values{"after": {strconv.FormatInt(after, 10)}}, Header: header,
+		Query: query, Header: header,
 	})
 	defer span.End()
 	if err != nil {
 		return fmt.Errorf("open event stream: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusGone:
+		return c.HandleErrorResponse(span, resp, ErrEventRemoved)
+	default:
 		return c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
 

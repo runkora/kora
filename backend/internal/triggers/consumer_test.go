@@ -18,7 +18,8 @@ type fakeStream struct {
 	end     error
 }
 
-func (f *fakeStream) Stream(_ context.Context, after int64, handle func(eventsclient.Record) error) error {
+func (f *fakeStream) Stream(_ context.Context, q eventsclient.Query, handle func(eventsclient.Record) error) error {
+	after := q.After
 	f.mu.Lock()
 	f.afters = append(f.afters, after)
 	f.mu.Unlock()

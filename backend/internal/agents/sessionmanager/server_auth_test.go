@@ -185,7 +185,7 @@ func TestRequireExpectedCaller(t *testing.T) {
 			ctrl := newAuthController(t, nil)
 
 			var reached bool
-			h := mw.MiddlewareChain(mw.RequireSystemCaller(expectedCaller, ctrl.logger))(okHandler(&reached))
+			h := mw.MiddlewareChain(mw.RequireSystemCaller(ctrl.logger, expectedCaller))(okHandler(&reached))
 
 			req := httptest.NewRequest(http.MethodPost, "/session", http.NoBody)
 			if tc.claims != nil {
