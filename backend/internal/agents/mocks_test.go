@@ -49,14 +49,16 @@ type mockRepository struct {
 	messages   []RunMessage
 	nextSeqNo  int64
 
-	createAgentTypeErr     error
-	getAgentTypeErr        error
-	listAgentTypesErr      error
-	setAgentTypeStateErr   error
-	deleteAgentTypeErr     error
-	createRunErr           error
-	getRunErr              error
-	listRunsErr            error
+	createAgentTypeErr   error
+	getAgentTypeErr      error
+	listAgentTypesErr    error
+	setAgentTypeStateErr error
+	deleteAgentTypeErr   error
+	createRunErr         error
+	getRunErr            error
+	listRunsErr          error
+	// lastRunList is the query ListRuns last received. The SQL filters are tested against Postgres.
+	lastRunList            RunListQuery
 	setRunStateErr         error
 	setRunDelegationJTIErr error
 	initRunAgentConfigErr  error
@@ -400,6 +402,7 @@ func (m *mockRepository) ListRuns(_ context.Context, tenantID string, q RunListQ
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.lastRunList = q
 	vis := q.Scope.Vis
 	var out []Run
 	for _, r := range m.runs {

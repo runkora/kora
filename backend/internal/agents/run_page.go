@@ -4,11 +4,13 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/agents/grading"
+	"github.com/runkora/kora/backend/internal/platform/api"
 )
 
 // GET /api/v1/runs page sizes, the same bounds as the run events endpoint.
@@ -19,6 +21,12 @@ const (
 
 // startedByTrigger is the started_by filter value that keeps runs a trigger started.
 const startedByTrigger = "trigger"
+
+// triggerKindNone is the trigger_kind filter value that keeps runs no trigger started.
+const triggerKindNone = "none"
+
+// createdByMe is the created_by filter value that keeps the caller's own runs.
+const createdByMe = "me"
 
 var (
 	// ErrInvalidRunCursor is returned for a cursor this service did not issue.
@@ -111,6 +119,13 @@ type RunListQuery struct {
 	StartedByTrigger bool
 	// Grade narrows to runs graded by a Grader's current version; nil means no grade filter.
 	Grade *GradeFilter
+	// CreatedByMe narrows to runs the caller started, read from the scope's verified subject.
+	CreatedByMe bool
+	// TriggerKinds narrows to runs started by a trigger of these kinds.
+	// triggerKindNone in the list keeps runs no trigger started.
+	TriggerKinds []string
+	// Search keeps runs whose summary, agent name, trigger name or starter's display name contains it, ignoring case.
+	Search string
 	// After is the previous page's cursor; nil is the first page.
 	After *runCursor
 	Limit int
@@ -137,6 +152,73 @@ func parseRunStates(raw string) ([]RunState, error) {
 		out = append(out, s)
 	}
 	return out, nil
+}
+
+// parseTriggerKinds reads a comma-separated list of trigger kinds and triggerKindNone.
+func parseTriggerKinds(raw string) ([]string, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var out []string
+	for part := range strings.SplitSeq(raw, ",") {
+		k := strings.TrimSpace(part)
+		if k != triggerKindNone && !slices.Contains(triggerKinds, k) {
+			return nil, fmt.Errorf("%w %q", ErrTriggerKindInvalid, k)
+		}
+		out = append(out, k)
+	}
+	return out, nil
+}
+
+// parseRunFilters reads the run list filters, everything but limit and cursor.
+// The run list and the run stream share it, and a rejected filter is a 400 naming its field.
+func parseRunFilters(q url.Values) (RunListQuery, []string, *api.APIError) {
+	var p RunListQuery
+	invalid := func(field, message string) (RunListQuery, []string, *api.APIError) {
+		return RunListQuery{}, nil, api.ValidationError(api.ErrCodeInvalidField, message, map[string]any{"field": field})
+	}
+	for _, b := range []struct {
+		field string
+		dst   *time.Time
+	}{{"created_after", &p.CreatedAfter}, {"created_before", &p.CreatedBefore}} {
+		raw := q.Get(b.field)
+		if raw == "" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return invalid(b.field, b.field+" must be an RFC 3339 timestamp")
+		}
+		*b.dst = t
+	}
+	// Repeated state and trigger_kind keys add to the list.
+	var err error
+	if p.States, err = parseRunStates(strings.Join(q["state"], ",")); err != nil {
+		return invalid("state", "state must be a comma-separated list of run states")
+	}
+	if p.TriggerKinds, err = parseTriggerKinds(strings.Join(q["trigger_kind"], ",")); err != nil {
+		return invalid("trigger_kind", "trigger_kind must be "+strings.Join(triggerKinds, ", ")+" or "+triggerKindNone)
+	}
+	switch q.Get("started_by") {
+	case "":
+	case startedByTrigger:
+		p.StartedByTrigger = true
+	default:
+		return invalid("started_by", "started_by must be trigger")
+	}
+	if p.Grade, err = parseGradeFilter(q.Get("grader"), q.Get("question"), q.Get("verdict")); err != nil {
+		return invalid(gradeFilterField(q.Get("grader")), err.Error())
+	}
+	switch q.Get("created_by") {
+	case "":
+	case createdByMe:
+		p.CreatedByMe = true
+	default:
+		return invalid("created_by", "created_by must be me")
+	}
+	p.Search = strings.TrimSpace(q.Get("q"))
+	agentTypeIDs := slices.DeleteFunc(slices.Clone(q["agent_type_id"]), func(id string) bool { return id == "" })
+	return p, agentTypeIDs, nil
 }
 
 // GradeFilter keeps runs whose grade on the named Grader's current version matches. With a

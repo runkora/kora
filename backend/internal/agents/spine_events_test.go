@@ -22,8 +22,10 @@ func TestStateEventType(t *testing.T) {
 		want     events.Type
 		ok       bool
 	}{
+		{RunStatePending, RunStateStarting, "", false},
 		{RunStateStarting, RunStateActive, events.RunStarted, true},
-		{RunStateIdle, RunStateActive, "", false},
+		{RunStateIdle, RunStateActive, events.RunResumed, true},
+		{RunStatePending, RunStateActive, "", false},
 		{RunStateActive, RunStateIdle, events.RunIdle, true},
 		{RunStateActive, RunStateCompleting, "", false},
 		{RunStateCompleting, RunStateCompleted, events.RunCompleted, true},

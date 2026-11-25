@@ -25,6 +25,9 @@ import (
 // ErrNotFound is returned when a requested resource does not exist.
 var ErrNotFound = errors.New("not found")
 
+// likeEscaper escapes the LIKE wildcards and the escape character in a search term.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
 // ErrConflict is returned when a state transition is invalid (CAS mismatch).
 var ErrConflict = errors.New("conflict")
 
@@ -416,7 +419,11 @@ func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error
 // ListRuns returns up to q.Limit runs in scope, newest first, after q.After.
 // The scope is part of the query, so a page holds only runs the caller may read.
 func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, q RunListQuery) ([]Run, error) {
-	query, args := appendScope(selectRun+` WHERE r.tenant_id=$1 AND r.deleted_at IS NULL`, []any{tenantID}, q.Scope)
+	// The starter's display name is identity's user_profiles, read at query time as the migrations ADR permits.
+	query, args := appendScope(`SELECT `+runColumns+`, COALESCE(up.display_name, '')
+		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
+		LEFT JOIN user_profiles up ON up.id = r.created_by AND up.tenant_id = r.tenant_id
+		WHERE r.tenant_id=$1 AND r.deleted_at IS NULL`, []any{tenantID}, q.Scope)
 	if len(q.States) > 0 {
 		args = append(args, stateStrings(q.States))
 		query += fmt.Sprintf(" AND r.state = ANY($%d)", len(args))
@@ -424,6 +431,25 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, q Ru
 	if q.StartedByTrigger {
 		// Matches scanRun, which reads a run as trigger-started only when trigger_id is non-empty.
 		query += " AND r.trigger_id <> ''"
+	}
+	if q.CreatedByMe {
+		// An empty subject owns no run.
+		args = append(args, q.Scope.Vis.Subject)
+		query += fmt.Sprintf(" AND $%[1]d <> '' AND r.created_by = $%[1]d", len(args))
+	}
+	if len(q.TriggerKinds) > 0 {
+		args = append(args, q.TriggerKinds)
+		kinds := fmt.Sprintf("r.trigger_kind = ANY($%d)", len(args))
+		if slices.Contains(q.TriggerKinds, triggerKindNone) {
+			// No trigger started the run, read the way scanRun reads it.
+			kinds += " OR COALESCE(r.trigger_id, '') = ''"
+		}
+		query += " AND (" + kinds + ")"
+	}
+	if q.Search != "" {
+		// A filter on the tenant walk: no index serves a substring match.
+		args = append(args, "%"+likeEscaper.Replace(q.Search)+"%")
+		query += fmt.Sprintf(` AND (r.summary ILIKE $%[1]d OR at.name ILIKE $%[1]d OR r.trigger_name ILIKE $%[1]d OR up.display_name ILIKE $%[1]d)`, len(args))
 	}
 	query, args = appendGradeFilter(query, args, q.Grade)
 	if !q.CreatedAfter.IsZero() {
@@ -450,10 +476,12 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, q Ru
 
 	var out []Run
 	for rows.Next() {
-		run, err := scanRun(rows)
+		var name string
+		run, err := scanRun(rows, &name)
 		if err != nil {
 			return nil, err
 		}
+		run.CreatedByName = name
 		out = append(out, *run)
 	}
 	return out, rows.Err()
@@ -601,18 +629,24 @@ func (r *PostgresRepository) ListStatefulSetRuns(ctx context.Context) ([]Run, er
 // worker whose claim went stale from assigning a run that another worker now holds.
 func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, claimedAt time.Time, podName string) error {
 	now := time.Now().UTC()
-	tag, err := r.pool.Exec(ctx, `
-		UPDATE runs SET state=$1, pod_name=$2, started_at=$3, updated_at=$3
-		WHERE id=$4 AND state=$5 AND claimed_at=$6`,
-		string(RunStateStarting), podName, now, runID, string(RunStatePending), claimToken(claimedAt),
-	)
-	if err != nil {
-		return fmt.Errorf("assign pod: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrConflict
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		tag, err := r.pool.Exec(ctx, `
+			UPDATE runs SET state=$1, pod_name=$2, started_at=$3, updated_at=$3
+			WHERE id=$4 AND state=$5 AND claimed_at=$6`,
+			string(RunStateStarting), podName, now, runID, string(RunStatePending), claimToken(claimedAt),
+		)
+		if err != nil {
+			return fmt.Errorf("assign pod: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrConflict
+		}
+		run, err := r.GetRun(ctx, runID)
+		if err != nil {
+			return err
+		}
+		return events.Publish(ctx, r.pool, runEvent(events.RunPlaced, *run, newRunEntity(*run), "state", "pod_name"))
+	})
 }
 
 // ClaimPendingRuns claims up to limit due pending runs, oldest first, with SKIP LOCKED.
@@ -737,17 +771,26 @@ func (r *PostgresRepository) ReleaseRunDelivery(ctx context.Context, id string) 
 // SetRunSummary writes the task summary set-once: the first summary for a run
 // wins. A resumed session's first message would otherwise re-summarize and
 // clobber the original task label, so the UPDATE only fires while summary IS
-// NULL. Zero rows affected (already set, or run gone) is not an error — the
-// callback is best-effort and idempotent.
+// NULL. Zero rows affected (already set, or run gone) is not an error, and
+// records no event. The write that sets it records agents.run.summarized.
 func (r *PostgresRepository) SetRunSummary(ctx context.Context, runID, summary string) error {
-	_, err := r.pool.Exec(ctx, `
-		UPDATE runs SET summary=$1, updated_at=$2 WHERE id=$3 AND summary IS NULL`,
-		summary, time.Now().UTC(), runID,
-	)
-	if err != nil {
-		return fmt.Errorf("set run summary: %w", err)
-	}
-	return nil
+	return storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		tag, err := r.pool.Exec(ctx, `
+			UPDATE runs SET summary=$1, updated_at=$2 WHERE id=$3 AND summary IS NULL`,
+			summary, time.Now().UTC(), runID,
+		)
+		if err != nil {
+			return fmt.Errorf("set run summary: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return nil
+		}
+		run, err := r.GetRun(ctx, runID)
+		if err != nil {
+			return err
+		}
+		return events.Publish(ctx, r.pool, runEvent(events.RunSummarized, *run, newRunEntity(*run), "summary"))
+	})
 }
 
 // SetRunDelegationJTI stamps the delegation issuance minted for a delegated

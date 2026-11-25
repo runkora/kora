@@ -580,12 +580,14 @@ type Run struct {
 	AgentTypeID string   `json:"agent_type_id"`
 	State       RunState `json:"state"`
 	// PodName is the bound pool pod the run was placed on, empty before placement.
-	PodName     string     `json:"pod_name"`
-	CreatedBy   string     `json:"created_by"`
-	StartedAt   *time.Time `json:"started_at"`
-	CompletedAt *time.Time `json:"completed_at"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	PodName   string `json:"pod_name"`
+	CreatedBy string `json:"created_by"`
+	// CreatedByName is the starter's display name, never the email. Set on run list rows only.
+	CreatedByName string     `json:"created_by_name,omitempty"`
+	StartedAt     *time.Time `json:"started_at"`
+	CompletedAt   *time.Time `json:"completed_at"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 	// Summary is a short LLM-generated sentence describing the run's task
 	// intent, derived from the initial message at run start. Null when the run
 	// had no initial message or when generation failed (best-effort).

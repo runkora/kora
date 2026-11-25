@@ -143,6 +143,96 @@ func TestPostgres_RunEventCommitsWithItsStateChange(t *testing.T) {
 	}
 }
 
+// Placing a run records placed, and a new turn records resumed. Each commits or rolls back with its state change.
+func TestPostgres_PlacedAndResumedCommitWithTheirStateChange(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+	past := time.Now().UTC().Add(-time.Hour)
+	id := queueRun(t, r, tenant, at.ID, past, &past)
+	claimedAt := time.Now()
+	if got := claimOwn(t, r, tenant, claimedAt); !slices.Equal(runIDs(got), []string{id}) {
+		t.Fatalf("claimed %v, want %s", runIDs(got), id)
+	}
+
+	rollback := errors.New("roll back")
+	err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		if err := r.AssignPod(ctx, id, claimedAt, "pool-a"); err != nil {
+			return err
+		}
+		return rollback
+	})
+	if !errors.Is(err, rollback) {
+		t.Fatal(err)
+	}
+	if got := eventTypes(runEvents(recorded(t, r, tenant))); !slices.Equal(got, []events.Type{events.RunCreated}) {
+		t.Fatalf("after rollback events = %v, want only created", got)
+	}
+	if run, _ := r.GetRun(ctx, id); run.State != RunStatePending {
+		t.Fatalf("rolled-back state = %s", run.State)
+	}
+
+	if err := r.AssignPod(ctx, id, claimedAt, "pool-a"); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range [][2]RunState{{RunStateStarting, RunStateActive}, {RunStateActive, RunStateIdle}, {RunStateIdle, RunStateActive}} {
+		if err := r.SetRunState(ctx, id, step[0], step[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []events.Type{events.RunCreated, events.RunPlaced, events.RunStarted, events.RunIdle, events.RunResumed}
+	evs := runEvents(recorded(t, r, tenant))
+	if got := eventTypes(evs); !slices.Equal(got, want) {
+		t.Fatalf("events = %v, want %v", got, want)
+	}
+	if !slices.Equal(evs[1].Data.Changed, []string{"state", "pod_name"}) || !slices.Equal(evs[4].Data.Changed, []string{"state"}) {
+		t.Errorf("placed changed %v, resumed changed %v", evs[1].Data.Changed, evs[4].Data.Changed)
+	}
+}
+
+// The first summary records one event, which names the change and leaves the text out.
+// The event commits or rolls back with the write.
+func TestPostgres_RunSummaryRecordsOneEvent(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+	id := queueRun(t, r, tenant, at.ID, time.Now(), nil)
+
+	rollback := errors.New("roll back")
+	err := storage.WithTransaction(ctx, r.pool, func(ctx context.Context, _ pgx.Tx) error {
+		if err := r.SetRunSummary(ctx, id, "Rolled back"); err != nil {
+			return err
+		}
+		return rollback
+	})
+	if !errors.Is(err, rollback) {
+		t.Fatal(err)
+	}
+	if got := eventTypes(runEvents(recorded(t, r, tenant))); !slices.Equal(got, []events.Type{events.RunCreated}) {
+		t.Fatalf("after rollback events = %v, want only created", got)
+	}
+
+	for _, summary := range []string{"Fix the login bug", "A later summary"} {
+		if err := r.SetRunSummary(ctx, id, summary); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.SetRunSummary(ctx, uuid.NewString(), "No such run"); err != nil {
+		t.Fatal(err)
+	}
+	evs := runEvents(recorded(t, r, tenant))
+	if got := eventTypes(evs); !slices.Equal(got, []events.Type{events.RunCreated, events.RunSummarized}) {
+		t.Fatalf("events = %v, want created and one summarized", got)
+	}
+	e := evs[1]
+	if summary, ok := e.Data.Entity.(map[string]any)["summary"]; ok || !slices.Equal(e.Data.Changed, []string{"summary"}) || e.Run != id {
+		t.Errorf("summarized event carries summary %v, changed %v, run %s; want no summary, changed [summary], run %s", summary, e.Data.Changed, e.Run, id)
+	}
+	if run, _ := r.GetRun(ctx, id); run.Summary == nil || *run.Summary != "Fix the login bug" {
+		t.Errorf("summary = %v, want the first one", run.Summary)
+	}
+}
+
 func TestPostgres_BulkRunUpdatesRecordAnEventPerRun(t *testing.T) {
 	r, tenant := testRunRepo(t)
 	ctx := context.Background()
