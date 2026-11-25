@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runTitle } from './runs-page';
+import { runTitle } from '.';
 
 describe('runTitle', () => {
   it('shows the task summary without its full stop', () => {

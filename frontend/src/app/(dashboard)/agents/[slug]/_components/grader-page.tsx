@@ -38,8 +38,7 @@ import {
   WINDOW,
   answerLabel,
 } from '../../_lib/grades';
-import { shortRelativeTime } from '../../_components/run-row';
-import { formatRelativeTime } from '../../_types';
+import { formatRelativeTime, shortRelativeTime } from '../../_types';
 
 /** Runs listed before "Show all". */
 const RUNS_SHOWN = 5;

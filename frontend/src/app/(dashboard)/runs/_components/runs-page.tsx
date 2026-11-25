@@ -23,8 +23,14 @@ import {
 import { FilterChip, RunSourceChips, RunStateIcon, StarterMark } from '@runkora/components';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { fetchAgentTypes } from '../../agents/_services/agents-api';
-import { shortRelativeTime } from '../../agents/_components/run-row';
-import { indexAgentTypes, toRunRow, type AgentTypeRow, type RunRow } from '../../agents/_types';
+import {
+  indexAgentTypes,
+  runTitle,
+  shortRelativeTime,
+  toRunRow,
+  type AgentTypeRow,
+  type RunRow,
+} from '../../agents/_types';
 import { useRunsFeed } from '../_hooks/use-runs-feed';
 import {
   DEFAULT_RUN_FILTERS,
@@ -38,14 +44,6 @@ import {
 const SEARCH_DEBOUNCE_MS = 300;
 
 const ANY = 'any';
-
-/** The row's title: the task summary, or what is known before or without one. */
-export function runTitle(r: Pick<RunRow, 'summary' | 'state'>): { text: string; known: boolean } {
-  if (r.summary) return { text: r.summary.replace(/\.$/, ''), known: true };
-  if (r.state === 'pending' || r.state === 'starting')
-    return { text: 'Waiting to start', known: true };
-  return { text: 'No task summary', known: false };
-}
 
 const titleOf = (r: RunRow) => runTitle(r).text;
 

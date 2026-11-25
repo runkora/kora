@@ -10,37 +10,14 @@ import { Fragment } from 'react';
 import { Stack, Text } from '@runkora/hades';
 import { RunSourceChips, RunStateIcon, StarterMark } from '@runkora/components';
 import { fmtUsd } from '@runkora/utils';
-import { formatDuration, formatRelativeTime } from '../_types';
+import {
+  formatDuration,
+  formatRelativeTime,
+  runTitle,
+  shortElapsed,
+  shortRelativeTime,
+} from '../_types';
 import type { RunRow } from '../_types';
-
-/** "4m", "3h", "2d" for a span of seconds, or `under` below a minute. */
-function shortSpan(seconds: number, under: string): string {
-  if (seconds < 60) return under;
-  const m = Math.floor(seconds / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  return `${Math.floor(h / 24)}d`;
-}
-
-/** "now", "4m", "3h", "2d": how long ago, short enough for a row's right edge. */
-export function shortRelativeTime(iso: string, now = Date.now()): string {
-  return shortSpan(Math.max(0, Math.floor((now - new Date(iso).getTime()) / 1000)), 'now');
-}
-
-/** "45s", "4m", "3h": how long a run has taken, as short as shortRelativeTime. */
-export function shortElapsed(ms: number): string {
-  const s = Math.max(0, Math.floor(ms / 1000));
-  return shortSpan(s, `${s}s`);
-}
-
-/** The row's title: the task summary, or what is known before the agent writes one. */
-function titleOf(row: RunRow): { text: string; known: boolean } {
-  if (row.summary) return { text: row.summary, known: true };
-  if (row.state === 'pending' || row.state === 'starting')
-    return { text: 'Waiting to start', known: false };
-  return { text: 'No task summary', known: false };
-}
 
 /** The right-edge time, short, with the full value for its tooltip; a dash before the run starts. */
 function rowTime(row: RunRow, time: 'started' | 'elapsed'): { text: string; title?: string } {
@@ -71,7 +48,7 @@ export function RunListRow({
   time = 'started',
   action,
 }: RunListRowProps) {
-  const title = titleOf(row);
+  const title = runTitle(row);
   const metaParts = [
     ...(showAgent ? [row.agentTypeName] : []),
     row.id.slice(0, 8),
