@@ -76,6 +76,17 @@ export const LongAgentName: Story = {
   ],
 };
 
+/** The Source select keeps the runs webhooks started. */
+export const FilteredBySource: Story = {
+  decorators: [dashboardPage(runsRoutes(buildRuns())), quiet],
+  play: async ({ canvasElement }) => {
+    await userEvent.selectOptions(
+      await within(canvasElement).findByLabelText('Filter by source'),
+      'webhook',
+    );
+  },
+};
+
 /** A search that matches nothing offers to clear the filters. */
 export const NoMatches: Story = {
   decorators: [dashboardPage(runsRoutes(buildRuns())), quiet],

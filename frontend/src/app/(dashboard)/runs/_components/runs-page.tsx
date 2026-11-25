@@ -17,7 +17,7 @@ import {
   EmptyState,
   Heading,
   Icon,
-  InlineSelect,
+  NativeSelect,
   Skeleton,
   Stack,
   Text,
@@ -46,8 +46,6 @@ import {
 
 /** How long typing pauses before the search goes to the server. */
 const SEARCH_DEBOUNCE_MS = 300;
-
-const ANY = 'any';
 
 const titleOf = (r: RunRow) => runTitle(r).text;
 
@@ -325,37 +323,47 @@ export function RunsPage() {
           }
           toolbarActions={
             <Stack direction="horizontal" align="center" gap="snug">
-              <Text size="supporting" color="muted">
-                Agent
-              </Text>
               {agentsError ? (
                 <Text size="caption" color="muted">
                   Could not load agents.
                 </Text>
               ) : (
-                <InlineSelect
-                  aria-label="Agent"
-                  value={filters.agentTypeId ?? ANY}
-                  onValueChange={(v) =>
-                    setFilters((f) => ({ ...f, agentTypeId: v === ANY ? null : v }))
-                  }
-                  options={[
-                    { value: ANY, label: ANY },
-                    ...agentTypes.map((a) => ({ value: a.id, label: a.name })),
-                  ]}
-                />
+                <Stack minWidth="form-field-sm" maxWidth="form-field-sm">
+                  <NativeSelect
+                    value={filters.agentTypeId ?? ''}
+                    onChange={(e) =>
+                      setFilters((f) => ({ ...f, agentTypeId: e.target.value || null }))
+                    }
+                    aria-label="Filter by agent"
+                  >
+                    <option value="">All agents</option>
+                    {agentTypes.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </Stack>
               )}
-              <Text size="supporting" color="muted">
-                Source
-              </Text>
-              <InlineSelect
-                aria-label="Source"
-                value={filters.source ?? ANY}
-                onValueChange={(v) =>
-                  setFilters((f) => ({ ...f, source: v === ANY ? null : (v as RunSourceFilter) }))
-                }
-                options={[{ value: ANY, label: ANY }, ...RUN_SOURCES]}
-              />
+              <Stack minWidth="form-field-sm" maxWidth="form-field-sm">
+                <NativeSelect
+                  value={filters.source ?? ''}
+                  onChange={(e) =>
+                    setFilters((f) => ({
+                      ...f,
+                      source: (e.target.value || null) as RunSourceFilter | null,
+                    }))
+                  }
+                  aria-label="Filter by source"
+                >
+                  <option value="">All sources</option>
+                  {RUN_SOURCES.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Stack>
             </Stack>
           }
         />

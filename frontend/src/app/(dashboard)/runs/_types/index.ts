@@ -18,10 +18,10 @@ export const QUICK_FILTERS: { value: QuickFilter; label: string; states?: RunSta
 
 /** Run sources as `trigger_kind` values; `none` is a run no trigger started. */
 export const RUN_SOURCES = [
-  { value: 'none', label: 'people' },
-  { value: 'webhook', label: 'webhooks' },
-  { value: 'scheduled', label: 'schedules' },
-  { value: 'event', label: 'events' },
+  { value: 'none', label: 'People' },
+  { value: 'webhook', label: 'Webhooks' },
+  { value: 'scheduled', label: 'Schedules' },
+  { value: 'event', label: 'Events' },
 ] as const;
 
 export type RunSourceFilter = (typeof RUN_SOURCES)[number]['value'];
