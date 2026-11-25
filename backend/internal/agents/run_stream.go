@@ -46,6 +46,8 @@ var (
 	errRunCaughtUp = errors.New("run stream caught up")
 	// errRunResumeTooFar ends a resume read that passes runResumeLimit events.
 	errRunResumeTooFar = errors.New("run stream resume is too far behind")
+	// errRunResumeCut is a resume read kora-events ended before the feed's position.
+	errRunResumeCut = errors.New("run stream resume ended early")
 	// errGradeOnStream refuses the grade filter: no run event records a new grade.
 	errGradeOnStream = errors.New("the run stream takes no grade filter")
 )
@@ -103,8 +105,8 @@ func (f *RunFeed) Start(ctx context.Context) {
 	for ctx.Err() == nil {
 		after := f.position()
 		q := eventsclient.Query{After: after, Live: after == 0, Categories: []string{runEventCategory}}
-		// A stream that ended at token expiry reopens at once. A failed one waits.
-		wait := time.Duration(0)
+		// A stream that ended at token expiry reopens after a second. A failed one waits for retry.
+		wait := time.Second
 		if err := f.events.Stream(ctx, q, func(rec eventsclient.Record) error { return f.handle(ctx, rec) }); err != nil && ctx.Err() == nil {
 			f.logger.Error(ctx, "run feed stream failed", logging.Field{Key: "error", Value: err.Error()})
 			wait = f.retry
@@ -141,7 +143,10 @@ func (f *RunFeed) handle(ctx context.Context, rec eventsclient.Record) error {
 	}
 	rows, err := f.loadRows(ctx, env.Tenant, []string{env.Run})
 	if err != nil {
-		return err
+		// Closing the tenant's streams moves the feed on for every other tenant. Their clients resume past the event.
+		f.logger.Error(ctx, "run feed could not load a run", logging.Field{Key: "error", Value: err.Error()})
+		f.dropTenant(env.Tenant, rec.Seq)
+		return nil
 	}
 	row := rows[env.Run]
 	f.publish(rec.Seq, env.Tenant, env.Type, row.run, row.body)
@@ -232,6 +237,16 @@ func (f *RunFeed) subscribe(tenant string, q RunListQuery) (*runSubscriber, int6
 	}
 }
 
+// dropTenant closes the tenant's streams and moves the feed past seq.
+func (f *RunFeed) dropTenant(tenant string, seq int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for sub := range f.subs[tenant] {
+		f.removeLocked(sub)
+	}
+	f.after, f.last[tenant] = seq, seq
+}
+
 func (f *RunFeed) removeLocked(sub *runSubscriber) {
 	if _, ok := f.subs[sub.tenant][sub]; !ok {
 		return
@@ -245,7 +260,8 @@ func (f *RunFeed) removeLocked(sub *runSubscriber) {
 
 // catchUp sends sub the run changes of its tenant after seq up to the feed position to,
 // read from the internal stream with the rows loaded once per run. It returns ErrEventRemoved
-// when the log no longer holds seq, and errRunResumeTooFar past runResumeLimit events.
+// when the log no longer holds seq, errRunResumeTooFar past runResumeLimit events and
+// errRunResumeCut when the read ends before to.
 func (f *RunFeed) catchUp(ctx context.Context, sub *runSubscriber, after, to int64, send func(runMessage)) error {
 	type change struct {
 		seq       int64
@@ -274,7 +290,10 @@ func (f *RunFeed) catchUp(ctx context.Context, sub *runSubscriber, after, to int
 		}
 		return nil
 	})
-	if !errors.Is(err, errRunCaughtUp) {
+	switch {
+	case err == nil:
+		return errRunResumeCut
+	case !errors.Is(err, errRunCaughtUp):
 		return err
 	}
 	if len(ids) == 0 {
@@ -388,8 +407,9 @@ func parseRunStream(r *http.Request) (RunListQuery, []string, int64, *api.APIErr
 // resumeRunStream sends the changes after resume up to the feed's position, or reset when
 // they cannot be replayed. It reports false when the stream should close.
 func (c *Controller) resumeRunStream(ctx context.Context, w io.Writer, sub *runSubscriber, resume, position int64) bool {
-	// Position 0 is a feed that has seen no event of the tenant since it opened, so the gap has no known end.
-	if position == 0 {
+	// Position 0 is a feed that has seen no event of the tenant since it opened, so the gap has no
+	// known end. Resume 0 precedes every event, which is a reload of the first page.
+	if position == 0 || resume == 0 {
 		writeRunReset(w)
 		return true
 	}
@@ -398,7 +418,7 @@ func (c *Controller) resumeRunStream(ctx context.Context, w io.Writer, sub *runS
 	}
 	err := c.feed.catchUp(ctx, sub, resume, position, func(m runMessage) { writeRunMessage(w, m) })
 	switch {
-	case errors.Is(err, eventsclient.ErrEventRemoved), errors.Is(err, errRunResumeTooFar):
+	case errors.Is(err, eventsclient.ErrEventRemoved), errors.Is(err, errRunResumeTooFar), errors.Is(err, errRunResumeCut):
 		writeRunReset(w)
 	case err != nil:
 		if ctx.Err() == nil {

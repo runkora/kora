@@ -48,12 +48,17 @@ type fakeRunRows struct {
 	mu    sync.Mutex
 	runs  map[string]*Run
 	loads [][]string
+	// broken fails every load of these runs.
+	broken []string
 }
 
 func (f *fakeRunRows) GetRunRows(_ context.Context, tenant string, ids []string) ([]Run, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.loads = append(f.loads, ids)
+	if slices.ContainsFunc(ids, func(id string) bool { return slices.Contains(f.broken, id) }) {
+		return nil, errors.New("scan run")
+	}
 	var out []Run
 	for _, id := range ids {
 		if run, ok := f.runs[id]; ok && run.TenantID == tenant {
@@ -124,6 +129,37 @@ func TestRunFeed_ReopensFromTheLastSeqHandled(t *testing.T) {
 		if s.Tenant != "" || !slices.Equal(s.Categories, []string{"agents.run"}) {
 			t.Errorf("query %+v, want every tenant's agents.run events", s)
 		}
+	}
+}
+
+func TestRunFeed_WaitsBeforeReopeningAStreamThatEnded(t *testing.T) {
+	events := &fakeRunEvents{serve: func(context.Context, int, eventsclient.Query, func(eventsclient.Record) error) error { return nil }}
+	feed, _ := newTestFeed(events)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	feed.Start(ctx)
+	if n := len(events.seen()); n != 1 {
+		t.Errorf("reopened %d times in 100ms, want one open and a wait", n)
+	}
+}
+
+func TestRunFeed_ARunThatWillNotLoadClosesOnlyItsTenant(t *testing.T) {
+	feed, rows := newTestFeed(&fakeRunEvents{}, Run{ID: "r-2", TenantID: "t-2", AgentTypeID: "at-1"})
+	rows.broken = []string{"r-1"}
+	bad, _, cancelBad := feed.subscribe("t-1", allScope("at-1"))
+	defer cancelBad()
+	good, _, cancelGood := feed.subscribe("t-2", allScope("at-1"))
+	defer cancelGood()
+	for _, rec := range []eventsclient.Record{runRecord(5, "t-1", "r-1"), runRecord(6, "t-2", "r-2")} {
+		if err := feed.handle(context.Background(), rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, open := <-bad.ch; open {
+		t.Error("t-1's stream stayed open after its run failed to load")
+	}
+	if len(good.ch) != 1 || feed.position() != 6 {
+		t.Errorf("t-2 queued %d at position %d, want its event and the feed past both", len(good.ch), feed.position())
 	}
 }
 
@@ -475,19 +511,36 @@ func TestHandleStreamRuns_ResetsAResumePointTheLogLost(t *testing.T) {
 		to       int64
 		gone     bool
 		position bool
+		cut      bool
+		zero     bool
 	}{
 		"gone by retention":         {to: 10, gone: true, position: true},
 		"feed has no tenant events": {position: false},
 		"past the resume limit":     {to: runResumeLimit + 4, position: true},
+		"ended before the position": {to: 10, position: true, cut: true},
+		"resume from zero":          {to: 10, position: true, zero: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			feed, _, rows := resumeFeed(t, tt.to, tt.gone)
 			if !tt.position {
 				feed, _ = newTestFeed(&fakeRunEvents{})
 			}
+			if tt.cut {
+				// kora-events closes the read cleanly after seq 5, short of the feed's position 10.
+				events := &fakeRunEvents{serve: func(_ context.Context, _ int, _ eventsclient.Query, handle func(eventsclient.Record) error) error {
+					_ = handle(runRecord(4, "t-1", "r-1"))
+					_ = handle(runRecord(5, "t-1", "r-1"))
+					return nil
+				}}
+				feed.events = events
+			}
+			resume := "3"
+			if tt.zero {
+				resume = "0"
+			}
 			c := streamController(t, feed, nil)
 			ctx, cancel := context.WithCancel(context.Background())
-			rec, done := openStream(ctx, c, t1Claims(), "", "3")
+			rec, done := openStream(ctx, c, t1Claims(), "", resume)
 			waitFor(t, time.Second, func() bool { return strings.Contains(rec.String(), "event: reset\n") })
 			cancel()
 			<-done
