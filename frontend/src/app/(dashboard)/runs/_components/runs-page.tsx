@@ -117,7 +117,7 @@ const COLUMNS: DataTableColumn<RunRow>[] = [
     align: 'right',
     cell: (r) => (
       <Text size="caption" color="muted" tabular>
-        {r.startedAt ? shortRelativeTime(r.startedAt) : 'now'}
+        {shortRelativeTime(r.startedAt ?? r.createdAt)}
       </Text>
     ),
   },
@@ -138,6 +138,7 @@ export function RunsPage() {
   const [filters, setFilters] = useState<RunFilters>(DEFAULT_RUN_FILTERS);
   const [search, setSearch] = useState('');
   const [agentTypes, setAgentTypes] = useState<AgentTypeRow[]>([]);
+  const [agentsError, setAgentsError] = useState(false);
   const feed = useRunsFeed(filters);
 
   useEffect(() => {
@@ -150,7 +151,10 @@ export function RunsPage() {
 
   // The Agent select lists the agents the viewer can read; the runs carry their own names.
   useEffect(() => {
-    void fetchAgentTypes().then(({ data }) => setAgentTypes(data));
+    void fetchAgentTypes().then(({ data, error }) => {
+      setAgentTypes(data);
+      setAgentsError(error !== null);
+    });
   }, []);
 
   // A new page starts at its top, where the new runs bar shows.
@@ -248,17 +252,23 @@ export function RunsPage() {
             <Text size="supporting" color="muted">
               Agent
             </Text>
-            <InlineSelect
-              aria-label="Agent"
-              value={filters.agentTypeId ?? ANY}
-              onValueChange={(v) =>
-                setFilters((f) => ({ ...f, agentTypeId: v === ANY ? null : v }))
-              }
-              options={[
-                { value: ANY, label: ANY },
-                ...agentTypes.map((a) => ({ value: a.id, label: a.name })),
-              ]}
-            />
+            {agentsError ? (
+              <Text size="caption" color="muted">
+                Could not load agents.
+              </Text>
+            ) : (
+              <InlineSelect
+                aria-label="Agent"
+                value={filters.agentTypeId ?? ANY}
+                onValueChange={(v) =>
+                  setFilters((f) => ({ ...f, agentTypeId: v === ANY ? null : v }))
+                }
+                options={[
+                  { value: ANY, label: ANY },
+                  ...agentTypes.map((a) => ({ value: a.id, label: a.name })),
+                ]}
+              />
+            )}
             <Text size="supporting" color="muted">
               Source
             </Text>

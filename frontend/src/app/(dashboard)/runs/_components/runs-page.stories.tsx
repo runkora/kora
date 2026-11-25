@@ -45,6 +45,17 @@ export const LoadError: Story = {
   decorators: [dashboardPage(failingRunsRoutes(502)), quiet],
 };
 
+/** The agent list failed, so the Agent filter says so in place of its select. */
+export const AgentsLoadError: Story = {
+  decorators: [
+    dashboardPage({
+      ...runsRoutes(buildRuns()),
+      'GET /api/agents/types': () => new Response(null, { status: 502 }),
+    }),
+    quiet,
+  ],
+};
+
 export const Loading: Story = {
   decorators: [dashboardPage(pendingRunsRoutes), quiet],
 };
