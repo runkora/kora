@@ -131,7 +131,7 @@ None at this time.
 
 **PD1: Runs replaces Dashboard for now:** The sidebar shows Runs in the place of Dashboard, and `/` opens Runs. **Accepted cost:** the dashboard overview has no sidebar entry.
 
-**PD2: Waiting is the idle state:** Waiting lists runs whose turn has ended and that wait for a message. **Accepted cost:** a run whose agent asked a question and waits for the answer is active. It shows under Active and does not show under Waiting.
+**PD2: Waiting is the idle state:** Waiting lists runs whose turn has ended and that wait for a message.
 
 **PD3: No counts on quick filters:** The list pages with cursors and holds no total. **Accepted cost:** a viewer cannot see how many runs a filter holds before choosing it.
 

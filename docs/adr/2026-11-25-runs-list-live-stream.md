@@ -33,8 +33,6 @@ A run records its starter's subject in `created_by` (`StartRun` in `run_service.
 
 `kora-events` serves `GET /internal/v1/events/stream?after=<seq>` with every tenant's events in seq order (`backend/internal/koraevents/handlers.go`). The `InternalController` middleware and the `kora-events-internal-stream` AuthorizationPolicy admit only `kora-triggers`. A request without `after` replays from seq 0. `kora-triggers` reads the stream through `backend/internal/platform/clients/events/client.go`. Its `EventConsumer` (`backend/internal/triggers/consumer.go`) runs on one replica under an advisory lock and stores its cursor. The public `GET /v1/events/stream` requires `events:read` and applies no run visibility.
 
-A run whose agent asks a question stays `active` until the person answers. `onPermission` (`backend/internal/agents/sessionmanager/acp_runner.go`) blocks in `awaitAnswer` inside the `session/prompt` request. `endTurn` emits `message_stop` only after `session/prompt` returns (`runTurns`, `acp_runner.go`, and `acp_events.go`). The session reports `idle` only on `message_stop` (`turnEnds` in `emptyturn.go` and `armIdle` in `session.go`).
-
 ### Security and Identity
 
 The change touches the question "What can it access?". The stream is a read surface, and it must show a viewer exactly the runs `GET /api/v1/runs` shows them. It adds no identity, grant, scope or credential, and it leaves "Who is this agent?" and "How does it connect?" unchanged. `kora-agents` gains read access to every tenant's `agents.run` events on the internal stream. `kora-agents` records these events and already holds every tenant's runs. `kora-events` refuses it every other category.
