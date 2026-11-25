@@ -131,6 +131,39 @@ describe('useRunsFeed', () => {
     }
   });
 
+  it('updates a shown row in place from a message that no longer matches, and never inserts one', async () => {
+    const { result } = renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS));
+    act(() => latest().onopen?.());
+    await waitFor(() => expect(result.current.runs).toHaveLength(2));
+    act(() => {
+      latest().emit('run', {
+        type: 'agents.run.failed.v1',
+        matches: false,
+        run: { ...run('a'), state: 'failed' },
+      });
+      latest().emit('run', { type: 'agents.run.created.v1', matches: false, run: run('z') });
+    });
+    expect(result.current.runs.map((r) => [r.id, r.state])).toEqual([
+      ['b', 'active'],
+      ['a', 'failed'],
+    ]);
+  });
+
+  it('leaves a stream the server ended to the browser, which reconnects with Last-Event-ID', async () => {
+    renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS));
+    const first = latest();
+    act(() => first.onopen?.());
+    await waitFor(() => expect(api.fetchRunsPage).toHaveBeenCalledTimes(1));
+    act(() => first.emit('run', { type: 'agents.run.idle.v1', matches: true, run: run('a') }, '9'));
+    // An ended response leaves the source connecting, not closed.
+    first.readyState = 0;
+    act(() => first.onerror?.());
+    expect(first.closed).toBe(false);
+    expect(api.sources).toHaveLength(1);
+    act(() => first.onopen?.());
+    expect(api.fetchRunsPage).toHaveBeenCalledTimes(1);
+  });
+
   it('reopens the stream with the new filters when they change', async () => {
     const { rerender } = renderHook((filters) => useRunsFeed(filters), {
       initialProps: DEFAULT_RUN_FILTERS,
