@@ -7,88 +7,11 @@
  */
 
 import { Fragment } from 'react';
-import {
-  Avatar,
-  Icon,
-  Stack,
-  Text,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  type IconColor,
-  type IconName,
-} from '@runkora/hades';
-import { RUN_STATE_DISPLAY, RunSourceChips, type RunStateDisplay } from '@runkora/components';
+import { Stack, Text } from '@runkora/hades';
+import { RunSourceChips, RunStateIcon, StarterMark } from '@runkora/components';
 import { fmtUsd } from '@runkora/utils';
 import { formatDuration, formatRelativeTime } from '../_types';
 import type { RunRow } from '../_types';
-import type { TriggerKind } from '@runkora/shared/api';
-
-const STATE_ICON: Partial<Record<RunStateDisplay['status'], { name: IconName; color: IconColor }>> =
-  {
-    healthy: { name: 'loader', color: 'status-healthy' },
-    pending: { name: 'clock', color: 'status-pending' },
-    degraded: { name: 'pause', color: 'status-degraded' },
-    error: { name: 'circle-x', color: 'status-error' },
-    idle: { name: 'circle-check', color: 'muted' },
-  };
-
-/** The run's state as an icon, named for screen readers with the state's label. */
-function RunStateIcon({ state }: { state: string }) {
-  const display = RUN_STATE_DISPLAY[state] ?? { status: 'idle', label: state };
-  const icon = STATE_ICON[display.status] ?? { name: 'circle-check', color: 'muted' };
-  return (
-    <Icon
-      name={icon.name}
-      size="sm"
-      color={icon.color}
-      label={display.label}
-      shrink
-      spin={icon.name === 'loader'}
-    />
-  );
-}
-
-const TRIGGER_KIND_ICON: Record<TriggerKind, IconName> = {
-  webhook: 'zap',
-  scheduled: 'clock',
-  manual: 'play',
-  event: 'activity',
-};
-
-/** The icon for a trigger of the given kind; `zap` for a run recorded without one. */
-export function triggerKindIcon(kind: TriggerKind | null): IconName {
-  return (kind && TRIGGER_KIND_ICON[kind]) ?? 'zap';
-}
-
-/** Who started the run as one round mark: a person's initials or the trigger kind's icon. */
-export function StarterMark({ row }: { row: RunRow }) {
-  const trigger = row.startedByTrigger;
-  const name = trigger
-    ? (trigger.triggerName ?? trigger.triggerId)
-    : (row.createdByName ?? row.createdBy);
-  const tooltip = `Started by ${name}`;
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Text as="span" aria-label={tooltip} style={{ display: 'inline-flex', flexShrink: 0 }}>
-          {trigger ? (
-            <Icon
-              name={triggerKindIcon(trigger.triggerKind)}
-              size="2xs"
-              container
-              circle
-              containerVariant="accent"
-            />
-          ) : (
-            <Avatar name={name} size="2xs" />
-          )}
-        </Text>
-      </TooltipTrigger>
-      <TooltipContent>{tooltip}</TooltipContent>
-    </Tooltip>
-  );
-}
 
 /** "4m", "3h", "2d" for a span of seconds, or `under` below a minute. */
 function shortSpan(seconds: number, under: string): string {

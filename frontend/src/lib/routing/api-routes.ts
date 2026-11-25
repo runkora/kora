@@ -472,6 +472,9 @@ export const ApiRoute = {
 
   runs: {
     list: (): `${typeof API_BASE}/agents/runs` => `${API_BASE}/agents/runs`,
+    /** The live run list: SSE with the list's filters, `after` resuming past a seq. */
+    stream: (params: URLSearchParams): `${typeof API_BASE}/agents/runs/stream?${string}` =>
+      `${API_BASE}/agents/runs/stream?${params.toString()}`,
     /** Run stats across every agent the caller may read, for one window. */
     stats: (
       period: AgentInsightsPeriod,
@@ -627,6 +630,7 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['environments']['detail']>
   | ReturnType<(typeof ApiRoute)['environments']['delete']>
   | ReturnType<(typeof ApiRoute)['runs']['list']>
+  | ReturnType<(typeof ApiRoute)['runs']['stream']>
   | ReturnType<(typeof ApiRoute)['runs']['listForType']>
   | ReturnType<(typeof ApiRoute)['runs']['stats']>
   | ReturnType<(typeof ApiRoute)['runs']['start']>

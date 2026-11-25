@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@runkora/test-utils';
-import type { RunRow } from '../_types';
-import { RUN_ROWS } from './agents-mock-data';
-import { StarterMark, triggerKindIcon } from './run-row';
+import { StarterMark, triggerKindIcon, type StarterMarkRun } from './starter-mark';
 
 describe('triggerKindIcon', () => {
   it.each([
@@ -21,7 +19,11 @@ describe('triggerKindIcon', () => {
 });
 
 describe('StarterMark', () => {
-  const row: RunRow = { ...RUN_ROWS[0]!, createdByName: 'Dana Lee', startedByTrigger: null };
+  const row: StarterMarkRun = {
+    createdBy: 'usr_dana',
+    createdByName: 'Dana Lee',
+    startedByTrigger: null,
+  };
 
   it('names the trigger that started the run, whatever its kind', () => {
     renderWithProviders(
@@ -32,7 +34,6 @@ describe('StarterMark', () => {
             triggerId: 'trg_nightly',
             triggerName: 'nightly dependency scan',
             triggerKind: 'scheduled',
-            deliveryId: null,
           },
         }}
       />,

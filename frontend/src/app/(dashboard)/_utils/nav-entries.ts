@@ -20,7 +20,7 @@ export type NavGroup = { label: string; items: NavEntry[] };
 // ─── Nav arrays ───────────────────────────────────────────────────────────────
 
 const MAIN_NAV: NavEntry[] = [
-  { label: 'Dashboard', href: APP_ROUTES.home, icon: 'layout-dashboard' },
+  { label: 'Runs', href: APP_ROUTES.runs, icon: 'play-circle' },
   {
     label: 'Agents',
     href: APP_ROUTES.agents.list,

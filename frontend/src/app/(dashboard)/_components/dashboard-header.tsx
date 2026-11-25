@@ -14,6 +14,7 @@ interface SectionHeader {
 }
 
 const SECTIONS: Record<string, SectionHeader> = {
+  runs: { title: 'Runs' },
   agents: { title: 'Agents' },
   policy: { title: 'Policy' },
   'model-gateway': { title: 'Model Gateway' },
@@ -28,7 +29,7 @@ export function DashboardHeader() {
 
   const segments = pathname.split('/').filter(Boolean);
   const section = segments[0] ?? '';
-  // The dashboard home ('/') and any unlisted section have no SECTIONS entry —
+  // An unlisted section has no SECTIONS entry —
   // fall back to a plain "Dashboard" title rather than dereferencing undefined
   // (header.title below is not optional-chained, and would crash the whole page).
   const header = SECTIONS[section] ?? { title: 'Dashboard' };

@@ -94,3 +94,11 @@ export { CODE_LINE_HEIGHT, InstructionsMarkdown } from './instructions-markdown'
 /** Chips linking to what started a run: one per delivery, the rest behind "+N". */
 export { PROVIDER_ICON, RunSourceChips, sourceIcon } from './run-source-chips';
 export type { RunSourceChipsProps } from './run-source-chips';
+
+/** A run's state as one icon. */
+export { RunStateIcon } from './run-state-icon';
+export type { RunStateIconProps } from './run-state-icon';
+
+/** Who started a run as one round mark: a person's initials or the trigger kind's icon. */
+export { StarterMark, triggerKindIcon } from './starter-mark';
+export type { StarterMarkProps, StarterMarkRun } from './starter-mark';

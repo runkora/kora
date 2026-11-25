@@ -39,6 +39,8 @@ export const APP_ROUTES = {
   authCallback: '/auth/callback',
 
   // ── Control Plane ────────────────────────────────────────────────────────
+  /** Every run the viewer can read; `home` redirects here. */
+  runs: '/runs',
   agents: {
     list: '/agents' as const,
     /** Opens the agent builder modal over the agents list (?agent=new). */

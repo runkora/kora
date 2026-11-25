@@ -112,6 +112,24 @@ export async function listRuns(
   return request<RunsPage>(`/api/v1/runs?${params.toString()}`, accessToken);
 }
 
+/** Opens GET /api/v1/runs/stream. The caller passes the body through as SSE. */
+export function openRunsStream(
+  accessToken: string,
+  params: URLSearchParams,
+  lastEventId: string | null,
+  signal: AbortSignal,
+): Promise<Response> {
+  return fetch(`${config.koraAgentsUrl}/api/v1/runs/stream?${params.toString()}`, {
+    headers: {
+      Accept: 'text/event-stream',
+      Authorization: `Bearer ${accessToken}`,
+      ...(lastEventId !== null && { 'Last-Event-ID': lastEventId }),
+    },
+    cache: 'no-store',
+    signal,
+  });
+}
+
 /** The run's grade per Grader. kora-agents applies the run read check. */
 export async function fetchRunGrades(
   accessToken: string,
