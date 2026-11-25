@@ -53,7 +53,8 @@ export function StarterMark({ row }: StarterMarkProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Stack shrink aria-label={tooltip}>
+        {/* Focusable, so a keyboard user can open the tooltip the mark stands for. */}
+        <Stack shrink role="img" aria-label={tooltip} tabIndex={0}>
           {trigger ? (
             <Icon
               name={triggerKindIcon(trigger.triggerKind)}

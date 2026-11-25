@@ -45,4 +45,12 @@ describe('StarterMark', () => {
     renderWithProviders(<StarterMark row={row} />);
     expect(screen.getByLabelText('Started by Dana Lee')).toBeInTheDocument();
   });
+
+  it('is an image a keyboard can reach for its tooltip', () => {
+    renderWithProviders(<StarterMark row={row} />);
+    expect(screen.getByRole('img', { name: 'Started by Dana Lee' })).toHaveAttribute(
+      'tabindex',
+      '0',
+    );
+  });
 });
