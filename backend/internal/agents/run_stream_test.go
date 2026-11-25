@@ -532,12 +532,14 @@ func TestHandleStreamRuns_ResetsAResumePointTheLogLost(t *testing.T) {
 		position bool
 		cut      bool
 		zero     bool
+		broken   bool
 	}{
 		"gone by retention":         {to: 10, gone: true, position: true},
 		"feed has no tenant events": {position: false},
 		"past the resume limit":     {to: runResumeLimit + 4, position: true},
 		"ended before the position": {to: 10, position: true, cut: true},
 		"resume from zero":          {to: 10, position: true, zero: true},
+		"a run that will not load":  {to: 10, position: true, broken: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			feed, _, rows := resumeFeed(t, tt.to, tt.gone)
@@ -553,6 +555,9 @@ func TestHandleStreamRuns_ResetsAResumePointTheLogLost(t *testing.T) {
 				}}
 				feed.events = events
 			}
+			if tt.broken {
+				rows.broken = []string{"r-1"}
+			}
 			resume := "3"
 			if tt.zero {
 				resume = "0"
@@ -563,7 +568,7 @@ func TestHandleStreamRuns_ResetsAResumePointTheLogLost(t *testing.T) {
 			waitFor(t, time.Second, func() bool { return strings.Contains(rec.String(), "event: reset\n") })
 			cancel()
 			<-done
-			if strings.Contains(rec.String(), "event: run") || rows.loaded() != 0 {
+			if strings.Contains(rec.String(), "event: run") || (!tt.broken && rows.loaded() != 0) {
 				t.Errorf("a reset stream replayed runs or loaded %d rows", rows.loaded())
 			}
 		})
