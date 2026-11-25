@@ -29,6 +29,7 @@ type Controller struct {
 	runs         *RunService
 	environments *EnvironmentService
 	drafts       *DraftService
+	feed         *RunFeed
 	verifier     *token.Verifier
 	blocklist    mw.JTIBlocklist
 	eval         policy.Evaluator
@@ -143,6 +144,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /api/v1/runs", c.handleStartRun)
 	mux.Handle("GET /api/v1/runs", c.handleListRuns)
 	mux.Handle("GET /api/v1/runs/stats", c.handleTenantRunStats)
+	mux.Handle("GET /api/v1/runs/stream", c.handleStreamRuns)
 	mux.Handle("GET /api/v1/run-outcomes", c.handleRunOutcomes)
 	mux.Handle("GET /api/v1/run-stats/{slug}", c.handleRunStats)
 	mux.Handle("GET /api/v1/runs/{id}", c.handleGetRun)
