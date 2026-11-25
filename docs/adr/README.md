@@ -191,7 +191,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [Hades Design System Hardening](2026-05-04-terra-design-system-hardening.md) — `Accepted` · 2026-05-04
 - [Semantic HTML Consolidation — Unconditional Ban on header, article, nav, aside, footer](2026-05-04-semantic-html-consolidation.md) — `Accepted` · 2026-05-04
 - [Frontend Test Strategy and Toolchain](2026-05-08-frontend-test-strategy-and-toolchain.md) — `Accepted` · 2026-05-08
-- [Nav Cleanup and Live Dashboard](2026-06-19-nav-cleanup-and-live-dashboard.md) — `Accepted` · 2026-06-19
+- [Nav Cleanup and Live Dashboard](2026-06-19-nav-cleanup-and-live-dashboard.md) — `Accepted (live dashboard superseded in part 2026-11-25)` · 2026-06-19
 - [Mobile & Tablet Responsive Design](2026-06-19-mobile-responsive-design.md) — `Accepted` · 2026-06-19
 - [Profile Page Architecture](2026-05-13-profile-page-architecture.md) — `Proposed` · 2026-05-13
 
@@ -279,7 +279,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-15 | [Role-Budget Attribution for Non-Interactive Credentials](2026-06-15-role-budget-attribution-for-non-interactive-credentials.md) | Accepted | — |
 | 2026-06-17 | [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) | Accepted (Decision item 3 superseded in part 2026-09-29; Amended 2026-10-31) | — |
 | 2026-06-19 | [Provider Error Visibility in the Inference Gateway](2026-06-19-provider-error-visibility.md) | Accepted | — |
-| 2026-06-19 | [Nav Cleanup and Live Dashboard](2026-06-19-nav-cleanup-and-live-dashboard.md) | Accepted | — |
+| 2026-06-19 | [Nav Cleanup and Live Dashboard](2026-06-19-nav-cleanup-and-live-dashboard.md) | Accepted (live dashboard superseded in part 2026-11-25) | — |
 | 2026-06-19 | [Mobile & Tablet Responsive Design](2026-06-19-mobile-responsive-design.md) | Accepted | — |
 | 2026-06-19 | [Run Task Summarization](2026-06-19-run-task-summarization.md) | Accepted | — |
 | 2026-06-20 | [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md) | Superseded by [trigger-deliveries-keyset-pagination](2026-10-07-trigger-deliveries-keyset-pagination.md) | — |

@@ -233,3 +233,4 @@ None at this time.
 *   [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md)
 *   [kora-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md)
 *   [Database Migrations](2026-09-10-database-migrations.md)
+*   [Nav Cleanup and Live Dashboard](2026-06-19-nav-cleanup-and-live-dashboard.md): this decision supersedes its live dashboard home in part.
