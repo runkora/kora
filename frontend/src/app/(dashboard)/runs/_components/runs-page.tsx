@@ -288,22 +288,18 @@ export function RunsPage() {
         filteredEmptyMessage="No runs match these filters."
       />
       {showPager && (
-        <Stack direction="horizontal" align="center" justify="end" gap="snug">
+        <Stack direction="horizontal" align="center" gap="tight" justify="end">
           {feed.pageError !== null && (
             <Text size="caption" color="status-error">
               {feed.pageError}
             </Text>
           )}
-          <Text size="caption" color="muted" tabular>
-            Page {feed.pageIndex + 1}
-          </Text>
           <Button
             variant="outline"
             size="sm"
             onClick={feed.newer}
             disabled={!feed.hasNewer || feed.pageLoading}
           >
-            <Icon name="chevron-left" size="xs" />
             Newer
           </Button>
           <Button
@@ -312,8 +308,7 @@ export function RunsPage() {
             onClick={feed.older}
             disabled={!feed.hasOlder || feed.pageLoading}
           >
-            {feed.pageLoading ? 'Loading…' : 'Older'}
-            <Icon name="chevron-right" size="xs" />
+            Older
           </Button>
         </Stack>
       )}
