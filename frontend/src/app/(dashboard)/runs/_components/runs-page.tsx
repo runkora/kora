@@ -39,7 +39,29 @@ const SEARCH_DEBOUNCE_MS = 300;
 
 const ANY = 'any';
 
-const titleOf = (r: RunRow) => r.summary?.replace(/\.$/, '') ?? 'Waiting to start';
+/** The row's title: the task summary, or what is known before or without one. */
+export function runTitle(r: Pick<RunRow, 'summary' | 'state'>): { text: string; known: boolean } {
+  if (r.summary) return { text: r.summary.replace(/\.$/, ''), known: true };
+  if (r.state === 'pending' || r.state === 'starting')
+    return { text: 'Waiting to start', known: true };
+  return { text: 'No task summary', known: false };
+}
+
+const titleOf = (r: RunRow) => runTitle(r).text;
+
+/** The title in the row's emphasis, or muted when the run has no summary to show. */
+function RunTitle({ run }: { run: RunRow }) {
+  const title = runTitle(run);
+  return title.known ? (
+    <Text size="supporting" weight="emphasis" truncate>
+      {title.text}
+    </Text>
+  ) : (
+    <Text size="supporting" color="subtle" truncate>
+      {title.text}
+    </Text>
+  );
+}
 
 /** The two states a person acts on, spelled out: waiting for a message, or stopped at its budget. */
 function StateMarker({ run }: { run: RunRow }) {
@@ -62,9 +84,7 @@ function RunLine({ run }: { run: RunRow }) {
     <Stack direction="horizontal" align="center" gap="cozy" grow minWidth="none">
       <RunStateIcon state={run.state} />
       <Stack direction="horizontal" align="center" gap="snug" grow minWidth="none">
-        <Text size="supporting" weight="emphasis" truncate>
-          {titleOf(run)}
-        </Text>
+        <RunTitle run={run} />
         <Stack>
           <Badge variant="secondary" size="sm">
             <Icon name="bot" size="2xs" label="" />

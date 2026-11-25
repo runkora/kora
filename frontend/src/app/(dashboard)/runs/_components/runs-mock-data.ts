@@ -155,6 +155,13 @@ const TEMPLATES: Template[] = [
     by: SAM,
     cost: 0.94,
   },
+  {
+    agent: 'at_triage_bot',
+    state: 'completed',
+    summary: null,
+    by: SAM,
+    cost: 0.02,
+  },
 ];
 
 const MINUTE = 60_000;
