@@ -131,22 +131,85 @@ describe('useRunsFeed', () => {
     }
   });
 
-  it('updates a shown row in place from a message that no longer matches, and never inserts one', async () => {
+  it('drops a stream message it cannot read', async () => {
     const { result } = renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS));
     act(() => latest().onopen?.());
     await waitFor(() => expect(result.current.runs).toHaveLength(2));
     act(() => {
-      latest().emit('run', {
-        type: 'agents.run.failed.v1',
-        matches: false,
-        run: { ...run('a'), state: 'failed' },
-      });
-      latest().emit('run', { type: 'agents.run.created.v1', matches: false, run: run('z') });
+      latest().listeners.run?.forEach((fn) =>
+        fn({ data: 'not json', lastEventId: '' } as MessageEvent<string>),
+      );
+      latest().emit('run', { type: 'agents.run.created.v1', matches: true, run: { id: 'z' } });
     });
-    expect(result.current.runs.map((r) => [r.id, r.state])).toEqual([
-      ['b', 'active'],
-      ['a', 'failed'],
-    ]);
+    expect(result.current.runs.map((r) => r.id)).toEqual(['b', 'a']);
+  });
+
+  it('reads an older page with the cursor and steps back without a fetch', async () => {
+    api.fetchRunsPage.mockImplementation((params: URLSearchParams) => {
+      api.calls.push(`page?${params.toString()}`);
+      const older = params.has('cursor');
+      return Promise.resolve({
+        page: { runs: older ? [run('a')] : [run('b')], nextCursor: older ? null : 'cur1' },
+        error: null,
+      });
+    });
+    const { result } = renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS));
+    act(() => latest().onopen?.());
+    await waitFor(() => expect(result.current.hasOlder).toBe(true));
+    act(() => result.current.older());
+    await waitFor(() => expect(result.current.pageIndex).toBe(1));
+    expect(api.calls).toContain('page?limit=50&cursor=cur1');
+    expect(result.current.runs.map((r) => r.id)).toEqual(['a']);
+    act(() => result.current.newer());
+    expect(result.current.runs.map((r) => r.id)).toEqual(['b']);
+    expect(api.fetchRunsPage).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops an older page that answers after the filters changed', async () => {
+    let answer: (value: unknown) => void = () => {};
+    api.fetchRunsPage.mockImplementation((params: URLSearchParams) =>
+      params.has('cursor')
+        ? new Promise((resolve) => (answer = resolve))
+        : Promise.resolve({ page: { runs: [run('b')], nextCursor: 'cur1' }, error: null }),
+    );
+    const { result, rerender } = renderHook((filters) => useRunsFeed(filters), {
+      initialProps: DEFAULT_RUN_FILTERS,
+    });
+    act(() => latest().onopen?.());
+    await waitFor(() => expect(result.current.hasOlder).toBe(true));
+    act(() => result.current.older());
+    rerender({ ...DEFAULT_RUN_FILTERS, quick: 'failed' });
+    act(() => latest().onopen?.());
+    await waitFor(() => expect(result.current.runs.map((r) => r.id)).toEqual(['b']));
+    await act(async () =>
+      answer({ page: { runs: [run('stale')], nextCursor: null }, error: null }),
+    );
+    expect(result.current.pageIndex).toBe(0);
+    expect(result.current.runs.map((r) => r.id)).toEqual(['b']);
+  });
+
+  it('reloads the first page on the way back when the bar holds new runs', async () => {
+    api.fetchRunsPage.mockImplementation((params: URLSearchParams) =>
+      Promise.resolve({
+        page: params.has('cursor')
+          ? { runs: [run('a')], nextCursor: null }
+          : { runs: [run('b')], nextCursor: 'cur1' },
+        error: null,
+      }),
+    );
+    const { result } = renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS));
+    act(() => latest().onopen?.());
+    await waitFor(() => expect(result.current.hasOlder).toBe(true));
+    act(() => result.current.older());
+    await waitFor(() => expect(result.current.pageIndex).toBe(1));
+    act(() =>
+      latest().emit('run', { type: 'agents.run.created.v1', matches: true, run: run('c') }),
+    );
+    expect(result.current.freshCount).toBe(1);
+    act(() => result.current.newer());
+    await waitFor(() => expect(api.fetchRunsPage).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(result.current.freshCount).toBe(0));
+    expect(result.current.pageIndex).toBe(0);
   });
 
   it('leaves a stream the server ended to the browser, which reconnects with Last-Event-ID', async () => {
