@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -49,6 +50,28 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 // every service that only needs authentication.
 type RevocationChecker interface {
 	IsBlocked(ctx context.Context, jti string) (bool, error)
+}
+
+// RevokedSince reports whether the token or delegation in ctx was revoked after the request
+// was authenticated. An open stream calls it on each heartbeat. A nil checker or a blocklist
+// error reports false, failing open as AuthMiddlewareWithRevocation does.
+func RevokedSince(ctx context.Context, revoked RevocationChecker) bool {
+	if revoked == nil {
+		return false
+	}
+	var jtis []string
+	if claims, ok := token.ClaimsFromContext(ctx); ok && claims != nil && claims.ID != "" {
+		jtis = append(jtis, claims.ID)
+	}
+	if d := policy.DelegationFromContext(ctx); d != nil && d.JTI != "" {
+		jtis = append(jtis, d.JTI)
+	}
+	for _, jti := range jtis {
+		if blocked, err := revoked.IsBlocked(ctx, jti); err == nil && blocked {
+			return true
+		}
+	}
+	return false
 }
 
 // AuthMiddlewareWithRevocation is AuthMiddleware plus an immediate revocation
