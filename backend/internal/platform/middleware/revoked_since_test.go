@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/runkora/kora/backend/internal/platform/policy"
@@ -16,10 +17,8 @@ type revokedJTIs struct {
 }
 
 func (r revokedJTIs) IsBlocked(_ context.Context, jti string) (bool, error) {
-	for _, j := range r.jtis {
-		if j == jti {
-			return true, r.err
-		}
+	if slices.Contains(r.jtis, jti) {
+		return true, r.err
 	}
 	return false, r.err
 }
