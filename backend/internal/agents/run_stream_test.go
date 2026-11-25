@@ -575,3 +575,57 @@ func TestHandleStreamRuns_ResetsAResumePointTheLogLost(t *testing.T) {
 		})
 	}
 }
+
+// A resume sends only the runs the caller's scope reads, with matches from the stream's filters.
+func TestHandleStreamRuns_ResumeAppliesScopeAndFilters(t *testing.T) {
+	runs := []Run{
+		{ID: "r-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateIdle},
+		{ID: "r-2", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive},
+		{ID: "r-3", TenantID: "t-1", AgentTypeID: "at-2", State: RunStateIdle},
+		{ID: "r-4", TenantID: "t-1", AgentTypeID: "at-del", State: RunStateIdle, IdentityMode: IdentityModeDelegated, CreatedBy: "bob"},
+	}
+	events := &fakeRunEvents{serve: func(ctx context.Context, _ int, q eventsclient.Query, handle func(eventsclient.Record) error) error {
+		for i, run := range runs {
+			if err := handle(runRecord(q.After+1+int64(i), "t-1", run.ID)); err != nil {
+				return err
+			}
+		}
+		<-ctx.Done()
+		return nil
+	}}
+	feed, _ := newTestFeed(events, runs...)
+	feed.publish(7, "t-1", "", nil, nil)
+	// alice may read at-1 and at-del but holds no agents:delegated:read. at-2 is not in the tenant's agents.
+	eval := delegatedReadEvaluator{}
+	facade, repo, _, _ := newTestServiceWithEval(t, eval)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "triage"})
+	seedAgentType(t, repo, AgentType{ID: "at-del", TenantID: "t-1", Slug: "helper", IdentityMode: IdentityModeDelegated})
+	c := NewController(facade.at, facade.run, nil, nil, feed, nil, nil, eval, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	claims := t1Claims()
+	claims.Subject = "alice"
+
+	ctx, cancel := context.WithCancel(context.Background())
+	rec, done := openStream(ctx, c, claims, "state=idle", "3")
+	waitFor(t, time.Second, func() bool { return strings.Contains(rec.String(), "id: 5\n") })
+	// A live event after the resume proves the resume has written everything it will.
+	if err := feed.handle(ctx, runRecord(8, "t-1", "r-1")); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, time.Second, func() bool { return strings.Contains(rec.String(), "id: 8\n") })
+	cancel()
+	<-done
+	body := rec.String()
+	for _, want := range []string{
+		`"matches":true,"run":{"id":"r-1"`,
+		`"matches":false,"run":{"id":"r-2"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body lacks %s:\n%s", want, body)
+		}
+	}
+	for _, hidden := range []string{`"id":"r-3"`, `"id":"r-4"`} {
+		if strings.Contains(body, hidden) {
+			t.Errorf("resume sent %s, a run the caller cannot read:\n%s", hidden, body)
+		}
+	}
+}
