@@ -91,8 +91,7 @@ function merge(state: FeedState, message: RunStreamMessage): FeedState {
   if (replaced !== null) return replaced === state.pages ? state : { ...state, pages: replaced };
   if (message.type !== RUN_CREATED || !message.matches) return state;
   const [first, ...rest] = state.pages;
-  // Once the bar holds runs, later ones join it: inserting them would skip the held ones.
-  if (state.index > 0 || first === undefined || state.fresh.length > 0) {
+  if (state.index > 0 || first === undefined) {
     return state.fresh.includes(message.run.id)
       ? state
       : { ...state, fresh: [...state.fresh, message.run.id] };

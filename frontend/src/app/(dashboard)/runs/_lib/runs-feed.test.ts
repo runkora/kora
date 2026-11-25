@@ -203,16 +203,19 @@ describe('feedReducer', () => {
     expect(s.pages[0]!.runs[1]!.state).toBe('failed');
   });
 
-  it('keeps counting new runs for the bar after going back to the first page', () => {
+  it('shows the runs the bar held at the top once the first page reloads on the way back', () => {
     const s = apply(
       { type: 'first', page: page(['b'], 'cur1') },
       { type: 'page', page: page(['a']) },
       { type: 'message', message: message(run('c'), RUN_CREATED) },
       { type: 'goTo', index: 0 },
+      { type: 'reload' },
       { type: 'message', message: message(run('d'), RUN_CREATED) },
+      { type: 'first', page: page(['c', 'b'], 'cur1') },
     );
-    expect(ids(s)).toEqual(['b']);
-    expect(s.fresh).toEqual(['c', 'd']);
+    expect(s.index).toBe(0);
+    expect(ids(s)).toEqual(['d', 'c', 'b']);
+    expect(s.fresh).toEqual([]);
   });
 
   it('drops a later page still loading when the first page reloads', () => {

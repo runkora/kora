@@ -155,7 +155,11 @@ export function useRunsFeed(filters: RunFilters): RunsFeed {
     });
   }, [feed, key, act]);
 
-  const newer = useCallback(() => act({ type: 'goTo', index: feed.index - 1 }), [feed.index, act]);
+  // Back on the first page, runs held by the bar load with it, so they show at the top.
+  const newer = useCallback(() => {
+    act({ type: 'goTo', index: feed.index - 1 });
+    if (feed.index === 1 && feed.fresh.length > 0) reload();
+  }, [feed.index, feed.fresh.length, act, reload]);
 
   const shown = feed.pages[feed.index];
   const runs = useMemo(() => shown?.runs ?? [], [shown]);
