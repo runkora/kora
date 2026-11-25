@@ -348,6 +348,8 @@ func (c *Controller) handleStreamRuns(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
+	// A first body byte, before any resume read, makes browsers expose the open stream without waiting for the first event or heartbeat.
+	_, _ = io.WriteString(w, ": open\n\n")
 	flusher.Flush()
 
 	floor := position

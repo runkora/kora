@@ -390,6 +390,25 @@ func TestHandleStreamRuns_Heartbeat(t *testing.T) {
 	<-done
 }
 
+func TestHandleStreamRuns_FirstBytesPrecedeEventsAndHeartbeats(t *testing.T) {
+	// The resume read blocks, so the stream has sent no event, and the heartbeat is the default 30 s.
+	events := &fakeRunEvents{serve: func(ctx context.Context, _ int, _ eventsclient.Query, _ func(eventsclient.Record) error) error {
+		<-ctx.Done()
+		return nil
+	}}
+	feed, _ := newTestFeed(events)
+	feed.publish(10, "t-1", "", nil, nil)
+	c := streamController(t, feed, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	rec, done := openStream(ctx, c, t1Claims(), "", "3")
+	waitFor(t, time.Second, func() bool { return rec.String() != "" })
+	if got := rec.String(); got != ": open\n\n" {
+		t.Errorf("first bytes %q, want the open comment alone", got)
+	}
+	cancel()
+	<-done
+}
+
 func TestHandleStreamRuns_ClosesAtTokenExpiry(t *testing.T) {
 	c := streamController(t, NewRunFeed(&fakeRunEvents{}, &fakeRunRows{}, logging.NewLoggerWithOutput(io.Discard)), nil)
 	claims := t1Claims()
