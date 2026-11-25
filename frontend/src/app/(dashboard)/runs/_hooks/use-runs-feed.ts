@@ -5,9 +5,15 @@
  * page so no change between them is lost, then pages on request. Changing filters starts over.
  */
 
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { RunStreamMessage, RunWithAttribution } from '@runkora/shared/api';
-import { emptyFeed, feedReducer, type FeedAction, type UnkeyedFeedAction } from '../_lib/runs-feed';
+import {
+  RUN_CREATED,
+  emptyFeed,
+  feedReducer,
+  type FeedAction,
+  type UnkeyedFeedAction,
+} from '../_lib/runs-feed';
 import { fetchRunsPage, openRunsStream } from '../_services/runs-api';
 import { RUNS_PAGE_SIZE, runFilterParams, type RunFilters } from '../_types';
 
@@ -35,6 +41,10 @@ export interface RunsFeed {
   freshCount: number;
   /** Loads the first page, which holds the new runs. */
   showFresh: () => void;
+  /** The stream dropped and is retrying. */
+  reconnecting: boolean;
+  /** Runs created since the page opened, which rows mark as New. */
+  liveIds: ReadonlySet<string>;
 }
 
 export function useRunsFeed(filters: RunFilters): RunsFeed {
@@ -44,6 +54,8 @@ export function useRunsFeed(filters: RunFilters): RunsFeed {
   const feed = state.key === key ? state : emptyFeed(key);
   // Each first-page load and page fetch answers only if no newer load has started.
   const epoch = useRef(0);
+  const [reconnecting, setReconnecting] = useState(false);
+  const [liveIds, setLiveIds] = useState<ReadonlySet<string>>(() => new Set());
 
   const act = useCallback(
     (action: UnkeyedFeedAction) => dispatch({ ...action, key } as FeedAction),
@@ -90,6 +102,7 @@ export function useRunsFeed(filters: RunFilters): RunsFeed {
       // The first page is read once the stream is subscribed, so no change falls between them.
       current.onopen = () => {
         failures = 0;
+        setReconnecting(false);
         if (!loaded) loadOnce();
         else if (reloadOnOpen) {
           reloadOnOpen = false;
@@ -100,7 +113,10 @@ export function useRunsFeed(filters: RunFilters): RunsFeed {
         const { data, lastEventId } = event as MessageEvent<string>;
         if (lastEventId) lastId = lastEventId;
         const message = parseMessage(data);
-        if (message) act({ type: 'message', message });
+        if (!message) return;
+        act({ type: 'message', message });
+        if (message.type === RUN_CREATED && message.matches)
+          setLiveIds((ids) => new Set(ids).add(message.run.id));
       });
       // The stream cannot resume from where it was. A fresh stream without a position replaces
       // it, so the browser does not reconnect with the same expired id, and the first page
@@ -112,6 +128,7 @@ export function useRunsFeed(filters: RunFilters): RunsFeed {
         open();
       });
       current.onerror = () => {
+        setReconnecting(true);
         if (loaded && lastId === null) reloadOnOpen = true;
         // A closed stream does not retry by itself: the server refused it or the session ended.
         if (current.readyState !== EventSource.CLOSED) return;
@@ -129,6 +146,7 @@ export function useRunsFeed(filters: RunFilters): RunsFeed {
       source?.close();
       window.clearTimeout(timer);
       epoch.current += 1;
+      setReconnecting(false);
     };
   }, [key, act, loadFirst, reload]);
 
@@ -177,6 +195,8 @@ export function useRunsFeed(filters: RunFilters): RunsFeed {
     pageError: feed.pageError,
     freshCount: feed.fresh.length,
     showFresh: reload,
+    reconnecting,
+    liveIds,
   };
 }
 

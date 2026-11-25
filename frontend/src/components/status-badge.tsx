@@ -1,7 +1,6 @@
 /**
  * @tier 2 — App-level shared. Cross-feature; maps kora status tokens to a
- * labelled Badge with status dot. Used by model-gateway, policy,
- * and any future feature overview showing agent or resource health.
+ * labelled Badge with status dot. Used by agents, triggers, profile and model-gateway.
  * @promote-to-tier-1 if: domain knowledge (KoraStatus type, label capitalisation)
  * is removed and a second non-dashboard kora surface needs it.
  */

@@ -12,6 +12,7 @@ import {
   Alert,
   Badge,
   Button,
+  Callout,
   DataTable,
   EmptyState,
   Heading,
@@ -26,6 +27,7 @@ import { FilterChip, RunSourceChips, RunStateIcon, StarterMark } from '@runkora/
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { fetchAgentTypes } from '../../agents/_services/agents-api';
 import {
+  formatRelativeTime,
   indexAgentTypes,
   runTitle,
   shortRelativeTime,
@@ -67,19 +69,18 @@ function RunTitle({ run }: { run: RunRow }) {
 function StateMarker({ run }: { run: RunRow }) {
   const budget = run.state === 'budget_exhausted';
   if (!budget && run.state !== 'idle') return null;
-  const color = budget ? 'status-error' : 'status-degraded';
   return (
-    <Stack direction="horizontal" align="center" gap="tight">
-      <Icon name={budget ? 'dollar-sign' : 'pause'} size="2xs" color={color} label="" shrink />
-      <Text size="caption" color={color}>
-        {budget ? 'Stopped at its budget' : 'Waiting'}
-      </Text>
-    </Stack>
+    <Text size="caption" color={budget ? 'status-error' : 'status-degraded'}>
+      {budget ? 'Stopped at its budget' : 'Waiting'}
+    </Text>
   );
 }
 
+/** A run row, marked fresh when it was created while the page was open. */
+type Row = RunRow & { fresh: boolean };
+
 /** One line: state, title and agent, then what it waits on, what it is about and who started it. */
-function RunLine({ run }: { run: RunRow }) {
+function RunLine({ run }: { run: Row }) {
   return (
     <Stack direction="horizontal" align="center" gap="cozy" grow minWidth="none">
       <RunStateIcon state={run.state} />
@@ -94,6 +95,11 @@ function RunLine({ run }: { run: RunRow }) {
             </Text>
           </Badge>
         </Stack>
+        {run.fresh && (
+          <Badge variant="default" size="sm">
+            New
+          </Badge>
+        )}
       </Stack>
       <StateMarker run={run} />
       <Stack direction="horizontal" align="center" gap="cozy">
@@ -104,7 +110,7 @@ function RunLine({ run }: { run: RunRow }) {
   );
 }
 
-const COLUMNS: DataTableColumn<RunRow>[] = [
+const COLUMNS: DataTableColumn<Row>[] = [
   {
     id: 'run',
     header: 'Run',
@@ -119,7 +125,12 @@ const COLUMNS: DataTableColumn<RunRow>[] = [
     gridWidth: '2.5rem',
     align: 'right',
     cell: (r) => (
-      <Text size="caption" color="muted" tabular>
+      <Text
+        size="caption"
+        color="muted"
+        tabular
+        title={formatRelativeTime(r.startedAt ?? r.createdAt)}
+      >
         {shortRelativeTime(r.startedAt ?? r.createdAt)}
       </Text>
     ),
@@ -216,8 +227,8 @@ export function RunsPage() {
 
   const rows = useMemo(() => {
     const byId = indexAgentTypes(agentTypes);
-    return feed.runs.map((r) => toRunRow(r, byId));
-  }, [feed.runs, agentTypes]);
+    return feed.runs.map((r) => ({ ...toRunRow(r, byId), fresh: feed.liveIds.has(r.id) }));
+  }, [feed.runs, feed.liveIds, agentTypes]);
 
   const filtered =
     filters.quick !== 'all' ||
@@ -227,7 +238,7 @@ export function RunsPage() {
   const showPager = feed.hasNewer || feed.hasOlder;
 
   return (
-    <Stack gap="relaxed" ref={top}>
+    <Stack gap="comfortable" ref={top}>
       <Stack direction="horizontal" align="center" justify="between" gap="relaxed">
         <Stack gap="tight">
           <Heading variant="title">Runs</Heading>
@@ -254,6 +265,14 @@ export function RunsPage() {
             Try again
           </Button>
         </Alert>
+      )}
+      {feed.reconnecting && (
+        <Callout variant="warning">
+          <Text size="caption">
+            The live stream dropped and is reconnecting. New runs and changes appear once it is
+            back.
+          </Text>
+        </Callout>
       )}
       <Stack gap="cozy">
         {feed.freshCount > 0 && (

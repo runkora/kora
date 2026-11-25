@@ -1,11 +1,20 @@
 import type { Meta, StoryObj } from '@storybook/react';
+import { TooltipProvider } from '@runkora/hades';
 import { StarterMark } from './starter-mark';
 
 /** Who started a run: a person's initials, or the icon of the trigger kind that did. */
 const meta: Meta<typeof StarterMark> = {
-  title: 'App/Atoms/StarterMark',
+  title: 'App/Molecules/StarterMark',
   component: StarterMark,
   tags: ['autodocs'],
+  // The mark's tooltip needs the provider the dashboard layout supplies.
+  decorators: [
+    (Story) => (
+      <TooltipProvider>
+        <Story />
+      </TooltipProvider>
+    ),
+  ],
 };
 export default meta;
 type Story = StoryObj<typeof StarterMark>;

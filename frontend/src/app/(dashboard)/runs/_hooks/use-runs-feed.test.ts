@@ -227,6 +227,28 @@ describe('useRunsFeed', () => {
     expect(api.fetchRunsPage).toHaveBeenCalledTimes(1);
   });
 
+  it('reports a dropped stream until it opens again', async () => {
+    const { result } = renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS));
+    act(() => latest().onopen?.());
+    expect(result.current.reconnecting).toBe(false);
+    act(() => latest().onerror?.());
+    expect(result.current.reconnecting).toBe(true);
+    act(() => latest().onopen?.());
+    expect(result.current.reconnecting).toBe(false);
+  });
+
+  it('marks only matching runs created while the page is open as live', async () => {
+    const { result } = renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS));
+    act(() => latest().onopen?.());
+    await waitFor(() => expect(result.current.runs).toHaveLength(2));
+    act(() => {
+      latest().emit('run', { type: 'agents.run.created.v1', matches: true, run: run('c') });
+      latest().emit('run', { type: 'agents.run.created.v1', matches: false, run: run('d') });
+      latest().emit('run', { type: 'agents.run.idle.v1', matches: true, run: run('a') });
+    });
+    expect([...result.current.liveIds]).toEqual(['c']);
+  });
+
   it('reopens the stream with the new filters when they change', async () => {
     const { rerender } = renderHook((filters) => useRunsFeed(filters), {
       initialProps: DEFAULT_RUN_FILTERS,
