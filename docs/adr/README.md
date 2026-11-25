@@ -154,6 +154,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Run Page Record: Message Senders, Trigger Event Summaries and Budget Stops](2026-11-11-run-page-record.md) — `Accepted (generic webhook summary superseded in part 2026-11-23)` · 2026-11-11
 - [Graders](2026-11-19-graders.md) — `Proposed` · 2026-11-19
 - [Generic Webhook Attribution](2026-11-23-generic-webhook-attribution.md) — `Accepted` · 2026-11-23
+- [Runs List Live Stream](2026-11-25-runs-list-live-stream.md) — `Accepted` · 2026-11-25
 
 ### MCP / Tool Gateway
 
@@ -362,4 +363,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-19 | [Graders](2026-11-19-graders.md) | Proposed | — |
 | 2026-11-22 | [Agent Cold Tier](2026-11-22-agent-cold-tier.md) | Accepted (Amended 2026-11-24; disruption protection only while a run holds a pod) | — |
 | 2026-11-23 | [Generic Webhook Attribution](2026-11-23-generic-webhook-attribution.md) | Accepted | — |
+| 2026-11-25 | [Runs List Live Stream](2026-11-25-runs-list-live-stream.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
