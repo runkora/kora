@@ -25,7 +25,6 @@ interface Template {
   summary: string | null;
   by: { id: string; name: string } | { name: string; kind: TriggerKind };
   sources?: RunSource[];
-  cost: number;
 }
 
 const PR = (n: number): RunSource => ({
@@ -56,21 +55,18 @@ const TEMPLATES: Template[] = [
     state: 'idle',
     summary: 'Implementing KOR-318: paginate the audit log endpoint.',
     by: ME,
-    cost: 1.84,
   },
   {
     agent: 'at_security_reviewer',
     state: 'idle',
     summary: 'Working out why the nightly export job skips Sundays.',
     by: ME,
-    cost: 0.31,
   },
   {
     agent: 'at_coder',
     state: 'budget_exhausted',
     summary: 'Migrating the rate limiter to the shared Redis cluster.',
     by: ME,
-    cost: 5,
   },
   {
     agent: 'at_code_reviewer',
@@ -78,7 +74,6 @@ const TEMPLATES: Template[] = [
     summary: 'Reviewing pull request 412, which moves session storage to Redis.',
     by: { name: 'pr-review', kind: 'webhook' },
     sources: [PR(412)],
-    cost: 0.42,
   },
   {
     agent: 'at_triage_bot',
@@ -86,21 +81,18 @@ const TEMPLATES: Template[] = [
     summary: 'Answering a question in #platform-eng about the retry budget for webhooks.',
     by: { name: 'platform-eng', kind: 'webhook' },
     sources: [SLACK],
-    cost: 0.12,
   },
   {
     agent: 'at_incident_scribe',
     state: 'idle',
     summary: 'Writing up the Tuesday queue backlog incident.',
     by: ANA,
-    cost: 0.27,
   },
   {
     agent: 'at_security_reviewer',
     state: 'active',
     summary: 'Drafting the 0.12 upgrade notes from the merged pull requests.',
     by: ME,
-    cost: 0.66,
   },
   {
     agent: 'at_incident_scribe',
@@ -108,14 +100,12 @@ const TEMPLATES: Template[] = [
     summary: 'Summarising the p95 latency alert on the inference gateway.',
     by: { name: 'on-alert', kind: 'event' },
     sources: [ALERT],
-    cost: 0.09,
   },
   {
     agent: 'at_release_notes',
     state: 'starting',
     summary: null,
     by: { name: 'nightly-notes', kind: 'scheduled' },
-    cost: 0,
   },
   {
     agent: 'at_code_reviewer',
@@ -123,7 +113,6 @@ const TEMPLATES: Template[] = [
     summary: 'Reviewed pull request 409 and left 6 inline comments.',
     by: { name: 'pr-review', kind: 'webhook' },
     sources: [PR(409)],
-    cost: 0.31,
   },
   {
     agent: 'at_coder',
@@ -131,7 +120,6 @@ const TEMPLATES: Template[] = [
     summary: 'Scanned the dependency bump in geo-utils; the sandbox ran out of disk.',
     by: { name: 'dependabot', kind: 'webhook' },
     sources: [PR(407)],
-    cost: 0.18,
   },
   {
     agent: 'at_triage_bot',
@@ -139,28 +127,24 @@ const TEMPLATES: Template[] = [
     summary: 'Answered why staging deploys queue behind production.',
     by: { name: 'platform-eng', kind: 'webhook' },
     sources: [SLACK],
-    cost: 0.08,
   },
   {
     agent: 'at_release_notes',
     state: 'completed',
     summary: 'Wrote the weekly changelog for 14 merged pull requests.',
     by: { name: 'weekly-changelog', kind: 'scheduled' },
-    cost: 0.21,
   },
   {
     agent: 'at_coder',
     state: 'completed',
     summary: 'Refactored the trigger dispatcher into smaller files.',
     by: SAM,
-    cost: 0.94,
   },
   {
     agent: 'at_triage_bot',
     state: 'completed',
     summary: null,
     by: SAM,
-    cost: 0.02,
   },
 ];
 
@@ -196,12 +180,6 @@ function toRun(t: Template, i: number, now: number): RunWithAttribution {
     completed_at: ended === null ? null : at(ended),
     created_at: at(started),
     updated_at: at(ended ?? started),
-    usage: {
-      cost_usd: t.cost,
-      input_tokens: 0,
-      output_tokens: 0,
-      request_count: 0,
-    },
     summary: t.summary,
   };
 }
@@ -268,22 +246,17 @@ export const pendingRunsRoutes: MockRoutes = {
 let seq = 48_000;
 
 /** One `event: run` message, sent `delayMs` after the stream opens. */
-export function runEvent(
-  run: RunWithAttribution,
-  type: string,
-  delayMs: number,
-  matches = true,
-): MockStreamEvent {
+export function runEvent(run: RunWithAttribution, type: string, delayMs: number): MockStreamEvent {
   seq += 1;
-  const data: RunStreamMessage = { type, matches, run };
+  const data: RunStreamMessage = { type, matches: true, run };
   return { type: 'run', id: String(seq), data, delayMs };
 }
 
-/** A run a person has just started: no title yet, then its title, then its first idle turn. */
+/** A run a person has just started: no title yet, then it starts and gets its title. */
 export function liveRunEvents(startAt: number): MockStreamEvent[] {
   const now = Date.now() + startAt;
   const created: RunWithAttribution = {
-    ...toRun({ agent: 'at_coder', state: 'pending', summary: null, by: ME, cost: 0 }, 0, now),
+    ...toRun({ agent: 'at_coder', state: 'pending', summary: null, by: ME }, 0, now),
     id: 'run_live0001',
     started_at: null,
   };
