@@ -70,19 +70,44 @@ beforeEach(() => {
 const latest = () => api.sources[api.sources.length - 1]!;
 
 describe('useRunsFeed', () => {
-  it('opens the stream before it fetches the first page', async () => {
+  it('fetches the first page only once the stream is subscribed', async () => {
     const { result } = renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS));
+    expect(api.calls).toEqual(['stream']);
+    act(() => latest().onopen?.());
     await waitFor(() => expect(result.current.runs).toHaveLength(2));
-    expect(api.calls[0]).toBe('stream');
-    expect(api.calls[1]).toBe('page?limit=50');
+    expect(api.calls).toEqual(['stream', 'page?limit=50']);
   });
 
-  it('reloads the first page on a reset and keeps the stream open', async () => {
+  it('still loads the list when the stream is refused', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS));
+      latest().readyState = FakeSource.CLOSED;
+      await act(async () => latest().onerror?.());
+      expect(result.current.runs).toHaveLength(2);
+      // The reopened stream has no position, so its opening reads the first page again.
+      await act(() => vi.advanceTimersByTimeAsync(5_000));
+      expect(latest().url).toBe('?');
+      await act(async () => latest().onopen?.());
+      expect(api.fetchRunsPage).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('replaces the stream on a reset and reads the first page again once it opens', async () => {
     const { result } = renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS));
+    const first = latest();
+    act(() => first.onopen?.());
     await waitFor(() => expect(result.current.runs).toHaveLength(2));
-    act(() => latest().emit('reset', {}));
+    act(() => first.emit('run', { type: 'agents.run.idle.v1', matches: true, run: run('a') }, '7'));
+    act(() => first.emit('reset', {}));
+    expect(first.closed).toBe(true);
+    expect(api.sources).toHaveLength(2);
+    expect(latest().url).toBe('?');
+    expect(api.fetchRunsPage).toHaveBeenCalledTimes(1);
+    act(() => latest().onopen?.());
     await waitFor(() => expect(api.fetchRunsPage).toHaveBeenCalledTimes(2));
-    expect(latest().closed).toBe(false);
   });
 
   it('reopens a closed stream past the last event it read', async () => {
@@ -90,6 +115,7 @@ describe('useRunsFeed', () => {
     try {
       renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS));
       const first = latest();
+      await act(async () => first.onopen?.());
       act(() =>
         first.emit('run', { type: 'agents.run.idle.v1', matches: true, run: run('a') }, '48213'),
       );
@@ -98,6 +124,8 @@ describe('useRunsFeed', () => {
       await act(() => vi.advanceTimersByTimeAsync(5_000));
       expect(api.sources).toHaveLength(2);
       expect(latest().url).toBe('?after=48213');
+      await act(async () => latest().onopen?.());
+      expect(api.fetchRunsPage).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
@@ -107,7 +135,7 @@ describe('useRunsFeed', () => {
     const { rerender } = renderHook((filters) => useRunsFeed(filters), {
       initialProps: DEFAULT_RUN_FILTERS,
     });
-    await waitFor(() => expect(api.sources).toHaveLength(1));
+    expect(api.sources).toHaveLength(1);
     rerender({ ...DEFAULT_RUN_FILTERS, quick: 'failed' });
     await waitFor(() => expect(api.sources).toHaveLength(2));
     expect(api.sources[0]!.closed).toBe(true);

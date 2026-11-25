@@ -91,7 +91,8 @@ function merge(state: FeedState, message: RunStreamMessage): FeedState {
   if (replaced !== null) return replaced === state.pages ? state : { ...state, pages: replaced };
   if (message.type !== RUN_CREATED || !message.matches) return state;
   const [first, ...rest] = state.pages;
-  if (state.index > 0 || first === undefined) {
+  // Once the bar holds runs, later ones join it: inserting them would skip the held ones.
+  if (state.index > 0 || first === undefined || state.fresh.length > 0) {
     return state.fresh.includes(message.run.id)
       ? state
       : { ...state, fresh: [...state.fresh, message.run.id] };
@@ -103,7 +104,15 @@ export function feedReducer(prev: FeedState, action: FeedAction): FeedState {
   const state = prev.key === action.key ? prev : emptyFeed(action.key);
   switch (action.type) {
     case 'reload':
-      return { ...state, loading: true, error: null, early: [], pageError: null };
+      // A later page still on its way is dropped: the reload answers instead.
+      return {
+        ...state,
+        loading: true,
+        error: null,
+        early: [],
+        pageLoading: false,
+        pageError: null,
+      };
     case 'first':
       // The first page replaces every loaded page and holds any run the bar counted.
       return state.early.reduce(merge, {
@@ -112,7 +121,13 @@ export function feedReducer(prev: FeedState, action: FeedAction): FeedState {
         loading: false,
       });
     case 'firstFailed':
-      return { ...state, loading: false, error: action.error, early: [] };
+      // The rows already shown stay, with the changes that arrived during the failed load.
+      return state.early.reduce(merge, {
+        ...state,
+        loading: false,
+        error: action.error,
+        early: [],
+      });
     case 'message':
       return state.loading
         ? { ...state, early: [...state.early, action.message] }

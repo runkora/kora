@@ -167,6 +167,16 @@ export function RunsPage() {
           </Link>
         </Button>
       </Stack>
+      {feed.error !== null && rows.length > 0 && (
+        <Stack direction="horizontal" align="center" justify="center" gap="snug">
+          <Text size="caption" color="status-error">
+            {feed.error}
+          </Text>
+          <Button variant="outline" size="sm" onClick={feed.retry}>
+            Try again
+          </Button>
+        </Stack>
+      )}
       {feed.freshCount > 0 && (
         <Stack align="center">
           <Button variant="secondary" size="sm" onClick={feed.showFresh}>

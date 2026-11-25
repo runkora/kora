@@ -74,36 +74,57 @@ export function useRunsFeed(filters: RunFilters): RunsFeed {
     let timer: number | undefined;
     let failures = 0;
     let lastId: string | null = null;
+    let loaded = false;
+    // A stream that opens with no position to resume from may have missed changes.
+    let reloadOnOpen = false;
+    const loadOnce = () => {
+      if (loaded) return;
+      loaded = true;
+      loadFirst();
+    };
     const open = () => {
       const query = new URLSearchParams(key);
       if (lastId) query.set('after', lastId);
-      source = openRunsStream(query);
-      source.onopen = () => {
+      const current = openRunsStream(query);
+      source = current;
+      // The first page is read once the stream is subscribed, so no change falls between them.
+      current.onopen = () => {
         failures = 0;
+        if (!loaded) loadOnce();
+        else if (reloadOnOpen) {
+          reloadOnOpen = false;
+          reload();
+        }
       };
-      source.addEventListener('run', (event) => {
+      current.addEventListener('run', (event) => {
         const { data, lastEventId } = event as MessageEvent<string>;
         if (lastEventId) lastId = lastEventId;
         const message = parseMessage(data);
         if (message) act({ type: 'message', message });
       });
-      // The stream cannot resume from where it was: the first page is read again.
-      source.addEventListener('reset', (event) => {
-        const { lastEventId } = event as MessageEvent<string>;
-        if (lastEventId) lastId = lastEventId;
-        reload();
+      // The stream cannot resume from where it was. A fresh stream without a position replaces
+      // it, so the browser does not reconnect with the same expired id, and the first page
+      // is read again once it opens.
+      current.addEventListener('reset', () => {
+        current.close();
+        lastId = null;
+        reloadOnOpen = true;
+        open();
       });
-      source.onerror = () => {
+      current.onerror = () => {
+        if (loaded && lastId === null) reloadOnOpen = true;
         // A closed stream does not retry by itself: the server refused it or the session ended.
-        if (source?.readyState !== EventSource.CLOSED) return;
-        source.close();
+        if (current.readyState !== EventSource.CLOSED) return;
+        current.close();
+        // The list still loads when the stream cannot open.
+        loadOnce();
+        reloadOnOpen = lastId === null;
         const wait = Math.min(REOPEN_MS * 2 ** failures, REOPEN_MAX_MS);
         failures += 1;
         timer = window.setTimeout(open, wait);
       };
     };
     open();
-    loadFirst();
     return () => {
       source?.close();
       window.clearTimeout(timer);

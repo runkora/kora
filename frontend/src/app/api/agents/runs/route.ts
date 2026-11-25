@@ -4,7 +4,7 @@ import { withAuth } from '@runkora/server/route-helpers';
 import { ApiError } from '@runkora/server/client';
 import { listRunsWithNames, pickRunsPageParams } from '@runkora/server/services/runs-server';
 
-// GET /api/agents/runs?agent_type_id=&state=&limit=&cursor= returns one page of runs.
+// GET /api/agents/runs with the run list filters, limit and cursor returns one page of runs.
 export const GET = withAuth(async (req, session) => {
   try {
     const params = pickRunsPageParams(new URL(req.url).searchParams);

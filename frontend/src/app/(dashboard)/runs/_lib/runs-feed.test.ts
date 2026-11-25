@@ -191,6 +191,40 @@ describe('feedReducer', () => {
     expect(s.index).toBe(0);
   });
 
+  it('keeps the rows and the changes that arrived when a reload fails', () => {
+    const s = apply(
+      { type: 'first', page: page(['b', 'a']) },
+      { type: 'reload' },
+      { type: 'message', message: message(run('a', { state: 'failed' })) },
+      { type: 'firstFailed', error: 'Could not load runs. Try again.' },
+    );
+    expect(s.loading).toBe(false);
+    expect(s.error).toBe('Could not load runs. Try again.');
+    expect(s.pages[0]!.runs[1]!.state).toBe('failed');
+  });
+
+  it('keeps counting new runs for the bar after going back to the first page', () => {
+    const s = apply(
+      { type: 'first', page: page(['b'], 'cur1') },
+      { type: 'page', page: page(['a']) },
+      { type: 'message', message: message(run('c'), RUN_CREATED) },
+      { type: 'goTo', index: 0 },
+      { type: 'message', message: message(run('d'), RUN_CREATED) },
+    );
+    expect(ids(s)).toEqual(['b']);
+    expect(s.fresh).toEqual(['c', 'd']);
+  });
+
+  it('drops a later page still loading when the first page reloads', () => {
+    const s = apply(
+      { type: 'first', page: page(['b'], 'cur1') },
+      { type: 'pageLoading' },
+      { type: 'reload' },
+      { type: 'firstFailed', error: 'Could not load runs. Try again.' },
+    );
+    expect(s.pageLoading).toBe(false);
+  });
+
   it('records a failed page without leaving the page shown', () => {
     const s = apply(
       { type: 'first', page: page(['c'], 'cur1') },
