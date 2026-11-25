@@ -133,9 +133,17 @@ The Go predicate lives in `backend/internal/agents/run_page.go` next to `appendS
 
 *   A replica opens its feed at the hub position. It reopens a dropped feed from the last seq it handled.
 *   A client reconnects with `Last-Event-ID`. The handler registers with the replica's feed and notes the feed's seq. It then reads the internal stream for the caller's tenant and the `agents.run` category from `Last-Event-ID` up to that seq, and it skips feed events at or below that seq.
-*   When the tenant no longer holds the event at `Last-Event-ID`, the event was removed by retention. The stream sends `event: reset`, and the console reloads the first page.
+*   The catch-up reads up to the feed's last seq for the caller's tenant.
+*   The stream sends `event: reset`, and the console reloads the first page, when:
+    *   the tenant no longer holds the event at `Last-Event-ID`, which retention removed;
+    *   more than 1,000 events of the tenant follow `Last-Event-ID`;
+    *   `kora-events` ends the catch-up before that seq;
+    *   `Last-Event-ID` is 0;
+    *   the feed has seen no event of the tenant since the replica started.
 *   A reconnect without `Last-Event-ID` starts at the feed's position.
-*   The stream closes at the caller's token expiry. It also closes when the token is revoked, checked on each heartbeat as `kora-events` does.
+*   Each stream buffers 256 messages. The feed closes a stream whose buffer is full, and its client reconnects with `Last-Event-ID`.
+*   The stream closes at 60 minutes or at the caller's token expiry, whichever comes first. It also closes when the token is revoked, checked on each heartbeat as `kora-events` does.
+*   A run that fails to load closes that tenant's streams on the replica. The feed moves on to the next event.
 
 `kora-events` changes its internal stream to support this:
 
