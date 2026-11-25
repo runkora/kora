@@ -75,7 +75,7 @@ None at this time.
 **Acceptance Criteria:**
 
 *   [ ] Each row shows the run's state icon.
-*   [ ] Each row shows the run's title. The title is the run summary, or "Waiting to start" when the run has none yet.
+*   [ ] Each row shows the run's title. The title is the run summary. Before the run starts it reads "Waiting to start", and after that a run with no summary reads "No task summary".
 *   [ ] Each row shows the agent as a badge.
 *   [ ] An idle run shows the marker "Waiting". A run stopped by its budget shows the marker "Stopped at its budget". No other state has a marker.
 *   [ ] Each row shows the run's first source as a chip, such as a pull request or a Slack channel.
@@ -110,10 +110,10 @@ None at this time.
 
 *   [ ] On the first page, a new run that matches the filters appears at the top.
 *   [ ] On a later page, a bar reads "N new runs" and loads them when clicked.
+*   [ ] Returning to the first page while the bar holds new runs reloads the first page.
 *   [ ] A run that changes state updates in its row.
 *   [ ] A run that gets its title updates in its row.
 *   [ ] A run that no longer matches the filters stays in place until the next load. Rows never move.
-*   [ ] A run's cost refreshes when its state changes. Cost does not tick live.
 
 ### US-005: Start new work
 
@@ -137,9 +137,7 @@ None at this time.
 
 **PD4: Rows never move:** A live change updates a row in place and never removes or reorders it. **Accepted cost:** a filtered list can show a run that no longer matches until the next load.
 
-**PD5: Cost refreshes on state changes:** **Accepted cost:** a run's cost can lag while the run works a long turn.
-
-**PD6: People covers runs with no trigger:** The People source lists every run that no trigger started. **Accepted cost:** a run that an agent started without a trigger shows under People.
+**PD5: People covers runs with no trigger:** The People source lists every run that no trigger started. **Accepted cost:** a run that an agent started without a trigger shows under People.
 
 ### Decisions delegated to the ADR
 

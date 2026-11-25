@@ -24,7 +24,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) — `Accepted` · 2026-07-10
 - [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) — `Proposed` · 2026-07-21
 - [Rendered Service Config Files](2026-10-06-rendered-service-config-files.md) — `Accepted` · 2026-10-06
-- [Event Spine](2026-11-06-event-spine.md) — `Accepted` · 2026-11-06
+- [Event Spine](2026-11-06-event-spine.md) — `Accepted (Amended 2026-11-25; internal stream callers and filters)` · 2026-11-06
 
 ### Identity, Auth & Tokens
 
@@ -352,7 +352,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-03 | [Agent Attribution on Model and Harness Spans](2026-11-03-agent-attribution-on-spans.md) | Accepted | — |
 | 2026-11-04 | [Tenant Switching](2026-11-04-tenant-switching.md) | Accepted | — |
 | 2026-11-06 | [Policy Bundle Grants Index](2026-11-06-policy-bundle-grants-index.md) | Accepted | — |
-| 2026-11-06 | [Event Spine](2026-11-06-event-spine.md) | Accepted | — |
+| 2026-11-06 | [Event Spine](2026-11-06-event-spine.md) | Accepted (Amended 2026-11-25; internal stream callers and filters) | — |
 | 2026-11-07 | [ACP as the Single Agent Harness Protocol](2026-11-07-acp-agent-harness-protocol.md) | Accepted | — |
 | 2026-11-07 | [Run Sources](2026-11-07-run-sources.md) | Accepted | — |
 | 2026-11-08 | [StartRun Idempotent on Trigger Delivery](2026-11-08-start-run-idempotent-on-delivery.md) | Accepted | — |

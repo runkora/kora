@@ -100,6 +100,7 @@ The console would read `GET /v1/events/stream`. The stream requires `events:read
 *   `run` has the shape of a list row and carries usage and `created_by_name`.
 *   `matches` is true when the run passes the stream's filters. The stream sends every run the viewer can read and sets `matches` to false for a run outside the filters.
 *   The console inserts a row only for `agents.run.created.v1` with `matches` true. It replaces a row it already shows with any message for that run, and it ignores the rest.
+*   The stream sends a `: open` comment as soon as it registers, before any catch-up.
 *   A comment line every 30 seconds keeps the stream open through proxies.
 
 The console opens the stream before it fetches the first page and merges both by run id.
@@ -135,11 +136,11 @@ The Go predicate lives in `backend/internal/agents/run_page.go` next to `appendS
 *   A client reconnects with `Last-Event-ID`. The handler registers with the replica's feed and notes the feed's seq. It then reads the internal stream for the caller's tenant and the `agents.run` category from `Last-Event-ID` up to that seq, and it skips feed events at or below that seq.
 *   The catch-up reads up to the feed's last seq for the caller's tenant.
 *   The stream sends `event: reset`, and the console reloads the first page, when:
-    *   the tenant no longer holds the event at `Last-Event-ID`, which retention removed;
-    *   more than 1,000 events of the tenant follow `Last-Event-ID`;
-    *   `kora-events` ends the catch-up before that seq;
-    *   `Last-Event-ID` is 0;
-    *   the feed has seen no event of the tenant since the replica started.
+    *   Retention removed the event at `Last-Event-ID`.
+    *   More than 1,000 events of the tenant follow `Last-Event-ID`.
+    *   `kora-events` ends the catch-up before that seq.
+    *   `Last-Event-ID` is 0.
+    *   The replica's feed holds no position for the tenant.
 *   A reconnect without `Last-Event-ID` starts at the feed's position.
 *   Each stream buffers 256 messages. The feed closes a stream whose buffer is full, and its client reconnects with `Last-Event-ID`.
 *   The stream closes at 60 minutes or at the caller's token expiry, whichever comes first. It also closes when the token is revoked, checked on each heartbeat as `kora-events` does.
@@ -179,7 +180,7 @@ The cost of each filter is as follows:
 
 Three run events join the catalog, and each payload is `RunPayload`. The event catalog in the [Event Spine PRD](../prd/event-spine.md) lists the types.
 
-*   `agents.run.placed.v1`: `AssignPod` records it when it moves a run from `pending` to `starting`. `changed` is `["state", "pod_name"]`. The catalog description is "A run was placed on an agent pod."
+*   `agents.run.placed.v1`: `AssignPod` records it when it moves a run from `pending` to `starting`. `changed` is `["state", "pod_name"]`, and `pod_name` joins the `hiddenChanges` of `RunPayload`. The catalog description is "A run was placed on an agent pod."
 *   `agents.run.resumed.v1`: `stateEventType` returns it for `idle` to `active`. `changed` is `["state"]`. The catalog description is "An idle run began a new turn."
 *   `agents.run.summarized.v1`: `SetRunSummary` records it when it sets the summary. `changed` is `["summary"]`. `summary` joins the `hiddenChanges` of `RunPayload`, and the payload does not carry the summary text. The catalog description is "A run's task summary was set."
 

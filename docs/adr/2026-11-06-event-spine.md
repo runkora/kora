@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-11-06-event-spine.md  (decision date + slug; no sequential number) -->
 
-**Status:** Accepted  
+**Status:** Accepted (Amended 2026-11-25: internal stream callers and filters, by [Runs List Live Stream](2026-11-25-runs-list-live-stream.md))  
 **Date:** 2026-11-06  
 **Deciders:** Justin Wilkin  
 **Technical Story:** [Event Spine PRD](../prd/event-spine.md). Record tenant-scoped platform events durably, fire triggers on them, and serve them to the Events page and the kora MCP.
@@ -312,7 +312,7 @@ Only the lock holder assigns `seq`, inside the batch transaction. A row whose en
 *   `q` matches a substring of the type, subject, principal, agent or run id with `ILIKE`. It does not search the payload.
 *   `GET /v1/events/{id}` returns one event in the caller's tenant, or 404.
 *   `GET /v1/events/stream` is an SSE stream of the caller's tenant with the `category`, `type`, `agent`, `principal` and `run_id` filters and no `q`. Each SSE message carries its seq as `id`, and a `Last-Event-ID` replays every matching event after that seq before the live events. A stream ends when the caller's token expires or is revoked.
-*   `GET /internal/v1/events/stream?after=<seq>` streams every tenant's events in seq order. An AuthorizationPolicy and `kora-events` itself allow only the `kora-triggers` identity.
+*   `GET /internal/v1/events/stream?after=<seq>` streams every tenant's events in seq order. An AuthorizationPolicy and `kora-events` itself allow only the `kora-triggers` and `kora-agents` identities, and `kora-agents` may read only the `agents.run` category. The stream takes the `tenant` and `category` filters and starts at the hub position when `after` is absent. With `tenant` and `after`, it answers 410 when the tenant holds no event with seq `after` ([Runs List Live Stream](2026-11-25-runs-list-live-stream.md), Decision 4).
 *   `GET /v1/events/types` and `GET /v1/events/types/{type}` return the type catalog and each type's JSON Schema (section 14).
 
 The public event routes register `events:read` through `routescopes` and are enforced by `ScopeEnforcementMiddleware` ([Platform Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md)). `platform-admin` and `kora-operator` hold `events:read`. Each replica holds one `LISTEN kora_events` connection and fans live events out to its open streams in memory.
