@@ -43,33 +43,38 @@ func (f *fakeRunEvents) seen() []eventsclient.Query {
 	return slices.Clone(f.queries)
 }
 
-// fakeRunRows serves list rows from runs and counts the loads.
+// fakeRunRows serves list rows from runs and records the ids of each load.
 type fakeRunRows struct {
 	mu    sync.Mutex
 	runs  map[string]*Run
-	loads int
+	loads [][]string
 }
 
-func (f *fakeRunRows) GetRunRow(_ context.Context, tenant, id string) (*Run, error) {
+func (f *fakeRunRows) GetRunRows(_ context.Context, tenant string, ids []string) ([]Run, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.loads++
-	run, ok := f.runs[id]
-	if !ok || run.TenantID != tenant {
-		return nil, ErrNotFound
+	f.loads = append(f.loads, ids)
+	var out []Run
+	for _, id := range ids {
+		if run, ok := f.runs[id]; ok && run.TenantID == tenant {
+			out = append(out, *run)
+		}
 	}
-	cp := *run
-	return &cp, nil
+	return out, nil
 }
 
 func (f *fakeRunRows) RunUsageTotals(_ context.Context, _ string, ids []string) (map[string]RunUsage, error) {
-	return map[string]RunUsage{ids[0]: {RequestCount: 3}}, nil
+	out := map[string]RunUsage{}
+	for _, id := range ids {
+		out[id] = RunUsage{RequestCount: 3}
+	}
+	return out, nil
 }
 
 func (f *fakeRunRows) loaded() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.loads
+	return len(f.loads)
 }
 
 // runRecord is an agents.run event of run in tenant at seq.
@@ -367,6 +372,19 @@ func TestHandleStreamRuns_ClosesAtTokenExpiry(t *testing.T) {
 	}
 }
 
+func TestHandleStreamRuns_ClosesAtTheLifetimeCap(t *testing.T) {
+	defer func(d time.Duration) { runStreamLifetime = d }(runStreamLifetime)
+	runStreamLifetime = 50 * time.Millisecond
+	c := streamController(t, NewRunFeed(&fakeRunEvents{}, &fakeRunRows{}, logging.NewLoggerWithOutput(io.Discard)), nil)
+	// t1Claims carries no expiry.
+	_, done := openStream(context.Background(), c, t1Claims(), "", "")
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a stream with no token expiry outlived the lifetime cap")
+	}
+}
+
 // blockedJTIs reports the listed JTIs as revoked.
 type blockedJTIs struct {
 	mu   sync.Mutex
@@ -399,28 +417,29 @@ func TestHandleStreamRuns_ClosesOnRevocation(t *testing.T) {
 	}
 }
 
-// resumeFeed is a feed at t-1 position 10, whose tenant read serves seqs 4 to 12 or answers gone.
-func resumeFeed(t *testing.T, gone bool) (*RunFeed, *fakeRunEvents) {
+// resumeFeed is a feed at t-1 position to, whose tenant read serves changes of r-1 and r-2
+// from after the resume point to two past to, or answers gone.
+func resumeFeed(t *testing.T, to int64, gone bool) (*RunFeed, *fakeRunEvents, *fakeRunRows) {
 	t.Helper()
 	events := &fakeRunEvents{serve: func(ctx context.Context, _ int, q eventsclient.Query, handle func(eventsclient.Record) error) error {
 		if gone {
 			return eventsclient.ErrEventRemoved
 		}
-		for seq := q.After + 1; seq <= 12; seq++ {
-			if err := handle(runRecord(seq, "t-1", "r-1")); err != nil {
+		for seq := q.After + 1; seq <= to+2; seq++ {
+			if err := handle(runRecord(seq, "t-1", fmt.Sprintf("r-%d", seq%2+1))); err != nil {
 				return err
 			}
 		}
 		<-ctx.Done()
 		return nil
 	}}
-	feed, _ := newTestFeed(events, Run{ID: "r-1", TenantID: "t-1", AgentTypeID: "at-1"})
-	feed.publish(10, "t-1", "", nil, nil)
-	return feed, events
+	feed, rows := newTestFeed(events, Run{ID: "r-1", TenantID: "t-1", AgentTypeID: "at-1"}, Run{ID: "r-2", TenantID: "t-1", AgentTypeID: "at-1"})
+	feed.publish(to, "t-1", "", nil, nil)
+	return feed, events, rows
 }
 
 func TestHandleStreamRuns_ResumesFromLastEventIDOnce(t *testing.T) {
-	feed, events := resumeFeed(t, false)
+	feed, events, rows := resumeFeed(t, 10, false)
 	c := streamController(t, feed, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	rec, done := openStream(ctx, c, t1Claims(), "", "3")
@@ -445,18 +464,24 @@ func TestHandleStreamRuns_ResumesFromLastEventIDOnce(t *testing.T) {
 	if q := events.seen()[0]; q.Tenant != "t-1" || q.Live || q.After != 3 || !slices.Equal(q.Categories, []string{"agents.run"}) {
 		t.Errorf("resume read %+v, want t-1's agents.run events after 3", q)
 	}
+	// Seven resumed changes of two runs load in one query, then seq 11 live in another.
+	if len(rows.loads) != 2 || len(rows.loads[0]) != 2 {
+		t.Errorf("loads %v, want both runs in one query, then the live one", rows.loads)
+	}
 }
 
 func TestHandleStreamRuns_ResetsAResumePointTheLogLost(t *testing.T) {
 	for name, tt := range map[string]struct {
+		to       int64
 		gone     bool
 		position bool
 	}{
-		"gone by retention":         {gone: true, position: true},
+		"gone by retention":         {to: 10, gone: true, position: true},
 		"feed has no tenant events": {position: false},
+		"past the resume limit":     {to: runResumeLimit + 4, position: true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			feed, _ := resumeFeed(t, tt.gone)
+			feed, _, rows := resumeFeed(t, tt.to, tt.gone)
 			if !tt.position {
 				feed, _ = newTestFeed(&fakeRunEvents{})
 			}
@@ -466,6 +491,9 @@ func TestHandleStreamRuns_ResetsAResumePointTheLogLost(t *testing.T) {
 			waitFor(t, time.Second, func() bool { return strings.Contains(rec.String(), "event: reset\n") })
 			cancel()
 			<-done
+			if strings.Contains(rec.String(), "event: run") || rows.loaded() != 0 {
+				t.Errorf("a reset stream replayed runs or loaded %d rows", rows.loaded())
+			}
 		})
 	}
 }

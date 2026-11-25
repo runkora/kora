@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -28,6 +29,14 @@ const runEventCategory = "agents.run"
 // falls further behind is closed and its client resumes with Last-Event-ID.
 const runStreamBuffer = 256
 
+// runResumeLimit bounds the events a resume replays. A client further behind is sent reset
+// and reloads the first page, so an old Last-Event-ID cannot make the server replay the log.
+const runResumeLimit = 1000
+
+// runStreamLifetime caps a stream, so it never keeps the scope it opened with for longer.
+// The client reconnects with Last-Event-ID and a freshly read scope. Tests shorten it.
+var runStreamLifetime = 60 * time.Minute
+
 // runStreamHeartbeat keeps a quiet stream open through proxies and paces the
 // revocation check. Tests shorten it.
 var runStreamHeartbeat = 30 * time.Second
@@ -35,6 +44,8 @@ var runStreamHeartbeat = 30 * time.Second
 var (
 	// errRunCaughtUp ends a resume read once it reaches the feed's position.
 	errRunCaughtUp = errors.New("run stream caught up")
+	// errRunResumeTooFar ends a resume read that passes runResumeLimit events.
+	errRunResumeTooFar = errors.New("run stream resume is too far behind")
 	// errGradeOnStream refuses the grade filter: no run event records a new grade.
 	errGradeOnStream = errors.New("the run stream takes no grade filter")
 )
@@ -44,9 +55,9 @@ type runEventStream interface {
 	Stream(ctx context.Context, q eventsclient.Query, handle func(eventsclient.Record) error) error
 }
 
-// runRowReader loads a run as a list row with its usage.
+// runRowReader loads runs as list rows with their usage.
 type runRowReader interface {
-	GetRunRow(ctx context.Context, tenantID, id string) (*Run, error)
+	GetRunRows(ctx context.Context, tenantID string, ids []string) ([]Run, error)
 	RunUsageTotals(ctx context.Context, tenantID string, runIDs []string) (map[string]RunUsage, error)
 }
 
@@ -128,11 +139,12 @@ func (f *RunFeed) handle(ctx context.Context, rec eventsclient.Record) error {
 	if !f.watched(env.Tenant, rec.Seq) {
 		return nil
 	}
-	run, body, err := f.row(ctx, env.Tenant, env.Run)
+	rows, err := f.loadRows(ctx, env.Tenant, []string{env.Run})
 	if err != nil {
 		return err
 	}
-	f.publish(rec.Seq, env.Tenant, env.Type, run, body)
+	row := rows[env.Run]
+	f.publish(rec.Seq, env.Tenant, env.Type, row.run, row.body)
 	return nil
 }
 
@@ -148,25 +160,34 @@ func (f *RunFeed) watched(tenant string, seq int64) bool {
 	return false
 }
 
-// row loads the run as a list row and its JSON. A missing run is nil.
-func (f *RunFeed) row(ctx context.Context, tenant, id string) (*Run, json.RawMessage, error) {
-	run, err := f.rows.GetRunRow(ctx, tenant, id)
-	if errors.Is(err, ErrNotFound) {
-		return nil, nil, nil
-	}
+// loadedRun is a run's list row and its JSON.
+type loadedRun struct {
+	run  *Run
+	body json.RawMessage
+}
+
+// loadRows loads the tenant's runs among ids as list rows with their usage, in two queries.
+// A missing run is left out.
+func (f *RunFeed) loadRows(ctx context.Context, tenant string, ids []string) (map[string]loadedRun, error) {
+	runs, err := f.rows.GetRunRows(ctx, tenant, ids)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load run row: %w", err)
+		return nil, fmt.Errorf("load run rows: %w", err)
 	}
-	usage, err := f.rows.RunUsageTotals(ctx, tenant, []string{id})
+	usage, err := f.rows.RunUsageTotals(ctx, tenant, ids)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load run usage: %w", err)
+		return nil, fmt.Errorf("load run usage: %w", err)
 	}
-	run.Usage = usage[id]
-	body, err := json.Marshal(run)
-	if err != nil {
-		return nil, nil, fmt.Errorf("encode run row: %w", err)
+	out := make(map[string]loadedRun, len(runs))
+	for i := range runs {
+		run := &runs[i]
+		run.Usage = usage[run.ID]
+		body, err := json.Marshal(run)
+		if err != nil {
+			return nil, fmt.Errorf("encode run row: %w", err)
+		}
+		out[run.ID] = loadedRun{run: run, body: body}
 	}
-	return run, body, nil
+	return out, nil
 }
 
 // publish sends the run to each stream in its tenant whose scope reads it. A stream
@@ -222,22 +243,30 @@ func (f *RunFeed) removeLocked(sub *runSubscriber) {
 	close(sub.ch)
 }
 
-// catchUp sends sub the run changes of its tenant after seq up to the feed position
-// to, from the internal stream. It returns ErrEventRemoved when the log no longer holds seq.
+// catchUp sends sub the run changes of its tenant after seq up to the feed position to,
+// read from the internal stream with the rows loaded once per run. It returns ErrEventRemoved
+// when the log no longer holds seq, and errRunResumeTooFar past runResumeLimit events.
 func (f *RunFeed) catchUp(ctx context.Context, sub *runSubscriber, after, to int64, send func(runMessage)) error {
+	type change struct {
+		seq       int64
+		eventType string
+		run       string
+	}
+	var changes []change
+	var ids []string
 	q := eventsclient.Query{After: after, Tenant: sub.tenant, Categories: []string{runEventCategory}}
 	err := f.events.Stream(ctx, q, func(rec eventsclient.Record) error {
 		if rec.Seq > to {
 			return errRunCaughtUp
 		}
+		if len(changes) == runResumeLimit {
+			return errRunResumeTooFar
+		}
 		var env runEnvelope
 		if err := json.Unmarshal(rec.Event, &env); err == nil && env.Run != "" {
-			run, body, err := f.row(ctx, sub.tenant, env.Run)
-			if err != nil {
-				return err
-			}
-			if run != nil && readsRun(sub.tenant, sub.query.Scope, run) {
-				send(runMessage{Seq: rec.Seq, Type: env.Type, Matches: sub.query.matchesRun(run), Run: body})
+			changes = append(changes, change{rec.Seq, env.Type, env.Run})
+			if !slices.Contains(ids, env.Run) {
+				ids = append(ids, env.Run)
 			}
 		}
 		if rec.Seq == to {
@@ -245,10 +274,22 @@ func (f *RunFeed) catchUp(ctx context.Context, sub *runSubscriber, after, to int
 		}
 		return nil
 	})
-	if errors.Is(err, errRunCaughtUp) {
+	if !errors.Is(err, errRunCaughtUp) {
+		return err
+	}
+	if len(ids) == 0 {
 		return nil
 	}
-	return err
+	rows, err := f.loadRows(ctx, sub.tenant, ids)
+	if err != nil {
+		return err
+	}
+	for _, c := range changes {
+		if row, ok := rows[c.run]; ok && readsRun(sub.tenant, sub.query.Scope, row.run) {
+			send(runMessage{Seq: c.seq, Type: c.eventType, Matches: sub.query.matchesRun(row.run), Run: row.body})
+		}
+	}
+	return nil
 }
 
 // WithRunFeed sets the feed GET /api/v1/runs/stream serves from.
@@ -261,22 +302,10 @@ func (c *Controller) WithRunFeed(feed *RunFeed) *Controller {
 // as Server-Sent Events, with matches set by the list filters. It takes no cursor or limit.
 func (c *Controller) handleStreamRuns(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	p, agentTypeIDs, apiErr := parseRunFilters(r.URL.Query())
-	if apiErr == nil && p.Grade != nil {
-		apiErr = api.ValidationError(api.ErrCodeInvalidField, errGradeOnStream.Error(), map[string]any{"field": "grader"})
-	}
+	p, agentTypeIDs, resume, apiErr := parseRunStream(r)
 	if apiErr != nil {
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
-	}
-	resume := int64(-1)
-	if raw := r.Header.Get("Last-Event-ID"); raw != "" {
-		n, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil || n < 0 {
-			api.ErrorResponse(ctx, w, c.logger, api.ValidationError(api.ErrCodeInvalidField, "Last-Event-ID must be a seq", nil), nil)
-			return
-		}
-		resume = n
 	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -295,7 +324,7 @@ func (c *Controller) handleStreamRuns(w http.ResponseWriter, r *http.Request) {
 	// Registered before the headers go out, so no change is lost between opening the stream and fetching the first page.
 	sub, position, cancel := c.feed.subscribe(tenant, p)
 	defer cancel()
-	ctx, stop := untilTokenExpiry(ctx)
+	ctx, stop := streamDeadline(ctx)
 	defer stop()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -305,20 +334,8 @@ func (c *Controller) handleStreamRuns(w http.ResponseWriter, r *http.Request) {
 	floor := position
 	if resume >= 0 {
 		floor = max(floor, resume)
-		// Position 0 is a feed that has seen no event of the tenant since it opened, so the gap has no known end.
-		if position == 0 {
-			writeRunReset(w)
-		} else if resume < position {
-			err := c.feed.catchUp(ctx, sub, resume, position, func(m runMessage) { writeRunMessage(w, m) })
-			switch {
-			case errors.Is(err, eventsclient.ErrEventRemoved):
-				writeRunReset(w)
-			case err != nil:
-				if ctx.Err() == nil {
-					c.logger.Error(ctx, "run stream resume failed", logging.Field{Key: "error", Value: err.Error()})
-				}
-				return
-			}
+		if !c.resumeRunStream(ctx, w, sub, resume, position) {
+			return
 		}
 		flusher.Flush()
 	}
@@ -348,6 +365,50 @@ func (c *Controller) handleStreamRuns(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// parseRunStream reads the list filters and Last-Event-ID, -1 when absent. The grade filter is refused.
+func parseRunStream(r *http.Request) (RunListQuery, []string, int64, *api.APIError) {
+	p, agentTypeIDs, apiErr := parseRunFilters(r.URL.Query())
+	if apiErr != nil {
+		return RunListQuery{}, nil, 0, apiErr
+	}
+	if p.Grade != nil {
+		return RunListQuery{}, nil, 0, api.ValidationError(api.ErrCodeInvalidField, errGradeOnStream.Error(), map[string]any{"field": "grader"})
+	}
+	raw := r.Header.Get("Last-Event-ID")
+	if raw == "" {
+		return p, agentTypeIDs, -1, nil
+	}
+	resume, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || resume < 0 {
+		return RunListQuery{}, nil, 0, api.ValidationError(api.ErrCodeInvalidField, "Last-Event-ID must be a seq", nil)
+	}
+	return p, agentTypeIDs, resume, nil
+}
+
+// resumeRunStream sends the changes after resume up to the feed's position, or reset when
+// they cannot be replayed. It reports false when the stream should close.
+func (c *Controller) resumeRunStream(ctx context.Context, w io.Writer, sub *runSubscriber, resume, position int64) bool {
+	// Position 0 is a feed that has seen no event of the tenant since it opened, so the gap has no known end.
+	if position == 0 {
+		writeRunReset(w)
+		return true
+	}
+	if resume >= position {
+		return true
+	}
+	err := c.feed.catchUp(ctx, sub, resume, position, func(m runMessage) { writeRunMessage(w, m) })
+	switch {
+	case errors.Is(err, eventsclient.ErrEventRemoved), errors.Is(err, errRunResumeTooFar):
+		writeRunReset(w)
+	case err != nil:
+		if ctx.Err() == nil {
+			c.logger.Error(ctx, "run stream resume failed", logging.Field{Key: "error", Value: err.Error()})
+		}
+		return false
+	}
+	return true
+}
+
 func writeRunMessage(w io.Writer, m runMessage) {
 	data, err := json.Marshal(m)
 	if err != nil {
@@ -361,13 +422,13 @@ func writeRunReset(w io.Writer) {
 	_, _ = io.WriteString(w, "event: reset\ndata: {}\n\n")
 }
 
-// untilTokenExpiry ends the stream when the caller's platform token expires, as kora-events does.
-func untilTokenExpiry(ctx context.Context) (context.Context, context.CancelFunc) {
-	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims == nil || claims.ExpiresAt == nil {
-		return ctx, func() {}
+// streamDeadline ends the stream at runStreamLifetime, or sooner when the caller's platform token expires.
+func streamDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	deadline := time.Now().Add(runStreamLifetime)
+	if claims, ok := token.ClaimsFromContext(ctx); ok && claims != nil && claims.ExpiresAt != nil && claims.ExpiresAt.Before(deadline) {
+		deadline = claims.ExpiresAt.Time
 	}
-	return context.WithDeadline(ctx, claims.ExpiresAt.Time)
+	return context.WithDeadline(ctx, deadline)
 }
 
 // revokedSince reports whether the caller's token or delegation was revoked after the

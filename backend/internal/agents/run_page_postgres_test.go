@@ -364,14 +364,14 @@ func TestPostgres_RunMatchAgreesWithListRuns(t *testing.T) {
 		}
 		ids = append(ids, run.ID)
 	}
-	// The stream tests the row it loads, so the predicate is checked against GetRunRow's rows.
+	// The stream tests the rows it loads, so the predicate is checked against GetRunRows' rows.
+	loaded, err := r.GetRunRows(ctx, tenant, ids)
+	if err != nil || len(loaded) != len(ids) {
+		t.Fatalf("GetRunRows: %d rows, %v", len(loaded), err)
+	}
 	rows := map[string]*Run{}
-	for _, id := range ids {
-		row, err := r.GetRunRow(ctx, tenant, id)
-		if err != nil {
-			t.Fatalf("GetRunRow: %v", err)
-		}
-		rows[id] = row
+	for i := range loaded {
+		rows[loaded[i].ID] = &loaded[i]
 	}
 
 	queries := []RunListQuery{

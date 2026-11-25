@@ -498,9 +498,22 @@ func scanRunRow(s scanner) (*Run, error) {
 	return run, nil
 }
 
-// GetRunRow returns the run in the shape of a list row, a terminated one included.
-func (r *PostgresRepository) GetRunRow(ctx context.Context, tenantID, id string) (*Run, error) {
-	return scanRunRow(r.pool.QueryRow(ctx, selectRunRow+` WHERE r.tenant_id=$1 AND r.id=$2`, tenantID, id))
+// GetRunRows returns the tenant's runs among ids in the shape of list rows, terminated ones included.
+func (r *PostgresRepository) GetRunRows(ctx context.Context, tenantID string, ids []string) ([]Run, error) {
+	rows, err := r.pool.Query(ctx, selectRunRow+` WHERE r.tenant_id=$1 AND r.id = ANY($2)`, tenantID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("query run rows: %w", err)
+	}
+	defer rows.Close()
+	var out []Run
+	for rows.Next() {
+		run, err := scanRunRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *run)
+	}
+	return out, rows.Err()
 }
 
 // RunUsageTotals sums inference_usage per run for the given runs in one query,
