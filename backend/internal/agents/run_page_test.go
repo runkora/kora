@@ -241,6 +241,9 @@ func TestHandleListRuns_BadFilterNamesItsField(t *testing.T) {
 		"created_after=yesterday":            "created_after",
 		"verdict=pass":                       "grader",
 		"limit=0":                            "limit",
+		"limit=-1":                           "limit",
+		"limit=ten":                          "limit",
+		"cursor=%21%21":                      "cursor",
 		"created_by=user-1":                  "created_by",
 	} {
 		w := getRequest(t, c.handleListRuns, query)
@@ -318,16 +321,6 @@ func TestHandleListRuns_Limits(t *testing.T) {
 					code, len(body.Runs), body.Limit, body.NextCursor, tc.wantRuns, tc.wantLimit, tc.wantNext)
 			}
 		})
-	}
-}
-
-func TestHandleListRuns_BadParamsReturn400(t *testing.T) {
-	c, repo, _, _ := newTestController(t)
-	seedRunsAcrossTypes(t, repo, "t-1", 3, 1)
-	for _, q := range []string{"limit=0", "limit=-1", "limit=ten", "cursor=%21%21", "state=sleeping", "started_by=person"} {
-		if code, _ := listRuns(t, c, q); code != http.StatusBadRequest {
-			t.Errorf("%s gave %d, want 400", q, code)
-		}
 	}
 }
 
