@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-06-19-nav-cleanup-and-live-dashboard.md -->
 
-**Status:** Accepted  
+**Status:** Accepted (the live dashboard home and its 2026-06-20 enrichment superseded in part by [Runs List Live Stream](2026-11-25-runs-list-live-stream.md) 2026-11-25)  
 **Date:** 2026-06-19  
 **Deciders:** Platform Engineering  
 **Technical Story:** Remove placeholder nav items and replace the static dashboard home with live data from existing platform APIs.
