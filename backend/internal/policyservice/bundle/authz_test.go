@@ -671,6 +671,38 @@ func TestAuthz_CustomRole(t *testing.T) {
 	}
 }
 
+// TestAuthz_RoleScopeIndex pins the role lookup through role_scope_index: a role
+// scope covers a deeper scope in its group, and a role with no scope in the
+// required scope's group is denied.
+func TestAuthz_RoleScopeIndex(t *testing.T) {
+	pq := compileAndPrepare(t, bundleOpts{
+		roles: []*roles.RoleEntry{
+			{TenantID: testTenantID, Role: "reader", Scopes: []string{"agents:read"}},
+		},
+	})
+	claims := humanClaims(testHumanID, "reader")
+	cases := []struct {
+		resource string
+		path     []string
+		action   string
+		allow    bool
+	}{
+		{"agents", []string{"types"}, "read", true},
+		{"agents", []string{"types", "coder"}, "read", true},
+		{"agents", []string{"types"}, "write", false},
+		{"inference", nil, "list", false},
+	}
+	for _, tc := range cases {
+		allow, reason := evalLayer2(t, pq, claims, nil, tc.resource, tc.path, tc.action)
+		if allow != tc.allow {
+			t.Errorf("%s %v %s: allow = %v (reason %s), want %v", tc.resource, tc.path, tc.action, allow, reason, tc.allow)
+		}
+		if tc.allow && reason != "role:reader" {
+			t.Errorf("%s %v %s: reason = %q, want role:reader", tc.resource, tc.path, tc.action, reason)
+		}
+	}
+}
+
 func TestAuthz_ReservedRoleCannotBeOverridden(t *testing.T) {
 	pq := compileAndPrepare(t, bundleOpts{
 		vocab: adminVocab(),

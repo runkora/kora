@@ -16,8 +16,8 @@ func TestScopeIndexKey(t *testing.T) {
 		"admin":                       "admin|admin",
 	}
 	for scope, want := range cases {
-		if got := ScopeIndexKey(scope); got != want {
-			t.Errorf("ScopeIndexKey(%q) = %q, want %q", scope, got, want)
+		if got := scopeIndexKey(scope); got != want {
+			t.Errorf("scopeIndexKey(%q) = %q, want %q", scope, got, want)
 		}
 	}
 }
@@ -34,10 +34,10 @@ func TestRoleScopeIndex_HoldsEveryCoveringScope(t *testing.T) {
 		"inference:anthropic:claude:use", "admin:read", "platform:read", "x")
 	doc := newRolesDocument(map[string][]string{"r": scopes})
 	for _, req := range required {
-		group := doc.RoleScopeIndex["r"][ScopeIndexKey(req)]
+		group := doc.RoleScopeIndex["r"][scopeIndexKey(req)]
 		for _, sc := range scopes {
 			if policy.ScopeCovers(sc, req) && !slices.Contains(group, sc) {
-				t.Errorf("%q covers %q but is not in index group %q", sc, req, ScopeIndexKey(req))
+				t.Errorf("%q covers %q but is not in index group %q", sc, req, scopeIndexKey(req))
 			}
 		}
 	}

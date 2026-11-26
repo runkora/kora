@@ -783,7 +783,7 @@ reason := "deny:delegation_required" if {
 	_principal_requires_delegation
 }
 
-# matched_role_scopes collects all role+scope pairs that cover the required scope.
+# matched_roles collects the caller's roles with a scope that covers the required scope.
 # Using a partial set + min() mirrors matched_grant_scope for determinism.
 matched_roles contains role_match if {
 	_principal_type == "HUMAN"
@@ -959,14 +959,6 @@ scope_covers(a, b) if {
 	a == b
 }
 
-# The role_scope_index group a scope falls in: its first and last segments, which
-# scope_covers requires to match. Mirrors bundle.ScopeIndexKey.
-scope_index_key(s) := concat("|", [parts[0], parts[count(parts) - 1]]) if {
-	parts := split(s, ":")
-}
-
-_required_scope_key := scope_index_key(_required_scope)
-
 scope_covers(a, b) if {
 	parts_a := split(a, ":")
 	parts_b := split(b, ":")
@@ -979,3 +971,11 @@ scope_covers(a, b) if {
 	count(path_a) <= count(path_b)
 	array.slice(path_b, 0, count(path_a)) == path_a
 }
+
+# The role_scope_index group a scope falls in: its first and last segments, which
+# scope_covers requires to match. Mirrors scopeIndexKey in compiler.go.
+scope_index_key(s) := concat("|", [parts[0], parts[count(parts) - 1]]) if {
+	parts := split(s, ":")
+}
+
+_required_scope_key := scope_index_key(_required_scope)

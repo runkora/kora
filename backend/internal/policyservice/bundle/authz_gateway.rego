@@ -656,14 +656,6 @@ scope_covers(a, b) if {
 	a == b
 }
 
-# The role_scope_index group a scope falls in: its first and last segments, which
-# scope_covers requires to match. Mirrors bundle.ScopeIndexKey.
-scope_index_key(s) := concat("|", [parts[0], parts[count(parts) - 1]]) if {
-	parts := split(s, ":")
-}
-
-_required_scope_key := scope_index_key(_required_scope)
-
 scope_covers(a, b) if {
 	parts_a := split(a, ":")
 	parts_b := split(b, ":")
@@ -676,3 +668,11 @@ scope_covers(a, b) if {
 	count(path_a) <= count(path_b)
 	array.slice(path_b, 0, count(path_a)) == path_a
 }
+
+# The role_scope_index group a scope falls in: its first and last segments, which
+# scope_covers requires to match. Mirrors scopeIndexKey in compiler.go.
+scope_index_key(s) := concat("|", [parts[0], parts[count(parts) - 1]]) if {
+	parts := split(s, ":")
+}
+
+_required_scope_key := scope_index_key(_required_scope)

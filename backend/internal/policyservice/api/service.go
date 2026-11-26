@@ -569,13 +569,11 @@ func (s *Service) addRoleScopes(ctx context.Context, tenantID string, principalR
 
 // expandScopeFamily expands each scope in scopeSet to also include any
 // vocabulary entries covered by that scope (parent implies children).
-// An entry is covered when one of its covering scopes is held, so each entry
-// costs a few set lookups instead of a comparison with every held scope.
+// An entry is covered when one of its covering scopes is held.
 func expandScopeFamily(allVocab []*vocabulary.ScopeEntry, scopeSet map[string]struct{}) {
-	initial := maps.Clone(scopeSet)
 	for _, entry := range allVocab {
 		for _, c := range policy.CoveringScopes(entry.Scope) {
-			if _, ok := initial[c]; ok {
+			if _, ok := scopeSet[c]; ok {
 				scopeSet[entry.Scope] = struct{}{}
 				break
 			}

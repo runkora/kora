@@ -157,12 +157,10 @@ type principalRolesDocument struct {
 
 // rolesDocument is the JSON structure of data/roles/data.json.
 type rolesDocument struct {
-	RoleScopes map[string][]string `json:"role_scopes"`
-	// RoleScopeIndex holds the same scopes per role, grouped by ScopeIndexKey. A
-	// scope covers another only when both share a resource type and an action, so
-	// a decision reads the one group of its required scope instead of every scope
-	// of the role. The platform-admin role holds a scope per MCP tool, so a scan
-	// is hundreds of scope_covers calls per decision.
+	// RoleScopes is left out of the gateway bundle, whose policy reads only the index.
+	RoleScopes map[string][]string `json:"role_scopes,omitempty"`
+	// RoleScopeIndex holds each role's scopes grouped by scopeIndexKey: the only
+	// scopes that can cover a required scope with that key.
 	RoleScopeIndex map[string]map[string][]string `json:"role_scope_index"`
 }
 
@@ -172,7 +170,7 @@ func newRolesDocument(roleScopes map[string][]string) rolesDocument {
 	for role, scopes := range roleScopes {
 		byKey := map[string][]string{}
 		for _, sc := range scopes {
-			k := ScopeIndexKey(sc)
+			k := scopeIndexKey(sc)
 			byKey[k] = append(byKey[k], sc)
 		}
 		index[role] = byKey
@@ -180,10 +178,10 @@ func newRolesDocument(roleScopes map[string][]string) rolesDocument {
 	return rolesDocument{RoleScopes: roleScopes, RoleScopeIndex: index}
 }
 
-// ScopeIndexKey returns "<resource type>|<action>", the first and last segments
+// scopeIndexKey returns "<resource type>|<action>", the first and last segments
 // of a scope, which scope_covers requires to be equal. A one-segment scope keys
 // on that segment twice, and covers only itself.
-func ScopeIndexKey(scope string) string {
+func scopeIndexKey(scope string) string {
 	first, _, _ := strings.Cut(scope, ":")
 	last := scope[strings.LastIndex(scope, ":")+1:]
 	return first + "|" + last
@@ -829,7 +827,9 @@ func buildGatewayBundle(
 			return nil, "", fmt.Errorf("marshal grants for tenant %s: %w", tenantID, err)
 		}
 
-		rolesJSON, err = json.Marshal(newRolesDocument(mergeRoles(reservedRoles, allRoles[tenantID], requiresMap)))
+		gatewayRoles := newRolesDocument(mergeRoles(reservedRoles, allRoles[tenantID], requiresMap))
+		gatewayRoles.RoleScopes = nil
+		rolesJSON, err = json.Marshal(gatewayRoles)
 		if err != nil {
 			return nil, "", fmt.Errorf("marshal roles for tenant %s: %w", tenantID, err)
 		}
