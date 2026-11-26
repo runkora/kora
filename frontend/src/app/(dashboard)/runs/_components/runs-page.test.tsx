@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@runkora/test-utils';
 import type { RunWithAttribution } from '@runkora/shared/api';
 import type { RunsFeed } from '../_hooks/use-runs-feed';
@@ -102,10 +102,9 @@ describe('RunsPage', () => {
     renderWithProviders(<RunsPage />);
     expect(screen.getByLabelText('Filter by source')).toHaveValue('webhook');
     expect(screen.getByPlaceholderText('Search runs…')).toHaveValue('flaky');
-    // The unknown quick filter falls back to All, and the URL is rewritten without it.
-    expect(nav.replace).toHaveBeenCalledWith('/runs?trigger_kind=webhook&q=flaky', {
-      scroll: false,
-    });
+    // The unknown quick filter reads as All; the URL is left as it is until a filter changes.
+    expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument();
+    expect(nav.replace).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText('Fix the flaky test'));
     expect(nav.push).toHaveBeenCalledWith(
       '/agents/coder/runs/run-1?from=runs&runs=trigger_kind%3Dwebhook%26q%3Dflaky',
@@ -118,6 +117,30 @@ describe('RunsPage', () => {
     fireEvent.change(screen.getByLabelText('Filter by source'), { target: { value: 'event' } });
     expect(nav.replace).toHaveBeenCalledWith('/runs?trigger_kind=event', { scroll: false });
     expect(nav.push).not.toHaveBeenCalled();
+  });
+
+  it('keeps query params it does not own', () => {
+    nav.search = 'agent=new';
+    renderWithProviders(<RunsPage />);
+    fireEvent.change(screen.getByLabelText('Filter by source'), { target: { value: 'event' } });
+    expect(nav.replace).toHaveBeenCalledWith('/runs?agent=new&trigger_kind=event', {
+      scroll: false,
+    });
+  });
+
+  it('follows a link to bare /runs instead of putting the filters back', () => {
+    nav.search = 'trigger_kind=webhook';
+    const { rerender } = renderWithProviders(<RunsPage />);
+    nav.search = '';
+    rerender(<RunsPage />);
+    expect(screen.getByLabelText('Filter by source')).toHaveValue('');
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
+  it('drops an agent from the URL that the viewer cannot read', async () => {
+    nav.search = 'agent_type_id=agt_gone';
+    renderWithProviders(<RunsPage />);
+    await waitFor(() => expect(nav.replace).toHaveBeenCalledWith('/runs', { scroll: false }));
   });
 
   it('says when the live stream is reconnecting', () => {

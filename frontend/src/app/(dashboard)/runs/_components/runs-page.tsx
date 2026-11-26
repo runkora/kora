@@ -40,6 +40,7 @@ import {
   DEFAULT_RUN_FILTERS,
   QUICK_FILTERS,
   RUN_SOURCES,
+  RUN_URL_KEYS,
   runFiltersFromUrl,
   runFiltersToUrl,
   type RunFilters,
@@ -205,14 +206,27 @@ export function RunsPage() {
   const feed = useRunsFeed(filters);
   const urlQuery = runFiltersToUrl(filters).toString();
 
-  // The filters live in the URL so back, reload and shared links restore them. Replace keeps
-  // typing out of the history.
+  // The filters live in the URL so back, reload and shared links restore them. A URL that moved
+  // on its own (a link to bare /runs) resets the filters; the page's own writes do not.
+  const inUrl = runFiltersToUrl(runFiltersFromUrl(params)).toString();
+  const [seenUrl, setSeenUrl] = useState(inUrl);
+  if (inUrl !== seenUrl) {
+    setSeenUrl(inUrl);
+    if (inUrl !== urlQuery) {
+      const next = runFiltersFromUrl(params);
+      setFilters(next);
+      setSearch(next.query);
+    }
+  }
   useEffect(() => {
-    if (urlQuery === params.toString()) return;
-    router.replace(urlQuery ? `${APP_ROUTES.runs}?${urlQuery}` : APP_ROUTES.runs, {
-      scroll: false,
-    });
-  }, [urlQuery, params, router]);
+    if (urlQuery === inUrl) return;
+    // Replace keeps typing out of the history; params the page does not own are kept.
+    const next = new URLSearchParams(params.toString());
+    RUN_URL_KEYS.forEach((k) => next.delete(k));
+    new URLSearchParams(urlQuery).forEach((v, k) => next.set(k, v));
+    const query = next.toString();
+    router.replace(query ? `${APP_ROUTES.runs}?${query}` : APP_ROUTES.runs, { scroll: false });
+  }, [urlQuery, inUrl, params, router]);
 
   useEffect(() => {
     const timer = window.setTimeout(

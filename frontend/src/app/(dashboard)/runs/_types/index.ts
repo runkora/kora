@@ -55,6 +55,9 @@ export function runFilterParams(filters: RunFilters): URLSearchParams {
   return params;
 }
 
+/** The query keys the Runs page owns. */
+export const RUN_URL_KEYS = ['quick', 'agent_type_id', 'trigger_kind', 'q'] as const;
+
 /** The filters as the Runs page's own query, with the API's names where they map. */
 export function runFiltersToUrl(filters: RunFilters): URLSearchParams {
   const params = new URLSearchParams();
