@@ -54,11 +54,16 @@ const PlatformAdminRole = "platform-admin"
 // inference:use and not each model under it. Requires expansion happens
 // later, as for any role.
 func AdminScopes(vocab []*vocabulary.ScopeEntry) []string {
+	registered := make(map[string]struct{}, len(vocab))
+	for _, e := range vocab {
+		registered[e.Scope] = struct{}{}
+	}
 	var out []string
 	for _, e := range vocab {
 		covered := false
-		for _, o := range vocab {
-			if o.Scope != e.Scope && policy.ScopeCovers(o.Scope, e.Scope) {
+		// The first covering scope is the entry itself.
+		for _, o := range policy.CoveringScopes(e.Scope)[1:] {
+			if _, ok := registered[o]; ok {
 				covered = true
 				break
 			}
@@ -536,6 +541,13 @@ func expandRequires(scopes []string, requiresMap map[string][]string) []string {
 		leaves = append(leaves, k)
 	}
 	sort.Strings(leaves)
+	// The leaves each scope covers, in sorted order, keyed by the covering scope.
+	coveredBy := make(map[string][]string, len(leaves))
+	for _, leaf := range leaves {
+		for _, c := range policy.CoveringScopes(leaf) {
+			coveredBy[c] = append(coveredBy[c], leaf)
+		}
+	}
 
 	seen := make(map[string]struct{}, len(scopes))
 	out := make([]string, 0, len(scopes))
@@ -548,11 +560,9 @@ func expandRequires(scopes []string, requiresMap map[string][]string) []string {
 		}
 		seen[s] = struct{}{}
 		out = append(out, s)
-		// ScopeCovers is reflexive, so this also handles the exact-leaf case.
-		for _, leaf := range leaves {
-			if policy.ScopeCovers(s, leaf) {
-				queue = append(queue, requiresMap[leaf]...)
-			}
+		// A leaf's covering scopes include the leaf, so this also handles the exact-leaf case.
+		for _, leaf := range coveredBy[s] {
+			queue = append(queue, requiresMap[leaf]...)
 		}
 	}
 	return out

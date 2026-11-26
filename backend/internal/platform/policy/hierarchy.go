@@ -112,6 +112,23 @@ func ScopeCovers(a, b string) bool {
 	return true
 }
 
+// CoveringScopes returns every scope that covers b under ScopeCovers, b first:
+// b's resource type and action around each prefix of its path. Looking these up
+// in a set answers "does any of these scopes cover b" in len(path)+1 steps.
+func CoveringScopes(b string) []string {
+	parts := strings.Split(b, ":")
+	if len(parts) < 2 {
+		return []string{b}
+	}
+	first, last, path := parts[0], parts[len(parts)-1], parts[1:len(parts)-1]
+	out := make([]string, 0, len(path)+1)
+	out = append(out, b)
+	for n := len(path) - 1; n >= 0; n-- {
+		out = append(out, DeriveRequiredScope(first, path[:n], last))
+	}
+	return out
+}
+
 // AnyScopeCovers returns true if any scope in the granted set covers required.
 func AnyScopeCovers(granted []string, required string) bool {
 	for _, g := range granted {
