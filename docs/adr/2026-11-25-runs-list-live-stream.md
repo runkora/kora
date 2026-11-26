@@ -240,8 +240,10 @@ None at this time.
 
 The console draws a provisional first page before the page it reads after `: open`.
 
-*   The Runs route (`frontend/src/app/(dashboard)/runs/page.tsx`) reads the first page for the URL's filters on the server with the caller's session. The page renders with those rows.
+*   The Runs route (`frontend/src/app/(dashboard)/runs/page.tsx`) reads the first page for the URL's filters on the server with the caller's session. The page renders with those rows. The route waits at most 1.5 seconds for that read, then renders without it.
 *   When the server sends no page for the filters, or the filters change, the console reads a first page while the stream opens.
+*   The console draws a server page once per document. Back and forward do not draw it again.
+*   A filter change updates the URL without rendering the route on the server.
 *   The console still reads the first page after `: open`. That page replaces the provisional page.
 *   Stream messages that arrive before that page lands wait in the feed. The console replays them onto that page.
 *   A provisional page that lands after that page is dropped.
