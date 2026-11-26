@@ -50,7 +50,7 @@ func (c *Controller) GroupedBy() string { return "" }
 
 // Middleware verifies the platform token and admits only the operator.
 func (c *Controller) Middleware() mw.MiddlewareHandler {
-	return mw.MiddlewareChain(c.auth, mw.RequireSystemCaller(OperatorComponent, c.logger))
+	return mw.MiddlewareChain(c.auth, mw.RequireSystemCaller(c.logger, OperatorComponent))
 }
 
 // Boot implements api.Controller.

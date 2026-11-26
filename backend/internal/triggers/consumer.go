@@ -14,7 +14,7 @@ const consumerLockKey = "kora_triggers_event_consumer"
 
 // eventStream is the kora-events internal stream.
 type eventStream interface {
-	Stream(ctx context.Context, after int64, handle func(eventsclient.Record) error) error
+	Stream(ctx context.Context, q eventsclient.Query, handle func(eventsclient.Record) error) error
 }
 
 // sessionLocker takes a session-level advisory lock. held ends when the lock is lost.
@@ -102,7 +102,7 @@ func (c *EventConsumer) consume(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return c.stream.Stream(ctx, after, func(rec eventsclient.Record) error {
+	return c.stream.Stream(ctx, eventsclient.Query{After: after}, func(rec eventsclient.Record) error {
 		if err := c.handler.HandleEvent(ctx, rec.Event); err != nil {
 			return fmt.Errorf("handle event %d: %w", rec.Seq, err)
 		}
