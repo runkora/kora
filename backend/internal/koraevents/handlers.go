@@ -19,7 +19,6 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
-	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -347,7 +346,7 @@ func stream(w http.ResponseWriter, r *http.Request, store logReader, hub subscri
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if revokedSince(ctx, revoked) {
+			if mw.RevokedSince(ctx, revoked) {
 				return
 			}
 			_, _ = io.WriteString(w, ": keepalive\n\n")
@@ -413,25 +412,6 @@ func untilTokenExpiry(r *http.Request) (*http.Request, context.CancelFunc) {
 	}
 	ctx, cancel := context.WithDeadline(r.Context(), claims.ExpiresAt.Time)
 	return r.WithContext(ctx), cancel
-}
-
-// revokedSince reports whether the caller's token or delegation was revoked
-// after the stream opened. A blocklist error keeps the stream open, as the
-// auth middleware does.
-func revokedSince(ctx context.Context, revoked mw.RevocationChecker) bool {
-	var jtis []string
-	if claims, ok := token.ClaimsFromContext(ctx); ok && claims != nil && claims.ID != "" {
-		jtis = append(jtis, claims.ID)
-	}
-	if d := policy.DelegationFromContext(ctx); d != nil && d.JTI != "" {
-		jtis = append(jtis, d.JTI)
-	}
-	for _, jti := range jtis {
-		if blocked, err := revoked.IsBlocked(ctx, jti); err == nil && blocked {
-			return true
-		}
-	}
-	return false
 }
 
 func writeEvent(w io.Writer, rec Record) {

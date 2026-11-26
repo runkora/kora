@@ -136,6 +136,7 @@ func TestAgentRoutesPerAgentReadsAuthenticatedOnly(t *testing.T) {
 		{"GET", "/api/v1/agent-types/abc/effective-access"},
 		{"GET", "/api/v1/runs"},
 		{"GET", "/api/v1/runs/stats"},
+		{"GET", "/api/v1/runs/stream"},
 		{"GET", "/api/v1/runs/abc"},
 		{"GET", "/api/v1/runs/abc/events"},
 		{"GET", "/api/v1/run-outcomes"},

@@ -419,11 +419,7 @@ func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error
 // ListRuns returns up to q.Limit runs in scope, newest first, after q.After.
 // The scope is part of the query, so a page holds only runs the caller may read.
 func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, q RunListQuery) ([]Run, error) {
-	// The starter's display name is identity's user_profiles, read at query time as the migrations ADR permits.
-	query, args := appendScope(`SELECT `+runColumns+`, COALESCE(up.display_name, '')
-		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
-		LEFT JOIN user_profiles up ON up.id = r.created_by AND up.tenant_id = r.tenant_id
-		WHERE r.tenant_id=$1 AND r.deleted_at IS NULL`, []any{tenantID}, q.Scope)
+	query, args := appendScope(selectRunRow+` WHERE r.tenant_id=$1 AND r.deleted_at IS NULL`, []any{tenantID}, q.Scope)
 	if len(q.States) > 0 {
 		args = append(args, stateStrings(q.States))
 		query += fmt.Sprintf(" AND r.state = ANY($%d)", len(args))
@@ -476,12 +472,45 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, q Ru
 
 	var out []Run
 	for rows.Next() {
-		var name string
-		run, err := scanRun(rows, &name)
+		run, err := scanRunRow(rows)
 		if err != nil {
 			return nil, err
 		}
-		run.CreatedByName = name
+		out = append(out, *run)
+	}
+	return out, rows.Err()
+}
+
+// selectRunRow reads a run as a list row, with the starter's display name from identity's
+// user_profiles, read at query time as the migrations ADR permits.
+const selectRunRow = `SELECT ` + runColumns + `, COALESCE(up.display_name, '')
+	FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
+	LEFT JOIN user_profiles up ON up.id = r.created_by AND up.tenant_id = r.tenant_id`
+
+// scanRunRow scans a selectRunRow row.
+func scanRunRow(s scanner) (*Run, error) {
+	var name string
+	run, err := scanRun(s, &name)
+	if err != nil {
+		return nil, err
+	}
+	run.CreatedByName = name
+	return run, nil
+}
+
+// GetRunRows returns the tenant's runs among ids in the shape of list rows, terminated ones included.
+func (r *PostgresRepository) GetRunRows(ctx context.Context, tenantID string, ids []string) ([]Run, error) {
+	rows, err := r.pool.Query(ctx, selectRunRow+` WHERE r.tenant_id=$1 AND r.id = ANY($2)`, tenantID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("query run rows: %w", err)
+	}
+	defer rows.Close()
+	var out []Run
+	for rows.Next() {
+		run, err := scanRunRow(rows)
+		if err != nil {
+			return nil, err
+		}
 		out = append(out, *run)
 	}
 	return out, rows.Err()

@@ -11,6 +11,7 @@ import (
 
 	"github.com/runkora/kora/backend/internal/agents/grading"
 	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // GET /api/v1/runs page sizes, the same bounds as the run events endpoint.
@@ -103,6 +104,59 @@ func appendScope(query string, args []any, scope RunScope) (string, []any) {
 		query += fmt.Sprintf(" AND r.agent_type_id = ANY($%d)", len(args))
 	}
 	return appendVisibility(query, args, scope.Vis)
+}
+
+// readsRun is appendScope and appendVisibility in Go, for a caller in tenant.
+// The run stream tests each run change with it, and TestPostgres_RunMatchAgreesWithListRuns holds it to the SQL.
+func readsRun(tenant string, scope RunScope, run *Run) bool {
+	started := scope.Vis.Subject != "" && run.CreatedBy == scope.Vis.Subject
+	switch {
+	case run.TenantID != tenant:
+		return false
+	case !slices.Contains(scope.AgentTypeIDs, run.AgentTypeID) && (!scope.Own || !started):
+		return false
+	case len(scope.OnlyAgentTypeIDs) > 0 && !slices.Contains(scope.OnlyAgentTypeIDs, run.AgentTypeID):
+		return false
+	}
+	return scope.Vis.SeeAll || run.IdentityMode != IdentityModeDelegated || started
+}
+
+// matchesRun is the rest of the list query in Go: the live-run rule and every filter but the grade.
+func (q RunListQuery) matchesRun(run *Run) bool {
+	switch {
+	case run.DeletedAt != nil,
+		len(q.States) > 0 && !slices.Contains(q.States, run.State),
+		q.StartedByTrigger && run.StartedBy == nil,
+		q.CreatedByMe && (q.Scope.Vis.Subject == "" || run.CreatedBy != q.Scope.Vis.Subject),
+		len(q.TriggerKinds) > 0 && !q.matchesTriggerKind(run),
+		!q.CreatedAfter.IsZero() && run.CreatedAt.Before(q.CreatedAfter),
+		!q.CreatedBefore.IsZero() && !run.CreatedAt.Before(q.CreatedBefore):
+		return false
+	}
+	return q.Search == "" || q.matchesSearch(run)
+}
+
+// matchesTriggerKind is the trigger_kind filter: a run of a listed kind, or with no trigger for triggerKindNone.
+func (q RunListQuery) matchesTriggerKind(run *Run) bool {
+	if run.StartedBy == nil {
+		return slices.Contains(q.TriggerKinds, triggerKindNone)
+	}
+	return run.StartedBy.TriggerKind != "" && slices.Contains(q.TriggerKinds, run.StartedBy.TriggerKind)
+}
+
+// matchesSearch is the q filter: the summary, agent name, trigger name or starter's name contains the term, ignoring case.
+func (q RunListQuery) matchesSearch(run *Run) bool {
+	var triggerName string
+	if run.StartedBy != nil {
+		triggerName = run.StartedBy.TriggerName
+	}
+	term := strings.ToLower(q.Search)
+	for _, field := range []string{storage.Deref(run.Summary), run.AgentName, triggerName, run.CreatedByName} {
+		if strings.Contains(strings.ToLower(field), term) {
+			return true
+		}
+	}
+	return false
 }
 
 // RunListQuery selects one page of runs, newest first.

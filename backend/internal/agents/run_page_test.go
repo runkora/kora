@@ -241,6 +241,9 @@ func TestHandleListRuns_BadFilterNamesItsField(t *testing.T) {
 		"created_after=yesterday":            "created_after",
 		"verdict=pass":                       "grader",
 		"limit=0":                            "limit",
+		"limit=-1":                           "limit",
+		"limit=ten":                          "limit",
+		"cursor=%21%21":                      "cursor",
 		"created_by=user-1":                  "created_by",
 	} {
 		w := getRequest(t, c.handleListRuns, query)
@@ -318,16 +321,6 @@ func TestHandleListRuns_Limits(t *testing.T) {
 					code, len(body.Runs), body.Limit, body.NextCursor, tc.wantRuns, tc.wantLimit, tc.wantNext)
 			}
 		})
-	}
-}
-
-func TestHandleListRuns_BadParamsReturn400(t *testing.T) {
-	c, repo, _, _ := newTestController(t)
-	seedRunsAcrossTypes(t, repo, "t-1", 3, 1)
-	for _, q := range []string{"limit=0", "limit=-1", "limit=ten", "cursor=%21%21", "state=sleeping", "started_by=person"} {
-		if code, _ := listRuns(t, c, q); code != http.StatusBadRequest {
-			t.Errorf("%s gave %d, want 400", q, code)
-		}
 	}
 }
 
@@ -497,6 +490,45 @@ func TestHandleListRuns_TimeWindow(t *testing.T) {
 	for _, q := range []string{"created_after=yesterday", "created_before=2026-13-01T00:00:00Z"} {
 		if code, _ := listRuns(t, c, "tenant_id=t-1&"+q); code != http.StatusBadRequest {
 			t.Errorf("%s: status %d, want 400", q, code)
+		}
+	}
+}
+
+// matchesRun in memory, for the filters the Postgres agreement test covers only when it runs.
+func TestMatchesRun_Filters(t *testing.T) {
+	at := time.Date(2026, 11, 25, 10, 0, 0, 0, time.UTC)
+	summary := "Fix the Login bug"
+	alice := Run{CreatedBy: "alice", CreatedByName: "Alice Liddell", AgentName: "Deploy Bot", Summary: &summary, CreatedAt: at}
+	hook := Run{CreatedBy: "trigger:t1", CreatedAt: at, StartedBy: &StartedByTrigger{TriggerID: "t1", TriggerName: "Nightly hook", TriggerKind: "webhook"}}
+	legacy := Run{CreatedBy: "trigger:t2", CreatedAt: at, StartedBy: &StartedByTrigger{TriggerID: "t2", TriggerName: "Old hook"}}
+	asAlice := RunScope{Vis: RunVisibility{Subject: "alice"}}
+	for _, tt := range []struct {
+		name string
+		q    RunListQuery
+		run  Run
+		want bool
+	}{
+		{"created_by=me, own run", RunListQuery{Scope: asAlice, CreatedByMe: true}, alice, true},
+		{"created_by=me, another's run", RunListQuery{Scope: asAlice, CreatedByMe: true}, hook, false},
+		{"created_by=me, no subject", RunListQuery{CreatedByMe: true}, Run{CreatedAt: at}, false},
+		{"trigger_kind=webhook", RunListQuery{TriggerKinds: []string{"webhook"}}, hook, true},
+		{"trigger_kind=webhook, person's run", RunListQuery{TriggerKinds: []string{"webhook"}}, alice, false},
+		{"trigger_kind=none, person's run", RunListQuery{TriggerKinds: []string{triggerKindNone}}, alice, true},
+		{"trigger_kind=none, trigger run", RunListQuery{TriggerKinds: []string{triggerKindNone}}, hook, false},
+		{"trigger_kind with no recorded kind", RunListQuery{TriggerKinds: []string{"webhook", "scheduled"}}, legacy, false},
+		{"q in the summary, any case", RunListQuery{Search: "login"}, alice, true},
+		{"q in the agent name", RunListQuery{Search: "deploy"}, alice, true},
+		{"q in the starter's name", RunListQuery{Search: "LIDDELL"}, alice, true},
+		{"q in the trigger name", RunListQuery{Search: "nightly"}, hook, true},
+		{"q nowhere", RunListQuery{Search: "nightly"}, alice, false},
+		{"created_after, at the bound", RunListQuery{CreatedAfter: at}, alice, true},
+		{"created_after, before it", RunListQuery{CreatedAfter: at.Add(time.Second)}, alice, false},
+		{"created_before, at the bound", RunListQuery{CreatedBefore: at}, alice, false},
+		{"created_before, after it", RunListQuery{CreatedBefore: at.Add(time.Second)}, alice, true},
+		{"terminated run", RunListQuery{}, Run{CreatedAt: at, DeletedAt: &at}, false},
+	} {
+		if got := tt.q.matchesRun(&tt.run); got != tt.want {
+			t.Errorf("%s: %v, want %v", tt.name, got, tt.want)
 		}
 	}
 }

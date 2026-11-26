@@ -29,6 +29,7 @@ type Controller struct {
 	runs         *RunService
 	environments *EnvironmentService
 	drafts       *DraftService
+	feed         *RunFeed
 	verifier     *token.Verifier
 	blocklist    mw.JTIBlocklist
 	eval         policy.Evaluator
@@ -44,12 +45,13 @@ type Controller struct {
 // request time by ScopeEnforcementMiddleware to enforce route → required-scope
 // bindings in-process. basePath must match the server's BasePath so the
 // middleware can reconstruct full paths after http.StripPrefix. See docs/adr/2026-06-04-platform-scope-enforcement-middleware.md.
-// blocklist refuses a revoked delegation token before it expires.
+// blocklist refuses a revoked delegation token before it expires. feed serves GET /api/v1/runs/stream.
 func NewController(
 	agentTypes *AgentTypeService,
 	runs *RunService,
 	environments *EnvironmentService,
 	drafts *DraftService,
+	feed *RunFeed,
 	verifier *token.Verifier,
 	blocklist mw.JTIBlocklist,
 	eval policy.Evaluator,
@@ -62,6 +64,7 @@ func NewController(
 		runs:         runs,
 		environments: environments,
 		drafts:       drafts,
+		feed:         feed,
 		verifier:     verifier,
 		blocklist:    blocklist,
 		eval:         eval,
@@ -143,6 +146,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /api/v1/runs", c.handleStartRun)
 	mux.Handle("GET /api/v1/runs", c.handleListRuns)
 	mux.Handle("GET /api/v1/runs/stats", c.handleTenantRunStats)
+	mux.Handle("GET /api/v1/runs/stream", c.handleStreamRuns)
 	mux.Handle("GET /api/v1/run-outcomes", c.handleRunOutcomes)
 	mux.Handle("GET /api/v1/run-stats/{slug}", c.handleRunStats)
 	mux.Handle("GET /api/v1/runs/{id}", c.handleGetRun)
