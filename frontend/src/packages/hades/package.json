@@ -80,6 +80,7 @@
     "@radix-ui/react-tooltip": ">=1",
     "class-variance-authority": ">=0.7",
     "clsx": ">=2",
+    "cmdk": ">=1",
     "lucide-react": ">=0.400",
     "react": ">=19",
     "react-dom": ">=19",

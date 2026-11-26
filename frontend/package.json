@@ -31,6 +31,7 @@
     "@runkora/hades": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
     "iron-session": "^8.0.4",
     "lucide-react": "^1.77.0",
     "next": "16.4.6",
