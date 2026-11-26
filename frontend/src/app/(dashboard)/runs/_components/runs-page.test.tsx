@@ -38,6 +38,7 @@ const withFeed = (over: Partial<RunsFeed> = {}) => {
   feed.current = {
     runs: [],
     loading: false,
+    provisional: false,
     error: null,
     retry: vi.fn(),
     pageIndex: 0,
@@ -143,6 +144,15 @@ describe('RunsPage', () => {
     nav.search = 'agent_type_id=agt_gone';
     renderWithProviders(<RunsPage />);
     await waitFor(() => expect(replaceState).toHaveBeenCalledWith(null, '', '/runs'));
+  });
+
+  it('disables Older until the page read after the stream opens replaces the shown rows', () => {
+    withFeed({ runs: [run], hasOlder: true, provisional: true });
+    const { rerender } = renderWithProviders(<RunsPage />);
+    expect(screen.getByRole('button', { name: 'Older' })).toBeDisabled();
+    withFeed({ runs: [run], hasOlder: true, provisional: false });
+    rerender(<RunsPage />);
+    expect(screen.getByRole('button', { name: 'Older' })).toBeEnabled();
   });
 
   it('says when the live stream is reconnecting', () => {

@@ -422,7 +422,7 @@ export function RunsPage({ initialPage = null }: { initialPage?: InitialRunsPage
               variant="outline"
               size="sm"
               onClick={feed.older}
-              disabled={!feed.hasOlder || feed.pageLoading}
+              disabled={!feed.hasOlder || feed.pageLoading || feed.provisional}
             >
               Older
             </Button>

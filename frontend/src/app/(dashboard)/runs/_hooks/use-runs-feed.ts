@@ -28,6 +28,8 @@ export interface RunsFeed {
   runs: RunWithAttribution[];
   /** The first page has not landed and no rows are loaded. */
   loading: boolean;
+  /** The rows shown wait for the first page read after the stream opened, which replaces them. */
+  provisional: boolean;
   /** The first page failed. */
   error: string | null;
   retry: () => void;
@@ -220,6 +222,7 @@ export function useRunsFeed(filters: RunFilters, initial: InitialRunsPage | null
   return {
     runs,
     loading: feed.loading && feed.pages.length === 0,
+    provisional: feed.loading && feed.pages.length > 0,
     error: feed.error,
     retry: reload,
     pageIndex: feed.index,

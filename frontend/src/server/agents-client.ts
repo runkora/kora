@@ -30,9 +30,10 @@ const UPSTREAM_TIMEOUT_MS = 10_000;
 async function request<T>(
   path: string,
   accessToken: string,
-  options: { method?: string; body?: unknown } = {},
+  options: { method?: string; body?: unknown; signal?: AbortSignal } = {},
 ): Promise<T | undefined> {
-  const { method = 'GET', body } = options;
+  const { method = 'GET', body, signal } = options;
+  const timeout = AbortSignal.timeout(UPSTREAM_TIMEOUT_MS);
   const url = `${config.koraAgentsUrl}/${path.replace(/^\//, '')}`;
 
   const response = await fetch(url, {
@@ -44,7 +45,7 @@ async function request<T>(
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
     cache: 'no-store',
-    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
   });
 
   if (!response.ok) {
@@ -109,8 +110,9 @@ export async function previewEffectiveAccess(
 export async function listRuns(
   accessToken: string,
   params: URLSearchParams,
+  signal?: AbortSignal,
 ): Promise<RunsPage | undefined> {
-  return request<RunsPage>(`/api/v1/runs?${params.toString()}`, accessToken);
+  return request<RunsPage>(`/api/v1/runs?${params.toString()}`, accessToken, { signal });
 }
 
 /** Opens GET /api/v1/runs/stream. The caller passes the body through as SSE. */

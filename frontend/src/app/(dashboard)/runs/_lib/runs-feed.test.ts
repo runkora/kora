@@ -237,4 +237,41 @@ describe('feedReducer', () => {
     expect(s.index).toBe(0);
     expect(s.pageError).toBe('Could not load runs. Try again.');
   });
+
+  it('draws a message queued before a provisional page onto it and keeps it queued', () => {
+    const s = apply(
+      { type: 'message', message: message(run('c'), RUN_CREATED) },
+      { type: 'provisional', page: page(['b', 'a']) },
+    );
+    expect(ids(s)).toEqual(['c', 'b', 'a']);
+    expect(s.loading).toBe(true);
+    expect(s.early).toHaveLength(1);
+  });
+
+  it('queues a message that arrives while a provisional page is shown', () => {
+    const s = apply(
+      { type: 'provisional', page: page(['b', 'a']) },
+      { type: 'message', message: message(run('c'), RUN_CREATED) },
+    );
+    expect(ids(s)).toEqual(['b', 'a']);
+    expect(s.early).toHaveLength(1);
+  });
+
+  it('replaces a provisional page with the first page and replays every queued message', () => {
+    const s = apply(
+      { type: 'message', message: message(run('c'), RUN_CREATED) },
+      { type: 'provisional', page: page(['stale']) },
+      { type: 'message', message: message(run('d'), RUN_CREATED) },
+      { type: 'first', page: page(['b', 'a']) },
+    );
+    expect(ids(s)).toEqual(['d', 'c', 'b', 'a']);
+    expect(s.loading).toBe(false);
+    expect(s.early).toEqual([]);
+  });
+
+  it('ignores a provisional page that lands after the first page', () => {
+    const before = apply({ type: 'first', page: page(['b', 'a']) });
+    const after = feedReducer(before, { key: KEY, type: 'provisional', page: page(['stale']) });
+    expect(after).toBe(before);
+  });
 });

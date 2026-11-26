@@ -8,15 +8,20 @@ import { RunsPage } from './_components/runs-page';
 import type { InitialRunsPage } from './_hooks/use-runs-feed';
 import { RUNS_PAGE_SIZE, runFilterParams, runFiltersFromUrl } from './_types';
 
+/** Past this, the browser's own read alongside the stream is no slower than waiting. */
+const FIRST_PAGE_WAIT_MS = 1_500;
+
 interface RunsRouteProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
 export default async function RunsRoute({ searchParams }: RunsRouteProps) {
-  return <RunsPage initialPage={await readFirstPage(await searchParams)} />;
+  const initialPage = await readFirstPage(await searchParams);
+  // Each server read mounts a fresh feed, so a navigation back to Runs draws its own read.
+  return <RunsPage key={initialPage?.id} initialPage={initialPage} />;
 }
 
-/** The first page for the filters in the URL, or null when it cannot be read here. */
+/** The first page for the filters in the URL, or null when it cannot be read in time. */
 async function readFirstPage(
   searchParams: Record<string, string | string[] | undefined>,
 ): Promise<InitialRunsPage | null> {
@@ -27,8 +32,20 @@ async function readFirstPage(
   const key = runFilterParams(runFiltersFromUrl(url)).toString();
   const query = new URLSearchParams(key);
   query.set('limit', String(RUNS_PAGE_SIZE));
-  // A slow read gives way to the browser's own read, so the page never waits long on it.
-  const read = listRunsWithNames(session.accessToken, pickRunsPageParams(query)).then(
+
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const bound = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve(null);
+    }, FIRST_PAGE_WAIT_MS);
+  });
+  const read = listRunsWithNames(
+    session.accessToken,
+    pickRunsPageParams(query),
+    controller.signal,
+  ).then(
     (body) => ({
       id: crypto.randomUUID(),
       key,
@@ -36,12 +53,9 @@ async function readFirstPage(
     }),
     () => null,
   );
-  return Promise.race([read, timeout(FIRST_PAGE_WAIT_MS)]);
-}
-
-/** How long the route waits for the first page before rendering without it. */
-const FIRST_PAGE_WAIT_MS = 1_500;
-
-function timeout(ms: number): Promise<null> {
-  return new Promise((resolve) => setTimeout(() => resolve(null), ms));
+  try {
+    return await Promise.race([read, bound]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
