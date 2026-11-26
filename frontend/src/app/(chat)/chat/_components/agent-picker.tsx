@@ -101,16 +101,11 @@ export function AgentPicker({
           list.current?.focus();
         }}
       >
-        <Combobox ref={list} label="Agents" defaultValue={value?.slug}>
+        <Combobox label="Search agents" defaultValue={value?.slug}>
           {search && (
-            <ComboboxInput
-              placeholder="Search agents"
-              aria-label="Search agents"
-              value={query}
-              onValueChange={setQuery}
-            />
+            <ComboboxInput placeholder="Search agents" value={query} onValueChange={setQuery} />
           )}
-          <ComboboxList>
+          <ComboboxList ref={list} label="Agents">
             {agents.map((a) => (
               <ComboboxItem
                 key={a.id}

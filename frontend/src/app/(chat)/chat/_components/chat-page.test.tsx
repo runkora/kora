@@ -71,8 +71,9 @@ beforeEach(() => {
   api.runs = [];
   api.start.mockReset();
   window.history.replaceState(null, '', '/chat');
-  // jsdom has no Web Animations API.
+  // jsdom has no Web Animations API and no scrollIntoView, which cmdk calls on the highlight.
   HTMLElement.prototype.animate = vi.fn(() => ({ cancel() {} }) as unknown as Animation);
+  Element.prototype.scrollIntoView = vi.fn();
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -143,6 +144,33 @@ describe('ChatPage', () => {
     await user.type(field, 'One{Shift>}{Enter}{/Shift}Two');
     expect(field).toHaveValue('One\nTwo');
     expect(api.start).not.toHaveBeenCalled();
+  });
+
+  it('lists agents in the picker, an agent the viewer cannot start disabled', async () => {
+    const user = userEvent.setup();
+    render(<ChatPage />);
+    await user.click(await screen.findByRole('button', { name: 'Agent: Coder' }));
+    const locked = await screen.findByRole('option', { name: /Locked/ });
+    expect(locked).toHaveAttribute('aria-disabled', 'true');
+    expect(locked).toHaveTextContent('No access');
+    expect(screen.queryByRole('combobox')).toBeNull();
+    await user.click(screen.getByRole('option', { name: /Reviewer/ }));
+    expect(await composer()).toHaveAttribute('placeholder', 'What should Reviewer work on?');
+  });
+
+  it('searches the agents by description from 8 agents up', async () => {
+    api.agents = Array.from({ length: 8 }, (_, i) => agent(`a${i}`, `Agent ${i}`));
+    api.agents[5] = { ...api.agents[5]!, description: 'Drafts release notes.' };
+    const user = userEvent.setup();
+    render(<ChatPage />);
+    await user.click(await screen.findByRole('button', { name: 'Agent: Agent 0' }));
+    await user.type(await screen.findByRole('combobox'), 'release');
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
+      expect.stringContaining('Agent 5'),
+    ]);
+    await user.clear(screen.getByRole('combobox'));
+    await user.type(screen.getByRole('combobox'), 'nothing like this');
+    expect(screen.getByText('No agent matches “nothing like this”.')).toBeInTheDocument();
   });
 
   it('offers the Agents list when there is no agent to start', async () => {

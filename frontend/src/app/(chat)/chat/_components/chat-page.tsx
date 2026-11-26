@@ -123,7 +123,7 @@ export function ChatPage({
   agentSlug?: string;
   height?: string;
 }) {
-  const { user } = useSession();
+  const { user, loaded: sessionLoaded } = useSession();
   const firstName = user?.name.trim().split(/\s+/)[0] || undefined;
   const own = useOwnRuns();
   const [agents, setAgents] = useState<{ list: Agent[]; error: string | null } | null>(null);
@@ -161,7 +161,8 @@ export function ChatPage({
     );
   }
 
-  const loaded = agents !== null && own.loaded;
+  // The heading plays once, so it waits for the viewer's name as well as the lists.
+  const loaded = agents !== null && own.loaded && sessionLoaded;
   const agent = picked ?? (loaded ? selectAgent(agents.list, own.runs, agentSlug) : null);
 
   // The run page takes over in place: the address becomes the run's, and the composer moves.

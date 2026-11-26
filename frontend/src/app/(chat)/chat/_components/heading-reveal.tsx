@@ -61,7 +61,7 @@ export function HeadingReveal({ name }: { name?: string }) {
         { transform: `translateY(${-SIZE * 0.75}px)`, opacity: 0 },
         { transform: 'translateY(0)', opacity: 1 },
       ],
-      { duration: DROP, easing: 'cubic-bezier(0.5, 0, 0.75, 0)', fill: 'both' },
+      { duration: DROP, easing: 'cubic-bezier(0.5, 0, 0.75, 0)', fill: 'backwards' },
     );
     // Its lower half turns to the accent and steps aside, which is the mark.
     lower.current?.animate(
@@ -69,7 +69,7 @@ export function HeadingReveal({ name }: { name?: string }) {
         { transform: 'translate(0, 0)', background: 'var(--color-foreground)' },
         { transform: SHIFT, background: 'var(--color-border-accent)' },
       ],
-      { duration: SPLIT, delay: DROP, easing: SETTLE, fill: 'both' },
+      { duration: SPLIT, delay: DROP, easing: SETTLE, fill: 'backwards' },
     );
   }, []);
 
