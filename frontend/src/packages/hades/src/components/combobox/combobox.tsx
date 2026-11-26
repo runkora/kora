@@ -19,15 +19,32 @@ export type ComboboxProps = Omit<React.ComponentPropsWithoutRef<typeof Command>,
  * the list. `label` names the input. `filter` replaces the default substring match.
  */
 const Combobox = React.forwardRef<React.ComponentRef<typeof Command>, ComboboxProps>(
-  ({ filter = containsSearch, ...props }, ref) => (
-    <Command
-      ref={ref}
-      data-slot="combobox"
-      filter={filter}
-      className="flex flex-col gap-1 outline-none"
-      {...props}
-    />
-  ),
+  ({ filter = containsSearch, ...props }, ref) => {
+    const root = React.useRef<HTMLDivElement | null>(null);
+    const setRoot = (el: HTMLDivElement | null) => {
+      root.current = el;
+      if (typeof ref === 'function') ref(el);
+      else if (ref) ref.current = el;
+    };
+    // cmdk always renders a label for its input. Without an input, it would point at nothing.
+    React.useLayoutEffect(() => {
+      const label = root.current?.querySelector<HTMLLabelElement>(':scope > [cmdk-label]');
+      if (!label) return;
+      const input = root.current?.querySelector('[cmdk-input]');
+      label.hidden = !input;
+      if (input) label.htmlFor = input.id;
+      else label.removeAttribute('for');
+    });
+    return (
+      <Command
+        ref={setRoot}
+        data-slot="combobox"
+        filter={filter}
+        className="flex flex-col gap-1 outline-none"
+        {...props}
+      />
+    );
+  },
 );
 Combobox.displayName = 'Combobox';
 

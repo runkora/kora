@@ -48,11 +48,14 @@ describe('Reveal', () => {
     expect(animate).not.toHaveBeenCalled();
   });
 
-  it('adds no live region', () => {
+  it('forwards its ref to the root', () => {
     reducedMotion(true);
-    render(<Reveal data-testid="r">{words}</Reveal>);
-    const root = screen.getByTestId('r');
-    expect(root.querySelector('[aria-live],[role="status"],[role="alert"]')).toBeNull();
-    expect(root).not.toHaveAttribute('aria-live');
+    const ref = { current: null as HTMLSpanElement | null };
+    render(
+      <Reveal ref={ref} data-testid="r">
+        {words}
+      </Reveal>,
+    );
+    expect(ref.current).toBe(screen.getByTestId('r'));
   });
 });

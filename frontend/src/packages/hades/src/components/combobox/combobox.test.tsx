@@ -69,6 +69,19 @@ describe('Combobox', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it('leaves no label pointing at a missing input when there is no search field', () => {
+    render(
+      <Combobox label="Planet">
+        <ComboboxList label="Planets">
+          <ComboboxItem value="venus">venus</ComboboxItem>
+        </ComboboxList>
+      </Combobox>,
+    );
+    const label = document.querySelector('[cmdk-label]')!;
+    expect(label).not.toHaveAttribute('for');
+    expect(label).toHaveAttribute('hidden');
+  });
+
   it('skips a disabled option with the arrow keys', async () => {
     const { onSelect, user } = setup();
     await user.click(screen.getByRole('combobox'));

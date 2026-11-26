@@ -631,7 +631,7 @@ import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } fr
 
 ## One-Shot Motion: `Reveal`
 
-`Reveal` plays its children in once on mount. Each child rises from 0.4em below its place and fades in. `stagger`, `duration` and `delay` take milliseconds. Under `prefers-reduced-motion: reduce` the children show in place. `Reveal` adds no ARIA attributes, and the text reads as it would without it. Use it for content mounted on the client: server-rendered items show in place until hydration hides them and plays them in.
+`Reveal` plays its children in once on mount. Each child rises from 0.4em below its place and fades in. `stagger`, `duration` and `delay` take milliseconds. Under `prefers-reduced-motion: reduce` the children show in place. `Reveal` adds no ARIA attributes, and the text reads as it would without it. Use it for content mounted on the client: server-rendered items show in place until hydration hides them and plays them in. `SETTLE_EASING` is its easing, for other motion that should settle the same way.
 
 Pass one child per item. A whitespace-only string between items stays as text.
 

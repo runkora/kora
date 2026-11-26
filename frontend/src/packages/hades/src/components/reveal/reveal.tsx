@@ -10,8 +10,8 @@ const FRAMES: Keyframe[] = [
   { opacity: 1, transform: 'translateY(0)' },
 ];
 
-/** Quick at first, then slow into place. */
-const SETTLE = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+/** The easing of a move into place: quick at first, then slow to settle. */
+export const SETTLE_EASING = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
 
 export interface RevealProps extends Omit<React.ComponentPropsWithoutRef<'span'>, 'className'> {
   /** Milliseconds between one item's start and the next's. */
@@ -30,8 +30,12 @@ export interface RevealProps extends Omit<React.ComponentPropsWithoutRef<'span'>
  */
 const Reveal = React.forwardRef<HTMLSpanElement, RevealProps>(
   ({ stagger = 60, duration = 280, delay = 0, children, ...props }, ref) => {
-    const root = React.useRef<HTMLSpanElement>(null);
-    React.useImperativeHandle(ref, () => root.current as HTMLSpanElement);
+    const root = React.useRef<HTMLSpanElement | null>(null);
+    const setRoot = (el: HTMLSpanElement | null) => {
+      root.current = el;
+      if (typeof ref === 'function') ref(el);
+      else if (ref) ref.current = el;
+    };
 
     // Before paint, so no item shows in place first and then jumps back to its start.
     React.useLayoutEffect(() => {
@@ -42,7 +46,7 @@ const Reveal = React.forwardRef<HTMLSpanElement, RevealProps>(
         item.animate(FRAMES, {
           duration,
           delay: delay + i * stagger,
-          easing: SETTLE,
+          easing: SETTLE_EASING,
           // Holds the start frame through the delay and leaves no transform behind once done.
           fill: 'backwards',
         }),
@@ -51,7 +55,7 @@ const Reveal = React.forwardRef<HTMLSpanElement, RevealProps>(
     }, [stagger, duration, delay]);
 
     return (
-      <span ref={root} data-slot="reveal" {...props}>
+      <span ref={setRoot} data-slot="reveal" {...props}>
         {React.Children.map(children, (child) =>
           typeof child === 'string' && !child.trim() ? (
             child

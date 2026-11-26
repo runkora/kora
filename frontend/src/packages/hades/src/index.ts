@@ -106,7 +106,7 @@ export { Skeleton } from './components/skeleton';
 export { OrbitalLoader } from './components/orbital-loader';
 export type { OrbitalLoaderProps } from './components/orbital-loader';
 
-export { Reveal } from './components/reveal';
+export { Reveal, SETTLE_EASING } from './components/reveal';
 export type { RevealProps } from './components/reveal';
 
 export { Donut, donutSegmentColor } from './components/donut';
