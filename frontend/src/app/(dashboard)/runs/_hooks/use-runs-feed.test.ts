@@ -70,12 +70,53 @@ beforeEach(() => {
 const latest = () => api.sources[api.sources.length - 1]!;
 
 describe('useRunsFeed', () => {
-  it('fetches the first page only once the stream is subscribed', async () => {
+  it('draws a page read while the stream subscribes, then the page read once it is subscribed', async () => {
     const { result } = renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS));
-    expect(api.calls).toEqual(['stream']);
-    act(() => latest().onopen?.());
-    await waitFor(() => expect(result.current.runs).toHaveLength(2));
     expect(api.calls).toEqual(['stream', 'page?limit=50']);
+    await waitFor(() => expect(result.current.runs).toHaveLength(2));
+    act(() => latest().onopen?.());
+    await waitFor(() => expect(api.calls).toEqual(['stream', 'page?limit=50', 'page?limit=50']));
+  });
+
+  it('keeps a change that arrives before the subscribed page, and replays it on that page', async () => {
+    let answer: (value: unknown) => void = () => {};
+    let reads = 0;
+    api.fetchRunsPage.mockImplementation(() => {
+      reads += 1;
+      // The page read alongside the stream answers at once; the subscribed one waits.
+      if (reads === 1) {
+        return Promise.resolve({
+          page: { runs: [run('b'), run('a')], nextCursor: null },
+          error: null,
+        });
+      }
+      return new Promise((resolve) => (answer = resolve));
+    });
+    const { result } = renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS));
+    await waitFor(() => expect(result.current.runs.map((r) => r.id)).toEqual(['b', 'a']));
+    act(() => latest().onopen?.());
+    const created = { ...run('c'), updated_at: '2026-11-25T10:05:00Z' };
+    act(() => latest().emit('run', { type: 'agents.run.created.v1', matches: true, run: created }));
+    // The subscribed page was read before c was created, so only the replayed change adds it.
+    await act(async () =>
+      answer({ page: { runs: [run('b'), run('a')], nextCursor: null }, error: null }),
+    );
+    expect(result.current.runs.map((r) => r.id)).toEqual(['c', 'b', 'a']);
+  });
+
+  it('ignores the page read alongside the stream when the subscribed page answered first', async () => {
+    let early: (value: unknown) => void = () => {};
+    let reads = 0;
+    api.fetchRunsPage.mockImplementation(() => {
+      reads += 1;
+      if (reads === 1) return new Promise((resolve) => (early = resolve));
+      return Promise.resolve({ page: { runs: [run('b')], nextCursor: null }, error: null });
+    });
+    const { result } = renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS));
+    act(() => latest().onopen?.());
+    await waitFor(() => expect(result.current.runs.map((r) => r.id)).toEqual(['b']));
+    await act(async () => early({ page: { runs: [run('stale')], nextCursor: null }, error: null }));
+    expect(result.current.runs.map((r) => r.id)).toEqual(['b']);
   });
 
   it('still loads the list when the stream is refused', async () => {
@@ -89,7 +130,7 @@ describe('useRunsFeed', () => {
       await act(() => vi.advanceTimersByTimeAsync(5_000));
       expect(latest().url).toBe('?');
       await act(async () => latest().onopen?.());
-      expect(api.fetchRunsPage).toHaveBeenCalledTimes(2);
+      expect(api.fetchRunsPage).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
     }
@@ -104,7 +145,7 @@ describe('useRunsFeed', () => {
     // The retried stream reads the first page again once it opens, as the page was read unsubscribed.
     await act(async () => latest().onopen?.());
     expect(api.sources).toHaveLength(1);
-    expect(api.fetchRunsPage).toHaveBeenCalledTimes(2);
+    expect(api.fetchRunsPage).toHaveBeenCalledTimes(3);
   });
 
   it('replaces the stream on a reset and reads the first page again once it opens', async () => {
@@ -117,9 +158,9 @@ describe('useRunsFeed', () => {
     expect(first.closed).toBe(true);
     expect(api.sources).toHaveLength(2);
     expect(latest().url).toBe('?');
-    expect(api.fetchRunsPage).toHaveBeenCalledTimes(1);
+    expect(api.fetchRunsPage).toHaveBeenCalledTimes(2);
     act(() => latest().onopen?.());
-    await waitFor(() => expect(api.fetchRunsPage).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(api.fetchRunsPage).toHaveBeenCalledTimes(3));
   });
 
   it('reopens a closed stream past the last event it read', async () => {
@@ -137,7 +178,7 @@ describe('useRunsFeed', () => {
       expect(api.sources).toHaveLength(2);
       expect(latest().url).toBe('?after=48213');
       await act(async () => latest().onopen?.());
-      expect(api.fetchRunsPage).toHaveBeenCalledTimes(1);
+      expect(api.fetchRunsPage).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }
@@ -174,7 +215,7 @@ describe('useRunsFeed', () => {
     expect(result.current.runs.map((r) => r.id)).toEqual(['a']);
     act(() => result.current.newer());
     expect(result.current.runs.map((r) => r.id)).toEqual(['b']);
-    expect(api.fetchRunsPage).toHaveBeenCalledTimes(2);
+    expect(api.fetchRunsPage).toHaveBeenCalledTimes(3);
   });
 
   it('drops an older page that answers after the filters changed', async () => {
@@ -219,7 +260,7 @@ describe('useRunsFeed', () => {
     );
     expect(result.current.freshCount).toBe(1);
     act(() => result.current.newer());
-    await waitFor(() => expect(api.fetchRunsPage).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(api.fetchRunsPage).toHaveBeenCalledTimes(4));
     await waitFor(() => expect(result.current.freshCount).toBe(0));
     expect(result.current.pageIndex).toBe(0);
   });
@@ -228,7 +269,7 @@ describe('useRunsFeed', () => {
     renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS));
     const first = latest();
     act(() => first.onopen?.());
-    await waitFor(() => expect(api.fetchRunsPage).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.fetchRunsPage).toHaveBeenCalledTimes(2));
     act(() => first.emit('run', { type: 'agents.run.idle.v1', matches: true, run: run('a') }, '9'));
     // An ended response leaves the source connecting, not closed.
     first.readyState = 0;
@@ -236,7 +277,7 @@ describe('useRunsFeed', () => {
     expect(first.closed).toBe(false);
     expect(api.sources).toHaveLength(1);
     act(() => first.onopen?.());
-    expect(api.fetchRunsPage).toHaveBeenCalledTimes(1);
+    expect(api.fetchRunsPage).toHaveBeenCalledTimes(2);
   });
 
   it('reports a dropped stream until it opens again', async () => {

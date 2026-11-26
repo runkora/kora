@@ -2,7 +2,8 @@
 
 /**
  * @tier 3 — runs-scoped. The run list for the filters: the live stream, opened before the first
- * page so no change between them is lost, then pages on request. Changing filters starts over.
+ * page so no change between them is lost, then pages on request. A first page read alongside
+ * the stream is drawn until that page lands. Changing filters starts over.
  */
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
@@ -141,7 +142,16 @@ export function useRunsFeed(filters: RunFilters): RunsFeed {
       };
     };
     open();
+    // A first page read while the stream subscribes draws the rows a round trip sooner.
+    // The page read once the stream opens still replaces it, with every change since.
+    let cancelled = false;
+    const provisional = new URLSearchParams(key);
+    provisional.set('limit', String(RUNS_PAGE_SIZE));
+    void fetchRunsPage(provisional).then(({ page }) => {
+      if (!cancelled && page) act({ type: 'provisional', page });
+    });
     return () => {
+      cancelled = true;
       source?.close();
       window.clearTimeout(timer);
       epoch.current += 1;
