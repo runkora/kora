@@ -367,7 +367,7 @@ Every extracted component file must open with a `@tier` JSDoc comment:
 ```ts
 /** @tier 1 — Zero kora domain knowledge. Could be extracted to a standalone library. */
 
-/** @tier 2 — kora-domain-aware: uses kora status tokens. Used by: dashboard overview, model-gateway. */
+/** @tier 2 — kora-domain-aware: uses kora status tokens. Used by: agents, model-gateway. */
 
 /** @tier 3 — model-gateway-scoped. Promote to src/components/ if a second feature needs this. */
 ```
@@ -376,7 +376,7 @@ Promoting Tier 3 → 2 → 1 is easy; splitting an over-generalised component is
 
 All `src/` filenames must be kebab-case. Files in `src/app/**` that import React client hooks need `"use client"` as the first line; files in `src/server/**` and Route Handlers need `import "server-only"` as the very first import. Before marking any frontend task complete: `cd frontend && pnpm lint && pnpm tsc --noEmit`; both must pass with zero errors.
 
-**Reference docs:** [`frontend/docs/reference/component-placement.md`](frontend/docs/reference/component-placement.md) (full Hades component inventory, Storybook conventions, authoring rules) · [`frontend/docs/reference/app-components.md`](frontend/docs/reference/app-components.md) (Tier 2 component API: StatusBadge) · [`frontend/docs/reference/hades-design-system.md`](frontend/docs/reference/hades-design-system.md) (full Hades usage, props, examples, verification checklist) · [`frontend/docs/golden-paths/frontend-state-pattern.md`](frontend/docs/golden-paths/frontend-state-pattern.md) (fetching, caching, reactive state) · [`frontend/docs/golden-paths/table-layout.md`](frontend/docs/golden-paths/table-layout.md) (column sizing, truncation and list clamping for tables)
+**Reference docs:** [`frontend/docs/reference/component-placement.md`](frontend/docs/reference/component-placement.md) (full Hades component inventory, Storybook conventions, authoring rules) · [`frontend/docs/reference/app-components.md`](frontend/docs/reference/app-components.md) (Tier 2 component API: StatusBadge, RunStateIcon, StarterMark) · [`frontend/docs/reference/hades-design-system.md`](frontend/docs/reference/hades-design-system.md) (full Hades usage, props, examples, verification checklist) · [`frontend/docs/golden-paths/frontend-state-pattern.md`](frontend/docs/golden-paths/frontend-state-pattern.md) (fetching, caching, reactive state) · [`frontend/docs/golden-paths/table-layout.md`](frontend/docs/golden-paths/table-layout.md) (column sizing, truncation and list clamping for tables)
 
 ## Getting Help
 

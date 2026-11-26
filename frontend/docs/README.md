@@ -9,7 +9,7 @@ the component placement decision tree.
 
 - [hades-design-system.md](reference/hades-design-system.md): Hades component usage, props, examples, and the verification checklist. Authoritative for how to write product JSX.
 - [component-placement.md](reference/component-placement.md): the three-tier component model (Hades / `@runkora/components` / feature-scoped), the full Hades inventory, and `@tier` annotation rules.
-- [app-components.md](reference/app-components.md), index of Tier 2 app-shared components (`@runkora/components`): StatusBadge.
+- [app-components.md](reference/app-components.md), index of Tier 2 app-shared components (`@runkora/components`): StatusBadge, RunStateIcon and StarterMark.
 
 ## Golden paths
 
