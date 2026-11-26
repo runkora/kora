@@ -27,15 +27,21 @@ async function readFirstPage(
   const key = runFilterParams(runFiltersFromUrl(url)).toString();
   const query = new URLSearchParams(key);
   query.set('limit', String(RUNS_PAGE_SIZE));
-  try {
-    const body = await listRunsWithNames(session.accessToken, pickRunsPageParams(query));
-    return {
+  // A slow read gives way to the browser's own read, so the page never waits long on it.
+  const read = listRunsWithNames(session.accessToken, pickRunsPageParams(query)).then(
+    (body) => ({
       id: crypto.randomUUID(),
       key,
       page: { runs: body.data ?? [], nextCursor: body.next_cursor ?? null },
-    };
-  } catch {
-    // The browser reads the page itself.
-    return null;
-  }
+    }),
+    () => null,
+  );
+  return Promise.race([read, timeout(FIRST_PAGE_WAIT_MS)]);
+}
+
+/** How long the route waits for the first page before rendering without it. */
+const FIRST_PAGE_WAIT_MS = 1_500;
+
+function timeout(ms: number): Promise<null> {
+  return new Promise((resolve) => setTimeout(() => resolve(null), ms));
 }
