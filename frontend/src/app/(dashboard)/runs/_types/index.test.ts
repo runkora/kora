@@ -1,5 +1,32 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_RUN_FILTERS, runFilterParams, type RunFilters } from '.';
+import {
+  DEFAULT_RUN_FILTERS,
+  runFilterParams,
+  runFiltersFromUrl,
+  runFiltersToUrl,
+  type RunFilters,
+} from '.';
+
+describe('Runs page URL', () => {
+  it('round-trips every filter', () => {
+    const filters: RunFilters = {
+      quick: 'mine',
+      agentTypeId: 'agt_1',
+      source: 'scheduled',
+      query: 'retry',
+    };
+    const url = runFiltersToUrl(filters);
+    expect(url.toString()).toBe('quick=mine&agent_type_id=agt_1&trigger_kind=scheduled&q=retry');
+    expect(runFiltersFromUrl(url)).toEqual(filters);
+  });
+
+  it('writes nothing for the defaults and reads unknown values as the defaults', () => {
+    expect(runFiltersToUrl(DEFAULT_RUN_FILTERS).toString()).toBe('');
+    expect(runFiltersFromUrl(new URLSearchParams('quick=nope&trigger_kind=nope'))).toEqual(
+      DEFAULT_RUN_FILTERS,
+    );
+  });
+});
 
 const query = (patch: Partial<RunFilters>) =>
   runFilterParams({ ...DEFAULT_RUN_FILTERS, ...patch }).toString();

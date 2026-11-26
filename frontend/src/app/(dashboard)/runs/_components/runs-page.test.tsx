@@ -4,11 +4,11 @@ import { renderWithProviders } from '@runkora/test-utils';
 import type { RunWithAttribution } from '@runkora/shared/api';
 import type { RunsFeed } from '../_hooks/use-runs-feed';
 
-const nav = vi.hoisted(() => ({ push: vi.fn() }));
+const nav = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), search: '' }));
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: nav.push }),
+  useRouter: () => ({ push: nav.push, replace: nav.replace }),
   usePathname: () => '/runs',
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(nav.search),
 }));
 vi.mock('../../agents/_services/agents-api', () => ({
   fetchAgentTypes: () => Promise.resolve({ data: [], error: null }),
@@ -57,6 +57,8 @@ const withFeed = (over: Partial<RunsFeed> = {}) => {
 
 beforeEach(() => {
   nav.push.mockReset();
+  nav.replace.mockReset();
+  nav.search = '';
   withFeed();
 });
 
@@ -92,6 +94,30 @@ describe('RunsPage', () => {
     renderWithProviders(<RunsPage />);
     fireEvent.click(screen.getByText('Fix the flaky test'));
     expect(nav.push).toHaveBeenCalledWith('/agents/coder/runs/run-1?from=runs');
+  });
+
+  it('restores the filters from the URL and carries them to the run it opens', () => {
+    nav.search = 'quick=bogus&trigger_kind=webhook&q=flaky';
+    withFeed({ runs: [run] });
+    renderWithProviders(<RunsPage />);
+    expect(screen.getByLabelText('Filter by source')).toHaveValue('webhook');
+    expect(screen.getByPlaceholderText('Search runs…')).toHaveValue('flaky');
+    // The unknown quick filter falls back to All, and the URL is rewritten without it.
+    expect(nav.replace).toHaveBeenCalledWith('/runs?trigger_kind=webhook&q=flaky', {
+      scroll: false,
+    });
+    fireEvent.click(screen.getByText('Fix the flaky test'));
+    expect(nav.push).toHaveBeenCalledWith(
+      '/agents/coder/runs/run-1?from=runs&runs=trigger_kind%3Dwebhook%26q%3Dflaky',
+    );
+  });
+
+  it('writes a filter change to the URL with replace', () => {
+    renderWithProviders(<RunsPage />);
+    expect(nav.replace).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Filter by source'), { target: { value: 'event' } });
+    expect(nav.replace).toHaveBeenCalledWith('/runs?trigger_kind=event', { scroll: false });
+    expect(nav.push).not.toHaveBeenCalled();
   });
 
   it('says when the live stream is reconnecting', () => {

@@ -86,8 +86,17 @@ export function SessionsPane({
   const subagents = rows.flatMap((r) =>
     r.type === 'step' && r.step.kind === 'subagent' ? [r.step] : [],
   );
-  // Only the known value counts, so the URL cannot point the back link anywhere else.
-  const from = useSearchParams()?.get('from') === 'runs' ? 'runs' : undefined;
+  // Only `from=runs` counts, and the back link's path is fixed, so the URL cannot send it
+  // elsewhere. `runs` carries the Runs page's filters back.
+  const params = useSearchParams();
+  const runsQuery =
+    params?.get('from') === 'runs'
+      ? new URLSearchParams(params.get('runs') ?? '').toString()
+      : undefined;
+  const back =
+    runsQuery === undefined
+      ? APP_ROUTES.agents.detail(run.agent.slug)
+      : `${APP_ROUTES.runs}${runsQuery ? `?${runsQuery}` : ''}`;
   return (
     <Stack
       gap="relaxed"
@@ -102,13 +111,10 @@ export function SessionsPane({
       }}
     >
       <Stack asChild direction="horizontal" align="center" gap="snug">
-        <Link
-          href={from ? APP_ROUTES.runs : APP_ROUTES.agents.detail(run.agent.slug)}
-          style={{ padding: '0 10px', textDecoration: 'none', color: 'inherit' }}
-        >
+        <Link href={back} style={{ padding: '0 10px', textDecoration: 'none', color: 'inherit' }}>
           <Icon name="arrow-left" size="2xs" color="subtle" label="" />
           <Text size="supporting" color="muted">
-            {from ? 'Runs' : run.agent.name}
+            {runsQuery === undefined ? run.agent.name : 'Runs'}
           </Text>
         </Link>
       </Stack>
@@ -148,7 +154,7 @@ export function SessionsPane({
               label={r.label}
               meta={r.meta}
               running={r.running}
-              href={APP_ROUTES.agents.run(run.agent.slug, r.id, from)}
+              href={APP_ROUTES.agents.run(run.agent.slug, r.id, runsQuery)}
             />
           ))}
         </Stack>

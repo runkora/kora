@@ -54,3 +54,25 @@ export function runFilterParams(filters: RunFilters): URLSearchParams {
   if (q) params.set('q', q);
   return params;
 }
+
+/** The filters as the Runs page's own query, with the API's names where they map. */
+export function runFiltersToUrl(filters: RunFilters): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filters.quick !== 'all') params.set('quick', filters.quick);
+  if (filters.agentTypeId) params.set('agent_type_id', filters.agentTypeId);
+  if (filters.source) params.set('trigger_kind', filters.source);
+  if (filters.query) params.set('q', filters.query);
+  return params;
+}
+
+/** The filters a Runs page query holds; an unknown quick filter or source reads as the default. */
+export function runFiltersFromUrl(params: URLSearchParams): RunFilters {
+  const quick = QUICK_FILTERS.find((f) => f.value === params.get('quick'))?.value;
+  const source = RUN_SOURCES.find((s) => s.value === params.get('trigger_kind'))?.value;
+  return {
+    quick: quick ?? DEFAULT_RUN_FILTERS.quick,
+    agentTypeId: params.get('agent_type_id') || null,
+    source: source ?? null,
+    query: params.get('q') ?? '',
+  };
+}

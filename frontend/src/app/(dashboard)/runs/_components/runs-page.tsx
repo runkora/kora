@@ -7,7 +7,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Alert,
   Badge,
@@ -40,6 +40,8 @@ import {
   DEFAULT_RUN_FILTERS,
   QUICK_FILTERS,
   RUN_SOURCES,
+  runFiltersFromUrl,
+  runFiltersToUrl,
   type RunFilters,
   type RunSourceFilter,
 } from '../_types';
@@ -195,11 +197,22 @@ function RunsEmpty({
 
 export function RunsPage() {
   const router = useRouter();
-  const [filters, setFilters] = useState<RunFilters>(DEFAULT_RUN_FILTERS);
-  const [search, setSearch] = useState('');
+  const params = useSearchParams();
+  const [filters, setFilters] = useState<RunFilters>(() => runFiltersFromUrl(params));
+  const [search, setSearch] = useState(filters.query);
   const [agentTypes, setAgentTypes] = useState<AgentTypeRow[]>([]);
   const [agentsError, setAgentsError] = useState(false);
   const feed = useRunsFeed(filters);
+  const urlQuery = runFiltersToUrl(filters).toString();
+
+  // The filters live in the URL so back, reload and shared links restore them. Replace keeps
+  // typing out of the history.
+  useEffect(() => {
+    if (urlQuery === params.toString()) return;
+    router.replace(urlQuery ? `${APP_ROUTES.runs}?${urlQuery}` : APP_ROUTES.runs, {
+      scroll: false,
+    });
+  }, [urlQuery, params, router]);
 
   useEffect(() => {
     const timer = window.setTimeout(
@@ -214,6 +227,13 @@ export function RunsPage() {
     void fetchAgentTypes().then(({ data, error }) => {
       setAgentTypes(data);
       setAgentsError(error !== null);
+      // An agent from the URL that the viewer cannot read falls back to every agent.
+      if (error === null)
+        setFilters((f) =>
+          f.agentTypeId && !data.some((a) => a.id === f.agentTypeId)
+            ? { ...f, agentTypeId: null }
+            : f,
+        );
     });
   }, []);
 
@@ -285,7 +305,7 @@ export function RunsPage() {
           data={rows}
           columns={COLUMNS}
           getRowKey={(r) => r.id}
-          onRowClick={(r) => router.push(APP_ROUTES.agents.run(r.agentTypeSlug, r.id, 'runs'))}
+          onRowClick={(r) => router.push(APP_ROUTES.agents.run(r.agentTypeSlug, r.id, urlQuery))}
           rowLabel={(r) => `Open run ${titleOf(r)}`}
           noun="runs"
           hideHeader

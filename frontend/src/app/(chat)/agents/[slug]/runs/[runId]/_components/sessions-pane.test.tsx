@@ -45,6 +45,18 @@ describe('SessionsPane back link', () => {
     );
   });
 
+  it('returns to the Runs page with the filters it was opened under', () => {
+    renderPane('from=runs&runs=quick%3Dmine%26q%3Dretry');
+    expect(screen.getByRole('link', { name: 'Runs' })).toHaveAttribute(
+      'href',
+      '/runs?quick=mine&q=retry',
+    );
+    expect(screen.getByRole('link', { name: /An earlier run/ })).toHaveAttribute(
+      'href',
+      '/agents/code-reviewer/runs/run-0?from=runs&runs=quick%3Dmine%26q%3Dretry',
+    );
+  });
+
   it('ignores any other origin', () => {
     renderPane('from=https://example.com');
     expect(screen.getByRole('link', { name: 'Code reviewer' })).toHaveAttribute(
