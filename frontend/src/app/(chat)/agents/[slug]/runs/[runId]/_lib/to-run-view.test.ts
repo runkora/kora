@@ -422,6 +422,13 @@ describe('title', () => {
     );
   });
 
+  it('keeps a word that ends exactly at the limit', () => {
+    const line = `${'a'.repeat(55)} word next`;
+    expect(toRunView(hookState({ turns: [human('h1', line)] })).summary).toBe(
+      `${'a'.repeat(55)} word…`,
+    );
+  });
+
   it('is the summary once the run has one', () => {
     const run = { ...RUN, summary: 'Retry the relay calls' } as RunWithAttribution;
     expect(toRunView(hookState({ turns: [ask], run })).summary).toBe('Retry the relay calls');

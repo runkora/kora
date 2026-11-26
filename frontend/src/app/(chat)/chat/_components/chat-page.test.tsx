@@ -147,6 +147,34 @@ describe('ChatPage', () => {
     expect(await composer()).toHaveAttribute('placeholder', 'What should Reviewer work on?');
   });
 
+  it('moves through a short list with the arrow keys, past an agent the viewer cannot start', async () => {
+    const user = userEvent.setup();
+    render(<ChatPage />);
+    await user.click(await screen.findByRole('button', { name: 'Agent: Coder' }));
+    expect(await screen.findByRole('listbox', { name: 'Agents' })).toHaveFocus();
+    // Reviewer is next. Locked is disabled, so a second ArrowDown stays on Reviewer.
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}');
+    expect(await composer()).toHaveAttribute('placeholder', 'What should Reviewer work on?');
+  });
+
+  it('focuses the composer when the page is ready', async () => {
+    render(<ChatPage />);
+    expect(await composer()).toHaveFocus();
+  });
+
+  it('stays put when the viewer leaves while the run starts', async () => {
+    let resolve: (v: unknown) => void = () => {};
+    api.start.mockReturnValue(new Promise((r) => (resolve = r)));
+    const user = userEvent.setup();
+    const { unmount } = render(<ChatPage />);
+    await user.type(await composer(), 'Fix the flaky test{Enter}');
+    unmount();
+    resolve({ run: { id: 'run-left' }, error: null });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(replace).not.toHaveBeenCalled();
+    expect(handedOver('run-left')).toBeUndefined();
+  });
+
   it('searches the agents by description from 8 agents up', async () => {
     api.agents = Array.from({ length: 8 }, (_, i) => agent(`a${i}`, `Agent ${i}`));
     api.agents[5] = { ...api.agents[5]!, description: 'Drafts release notes.' };

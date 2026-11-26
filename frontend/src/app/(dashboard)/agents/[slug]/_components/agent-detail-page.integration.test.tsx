@@ -4,9 +4,9 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { renderWithProviders, server } from '@runkora/test-utils';
 
-const nav = vi.hoisted(() => ({ search: '' }));
+const nav = vi.hoisted(() => ({ search: '', push: vi.fn() }));
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push: nav.push, replace: vi.fn(), refresh: vi.fn() }),
   usePathname: () => '/agents/code-reviewer',
   useSearchParams: () => new URLSearchParams(nav.search),
 }));
@@ -99,5 +99,14 @@ describe('AgentDetailPage URL', () => {
     expect(push).toHaveBeenCalledWith(null, '', '/agents/code-reviewer?tab=grades&grader=ci-read');
     await userEvent.click(screen.getByRole('tab', { name: /Runs/ }));
     expect(replace).toHaveBeenCalledWith(null, '', '/agents/code-reviewer?tab=runs');
+  });
+
+  it('opens the chat page with this agent from Start Run', async () => {
+    serve();
+    nav.search = '';
+    nav.push.mockReset();
+    renderWithProviders(page());
+    await userEvent.click(screen.getByRole('button', { name: 'Start Run' }));
+    expect(nav.push).toHaveBeenCalledWith('/chat?agent=code-reviewer');
   });
 });

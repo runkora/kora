@@ -157,6 +157,8 @@ export function Composer({ run, enterFrom }: { run: RunView; enterFrom?: DOMRect
               autoResize
               rows={phone ? 2 : 3}
               maxRows={phone ? 8 : 14}
+              // A composer handed over keeps the focus the chat page's composer had.
+              autoFocus={!!enterFrom}
               value={text}
               disabled={!allowed}
               aria-label={`Message ${name}`}

@@ -272,7 +272,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
                 size="icon-sm"
                 title={row.canRun ? 'Start run' : undefined}
                 aria-label={`Start run for ${row.name}`}
-                disabled={!row.canRun}
+                disabled={!row.canRun || row.state !== 'active'}
                 onClick={() => startRun(row)}
               >
                 <Icon name="play" size="2xs" />

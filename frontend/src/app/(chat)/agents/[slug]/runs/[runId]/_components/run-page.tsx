@@ -22,7 +22,7 @@ import { APP_ROUTES } from '@runkora/lib/routing';
 import { useHasScope } from '@runkora/app/(dashboard)/_components/permissions-provider';
 import { useRunContext } from '../_context/run-context';
 import { useNow } from '../_hooks/use-now';
-import { layoutFor, RunLayoutContext, type RunLayout } from '../_lib/run-layout';
+import { RunLayoutContext, useOwnLayout, type RunLayout } from '../_lib/run-layout';
 import { earlierRunsOf, toRunView } from '../_lib/to-run-view';
 import { elapsedMs, ENDED, rowsOf, type Row, type RunView } from '../_lib/run-view';
 import { LINE, READING_WIDTH } from '../_lib/run-styles';
@@ -64,15 +64,7 @@ export function RunPage({
   const earlier = useMemo(() => earlierRunsOf(ctx.earlierRuns), [ctx.earlierRuns]);
 
   // Layout follows the page's own width, so a framed preview lays out like its device.
-  const [layout, setLayout] = useState<RunLayout>(enter?.layout ?? 'wide');
-  const rootRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const el = rootRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver(() => setLayout(layoutFor(el.offsetWidth)));
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  const [layout, rootRef] = useOwnLayout(enter?.layout);
   const [sheet, setSheet] = useState<'sessions' | 'details' | null>(null);
   const sessionsPane = layout === 'wide';
   const railPane = layout === 'wide' || layout === 'laptop';

@@ -12,7 +12,6 @@ import {
   deleteAgentType,
   deleteRun as apiDeleteRun,
 } from '../_services/agent-detail-api';
-import { fetchStartRun } from '../../_services/agents-api';
 import type { GradeFilter } from '../../_services/agents-api';
 import type { RunStateCounts } from '@runkora/shared/api';
 import { DEFAULT_PERIOD } from '../../_lib/spend';
@@ -54,7 +53,6 @@ export interface AgentDetailStateShape {
   applyAgent: (agent: AgentTypeRow) => void;
   deleteAgent: () => Promise<boolean>;
   deleteRun: (runId: string) => Promise<{ error: string | null }>;
-  startRun: (task: string) => Promise<{ runId: string | null; error: string | null }>;
 }
 
 /** Loaded runs and where the next page starts. */
@@ -222,16 +220,6 @@ export function useAgentDetail(
     [refreshCounts],
   );
 
-  const startRun = useCallback(
-    async (task: string): Promise<{ runId: string | null; error: string | null }> => {
-      if (!agent) return { runId: null, error: 'No agent loaded.' };
-      const result = await fetchStartRun(agent.id, { task });
-      if (result.error) return { runId: null, error: result.error };
-      return { runId: result.run?.id ?? null, error: null };
-    },
-    [agent],
-  );
-
   return {
     agent,
     runs,
@@ -248,7 +236,6 @@ export function useAgentDetail(
     applyAgent: setAgent,
     deleteAgent,
     deleteRun,
-    startRun,
   };
 }
 

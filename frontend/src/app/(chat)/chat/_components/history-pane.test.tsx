@@ -42,6 +42,21 @@ describe('HistoryPane', () => {
     expect(screen.getByRole('link', { name: /New run/ })).toHaveAttribute('href', '/chat');
   });
 
+  it.each(['pending', 'starting', 'active'] as const)(
+    'marks the open run running while it is %s',
+    (state) => {
+      render(<HistoryPane own={own([])} open={{ ...open, run: { ...open.run, state } }} />);
+      expect(screen.getByLabelText('Running')).toBeInTheDocument();
+    },
+  );
+
+  it('marks the open run done once it ended', () => {
+    render(
+      <HistoryPane own={own([])} open={{ ...open, run: { ...open.run, state: 'completed' } }} />,
+    );
+    expect(screen.getByLabelText('Done')).toBeInTheDocument();
+  });
+
   it('does not link New run on the empty chat page, and says where runs will appear', () => {
     render(<HistoryPane own={own([])} />);
     expect(screen.queryByRole('link', { name: /New run/ })).toBeNull();

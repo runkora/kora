@@ -7,7 +7,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import {
   Button,
   EmptyState,
@@ -27,9 +27,8 @@ import {
 } from '@runkora/app/(dashboard)/agents/_services/agents-api';
 import { useSession } from '@runkora/app/(dashboard)/_components/permissions-provider';
 import {
-  layoutFor,
   RunLayoutContext,
-  type RunLayout,
+  useOwnLayout,
 } from '@runkora/app/(chat)/agents/[slug]/runs/[runId]/_lib/run-layout';
 import { READING_WIDTH } from '@runkora/app/(chat)/agents/[slug]/runs/[runId]/_lib/run-styles';
 import {
@@ -81,6 +80,7 @@ function NewRunComposer({
             autoResize
             rows={3}
             maxRows={14}
+            autoFocus
             value={text}
             disabled={!allowed}
             aria-label="Describe the work"
@@ -140,14 +140,15 @@ export function ChatPage({
   }, []);
 
   // The page lays out by its own width, as the run page does, so the pane folds at the same sizes.
-  const [layout, setLayout] = useState<RunLayout>('wide');
-  const rootRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const el = rootRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver(() => setLayout(layoutFor(el.offsetWidth)));
-    observer.observe(el);
-    return () => observer.disconnect();
+  const [layout, rootRef] = useOwnLayout();
+
+  // A start that returns after the viewer left must not pull them to the run.
+  const left = useRef(false);
+  useEffect(() => {
+    left.current = false;
+    return () => {
+      left.current = true;
+    };
   }, []);
 
   // The heading plays once, so it waits for the viewer's name as well as the lists.
@@ -159,6 +160,7 @@ export function ChatPage({
     if (!agent) return null;
     const result = await fetchStartRun(agent.id, { task });
     if (result.error || !result.run) return result.error ?? 'The run did not start.';
+    if (left.current) return null;
     const from = frameRef.current?.getBoundingClientRect();
     handOver(result.run.id, { own, ...(from ? { enter: { from, layout } } : {}) });
     router.replace(APP_ROUTES.agents.chatRun(agent.slug, result.run.id));

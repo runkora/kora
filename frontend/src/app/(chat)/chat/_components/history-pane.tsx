@@ -5,18 +5,18 @@
  * started, newest first. The open run shows its subagents beneath it, as the sessions pane does.
  */
 
-import Link from 'next/link';
-import { Icon, Stack, Text } from '@runkora/hades';
+import { Stack, Text } from '@runkora/hades';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { earlierRunsOf } from '@runkora/app/(chat)/agents/[slug]/runs/[runId]/_lib/to-run-view';
 import {
-  commandParts,
-  formatSpan,
+  ENDED,
   type Row,
   type RunView,
 } from '@runkora/app/(chat)/agents/[slug]/runs/[runId]/_lib/run-view';
 import {
+  BackLink,
   PaneFrame,
+  RunSessionRows,
   SessionRow,
 } from '@runkora/app/(chat)/agents/[slug]/runs/[runId]/_components/sessions-pane';
 import type { OwnRuns } from '../_hooks/use-own-runs';
@@ -38,22 +38,9 @@ export function HistoryPane({
 }) {
   const rest = own.runs.filter((r) => r.id !== open?.run.id);
   const others = earlierRunsOf(rest);
-  const subagents = (open?.rows ?? []).flatMap((r) =>
-    r.type === 'step' && r.step.kind === 'subagent' ? [r.step] : [],
-  );
   return (
     <PaneFrame drawer={drawer}>
-      <Stack asChild direction="horizontal" align="center" gap="snug">
-        <Link
-          href={APP_ROUTES.home}
-          style={{ padding: '0 10px', textDecoration: 'none', color: 'inherit' }}
-        >
-          <Icon name="arrow-left" size="2xs" color="subtle" label="" />
-          <Text size="supporting" color="muted">
-            Home
-          </Text>
-        </Link>
-      </Stack>
+      <BackLink href={APP_ROUTES.home} label="Home" />
       <SessionRow
         icon="edit"
         label="New run"
@@ -71,23 +58,13 @@ export function HistoryPane({
           </Text>
         )}
         {open && (
-          <>
-            <SessionRow
-              label={open.run.summary}
-              meta={formatSpan(open.run.durationMs)}
-              active
-              running={open.run.state === 'active'}
-            />
-            {subagents.map((s) => (
-              <SessionRow
-                key={s.id}
-                label={commandParts(s)[0]}
-                meta={s.status === 'running' ? 'now' : formatSpan(s.durationMs ?? 0)}
-                running={s.status === 'running'}
-                indent
-              />
-            ))}
-          </>
+          // A run just started is pending or starting, which reads as working, not done.
+          <RunSessionRows
+            label={open.run.summary}
+            run={open.run}
+            rows={open.rows}
+            running={!ENDED.has(open.run.state ?? 'pending')}
+          />
         )}
         {others.map((r, i) => {
           const slug = rest[i]?.agent_slug;

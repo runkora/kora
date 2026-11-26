@@ -92,6 +92,51 @@ export function PaneFrame({ drawer, children }: { drawer?: boolean; children: Re
   );
 }
 
+/** The pane's top link, back to where the reader came from. */
+export function BackLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Stack asChild direction="horizontal" align="center" gap="snug">
+      <Link href={href} style={{ padding: '0 10px', textDecoration: 'none', color: 'inherit' }}>
+        <Icon name="arrow-left" size="2xs" color="subtle" label="" />
+        <Text size="supporting" color="muted">
+          {label}
+        </Text>
+      </Link>
+    </Stack>
+  );
+}
+
+/** The open run's row, active, with its subagents indented beneath it. */
+export function RunSessionRows({
+  label,
+  run,
+  rows,
+  running,
+}: {
+  label: string;
+  run: RunView;
+  rows: Row[];
+  running: boolean;
+}) {
+  const subagents = rows.flatMap((r) =>
+    r.type === 'step' && r.step.kind === 'subagent' ? [r.step] : [],
+  );
+  return (
+    <>
+      <SessionRow label={label} meta={formatSpan(run.durationMs)} active running={running} />
+      {subagents.map((s) => (
+        <SessionRow
+          key={s.id}
+          label={commandParts(s)[0]}
+          meta={s.status === 'running' ? 'now' : formatSpan(s.durationMs ?? 0)}
+          running={s.status === 'running'}
+          indent
+        />
+      ))}
+    </>
+  );
+}
+
 /** This run's main session and subagents, then the agent's other runs. */
 export function SessionsPane({
   run,
@@ -107,9 +152,6 @@ export function SessionsPane({
   /** Fills the drawer it opens in instead of standing beside the thread. */
   drawer?: boolean;
 }) {
-  const subagents = rows.flatMap((r) =>
-    r.type === 'step' && r.step.kind === 'subagent' ? [r.step] : [],
-  );
   // Only `from=runs` counts, and the back link's path is fixed, so the URL cannot send it
   // elsewhere. `runs` carries the Runs page's filters back.
   const params = useSearchParams();
@@ -123,33 +165,17 @@ export function SessionsPane({
       : `${APP_ROUTES.runs}${runsQuery ? `?${runsQuery}` : ''}`;
   return (
     <PaneFrame drawer={drawer}>
-      <Stack asChild direction="horizontal" align="center" gap="snug">
-        <Link href={back} style={{ padding: '0 10px', textDecoration: 'none', color: 'inherit' }}>
-          <Icon name="arrow-left" size="2xs" color="subtle" label="" />
-          <Text size="supporting" color="muted">
-            {runsQuery === undefined ? run.agent.name : 'Runs'}
-          </Text>
-        </Link>
-      </Stack>
+      <BackLink href={back} label={runsQuery === undefined ? run.agent.name : 'Runs'} />
       <Stack gap="tight">
         <Text size="caption" color="subtle" style={{ padding: '0 10px 6px' }}>
           This run
         </Text>
-        <SessionRow
+        <RunSessionRows
           label="Main session"
-          meta={formatSpan(run.durationMs)}
-          active
+          run={run}
+          rows={rows}
           running={run.state === 'active'}
         />
-        {subagents.map((s) => (
-          <SessionRow
-            key={s.id}
-            label={commandParts(s)[0]}
-            meta={s.status === 'running' ? 'now' : formatSpan(s.durationMs ?? 0)}
-            running={s.status === 'running'}
-            indent
-          />
-        ))}
       </Stack>
       {(earlier.length > 0 || earlierError) && (
         <Stack gap="tight">
