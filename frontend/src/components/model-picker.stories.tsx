@@ -97,7 +97,7 @@ export const Options: Story = {
         </Option>
         <Option
           name="many models"
-          use="Past eight models a filter box appears. It matches name, id and provider."
+          use="From eight models up a filter box appears. It matches name, id and provider."
         >
           <Demo models={MANY_MODELS} />
         </Option>

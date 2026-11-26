@@ -335,13 +335,11 @@ function firstLineOf(turns: RunChatState['turns'], run: RunWithAttribution | nul
       .split('\n')
       .find((l) => l.trim())
       ?.trim() ?? '';
-  // One character past the limit shows whether the last word ends there or runs on.
-  return line.length <= TITLE_MAX
-    ? line
-    : `${line
-        .slice(0, TITLE_MAX + 1)
-        .replace(/\s+\S*$/, '')
-        .slice(0, TITLE_MAX)}…`;
+  if (line.length <= TITLE_MAX) return line;
+  // One character past the limit shows whether the last word ends there or runs on. A long token
+  // such as a URL would leave little of the line, so it is cut mid-token instead.
+  const atWord = line.slice(0, TITLE_MAX + 1).replace(/\s+\S*$/, '');
+  return `${atWord.length >= TITLE_MAX / 2 ? atWord.slice(0, TITLE_MAX) : line.slice(0, TITLE_MAX)}…`;
 }
 
 /**

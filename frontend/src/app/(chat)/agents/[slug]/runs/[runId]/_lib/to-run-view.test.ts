@@ -427,6 +427,13 @@ describe('title', () => {
     expect(toRunView(hookState({ turns: [human('h1', line)] })).summary).toBe(`${'x'.repeat(60)}…`);
   });
 
+  it('cuts a long URL after a short word mid-token, so the title keeps most of the line', () => {
+    const line = `Fix https://github.com/example-org/repo/pull/1234/files#diff-${'a'.repeat(40)}`;
+    expect(toRunView(hookState({ turns: [human('h1', line)] })).summary).toBe(
+      `${line.slice(0, 60)}…`,
+    );
+  });
+
   it('keeps a word that ends exactly at the limit', () => {
     const line = `${'a'.repeat(55)} word next`;
     expect(toRunView(hookState({ turns: [human('h1', line)] })).summary).toBe(
