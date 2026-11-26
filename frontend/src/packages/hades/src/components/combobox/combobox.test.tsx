@@ -68,4 +68,13 @@ describe('Combobox', () => {
     await user.click(mars);
     expect(onSelect).not.toHaveBeenCalled();
   });
+
+  it('skips a disabled option with the arrow keys', async () => {
+    const { onSelect, user } = setup();
+    await user.click(screen.getByRole('combobox'));
+    // Mercury, then Venus. Mars is disabled, so a second ArrowDown stays on Venus.
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}');
+    expect(onSelect).toHaveBeenCalledWith('venus');
+    expect(onSelect).not.toHaveBeenCalledWith('mars');
+  });
 });
