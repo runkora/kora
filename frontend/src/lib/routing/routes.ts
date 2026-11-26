@@ -39,12 +39,24 @@ export const APP_ROUTES = {
   authCallback: '/auth/callback',
 
   // ── Control Plane ────────────────────────────────────────────────────────
+  /** Every run the viewer can read; `home` redirects here. */
+  runs: '/runs',
   agents: {
     list: '/agents' as const,
     /** Opens the agent builder modal over the agents list (?agent=new). */
     new: '/agents?agent=new' as const,
     detail: (slug: string) => `/agents/${slug}` as const,
-    run: (slug: string, runId: string) => `/agents/${slug}/runs/${runId}` as const,
+    /**
+     * `runsQuery` marks a run opened from the Runs page: its back link returns there with that
+     * query, so the filters come back.
+     */
+    run: (slug: string, runId: string, runsQuery?: string) => {
+      const path = `/agents/${slug}/runs/${runId}` as const;
+      if (runsQuery === undefined) return path;
+      const query = new URLSearchParams({ from: 'runs' });
+      if (runsQuery) query.set('runs', runsQuery);
+      return `${path}?${query.toString()}` as const;
+    },
   },
   connections: '/connections',
   environments: '/environments',

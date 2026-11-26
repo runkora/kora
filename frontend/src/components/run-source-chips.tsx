@@ -2,7 +2,7 @@
 
 /**
  * @tier 2 — kora-domain-aware: run source kinds and providers. Links to what started a run, as
- * compact chips. Used by: the agent detail page's run rows, the run view's top bar.
+ * compact chips. Used by: the agent detail page's run rows, the run view's top bar, the Runs page.
  */
 
 import {

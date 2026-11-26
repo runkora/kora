@@ -9,6 +9,7 @@ import 'server-only';
 
 import { config } from './config';
 import { ApiError } from './client';
+import { openSse } from './sse-proxy';
 import type {
   AgentGradersResponse,
   AgentInsightsPeriod,
@@ -110,6 +111,17 @@ export async function listRuns(
   params: URLSearchParams,
 ): Promise<RunsPage | undefined> {
   return request<RunsPage>(`/api/v1/runs?${params.toString()}`, accessToken);
+}
+
+/** Opens GET /api/v1/runs/stream. The caller passes the body through as SSE. */
+export function openRunsStream(
+  accessToken: string,
+  params: URLSearchParams,
+  lastEventId: string | null,
+  signal: AbortSignal,
+): Promise<Response> {
+  const url = `${config.koraAgentsUrl}/api/v1/runs/stream?${params.toString()}`;
+  return openSse(url, accessToken, lastEventId, signal);
 }
 
 /** The run's grade per Grader. kora-agents applies the run read check. */

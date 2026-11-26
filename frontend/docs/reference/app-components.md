@@ -119,3 +119,27 @@ import { RUN_STATE_DISPLAY } from '@runkora/components';
 const dot = RUN_STATE_DISPLAY[run.state];
 <StatusDot status={dot.status} role="img" aria-label={dot.label} />;
 ```
+
+---
+
+## RunStateIcon
+
+**Import:** `import { RunStateIcon } from '@runkora/components'`
+
+**When to use:** A run's state in a run row. It draws the state's icon in its status colour, spins while the run works, and labels it with the state from `RUN_STATE_DISPLAY`.
+
+```tsx
+<RunStateIcon state={run.state} />
+```
+
+---
+
+## StarterMark
+
+**Import:** `import { StarterMark } from '@runkora/components'`
+
+**When to use:** Who started a run, in a run row. A person shows as their initials and a trigger as its kind's icon. The tooltip names the starter, and the mark is focusable so a keyboard reaches it. `row` takes any run row with `createdBy`, `createdByName` and `startedByTrigger`.
+
+```tsx
+<StarterMark row={run} />
+```

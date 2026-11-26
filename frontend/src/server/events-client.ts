@@ -3,6 +3,7 @@ import 'server-only';
 import type { EventPage } from '@runkora/shared/api';
 import { config } from '@runkora/server/config';
 import { ApiError } from './api-error';
+import { openSse } from './sse-proxy';
 
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
@@ -32,13 +33,6 @@ export function openEventStream(
   lastEventId: string | null,
   signal: AbortSignal,
 ): Promise<Response> {
-  return fetch(`${config.koraEventsUrl}/events/stream?${params.toString()}`, {
-    headers: {
-      Accept: 'text/event-stream',
-      Authorization: `Bearer ${accessToken}`,
-      ...(lastEventId !== null && { 'Last-Event-ID': lastEventId }),
-    },
-    cache: 'no-store',
-    signal,
-  });
+  const url = `${config.koraEventsUrl}/events/stream?${params.toString()}`;
+  return openSse(url, accessToken, lastEventId, signal);
 }
