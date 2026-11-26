@@ -28,6 +28,7 @@ import { DashboardSidebar } from './dashboard-sidebar';
 
 vi.mock('next/navigation', () => ({
   usePathname: vi.fn().mockReturnValue('/'),
+  useRouter: () => ({ prefetch: vi.fn() }),
 }));
 
 vi.mock('./permissions-provider', async (importOriginal) => ({
