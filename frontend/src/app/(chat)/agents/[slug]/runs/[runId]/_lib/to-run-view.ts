@@ -338,7 +338,10 @@ function firstLineOf(turns: RunChatState['turns'], run: RunWithAttribution | nul
   // One character past the limit shows whether the last word ends there or runs on.
   return line.length <= TITLE_MAX
     ? line
-    : `${line.slice(0, TITLE_MAX + 1).replace(/\s+\S*$/, '')}…`;
+    : `${line
+        .slice(0, TITLE_MAX + 1)
+        .replace(/\s+\S*$/, '')
+        .slice(0, TITLE_MAX)}…`;
 }
 
 /**

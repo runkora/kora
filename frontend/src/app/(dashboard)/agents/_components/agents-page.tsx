@@ -270,7 +270,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
               <Button
                 variant="ghost"
                 size="icon-sm"
-                title={row.canRun ? 'Start run' : undefined}
+                title={row.canRun && row.state === 'active' ? 'Start run' : undefined}
                 aria-label={`Start run for ${row.name}`}
                 disabled={!row.canRun || row.state !== 'active'}
                 onClick={() => startRun(row)}

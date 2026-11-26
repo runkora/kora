@@ -422,6 +422,11 @@ describe('title', () => {
     );
   });
 
+  it('cuts a line with no spaces at the limit', () => {
+    const line = 'x'.repeat(80);
+    expect(toRunView(hookState({ turns: [human('h1', line)] })).summary).toBe(`${'x'.repeat(60)}…`);
+  });
+
   it('keeps a word that ends exactly at the limit', () => {
     const line = `${'a'.repeat(55)} word next`;
     expect(toRunView(hookState({ turns: [human('h1', line)] })).summary).toBe(
