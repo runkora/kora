@@ -9,6 +9,23 @@ const MODELS = [
   { id: 'm-2', display_name: 'Two', family: 'anthropic', owned_by: 'bedrock' },
 ] as ModelObject[];
 
+describe('ModelPicker filter', () => {
+  const many = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `m-${i}`,
+      display_name: `Model ${i}`,
+      family: 'anthropic',
+      owned_by: 'bedrock',
+    })) as ModelObject[];
+
+  it('shows the filter from 8 models up, as the agent picker does', () => {
+    const { rerender } = render(<ModelPicker models={many(7)} value="m-0" onChange={vi.fn()} />);
+    expect(screen.queryByLabelText('Filter models')).toBeNull();
+    rerender(<ModelPicker models={many(8)} value="m-0" onChange={vi.fn()} />);
+    expect(screen.getByLabelText('Filter models')).toBeInTheDocument();
+  });
+});
+
 describe('ModelPicker read-only', () => {
   it('disables the radios and ignores clicks on a model card', () => {
     const onChange = vi.fn();

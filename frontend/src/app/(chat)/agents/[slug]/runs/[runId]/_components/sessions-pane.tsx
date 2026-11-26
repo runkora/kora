@@ -2,21 +2,23 @@
 
 /** @tier 3 — run-page-scoped. The run's sessions and the agent's other runs, beside the thread. */
 
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Icon, Stack, Text } from '@runkora/hades';
+import { Icon, Stack, Text, type IconName } from '@runkora/hades';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import type { EarlierRun } from '../_lib/to-run-view';
 import { commandParts, formatSpan, type Row, type RunView } from '../_lib/run-view';
 import { LINE, NOWRAP } from '../_lib/run-styles';
 
-function SessionRow({
+export function SessionRow({
   label,
   meta,
   href,
   active,
   running,
   indent,
+  icon,
 }: {
   label: string;
   meta: string;
@@ -24,6 +26,8 @@ function SessionRow({
   active?: boolean;
   running?: boolean;
   indent?: boolean;
+  /** Replaces the state mark, for a row that is an action rather than a run. */
+  icon?: IconName;
 }) {
   const row = (
     <Stack
@@ -38,11 +42,11 @@ function SessionRow({
       }}
     >
       <Icon
-        name={running ? 'loader' : 'circle-check'}
+        name={icon ?? (running ? 'loader' : 'circle-check')}
         spin={running}
         size="2xs"
         color={running ? 'accent' : 'subtle'}
-        label={running ? 'Running' : 'Done'}
+        label={icon ? '' : running ? 'Running' : 'Done'}
       />
       <Text
         size="supporting"
@@ -68,6 +72,71 @@ function SessionRow({
   );
 }
 
+/** The left pane's column: beside the thread, or filling the drawer it opens in. */
+export function PaneFrame({ drawer, children }: { drawer?: boolean; children: ReactNode }) {
+  return (
+    <Stack
+      gap="relaxed"
+      shrink={!drawer}
+      overflowY="auto"
+      style={{
+        // In a drawer the pane fills the panel's column and scrolls inside it.
+        ...(drawer ? { flex: '1 1 0', minHeight: 0 } : {}),
+        width: drawer ? '100%' : 264,
+        borderRight: drawer ? undefined : LINE,
+        padding: '18px 12px',
+      }}
+    >
+      {children}
+    </Stack>
+  );
+}
+
+/** The pane's top link, back to where the reader came from. */
+export function BackLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Stack asChild direction="horizontal" align="center" gap="snug">
+      <Link href={href} style={{ padding: '0 10px', textDecoration: 'none', color: 'inherit' }}>
+        <Icon name="arrow-left" size="2xs" color="subtle" label="" />
+        <Text size="supporting" color="muted">
+          {label}
+        </Text>
+      </Link>
+    </Stack>
+  );
+}
+
+/** The open run's row, active, with its subagents indented beneath it. */
+export function RunSessionRows({
+  label,
+  run,
+  rows,
+  running,
+}: {
+  label: string;
+  run: RunView;
+  rows: Row[];
+  running: boolean;
+}) {
+  const subagents = rows.flatMap((r) =>
+    r.type === 'step' && r.step.kind === 'subagent' ? [r.step] : [],
+  );
+  return (
+    <>
+      <SessionRow label={label} meta={formatSpan(run.durationMs)} active running={running} />
+      {subagents.map((s) => (
+        <SessionRow
+          key={s.id}
+          label={commandParts(s)[0]}
+          meta={s.status === 'running' ? 'now' : formatSpan(s.durationMs ?? 0)}
+          running={s.status === 'running'}
+          indent
+        />
+      ))}
+    </>
+  );
+}
+
 /** This run's main session and subagents, then the agent's other runs. */
 export function SessionsPane({
   run,
@@ -83,9 +152,6 @@ export function SessionsPane({
   /** Fills the drawer it opens in instead of standing beside the thread. */
   drawer?: boolean;
 }) {
-  const subagents = rows.flatMap((r) =>
-    r.type === 'step' && r.step.kind === 'subagent' ? [r.step] : [],
-  );
   // Only `from=runs` counts, and the back link's path is fixed, so the URL cannot send it
   // elsewhere. `runs` carries the Runs page's filters back.
   const params = useSearchParams();
@@ -98,45 +164,18 @@ export function SessionsPane({
       ? APP_ROUTES.agents.detail(run.agent.slug)
       : `${APP_ROUTES.runs}${runsQuery ? `?${runsQuery}` : ''}`;
   return (
-    <Stack
-      gap="relaxed"
-      shrink={!drawer}
-      overflowY="auto"
-      style={{
-        // In a drawer the pane fills the panel's column and scrolls inside it.
-        ...(drawer ? { flex: '1 1 0', minHeight: 0 } : {}),
-        width: drawer ? '100%' : 264,
-        borderRight: drawer ? undefined : LINE,
-        padding: '18px 12px',
-      }}
-    >
-      <Stack asChild direction="horizontal" align="center" gap="snug">
-        <Link href={back} style={{ padding: '0 10px', textDecoration: 'none', color: 'inherit' }}>
-          <Icon name="arrow-left" size="2xs" color="subtle" label="" />
-          <Text size="supporting" color="muted">
-            {runsQuery === undefined ? run.agent.name : 'Runs'}
-          </Text>
-        </Link>
-      </Stack>
+    <PaneFrame drawer={drawer}>
+      <BackLink href={back} label={runsQuery === undefined ? run.agent.name : 'Runs'} />
       <Stack gap="tight">
         <Text size="caption" color="subtle" style={{ padding: '0 10px 6px' }}>
           This run
         </Text>
-        <SessionRow
+        <RunSessionRows
           label="Main session"
-          meta={formatSpan(run.durationMs)}
-          active
+          run={run}
+          rows={rows}
           running={run.state === 'active'}
         />
-        {subagents.map((s) => (
-          <SessionRow
-            key={s.id}
-            label={commandParts(s)[0]}
-            meta={s.status === 'running' ? 'now' : formatSpan(s.durationMs ?? 0)}
-            running={s.status === 'running'}
-            indent
-          />
-        ))}
       </Stack>
       {(earlier.length > 0 || earlierError) && (
         <Stack gap="tight">
@@ -159,6 +198,6 @@ export function SessionsPane({
           ))}
         </Stack>
       )}
-    </Stack>
+    </PaneFrame>
   );
 }

@@ -2,7 +2,7 @@
 
 /** @tier 3 — agents-scoped. Main UI for the /agents list page. */
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Badge,
@@ -31,7 +31,6 @@ import { APP_ROUTES } from '@runkora/lib/routing';
 import { useAgentsContext } from '../_context/agents-context';
 import { useHasScope, useTenantLocked } from '../../_components/permissions-provider';
 import { useAgentsInsights } from '../_hooks/use-agents-insights';
-import { StartRunModal } from './start-run-modal';
 import { openBuilder } from '../_lib/builder-url';
 import { DraftsButton, DraftsList, useDrafts } from './drafts-section';
 import { AgentCard } from './agent-card';
@@ -84,8 +83,10 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
   const router = useRouter();
   const { drafts, refresh: refreshDrafts } = useDrafts();
 
-  const [startRunTarget, setStartRunTarget] = useState<AgentTypeRow | null>(null);
-  const [globalRunOpen, setGlobalRunOpen] = useState(false);
+  const startRun = useCallback(
+    (agent: AgentTypeRow) => router.push(APP_ROUTES.chatWith(agent.slug)),
+    [router],
+  );
   const [viewMode, setViewMode] = useState<ViewMode>('cards');
   const [identityFilter, setIdentityFilter] = useState<'all' | 'autonomous' | 'delegated'>('all');
   const [draftsOpen, setDraftsOpen] = useState(false);
@@ -269,10 +270,10 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
               <Button
                 variant="ghost"
                 size="icon-sm"
-                title={row.canRun ? 'Start run' : undefined}
+                title={row.canRun && row.state === 'active' ? 'Start run' : undefined}
                 aria-label={`Start run for ${row.name}`}
-                disabled={!row.canRun}
-                onClick={() => setStartRunTarget(row)}
+                disabled={!row.canRun || row.state !== 'active'}
+                onClick={() => startRun(row)}
               >
                 <Icon name="play" size="2xs" />
               </Button>
@@ -286,7 +287,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
         ),
       },
     ],
-    [live],
+    [live, startRun],
   );
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -319,7 +320,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
             <Button
               variant="outline"
               disabled={runnableAgentTypes.length === 0}
-              onClick={() => setGlobalRunOpen(true)}
+              onClick={() => router.push(APP_ROUTES.chat)}
             >
               <Icon name="play" size="xs" />
               New Run
@@ -432,7 +433,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
               liveRuns={live ? (activeRunsByType[agent.id] ?? 0) : null}
               period={period}
               usageNote={windowStatus === 'ready' ? undefined : unavailableText}
-              onRun={setStartRunTarget}
+              onRun={startRun}
             />
           ))}
         </Grid>
@@ -466,29 +467,6 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
           onRowClick={(row) => router.push(APP_ROUTES.agents.detail(row.slug))}
         />
       )}
-
-      {/* Row-level start run modal (agent pre-selected) */}
-      <StartRunModal
-        open={startRunTarget !== null}
-        agentType={startRunTarget}
-        onClose={() => setStartRunTarget(null)}
-        onStarted={(runId, agentSlug) => {
-          setStartRunTarget(null);
-          router.push(APP_ROUTES.agents.run(agentSlug, runId));
-        }}
-      />
-
-      {/* Global start run modal (user picks agent) */}
-      <StartRunModal
-        open={globalRunOpen}
-        agentType={null}
-        agentTypes={runnableAgentTypes}
-        onClose={() => setGlobalRunOpen(false)}
-        onStarted={(runId, agentSlug) => {
-          setGlobalRunOpen(false);
-          router.push(APP_ROUTES.agents.run(agentSlug, runId));
-        }}
-      />
     </Stack>
   );
 }

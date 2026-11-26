@@ -23,6 +23,11 @@ describe('APP_ROUTES', () => {
   // signal. The only structural invariant the type system cannot enforce is
   // "every route string starts with /", which is tested here.
 
+  it('selects an agent on the chat page and marks a run opened from it', () => {
+    expect(APP_ROUTES.chatWith('code reviewer')).toBe('/chat?agent=code%20reviewer');
+    expect(APP_ROUTES.agents.chatRun('coder', 'run-1')).toBe('/agents/coder/runs/run-1?from=chat');
+  });
+
   it('all flat routes start with /', () => {
     for (const [key, value] of Object.entries(APP_ROUTES)) {
       if (typeof value === 'string') {

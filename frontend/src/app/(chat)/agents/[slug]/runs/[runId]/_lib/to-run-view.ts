@@ -322,6 +322,26 @@ function budgetWhose(b: RunBudgetStop): string {
   return b.scope === 'tenant' ? "the tenant's budget" : "the agent's budget";
 }
 
+/** A title from a message is cut to this many characters, about one line of the header. */
+const TITLE_MAX = 60;
+
+/** The first line of a person's first message, which titles their run until its summary arrives. */
+function firstLineOf(turns: RunChatState['turns'], run: RunWithAttribution | null): string {
+  if (!run || run.started_by) return '';
+  const first = turns.find((t) => t.type === 'human');
+  if (first?.type !== 'human' || first.fromTrigger) return '';
+  const line =
+    first.content
+      .split('\n')
+      .find((l) => l.trim())
+      ?.trim() ?? '';
+  if (line.length <= TITLE_MAX) return line;
+  // One character past the limit shows whether the last word ends there or runs on. A long token
+  // such as a URL would leave little of the line, so it is cut mid-token instead.
+  const atWord = line.slice(0, TITLE_MAX + 1).replace(/\s+\S*$/, '');
+  return `${atWord.length >= TITLE_MAX / 2 ? atWord.slice(0, TITLE_MAX) : line.slice(0, TITLE_MAX)}…`;
+}
+
 /**
  * The run page's view of the run. A live run's elapsed time is left at zero; the page sets it
  * from the clock, so a tick does not rebuild the transcript.
@@ -339,7 +359,7 @@ export function toRunView(s: UseRunReturn): RunView {
   const agentName = agentType?.name ?? run?.agent_name ?? 'Agent';
   const view: RunView = {
     id: s.runId,
-    summary: run?.summary || `${agentName} run`,
+    summary: run?.summary || firstLineOf(s.turns, run) || `${agentName} run`,
     agent: { name: agentName, slug: s.slug },
     // An agent with no framework recorded runs on Claude Code, the session manager's default.
     harness: agentType ? agentType.framework || 'claude-code' : '',

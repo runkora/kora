@@ -583,7 +583,7 @@ import { Badge } from '@runkora/hades';
 
 ## Page-Level Layout
 
-Every dashboard page gets one gutter from `app/(dashboard)/layout.tsx`: `Stack padding="comfortable"` (16px on all sides), fluid, with no max width. Pages and feature layouts set no outer padding or max width of their own. `/chat` is the one route that fills the shell edge to edge.
+Every dashboard page gets one gutter from `app/(dashboard)/layout.tsx`: `Stack padding="comfortable"` (16px on all sides), fluid, with no max width. Pages and feature layouts set no outer padding or max width of their own. The chat page and the run page live outside the dashboard in the `(chat)` route group and fill the viewport.
 
 Use `Section` for page sections and `PageLayout` as the top-level page wrapper. These are higher-level primitives that compose `Stack` and `Grid` internally.
 

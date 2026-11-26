@@ -5,18 +5,28 @@
  * agent is doing now, the messages waiting for its next step, and the message field with Send or Stop.
  */
 
-import { useState } from 'react';
-import { Button, Icon, Stack, Text, Textarea } from '@runkora/hades';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { Button, Icon, SETTLE_EASING, Stack, Text, Textarea } from '@runkora/hades';
 import { PermissionHint } from '@runkora/components';
 import { useRunContext } from '../_context/run-context';
 import { useRunLayout } from '../_lib/run-layout';
 import type { RunView } from '../_lib/run-view';
-import { LINE, NOWRAP, READING_WIDTH } from '../_lib/run-styles';
+import { COMPOSER_MOVE_MS, LINE, NOWRAP, READING_WIDTH } from '../_lib/run-styles';
 
-const BOX = {
+/** The composer's frame, which a new chat's composer shares. */
+export const BOX = {
   border: LINE,
   borderRadius: 10,
   background: 'var(--color-surface)',
+} as const;
+
+/** The message field inside the frame: the frame carries the border and padding. */
+export const FIELD = {
+  fontSize: 14,
+  lineHeight: 1.6,
+  width: '100%',
+  padding: 0,
+  borderRadius: 0,
 } as const;
 
 /** Send and Stop share one square: 32px, the size of the composer's existing buttons. */
@@ -28,6 +38,24 @@ const ACTION = {
   padding: 0,
   border: 'none',
 } as const;
+
+/** The accent square that sends the message, muted until there is something to send. */
+export function SendButton({ ready, onClick }: { ready: boolean; onClick: () => void }) {
+  return (
+    <Button
+      disabled={!ready}
+      aria-label="Send"
+      onClick={onClick}
+      style={{
+        ...ACTION,
+        background: ready ? 'var(--color-accent)' : 'var(--color-surface-overlay)',
+        color: ready ? 'var(--color-accent-foreground)' : 'var(--color-subtle)',
+      }}
+    >
+      <Icon name="arrow-up" size="xs" label="" />
+    </Button>
+  );
+}
 
 function StopIcon() {
   return (
@@ -66,11 +94,26 @@ function Pending({ run }: { run: RunView }) {
  * The composer offers only what the API does: one message, read at the agent's next step while it
  * works, and Stop, which ends the turn. A strip on top says what the agent is doing now.
  */
-export function Composer({ run }: { run: RunView }) {
+export function Composer({ run, enterFrom }: { run: RunView; enterFrom?: DOMRect }) {
   const { addHumanMessage, interruptRun, canSteer, isStarting, isPending, stopError } =
     useRunContext();
   const phone = useRunLayout() === 'phone';
   const [text, setText] = useState('');
+
+  // A composer handed over by the chat page moves here from where that page's composer stood.
+  const frameRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = frameRef.current;
+    if (!el || !enterFrom || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const to = el.getBoundingClientRect();
+    const shift = `translate(${enterFrom.left - to.left}px, ${enterFrom.bottom - to.bottom}px)`;
+    const move = el.animate([{ transform: shift }, { transform: 'none' }], {
+      duration: COMPOSER_MOVE_MS,
+      easing: SETTLE_EASING,
+    });
+    return () => move.cancel();
+  }, [enterFrom]);
+
   const allowed = canSteer !== false;
   const ready = !!text.trim() && allowed && !isStarting;
   const working = run.state === 'active';
@@ -83,7 +126,7 @@ export function Composer({ run }: { run: RunView }) {
   return (
     <Stack style={{ padding: phone ? '0 12px 12px' : '0 32px 22px' }}>
       <Stack style={{ maxWidth: READING_WIDTH, width: '100%', margin: '0 auto' }}>
-        <Stack overflow="hidden" style={BOX}>
+        <Stack ref={frameRef} overflow="hidden" style={BOX}>
           {(working || isStarting || isPending) && (
             <Stack
               direction="horizontal"
@@ -114,6 +157,8 @@ export function Composer({ run }: { run: RunView }) {
               autoResize
               rows={phone ? 2 : 3}
               maxRows={phone ? 8 : 14}
+              // A composer handed over keeps the focus the chat page's composer had.
+              autoFocus={!!enterFrom}
               value={text}
               disabled={!allowed}
               aria-label={`Message ${name}`}
@@ -133,7 +178,7 @@ export function Composer({ run }: { run: RunView }) {
                       ? `Message ${name}. This won't stop its work.`
                       : `Reply to ${name}`
               }
-              style={{ fontSize: 14, lineHeight: 1.6, width: '100%', padding: 0, borderRadius: 0 }}
+              style={FIELD}
             />
             <Stack direction="horizontal" align="center" gap="snug">
               <Text
@@ -164,18 +209,7 @@ export function Composer({ run }: { run: RunView }) {
                   </Button>
                 </PermissionHint>
               ) : (
-                <Button
-                  disabled={!ready}
-                  aria-label="Send"
-                  onClick={send}
-                  style={{
-                    ...ACTION,
-                    background: ready ? 'var(--color-accent)' : 'var(--color-surface-overlay)',
-                    color: ready ? 'var(--color-accent-foreground)' : 'var(--color-subtle)',
-                  }}
-                >
-                  <Icon name="arrow-up" size="xs" label="" />
-                </Button>
+                <SendButton ready={ready} onClick={send} />
               )}
             </Stack>
           </Stack>
