@@ -60,9 +60,9 @@ None at this time.
 
 **Acceptance Criteria:**
 
-*   [ ] An empty chat page shows a heading, the brand mark in front of it, and the composer below it. Nothing else shows below the composer.
+*   [ ] An empty chat page shows a heading, the product mark in front of it, and the composer below it. Nothing else shows below the composer.
 *   [ ] The heading reads "What should we work on next, <first name>?". A viewer with no name sees "What should we work on next?".
-*   [ ] The heading plays once on load: a disc drops into place and splits into the brand mark, and the words rise in one by one with the name last.
+*   [ ] The heading plays once on load: a disc drops into place and splits into the product mark, and the words rise in one by one with the name last.
 *   [ ] With reduced motion turned on, the heading and the mark show in their final state with no movement.
 *   [ ] A screen reader reads the heading once as one sentence.
 *   [ ] The composer's placeholder reads "What should <agent> work on?" for the selected agent.
@@ -82,7 +82,7 @@ None at this time.
 
 *   [ ] The agent picker sits in the composer's footer and shows the selected agent's name.
 *   [ ] The picker lists every active agent with its name, "Acts as you" or "Acts as itself", and a one-line description.
-*   [ ] An agent the viewer cannot start shows as disabled with "No access".
+*   [ ] An agent the viewer cannot start shows as disabled with "No access" in place of who it acts as.
 *   [ ] A search field shows when the list holds 8 agents or more. It matches the agent's name and description.
 *   [ ] A search with no match reads "No agent matches "<search>"."
 *   [ ] The picker shows no model names.
@@ -103,7 +103,7 @@ None at this time.
 *   [ ] With no runs, the list reads "Runs you start appear here."
 *   [ ] The run open on the page shows at the top of the list with its subagents under it.
 *   [ ] "New run" opens an empty chat page.
-*   [ ] Below the widest layout, the pane opens from a "Your runs" button as a drawer.
+*   [ ] Below the widest layout, the pane opens as a drawer: from a "Your runs" button on the empty page, and from the Sessions button on a run.
 *   [ ] Reloading a run started from the chat page keeps the "Your runs" pane beside it.
 
 ### US-004: Start work from anywhere it starts today
