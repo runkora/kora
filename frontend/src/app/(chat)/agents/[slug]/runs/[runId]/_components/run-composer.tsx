@@ -107,7 +107,11 @@ export function Composer({ run, enterFrom }: { run: RunView; enterFrom?: DOMRect
     if (!el || !enterFrom || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const to = el.getBoundingClientRect();
     const shift = `translate(${enterFrom.left - to.left}px, ${enterFrom.bottom - to.bottom}px)`;
-    el.animate([{ transform: shift }, { transform: 'none' }], { duration: 280, easing: SETTLE });
+    const move = el.animate([{ transform: shift }, { transform: 'none' }], {
+      duration: 280,
+      easing: SETTLE,
+    });
+    return () => move.cancel();
   }, [enterFrom]);
 
   const allowed = canSteer !== false;

@@ -1,11 +1,12 @@
 'use client';
 
 /**
- * @tier 3 — chat-scoped. Starts a run of any agent from one composer, then becomes that run's page
- * without a reload. The viewer's own runs sit in the left pane.
+ * @tier 3 — chat-scoped. Starts a run of any agent from one composer, then hands over to that run's
+ * page without a reload. The viewer's own runs sit in the left pane.
  */
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import {
   Button,
@@ -25,23 +26,21 @@ import {
   fetchStartRun,
 } from '@runkora/app/(dashboard)/agents/_services/agents-api';
 import { useSession } from '@runkora/app/(dashboard)/_components/permissions-provider';
-import { RunProvider } from '@runkora/app/(chat)/agents/[slug]/runs/[runId]/_context/run-context';
 import {
   layoutFor,
   RunLayoutContext,
   type RunLayout,
 } from '@runkora/app/(chat)/agents/[slug]/runs/[runId]/_lib/run-layout';
 import { READING_WIDTH } from '@runkora/app/(chat)/agents/[slug]/runs/[runId]/_lib/run-styles';
-import type { RunPageEnter } from '@runkora/app/(chat)/agents/[slug]/runs/[runId]/_components/run-page';
 import {
   BOX,
   FIELD,
   SendButton,
 } from '@runkora/app/(chat)/agents/[slug]/runs/[runId]/_components/run-composer';
 import { useOwnRuns } from '../_hooks/use-own-runs';
+import { handOver } from '../_lib/hand-over';
 import { selectAgent } from '../_lib/select-agent';
 import { AgentPicker } from './agent-picker';
-import { ChatRun } from './chat-run';
 import { HeadingReveal } from './heading-reveal';
 import { HistoryPane } from './history-pane';
 
@@ -65,11 +64,13 @@ function NewRunComposer({
   const [error, setError] = useState<string | null>(null);
   const allowed = !!agent?.canRun;
   const ready = allowed && !!text.trim() && !sending;
+  // A started run leaves the page, so the composer stays sending until then.
   const send = async () => {
     if (!ready) return;
     setSending(true);
-    setError(await onStart(text.trim()));
-    setSending(false);
+    const failed = await onStart(text.trim()).catch(() => 'Something went wrong.');
+    setError(failed);
+    if (failed) setSending(false);
   };
   return (
     <Stack gap="snug">
@@ -128,12 +129,8 @@ export function ChatPage({
   const own = useOwnRuns();
   const [agents, setAgents] = useState<{ list: Agent[]; error: string | null } | null>(null);
   const [picked, setPicked] = useState<Agent | null>(null);
-  const [started, setStarted] = useState<{
-    slug: string;
-    runId: string;
-    enter?: RunPageEnter;
-  } | null>(null);
   const [drawer, setDrawer] = useState(false);
+  const router = useRouter();
   const frameRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -151,32 +148,20 @@ export function ChatPage({
     const observer = new ResizeObserver(() => setLayout(layoutFor(el.offsetWidth)));
     observer.observe(el);
     return () => observer.disconnect();
-  }, [started]);
-
-  if (started) {
-    return (
-      <RunProvider slug={started.slug} runId={started.runId}>
-        <ChatRun own={own} enter={started.enter} height={height} />
-      </RunProvider>
-    );
-  }
+  }, []);
 
   // The heading plays once, so it waits for the viewer's name as well as the lists.
   const loaded = agents !== null && own.loaded && sessionLoaded;
   const agent = picked ?? (loaded ? selectAgent(agents.list, own.runs, agentSlug) : null);
 
-  // The run page takes over in place: the address becomes the run's, and the composer moves.
+  // The run's page replaces this one in history. The composer's box goes with it, so it moves.
   const start = async (task: string) => {
     if (!agent) return null;
     const result = await fetchStartRun(agent.id, { task });
     if (result.error || !result.run) return result.error ?? 'The run did not start.';
     const from = frameRef.current?.getBoundingClientRect();
-    window.history.replaceState(null, '', APP_ROUTES.agents.chatRun(agent.slug, result.run.id));
-    setStarted({
-      slug: agent.slug,
-      runId: result.run.id,
-      ...(from ? { enter: { from, layout } } : {}),
-    });
+    handOver(result.run.id, { own, ...(from ? { enter: { from, layout } } : {}) });
+    router.replace(APP_ROUTES.agents.chatRun(agent.slug, result.run.id));
     return null;
   };
 

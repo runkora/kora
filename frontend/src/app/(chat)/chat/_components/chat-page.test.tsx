@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { RunWithAttribution } from '@runkora/shared/api';
 import type { AgentTypeRow } from '@runkora/app/(dashboard)/agents/_types';
+import { handedOver } from '../_lib/hand-over';
 import { ChatPage } from './chat-page';
 
 const api = vi.hoisted(() => ({
@@ -21,33 +22,8 @@ vi.mock('../_hooks/use-own-runs', () => ({
 vi.mock('@runkora/app/(dashboard)/_components/permissions-provider', () => ({
   useSession: () => ({ user: { name: 'Sam Lee' }, scopes: [], loaded: true }),
 }));
-vi.mock('@runkora/app/(chat)/agents/[slug]/runs/[runId]/_context/run-context', async () => {
-  const { Text } = await import('@runkora/hades');
-  return {
-    RunProvider: ({
-      slug,
-      runId,
-      children,
-    }: {
-      slug: string;
-      runId: string;
-      children: unknown;
-    }) => (
-      <>
-        <Text>{`run ${slug}/${runId}`}</Text>
-        {children as React.ReactNode}
-      </>
-    ),
-  };
-});
-vi.mock('./chat-run', async () => {
-  const { Text } = await import('@runkora/hades');
-  return {
-    ChatRun: ({ enter }: { enter?: { layout: string } }) => (
-      <Text>{`run page entered from ${enter?.layout} layout`}</Text>
-    ),
-  };
-});
+const replace = vi.hoisted(() => vi.fn());
+vi.mock('next/navigation', () => ({ useRouter: () => ({ replace }) }));
 
 const agent = (slug: string, name: string, canRun = true) =>
   ({
@@ -70,7 +46,7 @@ beforeEach(() => {
   api.agents = [CODER, REVIEWER, LOCKED];
   api.runs = [];
   api.start.mockReset();
-  window.history.replaceState(null, '', '/chat');
+  replace.mockReset();
   // jsdom has no Web Animations API and no scrollIntoView, which cmdk calls on the highlight.
   HTMLElement.prototype.animate = vi.fn(() => ({ cancel() {} }) as unknown as Animation);
   Element.prototype.scrollIntoView = vi.fn();
@@ -110,18 +86,22 @@ describe('ChatPage', () => {
     expect(field).toHaveAttribute('placeholder', 'You cannot start runs of Locked');
   });
 
-  it('starts the run, becomes the run page and moves the address to the run with from=chat', async () => {
+  it('starts the run and replaces the page with the run, from=chat, handing over the composer', async () => {
     api.start.mockResolvedValue({ run: { id: 'run-9' }, error: null });
     const user = userEvent.setup();
     render(<ChatPage />);
-    await user.type(await composer(), 'Fix the flaky test{Enter}');
+    const field = await composer();
+    await user.type(field, 'Fix the flaky test{Enter}');
 
     expect(api.start).toHaveBeenCalledWith('at-coder', { task: 'Fix the flaky test' });
-    expect(await screen.findByText('run coder/run-9')).toBeInTheDocument();
-    expect(screen.getByText('run page entered from wide layout')).toBeInTheDocument();
-    expect(window.location.pathname + window.location.search).toBe(
-      '/agents/coder/runs/run-9?from=chat',
-    );
+    await waitFor(() => expect(replace).toHaveBeenCalledWith('/agents/coder/runs/run-9?from=chat'));
+    expect(handedOver('run-9')).toMatchObject({
+      own: { loaded: true },
+      enter: { layout: 'wide' },
+    });
+    // The composer stays sending while the run page loads, so a second Enter starts nothing.
+    await user.type(field, '{Enter}');
+    expect(api.start).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the message and shows the error when the run does not start', async () => {
@@ -133,8 +113,17 @@ describe('ChatPage', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Budget exhausted.');
     expect(field).toHaveValue('Fix the flaky test');
-    expect(screen.queryByText(/^run /)).toBeNull();
-    expect(window.location.pathname).toBe('/chat');
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it('shows an error and lets the viewer send again when the start throws', async () => {
+    api.start.mockRejectedValueOnce(new Error('bad body'));
+    const user = userEvent.setup();
+    render(<ChatPage />);
+    await user.type(await composer(), 'Fix it{Enter}');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Something went wrong.');
+    expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
   });
 
   it('adds a line with Shift+Enter', async () => {

@@ -18,7 +18,7 @@ export function RunShell({
 }) {
   return (
     <RunProvider slug={slug} runId={runId}>
-      {fromChat ? <ChatRunRoute /> : <RunPage />}
+      {fromChat ? <ChatRunRoute runId={runId} /> : <RunPage />}
     </RunProvider>
   );
 }
