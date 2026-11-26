@@ -6,7 +6,7 @@
 import type { Decorator } from '@storybook/react';
 import type { AgentType, RunSource, RunWithAttribution } from '@runkora/shared/api';
 import { PermissionsProvider } from '@runkora/app/(dashboard)/_components/permissions-provider';
-import { mockApi, type MockRequest } from '@runkora/storybook/mock-api';
+import { mockApi } from '@runkora/storybook/mock-api';
 import { mockEventSource, type MockStreamEvent } from '@runkora/storybook/mock-event-source';
 import type { MockRun } from '@runkora/app/(chat)/agents/[slug]/runs/[runId]/_lib/run-page-mock-data';
 
@@ -125,7 +125,7 @@ function runOf(
 const bySlug = (slug: string) => agentsOf({ many: true }).find((a) => a.slug === slug)!;
 
 /** The viewer's recent runs, newest first, as GET /api/agents/runs?created_by=me returns them. */
-export const HISTORY: RunWithAttribution[] = (
+const HISTORY: RunWithAttribution[] = (
   [
     ['coder', 'Move the billing export to the new storage bucket', 95, 'active'],
     ['platform-help', 'Why the evaluation agents cannot use the new model in staging', 180],
@@ -140,8 +140,8 @@ export const HISTORY: RunWithAttribution[] = (
   runOf(bySlug(slug), `history-${i}`, minutes, { summary, state: state ?? 'completed' }),
 );
 
-/** What the viewer asks Coder for in the hand-off stories. */
-export const TASK = `Add retries to the webhook relay's outbound calls: three attempts with backoff, and log each failure with the delivery id.`;
+/** What the viewer asks Coder for in the started run. */
+const TASK = `Add retries to the webhook relay's outbound calls: three attempts with backoff, and log each failure with the delivery id.`;
 
 const NEW_RUN_ID = '8c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f';
 const REPO_SOURCE: RunSource = {
@@ -237,7 +237,6 @@ export function chatStory({
   run?: MockRun;
   viewerName?: string;
 } = {}): Decorator[] {
-  const all = history.filter((h) => h.id !== run.body.data.id);
   return [
     (Story) => (
       <PermissionsProvider>
@@ -251,16 +250,14 @@ export function chatStory({
         expiresAt: Math.floor(Date.now() / 1000) + 3600,
       },
       'GET /api/agents/types': { data: agents },
-      'GET /api/agents/runs': { data: all, next_cursor: null },
+      'GET /api/agents/runs': { data: history, next_cursor: null },
       'POST /api/agents/types/:id/runs': { data: run.body.data },
       'GET /api/agents/runs/:id': () => run.body,
       'GET /api/agents/runs/:id/usage': () => run.usage,
       'GET /api/agents/runs/:id/grades': { grades: [] },
       'GET /api/agents/types/:id/graders': { graders: [] },
-      'GET /api/agents/types/:slug/runs': ({ url }: MockRequest) => ({
-        data: all.filter((h) => url.pathname.includes(h.agent_type_id.replace('at-', ''))),
-        next_cursor: null,
-      }),
+      // The agent's other runs feed only the sessions pane, which the chat page replaces.
+      'GET /api/agents/types/:slug/runs': { data: [], next_cursor: null },
       'POST /api/agents/runs/:id/messages': {},
       'POST /api/agents/runs/:id/interrupt': {},
     }),

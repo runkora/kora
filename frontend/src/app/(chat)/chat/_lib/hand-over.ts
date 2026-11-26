@@ -2,7 +2,7 @@ import type { RunPageEnter } from '@runkora/app/(chat)/agents/[slug]/runs/[runId
 import type { OwnRuns } from '../_hooks/use-own-runs';
 
 /** What the chat page passes to the run page it opens: the composer's box and the runs it loaded. */
-export interface HandOver {
+interface HandOver {
   own: OwnRuns;
   enter?: RunPageEnter;
 }

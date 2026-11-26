@@ -21,10 +21,7 @@ import {
 } from '@runkora/hades';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import type { AgentTypeRow as Agent } from '@runkora/app/(dashboard)/agents/_types';
-import {
-  fetchAgentTypes,
-  fetchStartRun,
-} from '@runkora/app/(dashboard)/agents/_services/agents-api';
+import { fetchStartRun } from '@runkora/app/(dashboard)/agents/_services/agents-api';
 import { useSession } from '@runkora/app/(dashboard)/_components/permissions-provider';
 import {
   RunLayoutContext,
@@ -36,6 +33,7 @@ import {
   FIELD,
   SendButton,
 } from '@runkora/app/(chat)/agents/[slug]/runs/[runId]/_components/run-composer';
+import { useActiveAgents } from '../_hooks/use-active-agents';
 import { useOwnRuns } from '../_hooks/use-own-runs';
 import { handOver } from '../_lib/hand-over';
 import { selectAgent } from '../_lib/select-agent';
@@ -127,17 +125,11 @@ export function ChatPage({
   const { user, loaded: sessionLoaded } = useSession();
   const firstName = user?.name.trim().split(/\s+/)[0] || undefined;
   const own = useOwnRuns();
-  const [agents, setAgents] = useState<{ list: Agent[]; error: string | null } | null>(null);
+  const agents = useActiveAgents();
   const [picked, setPicked] = useState<Agent | null>(null);
   const [drawer, setDrawer] = useState(false);
   const router = useRouter();
   const frameRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    void fetchAgentTypes().then(({ data, error }) =>
-      setAgents({ list: data.filter((a) => a.state === 'active'), error }),
-    );
-  }, []);
 
   // The page lays out by its own width, as the run page does, so the pane folds at the same sizes.
   const [layout, rootRef] = useOwnLayout();
@@ -157,7 +149,7 @@ export function ChatPage({
 
   // The run's page replaces this one in history. The composer's box goes with it, so it moves.
   const start = async (task: string) => {
-    if (!agent) return null;
+    if (!agent) return 'Choose an agent to start.';
     const result = await fetchStartRun(agent.id, { task });
     if (result.error || !result.run) return result.error ?? 'The run did not start.';
     if (left.current) return null;

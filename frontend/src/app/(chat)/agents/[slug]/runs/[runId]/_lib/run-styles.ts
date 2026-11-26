@@ -9,8 +9,8 @@ export const HAIR = '1px solid color-mix(in oklch, var(--color-foreground) 6%, t
 export const NOWRAP: CSSProperties = { whiteSpace: 'nowrap', flexShrink: 0 };
 /** The thread's reading column. */
 export const READING_WIDTH = 720;
-/** The easing of a move into place: quick at first, then slow to settle. */
-export const SETTLE = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+/** Milliseconds a composer handed over from the chat page takes to move into place. */
+export const COMPOSER_MOVE_MS = 280;
 
 /** A branch source's name without the "branch " its label leads with. */
 export const branchName = (label: string) => label.replace(/^branch /, '');

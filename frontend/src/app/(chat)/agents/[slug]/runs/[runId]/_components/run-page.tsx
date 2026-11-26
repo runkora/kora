@@ -35,7 +35,7 @@ import { EndLine } from './run-end-line';
 import { SessionsPane } from './sessions-pane';
 
 /** What a page that hosts the run draws in the left pane instead of the run's sessions. */
-export type RunPaneSlot = (p: { run: RunView; rows: Row[]; drawer?: boolean }) => ReactNode;
+type RunPaneSlot = (p: { run: RunView; rows: Row[]; drawer?: boolean }) => ReactNode;
 
 /** A composer handed over by another page: where it stood and that page's layout. */
 export interface RunPageEnter {

@@ -1,10 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import type { RunWithAttribution } from '@runkora/shared/api';
+import type { OwnRuns } from '../_hooks/use-own-runs';
 import { handedOver, handOver } from '../_lib/hand-over';
 import { ChatRunRoute } from './chat-run';
 
-const own = vi.hoisted(() => ({ value: { runs: [], error: null, loaded: false } }));
+const own = vi.hoisted(() => ({ value: { runs: [], error: null, loaded: false } as OwnRuns }));
+beforeEach(() => {
+  own.value = { runs: [], error: null, loaded: false };
+});
 vi.mock('../_hooks/use-own-runs', () => ({ useOwnRuns: () => own.value }));
 vi.mock('@runkora/app/(chat)/agents/[slug]/runs/[runId]/_components/run-page', async () => {
   const { Text } = await import('@runkora/hades');
@@ -43,5 +47,13 @@ describe('ChatRunRoute', () => {
     render(<ChatRunRoute runId="run-1" />);
     expect(screen.getByText('entered from nowhere')).toBeInTheDocument();
     expect(screen.getByText('0 runs')).toBeInTheDocument();
+  });
+
+  it('switches from the handed-over runs to its own read once that loads', () => {
+    const runs = (ids: string[]) => ids.map((id) => ({ id })) as RunWithAttribution[];
+    handOver('run-7', { own: { runs: runs(['r1']), error: null, loaded: true } });
+    own.value = { runs: runs(['r1', 'r2']), error: null, loaded: true };
+    render(<ChatRunRoute runId="run-7" />);
+    expect(screen.getByText('2 runs')).toBeInTheDocument();
   });
 });

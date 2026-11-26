@@ -22,7 +22,7 @@ import {
 import type { OwnRuns } from '../_hooks/use-own-runs';
 
 /** The run open beside the pane, with its rows for the subagents. */
-export interface OpenRun {
+interface OpenRun {
   run: RunView;
   rows: Row[];
 }
@@ -36,8 +36,9 @@ export function HistoryPane({
   open?: OpenRun;
   drawer?: boolean;
 }) {
-  const rest = own.runs.filter((r) => r.id !== open?.run.id);
-  const others = earlierRunsOf(rest);
+  const others = own.runs
+    .filter((r) => r.id !== open?.run.id)
+    .map((r) => ({ ...earlierRunsOf([r])[0]!, slug: r.agent_slug }));
   return (
     <PaneFrame drawer={drawer}>
       <BackLink href={APP_ROUTES.home} label="Home" />
@@ -66,18 +67,15 @@ export function HistoryPane({
             running={!ENDED.has(open.run.state ?? 'pending')}
           />
         )}
-        {others.map((r, i) => {
-          const slug = rest[i]?.agent_slug;
-          return (
-            <SessionRow
-              key={r.id}
-              label={r.label}
-              meta={r.meta}
-              running={r.running}
-              href={slug ? APP_ROUTES.agents.chatRun(slug, r.id) : undefined}
-            />
-          );
-        })}
+        {others.map((r) => (
+          <SessionRow
+            key={r.id}
+            label={r.label}
+            meta={r.meta}
+            running={r.running}
+            href={r.slug ? APP_ROUTES.agents.chatRun(r.slug, r.id) : undefined}
+          />
+        ))}
         {!open && others.length === 0 && own.loaded && !own.error && (
           <Text size="caption" color="subtle" style={{ padding: '0 10px' }}>
             Runs you start appear here.

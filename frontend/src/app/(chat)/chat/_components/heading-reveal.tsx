@@ -7,8 +7,7 @@
  */
 
 import { useLayoutEffect, useRef, type CSSProperties } from 'react';
-import { Heading, Reveal, Stack } from '@runkora/hades';
-import { SETTLE } from '@runkora/app/(chat)/agents/[slug]/runs/[runId]/_lib/run-styles';
+import { Heading, Reveal, SETTLE_EASING, Stack } from '@runkora/hades';
 
 /** The heading's font size. The mark is drawn this tall to sit level with the text. */
 const SIZE = 24;
@@ -69,7 +68,7 @@ export function HeadingReveal({ name }: { name?: string }) {
         { transform: 'translate(0, 0)', background: 'var(--color-foreground)' },
         { transform: SHIFT, background: 'var(--color-border-accent)' },
       ],
-      { duration: SPLIT, delay: DROP, easing: SETTLE, fill: 'backwards' },
+      { duration: SPLIT, delay: DROP, easing: SETTLE_EASING, fill: 'backwards' },
     );
   }, []);
 

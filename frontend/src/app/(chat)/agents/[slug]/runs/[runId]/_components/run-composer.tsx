@@ -6,12 +6,12 @@
  */
 
 import { useLayoutEffect, useRef, useState } from 'react';
-import { Button, Icon, Stack, Text, Textarea } from '@runkora/hades';
+import { Button, Icon, SETTLE_EASING, Stack, Text, Textarea } from '@runkora/hades';
 import { PermissionHint } from '@runkora/components';
 import { useRunContext } from '../_context/run-context';
 import { useRunLayout } from '../_lib/run-layout';
 import type { RunView } from '../_lib/run-view';
-import { LINE, NOWRAP, READING_WIDTH, SETTLE } from '../_lib/run-styles';
+import { COMPOSER_MOVE_MS, LINE, NOWRAP, READING_WIDTH } from '../_lib/run-styles';
 
 /** The composer's frame, which a new chat's composer shares. */
 export const BOX = {
@@ -108,8 +108,8 @@ export function Composer({ run, enterFrom }: { run: RunView; enterFrom?: DOMRect
     const to = el.getBoundingClientRect();
     const shift = `translate(${enterFrom.left - to.left}px, ${enterFrom.bottom - to.bottom}px)`;
     const move = el.animate([{ transform: shift }, { transform: 'none' }], {
-      duration: 280,
-      easing: SETTLE,
+      duration: COMPOSER_MOVE_MS,
+      easing: SETTLE_EASING,
     });
     return () => move.cancel();
   }, [enterFrom]);

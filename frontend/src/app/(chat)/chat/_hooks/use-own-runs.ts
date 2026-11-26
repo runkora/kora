@@ -1,9 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ApiRoute } from '@runkora/lib/routing';
-import type { RunsPageResponse, RunWithAttribution } from '@runkora/shared/api';
-import { fetchRead } from '@runkora/app/(dashboard)/agents/_services/agents-api';
+import type { RunWithAttribution } from '@runkora/shared/api';
+import { fetchRunsPage } from '@runkora/app/(dashboard)/runs/_services/runs-api';
 
 /** The viewer's own runs, newest first. */
 export interface OwnRuns {
@@ -17,9 +16,9 @@ export function useOwnRuns(): OwnRuns {
   const [own, setOwn] = useState<OwnRuns>({ runs: [], error: null, loaded: false });
   useEffect(() => {
     let live = true;
-    void fetchRead<RunsPageResponse>(`${ApiRoute.runs.list()}?created_by=me&limit=30`).then(
-      ({ data, error }) => {
-        if (live) setOwn({ runs: data?.data ?? [], error, loaded: true });
+    void fetchRunsPage(new URLSearchParams({ created_by: 'me', limit: '30' })).then(
+      ({ page, error }) => {
+        if (live) setOwn({ runs: page?.runs ?? [], error, loaded: true });
       },
     );
     return () => {

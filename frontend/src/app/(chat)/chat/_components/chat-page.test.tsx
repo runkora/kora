@@ -74,11 +74,6 @@ describe('ChatPage', () => {
     expect(await composer()).toHaveAttribute('placeholder', 'What should Reviewer work on?');
   });
 
-  it('selects the agent in the address', async () => {
-    render(<ChatPage agentSlug="reviewer" />);
-    expect(await composer()).toHaveAttribute('placeholder', 'What should Reviewer work on?');
-  });
-
   it('disables the composer for an agent in the address the viewer cannot run', async () => {
     render(<ChatPage agentSlug="locked" />);
     const field = await composer();
@@ -200,8 +195,6 @@ describe('ChatPage', () => {
   it('lists only active agents', async () => {
     api.agents = [{ ...CODER, state: 'provisioning' }, REVIEWER];
     render(<ChatPage />);
-    await waitFor(async () =>
-      expect(await composer()).toHaveAttribute('placeholder', 'What should Reviewer work on?'),
-    );
+    expect(await composer()).toHaveAttribute('placeholder', 'What should Reviewer work on?');
   });
 });
