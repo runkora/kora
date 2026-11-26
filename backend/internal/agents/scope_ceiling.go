@@ -105,8 +105,7 @@ func ceilingScopes(at AgentType, resolved []string) []string {
 
 // uncoveredAgentScopes returns the agent scopes no held scope covers. held is
 // requires-expanded by the policy service, so the agent scopes need no expansion.
-// A scope is covered when one of its covering scopes is held, so each check is a
-// few set lookups however many scopes the caller holds (an admin holds hundreds).
+// A scope is covered when one of its covering scopes is held.
 func uncoveredAgentScopes(held, agentScopes []string) []string {
 	heldSet := make(map[string]struct{}, len(held))
 	for _, h := range held {
