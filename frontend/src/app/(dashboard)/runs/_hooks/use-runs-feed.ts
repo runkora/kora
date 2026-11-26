@@ -13,6 +13,7 @@ import {
   emptyFeed,
   feedReducer,
   type FeedAction,
+  type FeedPage,
   type UnkeyedFeedAction,
 } from '../_lib/runs-feed';
 import { fetchRunsPage, openRunsStream } from '../_services/runs-api';
@@ -48,13 +49,34 @@ export interface RunsFeed {
   liveIds: ReadonlySet<string>;
 }
 
-export function useRunsFeed(filters: RunFilters): RunsFeed {
+/** A first page read on the server for the filters whose query string is `key`. */
+export interface InitialRunsPage {
+  /** Unique to one server read. */
+  id: string;
+  key: string;
+  page: FeedPage;
+}
+
+// Server pages already drawn. Back and forward restore the route with its old page, which
+// is drawn once only.
+const drawnServerPages = new Set<string>();
+
+export function useRunsFeed(filters: RunFilters, initial: InitialRunsPage | null = null): RunsFeed {
   // A string: a new filters object with the same values changes nothing.
   const key = runFilterParams(filters).toString();
-  const [state, dispatch] = useReducer(feedReducer, key, emptyFeed);
+  const fresh = initial !== null && !drawnServerPages.has(initial.id) ? initial : null;
+  // The server's page is drawn from the first render, as a provisional page.
+  const [state, dispatch] = useReducer(feedReducer, key, (k) =>
+    fresh?.key === k
+      ? feedReducer(emptyFeed(k), { key: k, type: 'provisional', page: fresh.page })
+      : emptyFeed(k),
+  );
   const feed = state.key === key ? state : emptyFeed(key);
   // Each first-page load and page fetch answers only if no newer load has started.
   const epoch = useRef(0);
+  // The key the server's page was read for, until the first stream opens for it.
+  const initialKey = useRef(fresh?.key ?? null);
+  const initialId = useRef(fresh?.id ?? null);
   const [reconnecting, setReconnecting] = useState(false);
   const [liveIds, setLiveIds] = useState<ReadonlySet<string>>(() => new Set());
 
@@ -142,14 +164,19 @@ export function useRunsFeed(filters: RunFilters): RunsFeed {
       };
     };
     open();
-    // A first page read while the stream subscribes draws the rows a round trip sooner.
-    // The page read once the stream opens still replaces it, with every change since.
+    // A first page read while the stream subscribes draws the rows a round trip sooner, when
+    // the server did not send one. The page read once the stream opens still replaces it,
+    // with every change since.
     let cancelled = false;
-    const provisional = new URLSearchParams(key);
-    provisional.set('limit', String(RUNS_PAGE_SIZE));
-    void fetchRunsPage(provisional).then(({ page }) => {
-      if (!cancelled && page) act({ type: 'provisional', page });
-    });
+    if (initialKey.current !== key) {
+      const provisional = new URLSearchParams(key);
+      provisional.set('limit', String(RUNS_PAGE_SIZE));
+      void fetchRunsPage(provisional).then(({ page }) => {
+        if (!cancelled && page) act({ type: 'provisional', page });
+      });
+    }
+    initialKey.current = null;
+    if (initialId.current) drawnServerPages.add(initialId.current);
     return () => {
       cancelled = true;
       source?.close();

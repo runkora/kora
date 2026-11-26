@@ -4,9 +4,9 @@ import { renderWithProviders } from '@runkora/test-utils';
 import type { RunWithAttribution } from '@runkora/shared/api';
 import type { RunsFeed } from '../_hooks/use-runs-feed';
 
-const nav = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), search: '' }));
+const nav = vi.hoisted(() => ({ push: vi.fn(), search: '' }));
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: nav.push, replace: nav.replace }),
+  useRouter: () => ({ push: nav.push }),
   usePathname: () => '/runs',
   useSearchParams: () => new URLSearchParams(nav.search),
 }));
@@ -55,9 +55,13 @@ const withFeed = (over: Partial<RunsFeed> = {}) => {
   };
 };
 
+let replaceState: ReturnType<typeof vi.spyOn>;
+
 beforeEach(() => {
   nav.push.mockReset();
-  nav.replace.mockReset();
+  // The page writes filter changes with the history API.
+  replaceState = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {});
+  replaceState.mockClear();
   nav.search = '';
   withFeed();
 });
@@ -104,18 +108,18 @@ describe('RunsPage', () => {
     expect(screen.getByPlaceholderText('Search runs…')).toHaveValue('flaky');
     // The unknown quick filter reads as All; the URL is left as it is until a filter changes.
     expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument();
-    expect(nav.replace).not.toHaveBeenCalled();
+    expect(replaceState).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText('Fix the flaky test'));
     expect(nav.push).toHaveBeenCalledWith(
       '/agents/coder/runs/run-1?from=runs&runs=trigger_kind%3Dwebhook%26q%3Dflaky',
     );
   });
 
-  it('writes a filter change to the URL with replace', () => {
+  it('writes a filter change to the URL with a history replace', () => {
     renderWithProviders(<RunsPage />);
-    expect(nav.replace).not.toHaveBeenCalled();
+    expect(replaceState).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText('Filter by source'), { target: { value: 'event' } });
-    expect(nav.replace).toHaveBeenCalledWith('/runs?trigger_kind=event', { scroll: false });
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/runs?trigger_kind=event');
     expect(nav.push).not.toHaveBeenCalled();
   });
 
@@ -123,9 +127,7 @@ describe('RunsPage', () => {
     nav.search = 'agent=new';
     renderWithProviders(<RunsPage />);
     fireEvent.change(screen.getByLabelText('Filter by source'), { target: { value: 'event' } });
-    expect(nav.replace).toHaveBeenCalledWith('/runs?agent=new&trigger_kind=event', {
-      scroll: false,
-    });
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/runs?agent=new&trigger_kind=event');
   });
 
   it('follows a link to bare /runs instead of putting the filters back', () => {
@@ -134,13 +136,13 @@ describe('RunsPage', () => {
     nav.search = '';
     rerender(<RunsPage />);
     expect(screen.getByLabelText('Filter by source')).toHaveValue('');
-    expect(nav.replace).not.toHaveBeenCalled();
+    expect(replaceState).not.toHaveBeenCalled();
   });
 
   it('drops an agent from the URL that the viewer cannot read', async () => {
     nav.search = 'agent_type_id=agt_gone';
     renderWithProviders(<RunsPage />);
-    await waitFor(() => expect(nav.replace).toHaveBeenCalledWith('/runs', { scroll: false }));
+    await waitFor(() => expect(replaceState).toHaveBeenCalledWith(null, '', '/runs'));
   });
 
   it('says when the live stream is reconnecting', () => {

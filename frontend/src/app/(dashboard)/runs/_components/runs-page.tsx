@@ -35,7 +35,7 @@ import {
   type AgentTypeRow,
   type RunRow,
 } from '../../agents/_types';
-import { useRunsFeed } from '../_hooks/use-runs-feed';
+import { useRunsFeed, type InitialRunsPage } from '../_hooks/use-runs-feed';
 import {
   DEFAULT_RUN_FILTERS,
   QUICK_FILTERS,
@@ -196,14 +196,15 @@ function RunsEmpty({
   );
 }
 
-export function RunsPage() {
+/** `initialPage` is a first page the server read for the URL's filters, or null. */
+export function RunsPage({ initialPage = null }: { initialPage?: InitialRunsPage | null }) {
   const router = useRouter();
   const params = useSearchParams();
   const [filters, setFilters] = useState<RunFilters>(() => runFiltersFromUrl(params));
   const [search, setSearch] = useState(filters.query);
   const [agentTypes, setAgentTypes] = useState<AgentTypeRow[]>([]);
   const [agentsError, setAgentsError] = useState(false);
-  const feed = useRunsFeed(filters);
+  const feed = useRunsFeed(filters, initialPage);
   const urlQuery = runFiltersToUrl(filters).toString();
 
   // The filters live in the URL so back, reload and shared links restore them. A URL that moved
@@ -220,13 +221,14 @@ export function RunsPage() {
   }
   useEffect(() => {
     if (urlQuery === inUrl) return;
-    // Replace keeps typing out of the history; params the page does not own are kept.
+    // Replace keeps typing out of the history; params the page does not own are kept. The
+    // history API skips a server render of the route, whose first page the feed would not use.
     const next = new URLSearchParams(params.toString());
     RUN_URL_KEYS.forEach((k) => next.delete(k));
     new URLSearchParams(urlQuery).forEach((v, k) => next.set(k, v));
     const query = next.toString();
-    router.replace(query ? `${APP_ROUTES.runs}?${query}` : APP_ROUTES.runs, { scroll: false });
-  }, [urlQuery, inUrl, params, router]);
+    window.history.replaceState(null, '', query ? `${APP_ROUTES.runs}?${query}` : APP_ROUTES.runs);
+  }, [urlQuery, inUrl, params]);
 
   useEffect(() => {
     const timer = window.setTimeout(

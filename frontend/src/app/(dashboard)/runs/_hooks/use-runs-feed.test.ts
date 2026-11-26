@@ -78,6 +78,37 @@ describe('useRunsFeed', () => {
     await waitFor(() => expect(api.calls).toEqual(['stream', 'page?limit=50', 'page?limit=50']));
   });
 
+  it('draws the server page on the first render and reads only the subscribed page', async () => {
+    const initial = { id: 'read-1', key: '', page: { runs: [run('s')], nextCursor: null } };
+    const { result } = renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS, initial));
+    expect(result.current.runs.map((r) => r.id)).toEqual(['s']);
+    expect(result.current.loading).toBe(false);
+    expect(api.calls).toEqual(['stream']);
+    act(() => latest().onopen?.());
+    await waitFor(() => expect(result.current.runs.map((r) => r.id)).toEqual(['b', 'a']));
+    expect(api.calls).toEqual(['stream', 'page?limit=50']);
+  });
+
+  it('draws a server page once, not again when back or forward restores it', () => {
+    const initial = { id: 'read-2', key: '', page: { runs: [run('s')], nextCursor: null } };
+    renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS, initial)).unmount();
+    api.calls = [];
+    const { result } = renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS, initial));
+    expect(result.current.runs).toHaveLength(0);
+    expect(api.calls).toEqual(['stream', 'page?limit=50']);
+  });
+
+  it('reads a page alongside the stream when the server page is for other filters', () => {
+    const initial = {
+      id: 'read-3',
+      key: 'state=failed',
+      page: { runs: [run('s')], nextCursor: null },
+    };
+    const { result } = renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS, initial));
+    expect(result.current.runs).toHaveLength(0);
+    expect(api.calls).toEqual(['stream', 'page?limit=50']);
+  });
+
   it('keeps a change that arrives before the subscribed page, and replays it on that page', async () => {
     let answer: (value: unknown) => void = () => {};
     let reads = 0;
