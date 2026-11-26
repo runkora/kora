@@ -106,6 +106,9 @@ export { Skeleton } from './components/skeleton';
 export { OrbitalLoader } from './components/orbital-loader';
 export type { OrbitalLoaderProps } from './components/orbital-loader';
 
+export { Reveal } from './components/reveal';
+export type { RevealProps } from './components/reveal';
+
 export { Donut, donutSegmentColor } from './components/donut';
 export type { DonutProps, DonutSegment } from './components/donut';
 export { Sparkline, sparklineBarVariants } from './components/sparkline';
@@ -203,6 +206,20 @@ export { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from './comp
 
 export { Popover, PopoverTrigger, PopoverAnchor, PopoverContent } from './components/popover';
 export type { PopoverContentProps } from './components/popover';
+export {
+  Combobox,
+  ComboboxInput,
+  ComboboxList,
+  ComboboxItem,
+  ComboboxEmpty,
+} from './components/combobox';
+export type {
+  ComboboxProps,
+  ComboboxInputProps,
+  ComboboxListProps,
+  ComboboxItemProps,
+  ComboboxEmptyProps,
+} from './components/combobox';
 export {
   DropdownMenu,
   DropdownMenuTrigger,

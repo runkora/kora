@@ -601,6 +601,48 @@ import { PageLayout, Section } from '@runkora/hades';
 
 ---
 
+## Picking From a List: `Combobox`
+
+Use `Combobox` for a list of options that a person searches or moves through with the arrow keys. It is built on `cmdk` and renders the listbox pattern. Open it in a `Popover` when a button triggers it.
+
+- `ComboboxInput` filters the items by their `value` and `keywords`, ignoring case. Leave it out for a short list, and focus the `Combobox` root on open so the arrow keys work.
+- `ComboboxItem` takes `value`, `onSelect`, `disabled` and `keywords`. A disabled item stays in the list and cannot be picked.
+- `ComboboxEmpty` shows only when the search matches no item.
+
+```tsx
+import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@runkora/hades';
+
+<Combobox label="Region">
+  <ComboboxInput placeholder="Search regions" aria-label="Search regions" />
+  <ComboboxList>
+    {regions.map((r) => (
+      <ComboboxItem key={r.id} value={r.id} keywords={[r.name]} onSelect={() => pick(r)}>
+        {r.name}
+      </ComboboxItem>
+    ))}
+    <ComboboxEmpty>No region matches.</ComboboxEmpty>
+  </ComboboxList>
+</Combobox>;
+```
+
+---
+
+## One-Shot Motion: `Reveal`
+
+`Reveal` plays its children in once on mount. Each child rises from 0.4em below its place and fades in. `stagger`, `duration` and `delay` take milliseconds. Under `prefers-reduced-motion: reduce` the children show in place. `Reveal` adds no ARIA attributes, and the text reads as it would without it.
+
+Pass one child per item. A whitespace-only string between items stays as text.
+
+```tsx
+<Heading variant="section">
+  <Reveal stagger={60} duration={280}>
+    {['What', ' ', 'should', ' ', 'we', ' ', 'work', ' ', 'on?']}
+  </Reveal>
+</Heading>
+```
+
+---
+
 ## Wizard (multi-step builder modal)
 
 Use `Wizard` inside a `Modal size="builder"` to build consistent multi-step configuration flows. `Wizard` is a compound component; all sub-components are accessed via the `Wizard` namespace.
