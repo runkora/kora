@@ -137,8 +137,12 @@ export function eventSummary(e: KoraEvent): string {
   switch (bare) {
     case 'agents.run.created':
       return 'Run queued';
+    case 'agents.run.placed':
+      return 'Run placed on an agent pod';
     case 'agents.run.started':
       return 'Run started';
+    case 'agents.run.resumed':
+      return 'Run began a new turn';
     case 'agents.run.completed':
       return 'Run completed';
     case 'agents.run.failed':
@@ -159,6 +163,8 @@ export function eventSummary(e: KoraEvent): string {
       return 'Loop guard paused the run';
     case 'agents.run.message_received':
       return 'Run received a message';
+    case 'agents.run.summarized':
+      return 'Run summary set';
     case 'agents.sandbox.created':
       return 'Sandbox provisioning';
     case 'agents.sandbox.replaced':

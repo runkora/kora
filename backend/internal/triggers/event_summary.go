@@ -527,7 +527,9 @@ func scheduledSummary(t Trigger) *agentsclient.RunEventSummary {
 // type, keyed by entity and action. Any other type is "sent an event about".
 var platformEventVerbs = map[string]string{
 	"run.created":              "created run",
+	"run.placed":               "placed run",
 	"run.started":              "started run",
+	"run.resumed":              "resumed run",
 	"run.completed":            "completed run",
 	"run.failed":               "failed run",
 	"run.budget_exhausted":     "ran out of budget on run",
@@ -538,6 +540,7 @@ var platformEventVerbs = map[string]string{
 	"run.guardrail_warned":     "was warned of a loop in run",
 	"run.guardrail_paused":     "was paused for a loop in run",
 	"run.message_received":     "sent a message to run",
+	"run.summarized":           "summarized run",
 	"sandbox.created":          "created a sandbox for",
 	"sandbox.replaced":         "replaced the sandbox of",
 	"sandbox.ready":            "readied the sandbox of",

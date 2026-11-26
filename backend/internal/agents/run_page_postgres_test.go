@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -288,5 +289,160 @@ func TestPostgres_ListRunsTimeBounds(t *testing.T) {
 	}
 	if got := walkRepo(t, r, tenant, RunListQuery{Scope: scope, CreatedAfter: after, CreatedBefore: before, Limit: 2}); !slices.Equal(got, ids[2:5]) {
 		t.Errorf("window = %v, want %v", got, ids[2:5])
+	}
+}
+
+// created_by, trigger_kind and q alone and combined, paged in twos across created_at ties,
+// under a see-all scope and under a caller who may not read another person's delegated runs.
+func TestPostgres_ListRunsCreatorKindAndSearch(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	ctx := context.Background()
+	// carol has a profile only in another tenant, which must not name her runs here.
+	other := "test-" + uuid.NewString()
+	t.Cleanup(func() {
+		_, _ = r.pool.Exec(ctx, `DELETE FROM user_profiles WHERE tenant_id = ANY($1)`, []string{tenant, other})
+	})
+	if _, err := r.pool.Exec(ctx, `INSERT INTO user_profiles (id, tenant_id, email, display_name) VALUES ('carol', $1, 'carol@example.com', 'Carol Elsewhere')`, other); err != nil {
+		t.Fatal(err)
+	}
+	agentNames := map[string]string{}
+	newAgent := func(name string, mode IdentityMode) string {
+		at := seedRunAgentType(t, r, tenant, mode)
+		if _, err := r.pool.Exec(ctx, `UPDATE agent_types SET name=$1 WHERE id=$2`, name, at.ID); err != nil {
+			t.Fatal(err)
+		}
+		agentNames[at.ID] = name
+		return at.ID
+	}
+	deploy, review, del := newAgent("Deploy Bot", IdentityModeAutonomous), newAgent("Reviewer", IdentityModeAutonomous), newAgent("Helper", IdentityModeDelegated)
+	names := map[string]string{"alice": "Alice Liddell", "bob": "Bob Builder"}
+	for id, name := range names {
+		if _, err := r.pool.Exec(ctx, `INSERT INTO user_profiles (id, tenant_id, email, display_name) VALUES ($1, $2, $1 || '@example.com', $3)`, id, tenant, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// kind "legacy" is a trigger run from before trigger_kind was recorded.
+	type spec struct{ agent, by, kind, summary string }
+	specs := []spec{
+		{deploy, "alice", "", "Fix the login bug"},
+		{review, "bob", "", "Review 100% coverage"},
+		{deploy, "trigger-source:s1", "webhook", ""},
+		{review, "trigger:t2", "scheduled", "Nightly report"},
+		{deploy, "trigger:t3", "event", "Ran 1000 checks"},
+		{review, "trigger:t4", "manual", ""},
+		{del, "bob", "", "Secret review"},
+		{del, "alice", "", "Alice's review"},
+		{deploy, "alice", "", "Deploy the docs"},
+		{review, "trigger-source:s1", "webhook", "Review the PR"},
+		{deploy, "carol", "", "Carol's run"},
+		{review, "trigger:t5", "legacy", "Review the backlog"},
+		{deploy, "", "", "Nobody's run"},
+	}
+	triggerName := func(s spec) string {
+		if s.kind == "" {
+			return ""
+		}
+		return "Hook " + s.kind
+	}
+	byID := map[string]spec{}
+	base := time.Now().UTC().Add(-time.Hour)
+	for i, s := range specs {
+		run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: s.agent, CreatedBy: s.by}
+		switch s.kind {
+		case "":
+		case "legacy":
+			run.StartedBy = &StartedByTrigger{TriggerID: "trig-legacy", TriggerName: triggerName(s)}
+		default:
+			run.StartedBy = &StartedByTrigger{TriggerID: "trig-" + s.kind, TriggerName: triggerName(s), TriggerKind: s.kind}
+		}
+		if _, err := r.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun: %v", err)
+		}
+		// Runs share a created_at in threes, so page edges fall inside ties.
+		if _, err := r.pool.Exec(ctx, `UPDATE runs SET created_at=$1, summary=NULLIF($2, '') WHERE id=$3`,
+			base.Add(-time.Duration(i/3)*time.Minute), s.summary, run.ID); err != nil {
+			t.Fatal(err)
+		}
+		byID[run.ID] = s
+	}
+
+	// matches is the filter written in Go, the expectation the SQL is checked against.
+	matches := func(q RunListQuery, s spec) bool {
+		if q.CreatedByMe && (q.Scope.Vis.Subject == "" || s.by != q.Scope.Vis.Subject) {
+			return false
+		}
+		if len(q.TriggerKinds) > 0 && !slices.Contains(q.TriggerKinds, s.kind) && !(s.kind == "" && slices.Contains(q.TriggerKinds, triggerKindNone)) {
+			return false
+		}
+		if q.Search == "" {
+			return true
+		}
+		for _, field := range []string{s.summary, agentNames[s.agent], names[s.by], triggerName(s)} {
+			if strings.Contains(strings.ToLower(field), strings.ToLower(q.Search)) {
+				return true
+			}
+		}
+		return false
+	}
+	queries := []RunListQuery{
+		{CreatedByMe: true},
+		{TriggerKinds: []string{"webhook"}},
+		{TriggerKinds: []string{"webhook", "scheduled"}},
+		{TriggerKinds: []string{triggerKindNone}},
+		{TriggerKinds: []string{triggerKindNone, "event", "manual"}},
+		{Search: "LOGIN"},
+		{Search: "deploy"},
+		{Search: "builder"},
+		{Search: "100%"},
+		{Search: "review"},
+		{Search: "hook"},
+		{Search: "elsewhere"},
+		{CreatedByMe: true, TriggerKinds: []string{triggerKindNone}, Search: "review"},
+		{TriggerKinds: []string{"webhook"}, Search: "review"},
+		{CreatedByMe: true, Search: "nothing like it"},
+	}
+	ats := []string{deploy, review, del}
+	scopes := map[string]RunScope{
+		"bob sees all":      {AgentTypeIDs: ats, Vis: RunVisibility{SeeAll: true, Subject: "bob"}},
+		"no subject":        {AgentTypeIDs: ats, Vis: RunVisibility{SeeAll: true}},
+		"alice":             {AgentTypeIDs: ats, Vis: RunVisibility{Subject: "alice"}},
+		"alice, two agents": {AgentTypeIDs: []string{deploy, del}, Vis: RunVisibility{Subject: "alice"}},
+	}
+	for scopeName, scope := range scopes {
+		for _, q := range queries {
+			t.Run(fmt.Sprintf("%s %+v", scopeName, q), func(t *testing.T) {
+				q.Scope = scope
+				var want []string
+				for id, s := range byID {
+					visible := slices.Contains(scope.AgentTypeIDs, s.agent) && (scope.Vis.SeeAll || s.agent != del || s.by == scope.Vis.Subject)
+					if visible && matches(q, s) {
+						want = append(want, id)
+					}
+				}
+				q.Limit = 2
+				paged := walkRepo(t, r, tenant, q)
+				q.Limit = 100
+				single, err := r.ListRuns(ctx, tenant, q)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var singleIDs []string
+				for _, run := range single {
+					singleIDs = append(singleIDs, run.ID)
+					if run.CreatedByName != names[run.CreatedBy] {
+						t.Errorf("run %s created_by_name %q, want %q", run.ID, run.CreatedByName, names[run.CreatedBy])
+					}
+				}
+				if !slices.Equal(paged, singleIDs) {
+					t.Fatalf("pages %v differ from the single read %v", paged, singleIDs)
+				}
+				got := slices.Sorted(slices.Values(paged))
+				slices.Sort(want)
+				if !slices.Equal(got, want) {
+					t.Errorf("runs %v, want %v", got, want)
+				}
+			})
+		}
 	}
 }

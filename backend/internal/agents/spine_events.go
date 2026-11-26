@@ -125,11 +125,18 @@ func environmentEvent(t events.Type, env Environment, changed []string) events.E
 	return events.Event{Type: t, Tenant: env.TenantID, Subject: "environments/" + env.Slug, Entity: newEnvironmentEntity(env), Changed: changed}
 }
 
-// stateEventType is the event a state change records. idle to active is a new turn and records none.
+// stateEventType is the event a state change records. idle to active is a new turn.
+// AssignPod records pending to starting itself, with the pod.
 func stateEventType(from, to RunState) (events.Type, bool) {
 	switch to {
 	case RunStateActive:
-		return events.RunStarted, from == RunStateStarting
+		switch from {
+		case RunStateStarting:
+			return events.RunStarted, true
+		case RunStateIdle:
+			return events.RunResumed, true
+		}
+		return "", false
 	case RunStateIdle:
 		return events.RunIdle, true
 	case RunStateCompleted:

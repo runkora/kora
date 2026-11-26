@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -473,13 +472,18 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, status, run)
 }
 
-// handleListRuns handles GET /api/v1/runs?agent_type_id=&state=&started_by=&created_after=&created_before=&limit=&cursor=, clamping limit to maxRunsLimit.
-// agent_type_id and state may repeat; started_by=trigger keeps runs a trigger started.
+// handleListRuns handles GET /api/v1/runs?agent_type_id=&state=&started_by=&created_by=&trigger_kind=&q=&created_after=&created_before=&limit=&cursor=, clamping limit to maxRunsLimit.
+// agent_type_id, state and trigger_kind may repeat; started_by=trigger keeps runs a trigger started.
 func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
 	// Tenant is derived from the verified platform claims; query-string is ignored.
-	p := RunListQuery{Limit: defaultRunsLimit}
+	p, agentTypeIDs, apiErr := parseRunFilters(q)
+	if apiErr != nil {
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		return
+	}
+	p.Limit = defaultRunsLimit
 	if raw := q.Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 {
@@ -495,44 +499,6 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
-	for _, b := range []struct {
-		field string
-		dst   *time.Time
-	}{{"created_after", &p.CreatedAfter}, {"created_before", &p.CreatedBefore}} {
-		raw := q.Get(b.field)
-		if raw == "" {
-			continue
-		}
-		t, perr := time.Parse(time.RFC3339, raw)
-		if perr != nil {
-			apiErr := api.ValidationError(api.ErrCodeInvalidField, b.field+" must be an RFC 3339 timestamp", map[string]any{"field": b.field})
-			api.ErrorResponse(ctx, w, c.logger, apiErr, perr)
-			return
-		}
-		*b.dst = t
-	}
-	// Repeated state keys add to the list.
-	if p.States, err = parseRunStates(strings.Join(q["state"], ",")); err != nil {
-		apiErr := api.ValidationError(api.ErrCodeInvalidField, "state must be a comma-separated list of run states", map[string]any{"field": "state"})
-		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
-		return
-	}
-
-	switch q.Get("started_by") {
-	case "":
-	case startedByTrigger:
-		p.StartedByTrigger = true
-	default:
-		apiErr := api.ValidationError(api.ErrCodeInvalidField, "started_by must be trigger", map[string]any{"field": "started_by"})
-		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-		return
-	}
-	if p.Grade, err = parseGradeFilter(q.Get("grader"), q.Get("question"), q.Get("verdict")); err != nil {
-		apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), map[string]any{"field": gradeFilterField(q.Get("grader"))})
-		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
-		return
-	}
-	agentTypeIDs := slices.DeleteFunc(slices.Clone(q["agent_type_id"]), func(id string) bool { return id == "" })
 
 	page, err := c.runs.ListRuns(ctx, agentTypeIDs, p)
 	if err != nil {

@@ -381,7 +381,7 @@ These producers call `PublishOnce`. Its dedup lasts as long as the earlier event
 
 `platform/events` defines one payload struct per entity kind. The catalog registers each type with its struct:
 
-*   `RunPayload`: the twelve `agents.run.*` types.
+*   `RunPayload`: the `agents.run.*` types.
 *   `SandboxPayload`: the five `agents.sandbox.*` types.
 *   `AgentPayload`: `agents.agent.created.v1`, `agents.agent.updated.v1` and `agents.agent.deleted.v1`.
 *   `EnvironmentPayload`: the three `agents.environment.*` types.

@@ -210,6 +210,69 @@ func TestParseRunStates(t *testing.T) {
 	}
 }
 
+func TestParseRunFilters(t *testing.T) {
+	q, err := url.ParseQuery("created_by=me&trigger_kind=webhook,none&trigger_kind=event&q=%20Review%20&agent_type_id=at-1&agent_type_id=&state=idle&started_by=trigger")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ids, apiErr := parseRunFilters(q)
+	if apiErr != nil {
+		t.Fatalf("parse: %v", apiErr)
+	}
+	if !p.CreatedByMe || !slices.Equal(p.TriggerKinds, []string{"webhook", "none", "event"}) || p.Search != "Review" ||
+		!slices.Equal(ids, []string{"at-1"}) || !slices.Equal(p.States, []RunState{RunStateIdle}) || !p.StartedByTrigger {
+		t.Errorf("filters = %+v, agent types %v", p, ids)
+	}
+	for _, kind := range append(slices.Clone(triggerKinds), triggerKindNone) {
+		if p, _, apiErr := parseRunFilters(url.Values{"trigger_kind": {kind}}); apiErr != nil || !slices.Equal(p.TriggerKinds, []string{kind}) {
+			t.Errorf("trigger_kind=%s gave %v, %v", kind, p.TriggerKinds, apiErr)
+		}
+	}
+}
+
+// A rejected filter is a 400 that names its field.
+func TestHandleListRuns_BadFilterNamesItsField(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+	for query, field := range map[string]string{
+		"trigger_kind=cron":                  "trigger_kind",
+		"trigger_kind=webhook&trigger_kind=": "trigger_kind",
+		"state=sleeping":                     "state",
+		"started_by=person":                  "started_by",
+		"created_after=yesterday":            "created_after",
+		"verdict=pass":                       "grader",
+		"limit=0":                            "limit",
+		"created_by=user-1":                  "created_by",
+	} {
+		w := getRequest(t, c.handleListRuns, query)
+		var body struct {
+			Details map[string]any `json:"details"`
+		}
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		if w.Code != http.StatusBadRequest || body.Details["field"] != field {
+			t.Errorf("%s gave %d naming %v, want 400 naming %s", query, w.Code, body.Details["field"], field)
+		}
+	}
+}
+
+// The new filters reach the repository inside the caller's scope, which they only narrow.
+func TestListRuns_NewFiltersKeepTheScope(t *testing.T) {
+	svc, repo, _, _ := newTestServiceWithEval(t, pathAllowEvaluator{segment: "agent-0"})
+	for i := range 2 {
+		seedAgentType(t, repo, AgentType{ID: fmt.Sprintf("at-%d", i), TenantID: "t-1", Slug: fmt.Sprintf("agent-%d", i)})
+	}
+	ctx := withTenantCtx(context.Background(), "t-1")
+	if _, err := svc.run.ListRuns(ctx, nil, RunListQuery{CreatedByMe: true, TriggerKinds: []string{"none"}, Search: "review", Limit: 10}); err != nil {
+		t.Fatal(err)
+	}
+	got := repo.lastRunList
+	if !got.CreatedByMe || !slices.Equal(got.TriggerKinds, []string{"none"}) || got.Search != "review" {
+		t.Errorf("repository got %+v, want the filters", got)
+	}
+	if !slices.Equal(got.Scope.AgentTypeIDs, []string{"at-0"}) || got.Limit != 11 {
+		t.Errorf("scope %v, limit %d; want the granted agent and one row past the page", got.Scope.AgentTypeIDs, got.Limit)
+	}
+}
+
 // ── GET /api/v1/runs ──────────────────────────────────────────────────────────
 
 type listRunsBody struct {
