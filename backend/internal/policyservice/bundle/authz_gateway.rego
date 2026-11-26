@@ -371,7 +371,7 @@ _delegator_holds(scope) if {
 _delegator_holds(scope) if {
 	_delegator_principal_type == "HUMAN"
 	some role in data.tenants[_tenant_id].principal_roles.principal_roles[_delegator_id]
-	some role_scope in data.tenants[_tenant_id].roles.role_scopes[role]
+	some role_scope in data.tenants[_tenant_id].roles.role_scope_index[role][scope_index_key(scope)]
 	scope_covers(role_scope, scope)
 }
 
@@ -460,7 +460,7 @@ allow if {
 	not _principal_requires_delegation
 	_principal_type == "HUMAN"
 	some role in _principal_roles
-	some role_scope in data.tenants[_tenant_id].roles.role_scopes[role]
+	some role_scope in data.tenants[_tenant_id].roles.role_scope_index[role][_required_scope_key]
 	scope_covers(role_scope, _required_scope)
 }
 
@@ -522,7 +522,7 @@ reason := "deny:delegation_required" if {
 matched_roles contains role_match if {
 	_principal_type == "HUMAN"
 	some role_match in _principal_roles
-	some role_scope in data.tenants[_tenant_id].roles.role_scopes[role_match]
+	some role_scope in data.tenants[_tenant_id].roles.role_scope_index[role_match][_required_scope_key]
 	scope_covers(role_scope, _required_scope)
 }
 
@@ -655,6 +655,14 @@ _path_covered(path, prefix) if startswith(path, concat("", [prefix, "/"]))
 scope_covers(a, b) if {
 	a == b
 }
+
+# The role_scope_index group a scope falls in: its first and last segments, which
+# scope_covers requires to match. Mirrors bundle.ScopeIndexKey.
+scope_index_key(s) := concat("|", [parts[0], parts[count(parts) - 1]]) if {
+	parts := split(s, ":")
+}
+
+_required_scope_key := scope_index_key(_required_scope)
 
 scope_covers(a, b) if {
 	parts_a := split(a, ":")

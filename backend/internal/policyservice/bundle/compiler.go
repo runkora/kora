@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -152,6 +153,35 @@ type principalRolesDocument struct {
 // rolesDocument is the JSON structure of data/roles/data.json.
 type rolesDocument struct {
 	RoleScopes map[string][]string `json:"role_scopes"`
+	// RoleScopeIndex holds the same scopes per role, grouped by ScopeIndexKey. A
+	// scope covers another only when both share a resource type and an action, so
+	// a decision reads the one group of its required scope instead of every scope
+	// of the role. The platform-admin role holds a scope per MCP tool, so a scan
+	// is hundreds of scope_covers calls per decision.
+	RoleScopeIndex map[string]map[string][]string `json:"role_scope_index"`
+}
+
+// newRolesDocument builds the roles document and its index from role scopes.
+func newRolesDocument(roleScopes map[string][]string) rolesDocument {
+	index := make(map[string]map[string][]string, len(roleScopes))
+	for role, scopes := range roleScopes {
+		byKey := map[string][]string{}
+		for _, sc := range scopes {
+			k := ScopeIndexKey(sc)
+			byKey[k] = append(byKey[k], sc)
+		}
+		index[role] = byKey
+	}
+	return rolesDocument{RoleScopes: roleScopes, RoleScopeIndex: index}
+}
+
+// ScopeIndexKey returns "<resource type>|<action>", the first and last segments
+// of a scope, which scope_covers requires to be equal. A one-segment scope keys
+// on that segment twice, and covers only itself.
+func ScopeIndexKey(scope string) string {
+	first, _, _ := strings.Cut(scope, ":")
+	last := scope[strings.LastIndex(scope, ":")+1:]
+	return first + "|" + last
 }
 
 // routesDocument is the JSON structure of data/routes/data.json.
@@ -617,7 +647,7 @@ func buildBundle(tenantID string, tenantGrants []*grants.Grant, vocabEntries []*
 		return nil, "", err
 	}
 
-	rolesDoc := rolesDocument{RoleScopes: mergeRoles(ReservedRoles(vocabEntries), roleEntries, requiresMap)}
+	rolesDoc := newRolesDocument(mergeRoles(ReservedRoles(vocabEntries), roleEntries, requiresMap))
 	rolesJSON, err := json.Marshal(rolesDoc)
 	if err != nil {
 		return nil, "", fmt.Errorf("marshal roles: %w", err)
@@ -789,7 +819,7 @@ func buildGatewayBundle(
 			return nil, "", fmt.Errorf("marshal grants for tenant %s: %w", tenantID, err)
 		}
 
-		rolesJSON, err = json.Marshal(rolesDocument{RoleScopes: mergeRoles(reservedRoles, allRoles[tenantID], requiresMap)})
+		rolesJSON, err = json.Marshal(newRolesDocument(mergeRoles(reservedRoles, allRoles[tenantID], requiresMap)))
 		if err != nil {
 			return nil, "", fmt.Errorf("marshal roles for tenant %s: %w", tenantID, err)
 		}
