@@ -1,6 +1,6 @@
 # Policy Bundle Grants Index
 
-**Status:** Accepted  
+**Status:** Accepted (Amended 2026-11-26)  
 **Date:** 2026-11-06  
 **Deciders:** Platform Team  
 **Technical Story:** `GET /api/v1/triggers` latency in v0.12.0-rc.3
@@ -42,9 +42,29 @@ The bundles carry a per-principal grants index, and `authz.rego` and `authz_gate
 
 - One bundle carries the rules and the index together. No bundle pairs the new rules with data that lacks the index.
 
+---
+
+## Amendment 1 (2026-11-26): Role Scopes Index
+
+**Status:** Accepted
+
+The reserved `platform-admin` role holds the vocabulary's covering set, with one scope for each MCP tool. A decision scanned every scope of each of the caller's roles in the role allow rule and again in `matched_roles`. The cost of a decision grew with the scope count of the caller's roles.
+
+*   `roles/data.json` carries `role_scope_index` beside `role_scopes`: a map from role to a map from `<resource type>|<action>` to the role's scopes with that first and last segment. The policy service compiler builds it in `newRolesDocument` for the tenant bundle and for each tenant in the gateway bundle.
+*   `scope_covers` matches two scopes only when their first segments and their last segments are equal. The group for a required scope holds every role scope that can cover it.
+*   `authz.rego` and `authz_gateway.rego` read the group of the required scope (`scope_index_key`) in the role allow rule, in `matched_roles` and in the delegator leg's role rule.
+*   A role with no group for the key covers nothing. Every allow rule that reads the group fails closed.
+*   `principal_all_scopes` and `principal_role_detail` read `role_scopes` unchanged.
+
+### Consequences
+
+*   **Positive:** A new MCP tool in the vocabulary adds no cost to decisions that require other scopes.
+*   **Negative:** Each bundle carries every role scope twice.
+
 ## References
 
 - `backend/internal/policyservice/bundle/compiler.go`
 - `backend/internal/policyservice/bundle/authz.rego`
 - `backend/internal/policyservice/bundle/authz_gateway.rego`
 - `backend/internal/policyservice/bundle/authz_bench_test.go`
+- `backend/internal/policyservice/bundle/role_scope_index_test.go`
