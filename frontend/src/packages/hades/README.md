@@ -460,7 +460,8 @@ Run all checks from the **repository root** using `make`:
 make frontend-lint        # ESLint only
 make frontend-fmt         # Prettier (--write locally, --check in CI)
 make frontend-check       # ESLint + tsc --noEmit + Prettier
-make check                # Everything — Go + frontend combined
+make check                # The checks for the parts of the repo the change touches
+make check-all            # Everything: Go + frontend combined
 ```
 
 Do not add `lint` or `format` scripts to Hades' `package.json`. Doing so would

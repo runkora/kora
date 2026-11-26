@@ -1,5 +1,5 @@
 #!/bin/sh
-# Pre-commit hook: run all checks before allowing a commit.
+# Pre-commit hook: run the checks for the groups the change touches (see make check).
 # Installed automatically via: make setup
 # To skip in an emergency: git commit --no-verify
 

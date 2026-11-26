@@ -94,7 +94,7 @@ Changes are applied using the redeploy recipe. The cluster does not hot-reload y
 make redeploy SERVICE=identity   # rebuild and roll one service
 make redeploy                    # rebuilds and rolls all services
 make test                        # unit tests, no cluster needed
-make check                       # run the full verify gate
+make check                       # run the checks for the parts the change touches
 ```
 
 ## Redeploy reference
