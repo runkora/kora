@@ -118,6 +118,19 @@ describe('GET /api/events/stream', () => {
     expect(lastEventId).toBe('57');
   });
 
+  it('falls back to `after` when the Last-Event-ID header is empty', async () => {
+    const seen: (string | null)[] = [];
+    server.use(
+      http.get(`${EVENTS_URL}/stream`, ({ request: r }) => {
+        seen.push(r.headers.get('last-event-id'));
+        return sse();
+      }),
+    );
+    await STREAM(request('/api/events/stream?after=42', { 'Last-Event-ID': '' }), noParams);
+    await STREAM(request('/api/events/stream?after=', { 'Last-Event-ID': '' }), noParams);
+    expect(seen).toEqual(['42', null]);
+  });
+
   it('passes the upstream refusal through', async () => {
     server.use(
       http.get(`${EVENTS_URL}/stream`, () =>

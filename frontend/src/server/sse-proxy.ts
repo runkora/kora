@@ -35,7 +35,9 @@ export async function proxySse(
   open: (lastEventId: string | null, signal: AbortSignal) => Promise<Response>,
   unreachable: string,
 ): Promise<NextResponse> {
-  const lastEventId = req.headers.get('last-event-id') ?? req.nextUrl.searchParams.get('after');
+  // An empty header or `after` carries no position, so it counts as absent.
+  const lastEventId =
+    req.headers.get('last-event-id') || req.nextUrl.searchParams.get('after') || null;
 
   // The browser going away ends the upstream request. An upstream that sends no headers in
   // time is dropped, while an open stream has no time limit.
