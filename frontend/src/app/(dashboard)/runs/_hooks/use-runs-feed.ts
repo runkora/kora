@@ -129,13 +129,12 @@ export function useRunsFeed(filters: RunFilters): RunsFeed {
       });
       current.onerror = () => {
         setReconnecting(true);
-        if (loaded && lastId === null) reloadOnOpen = true;
+        // The list still loads when the stream cannot open, whether the browser retries or not.
+        loadOnce();
+        if (lastId === null) reloadOnOpen = true;
         // A closed stream does not retry by itself: the server refused it or the session ended.
         if (current.readyState !== EventSource.CLOSED) return;
         current.close();
-        // The list still loads when the stream cannot open.
-        loadOnce();
-        reloadOnOpen = lastId === null;
         const wait = Math.min(REOPEN_MS * 2 ** failures, REOPEN_MAX_MS);
         failures += 1;
         timer = window.setTimeout(open, wait);

@@ -95,6 +95,18 @@ describe('useRunsFeed', () => {
     }
   });
 
+  it('still loads the list when the stream fails while the browser retries it', async () => {
+    const { result } = renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS));
+    latest().readyState = 0;
+    await act(async () => latest().onerror?.());
+    expect(result.current.runs).toHaveLength(2);
+    expect(result.current.reconnecting).toBe(true);
+    // The retried stream reads the first page again once it opens, as the page was read unsubscribed.
+    await act(async () => latest().onopen?.());
+    expect(api.sources).toHaveLength(1);
+    expect(api.fetchRunsPage).toHaveBeenCalledTimes(2);
+  });
+
   it('replaces the stream on a reset and reads the first page again once it opens', async () => {
     const { result } = renderHook(() => useRunsFeed(DEFAULT_RUN_FILTERS));
     const first = latest();
