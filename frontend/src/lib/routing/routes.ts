@@ -31,6 +31,8 @@ export const APP_ROUTES = {
   home: '/',
   login: '/login',
   chat: '/chat',
+  /** The chat page with one agent selected. */
+  chatWith: (slug: string) => `/chat?agent=${encodeURIComponent(slug)}` as const,
   /**
    * OIDC authorization code callback — registered as the `redirect_uri` for
    * the browser-side OIDC client. Not navigated to directly; listed here so
@@ -57,6 +59,8 @@ export const APP_ROUTES = {
       if (runsQuery) query.set('runs', runsQuery);
       return `${path}?${query.toString()}` as const;
     },
+    /** A run opened from the chat page: its left pane lists the viewer's own runs. */
+    chatRun: (slug: string, runId: string) => `/agents/${slug}/runs/${runId}?from=chat` as const,
   },
   connections: '/connections',
   environments: '/environments',

@@ -34,7 +34,6 @@ import type { Period } from '../../_lib/spend';
 import { AgentRunsTab } from './agent-runs-tab';
 import { AgentConfigureModal } from './agent-configure-modal';
 import { AgentTriggersTab } from './agent-triggers-tab';
-import { StartRunModal } from '../../_components/start-run-modal';
 import { useHasScope } from '../../../_components/permissions-provider';
 import { AgentGradesTab } from './agent-grades';
 import { gradeFilterOf } from '../../_lib/grades';
@@ -62,7 +61,7 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
   const pathname = usePathname();
   const search = useSearchParams()?.toString() ?? '';
 
-  const [startRunOpen, setStartRunOpen] = useState(false);
+  const startRun = () => agent && router.push(APP_ROUTES.chatWith(agent.slug));
   const canReadTriggers = useHasScope('triggers:read');
   // The URL holds the tab, the open Grader and the runs' grade filter.
   const { tab, grader, gradeFilter } = useMemo(
@@ -247,7 +246,7 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
             <Button
               variant="default"
               size="sm"
-              onClick={() => setStartRunOpen(true)}
+              onClick={startRun}
               disabled={!agent.canRun || agent.state !== 'active'}
             >
               <Icon name="play" size="xs" />
@@ -287,7 +286,7 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
           />
         </TabsContent>
         <TabsContent value="runs">
-          <AgentRunsTab onStartRun={() => setStartRunOpen(true)} />
+          <AgentRunsTab onStartRun={startRun} />
         </TabsContent>
         {canReadTriggers && (
           <TabsContent value="triggers">
@@ -308,17 +307,6 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
         open={configureOpen}
         initialSection={configureSection}
         onClose={() => setConfigureOpen(false)}
-      />
-
-      {/* Start run modal */}
-      <StartRunModal
-        open={startRunOpen}
-        agentType={agent}
-        onClose={() => setStartRunOpen(false)}
-        onStarted={(runId, agentSlug) => {
-          setStartRunOpen(false);
-          router.push(APP_ROUTES.agents.run(agentSlug, runId));
-        }}
       />
     </Stack>
   );

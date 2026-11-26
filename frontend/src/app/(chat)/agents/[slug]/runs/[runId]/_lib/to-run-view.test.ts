@@ -407,3 +407,31 @@ describe('run state', () => {
     expect(stateLabel(view)?.label).toBe('Completed');
   });
 });
+
+describe('title', () => {
+  const ask = human('h1', '\nAdd retries to the relay\nThree attempts with backoff.');
+
+  it('is the first line of the first message until the run has a summary', () => {
+    expect(toRunView(hookState({ turns: [ask] })).summary).toBe('Add retries to the relay');
+  });
+
+  it('cuts a long first line at a word, about one line of the header', () => {
+    const long = human('h1', "Add retries to the webhook relay's outbound calls: three attempts");
+    expect(toRunView(hookState({ turns: [long] })).summary).toBe(
+      "Add retries to the webhook relay's outbound calls: three…",
+    );
+  });
+
+  it('is the summary once the run has one', () => {
+    const run = { ...RUN, summary: 'Retry the relay calls' } as RunWithAttribution;
+    expect(toRunView(hookState({ turns: [ask], run })).summary).toBe('Retry the relay calls');
+  });
+
+  it('keeps the agent fallback for a run a trigger started', () => {
+    expect(toRunView(hookState({ turns: [ask], run: TRIGGERED })).summary).toBe('Agent run');
+  });
+
+  it('keeps the agent fallback until the run record loads', () => {
+    expect(toRunView(hookState({ turns: [ask], run: null })).summary).toBe('Agent run');
+  });
+});

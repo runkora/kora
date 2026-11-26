@@ -2,21 +2,23 @@
 
 /** @tier 3 — run-page-scoped. The run's sessions and the agent's other runs, beside the thread. */
 
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Icon, Stack, Text } from '@runkora/hades';
+import { Icon, Stack, Text, type IconName } from '@runkora/hades';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import type { EarlierRun } from '../_lib/to-run-view';
 import { commandParts, formatSpan, type Row, type RunView } from '../_lib/run-view';
 import { LINE, NOWRAP } from '../_lib/run-styles';
 
-function SessionRow({
+export function SessionRow({
   label,
   meta,
   href,
   active,
   running,
   indent,
+  icon,
 }: {
   label: string;
   meta: string;
@@ -24,6 +26,8 @@ function SessionRow({
   active?: boolean;
   running?: boolean;
   indent?: boolean;
+  /** Replaces the state mark, for a row that is an action rather than a run. */
+  icon?: IconName;
 }) {
   const row = (
     <Stack
@@ -38,11 +42,11 @@ function SessionRow({
       }}
     >
       <Icon
-        name={running ? 'loader' : 'circle-check'}
+        name={icon ?? (running ? 'loader' : 'circle-check')}
         spin={running}
         size="2xs"
         color={running ? 'accent' : 'subtle'}
-        label={running ? 'Running' : 'Done'}
+        label={icon ? '' : running ? 'Running' : 'Done'}
       />
       <Text
         size="supporting"
@@ -65,6 +69,26 @@ function SessionRow({
     </Stack>
   ) : (
     row
+  );
+}
+
+/** The left pane's column: beside the thread, or filling the drawer it opens in. */
+export function PaneFrame({ drawer, children }: { drawer?: boolean; children: ReactNode }) {
+  return (
+    <Stack
+      gap="relaxed"
+      shrink={!drawer}
+      overflowY="auto"
+      style={{
+        // In a drawer the pane fills the panel's column and scrolls inside it.
+        ...(drawer ? { flex: '1 1 0', minHeight: 0 } : {}),
+        width: drawer ? '100%' : 264,
+        borderRight: drawer ? undefined : LINE,
+        padding: '18px 12px',
+      }}
+    >
+      {children}
+    </Stack>
   );
 }
 
@@ -98,18 +122,7 @@ export function SessionsPane({
       ? APP_ROUTES.agents.detail(run.agent.slug)
       : `${APP_ROUTES.runs}${runsQuery ? `?${runsQuery}` : ''}`;
   return (
-    <Stack
-      gap="relaxed"
-      shrink={!drawer}
-      overflowY="auto"
-      style={{
-        // In a drawer the pane fills the panel's column and scrolls inside it.
-        ...(drawer ? { flex: '1 1 0', minHeight: 0 } : {}),
-        width: drawer ? '100%' : 264,
-        borderRight: drawer ? undefined : LINE,
-        padding: '18px 12px',
-      }}
-    >
+    <PaneFrame drawer={drawer}>
       <Stack asChild direction="horizontal" align="center" gap="snug">
         <Link href={back} style={{ padding: '0 10px', textDecoration: 'none', color: 'inherit' }}>
           <Icon name="arrow-left" size="2xs" color="subtle" label="" />
@@ -159,6 +172,6 @@ export function SessionsPane({
           ))}
         </Stack>
       )}
-    </Stack>
+    </PaneFrame>
   );
 }
