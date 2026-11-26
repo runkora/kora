@@ -1,6 +1,6 @@
 /**
  * @tier 2 — App-level shared control (no kora domain knowledge). Used by: policy (grants,
- * vocabulary), mcp-gateway, skills.
+ * vocabulary), mcp-gateway, skills, runs.
  *
  * A pill filter button with a trailing count, for a row of mutually exclusive filters above a
  * card view.

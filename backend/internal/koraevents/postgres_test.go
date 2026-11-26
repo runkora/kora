@@ -233,6 +233,22 @@ func TestPostgres_Reads(t *testing.T) {
 		t.Errorf("After = %v, want the two newer events oldest first", after)
 	}
 
+	other, _ := store.List(ctx, ListQuery{Filter: Filter{Tenant: "other-" + tenant}, Limit: 1})
+	for _, tc := range []struct {
+		tenant string
+		seq    int64
+		want   bool
+	}{
+		{tenant, all[1].Seq, true},
+		{tenant, other[0].Seq, false},
+		{"other-" + tenant, other[0].Seq, true},
+		{tenant, all[0].Seq + 1_000_000, false},
+	} {
+		if held, err := store.Holds(ctx, tc.tenant, tc.seq); err != nil || held != tc.want {
+			t.Errorf("Holds(%s, %d) = %v %v, want %v", tc.tenant, tc.seq, held, err, tc.want)
+		}
+	}
+
 	var env events.Envelope
 	got, err := store.Get(ctx, tenant, eventID(t, all[0], &env))
 	if err != nil || got.Seq != all[0].Seq {

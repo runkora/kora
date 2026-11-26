@@ -176,7 +176,7 @@ The StatefulSet replicas will be set only on create, to `max(minReplicas, 1)`. R
 
 kora-agents' Kubernetes client runs at 50 QPS with a burst of 100.
 
-Scale-down is not an eviction, and the PodDisruptionBudget does not block it. The defaults carry no Karpenter or Cluster Autoscaler annotations. Operators add them through `agents.workloads.common.podAnnotations` or `agents.manifestPatches`.
+Scale-down is not an eviction, and no PodDisruptionBudget blocks it. The defaults carry no node autoscaler annotations. [Agent Cold Tier](2026-11-22-agent-cold-tier.md) Amendment 1 protects a pod only while a run holds it.
 
 ### Parallel Pod Management
 

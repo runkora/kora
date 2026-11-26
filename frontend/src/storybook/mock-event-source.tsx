@@ -13,6 +13,10 @@ import type { Decorator } from '@storybook/react';
 export interface MockStreamEvent {
   type: string;
   data: unknown;
+  /** The SSE `id`, read back as the event's `lastEventId`. */
+  id?: string;
+  /** Sends the event this long after the stream opens, for a story that shows a live change. */
+  delayMs?: number;
 }
 
 type Listener = (event: MessageEvent) => void;
@@ -40,10 +44,14 @@ function fakeEventSource(stream: MockStream) {
         if (this.readyState === FakeEventSource.CLOSED) return;
         this.readyState = FakeEventSource.OPEN;
         this.onopen?.();
-        for (const { type, data } of events) {
-          if (this.readyState === FakeEventSource.CLOSED) return;
-          const event = new MessageEvent(type, { data: JSON.stringify(data) });
-          (this.listeners[type] ?? []).forEach((listener) => listener(event));
+        for (const { type, data, id, delayMs } of events) {
+          const send = () => {
+            if (this.readyState === FakeEventSource.CLOSED) return;
+            const event = new MessageEvent(type, { data: JSON.stringify(data), lastEventId: id });
+            (this.listeners[type] ?? []).forEach((listener) => listener(event));
+          };
+          if (delayMs) setTimeout(send, delayMs);
+          else send();
         }
       }, 0);
     }

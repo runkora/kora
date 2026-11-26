@@ -28,7 +28,7 @@ function formatPrice(pricing?: {
   return `$${f(inp)} / $${f(out)} · Mtok`;
 }
 
-// Below this many models the filter box is noise; above it, essential.
+// From this many models up the list gets a filter box, as the chat page's agent picker does.
 const MODEL_SEARCH_THRESHOLD = 8;
 
 export function ModelPicker({
@@ -67,7 +67,7 @@ export function ModelPicker({
 
   return (
     <Stack gap="cozy">
-      {models.length > MODEL_SEARCH_THRESHOLD && (
+      {models.length >= MODEL_SEARCH_THRESHOLD && (
         <Input
           value={modelSearch}
           onChange={(e) => setModelSearch(e.target.value)}

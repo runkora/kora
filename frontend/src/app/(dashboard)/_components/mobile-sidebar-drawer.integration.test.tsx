@@ -89,7 +89,7 @@ describe('MobileSidebarDrawer', () => {
     renderDrawer();
     await openDrawer(user);
 
-    await user.click(screen.getByRole('link', { name: /dashboard/i }));
+    await user.click(screen.getByRole('link', { name: 'Runs' }));
     expect(screen.queryByText('Control Plane')).not.toBeInTheDocument();
   });
 });

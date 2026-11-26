@@ -10,7 +10,7 @@ type AppLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
    * Must be a value from the `APP_ROUTES` registry in `routes.ts`.
    * Passing an unlisted path is a TypeScript error.
    *
-   * @example to="/chat"
+   * @example to="/runs"
    */
   to: AppRoute;
 };
@@ -28,7 +28,7 @@ type AppLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
  * For external links, use `ExternalLink` instead.
  *
  * @example
- *   <AppLink to="/chat">Chat</AppLink>
+ *   <AppLink to="/runs">Runs</AppLink>
  *
  * @example Compact secondary form link
  *   <AppLink size="sm" to="/forgot-password">Forgot password?</AppLink>

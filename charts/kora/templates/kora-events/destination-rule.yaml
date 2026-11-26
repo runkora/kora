@@ -1,6 +1,6 @@
 {{- if .Values.platform.spiffe.enabled }}
 # SPIFFE-backed mutual TLS for traffic to kora-events, from the ingress
-# gateway, kora-triggers and kora-mcp.
+# gateway, kora-triggers, kora-agents and kora-mcp.
 apiVersion: networking.istio.io/v1beta1
 kind: DestinationRule
 metadata:

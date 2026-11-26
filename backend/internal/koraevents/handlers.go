@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +19,6 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
-	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -37,11 +37,22 @@ var heartbeat = 30 * time.Second
 // errInvalidSeq reports a seq, Last-Event-ID or cursor that does not parse.
 var errInvalidSeq = errors.New("invalid seq")
 
+// logReader is the store surface the streams use.
+type logReader interface {
+	After(ctx context.Context, f Filter, seq int64) ([]Record, error)
+}
+
 // readStore is the store surface the read API uses.
 type readStore interface {
+	logReader
 	List(ctx context.Context, q ListQuery) ([]Record, error)
 	Get(ctx context.Context, tenant, id string) (Record, error)
-	After(ctx context.Context, f Filter, seq int64) ([]Record, error)
+}
+
+// internalStore is the store surface the internal stream uses.
+type internalStore interface {
+	logReader
+	Holds(ctx context.Context, tenant string, seq int64) (bool, error)
 }
 
 // subscriber is the hub surface the streams use.
@@ -108,14 +119,24 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /v1/events/{id}", c.handleGet)
 }
 
-// triggersComponent is the SYSTEM principal name of kora-triggers, from its
-// SPIFFE ID /system/kora-triggers.
-const triggersComponent = "kora-triggers"
+// internalCallers are the SYSTEM principal names, from their SPIFFE IDs
+// /system/<name>, that may read the internal stream.
+var internalCallers = []string{"kora-triggers", agentsCaller}
 
-// InternalController serves every tenant's stream to kora-triggers. The mesh
-// AuthorizationPolicy and the controller both admit only kora-triggers.
+// agentsCaller reads only run events, for the live runs list
+// (docs/adr/2026-11-25-runs-list-live-stream.md, decision 4).
+const (
+	agentsCaller   = "kora-agents"
+	agentsCategory = "agents.run"
+)
+
+// errCodeEventRemoved answers an after the tenant no longer holds.
+const errCodeEventRemoved = "event_removed"
+
+// InternalController serves every tenant's stream to kora-triggers and
+// kora-agents. The mesh AuthorizationPolicy and the controller both admit only them.
 type InternalController struct {
-	store   readStore
+	store   internalStore
 	hub     subscriber
 	auth    mw.Middleware
 	revoked mw.RevocationChecker
@@ -123,16 +144,16 @@ type InternalController struct {
 }
 
 // NewInternalController verifies the platform token with auth.
-func NewInternalController(store readStore, hub subscriber, auth mw.Middleware, revoked mw.RevocationChecker, logger logging.Logger) *InternalController {
+func NewInternalController(store internalStore, hub subscriber, auth mw.Middleware, revoked mw.RevocationChecker, logger logging.Logger) *InternalController {
 	return &InternalController{store: store, hub: hub, auth: auth, revoked: revoked, logger: logger}
 }
 
 // GroupedBy leaves paths explicit in Boot.
 func (c *InternalController) GroupedBy() string { return "" }
 
-// Middleware verifies the platform token and admits only kora-triggers.
+// Middleware verifies the platform token and admits only the internal callers.
 func (c *InternalController) Middleware() mw.MiddlewareHandler {
-	return mw.MiddlewareChain(c.auth, mw.RequireSystemCaller(triggersComponent, c.logger))
+	return mw.MiddlewareChain(c.auth, mw.RequireSystemCaller(c.logger, internalCallers...))
 }
 
 // Boot registers the internal stream.
@@ -140,15 +161,39 @@ func (c *InternalController) Boot(mux *api.Mux) {
 	mux.Handle("GET /internal/v1/events/stream", c.handleStream)
 }
 
+// handleStream streams from after, or from the hub without it. With tenant
+// and after, a 410 tells the caller retention removed the event at after.
 func (c *InternalController) handleStream(w http.ResponseWriter, r *http.Request) {
-	after, err := parseSeq(r.URL.Query().Get("after"))
-	if err != nil {
-		invalid(w, r, c.logger, "after must be a seq.")
+	query := r.URL.Query()
+	after := int64(fromHub)
+	if raw := query.Get("after"); raw != "" {
+		var err error
+		if after, err = parseSeq(raw); err != nil {
+			invalid(w, r, c.logger, "after must be a seq.")
+			return
+		}
+	}
+	f := Filter{Tenant: query.Get("tenant"), Categories: values(query["category"])}
+	if mw.IsSystemCaller(r.Context(), agentsCaller) && !slices.Equal(f.Categories, []string{agentsCategory}) {
+		api.ErrorResponse(r.Context(), w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, "kora-agents may read only category=agents.run.", nil), nil)
 		return
+	}
+	if f.Tenant != "" && after > 0 {
+		held, err := c.store.Holds(r.Context(), f.Tenant, after)
+		if err != nil {
+			api.ErrorResponse(r.Context(), w, c.logger, api.InternalError(api.ErrCodeInternalError, "Failed to read the event log.", nil), err)
+			return
+		}
+		if !held {
+			api.ErrorResponse(r.Context(), w, c.logger, &api.APIError{
+				Code: errCodeEventRemoved, Message: "The tenant holds no event at after. Read from the start or without after.", StatusCode: http.StatusGone,
+			}, nil)
+			return
+		}
 	}
 	r, cancel := untilTokenExpiry(r)
 	defer cancel()
-	stream(w, r, c.store, c.hub, c.revoked, c.logger, Filter{}, after)
+	stream(w, r, c.store, c.hub, c.revoked, c.logger, f, after)
 }
 
 func (c *Controller) handleList(w http.ResponseWriter, r *http.Request) {
@@ -272,7 +317,7 @@ func (c *Controller) tenant(w http.ResponseWriter, r *http.Request) (string, boo
 // stream writes the events after seq that match f, then live events, until
 // the client goes away. A stream that falls behind the hub catches up from
 // the log.
-func stream(w http.ResponseWriter, r *http.Request, store readStore, hub subscriber, revoked mw.RevocationChecker, logger logging.Logger, f Filter, after int64) {
+func stream(w http.ResponseWriter, r *http.Request, store logReader, hub subscriber, revoked mw.RevocationChecker, logger logging.Logger, f Filter, after int64) {
 	ctx := r.Context()
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -301,7 +346,7 @@ func stream(w http.ResponseWriter, r *http.Request, store readStore, hub subscri
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if revokedSince(ctx, revoked) {
+			if mw.RevokedSince(ctx, revoked) {
 				return
 			}
 			_, _ = io.WriteString(w, ": keepalive\n\n")
@@ -324,7 +369,7 @@ func stream(w http.ResponseWriter, r *http.Request, store readStore, hub subscri
 type sseStream struct {
 	w       io.Writer
 	flusher http.Flusher
-	store   readStore
+	store   logReader
 	filter  Filter
 	cursor  int64
 }
@@ -367,25 +412,6 @@ func untilTokenExpiry(r *http.Request) (*http.Request, context.CancelFunc) {
 	}
 	ctx, cancel := context.WithDeadline(r.Context(), claims.ExpiresAt.Time)
 	return r.WithContext(ctx), cancel
-}
-
-// revokedSince reports whether the caller's token or delegation was revoked
-// after the stream opened. A blocklist error keeps the stream open, as the
-// auth middleware does.
-func revokedSince(ctx context.Context, revoked mw.RevocationChecker) bool {
-	var jtis []string
-	if claims, ok := token.ClaimsFromContext(ctx); ok && claims != nil && claims.ID != "" {
-		jtis = append(jtis, claims.ID)
-	}
-	if d := policy.DelegationFromContext(ctx); d != nil && d.JTI != "" {
-		jtis = append(jtis, d.JTI)
-	}
-	for _, jti := range jtis {
-		if blocked, err := revoked.IsBlocked(ctx, jti); err == nil && blocked {
-			return true
-		}
-	}
-	return false
 }
 
 func writeEvent(w io.Writer, rec Record) {

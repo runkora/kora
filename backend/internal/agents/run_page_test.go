@@ -210,6 +210,72 @@ func TestParseRunStates(t *testing.T) {
 	}
 }
 
+func TestParseRunFilters(t *testing.T) {
+	q, err := url.ParseQuery("created_by=me&trigger_kind=webhook,none&trigger_kind=event&q=%20Review%20&agent_type_id=at-1&agent_type_id=&state=idle&started_by=trigger")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ids, apiErr := parseRunFilters(q)
+	if apiErr != nil {
+		t.Fatalf("parse: %v", apiErr)
+	}
+	if !p.CreatedByMe || !slices.Equal(p.TriggerKinds, []string{"webhook", "none", "event"}) || p.Search != "Review" ||
+		!slices.Equal(ids, []string{"at-1"}) || !slices.Equal(p.States, []RunState{RunStateIdle}) || !p.StartedByTrigger {
+		t.Errorf("filters = %+v, agent types %v", p, ids)
+	}
+	for _, kind := range append(slices.Clone(triggerKinds), triggerKindNone) {
+		if p, _, apiErr := parseRunFilters(url.Values{"trigger_kind": {kind}}); apiErr != nil || !slices.Equal(p.TriggerKinds, []string{kind}) {
+			t.Errorf("trigger_kind=%s gave %v, %v", kind, p.TriggerKinds, apiErr)
+		}
+	}
+}
+
+// A rejected filter is a 400 that names its field.
+func TestHandleListRuns_BadFilterNamesItsField(t *testing.T) {
+	c, _, _, _ := newTestController(t)
+	for query, field := range map[string]string{
+		"trigger_kind=cron":                  "trigger_kind",
+		"trigger_kind=webhook&trigger_kind=": "trigger_kind",
+		"state=sleeping":                     "state",
+		"started_by=person":                  "started_by",
+		"created_after=yesterday":            "created_after",
+		"verdict=pass":                       "grader",
+		"limit=0":                            "limit",
+		"limit=-1":                           "limit",
+		"limit=ten":                          "limit",
+		"cursor=%21%21":                      "cursor",
+		"created_by=user-1":                  "created_by",
+	} {
+		w := getRequest(t, c.handleListRuns, query)
+		var body struct {
+			Details map[string]any `json:"details"`
+		}
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		if w.Code != http.StatusBadRequest || body.Details["field"] != field {
+			t.Errorf("%s gave %d naming %v, want 400 naming %s", query, w.Code, body.Details["field"], field)
+		}
+	}
+}
+
+// The new filters reach the repository inside the caller's scope, which they only narrow.
+func TestListRuns_NewFiltersKeepTheScope(t *testing.T) {
+	svc, repo, _, _ := newTestServiceWithEval(t, pathAllowEvaluator{segment: "agent-0"})
+	for i := range 2 {
+		seedAgentType(t, repo, AgentType{ID: fmt.Sprintf("at-%d", i), TenantID: "t-1", Slug: fmt.Sprintf("agent-%d", i)})
+	}
+	ctx := withTenantCtx(context.Background(), "t-1")
+	if _, err := svc.run.ListRuns(ctx, nil, RunListQuery{CreatedByMe: true, TriggerKinds: []string{"none"}, Search: "review", Limit: 10}); err != nil {
+		t.Fatal(err)
+	}
+	got := repo.lastRunList
+	if !got.CreatedByMe || !slices.Equal(got.TriggerKinds, []string{"none"}) || got.Search != "review" {
+		t.Errorf("repository got %+v, want the filters", got)
+	}
+	if !slices.Equal(got.Scope.AgentTypeIDs, []string{"at-0"}) || got.Limit != 11 {
+		t.Errorf("scope %v, limit %d; want the granted agent and one row past the page", got.Scope.AgentTypeIDs, got.Limit)
+	}
+}
+
 // ── GET /api/v1/runs ──────────────────────────────────────────────────────────
 
 type listRunsBody struct {
@@ -255,16 +321,6 @@ func TestHandleListRuns_Limits(t *testing.T) {
 					code, len(body.Runs), body.Limit, body.NextCursor, tc.wantRuns, tc.wantLimit, tc.wantNext)
 			}
 		})
-	}
-}
-
-func TestHandleListRuns_BadParamsReturn400(t *testing.T) {
-	c, repo, _, _ := newTestController(t)
-	seedRunsAcrossTypes(t, repo, "t-1", 3, 1)
-	for _, q := range []string{"limit=0", "limit=-1", "limit=ten", "cursor=%21%21", "state=sleeping", "started_by=person"} {
-		if code, _ := listRuns(t, c, q); code != http.StatusBadRequest {
-			t.Errorf("%s gave %d, want 400", q, code)
-		}
 	}
 }
 
@@ -434,6 +490,45 @@ func TestHandleListRuns_TimeWindow(t *testing.T) {
 	for _, q := range []string{"created_after=yesterday", "created_before=2026-13-01T00:00:00Z"} {
 		if code, _ := listRuns(t, c, "tenant_id=t-1&"+q); code != http.StatusBadRequest {
 			t.Errorf("%s: status %d, want 400", q, code)
+		}
+	}
+}
+
+// matchesRun in memory, for the filters the Postgres agreement test covers only when it runs.
+func TestMatchesRun_Filters(t *testing.T) {
+	at := time.Date(2026, 11, 25, 10, 0, 0, 0, time.UTC)
+	summary := "Fix the Login bug"
+	alice := Run{CreatedBy: "alice", CreatedByName: "Alice Liddell", AgentName: "Deploy Bot", Summary: &summary, CreatedAt: at}
+	hook := Run{CreatedBy: "trigger:t1", CreatedAt: at, StartedBy: &StartedByTrigger{TriggerID: "t1", TriggerName: "Nightly hook", TriggerKind: "webhook"}}
+	legacy := Run{CreatedBy: "trigger:t2", CreatedAt: at, StartedBy: &StartedByTrigger{TriggerID: "t2", TriggerName: "Old hook"}}
+	asAlice := RunScope{Vis: RunVisibility{Subject: "alice"}}
+	for _, tt := range []struct {
+		name string
+		q    RunListQuery
+		run  Run
+		want bool
+	}{
+		{"created_by=me, own run", RunListQuery{Scope: asAlice, CreatedByMe: true}, alice, true},
+		{"created_by=me, another's run", RunListQuery{Scope: asAlice, CreatedByMe: true}, hook, false},
+		{"created_by=me, no subject", RunListQuery{CreatedByMe: true}, Run{CreatedAt: at}, false},
+		{"trigger_kind=webhook", RunListQuery{TriggerKinds: []string{"webhook"}}, hook, true},
+		{"trigger_kind=webhook, person's run", RunListQuery{TriggerKinds: []string{"webhook"}}, alice, false},
+		{"trigger_kind=none, person's run", RunListQuery{TriggerKinds: []string{triggerKindNone}}, alice, true},
+		{"trigger_kind=none, trigger run", RunListQuery{TriggerKinds: []string{triggerKindNone}}, hook, false},
+		{"trigger_kind with no recorded kind", RunListQuery{TriggerKinds: []string{"webhook", "scheduled"}}, legacy, false},
+		{"q in the summary, any case", RunListQuery{Search: "login"}, alice, true},
+		{"q in the agent name", RunListQuery{Search: "deploy"}, alice, true},
+		{"q in the starter's name", RunListQuery{Search: "LIDDELL"}, alice, true},
+		{"q in the trigger name", RunListQuery{Search: "nightly"}, hook, true},
+		{"q nowhere", RunListQuery{Search: "nightly"}, alice, false},
+		{"created_after, at the bound", RunListQuery{CreatedAfter: at}, alice, true},
+		{"created_after, before it", RunListQuery{CreatedAfter: at.Add(time.Second)}, alice, false},
+		{"created_before, at the bound", RunListQuery{CreatedBefore: at}, alice, false},
+		{"created_before, after it", RunListQuery{CreatedBefore: at.Add(time.Second)}, alice, true},
+		{"terminated run", RunListQuery{}, Run{CreatedAt: at, DeletedAt: &at}, false},
+	} {
+		if got := tt.q.matchesRun(&tt.run); got != tt.want {
+			t.Errorf("%s: %v, want %v", tt.name, got, tt.want)
 		}
 	}
 }

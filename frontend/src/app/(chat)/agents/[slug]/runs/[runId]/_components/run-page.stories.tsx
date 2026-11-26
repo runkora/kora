@@ -37,6 +37,21 @@ const args = (run: ReturnType<typeof runningRun>) => ({
 /** Mid-run: a GitHub mention has joined the working run. */
 export const Running: Story = { args: args(runningRun()), decorators: runStory([runningRun()]) };
 
+/** Opened from the Runs page: the back link returns there. */
+export const FromRunsPage: Story = {
+  args: args(runningRun()),
+  decorators: runStory([runningRun()]),
+  parameters: {
+    nextjs: {
+      appDirectory: true,
+      navigation: {
+        pathname: '/agents/code-reviewer/runs/3f2c9a10-5b7e-4d21-9c8a-6e1f0b7d2a44',
+        query: { from: 'runs' },
+      },
+    },
+  },
+};
+
 /** Finished: the composer gives way to the result line. */
 export const Done: Story = { args: args(doneRun()), decorators: runStory([doneRun()]) };
 

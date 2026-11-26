@@ -65,6 +65,9 @@ type Config struct {
 		// InferenceGatewayURL is the base URL of the inference gateway, asked which
 		// ceiling stopped a budget_exhausted run. When empty, the run_state event has no budget.
 		InferenceGatewayURL string `yaml:"inferenceGatewayURL"`
+		// EventsURL is the base URL of kora-events, whose internal stream carries
+		// the run changes the run list stream serves.
+		EventsURL string `yaml:"eventsURL"`
 	} `yaml:"platform"`
 
 	Policy PolicyConfig `yaml:"policy"`

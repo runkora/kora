@@ -290,3 +290,164 @@ func TestPostgres_ListRunsTimeBounds(t *testing.T) {
 		t.Errorf("window = %v, want %v", got, ids[2:5])
 	}
 }
+
+// For each scope and filter combination, ListRuns returns exactly the seeded runs that readsRun and
+// matchesRun accept, paged in twos across created_at ties. The run stream relies on the two agreeing.
+func TestPostgres_RunMatchAgreesWithListRuns(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	ctx := context.Background()
+	// carol has a profile only in another tenant, which must not name her runs here.
+	other := "test-" + uuid.NewString()
+	t.Cleanup(func() {
+		_, _ = r.pool.Exec(ctx, `DELETE FROM user_profiles WHERE tenant_id = ANY($1)`, []string{tenant, other})
+	})
+	if _, err := r.pool.Exec(ctx, `INSERT INTO user_profiles (id, tenant_id, email, display_name) VALUES ('carol', $1, 'carol@example.com', 'Carol Elsewhere')`, other); err != nil {
+		t.Fatal(err)
+	}
+	newAgent := func(name string, mode IdentityMode) string {
+		at := seedRunAgentType(t, r, tenant, mode)
+		if _, err := r.pool.Exec(ctx, `UPDATE agent_types SET name=$1 WHERE id=$2`, name, at.ID); err != nil {
+			t.Fatal(err)
+		}
+		return at.ID
+	}
+	deploy, review, del := newAgent("Deploy Bot", IdentityModeAutonomous), newAgent("Reviewer", IdentityModeAutonomous), newAgent("Helper", IdentityModeDelegated)
+	names := map[string]string{"alice": "Alice Liddell", "bob": "Bob Builder"}
+	for id, name := range names {
+		if _, err := r.pool.Exec(ctx, `INSERT INTO user_profiles (id, tenant_id, email, display_name) VALUES ($1, $2, $1 || '@example.com', $3)`, id, tenant, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// kind "legacy" is a trigger run from before trigger_kind was recorded.
+	type spec struct {
+		agent, by, kind, summary string
+		state                    RunState
+		terminated               bool
+	}
+	specs := []spec{
+		{deploy, "alice", "", "Fix the login bug", RunStateActive, false},
+		{review, "bob", "", "Review 100% coverage", RunStateIdle, false},
+		{deploy, "trigger-source:s1", "webhook", "", RunStatePending, false},
+		{review, "trigger:t2", "scheduled", "Nightly report", RunStateCompleted, false},
+		{deploy, "trigger:t3", "event", "Ran 1000 checks", RunStateFailed, false},
+		{review, "trigger:t4", "manual", "", RunStateActive, true},
+		{del, "bob", "", "Secret review", RunStateActive, false},
+		{del, "alice", "", "Alice's review", RunStateIdle, false},
+		{deploy, "alice", "", "Deploy the docs", RunStateCompleted, true},
+		{review, "trigger-source:s1", "webhook", "Review the PR", RunStateStarting, false},
+		{deploy, "carol", "", "Carol's run", RunStateActive, false},
+		{review, "trigger:t5", "legacy", "Review the backlog", RunStateIdle, false},
+		{deploy, "", "", "Nobody's run", RunStatePending, false},
+		{del, "trigger:t6", "webhook", "Delegated hook", RunStateActive, false},
+		{del, "alice", "", "Alice's ended review", RunStateFailed, true},
+	}
+	base := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+	var ids []string
+	for i, s := range specs {
+		run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: s.agent, CreatedBy: s.by}
+		switch s.kind {
+		case "":
+		case "legacy":
+			run.StartedBy = &StartedByTrigger{TriggerID: "trig-legacy", TriggerName: "Hook legacy"}
+		default:
+			run.StartedBy = &StartedByTrigger{TriggerID: "trig-" + s.kind, TriggerName: "Hook " + s.kind, TriggerKind: s.kind}
+		}
+		if _, err := r.CreateRun(ctx, run); err != nil {
+			t.Fatalf("CreateRun: %v", err)
+		}
+		// Runs share a created_at in threes, so page edges fall inside ties.
+		if _, err := r.pool.Exec(ctx, `UPDATE runs SET created_at=$1, summary=NULLIF($2, ''), state=$3,
+			deleted_at=CASE WHEN $4 THEN now() END WHERE id=$5`,
+			base.Add(-time.Duration(i/3)*time.Minute), s.summary, string(s.state), s.terminated, run.ID); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, run.ID)
+	}
+	// The stream tests the rows it loads, so the predicate is checked against GetRunRows' rows.
+	loaded, err := r.GetRunRows(ctx, tenant, ids)
+	if err != nil || len(loaded) != len(ids) {
+		t.Fatalf("GetRunRows: %d rows, %v", len(loaded), err)
+	}
+	rows := map[string]*Run{}
+	for i := range loaded {
+		rows[loaded[i].ID] = &loaded[i]
+	}
+
+	queries := []RunListQuery{
+		{},
+		{States: []RunState{RunStateActive}},
+		{States: []RunState{RunStateIdle, RunStateCompleted, RunStateFailed}},
+		{StartedByTrigger: true},
+		{CreatedAfter: base.Add(-2 * time.Minute)},
+		{CreatedBefore: base.Add(-2 * time.Minute)},
+		{CreatedAfter: base.Add(-3 * time.Minute), CreatedBefore: base.Add(-time.Minute)},
+		{CreatedByMe: true},
+		{TriggerKinds: []string{"webhook"}},
+		{TriggerKinds: []string{"webhook", "scheduled"}},
+		{TriggerKinds: []string{triggerKindNone}},
+		{TriggerKinds: []string{triggerKindNone, "event", "manual"}},
+		{Search: "LOGIN"},
+		{Search: "deploy"},
+		{Search: "builder"},
+		{Search: "100%"},
+		{Search: "review"},
+		{Search: "hook"},
+		{Search: "elsewhere"},
+		{CreatedByMe: true, TriggerKinds: []string{triggerKindNone}, Search: "review"},
+		{TriggerKinds: []string{"webhook"}, Search: "review", States: []RunState{RunStateStarting}},
+		{StartedByTrigger: true, CreatedAfter: base.Add(-time.Minute)},
+		{CreatedByMe: true, Search: "nothing like it"},
+	}
+	ats := []string{deploy, review, del}
+	scopes := map[string]RunScope{
+		"bob sees all":         {AgentTypeIDs: ats, Vis: RunVisibility{SeeAll: true, Subject: "bob"}},
+		"no subject":           {AgentTypeIDs: ats, Vis: RunVisibility{SeeAll: true}},
+		"alice":                {AgentTypeIDs: ats, Vis: RunVisibility{Subject: "alice"}},
+		"alice, two agents":    {AgentTypeIDs: []string{deploy, del}, Vis: RunVisibility{Subject: "alice"}},
+		"alice, own runs":      {AgentTypeIDs: []string{review}, Vis: RunVisibility{Subject: "alice"}, Own: true},
+		"bob, own runs only":   {Vis: RunVisibility{Subject: "bob"}, Own: true},
+		"own, no subject":      {Vis: RunVisibility{}, Own: true},
+		"alice, own, narrowed": {AgentTypeIDs: ats, Vis: RunVisibility{Subject: "alice"}, Own: true, OnlyAgentTypeIDs: []string{del}},
+		"nothing granted":      {Vis: RunVisibility{SeeAll: true, Subject: "bob"}},
+	}
+	for scopeName, scope := range scopes {
+		for _, q := range queries {
+			t.Run(fmt.Sprintf("%s %+v", scopeName, q), func(t *testing.T) {
+				q.Scope = scope
+				var want []string
+				for id, row := range rows {
+					if readsRun(tenant, scope, row) && q.matchesRun(row) {
+						want = append(want, id)
+					}
+				}
+				q.Limit = 2
+				paged := walkRepo(t, r, tenant, q)
+				q.Limit = 100
+				single, err := r.ListRuns(ctx, tenant, q)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var singleIDs []string
+				for _, run := range single {
+					singleIDs = append(singleIDs, run.ID)
+					if run.CreatedByName != names[run.CreatedBy] {
+						t.Errorf("run %s created_by_name %q, want %q", run.ID, run.CreatedByName, names[run.CreatedBy])
+					}
+				}
+				if !slices.Equal(paged, singleIDs) {
+					t.Fatalf("pages %v differ from the single read %v", paged, singleIDs)
+				}
+				got := slices.Sorted(slices.Values(paged))
+				slices.Sort(want)
+				if !slices.Equal(got, want) {
+					t.Errorf("runs %v, want %v", got, want)
+				}
+			})
+		}
+	}
+	// A predicate that matched nothing would agree with an empty list.
+	if n := len(walkRepo(t, r, tenant, RunListQuery{Scope: scopes["bob sees all"], Limit: 100})); n != 12 {
+		t.Errorf("unfiltered see-all list holds %d runs, want the 12 live ones", n)
+	}
+}

@@ -7,7 +7,7 @@
  */
 
 import Link from 'next/link';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   BottomSheet,
   Button,
@@ -22,9 +22,9 @@ import { APP_ROUTES } from '@runkora/lib/routing';
 import { useHasScope } from '@runkora/app/(dashboard)/_components/permissions-provider';
 import { useRunContext } from '../_context/run-context';
 import { useNow } from '../_hooks/use-now';
-import { layoutFor, RunLayoutContext, type RunLayout } from '../_lib/run-layout';
+import { RunLayoutContext, useOwnLayout, type RunLayout } from '../_lib/run-layout';
 import { earlierRunsOf, toRunView } from '../_lib/to-run-view';
-import { elapsedMs, ENDED, rowsOf } from '../_lib/run-view';
+import { elapsedMs, ENDED, rowsOf, type Row, type RunView } from '../_lib/run-view';
 import { LINE, READING_WIDTH } from '../_lib/run-styles';
 import { ConnectionBanner } from './connection-banner';
 import { RunRail } from './run-rail';
@@ -34,8 +34,25 @@ import { Composer } from './run-composer';
 import { EndLine } from './run-end-line';
 import { SessionsPane } from './sessions-pane';
 
+/** What a page that hosts the run draws in the left pane instead of the run's sessions. */
+type RunPaneSlot = (p: { run: RunView; rows: Row[]; drawer?: boolean }) => ReactNode;
+
+/** A composer handed over by another page: where it stood and that page's layout. */
+export interface RunPageEnter {
+  from: DOMRect;
+  layout: RunLayout;
+}
+
 /** The run page, fed by the run context. `height` is the page's; a framed preview passes its device's. */
-export function RunPage({ height = '100dvh' }: { height?: string }) {
+export function RunPage({
+  height = '100dvh',
+  pane,
+  enter,
+}: {
+  height?: string;
+  pane?: RunPaneSlot;
+  enter?: RunPageEnter;
+}) {
   const ctx = useRunContext();
   const live = !ENDED.has(ctx.runState ?? 'pending');
   const now = useNow(live);
@@ -47,15 +64,7 @@ export function RunPage({ height = '100dvh' }: { height?: string }) {
   const earlier = useMemo(() => earlierRunsOf(ctx.earlierRuns), [ctx.earlierRuns]);
 
   // Layout follows the page's own width, so a framed preview lays out like its device.
-  const [layout, setLayout] = useState<RunLayout>('wide');
-  const rootRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const el = rootRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver(() => setLayout(layoutFor(el.offsetWidth)));
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  const [layout, rootRef] = useOwnLayout(enter?.layout);
   const [sheet, setSheet] = useState<'sessions' | 'details' | null>(null);
   const sessionsPane = layout === 'wide';
   const railPane = layout === 'wide' || layout === 'laptop';
@@ -107,15 +116,18 @@ export function RunPage({ height = '100dvh' }: { height?: string }) {
     );
   }
 
-  const sessions = (drawer?: boolean) => (
-    <SessionsPane
-      run={run}
-      rows={rows}
-      earlier={earlier}
-      earlierError={ctx.earlierRunsError}
-      drawer={drawer}
-    />
-  );
+  const sessions = (drawer?: boolean) =>
+    pane ? (
+      pane({ run, rows, drawer })
+    ) : (
+      <SessionsPane
+        run={run}
+        rows={rows}
+        earlier={earlier}
+        earlierError={ctx.earlierRunsError}
+        drawer={drawer}
+      />
+    );
 
   return (
     <RunLayoutContext.Provider value={layout}>
@@ -173,7 +185,7 @@ export function RunPage({ height = '100dvh' }: { height?: string }) {
                     background: 'linear-gradient(to top, var(--color-background) 60%, transparent)',
                   }}
                 >
-                  <Composer run={run} />
+                  <Composer run={run} enterFrom={enter?.from} />
                 </Stack>
               )}
             </Stack>

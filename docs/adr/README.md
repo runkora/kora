@@ -24,7 +24,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) — `Accepted` · 2026-07-10
 - [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) — `Proposed` · 2026-07-21
 - [Rendered Service Config Files](2026-10-06-rendered-service-config-files.md) — `Accepted` · 2026-10-06
-- [Event Spine](2026-11-06-event-spine.md) — `Accepted` · 2026-11-06
+- [Event Spine](2026-11-06-event-spine.md) — `Accepted (Amended 2026-11-25; internal stream callers and filters)` · 2026-11-06
 
 ### Identity, Auth & Tokens
 
@@ -154,6 +154,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Run Page Record: Message Senders, Trigger Event Summaries and Budget Stops](2026-11-11-run-page-record.md) — `Accepted (generic webhook summary superseded in part 2026-11-23)` · 2026-11-11
 - [Graders](2026-11-19-graders.md) — `Proposed` · 2026-11-19
 - [Generic Webhook Attribution](2026-11-23-generic-webhook-attribution.md) — `Accepted` · 2026-11-23
+- [Runs List Live Stream](2026-11-25-runs-list-live-stream.md) — `Accepted` · 2026-11-25
 
 ### MCP / Tool Gateway
 
@@ -190,7 +191,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [Hades Design System Hardening](2026-05-04-terra-design-system-hardening.md) — `Accepted` · 2026-05-04
 - [Semantic HTML Consolidation — Unconditional Ban on header, article, nav, aside, footer](2026-05-04-semantic-html-consolidation.md) — `Accepted` · 2026-05-04
 - [Frontend Test Strategy and Toolchain](2026-05-08-frontend-test-strategy-and-toolchain.md) — `Accepted` · 2026-05-08
-- [Nav Cleanup and Live Dashboard](2026-06-19-nav-cleanup-and-live-dashboard.md) — `Accepted` · 2026-06-19
+- [Nav Cleanup and Live Dashboard](2026-06-19-nav-cleanup-and-live-dashboard.md) — `Accepted (live dashboard superseded in part 2026-11-25)` · 2026-06-19
 - [Mobile & Tablet Responsive Design](2026-06-19-mobile-responsive-design.md) — `Accepted` · 2026-06-19
 - [Profile Page Architecture](2026-05-13-profile-page-architecture.md) — `Proposed` · 2026-05-13
 
@@ -278,7 +279,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-15 | [Role-Budget Attribution for Non-Interactive Credentials](2026-06-15-role-budget-attribution-for-non-interactive-credentials.md) | Accepted | — |
 | 2026-06-17 | [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) | Accepted (Decision item 3 superseded in part 2026-09-29; Amended 2026-10-31) | — |
 | 2026-06-19 | [Provider Error Visibility in the Inference Gateway](2026-06-19-provider-error-visibility.md) | Accepted | — |
-| 2026-06-19 | [Nav Cleanup and Live Dashboard](2026-06-19-nav-cleanup-and-live-dashboard.md) | Accepted | — |
+| 2026-06-19 | [Nav Cleanup and Live Dashboard](2026-06-19-nav-cleanup-and-live-dashboard.md) | Accepted (live dashboard superseded in part 2026-11-25) | — |
 | 2026-06-19 | [Mobile & Tablet Responsive Design](2026-06-19-mobile-responsive-design.md) | Accepted | — |
 | 2026-06-19 | [Run Task Summarization](2026-06-19-run-task-summarization.md) | Accepted | — |
 | 2026-06-20 | [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md) | Superseded by [trigger-deliveries-keyset-pagination](2026-10-07-trigger-deliveries-keyset-pagination.md) | — |
@@ -351,7 +352,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-03 | [Agent Attribution on Model and Harness Spans](2026-11-03-agent-attribution-on-spans.md) | Accepted | — |
 | 2026-11-04 | [Tenant Switching](2026-11-04-tenant-switching.md) | Accepted | — |
 | 2026-11-06 | [Policy Bundle Grants Index](2026-11-06-policy-bundle-grants-index.md) | Accepted | — |
-| 2026-11-06 | [Event Spine](2026-11-06-event-spine.md) | Accepted | — |
+| 2026-11-06 | [Event Spine](2026-11-06-event-spine.md) | Accepted (Amended 2026-11-25; internal stream callers and filters) | — |
 | 2026-11-07 | [ACP as the Single Agent Harness Protocol](2026-11-07-acp-agent-harness-protocol.md) | Accepted | — |
 | 2026-11-07 | [Run Sources](2026-11-07-run-sources.md) | Accepted | — |
 | 2026-11-08 | [StartRun Idempotent on Trigger Delivery](2026-11-08-start-run-idempotent-on-delivery.md) | Accepted | — |
@@ -362,4 +363,6 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-19 | [Graders](2026-11-19-graders.md) | Proposed | — |
 | 2026-11-22 | [Agent Cold Tier](2026-11-22-agent-cold-tier.md) | Accepted (Amended 2026-11-24; disruption protection only while a run holds a pod) | — |
 | 2026-11-23 | [Generic Webhook Attribution](2026-11-23-generic-webhook-attribution.md) | Accepted | — |
+| 2026-11-25 | [Runs List Live Stream](2026-11-25-runs-list-live-stream.md) | Accepted | — |
+| 2026-11-26 | [Chat Page](2026-11-26-chat-page.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

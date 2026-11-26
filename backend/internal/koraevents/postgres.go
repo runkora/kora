@@ -233,6 +233,15 @@ func (p *Postgres) Get(ctx context.Context, tenant, id string) (Record, error) {
 	return records[0], nil
 }
 
+// Holds reports whether tenant still holds the event at seq.
+func (p *Postgres) Holds(ctx context.Context, tenant string, seq int64) (bool, error) {
+	var held bool
+	if err := p.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM events WHERE seq = $1 AND tenant_id = $2)`, seq, tenant).Scan(&held); err != nil {
+		return false, fmt.Errorf("check event %d: %w", seq, err)
+	}
+	return held, nil
+}
+
 // LatestSeq returns the highest seq in the log, or 0.
 func (p *Postgres) LatestSeq(ctx context.Context) (int64, error) {
 	var seq int64

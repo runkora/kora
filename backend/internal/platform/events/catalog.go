@@ -13,7 +13,9 @@ type Type string
 // The v1 catalog (docs/prd/event-spine.md).
 const (
 	RunCreated         Type = "agents.run.created.v1"
+	RunPlaced          Type = "agents.run.placed.v1"
 	RunStarted         Type = "agents.run.started.v1"
+	RunResumed         Type = "agents.run.resumed.v1"
 	RunCompleted       Type = "agents.run.completed.v1"
 	RunFailed          Type = "agents.run.failed.v1"
 	RunBudgetExhausted Type = "agents.run.budget_exhausted.v1"
@@ -24,6 +26,7 @@ const (
 	RunGuardrailWarned Type = "agents.run.guardrail_warned.v1"
 	RunGuardrailPaused Type = "agents.run.guardrail_paused.v1"
 	RunMessageReceived Type = "agents.run.message_received.v1"
+	RunSummarized      Type = "agents.run.summarized.v1"
 
 	SandboxCreated  Type = "agents.sandbox.created.v1"
 	SandboxReplaced Type = "agents.sandbox.replaced.v1"
@@ -84,7 +87,9 @@ func kind[T any]() reflect.Type { return reflect.TypeFor[T]() }
 
 var catalog = map[Type]entry{
 	RunCreated:         {kind[RunPayload](), "A run was created and queued."},
+	RunPlaced:          {kind[RunPayload](), "A run was placed on an agent pod."},
 	RunStarted:         {kind[RunPayload](), "A run began executing."},
+	RunResumed:         {kind[RunPayload](), "An idle run began a new turn."},
 	RunCompleted:       {kind[RunPayload](), "A run finished, including a run that ended after its idle timeout."},
 	RunFailed:          {kind[RunPayload](), "A run failed."},
 	RunBudgetExhausted: {kind[RunPayload](), "A budget ran out and stopped a run."},
@@ -95,6 +100,7 @@ var catalog = map[Type]entry{
 	RunGuardrailWarned: {kind[RunPayload](), "The loop guard warned the agent."},
 	RunGuardrailPaused: {kind[RunPayload](), "The loop guard paused the run."},
 	RunMessageReceived: {kind[RunPayload](), "A person or a trigger sent the run a message."},
+	RunSummarized:      {kind[RunPayload](), "A run's task summary was set."},
 
 	SandboxCreated:  {kind[SandboxPayload](), "A sandbox was provisioned for a run."},
 	SandboxReplaced: {kind[SandboxPayload](), "A run's sandbox was replaced with a different environment or image."},
@@ -148,6 +154,7 @@ var catalog = map[Type]entry{
 // hiddenChanges lists the fields an update can change that a payload does not
 // carry. An event's changed list names them and never carries their values.
 var hiddenChanges = map[reflect.Type][]string{
+	kind[RunPayload](): {"pod_name", "summary"},
 	kind[AgentPayload](): {"description", "system_prompt", "framework", "grant_scopes", "connectivity", "connectors",
 		"mcp_tools", "guardrails", "max_concurrent_runs", "max_concurrent_runs_per_pod", "repository"},
 	kind[EnvironmentPayload](): {"description", "egress_hosts", "connectors", "repository"},

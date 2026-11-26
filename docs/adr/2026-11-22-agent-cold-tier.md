@@ -81,8 +81,8 @@ The spike files are in the orbit scratch folder `scale-to-zero/` (`findings.md`,
 
 ### D1b. Disruption Budget
 
-*   **No per-agent PDB (chosen):** An eviction deletes the pod, the session-manager drains, and the scaler binds a replacement. Two pods of one agent on one drained node are evicted together. Their runs drain in place, and new runs go to the replacement.
-*   **Integer `minAvailable` PDB (rejected):** A bare pod allows only an integer `minAvailable`. At `minAvailable: 1` a one-pod agent blocks every node drain and Karpenter consolidation.
+*   **No per-agent PDB (chosen):** An eviction deletes the pod, the session-manager drains, and the scaler binds a replacement. Two pods of one agent on one drained node are evicted together. Their runs drain in place, and new runs go to the replacement. Amendment 1 adds per-tenant budgets that refuse the eviction of a pod a run holds.
+*   **Integer `minAvailable` PDB (rejected):** A bare pod allows only an integer `minAvailable`. At `minAvailable: 1` a one-pod agent blocks every node drain and autoscaler consolidation.
 *   **Keep `maxUnavailable: 1` (rejected):** Over pods with no controller it refuses every eviction (`cold-tier-spike.md`, C4).
 
 ### D2. Run-to-Pod Addressing
@@ -106,7 +106,7 @@ kora-agents will gain `patch` on pods. ValidatingAdmissionPolicies in the chart 
 *   **Other identity labels:** `spiffe.io/service`, `spiffe.io/component`, `runkora.io/role`, `runkora.io/agent-slug` and `runkora.io/run-id` cannot change on an existing tenant pod.
 *   **Pool provenance:** Only the ReplicaSet controller creates a pod with `runkora.io/pool`. The pod must run as the pool ServiceAccount, carry no agent label, and have a controller owner reference to `session-manager-pool-<pod-template-hash>`. No update adds the label to an existing pod. Only kora-agents writes a Deployment with a pool name or a pool pod template, and only the Deployment controller writes a pool ReplicaSet for the `session-manager-pool` Deployment. Before it binds, kora-agents will check the owner ReplicaSet's UID and that its controller is the tenant's pool Deployment (PR 6).
 *   **Subresources:** The rules cover pod subresources such as `pods/status`.
-*   **kora-agents pod updates:** A kora-agents pod update is allowed only on a pool pod in a tenant namespace. It may change only the bind labels (`spiffe.io/agent`, `runkora.io/pool`, `app`, `runkora.io/agent-type`, `runkora.io/agent-config`) and the owner references, and leaves the spec, the annotations and the finalizers unchanged. The bind's in-place grow (W1) goes through `pods/resize`, on which kora-agents holds `patch`.
+*   **kora-agents pod updates:** A kora-agents pod update is allowed only on a pool pod in a tenant namespace. It may change only the bind labels (`spiffe.io/agent`, `runkora.io/pool`, `app`, `runkora.io/agent-type`, `runkora.io/agent-config`) and the owner references, and leaves the spec, the annotations and the finalizers unchanged. On a bound pod it may change only `runkora.io/busy` (Amendment 1). The bind's in-place grow (W1) goes through `pods/resize`, on which kora-agents holds `patch`.
 *   **kora-agents Deployments:** kora-agents writes only the `session-manager-pool` Deployment, and only in a tenant namespace.
 *   **kora-agents deletes:** kora-agents deletes StatefulSets, HPAs, PodDisruptionBudgets and PersistentVolumeClaims only in a tenant namespace. Its only such deletes are of an agent StatefulSet an earlier release created and of that StatefulSet's objects.
 
@@ -249,7 +249,7 @@ The warm-tier amendment lands before PR 6. PR 6 moves its pod selection from ord
 
 Every bound and pool session-manager pod was protected from voluntary eviction for its whole life. Agents on a heartbeat never go cold, so idle pods pinned nodes that the cluster autoscaler could not consolidate. On prod, 16 mostly idle pods pinned 8 nodes.
 
-The operator reconciles two PodDisruptionBudgets in each tenant namespace, both with `maxUnavailable: 0`. `agent-busy` selects pods labelled `runkora.io/busy: "true"`, and `sandbox-busy` selects sandbox pods. kora-agents sets `runkora.io/busy` on a bound pod in the same write that places a run on it, and the scaler removes it when the pod holds no pending, starting, active or idle run. Pool pods never carry it. `kora-agents-pod-updates` allows kora-agents to change that label on a bound pod.
+The operator reconciles two PodDisruptionBudgets in each tenant namespace, both with `maxUnavailable: 0`. `agent-busy` selects pods labelled `runkora.io/busy: "true"`, and `sandbox-busy` selects sandbox pods. kora-agents sets `runkora.io/busy` on a bound pod in the same write that places a run on it, and the scaler removes it when the pod holds no pending, starting, active, idle or completing run. Pool pods never carry it. `kora-agents-pod-updates` allows kora-agents to change that label on a bound pod.
 
 A bound pod without the label may be evicted by the cluster autoscaler or a node drain. The agent's next run binds a pool pod, the same as a cold wake. A drain of a node that holds busy pods waits until their runs end.
 

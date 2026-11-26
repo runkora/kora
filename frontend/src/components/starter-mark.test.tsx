@@ -1,0 +1,56 @@
+import { describe, expect, it } from 'vitest';
+import { screen } from '@testing-library/react';
+import { renderWithProviders } from '@runkora/test-utils';
+import { StarterMark, triggerKindIcon, type StarterMarkRun } from './starter-mark';
+
+describe('triggerKindIcon', () => {
+  it.each([
+    ['webhook', 'zap'],
+    ['scheduled', 'clock'],
+    ['manual', 'play'],
+    ['event', 'activity'],
+  ] as const)('marks a %s trigger with %s', (kind, icon) => {
+    expect(triggerKindIcon(kind)).toBe(icon);
+  });
+
+  it('falls back to zap for a run recorded without a kind', () => {
+    expect(triggerKindIcon(null)).toBe('zap');
+  });
+});
+
+describe('StarterMark', () => {
+  const row: StarterMarkRun = {
+    createdBy: 'usr_dana',
+    createdByName: 'Dana Lee',
+    startedByTrigger: null,
+  };
+
+  it('names the trigger that started the run, whatever its kind', () => {
+    renderWithProviders(
+      <StarterMark
+        row={{
+          ...row,
+          startedByTrigger: {
+            triggerId: 'trg_nightly',
+            triggerName: 'nightly dependency scan',
+            triggerKind: 'scheduled',
+          },
+        }}
+      />,
+    );
+    expect(screen.getByLabelText('Started by nightly dependency scan')).toBeInTheDocument();
+  });
+
+  it('names the person when no trigger started the run', () => {
+    renderWithProviders(<StarterMark row={row} />);
+    expect(screen.getByLabelText('Started by Dana Lee')).toBeInTheDocument();
+  });
+
+  it('is an image a keyboard can reach for its tooltip', () => {
+    renderWithProviders(<StarterMark row={row} />);
+    expect(screen.getByRole('img', { name: 'Started by Dana Lee' })).toHaveAttribute(
+      'tabindex',
+      '0',
+    );
+  });
+});

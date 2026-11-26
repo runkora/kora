@@ -189,12 +189,9 @@ describe('DashboardSidebar', () => {
   });
 
   describe('nav link hrefs', () => {
-    it('Dashboard link points to APP_ROUTES.home', () => {
+    it('Runs link points to APP_ROUTES.runs', () => {
       renderSidebar();
-      expect(screen.getByRole('link', { name: /dashboard/i })).toHaveAttribute(
-        'href',
-        APP_ROUTES.home,
-      );
+      expect(screen.getByRole('link', { name: 'Runs' })).toHaveAttribute('href', APP_ROUTES.runs);
     });
 
     it('Models link points to the correct route', () => {
@@ -258,13 +255,10 @@ describe('DashboardSidebar', () => {
       expect(screen.getByRole('link', { name: 'Agents' })).not.toHaveAttribute('aria-current');
     });
 
-    it('Dashboard link has the correct href when pathname is /', () => {
-      vi.mocked(usePathname).mockReturnValue(APP_ROUTES.home);
+    it('marks Runs as the current page on /runs', () => {
+      vi.mocked(usePathname).mockReturnValue(APP_ROUTES.runs);
       renderSidebar();
-      expect(screen.getByRole('link', { name: /dashboard/i })).toHaveAttribute(
-        'href',
-        APP_ROUTES.home,
-      );
+      expect(screen.getByRole('link', { name: 'Runs' })).toHaveAttribute('aria-current', 'page');
     });
   });
 

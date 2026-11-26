@@ -17,6 +17,7 @@ import (
 	"github.com/runkora/kora/backend/internal/agents"
 	"github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/brand"
+	eventsclient "github.com/runkora/kora/backend/internal/platform/clients/events"
 	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
 	inferenceclient "github.com/runkora/kora/backend/internal/platform/clients/inference"
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
@@ -301,7 +302,13 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 		Retention:      cfg.Drafts.RetentionDuration(),
 	}, logger)
 
-	controller := agents.NewController(atSvc, runSvc, envSvc, draftSvc, verifier, blocklist, eval, agentRoutes(), cfg.Server.BasePath, logger)
+	// Each replica reads the run changes of every tenant for the run streams open on it.
+	if cfg.Platform.EventsURL == "" {
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("platform.eventsURL is required")
+	}
+	feed := agents.NewRunFeed(eventsclient.NewClient(cfg.Platform.EventsURL, selfToken, logger), repo, logger)
+	go feed.Start(ctx)
+	controller := agents.NewController(atSvc, runSvc, envSvc, draftSvc, feed, verifier, blocklist, eval, agentRoutes(), cfg.Server.BasePath, logger)
 
 	// Read-only connection catalog (GET /api/v1/connections), tenant scoped from
 	// the verified token and gated on platform:connections:read. Reads the same

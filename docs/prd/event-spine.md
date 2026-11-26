@@ -179,17 +179,20 @@ Events record changes of state and outcomes, and each event type has the form `<
 
 *   **Runs:**
     *   `agents.run.created.v1`: a run was created and queued.
+    *   `agents.run.placed.v1`: a run was placed on an agent pod.
     *   `agents.run.started.v1`: a run began executing.
     *   `agents.run.completed.v1`: a run finished, including a run that ended after its idle timeout.
     *   `agents.run.failed.v1`: a run failed.
     *   `agents.run.budget_exhausted.v1`: a budget ran out and stopped a run.
     *   `agents.run.terminated.v1`: a person or the platform terminated a run.
     *   `agents.run.idle.v1`: a run finished its turn and is waiting for input.
+    *   `agents.run.resumed.v1`: an idle run began a new turn.
     *   `agents.run.interrupted.v1`: a person stopped the run's turn.
     *   `agents.run.errored.v1`: a turn ended in an error and the run continued.
     *   `agents.run.guardrail_warned.v1`: the loop guard warned the agent.
     *   `agents.run.guardrail_paused.v1`: the loop guard paused the run.
     *   `agents.run.message_received.v1`: a person or a trigger sent the run a message.
+    *   `agents.run.summarized.v1`: a run's task summary was set.
 *   **Sandboxes:**
     *   `agents.sandbox.created.v1`: a sandbox was provisioned for a run.
     *   `agents.sandbox.replaced.v1`: a run's sandbox was replaced with a different environment or image.

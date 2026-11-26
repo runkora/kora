@@ -4,8 +4,9 @@ import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { renderWithProviders, server } from '@runkora/test-utils';
 
+const push = vi.hoisted(() => vi.fn());
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push, replace: vi.fn(), refresh: vi.fn() }),
   usePathname: () => '/agents',
   useSearchParams: () => new URLSearchParams(),
 }));
@@ -177,5 +178,27 @@ describe('Agents page permissions', () => {
     renderAgents(VIEWER_SCOPES, AGENT_ROWS, 'You do not have access to runs.');
     expect(screen.getAllByText(AGENT_ROWS[0].name).length).toBeGreaterThan(0);
     expect(screen.getByText('You do not have access to runs.')).toBeInTheDocument();
+  });
+
+  it('opens the chat page from New Run, and with the agent from a card and a row', async () => {
+    push.mockReset();
+    const user = userEvent.setup();
+    const runnable = AGENT_ROWS.map((a) => ({ ...a, canRun: true }));
+    const active = runnable.find((a) => a.state === 'active')!;
+    const provisioning = runnable.find((a) => a.state !== 'active')!;
+    renderAgents(VIEWER_SCOPES, runnable);
+
+    await user.click(screen.getByRole('button', { name: /new run/i }));
+    expect(push).toHaveBeenLastCalledWith('/chat');
+
+    await user.click(screen.getAllByRole('button', { name: /^run$/i })[0]!);
+    expect(push).toHaveBeenLastCalledWith(`/chat?agent=${runnable[0]!.slug}`);
+
+    await user.click(screen.getByRole('button', { name: 'List view' }));
+    await user.click(screen.getByRole('button', { name: `Start run for ${active.name}` }));
+    expect(push).toHaveBeenLastCalledWith(`/chat?agent=${active.slug}`);
+    expect(
+      screen.getByRole('button', { name: `Start run for ${provisioning.name}` }),
+    ).toBeDisabled();
   });
 });

@@ -44,7 +44,7 @@ func TestMiddleware_DelegationBlocklist(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			eval := &checkRecorder{}
 			routes := []routescopes.RouteScope{{PathPrefix: "/api/v1/runs", Method: "GET", RequiredScope: "agents:runs:read"}}
-			c := NewController(nil, nil, nil, nil, s.Verifier, tokentest.Blocklist{"jti-revoked": true}, eval, routes, "", logging.NewLoggerWithOutput(io.Discard))
+			c := NewController(nil, nil, nil, nil, nil, s.Verifier, tokentest.Blocklist{"jti-revoked": true}, eval, routes, "", logging.NewLoggerWithOutput(io.Discard))
 			h := c.Middleware()(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, tokentest.Request(http.MethodGet, "/api/v1/runs", bearer, tc.delegation))

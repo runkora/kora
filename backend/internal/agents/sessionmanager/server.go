@@ -145,7 +145,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 	return func(next http.Handler) http.Handler {
 		authed := mw.MiddlewareChain(
 			mw.AuthMiddleware(c.verifier, c.logger),
-			mw.RequireSystemCaller(expectedCaller, c.logger),
+			mw.RequireSystemCaller(c.logger, expectedCaller),
 		)(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch {

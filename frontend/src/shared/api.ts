@@ -574,10 +574,9 @@ export interface Run {
 }
 
 /**
- * A Run as served by the Next.js BFF run routes. `created_by_name` is resolved
- * by the BFF from the identity service (the same enrichment the analytics
- * principals route performs) and is NOT part of the Go response — it is null
- * or absent when the principal is not a tenant user (e.g. a webhook source).
+ * A Run as a list row. `created_by_name` is the starter's display name, from kora-agents or
+ * resolved by the BFF from the identity service. It is null or absent when the principal is not
+ * a tenant user (e.g. a webhook source).
  */
 export interface RunWithAttribution extends Run {
   created_by_name?: string | null;
@@ -692,7 +691,7 @@ export interface AgentRunStats {
  * `next_cursor` is null on the last page.
  */
 export interface RunsPage {
-  runs: Run[];
+  runs: RunWithAttribution[];
   next_cursor: string | null;
 }
 
@@ -700,6 +699,16 @@ export interface RunsPage {
 export interface RunsPageResponse {
   data: RunWithAttribution[];
   next_cursor: string | null;
+}
+
+/**
+ * One `event: run` message of GET /api/v1/runs/stream, its SSE `id` the event spine seq.
+ * `matches` says whether the run passes the stream's filters; `run` is the run's current list row.
+ */
+export interface RunStreamMessage {
+  type: string;
+  matches: boolean;
+  run: RunWithAttribution;
 }
 
 // ── Graders — docs/adr/2026-11-19-graders.md ─────────────────────────────────

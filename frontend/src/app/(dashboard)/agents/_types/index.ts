@@ -194,6 +194,38 @@ export function formatDuration(ms: number | null): string {
   return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
+/** "4m", "3h", "2d" for a span of seconds, or `under` below a minute. */
+function shortSpan(seconds: number, under: string): string {
+  if (seconds < 60) return under;
+  const m = Math.floor(seconds / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
+
+/** "now", "4m", "3h", "2d": how long ago, short enough for a row's right edge. */
+export function shortRelativeTime(iso: string, now = Date.now()): string {
+  return shortSpan(Math.max(0, Math.floor((now - new Date(iso).getTime()) / 1000)), 'now');
+}
+
+/** "45s", "4m", "3h": how long a run has taken, as short as shortRelativeTime. */
+export function shortElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return shortSpan(s, `${s}s`);
+}
+
+/**
+ * A run row's title: the task summary without its full stop, "Waiting to start" before the run
+ * starts, or "No task summary" after. Only the last is not `known`, and rows show it muted.
+ */
+export function runTitle(r: Pick<RunRow, 'summary' | 'state'>): { text: string; known: boolean } {
+  if (r.summary) return { text: r.summary.replace(/\.$/, ''), known: true };
+  if (r.state === 'pending' || r.state === 'starting')
+    return { text: 'Waiting to start', known: true };
+  return { text: 'No task summary', known: false };
+}
+
 /**
  * Returns a human-readable relative time string for a given ISO timestamp.
  * Examples: "just now", "2 minutes ago", "3 hours ago", "4 days ago".
