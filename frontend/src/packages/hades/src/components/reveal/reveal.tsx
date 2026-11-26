@@ -25,7 +25,8 @@ export interface RevealProps extends Omit<React.ComponentPropsWithoutRef<'span'>
 /**
  * Each child is one item, and a whitespace-only string between them stays as it is. The items
  * play once on mount. Under reduced motion they show in place. Nothing is announced to assistive
- * technology: the text reads as it would without the reveal.
+ * technology: the text reads as it would without the reveal. Mount it on the client: server HTML
+ * shows the items in place until hydration plays them in.
  */
 const Reveal = React.forwardRef<HTMLSpanElement, RevealProps>(
   ({ stagger = 60, duration = 280, delay = 0, children, ...props }, ref) => {
@@ -42,7 +43,8 @@ const Reveal = React.forwardRef<HTMLSpanElement, RevealProps>(
           duration,
           delay: delay + i * stagger,
           easing: SETTLE,
-          fill: 'both',
+          // Holds the start frame through the delay and leaves no transform behind once done.
+          fill: 'backwards',
         }),
       );
       return () => played.forEach((a) => a.cancel());

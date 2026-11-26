@@ -13,8 +13,8 @@ function setup() {
   const onSelect = vi.fn();
   render(
     <Combobox label="Planet">
-      <ComboboxInput aria-label="Search planets" />
-      <ComboboxList>
+      <ComboboxInput />
+      <ComboboxList label="Planets">
         {PLANETS.map((p) => (
           <ComboboxItem
             key={p.value}
@@ -34,9 +34,10 @@ function setup() {
 }
 
 describe('Combobox', () => {
-  it('renders a listbox of options', () => {
+  it('renders a listbox of options and names the input and the list', () => {
     setup();
-    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Planet' })).toBeInTheDocument();
+    expect(screen.getByRole('listbox', { name: 'Planets' })).toBeInTheDocument();
     expect(screen.getAllByRole('option')).toHaveLength(3);
   });
 

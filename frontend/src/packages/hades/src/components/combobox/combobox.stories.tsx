@@ -35,8 +35,9 @@ function Regions({ search = true }: { search?: boolean }) {
   return (
     <div className="w-80 rounded-md border border-border bg-surface-elevated p-1">
       <Combobox label="Region" defaultValue={picked}>
-        {search && <ComboboxInput placeholder="Search regions" aria-label="Search regions" />}
-        <ComboboxList>
+        {search && <ComboboxInput placeholder="Search regions" />}
+        {/* Without the input, the list takes focus from Tab. */}
+        <ComboboxList label="Regions" {...(search ? {} : { tabIndex: 0 })}>
           {REGIONS.map((r) => (
             <ComboboxItem
               key={r.value}
@@ -71,7 +72,7 @@ function Regions({ search = true }: { search?: boolean }) {
 /** With a search field. Type "virginia" or "us-" to filter. */
 export const Default: Story = { render: () => <Regions /> };
 
-/** A short list without a search field. Focus the list and use the arrow keys. */
+/** A short list without a search field. Tab to the list and use the arrow keys. */
 export const WithoutSearch: Story = { render: () => <Regions search={false} /> };
 
 /** Inside a popover, opened from a button. */
@@ -86,8 +87,8 @@ export const InPopover: Story = {
       </PopoverTrigger>
       <PopoverContent wide>
         <Combobox label="Region">
-          <ComboboxInput placeholder="Search regions" aria-label="Search regions" />
-          <ComboboxList>
+          <ComboboxInput placeholder="Search regions" />
+          <ComboboxList label="Regions">
             {REGIONS.map((r) => (
               <ComboboxItem
                 key={r.value}

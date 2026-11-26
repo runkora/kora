@@ -605,7 +605,9 @@ import { PageLayout, Section } from '@runkora/hades';
 
 Use `Combobox` for a list of options that a person searches or moves through with the arrow keys. It is built on `cmdk` and renders the listbox pattern. Open it in a `Popover` when a button triggers it.
 
-- `ComboboxInput` filters the items by their `value` and `keywords`, ignoring case. Leave it out for a short list, and focus the `Combobox` root on open so the arrow keys work.
+- The `Combobox` `label` names the input. An `aria-label` on `ComboboxInput` has no effect.
+- `ComboboxInput` filters the items by their `value` and `keywords`, ignoring case. Leave it out for a short list, and focus the `ComboboxList` on open so the arrow keys work.
+- `ComboboxList` takes a `label` that names the listbox.
 - `ComboboxItem` takes `value`, `onSelect`, `disabled` and `keywords`. A disabled item stays in the list and cannot be picked.
 - `ComboboxEmpty` shows only when the search matches no item.
 
@@ -613,8 +615,8 @@ Use `Combobox` for a list of options that a person searches or moves through wit
 import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from '@runkora/hades';
 
 <Combobox label="Region">
-  <ComboboxInput placeholder="Search regions" aria-label="Search regions" />
-  <ComboboxList>
+  <ComboboxInput placeholder="Search regions" />
+  <ComboboxList label="Regions">
     {regions.map((r) => (
       <ComboboxItem key={r.id} value={r.id} keywords={[r.name]} onSelect={() => pick(r)}>
         {r.name}
@@ -629,7 +631,7 @@ import { Combobox, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } fr
 
 ## One-Shot Motion: `Reveal`
 
-`Reveal` plays its children in once on mount. Each child rises from 0.4em below its place and fades in. `stagger`, `duration` and `delay` take milliseconds. Under `prefers-reduced-motion: reduce` the children show in place. `Reveal` adds no ARIA attributes, and the text reads as it would without it.
+`Reveal` plays its children in once on mount. Each child rises from 0.4em below its place and fades in. `stagger`, `duration` and `delay` take milliseconds. Under `prefers-reduced-motion: reduce` the children show in place. `Reveal` adds no ARIA attributes, and the text reads as it would without it. Use it for content mounted on the client: server-rendered items show in place until hydration hides them and plays them in.
 
 Pass one child per item. A whitespace-only string between items stays as text.
 

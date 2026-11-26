@@ -15,8 +15,8 @@ function containsSearch(value: string, search: string, keywords?: string[]): num
 export type ComboboxProps = Omit<React.ComponentPropsWithoutRef<typeof Command>, 'className'>;
 
 /**
- * The list's root. Arrow keys move the highlight and Enter picks it while focus is inside, on the
- * input or on the root itself. `filter` replaces the default substring match.
+ * The list's root. Arrow keys move the highlight and Enter picks it while focus is on the input or
+ * the list. `label` names the input. `filter` replaces the default substring match.
  */
 const Combobox = React.forwardRef<React.ComponentRef<typeof Command>, ComboboxProps>(
   ({ filter = containsSearch, ...props }, ref) => (
@@ -36,7 +36,7 @@ export type ComboboxInputProps = Omit<
   'className'
 >;
 
-/** The search field. Typing filters the items. */
+/** The search field, named by the `Combobox` label. Typing filters the items. */
 const ComboboxInput = React.forwardRef<
   React.ComponentRef<typeof Command.Input>,
   ComboboxInputProps
@@ -59,13 +59,19 @@ export type ComboboxListProps = Omit<
   'className'
 >;
 
-/** The items, scrolling past 24rem. */
+/**
+ * The items, scrolling past 24rem. `label` names the listbox for screen readers. Without an input,
+ * focus the list on open: it holds the highlighted item for assistive technology.
+ */
 const ComboboxList = React.forwardRef<React.ComponentRef<typeof Command.List>, ComboboxListProps>(
   (props, ref) => (
     <Command.List
       ref={ref}
       data-slot="combobox-list"
-      className="max-h-96 overflow-y-auto overscroll-contain"
+      className={cn(
+        'max-h-96 overflow-y-auto overscroll-contain rounded-sm',
+        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+      )}
       {...props}
     />
   ),
