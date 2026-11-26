@@ -9,9 +9,12 @@ export function useActiveAgents(): { list: AgentTypeRow[]; error: string | null 
   const [agents, setAgents] = useState<{ list: AgentTypeRow[]; error: string | null } | null>(null);
   useEffect(() => {
     let live = true;
-    void fetchAgentTypes().then(({ data, error }) => {
-      if (live) setAgents({ list: data.filter((a) => a.state === 'active'), error });
-    });
+    // A response the page cannot read shows as an error, not a blank page.
+    void fetchAgentTypes()
+      .catch(() => ({ data: [], error: 'The agents could not be read.' }))
+      .then(({ data, error }) => {
+        if (live) setAgents({ list: data.filter((a) => a.state === 'active'), error });
+      });
     return () => {
       live = false;
     };

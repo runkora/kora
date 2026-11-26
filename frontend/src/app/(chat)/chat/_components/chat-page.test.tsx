@@ -8,12 +8,16 @@ import { ChatPage } from './chat-page';
 
 const api = vi.hoisted(() => ({
   agents: [] as AgentTypeRow[],
+  agentsThrow: false,
   runs: [] as RunWithAttribution[],
   start: vi.fn(),
 }));
 
 vi.mock('@runkora/app/(dashboard)/agents/_services/agents-api', () => ({
-  fetchAgentTypes: async () => ({ data: api.agents, error: null }),
+  fetchAgentTypes: async () => {
+    if (api.agentsThrow) throw new Error('unreadable body');
+    return { data: api.agents, error: null };
+  },
   fetchStartRun: (...args: unknown[]) => api.start(...args),
 }));
 vi.mock('../_hooks/use-own-runs', () => ({
@@ -46,6 +50,7 @@ beforeEach(() => {
   api.agents = [CODER, REVIEWER, LOCKED];
   api.runs = [];
   api.start.mockReset();
+  api.agentsThrow = false;
   replace.mockReset();
   // jsdom has no Web Animations API and no scrollIntoView, which cmdk calls on the highlight.
   HTMLElement.prototype.animate = vi.fn(() => ({ cancel() {} }) as unknown as Animation);
@@ -183,6 +188,12 @@ describe('ChatPage', () => {
     await user.clear(screen.getByRole('combobox'));
     await user.type(screen.getByRole('combobox'), 'nothing like this');
     expect(screen.getByText('No agent matches “nothing like this”.')).toBeInTheDocument();
+  });
+
+  it('shows an error when the agents cannot be read', async () => {
+    api.agentsThrow = true;
+    render(<ChatPage />);
+    expect(await screen.findByText('The agents could not be read.')).toBeInTheDocument();
   });
 
   it('offers the Agents list when there is no agent to start', async () => {
