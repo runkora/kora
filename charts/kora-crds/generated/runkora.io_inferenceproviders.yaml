@@ -178,6 +178,48 @@ spec:
                       minLength: 1
                       type: string
                     type: array
+                  headers:
+                    description: |-
+                      Headers are extra HTTP headers the gateway sends on every upstream
+                      request to the endpoint, including the model list. A header cannot
+                      replace the credential or a header the HTTP client owns.
+                    items:
+                      description: 'Header is one extra request header: an inline
+                        value or a key of a Secret.'
+                      properties:
+                        name:
+                          description: Name is the header name, an HTTP token.
+                          minLength: 1
+                          pattern: ^[!#$%&'*+.^_|~0-9A-Za-z-]+$
+                          type: string
+                        value:
+                          description: Value is an inline value. Use valueFrom for
+                            a sensitive one.
+                          type: string
+                        valueFrom:
+                          description: ValueFrom is a key of a Secret labeled runkora.io/inference-provider=true.
+                          properties:
+                            key:
+                              minLength: 1
+                              type: string
+                            name:
+                              minLength: 1
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                      required:
+                      - name
+                      type: object
+                      x-kubernetes-validations:
+                      - message: set exactly one of value and valueFrom.
+                        rule: has(self.value) != has(self.valueFrom)
+                    maxItems: 20
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
                 required:
                 - apis
                 - baseURL
@@ -189,6 +231,11 @@ spec:
                     || self.baseURL.endsWith(''/v1/'')'
                 - message: decisionModels needs systemone in apis.
                   rule: '!has(self.decisionModels) || ''systemone'' in self.apis'
+                - message: 'headers cannot set a header kora or the HTTP client owns:
+                    authorization, x-api-key, proxy-authorization, host, content-length,
+                    content-type, accept, transfer-encoding, connection.'
+                  rule: '!has(self.headers) || self.headers.all(h, !(h.name.lowerAscii()
+                    in [''authorization'',''x-api-key'',''proxy-authorization'',''host'',''content-length'',''content-type'',''accept'',''transfer-encoding'',''connection'']))'
               displayName:
                 description: DisplayName is the human-readable name shown in the dashboard.
                 maxLength: 128

@@ -63,6 +63,39 @@ The gateway sends a listed API to the endpoint as is. An API missing from `apis`
 - Anthropic API: `baseURL` is `https://api.anthropic.com/v1`. `apis` is `messages`.
 - OpenAI API: `baseURL` is `https://api.openai.com/v1`. `apis` is `chatCompletions`, `responses` and `embeddings`.
 
+## Send extra request headers
+
+Some endpoints need more than the API key, such as an `anthropic-beta` flag or an organisation id. Set them in `compatible.headers`. The gateway sends them on every request to the endpoint, including the model list.
+
+```yaml
+spec:
+  type: compatible
+  compatible:
+    baseURL: https://api.anthropic.com/v1
+    apis:
+      - messages
+    apiKeySecretRef:
+      name: anthropic
+      key: apiKey
+    headers:
+      - name: anthropic-beta
+        value: prompt-caching-2024-07-31
+      - name: x-organization
+        valueFrom:
+          name: anthropic
+          key: organization
+```
+
+**Fields**
+
+- `name`: the header name.
+- `value`: an inline value. Use it for values that are not sensitive.
+- `valueFrom`: a key of a Secret labelled `runkora.io/inference-provider=true`. Set exactly one of `value` and `valueFrom`. The gateway reloads the headers when the Secret changes.
+- At most 20 headers. A header can replace an SDK default such as `anthropic-version`.
+- These names are rejected, in any case, and the provider is `Invalid`: `authorization`, `x-api-key`, `proxy-authorization`, `host`, `content-length`, `content-type`, `accept`, `transfer-encoding` and `connection`. Credentials come from `apiKeySecretRef`.
+- Header values never appear in the provider status or events.
+- Only `compatible` providers take `headers`.
+
 ## Register Ollama
 
 Ollama serves all four APIs:

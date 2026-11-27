@@ -53,6 +53,7 @@ var decisionQuery = url.Values{"output_modalities": {decisionsModality}}
 func (c *Connector) getModels(ctx context.Context, query url.Values) ([]json.RawMessage, error) {
 	header := http.Header{}
 	header.Set("Accept", "application/json")
+	c.addHeaders(header)
 	if c.apiKey != "" {
 		header.Set("Authorization", "Bearer "+c.apiKey)
 	}

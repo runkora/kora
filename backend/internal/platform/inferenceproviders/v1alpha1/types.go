@@ -179,6 +179,7 @@ type Azure struct {
 //
 // +kubebuilder:validation:XValidation:rule="!('messages' in self.apis) || self.baseURL.endsWith('/v1') || self.baseURL.endsWith('/v1/')",message="an endpoint serving messages needs a baseURL ending in /v1."
 // +kubebuilder:validation:XValidation:rule="!has(self.decisionModels) || 'systemone' in self.apis",message="decisionModels needs systemone in apis."
+// +kubebuilder:validation:XValidation:rule="!has(self.headers) || self.headers.all(h, !(h.name.lowerAscii() in ['authorization','x-api-key','proxy-authorization','host','content-length','content-type','accept','transfer-encoding','connection']))",message="headers cannot set a header kora or the HTTP client owns: authorization, x-api-key, proxy-authorization, host, content-length, content-type, accept, transfer-encoding, connection."
 type Compatible struct {
 	// BaseURL is the prefix of /chat/completions and /messages, e.g.
 	// https://openrouter.ai/api/v1. http and https are allowed.
@@ -194,7 +195,33 @@ type Compatible struct {
 	// publishes no metadata that says so. Requires systemone in APIs.
 	// +kubebuilder:validation:items:MinLength=1
 	DecisionModels []string `json:"decisionModels,omitempty"`
+
+	// Headers are extra HTTP headers the gateway sends on every upstream
+	// request to the endpoint, including the model list. A header cannot
+	// replace the credential or a header the HTTP client owns.
+	// +kubebuilder:validation:MaxItems=20
+	// +listType=map
+	// +listMapKey=name
+	Headers []Header `json:"headers,omitempty"`
 }
+
+// Header is one extra request header: an inline value or a key of a Secret.
+//
+// +kubebuilder:validation:XValidation:rule="has(self.value) != has(self.valueFrom)",message="set exactly one of value and valueFrom."
+type Header struct {
+	// Name is the header name, an HTTP token.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern=`^[!#$%&'*+.^_|~0-9A-Za-z-]+$`
+	Name string `json:"name"`
+	// Value is an inline value. Use valueFrom for a sensitive one.
+	Value *string `json:"value,omitempty"`
+	// ValueFrom is a key of a Secret labeled runkora.io/inference-provider=true.
+	ValueFrom *SecretKeyRef `json:"valueFrom,omitempty"`
+}
+
+// ReservedHeaders are lowercase header names a compatible endpoint's headers
+// cannot set.
+var ReservedHeaders = []string{"authorization", "x-api-key", "proxy-authorization", "host", "content-length", "content-type", "accept", "transfer-encoding", "connection"}
 
 // Status is written by the inference gateway.
 type Status struct {

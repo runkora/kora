@@ -1,14 +1,17 @@
 package registry
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -323,5 +326,89 @@ func TestMixedProviderDecisionModelsAndSpecModels(t *testing.T) {
 				t.Errorf("models = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestCompatibleHeaders(t *testing.T) {
+	const secretValue = "s3cret-header-value"
+	var got http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":[{"id":"m","object":"model"}]}`)
+	}))
+	t.Cleanup(srv.Close)
+	inline := "acme"
+	spec := func(headers ...ip.Header) ip.Spec {
+		return ip.Spec{Type: ip.TypeCompatible, Compatible: &ip.Compatible{
+			BaseURL: srv.URL + "/v1", APIs: []ip.API{ip.APIChatCompletions}, Headers: headers,
+		}}
+	}
+	w, c := newWatcher(t,
+		resource("ok", spec(
+			ip.Header{Name: "X-Org", Value: &inline},
+			ip.Header{Name: "X-Token", ValueFrom: &ip.SecretKeyRef{Name: "hdr", Key: "token"}},
+		)),
+		resource("auth", spec(ip.Header{Name: "AUTHORIZATION", Value: &inline})),
+		resource("apikey", spec(ip.Header{Name: "X-Api-Key", Value: &inline})),
+		resource("nokey", spec(ip.Header{Name: "X-Token", ValueFrom: &ip.SecretKeyRef{Name: "hdr", Key: "absent"}})),
+		resource("both", spec(ip.Header{Name: "X-A", Value: &inline, ValueFrom: &ip.SecretKeyRef{Name: "hdr", Key: "token"}})),
+		secret("hdr", map[string]string{"token": secretValue}),
+	)
+	var logs bytes.Buffer
+	w.logger = logging.NewLoggerWithOutput(&logs)
+	connectors, infos := w.Load(context.Background())
+
+	conn, ok := connectors["compatible:ok"]
+	if !ok {
+		t.Fatalf("connectors = %v", connectors)
+	}
+	if _, err := conn.ListModels(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got.Get("X-Org") != "acme" || got.Get("X-Token") != secretValue {
+		t.Errorf("upstream headers = %v", got)
+	}
+	for _, name := range []string{"auth", "apikey", "both"} {
+		if _, ok := connectors[inferencegw.ProviderName("compatible:"+name)]; ok {
+			t.Errorf("%s: built a connector", name)
+		}
+	}
+
+	reasons := map[string]string{"ok": reasonLoaded, "auth": reasonInvalidSpec, "apikey": reasonInvalidSpec, "both": reasonInvalidSpec, "nokey": reasonSecretKeyNotFound}
+	for name, reason := range reasons {
+		p := &ip.InferenceProvider{}
+		if err := c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: name}, p); err != nil {
+			t.Fatal(err)
+		}
+		cond := meta.FindStatusCondition(p.Status.Conditions, conditionLoaded)
+		if cond == nil || cond.Reason != reason {
+			t.Errorf("%s: status = %+v, want reason %s", name, p.Status, reason)
+		}
+		if strings.Contains(fmt.Sprintf("%+v", p.Status), secretValue) {
+			t.Errorf("%s: status carries a header value", name)
+		}
+	}
+	if strings.Contains(fmt.Sprintf("%+v", infos), secretValue) {
+		t.Error("ProviderInfo carries a header value")
+	}
+	// Logs from loading every provider, including the InvalidSpec and
+	// SecretKeyNotFound paths, and events the cluster holds for them.
+	if strings.Contains(logs.String(), secretValue) {
+		t.Errorf("logs carry a header value: %s", logs.String())
+	}
+	events := &corev1.EventList{}
+	if err := c.List(context.Background(), events); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(fmt.Sprintf("%+v", events.Items), secretValue) {
+		t.Error("events carry a header value")
+	}
+	// The connector's own logs while it calls the upstream.
+	if conn, ok := connectors["compatible:ok"]; ok {
+		_, _ = conn.ListModels(context.Background())
+	}
+	if strings.Contains(logs.String(), secretValue) {
+		t.Error("logs carry a header value after a model list")
 	}
 }

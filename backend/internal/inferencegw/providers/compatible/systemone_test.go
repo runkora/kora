@@ -379,3 +379,24 @@ func TestSystemOneClientSpanStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestSystemOneSendsConfiguredHeaders(t *testing.T) {
+	var got http.Header
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"model":"m"}`)
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Config{BaseURL: srv.URL + "/v1", APIKey: "k", APIs: []ip.API{ip.APISystemOne}, Headers: map[string]string{"x-org": "acme"}},
+		"compatible:ts", logging.NewLoggerWithOutput(io.Discard))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.SystemOne(context.Background(), inferencegw.SystemOneRequest{Body: []byte(`{"model":"m"}`), Model: "m"}); err != nil {
+		t.Fatal(err)
+	}
+	if got.Get("X-Org") != "acme" || got.Get("Authorization") != "Bearer k" {
+		t.Errorf("headers = %v", got)
+	}
+}
