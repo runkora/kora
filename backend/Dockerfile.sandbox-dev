@@ -39,10 +39,15 @@ FROM kora-sandbox-node
 
 # Set from versions.hcl by docker-bake.hcl.
 ARG HELM_VERSION
+ARG GH_STACK_VERSION
 
 # Digests from get.helm.sh. A HELM_VERSION bump in versions.hcl needs new digests here.
 ARG HELM_SHA256_AMD64=86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb
 ARG HELM_SHA256_ARM64=31c5794dd55c66a51e6b7d2e2ac7a114ae8b1de41ff1d9ba51748ac973b06a08
+
+# Digests from the github/gh-stack release. A GH_STACK_VERSION bump in versions.hcl needs new digests here.
+ARG GH_STACK_SHA256_AMD64=957e822cfa7e435cd84a297cd96c419b58e51e3ac58be249762c24bd9e45099b
+ARG GH_STACK_SHA256_ARM64=803ec91eeba9b2ac38827e299a79830fe75ca7284f0c28d60e6a2704bb34ed13
 
 USER 0
 
@@ -65,4 +70,26 @@ RUN set -eux; \
     golangci-lint --version; buf --version; protoc-gen-go --version; \
     protoc-gen-go-grpc --version; deadcode -h 2>&1 | head -1; gitleaks version; helm version --short
 
+# The gh-stack extension, for stacked pull requests. gh finds extensions under
+# $XDG_DATA_HOME, and the sandbox moves HOME into the run's workspace, so the
+# gh wrapper points gh at the extension installed in the image.
+RUN set -eux; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) GH_STACK_SHA="${GH_STACK_SHA256_AMD64}";; \
+      arm64) GH_STACK_SHA="${GH_STACK_SHA256_ARM64}";; \
+      *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1;; \
+    esac; \
+    dir=/opt/gh-data/gh/extensions/gh-stack; \
+    mkdir -p "$dir"; \
+    curl --proto '=https' --tlsv1.2 --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 300 -fsSL \
+      -o "$dir/gh-stack" "https://github.com/github/gh-stack/releases/download/${GH_STACK_VERSION}/linux-$(dpkg --print-architecture)"; \
+    echo "${GH_STACK_SHA}  $dir/gh-stack" | sha256sum --check; \
+    chmod 0755 "$dir/gh-stack"; \
+    chmod -R a+rX /opt/gh-data; \
+    printf '%s\n' '#!/bin/sh' 'XDG_DATA_HOME=/opt/gh-data exec /usr/bin/gh "$@"' > /usr/local/bin/gh; \
+    chmod 0755 /usr/local/bin/gh
+
 USER 100:100
+
+# Fail the build if the runtime user cannot run the extension.
+RUN gh stack --help >/dev/null
