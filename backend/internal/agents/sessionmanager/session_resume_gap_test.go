@@ -31,7 +31,7 @@ func interruptIntoGap(t *testing.T, resumed *scriptRunner) (*Registry, *scriptRu
 
 func sendAsync(reg *Registry, ctx context.Context) <-chan error {
 	done := make(chan error, 1)
-	go func() { done <- reg.Send(ctx, "run-1", "hello") }()
+	go func() { done <- reg.Send(ctx, "run-1", "", "hello") }()
 	return done
 }
 
@@ -82,7 +82,7 @@ func TestSend_InResumeGapFailedStartIsNotFound(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404", rec.Code)
 	}
-	if err := reg.Send(context.Background(), "run-1", "again"); !errors.Is(err, ErrSessionNotFound) {
+	if err := reg.Send(context.Background(), "run-1", "", "again"); !errors.Is(err, ErrSessionNotFound) {
 		t.Errorf("Send after failed resume = %v, want ErrSessionNotFound", err)
 	}
 }
@@ -112,7 +112,7 @@ func TestSend_InResumeGapTimesOutWith503(t *testing.T) {
 	reg, _ := interruptIntoGap(t, resumed)
 	defer close(resumed.startGate)
 
-	if err := reg.Send(context.Background(), "run-1", "hello"); !errors.Is(err, ErrResuming) {
+	if err := reg.Send(context.Background(), "run-1", "", "hello"); !errors.Is(err, ErrResuming) {
 		t.Fatalf("Send = %v, want ErrResuming", err)
 	}
 	ctrl := &Controller{logger: logging.NewLoggerWithOutput(io.Discard), registry: reg}

@@ -365,4 +365,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-23 | [Generic Webhook Attribution](2026-11-23-generic-webhook-attribution.md) | Accepted | — |
 | 2026-11-25 | [Runs List Live Stream](2026-11-25-runs-list-live-stream.md) | Accepted (Amended 2026-11-26) | — |
 | 2026-11-26 | [Chat Page](2026-11-26-chat-page.md) | Accepted | — |
+| 2026-11-27 | [Message Sender Header](2026-11-27-message-sender-header.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

@@ -208,7 +208,7 @@ func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.T
 		}
 		return
 	}
-	if err := s.tryInitialMessage(ctx, target, run.ID, run.InitialMessage); err != nil {
+	if err := s.tryInitialMessage(ctx, target, run); err != nil {
 		// A run with a session and no task would sit active with zero requests.
 		s.logger.Error(ctx, "initial message could not be delivered; failing the run",
 			logging.Field{Key: "run_id", Value: run.ID},

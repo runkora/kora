@@ -288,7 +288,7 @@ func TestProvisionSandbox_LostAfterAttemptsFailsFastUntilUserReplies(t *testing.
 	}
 
 	// A user message lifts the block.
-	if err := reg.Send(context.Background(), "run-1", "try again"); err != nil {
+	if err := reg.Send(context.Background(), "run-1", "", "try again"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", "", false); !errors.Is(err, ErrSandboxLost) {

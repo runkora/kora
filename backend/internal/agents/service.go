@@ -39,7 +39,7 @@ type k8sProvisioner interface {
 type smClient interface {
 	CreateSession(ctx context.Context, pod sessionmanager.Pod, req sessionmanager.CreateSessionRequest) error
 	// idleTimeoutSecs, when above zero, replaces the session's idle timeout from this message on.
-	SendMessage(ctx context.Context, pod sessionmanager.Pod, runID, content string, idleTimeoutSecs int, fromPerson bool) error
+	SendMessage(ctx context.Context, pod sessionmanager.Pod, runID, content string, idleTimeoutSecs int, fromPerson bool, from *sessionmanager.From) error
 	InterruptSession(ctx context.Context, pod sessionmanager.Pod, runID string) error
 	CloseSession(ctx context.Context, pod sessionmanager.Pod, runID string) error
 	Memory(ctx context.Context, pod sessionmanager.Pod) (sessionmanager.Memory, error)

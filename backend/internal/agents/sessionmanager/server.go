@@ -547,6 +547,9 @@ type SendMessageRequest struct {
 	IdleTimeoutSecs int `json:"idle_timeout_secs"`
 	// FromPerson marks a message a person sent, which moves a trigger run to a person's.
 	FromPerson bool `json:"from_person"`
+	// From names who sent the message. The session manager turns it into the header line the agent reads.
+	// kora-agents sets it from the verified token, never from the message body. Nil sends no header.
+	From *MessageFrom `json:"from,omitempty"`
 }
 
 // handleSendMessage delivers a user message to an active session.
@@ -567,7 +570,7 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	// The switch comes before delivery, so a turn that ends while the message
 	// is on its way already belongs to a person.
 	wasTriggered := req.FromPerson && c.registry.SetTriggered(runID, false)
-	if err := c.registry.Send(ctx, runID, req.Content); err != nil {
+	if err := c.registry.Send(ctx, runID, req.From.header(c.registry.brand.ProductName()), req.Content); err != nil {
 		if wasTriggered {
 			c.registry.SetTriggered(runID, true)
 		}

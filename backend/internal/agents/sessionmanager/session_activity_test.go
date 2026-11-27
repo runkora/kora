@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -163,7 +166,7 @@ func TestDrain_IdleToActive(t *testing.T) {
 			pushEvent(t, r, EventTypeMessageStop)
 			waitFor(t, "idle", func() bool { c, _ := n.snapshot(); return len(c) == 1 })
 			if tt.viaMessage {
-				if err := reg.Send(context.Background(), "run-1", "next"); err != nil {
+				if err := reg.Send(context.Background(), "run-1", "", "next"); err != nil {
 					t.Fatalf("Send: %v", err)
 				}
 				waitFor(t, "activation on send", func() bool { c, _ := n.snapshot(); return len(c) == 2 })
@@ -187,7 +190,7 @@ func TestSend_StopsIdleTimerBeforeTheTurnsFirstEvent(t *testing.T) {
 	pushEvent(t, r, EventTypeTextDelta)
 	pushEvent(t, r, EventTypeMessageStop)
 	waitFor(t, "idle", func() bool { c, _ := n.snapshot(); return len(c) == 1 })
-	if err := reg.Send(context.Background(), "run-1", "next"); err != nil {
+	if err := reg.Send(context.Background(), "run-1", "", "next"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	pushEvent(t, r, EventTypeAPIRetry)
@@ -236,7 +239,7 @@ func TestInterrupt_IdleIsReportedBeforeTheResumedSessionRuns(t *testing.T) {
 		defer reg.mu.RUnlock()
 		return reg.sessions["run-1"] != nil && reg.sessions["run-1"].runner == Runner(resumed)
 	})
-	if err := reg.Send(context.Background(), "run-1", "go on"); err != nil {
+	if err := reg.Send(context.Background(), "run-1", "", "go on"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	waitFor(t, "activation", func() bool { c, _ := n.snapshot(); return slices.Contains(c, "active") })
@@ -261,12 +264,12 @@ func TestInterrupt_NextMessageTellsModelTheUserStopped(t *testing.T) {
 	})
 
 	resumed.sendErr = errors.New("stdin closed")
-	if err := reg.Send(context.Background(), "run-1", "lost"); err == nil {
+	if err := reg.Send(context.Background(), "run-1", "", "lost"); err == nil {
 		t.Fatal("Send succeeded, want the runner's error")
 	}
 	resumed.sendErr = nil
 	for _, msg := range []string{"carry on", "and again"} {
-		if err := reg.Send(context.Background(), "run-1", msg); err != nil {
+		if err := reg.Send(context.Background(), "run-1", "", msg); err != nil {
 			t.Fatalf("Send: %v", err)
 		}
 	}
@@ -388,7 +391,7 @@ func TestInterrupt_RuntimeThatSurvivesTheStop(t *testing.T) {
 	pushEvent(t, r, EventTypeMessageStop)
 	waitFor(t, "idle", func() bool { c, _ := n.snapshot(); return slices.Contains(c, "idle") })
 
-	if err := reg.Send(context.Background(), "run-1", "carry on"); err != nil {
+	if err := reg.Send(context.Background(), "run-1", "", "carry on"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	if got := r.sentTexts(); !slices.Equal(got, []string{stopNote("Acme") + "carry on"}) {
@@ -409,7 +412,7 @@ func TestSend_RecordsTheTextBeforeAMidTurnMessage(t *testing.T) {
 	t.Cleanup(func() { _ = reg.Close(context.Background(), "run-1") })
 	r.partial = "Working on it. "
 
-	if err := reg.Send(context.Background(), "run-1", "also do X"); err != nil {
+	if err := reg.Send(context.Background(), "run-1", "", "also do X"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	_, evs := n.snapshot()
@@ -421,5 +424,53 @@ func TestSend_RecordsTheTextBeforeAMidTurnMessage(t *testing.T) {
 	}
 	if got := r.sentTexts(); !slices.Equal(got, []string{"also do X"}) {
 		t.Errorf("sent = %q", got)
+	}
+}
+
+func TestSend_HeaderOrderAndSummaryInput(t *testing.T) {
+	bodies := make(chan string, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		bodies <- string(b)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), newStateNotifier(), time.Minute, testBrand)
+	r := newScriptRunner()
+	if err := reg.Create(context.Background(), SessionConfig{RunID: "run-1", Runner: r, InferenceURL: srv.URL, Model: "m"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() { _ = reg.Close(context.Background(), "run-1") })
+
+	header := (&MessageFrom{Kind: "person", ID: "u1", Name: "Ada"}).header("Acme")
+	if err := reg.Send(context.Background(), "run-1", header, "fix the build"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if err := reg.Send(context.Background(), "run-1", "", "plain"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	reg.mu.RLock()
+	reg.sessions["run-1"].stoppedByUser.Store(true)
+	reg.mu.RUnlock()
+	if err := reg.Send(context.Background(), "run-1", header, "after stop"); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	want := []string{
+		"[Acme: from Ada (user id u1)]\n\nfix the build",
+		"plain",
+		stopNote("Acme") + "[Acme: from Ada (user id u1)]\n\nafter stop",
+	}
+	if got := r.sentTexts(); !slices.Equal(got, want) {
+		t.Errorf("sent = %q, want %q", got, want)
+	}
+
+	select {
+	case body := <-bodies:
+		if !strings.Contains(body, "fix the build") || strings.Contains(body, "[Acme:") {
+			t.Errorf("summary input = %s, want the raw message with no header", body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no summary request")
 	}
 }

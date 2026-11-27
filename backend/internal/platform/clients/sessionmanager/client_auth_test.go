@@ -53,7 +53,7 @@ func TestClient_SendsBearerOnEverySessionCall(t *testing.T) {
 			name:   "SendMessage",
 			status: http.StatusAccepted,
 			call: func(c *Client, pod Pod) error {
-				return c.SendMessage(context.Background(), pod, "run-1", "hello", 0, false)
+				return c.SendMessage(context.Background(), pod, "run-1", "hello", 0, false, nil)
 			},
 		},
 		{
@@ -165,7 +165,7 @@ func TestClient_SendMessageIdleTimeout(t *testing.T) {
 			t.Cleanup(srv.Close)
 			c := NewClient(logging.NewLoggerWithOutput(io.Discard), staticToken("tok"))
 
-			if err := c.SendMessage(context.Background(), Pod{URL: srv.URL}, "run-1", "hi", tc.secs, tc.person); err != nil {
+			if err := c.SendMessage(context.Background(), Pod{URL: srv.URL}, "run-1", "hi", tc.secs, tc.person, nil); err != nil {
 				t.Fatalf("SendMessage: %v", err)
 			}
 			if got := strings.TrimSpace(string(body)); got != tc.want {

@@ -27,7 +27,7 @@ func TestMessageSender(t *testing.T) {
 			name: "a person without a name falls back to their email",
 			claims: &token.PlatformClaims{RegisteredClaims: jwt.RegisteredClaims{Subject: "user-1"},
 				Kora: token.KoraClaims{PrincipalType: token.PrincipalTypePAT, Claims: map[string]string{"email": "dev@example.com"}}},
-			want: &MessageSender{ID: "user-1", Type: "USER", Name: "dev@example.com"},
+			want: &MessageSender{ID: "user-1", Type: "USER", Name: "dev@example.com", Email: "dev@example.com"},
 		},
 		{
 			name: "an agent is a sender",

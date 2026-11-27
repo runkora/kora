@@ -125,7 +125,7 @@ func TestSetIdleTimeout_SwitchesToTheManualTimeout(t *testing.T) {
 	if err := reg.SetIdleTimeout("run-1", time.Hour); err != nil {
 		t.Fatalf("SetIdleTimeout: %v", err)
 	}
-	if err := reg.Send(context.Background(), "run-1", "also check X"); err != nil {
+	if err := reg.Send(context.Background(), "run-1", "", "also check X"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	endTurn(t, r)

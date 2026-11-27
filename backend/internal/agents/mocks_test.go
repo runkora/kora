@@ -1091,6 +1091,7 @@ type mockSMClient struct {
 	sentMessages     []string
 	sentIdleTimeouts []int
 	sentFromPerson   []bool
+	sentFrom         []*sessionmanager.From
 	closedSessions   []string
 	interruptedRuns  []string
 
@@ -1117,7 +1118,7 @@ func (m *mockSMClient) CreateSession(_ context.Context, _ sessionmanager.Pod, re
 	return nil
 }
 
-func (m *mockSMClient) SendMessage(_ context.Context, _ sessionmanager.Pod, _, content string, idleTimeoutSecs int, fromPerson bool) error {
+func (m *mockSMClient) SendMessage(_ context.Context, _ sessionmanager.Pod, _, content string, idleTimeoutSecs int, fromPerson bool, from *sessionmanager.From) error {
 	m.mu.Lock()
 	m.sendMessageCalls++
 	m.mu.Unlock()
@@ -1128,6 +1129,7 @@ func (m *mockSMClient) SendMessage(_ context.Context, _ sessionmanager.Pod, _, c
 	m.sentMessages = append(m.sentMessages, content)
 	m.sentIdleTimeouts = append(m.sentIdleTimeouts, idleTimeoutSecs)
 	m.sentFromPerson = append(m.sentFromPerson, fromPerson)
+	m.sentFrom = append(m.sentFrom, from)
 	m.mu.Unlock()
 	return nil
 }
