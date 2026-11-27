@@ -1,11 +1,20 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner-dark.svg">
-  <img src=".github/assets/banner-light.svg" alt="runkora: The open source control plane for running agent factories in production." width="100%">
+  <img src=".github/assets/banner-light.svg" alt="runkora: The open source control plane for agent factories." width="100%">
 </picture>
 
 [![Release](https://img.shields.io/github/v/release/runkora/kora?include_prereleases&sort=semver&label=release&labelColor=17191C&color=4D6B80)](https://github.com/runkora/kora/releases) [![CI](https://img.shields.io/github/actions/workflow/status/runkora/kora/ci.yml?branch=main&label=CI&labelColor=17191C)](https://github.com/runkora/kora/actions/workflows/ci.yml) [![CodeQL](https://img.shields.io/github/actions/workflow/status/runkora/kora/codeql.yml?branch=main&label=CodeQL&labelColor=17191C)](https://github.com/runkora/kora/actions/workflows/codeql.yml) [![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/runkora/kora?label=openssf%20scorecard&labelColor=17191C)](https://scorecard.dev/viewer/?uri=github.com/runkora/kora) [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/kora&labelColor=17191C)](https://artifacthub.io/packages/search?repo=kora) [![License](https://img.shields.io/badge/license-Apache%202.0-4D6B80?labelColor=17191C)](LICENSE) [![Discord](https://img.shields.io/discord/1544486672476016723?label=discord&labelColor=17191C&color=4D6B80)](https://runkora.io/discord)
 
+Run a software factory on your own Kubernetes cluster.
+
 kora is an open source control plane for running agent factories in production. An agent on a laptop runs with its developer's credentials and leaves no audit trail of what it did. kora makes those agents safe to run at scale.
+
+kora is built by a software factory that runs on kora. Its agents open pull requests and review them in this repository as `runkora[bot]`. See [the pull requests the factory has merged](https://github.com/runkora/kora/pulls?q=is%3Apr+is%3Amerged+author%3Aapp%2Frunkora) and [the ones it has reviewed](https://github.com/runkora/kora/pulls?q=is%3Apr+reviewed-by%3Aapp%2Frunkora).
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/factory-dark.svg">
+  <img src=".github/assets/factory-light.svg" alt="The kora delivery factory: a ticket moves through spec, spec review by a person, build, QA and review by a person, and leaves as a merged pull request. kora gives every agent identity, policy, credentials, triggers, sandboxes and budgets." width="100%">
+</picture>
 
 kora is not an agent framework, a model router, or an LLM wrapper. It runs the agent harnesses you already use, such as Claude Code, Codex and OpenCode, on Kubernetes, and governs everything they do.
 
@@ -31,6 +40,7 @@ In kora, an agent factory is a group of agents that are connected, each with a d
 
 - **[Autofix](https://github.com/runkora/examples/tree/main/factories/autofix):** Hunts for bugs, verifies issues and fixes them as pull requests.
 - **[SRE](https://github.com/runkora/examples/tree/main/factories/sre):** Triages alerts, proposes fixes as pull requests and sweeps the cluster's costs.
+- **[Feature](https://github.com/runkora/examples/tree/main/factories/feature):** Turns a feature request into an approved spec, splits it into tasks and builds each task as a pull request.
 
 ## Documentation
 
