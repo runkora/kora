@@ -37,6 +37,7 @@ variable "PROTOC_GEN_GO_GRPC_VERSION" {}
 variable "DEADCODE_VERSION" {}
 variable "GITLEAKS_VERSION" {}
 variable "HELM_VERSION" {}
+variable "GH_STACK_VERSION" {}
 
 target "_backend-default" {
   context    = "./backend"
