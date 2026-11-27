@@ -32,7 +32,7 @@ function InlineSelect<T extends string>({ label, value, options, onChange }: Inl
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
-        className="h-7 rounded-md border border-border bg-surface-elevated px-2 text-xs text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent cursor-pointer"
+        className="h-7 rounded-md border border-border bg-surface-elevated px-2 text-base md:text-xs text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent cursor-pointer"
       >
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>

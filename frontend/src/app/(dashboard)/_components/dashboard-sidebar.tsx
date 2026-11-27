@@ -70,15 +70,19 @@ export function DashboardSidebar({ onNavigate }: { onNavigate?: () => void }) {
                     badge={badge}
                     asChild
                   >
-                    {/* Prefetched when the pointer or focus reaches the link, not when it
-                        renders: every page load would otherwise fetch every route twice. */}
+                    {/* Prefetched when a mouse or focus reaches the link, not when it
+                        renders: every page load would otherwise fetch every route twice.
+                        Touch is left out on purpose: iOS fires synthetic mouse and touch
+                        events before the click, and work in them can make Safari drop the
+                        tap, so links needed a long press. */}
                     <Link
                       href={href}
                       prefetch={false}
                       onClick={onNavigate}
-                      onMouseEnter={() => router.prefetch(href)}
+                      onPointerEnter={(e) => {
+                        if (e.pointerType === 'mouse') router.prefetch(href);
+                      }}
                       onFocus={() => router.prefetch(href)}
-                      onTouchStart={() => router.prefetch(href)}
                     >
                       {itemLabel}
                     </Link>

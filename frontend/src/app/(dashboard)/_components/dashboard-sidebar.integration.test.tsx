@@ -67,19 +67,30 @@ function renderSidebar() {
 
 describe('DashboardSidebar', () => {
   describe('prefetch', () => {
-    it('prefetches a route on hover, focus or touch, and not on render', () => {
+    it('prefetches a route on mouse hover or focus, and not on render', () => {
       router.prefetch.mockClear();
       renderSidebar();
       expect(router.prefetch).not.toHaveBeenCalled();
 
       const link = screen.getAllByTestId('next-link')[0]!;
       const href = link.getAttribute('href');
-      fireEvent.mouseEnter(link);
+      fireEvent.pointerEnter(link, { pointerType: 'mouse' });
       fireEvent.focus(link);
+
+      expect(router.prefetch).toHaveBeenCalledTimes(2);
+      for (const [arg] of router.prefetch.mock.calls) expect(arg).toBe(href);
+    });
+
+    it('does nothing on touch, so iOS Safari keeps the tap as a click', () => {
+      router.prefetch.mockClear();
+      renderSidebar();
+
+      const link = screen.getAllByTestId('next-link')[0]!;
+      fireEvent.pointerEnter(link, { pointerType: 'touch' });
+      fireEvent.mouseEnter(link);
       fireEvent.touchStart(link);
 
-      expect(router.prefetch).toHaveBeenCalledTimes(3);
-      for (const [arg] of router.prefetch.mock.calls) expect(arg).toBe(href);
+      expect(router.prefetch).not.toHaveBeenCalled();
     });
   });
 

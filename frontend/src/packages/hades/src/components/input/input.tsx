@@ -125,7 +125,8 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
             : compact
               ? 'flex h-8 w-full rounded-md px-3'
               : 'flex h-9 w-full rounded-md px-3 py-1',
-          mono ? 'text-sm font-mono' : 'text-sm font-normal',
+          // 16px below md: iOS Safari zooms the page when a field under 16px takes focus.
+          mono ? 'text-base font-mono md:text-sm' : 'text-base font-normal md:text-sm',
           variant === 'inline' && tone === 'accent' ? 'text-accent' : 'text-foreground',
           variant === 'inline'
             ? 'border bg-transparent transition-colors hover:bg-surface-overlay focus-visible:bg-surface'

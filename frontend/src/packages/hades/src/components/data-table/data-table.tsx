@@ -964,7 +964,7 @@ function DataTableToolbar({
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder={searchPlaceholder ?? 'Search…'}
-              className="h-8 w-56 rounded-md border border-border-subtle bg-surface pl-8 pr-3 text-sm text-foreground placeholder:text-subtle focus:outline-none focus:ring-1 focus:ring-accent"
+              className="h-8 w-56 rounded-md border border-border-subtle bg-surface pl-8 pr-3 text-base md:text-sm text-foreground placeholder:text-subtle focus:outline-none focus:ring-1 focus:ring-accent"
             />
           </div>
         )}
@@ -1275,7 +1275,7 @@ function FilterButton({
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search…"
               aria-label="Search filter options"
-              className="h-8 w-full rounded-md border border-border-subtle bg-surface pl-8 pr-3 text-sm text-foreground placeholder:text-subtle focus:outline-none focus:ring-1 focus:ring-accent"
+              className="h-8 w-full rounded-md border border-border-subtle bg-surface pl-8 pr-3 text-base md:text-sm text-foreground placeholder:text-subtle focus:outline-none focus:ring-1 focus:ring-accent"
             />
           </div>
         )}
