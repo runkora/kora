@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -354,6 +355,8 @@ func TestCompatibleHeaders(t *testing.T) {
 		resource("both", spec(ip.Header{Name: "X-A", Value: &inline, ValueFrom: &ip.SecretKeyRef{Name: "hdr", Key: "token"}})),
 		secret("hdr", map[string]string{"token": secretValue}),
 	)
+	var logs bytes.Buffer
+	w.logger = logging.NewLoggerWithOutput(&logs)
 	connectors, infos := w.Load(context.Background())
 
 	conn, ok := connectors["compatible:ok"]
@@ -388,5 +391,24 @@ func TestCompatibleHeaders(t *testing.T) {
 	}
 	if strings.Contains(fmt.Sprintf("%+v", infos), secretValue) {
 		t.Error("ProviderInfo carries a header value")
+	}
+	// Logs from loading every provider, including the InvalidSpec and
+	// SecretKeyNotFound paths, and events the cluster holds for them.
+	if strings.Contains(logs.String(), secretValue) {
+		t.Errorf("logs carry a header value: %s", logs.String())
+	}
+	events := &corev1.EventList{}
+	if err := c.List(context.Background(), events); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(fmt.Sprintf("%+v", events.Items), secretValue) {
+		t.Error("events carry a header value")
+	}
+	// The connector's own logs while it calls the upstream.
+	if conn, ok := connectors["compatible:ok"]; ok {
+		_, _ = conn.ListModels(context.Background())
+	}
+	if strings.Contains(logs.String(), secretValue) {
+		t.Error("logs carry a header value after a model list")
 	}
 }
