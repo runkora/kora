@@ -443,7 +443,7 @@ func TestSend_HeaderOrderAndSummaryInput(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = reg.Close(context.Background(), "run-1") })
 
-	header := (&MessageFrom{Kind: "person", ID: "u1", Name: "Ada"}).header()
+	header := (&MessageFrom{Kind: "person", ID: "u1", Name: "Ada"}).header("Acme")
 	if err := reg.Send(context.Background(), "run-1", header, "fix the build"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
@@ -457,9 +457,9 @@ func TestSend_HeaderOrderAndSummaryInput(t *testing.T) {
 		t.Fatalf("Send: %v", err)
 	}
 	want := []string{
-		"[kora: from Ada (user id u1)]\n\nfix the build",
+		"[Acme: from Ada (user id u1)]\n\nfix the build",
 		"plain",
-		stopNote("Acme") + "[kora: from Ada (user id u1)]\n\nafter stop",
+		stopNote("Acme") + "[Acme: from Ada (user id u1)]\n\nafter stop",
 	}
 	if got := r.sentTexts(); !slices.Equal(got, want) {
 		t.Errorf("sent = %q, want %q", got, want)
@@ -467,7 +467,7 @@ func TestSend_HeaderOrderAndSummaryInput(t *testing.T) {
 
 	select {
 	case body := <-bodies:
-		if !strings.Contains(body, "fix the build") || strings.Contains(body, "[kora:") {
+		if !strings.Contains(body, "fix the build") || strings.Contains(body, "[Acme:") {
 			t.Errorf("summary input = %s, want the raw message with no header", body)
 		}
 	case <-time.After(5 * time.Second):

@@ -18,16 +18,16 @@ type MessageFrom struct {
 	DeliveryID string `json:"delivery_id"`
 }
 
-// header is the line the agent reads before the message, ending in a blank line.
+// header is the line, led by the product name, the agent reads before the message, ending in a blank line.
 // It is empty when there is no sender. Fields are cleaned so a display name
 // cannot end the line or forge a second header.
-func (f *MessageFrom) header() string {
+func (f *MessageFrom) header(product string) string {
 	if f == nil {
 		return ""
 	}
 	id, name, email := cleanFromField(f.ID), cleanFromField(f.Name), cleanFromField(f.Email)
 	var b strings.Builder
-	b.WriteString("[kora: from ")
+	b.WriteString("[" + cleanFromField(product) + ": from ")
 	switch f.Kind {
 	case "person":
 		b.WriteString(name)

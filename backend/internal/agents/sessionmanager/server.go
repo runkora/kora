@@ -570,7 +570,7 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	// The switch comes before delivery, so a turn that ends while the message
 	// is on its way already belongs to a person.
 	wasTriggered := req.FromPerson && c.registry.SetTriggered(runID, false)
-	if err := c.registry.Send(ctx, runID, req.From.header(), req.Content); err != nil {
+	if err := c.registry.Send(ctx, runID, req.From.header(c.registry.brand.ProductName()), req.Content); err != nil {
 		if wasTriggered {
 			c.registry.SetTriggered(runID, true)
 		}

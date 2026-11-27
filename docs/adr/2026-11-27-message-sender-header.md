@@ -27,10 +27,10 @@ Who is this agent? The change tells the agent who it is talking to. The sender c
 Use a header line, built by the session manager from a `from` object `kora-agents` sends:
 
 ```
-[kora: from Ada Lovelace <ada@example.com> (user id 7c6f…)]
+[Acme: from Ada Lovelace <ada@example.com> (user id 7c6f…)]
 ```
 
-A person is `from {name} <{email}> (user id {id})`, an agent `from agent {name} (id {id})`, a trigger `from trigger {name} (id {id})` with its delivery id when present, and a trigger principal that names no trigger `from trigger (unidentified)`. A platform-internal message has no header.
+The line starts with the product name from the brand (`Acme` above), never a literal, so a white-labelled install shows its own name. A person is `from {name} <{email}> (user id {id})`, an agent `from agent {name} (id {id})`, a trigger `from trigger {name} (id {id})` with its delivery id when present, and a trigger principal that names no trigger `from trigger (unidentified)`. A platform-internal message has no header.
 
 *   The email is included. The agent needs it to assign work and to credit commits with `Co-authored-by:`. It is the tenant's own user data, already in the token. A human may overrule this.
 *   The session manager removes control, format and separator characters and the header's delimiters (brackets, parentheses, angle brackets, commas) from each field and caps it at 200 characters, so a display name cannot forge a second header.
