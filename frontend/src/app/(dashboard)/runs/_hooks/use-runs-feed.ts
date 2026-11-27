@@ -2,7 +2,8 @@
 
 /**
  * @tier 3 — runs-scoped. The run list for the filters: the live stream, opened before the first
- * page so no change between them is lost, then pages on request. Changing filters starts over.
+ * page so no change between them is lost, then pages on request. A first page read alongside
+ * the stream is drawn until that page lands. Changing filters starts over.
  */
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
@@ -12,6 +13,7 @@ import {
   emptyFeed,
   feedReducer,
   type FeedAction,
+  type FeedPage,
   type UnkeyedFeedAction,
 } from '../_lib/runs-feed';
 import { fetchRunsPage, openRunsStream } from '../_services/runs-api';
@@ -26,6 +28,8 @@ export interface RunsFeed {
   runs: RunWithAttribution[];
   /** The first page has not landed and no rows are loaded. */
   loading: boolean;
+  /** The rows shown wait for the first page read after the stream opened, which replaces them. */
+  provisional: boolean;
   /** The first page failed. */
   error: string | null;
   retry: () => void;
@@ -47,13 +51,34 @@ export interface RunsFeed {
   liveIds: ReadonlySet<string>;
 }
 
-export function useRunsFeed(filters: RunFilters): RunsFeed {
+/** A first page read on the server for the filters whose query string is `key`. */
+export interface InitialRunsPage {
+  /** Unique to one server read. */
+  id: string;
+  key: string;
+  page: FeedPage;
+}
+
+// Server pages already drawn. Back and forward restore the route with its old page, which
+// is drawn once only.
+const drawnServerPages = new Set<string>();
+
+export function useRunsFeed(filters: RunFilters, initial: InitialRunsPage | null = null): RunsFeed {
   // A string: a new filters object with the same values changes nothing.
   const key = runFilterParams(filters).toString();
-  const [state, dispatch] = useReducer(feedReducer, key, emptyFeed);
+  const fresh = initial !== null && !drawnServerPages.has(initial.id) ? initial : null;
+  // The server's page is drawn from the first render, as a provisional page.
+  const [state, dispatch] = useReducer(feedReducer, key, (k) =>
+    fresh?.key === k
+      ? feedReducer(emptyFeed(k), { key: k, type: 'provisional', page: fresh.page })
+      : emptyFeed(k),
+  );
   const feed = state.key === key ? state : emptyFeed(key);
   // Each first-page load and page fetch answers only if no newer load has started.
   const epoch = useRef(0);
+  // The key the server's page was read for, until the first stream opens for it.
+  const initialKey = useRef(fresh?.key ?? null);
+  const initialId = useRef(fresh?.id ?? null);
   const [reconnecting, setReconnecting] = useState(false);
   const [liveIds, setLiveIds] = useState<ReadonlySet<string>>(() => new Set());
 
@@ -141,7 +166,21 @@ export function useRunsFeed(filters: RunFilters): RunsFeed {
       };
     };
     open();
+    // A first page read while the stream subscribes draws the rows a round trip sooner, when
+    // the server did not send one. The page read once the stream opens still replaces it,
+    // with every change since.
+    let cancelled = false;
+    if (initialKey.current !== key) {
+      const provisional = new URLSearchParams(key);
+      provisional.set('limit', String(RUNS_PAGE_SIZE));
+      void fetchRunsPage(provisional).then(({ page }) => {
+        if (!cancelled && page) act({ type: 'provisional', page });
+      });
+    }
+    initialKey.current = null;
+    if (initialId.current) drawnServerPages.add(initialId.current);
     return () => {
+      cancelled = true;
       source?.close();
       window.clearTimeout(timer);
       epoch.current += 1;
@@ -183,6 +222,7 @@ export function useRunsFeed(filters: RunFilters): RunsFeed {
   return {
     runs,
     loading: feed.loading && feed.pages.length === 0,
+    provisional: feed.loading && feed.pages.length > 0,
     error: feed.error,
     retry: reload,
     pageIndex: feed.index,

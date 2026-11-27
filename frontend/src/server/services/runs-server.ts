@@ -40,11 +40,13 @@ export const pickRunsStreamParams = (incoming: URLSearchParams) => pick(incoming
 export async function listRunsWithNames(
   accessToken: string,
   params: URLSearchParams,
+  signal?: AbortSignal,
 ): Promise<RunsPageResponse> {
-  const { runs, next_cursor } = (await listRuns(accessToken, params)) ?? {
+  const { runs, next_cursor } = (await listRuns(accessToken, params, signal)) ?? {
     runs: [],
     next_cursor: null,
   };
+  signal?.throwIfAborted();
   const names = await resolveUserDisplayNames(
     accessToken,
     runs.filter((r) => !r.created_by_name).map((r) => r.created_by),

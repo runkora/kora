@@ -31,9 +31,14 @@ export interface FeedState {
   pageError: string | null;
 }
 
-/** `reload` loads the first page again, after a stream reset or from the new runs bar. */
+/**
+ * `reload` loads the first page again, after a stream reset or from the new runs bar.
+ * `provisional` is a first page read before the stream was subscribed: it is shown, but
+ * the stream's changes keep waiting for the page read after `: open`, which replaces it.
+ */
 export type FeedAction = { key: string } & (
   | { type: 'reload' }
+  | { type: 'provisional'; page: FeedPage }
   | { type: 'first'; page: FeedPage }
   | { type: 'firstFailed'; error: string }
   | { type: 'message'; message: RunStreamMessage }
@@ -111,6 +116,15 @@ export function feedReducer(prev: FeedState, action: FeedAction): FeedState {
         early: [],
         pageLoading: false,
         pageError: null,
+      };
+    case 'provisional':
+      // Only before any first page landed. The changes so far are drawn on it and kept
+      // waiting, so the first page read after the stream opened still replays all of them.
+      if (!state.loading || state.pages.length > 0) return state;
+      return {
+        ...state.early.reduce(merge, { ...state, pages: [action.page] }),
+        loading: true,
+        early: state.early,
       };
     case 'first':
       // The first page replaces every loaded page and holds any run the bar counted.
