@@ -62,7 +62,7 @@ const ComboboxInput = React.forwardRef<
     ref={ref}
     data-slot="combobox-input"
     className={cn(
-      'flex h-8 w-full rounded-md border border-border bg-surface px-3 text-sm text-foreground',
+      'flex h-8 w-full rounded-md border border-border bg-surface px-3 text-base text-foreground md:text-sm',
       'placeholder:text-subtle',
       'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
     )}

@@ -25,7 +25,8 @@ const textareaVariants = cva(
   [
     // Shared layout & typography
     'flex w-full',
-    'text-sm text-foreground font-normal leading-[1.5]',
+    // 16px below md so iOS Safari does not zoom on focus; the line height stays 21px for the autosize maths.
+    'text-base text-foreground font-normal leading-[21px] md:text-sm',
     'placeholder:text-subtle',
     'disabled:cursor-not-allowed disabled:opacity-40',
   ],
@@ -194,7 +195,7 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
     ref,
   ) => {
     const field = useFormField();
-    // Line-height is 1.5 × 14px (text-sm) = 21px; add vertical padding
+    // Line-height is fixed at 21px (see textareaVariants); add vertical padding
     // (pt-3=12px + pb-2=8px = 20px for bare; py-2=16px for default).
     const LINE_HEIGHT_PX = 21;
     const PADDING_PX = variant === 'bare' ? 20 : 16;

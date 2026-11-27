@@ -63,7 +63,8 @@ const NativeSelect = React.forwardRef<HTMLSelectElement, NativeSelectProps>(
           // pr-8 (32px) leaves room for the 16px chevron drawn 12px from the edge.
           'flex h-9 w-full appearance-none rounded-md pl-3 pr-8 py-1',
           'bg-no-repeat bg-[position:right_0.75rem_center] bg-[size:1rem]',
-          'text-sm text-foreground font-normal',
+          // 16px below md so iOS Safari does not zoom on focus.
+          'text-base text-foreground font-normal md:text-sm',
           'bg-surface-elevated border',
           // Border colour — normal vs error
           hasError ? 'border-status-error' : 'border-border',
