@@ -299,6 +299,7 @@ target "kora-sandbox-dev" {
     DEADCODE_VERSION           = DEADCODE_VERSION
     GITLEAKS_VERSION           = GITLEAKS_VERSION
     HELM_VERSION               = HELM_VERSION
+    GH_STACK_VERSION           = GH_STACK_VERSION
   }
   labels = {
     "org.opencontainers.image.title" = "kora-sandbox-dev"
