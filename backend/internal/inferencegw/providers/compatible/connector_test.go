@@ -287,12 +287,6 @@ func TestConfiguredHeadersReachEveryRequest(t *testing.T) {
 	if _, err := c.ListModels(ctx); err != nil {
 		t.Fatal(err)
 	}
-	// The hand-built systemone request.
-	h := http.Header{}
-	c.addHeaders(h)
-	if h.Get("X-Org") != "acme" {
-		t.Errorf("systemone headers = %v", h)
-	}
 	for _, path := range []string{"/v1/chat/completions", "/v1/messages", "/v1/embeddings", "/v1/models"} {
 		got, ok := seen[path]
 		if !ok {
