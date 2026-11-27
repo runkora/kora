@@ -30,7 +30,7 @@ func TestClient_OpensNewConnectionPerCall(t *testing.T) {
 	c := NewClient(logging.NewLoggerWithOutput(io.Discard), staticToken("tok"))
 	const calls = 5
 	for range calls {
-		if err := c.SendMessage(context.Background(), Pod{URL: srv.URL}, "run-1", "hello", 0, false); err != nil {
+		if err := c.SendMessage(context.Background(), Pod{URL: srv.URL}, "run-1", "hello", 0, false, nil); err != nil {
 			t.Fatalf("SendMessage: %v", err)
 		}
 	}

@@ -450,7 +450,7 @@ type firstMessageErrs struct {
 	errs []error
 }
 
-func (f *firstMessageErrs) SendMessage(ctx context.Context, pod sessionmanager.Pod, runID, content string, idle int, fromPerson bool) error {
+func (f *firstMessageErrs) SendMessage(ctx context.Context, pod sessionmanager.Pod, runID, content string, idle int, fromPerson bool, from *sessionmanager.From) error {
 	f.mu.Lock()
 	n := f.sendMessageCalls
 	f.mu.Unlock()
@@ -460,7 +460,7 @@ func (f *firstMessageErrs) SendMessage(ctx context.Context, pod sessionmanager.P
 		f.mu.Unlock()
 		return f.errs[n]
 	}
-	return f.mockSMClient.SendMessage(ctx, pod, runID, content, idle, fromPerson)
+	return f.mockSMClient.SendMessage(ctx, pod, runID, content, idle, fromPerson, from)
 }
 
 func TestStartClaimed_InitialMessageRetries(t *testing.T) {

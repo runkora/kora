@@ -851,7 +851,7 @@ func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMess
 	if from == nil {
 		idleTimeout, fromPerson = s.cfg.IdleTimeouts.ForPersonMessage(run.StartedBy), true
 	}
-	if err := s.sm.SendMessage(ctx, target, runID, content, idleTimeout, fromPerson); err != nil {
+	if err := s.sm.SendMessage(ctx, target, runID, content, idleTimeout, fromPerson, messageFrom(from, sender)); err != nil {
 		observability.RecordFailure(span, err, errSpanForwardMessageToSessionManager)
 		return fmt.Errorf("forward message to pod %s: %w", run.PodName, err)
 	}
@@ -933,15 +933,17 @@ func (s *RunService) appendJoinedSources(ctx context.Context, span trace.Span, r
 // reached the pod but lost its reply may be delivered twice. Session-manager
 // sends are not idempotent, and a duplicated task is far less harmful than a
 // run with no task. Retries stop when ctx ends.
-func (s *RunService) tryInitialMessage(ctx context.Context, target sessionmanager.Pod, runID, msg string) error {
+func (s *RunService) tryInitialMessage(ctx context.Context, target sessionmanager.Pod, run Run) error {
+	runID, msg := run.ID, run.InitialMessage
 	if msg == "" {
 		return nil
 	}
+	from := s.initialSender(ctx, run)
 	var err error
 	backoff := initialMessageBackoff
 	for attempt := 1; attempt <= initialMessageAttempts; attempt++ {
 		// The first message is the run's task, not a person's turn: the timeout set at creation stands.
-		if err = s.sm.SendMessage(ctx, target, runID, msg, 0, false); err == nil {
+		if err = s.sm.SendMessage(ctx, target, runID, msg, 0, false, from); err == nil {
 			return nil
 		}
 		if ctx.Err() != nil || attempt == initialMessageAttempts {
@@ -961,6 +963,43 @@ func (s *RunService) tryInitialMessage(ctx context.Context, target sessionmanage
 		backoff *= 2
 	}
 	return err
+}
+
+// messageFrom is the sender the agent is told about: the trigger for a trigger's
+// message, else the person or agent the token names. Both are nil for a platform-internal caller.
+func messageFrom(trigger *StartedByTrigger, sender *MessageSender) *sessionmanager.From {
+	if trigger != nil {
+		return trigger.agentFrom()
+	}
+	return sender.agentFrom()
+}
+
+// initialSender is the sender of a run's first message. The scheduler has no
+// request claims, so it reads what StartRun recorded: the trigger on the run, or
+// the sender of the run's first human_message. Nil when neither exists.
+func (s *RunService) initialSender(ctx context.Context, run Run) *sessionmanager.From {
+	if run.StartedBy != nil {
+		return run.StartedBy.agentFrom()
+	}
+	events, err := s.repo.ListRunEvents(ctx, run.ID, 0)
+	if err != nil {
+		s.logger.Warn(ctx, "could not read the first message's sender; sending it without one",
+			logging.Field{Key: "run_id", Value: run.ID},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return nil
+	}
+	for _, e := range events {
+		if e.EventType != eventHumanMessage {
+			continue
+		}
+		var p humanMessagePayload
+		if json.Unmarshal(e.Payload, &p) != nil {
+			return nil
+		}
+		return p.Sender.agentFrom()
+	}
+	return nil
 }
 
 // Event types for a message sent to a run: a person's, or a trigger's.

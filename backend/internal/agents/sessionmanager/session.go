@@ -340,7 +340,10 @@ func (reg *Registry) lookupReady(ctx context.Context, runID string) (*session, e
 }
 
 // Send delivers a user text message to an existing session.
-func (reg *Registry) Send(ctx context.Context, runID, text string) error {
+//
+// header is the sender line for the agent, or empty for none. It goes to the agent
+// after any stop note and before text. The task summary is built from text alone.
+func (reg *Registry) Send(ctx context.Context, runID, header, text string) error {
 	s, err := reg.lookupReady(ctx, runID)
 	if err != nil {
 		return err
@@ -352,10 +355,10 @@ func (reg *Registry) Send(ctx context.Context, runID, text string) error {
 			reg.pushEvent(ctx, runID, ev)
 		}
 	}
-	toAgent := text
+	toAgent := header + text
 	noted := s.stoppedByUser.CompareAndSwap(true, false)
 	if noted {
-		toAgent = stopNote(reg.brand.ProductName()) + text
+		toAgent = stopNote(reg.brand.ProductName()) + toAgent
 	}
 	if err := s.runner.Send(ctx, toAgent); err != nil {
 		if noted {

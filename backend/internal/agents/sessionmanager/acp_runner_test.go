@@ -940,7 +940,7 @@ func TestACPRunner_CrashFailsRunOnce(t *testing.T) {
 		a.exit()
 	}
 	reg, n, _ := startACPSession(t, a, nil)
-	if err := reg.Send(t.Context(), "run-1", "go"); err != nil {
+	if err := reg.Send(t.Context(), "run-1", "", "go"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	wantCrashFailure(t, n)
@@ -960,14 +960,14 @@ func TestACPRunner_IdleInterruptThenCrashFails(t *testing.T) {
 		a.respond(id, map[string]any{"stopReason": "end_turn"})
 	}
 	reg, n, _ := startACPSession(t, a, nil)
-	if err := reg.Send(t.Context(), "run-1", "go"); err != nil {
+	if err := reg.Send(t.Context(), "run-1", "", "go"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	waitFor(t, "idle", func() bool { c, _ := n.snapshot(); return slices.Contains(c, "idle") })
 	if err := reg.Interrupt(t.Context(), "run-1"); err != nil {
 		t.Fatalf("idle Interrupt = %v, want nil", err)
 	}
-	if err := reg.Send(t.Context(), "run-1", "again"); err != nil {
+	if err := reg.Send(t.Context(), "run-1", "", "again"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	wantCrashFailure(t, n)
@@ -984,7 +984,7 @@ func TestACPRunner_InterruptThenExitResumes(t *testing.T) {
 		a.exit() // dies without answering the prompt
 	}
 	reg, n, r := startACPSession(t, first, second)
-	if err := reg.Send(t.Context(), "run-1", "go"); err != nil {
+	if err := reg.Send(t.Context(), "run-1", "", "go"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
 	first.waitMethod("session/prompt")

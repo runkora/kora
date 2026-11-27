@@ -183,17 +183,32 @@ func (c *Client) CreateSession(ctx context.Context, pod Pod, req CreateSessionRe
 	}
 }
 
+// From is who sent a message. The session manager turns it into the header line
+// the agent reads, so the agent can tell senders apart.
+// Kind is "person", "agent" or "trigger". A trigger with no ID or Name is unidentified.
+type From struct {
+	Kind       string `json:"kind"`
+	ID         string `json:"id,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Email      string `json:"email,omitempty"`
+	DeliveryID string `json:"delivery_id,omitempty"`
+}
+
 // SendMessage delivers a user message to an active session on the target pod.
 // A non-zero idleTimeoutSecs replaces the session's idle timeout from this message on.
 // fromPerson marks a message a person sent.
+// from names the sender for the agent. Nil sends no header.
 // Returns ErrSessionNotFound if no session exists for the given run ID.
-func (c *Client) SendMessage(ctx context.Context, pod Pod, runID, content string, idleTimeoutSecs int, fromPerson bool) error {
+func (c *Client) SendMessage(ctx context.Context, pod Pod, runID, content string, idleTimeoutSecs int, fromPerson bool, from *From) error {
 	payload := map[string]any{"content": content}
 	if idleTimeoutSecs > 0 {
 		payload["idle_timeout_secs"] = idleTimeoutSecs
 	}
 	if fromPerson {
 		payload["from_person"] = true
+	}
+	if from != nil {
+		payload["from"] = from
 	}
 	body, err := c.EncodeJSON(payload)
 	if err != nil {
