@@ -19,15 +19,17 @@
  * Security and System groups have been removed (no built features behind them yet).
  */
 import { describe, it, expect, vi } from 'vitest';
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import { renderWithProviders } from '@runkora/test-utils';
 import { APP_ROUTES } from '@runkora/lib/routing';
 import { DashboardSidebar } from './dashboard-sidebar';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
+const router = vi.hoisted(() => ({ prefetch: vi.fn() }));
 vi.mock('next/navigation', () => ({
   usePathname: vi.fn().mockReturnValue('/'),
+  useRouter: () => router,
 }));
 
 vi.mock('./permissions-provider', async (importOriginal) => ({
@@ -64,6 +66,23 @@ function renderSidebar() {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('DashboardSidebar', () => {
+  describe('prefetch', () => {
+    it('prefetches a route on hover, focus or touch, and not on render', () => {
+      router.prefetch.mockClear();
+      renderSidebar();
+      expect(router.prefetch).not.toHaveBeenCalled();
+
+      const link = screen.getAllByTestId('next-link')[0]!;
+      const href = link.getAttribute('href');
+      fireEvent.mouseEnter(link);
+      fireEvent.focus(link);
+      fireEvent.touchStart(link);
+
+      expect(router.prefetch).toHaveBeenCalledTimes(3);
+      for (const [arg] of router.prefetch.mock.calls) expect(arg).toBe(href);
+    });
+  });
+
   describe('navigation groups', () => {
     it('renders Control Plane and Model Gateway group labels by default', () => {
       renderSidebar();

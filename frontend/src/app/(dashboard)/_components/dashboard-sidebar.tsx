@@ -1,6 +1,6 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 import { Icon, NavItem, Navigation, Stack, Text } from '@runkora/hades';
@@ -22,6 +22,7 @@ import { useSession } from './permissions-provider';
  */
 export function DashboardSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const router = useRouter();
   // The Skills entry stays active on every skill page.
   const activePathname = pathname.startsWith(`${APP_ROUTES.skills.root}/`)
     ? APP_ROUTES.skills.root
@@ -69,7 +70,16 @@ export function DashboardSidebar({ onNavigate }: { onNavigate?: () => void }) {
                     badge={badge}
                     asChild
                   >
-                    <Link href={href} onClick={onNavigate}>
+                    {/* Prefetched when the pointer or focus reaches the link, not when it
+                        renders: every page load would otherwise fetch every route twice. */}
+                    <Link
+                      href={href}
+                      prefetch={false}
+                      onClick={onNavigate}
+                      onMouseEnter={() => router.prefetch(href)}
+                      onFocus={() => router.prefetch(href)}
+                      onTouchStart={() => router.prefetch(href)}
+                    >
                       {itemLabel}
                     </Link>
                   </NavItem>

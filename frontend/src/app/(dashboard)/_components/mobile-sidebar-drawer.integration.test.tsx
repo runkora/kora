@@ -18,7 +18,7 @@ import { MobileSidebarDrawer } from './mobile-sidebar-drawer';
 
 vi.mock('next/navigation', () => ({
   usePathname: vi.fn().mockReturnValue('/'),
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), prefetch: vi.fn() }),
 }));
 
 vi.mock('./permissions-provider', async (importOriginal) => ({
