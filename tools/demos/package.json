@@ -1,0 +1,14 @@
+{
+  "name": "kora-demos",
+  "private": true,
+  "type": "module",
+  "description": "Scripted feature walkthroughs recorded against a running kora",
+  "scripts": {
+    "record": "node run.mjs",
+    "check": "node run.mjs --check"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.62.1",
+    "ffmpeg-static": "^5.2.0"
+  }
+}
