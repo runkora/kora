@@ -36,7 +36,7 @@ ARG INSTALL_KUBECTL=true
 ARG INSTALL_KUSTOMIZE=true
 
 # ── Build sandbox-exec binary ─────────────────────────────────────────────────
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:30b1e546a9c7fa3b747c2bdba3a0c7bdf3a02ebb4c5b8405d2f948d7e8aac4ec AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab AS builder
 
 WORKDIR /app
 
@@ -59,7 +59,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 # kustomize builds from the Go module proxy, not GitHub releases, cross-compiled
 # like sandbox-exec. go install checks it against the Go checksum database.
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:30b1e546a9c7fa3b747c2bdba3a0c7bdf3a02ebb4c5b8405d2f948d7e8aac4ec AS go-tools
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab AS go-tools
 ARG KUSTOMIZE_VERSION INSTALL_KUSTOMIZE TARGETOS TARGETARCH
 RUN set -eux; \
     mkdir /out; \
