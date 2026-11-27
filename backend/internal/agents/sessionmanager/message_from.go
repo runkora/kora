@@ -53,11 +53,12 @@ func (f *MessageFrom) header() string {
 	return b.String()
 }
 
-// cleanFromField drops control characters and square brackets, trims the
+// cleanFromField drops control, format and line or paragraph separator characters and the
+// delimiters the header uses (brackets, parentheses, angle brackets and commas), trims the
 // result and cuts it to maxFromFieldLen runes.
 func cleanFromField(s string) string {
 	s = strings.Map(func(r rune) rune {
-		if r == '[' || r == ']' || unicode.IsControl(r) {
+		if strings.ContainsRune("[]()<>,", r) || unicode.IsControl(r) || unicode.In(r, unicode.Cf, unicode.Zl, unicode.Zp) {
 			return -1
 		}
 		return r

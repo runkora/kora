@@ -33,7 +33,7 @@ Use a header line, built by the session manager from a `from` object `kora-agent
 A person is `from {name} <{email}> (user id {id})`, an agent `from agent {name} (id {id})`, a trigger `from trigger {name} (id {id})` with its delivery id when present, and a trigger principal that names no trigger `from trigger (unidentified)`. A platform-internal message has no header.
 
 *   The email is included. The agent needs it to assign work and to credit commits with `Co-authored-by:`. It is the tenant's own user data, already in the token. A human may overrule this.
-*   The session manager removes control characters and square brackets from each field and caps it at 200 characters, so a display name cannot forge a second header.
+*   The session manager removes control, format and separator characters and the header's delimiters (brackets, parentheses, angle brackets, commas) from each field and caps it at 200 characters, so a display name cannot forge a second header.
 *   The header goes after the stop note and before the message. The task summary is built from the message alone.
 *   Stored messages and events are unchanged, except that the stored sender gains an optional `email`.
 *   `DecodeBody` ignores unknown fields, so an older session manager ignores `from` and deploy order does not matter.
@@ -42,4 +42,5 @@ A person is `from {name} <{email}> (user id {id})`, an agent `from agent {name} 
 
 *   Agents see who sent each message.
 *   The agent's input differs from the stored content by the header.
-*   A message body can imitate the header. It follows the real one, which is always first.
+*   The header is advisory, not authenticated. A message body can imitate it. It follows the real header, except when a stop note comes first, or when the message has no sender and so no header. Authorization still comes from tokens.
+*   The sender's email is stored in the `human_message` event, because the scheduler reads the first message's sender from it. Anyone who can read the run's events can see it. A person's name was already stored there.
