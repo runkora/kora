@@ -1,6 +1,6 @@
 # Runs List Live Stream
 
-**Status:** Accepted  
+**Status:** Accepted (Amended 2026-11-26)  
 **Date:** 2026-11-25  
 **Deciders:** Justin Wilkin  
 **Technical Story:** [Runs Tab PRD](../prd/runs-tab.md)
@@ -101,7 +101,7 @@ The console would read `GET /v1/events/stream`. The stream requires `events:read
 *   The stream sends a `: open` comment as soon as it registers, before any catch-up.
 *   A comment line every 30 seconds keeps the stream open through proxies.
 
-The console opens the stream before it fetches the first page and merges both by run id.
+The console opens the stream before it fetches the first page and merges both by run id. Amendment 1 adds a provisional first page.
 
 ---
 
@@ -231,6 +231,28 @@ None at this time.
 ## Open Questions
 
 None at this time.
+
+---
+
+## Amendment 1 (2026-11-26): Provisional First Page
+
+**Status:** Accepted
+
+The console draws a provisional first page before the page it reads after `: open`.
+
+*   The Runs route (`frontend/src/app/(dashboard)/runs/page.tsx`) reads the first page for the URL's filters on the server with the caller's session. The page renders with those rows. The route waits at most 1.5 seconds for that read, then renders without it.
+*   When the server sends no page for the filters, or the filters change, the console reads a first page while the stream opens.
+*   The console draws a server page once per document. Back and forward do not draw it again.
+*   A filter change updates the URL without rendering the route on the server.
+*   The console still reads the first page after `: open`. That page replaces the provisional page.
+*   Stream messages that arrive before that page lands wait in the feed. The console replays them onto that page.
+*   A provisional page that lands after that page is dropped.
+*   A provisional page comes from `GET /api/v1/runs` with the caller's token. It holds only runs the list returns to the caller.
+*   The provisional rows can be stale from the moment they are read until the page read after `: open` lands. A change in that window shows when that page lands.
+
+### Consequences
+
+*   **Negative:** Each Runs load reads the first page twice.
 
 ---
 

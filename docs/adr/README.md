@@ -54,7 +54,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [PAT Scope Assignment via Explicit Grants](2026-04-19-pat-scope-assignment-via-explicit-grants.md) — `Accepted` · 2026-04-19
 - [Gateway-Level OPA Enforcement for External Traffic](2026-04-27-gateway-level-opa-enforcement-for-external-traffic.md) — `Accepted` · 2026-04-27
 - [Platform-wide Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md) — `Accepted` · 2026-06-04
-- [Policy Bundle Grants Index](2026-11-06-policy-bundle-grants-index.md) — `Accepted` · 2026-11-06
+- [Policy Bundle Grants Index](2026-11-06-policy-bundle-grants-index.md) — `Accepted (Amended 2026-11-26)` · 2026-11-06
 
 ### Inference Gateway
 
@@ -154,7 +154,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Run Page Record: Message Senders, Trigger Event Summaries and Budget Stops](2026-11-11-run-page-record.md) — `Accepted (generic webhook summary superseded in part 2026-11-23)` · 2026-11-11
 - [Graders](2026-11-19-graders.md) — `Proposed` · 2026-11-19
 - [Generic Webhook Attribution](2026-11-23-generic-webhook-attribution.md) — `Accepted` · 2026-11-23
-- [Runs List Live Stream](2026-11-25-runs-list-live-stream.md) — `Accepted` · 2026-11-25
+- [Runs List Live Stream](2026-11-25-runs-list-live-stream.md) — `Accepted (Amended 2026-11-26)` · 2026-11-25
 
 ### MCP / Tool Gateway
 
@@ -351,7 +351,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-03 | [Run Outcome and Duration Metrics](2026-11-03-run-outcome-and-duration-metrics.md) | Accepted | — |
 | 2026-11-03 | [Agent Attribution on Model and Harness Spans](2026-11-03-agent-attribution-on-spans.md) | Accepted | — |
 | 2026-11-04 | [Tenant Switching](2026-11-04-tenant-switching.md) | Accepted | — |
-| 2026-11-06 | [Policy Bundle Grants Index](2026-11-06-policy-bundle-grants-index.md) | Accepted | — |
+| 2026-11-06 | [Policy Bundle Grants Index](2026-11-06-policy-bundle-grants-index.md) | Accepted (Amended 2026-11-26) | — |
 | 2026-11-06 | [Event Spine](2026-11-06-event-spine.md) | Accepted (Amended 2026-11-25; internal stream callers and filters) | — |
 | 2026-11-07 | [ACP as the Single Agent Harness Protocol](2026-11-07-acp-agent-harness-protocol.md) | Accepted | — |
 | 2026-11-07 | [Run Sources](2026-11-07-run-sources.md) | Accepted | — |
@@ -363,6 +363,6 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-11-19 | [Graders](2026-11-19-graders.md) | Proposed | — |
 | 2026-11-22 | [Agent Cold Tier](2026-11-22-agent-cold-tier.md) | Accepted (Amended 2026-11-24; disruption protection only while a run holds a pod) | — |
 | 2026-11-23 | [Generic Webhook Attribution](2026-11-23-generic-webhook-attribution.md) | Accepted | — |
-| 2026-11-25 | [Runs List Live Stream](2026-11-25-runs-list-live-stream.md) | Accepted | — |
+| 2026-11-25 | [Runs List Live Stream](2026-11-25-runs-list-live-stream.md) | Accepted (Amended 2026-11-26) | — |
 | 2026-11-26 | [Chat Page](2026-11-26-chat-page.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
