@@ -27,7 +27,7 @@ func (f *MessageFrom) header(product string) string {
 	}
 	id, name, email := cleanFromField(f.ID), cleanFromField(f.Name), cleanFromField(f.Email)
 	var b strings.Builder
-	b.WriteString("[" + cleanFromField(product) + ": from ")
+	b.WriteString("[" + product + ": from ")
 	switch f.Kind {
 	case "person":
 		b.WriteString(name)
