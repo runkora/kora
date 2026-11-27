@@ -456,7 +456,7 @@ allow if {
 	not _principal_requires_delegation
 	_principal_type == "HUMAN"
 	some role in _principal_roles
-	some role_scope in data.roles.role_scopes[role]
+	some role_scope in data.roles.role_scope_index[role][_required_scope_key]
 	scope_covers(role_scope, _required_scope)
 }
 
@@ -494,7 +494,7 @@ delegation_covers_required_scope if {
 #   data.principal_roles.principal_roles  user→role membership — the bundled
 #                                         user_profiles snapshot, the same
 #                                         source PAT role attribution uses
-#   data.roles.role_scopes                role→scope mappings
+#   data.roles.role_scope_index           role→scope mappings, grouped by scope_index_key
 #
 # plus the vocabulary `requires` projection: a required MCP tool scope with
 # requires edges is also satisfied on the delegator leg when the person covers
@@ -515,7 +515,7 @@ _delegator_holds(scope) if {
 _delegator_holds(scope) if {
 	_delegator_principal_type == "HUMAN"
 	some role in data.principal_roles.principal_roles[_delegator_id]
-	some role_scope in data.roles.role_scopes[role]
+	some role_scope in data.roles.role_scope_index[role][scope_index_key(scope)]
 	scope_covers(role_scope, scope)
 }
 
@@ -783,12 +783,12 @@ reason := "deny:delegation_required" if {
 	_principal_requires_delegation
 }
 
-# matched_role_scopes collects all role+scope pairs that cover the required scope.
+# matched_roles collects the caller's roles with a scope that covers the required scope.
 # Using a partial set + min() mirrors matched_grant_scope for determinism.
 matched_roles contains role_match if {
 	_principal_type == "HUMAN"
 	some role_match in _principal_roles
-	some role_scope in data.roles.role_scopes[role_match]
+	some role_scope in data.roles.role_scope_index[role_match][_required_scope_key]
 	scope_covers(role_scope, _required_scope)
 }
 
@@ -971,3 +971,11 @@ scope_covers(a, b) if {
 	count(path_a) <= count(path_b)
 	array.slice(path_b, 0, count(path_a)) == path_a
 }
+
+# The role_scope_index group a scope falls in: its first and last segments, which
+# scope_covers requires to match. Mirrors scopeIndexKey in compiler.go.
+scope_index_key(s) := concat("|", [parts[0], parts[count(parts) - 1]]) if {
+	parts := split(s, ":")
+}
+
+_required_scope_key := scope_index_key(_required_scope)

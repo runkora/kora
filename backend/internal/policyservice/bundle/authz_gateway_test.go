@@ -888,6 +888,36 @@ func TestGateway_XAPIKey_InvalidToken_Denied(t *testing.T) {
 // HUMAN role-based allow (M4)
 // ---------------------------------------------------------------------------
 
+// TestGateway_HUMAN_RoleScopeIndex pins the gateway's role lookup through
+// role_scope_index: a role scope covers a deeper route scope in its group, and a
+// role with no scope in the route scope's group is denied.
+func TestGateway_HUMAN_RoleScopeIndex(t *testing.T) {
+	jwksSrv := startJWKSServer(t)
+
+	pq := compileAndPrepareGateway(t, gatewayBundleOpts{
+		jwksURL:   jwksSrv.URL + "/jwks",
+		tenantIDs: []string{testTenantID},
+		roles: map[string][]*roles.RoleEntry{
+			testTenantID: {{TenantID: testTenantID, Role: "reader", Scopes: []string{"agents:read"}}},
+		},
+		globalRoutes: []routes.RouteScope{
+			{PathPrefix: "/api/v1/agent-types", Method: "GET", RequiredScope: "agents:types:read"},
+			{PathPrefix: "/api/v1/agent-types", Method: "POST", RequiredScope: "agents:types:write"},
+		},
+	})
+	signed := signTestJWT(t, "HUMAN", testTenantID, "user-reader-001", map[string]any{
+		"claims": map[string]any{"roles": "reader"},
+	})
+	headers := map[string]string{"authorization": "Bearer " + signed}
+
+	if allow, reason := evalGateway(t, pq, "GET", "/api/v1/agent-types", headers); !allow || reason != "role:reader" {
+		t.Errorf("GET: allow = %v, reason = %q, want allow with role:reader", allow, reason)
+	}
+	if allow, reason := evalGateway(t, pq, "POST", "/api/v1/agent-types", headers); allow {
+		t.Errorf("POST: allowed (reason %s), want deny", reason)
+	}
+}
+
 // TestGateway_HUMAN_RoleAllow verifies that a HUMAN principal with a reserved
 // OIDC role (platform-admin) is allowed to access a route that the role grants.
 func TestGateway_HUMAN_RoleAllow(t *testing.T) {

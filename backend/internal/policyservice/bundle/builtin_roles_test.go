@@ -90,6 +90,7 @@ func TestCompile_BuiltinRoles(t *testing.T) {
 		{TenantID: "acme", Role: "engineer", Scopes: []string{"inference:list"}},
 		{TenantID: "acme", Role: "reader", Scopes: []string{"agents:types:read"}},
 	}
+	betaStored := []*roles.RoleEntry{{TenantID: "beta", Role: "engineer", Scopes: []string{"agents:types:read"}}}
 	compiler := NewCompiler(Config{JWKSURL: "http://127.0.0.1:1/jwks", Issuer: "kora", Audience: "kora-platform"}, routes.NewStore())
 
 	cases := []struct {
@@ -101,7 +102,7 @@ func TestCompile_BuiltinRoles(t *testing.T) {
 			return compiler.Compile("acme", nil, vocab, stored, nil, nil)
 		}, "roles/data.json"},
 		{"gateway", func() (*CachedBundle, error) {
-			return compiler.CompileGateway([]string{"acme"}, nil, map[string][]*roles.RoleEntry{"acme": stored}, vocab, nil)
+			return compiler.CompileGateway([]string{"acme", "beta"}, nil, map[string][]*roles.RoleEntry{"acme": stored, "beta": betaStored}, vocab, nil)
 		}, "tenants/acme/roles/data.json"},
 	}
 	for _, tc := range cases {
@@ -110,9 +111,16 @@ func TestCompile_BuiltinRoles(t *testing.T) {
 			if err != nil {
 				t.Fatalf("compile: %v", err)
 			}
-			var doc rolesDocument
-			if err := json.Unmarshal(extractBundleFile(t, cached.Data, tc.file), &doc); err != nil {
-				t.Fatalf("unmarshal roles: %v", err)
+			doc := readRoles(t, cached, tc.file)
+			if tc.name == "gateway" {
+				if doc.RoleScopes != nil {
+					t.Errorf("gateway role_scopes = %v, want it left out", doc.RoleScopes)
+				}
+				// Each tenant's index holds its own roles.
+				beta := readRoles(t, cached, "tenants/beta/roles/data.json")
+				if got := indexedScopes(beta, "engineer"); !slices.Equal(got, []string{"agents:types:read", "platform:grants:write"}) {
+					t.Errorf("beta engineer = %v, want [agents:types:read platform:grants:write]", got)
+				}
 			}
 			want := map[string][]string{
 				ViewerRole:   viewerScopes,
@@ -124,16 +132,34 @@ func TestCompile_BuiltinRoles(t *testing.T) {
 				"reader":     {"agents:types:read", "platform:grants:write"},
 			}
 			for role, scopes := range want {
-				got := slices.Sorted(slices.Values(doc.RoleScopes[role]))
+				got := indexedScopes(doc, role)
 				if !slices.Equal(got, slices.Sorted(slices.Values(scopes))) {
 					t.Errorf("%s = %v, want %v", role, got, scopes)
 				}
 			}
-			if !slices.Contains(doc.RoleScopes[PlatformAdminRole], "platform:grants:write") {
-				t.Errorf("platform-admin = %v, want platform:grants:write", doc.RoleScopes[PlatformAdminRole])
+			if admin := indexedScopes(doc, PlatformAdminRole); !slices.Contains(admin, "platform:grants:write") {
+				t.Errorf("platform-admin = %v, want platform:grants:write", admin)
 			}
 		})
 	}
+}
+
+func readRoles(t *testing.T, cached *CachedBundle, file string) rolesDocument {
+	t.Helper()
+	var doc rolesDocument
+	if err := json.Unmarshal(extractBundleFile(t, cached.Data, file), &doc); err != nil {
+		t.Fatalf("unmarshal roles: %v", err)
+	}
+	return doc
+}
+
+// indexedScopes returns a role's scopes from every group of the index, sorted.
+func indexedScopes(doc rolesDocument, role string) []string {
+	var out []string
+	for _, group := range doc.RoleScopeIndex[role] {
+		out = append(out, group...)
+	}
+	return slices.Sorted(slices.Values(out))
 }
 
 // TestBuiltinRoles_Tiers pins that each tier holds the one below it and that

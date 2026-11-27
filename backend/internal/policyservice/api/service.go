@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/policyservice/bundle"
 	"github.com/runkora/kora/backend/internal/policyservice/grants"
 	"github.com/runkora/kora/backend/internal/policyservice/roles"
@@ -568,47 +569,16 @@ func (s *Service) addRoleScopes(ctx context.Context, tenantID string, principalR
 
 // expandScopeFamily expands each scope in scopeSet to also include any
 // vocabulary entries covered by that scope (parent implies children).
+// An entry is covered when one of its covering scopes is held.
 func expandScopeFamily(allVocab []*vocabulary.ScopeEntry, scopeSet map[string]struct{}) {
-	initial := make([]string, 0, len(scopeSet))
-	for sc := range scopeSet {
-		initial = append(initial, sc)
-	}
 	for _, entry := range allVocab {
-		for _, granted := range initial {
-			if scopeCovers(granted, entry.Scope) {
+		for _, c := range policy.CoveringScopes(entry.Scope) {
+			if _, ok := scopeSet[c]; ok {
 				scopeSet[entry.Scope] = struct{}{}
 				break
 			}
 		}
 	}
-}
-
-// scopeCovers mirrors the Rego scope_covers rule: a covers b when they share
-// the same resource type (first segment) and action (last segment), and a's
-// path segments (middle) are a prefix of b's path segments.
-func scopeCovers(a, b string) bool {
-	if a == b {
-		return true
-	}
-	partsA := strings.Split(a, ":")
-	partsB := strings.Split(b, ":")
-	if len(partsA) < 2 || len(partsB) < 2 {
-		return false
-	}
-	if partsA[0] != partsB[0] || partsA[len(partsA)-1] != partsB[len(partsB)-1] {
-		return false
-	}
-	pathA := partsA[1 : len(partsA)-1]
-	pathB := partsB[1 : len(partsB)-1]
-	if len(pathA) > len(pathB) {
-		return false
-	}
-	for i, seg := range pathA {
-		if pathB[i] != seg {
-			return false
-		}
-	}
-	return true
 }
 
 // UpsertRole creates or replaces the scope mapping for a role within a tenant.
