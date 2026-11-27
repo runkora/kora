@@ -105,10 +105,22 @@ func ceilingScopes(at AgentType, resolved []string) []string {
 
 // uncoveredAgentScopes returns the agent scopes no held scope covers. held is
 // requires-expanded by the policy service, so the agent scopes need no expansion.
+// A scope is covered when one of its covering scopes is held.
 func uncoveredAgentScopes(held, agentScopes []string) []string {
+	heldSet := make(map[string]struct{}, len(held))
+	for _, h := range held {
+		heldSet[h] = struct{}{}
+	}
 	var missing []string
 	for _, s := range agentScopes {
-		if !policy.AnyScopeCovers(held, s) {
+		covered := false
+		for _, c := range policy.CoveringScopes(s) {
+			if _, ok := heldSet[c]; ok {
+				covered = true
+				break
+			}
+		}
+		if !covered {
 			missing = append(missing, s)
 		}
 	}
