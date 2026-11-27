@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -36,6 +37,10 @@ type Config struct {
 	BaseURL string
 	APIKey  string
 	APIs    []ip.API
+
+	// Headers are extra request headers sent on every upstream request. The
+	// caller rejects names the credential or the HTTP client own.
+	Headers map[string]string
 
 	// DecisionModels names models served on POST /systemone that the endpoint
 	// does not mark as such in its model list. Only read when APIs has systemone.
@@ -71,6 +76,7 @@ type Connector struct {
 	// decide when it declares systemone.
 	baseURL            string
 	apiKey             string
+	headers            map[string]string
 	http               *httpclient.Base
 	decide             *httpclient.Base
 	maxDecisionTimeout time.Duration
@@ -83,7 +89,7 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 		return nil, fmt.Errorf("compatible: a base URL and at least one API are required")
 	}
 	transport := httpclient.NewTracingTransport("github.com/runkora/kora/backend/internal/inferencegw/providers/compatible", "", nil)
-	c := &Connector{name: name, serves: map[ip.API]bool{}, logger: logger}
+	c := &Connector{name: name, serves: map[ip.API]bool{}, logger: logger, headers: maps.Clone(cfg.Headers)}
 	for _, api := range cfg.APIs {
 		c.serves[api] = true
 	}
@@ -105,6 +111,9 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 		openaiopt.WithAPIKey(cfg.APIKey),
 		openaiopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(transport)),
 	}
+	for _, k := range slices.Sorted(maps.Keys(cfg.Headers)) {
+		openaiOpts = append(openaiOpts, openaiopt.WithHeader(k, cfg.Headers[k]))
+	}
 	if cfg.APIKey == "" {
 		openaiOpts = append(openaiOpts, openaiopt.WithHeaderDel("Authorization"))
 	}
@@ -120,6 +129,9 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 			anthropicopt.WithBaseURL(root),
 			anthropicopt.WithAPIKey(cfg.APIKey),
 			anthropicopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(transport)),
+		}
+		for _, k := range slices.Sorted(maps.Keys(cfg.Headers)) {
+			anthropicOpts = append(anthropicOpts, anthropicopt.WithHeader(k, cfg.Headers[k]))
 		}
 		if cfg.APIKey == "" {
 			// The SDK refuses a request without a credential. A placeholder passes
@@ -400,4 +412,12 @@ func forward[E, R any](s stream[E], event func(E) R, fail func(error) R) <-chan 
 func dropAPIKey(req *http.Request, next anthropicopt.MiddlewareNext) (*http.Response, error) {
 	req.Header.Del("X-Api-Key")
 	return next(req)
+}
+
+// addHeaders adds the configured headers to a hand-built request. The
+// credential is set after, and a reserved name never reaches here.
+func (c *Connector) addHeaders(h http.Header) {
+	for k, v := range c.headers {
+		h.Set(k, v)
+	}
 }

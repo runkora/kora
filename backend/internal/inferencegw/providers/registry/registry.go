@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/inferencegw"
@@ -147,11 +148,48 @@ func buildCompatible(ctx context.Context, c *ip.Compatible, info *inferencegw.Pr
 		}
 		cfg.APIKey = key
 	}
+	headers, err := resolveHeaders(ctx, c.Headers, secret)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Headers = headers
 	conn, err := compatible.New(cfg, info.Name, logger)
 	if err != nil {
 		return nil, buildErr(reasonInvalidSpec, "%s", err.Error())
 	}
 	return conn, nil
+}
+
+// resolveHeaders reads each header's value, inline or from its Secret key.
+// Errors name the header, Secret and key, never a value. A reserved name is
+// rejected here as well as by the CRD, which is not always enforced.
+func resolveHeaders(ctx context.Context, headers []ip.Header, secret secretReader) (map[string]string, error) {
+	if len(headers) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(headers))
+	for _, h := range headers {
+		name := strings.ToLower(h.Name)
+		if slices.Contains(ip.ReservedHeaders, name) {
+			return nil, buildErr(reasonInvalidSpec, "header %q is reserved and cannot be set", h.Name)
+		}
+		if _, dup := out[name]; dup {
+			return nil, buildErr(reasonInvalidSpec, "header %q is set twice", h.Name)
+		}
+		switch {
+		case h.Value != nil && h.ValueFrom == nil:
+			out[name] = *h.Value
+		case h.ValueFrom != nil && h.Value == nil:
+			v, err := secret(ctx, h.ValueFrom.Name, h.ValueFrom.Key)
+			if err != nil {
+				return nil, err
+			}
+			out[name] = v
+		default:
+			return nil, buildErr(reasonInvalidSpec, "header %q needs exactly one of value and valueFrom", h.Name)
+		}
+	}
+	return out, nil
 }
 
 // readBedrockKeys reads a static key pair and an optional session token.

@@ -244,3 +244,76 @@ func TestStreamsRelayEveryEvent(t *testing.T) {
 		t.Errorf("chat over messages streamed %q", text.String())
 	}
 }
+
+func TestConfiguredHeadersReachEveryRequest(t *testing.T) {
+	var mu sync.Mutex
+	seen := map[string]http.Header{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen[r.URL.Path] = r.Header.Clone()
+		mu.Unlock()
+		switch r.URL.Path {
+		case "/v1/chat/completions":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, chatCompletion)
+		case "/v1/messages":
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, messageStream)
+		case "/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"data":[{"id":"m","object":"model"}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	cfg := Config{
+		BaseURL: srv.URL + "/v1", APIKey: "sk-test",
+		APIs:    []ip.API{ip.APIChatCompletions, ip.APIMessages, ip.APIEmbeddings, ip.APISystemOne},
+		Headers: map[string]string{"x-org": "acme", "anthropic-beta": "tools-1"},
+	}
+	c, err := New(cfg, "compatible:router", logging.NewLoggerWithOutput(io.Discard))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := c.ChatCompletion(ctx, chatParams()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.AnthropicMessages(ctx, messageParams()); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = c.Embeddings(ctx, openai.EmbeddingNewParams{Model: "e"}) // the stand-in has no embeddings route
+	if _, err := c.ListModels(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The hand-built systemone request.
+	h := http.Header{}
+	c.addHeaders(h)
+	if h.Get("X-Org") != "acme" {
+		t.Errorf("systemone headers = %v", h)
+	}
+	for _, path := range []string{"/v1/chat/completions", "/v1/messages", "/v1/embeddings", "/v1/models"} {
+		got, ok := seen[path]
+		if !ok {
+			t.Errorf("%s: no request", path)
+			continue
+		}
+		if got.Get("X-Org") != "acme" || got.Get("Anthropic-Beta") != "tools-1" {
+			t.Errorf("%s: headers = %v", path, got)
+		}
+	}
+	if seen["/v1/chat/completions"].Get("Authorization") != "Bearer sk-test" || seen["/v1/messages"].Get("X-Api-Key") != "sk-test" {
+		t.Error("configured headers displaced the credential")
+	}
+}
+
+func TestNoHeadersSendsNoExtras(t *testing.T) {
+	c, up := setup(t, "k", ip.APIChatCompletions)
+	if len(c.headers) != 0 {
+		t.Fatalf("headers = %v", c.headers)
+	}
+	if _, err := c.ChatCompletion(context.Background(), chatParams()); err != nil || len(up.seen) != 1 {
+		t.Fatalf("chat = %v", err)
+	}
+}

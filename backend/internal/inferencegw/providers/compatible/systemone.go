@@ -60,6 +60,7 @@ func (c *Connector) SystemOne(ctx context.Context, req inferencegw.SystemOneRequ
 	header := http.Header{}
 	header.Set("Content-Type", "application/json")
 	header.Set("Accept", "application/json")
+	c.addHeaders(header)
 	if c.apiKey != "" {
 		header.Set("Authorization", "Bearer "+c.apiKey)
 	}
