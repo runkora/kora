@@ -24,7 +24,7 @@ Each run has at most one sandbox at a time. The sandbox is ephemeral and is dele
 
 ## Environments
 
-Environments are the composable definition that the platform uses to expose sandboxes to agents. When [creating an agent](../guides/create-an-agent.md), you can attach one or more environments to the `agent-type`, this allows the agent to choose the appropriate environment for its task. An agent with no attached environment provisions a sandbox using the `kora-base` at the default size.
+Environments are the composable definition that the platform uses to expose sandboxes to agents. When [creating an agent](../guides/create-an-agent.md), one or more environments can be attached to the `agent-type`, which allows the agent to choose the appropriate environment for its task. An agent with no attached environment provisions a sandbox using the `kora-base` at the default size.
 
 ## Sandbox images
 
@@ -39,7 +39,7 @@ runkora provides four sandbox images out of the box:
 | `kora-node` | `kora-base` plus Node LTS and pnpm |
 | `kora-python` | `kora-base` plus ruff and pytest |
 
-Custom sandbox images are useful when teams want to pre-install dependencies, toolchains and bundle together a `devcontainer` like experience for their agents to use in runs. This can significantly reduce the build and test time of coding agents operating on a repository, and can be useful for packaging your own tools for an agent to use in its sandbox. A custom sandbox must be built on the `kora-sandbox-base`, which is validated by the kora operator.
+Custom sandbox images are useful when teams want to pre-install dependencies, toolchains and bundle together a `devcontainer` like experience for their agents to use in runs. This can significantly reduce the build and test time of coding agents operating on a repository, and can be useful for packaging a team's own tools for an agent to use in its sandbox. A custom sandbox must be built on the `kora-sandbox-base`, which is validated by the kora operator.
 
 When registering an image, the platform team can mark it as `warm`, which pre-pulls the image onto every sandbox node so new sandboxes start without waiting for an image download. Paired with autoscaling and capacity warming, a low-priority placeholder holds a fresh node open with the image cached. A new sandbox can be provisioned on this node immediately.
 

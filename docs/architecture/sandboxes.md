@@ -21,7 +21,7 @@ Commands reach the sandbox over gRPC:
 
 ## Placement
 
-A sandbox shares its workspace volume with its agent runtime pod. kora has two placement modes that decide whether sandboxes scale with your agent runtime pods or independently of them.
+A sandbox shares its workspace volume with its agent runtime pod. kora has two placement modes that decide whether sandboxes scale with their agent runtime pods or independently of them.
 
 Co-located schedules each sandbox onto the node of its agent runtime pod. Separate pool runs sandboxes on their own node pool. Either mode can add the sandbox mount for faster builds on local disk.
 
@@ -68,17 +68,19 @@ A cold sandbox waits for its image to pull and, in a pool that scales to zero, f
 
 Image warming keeps a sandbox image pulled on every sandbox node. Setting `warm` on a `SandboxImage`, or `agents.sandboxImages.warmBase` for `kora-base`, runs a DaemonSet that pulls the image.
 
-Capacity warming holds sandbox nodes open. With `agents.sandboxWarming.mode: capacity`, kora runs placeholder pods at priority -10. Placeholders reserve a default-size sandbox. Setting `agents.sandboxWarming.resources` to a larger reservation allows you to warm nodes for environments that exceed the default. A new sandbox can preempt a placeholder and start straight away. The evicted placeholder goes pending, and the cluster autoscaler then boots a new node ready for the next sandbox. `agents.sandboxWarming.replicas` sets how many warm nodes you require as headroom.
+Capacity warming holds sandbox nodes open. With `agents.sandboxWarming.mode: capacity`, kora runs placeholder pods at priority -10. Placeholders reserve a default-size sandbox. Setting `agents.sandboxWarming.resources` to a larger reservation allows warming nodes for environments that exceed the default. A new sandbox can preempt a placeholder and start straight away. The evicted placeholder goes pending, and the cluster autoscaler then boots a new node ready for the next sandbox. `agents.sandboxWarming.replicas` sets how many warm nodes are held as headroom.
 
 ## When a sandbox dies
 
 If a sandbox dies mid-run, the agent's next command fails to reach it and `kora-shell` asks the session-manager for a new one. The session-manager provisions a new sandbox through `kora-agents` within these limits:
 
-| Limit | Default |
-| --- | --- |
-| Attempts | 3 |
-| Wait for each sandbox to start | 90 seconds |
-| Total time across attempts | 300 seconds |
+| Limit | Setting | Default |
+| --- | --- | --- |
+| Attempts | `agents.guardrails.sandboxProvisionAttempts` | 3 |
+| Wait before the second attempt, doubling for each attempt after | `agents.guardrails.sandboxProvisionBackoffSecs` | 5 seconds |
+| Total time across attempts, at most 600 | `agents.guardrails.sandboxProvisionBudgetSecs` | 600 seconds |
+
+Each attempt waits for its sandbox pod for its share of the total time, less the waits between attempts and a 5 second margin. With the defaults that is 190 seconds.
 
 Everything in the lost sandbox is gone, including installed tools, build caches and, with the sandbox mount, its working folder. The new sandbox starts fresh.
 

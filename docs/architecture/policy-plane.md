@@ -12,7 +12,7 @@ A grant attaches scopes to a principal, a role maps an OIDC role to scopes, and 
 
 ## Distribution
 
-Enforcement points pull bundles from policy-service on a 30 to 60 second poll. Nothing is pushed. A policy change takes effect within one poll interval.
+Enforcement points pull bundles from policy-service on a poll of 30 to 60 seconds by default (`operator.injection.opa.bundlePolling`). Nothing is pushed. A policy change takes effect within one poll interval.
 
 ## Enforcement
 

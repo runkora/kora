@@ -8,7 +8,7 @@ runkora reads secrets from environment variables at runtime.
 
 ## Local Development
 
-`make setup` generates a machine-local `.env` at the repository root. It is gitignored and never committed. It holds only `DB_PASSWORD`, `REDIS_PASSWORD` and `BFF_SESSION_SECRET`. The Postgres and Redis passwords are fixed local defaults; `BFF_SESSION_SECRET` is generated with `openssl rand`. Nothing needs editing before the platform runs.
+`make setup` generates a machine-local `.env` at the repository root. It is gitignored and never committed. It holds only `DB_PASSWORD`, `REDIS_PASSWORD`, `BFF_SESSION_SECRET` and `KORA_TRIGGERS_ENCRYPTION_KEY`. The Postgres and Redis passwords are fixed local defaults; the other two are generated with `openssl rand`. Nothing needs editing before the platform runs.
 
 Everything with a safe default lives elsewhere: compose settings in `docker-compose.yml`, in-cluster settings in `deploy/reference/environments/local.yaml`. `.env.example` is not a template to copy; it documents the optional overrides (Bedrock, port collisions).
 
@@ -88,13 +88,20 @@ Nothing to generate. The test user is `dev@local.runkora.io` with password `pass
 | `KORA_TOKEN_SIGNING_KEY_FILE` | code fallback | Path to an RSA private key PEM file (mode 600). Checked first by the code. |
 | `KORA_TOKEN_SIGNING_KEY` | `kora-secrets` (local) / secret manager | Inline RSA private key PEM. Local dev generates `secrets/signing.key` with `make gen-signing-key`; `make up` injects it here. |
 
-### OIDC / Federated Identity
+### Webhook Signing Secrets
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `KORA_OIDC_CLIENT_ID` | `.env` / secret manager | OAuth2 client ID. For local Dex: `kora-local`. |
-| `KORA_OIDC_CLIENT_SECRET` | `.env` / secret manager | OAuth2 client secret. Empty for public clients (local Dex is a public client). |
-| `KORA_OIDC_ISSUER_URL` | `.env` / secret manager | Runtime override for the OIDC issuer URL. Not strictly a secret, but can encode tenant IDs. |
+| `KORA_TRIGGERS_ENCRYPTION_KEY` | `.env` (local) / `kora-secrets` / secret manager | At-rest key for webhook signing secrets: base64 of exactly 32 bytes (`openssl rand -base64 32`). kora-triggers refuses to start without it, and there is no in-code fallback. `make up` injects it into `kora-secrets`. |
+
+### OIDC / Federated Identity
+
+OIDC settings are per tenant, in `spec.oidc` of the `KoraTenant`. No `KORA_OIDC_*` variable configures the issuer or client ID.
+
+| Variable or key | Where Set | Description |
+|---|---|---|
+| `KORA_OIDC_CLIENT_SECRET` | `.env` (local) | Dex client secret. `make up` writes it to `kora-secrets` only when it is set. Empty for public clients (local Dex is a public client). |
+| `OIDC_CLIENT_SECRET` | tenant Secret named by `spec.oidc.clientSecretRef` | A confidential tenant's OIDC client secret. The operator aggregates these into `kora-tenant-oidc-secrets`, which the identity service hot-reloads. Omit `clientSecretRef` for a public client. |
 
 ### Dex (Local Dev Only)
 

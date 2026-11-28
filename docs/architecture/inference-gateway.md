@@ -14,7 +14,7 @@ Every request runs the same in-process chain, with no OPA sidecar:
 
 ## Providers
 
-The gateway holds each provider's credentials and speaks its native wire format: Bedrock, Vertex AI, Azure, and any endpoint that speaks the OpenAI or Anthropic APIs, such as OpenRouter. A platform admin registers each provider with an `InferenceProvider` resource in the system namespace. The gateway watches the resources and the Secrets they name, and applies a change without a restart. [Model providers](../guides/register-inference-provider.md) has an example per type.
+The gateway holds each provider's credentials and speaks its native wire format: Bedrock, Vertex AI, Azure, and any endpoint that speaks the OpenAI or Anthropic APIs, such as OpenRouter. A platform admin registers each provider with an `InferenceProvider` resource in the system namespace. The gateway watches the resources and the Secrets they name, and applies a change without a restart. A compatible provider can list up to 20 additional request headers (`spec.compatible.headers`). The gateway sends them on every upstream request to the endpoint, including the model list. Each header takes an inline `value` or a `valueFrom` Secret key. A header cannot replace the credential or one that the HTTP client owns, such as `Authorization`, `x-api-key` or `Content-Type`. [Model providers](../guides/register-inference-provider.md) has an example per type.
 
 ## Usage and cost
 

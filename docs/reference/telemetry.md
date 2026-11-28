@@ -96,6 +96,17 @@ The trace exporter is chosen at startup in priority order: an OTLP endpoint alwa
 - `APP_ENV` is not `local` AND
 - `otlpEndpoint` is empty
 
+## Model Spend Metrics
+
+The inference-gateway exports the tokens and estimated cost of each persisted usage record as Prometheus counters on the service's `/metrics` endpoint. A counter equals the stored `inference_usage` rows. *Reference: See `internal/inferencegw/metrics.go`.*
+
+| Metric | Attributes | Counts |
+| --- | --- | --- |
+| `kora_inference_gateway_tokens_total` | `model`, `type` | Tokens of persisted usage |
+| `kora_inference_gateway_cost_usd_total` | `model` | Estimated cost in USD |
+
+`model` is the resolved provider model as `provider/model`, never the virtual model name. `type` is `input`, `output`, `cache_read` or `cache_write`. Tenant, principal, agent, run and trigger identifiers are not attributes, because the endpoint is unauthenticated. [Monitor kora](../guides/monitor-kora.md) lists the other metrics and how to scrape them.
+
 ## Configuration Best Practices
 
 *   **Development:** The `local` overlay samples every trace and logs in the console format.
