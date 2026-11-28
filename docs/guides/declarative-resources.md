@@ -105,6 +105,17 @@ spec:
 - `mcpTools`: the tools the agent can call on each `MCPServer` in the tenant or system namespace.
 - `identityMode`: fixed once the agent exists. To change it, delete and recreate the `Agent`.
 
+The `metadata.name` is a DNS-1035 label of at most 52 characters, and cannot be `delegated`, `autonomous` or `session-manager-pool`. These optional fields set the rest of the agent:
+
+| Field | Sets |
+| --- | --- |
+| `framework` | The agent framework: `claude-code` (default), `codex` or `opencode`. |
+| `connectivity` | `mode` is `none` (default), `whitelist` or `open`. `hosts` lists the hosts the agent may reach in `whitelist` mode. |
+| `scopes` | Further scopes on the agent's grant. |
+| `maxConcurrentRuns` | The cap on the agent's concurrent runs. Unset takes the install default. |
+| `guardrails` | The loop-guard thresholds `repeatedCallWarn`, `repeatedCallPause`, `waitRearmWarn` and `waitRearmPause`. Each pause must be above its warn. |
+| `budget` | `limitUSD`, `perRunLimitUSD` and `resetCadence` (`weekly` or `monthly`, `monthly` by default). |
+
 The agent's grant comes from its spec. See [Create an agent](create-an-agent.md) for what each setting does.
 
 ## Connect a trigger source

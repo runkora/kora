@@ -1,6 +1,6 @@
 # Register an inference provider
 
-Register each model provider with an `InferenceProvider` resource in the runkora system namespace (`kora-system` by default). The provider's name is `<type>:<metadata.name>`, for example `compatible:openrouter`. Changes to the resource or its Secret apply without a restart.
+In runkora, you register each model provider with an `InferenceProvider` resource in the runkora system namespace (`kora-system` by default). The provider's name is `<type>:<metadata.name>`, for example `compatible:openrouter`. Changes to the resource or its Secret apply without a restart.
 
 Store credentials in a Secret in the same namespace. Label it `runkora.io/inference-provider=true` and reference it from the resource.
 
@@ -91,8 +91,8 @@ spec:
 - `name`: the header name.
 - `value`: an inline value. Use it for values that are not sensitive.
 - `valueFrom`: a key of a Secret labelled `runkora.io/inference-provider=true`. Set exactly one of `value` and `valueFrom`. The gateway reloads the headers when the Secret changes.
-- At most 20 headers. A header can replace an SDK default such as `anthropic-version`.
-- These names are rejected, in any case, and the provider is `Invalid`: `authorization`, `x-api-key`, `proxy-authorization`, `host`, `content-length`, `content-type`, `accept`, `transfer-encoding` and `connection`. Credentials come from `apiKeySecretRef`.
+- At most 20 headers. A name is an HTTP token, and a name repeated in any case makes the provider `Invalid`. A header can replace an SDK default such as `anthropic-version`.
+- The cluster refuses these names, in any case. A provider that reaches the gateway with one anyway is `Invalid`: `authorization`, `x-api-key`, `proxy-authorization`, `host`, `content-length`, `content-type`, `accept`, `transfer-encoding` and `connection`. Credentials come from `apiKeySecretRef`.
 - Header values never appear in the provider status or events.
 - Only `compatible` providers take `headers`.
 
@@ -271,7 +271,7 @@ curl -s https://<gateway>/v1/systemone \
 ```
 
 - The route does not stream, and the request body limit is 10 MB.
-- Each attempt times out after 15 seconds. A caller may set `X-Kora-Decision-Timeout` in whole seconds, up to `inferenceGateway.maxDecisionTimeoutSecs` (60 by default). A value that is not a positive whole number returns 400. A timeout, a 429 or a 5xx from the endpoint fails over to the next route in the virtual model.
+- Each attempt times out after 15 seconds. A caller may set `X-Kora-Decision-Timeout` in whole seconds, up to `inferenceGateway.maxDecisionTimeoutSecs` (60 by default). A value below 15 acts as 15. A value that is not a positive whole number returns 400. A timeout, a 429 or a 5xx from the endpoint fails over to the next route in the virtual model.
 - A successful response carries the usage row's ID in `X-Kora-Usage-Id` and its estimated cost in `X-Kora-Cost-USD`. `X-Kora-Cost-USD` is absent when the model has no price.
 - An endpoint 400 or 422 returns with the endpoint's message. An endpoint 401 or 403 returns 503 `provider_error`.
 - Errors use the gateway's envelope (`code`, `message`).
@@ -297,13 +297,13 @@ The cluster rejects a resource outside `kora-system` or without the block for it
 
 Provider health shows the model count, the last discovery and any upstream error. It appears in:
 
-- the dashboard: Catalog, Providers
+- the dashboard: **Catalog**, **Providers**
 - the API: `GET /v1/catalog/providers`
 - the kora MCP tool: `models.providers.status`
 
 ## Offer a model to agents
 
-1. Find the model under Provider Catalog.
+1. Find the model under **Provider Catalog**.
 2. Create a virtual model routed to it, on the Catalog page or with `models.virtual.create`.
 3. Grant `inference:<family>:<name>:use`.
 

@@ -19,7 +19,7 @@ A [delegated agent](../concepts/identity.md#delegated-agents) spends the budget 
 
 Choose **Set cap** on the Tenant Cap card, or the edit button on a role or grant. Turn on the spend limit, enter an amount and choose **Weekly** or **Monthly**. A role budget can be a **Shared pool**, one limit for all members together. A grant budget can also set a **Per-run limit** for each run started on that person's behalf.
 
-Budget changes reach the inference gateway within about 30 seconds.
+Budget limits reach the inference gateway in the tenant policy bundle, which the gateway polls every 30 seconds by default. A change takes effect within one poll interval.
 
 ## When a budget runs out
 
@@ -33,10 +33,12 @@ Budget changes reach the inference gateway within about 30 seconds.
 
 Raising a limit lifts the block once the change reaches the gateway.
 
+Tenant caps and grant budgets also record events on the **Events** page. `inference.budget.threshold_crossed.v1` records once per budget period at 50%, 80% and 100% of the limit. `inference.budget.exceeded.v1` records when a call is refused. Shared pools and run limits record no event.
+
 ## See spend
 
 - **Budgets** → **Principals** shows each person and agent's spend this month against their effective limit, and marks those near their limit at 80% or blocked.
 - **My Usage** shows your own spend against every budget that applies to you.
 - The **Agents** page shows spend by agent and by model, and which agents are closest to their budgets.
 
-You can also manage budgets through the API under `/api/v1/policy`, or with the `budgets_tenant_*` and `policy_grants_set_budget` tools in the kora MCP server.
+You can also manage budgets through the API under `/api/v1/policy`, or with the `budgets.tenant.*` and `policy.grants.set_budget` tools in the kora MCP server.
