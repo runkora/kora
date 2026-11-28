@@ -2,7 +2,7 @@
 
 Every platform event has a type of the form `<domain>.<entity>.<event>.v<N>`. The `<domain>.<entity>` prefix is the category, which the **Events** page groups into tabs and the API filters with `category`. See [events](../concepts/events.md) for the concepts and [event spine](../architecture/event-spine.md) for delivery.
 
-The catalog lists 56 types. `GET /v1/events/types` returns the same list, and `GET /v1/events/types/{type}` returns a type's JSON Schema with the field descriptions and the values each field can take. The `events.types` tool in the kora MCP server returns both.
+The catalog lists every type below. `GET /v1/events/types` returns the same list, and `GET /v1/events/types/{type}` returns a type's JSON Schema with the field descriptions and the values each field can take. The `events.types` tool in the kora MCP server returns both.
 
 ## Envelope attributes
 
