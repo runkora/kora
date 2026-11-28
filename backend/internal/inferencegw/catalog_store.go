@@ -38,6 +38,19 @@ func (s *CatalogStore) Load(ctx context.Context) (int, error) {
 	return len(snap.list), nil
 }
 
+// SyncForScopeRegistration refreshes this replica from the shared catalog
+// before it publishes a vocabulary snapshot. A write can reach another gateway
+// replica, so the local cache alone is not authoritative for pruning scopes.
+// This load must not fire the catalog hook: that hook starts registration.
+func (s *CatalogStore) SyncForScopeRegistration(ctx context.Context) error {
+	snap, err := s.repo.LoadSnapshot(ctx)
+	if err != nil {
+		return fmt.Errorf("catalog load for scope registration: %w", err)
+	}
+	s.router.loadVirtualCatalog(snap, false)
+	return nil
+}
+
 // ── Virtual model mutations ───────────────────────────────────────────────────
 
 // CreateVirtualModel persists a new virtual model and refreshes the cache.

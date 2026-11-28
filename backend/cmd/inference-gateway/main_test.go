@@ -65,7 +65,7 @@ func TestInitScopeRegistrationPublishesScopedRoutes(t *testing.T) {
 	withPolicyServiceURL(t, srv.URL)
 
 	router := inferencegw.NewRoutingEngine(nil, nil, nil)
-	register := initScopeRegistration(logging.NewLogger(), testToken, router)
+	register := initScopeRegistration(logging.NewLogger(), testToken, router, func(context.Context) error { return nil })
 
 	if err := register(t.Context()); err != nil {
 		t.Fatalf("register: %v", err)
