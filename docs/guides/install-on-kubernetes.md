@@ -43,7 +43,7 @@ kubectl -n kora-system create secret tls kora-gateway-tls \
 | `REDIS_PASSWORD` | The Redis password |
 | `KORA_TOKEN_SIGNING_KEY` | The RSA private key that signs platform tokens |
 | `KORA_TRIGGERS_ENCRYPTION_KEY` | A base64-encoded 32-byte key that encrypts stored trigger credentials |
-| `BFF_SESSION_SECRET` | At least 32 random characters for the console session |
+| `BFF_SESSION_SECRET` | At least 32 random characters for the dashboard session |
 
 In production, project these Secrets from your secret manager. See [Secrets](../reference/secrets.md).
 

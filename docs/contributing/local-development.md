@@ -45,7 +45,7 @@ make up
 
 Endpoints once it finishes:
 
-- Console: `https://local.runkora.io`
+- Dashboard: `https://local.runkora.io`
 - Backend API: `https://api.local.runkora.io`
 - Grafana: `make grafana`, then `http://localhost:3000`
 
@@ -259,7 +259,7 @@ The cluster runs `kora-mcp` behind the tool gateway. With kora running, point an
 }
 ```
 
-The client runs the MCP OAuth flow and opens the consent screen in your browser. Approve the tools and it connects. Revoke the token from the console's **Connections** page.
+The client runs the MCP OAuth flow and opens the consent screen in your browser. Approve the tools and it connects. Revoke the token from the dashboard's Connections page.
 
 ## Registering a Kubernetes connection
 

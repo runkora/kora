@@ -67,7 +67,7 @@ Sandboxes on a [separate node pool](sandbox-nodes.md) need a `ReadWriteMany` Sto
 
 ## DNS and TLS
 
-Choose a hostname for the console, such as `example.com`, and set it as `frontendHost`. kora serves its APIs on `api.example.com`.
+Choose a hostname for the dashboard, such as `example.com`, and set it as `frontendHost`. kora serves its APIs on `api.example.com`.
 
 Point both names at the Istio gateway. Its Service is a `LoadBalancer` unless you set `ingressGateway.service.type` to `NodePort` or `ClusterIP`. The gateway certificate must be valid for both names. cert-manager or another issuer can provide it.
 

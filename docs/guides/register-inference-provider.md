@@ -297,7 +297,7 @@ The cluster rejects a resource outside `kora-system` or without the block for it
 
 Provider health shows the model count, the last discovery and any upstream error. It appears in:
 
-- the console: Catalog, Providers
+- the dashboard: Catalog, Providers
 - the API: `GET /v1/catalog/providers`
 - the kora MCP tool: `models.providers.status`
 
