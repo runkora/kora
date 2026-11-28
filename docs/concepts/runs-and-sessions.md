@@ -42,6 +42,12 @@ stateDiagram-v2
 
 An `idle` run is healthy. Its session stays alive waiting for the next message until the idle timeout completes the run, after 20 minutes for a run a person started and 5 minutes for a run a trigger started. A person who messages a triggered run moves it onto the 20 minute timeout. A `budget_exhausted` run has not failed, but has used all the budget it was given.
 
+## Cold agents
+
+An agent that has had no run in progress for a while is cold. A cold agent has no pods, and its configuration, identity and run history stay as they are. Its first run after that binds a pod from the tenant's pool of ready pods. The run stays `starting` while this happens, and the run page shows the activity as "Waking the agent". The wake takes a few seconds, and then the run continues as any other.
+
+A cold agent loses the files that finished runs left in its pod's workspace. A run's own work lives in its [sandbox](sandboxes.md), which is separate from the pod. Platform teams set how long an agent idles before it goes cold. See [prepare your cluster](../guides/prepare-your-cluster.md#size-the-agent-pod-pool).
+
 ## Working with a run
 
 | Action | When | Who |
@@ -69,3 +75,4 @@ When a run ends, its [sandbox](sandboxes.md) and anything installed or cached in
 - [Run and session lifecycle](../adr/2026-05-11-run-and-session-lifecycle.md)
 - [Run scheduling](../adr/2026-10-12-run-scheduling.md)
 - [Run sources](../adr/2026-11-07-run-sources.md)
+- [Agent cold tier](../adr/2026-11-22-agent-cold-tier.md)
