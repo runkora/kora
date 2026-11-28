@@ -60,6 +60,10 @@ A run started by a [trigger](../guides/create-a-trigger.md) links back to the ev
 
 Only kora can add links to a run.
 
+## Grades
+
+A run of an agent that has [Graders](graders.md) is graded when it ends, whatever state it ends in. Each Grader gives the run a verdict of `pass`, `fail` or `uncertain`, or a status such as `not_applicable` when it does not apply. A run that has not ended has no grade. The run page shows the grades in its rail, and the agent's Runs tab can filter runs by grade.
+
 ## When a run ends
 
 When a run ends, its [sandbox](sandboxes.md) and anything installed or cached inside it are deleted. If the agent stops unexpectedly, kora marks the run as `failed`.
@@ -69,3 +73,4 @@ When a run ends, its [sandbox](sandboxes.md) and anything installed or cached in
 - [Run and session lifecycle](../adr/2026-05-11-run-and-session-lifecycle.md)
 - [Run scheduling](../adr/2026-10-12-run-scheduling.md)
 - [Run sources](../adr/2026-11-07-run-sources.md)
+- [Graders](../adr/2026-11-19-graders.md)

@@ -9,6 +9,7 @@ Learning about kora.
 - [Runs and sessions](concepts/runs-and-sessions.md): what a run is, how it starts, its states and how to steer it.
 - [Sandboxes](concepts/sandboxes.md): the isolated pods agents provision for compute, and the environments and images behind them.
 - [Identity](concepts/identity.md): agent identity, and the difference between autonomous and delegated agents.
+- [Graders](concepts/graders.md): how kora scores an agent's ended runs against fixed questions, and what the verdicts mean.
 - [Connectivity](concepts/connectivity.md): how agents reach models, MCP servers and external systems without holding credentials.
 
 ## Guides
@@ -23,7 +24,8 @@ Tasks for platform teams running kora.
 - [Register a connection](guides/register-connection.md): give agents access to an external system without holding its credentials.
 - [OAuth clients](guides/oauth-clients.md): configure clients that authenticate users against kora.
 - [Policy and roles](guides/policy-and-roles.md): configure roles, grants and route access.
-- [Declarative resources](guides/declarative-resources.md): define virtual models, environments, agents, triggers and roles as Kubernetes resources in Git.
+- [Create a Grader](guides/create-a-grader.md): score an agent's runs and read the grades.
+- [Declarative resources](guides/declarative-resources.md): define virtual models, environments, agents, triggers, Graders and roles as Kubernetes resources in Git.
 - [Advanced customisations](guides/advanced-customisations.md): patch the Kubernetes resources kora provisions for your agents.
 
 ## Architecture
