@@ -58,6 +58,13 @@ The kora operator has no ServiceMonitor. It serves controller metrics on port 80
 | `kora_inference_gateway_tokens_total` | Tokens of persisted inference usage, by provider model and token type |
 | `kora_inference_gateway_cost_usd_total` | Estimated cost in USD of persisted inference usage, by provider model |
 | `kora_redis_available` | Whether each service can reach Redis |
+| `kora_agents_runs_total` | Runs that reached a terminal state, by state and by whether a person or a trigger started them |
+| `kora_agents_run_duration_seconds` | Time from run creation to its terminal state |
+| `kora_agents_wake_bound_duration_seconds` | Time from the bind of a cold agent's pool pod to its first successful bound check |
+| `kora_agents_wake_first_model_event_duration_seconds` | Time from the start of a cold wake to the run's first model event |
+| `kora_agents_bind_refused_total` | Pool pod binds that the API server refused as forbidden or invalid |
+
+The wake metrics measure cold agents only. When the first model event of a run goes to a different kora-agents replica than the one that started the wake, `kora_agents_wake_first_model_event_duration_seconds` reads that run high. A rising `kora_agents_bind_refused_total` means the API server refused a bind. Check the `kora-agent-bind` and `kora-agents-pod-updates` ValidatingAdmissionPolicies.
 
 Policy decisions are not metrics yet. They are in the logs, traces and the console.
 
@@ -86,6 +93,19 @@ The resources platform teams register report whether kora accepted them:
 | `SandboxImage` | `Valid` is true |
 | `InferenceProvider` | Phase is `Ready` |
 | `Agent`, `Environment`, `PolicyRole`, `Trigger`, `TriggerSource`, `VirtualModel` | `Ready` is true |
+
+## Watch the agent pod pool
+
+List a tenant's pods with `kubectl -n kora-tenant-<tenant> get pods`. Unbound pool pods carry the label `runkora.io/pool`:
+
+```sh
+kubectl -n kora-tenant-<tenant> get pods -l runkora.io/pool=true
+kubectl -n kora-tenant-<tenant> get pods -l app=<slug>
+```
+
+The first command lists the pool. Its count is `agents.pool.size` plus one for each agent that is waiting for a pod. The second lists an agent's bound pods. A cold agent has none. A bound pod that holds a run carries the label `runkora.io/busy=true`.
+
+A run that is waiting on a cold agent shows "Waking the agent" on its page and an `agent_waking` event. A run that stays `pending` while no pool pod turns Ready fails after `agents.scheduling.startBudgetSecs` (default 180) when no agent pod is Ready or coming up. Check the pool Deployment `session-manager-pool` and whether the nodes have room for its pods. Set `agents.scheduling.coldAfterSecs` to change how long an agent waits before it goes cold. See [prepare your cluster](prepare-your-cluster.md#size-the-agent-pod-pool).
 
 ## Watch runs
 

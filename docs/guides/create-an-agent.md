@@ -17,7 +17,15 @@ The [identity model](../concepts/identity.md) you choose here is permanent.
 
 ## Behaviour
 
-Write the system instructions that describe how the agent works, then choose the framework and the model. The framework is the agent harness kora runs: Claude Code, Codex or OpenCode. The model list shows the models your platform team has enabled. kora grants the agent access to the model you pick.
+Write the system instructions that describe how the agent works, then choose the framework and the model. The framework is the agent harness kora runs. kora drives each harness through the Agent Client Protocol (ACP), so the three behave the same way in a run: they stream the same events, accept a message while they work, and use the same sandbox and tools.
+
+| Framework | Description |
+| --- | --- |
+| Claude Code | Anthropic's agentic coding harness. It is the default when an agent is created without a framework. |
+| Codex | OpenAI's coding agent runtime. |
+| OpenCode | Open-source, model-agnostic agent. |
+
+The model list shows the models your platform team has enabled. kora grants the agent access to the model you pick. Changing the framework or the model rolls the agent's pods. Runs in progress finish on the old pods.
 
 ## Tools and access
 
@@ -41,6 +49,10 @@ Every guardrail is optional. Switch on the ones you want kora to enforce.
 | Capacity | Concurrent runs of the agent across all its pods. The service default is 20. |
 | Repeated calls | The same tool call with the same result in a row. kora warns after 4 and pauses the run after 8 unless you set your own. |
 | Wait loops | Waits that make no progress. kora warns after 6 and pauses after 12 unless you set your own. |
+
+## When an agent is idle
+
+An agent that has not run for a while goes cold and holds no pod. Its configuration and run history are kept. Its next run takes a few seconds longer to start while kora wakes the agent, and the run page shows "Waking the agent". Your platform team sets how long an agent waits before it goes cold. Files that a finished run left in the agent's workspace are gone after that. A run's sandbox is not affected.
 
 ## Review and create
 

@@ -53,6 +53,27 @@ If you already run SPIRE:
 - Set `fallback: true` on any `ClusterSPIFFEID` that matches kora's pods, or exclude kora's namespaces from it.
 - Set the SPIRE server's `experimental.cacheReloadInterval: 1s` and `experimental.eventsBasedCache: true`, and the SPIRE agent's `experimental.syncInterval: 1s`. A cold agent then gets its identity about 2s after kora-agents binds a pool pod to it.
 
+## Size the agent pod pool
+
+Each tenant namespace runs a `session-manager-pool` Deployment of unbound session-manager pods. kora-agents binds a pool pod to an agent when the agent has a run and no pod. An agent that has had no run in progress for `agents.scheduling.coldAfterSecs` holds no pod. These `kora` chart values size the pool and the agents' pods:
+
+| Value | Default | What it sets |
+| --- | --- | --- |
+| `agents.pool.size` | `2` | Unbound pods each tenant keeps ready. kora-agents adds one for each agent with a pending run and no bound pod. |
+| `agents.scheduling.minReplicas` | `1` | Pods a warm agent keeps, at least 1. |
+| `agents.scheduling.maxReplicas` | `10` | Pods an agent runs at most. |
+| `agents.scheduling.warmAfterSecs` | `300` | Seconds after an agent's last run before its idle pods shrink to `agents.workloads.sessionManager.warm`. 0 keeps every pod at full size. |
+| `agents.scheduling.coldAfterSecs` | `1800` | Seconds after an agent's last run before kora-agents deletes its pods. A cold agent's next run binds a pool pod. 0 keeps every agent at `agents.scheduling.minReplicas`. |
+| `agents.wakeReserve.enabled` | `true` | Runs the `kora-agent-wake-reserve` DaemonSet, which holds room on each session-manager node for warm pods to grow into. |
+
+`agents.scheduling.coldAfterSecs` is a chart value and not a field on the `Agent` resource. It applies to every agent in every tenant.
+
+A cold wake binds a ready pool pod, so a pool pod must exist when a run arrives. A tenant that starts many agents at once, such as a cron burst, binds one pool pod for each agent. Runs beyond the ready pool pods wait for the Deployment to add pods and for nodes. They fail after `agents.scheduling.startBudgetSecs` (default 180) only when no pod is ready or coming up. Raise `agents.pool.size` for a tenant with regular bursts.
+
+A pool pod starts at the warm requests, `agents.workloads.sessionManager.warm`, and a bind grows it to the full requests of `agents.workloads.sessionManager`. Plan node capacity for the full requests of every bound pod, and for the warm requests of every pool pod and every idle agent's pod. The wake reserve is one full grow on each pinned node. It runs only with `agents.scheduling.warmAfterSecs` above 0 and a node selector or required node affinity under `agents.workloads.sessionManager`.
+
+A node drain or the cluster autoscaler can evict a bound pod that holds no run. The operator's `agent-busy` PodDisruptionBudget protects a pod while a run holds it, so a drain of a node waits for those runs to end. A pod that is deleted drains for up to `agents.scheduling.drainGracePeriodSecs` (default 3600) before it stops.
+
 ## Database and cache
 
 kora supports PostgreSQL 14 and later and Redis 6.2 and later. Both must be reachable from `kora-system`. kora does not provision, back up, patch or replicate either service.
