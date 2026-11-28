@@ -9,7 +9,7 @@ A platform token is a short-lived JWT signed by the identity service. Every serv
 | Claim | Holds |
 | --- | --- |
 | Subject | Who the token belongs to: a person's identity provider subject, an agent's SPIFFE ID, or a trigger's ID |
-| Principal type | `HUMAN`, `AGENT`, `SERVICE` or `PAT` |
+| Principal type | `HUMAN`, `AGENT`, `SERVICE`, `SYSTEM` or `PAT`. `SYSTEM` is a kora service acting for the platform |
 | Tenant | The tenant the principal belongs to |
 | Identity source | How the identity was proven: federated through an identity provider, attested by SPIFFE, or issued by kora |
 | Claims | A person's email and roles from their identity provider, or an agent's SPIFFE ID and, from a sandbox, its run ID |

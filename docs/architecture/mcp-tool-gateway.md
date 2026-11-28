@@ -15,7 +15,7 @@ The proxy evaluates policy locally against OPA bundles polled from policy-servic
 The tool-gateway is one image in two modes.
 
 - **Proxy.** The per-tool PEP and MCP proxy. It authorizes each `tools/call`, serves a filtered `tools/list`, and forwards allowed calls to the backing server.
-- **Publisher.** The build-time role. It introspects each backend (`initialize` plus `tools/list`), upserts the discovered tools to the `mcp_tools` catalog in Postgres, and registers the route and tool scopes with policy-service.
+- **Publisher.** The introspection role. It introspects each backend (`initialize` plus `tools/list`) at start and on each registry reload, and again on a timer for a server that sets `reintrospectIntervalSeconds`. A server that sets none is re-read only on reload. The publisher upserts the discovered tools to the `mcp_tools` catalog in Postgres, and registers the route and tool scopes with policy-service.
 
 ## Backends
 
