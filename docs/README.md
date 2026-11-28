@@ -10,6 +10,7 @@ Learning about kora.
 - [Sandboxes](concepts/sandboxes.md): the isolated pods agents provision for compute, and the environments and images behind them.
 - [Identity](concepts/identity.md): agent identity, and the difference between autonomous and delegated agents.
 - [Connectivity](concepts/connectivity.md): how agents reach models, MCP servers and external systems without holding credentials.
+- [Events](concepts/events.md): the durable record of what happens in a tenant, and how triggers and agents read it.
 
 ## Guides
 
@@ -39,6 +40,10 @@ The [architecture overview](../ARCHITECTURE.md) explains the platform as a whole
 
 - [Identity](architecture/identity.md): human and workload identity, OIDC, SPIFFE exchange, sessions and platform tokens.
 
+### Events
+
+- [Event spine](architecture/event-spine.md): how events are recorded, relayed, streamed to readers and fired on by triggers.
+
 ### Policy
 
 - [Policy](architecture/policy.md): the authorisation model and where policy is enforced.
@@ -55,6 +60,7 @@ The [architecture overview](../ARCHITECTURE.md) explains the platform as a whole
 
 ## Reference
 
+- [Event types](reference/events.md): the event catalog and the attributes every event carries.
 - [Secrets](reference/secrets.md): secret sources, projection and rotation responsibilities.
 - [Telemetry configuration](reference/telemetry.md): the observability settings for logs, traces and exporters.
 
