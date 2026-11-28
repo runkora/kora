@@ -1,6 +1,6 @@
 # Advanced customisations
 
-runkora provisions a fixed set of Kubernetes resources for each agent type. Most teams never change them. When your cluster needs something kora does not set, such as a node pool, a storage class or an image pull secret, you can patch those resources without forking kora.
+In runkora, kora provisions a fixed set of Kubernetes resources for each agent type. Most teams never change them. When your cluster needs something kora does not set, such as a node pool, a storage class or an image pull secret, you can patch those resources without forking kora.
 
 This guide walks through writing a manifest patch, previewing the result and deploying it. It assumes kora is already installed. See [Deploying runkora](deployment.md) for the install.
 
@@ -54,6 +54,7 @@ go run ./cmd/kora-agents -render \
 - `-patch-dir`: directory of `*.yaml` or `*.yml` patch files. Write each `agents.manifestPatches` key as a file named `<key>.yaml` in this directory, holding that key's entry. It mirrors what the Helm chart mounts at `/etc/kora/manifest-patches`.
 - `-agent-slug`: required, the agent type slug to render.
 - `-agent-type-id`: the agent type's ID, for patches that select on the `runkora.io/agent-type` label. Defaults to `render-<slug>`.
+- `-tenant-id`: tenant ID to render for. Defaults to `example`.
 - `-namespace`: tenant namespace to render into. Defaults to `tenant-example`.
 - `-sandbox`: also render a sample sandbox Pod.
 
@@ -71,7 +72,7 @@ If a patch fails to load, `kora-agents` fails to start and the error names the f
 
 ## Migrate from environment variable overrides
 
-Older installs set `KORA_MANIFEST__<Kind>__<name>__<path>` environment variables on the `kora-agents` pod. These are no longer read. `kora-agents` logs a warning at startup for each one it finds. Move each override into a patch under `agents.manifestPatches`, then remove the variable.
+Older installs set `ORBIT_MANIFEST__<Kind>__<name>__<path>` environment variables on the `kora-agents` pod. These are no longer read, and `kora-agents` ignores them without a warning. Move each override into a patch under `agents.manifestPatches`, then remove the variable.
 
 ## References
 

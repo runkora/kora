@@ -61,4 +61,4 @@ An agent can use the hosts and connections of every environment attached to it, 
 
 An environment attached to an agent cannot be deleted. Detach it from every agent first.
 
-Environments can also be managed through the API at `/api/v1/environments` and the `agents_environments_*` tools in the kora MCP server. Sandbox images are registered only as `SandboxImage` resources, with `kubectl` or GitOps.
+Environments can also be managed through the API at `/api/v1/environments` and the `agents.environments.*` tools in the kora MCP server. Sandbox images are registered only as `SandboxImage` resources, with `kubectl` or GitOps.

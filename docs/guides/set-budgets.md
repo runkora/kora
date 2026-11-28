@@ -33,10 +33,12 @@ Budget changes reach the inference gateway within about 30 seconds.
 
 Raising a limit lifts the block once the change reaches the gateway.
 
+Tenant caps and grant budgets also record events on the **Events** page. `inference.budget.threshold_crossed.v1` records once per budget period at 50%, 80% and 100% of the limit. `inference.budget.exceeded.v1` records when a call is refused. Shared pools and run limits record no event.
+
 ## See spend
 
 - **Budgets** → **Principals** shows each person and agent's spend this month against their effective limit, and marks those near their limit at 80% or blocked.
 - **My Usage** shows your own spend against every budget that applies to you.
 - The **Agents** page shows spend by agent and by model, and which agents are closest to their budgets.
 
-You can also manage budgets through the API under `/api/v1/policy`, or with the `budgets_tenant_*` and `policy_grants_set_budget` tools in the kora MCP server.
+You can also manage budgets through the API under `/api/v1/policy`, or with the `budgets.tenant.*` and `policy.grants.set_budget` tools in the kora MCP server.

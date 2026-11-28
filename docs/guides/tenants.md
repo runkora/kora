@@ -1,6 +1,6 @@
 # Tenants
 
-A tenant is runkora's unit of separation. It can be used to represent an organisation, a set of teams or a team. Each tenant comes with its own user, agent and resource separation. This allows for isolated deployments that let federated teams manage their own tenancy. Platform administrators can manage across tenant boundaries, whilst tenant admins will only be able to control their own tenancy.
+In runkora, a tenant is the unit of separation. It can be used to represent an organisation, a set of teams or a team. Each tenant comes with its own user, agent and resource separation. This allows for isolated deployments that let federated teams manage their own tenancy. Platform administrators can manage across tenant boundaries, whilst tenant admins will only be able to control their own tenancy.
 
 You do not have to run more than one. A single tenant is enough when you do not need separation between groups of users or workloads. Run several when you host distinct organisations, or teams that must not reach each other's agents, credentials and data. 
 
@@ -37,8 +37,6 @@ spec:
       namespace: kora-system
     scopes: [openid, profile, email, groups]
     emailDomains: [example.com]
-
-  deleteNamespaceOnRemoval: false
 ```
 
 To adopt an existing namespace you can set it explicitly: `spec.namespace`. kora derives `kora-tenant-<name>` if you omit this field. The namespace cannot change once the tenant exists. The operator refuses the system namespace and a namespace another tenant already uses, and holds such a tenant at `Degraded`.
@@ -53,14 +51,14 @@ kubectl create secret generic kora-example-oidc \
   --from-literal=OIDC_CLIENT_SECRET='<oidc client secret>'
 ```
 
-An `KoraTenant` is a declarative resource, applied the way you manage the rest of your cluster. Commit it to your GitOps repository, or `kubectl apply` it for a quick start. To inspect its status:
+A `KoraTenant` is a declarative resource, applied the way you manage the rest of your cluster. Commit it to your GitOps repository, or `kubectl apply` it for a quick start. To inspect its status:
 
 ```bash
 kubectl get koratenant example -w
 kubectl get namespace kora-tenant-example
 ```
 
-Set `deleteNamespaceOnRemoval: true` only when deleting the `KoraTenant` must delete every workload in its namespace.
+The operator labels the tenant's namespace and never deletes it. Deleting the `KoraTenant` leaves the namespace and its workloads in place. Set `active: false` to suspend the tenant without deleting any cluster resource.
 
 Set `spec.events.retentionDays` to keep the tenant's events for that many days. A tenant that does not set it uses the chart value `koraEvents.retention.defaultDays` (30 by default).
 
