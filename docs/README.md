@@ -23,6 +23,8 @@ Tasks for platform teams running kora.
 - [Register a connection](guides/register-connection.md): give agents access to an external system without holding its credentials.
 - [OAuth clients](guides/oauth-clients.md): configure clients that authenticate users against kora.
 - [Policy and roles](guides/policy-and-roles.md): configure roles, grants and route access.
+- [Start a run from chat](guides/start-a-run-from-chat.md): write a task, choose an agent and work with the run on one page.
+- [Find and read runs](guides/find-and-read-runs.md): filter the Runs tab and read what a run did, who steered it and what it cost.
 - [Declarative resources](guides/declarative-resources.md): define virtual models, environments, agents, triggers and roles as Kubernetes resources in Git.
 - [Advanced customisations](guides/advanced-customisations.md): patch the Kubernetes resources kora provisions for your agents.
 

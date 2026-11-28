@@ -2,7 +2,7 @@
 
 In runkora, a run is a single unit of work performed by an agent. Runs are durable and work in the background. A run can take minutes or hours, preserves its history as a durable log and can be observed by anyone with access while it completes its task. A session is the live agent working on a run. The session only exists while the agent is running, and everything it does is recorded against the run.
 
-Agent runs in kora are started by triggers, from events like a pull request, an alert or a schedule, and can also be started through the API or manually by a user. A new run waits as `pending` until its agent has capacity, then moves through `starting` to `active` once its session is running. Agent runs can queue behind active sessions whilst capacity is freed, with configurable defaults for platform teams to customise this behaviour.
+Agent runs in kora are started by triggers, from events like a pull request, an alert or a schedule, and can also be started through the API or by a person from the console's chat page. A new run waits as `pending` until its agent has capacity, then moves through `starting` to `active` once its session is running. Agent runs can queue behind active sessions whilst capacity is freed, with configurable defaults for platform teams to customise this behaviour.
 
 Every run is completed by an agent harness, such as Claude Code, Codex, or OpenCode. kora starts the run with the agent's model, tools, environments and identity, orchestrating the agent harness for the lifetime of the session.
 
@@ -18,6 +18,8 @@ stateDiagram-v2
     idle --> active
     idle --> completed
     active --> completed
+    active --> completing
+    completing --> completed
     pending --> failed
     starting --> failed
     active --> failed
@@ -35,12 +37,21 @@ stateDiagram-v2
 | `starting` | Starting its session | `active`, `failed` if it never finishes starting, or `terminated` |
 | `active` | The agent is working | `idle` when the agent finishes its turn, `completed` when it exits cleanly, `failed` on an error, `budget_exhausted`, or `terminated` |
 | `idle` | The agent is waiting for the next message | `active` on a new message, `completed` after the idle timeout, `failed` if the agent exits unexpectedly, or `terminated` |
+| `completing` | The agent exited cleanly and kora is saving the session | `completed` |
 | `completed` | The run ended cleanly | |
 | `failed` | The run hit an error it could not recover from | |
 | `budget_exhausted` | The run reached its budget limit | |
 | `terminated` | A person or the platform terminated the run before it ended | |
 
 An `idle` run is healthy. Its session stays alive waiting for the next message until the idle timeout completes the run, after 20 minutes for a run a person started and 5 minutes for a run a trigger started. A person who messages a triggered run moves it onto the 20 minute timeout. A `budget_exhausted` run has not failed, but has used all the budget it was given.
+
+## Starting a run from the console
+
+A person starts a run from the chat page by writing a task and choosing an agent. The task becomes the run's first message, and the chat page becomes the run's page. The picker offers every active agent, and marks the ones the person cannot start. The page cannot set a repository, a branch or a model, which come from the agent. See [Start a run from chat](../guides/start-a-run-from-chat.md).
+
+## Finding and reading runs
+
+The Runs tab lists every run a person can see, newest first, and updates live. It filters by state, starter, agent and source, where the source is the kind of trigger that started the run. A run opens as a page that shows what started it, its messages with their senders, its state, its spend and its links. See [Find and read runs](../guides/find-and-read-runs.md).
 
 ## Working with a run
 
