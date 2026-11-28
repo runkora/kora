@@ -19,7 +19,7 @@ A [delegated agent](../concepts/identity.md#delegated-agents) spends the budget 
 
 Choose **Set cap** on the Tenant Cap card, or the edit button on a role or grant. Turn on the spend limit, enter an amount and choose **Weekly** or **Monthly**. A role budget can be a **Shared pool**, one limit for all members together. A grant budget can also set a **Per-run limit** for each run started on that person's behalf.
 
-Budget changes reach the inference gateway within about 30 seconds.
+Budget limits reach the inference gateway in the tenant policy bundle, which the gateway polls every 30 seconds by default. A change takes effect within one poll interval.
 
 ## When a budget runs out
 
