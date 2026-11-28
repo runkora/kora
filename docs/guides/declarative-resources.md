@@ -233,7 +233,7 @@ spec:
 
 A question's `type` is `boolean`, `choice` or `scale`. A `boolean` sets `expect`. A `choice` lists `options` and a `scale` lists `levels`, lowest first. Both set `accept`, and can set `skipOn` for answers that mean the question has no subject on the run. A `scale` needs a `skipOn` level. kora adds a `none` option to every `choice`. `threshold` sets the pass and fail band, 0.7 and 0.3 by default, and a question can set its own. `minPassRate` is optional.
 
-A run passes when every question that is not skipped passes. The Grader passes when its last 30 graded runs pass at `minPassRate` or above. A Grader with `minPassRate` and under 15 graded runs reads "not enough runs". A Grader without `minPassRate` reads "no minimum" at any count. A change to `model`, `threshold`, `appliesWhen` or `questions` is a new version, and regrades the last 30 graded runs. A Grader grades runs that end after it is applied.
+A run's verdict is the worst verdict of its questions: `fail` beats `uncertain`, and `uncertain` beats `pass`. The Grader passes when its last 30 graded runs pass at `minPassRate` or above. A Grader with `minPassRate` and under 15 graded runs reads "not enough runs". A Grader without `minPassRate` reads "no minimum" at any count. A change to `model`, `threshold`, `appliesWhen` or `questions` is a new version, and regrades the last 30 graded runs. A Grader grades runs that end after it is applied. See [Graders](../concepts/graders.md) for how verdicts work and [Create a Grader](create-a-grader.md) for a walkthrough.
 
 Anyone who can read an agent's runs can read its grades. A delegated agent's Graders also need `agents:delegated:read`. Their counts include runs other people started. kora-agents serves the grades:
 

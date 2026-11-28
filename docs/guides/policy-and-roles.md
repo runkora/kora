@@ -69,6 +69,8 @@ Each agent publishes its own scopes under its slug:
 *   `agents:runs:<slug>:write` starts, messages, interrupts, and terminates the agent's runs.
 *   `agents:usage:<slug>:read` shows the agent's spend and usage.
 
+The grades and Graders of an agent follow `agents:runs:<slug>:read`. Graders have no scope of their own. A [Grader](../concepts/graders.md) of a delegated agent also needs `agents:delegated:read`.
+
 The tenant-wide parents `agents:types:read`, `agents:runs:read`, `agents:runs:write`, and `agents:usage:read` cover these for every agent. Lists return only the agents and runs the caller may read.
 
 These rules apply without a per-agent scope:
