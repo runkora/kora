@@ -181,7 +181,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// Wire scope registration: once now (after catalog load), and again on
 	// every LoadVirtualCatalog call triggered by admin catalog writes.
 	selfToken := identityclient.NewClient(igc.Current.Identity.InternalURL, logger).SelfTokenSource()
-	register := initScopeRegistration(logger, selfToken, router)
+	register := initScopeRegistration(logger, selfToken, router, catalog.SyncForScopeRegistration)
 
 	pricingSyncWorker := inferencegw.NewPricingSyncWorker(
 		inferencegw.NewLiteLLMPricingSource(igc.Current.Pricing.SourceURL),
@@ -220,10 +220,13 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 // re-synced whenever GET /v1/models refreshes the catalog, and returns the
 // register function; the caller hands it to routescopes.KeepRegistered, which
 // owns the initial registration and the periodic self-heal loop.
-func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSource, router *inferencegw.RoutingEngine) func(context.Context) error {
+func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSource, router *inferencegw.RoutingEngine, syncCatalog func(context.Context) error) func(context.Context) error {
 	client := routescopes.NewClient(igc.Current.Policy.PolicyServiceURL, selfToken, logger)
 
 	register := func(registerCtx context.Context) error {
+		if err := syncCatalog(registerCtx); err != nil {
+			return fmt.Errorf("sync catalog before scope registration: %w", err)
+		}
 		catalogScopes := router.CatalogScopes()
 		scopeDecls := inferenceScopes(catalogScopes)
 		if err := client.Register(registerCtx, "inference-gateway", inferenceRoutes(), scopeDecls); err != nil {

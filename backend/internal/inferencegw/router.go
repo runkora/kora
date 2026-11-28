@@ -169,7 +169,16 @@ func (r *RoutingEngine) Connector(p ProviderName) (ProviderConnector, bool) {
 // LoadVirtualCatalog atomically replaces the in-memory catalog snapshot and
 // fires the catalog update hook. Called at startup and after every admin write.
 func (r *RoutingEngine) LoadVirtualCatalog(snap *virtualCatalogSnapshot) {
+	r.loadVirtualCatalog(snap, true)
+}
+
+// loadVirtualCatalog can refresh a replica from the shared database without
+// triggering another scope registration from the registration itself.
+func (r *RoutingEngine) loadVirtualCatalog(snap *virtualCatalogSnapshot, notify bool) {
 	r.virtualCatalog.Store(snap)
+	if !notify {
+		return
+	}
 	if fn := r.onCatalogUpdate.Load(); fn != nil && *fn != nil {
 		go (*fn)(r.CatalogScopes())
 	}
