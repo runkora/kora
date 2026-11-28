@@ -1,6 +1,6 @@
 # Pod labels and annotations for agents
 
-In runkora, each agent runs as an agent runtime pod, and each run can start a sandbox pod, and you can add your own labels and annotations to these pods for cost allocation, network policies or admission controllers that select pods by them.
+In runkora, each agent runs as an agent runtime pod, and each run can start a sandbox pod. Add your own labels and annotations to these pods for cost allocation, network policies or admission controllers that select pods by them.
 
 The following guide assumes runkora is already installed. See [Install runkora on Kubernetes](install-on-kubernetes.md) for the install.
 

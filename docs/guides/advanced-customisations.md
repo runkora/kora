@@ -1,6 +1,6 @@
 # Advanced customisations
 
-In runkora, kora provisions a fixed set of Kubernetes resources for each agent type. Most teams never change them. When your cluster needs something kora does not set, such as a node pool, a storage class or an image pull secret, you can patch those resources without forking kora.
+In runkora, a fixed set of Kubernetes resources is provisioned for each agent type. Most teams never change them. When your cluster needs something kora does not set, such as a node pool, a storage class or an image pull secret, you can patch those resources without forking kora.
 
 This guide walks through writing a manifest patch, previewing the result and deploying it. It assumes kora is already installed. See [Deploying runkora](deployment.md) for the install.
 
