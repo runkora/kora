@@ -10,7 +10,7 @@ Edge OPA at the Istio ingress gateway authorizes north-south requests. In tenant
 
 ## Control plane and tenant workloads
 
-- **Control plane (`kora-system`).** The governing services own identity, policy, agent run lifecycle, and triggers. The operator reconciles the tenant and platform CRDs.
+- **Control plane (`kora-system`).** The governing services own identity, policy, agent run lifecycle, triggers and the event log. `kora-events` records platform events and streams them to the console and to `kora-triggers`. See [event spine](event-spine.md). The operator reconciles the tenant and platform CRDs.
 - **Tenant workloads.** The agent runtime pod and its per-run sandbox run in a tenant namespace. These workloads hold no credentials and reach the control plane over the mesh. See [agent execution](agent-execution.md) for pod internals.
 
 ## Egress brokers
@@ -19,9 +19,10 @@ The inference-gateway, egress-gateway, and tool-gateway broker the agent's outbo
 
 ## Substrate
 
-Postgres holds durable state, Redis backs queues and caching, SPIRE issues the workload identity behind mesh mTLS, and the Istio mesh carries service-to-service traffic.
+Postgres holds durable state, including the event outbox and the event log, Redis backs queues and caching, SPIRE issues the workload identity behind mesh mTLS, and the Istio mesh carries service-to-service traffic.
 
 ## See also
 
 - [Identity](identity.md), [Policy](policy.md), [Connectivity](connectivity.md)
 - [Agent execution](agent-execution.md)
+- [Event spine](event-spine.md)

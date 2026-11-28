@@ -21,6 +21,16 @@ The tool-gateway is one image in two modes.
 
 Backends are MCP servers declared as `MCPServer` custom resources. The operator aggregates every `MCPServer` across namespaces into the `servers.json` registry the gateway mounts and hot-reloads. `kora-mcp` is the platform MCP server, registered globally, providing agent access to manage and set up the runkora platform. Each tenant MCP server is declared in the tenant's namespace, and the tool-gateway governs any custom or open source MCP with the same authorisation and scope registration. The proxy reaches an in-cluster backend over streamable-http on the spire-mTLS mesh, and an external one over HTTPS through an operator-rendered ServiceEntry. The caller identity (platform JWT of the user) is forwarded to a backend only when that server opts in for `callerIdentity: forward` and is registered globally. A forwarded token lets the backend act on behalf of the user by impersonation. For a delegated run the run's delegation token is forwarded with it. A server that declares `spec.auth` receives static credential headers instead, read from the operator-rendered `kora-mcp-server-secrets` Secret on every introspection and tool call ([static credentials ADR](../adr/2026-10-22-mcp-server-static-credentials.md)). Every backend receives the run an agent calls from in the `X-Kora-Run-Id` header ([event spine ADR](../adr/2026-11-06-event-spine.md), section 7). The gateway follows no redirects from a backend.
 
+`kora-mcp` reads platform events with three tools, served by `kora-events` for the caller's tenant:
+
+| Tool | What it does |
+| --- | --- |
+| `events.list` | Lists events newest first, with the `category`, `type`, `agent`, `principal`, `run_id`, `before`, `after`, `q`, `cursor` and `limit` filters. Needs `events:read` |
+| `events.get` | Returns one event by id. Needs `events:read` |
+| `events.types` | Lists the event types, or returns one type's schema. Needs no event scope |
+
+See [event spine](event-spine.md).
+
 ## ADRs
 
 [mcp-tool-gateway](../adr/2026-06-29-mcp-tool-gateway.md), [scope-gated-tool-exposure-via-mcp](../adr/2026-03-05-scope-gated-tool-exposure-via-mcp.md).
@@ -28,3 +38,4 @@ Backends are MCP servers declared as `MCPServer` custom resources. The operator 
 ## See also
 
 - [Connectivity](connectivity.md) for the MCP call sequence.
+- [Event spine](event-spine.md) for the event log behind the events tools.
