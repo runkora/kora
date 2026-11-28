@@ -44,6 +44,6 @@ Every guardrail is optional. Switch on the ones you want kora to enforce.
 
 ## Review and create
 
-Review the configuration and choose **Create agent**. kora checks that you hold every scope the agent would hold, then provisions the agent's workload. The agent shows as provisioning until its pod is ready, then becomes active and ready to run. Provisioning takes up to a few minutes.
+Review the configuration and choose **Create agent**. kora checks that you hold every scope the agent would hold, then provisions the agent's resources. The agent becomes active and ready to run once provisioning completes.
 
 You can also create an agent through the API with `POST /api/v1/agent-types`, or with the `agents_create` tool in the kora MCP server.
